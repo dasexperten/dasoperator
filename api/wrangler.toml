@@ -1,0 +1,20 @@
+name = "dasoperator-api"
+main = "src/index.ts"
+compatibility_date = "2024-09-01"
+account_id = "081ddb85cb399ad62a70210328d744fc"
+
+# D1 binding (database ID will be added after creating the database)
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "das_erp_dev"
+# database_id = "TO-BE-FILLED"
+
+# R2 binding (bucket will be created later)
+# [[r2_buckets]]
+# binding = "DOCS"
+# bucket_name = "das-erp-docs-dev"
+
+# KV binding (namespace will be created later)
+# [[kv_namespaces]]
+# binding = "COUNTERS"
+# id = "TO-BE-FILLED"

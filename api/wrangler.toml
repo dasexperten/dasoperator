@@ -3,18 +3,29 @@ main = "src/index.ts"
 compatibility_date = "2024-09-01"
 account_id = "081ddb85cb399ad62a70210328d744fc"
 
-# D1 binding (database ID will be added after creating the database)
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "das_erp_dev"
-# database_id = "TO-BE-FILLED"
+# -----------------------------------------------------------------------------
+# D1 Database binding
+# -----------------------------------------------------------------------------
+# Database: das_erp_dev (East Europe)
+# Created in Phase 1.1 via Cloudflare Dashboard.
+# Workers access this database as env.DB.
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
 
-# R2 binding (bucket will be created later)
+# -----------------------------------------------------------------------------
+# R2 bucket binding (deferred to Phase 1.2)
+# -----------------------------------------------------------------------------
+# Will store CI / PL / contract PDFs and packing photos.
 # [[r2_buckets]]
 # binding = "DOCS"
 # bucket_name = "das-erp-docs-dev"
 
-# KV binding (namespace will be created later)
+# -----------------------------------------------------------------------------
+# KV namespace binding (deferred to Phase 1.2)
+# -----------------------------------------------------------------------------
+# Will hold sequences (DEI-001), FX rates cache, session data.
 # [[kv_namespaces]]
 # binding = "COUNTERS"
 # id = "TO-BE-FILLED"

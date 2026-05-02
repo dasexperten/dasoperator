@@ -1,31 +1,58 @@
+# =============================================================================
+# Das Operator ERP — Workers API configuration
+# =============================================================================
+
 name = "dasoperator-api"
 main = "src/index.ts"
-compatibility_date = "2024-09-01"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
 account_id = "081ddb85cb399ad62a70210328d744fc"
 
 # -----------------------------------------------------------------------------
-# D1 Database binding
+# D1 Database — operational source of truth
+# Phase 1.1: 16 tables created
+# Phase 1.2: 59 reference rows seeded
 # -----------------------------------------------------------------------------
-# Database: das_erp_dev (East Europe)
-# Created in Phase 1.1 via Cloudflare Dashboard.
-# Workers access this database as env.DB.
 [[d1_databases]]
 binding = "DB"
 database_name = "das_erp_dev"
 database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
 
 # -----------------------------------------------------------------------------
-# R2 bucket binding (deferred to Phase 1.2)
+# R2 Bucket — document storage
+# Stores: PDF (CI/PL/contracts), product photos, packing photos, certificates
+# Phase 1.3: bucket created in EEUR region
+# Folder structure inside bucket: /invoices, /packing-lists, /contracts, /photos
 # -----------------------------------------------------------------------------
-# Will store CI / PL / contract PDFs and packing photos.
-# [[r2_buckets]]
-# binding = "DOCS"
-# bucket_name = "das-erp-docs-dev"
+[[r2_buckets]]
+binding = "DOCS"
+bucket_name = "das-erp-docs-dev"
 
 # -----------------------------------------------------------------------------
-# KV namespace binding (deferred to Phase 1.2)
+# KV Namespace — sequences cache
+# Stores: next_number for DEE/DEI/DEASEAN/DEC/CI/PL counters
+# Pattern: KV first, D1 second (write-through cache)
 # -----------------------------------------------------------------------------
-# Will hold sequences (DEI-001), FX rates cache, session data.
-# [[kv_namespaces]]
-# binding = "COUNTERS"
-# id = "TO-BE-FILLED"
+[[kv_namespaces]]
+binding = "COUNTERS"
+id = "c63b6104eb1b43009f2ae65f51333d36"
+
+# -----------------------------------------------------------------------------
+# KV Namespace — daily FX rates
+# Stores: USD/RUB, USD/CNY, USD/EUR, etc. with date as key
+# TTL: 24 hours (refreshed by daily cron)
+# -----------------------------------------------------------------------------
+[[kv_namespaces]]
+binding = "FX"
+id = "47ac2dde6cd041c09597272e422a6c32"
+
+# -----------------------------------------------------------------------------
+# KV Namespace — generic ERP cache
+# Stores: hot lookups (product invoice labels, partner banking refs),
+#         session data when Cloudflare Access integrated
+# TTL: variable per key
+# -----------------------------------------------------------------------------
+[[kv_namespaces]]
+binding = "CACHE"
+id = "43f2004892714cbb919e5174ce2a8556"

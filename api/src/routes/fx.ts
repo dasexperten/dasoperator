@@ -174,7 +174,7 @@ fx.post('/backfill', async (c) => {
       continue;
     }
 
-    const usdEquiv = applyFxToAmount(op.total_amount, rateNano);
+    const usdEquiv = applyFxToAmount(op.total_amount, rateNano, op.currency);
 
     try {
       await c.env.DB.prepare(`

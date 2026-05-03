@@ -243,7 +243,7 @@ operations.post('/', async (c) => {
     totalAmount += lineAmount;
 
     const lineUsdEquiv = fxRateToUsdNano !== null
-      ? applyFxToAmount(lineAmount, fxRateToUsdNano)
+      ? applyFxToAmount(lineAmount, fxRateToUsdNano, data.currency)
       : null;
 
     return {
@@ -263,7 +263,7 @@ operations.post('/', async (c) => {
   });
 
   const totalUsdEquiv = fxRateToUsdNano !== null
-    ? applyFxToAmount(totalAmount, fxRateToUsdNano)
+    ? applyFxToAmount(totalAmount, fxRateToUsdNano, data.currency)
     : null;
 
   // Build batch

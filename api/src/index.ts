@@ -3,22 +3,24 @@ import type { Env } from './types';
 import { errorHandler } from './middleware/error';
 import { requestLogger } from './middleware/logger';
 import healthRoutes from './routes/health';
+import productsRoutes from './routes/products';
+import contactsRoutes from './routes/contacts';
+import pricerRoutes from './routes/pricer';
 import { ok } from './lib/responses';
 
 // =============================================================================
 // Das Operator ERP — Workers API entrypoint
-// Phase 2.0a — foundation only. Skill endpoints land in Phase 2.0b.
+// Phase 2.0a — foundation (types, helpers, middleware, /health)
+// Phase 2.0b — read-only skill endpoints (products, contacts, pricer)
 // =============================================================================
 
 const app = new Hono<{ Bindings: Env }>();
 
-// Middleware chain — order matters
+// Middleware chain
 app.use('*', requestLogger);
-
-// Error handler — catches all unhandled throws and maps to ApiResponse
 app.onError(errorHandler);
 
-// 404 handler — unified shape for unknown routes
+// 404 handler
 app.notFound((c) => {
   return c.json(
     {
@@ -32,7 +34,10 @@ app.notFound((c) => {
 });
 
 // Routes
-app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '0.2.0', phase: '2.0a' }));
+app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '0.3.0', phase: '2.0b' }));
 app.route('/health', healthRoutes);
+app.route('/api/products', productsRoutes);
+app.route('/api/contacts', contactsRoutes);
+app.route('/api/pricer', pricerRoutes);
 
 export default app;

@@ -31,7 +31,9 @@ export async function apiPost<T = unknown>(
   return res.json();
 }
 
-// Specific endpoints with typed responses
+// =============================================================================
+// Health
+// =============================================================================
 
 // Discriminated union — consumers narrow on `status` to access the right field.
 export type HealthBindingStatus =
@@ -54,18 +56,46 @@ export async function getHealth() {
   return apiGet<HealthResponse>('/health');
 }
 
+// =============================================================================
+// Products
+// =============================================================================
+
+export interface Product {
+  id: string;
+  product_name: string;
+  invoice_label: string;
+  category: 'Toothpaste' | 'Toothbrush' | 'Floss' | 'Other';
+  barcode?: string | null;
+  weight_kg?: number | null;
+  volume_m3_micro?: number | null;
+  manufacturer_id: string;
+  manufacturer_name?: string | null;
+  manufacturer_country?: string | null;
+  notes?: string | null;
+}
+
 export interface ProductsLookupResponse {
   count: number;
-  products: Array<{
-    id: string;
-    product_name: string;
-    invoice_label: string;
-    category: string;
-    manufacturer_name?: string;
-    manufacturer_country?: string;
-  }>;
+  products: Product[];
 }
 
 export async function getProducts(skuPrefix = 'DE') {
   return apiGet<ProductsLookupResponse>(`/api/products/lookup?sku_prefix=${skuPrefix}`);
+}
+
+export async function getProductBySku(sku: string) {
+  return apiGet<ProductsLookupResponse>(`/api/products/lookup?sku=${sku}`);
+}
+
+// =============================================================================
+// Contacts (used for manufacturer detail in product page, etc.)
+// =============================================================================
+
+export interface ContactResponse {
+  type: 'company' | 'partner' | 'manufacturer' | 'shipper' | 'warehouse';
+  data: Record<string, unknown>;
+}
+
+export async function getContact(slug: string) {
+  return apiGet<ContactResponse>(`/api/contacts/${slug}`);
 }

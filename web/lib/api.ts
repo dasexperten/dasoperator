@@ -99,3 +99,59 @@ export interface ContactResponse {
 export async function getContact(slug: string) {
   return apiGet<ContactResponse>(`/api/contacts/${slug}`);
 }
+
+// =============================================================================
+// Partners
+// =============================================================================
+
+export interface Partner {
+  id: string;
+  trade_name: string;
+  legal_name?: string | null;
+  country?: string | null;
+  tax_id?: string | null;
+  iban?: string | null;
+  swift_bic?: string | null;
+  bank_name?: string | null;
+  linked_entity_id?: string | null;
+  price_type_id?: string | null;
+  currency?: string | null;
+  contract_no?: string | null;
+  contract_date?: number | null;
+  email?: string | null;
+  status: 'active' | 'inactive' | 'blocked' | 'pending';
+  partner_type: 'buyer' | 'supplier' | 'shipper' | 'other';
+  notes?: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface PartnersListResponse {
+  count: number;
+  partners: Array<Partner & {
+    entity_abbreviation?: string | null;
+    price_type_code?: string | null;
+  }>;
+}
+
+export async function getPartners() {
+  return apiGet<PartnersListResponse>('/api/partners');
+}
+
+export async function getPartner(slug: string): Promise<ApiResponse<Partner>> {
+  const res = await getContact(slug);
+  if (!res.success || !res.result) {
+    return {
+      success: false,
+      result: null,
+      errors: res.errors,
+      messages: res.messages,
+    };
+  }
+  return {
+    success: true,
+    result: res.result.data as unknown as Partner,
+    errors: [],
+    messages: res.messages,
+  };
+}

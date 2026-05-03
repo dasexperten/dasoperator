@@ -8,11 +8,11 @@ import productsRoutes from './routes/products';
 import contactsRoutes from './routes/contacts';
 import pricerRoutes from './routes/pricer';
 import emailRoutes from './routes/email';
+import partnersRoutes from './routes/partners';
 import { ok } from './lib/responses';
 
 const app = new Hono<{ Bindings: Env }>();
 
-// Middleware chain — CORS FIRST so OPTIONS preflight works
 app.use('*', corsMiddleware);
 app.use('*', requestLogger);
 app.onError(errorHandler);
@@ -29,10 +29,11 @@ app.notFound((c) => {
   );
 });
 
-app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '0.5.0', phase: '3.0a' }));
+app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '0.6.0', phase: '3.0c' }));
 app.route('/health', healthRoutes);
 app.route('/api/products', productsRoutes);
 app.route('/api/contacts', contactsRoutes);
+app.route('/api/partners', partnersRoutes);
 app.route('/api/pricer', pricerRoutes);
 app.route('/api/email', emailRoutes);
 

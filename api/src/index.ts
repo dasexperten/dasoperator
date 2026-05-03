@@ -9,6 +9,7 @@ import contactsRoutes from './routes/contacts';
 import pricerRoutes from './routes/pricer';
 import emailRoutes from './routes/email';
 import partnersRoutes from './routes/partners';
+import sequencesRoutes from './routes/sequences';
 import { ok } from './lib/responses';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -29,12 +30,13 @@ app.notFound((c) => {
   );
 });
 
-app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '0.6.1', phase: '3.0c' }));
+app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '0.7.0', phase: '2.0c-1' }));
 app.route('/health', healthRoutes);
 app.route('/api/products', productsRoutes);
 app.route('/api/contacts', contactsRoutes);
 app.route('/api/partners', partnersRoutes);
 app.route('/api/pricer', pricerRoutes);
 app.route('/api/email', emailRoutes);
+app.route('/api/sequences', sequencesRoutes);
 
 export default app;

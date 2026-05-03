@@ -274,12 +274,12 @@ operations.post('/', async (c) => {
     INSERT INTO operations (
       id, operation_date, operation_type, partner_id, our_company_id,
       manufacturer_id, warehouse_from_id, warehouse_to_id,
-      shipment_scheme, shipper_id, order_doc_ref, status, paid,
+      shipment_scheme, shipper_id, order_doc_ref, reference, status, paid,
       price_type_id, currency, fx_rate_to_usd, total_amount, total_usd_equiv,
       incoterms, hs_code, lead_time_days, notes,
       created_at, updated_at, deleted_at
     ) VALUES (
-      ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, 'draft', 0,
+      ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, 'draft', 0,
       ?, ?, ?, ?, ?, ?, NULL, NULL, ?,
       ?, ?, NULL
     )
@@ -368,7 +368,7 @@ operations.get('/:id', async (c) => {
 
   const op = await c.env.DB.prepare(
     'SELECT * FROM operations WHERE id = ? AND deleted_at IS NULL'
-  ).bind(opId).first<{ order_doc_ref: string; [key: string]: unknown }>();
+  ).bind(opId).first();
 
   if (!op) {
     return fail(c, 404, [{
@@ -382,7 +382,7 @@ operations.get('/:id', async (c) => {
   ).bind(opId).all();
 
   return ok(c, {
-    operation: { ...op, reference: op.order_doc_ref },
+    operation: op,
     line_items: lineItems.results,
   });
 });

@@ -33,7 +33,7 @@ app.notFound((c) => {
   );
 });
 
-app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '0.9.0', phase: '2.0c-2b' }));
+app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '0.9.1', phase: '2.0c-2c' }));
 app.route('/health', healthRoutes);
 app.route('/api/products', productsRoutes);
 app.route('/api/contacts', contactsRoutes);

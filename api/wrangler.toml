@@ -56,3 +56,11 @@ id = "47ac2dde6cd041c09597272e422a6c32"
 [[kv_namespaces]]
 binding = "CACHE"
 id = "43f2004892714cbb919e5174ce2a8556"
+
+# -----------------------------------------------------------------------------
+# Cron triggers (Phase 2.0c-2b)
+# Daily FX refresh from CBR at 12:00 UTC (15:00 Moscow time, after CBR daily
+# publication at 11:30 Moscow). Handler: src/scheduled.ts handleScheduled.
+# -----------------------------------------------------------------------------
+[triggers]
+crons = ["0 12 * * *"]

@@ -44,3 +44,56 @@ export function formatSequenceValue(
   // Simple format: PREFIX-NNN — replace trailing digits
   return formatExample.replace(/\d+$/, padded);
 }
+
+// =============================================================================
+// Issue next sequence value (atomic SQL)
+// Used by other endpoints (operations, documents) without needing HTTP roundtrip.
+// =============================================================================
+
+export interface SequenceIssueResult {
+  sequence_id: string;
+  issued_number: number;
+  formatted: string;
+  next_number_after: number;
+}
+
+export async function issueNextSequence(
+  db: D1Database,
+  sequenceId: string
+): Promise<SequenceIssueResult | null> {
+  const now = Math.floor(Date.now() / 1000);
+
+  const row = await db.prepare(`
+    UPDATE sequences
+    SET next_number = next_number + 1,
+        updated_at = ?
+    WHERE id = ?
+    RETURNING
+      id,
+      next_number - 1 AS issued_number,
+      next_number AS next_number_after,
+      format_example,
+      padding
+  `).bind(now, sequenceId).first<{
+    id: string;
+    issued_number: number;
+    next_number_after: number;
+    format_example: string;
+    padding: number;
+  }>();
+
+  if (!row) return null;
+
+  const formatted = formatSequenceValue(
+    row.issued_number,
+    row.format_example,
+    row.padding
+  );
+
+  return {
+    sequence_id: row.id,
+    issued_number: row.issued_number,
+    formatted,
+    next_number_after: row.next_number_after,
+  };
+}

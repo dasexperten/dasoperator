@@ -4,11 +4,13 @@ import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { issueNextSequence } from '../lib/sequence-format';
 import { sequenceIdForCompany } from '../lib/company-sequence';
+import { getRateToUsdNano, applyFxToAmount } from '../lib/fx-cbr';
+import { getRatesFor } from '../lib/fx-store';
 
 const operations = new Hono<{ Bindings: Env }>();
 
 // =============================================================================
-// Schemas
+// Schemas (unchanged from Phase 2.0c-2)
 // =============================================================================
 
 const lineItemSchema = z.object({
@@ -68,6 +70,14 @@ function genId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID()}`;
 }
 
+function isoDate(unixSec: number): string {
+  const d = new Date(unixSec * 1000);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
 interface ProductRow {
   id: string;
   product_name: string;
@@ -103,11 +113,7 @@ operations.post('/', async (c) => {
   const data = parsed.data;
   const warnings: string[] = [];
 
-  // -------------------------------------------------------------------------
-  // Validation: existence checks
-  // -------------------------------------------------------------------------
-
-  // Company exists
+  // Existence validation (unchanged)
   const company = await c.env.DB.prepare(
     'SELECT id, abbreviation FROM companies WHERE id = ?'
   ).bind(data.our_company_id).first<{ id: string; abbreviation: string }>();
@@ -119,7 +125,6 @@ operations.post('/', async (c) => {
     }]);
   }
 
-  // Partner exists (if specified)
   let partner: PartnerRow | null = null;
   if (data.partner_id) {
     partner = await c.env.DB.prepare(
@@ -138,7 +143,6 @@ operations.post('/', async (c) => {
     }
   }
 
-  // Warehouses exist (if specified)
   if (data.warehouse_from_id) {
     const wh = await c.env.DB.prepare(
       'SELECT id FROM warehouses WHERE id = ?'
@@ -162,7 +166,6 @@ operations.post('/', async (c) => {
     }
   }
 
-  // All products exist (single batched lookup)
   const productIds = data.line_items.map((li) => li.product_id);
   const placeholders = productIds.map(() => '?').join(', ');
   const productRows = await c.env.DB.prepare(
@@ -182,10 +185,7 @@ operations.post('/', async (c) => {
     }]);
   }
 
-  // -------------------------------------------------------------------------
-  // Issue reference number from sequences
-  // -------------------------------------------------------------------------
-
+  // Issue reference number
   const sequenceId = sequenceIdForCompany(data.our_company_id);
   if (!sequenceId) {
     return fail(c, 500, [{
@@ -203,9 +203,32 @@ operations.post('/', async (c) => {
   }
 
   // -------------------------------------------------------------------------
-  // Compute money fields
+  // FX lookup — Phase 2.0c-2b integration
   // -------------------------------------------------------------------------
+  const opDateStr = isoDate(data.operation_date);
+  let fxRateToUsdNano: number | null = null;
 
+  if (data.currency === 'USD') {
+    fxRateToUsdNano = 1_000_000_000; // 1.0 in nano units
+  } else {
+    const snapshot = await getRatesFor(c.env.FX, opDateStr);
+    if (snapshot) {
+      const rate = getRateToUsdNano(snapshot, data.currency);
+      if (rate !== null) {
+        fxRateToUsdNano = rate;
+      } else {
+        warnings.push(
+          `fx_currency_unsupported: ${data.currency} not in CBR feed for ${opDateStr}`
+        );
+      }
+    } else {
+      warnings.push(
+        `fx_unavailable: no FX rate cached for ${opDateStr} and CBR fetch failed`
+      );
+    }
+  }
+
+  // Compute money fields with FX integration
   let totalAmount = 0;
   const lineItemsComputed = data.line_items.map((li) => {
     const product = productMap.get(li.product_id)!;
@@ -219,6 +242,10 @@ operations.post('/', async (c) => {
 
     totalAmount += lineAmount;
 
+    const lineUsdEquiv = fxRateToUsdNano !== null
+      ? applyFxToAmount(lineAmount, fxRateToUsdNano)
+      : null;
+
     return {
       id: genId('li'),
       product_id: li.product_id,
@@ -231,31 +258,18 @@ operations.post('/', async (c) => {
       unit_price_after_disc: unitPriceAfterDisc,
       line_amount: lineAmount,
       currency: data.currency,
-      line_usd_equiv: null,
+      line_usd_equiv: lineUsdEquiv,
     };
   });
 
-  // FX deferred to Phase 2.0c-2b
-  if (data.currency !== 'USD') {
-    warnings.push(
-      `fx_unavailable: total_usd_equiv not computed for currency ${data.currency}; FX rate refresh pending Phase 2.0c-2b`
-    );
-  }
+  const totalUsdEquiv = fxRateToUsdNano !== null
+    ? applyFxToAmount(totalAmount, fxRateToUsdNano)
+    : null;
 
-  // -------------------------------------------------------------------------
-  // Build batch (operation header + N line_items)
-  // -------------------------------------------------------------------------
-
+  // Build batch
   const operationId = genId('op');
   const now = Math.floor(Date.now() / 1000);
 
-  const isUsd = data.currency === 'USD';
-  const totalUsdEquiv = isUsd ? totalAmount : null;
-  const fxRateToUsd = isUsd ? 1_000_000 : null;
-
-  // NOTE: reference is squatted into order_doc_ref column for now.
-  // TODO Phase 2.0c-2c: migration 0004 ALTER TABLE operations ADD COLUMN reference,
-  // then move this value out of order_doc_ref (which should hold buyer's PO ref).
   const insertOpStmt = c.env.DB.prepare(`
     INSERT INTO operations (
       id, operation_date, operation_type, partner_id, our_company_id,
@@ -278,10 +292,10 @@ operations.post('/', async (c) => {
     data.manufacturer_id ?? null,
     data.warehouse_from_id ?? null,
     data.warehouse_to_id ?? null,
-    seqResult.formatted,  // order_doc_ref doubles as our reference (tech debt — see TODO above)
+    seqResult.formatted,
     data.price_type_id ?? null,
     data.currency,
-    fxRateToUsd,
+    fxRateToUsdNano,
     totalAmount,
     totalUsdEquiv,
     data.incoterms ?? null,
@@ -308,7 +322,6 @@ operations.post('/', async (c) => {
     )
   );
 
-  // Atomic batch — operation + all line_items
   try {
     await c.env.DB.batch([insertOpStmt, ...lineItemStmts]);
   } catch (err) {
@@ -318,10 +331,6 @@ operations.post('/', async (c) => {
       details: { error: err instanceof Error ? err.message : String(err) },
     }]);
   }
-
-  // -------------------------------------------------------------------------
-  // Build response
-  // -------------------------------------------------------------------------
 
   return ok(c, {
     operation: {
@@ -338,7 +347,7 @@ operations.post('/', async (c) => {
       paid: 0,
       price_type_id: data.price_type_id ?? null,
       currency: data.currency,
-      fx_rate_to_usd: fxRateToUsd,
+      fx_rate_to_usd: fxRateToUsdNano,
       total_amount: totalAmount,
       total_usd_equiv: totalUsdEquiv,
       incoterms: data.incoterms ?? null,
@@ -353,15 +362,13 @@ operations.post('/', async (c) => {
 
 // =============================================================================
 // GET /api/operations/:id
-// Returns operation + ordered line_items.
-// Aliases order_doc_ref → reference for symmetry with POST response shape.
 // =============================================================================
 operations.get('/:id', async (c) => {
   const opId = c.req.param('id');
 
   const op = await c.env.DB.prepare(
     'SELECT * FROM operations WHERE id = ? AND deleted_at IS NULL'
-  ).bind(opId).first<Record<string, unknown>>();
+  ).bind(opId).first<{ order_doc_ref: string; [key: string]: unknown }>();
 
   if (!op) {
     return fail(c, 404, [{
@@ -375,10 +382,7 @@ operations.get('/:id', async (c) => {
   ).bind(opId).all();
 
   return ok(c, {
-    operation: {
-      ...op,
-      reference: op.order_doc_ref,  // alias for symmetry with POST response
-    },
+    operation: { ...op, reference: op.order_doc_ref },
     line_items: lineItems.results,
   });
 });

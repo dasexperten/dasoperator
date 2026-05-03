@@ -11,7 +11,9 @@ import emailRoutes from './routes/email';
 import partnersRoutes from './routes/partners';
 import sequencesRoutes from './routes/sequences';
 import operationsRoutes from './routes/operations';
+import fxRoutes from './routes/fx';
 import { ok } from './lib/responses';
+import { handleScheduled } from './scheduled';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -31,7 +33,7 @@ app.notFound((c) => {
   );
 });
 
-app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '0.8.0', phase: '2.0c-2' }));
+app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '0.9.0', phase: '2.0c-2b' }));
 app.route('/health', healthRoutes);
 app.route('/api/products', productsRoutes);
 app.route('/api/contacts', contactsRoutes);
@@ -40,5 +42,9 @@ app.route('/api/pricer', pricerRoutes);
 app.route('/api/email', emailRoutes);
 app.route('/api/sequences', sequencesRoutes);
 app.route('/api/operations', operationsRoutes);
+app.route('/api/fx', fxRoutes);
 
-export default app;
+export default {
+  fetch: app.fetch,
+  scheduled: handleScheduled,
+} satisfies ExportedHandler<Env>;

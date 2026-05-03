@@ -29,7 +29,7 @@ app.notFound((c) => {
   );
 });
 
-app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '0.6.0', phase: '3.0c' }));
+app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '0.6.1', phase: '3.0c' }));
 app.route('/health', healthRoutes);
 app.route('/api/products', productsRoutes);
 app.route('/api/contacts', contactsRoutes);

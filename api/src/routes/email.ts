@@ -3,27 +3,10 @@ import { z } from 'zod';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 
-// =============================================================================
-// POST /api/email/send
-// Proxy to emailer-bridge worker (https://emailer-bridge.dasexperten.workers.dev/)
-//
-// Forwards JSON payload as-is. emailer-bridge then routes to Apps Script which
-// posts the email through dasexperten@gmail.com.
-//
-// IMPORTANT: This endpoint does NOT implement the confirmation gate. The
-// confirmation gate is caller responsibility (UI / skill). This proxy just
-// validates schema and forwards. See SKILL.md Section 0 for confirmation
-// gate spec.
-//
-// AUTH NOTE (Phase 2.1): no authentication — same as emailer-bridge upstream.
-// Phase 2.x will add Cloudflare Access in front of dasoperator-api.
-// =============================================================================
-
 const EMAILER_BRIDGE_URL = 'https://emailer-bridge.dasexperten.workers.dev/';
 
 const email = new Hono<{ Bindings: Env }>();
 
-// Schema mirrors emailer-bridge JSON contract (SKILL.md Section 3.3)
 const sendSchema = z.object({
   action: z.enum(['send', 'reply', 'reply_all']).default('send'),
   recipient: z.string().email().optional(),
@@ -63,7 +46,6 @@ email.post('/send', async (c) => {
     }]);
   }
 
-  // Forward to emailer-bridge as-is
   let bridgeResponse: Response;
   try {
     bridgeResponse = await fetch(EMAILER_BRIDGE_URL, {
@@ -98,21 +80,40 @@ email.post('/send', async (c) => {
     }]);
   }
 
-  // Pass through emailer-bridge response wrapped in ApiResponse shape
   return ok(c, bridgePayload, ['Email forwarded to emailer-bridge']);
 });
 
-// GET /api/email/health — quick check that emailer-bridge is reachable
+// =============================================================================
+// GET /api/email/health
+// Probes emailer-bridge reachability via dry-run POST.
+//
+// Sends a minimal POST with intentionally invalid payload. emailer-bridge
+// returns 4xx if alive (validation rejected) or 5xx/network if down.
+//
+// bridge_ok semantics:
+//   200..299 → true  (bridge processed something)
+//   400..499 → true  (bridge alive, rejected probe — expected)
+//   500..599 → false (bridge broken)
+//   network  → false (caught below, returns 502 on this endpoint)
+// =============================================================================
 email.get('/health', async (c) => {
+  const probeStart = Date.now();
   try {
     const r = await fetch(EMAILER_BRIDGE_URL, {
-      method: 'GET',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ probe: true }),
       signal: AbortSignal.timeout(10_000),
     });
+    const latency = Date.now() - probeStart;
+    const bridgeOk = r.status < 500;
+
     return ok(c, {
       bridge_url: EMAILER_BRIDGE_URL,
       bridge_status: r.status,
-      bridge_ok: r.ok,
+      bridge_ok: bridgeOk,
+      probe_method: 'POST dry-run',
+      latency_ms: latency,
     });
   } catch (err) {
     return fail(c, 502, [{

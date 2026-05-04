@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
   Home, Package, Users, FileSignature, FileText,
@@ -19,13 +18,10 @@ interface NavSection {
   items: NavItem[];
 }
 
-// Sidebar nav split into apothecary "ledger sections"
 const SECTIONS: NavSection[] = [
   {
     label: 'Overview',
-    items: [
-      { name: 'Home', icon: Home, href: '/' },
-    ],
+    items: [{ name: 'Home', icon: Home, href: '/' }],
   },
   {
     label: 'Master Data',
@@ -46,15 +42,12 @@ const SECTIONS: NavSection[] = [
   },
   {
     label: 'Insights',
-    items: [
-      { name: 'Analytics', icon: BarChart3, href: '/analytics' },
-    ],
+    items: [{ name: 'Analytics', icon: BarChart3, href: '/analytics' }],
   },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
-
   function isActive(href: string): boolean {
     if (href === '/') return pathname === '/';
     return pathname.startsWith(href);
@@ -65,28 +58,17 @@ export default function Sidebar() {
       className="w-60 flex flex-col text-paper"
       style={{ backgroundColor: 'var(--brand-schwarz)' }}
     >
-      {/* Wordmark + tagline */}
+      {/* Wordmark only — без logo-mark icon */}
       <div className="px-5 pt-6 pb-5">
-        <div className="flex items-baseline gap-2">
-          <Image
-            src="/brand/logo-mark.png"
-            alt=""
-            width={32}
-            height={32}
-            className="brightness-0 invert opacity-90"
-          />
-          <div>
-            <div
-              className="dx-product-name text-paper"
-              style={{ fontSize: '20px', lineHeight: 1 }}
-            >
-              das experten
-              <sup
-                className="dx-mono"
-                style={{ fontSize: '9px', marginLeft: '2px', color: 'var(--brand-gold)' }}
-              >®</sup>
-            </div>
-          </div>
+        <div
+          className="dx-product-name text-paper"
+          style={{ fontSize: '22px', lineHeight: 1, letterSpacing: '-0.005em' }}
+        >
+          das experten
+          <sup
+            className="dx-mono"
+            style={{ fontSize: '10px', marginLeft: '2px', color: 'var(--brand-gold)' }}
+          >®</sup>
         </div>
         <div
           className="dx-eyebrow mt-3"
@@ -96,10 +78,8 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Heritage divider */}
       <div className="dx-ribbon-rule mx-5 mb-2" />
 
-      {/* Nav sections */}
       <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-5">
         {SECTIONS.map((section) => (
           <div key={section.label}>
@@ -146,28 +126,14 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {/* Footer — heritage ribbons + version */}
-      <div
-        className="px-5 py-4"
-        style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}
-      >
+      <div className="px-5 py-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
         <div className="dx-ribbon-rule mb-3" />
         <div className="flex items-center justify-between">
-          <div
-            className="dx-eyebrow"
-            style={{ color: 'var(--stone-400)', fontSize: '9px' }}
-          >
+          <div className="dx-eyebrow" style={{ color: 'var(--stone-400)', fontSize: '9px' }}>
             Das Operator
           </div>
-          <div
-            className="dx-mono"
-            style={{
-              color: 'var(--stone-400)',
-              fontSize: '10px',
-              letterSpacing: '0.05em',
-            }}
-          >
-            v0.6
+          <div className="dx-mono" style={{ color: 'var(--stone-400)', fontSize: '10px', letterSpacing: '0.05em' }}>
+            v0.8
           </div>
         </div>
       </div>

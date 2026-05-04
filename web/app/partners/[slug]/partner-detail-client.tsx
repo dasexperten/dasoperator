@@ -2,15 +2,23 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, AlertTriangle, Loader2 } from 'lucide-react';
-import { getPartner, type Partner } from '@/lib/api';
+import { Plus, AlertTriangle, Loader2 } from 'lucide-react';
+import { getPartner, getPartnerContracts, type Partner, type Contract } from '@/lib/api';
 import { CopyableValue, SectionCard } from '@/components/ui/copyable';
+import Breadcrumb from '@/components/layout/breadcrumb';
 
 const STATUS_COLORS: Record<Partner['status'], { bg: string; fg: string; border: string }> = {
   active:   { bg: 'rgba(46,125,79,0.08)',  fg: 'var(--status-success)', border: 'rgba(46,125,79,0.3)' },
   pending:  { bg: 'rgba(199,122,0,0.08)',  fg: 'var(--status-warning)', border: 'rgba(199,122,0,0.3)' },
   inactive: { bg: 'var(--paper-sunk)',     fg: 'var(--fg-3)',           border: 'var(--border-hairline)' },
   blocked:  { bg: 'rgba(229,32,44,0.08)',  fg: 'var(--brand-rot)',      border: 'rgba(229,32,44,0.3)' },
+};
+
+const CONTRACT_STATUS_COLORS: Record<Contract['status'], { bg: string; fg: string; border: string }> = {
+  active:    { bg: 'rgba(46,125,79,0.08)',  fg: 'var(--status-success)', border: 'rgba(46,125,79,0.3)' },
+  draft:     { bg: 'rgba(199,122,0,0.08)',  fg: 'var(--status-warning)', border: 'rgba(199,122,0,0.3)' },
+  expired:   { bg: 'var(--paper-sunk)',     fg: 'var(--fg-3)',           border: 'var(--border-hairline)' },
+  cancelled: { bg: 'rgba(229,32,44,0.08)',  fg: 'var(--brand-rot)',      border: 'rgba(229,32,44,0.3)' },
 };
 
 const MISSING = 'MISSING';
@@ -24,19 +32,35 @@ function formatDate(unixSec?: number | null): string {
 
 export default function PartnerDetailClient({ slug }: { slug: string }) {
   const [partner, setPartner] = useState<Partner | null>(null);
+  const [contracts, setContracts] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchPartner = async () => {
+    const fetchAll = async () => {
       try {
-        const res = await getPartner(slug);
-        if (res.success && res.result) { setPartner(res.result); setError(null); }
-        else { setError(res.errors?.[0]?.message ?? 'Partner not found'); }
-      } catch (e) { setError(e instanceof Error ? e.message : 'Network error'); }
-      finally { setLoading(false); }
+        const [partnerRes, contractsRes] = await Promise.all([
+          getPartner(slug),
+          getPartnerContracts(slug),
+        ]);
+
+        if (partnerRes.success && partnerRes.result) {
+          setPartner(partnerRes.result);
+          setError(null);
+        } else {
+          setError(partnerRes.errors?.[0]?.message ?? 'Partner not found');
+        }
+
+        if (contractsRes.success && contractsRes.result) {
+          setContracts(contractsRes.result.contracts);
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Network error');
+      } finally {
+        setLoading(false);
+      }
     };
-    fetchPartner();
+    fetchAll();
   }, [slug]);
 
   if (loading) return <div className="flex items-center justify-center py-16"><Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--fg-muted)' }} /></div>;
@@ -44,9 +68,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
   if (error || !partner) {
     return (
       <div className="space-y-4 max-w-2xl">
-        <Link href="/partners" className="text-sm inline-flex items-center gap-1" style={{ color: 'var(--fg-2)' }}>
-          <ArrowLeft className="h-4 w-4" />Back to Partners
-        </Link>
+        <Breadcrumb items={[{ label: 'Partners', href: '/partners' }, { label: 'Not found' }]} />
         <div className="p-4 text-sm" style={{ backgroundColor: 'rgba(229,32,44,0.05)', border: '1px solid rgba(229,32,44,0.2)', color: 'var(--brand-rot)', borderRadius: 'var(--radius-sm)' }}>
           {error ?? 'Partner not found'}
         </div>
@@ -68,20 +90,12 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
     { label: 'SWIFT/BIC', value: partner.swift_bic },
     { label: 'Bank', value: partner.bank_name },
   ];
-  const commercialFields = [
-    { label: 'Linked Entity', value: partner.linked_entity_id },
-    { label: 'Price Type', value: partner.price_type_id },
-    { label: 'Currency', value: partner.currency },
-    { label: 'Contract', value: partner.contract_no },
-    { label: 'Contract Date', value: formatDate(partner.contract_date) },
-  ];
 
   return (
-    <div className="space-y-8 max-w-5xl">
-      <Link href="/partners" className="text-sm inline-flex items-center gap-1" style={{ color: 'var(--fg-2)' }}>
-        <ArrowLeft className="h-4 w-4" />Back to Partners
-      </Link>
+    <div className="space-y-8 max-w-6xl">
+      <Breadcrumb items={[{ label: 'Partners', href: '/partners' }, { label: partner.trade_name }]} />
 
+      {/* Hero */}
       <div>
         <div className="flex items-center gap-3 mb-3">
           <span className="dx-mono" style={{ fontSize: '11px', padding: '3px 8px', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)', color: 'var(--fg-2)' }}>
@@ -105,7 +119,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
         <div className="p-4 flex items-start gap-3" style={{ backgroundColor: 'rgba(199,122,0,0.06)', border: '1px solid rgba(199,122,0,0.25)', borderRadius: 'var(--radius-md)' }}>
           <AlertTriangle className="h-5 w-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--status-warning)' }} />
           <div>
-            <div className="dx-eyebrow mb-1" style={{ color: 'var(--status-warning)', fontSize: '10px' }}>Pending Partner — Incomplete Data</div>
+            <div className="dx-eyebrow mb-1" style={{ color: 'var(--status-warning)', fontSize: '10px' }}>Pending Partner</div>
             <p style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-1)' }}>
               Document generation will be blocked until all required fields are filled in.
             </p>
@@ -114,7 +128,8 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-5">
+      {/* Reference cards (2 columns теперь, без Commercial — переехал в Contracts ниже) */}
+      <div className="grid grid-cols-2 gap-5">
         <SectionCard label="General" fields={generalFields}>
           <CopyableField label="Country" value={partner.country} />
           <CopyableField label="Type" value={partner.partner_type} />
@@ -127,22 +142,156 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
           <CopyableField label="SWIFT/BIC" value={partner.swift_bic} mono />
           <CopyableField label="Bank" value={partner.bank_name} />
         </SectionCard>
-
-        <SectionCard label="Commercial" fields={commercialFields}>
-          <CopyableField label="Linked Entity" value={partner.linked_entity_id} mono />
-          <CopyableField label="Price Type" value={partner.price_type_id} mono />
-          <CopyableField label="Currency" value={partner.currency} mono />
-          <CopyableField label="Contract" value={partner.contract_no} mono />
-          <CopyableField label="Contract Date" value={formatDate(partner.contract_date)} mono />
-        </SectionCard>
       </div>
 
-      {partner.notes && !isPending && (
-        <div className="p-4" style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
-          <div className="dx-eyebrow mb-2" style={{ fontSize: '10px' }}>Notes</div>
-          <p style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-1)' }}>{partner.notes}</p>
-        </div>
-      )}
+      {/* CONTRACTS SECTION */}
+      <SectionListBlock
+        label="Contracts"
+        count={contracts.length}
+        addNewHref={`/partners/${slug}/contracts/new`}
+      >
+        {contracts.length === 0 ? (
+          <EmptyTable message="No contracts yet" />
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                <Th>Contract No</Th><Th>Entity</Th><Th>Currency</Th><Th>Signed</Th><Th>Status</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {contracts.map((c) => {
+                const ss = CONTRACT_STATUS_COLORS[c.status];
+                return (
+                  <tr key={c.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                    <td className="px-4 py-3">
+                      <Link href={`/partners/${slug}/contracts/${c.id}`} className="dx-mono" style={{ fontSize: '12px', color: 'var(--fg-1)' }}>
+                        {c.contract_no}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-2)' }}>{c.entity_abbreviation ?? '—'}</td>
+                    <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-2)' }}>{c.currency}</td>
+                    <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>{formatDate(c.signed_date)}</td>
+                    <td className="px-4 py-3">
+                      <span className="dx-eyebrow inline-block" style={{ padding: '3px 8px', fontSize: '9px', backgroundColor: ss.bg, color: ss.fg, border: `1px solid ${ss.border}`, borderRadius: 'var(--radius-pill)', letterSpacing: '0.15em' }}>
+                        {c.status}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </SectionListBlock>
+
+      {/* OPERATIONS SECTION (placeholder для PR-B) */}
+      <SectionListBlock
+        label="Operations"
+        count={0}
+        addNewHref={`/partners/${slug}/operations/new`}
+        addDisabled
+      >
+        <EmptyTable message="Operations module — coming in next phase" />
+      </SectionListBlock>
+
+      {/* PAYMENTS SECTION (placeholder для PR-B) */}
+      <SectionListBlock
+        label="Payments"
+        count={0}
+        addNewHref={`/partners/${slug}/payments/new`}
+        addDisabled
+      >
+        <EmptyTable message="Payments module — coming in next phase" />
+      </SectionListBlock>
+    </div>
+  );
+}
+
+function SectionListBlock({
+  label, count, addNewHref, addDisabled = false, children,
+}: {
+  label: string;
+  count: number;
+  addNewHref: string;
+  addDisabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2
+          style={{
+            fontFamily: 'var(--font-accent-jakarta)',
+            fontSize: '24px',
+            fontWeight: 800,
+            letterSpacing: '-0.005em',
+            textTransform: 'uppercase',
+            color: 'var(--fg-1)',
+            lineHeight: 1,
+          }}
+        >
+          {label}{' '}
+          <span style={{ color: 'var(--fg-3)', fontWeight: 400 }}>({count})</span>
+        </h2>
+        {addDisabled ? (
+          <button
+            disabled
+            className="inline-flex items-center gap-2 px-4 py-2"
+            style={{
+              backgroundColor: 'var(--paper-sunk)',
+              color: 'var(--fg-3)',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: 'var(--fs-body-sm)',
+              fontWeight: 600,
+              cursor: 'not-allowed',
+            }}
+          >
+            <Plus className="h-4 w-4" />
+            Add new
+          </button>
+        ) : (
+          <Link
+            href={addNewHref}
+            className="inline-flex items-center gap-2 px-4 py-2 transition-colors"
+            style={{
+              backgroundColor: 'var(--brand-rot)',
+              color: 'var(--paper)',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: 'var(--fs-body-sm)',
+              fontWeight: 600,
+            }}
+          >
+            <Plus className="h-4 w-4" />
+            Add new
+          </Link>
+        )}
+      </div>
+      <div
+        className="bg-card overflow-hidden"
+        style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Th({ children }: { children: React.ReactNode }) {
+  return (
+    <th
+      className="text-left px-4 py-3 dx-eyebrow"
+      style={{ fontSize: '10px', color: 'var(--fg-3)', backgroundColor: 'var(--paper-sunk)' }}
+    >
+      {children}
+    </th>
+  );
+}
+
+function EmptyTable({ message }: { message: string }) {
+  return (
+    <div className="text-center py-12" style={{ color: 'var(--fg-3)', fontSize: 'var(--fs-body-sm)' }}>
+      {message}
     </div>
   );
 }
@@ -154,15 +303,9 @@ function CopyableField({ label, value, mono }: { label: string; value?: string |
       <dt className="dx-eyebrow mb-1" style={{ fontSize: '10px', color: 'var(--fg-3)' }}>{label}</dt>
       <dd>
         {missing ? (
-          <span style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--status-warning)' }}>
-            ⚠ MISSING
-          </span>
+          <span style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--status-warning)' }}>⚠ MISSING</span>
         ) : (
-          <CopyableValue
-            value={value!}
-            mono={mono}
-            style={{ fontSize: mono ? '12px' : 'var(--fs-body-sm)', color: 'var(--fg-1)' }}
-          />
+          <CopyableValue value={value!} mono={mono} style={{ fontSize: mono ? '12px' : 'var(--fs-body-sm)', color: 'var(--fg-1)' }} />
         )}
       </dd>
     </div>

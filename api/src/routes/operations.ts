@@ -409,6 +409,51 @@ operations.post('/', async (c) => {
 });
 
 // =============================================================================
+// GET /api/operations — list with optional filters
+// Query: partner_id, contract_id, operation_type, status
+// Returns operations with contract_no/partner_trade_name/entity_abbreviation JOINs.
+// =============================================================================
+operations.get('/', async (c) => {
+  const partnerId = c.req.query('partner_id');
+  const contractId = c.req.query('contract_id');
+  const opType = c.req.query('operation_type');
+  const status = c.req.query('status');
+
+  let sql = `
+    SELECT
+      o.id, o.contract_id, ct.contract_no,
+      o.partner_id, p.trade_name as partner_trade_name,
+      o.our_company_id, co.abbreviation as entity_abbreviation,
+      o.operation_type, o.operation_date,
+      o.warehouse_from_id, o.warehouse_to_id,
+      o.currency, o.total_amount, o.total_usd_equiv,
+      o.status, o.reference, o.notes,
+      o.created_at, o.updated_at
+    FROM operations o
+    LEFT JOIN contracts ct ON o.contract_id = ct.id
+    LEFT JOIN partners p ON o.partner_id = p.id
+    LEFT JOIN companies co ON o.our_company_id = co.id
+    WHERE o.deleted_at IS NULL
+  `;
+  const binds: unknown[] = [];
+
+  if (partnerId) { sql += ` AND o.partner_id = ?`; binds.push(partnerId); }
+  if (contractId) { sql += ` AND o.contract_id = ?`; binds.push(contractId); }
+  if (opType) { sql += ` AND o.operation_type = ?`; binds.push(opType); }
+  if (status) { sql += ` AND o.status = ?`; binds.push(status); }
+
+  sql += ` ORDER BY o.operation_date DESC, o.created_at DESC`;
+
+  const stmt = c.env.DB.prepare(sql);
+  const result = binds.length > 0 ? await stmt.bind(...binds).all() : await stmt.all();
+
+  return ok(c, {
+    count: result.results.length,
+    operations: result.results,
+  });
+});
+
+// =============================================================================
 // GET /api/operations/:id
 // =============================================================================
 operations.get('/:id', async (c) => {

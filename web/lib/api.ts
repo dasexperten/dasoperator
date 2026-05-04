@@ -326,3 +326,88 @@ export async function getProductPriceForContract(productId: string, contractId: 
     `/api/products/${productId}/price?contract_id=${contractId}`
   );
 }
+
+// =============================================================================
+// Operations (Phase 3.0e — contract_id-based create)
+// =============================================================================
+
+export interface Operation {
+  id: string;
+  contract_id: string;
+  contract_no?: string | null;
+  partner_id: string;
+  partner_trade_name?: string | null;
+  our_company_id: string;
+  entity_abbreviation?: string | null;
+  operation_type: 'sale' | 'purchase' | 'transfer';
+  operation_date: number;
+  warehouse_from_id: string | null;
+  warehouse_to_id: string | null;
+  manufacturer_id: string | null;
+  currency: string;
+  fx_rate_to_usd: number | null;
+  total_amount: number;
+  total_usd_equiv: number | null;
+  status: string;
+  reference: string | null;
+  order_doc_ref: string | null;
+  notes: string | null;
+  incoterms: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface OperationLineItem {
+  id: string;
+  operation_id: string;
+  product_id: string;
+  product_name?: string | null;
+  invoice_label?: string | null;
+  item_description: string | null;
+  qty: number;
+  cartons: number;
+  inner_boxes: number;
+  unit_price: number;
+  discount_pct: number;
+  unit_price_after_disc: number;
+  line_amount: number;
+  currency: string;
+  line_usd_equiv: number | null;
+}
+
+export async function getOperation(id: string) {
+  return apiGet<{ operation: Operation; line_items: OperationLineItem[] }>(
+    `/api/operations/${id}`
+  );
+}
+
+export interface CreateOperationLineItem {
+  product_id: string;
+  qty: number;
+  unit_price: number;
+  discount_pct?: number;
+  cartons?: number;
+  inner_boxes?: number;
+  item_description?: string;
+}
+
+export interface CreateOperationBody {
+  contract_id: string;
+  operation_type: 'sale' | 'purchase' | 'transfer';
+  operation_date: number;
+  warehouse_from_id?: string;
+  warehouse_to_id?: string;
+  manufacturer_id?: string;
+  price_type_id?: string;
+  incoterms?: string;
+  notes?: string;
+  order_doc_ref?: string;
+  line_items: CreateOperationLineItem[];
+}
+
+export async function createOperation(body: CreateOperationBody) {
+  return apiPost<{ operation: Operation; line_items: OperationLineItem[]; warnings: string[] }>(
+    '/api/operations',
+    body
+  );
+}

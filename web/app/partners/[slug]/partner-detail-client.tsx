@@ -185,12 +185,11 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
         )}
       </SectionListBlock>
 
-      {/* OPERATIONS SECTION (placeholder для PR-B) */}
+      {/* OPERATIONS SECTION — create form active; list endpoint deferred to PR-C3 */}
       <SectionListBlock
         label="Operations"
         count={0}
         addNewHref={`/partners/${slug}/operations/new`}
-        addDisabled
       >
         <EmptyTable message="Operations module — coming in next phase" />
       </SectionListBlock>

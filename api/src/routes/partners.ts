@@ -31,6 +31,39 @@ partners.get('/', async (c) => {
 });
 
 // =============================================================================
+// GET /api/partners/:slug — single partner detail
+// =============================================================================
+partners.get('/:slug', async (c) => {
+  const slug = c.req.param('slug');
+
+  const sql = `
+    SELECT
+      p.id, p.trade_name, p.legal_name, p.country,
+      p.tax_id, p.iban, p.swift_bic, p.bank_name,
+      p.linked_entity_id, c.abbreviation as entity_abbreviation,
+      p.price_type_id, pt.code as price_type_code,
+      p.currency, p.contract_no, p.contract_date,
+      p.email, p.status, p.partner_type, p.notes,
+      p.created_at, p.updated_at
+    FROM partners p
+    LEFT JOIN companies c ON p.linked_entity_id = c.id
+    LEFT JOIN price_types pt ON p.price_type_id = pt.id
+    WHERE p.id = ? AND p.deleted_at IS NULL
+  `;
+
+  const row = await c.env.DB.prepare(sql).bind(slug).first();
+
+  if (!row) {
+    return fail(c, 404, [{
+      code: 'partner_not_found',
+      message: `Partner ${slug} not found`,
+    }]);
+  }
+
+  return ok(c, row);
+});
+
+// =============================================================================
 // GET /api/partners/:slug/contracts — all contracts for a partner
 // =============================================================================
 partners.get('/:slug/contracts', async (c) => {

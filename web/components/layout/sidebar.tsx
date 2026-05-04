@@ -95,7 +95,7 @@ export default function Sidebar() {
             Das Operator
           </div>
           <div className="dx-mono" style={{ color: 'var(--stone-400)', fontSize: '10px', letterSpacing: '0.05em' }}>
-            v0.9
+            v1.0
           </div>
         </div>
       </div>

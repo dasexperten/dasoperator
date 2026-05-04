@@ -13,6 +13,9 @@ import sequencesRoutes from './routes/sequences';
 import operationsRoutes from './routes/operations';
 import fxRoutes from './routes/fx';
 import contractsRoutes from './routes/contracts';
+import paymentsRoutes from './routes/payments';
+import { netBalancePerPartner, netBalanceBulk } from './routes/net-balance';
+import productsPricingRoutes from './routes/products-pricing';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
 
@@ -34,16 +37,20 @@ app.notFound((c) => {
   );
 });
 
-app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.0.0', phase: '3.0d-pre' }));
+app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.1.1', phase: '3.0e-finance' }));
 app.route('/health', healthRoutes);
 app.route('/api/products', productsRoutes);
+app.route('/api/products', productsPricingRoutes);  // adds :productId/price
 app.route('/api/contacts', contactsRoutes);
 app.route('/api/partners', partnersRoutes);
+app.route('/api/partners', netBalancePerPartner);   // adds :slug/net-balance
+app.route('/api/net-balance', netBalanceBulk);
 app.route('/api/contracts', contractsRoutes);
 app.route('/api/pricer', pricerRoutes);
 app.route('/api/email', emailRoutes);
 app.route('/api/sequences', sequencesRoutes);
 app.route('/api/operations', operationsRoutes);
+app.route('/api/payments', paymentsRoutes);
 app.route('/api/fx', fxRoutes);
 
 export default {

@@ -2,15 +2,13 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Search, Package, Loader2 } from 'lucide-react';
+import { Search, Loader2 } from 'lucide-react';
 import { getProducts, type Product } from '@/lib/api';
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Filters
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [manufacturerFilter, setManufacturerFilter] = useState<string>('all');
@@ -35,7 +33,6 @@ export default function ProductsPage() {
     fetchProducts();
   }, []);
 
-  // Unique manufacturers for filter dropdown
   const manufacturers = useMemo(() => {
     const set = new Set<string>();
     products.forEach((p) => {
@@ -44,16 +41,14 @@ export default function ProductsPage() {
     return Array.from(set).sort();
   }, [products]);
 
-  // Filtered products
   const filtered = useMemo(() => {
     return products.filter((p) => {
       if (search) {
         const q = search.toLowerCase();
-        const matchesSearch =
-          p.product_name.toLowerCase().includes(q) ||
-          p.id.toLowerCase().includes(q) ||
-          p.invoice_label.toLowerCase().includes(q);
-        if (!matchesSearch) return false;
+        const m = p.product_name.toLowerCase().includes(q) ||
+                  p.id.toLowerCase().includes(q) ||
+                  p.invoice_label.toLowerCase().includes(q);
+        if (!m) return false;
       }
       if (categoryFilter !== 'all' && p.category !== categoryFilter) return false;
       if (manufacturerFilter !== 'all' && p.manufacturer_name !== manufacturerFilter) return false;
@@ -61,34 +56,49 @@ export default function ProductsPage() {
     });
   }, [products, search, categoryFilter, manufacturerFilter]);
 
-  // Stats
   const pasteCount = products.filter((p) => p.category === 'Toothpaste').length;
   const brushCount = products.filter((p) => p.category === 'Toothbrush').length;
 
   return (
-    <div className="space-y-6 max-w-7xl">
+    <div className="space-y-8 max-w-7xl">
       <div>
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <Package className="h-6 w-6" />
+        <div className="dx-eyebrow dx-eyebrow-rot mb-2">Master Data</div>
+        <h1
+          style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: 'var(--fs-display-md)',
+            fontWeight: 900,
+            letterSpacing: '-0.025em',
+            color: 'var(--fg-1)',
+          }}
+        >
           Products
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {loading
-            ? 'Loading...'
-            : `${products.length} products • ${pasteCount} toothpastes • ${brushCount} brushes`}
+        <p className="mt-2" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
+          {loading ? 'Loading...' : `${products.length} products · ${pasteCount} toothpastes · ${brushCount} brushes`}
         </p>
       </div>
 
-      {/* Filters */}
+      <div className="dx-ribbon-rule" />
+
       <div className="space-y-3">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <div className="relative max-w-xl">
+          <Search
+            className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4"
+            style={{ color: 'var(--fg-muted)' }}
+          />
           <input
             type="text"
-            placeholder="Search products by name or SKU..."
+            placeholder="Search by name or SKU..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-card border border-border rounded text-sm placeholder:text-muted-foreground focus:outline-none focus:border-accent"
+            className="w-full pl-10 pr-4 py-2 text-sm focus:outline-none"
+            style={{
+              backgroundColor: 'var(--paper-sunk)',
+              border: '1px solid var(--border-hairline)',
+              borderRadius: 'var(--radius-sm)',
+              color: 'var(--fg-1)',
+            }}
           />
         </div>
 
@@ -96,7 +106,13 @@ export default function ProductsPage() {
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="px-3 py-2 bg-card border border-border rounded text-sm focus:outline-none focus:border-accent"
+            className="px-3 py-2 text-sm focus:outline-none"
+            style={{
+              backgroundColor: 'var(--paper-sunk)',
+              border: '1px solid var(--border-hairline)',
+              borderRadius: 'var(--radius-sm)',
+              color: 'var(--fg-1)',
+            }}
           >
             <option value="all">All categories</option>
             <option value="Toothpaste">Toothpaste</option>
@@ -106,48 +122,72 @@ export default function ProductsPage() {
           <select
             value={manufacturerFilter}
             onChange={(e) => setManufacturerFilter(e.target.value)}
-            className="px-3 py-2 bg-card border border-border rounded text-sm focus:outline-none focus:border-accent"
+            className="px-3 py-2 text-sm focus:outline-none"
+            style={{
+              backgroundColor: 'var(--paper-sunk)',
+              border: '1px solid var(--border-hairline)',
+              borderRadius: 'var(--radius-sm)',
+              color: 'var(--fg-1)',
+            }}
           >
             <option value="all">All manufacturers</option>
             {manufacturers.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
+              <option key={m} value={m}>{m}</option>
             ))}
           </select>
 
-          <div className="ml-auto text-sm text-muted-foreground self-center">
-            Showing {filtered.length} of {products.length}
+          <div
+            className="ml-auto self-center dx-mono"
+            style={{ fontSize: 'var(--fs-caption)', color: 'var(--fg-3)' }}
+          >
+            {filtered.length} / {products.length}
           </div>
         </div>
       </div>
 
-      {/* Table */}
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 text-muted-foreground animate-spin" />
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--fg-muted)' }} />
         </div>
       ) : error ? (
-        <div className="bg-card border border-red-500/30 rounded p-4 text-sm text-red-400">
+        <div
+          className="p-4 text-sm"
+          style={{
+            backgroundColor: 'rgba(229,32,44,0.05)',
+            border: '1px solid rgba(229,32,44,0.2)',
+            color: 'var(--brand-rot)',
+            borderRadius: 'var(--radius-sm)',
+          }}
+        >
           Error: {error}
         </div>
       ) : (
-        <div className="bg-card border border-border rounded-lg overflow-hidden">
+        <div
+          className="bg-card overflow-hidden"
+          style={{
+            border: '1px solid var(--border-hairline)',
+            borderRadius: 'var(--radius-md)',
+          }}
+        >
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border bg-muted/50">
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">SKU</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Product</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Category</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Manufacturer</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Weight</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Barcode</th>
+              <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                <ProductTh>SKU</ProductTh>
+                <ProductTh>Product</ProductTh>
+                <ProductTh>Category</ProductTh>
+                <ProductTh>Manufacturer</ProductTh>
+                <ProductTh>Weight</ProductTh>
+                <ProductTh>Barcode</ProductTh>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-8 text-muted-foreground">
+                  <td
+                    colSpan={6}
+                    className="text-center py-12"
+                    style={{ color: 'var(--fg-3)' }}
+                  >
                     No products match the filters
                   </td>
                 </tr>
@@ -157,37 +197,29 @@ export default function ProductsPage() {
                   return (
                     <tr
                       key={p.id}
-                      className="border-b border-border last:border-0 hover:bg-muted/30 transition cursor-pointer"
+                      className="transition-colors"
+                      style={{ borderBottom: '1px solid var(--border-hairline)' }}
                     >
-                      <td className="px-4 py-3 font-mono text-xs">
-                        <Link href={`/products/${skuShort}`} className="hover:text-accent">
+                      <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px' }}>
+                        <Link href={`/products/${skuShort}`} style={{ color: 'var(--fg-1)' }}>
                           {skuShort}
                         </Link>
                       </td>
                       <td className="px-4 py-3">
-                        <Link href={`/products/${skuShort}`} className="hover:text-accent">
-                          {p.product_name}
+                        <Link href={`/products/${skuShort}`} style={{ color: 'var(--fg-1)' }}>
+                          <span className="dx-product-name">{p.product_name}</span>
                         </Link>
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`px-2 py-1 rounded text-xs ${
-                          p.category === 'Toothpaste'
-                            ? 'bg-blue-500/10 text-blue-400'
-                            : 'bg-orange-500/10 text-orange-400'
-                        }`}>
-                          {p.category}
-                        </span>
+                        <CategoryBadge category={p.category} />
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground">
+                      <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>
                         {p.manufacturer_name ?? '—'}
-                        {p.manufacturer_country && (
-                          <span className="text-xs ml-1 opacity-60">({p.manufacturer_country})</span>
-                        )}
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground font-mono text-xs">
+                      <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-2)' }}>
                         {p.weight_kg ? `${p.weight_kg}g` : '—'}
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground font-mono text-xs">
+                      <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>
                         {p.barcode ?? '—'}
                       </td>
                     </tr>
@@ -199,5 +231,40 @@ export default function ProductsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function ProductTh({ children }: { children: React.ReactNode }) {
+  return (
+    <th
+      className="text-left px-4 py-3 dx-eyebrow"
+      style={{
+        fontSize: '10px',
+        color: 'var(--fg-3)',
+        backgroundColor: 'var(--paper-sunk)',
+      }}
+    >
+      {children}
+    </th>
+  );
+}
+
+function CategoryBadge({ category }: { category: string }) {
+  const isPaste = category === 'Toothpaste';
+  return (
+    <span
+      className="dx-eyebrow inline-block"
+      style={{
+        padding: '3px 8px',
+        fontSize: '9px',
+        backgroundColor: isPaste ? 'var(--paper-sunk)' : 'var(--bone)',
+        color: isPaste ? 'var(--line-innoweiss)' : 'var(--brand-schwarz)',
+        border: `1px solid ${isPaste ? 'var(--line-innoweiss)' : 'var(--border-strong)'}`,
+        borderRadius: 'var(--radius-pill)',
+        letterSpacing: '0.15em',
+      }}
+    >
+      {category}
+    </span>
   );
 }

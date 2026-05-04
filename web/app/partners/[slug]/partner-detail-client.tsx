@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Users, AlertTriangle, Loader2 } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Loader2 } from 'lucide-react';
 import { getPartner, type Partner } from '@/lib/api';
 
-const STATUS_COLORS: Record<Partner['status'], string> = {
-  active: 'bg-green-500/10 text-green-400',
-  pending: 'bg-yellow-500/10 text-yellow-400',
-  inactive: 'bg-gray-500/10 text-gray-400',
-  blocked: 'bg-red-500/10 text-red-400',
+const STATUS_COLORS: Record<Partner['status'], { bg: string; fg: string; border: string }> = {
+  active:   { bg: 'rgba(46,125,79,0.08)',  fg: 'var(--status-success)', border: 'rgba(46,125,79,0.3)' },
+  pending:  { bg: 'rgba(199,122,0,0.08)',  fg: 'var(--status-warning)', border: 'rgba(199,122,0,0.3)' },
+  inactive: { bg: 'var(--paper-sunk)',     fg: 'var(--fg-3)',           border: 'var(--border-hairline)' },
+  blocked:  { bg: 'rgba(229,32,44,0.08)',  fg: 'var(--brand-rot)',      border: 'rgba(229,32,44,0.3)' },
 };
 
 const MISSING = 'MISSING';
@@ -23,24 +23,6 @@ function formatDate(unixSec?: number | null): string {
   return new Date(unixSec * 1000).toISOString().split('T')[0]!;
 }
 
-interface FieldProps {
-  label: string;
-  value?: string | null;
-  mono?: boolean;
-}
-
-function Field({ label, value, mono }: FieldProps) {
-  const missing = isMissing(value);
-  return (
-    <div>
-      <dt className="text-xs text-muted-foreground mb-1">{label}</dt>
-      <dd className={`${mono ? 'font-mono text-xs' : 'text-sm'} ${missing ? 'text-yellow-500' : ''}`}>
-        {missing ? '⚠ MISSING' : value}
-      </dd>
-    </div>
-  );
-}
-
 export default function PartnerDetailClient({ slug }: { slug: string }) {
   const [partner, setPartner] = useState<Partner | null>(null);
   const [loading, setLoading] = useState(true);
@@ -48,7 +30,6 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
 
   useEffect(() => {
     const fetchPartner = async () => {
-      setLoading(true);
       try {
         const res = await getPartner(slug);
         if (res.success && res.result) {
@@ -66,22 +47,15 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
     fetchPartner();
   }, [slug]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 text-muted-foreground animate-spin" />
-      </div>
-    );
-  }
+  if (loading) return <div className="flex items-center justify-center py-16"><Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--fg-muted)' }} /></div>;
 
   if (error || !partner) {
     return (
       <div className="space-y-4 max-w-2xl">
-        <Link href="/partners" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-          <ArrowLeft className="h-4 w-4" />
-          Back to Partners
+        <Link href="/partners" className="text-sm inline-flex items-center gap-1" style={{ color: 'var(--fg-2)' }}>
+          <ArrowLeft className="h-4 w-4" />Back to Partners
         </Link>
-        <div className="bg-card border border-red-500/30 rounded p-4 text-sm text-red-400">
+        <div className="p-4 text-sm" style={{ backgroundColor: 'rgba(229,32,44,0.05)', border: '1px solid rgba(229,32,44,0.2)', color: 'var(--brand-rot)', borderRadius: 'var(--radius-sm)' }}>
           {error ?? 'Partner not found'}
         </div>
       </div>
@@ -89,81 +63,102 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
   }
 
   const isPending = partner.status === 'pending';
+  const statusStyle = STATUS_COLORS[partner.status];
 
   return (
-    <div className="space-y-6 max-w-5xl">
-      <Link href="/partners" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-        <ArrowLeft className="h-4 w-4" />
-        Back to Partners
+    <div className="space-y-8 max-w-5xl">
+      <Link href="/partners" className="text-sm inline-flex items-center gap-1" style={{ color: 'var(--fg-2)' }}>
+        <ArrowLeft className="h-4 w-4" />Back to Partners
       </Link>
 
       <div>
-        <div className="flex items-center gap-3 mb-1">
-          <Users className="h-6 w-6 text-muted-foreground" />
-          <span className="font-mono text-xs text-muted-foreground">{partner.id}</span>
-          <span className={`px-2 py-1 rounded text-xs ${STATUS_COLORS[partner.status]}`}>
+        <div className="flex items-center gap-3 mb-3">
+          <span className="dx-mono" style={{ fontSize: '11px', padding: '3px 8px', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)', color: 'var(--fg-2)' }}>
+            {partner.id}
+          </span>
+          <span className="dx-eyebrow inline-block" style={{ padding: '3px 8px', fontSize: '9px', backgroundColor: statusStyle.bg, color: statusStyle.fg, border: `1px solid ${statusStyle.border}`, borderRadius: 'var(--radius-pill)' }}>
             {partner.status}
           </span>
         </div>
-        <h1 className="text-2xl font-semibold">{partner.trade_name}</h1>
+        <h1 className="dx-product-name" style={{ fontSize: '40px', color: 'var(--fg-1)', lineHeight: 1.05 }}>
+          {partner.trade_name}
+        </h1>
         {partner.legal_name && !isMissing(partner.legal_name) && (
-          <p className="text-sm text-muted-foreground mt-1">{partner.legal_name}</p>
+          <p className="mt-3" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>{partner.legal_name}</p>
         )}
       </div>
 
+      <div className="dx-ribbon-rule" />
+
       {isPending && (
-        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded p-4 flex items-start gap-3">
-          <AlertTriangle className="h-5 w-5 text-yellow-500 flex-shrink-0 mt-0.5" />
-          <div className="text-sm">
-            <p className="font-medium text-yellow-400">Pending partner — incomplete data</p>
-            <p className="text-yellow-300/80 mt-1">
+        <div className="p-4 flex items-start gap-3" style={{ backgroundColor: 'rgba(199,122,0,0.06)', border: '1px solid rgba(199,122,0,0.25)', borderRadius: 'var(--radius-md)' }}>
+          <AlertTriangle className="h-5 w-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--status-warning)' }} />
+          <div>
+            <div className="dx-eyebrow mb-1" style={{ color: 'var(--status-warning)', fontSize: '10px' }}>Pending Partner — Incomplete Data</div>
+            <p style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-1)' }}>
               Document generation will be blocked until all required fields are filled in.
             </p>
-            {partner.notes && (
-              <p className="text-yellow-300/80 mt-2 text-xs">{partner.notes}</p>
-            )}
+            {partner.notes && <p className="mt-2" style={{ fontSize: 'var(--fs-caption)', color: 'var(--fg-2)' }}>{partner.notes}</p>}
           </div>
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-6">
-        <div className="bg-card border border-border rounded-lg p-5">
-          <h3 className="text-sm font-medium text-muted-foreground mb-4">General</h3>
-          <dl className="space-y-3">
-            <Field label="Country" value={partner.country} />
-            <Field label="Type" value={partner.partner_type} />
-            <Field label="Tax ID" value={partner.tax_id} mono />
-            <Field label="Email" value={partner.email} mono />
-          </dl>
-        </div>
+      <div className="grid grid-cols-3 gap-5">
+        <Card label="General">
+          <Field label="Country" value={partner.country} />
+          <Field label="Type" value={partner.partner_type} />
+          <Field label="Tax ID" value={partner.tax_id} mono />
+          <Field label="Email" value={partner.email} mono />
+        </Card>
 
-        <div className="bg-card border border-border rounded-lg p-5">
-          <h3 className="text-sm font-medium text-muted-foreground mb-4">Banking</h3>
-          <dl className="space-y-3">
-            <Field label="IBAN" value={partner.iban} mono />
-            <Field label="SWIFT/BIC" value={partner.swift_bic} mono />
-            <Field label="Bank" value={partner.bank_name} />
-          </dl>
-        </div>
+        <Card label="Banking">
+          <Field label="IBAN" value={partner.iban} mono />
+          <Field label="SWIFT/BIC" value={partner.swift_bic} mono />
+          <Field label="Bank" value={partner.bank_name} />
+        </Card>
 
-        <div className="bg-card border border-border rounded-lg p-5">
-          <h3 className="text-sm font-medium text-muted-foreground mb-4">Commercial</h3>
-          <dl className="space-y-3">
-            <Field label="Linked Entity" value={partner.linked_entity_id} mono />
-            <Field label="Price Type" value={partner.price_type_id} mono />
-            <Field label="Currency" value={partner.currency} mono />
-            <Field label="Contract" value={partner.contract_no} mono />
-            <Field label="Contract Date" value={formatDate(partner.contract_date)} />
-          </dl>
-        </div>
+        <Card label="Commercial">
+          <Field label="Linked Entity" value={partner.linked_entity_id} mono />
+          <Field label="Price Type" value={partner.price_type_id} mono />
+          <Field label="Currency" value={partner.currency} mono />
+          <Field label="Contract" value={partner.contract_no} mono />
+          <Field label="Contract Date" value={formatDate(partner.contract_date)} mono />
+        </Card>
       </div>
 
       {partner.notes && !isPending && (
-        <div className="bg-muted/30 border border-border rounded-lg p-4">
-          <h3 className="text-xs font-medium text-muted-foreground mb-2">Notes</h3>
-          <p className="text-sm">{partner.notes}</p>
+        <div className="p-4" style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
+          <div className="dx-eyebrow mb-2" style={{ fontSize: '10px' }}>Notes</div>
+          <p style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-1)' }}>{partner.notes}</p>
         </div>
       )}
+    </div>
+  );
+}
+
+function Card({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="p-5 bg-card" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
+      <div className="dx-eyebrow mb-4">{label}</div>
+      <dl className="space-y-3">{children}</dl>
+    </div>
+  );
+}
+
+function Field({ label, value, mono }: { label: string; value?: string | null; mono?: boolean }) {
+  const missing = !value || value === 'MISSING' || value.trim() === '';
+  return (
+    <div>
+      <dt className="dx-eyebrow mb-1" style={{ fontSize: '10px', color: 'var(--fg-3)' }}>{label}</dt>
+      <dd
+        className={mono ? 'dx-mono' : ''}
+        style={{
+          fontSize: mono ? '12px' : 'var(--fs-body-sm)',
+          color: missing ? 'var(--status-warning)' : 'var(--fg-1)',
+        }}
+      >
+        {missing ? '⚠ MISSING' : value}
+      </dd>
     </div>
   );
 }

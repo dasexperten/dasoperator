@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Package, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 import { getProductBySku, getContact, type Product } from '@/lib/api';
 
 interface ManufacturerDetail {
@@ -23,7 +23,6 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
 
   useEffect(() => {
     const fetchData = async () => {
-      setLoading(true);
       try {
         const res = await getProductBySku(sku);
         if (!res.success || !res.result || res.result.products.length === 0) {
@@ -34,7 +33,6 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
         const p = res.result.products[0]!;
         setProduct(p);
 
-        // Fetch manufacturer details
         if (p.manufacturer_id) {
           const mfrRes = await getContact(p.manufacturer_id);
           if (mfrRes.success && mfrRes.result) {
@@ -53,8 +51,8 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 text-muted-foreground animate-spin" />
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--fg-muted)' }} />
       </div>
     );
   }
@@ -62,11 +60,23 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
   if (error || !product) {
     return (
       <div className="space-y-4 max-w-2xl">
-        <Link href="/products" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+        <Link
+          href="/products"
+          className="text-sm inline-flex items-center gap-1 transition-colors"
+          style={{ color: 'var(--fg-2)' }}
+        >
           <ArrowLeft className="h-4 w-4" />
           Back to Products
         </Link>
-        <div className="bg-card border border-red-500/30 rounded p-4 text-sm text-red-400">
+        <div
+          className="p-4 text-sm"
+          style={{
+            backgroundColor: 'rgba(229,32,44,0.05)',
+            border: '1px solid rgba(229,32,44,0.2)',
+            color: 'var(--brand-rot)',
+            borderRadius: 'var(--radius-sm)',
+          }}
+        >
           {error ?? 'Product not found'}
         </div>
       </div>
@@ -76,101 +86,133 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
   const skuShort = product.id.replace('prd_', '').toUpperCase();
 
   return (
-    <div className="space-y-6 max-w-4xl">
-      <Link href="/products" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+    <div className="space-y-8 max-w-5xl">
+      <Link
+        href="/products"
+        className="text-sm inline-flex items-center gap-1"
+        style={{ color: 'var(--fg-2)' }}
+      >
         <ArrowLeft className="h-4 w-4" />
         Back to Products
       </Link>
 
       <div>
-        <div className="flex items-center gap-3 mb-1">
-          <Package className="h-6 w-6 text-muted-foreground" />
-          <span className="font-mono text-sm text-muted-foreground">{skuShort}</span>
+        <div className="flex items-center gap-3 mb-3">
+          <span
+            className="dx-mono px-2 py-1"
+            style={{
+              fontSize: '11px',
+              backgroundColor: 'var(--paper-sunk)',
+              border: '1px solid var(--border-hairline)',
+              borderRadius: 'var(--radius-xs)',
+              color: 'var(--fg-2)',
+              letterSpacing: '0.05em',
+            }}
+          >
+            {skuShort}
+          </span>
         </div>
-        <h1 className="text-2xl font-semibold">{product.product_name}</h1>
-        <p className="text-sm text-muted-foreground mt-1">{product.invoice_label}</p>
+        <h1 className="dx-product-name" style={{ fontSize: '40px', color: 'var(--fg-1)', lineHeight: 1.05 }}>
+          {product.product_name}
+        </h1>
+        <p
+          className="mt-3 dx-mono"
+          style={{ fontSize: '13px', color: 'var(--fg-2)', letterSpacing: '0.02em' }}
+        >
+          {product.invoice_label}
+        </p>
       </div>
+
+      <div className="dx-ribbon-rule" />
 
       <div className="grid grid-cols-2 gap-6">
-        <div className="bg-card border border-border rounded-lg p-5">
-          <h3 className="text-sm font-medium text-muted-foreground mb-4">Product Details</h3>
-          <dl className="space-y-3 text-sm">
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Category</dt>
-              <dd>
-                <span className={`px-2 py-1 rounded text-xs ${
-                  product.category === 'Toothpaste'
-                    ? 'bg-blue-500/10 text-blue-400'
-                    : 'bg-orange-500/10 text-orange-400'
-                }`}>
-                  {product.category}
-                </span>
-              </dd>
+        <DetailCard label="Product Details">
+          <DetailRow label="Category" value={
+            <span style={{ color: product.category === 'Toothpaste' ? 'var(--line-innoweiss)' : 'var(--brand-schwarz)' }}>
+              {product.category}
+            </span>
+          } />
+          <DetailRow label="Barcode" value={product.barcode ?? '—'} mono />
+          <DetailRow label="Weight" value={product.weight_kg ? `${product.weight_kg} g` : '—'} mono />
+          <DetailRow label="Volume" value={product.volume_m3_micro ? `${product.volume_m3_micro / 1000} m³ × 10⁻³` : '—'} mono />
+          {product.notes && (
+            <div className="pt-3 mt-3" style={{ borderTop: '1px solid var(--border-hairline)' }}>
+              <div className="dx-eyebrow mb-2" style={{ fontSize: '10px' }}>Notes</div>
+              <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-1)' }}>{product.notes}</div>
             </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Barcode</dt>
-              <dd className="font-mono text-xs">{product.barcode ?? '—'}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Weight</dt>
-              <dd className="font-mono text-xs">{product.weight_kg ? `${product.weight_kg}g` : '—'}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Volume</dt>
-              <dd className="font-mono text-xs">
-                {product.volume_m3_micro ? `${product.volume_m3_micro / 1000} m³ × 10⁻³` : '—'}
-              </dd>
-            </div>
-            {product.notes && (
-              <div className="pt-2 border-t border-border">
-                <dt className="text-muted-foreground text-xs mb-1">Notes</dt>
-                <dd className="text-sm">{product.notes}</dd>
-              </div>
-            )}
-          </dl>
-        </div>
-
-        <div className="bg-card border border-border rounded-lg p-5">
-          <h3 className="text-sm font-medium text-muted-foreground mb-4">Manufacturer</h3>
-          {manufacturer ? (
-            <dl className="space-y-3 text-sm">
-              <div>
-                <dt className="text-muted-foreground text-xs mb-1">Name</dt>
-                <dd className="font-medium">{manufacturer.name}</dd>
-              </div>
-              {manufacturer.country && (
-                <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Country</dt>
-                  <dd>{manufacturer.country}</dd>
-                </div>
-              )}
-              {manufacturer.city && (
-                <div className="flex justify-between">
-                  <dt className="text-muted-foreground">City</dt>
-                  <dd>{manufacturer.city}</dd>
-                </div>
-              )}
-              {manufacturer.role && (
-                <div className="pt-2 border-t border-border">
-                  <dt className="text-muted-foreground text-xs mb-1">Role</dt>
-                  <dd className="text-sm">{manufacturer.role}</dd>
-                </div>
-              )}
-            </dl>
-          ) : (
-            <p className="text-sm text-muted-foreground">Loading manufacturer...</p>
           )}
-        </div>
+        </DetailCard>
+
+        <DetailCard label="Manufacturer">
+          {manufacturer ? (
+            <>
+              <DetailRow
+                label="Name"
+                value={<span className="dx-product-name" style={{ fontSize: 'var(--fs-body)' }}>{manufacturer.name}</span>}
+              />
+              {manufacturer.country && <DetailRow label="Country" value={manufacturer.country} />}
+              {manufacturer.city && <DetailRow label="City" value={manufacturer.city} />}
+              {manufacturer.role && (
+                <div className="pt-3 mt-3" style={{ borderTop: '1px solid var(--border-hairline)' }}>
+                  <div className="dx-eyebrow mb-2" style={{ fontSize: '10px' }}>Role</div>
+                  <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-1)' }}>{manufacturer.role}</div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div style={{ color: 'var(--fg-3)' }}>Loading manufacturer...</div>
+          )}
+        </DetailCard>
       </div>
 
-      <div className="bg-muted/30 border border-border rounded-lg p-4 text-xs text-muted-foreground">
-        <p><strong className="text-foreground">Coming in Phase 3.0c+:</strong></p>
-        <ul className="list-disc list-inside mt-2 space-y-1">
-          <li>Active prices by price_type (RUB/USD)</li>
-          <li>Current stock levels across warehouses</li>
-          <li>Recent operations history</li>
+      <div
+        className="p-5"
+        style={{
+          backgroundColor: 'var(--paper-sunk)',
+          border: '1px solid var(--border-hairline)',
+          borderRadius: 'var(--radius-md)',
+        }}
+      >
+        <div className="dx-eyebrow mb-3" style={{ color: 'var(--fg-3)' }}>Coming in Future Phases</div>
+        <ul className="space-y-1.5" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
+          <li>· Active prices by price_type (RUB / USD)</li>
+          <li>· Current stock levels across warehouses</li>
+          <li>· Recent operations history</li>
         </ul>
       </div>
+    </div>
+  );
+}
+
+function DetailCard({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div
+      className="p-5 bg-card"
+      style={{
+        border: '1px solid var(--border-hairline)',
+        borderRadius: 'var(--radius-md)',
+      }}
+    >
+      <div className="dx-eyebrow mb-4">{label}</div>
+      <dl className="space-y-3">{children}</dl>
+    </div>
+  );
+}
+
+function DetailRow({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
+  return (
+    <div className="flex justify-between items-baseline gap-4">
+      <dt style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-3)' }}>{label}</dt>
+      <dd
+        className={mono ? 'dx-mono' : ''}
+        style={{
+          fontSize: mono ? '12px' : 'var(--fs-body-sm)',
+          color: 'var(--fg-1)',
+          textAlign: 'right',
+        }}
+      >
+        {value}
+      </dd>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, AlertTriangle, Loader2 } from 'lucide-react';
 import { getPartner, type Partner } from '@/lib/api';
+import { CopyableValue, SectionCard } from '@/components/ui/copyable';
 
 const STATUS_COLORS: Record<Partner['status'], { bg: string; fg: string; border: string }> = {
   active:   { bg: 'rgba(46,125,79,0.08)',  fg: 'var(--status-success)', border: 'rgba(46,125,79,0.3)' },
@@ -13,11 +14,9 @@ const STATUS_COLORS: Record<Partner['status'], { bg: string; fg: string; border:
 };
 
 const MISSING = 'MISSING';
-
 function isMissing(value: string | null | undefined): boolean {
   return !value || value === MISSING || value.trim() === '';
 }
-
 function formatDate(unixSec?: number | null): string {
   if (!unixSec) return '—';
   return new Date(unixSec * 1000).toISOString().split('T')[0]!;
@@ -32,17 +31,10 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
     const fetchPartner = async () => {
       try {
         const res = await getPartner(slug);
-        if (res.success && res.result) {
-          setPartner(res.result);
-          setError(null);
-        } else {
-          setError(res.errors?.[0]?.message ?? 'Partner not found');
-        }
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Network error');
-      } finally {
-        setLoading(false);
-      }
+        if (res.success && res.result) { setPartner(res.result); setError(null); }
+        else { setError(res.errors?.[0]?.message ?? 'Partner not found'); }
+      } catch (e) { setError(e instanceof Error ? e.message : 'Network error'); }
+      finally { setLoading(false); }
     };
     fetchPartner();
   }, [slug]);
@@ -64,6 +56,25 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
 
   const isPending = partner.status === 'pending';
   const statusStyle = STATUS_COLORS[partner.status];
+
+  const generalFields = [
+    { label: 'Country', value: partner.country },
+    { label: 'Type', value: partner.partner_type },
+    { label: 'Tax ID', value: partner.tax_id },
+    { label: 'Email', value: partner.email },
+  ];
+  const bankingFields = [
+    { label: 'IBAN', value: partner.iban },
+    { label: 'SWIFT/BIC', value: partner.swift_bic },
+    { label: 'Bank', value: partner.bank_name },
+  ];
+  const commercialFields = [
+    { label: 'Linked Entity', value: partner.linked_entity_id },
+    { label: 'Price Type', value: partner.price_type_id },
+    { label: 'Currency', value: partner.currency },
+    { label: 'Contract', value: partner.contract_no },
+    { label: 'Contract Date', value: formatDate(partner.contract_date) },
+  ];
 
   return (
     <div className="space-y-8 max-w-5xl">
@@ -104,26 +115,26 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
       )}
 
       <div className="grid grid-cols-3 gap-5">
-        <Card label="General">
-          <Field label="Country" value={partner.country} />
-          <Field label="Type" value={partner.partner_type} />
-          <Field label="Tax ID" value={partner.tax_id} mono />
-          <Field label="Email" value={partner.email} mono />
-        </Card>
+        <SectionCard label="General" fields={generalFields}>
+          <CopyableField label="Country" value={partner.country} />
+          <CopyableField label="Type" value={partner.partner_type} />
+          <CopyableField label="Tax ID" value={partner.tax_id} mono />
+          <CopyableField label="Email" value={partner.email} mono />
+        </SectionCard>
 
-        <Card label="Banking">
-          <Field label="IBAN" value={partner.iban} mono />
-          <Field label="SWIFT/BIC" value={partner.swift_bic} mono />
-          <Field label="Bank" value={partner.bank_name} />
-        </Card>
+        <SectionCard label="Banking" fields={bankingFields}>
+          <CopyableField label="IBAN" value={partner.iban} mono />
+          <CopyableField label="SWIFT/BIC" value={partner.swift_bic} mono />
+          <CopyableField label="Bank" value={partner.bank_name} />
+        </SectionCard>
 
-        <Card label="Commercial">
-          <Field label="Linked Entity" value={partner.linked_entity_id} mono />
-          <Field label="Price Type" value={partner.price_type_id} mono />
-          <Field label="Currency" value={partner.currency} mono />
-          <Field label="Contract" value={partner.contract_no} mono />
-          <Field label="Contract Date" value={formatDate(partner.contract_date)} mono />
-        </Card>
+        <SectionCard label="Commercial" fields={commercialFields}>
+          <CopyableField label="Linked Entity" value={partner.linked_entity_id} mono />
+          <CopyableField label="Price Type" value={partner.price_type_id} mono />
+          <CopyableField label="Currency" value={partner.currency} mono />
+          <CopyableField label="Contract" value={partner.contract_no} mono />
+          <CopyableField label="Contract Date" value={formatDate(partner.contract_date)} mono />
+        </SectionCard>
       </div>
 
       {partner.notes && !isPending && (
@@ -136,28 +147,23 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
   );
 }
 
-function Card({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="p-5 bg-card" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
-      <div className="dx-eyebrow mb-4">{label}</div>
-      <dl className="space-y-3">{children}</dl>
-    </div>
-  );
-}
-
-function Field({ label, value, mono }: { label: string; value?: string | null; mono?: boolean }) {
+function CopyableField({ label, value, mono }: { label: string; value?: string | null; mono?: boolean }) {
   const missing = !value || value === 'MISSING' || value.trim() === '';
   return (
     <div>
       <dt className="dx-eyebrow mb-1" style={{ fontSize: '10px', color: 'var(--fg-3)' }}>{label}</dt>
-      <dd
-        className={mono ? 'dx-mono' : ''}
-        style={{
-          fontSize: mono ? '12px' : 'var(--fs-body-sm)',
-          color: missing ? 'var(--status-warning)' : 'var(--fg-1)',
-        }}
-      >
-        {missing ? '⚠ MISSING' : value}
+      <dd>
+        {missing ? (
+          <span style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--status-warning)' }}>
+            ⚠ MISSING
+          </span>
+        ) : (
+          <CopyableValue
+            value={value!}
+            mono={mono}
+            style={{ fontSize: mono ? '12px' : 'var(--fs-body-sm)', color: 'var(--fg-1)' }}
+          />
+        )}
       </dd>
     </div>
   );

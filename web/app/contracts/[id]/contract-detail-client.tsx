@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { getContract, type Contract } from '@/lib/api';
+import { CopyableValue, SectionCard } from '@/components/ui/copyable';
 
 const STATUS_COLORS: Record<Contract['status'], { bg: string; fg: string; border: string }> = {
   active:    { bg: 'rgba(46,125,79,0.08)',  fg: 'var(--status-success)', border: 'rgba(46,125,79,0.3)' },
@@ -49,6 +50,17 @@ export default function ContractDetailClient({ contractId }: { contractId: strin
 
   const statusStyle = STATUS_COLORS[contract.status];
 
+  const partyFields = [
+    { label: 'Our Entity', value: contract.entity_abbreviation },
+    { label: 'Partner', value: contract.partner_trade_name },
+    { label: 'Currency', value: contract.currency },
+  ];
+  const termsFields = [
+    { label: 'Signed', value: formatDate(contract.signed_date) },
+    { label: 'Expires', value: formatDate(contract.expiry_date) },
+    { label: 'Incoterms', value: contract.incoterms },
+  ];
+
   return (
     <div className="space-y-8 max-w-4xl">
       <Link href="/contracts" className="text-sm inline-flex items-center gap-1" style={{ color: 'var(--fg-2)' }}>
@@ -69,16 +81,16 @@ export default function ContractDetailClient({ contractId }: { contractId: strin
       <div className="dx-ribbon-rule" />
 
       <div className="grid grid-cols-2 gap-5">
-        <Card label="Parties">
-          <Field label="Our Entity" value={contract.entity_abbreviation} mono />
-          <Field label="Partner" value={contract.partner_trade_name} />
-          <Field label="Currency" value={contract.currency} mono />
-        </Card>
-        <Card label="Dates & Terms">
-          <Field label="Signed" value={formatDate(contract.signed_date)} mono />
-          <Field label="Expires" value={formatDate(contract.expiry_date)} mono />
-          <Field label="Incoterms" value={contract.incoterms ?? '—'} />
-        </Card>
+        <SectionCard label="Parties" fields={partyFields}>
+          <CopyableField label="Our Entity" value={contract.entity_abbreviation} mono />
+          <CopyableField label="Partner" value={contract.partner_trade_name} />
+          <CopyableField label="Currency" value={contract.currency} mono />
+        </SectionCard>
+        <SectionCard label="Dates & Terms" fields={termsFields}>
+          <CopyableField label="Signed" value={formatDate(contract.signed_date)} mono />
+          <CopyableField label="Expires" value={formatDate(contract.expiry_date)} mono />
+          <CopyableField label="Incoterms" value={contract.incoterms ?? '—'} />
+        </SectionCard>
       </div>
 
       {contract.notes && (
@@ -91,20 +103,22 @@ export default function ContractDetailClient({ contractId }: { contractId: strin
   );
 }
 
-function Card({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="p-5 bg-card" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
-      <div className="dx-eyebrow mb-4">{label}</div>
-      <dl className="space-y-3">{children}</dl>
-    </div>
-  );
-}
-
-function Field({ label, value, mono }: { label: string; value?: string | null; mono?: boolean }) {
+function CopyableField({ label, value, mono }: { label: string; value?: string | null; mono?: boolean }) {
+  const missing = !value || value === 'MISSING' || value === '—' || value.trim() === '';
   return (
     <div>
       <dt className="dx-eyebrow mb-1" style={{ fontSize: '10px', color: 'var(--fg-3)' }}>{label}</dt>
-      <dd className={mono ? 'dx-mono' : ''} style={{ fontSize: mono ? '12px' : 'var(--fs-body-sm)', color: 'var(--fg-1)' }}>{value ?? '—'}</dd>
+      <dd>
+        {missing ? (
+          <span style={{ fontSize: mono ? '12px' : 'var(--fs-body-sm)', color: 'var(--fg-3)' }}>—</span>
+        ) : (
+          <CopyableValue
+            value={value!}
+            mono={mono}
+            style={{ fontSize: mono ? '12px' : 'var(--fs-body-sm)', color: 'var(--fg-1)' }}
+          />
+        )}
+      </dd>
     </div>
   );
 }

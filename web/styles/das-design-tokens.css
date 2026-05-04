@@ -7,7 +7,7 @@
    ========================================================================== */
 
 /* ---------- Webfonts (substitutions flagged in README) ---------- */
-@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=Archivo+Narrow:wght@400;500;600;700&family=Fraunces:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=Archivo+Narrow:wght@400;500;600;700&family=Fraunces:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Manrope:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
 /* ---------- Brand fonts (uploaded) ---------- */
 /* NOTE: fonts/Eras-Bold_Regular.ttf the client uploaded is corrupted —
@@ -123,7 +123,8 @@
   --font-body:     'Archivo', 'Helvetica Neue', Arial, sans-serif;
   --font-narrow:   'Archivo Narrow', 'Archivo', Arial, sans-serif;
   --font-accent:   'Fraunces', 'Iowan Old Style', Georgia, serif;
-  --font-mono:     'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-accent-jakarta: 'Plus Jakarta Sans', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono:     'Manrope', 'Helvetica Neue', Arial, sans-serif;
 
   /* ---------------- TYPE SCALE ---------------- */
   /* Decisive, modernist scale. Display sizes skew tight & heavy. */

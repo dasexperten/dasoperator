@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { ArrowLeft, Loader2 } from 'lucide-react';
-import { getContract, type Contract } from '@/lib/api';
+import { Loader2 } from 'lucide-react';
+import { getContract, getPartner, type Contract, type Partner } from '@/lib/api';
 import { CopyableValue, SectionCard } from '@/components/ui/copyable';
+import Breadcrumb from '@/components/layout/breadcrumb';
 
 const STATUS_COLORS: Record<Contract['status'], { bg: string; fg: string; border: string }> = {
   active:    { bg: 'rgba(46,125,79,0.08)',  fg: 'var(--status-success)', border: 'rgba(46,125,79,0.3)' },
@@ -18,38 +18,46 @@ function formatDate(unix?: number | null): string {
   return new Date(unix * 1000).toISOString().split('T')[0]!;
 }
 
-export default function ContractDetailClient({ contractId }: { contractId: string }) {
+export default function ContractDetailClient({ partnerSlug, contractId }: { partnerSlug: string; contractId: string }) {
   const [contract, setContract] = useState<Contract | null>(null);
+  const [partner, setPartner] = useState<Partner | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await getContract(contractId);
-        if (res.success && res.result) { setContract(res.result); setError(null); }
-        else { setError(res.errors[0]?.message ?? 'Contract not found'); }
+        const [cRes, pRes] = await Promise.all([
+          getContract(contractId),
+          getPartner(partnerSlug),
+        ]);
+        if (cRes.success && cRes.result) setContract(cRes.result);
+        else setError(cRes.errors[0]?.message ?? 'Contract not found');
+        if (pRes.success && pRes.result) setPartner(pRes.result);
       } catch (e) { setError(e instanceof Error ? e.message : 'Network error'); }
       finally { setLoading(false); }
     };
     fetchData();
-  }, [contractId]);
+  }, [contractId, partnerSlug]);
 
   if (loading) return <div className="flex items-center justify-center py-16"><Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--fg-muted)' }} /></div>;
 
   if (error || !contract) {
     return (
       <div className="space-y-4 max-w-2xl">
-        <Link href="/contracts" className="text-sm inline-flex items-center gap-1" style={{ color: 'var(--fg-2)' }}>
-          <ArrowLeft className="h-4 w-4" />Back to Contracts
-        </Link>
-        <div className="p-4 text-sm" style={{ backgroundColor: 'rgba(229,32,44,0.05)', border: '1px solid rgba(229,32,44,0.2)', color: 'var(--brand-rot)', borderRadius: 'var(--radius-sm)' }}>{error ?? 'Contract not found'}</div>
+        <Breadcrumb items={[
+          { label: 'Partners', href: '/partners' },
+          { label: partner?.trade_name ?? partnerSlug, href: `/partners/${partnerSlug}` },
+          { label: 'Contract not found' },
+        ]} />
+        <div className="p-4 text-sm" style={{ backgroundColor: 'rgba(229,32,44,0.05)', border: '1px solid rgba(229,32,44,0.2)', color: 'var(--brand-rot)', borderRadius: 'var(--radius-sm)' }}>
+          {error ?? 'Contract not found'}
+        </div>
       </div>
     );
   }
 
   const statusStyle = STATUS_COLORS[contract.status];
-
   const partyFields = [
     { label: 'Our Entity', value: contract.entity_abbreviation },
     { label: 'Partner', value: contract.partner_trade_name },
@@ -63,9 +71,11 @@ export default function ContractDetailClient({ contractId }: { contractId: strin
 
   return (
     <div className="space-y-8 max-w-4xl">
-      <Link href="/contracts" className="text-sm inline-flex items-center gap-1" style={{ color: 'var(--fg-2)' }}>
-        <ArrowLeft className="h-4 w-4" />Back to Contracts
-      </Link>
+      <Breadcrumb items={[
+        { label: 'Partners', href: '/partners' },
+        { label: partner?.trade_name ?? partnerSlug, href: `/partners/${partnerSlug}` },
+        { label: contract.contract_no },
+      ]} />
 
       <div>
         <div className="flex items-center gap-3 mb-3">
@@ -109,15 +119,8 @@ function CopyableField({ label, value, mono }: { label: string; value?: string |
     <div>
       <dt className="dx-eyebrow mb-1" style={{ fontSize: '10px', color: 'var(--fg-3)' }}>{label}</dt>
       <dd>
-        {missing ? (
-          <span style={{ fontSize: mono ? '12px' : 'var(--fs-body-sm)', color: 'var(--fg-3)' }}>—</span>
-        ) : (
-          <CopyableValue
-            value={value!}
-            mono={mono}
-            style={{ fontSize: mono ? '12px' : 'var(--fs-body-sm)', color: 'var(--fg-1)' }}
-          />
-        )}
+        {missing ? <span style={{ fontSize: mono ? '12px' : 'var(--fs-body-sm)', color: 'var(--fg-3)' }}>—</span>
+                 : <CopyableValue value={value!} mono={mono} style={{ fontSize: mono ? '12px' : 'var(--fs-body-sm)', color: 'var(--fg-1)' }} />}
       </dd>
     </div>
   );

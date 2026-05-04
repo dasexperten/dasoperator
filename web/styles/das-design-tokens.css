@@ -117,8 +117,9 @@
   /* Display  — Eras Bold ITC is the wordmark face but the uploaded TTF is corrupted;
                 stack falls back to Archivo Black until a working file arrives.
      Body     — Archivo (sans), with Narrow variant for tight meta.
-     Accent   — Fraunces serif for apothecary pull-quotes / numerals.
-     Mono     — JetBrains Mono for lab/ingredient/data readouts.       */
+     Accent         — Fraunces serif for apothecary pull-quotes / numerals.
+     Accent-Jakarta — Plus Jakarta Sans for big section headers (24px UPPERCASE).
+     Mono           — Manrope (geometric semi-rounded) for lab/data readouts. */
   --font-display:  'Eras Bold ITC', 'Archivo Black', 'Archivo', 'Helvetica Neue', Arial, sans-serif;
   --font-body:     'Archivo', 'Helvetica Neue', Arial, sans-serif;
   --font-narrow:   'Archivo Narrow', 'Archivo', Arial, sans-serif;

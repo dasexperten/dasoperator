@@ -27,7 +27,6 @@ export default function BindingStatus() {
         setLoading(false);
       }
     };
-
     fetchHealth();
     const interval = setInterval(fetchHealth, 30000);
     return () => clearInterval(interval);
@@ -35,38 +34,51 @@ export default function BindingStatus() {
 
   return (
     <div>
-      <h3 className="text-sm font-medium text-muted-foreground mb-3">Infrastructure Status</h3>
-      <div className="grid grid-cols-5 gap-3">
+      <div className="dx-eyebrow mb-4">Infrastructure Status</div>
+      <div className="grid grid-cols-5 gap-4">
         {BINDINGS.map((name) => {
           const binding = data?.bindings[name];
 
           return (
             <div
               key={name}
-              className="bg-card border border-border rounded-lg p-4 flex flex-col items-center"
+              className="bg-card p-5 transition-colors"
+              style={{
+                border: '1px solid var(--border-hairline)',
+                borderRadius: 'var(--radius-md)',
+              }}
             >
-              <div className="text-xs text-muted-foreground mb-2">{name}</div>
+              <div
+                className="dx-eyebrow mb-3"
+                style={{ fontSize: '10px', color: 'var(--fg-3)' }}
+              >
+                {name}
+              </div>
               {loading || !binding ? (
-                <Loader2 className="h-6 w-6 text-muted-foreground animate-spin" />
+                <Loader2 className="h-5 w-5 animate-spin" style={{ color: 'var(--fg-muted)' }} />
               ) : binding.status === 'ok' ? (
-                <>
-                  <CheckCircle2 className="h-6 w-6 text-green-500 mb-1" />
-                  <div className="text-xs font-mono text-muted-foreground">
-                    {binding.latency_ms}ms
+                <div>
+                  <CheckCircle2 className="h-5 w-5 mb-2" style={{ color: 'var(--status-success)' }} />
+                  <div className="dx-mono" style={{ fontSize: '13px', color: 'var(--fg-2)' }}>
+                    {binding.latency_ms}<span style={{ color: 'var(--fg-3)' }}>ms</span>
                   </div>
-                </>
+                </div>
               ) : (
-                <>
-                  <XCircle className="h-6 w-6 text-red-500 mb-1" />
-                  <div className="text-xs text-red-400">error</div>
-                </>
+                <div>
+                  <XCircle className="h-5 w-5 mb-2" style={{ color: 'var(--brand-rot)' }} />
+                  <div className="dx-mono" style={{ fontSize: '12px', color: 'var(--brand-rot)' }}>
+                    error
+                  </div>
+                </div>
               )}
             </div>
           );
         })}
       </div>
       {error && (
-        <p className="mt-2 text-xs text-red-400">Error fetching health: {error}</p>
+        <p className="mt-3 text-xs" style={{ color: 'var(--brand-rot)' }}>
+          Error: {error}
+        </p>
       )}
     </div>
   );

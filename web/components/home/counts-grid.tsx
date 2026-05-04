@@ -10,8 +10,6 @@ interface Counts {
   warehouses: number;
 }
 
-// Static counts from Phase 1.2 reference seed (we know these are correct)
-// Future: replace with /api/counts endpoint
 const REFERENCE_COUNTS: Counts = {
   companies: 4,
   partners: 6,
@@ -39,7 +37,7 @@ export default function CountsGrid() {
   }, []);
 
   const cards = [
-    { label: 'Companies', value: counts.companies, live: false },
+    { label: 'Entities', value: counts.companies, live: false },
     { label: 'Partners', value: counts.partners, live: false },
     { label: 'Products', value: counts.products, live: productsLive !== null },
     { label: 'Warehouses', value: counts.warehouses, live: false },
@@ -47,17 +45,45 @@ export default function CountsGrid() {
 
   return (
     <div>
-      <h3 className="text-sm font-medium text-muted-foreground mb-3">Reference Data</h3>
-      <div className="grid grid-cols-4 gap-3">
+      <div className="dx-eyebrow mb-4">Reference Data</div>
+      <div className="grid grid-cols-4 gap-4">
         {cards.map((card) => (
           <div
             key={card.label}
-            className="bg-card border border-border rounded-lg p-4"
+            className="bg-card p-5"
+            style={{
+              border: '1px solid var(--border-hairline)',
+              borderRadius: 'var(--radius-md)',
+            }}
           >
-            <div className="text-3xl font-semibold text-foreground">{card.value}</div>
-            <div className="text-xs text-muted-foreground mt-1">
-              {card.label}
-              {card.live && <span className="ml-1 text-green-500">●</span>}
+            <div
+              className="dx-numeral"
+              style={{
+                fontSize: '40px',
+                color: 'var(--fg-1)',
+                lineHeight: 1,
+              }}
+            >
+              {card.value}
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <div
+                className="dx-eyebrow"
+                style={{ fontSize: '10px', color: 'var(--fg-3)' }}
+              >
+                {card.label}
+              </div>
+              {card.live && (
+                <div
+                  className="rounded-full"
+                  style={{
+                    width: '6px',
+                    height: '6px',
+                    backgroundColor: 'var(--status-success)',
+                  }}
+                  title="Live data"
+                />
+              )}
             </div>
           </div>
         ))}

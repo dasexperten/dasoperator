@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Plus, AlertTriangle, Loader2 } from 'lucide-react';
-import { getPartner, getPartnerContracts, type Partner, type Contract } from '@/lib/api';
+import { getPartner, getPartnerContracts, getOperations, type Partner, type Contract, type Operation } from '@/lib/api';
 import { CopyableValue, SectionCard } from '@/components/ui/copyable';
 import Breadcrumb from '@/components/layout/breadcrumb';
 
@@ -30,18 +30,28 @@ function formatDate(unixSec?: number | null): string {
   return new Date(unixSec * 1000).toISOString().split('T')[0]!;
 }
 
+function formatMoney(minor: number, currency: string): string {
+  const factor = ['VND', 'JPY', 'KRW'].includes(currency) ? 1 : 100;
+  return (minor / factor).toLocaleString('en-US', {
+    minimumFractionDigits: factor === 1 ? 0 : 2,
+    maximumFractionDigits: factor === 1 ? 0 : 2,
+  });
+}
+
 export default function PartnerDetailClient({ slug }: { slug: string }) {
   const [partner, setPartner] = useState<Partner | null>(null);
   const [contracts, setContracts] = useState<Contract[]>([]);
+  const [operations, setOperations] = useState<Operation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [partnerRes, contractsRes] = await Promise.all([
+        const [partnerRes, contractsRes, opsRes] = await Promise.all([
           getPartner(slug),
           getPartnerContracts(slug),
+          getOperations({ partner_id: slug }),
         ]);
 
         if (partnerRes.success && partnerRes.result) {
@@ -53,6 +63,10 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
 
         if (contractsRes.success && contractsRes.result) {
           setContracts(contractsRes.result.contracts);
+        }
+
+        if (opsRes.success && opsRes.result) {
+          setOperations(opsRes.result.operations);
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
@@ -185,13 +199,47 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
         )}
       </SectionListBlock>
 
-      {/* OPERATIONS SECTION — create form active; list endpoint deferred to PR-C3 */}
+      {/* OPERATIONS SECTION */}
       <SectionListBlock
         label="Operations"
-        count={0}
+        count={operations.length}
         addNewHref={`/partners/${slug}/operations/new`}
       >
-        <EmptyTable message="Operations module — coming in next phase" />
+        {operations.length === 0 ? (
+          <EmptyTable message="No operations yet — click [+ Add new] to create draft" />
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                <Th>Reference</Th><Th>Date</Th><Th>Type</Th><Th>Contract</Th><Th>Total</Th><Th>Status</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {operations.map((op) => (
+                <tr key={op.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                  <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-1)' }}>
+                    {op.reference ?? op.id}
+                  </td>
+                  <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>
+                    {formatDate(op.operation_date)}
+                  </td>
+                  <td className="px-4 py-3 dx-eyebrow" style={{ fontSize: '10px', color: 'var(--fg-2)', letterSpacing: '0.15em' }}>
+                    {op.operation_type}
+                  </td>
+                  <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-2)' }}>
+                    {op.contract_no ?? '—'}
+                  </td>
+                  <td className="px-4 py-3 dx-mono text-right" style={{ fontSize: '12px', color: 'var(--fg-1)' }}>
+                    {formatMoney(op.total_amount, op.currency)} {op.currency}
+                  </td>
+                  <td className="px-4 py-3 dx-eyebrow" style={{ fontSize: '10px', color: 'var(--fg-3)', letterSpacing: '0.15em' }}>
+                    {op.status}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </SectionListBlock>
 
       {/* PAYMENTS SECTION (placeholder для PR-B) */}

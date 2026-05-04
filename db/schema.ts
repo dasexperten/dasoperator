@@ -14,6 +14,13 @@ export const companies = sqliteTable("companies", {
   registeredAddress: text("registered_address"),
   baseCurrency: text("base_currency").notNull(),
   notes: text("notes"),
+  // Banking fields (added by migration 0006_invoice_fields.sql) — used by
+  // the seller block on Commercial Invoice PDFs.
+  bankName: text("bank_name"),
+  bankAccount: text("bank_account"),
+  swift: text("swift"),
+  iban: text("iban"),
+  bankAddress: text("bank_address"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
   deletedAt: integer("deleted_at"),
@@ -67,6 +74,9 @@ export const products = sqliteTable("products", {
   buyPrice: integer("buy_price"),               // в копейках/центах
   buyCurrency: text("buy_currency"),
   buyTerm: text("buy_term"),                    // FOB / EXW / CIF
+  // Per-line HS code (added by 0006_invoice_fields.sql) — drives the
+  // HS Code column on CI/PL line item tables.
+  hsCode: text("hs_code"),
   notes: text("notes"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
@@ -179,6 +189,10 @@ export const stocks = sqliteTable("stocks", {
 // =============================================================================
 // OPERATIONS — Sale / Purchase / Transfer
 // =============================================================================
+// status values (CHECK in 0006_invoice_fields.sql):
+//   draft / issued / order_fulfilment / production / shipped / delivered / cancelled
+// payment_status values (CHECK in 0005_contracts_and_payment.sql):
+//   paid / unpaid / partly
 export const operations = sqliteTable("operations", {
   id: text("id").primaryKey(),
   operationDate: integer("operation_date").notNull(),
@@ -192,7 +206,7 @@ export const operations = sqliteTable("operations", {
   shipperId: text("shipper_id").references(() => partners.id),
   orderDocRef: text("order_doc_ref"),
   status: text("status").notNull().default("draft"),
-  paid: integer("paid").notNull().default(0),
+  paid: integer("paid").notNull().default(0),  // deprecated by payment_status; kept for back-compat
   priceTypeId: text("price_type_id").references(() => priceTypes.id),
   currency: text("currency"),
   fxRateToUsd: integer("fx_rate_to_usd"),  // в микро-единицах × 1,000,000
@@ -205,11 +219,20 @@ export const operations = sqliteTable("operations", {
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
   deletedAt: integer("deleted_at"),
+  // Added by 0004_add_operations_reference.sql
+  reference: text("reference"),
+  // Added by 0005_contracts_and_payment.sql (contracts table not yet modelled
+  // in this schema.ts; FK omitted intentionally to keep the diff focused).
+  contractId: text("contract_id"),
+  paymentStatus: text("payment_status").notNull().default("unpaid"),
+  paidAmount: integer("paid_amount").notNull().default(0),
 }, (t) => ({
   dateIdx: index("idx_operations_date").on(t.operationDate),
   typeIdx: index("idx_operations_type").on(t.operationType),
   statusIdx: index("idx_operations_status").on(t.status),
   partnerIdx: index("idx_operations_partner").on(t.partnerId),
+  referenceIdx: index("idx_operations_reference").on(t.reference),
+  contractIdx: index("idx_operations_contract").on(t.contractId),
 }));
 
 // =============================================================================

@@ -10,7 +10,9 @@ import { getRatesFor } from '../lib/fx-store';
 const operations = new Hono<{ Bindings: Env }>();
 
 // =============================================================================
-// Schemas (unchanged from Phase 2.0c-2)
+// Schemas — Phase 3.0e: contract_id replaces partner_id+our_company_id+currency.
+// Backend reads contract row to derive those three fields.
+// (Q1=A hard break — frontend MUST supply contract_id.)
 // =============================================================================
 
 const lineItemSchema = z.object({
@@ -24,27 +26,25 @@ const lineItemSchema = z.object({
 });
 
 const createOperationSchema = z.object({
+  // NEW required field — derives partner+company+currency.
+  contract_id: z.string().min(1),
+
+  // Operation type — DB CHECK constraint allows only these 3 values.
+  // 'service' would require ALTER TABLE migration; not in this PR.
   operation_type: z.enum(['sale', 'purchase', 'transfer']),
   operation_date: z.number().int().positive(),
-  our_company_id: z.string().min(1),
-  partner_id: z.string().nullable().optional(),
+
+  // Optional — supplied by user, not derivable from contract.
   manufacturer_id: z.string().nullable().optional(),
   warehouse_from_id: z.string().nullable().optional(),
   warehouse_to_id: z.string().nullable().optional(),
-  currency: z.string().min(3).max(3),
   price_type_id: z.string().nullable().optional(),
   incoterms: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  order_doc_ref: z.string().nullable().optional(),
+
   line_items: z.array(lineItemSchema).min(1),
 }).refine(
-  (data) => {
-    if (data.operation_type === 'sale' || data.operation_type === 'purchase') {
-      return !!data.partner_id;
-    }
-    return true;
-  },
-  { message: 'partner_id required for sale and purchase operations' }
-).refine(
   (data) => {
     if (data.operation_type === 'sale' || data.operation_type === 'transfer') {
       return !!data.warehouse_from_id;
@@ -90,6 +90,14 @@ interface PartnerRow {
   status: string;
 }
 
+interface ContractRow {
+  id: string;
+  partner_id: string;
+  our_company_id: string;
+  currency: string;
+  status: string;
+}
+
 // =============================================================================
 // POST /api/operations
 // =============================================================================
@@ -113,36 +121,58 @@ operations.post('/', async (c) => {
   const data = parsed.data;
   const warnings: string[] = [];
 
-  // Existence validation (unchanged)
-  const company = await c.env.DB.prepare(
-    'SELECT id, abbreviation FROM companies WHERE id = ?'
-  ).bind(data.our_company_id).first<{ id: string; abbreviation: string }>();
+  // ---------------------------------------------------------------------------
+  // Step 1: Resolve contract → partner_id, our_company_id, currency
+  // ---------------------------------------------------------------------------
+  const contract = await c.env.DB.prepare(
+    'SELECT id, partner_id, our_company_id, currency, status FROM contracts WHERE id = ? AND deleted_at IS NULL'
+  ).bind(data.contract_id).first<ContractRow>();
 
-  if (!company) {
+  if (!contract) {
     return fail(c, 404, [{
-      code: 'company_not_found',
-      message: `our_company_id ${data.our_company_id} does not exist`,
+      code: 'contract_not_found',
+      message: `contract_id ${data.contract_id} does not exist`,
+    }]);
+  }
+  if (contract.status !== 'active') {
+    warnings.push(`contract_status_${contract.status}: contract is not active`);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Step 2: Verify partner exists (consistency check; should always pass)
+  // ---------------------------------------------------------------------------
+  const partner = await c.env.DB.prepare(
+    'SELECT id, trade_name, status FROM partners WHERE id = ? AND deleted_at IS NULL'
+  ).bind(contract.partner_id).first<PartnerRow>();
+
+  if (!partner) {
+    return fail(c, 500, [{
+      code: 'partner_inconsistent',
+      message: `Contract ${contract.id} references missing partner ${contract.partner_id}`,
     }]);
   }
 
-  let partner: PartnerRow | null = null;
-  if (data.partner_id) {
-    partner = await c.env.DB.prepare(
-      'SELECT id, trade_name, status FROM partners WHERE id = ? AND deleted_at IS NULL'
-    ).bind(data.partner_id).first<PartnerRow>();
-
-    if (!partner) {
-      return fail(c, 404, [{
-        code: 'partner_not_found',
-        message: `partner_id ${data.partner_id} does not exist`,
-      }]);
-    }
-
-    if (partner.status === 'pending' || partner.status === 'blocked') {
-      warnings.push(`partner_${partner.status}: ${partner.trade_name} has status ${partner.status}`);
-    }
+  if (partner.status === 'pending' || partner.status === 'blocked') {
+    warnings.push(`partner_${partner.status}: ${partner.trade_name} has status ${partner.status}`);
   }
 
+  // ---------------------------------------------------------------------------
+  // Step 3: Verify company (FK)
+  // ---------------------------------------------------------------------------
+  const company = await c.env.DB.prepare(
+    'SELECT id, abbreviation FROM companies WHERE id = ?'
+  ).bind(contract.our_company_id).first<{ id: string; abbreviation: string }>();
+
+  if (!company) {
+    return fail(c, 500, [{
+      code: 'company_inconsistent',
+      message: `Contract references non-existent company ${contract.our_company_id}`,
+    }]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Step 4: Warehouse existence
+  // ---------------------------------------------------------------------------
   if (data.warehouse_from_id) {
     const wh = await c.env.DB.prepare(
       'SELECT id FROM warehouses WHERE id = ?'
@@ -166,6 +196,9 @@ operations.post('/', async (c) => {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Step 5: Product existence
+  // ---------------------------------------------------------------------------
   const productIds = data.line_items.map((li) => li.product_id);
   const placeholders = productIds.map(() => '?').join(', ');
   const productRows = await c.env.DB.prepare(
@@ -185,12 +218,14 @@ operations.post('/', async (c) => {
     }]);
   }
 
-  // Issue reference number
-  const sequenceId = sequenceIdForCompany(data.our_company_id);
+  // ---------------------------------------------------------------------------
+  // Step 6: Issue reference number from company sequence
+  // ---------------------------------------------------------------------------
+  const sequenceId = sequenceIdForCompany(contract.our_company_id);
   if (!sequenceId) {
     return fail(c, 500, [{
       code: 'sequence_mapping_missing',
-      message: `No sequence mapped for company ${data.our_company_id}`,
+      message: `No sequence mapped for company ${contract.our_company_id}`,
     }]);
   }
 
@@ -202,23 +237,23 @@ operations.post('/', async (c) => {
     }]);
   }
 
-  // -------------------------------------------------------------------------
-  // FX lookup — Phase 2.0c-2b integration
-  // -------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Step 7: FX lookup — Phase 2.0c-2b integration (preserved per-line FX)
+  // ---------------------------------------------------------------------------
   const opDateStr = isoDate(data.operation_date);
   let fxRateToUsdNano: number | null = null;
 
-  if (data.currency === 'USD') {
+  if (contract.currency === 'USD') {
     fxRateToUsdNano = 1_000_000_000; // 1.0 in nano units
   } else {
     const snapshot = await getRatesFor(c.env.FX, opDateStr);
     if (snapshot) {
-      const rate = getRateToUsdNano(snapshot, data.currency);
+      const rate = getRateToUsdNano(snapshot, contract.currency);
       if (rate !== null) {
         fxRateToUsdNano = rate;
       } else {
         warnings.push(
-          `fx_currency_unsupported: ${data.currency} not in CBR feed for ${opDateStr}`
+          `fx_currency_unsupported: ${contract.currency} not in CBR feed for ${opDateStr}`
         );
       }
     } else {
@@ -228,7 +263,9 @@ operations.post('/', async (c) => {
     }
   }
 
-  // Compute money fields with FX integration
+  // ---------------------------------------------------------------------------
+  // Step 8: Compute money fields with per-line FX
+  // ---------------------------------------------------------------------------
   let totalAmount = 0;
   const lineItemsComputed = data.line_items.map((li) => {
     const product = productMap.get(li.product_id)!;
@@ -243,7 +280,7 @@ operations.post('/', async (c) => {
     totalAmount += lineAmount;
 
     const lineUsdEquiv = fxRateToUsdNano !== null
-      ? applyFxToAmount(lineAmount, fxRateToUsdNano, data.currency)
+      ? applyFxToAmount(lineAmount, fxRateToUsdNano, contract.currency)
       : null;
 
     return {
@@ -257,44 +294,55 @@ operations.post('/', async (c) => {
       discount_pct: li.discount_pct,
       unit_price_after_disc: unitPriceAfterDisc,
       line_amount: lineAmount,
-      currency: data.currency,
+      currency: contract.currency,
       line_usd_equiv: lineUsdEquiv,
     };
   });
 
   const totalUsdEquiv = fxRateToUsdNano !== null
-    ? applyFxToAmount(totalAmount, fxRateToUsdNano, data.currency)
+    ? applyFxToAmount(totalAmount, fxRateToUsdNano, contract.currency)
     : null;
 
-  // Build batch
+  // ---------------------------------------------------------------------------
+  // Step 9: Atomic batch INSERT
+  // (Note: 'paid' column dropped in migration 0006; not in INSERT list.)
+  // ---------------------------------------------------------------------------
   const operationId = genId('op');
   const now = Math.floor(Date.now() / 1000);
 
   const insertOpStmt = c.env.DB.prepare(`
     INSERT INTO operations (
-      id, operation_date, operation_type, partner_id, our_company_id,
-      manufacturer_id, warehouse_from_id, warehouse_to_id,
-      shipment_scheme, shipper_id, order_doc_ref, reference, status, paid,
-      price_type_id, currency, fx_rate_to_usd, total_amount, total_usd_equiv,
-      incoterms, hs_code, lead_time_days, notes,
+      id, contract_id, operation_date, operation_type,
+      partner_id, our_company_id, manufacturer_id,
+      warehouse_from_id, warehouse_to_id,
+      reference, status,
+      price_type_id, currency, fx_rate_to_usd,
+      total_amount, total_usd_equiv,
+      incoterms, notes,
       created_at, updated_at, deleted_at
     ) VALUES (
-      ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, 'draft', 0,
-      ?, ?, ?, ?, ?, ?, NULL, NULL, ?,
+      ?, ?, ?, ?,
+      ?, ?, ?,
+      ?, ?,
+      ?, 'draft',
+      ?, ?, ?,
+      ?, ?,
+      ?, ?,
       ?, ?, NULL
     )
   `).bind(
     operationId,
+    contract.id,
     data.operation_date,
     data.operation_type,
-    data.partner_id ?? null,
-    data.our_company_id,
+    contract.partner_id,
+    contract.our_company_id,
     data.manufacturer_id ?? null,
     data.warehouse_from_id ?? null,
     data.warehouse_to_id ?? null,
     seqResult.formatted,
     data.price_type_id ?? null,
-    data.currency,
+    contract.currency,
     fxRateToUsdNano,
     totalAmount,
     totalUsdEquiv,
@@ -335,18 +383,18 @@ operations.post('/', async (c) => {
   return ok(c, {
     operation: {
       id: operationId,
+      contract_id: contract.id,
       reference: seqResult.formatted,
       operation_type: data.operation_type,
       operation_date: data.operation_date,
-      our_company_id: data.our_company_id,
-      partner_id: data.partner_id ?? null,
+      our_company_id: contract.our_company_id,
+      partner_id: contract.partner_id,
       manufacturer_id: data.manufacturer_id ?? null,
       warehouse_from_id: data.warehouse_from_id ?? null,
       warehouse_to_id: data.warehouse_to_id ?? null,
       status: 'draft',
-      paid: 0,
       price_type_id: data.price_type_id ?? null,
-      currency: data.currency,
+      currency: contract.currency,
       fx_rate_to_usd: fxRateToUsdNano,
       total_amount: totalAmount,
       total_usd_equiv: totalUsdEquiv,
@@ -366,9 +414,18 @@ operations.post('/', async (c) => {
 operations.get('/:id', async (c) => {
   const opId = c.req.param('id');
 
-  const op = await c.env.DB.prepare(
-    'SELECT * FROM operations WHERE id = ? AND deleted_at IS NULL'
-  ).bind(opId).first();
+  const op = await c.env.DB.prepare(`
+    SELECT
+      o.*,
+      ct.contract_no, ct.currency as contract_currency,
+      p.trade_name as partner_trade_name,
+      co.abbreviation as entity_abbreviation
+    FROM operations o
+    LEFT JOIN contracts ct ON o.contract_id = ct.id
+    LEFT JOIN partners p ON o.partner_id = p.id
+    LEFT JOIN companies co ON o.our_company_id = co.id
+    WHERE o.id = ? AND o.deleted_at IS NULL
+  `).bind(opId).first();
 
   if (!op) {
     return fail(c, 404, [{
@@ -377,9 +434,13 @@ operations.get('/:id', async (c) => {
     }]);
   }
 
-  const lineItems = await c.env.DB.prepare(
-    'SELECT * FROM line_items WHERE operation_id = ? ORDER BY created_at ASC'
-  ).bind(opId).all();
+  const lineItems = await c.env.DB.prepare(`
+    SELECT li.*, p.product_name, p.invoice_label
+    FROM line_items li
+    LEFT JOIN products p ON li.product_id = p.id
+    WHERE li.operation_id = ?
+    ORDER BY li.created_at ASC
+  `).bind(opId).all();
 
   return ok(c, {
     operation: op,

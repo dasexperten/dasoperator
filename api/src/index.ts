@@ -12,6 +12,7 @@ import partnersRoutes from './routes/partners';
 import sequencesRoutes from './routes/sequences';
 import operationsRoutes from './routes/operations';
 import fxRoutes from './routes/fx';
+import contractsRoutes from './routes/contracts';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
 
@@ -33,11 +34,12 @@ app.notFound((c) => {
   );
 });
 
-app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '0.9.1', phase: '2.0c-2c' }));
+app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.0.0', phase: '3.0d-pre' }));
 app.route('/health', healthRoutes);
 app.route('/api/products', productsRoutes);
 app.route('/api/contacts', contactsRoutes);
 app.route('/api/partners', partnersRoutes);
+app.route('/api/contracts', contractsRoutes);
 app.route('/api/pricer', pricerRoutes);
 app.route('/api/email', emailRoutes);
 app.route('/api/sequences', sequencesRoutes);

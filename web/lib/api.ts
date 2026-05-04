@@ -155,3 +155,59 @@ export async function getPartner(slug: string): Promise<ApiResponse<Partner>> {
     messages: res.messages,
   };
 }
+
+// =============================================================================
+// Contracts (Phase 3.0d-pre)
+// =============================================================================
+
+export interface Contract {
+  id: string;
+  contract_no: string;
+  partner_id: string;
+  partner_trade_name?: string | null;
+  our_company_id: string;
+  entity_abbreviation?: string | null;
+  currency: string;
+  signed_date?: number | null;
+  expiry_date?: number | null;
+  incoterms?: string | null;
+  status: 'draft' | 'active' | 'expired' | 'cancelled';
+  notes?: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ContractsListResponse {
+  count: number;
+  contracts: Contract[];
+}
+
+export async function getContracts() {
+  return apiGet<ContractsListResponse>('/api/contracts');
+}
+
+export async function getContract(id: string) {
+  return apiGet<Contract>(`/api/contracts/${id}`);
+}
+
+export async function getPartnerContracts(slug: string) {
+  return apiGet<{ partner_id: string; count: number; contracts: Contract[] }>(
+    `/api/partners/${slug}/contracts`
+  );
+}
+
+export interface CreateContractBody {
+  contract_no: string;
+  partner_id: string;
+  our_company_id: string;
+  currency: string;
+  signed_date?: number;
+  expiry_date?: number;
+  incoterms?: string;
+  status?: 'draft' | 'active' | 'expired' | 'cancelled';
+  notes?: string;
+}
+
+export async function createContract(body: CreateContractBody) {
+  return apiPost<Contract>('/api/contracts', body);
+}

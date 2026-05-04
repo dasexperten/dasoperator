@@ -1,9 +1,132 @@
+/* =============================================================================
+   Das Operator — Global Styles
+   =============================================================================
+   Imports Das Experten Design System tokens (colors, typography, spacing,
+   shadows). All component styling derives from CSS variables defined in
+   das-design-tokens.css.
+   ============================================================================= */
+
+@import '../styles/das-design-tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
+  /* Apothecary base canvas — warm paper, not stark white */
   body {
-    @apply bg-background text-foreground;
+    background-color: var(--bg-canvas);
+    color: var(--fg-1);
+    font-family: var(--font-body);
+    font-size: var(--fs-body);
+    line-height: var(--lh-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Headings use display font with tight tracking — apothecary editorial */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    letter-spacing: -0.015em;
+    line-height: var(--lh-heading);
+  }
+
+  h1 { font-size: var(--fs-h1); }
+  h2 { font-size: var(--fs-h2); }
+  h3 { font-size: var(--fs-h3); }
+  h4 { font-size: var(--fs-h4); }
+  h5 { font-size: var(--fs-h5); }
+  h6 { font-size: var(--fs-h6); }
+
+  /* Mono for codes, references, IDs */
+  code, pre, kbd {
+    font-family: var(--font-mono);
+  }
+}
+
+/* ===========================================================================
+   Das Experten utility classes — used in JSX as className="dx-eyebrow", etc.
+   These are domain-specific brand patterns from the design system.
+   =========================================================================== */
+
+@layer components {
+  /* Small UPPERCASE eyebrow label — section markers, badges */
+  .dx-eyebrow {
+    font-family: var(--font-narrow);
+    font-size: var(--fs-micro);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--fg-2);
+  }
+
+  .dx-eyebrow-rot {
+    color: var(--brand-rot);
+  }
+
+  /* Display heading — used for hero text in sidebar/headers */
+  .dx-display {
+    font-family: var(--font-display);
+    font-size: var(--fs-display-md);
+    font-weight: 900;
+    letter-spacing: -0.025em;
+    line-height: var(--lh-tight);
+  }
+
+  /* Lede paragraph */
+  .dx-lede {
+    font-size: var(--fs-body-lg);
+    line-height: var(--lh-body);
+    color: var(--fg-1);
+  }
+
+  /* Mono numerals — for prices, references, IDs */
+  .dx-mono {
+    font-family: var(--font-mono);
+    font-feature-settings: 'tnum' 1, 'zero' 1;
+  }
+
+  .dx-numeral {
+    font-family: var(--font-accent);
+    font-style: italic;
+    font-weight: 500;
+  }
+
+  /* Product name — Eras Bold for brand-mark moments */
+  .dx-product-name {
+    font-family: var(--font-display);
+    font-weight: 900;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  /* Three-ribbon divider — schwarz/rot/gold heritage motif */
+  .dx-ribbon-rule {
+    height: 4px;
+    background: linear-gradient(
+      to right,
+      var(--brand-schwarz) 0%,
+      var(--brand-schwarz) 33.33%,
+      var(--brand-rot) 33.33%,
+      var(--brand-rot) 66.66%,
+      var(--brand-gold) 66.66%,
+      var(--brand-gold) 100%
+    );
+    border: 0;
+  }
+
+  /* Small vertical pipe accent — used after pull-quotes */
+  .dx-pipe {
+    display: inline-block;
+    width: 1px;
+    height: 1em;
+    background: var(--border-strong);
+    vertical-align: middle;
+    margin: 0 0.5em;
+  }
+
+  /* Hairline border — apothecary system uses this everywhere */
+  .dx-hairline {
+    border-color: var(--border-hairline);
   }
 }

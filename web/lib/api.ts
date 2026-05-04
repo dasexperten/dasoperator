@@ -211,3 +211,118 @@ export interface CreateContractBody {
 export async function createContract(body: CreateContractBody) {
   return apiPost<Contract>('/api/contracts', body);
 }
+
+// =============================================================================
+// Payments (Phase 3.0e)
+// =============================================================================
+
+export interface Payment {
+  id: string;
+  partner_id: string;
+  partner_trade_name?: string | null;
+  contract_id: string;
+  contract_no?: string | null;
+  contract_currency?: string | null;
+  operation_id: string | null;
+  amount: number;
+  currency: string;
+  payment_date: number;
+  type: 'advance' | 'final' | 'refund' | 'partial';
+  direction: 'incoming' | 'outgoing';
+  notes?: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface PaymentsListResponse {
+  count: number;
+  payments: Payment[];
+}
+
+export async function getPayments(filters?: {
+  partner_id?: string;
+  contract_id?: string;
+  operation_id?: string;
+}) {
+  const params = new URLSearchParams();
+  if (filters?.partner_id) params.set('partner_id', filters.partner_id);
+  if (filters?.contract_id) params.set('contract_id', filters.contract_id);
+  if (filters?.operation_id) params.set('operation_id', filters.operation_id);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return apiGet<PaymentsListResponse>(`/api/payments${qs}`);
+}
+
+export async function getPayment(id: string) {
+  return apiGet<Payment>(`/api/payments/${id}`);
+}
+
+export interface CreatePaymentBody {
+  partner_id: string;
+  contract_id: string;
+  operation_id?: string | null;
+  amount: number;
+  currency: string;
+  payment_date: number;
+  type: 'advance' | 'final' | 'refund' | 'partial';
+  direction: 'incoming' | 'outgoing';
+  notes?: string;
+}
+
+export async function createPayment(body: CreatePaymentBody) {
+  return apiPost<Payment>('/api/payments', body);
+}
+
+// =============================================================================
+// Net Balance (Phase 3.0e — USD pivot)
+// =============================================================================
+
+export interface NetBalanceBreakdown {
+  currency: string;
+  balance_minor: number;
+  balance_usd_cents: number;
+}
+
+export interface PartnerNetBalance {
+  partner_id: string;
+  currencies_breakdown: NetBalanceBreakdown[];
+  net_balance_usd_cents: number;
+  fx_date: string | null;
+  calculated_at: number;
+}
+
+export async function getPartnerNetBalance(slug: string) {
+  return apiGet<PartnerNetBalance>(`/api/partners/${slug}/net-balance`);
+}
+
+export interface BulkNetBalances {
+  count: number;
+  balances: Array<{
+    partner_id: string;
+    net_balance_usd_cents: number;
+    currencies: Record<string, number>;
+  }>;
+  fx_date: string | null;
+}
+
+export async function getAllNetBalances() {
+  return apiGet<BulkNetBalances>('/api/net-balance');
+}
+
+// =============================================================================
+// Product price for contract context (Phase 3.0e — auto-fill)
+// =============================================================================
+
+export interface ProductPriceForContract {
+  price: number | null;
+  currency: string;
+  source: 'price_list' | 'not_found' | 'no_price_type';
+  price_type_id?: string;
+  effective_from?: number;
+  effective_until?: number | null;
+}
+
+export async function getProductPriceForContract(productId: string, contractId: string) {
+  return apiGet<ProductPriceForContract>(
+    `/api/products/${productId}/price?contract_id=${contractId}`
+  );
+}

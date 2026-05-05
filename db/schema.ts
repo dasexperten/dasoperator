@@ -83,6 +83,10 @@ export const manufacturers = sqliteTable("manufacturers", {
   registeredAddressEn: text("registered_address_en"),
   registeredAddressRu: text("registered_address_ru"),
   taxId: text("tax_id"),  // Chinese USCC
+  // Roles + slug (added by 0009)
+  slug: text("slug"),
+  isPackagingManufacturer: integer("is_packaging_manufacturer").notNull().default(0),
+  isLegalSeller: integer("is_legal_seller").notNull().default(0),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
   deletedAt: integer("deleted_at"),
@@ -156,12 +160,15 @@ export const products = sqliteTable("products", {
   descriptionRu: text("description_ru"),
   descriptionEn: text("description_en"),
   descriptionCn: text("description_cn"),
+  // Packaging facility (added by 0009) — distinct from manufacturer_id which is the legal seller.
+  packagingManufacturerId: text("packaging_manufacturer_id").references(() => manufacturers.id),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
   deletedAt: integer("deleted_at"),
 }, (t) => ({
   mfrIdx: index("idx_products_manufacturer").on(t.manufacturerId),
   catIdx: index("idx_products_category").on(t.category),
+  packagingMfrIdx: index("idx_products_packaging_mfr").on(t.packagingManufacturerId),
 }));
 
 // =============================================================================
@@ -307,6 +314,9 @@ export const operations = sqliteTable("operations", {
   reference: text("reference"),
   contractId: text("contract_id"),
   defaultDocumentLanguage: text("default_document_language"),
+  // Invoicer routing flags (added by 0009)
+  deiLayer: integer("dei_layer").notNull().default(0),
+  legalSellerId: text("legal_seller_id").references(() => manufacturers.id),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
   deletedAt: integer("deleted_at"),

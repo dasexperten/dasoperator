@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Search, Loader2, Plus, ChevronUp, ChevronDown } from 'lucide-react';
+import { CopyableValue } from '@/components/ui/copyable';
 import {
   getProductsList, getProductsWithStock, getPricelistMap,
   type ProductListItem, type ProductWithStock,
@@ -338,7 +339,9 @@ export default function ProductsPage() {
                         />
                       </td>
                       <td className="px-4 py-3 tabular-nums" style={{ color: 'var(--fg-3)' }}>
-                        {p.barcode ?? '—'}
+                        {p.barcode ? (
+                          <CopyableValue value={p.barcode} style={{ color: 'var(--fg-3)' }} />
+                        ) : '—'}
                       </td>
                     </tr>
                   );

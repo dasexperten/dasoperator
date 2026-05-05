@@ -2,12 +2,12 @@ import NewContractClient from './new-contract-client';
 
 export function generateStaticParams() {
   return [
-    { slug: 'prt_torwey' },
-    { slug: 'prt_tama' },
-    { slug: 'prt_tori_georgia' },
-    { slug: 'prt_arvitpharm' },
-    { slug: 'prt_natusana' },
-    { slug: 'prt_vip_sales' },
+    { slug: 'torwey' },
+    { slug: 'tama' },
+    { slug: 'tori_georgia' },
+    { slug: 'arvitpharm' },
+    { slug: 'natusana' },
+    { slug: 'vip_sales' },
   ];
 }
 

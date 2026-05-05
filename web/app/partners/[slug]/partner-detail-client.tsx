@@ -125,10 +125,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
       {/* Hero */}
       <div>
         <div className="flex items-center gap-3 mb-3">
-          <span className="dx-mono" style={{ fontSize: '11px', padding: '3px 8px', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)', color: 'var(--fg-2)' }}>
-            {partner.id}
-          </span>
-          <span className="dx-eyebrow inline-block" style={{ padding: '3px 8px', fontSize: '9px', backgroundColor: statusStyle.bg, color: statusStyle.fg, border: `1px solid ${statusStyle.border}`, borderRadius: 'var(--radius-pill)' }}>
+          <span style={{ fontSize: '14px', fontWeight: 600, padding: '4px 10px', backgroundColor: statusStyle.bg, color: statusStyle.fg, border: `1px solid ${statusStyle.border}`, borderRadius: 'var(--radius-pill)' }}>
             {partner.status}
           </span>
         </div>

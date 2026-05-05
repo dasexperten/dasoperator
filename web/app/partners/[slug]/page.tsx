@@ -8,12 +8,12 @@ import PartnerDetailClient from './partner-detail-client';
 
 export function generateStaticParams() {
   return [
-    { slug: 'prt_torwey' },
-    { slug: 'prt_tama' },
-    { slug: 'prt_tori_georgia' },
-    { slug: 'prt_vip_sales' },
-    { slug: 'prt_arvitpharm' },
-    { slug: 'prt_natusana' },
+    { slug: 'torwey' },
+    { slug: 'tama' },
+    { slug: 'tori_georgia' },
+    { slug: 'vip_sales' },
+    { slug: 'arvitpharm' },
+    { slug: 'natusana' },
   ];
 }
 

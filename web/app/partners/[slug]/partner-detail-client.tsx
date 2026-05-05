@@ -22,6 +22,14 @@ const CONTRACT_STATUS_COLORS: Record<Contract['status'], { bg: string; fg: strin
   cancelled: { bg: 'rgba(229,32,44,0.08)',  fg: 'var(--brand-rot)',      border: 'rgba(229,32,44,0.3)' },
 };
 
+// Phase 4.3c — Payment overlay (mirror of /operations page)
+const PAYMENT_OVERLAY: Record<string, { bg: string; fg: string; dot: string; label: string }> = {
+  unpaid:  { bg: 'rgba(229,32,44,0.10)', fg: '#A82029', dot: '#E5202C', label: 'Unpaid' },
+  partial: { bg: 'rgba(125,72,28,0.10)', fg: '#7D481C', dot: '#A06A2C', label: 'Partial' },
+  paid:    { bg: 'rgba(46,125,79,0.10)', fg: '#2E7D4F', dot: '#3E9E63', label: 'Paid' },
+  neutral: { bg: 'var(--paper-sunk)',    fg: 'var(--fg-3)', dot: 'var(--fg-muted)', label: '' },
+};
+
 const MISSING = 'MISSING';
 function isMissing(value: string | null | undefined): boolean {
   return !value || value === MISSING || value.trim() === '';
@@ -143,7 +151,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
         <div className="p-4 flex items-start gap-3" style={{ backgroundColor: 'rgba(199,122,0,0.06)', border: '1px solid rgba(199,122,0,0.25)', borderRadius: 'var(--radius-md)' }}>
           <AlertTriangle className="h-5 w-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--status-warning)' }} />
           <div>
-            <div className="dx-eyebrow mb-1" style={{ color: 'var(--status-warning)', fontSize: '10px' }}>Pending Partner</div>
+            <div className="mb-1" style={{ color: 'var(--status-warning)', fontSize: '14px', fontWeight: 700 }}>Pending Partner</div>
             <p style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-1)' }}>
               Document generation will be blocked until all required fields are filled in.
             </p>
@@ -190,7 +198,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
         {contracts.length === 0 ? (
           <EmptyTable message="No contracts yet" />
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                 <Th>Contract No</Th><Th>Entity</Th><Th>Currency</Th><Th>Signed</Th><Th>Status</Th>
@@ -202,15 +210,15 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
                 return (
                   <tr key={c.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                     <td className="px-4 py-3">
-                      <Link href={`/partners/${slug}/contracts/${c.id}`} className="dx-mono" style={{ fontSize: '12px', color: 'var(--fg-1)' }}>
+                      <Link href={`/partners/${slug}/contracts/${c.id}`} style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', textDecoration: 'underline', textDecorationColor: 'var(--border-hairline)', textUnderlineOffset: '3px' }}>
                         {c.contract_no}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-2)' }}>{c.entity_abbreviation ?? '—'}</td>
-                    <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-2)' }}>{c.currency}</td>
-                    <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>{formatDate(c.signed_date)}</td>
+                    <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>{c.entity_abbreviation ?? '—'}</td>
+                    <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>{c.currency}</td>
+                    <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{formatDate(c.signed_date)}</td>
                     <td className="px-4 py-3">
-                      <span className="dx-eyebrow inline-block" style={{ padding: '3px 8px', fontSize: '9px', backgroundColor: ss.bg, color: ss.fg, border: `1px solid ${ss.border}`, borderRadius: 'var(--radius-pill)', letterSpacing: '0.15em' }}>
+                      <span className="inline-block" style={{ padding: '4px 10px', fontSize: '14px', fontWeight: 600, backgroundColor: ss.bg, color: ss.fg, border: `1px solid ${ss.border}`, borderRadius: 'var(--radius-pill)' }}>
                         {c.status}
                       </span>
                     </td>
@@ -231,40 +239,60 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
         {operations.length === 0 ? (
           <EmptyTable message="No operations yet — click [+ Add new] to create draft" />
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                 <Th>Reference</Th><Th>Date</Th><Th>Type</Th><Th>Contract</Th><Th>Total</Th><Th>Status</Th>
               </tr>
             </thead>
             <tbody>
-              {operations.map((op) => (
-                <tr key={op.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                  <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px' }}>
-                    <Link
-                      href={`/partners/${slug}/operations/${op.id}`}
-                      style={{ color: 'var(--fg-1)', textDecoration: 'underline', textDecorationColor: 'var(--border-hairline)', textUnderlineOffset: '3px' }}
-                    >
-                      {op.reference ?? op.id}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>
-                    {formatDate(op.operation_date)}
-                  </td>
-                  <td className="px-4 py-3 dx-eyebrow" style={{ fontSize: '10px', color: 'var(--fg-2)', letterSpacing: '0.15em' }}>
-                    {op.operation_type}
-                  </td>
-                  <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-2)' }}>
-                    {op.contract_no ?? '—'}
-                  </td>
-                  <td className="px-4 py-3 dx-mono text-right" style={{ fontSize: '12px', color: 'var(--fg-1)' }}>
-                    {formatMoney(op.total_amount, op.currency)} {op.currency}
-                  </td>
-                  <td className="px-4 py-3 dx-eyebrow" style={{ fontSize: '10px', color: 'var(--fg-3)', letterSpacing: '0.15em' }}>
-                    {op.status}
-                  </td>
-                </tr>
-              ))}
+              {operations.map((op) => {
+                const ps = op.payment_state ?? 'neutral';
+                const po = PAYMENT_OVERLAY[ps]!;
+                const total = op.total_amount || 0;
+                const paid = op.paid_amount ?? 0;
+                const pct = total > 0 ? Math.round((paid / total) * 100) : 0;
+                return (
+                  <tr key={op.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                    <td className="px-4 py-3" style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
+                      <Link
+                        href={`/partners/${slug}/operations/${op.id}`}
+                        style={{ color: 'var(--fg-1)', textDecoration: 'underline', textDecorationColor: 'var(--border-hairline)', textUnderlineOffset: '3px' }}
+                      >
+                        {op.reference ?? op.id}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
+                      {formatDate(op.operation_date)}
+                    </td>
+                    <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
+                      {op.operation_type}
+                    </td>
+                    <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
+                      {op.contract_no ?? '—'}
+                    </td>
+                    <td className="px-4 py-3 text-right" style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
+                      {formatMoney(op.total_amount, op.currency)} {op.currency}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="inline-flex items-center gap-2" style={{
+                        padding: '4px 10px',
+                        backgroundColor: po.bg,
+                        color: po.fg,
+                        borderRadius: 'var(--radius-sm)',
+                        fontSize: '14px',
+                        fontWeight: 500,
+                      }}>
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: po.dot, display: 'inline-block' }} />
+                        <span style={{ color: 'var(--fg-1)', fontWeight: 600 }}>{op.status}</span>
+                        {ps !== 'neutral' && (
+                          <span style={{ color: po.fg, fontWeight: 500 }}>· {po.label} {pct}%</span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -279,7 +307,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
         {payments.length === 0 ? (
           <EmptyTable message="No payments yet — click [+ Add new] to record" />
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                 <Th>Date</Th><Th>Direction</Th><Th>Type</Th><Th>Operation</Th><Th>Amount</Th>
@@ -288,15 +316,22 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
             <tbody>
               {payments.map((p) => (
                 <tr key={p.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                  <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>{formatDate(p.payment_date)}</td>
-                  <td className="px-4 py-3 dx-eyebrow" style={{ fontSize: '10px', letterSpacing: '0.15em', color: p.direction === 'incoming' ? 'var(--status-success)' : 'var(--brand-rot)' }}>
+                  <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{formatDate(p.payment_date)}</td>
+                  <td className="px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: p.direction === 'incoming' ? 'var(--status-success)' : 'var(--brand-rot)' }}>
                     {p.direction}
                   </td>
-                  <td className="px-4 py-3 dx-eyebrow" style={{ fontSize: '10px', color: 'var(--fg-2)', letterSpacing: '0.15em' }}>{p.type}</td>
-                  <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>
-                    {p.operation_id ? p.operation_id.replace('op_', '').slice(0, 8) : 'advance'}
+                  <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>{p.type}</td>
+                  <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
+                    {p.operation_id ? (
+                      <Link
+                        href={`/partners/${slug}/operations/${p.operation_id}`}
+                        style={{ color: 'var(--fg-2)', textDecoration: 'underline', textDecorationColor: 'var(--border-hairline)', textUnderlineOffset: '3px' }}
+                      >
+                        {p.operation_id.slice(0, 8)}
+                      </Link>
+                    ) : 'advance'}
                   </td>
-                  <td className="px-4 py-3 dx-mono text-right" style={{ fontSize: '12px', color: 'var(--fg-1)' }}>
+                  <td className="px-4 py-3 text-right" style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
                     {formatMoney(p.amount, p.currency)} {p.currency}
                   </td>
                 </tr>
@@ -326,7 +361,6 @@ function SectionListBlock({
             fontFamily: 'var(--font-accent-jakarta)',
             fontSize: '24px',
             fontWeight: 800,
-            letterSpacing: '-0.005em',
             textTransform: 'uppercase',
             color: 'var(--fg-1)',
             lineHeight: 1,
@@ -381,8 +415,8 @@ function SectionListBlock({
 function Th({ children }: { children: React.ReactNode }) {
   return (
     <th
-      className="text-left px-4 py-3 dx-eyebrow"
-      style={{ fontSize: '10px', color: 'var(--fg-3)', backgroundColor: 'var(--paper-sunk)' }}
+      className="text-left px-4 py-3"
+      style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-3)', backgroundColor: 'var(--paper-sunk)' }}
     >
       {children}
     </th>
@@ -401,12 +435,12 @@ function CopyableField({ label, value, mono }: { label: string; value?: string |
   const missing = !value || value === 'MISSING' || value.trim() === '';
   return (
     <div>
-      <dt className="dx-eyebrow mb-1" style={{ fontSize: '10px', color: 'var(--fg-3)' }}>{label}</dt>
+      <dt className="mb-1" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-3)' }}>{label}</dt>
       <dd>
         {missing ? (
           <span style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--status-warning)' }}>⚠ MISSING</span>
         ) : (
-          <CopyableValue value={value!} mono={mono} style={{ fontSize: mono ? '12px' : 'var(--fs-body-sm)', color: 'var(--fg-1)' }} />
+          <CopyableValue value={value!} mono={mono} style={{ fontSize: '14px', color: 'var(--fg-1)' }} />
         )}
       </dd>
     </div>

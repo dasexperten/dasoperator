@@ -513,18 +513,75 @@ operations.get('/:id', async (c) => {
 });
 
 // =============================================================================
+// =============================================================================
 // PATCH /api/operations/:id/status — advance operation through lifecycle
 //
-// Allowed target statuses (limited subset of DB CHECK enum):
-//   shipped, delivered, cancelled
+// Phase 4.3 OPS-INTEGRATION: status change now ALSO writes stock_movements
+// and updates stocks.on_hand atomically.
 //
-// 'delivered' and 'shipped' make the operation count toward net balance
-// (per Q5=B). 'cancelled' soft-stops it.
+// Transition rules:
+//   draft/issued → shipped:
+//     sale       → shipment  from warehouse_from  (qty negative)
+//     transfer   → transfer_out from warehouse_from (qty negative)
+//     purchase   → no movement at shipped (goods still in transit)
+//   shipped → delivered:
+//     transfer   → transfer_in  to warehouse_to   (qty positive)
+//     purchase   → receipt      to warehouse_to   (qty positive)
+//     sale       → no movement (already gone from our books)
+//   any → cancelled:
+//     if prior status was shipped:
+//       sale     → reverse shipment  (return, qty positive) from warehouse_from
+//       transfer → reverse transfer_out (qty positive) from warehouse_from
+//       purchase → no movement (never touched stock)
 // =============================================================================
 
 const updateStatusSchema = z.object({
-  status: z.enum(['shipped', 'delivered', 'cancelled']),
+  status: z.enum(['issued', 'shipped', 'delivered', 'cancelled']),
+  notes: z.string().optional(),
 });
+
+// Allowed transitions — prevents going backwards
+const ALLOWED_TRANSITIONS: Record<string, string[]> = {
+  draft:     ['issued', 'cancelled'],
+  issued:    ['shipped', 'cancelled'],
+  shipped:   ['delivered', 'cancelled'],
+  delivered: [],
+  cancelled: [],
+};
+
+interface OpFull {
+  id: string;
+  status: string;
+  operation_type: string;
+  warehouse_from_id: string | null;
+  warehouse_to_id: string | null;
+}
+
+interface StockRow {
+  id: string;
+  on_hand: number;
+}
+
+async function getOrCreateStock(
+  db: D1Database,
+  warehouseId: string,
+  productId: string,
+  now: number
+): Promise<StockRow> {
+  const existing = await db.prepare(
+    'SELECT id, on_hand FROM stocks WHERE warehouse_id = ? AND product_id = ? AND deleted_at IS NULL'
+  ).bind(warehouseId, productId).first<StockRow>();
+
+  if (existing) return existing;
+
+  // Create zero-balance stock row on first touch
+  const newId = `stk_${crypto.randomUUID()}`;
+  await db.prepare(
+    'INSERT INTO stocks (id, warehouse_id, product_id, on_hand, reserved_qty, created_at, updated_at) VALUES (?, ?, ?, 0, 0, ?, ?)'
+  ).bind(newId, warehouseId, productId, now, now).run();
+
+  return { id: newId, on_hand: 0 };
+}
 
 operations.patch('/:id/status', async (c) => {
   const opId = c.req.param('id');
@@ -545,23 +602,150 @@ operations.patch('/:id/status', async (c) => {
     }]);
   }
 
-  const existing = await c.env.DB.prepare(
-    'SELECT id, status FROM operations WHERE id = ? AND deleted_at IS NULL'
-  ).bind(opId).first<{ id: string; status: string }>();
+  const targetStatus = parsed.data.status;
 
-  if (!existing) {
-    return fail(c, 404, [{
-      code: 'operation_not_found',
-      message: `Operation ${opId} not found`,
+  // Load full operation row
+  const op = await c.env.DB.prepare(
+    `SELECT id, status, operation_type, warehouse_from_id, warehouse_to_id
+     FROM operations WHERE id = ? AND deleted_at IS NULL`
+  ).bind(opId).first<OpFull>();
+
+  if (!op) {
+    return fail(c, 404, [{ code: 'operation_not_found', message: `Operation ${opId} not found` }]);
+  }
+
+  // Guard: check allowed transition
+  const allowed = ALLOWED_TRANSITIONS[op.status] ?? [];
+  if (!allowed.includes(targetStatus)) {
+    return fail(c, 422, [{
+      code: 'invalid_transition',
+      message: `Cannot move from '${op.status}' to '${targetStatus}'`,
+      details: { current: op.status, target: targetStatus, allowed },
     }]);
   }
 
-  const now = Math.floor(Date.now() / 1000);
+  // Load line items (needed for stock movements)
+  const lineItemsResult = await c.env.DB.prepare(
+    'SELECT product_id, qty FROM line_items WHERE operation_id = ?'
+  ).bind(opId).all<{ product_id: string; qty: number }>();
 
+  const lineItems = lineItemsResult.results;
+  const now = Math.floor(Date.now() / 1000);
+  const warnings: string[] = [];
+
+  // Build batch statements
+  const stmts: D1PreparedStatement[] = [];
+
+  // 1. Update operation status
+  stmts.push(
+    c.env.DB.prepare('UPDATE operations SET status = ?, updated_at = ? WHERE id = ?')
+      .bind(targetStatus, now, opId)
+  );
+
+  // 2. Determine stock movements to write
+  type MovementSpec = {
+    warehouseId: string;
+    productId: string;
+    movementType: string;
+    qty: number; // signed
+    reason: string;
+  };
+
+  const movementSpecs: MovementSpec[] = [];
+
+  const opType = op.operation_type;
+
+  if (targetStatus === 'shipped') {
+    // sale or transfer: goods leave warehouse_from
+    if ((opType === 'sale' || opType === 'transfer') && op.warehouse_from_id) {
+      for (const li of lineItems) {
+        movementSpecs.push({
+          warehouseId: op.warehouse_from_id,
+          productId: li.product_id,
+          movementType: opType === 'sale' ? 'shipment' : 'transfer_out',
+          qty: -li.qty,
+          reason: opType === 'sale' ? 'sale_shipped' : 'transfer_shipped',
+        });
+      }
+    }
+    // purchase at shipped: goods in transit, no warehouse touch yet
+
+  } else if (targetStatus === 'delivered') {
+    // transfer or purchase: goods arrive at warehouse_to
+    if ((opType === 'transfer' || opType === 'purchase') && op.warehouse_to_id) {
+      for (const li of lineItems) {
+        movementSpecs.push({
+          warehouseId: op.warehouse_to_id,
+          productId: li.product_id,
+          movementType: opType === 'transfer' ? 'transfer_in' : 'receipt',
+          qty: +li.qty,
+          reason: opType === 'transfer' ? 'transfer_delivered' : 'purchase_received',
+        });
+      }
+    }
+
+  } else if (targetStatus === 'cancelled') {
+    // Reverse if we already shipped
+    if (op.status === 'shipped') {
+      if ((opType === 'sale' || opType === 'transfer') && op.warehouse_from_id) {
+        for (const li of lineItems) {
+          movementSpecs.push({
+            warehouseId: op.warehouse_from_id,
+            productId: li.product_id,
+            movementType: 'return',
+            qty: +li.qty, // reverse the shipment
+            reason: 'cancelled_after_shipped',
+          });
+        }
+      }
+    }
+    // If cancelled before shipping: no movements needed
+  }
+
+  // 3. For each movement spec: compute balance_after, add movement insert + stock update
+  for (const spec of movementSpecs) {
+    let stock: StockRow;
+    try {
+      stock = await getOrCreateStock(c.env.DB, spec.warehouseId, spec.productId, now);
+    } catch {
+      warnings.push(`stock_row_error: could not access stock for ${spec.productId} @ ${spec.warehouseId}`);
+      continue;
+    }
+
+    const balanceAfter = stock.on_hand + spec.qty;
+    if (balanceAfter < 0) {
+      warnings.push(`negative_stock: ${spec.productId} @ ${spec.warehouseId} would go to ${balanceAfter} — movement written anyway`);
+    }
+
+    const movId = `mov_${crypto.randomUUID()}`;
+
+    stmts.push(
+      c.env.DB.prepare(`
+        INSERT INTO stock_movements
+          (id, warehouse_id, product_id, movement_type, quantity, source,
+           source_ref_type, source_ref_id, reason, notes, performed_by,
+           performed_at, balance_after, created_at)
+        VALUES (?, ?, ?, ?, ?, 'operation', 'operation', ?, ?, ?, 'system', ?, ?, ?)
+      `).bind(
+        movId, spec.warehouseId, spec.productId, spec.movementType,
+        spec.qty, opId, spec.reason,
+        parsed.data.notes ?? null, now, balanceAfter, now
+      )
+    );
+
+    stmts.push(
+      c.env.DB.prepare(
+        'UPDATE stocks SET on_hand = ?, updated_at = ? WHERE warehouse_id = ? AND product_id = ? AND deleted_at IS NULL'
+      ).bind(balanceAfter, now, spec.warehouseId, spec.productId)
+    );
+
+    // Optimistically update local cache so next iteration in same batch sees correct balance
+    stock.on_hand = balanceAfter;
+  }
+
+  // 4. Execute atomically
   try {
-    await c.env.DB.prepare(
-      'UPDATE operations SET status = ?, updated_at = ? WHERE id = ?'
-    ).bind(parsed.data.status, now, opId).run();
+    await c.env.DB.batch(stmts);
   } catch (err) {
     return fail(c, 500, [{
       code: 'update_failed',
@@ -572,10 +756,12 @@ operations.patch('/:id/status', async (c) => {
 
   return ok(c, {
     id: opId,
-    previous_status: existing.status,
-    status: parsed.data.status,
+    previous_status: op.status,
+    status: targetStatus,
+    movements_written: movementSpecs.length,
     updated_at: now,
-  }, [`Status: ${existing.status} → ${parsed.data.status}`]);
+    warnings,
+  }, [`Status: ${op.status} → ${targetStatus}`, `${movementSpecs.length} stock movement(s) written`]);
 });
 
 export default operations;

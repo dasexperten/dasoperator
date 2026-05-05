@@ -12,7 +12,7 @@
 //   pt_distr_usd    → PL-DASEX-USD.md  (Distributor USD)
 //   pt_export_usd   → PL-INT_USD.md    (Export USD generic)
 //   pt_wb_ru        → PL-RSP_RF.md     (Russia retail / WB)
-//   pt_cn_b2b       → PL-PRCH_CNY.md   (China factory B2B)
+//   pt_purchase_cny → PL-PRCH_CNY.md   (factory purchasing CNY — internal cost)
 //
 // Markdown format (parsed):
 //   | SKU   | Product | Price (RUB) |
@@ -32,7 +32,7 @@ export const PRICE_TYPE_TO_FILE: Record<string, string> = {
   pt_distr_usd:  'PL-DASEX-USD.md',
   pt_export_usd: 'PL-INT_USD.md',
   pt_wb_ru:      'PL-RSP_RF.md',
-  pt_cn_b2b:     'PL-PRCH_CNY.md',
+  pt_purchase_cny:     'PL-PRCH_CNY.md',
 };
 
 export const PRICE_TYPE_CURRENCY: Record<string, string> = {
@@ -40,7 +40,7 @@ export const PRICE_TYPE_CURRENCY: Record<string, string> = {
   pt_distr_usd:  'USD',
   pt_export_usd: 'USD',
   pt_wb_ru:      'RUB',
-  pt_cn_b2b:     'CNY',
+  pt_purchase_cny:     'CNY',
 };
 
 const CACHE_TTL_SECONDS = 3600;  // 1 hour

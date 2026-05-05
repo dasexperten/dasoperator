@@ -19,7 +19,7 @@ import {
 // Each product detail page renders one row per type; if no matching price row
 // exists in /api/products/:id/prices, the row is shown muted with "— not set —".
 const PRICE_TYPES_REFERENCE = [
-  { id: 'pt_cn_b2b',      code: 'CN_B2B',          currency: 'CNY', used_by_entity: 'DEC / DEI',           description: 'China B2B price' },
+  { id: 'pt_purchase_cny',      code: 'PURCHASE_CNY',          currency: 'CNY', used_by_entity: 'DEC / DEI / DEASEAN',           description: 'Factory purchasing price CNY' },
   { id: 'pt_distr_rub',   code: 'Distributor RUB', currency: 'RUB', used_by_entity: 'DEE',                 description: 'CIS distributor wholesale price in roubles' },
   { id: 'pt_distr_usd',   code: 'Distributor USD', currency: 'USD', used_by_entity: 'DEI / DEASEAN / DEC', description: 'International distributor wholesale price in USD' },
   { id: 'pt_export_usd',  code: 'EXPORT_USD',      currency: 'USD', used_by_entity: 'DEI',                 description: 'Generic export price USD' },

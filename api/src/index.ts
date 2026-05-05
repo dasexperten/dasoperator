@@ -17,6 +17,9 @@ import paymentsRoutes from './routes/payments';
 import { netBalancePerPartner, netBalanceBulk } from './routes/net-balance';
 import productsPricingRoutes from './routes/products-pricing';
 import documentsRoutes from './routes/documents';
+import stocksRoutes, { productStock } from './routes/stocks';
+import stockMovementsRoutes from './routes/stock-movements';
+import inventorySessionsRoutes from './routes/inventory-sessions';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
 
@@ -38,10 +41,11 @@ app.notFound((c) => {
   );
 });
 
-app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.4.6', phase: '2.0c-5f-documents-list' }));
+app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.5.0', phase: '4.2-inventory-endpoints' }));
 app.route('/health', healthRoutes);
 app.route('/api/products', productsRoutes);
 app.route('/api/products', productsPricingRoutes);  // adds :productId/price
+app.route('/api/products', productStock);           // adds :id/stock
 app.route('/api/contacts', contactsRoutes);
 app.route('/api/partners', partnersRoutes);
 app.route('/api/partners', netBalancePerPartner);   // adds :slug/net-balance
@@ -54,6 +58,9 @@ app.route('/api/operations', operationsRoutes);
 app.route('/api/payments', paymentsRoutes);
 app.route('/api/fx', fxRoutes);
 app.route('/api/documents', documentsRoutes);
+app.route('/api/stocks', stocksRoutes);
+app.route('/api/stock-movements', stockMovementsRoutes);
+app.route('/api/inventory-sessions', inventorySessionsRoutes);
 
 export default {
   fetch: app.fetch,

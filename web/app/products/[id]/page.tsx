@@ -9,15 +9,19 @@ import ProductDetailClient from './product-detail-client';
 // Update this list when adding/removing SKUs.
 // =============================================================================
 
+// IDs lowercase — must match exactly the case stored in D1 products.id
+// (e.g. 'de201', not 'DE201'). The /api/products/:id endpoint is
+// case-sensitive on the SQL primary key. Display upper-casing happens
+// in the catalog/detail JSX via .toUpperCase() — that's purely cosmetic.
 export function generateStaticParams() {
   return [
-    { id: 'DE201' }, { id: 'DE202' }, { id: 'DE203' },
-    { id: 'DE205' }, { id: 'DE206' }, { id: 'DE207' },
-    { id: 'DE208' }, { id: 'DE209' }, { id: 'DE210' },
-    { id: 'DE101' }, { id: 'DE105' }, { id: 'DE106' },
-    { id: 'DE107' }, { id: 'DE116' }, { id: 'DE117' },
-    { id: 'DE119' }, { id: 'DE120' }, { id: 'DE122' },
-    { id: 'DE130' }, { id: 'DE131' },
+    { id: 'de201' }, { id: 'de202' }, { id: 'de203' },
+    { id: 'de205' }, { id: 'de206' }, { id: 'de207' },
+    { id: 'de208' }, { id: 'de209' }, { id: 'de210' },
+    { id: 'de101' }, { id: 'de105' }, { id: 'de106' },
+    { id: 'de107' }, { id: 'de116' }, { id: 'de117' },
+    { id: 'de119' }, { id: 'de120' }, { id: 'de122' },
+    { id: 'de130' }, { id: 'de131' },
   ];
 }
 

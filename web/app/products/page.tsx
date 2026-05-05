@@ -270,16 +270,18 @@ export default function ProductsPage() {
                 </tr>
               ) : (
                 sorted.map((p) => {
-                  const skuShort = p.id.toUpperCase();
+                  const skuShort = p.id.toUpperCase();  // display-only
+                  // Link uses raw lowercase p.id so route matches the
+                  // exact key stored in D1 (and prerendered statically).
                   return (
                     <tr key={p.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                       <td className="px-4 py-3 dx-mono" style={{ fontWeight: 700 }}>
-                        <Link href={`/products/${skuShort}`} style={{ color: 'var(--fg-1)' }}>
+                        <Link href={`/products/${p.id}`} style={{ color: 'var(--fg-1)' }}>
                           {skuShort}
                         </Link>
                       </td>
                       <td className="px-4 py-3" style={{ fontWeight: 700 }}>
-                        <Link href={`/products/${skuShort}`} style={{ color: 'var(--fg-1)' }}>
+                        <Link href={`/products/${p.id}`} style={{ color: 'var(--fg-1)' }}>
                           <span className="dx-product-name">{p.product_name}</span>
                         </Link>
                       </td>

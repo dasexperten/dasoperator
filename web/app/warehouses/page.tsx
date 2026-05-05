@@ -62,6 +62,14 @@ export default function WarehousesPage() {
     return { totals, grandTotal };
   }, [products]);
 
+  // Sort warehouses by [country group, code]. Russia first (pink), then
+  // transit (mint), then China (blue). Header, body cells, and footer
+  // totals all consume this same sorted array so columns align.
+  const sortedWarehouses = useMemo(
+    () => sortWarehousesByGroup(warehouses),
+    [warehouses]
+  );
+
   return (
     <div className="space-y-8 max-w-full">
       <div>
@@ -118,7 +126,7 @@ export default function WarehousesPage() {
               <tr>
                 <Th sticky>SKU</Th>
                 <Th sticky2>Product</Th>
-                {warehouses.map((w) => (
+                {sortedWarehouses.map((w) => (
                   <Th key={w.id} center bg={TINT_BY_GROUP[groupForWarehouse(w)]}>
                     <Link href={`/warehouses/${w.id}`} style={{ color: 'inherit' }}>
                       {w.code}
@@ -150,7 +158,7 @@ export default function WarehousesPage() {
                       <td className="px-3 py-2" style={{ fontWeight: 700, color: 'var(--fg-1)', fontSize: '14px', maxWidth: '280px' }}>
                         <Link href={`/products/${skuShort}`} style={{ color: 'inherit' }}>{p.product_name}</Link>
                       </td>
-                      {warehouses.map((w) => {
+                      {sortedWarehouses.map((w) => {
                         const v = byWh[w.id] ?? 0;
                         return (
                           <StockCellTd
@@ -179,7 +187,7 @@ export default function WarehousesPage() {
                 <tr style={{ borderTop: '2px solid var(--border-hairline)' }}>
                   <td className="px-3 py-2 dx-eyebrow" style={{ fontSize: '10px', color: 'var(--fg-3)', backgroundColor: 'var(--paper-sunk)' }}>Total</td>
                   <td className="px-3 py-2" style={{ backgroundColor: 'var(--paper-sunk)' }}></td>
-                  {warehouses.map((w) => (
+                  {sortedWarehouses.map((w) => (
                     <td key={w.id} className="px-3 py-2 dx-mono text-right" style={{
                       fontSize: '13px',
                       fontWeight: 700,
@@ -216,9 +224,26 @@ export default function WarehousesPage() {
 type CountryGroup = 'russia' | 'china' | 'transit';
 
 function groupForWarehouse(wh: { country?: string | null }): CountryGroup {
-  if (wh.country === 'Russia') return 'russia';
-  if (wh.country === 'China') return 'china';
+  // Defensive normalization: trim whitespace, fall through if null/empty.
+  const c = (wh.country ?? '').trim();
+  if (c === 'Russia') return 'russia';
+  if (c === 'China') return 'china';
   return 'transit';
+}
+
+const GROUP_PRIORITY: Record<CountryGroup, number> = {
+  russia: 0,
+  transit: 1,
+  china: 2,
+};
+
+function sortWarehousesByGroup<T extends { country?: string | null; code: string }>(list: T[]): T[] {
+  return [...list].sort((a, b) => {
+    const pa = GROUP_PRIORITY[groupForWarehouse(a)];
+    const pb = GROUP_PRIORITY[groupForWarehouse(b)];
+    if (pa !== pb) return pa - pb;
+    return a.code.localeCompare(b.code);
+  });
 }
 
 const TINT_BY_GROUP: Record<CountryGroup, string> = {

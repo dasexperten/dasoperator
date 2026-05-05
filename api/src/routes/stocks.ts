@@ -17,7 +17,7 @@ stocks.get('/', async (c) => {
 
   let sql = `
     SELECT
-      s.id, s.warehouse_id, w.warehouse_code, w.warehouse_name,
+      s.id, s.warehouse_id, w.code, w.name,
       s.product_id, p.product_name, p.invoice_label, p.pieces_per_case,
       s.on_hand, s.last_movement_at, s.last_counted_at, s.last_counted_by, s.updated_at
     FROM stocks s
@@ -30,7 +30,7 @@ stocks.get('/', async (c) => {
   if (warehouseId) { sql += ` AND s.warehouse_id = ?`; binds.push(warehouseId); }
   if (productId) { sql += ` AND s.product_id = ?`; binds.push(productId); }
 
-  sql += ` ORDER BY w.warehouse_code, p.product_name`;
+  sql += ` ORDER BY w.code, p.product_name`;
 
   const stmt = c.env.DB.prepare(sql);
   const result = binds.length > 0 ? await stmt.bind(...binds).all() : await stmt.all();
@@ -50,7 +50,7 @@ stocks.get('/:warehouse_id/:product_id', async (c) => {
 
   const row = await c.env.DB.prepare(`
     SELECT
-      s.id, s.warehouse_id, w.warehouse_code, w.warehouse_name,
+      s.id, s.warehouse_id, w.code, w.name,
       s.product_id, p.product_name, p.pieces_per_case,
       s.on_hand, s.last_movement_at, s.last_counted_at, s.last_counted_by, s.updated_at
     FROM stocks s
@@ -179,12 +179,12 @@ productStock.get('/:id/stock', async (c) => {
 
   const result = await c.env.DB.prepare(`
     SELECT
-      s.warehouse_id, w.warehouse_code, w.warehouse_name,
+      s.warehouse_id, w.code, w.name,
       s.on_hand, s.last_movement_at, s.last_counted_at
     FROM stocks s
     LEFT JOIN warehouses w ON s.warehouse_id = w.id
     WHERE s.product_id = ?
-    ORDER BY w.warehouse_code
+    ORDER BY w.code
   `).bind(productId).all();
 
   const totalOnHand = result.results.reduce(

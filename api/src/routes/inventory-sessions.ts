@@ -16,7 +16,7 @@ inventorySessions.get('/', async (c) => {
 
   let sql = `
     SELECT
-      s.id, s.reference, s.warehouse_id, w.warehouse_code, w.warehouse_name,
+      s.id, s.reference, s.warehouse_id, w.code, w.name,
       s.status, s.scope,
       s.started_at, s.started_by,
       s.committed_at, s.committed_by,
@@ -50,7 +50,7 @@ inventorySessions.get('/:id', async (c) => {
 
   const session = await c.env.DB.prepare(`
     SELECT
-      s.*, w.warehouse_code, w.warehouse_name
+      s.*, w.code, w.name
     FROM inventory_sessions s
     LEFT JOIN warehouses w ON s.warehouse_id = w.id
     WHERE s.id = ?

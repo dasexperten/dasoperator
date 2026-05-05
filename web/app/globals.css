@@ -52,11 +52,11 @@
 @layer components {
   /* Small UPPERCASE eyebrow label — section markers, badges */
   .dx-eyebrow {
-    font-family: var(--font-narrow);
-    font-size: var(--fs-micro);
-    font-weight: 700;
+    font-family: var(--font-mono);
+    font-size: var(--fs-body-sm);
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.18em;
+    letter-spacing: 0;
     color: var(--fg-2);
   }
 
@@ -129,4 +129,34 @@
   .dx-hairline {
     border-color: var(--border-hairline);
   }
+}
+
+/* ===========================================================================
+   GLOBAL TYPOGRAPHY SAFETY NET — project rules locked 2026-05-05
+   1) No tracked-out caps anywhere — letter-spacing forced to 0 globally.
+      Display headings keep their negative tracking via dx-display-* rules
+      below this layer, which are loaded later and can re-set it.
+   2) Tabular / micro / utility text never goes below 14px.
+   =========================================================================== */
+
+*,
+*::before,
+*::after {
+  letter-spacing: 0 !important;
+}
+
+/* Display-size headings keep the slight negative tracking they need
+   for legibility — restore it after the global wipe. */
+h1, h2, h3,
+.dx-display-2xl, .dx-display-xl, .dx-display-lg, .dx-display-md,
+.dx-display, .dx-h1, .dx-h2, .dx-h3, .dx-h4 {
+  letter-spacing: -0.015em !important;
+}
+
+/* Floor for micro / tabular / control text — never below 14px */
+table, th, td,
+.dx-eyebrow, .dx-label, .dx-mono, .dx-caption, .dx-clinical,
+button, input, select, textarea, label,
+[class~="text-xs"], [class~="text-sm"], [class~="text-[10px]"], [class~="text-[11px]"], [class~="text-[12px]"], [class~="text-[13px]"] {
+  font-size: 14px !important;
 }

@@ -38,7 +38,7 @@ app.notFound((c) => {
   );
 });
 
-app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.4.0', phase: '2.0c-5-invoicer-engine' }));
+app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.4.1', phase: '2.0c-5a-is-layout' }));
 app.route('/health', healthRoutes);
 app.route('/api/products', productsRoutes);
 app.route('/api/products', productsPricingRoutes);  // adds :productId/price

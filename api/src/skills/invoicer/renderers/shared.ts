@@ -155,6 +155,46 @@ export function buildTable(columns: TableColumn[], rows: string[][]): Table {
   });
 }
 
+// =============================================================================
+// buildTableDxa — fixed-width table with explicit DXA column widths.
+// Used by the IS renderers (landscape page) where Description deserves the
+// most real estate and percentage-based sizing collapses it on Word's auto
+// layout. DXA = twentieths of a point (1 inch = 1440 DXA).
+// =============================================================================
+
+export interface TableColumnDxa {
+  header: string;
+  widthDxa: number;
+}
+
+export function buildTableDxa(columns: TableColumnDxa[], rows: string[][]): Table {
+  const widths = columns.map((c) => c.widthDxa);
+
+  const header = new TableRow({
+    tableHeader: true,
+    height: { value: 360, rule: HeightRule.ATLEAST },
+    children: columns.map((c) => new TableCell({
+      width: { size: c.widthDxa, type: WidthType.DXA },
+      children: [p(c.header, { bold: true, size: 18 })],
+      borders: { top: THIN, bottom: THIN, left: THIN, right: THIN },
+    })),
+  });
+
+  const bodyRows = rows.map((row) => new TableRow({
+    children: row.map((value, colIdx) => new TableCell({
+      width: { size: columns[colIdx]!.widthDxa, type: WidthType.DXA },
+      children: [p(value ?? '', { size: 18 })],
+      borders: { top: THIN, bottom: THIN, left: THIN, right: THIN },
+    })),
+  }));
+
+  return new Table({
+    width: { size: widths.reduce((a, b) => a + b, 0), type: WidthType.DXA },
+    columnWidths: widths,
+    rows: [header, ...bodyRows],
+  });
+}
+
 // ---- Party / bank / signature blocks ----------------------------------------
 
 export interface PartyBlockOpts {

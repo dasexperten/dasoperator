@@ -336,50 +336,63 @@ function StockCell({
   codes: string[];
   maxOnHand: number;
 }) {
-  const totalColor = total > 0 ? 'var(--fg-1)' : 'var(--fg-muted)';
+  // Use literal hex colors instead of CSS vars to avoid any variable
+  // resolution issues in production bundles. These match apothecary tokens:
+  //   --fg-1         = #1A1519 (brand-schwarz-ink)
+  //   --fg-muted     = stone-300 (~ #B6B6B6)
+  const INK = '#1A1519';
+  const MUTED = '#B6B6B6';
+
+  const totalColor = total > 0 ? INK : MUTED;
 
   const byCode: Record<string, number> = {};
   for (const w of warehouses) byCode[w.code] = w.on_hand;
 
   return (
-    <div className="flex items-center gap-3">
-      <span className="tabular-nums dx-mono" style={{
-        fontSize: '14px',
-        fontWeight: 700,
-        color: totalColor,
-        minWidth: '64px',
-        textAlign: 'right',
-      }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <span
+        className="tabular-nums dx-mono"
+        style={{
+          fontSize: '14px',
+          fontWeight: 700,
+          color: totalColor,
+          minWidth: '64px',
+          textAlign: 'right',
+        }}
+      >
         {total.toLocaleString('en-US')}
       </span>
-      <div className="flex items-center gap-0.5" style={{ height: '18px' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-end',  // bars grow upward from a baseline
+          gap: '2px',
+          height: '18px',
+          minWidth: `${codes.length * 6}px`,
+        }}
+      >
         {codes.map((code) => {
           const v = byCode[code] ?? 0;
-          if (v === 0 || maxOnHand === 0) {
-            return (
-              <div
-                key={code}
-                title={`${code}: 0`}
-                style={{
-                  width: '4px',
-                  height: '2px',
-                  backgroundColor: 'var(--fg-muted)',
-                  opacity: 0.4,
-                  alignSelf: 'center',
-                }}
-              />
-            );
+          // Compute bar height + color. Always render a visible bar element.
+          let heightPx = 2;
+          let bg = MUTED;
+          let opacity = 0.5;
+          if (v > 0 && maxOnHand > 0) {
+            heightPx = Math.max(3, Math.round((v / maxOnHand) * 18));
+            bg = INK;
+            opacity = 1;
           }
-          const heightPx = Math.max(2, Math.round((v / maxOnHand) * 18));
           return (
             <div
               key={code}
               title={`${code}: ${v.toLocaleString('en-US')}`}
               style={{
+                display: 'block',
                 width: '4px',
                 height: `${heightPx}px`,
-                backgroundColor: 'var(--fg-1)',
-                alignSelf: 'flex-end',
+                backgroundColor: bg,
+                opacity,
+                flexShrink: 0,
               }}
             />
           );

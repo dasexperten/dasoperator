@@ -38,7 +38,7 @@ app.notFound((c) => {
   );
 });
 
-app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.4.5', phase: '2.0c-5e-hot-fixes' }));
+app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.4.6', phase: '2.0c-5f-documents-list' }));
 app.route('/health', healthRoutes);
 app.route('/api/products', productsRoutes);
 app.route('/api/products', productsPricingRoutes);  // adds :productId/price

@@ -10,6 +10,29 @@ import { getRatesFor } from '../lib/fx-store';
 const operations = new Hono<{ Bindings: Env }>();
 
 // =============================================================================
+// Payment state — overlay color for any operation (Phase 4.3 follow-up)
+// 95% tolerance handles FX rounding when payment currency != operation currency.
+// =============================================================================
+//
+//   draft / cancelled              → 'neutral'  (no overlay)
+//   paid_amount = 0                → 'unpaid'    (red)
+//   0 < paid_amount < total × 0.95 → 'partial'   (brown)
+//   paid_amount >= total × 0.95    → 'paid'      (green)
+//
+// =============================================================================
+
+const PAID_TOLERANCE = 0.95;
+
+type PaymentState = 'neutral' | 'unpaid' | 'partial' | 'paid';
+
+function derivePaymentState(total: number, paid: number, status: string): PaymentState {
+  if (status === 'draft' || status === 'cancelled') return 'neutral';
+  if (paid <= 0) return 'unpaid';
+  if (paid >= total * PAID_TOLERANCE) return 'paid';
+  return 'partial';
+}
+
+// =============================================================================
 // Schemas — Phase 3.0e: contract_id replaces partner_id+our_company_id+currency.
 // Backend reads contract row to derive those three fields.
 // (Q1=A hard break — frontend MUST supply contract_id.)
@@ -447,7 +470,14 @@ operations.get('/', async (c) => {
       o.warehouse_from_id, o.warehouse_to_id,
       o.currency, o.total_amount, o.total_usd_equiv,
       o.status, o.reference, o.notes, o.vat_rate,
-      o.created_at, o.updated_at
+      o.created_at, o.updated_at,
+      COALESCE((
+        SELECT SUM(pay.amount)
+        FROM payments pay
+        WHERE pay.operation_id = o.id
+          AND pay.currency = o.currency
+          AND pay.deleted_at IS NULL
+      ), 0) AS paid_amount
     FROM operations o
     LEFT JOIN contracts ct ON o.contract_id = ct.id
     LEFT JOIN partners p ON o.partner_id = p.id
@@ -466,9 +496,18 @@ operations.get('/', async (c) => {
   const stmt = c.env.DB.prepare(sql);
   const result = binds.length > 0 ? await stmt.bind(...binds).all() : await stmt.all();
 
+  const decorated = (result.results as Array<Record<string, unknown>>).map((row) => {
+    const total = Number(row.total_amount) || 0;
+    const paid = Number(row.paid_amount) || 0;
+    return {
+      ...row,
+      payment_state: derivePaymentState(total, paid, String(row.status)),
+    };
+  });
+
   return ok(c, {
-    count: result.results.length,
-    operations: result.results,
+    count: decorated.length,
+    operations: decorated,
   });
 });
 
@@ -489,7 +528,7 @@ operations.get('/:id', async (c) => {
     LEFT JOIN partners p ON o.partner_id = p.id
     LEFT JOIN companies co ON o.our_company_id = co.id
     WHERE o.id = ? AND o.deleted_at IS NULL
-  `).bind(opId).first();
+  `).bind(opId).first<Record<string, unknown>>();
 
   if (!op) {
     return fail(c, 404, [{
@@ -506,8 +545,24 @@ operations.get('/:id', async (c) => {
     ORDER BY li.created_at ASC
   `).bind(opId).all();
 
+  // Pull payments for this operation in operation's native currency
+  const paidRow = await c.env.DB.prepare(`
+    SELECT COALESCE(SUM(amount), 0) AS paid_amount
+    FROM payments
+    WHERE operation_id = ?
+      AND currency = ?
+      AND deleted_at IS NULL
+  `).bind(opId, op.currency).first<{ paid_amount: number }>();
+
+  const total = Number(op.total_amount) || 0;
+  const paid = Number(paidRow?.paid_amount) || 0;
+
   return ok(c, {
-    operation: op,
+    operation: {
+      ...op,
+      paid_amount: paid,
+      payment_state: derivePaymentState(total, paid, String(op.status)),
+    },
     line_items: lineItems.results,
   });
 });

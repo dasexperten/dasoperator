@@ -3,7 +3,8 @@
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Search, Loader2 } from 'lucide-react';
-import { getPartners, type Partner } from '@/lib/api';
+import { getPartners, getAllNetBalances, type Partner } from '@/lib/api';
+import NetBalance from '@/components/ui/net-balance';
 
 type ExtendedPartner = Partner & {
   entity_abbreviation?: string | null;
@@ -17,8 +18,14 @@ const STATUS_COLORS: Record<Partner['status'], { bg: string; fg: string; border:
   blocked:  { bg: 'rgba(229,32,44,0.08)',  fg: 'var(--brand-rot)',      border: 'rgba(229,32,44,0.3)' },
 };
 
+interface BalanceRow {
+  usd: number;
+  currencies: Record<string, number>;
+}
+
 export default function PartnersPage() {
   const [partners, setPartners] = useState<ExtendedPartner[]>([]);
+  const [netBalances, setNetBalances] = useState<Record<string, BalanceRow>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -26,14 +33,24 @@ export default function PartnersPage() {
   const [entityFilter, setEntityFilter] = useState<string>('all');
 
   useEffect(() => {
-    const fetchPartners = async () => {
+    const fetchAll = async () => {
       try {
-        const res = await getPartners();
-        if (res.success && res.result) {
-          setPartners(res.result.partners);
+        const [partnersRes, balRes] = await Promise.all([
+          getPartners(),
+          getAllNetBalances(),
+        ]);
+        if (partnersRes.success && partnersRes.result) {
+          setPartners(partnersRes.result.partners);
           setError(null);
         } else {
-          setError(res.errors[0]?.message ?? 'Failed to load partners');
+          setError(partnersRes.errors[0]?.message ?? 'Failed to load partners');
+        }
+        if (balRes.success && balRes.result) {
+          const map: Record<string, BalanceRow> = {};
+          for (const b of balRes.result.balances) {
+            map[b.partner_id] = { usd: b.net_balance_usd_cents, currencies: b.currencies };
+          }
+          setNetBalances(map);
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
@@ -41,7 +58,7 @@ export default function PartnersPage() {
         setLoading(false);
       }
     };
-    fetchPartners();
+    fetchAll();
   }, []);
 
   const entities = useMemo(() => {
@@ -130,12 +147,12 @@ export default function PartnersPage() {
           <table className="w-full text-sm">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                <Th>Trade Name</Th><Th>Country</Th><Th>Currency</Th><Th>Entity</Th><Th>Status</Th><Th>Contract</Th>
+                <Th>Trade Name</Th><Th>Country</Th><Th>Currency</Th><Th>Entity</Th><Th>Status</Th><Th>Net Balance</Th><Th>Contract</Th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={6} className="text-center py-12" style={{ color: 'var(--fg-3)' }}>No partners match the filters</td></tr>
+                <tr><td colSpan={7} className="text-center py-12" style={{ color: 'var(--fg-3)' }}>No partners match the filters</td></tr>
               ) : (
                 filtered.map((p) => {
                   const statusStyle = STATUS_COLORS[p.status];
@@ -154,6 +171,17 @@ export default function PartnersPage() {
                         <span className="dx-eyebrow inline-block" style={{ padding: '3px 8px', fontSize: '9px', backgroundColor: statusStyle.bg, color: statusStyle.fg, border: `1px solid ${statusStyle.border}`, borderRadius: 'var(--radius-pill)', letterSpacing: '0.15em' }}>
                           {p.status}
                         </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {netBalances[p.id] ? (
+                          <NetBalance
+                            usdCents={netBalances[p.id]!.usd}
+                            currencies={netBalances[p.id]!.currencies}
+                            size="compact"
+                          />
+                        ) : (
+                          <span className="dx-mono" style={{ fontSize: '12px', color: 'var(--fg-muted)' }}>—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>{p.contract_no ?? '—'}</td>
                     </tr>

@@ -305,7 +305,7 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
             {product.product_name}
           </h1>
           <p style={{ marginTop: '6px', fontSize: '14px', color: '#6B6B6B' }}>
-            <span style={{ fontFamily: 'ui-monospace, monospace', fontWeight: 500, color: INK }}>{idUpper}</span>
+            <span style={{ fontWeight: 600, color: INK }}>{idUpper}</span>
             {' · '}{product.category}
             {' · '}{product.manufacturer_name ?? '—'}
           </p>
@@ -381,7 +381,7 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
                     onClick={() => { window.location.href = `/warehouses/${w.id}`; }}
                   >
                     <td style={{ padding: '10px 12px' }}>
-                      <span style={{ fontFamily: 'ui-monospace, monospace', fontWeight: 500, color: INK }}>{w.code}</span>
+                      <span style={{ fontWeight: 600, color: INK }}>{w.code}</span>
                       <span style={{ marginLeft: '8px', color: '#6B6B6B' }}>{w.name}</span>
                     </td>
                     <td style={{ padding: '10px 12px', color: '#6B6B6B' }}>{w.country ?? '—'}</td>
@@ -426,11 +426,11 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
               return (
                 <tr key={pt.id} style={{ borderBottom: '0.5px solid #E0DCD7', opacity: muted ? 0.55 : 1 }}>
                   <td style={{ padding: '10px 12px' }}>
-                    <div style={{ fontFamily: 'ui-monospace, monospace', fontWeight: 500, color: INK }}>{pt.code}</div>
+                    <div style={{ fontWeight: 600, color: INK }}>{pt.code}</div>
                     <div style={{ fontSize: '14px', color: '#6B6B6B', marginTop: '2px' }}>{pt.description}</div>
                   </td>
                   <td style={{ padding: '10px 12px', color: '#6B6B6B' }}>{pt.used_by_entity}</td>
-                  <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, monospace', color: '#6B6B6B' }}>{pt.currency}</td>
+                  <td style={{ padding: '10px 12px', color: '#6B6B6B' }}>{pt.currency}</td>
                   <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'ui-monospace, monospace', fontWeight: 500, color: muted ? '#6B6B6B' : INK }}>
                     {row ? formatPrice(row.sell_price, row.currency) : '— not set —'}
                   </td>
@@ -612,7 +612,7 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
                     <td style={{ padding: '10px 12px', fontSize: '14px', color: '#6B6B6B', textTransform: 'uppercase', letterSpacing: 0 }}>
                       {a.type}
                     </td>
-                    <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, monospace', fontWeight: 500, color: INK }}>
+                    <td style={{ padding: '10px 12px', fontWeight: 600, color: INK }}>
                       {a.warehouse_code ?? '—'}
                     </td>
                     <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'ui-monospace, monospace', fontWeight: 500, color: qtyColor }}>

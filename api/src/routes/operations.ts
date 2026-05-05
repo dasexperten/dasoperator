@@ -493,4 +493,70 @@ operations.get('/:id', async (c) => {
   });
 });
 
+// =============================================================================
+// PATCH /api/operations/:id/status — advance operation through lifecycle
+//
+// Allowed target statuses (limited subset of DB CHECK enum):
+//   shipped, delivered, cancelled
+//
+// 'delivered' and 'shipped' make the operation count toward net balance
+// (per Q5=B). 'cancelled' soft-stops it.
+// =============================================================================
+
+const updateStatusSchema = z.object({
+  status: z.enum(['shipped', 'delivered', 'cancelled']),
+});
+
+operations.patch('/:id/status', async (c) => {
+  const opId = c.req.param('id');
+
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be valid JSON' }]);
+  }
+
+  const parsed = updateStatusSchema.safeParse(body);
+  if (!parsed.success) {
+    return fail(c, 422, [{
+      code: 'invalid_body',
+      message: 'Body validation failed',
+      details: { issues: parsed.error.issues },
+    }]);
+  }
+
+  const existing = await c.env.DB.prepare(
+    'SELECT id, status FROM operations WHERE id = ? AND deleted_at IS NULL'
+  ).bind(opId).first<{ id: string; status: string }>();
+
+  if (!existing) {
+    return fail(c, 404, [{
+      code: 'operation_not_found',
+      message: `Operation ${opId} not found`,
+    }]);
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+
+  try {
+    await c.env.DB.prepare(
+      'UPDATE operations SET status = ?, updated_at = ? WHERE id = ?'
+    ).bind(parsed.data.status, now, opId).run();
+  } catch (err) {
+    return fail(c, 500, [{
+      code: 'update_failed',
+      message: 'Failed to update operation status',
+      details: { error: err instanceof Error ? err.message : String(err) },
+    }]);
+  }
+
+  return ok(c, {
+    id: opId,
+    previous_status: existing.status,
+    status: parsed.data.status,
+    updated_at: now,
+  }, [`Status: ${existing.status} → ${parsed.data.status}`]);
+});
+
 export default operations;

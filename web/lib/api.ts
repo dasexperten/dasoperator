@@ -565,6 +565,8 @@ export interface Operation {
   notes: string | null;
   incoterms: string | null;
   vat_rate: 0 | 5 | 20;
+  paid_amount?: number;
+  payment_state?: 'neutral' | 'unpaid' | 'partial' | 'paid';
   created_at: number;
   updated_at: number;
 }

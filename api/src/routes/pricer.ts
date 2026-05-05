@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { queryFirst } from '../lib/db';
-import { getProductPrice, invalidatePricelistCache, PRICE_TYPE_TO_FILE } from '../lib/pricelist';
+import { getProductPrice, getPricelist, invalidatePricelistCache, PRICE_TYPE_TO_FILE } from '../lib/pricelist';
 
 // =============================================================================
 // POST /api/pricer/quote
@@ -189,6 +189,39 @@ pricer.post('/refresh-cache', async (c) => {
   const all = Object.keys(PRICE_TYPE_TO_FILE);
   await Promise.all(all.map((id) => invalidatePricelistCache(c.env, id)));
   return ok(c, { invalidated: all });
+});
+
+// =============================================================================
+// GET /api/pricer/list/:price_type_id
+// Returns full SKU→price map for a single pricelist file.
+// Used by /products list to show prices in the chosen currency.
+// =============================================================================
+pricer.get('/list/:priceTypeId', async (c) => {
+  const priceTypeId = c.req.param('priceTypeId');
+  const filename = PRICE_TYPE_TO_FILE[priceTypeId];
+  if (!filename) {
+    return fail(c, 400, [{
+      code: 'unknown_price_type',
+      message: `Unknown price_type_id: ${priceTypeId}`,
+    }]);
+  }
+
+  try {
+    const pricelist = await getPricelist(c.env, priceTypeId);
+    return ok(c, {
+      price_type_id: priceTypeId,
+      filename: pricelist.filename,
+      currency: pricelist.currency,
+      last_updated: pricelist.lastUpdated,
+      prices: pricelist.prices,
+      count: Object.keys(pricelist.prices).length,
+    });
+  } catch (err) {
+    return fail(c, 500, [{
+      code: 'pricelist_read_failed',
+      message: err instanceof Error ? err.message : String(err),
+    }]);
+  }
 });
 
 export default pricer;

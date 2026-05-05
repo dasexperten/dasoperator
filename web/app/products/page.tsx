@@ -4,11 +4,19 @@ import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Search, Loader2, Plus, ChevronUp, ChevronDown } from 'lucide-react';
 import {
-  getProductsList, getProductsWithStock,
+  getProductsList, getProductsWithStock, getPricelistMap,
   type ProductListItem, type ProductWithStock,
 } from '@/lib/api';
 
-type SortKey = 'sku' | 'product' | 'total' | 'category';
+const PRICE_TYPES: Array<{ id: string; label: string; currency: string }> = [
+  { id: 'pt_distr_usd',    label: 'Distributor USD',  currency: 'USD' },
+  { id: 'pt_distr_rub',    label: 'Distributor RUB',  currency: 'RUB' },
+  { id: 'pt_export_usd',   label: 'EXPORT_USD',       currency: 'USD' },
+  { id: 'pt_wb_ru',        label: 'WB_RU (RRP)',      currency: 'RUB' },
+  { id: 'pt_purchase_cny', label: 'PURCHASE_CNY',     currency: 'CNY' },
+];
+
+type SortKey = 'sku' | 'product' | 'total' | 'price';
 type SortDir = 'asc' | 'desc';
 
 interface RowData extends ProductListItem {
@@ -25,6 +33,10 @@ export default function ProductsPage() {
   const [manufacturerFilter, setManufacturerFilter] = useState<string>('all');
   const [sortKey, setSortKey] = useState<SortKey>('sku');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [priceTypeId, setPriceTypeId] = useState<string>('pt_distr_usd');
+  const [priceMap, setPriceMap] = useState<Record<string, number>>({});
+  const [priceCurrency, setPriceCurrency] = useState<string>('USD');
+  const [priceLoading, setPriceLoading] = useState(false);
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -65,6 +77,27 @@ export default function ProductsPage() {
     };
     fetchAll();
   }, []);
+
+  // Load pricelist map whenever price_type changes
+  useEffect(() => {
+    const loadPrices = async () => {
+      setPriceLoading(true);
+      try {
+        const res = await getPricelistMap(priceTypeId);
+        if (res.success && res.result) {
+          setPriceMap(res.result.prices);
+          setPriceCurrency(res.result.currency);
+        } else {
+          setPriceMap({});
+        }
+      } catch {
+        setPriceMap({});
+      } finally {
+        setPriceLoading(false);
+      }
+    };
+    loadPrices();
+  }, [priceTypeId]);
 
   // Stable warehouse order — first 6 codes alphabetically across all rows
   const sparklineCodes = useMemo(() => {
@@ -112,12 +145,17 @@ export default function ProductsPage() {
         case 'sku':      cmp = a.id.localeCompare(b.id); break;
         case 'product':  cmp = a.product_name.localeCompare(b.product_name); break;
         case 'total':    cmp = a.total_on_hand - b.total_on_hand; break;
-        case 'category': cmp = a.category.localeCompare(b.category); break;
+        case 'price':    {
+          const pa = priceMap[a.id.toUpperCase()] ?? 0;
+          const pb = priceMap[b.id.toUpperCase()] ?? 0;
+          cmp = pa - pb;
+          break;
+        }
       }
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return list;
-  }, [filtered, sortKey, sortDir]);
+  }, [filtered, sortKey, sortDir, priceMap]);
 
   const pasteCount = rows.filter((p) => p.category === 'Toothpaste').length;
   const brushCount = rows.filter((p) => p.category === 'Toothbrush').length;
@@ -189,7 +227,25 @@ export default function ProductsPage() {
           />
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex gap-3 items-center">
+          <select
+            value={priceTypeId}
+            onChange={(e) => setPriceTypeId(e.target.value)}
+            className="px-3 py-2 focus:outline-none"
+            style={{
+              fontSize: '14px',
+              fontWeight: 600,
+              backgroundColor: 'var(--paper-sunk)',
+              border: '1px solid var(--border-hairline)',
+              borderRadius: 'var(--radius-sm)',
+              color: 'var(--fg-1)',
+            }}
+          >
+            {PRICE_TYPES.map((pt) => (
+              <option key={pt.id} value={pt.id}>{pt.label}</option>
+            ))}
+          </select>
+
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
@@ -209,25 +265,7 @@ export default function ProductsPage() {
             <option value="Other">Other</option>
           </select>
 
-          <select
-            value={manufacturerFilter}
-            onChange={(e) => setManufacturerFilter(e.target.value)}
-            className="px-3 py-2 focus:outline-none"
-            style={{
-              fontSize: '14px',
-              backgroundColor: 'var(--paper-sunk)',
-              border: '1px solid var(--border-hairline)',
-              borderRadius: 'var(--radius-sm)',
-              color: 'var(--fg-1)',
-            }}
-          >
-            <option value="all">All manufacturers</option>
-            {manufacturers.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
-
-          <div className="ml-auto self-center" style={{ fontSize: 'var(--fs-caption)', color: 'var(--fg-3)' }}>
+          <div className="ml-auto self-center" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
             {sorted.length} / {rows.length}
           </div>
         </div>
@@ -254,25 +292,22 @@ export default function ProductsPage() {
               <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                 <ProductTh sortKey="sku"      active={sortKey} dir={sortDir} onClick={clickHeader}>SKU</ProductTh>
                 <ProductTh sortKey="product"  active={sortKey} dir={sortDir} onClick={clickHeader}>Product</ProductTh>
+                <ProductTh sortKey="price"    active={sortKey} dir={sortDir} onClick={clickHeader} defaultDir="desc">Price</ProductTh>
                 <ProductTh sortKey="total"    active={sortKey} dir={sortDir} onClick={clickHeader} defaultDir="desc">Total stock</ProductTh>
-                <ProductTh sortKey="category" active={sortKey} dir={sortDir} onClick={clickHeader}>Category</ProductTh>
-                <ProductTh>Manufacturer</ProductTh>
-                <ProductTh>Weight</ProductTh>
                 <ProductTh>Barcode</ProductTh>
               </tr>
             </thead>
             <tbody>
               {sorted.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-12" style={{ color: 'var(--fg-3)', fontSize: '14px' }}>
+                  <td colSpan={5} className="text-center py-12" style={{ color: 'var(--fg-3)', fontSize: '14px' }}>
                     No products match the filters
                   </td>
                 </tr>
               ) : (
                 sorted.map((p) => {
-                  const skuShort = p.id.toUpperCase();  // display-only
-                  // Link uses raw lowercase p.id so route matches the
-                  // exact key stored in D1 (and prerendered statically).
+                  const skuShort = p.id.toUpperCase();
+                  const price = priceMap[skuShort];
                   return (
                     <tr key={p.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                       <td className="px-4 py-3" style={{ fontWeight: 700 }}>
@@ -285,6 +320,15 @@ export default function ProductsPage() {
                           <span className="dx-product-name">{p.product_name}</span>
                         </Link>
                       </td>
+                      <td className="px-4 py-3" style={{
+                        fontFamily: 'var(--font-accent-jakarta)',
+                        fontWeight: 700,
+                        fontSize: '18px',
+                        fontVariantNumeric: 'tabular-nums',
+                        color: price !== undefined ? 'var(--fg-1)' : 'var(--fg-muted)',
+                      }}>
+                        {priceLoading ? '…' : price !== undefined ? `${formatPriceValue(price)} ${priceCurrency}` : '—'}
+                      </td>
                       <td className="px-4 py-3">
                         <StockCell
                           total={p.total_on_hand}
@@ -292,15 +336,6 @@ export default function ProductsPage() {
                           codes={sparklineCodes}
                           maxOnHand={maxOnHand}
                         />
-                      </td>
-                      <td className="px-4 py-3" style={{ color: 'var(--fg-1)' }}>
-                        {p.category}
-                      </td>
-                      <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>
-                        {p.manufacturer_name ?? '—'}
-                      </td>
-                      <td className="px-4 py-3 tabular-nums" style={{ color: 'var(--fg-2)' }}>
-                        {formatWeight(p.weight_kg)}
                       </td>
                       <td className="px-4 py-3 tabular-nums" style={{ color: 'var(--fg-3)' }}>
                         {p.barcode ?? '—'}
@@ -320,6 +355,15 @@ export default function ProductsPage() {
 // =============================================================================
 // Helpers
 // =============================================================================
+
+function formatPriceValue(price: number): string {
+  // 0.96 → "0.96", 102 → "102.00", 1.98 → "1.98"
+  // Decimals shown when meaningful (sub-100 values)
+  return price.toLocaleString('en-US', {
+    minimumFractionDigits: price < 10 ? 2 : 2,
+    maximumFractionDigits: 2,
+  });
+}
 
 function formatWeight(weightG: number | null): string {
   if (weightG === null || weightG === undefined) return '—';

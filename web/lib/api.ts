@@ -195,6 +195,20 @@ export async function getProductPrices(id: string) {
   return apiGet<ProductPricesResponse>(`/api/products/${id}/prices`);
 }
 
+// Bulk pricelist — full SKU→price map for one price type
+export interface PricelistResponse {
+  price_type_id: string;
+  filename: string;
+  currency: string;
+  last_updated: string;
+  prices: Record<string, number>;  // SKU → decimal price
+  count: number;
+}
+
+export async function getPricelistMap(priceTypeId: string) {
+  return apiGet<PricelistResponse>(`/api/pricer/list/${priceTypeId}`);
+}
+
 // Activity (recent stock movements for a SKU)
 export interface ProductActivityRow {
   id: string;

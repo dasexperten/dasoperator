@@ -16,6 +16,7 @@ import contractsRoutes from './routes/contracts';
 import paymentsRoutes from './routes/payments';
 import { netBalancePerPartner, netBalanceBulk } from './routes/net-balance';
 import productsPricingRoutes from './routes/products-pricing';
+import documentsRoutes from './routes/documents';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
 
@@ -37,7 +38,7 @@ app.notFound((c) => {
   );
 });
 
-app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.2.1', phase: '3.0e-operations-form' }));
+app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.3.0', phase: '2.0c-3-pdf' }));
 app.route('/health', healthRoutes);
 app.route('/api/products', productsRoutes);
 app.route('/api/products', productsPricingRoutes);  // adds :productId/price
@@ -52,6 +53,7 @@ app.route('/api/sequences', sequencesRoutes);
 app.route('/api/operations', operationsRoutes);
 app.route('/api/payments', paymentsRoutes);
 app.route('/api/fx', fxRoutes);
+app.route('/api/documents', documentsRoutes);
 
 export default {
   fetch: app.fetch,

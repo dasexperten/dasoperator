@@ -25,15 +25,23 @@ async function checkBinding(check: () => Promise<unknown>): Promise<BindingStatu
 health.get('/', async (c) => {
   const env = c.env;
 
-  const [dbStatus, docsStatus, countersStatus, fxStatus, cacheStatus] = await Promise.all([
-    checkBinding(() => env.DB.prepare('SELECT 1 as ping').first()),
-    checkBinding(() => env.DOCS.head('__healthcheck__')),  // head on non-existent key is fine
-    checkBinding(() => env.COUNTERS.get('__healthcheck__')),
-    checkBinding(() => env.FX.get('__healthcheck__')),
-    checkBinding(() => env.CACHE.get('__healthcheck__')),
-  ]);
+  const [dbStatus, docsStatus, countersStatus, fxStatus, cacheStatus, documentsCheck] =
+    await Promise.all([
+      checkBinding(() => env.DB.prepare('SELECT 1 as ping').first()),
+      checkBinding(() => env.DOCS.head('__healthcheck__')),  // head on non-existent key is fine
+      checkBinding(() => env.COUNTERS.get('__healthcheck__')),
+      checkBinding(() => env.FX.get('__healthcheck__')),
+      checkBinding(() => env.CACHE.get('__healthcheck__')),
+      env.DB.prepare('SELECT COUNT(*) AS n FROM documents WHERE deleted_at IS NULL')
+        .first<{ n: number }>()
+        .then((r) => ({ status: 'ok' as const, count: r?.n ?? 0 }))
+        .catch((err) => ({
+          status: 'error' as const,
+          error: err instanceof Error ? err.message : String(err),
+        })),
+    ]);
 
-  const result: HealthStatus = {
+  const result: HealthStatus & { documents_table: typeof documentsCheck } = {
     worker: 'ok',
     bindings: {
       DB: dbStatus,
@@ -42,6 +50,7 @@ health.get('/', async (c) => {
       FX: fxStatus,
       CACHE: cacheStatus,
     },
+    documents_table: documentsCheck,
     timestamp: new Date().toISOString(),
   };
 

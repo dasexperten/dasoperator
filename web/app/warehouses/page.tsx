@@ -119,7 +119,7 @@ export default function WarehousesPage() {
                 <Th sticky>SKU</Th>
                 <Th sticky2>Product</Th>
                 {warehouses.map((w) => (
-                  <Th key={w.id} center>
+                  <Th key={w.id} center bg={TINT_BY_GROUP[groupForWarehouse(w)]}>
                     <Link href={`/warehouses/${w.id}`} style={{ color: 'inherit' }}>
                       {w.code}
                     </Link>
@@ -153,7 +153,12 @@ export default function WarehousesPage() {
                       {warehouses.map((w) => {
                         const v = byWh[w.id] ?? 0;
                         return (
-                          <StockCellTd key={w.id} value={v} href={`/warehouses/${w.id}?sku=${skuShort}`} />
+                          <StockCellTd
+                            key={w.id}
+                            value={v}
+                            href={`/warehouses/${w.id}?sku=${skuShort}`}
+                            tint={TINT_BY_GROUP[groupForWarehouse(w)]}
+                          />
                         );
                       })}
                       <td className="px-3 py-2 dx-mono text-right" style={{
@@ -179,7 +184,7 @@ export default function WarehousesPage() {
                       fontSize: '13px',
                       fontWeight: 700,
                       color: 'var(--fg-1)',
-                      backgroundColor: 'var(--paper-sunk)',
+                      backgroundColor: TINT_BY_GROUP[groupForWarehouse(w)],
                     }}>
                       {(totalsByWarehouse.totals[w.code] ?? 0).toLocaleString('en-US')}
                     </td>
@@ -202,13 +207,33 @@ export default function WarehousesPage() {
   );
 }
 
-function StockCellTd({ value, href }: { value: number; href: string }) {
-  // Color rules per recipe:
-  // 0 → muted, no bg
-  // 1-50 → red bg + red text
-  // 51-200 → amber bg + amber text
-  // 201+ → normal, no bg
-  let bg: string | undefined;
+// =============================================================================
+// Country grouping → soft column tint (Phase 4.4 follow-up)
+// =============================================================================
+// Group derivation by warehouse.country (no hardcoded code list — DGN/future
+// warehouses fall into the right bucket automatically as long as country
+// field is set in /api/warehouses).
+type CountryGroup = 'russia' | 'china' | 'transit';
+
+export function groupForWarehouse(wh: { country?: string | null }): CountryGroup {
+  if (wh.country === 'Russia') return 'russia';
+  if (wh.country === 'China') return 'china';
+  return 'transit';
+}
+
+export const TINT_BY_GROUP: Record<CountryGroup, string> = {
+  russia:  'rgba(252, 235, 235, 0.5)',  // warm beige-red
+  china:   'rgba(230, 241, 251, 0.5)',  // cool slate-blue
+  transit: 'rgba(225, 245, 238, 0.5)',  // neutral mint
+};
+
+function StockCellTd({ value, href, tint }: { value: number; href: string; tint?: string }) {
+  // Cell coloring rules (Phase 4.4) — semantic warning bg overrides country tint:
+  //   0       → muted text, fall through to tint
+  //   1-50    → red bg + red text (tint hidden)
+  //   51-200  → amber bg + amber text (tint hidden)
+  //   201+    → fall through to tint
+  let bg: string | undefined = tint;
   let color: string;
   if (value === 0) {
     color = 'var(--fg-muted)';
@@ -231,12 +256,13 @@ function StockCellTd({ value, href }: { value: number; href: string }) {
   );
 }
 
-function Th({ children, sticky, sticky2, center, accent }: {
+function Th({ children, sticky, sticky2, center, accent, bg }: {
   children: React.ReactNode;
   sticky?: boolean;
   sticky2?: boolean;
   center?: boolean;
   accent?: boolean;
+  bg?: string;
 }) {
   return (
     <th
@@ -244,7 +270,7 @@ function Th({ children, sticky, sticky2, center, accent }: {
       style={{
         fontSize: '10px',
         color: 'var(--fg-3)',
-        backgroundColor: accent ? 'var(--paper-sunk)' : 'var(--paper-sunk)',
+        backgroundColor: bg ?? (accent ? 'var(--paper-sunk)' : 'var(--paper-sunk)'),
         borderBottom: '1px solid var(--border-hairline)',
         position: sticky || sticky2 ? 'sticky' : undefined,
         left: sticky ? 0 : sticky2 ? '60px' : undefined,

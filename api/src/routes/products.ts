@@ -117,6 +117,93 @@ products.get('/', async (c) => {
 // =============================================================================
 // GET /api/products/:id — single product full row + manufacturer + packaging
 // =============================================================================
+// =============================================================================
+// GET /api/products/with-stock
+// Returns all products joined with current stock totals + per-warehouse
+// breakdown. Per-warehouse array sorted by warehouse.code (stable order so
+// sparkline bars represent same warehouse position across rows).
+//
+// IMPORTANT: This must be declared BEFORE products.get('/:id', ...) below,
+// otherwise Hono's router matches /with-stock against the dynamic /:id
+// handler first (router precedence is by declaration order in some modes).
+// =============================================================================
+
+interface StockJoinRow {
+  product_id: string;
+  product_name: string;
+  invoice_label: string;
+  manufacturer_id: string | null;
+  pieces_per_case: number;
+  warehouse_id: string;
+  code: string;
+  warehouse_name: string;
+  on_hand: number;
+}
+
+products.get('/with-stock', async (c) => {
+  const result = await c.env.DB.prepare(`
+    SELECT
+      p.id AS product_id,
+      p.product_name,
+      p.invoice_label,
+      p.manufacturer_id,
+      p.pieces_per_case,
+      w.id AS warehouse_id,
+      w.code,
+      w.name AS warehouse_name,
+      COALESCE(s.on_hand, 0) AS on_hand
+    FROM products p
+    CROSS JOIN warehouses w
+    LEFT JOIN stocks s
+      ON s.product_id = p.id
+     AND s.warehouse_id = w.id
+    WHERE p.deleted_at IS NULL
+      AND w.deleted_at IS NULL
+    ORDER BY p.product_name, w.code
+  `).all<StockJoinRow>();
+
+  const byProduct = new Map<string, {
+    id: string;
+    product_name: string;
+    invoice_label: string;
+    manufacturer_id: string | null;
+    pieces_per_case: number;
+    total_on_hand: number;
+    warehouses: Array<{ warehouse_id: string; code: string; name: string; on_hand: number }>;
+  }>();
+
+  for (const row of result.results) {
+    let prod = byProduct.get(row.product_id);
+    if (!prod) {
+      prod = {
+        id: row.product_id,
+        product_name: row.product_name,
+        invoice_label: row.invoice_label,
+        manufacturer_id: row.manufacturer_id,
+        pieces_per_case: row.pieces_per_case,
+        total_on_hand: 0,
+        warehouses: [],
+      };
+      byProduct.set(row.product_id, prod);
+    }
+    prod.warehouses.push({
+      warehouse_id: row.warehouse_id,
+      code: row.code,
+      name: row.warehouse_name,
+      on_hand: row.on_hand,
+    });
+    prod.total_on_hand += row.on_hand;
+  }
+
+  return ok(c, {
+    count: byProduct.size,
+    products: Array.from(byProduct.values()),
+  });
+});
+
+// =============================================================================
+// GET /api/products/:id — single product full row + manufacturer + packaging
+// =============================================================================
 products.get('/:id', async (c) => {
   const id = c.req.param('id');
 
@@ -219,87 +306,6 @@ products.get('/:id/activity', async (c) => {
     count: result.results.length,
     limit,
     activity: result.results,
-  });
-});
-
-// =============================================================================
-// GET /api/products/with-stock
-// Returns all products joined with current stock totals + per-warehouse
-// breakdown. Per-warehouse array sorted by warehouse.code (stable order so
-// sparkline bars represent same warehouse position across rows).
-// =============================================================================
-
-interface StockJoinRow {
-  product_id: string;
-  product_name: string;
-  invoice_label: string;
-  manufacturer_id: string | null;
-  pieces_per_case: number;
-  warehouse_id: string;
-  code: string;
-  warehouse_name: string;
-  on_hand: number;
-}
-
-products.get('/with-stock', async (c) => {
-  const result = await c.env.DB.prepare(`
-    SELECT
-      p.id AS product_id,
-      p.product_name,
-      p.invoice_label,
-      p.manufacturer_id,
-      p.pieces_per_case,
-      w.id AS warehouse_id,
-      w.code,
-      w.name AS warehouse_name,
-      COALESCE(s.on_hand, 0) AS on_hand
-    FROM products p
-    CROSS JOIN warehouses w
-    LEFT JOIN stocks s
-      ON s.product_id = p.id
-     AND s.warehouse_id = w.id
-    WHERE p.deleted_at IS NULL
-      AND w.deleted_at IS NULL
-    ORDER BY p.product_name, w.code
-  `).all<StockJoinRow>();
-
-  // Group by product
-  const byProduct = new Map<string, {
-    id: string;
-    product_name: string;
-    invoice_label: string;
-    manufacturer_id: string | null;
-    pieces_per_case: number;
-    total_on_hand: number;
-    warehouses: Array<{ warehouse_id: string; code: string; name: string; on_hand: number }>;
-  }>();
-
-  for (const row of result.results) {
-    let prod = byProduct.get(row.product_id);
-    if (!prod) {
-      prod = {
-        id: row.product_id,
-        product_name: row.product_name,
-        invoice_label: row.invoice_label,
-        manufacturer_id: row.manufacturer_id,
-        pieces_per_case: row.pieces_per_case,
-        total_on_hand: 0,
-        warehouses: [],
-      };
-      byProduct.set(row.product_id, prod);
-    }
-    prod.warehouses.push({
-      warehouse_id: row.warehouse_id,
-      code: row.code,
-      name: row.warehouse_name,
-      on_hand: row.on_hand,
-    });
-    prod.total_on_hand += row.on_hand;
-  }
-
-  return ok(c, {
-    count: byProduct.size,
-    products: Array.from(byProduct.values()),
   });
 });
 

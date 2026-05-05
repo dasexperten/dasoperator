@@ -148,7 +148,7 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
 
       {/* STOCK ACROSS WAREHOUSES */}
       {stock && (
-        <StockSection stock={stock} piecesPerCase={product.pieces_per_case ?? 1} />
+        <StockSection stock={stock} piecesPerCase={stock.product?.pieces_per_case ?? 1} />
       )}
 
       <div className="p-5" style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>

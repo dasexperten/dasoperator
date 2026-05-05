@@ -8,10 +8,10 @@ import { queryFirst } from '../lib/db';
 // Returns: full record from companies / partners / manufacturers / shippers
 // Slug prefix determines table:
 //   cmp_*   → companies
-//   prt_*   → partners
 //   mfr_*   → manufacturers
 //   shp_*   → shippers
 //   wh_*    → warehouses
+//   <bare>  → partners (no prefix after Phase 4.3c-clean)
 // =============================================================================
 
 const contacts = new Hono<{ Bindings: Env }>();
@@ -24,10 +24,10 @@ interface ContactResult {
 contacts.get('/:slug', async (c) => {
   const slug = c.req.param('slug');
 
-  if (!slug || slug.length < 4) {
+  if (!slug || slug.length < 2) {
     return fail(c, 400, [{
       code: 'invalid_slug',
-      message: 'Slug must follow pattern <prefix>_<id> (e.g. cmp_dee)',
+      message: 'Slug must be a non-empty identifier',
     }]);
   }
 
@@ -44,14 +44,6 @@ contacts.get('/:slug', async (c) => {
         slug
       );
       type = 'company';
-      break;
-    case 'prt':
-      result = await queryFirst(
-        c.env.DB,
-        'SELECT * FROM partners WHERE id = ? AND deleted_at IS NULL',
-        slug
-      );
-      type = 'partner';
       break;
     case 'mfr':
       result = await queryFirst(
@@ -78,10 +70,14 @@ contacts.get('/:slug', async (c) => {
       type = 'warehouse';
       break;
     default:
-      return fail(c, 400, [{
-        code: 'unknown_slug_prefix',
-        message: `Unknown slug prefix: ${prefix}. Expected one of: cmp, prt, mfr, shp, wh`,
-      }]);
+      // No matching prefix → assume bare partner slug (Phase 4.3c-clean)
+      result = await queryFirst(
+        c.env.DB,
+        'SELECT * FROM partners WHERE id = ? AND deleted_at IS NULL',
+        slug
+      );
+      type = 'partner';
+      break;
   }
 
   if (!result) {

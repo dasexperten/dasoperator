@@ -36,7 +36,7 @@ stockMovements.get('/', async (c) => {
 
   let sql = `
     SELECT
-      m.id, m.warehouse_id, w.warehouse_code,
+      m.id, m.warehouse_id, w.code,
       m.product_id, p.product_name, p.invoice_label,
       m.movement_type, m.quantity, m.balance_after,
       m.source, m.source_ref_type, m.source_ref_id,
@@ -135,7 +135,7 @@ stockMovements.get('/:id', async (c) => {
   const id = c.req.param('id');
   const row = await c.env.DB.prepare(`
     SELECT
-      m.*, w.warehouse_code, w.warehouse_name,
+      m.*, w.code, w.name,
       p.product_name, p.invoice_label
     FROM stock_movements m
     LEFT JOIN warehouses w ON m.warehouse_id = w.id

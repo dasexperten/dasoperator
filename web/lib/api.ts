@@ -323,6 +323,21 @@ export async function getAllNetBalances() {
 }
 
 // =============================================================================
+// FX rates
+// =============================================================================
+
+export interface FxLatest {
+  date: string;
+  source: string;
+  fetched_at: number;
+  rates: Record<string, { rate_to_usd_nano: number }>;
+}
+
+export async function getFxLatest() {
+  return apiGet<FxLatest>('/api/fx/latest');
+}
+
+// =============================================================================
 // Product price for contract context (Phase 3.0e — auto-fill)
 // =============================================================================
 

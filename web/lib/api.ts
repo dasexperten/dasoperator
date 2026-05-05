@@ -130,6 +130,153 @@ export async function getProductsList(filters?: {
   return apiGet<ProductsListPlainResponse>(`/api/products${qs}`);
 }
 
+// Phase 5.1+ — single product full row including manufacturer + packaging JOINs
+export interface ProductFull {
+  id: string;
+  product_name: string;
+  invoice_label: string;
+  category: 'Toothpaste' | 'Toothbrush' | 'Floss' | 'Other';
+  barcode: string | null;
+  weight_kg: number | null;
+  volume_m3_micro: number | null;
+  manufacturer_id: string;
+  buy_price: number | null;
+  buy_currency: string | null;
+  buy_term: string | null;
+  notes: string | null;
+  hs_code: string | null;
+  ctn_qty: number | null;
+  ctn_weight_gross_kg: number | null;
+  ctn_dim_l_cm: number | null;
+  ctn_dim_w_cm: number | null;
+  ctn_dim_h_cm: number | null;
+  unit_net_weight_g: number | null;
+  country_of_origin: string | null;
+  description_ru: string | null;
+  description_en: string | null;
+  description_cn: string | null;
+  packaging_manufacturer_id: string | null;
+  pieces_per_case: number;
+  manufacturer_name: string | null;
+  manufacturer_country: string | null;
+  manufacturer_city: string | null;
+  packaging_manufacturer_name: string | null;
+  packaging_manufacturer_country: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export async function getProduct(id: string) {
+  return apiGet<ProductFull>(`/api/products/${id}`);
+}
+
+// Prices
+export interface ProductPriceRow {
+  id: string;
+  price_type_id: string;
+  price_type_code: string | null;
+  price_type_description: string | null;
+  price_type_currency: string | null;
+  used_by_entity: string | null;
+  sell_price: number;
+  currency: string;
+  effective_from: number;
+  effective_until: number | null;
+  notes: string | null;
+  is_active: number;
+}
+
+export interface ProductPricesResponse {
+  count: number;
+  prices: ProductPriceRow[];
+}
+
+export async function getProductPrices(id: string) {
+  return apiGet<ProductPricesResponse>(`/api/products/${id}/prices`);
+}
+
+// Activity (recent stock movements for a SKU)
+export interface ProductActivityRow {
+  id: string;
+  type: string;
+  warehouse_id: string;
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+  quantity: number;
+  balance_after: number;
+  source: string;
+  source_ref_type: string | null;
+  source_ref_id: string | null;
+  reason: string | null;
+  notes: string | null;
+  performed_by: string | null;
+  performed_at: number;
+  created_at: number;
+}
+
+export interface ProductActivityResponse {
+  count: number;
+  limit: number;
+  activity: ProductActivityRow[];
+}
+
+export async function getProductActivity(id: string, limit = 20) {
+  return apiGet<ProductActivityResponse>(`/api/products/${id}/activity?limit=${limit}`);
+}
+
+// Images
+export interface ProductImage {
+  id: string;
+  product_id: string;
+  r2_key: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  width: number | null;
+  height: number | null;
+  caption: string | null;
+  display_order: number;
+  is_primary: boolean;
+  uploaded_by: string | null;
+  uploaded_at: number;
+  created_at: number;
+  updated_at: number;
+  file_url: string;
+}
+
+export interface ProductImagesResponse {
+  count: number;
+  images: ProductImage[];
+}
+
+export async function getProductImages(id: string) {
+  return apiGet<ProductImagesResponse>(`/api/products/${id}/images`);
+}
+
+export async function uploadProductImage(id: string, file: File) {
+  const fd = new FormData();
+  fd.set('file', file);
+  const res = await fetch(`${API_BASE}/api/products/${id}/images`, {
+    method: 'POST',
+    body: fd,
+  });
+  return res.json() as Promise<ApiResponse<ProductImage>>;
+}
+
+export async function setPrimaryImage(productId: string, imageId: string) {
+  return apiPatch<{ id: string; updated_at: number }>(
+    `/api/products/${productId}/images/${imageId}`,
+    { is_primary: true }
+  );
+}
+
+export async function deleteProductImage(productId: string, imageId: string) {
+  const res = await fetch(`${API_BASE}/api/products/${productId}/images/${imageId}`, {
+    method: 'DELETE',
+  });
+  return res.json() as Promise<ApiResponse<{ id: string; deleted_at: number }>>;
+}
+
 export async function getProductBySku(sku: string) {
   return apiGet<ProductsLookupResponse>(`/api/products/lookup?sku=${sku}`);
 }

@@ -410,6 +410,10 @@ export async function issueDocuments(
                    : r.seller.party),
             buyer: r.buyer.party,
             seller: sellerSideParty,
+            // Seller is distinct from shipper iff the spec routes through a
+            // company seller (dei_layer Factory→DEI→DEE) — in the direct
+            // Factory→buyer case shipper and seller are the same row.
+            sellerDistinctFromShipper: r.spec.sellerKind === 'company',
             bank, signature, contract: input.contract,
             incoterms: selectIncoterms(input.ourCompany, input.partner, input.contract, isInternational) || 'FOB Shanghai',
             consigneeAtTerminal: null,

@@ -12,12 +12,21 @@ import {
 } from './shared';
 
 // A4 landscape — width / height are in DXA (twentieths of a point).
-// 16838 = 842pt = 297mm; 11906 = 595pt = 210mm. 720 DXA = 0.5 inch margin.
+// 16838 = 842pt = 297mm (long side); 11906 = 595pt = 210mm (short side).
+// 720 DXA = 0.5 inch margin.
+//
+// QUIRK: docx@9's createPageSize swaps `width`/`height` when
+// `orientation === LANDSCAPE`. Specifically it emits
+//   w:w = input.height
+//   w:h = input.width
+// so to land at the correct XML (w="16838" h="11906" orient="landscape")
+// we must feed it PORTRAIT dimensions here. PR #37 had it the other way
+// round, which produced w="11906" h="16838" and a portrait canvas in Word.
 const PAGE_LANDSCAPE = {
   size: {
     orientation: PageOrientation.LANDSCAPE,
-    width: 16838,
-    height: 11906,
+    width: 11906,    // docx will swap → emits w:w = 16838 (long side)
+    height: 16838,   // docx will swap → emits w:h = 11906 (short side)
   },
   margin: { top: 720, right: 720, bottom: 720, left: 720 },
 } as const;

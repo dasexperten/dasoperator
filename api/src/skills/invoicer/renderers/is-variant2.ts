@@ -14,11 +14,14 @@ import {
 } from './shared';
 
 // A4 landscape — same setup as IS-V1; trilingual headers need the extra width.
+// See is-variant1.ts for the docx@9 width/height-swap quirk: feed PORTRAIT
+// dimensions and let the library's LANDSCAPE swap produce the correct XML
+// (w="16838" h="11906"). Don't "fix" these back to landscape numbers.
 const PAGE_LANDSCAPE = {
   size: {
     orientation: PageOrientation.LANDSCAPE,
-    width: 16838,
-    height: 11906,
+    width: 11906,
+    height: 16838,
   },
   margin: { top: 720, right: 720, bottom: 720, left: 720 },
 } as const;

@@ -475,3 +475,221 @@ export async function updateOperationStatus(
 ) {
   return apiPatch<UpdateStatusResponse>(`/api/operations/${id}/status`, { status });
 }
+
+// =============================================================================
+// Inventory — Phase 4.4 frontend wiring
+// =============================================================================
+
+export interface Warehouse {
+  id: string;
+  code: string;
+  name: string;
+  country?: string | null;
+  city?: string | null;
+  warehouse_type?: string | null;
+  owner_id?: string | null;
+  notes?: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface WarehousesListResponse {
+  count: number;
+  warehouses: Warehouse[];
+}
+
+export async function getWarehouses() {
+  return apiGet<WarehousesListResponse>('/api/warehouses');
+}
+
+export interface WarehouseDetail extends Warehouse {
+  last_counted_at: number | null;
+  last_movement_at: number | null;
+}
+
+export async function getWarehouse(id: string) {
+  return apiGet<WarehouseDetail>(`/api/warehouses/${id}`);
+}
+
+// -----------------------------------------------------------------------------
+// Products with stock breakdown
+// -----------------------------------------------------------------------------
+
+export interface ProductWarehouseStock {
+  warehouse_id: string;
+  code: string;
+  name: string;
+  on_hand: number;
+}
+
+export interface ProductWithStock {
+  id: string;
+  product_name: string;
+  invoice_label: string;
+  manufacturer_id: string | null;
+  pieces_per_case: number;
+  total_on_hand: number;
+  warehouses: ProductWarehouseStock[];
+}
+
+export interface ProductsWithStockResponse {
+  count: number;
+  products: ProductWithStock[];
+}
+
+export async function getProductsWithStock() {
+  return apiGet<ProductsWithStockResponse>('/api/products/with-stock');
+}
+
+// -----------------------------------------------------------------------------
+// Stocks (existing API surface, typed wrappers)
+// -----------------------------------------------------------------------------
+
+export interface StockRow {
+  id: string;
+  warehouse_id: string;
+  code: string;
+  name: string;
+  product_id: string;
+  product_name: string;
+  invoice_label: string;
+  pieces_per_case: number;
+  on_hand: number;
+  last_movement_at: number | null;
+  last_counted_at: number | null;
+  last_counted_by: string | null;
+  updated_at: number;
+}
+
+export interface StocksListResponse {
+  count: number;
+  stocks: StockRow[];
+}
+
+export async function getStocks(filters?: { warehouse_id?: string; product_id?: string }) {
+  const params = new URLSearchParams();
+  if (filters?.warehouse_id) params.set('warehouse_id', filters.warehouse_id);
+  if (filters?.product_id) params.set('product_id', filters.product_id);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return apiGet<StocksListResponse>(`/api/stocks${qs}`);
+}
+
+export interface ProductStockResponse {
+  product: { id: string; product_name: string; pieces_per_case: number };
+  total_on_hand: number;
+  by_warehouse: Array<{
+    warehouse_id: string;
+    code: string;
+    name: string;
+    on_hand: number;
+    last_movement_at: number | null;
+    last_counted_at: number | null;
+  }>;
+}
+
+export async function getProductStock(productId: string) {
+  return apiGet<ProductStockResponse>(`/api/products/${productId}/stock`);
+}
+
+// -----------------------------------------------------------------------------
+// Stock movements
+// -----------------------------------------------------------------------------
+
+export type MovementType =
+  | 'receipt' | 'shipment' | 'transfer_in' | 'transfer_out'
+  | 'adjustment' | 'session_correction' | 'sync_correction'
+  | 'opening_balance' | 'write_off' | 'return';
+
+export type MovementSource =
+  | 'manual' | 'operation' | 'session'
+  | 'sync_wb' | 'sync_ozon' | 'sync_3pl' | 'sync_api'
+  | 'cron' | 'opening';
+
+export interface StockMovement {
+  id: string;
+  warehouse_id: string;
+  code: string;
+  product_id: string;
+  product_name: string;
+  invoice_label: string;
+  movement_type: MovementType;
+  quantity: number;
+  balance_after: number;
+  source: MovementSource;
+  source_ref_type: string | null;
+  source_ref_id: string | null;
+  reason: string | null;
+  notes: string | null;
+  performed_by: string | null;
+  performed_at: number;
+  created_at: number;
+}
+
+export interface StockMovementsListResponse {
+  count: number;
+  limit: number;
+  movements: StockMovement[];
+}
+
+export async function getStockMovements(filters?: {
+  warehouse_id?: string;
+  product_id?: string;
+  movement_type?: MovementType;
+  source?: MovementSource;
+  source_ref_id?: string;
+  date_from?: number;
+  date_to?: number;
+  limit?: number;
+}) {
+  const params = new URLSearchParams();
+  if (filters?.warehouse_id) params.set('warehouse_id', filters.warehouse_id);
+  if (filters?.product_id) params.set('product_id', filters.product_id);
+  if (filters?.movement_type) params.set('movement_type', filters.movement_type);
+  if (filters?.source) params.set('source', filters.source);
+  if (filters?.source_ref_id) params.set('source_ref_id', filters.source_ref_id);
+  if (filters?.date_from) params.set('date_from', String(filters.date_from));
+  if (filters?.date_to) params.set('date_to', String(filters.date_to));
+  if (filters?.limit) params.set('limit', String(filters.limit));
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return apiGet<StockMovementsListResponse>(`/api/stock-movements${qs}`);
+}
+
+// -----------------------------------------------------------------------------
+// Inventory sessions
+// -----------------------------------------------------------------------------
+
+export type SessionStatus = 'open' | 'counting' | 'committed' | 'cancelled';
+
+export interface InventorySession {
+  id: string;
+  reference: string;
+  warehouse_id: string;
+  code: string;
+  name: string;
+  status: SessionStatus;
+  scope: 'full' | 'partial' | 'spot';
+  started_at: number;
+  started_by: string | null;
+  committed_at: number | null;
+  committed_by: string | null;
+  cancelled_at: number | null;
+  cancelled_by: string | null;
+  notes: string | null;
+  total_lines: number;
+  total_discrepancies: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface InventorySessionsListResponse {
+  count: number;
+  sessions: InventorySession[];
+}
+
+export async function getInventorySessions(filters?: { warehouse_id?: string; status?: SessionStatus }) {
+  const params = new URLSearchParams();
+  if (filters?.warehouse_id) params.set('warehouse_id', filters.warehouse_id);
+  if (filters?.status) params.set('status', filters.status);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return apiGet<InventorySessionsListResponse>(`/api/inventory-sessions${qs}`);
+}

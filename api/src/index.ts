@@ -20,6 +20,7 @@ import documentsRoutes from './routes/documents';
 import stocksRoutes, { productStock } from './routes/stocks';
 import stockMovementsRoutes from './routes/stock-movements';
 import inventorySessionsRoutes from './routes/inventory-sessions';
+import warehousesRoutes from './routes/warehouses';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
 
@@ -41,7 +42,7 @@ app.notFound((c) => {
   );
 });
 
-app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.5.0', phase: '4.2-inventory-endpoints' }));
+app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.5.1', phase: '4.4-inventory-frontend' }));
 app.route('/health', healthRoutes);
 app.route('/api/products', productsRoutes);
 app.route('/api/products', productsPricingRoutes);  // adds :productId/price
@@ -61,6 +62,7 @@ app.route('/api/documents', documentsRoutes);
 app.route('/api/stocks', stocksRoutes);
 app.route('/api/stock-movements', stockMovementsRoutes);
 app.route('/api/inventory-sessions', inventorySessionsRoutes);
+app.route('/api/warehouses', warehousesRoutes);
 
 export default {
   fetch: app.fetch,

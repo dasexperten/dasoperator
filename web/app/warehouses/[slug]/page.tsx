@@ -6,7 +6,7 @@ export function generateStaticParams() {
   return [
     { slug: 'wh_flp' },
     { slug: 'wh_gzh' },
-    { slug: 'wh_gzh_bw' },
+    { slug: 'wh_dgn' },
     { slug: 'wh_han' },
     { slug: 'wh_jeb' },
     { slug: 'wh_lbr' },

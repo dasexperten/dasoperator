@@ -60,7 +60,6 @@ function statusChip(status: string) {
         borderRadius: '999px',
         fontFamily: 'var(--font-sans)',
         fontWeight: 500,
-        letterSpacing: '0.02em',
         textTransform: 'capitalize',
       }}
     >
@@ -174,7 +173,7 @@ export default function OperationDetailClient({
       {/* HEADER ===================================================== */}
       <div className="flex justify-between items-start flex-wrap gap-4">
         <div>
-          <p className="dx-eyebrow" style={{ fontSize: '11px' }}>
+          <p style={{ fontSize: '14px' }}>
             {operation.operation_type} operation
           </p>
           <h1
@@ -182,7 +181,6 @@ export default function OperationDetailClient({
               fontFamily: 'var(--font-display)',
               fontSize: 'var(--fs-display-md)',
               fontWeight: 900,
-              letterSpacing: '-0.025em',
               color: 'var(--fg-1)',
               marginTop: '4px',
             }}
@@ -192,7 +190,7 @@ export default function OperationDetailClient({
           <p style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)', marginTop: '4px' }}>
             {partner?.trade_name ?? partnerSlug}
             {operation.contract_no && (
-              <> · Contract <span className="dx-mono">{operation.contract_no}</span></>
+              <> · Contract <span>{operation.contract_no}</span></>
             )}
           </p>
         </div>
@@ -223,31 +221,31 @@ export default function OperationDetailClient({
         }}
       >
         <div>
-          <p className="dx-eyebrow" style={{ fontSize: '10px' }}>Date</p>
-          <p className="mt-1 dx-mono" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-1)' }}>
+          <p style={{ fontSize: '14px' }}>Date</p>
+          <p className="mt-1" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-1)' }}>
             {formatDate(operation.operation_date)}
           </p>
         </div>
         <div>
-          <p className="dx-eyebrow" style={{ fontSize: '10px' }}>Entity</p>
+          <p style={{ fontSize: '14px' }}>Entity</p>
           <p className="mt-1" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-1)' }}>
             {operation.entity_abbreviation ?? '—'}
           </p>
         </div>
         <div>
-          <p className="dx-eyebrow" style={{ fontSize: '10px' }}>Warehouse</p>
-          <p className="mt-1 dx-mono" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-1)' }}>
+          <p style={{ fontSize: '14px' }}>Warehouse</p>
+          <p className="mt-1" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-1)' }}>
             {operation.warehouse_from_id ?? '—'}
           </p>
         </div>
         <div>
-          <p className="dx-eyebrow" style={{ fontSize: '10px' }}>Currency</p>
-          <p className="mt-1 dx-mono" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-1)' }}>
+          <p style={{ fontSize: '14px' }}>Currency</p>
+          <p className="mt-1" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-1)' }}>
             {operation.currency}
           </p>
         </div>
         <div>
-          <p className="dx-eyebrow" style={{ fontSize: '10px' }}>VAT</p>
+          <p style={{ fontSize: '14px' }}>VAT</p>
           <p
             className="mt-1"
             style={{
@@ -288,7 +286,7 @@ export default function OperationDetailClient({
             >
               {tab.label}
               {tab.count !== null && tab.count > 0 && (
-                <span style={{ color: 'var(--fg-3)', marginLeft: '6px', fontSize: '11px' }}>
+                <span style={{ color: 'var(--fg-3)', marginLeft: '6px', fontSize: '14px' }}>
                   {tab.count}
                 </span>
               )}
@@ -389,29 +387,29 @@ function ItemsTab({
       <table className="w-full" style={{ fontSize: 'var(--fs-body-sm)' }}>
         <thead>
           <tr style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>
-            <th className="text-left px-4 py-3 dx-eyebrow" style={{ fontSize: '10px' }}>SKU</th>
-            <th className="text-left px-4 py-3 dx-eyebrow" style={{ fontSize: '10px' }}>Product</th>
-            <th className="text-right px-4 py-3 dx-eyebrow" style={{ fontSize: '10px' }}>Qty</th>
-            <th className="text-right px-4 py-3 dx-eyebrow" style={{ fontSize: '10px' }}>Unit</th>
-            <th className="text-right px-4 py-3 dx-eyebrow" style={{ fontSize: '10px' }}>Total</th>
+            <th className="text-left px-4 py-3" style={{ fontSize: '14px' }}>SKU</th>
+            <th className="text-left px-4 py-3" style={{ fontSize: '14px' }}>Product</th>
+            <th className="text-right px-4 py-3" style={{ fontSize: '14px' }}>Qty</th>
+            <th className="text-right px-4 py-3" style={{ fontSize: '14px' }}>Unit</th>
+            <th className="text-right px-4 py-3" style={{ fontSize: '14px' }}>Total</th>
           </tr>
         </thead>
         <tbody>
           {lineItems.map((li) => (
             <tr key={li.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-              <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-1)' }}>
+              <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-1)' }}>
                 {li.product_id.toUpperCase()}
               </td>
               <td className="px-4 py-3" style={{ color: 'var(--fg-1)' }}>
                 {li.product_name ?? li.item_description ?? li.product_id}
               </td>
-              <td className="px-4 py-3 text-right dx-mono" style={{ color: 'var(--fg-1)' }}>
+              <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)' }}>
                 {li.qty}
               </td>
-              <td className="px-4 py-3 text-right dx-mono" style={{ color: 'var(--fg-1)' }}>
+              <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)' }}>
                 {formatMoney(li.unit_price, currency)}
               </td>
-              <td className="px-4 py-3 text-right dx-mono" style={{ color: 'var(--fg-1)', fontWeight: 600 }}>
+              <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)', fontWeight: 600 }}>
                 {formatMoney(li.line_amount, currency)}
               </td>
             </tr>
@@ -419,10 +417,10 @@ function ItemsTab({
 
           {/* Subtotal */}
           <tr>
-            <td colSpan={4} className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)', fontSize: '12px' }}>
+            <td colSpan={4} className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)', fontSize: '14px' }}>
               Subtotal
             </td>
-            <td className="px-4 py-2 text-right dx-mono" style={{ color: 'var(--fg-1)' }}>
+            <td className="px-4 py-2 text-right" style={{ color: 'var(--fg-1)' }}>
               {formatMoney(subtotal, currency)}
             </td>
           </tr>
@@ -430,10 +428,10 @@ function ItemsTab({
           {/* Discount (only if >0) */}
           {showDiscount && (
             <tr>
-              <td colSpan={4} className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)', fontSize: '12px' }}>
+              <td colSpan={4} className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)', fontSize: '14px' }}>
                 Discount {discountPct}%
               </td>
-              <td className="px-4 py-2 text-right dx-mono" style={{ color: 'var(--fg-2)' }}>
+              <td className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)' }}>
                 −{formatMoney(discount, currency)}
               </td>
             </tr>
@@ -443,18 +441,18 @@ function ItemsTab({
           {showVat && (
             <>
               <tr>
-                <td colSpan={4} className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)', fontSize: '12px' }}>
+                <td colSpan={4} className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)', fontSize: '14px' }}>
                   Net
                 </td>
-                <td className="px-4 py-2 text-right dx-mono" style={{ color: 'var(--fg-1)' }}>
+                <td className="px-4 py-2 text-right" style={{ color: 'var(--fg-1)' }}>
                   {formatMoney(totalAfterDiscount, currency)}
                 </td>
               </tr>
               <tr>
-                <td colSpan={4} className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)', fontSize: '12px' }}>
+                <td colSpan={4} className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)', fontSize: '14px' }}>
                   VAT {vatRate}%
                 </td>
-                <td className="px-4 py-2 text-right dx-mono" style={{ color: 'var(--fg-2)' }}>
+                <td className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)' }}>
                   +{formatMoney(vatAmount, currency)}
                 </td>
               </tr>
@@ -463,10 +461,10 @@ function ItemsTab({
 
           {/* Total */}
           <tr style={{ borderTop: '1px solid var(--border-hairline)' }}>
-            <td colSpan={4} className="px-4 py-3 text-right dx-eyebrow" style={{ fontSize: '11px' }}>
+            <td colSpan={4} className="px-4 py-3 text-right" style={{ fontSize: '14px' }}>
               Total
             </td>
-            <td className="px-4 py-3 text-right dx-mono" style={{ color: 'var(--fg-1)', fontWeight: 700, fontSize: '15px' }}>
+            <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)', fontWeight: 700, fontSize: '15px' }}>
               {formatMoney(grandTotal, currency)} {currency}
             </td>
           </tr>
@@ -525,12 +523,12 @@ function StatusTab({
       }}
     >
       <div className="flex items-center gap-3">
-        <span className="dx-eyebrow">Current</span>
+        <span>Current</span>
         {statusChip(status)}
       </div>
 
       <div>
-        <p className="dx-eyebrow mb-3">Move to</p>
+        <p className="mb-3">Move to</p>
         <div className="flex flex-wrap gap-2">
           {STATUS_TARGETS.map((target) => {
             const isPending = pending === target.id;
@@ -609,10 +607,10 @@ function DocumentsTab({ operationId }: { operationId: string }) {
           Issue document
         </button>
       </div>
-      <p style={{ fontSize: '11px', color: 'var(--fg-3)' }}>
+      <p style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
         Available types: Commercial invoice · Packing list · Issuance statement
       </p>
-      <p className="dx-mono" style={{ fontSize: '10px', color: 'var(--fg-3)' }}>
+      <p style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
         Operation id: {operationId}
       </p>
     </div>
@@ -681,25 +679,25 @@ function PaymentsTab({
           <table className="w-full" style={{ fontSize: 'var(--fs-body-sm)' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                <th className="text-left px-4 py-2 dx-eyebrow" style={{ fontSize: '10px' }}>Date</th>
-                <th className="text-left px-4 py-2 dx-eyebrow" style={{ fontSize: '10px' }}>Type</th>
-                <th className="text-left px-4 py-2 dx-eyebrow" style={{ fontSize: '10px' }}>Direction</th>
-                <th className="text-right px-4 py-2 dx-eyebrow" style={{ fontSize: '10px' }}>Amount</th>
+                <th className="text-left px-4 py-2" style={{ fontSize: '14px' }}>Date</th>
+                <th className="text-left px-4 py-2" style={{ fontSize: '14px' }}>Type</th>
+                <th className="text-left px-4 py-2" style={{ fontSize: '14px' }}>Direction</th>
+                <th className="text-right px-4 py-2" style={{ fontSize: '14px' }}>Amount</th>
               </tr>
             </thead>
             <tbody>
               {payments.map((p) => (
                 <tr key={p.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                  <td className="px-4 py-3 dx-mono" style={{ color: 'var(--fg-2)' }}>
+                  <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>
                     {formatDate(p.payment_date)}
                   </td>
-                  <td className="px-4 py-3 dx-eyebrow" style={{ color: 'var(--fg-1)', fontSize: '10px', letterSpacing: '0.15em' }}>
+                  <td className="px-4 py-3" style={{ color: 'var(--fg-1)', fontSize: '14px' }}>
                     {p.type}
                   </td>
-                  <td className="px-4 py-3 dx-eyebrow" style={{ color: 'var(--fg-2)', fontSize: '10px', letterSpacing: '0.15em' }}>
+                  <td className="px-4 py-3" style={{ color: 'var(--fg-2)', fontSize: '14px' }}>
                     {p.direction}
                   </td>
-                  <td className="px-4 py-3 text-right dx-mono" style={{ color: 'var(--fg-1)', fontWeight: 600 }}>
+                  <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)', fontWeight: 600 }}>
                     {formatMoney(p.amount, p.currency)} {p.currency}
                   </td>
                 </tr>
@@ -719,21 +717,21 @@ function PaymentsTab({
         }}
       >
         <div>
-          <p className="dx-eyebrow" style={{ fontSize: '10px' }}>Operation</p>
-          <p className="mt-1 dx-mono" style={{ fontSize: 'var(--fs-body-md)', color: 'var(--fg-1)', fontWeight: 600 }}>
+          <p style={{ fontSize: '14px' }}>Operation</p>
+          <p className="mt-1" style={{ fontSize: 'var(--fs-body-md)', color: 'var(--fg-1)', fontWeight: 600 }}>
             {formatMoney(grandTotal, currency)}
           </p>
         </div>
         <div>
-          <p className="dx-eyebrow" style={{ fontSize: '10px' }}>Paid</p>
-          <p className="mt-1 dx-mono" style={{ fontSize: 'var(--fs-body-md)', color: 'var(--status-success)', fontWeight: 600 }}>
+          <p style={{ fontSize: '14px' }}>Paid</p>
+          <p className="mt-1" style={{ fontSize: 'var(--fs-body-md)', color: 'var(--status-success)', fontWeight: 600 }}>
             {formatMoney(paidMinor, currency)}
           </p>
         </div>
         <div>
-          <p className="dx-eyebrow" style={{ fontSize: '10px' }}>Outstanding</p>
+          <p style={{ fontSize: '14px' }}>Outstanding</p>
           <p
-            className="mt-1 dx-mono"
+            className="mt-1"
             style={{
               fontSize: 'var(--fs-body-md)',
               color: outstanding > 0 ? 'var(--brand-rot)' : 'var(--fg-3)',

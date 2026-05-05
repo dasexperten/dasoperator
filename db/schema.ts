@@ -1,8 +1,9 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index } from "drizzle-orm/sqlite-core";
 
 // =============================================================================
 // COMPANIES — наши юрлица (DEE, DEI, DEASEAN, DEC)
 // =============================================================================
+// default_invoice_language CHECK (in 0007): 'EN' / 'RU' / 'BILINGUAL' / NULL
 export const companies = sqliteTable("companies", {
   id: text("id").primaryKey(),
   abbreviation: text("abbreviation").notNull().unique(),
@@ -14,11 +15,51 @@ export const companies = sqliteTable("companies", {
   registeredAddress: text("registered_address"),
   baseCurrency: text("base_currency").notNull(),
   notes: text("notes"),
+  // Banking + multilingual + invoice defaults (added by 0007)
+  bankName: text("bank_name"),
+  bankAccount: text("bank_account"),
+  swift: text("swift"),
+  iban: text("iban"),
+  bankAddress: text("bank_address"),
+  legalNameRu: text("legal_name_ru"),
+  legalNameLocal: text("legal_name_local"),
+  kpp: text("kpp"),
+  ogrn: text("ogrn"),
+  bankNameEn: text("bank_name_en"),
+  bik: text("bik"),
+  correspondentAccount: text("correspondent_account"),
+  lastVerified: integer("last_verified"),
+  signingAuthorityName: text("signing_authority_name"),
+  signingAuthorityTitleEn: text("signing_authority_title_en"),
+  signingAuthorityTitleRu: text("signing_authority_title_ru"),
+  defaultInvoiceLanguage: text("default_invoice_language"),
+  preferredIncotermsDomestic: text("preferred_incoterms_domestic"),
+  preferredIncotermsInternational: text("preferred_incoterms_international"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
   deletedAt: integer("deleted_at"),
 }, (t) => ({
   abbrIdx: index("idx_companies_abbreviation").on(t.abbreviation),
+}));
+
+// =============================================================================
+// COMPANY_BANK_ACCOUNTS — multi-account model for invoicer (0007)
+// account_purpose CHECK: primary / rub / cny_usd / usd / eur / reserved_tax
+// =============================================================================
+export const companyBankAccounts = sqliteTable("company_bank_accounts", {
+  id: text("id").primaryKey(),
+  companyId: text("company_id").notNull().references(() => companies.id),
+  accountPurpose: text("account_purpose").notNull(),
+  accountNumber: text("account_number").notNull(),
+  currency: text("currency").notNull(),
+  notes: text("notes"),
+  isDefault: integer("is_default").notNull().default(0),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+  deletedAt: integer("deleted_at"),
+}, (t) => ({
+  companyIdx: index("idx_cba_company").on(t.companyId),
+  purposeIdx: index("idx_cba_purpose").on(t.accountPurpose),
 }));
 
 // =============================================================================
@@ -33,10 +74,43 @@ export const manufacturers = sqliteTable("manufacturers", {
   role: text("role"),
   bankNotes: text("bank_notes"),
   notes: text("notes"),
+  // Multilingual identity + dual-route flag (added by 0007)
+  hasDualRouteBanking: integer("has_dual_route_banking").notNull().default(0),
+  lastVerified: integer("last_verified"),
+  legalNameEn: text("legal_name_en"),
+  legalNameRu: text("legal_name_ru"),
+  legalNameCn: text("legal_name_cn"),
+  registeredAddressEn: text("registered_address_en"),
+  registeredAddressRu: text("registered_address_ru"),
+  taxId: text("tax_id"),  // Chinese USCC
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
   deletedAt: integer("deleted_at"),
 });
+
+// =============================================================================
+// MANUFACTURER_BANK_ROUTES — Honghui / Jinxia have two routes each (A / B)
+// route_code CHECK: A / B / default
+// =============================================================================
+export const manufacturerBankRoutes = sqliteTable("manufacturer_bank_routes", {
+  id: text("id").primaryKey(),
+  manufacturerId: text("manufacturer_id").notNull().references(() => manufacturers.id),
+  routeCode: text("route_code").notNull(),
+  payerJurisdictionFilter: text("payer_jurisdiction_filter"),
+  bankName: text("bank_name").notNull(),
+  bankAddress: text("bank_address"),
+  accountNumber: text("account_number"),
+  iban: text("iban"),
+  swift: text("swift").notNull(),
+  accountHolder: text("account_holder").notNull(),
+  currency: text("currency").notNull(),
+  notes: text("notes"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+  deletedAt: integer("deleted_at"),
+}, (t) => ({
+  manufacturerIdx: index("idx_mbr_manufacturer").on(t.manufacturerId),
+}));
 
 // =============================================================================
 // PRICE_TYPES — типы прайсов (Distributor RUB, Distributor USD, WB_RU и т.д.)
@@ -55,19 +129,33 @@ export const priceTypes = sqliteTable("price_types", {
 // =============================================================================
 // PRODUCTS — каталог SKU (20 товаров)
 // =============================================================================
+// id is the SKU in skill-canonical lowercase (de201, de105, …) after the
+// rename in 0008_seed_invoicer_data.sql.
 export const products = sqliteTable("products", {
-  id: text("id").primaryKey(),                  // SKU как ID (DE201, DE105, etc.)
+  id: text("id").primaryKey(),
   productName: text("product_name").notNull(),
   invoiceLabel: text("invoice_label").notNull(),
   category: text("category").notNull(),         // Toothpaste / Toothbrush
   barcode: text("barcode"),
-  weightKg: integer("weight_kg"),               // в граммах (умн. на 1000)
-  volumeM3Micro: integer("volume_m3_micro"),    // в микролитрах × 1000 (для precision)
+  weightKg: integer("weight_kg"),               // grams (legacy)
+  volumeM3Micro: integer("volume_m3_micro"),    // microlitres × 1000 (legacy)
   manufacturerId: text("manufacturer_id").notNull().references(() => manufacturers.id),
-  buyPrice: integer("buy_price"),               // в копейках/центах
+  buyPrice: integer("buy_price"),               // minor units
   buyCurrency: text("buy_currency"),
   buyTerm: text("buy_term"),                    // FOB / EXW / CIF
   notes: text("notes"),
+  // Invoicer fields (added by 0007)
+  hsCode: text("hs_code"),
+  ctnQty: integer("ctn_qty"),
+  ctnWeightGrossKg: real("ctn_weight_gross_kg"),
+  ctnDimLCm: real("ctn_dim_l_cm"),
+  ctnDimWCm: real("ctn_dim_w_cm"),
+  ctnDimHCm: real("ctn_dim_h_cm"),
+  unitNetWeightG: real("unit_net_weight_g"),
+  countryOfOrigin: text("country_of_origin"),
+  descriptionRu: text("description_ru"),
+  descriptionEn: text("description_en"),
+  descriptionCn: text("description_cn"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
   deletedAt: integer("deleted_at"),
@@ -98,6 +186,7 @@ export const productPrices = sqliteTable("product_prices", {
 // =============================================================================
 // PARTNERS — контрагенты (buyers, distributors, shippers)
 // =============================================================================
+// preferred_invoice_language CHECK (in 0007): EN / RU / BILINGUAL / NULL
 export const partners = sqliteTable("partners", {
   id: text("id").primaryKey(),
   tradeName: text("trade_name").notNull(),
@@ -116,6 +205,16 @@ export const partners = sqliteTable("partners", {
   status: text("status").notNull().default("active"),
   partnerType: text("partner_type").notNull(),  // buyer / supplier / shipper
   notes: text("notes"),
+  // Invoicer fields (added by 0007)
+  legalNameLocal: text("legal_name_local"),
+  registeredAddressLocal: text("registered_address_local"),
+  kpp: text("kpp"),
+  inn: text("inn"),
+  ogrn: text("ogrn"),
+  paymentTerms: text("payment_terms"),
+  preferredIncoterms: text("preferred_incoterms"),
+  preferredInvoiceLanguage: text("preferred_invoice_language"),
+  lastVerified: integer("last_verified"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
   deletedAt: integer("deleted_at"),
@@ -179,6 +278,10 @@ export const stocks = sqliteTable("stocks", {
 // =============================================================================
 // OPERATIONS — Sale / Purchase / Transfer
 // =============================================================================
+// status CHECK: draft / order_fulfilment / production / shipped / delivered / cancelled
+// default_document_language CHECK (in 0007): EN / RU / BILINGUAL / NULL
+//   (paid / paid_amount / payment_status were dropped by 0006_payments_and_cleanup;
+//    payments now live in their own table.)
 export const operations = sqliteTable("operations", {
   id: text("id").primaryKey(),
   operationDate: integer("operation_date").notNull(),
@@ -192,16 +295,18 @@ export const operations = sqliteTable("operations", {
   shipperId: text("shipper_id").references(() => partners.id),
   orderDocRef: text("order_doc_ref"),
   status: text("status").notNull().default("draft"),
-  paid: integer("paid").notNull().default(0),
   priceTypeId: text("price_type_id").references(() => priceTypes.id),
   currency: text("currency"),
-  fxRateToUsd: integer("fx_rate_to_usd"),  // в микро-единицах × 1,000,000
-  totalAmount: integer("total_amount"),    // в копейках/центах
+  fxRateToUsd: integer("fx_rate_to_usd"),
+  totalAmount: integer("total_amount"),
   totalUsdEquiv: integer("total_usd_equiv"),
   incoterms: text("incoterms"),
   hsCode: text("hs_code"),
   leadTimeDays: integer("lead_time_days"),
   notes: text("notes"),
+  reference: text("reference"),
+  contractId: text("contract_id"),
+  defaultDocumentLanguage: text("default_document_language"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
   deletedAt: integer("deleted_at"),
@@ -210,6 +315,8 @@ export const operations = sqliteTable("operations", {
   typeIdx: index("idx_operations_type").on(t.operationType),
   statusIdx: index("idx_operations_status").on(t.status),
   partnerIdx: index("idx_operations_partner").on(t.partnerId),
+  referenceIdx: index("idx_operations_reference").on(t.reference),
+  contractIdx: index("idx_operations_contract").on(t.contractId),
 }));
 
 // =============================================================================

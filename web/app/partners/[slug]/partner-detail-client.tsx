@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Plus, AlertTriangle, Loader2 } from 'lucide-react';
-import { getPartner, getPartnerContracts, getOperations, getPayments, type Partner, type Contract, type Operation, type Payment } from '@/lib/api';
+import { getPartner, getPartnerContracts, getOperations, getPayments, getPartnerNetBalance, type Partner, type Contract, type Operation, type Payment, type PartnerNetBalance } from '@/lib/api';
 import { CopyableValue, SectionCard } from '@/components/ui/copyable';
+import NetBalance from '@/components/ui/net-balance';
 import Breadcrumb from '@/components/layout/breadcrumb';
 
 const STATUS_COLORS: Record<Partner['status'], { bg: string; fg: string; border: string }> = {
@@ -43,17 +44,19 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [operations, setOperations] = useState<Operation[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [netBalance, setNetBalance] = useState<PartnerNetBalance | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [partnerRes, contractsRes, opsRes, paysRes] = await Promise.all([
+        const [partnerRes, contractsRes, opsRes, paysRes, balRes] = await Promise.all([
           getPartner(slug),
           getPartnerContracts(slug),
           getOperations({ partner_id: slug }),
           getPayments({ partner_id: slug }),
+          getPartnerNetBalance(slug),
         ]);
 
         if (partnerRes.success && partnerRes.result) {
@@ -73,6 +76,10 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
 
         if (paysRes.success && paysRes.result) {
           setPayments(paysRes.result.payments);
+        }
+
+        if (balRes.success && balRes.result) {
+          setNetBalance(balRes.result);
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
@@ -163,6 +170,19 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
           <CopyableField label="Bank" value={partner.bank_name} />
         </SectionCard>
       </div>
+
+      {/* NET BALANCE WIDGET */}
+      {netBalance && (
+        <NetBalance
+          usdCents={netBalance.net_balance_usd_cents}
+          currencies={netBalance.currencies_breakdown.reduce((acc, b) => {
+            acc[b.currency] = b.balance_minor;
+            return acc;
+          }, {} as Record<string, number>)}
+          fxDate={netBalance.fx_date}
+          size="large"
+        />
+      )}
 
       {/* CONTRACTS SECTION */}
       <SectionListBlock

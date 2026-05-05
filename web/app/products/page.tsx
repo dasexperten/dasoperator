@@ -2,46 +2,61 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Search, Loader2 } from 'lucide-react';
+import { Search, Loader2, Plus, ChevronUp, ChevronDown } from 'lucide-react';
 import {
-  getProducts, getProductsWithStock,
-  type Product, type ProductWithStock,
+  getProductsList, getProductsWithStock,
+  type ProductListItem, type ProductWithStock,
 } from '@/lib/api';
 
+type SortKey = 'sku' | 'product' | 'total' | 'category';
+type SortDir = 'asc' | 'desc';
+
+interface RowData extends ProductListItem {
+  total_on_hand: number;
+  warehouses: ProductWithStock['warehouses'];
+}
+
 export default function ProductsPage() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [stockMap, setStockMap] = useState<Record<string, ProductWithStock>>({});
-  const [warehouseOrder, setWarehouseOrder] = useState<string[]>([]);
+  const [rows, setRows] = useState<RowData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [manufacturerFilter, setManufacturerFilter] = useState<string>('all');
+  const [sortKey, setSortKey] = useState<SortKey>('sku');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   useEffect(() => {
     const fetchAll = async () => {
       setLoading(true);
       try {
-        const [prodRes, stockRes] = await Promise.all([
-          getProducts('DE'),
+        const [listRes, stockRes] = await Promise.all([
+          getProductsList(),
           getProductsWithStock(),
         ]);
-        if (prodRes.success && prodRes.result) {
-          setProducts(prodRes.result.products);
-          setError(null);
-        } else {
-          setError(prodRes.errors[0]?.message ?? 'Failed to load products');
+
+        if (!listRes.success || !listRes.result) {
+          setError(listRes.errors?.[0]?.message ?? 'Failed to load products');
+          setLoading(false);
+          return;
         }
+
+        const stockMap: Record<string, ProductWithStock> = {};
         if (stockRes.success && stockRes.result) {
-          const map: Record<string, ProductWithStock> = {};
-          for (const p of stockRes.result.products) {
-            map[p.id] = p;
-          }
-          setStockMap(map);
-          // Stable warehouse order from first product
-          const first = stockRes.result.products[0];
-          if (first) setWarehouseOrder(first.warehouses.map((w) => w.code));
+          for (const p of stockRes.result.products) stockMap[p.id] = p;
         }
+
+        const merged: RowData[] = listRes.result.products.map((p) => {
+          const s = stockMap[p.id];
+          return {
+            ...p,
+            total_on_hand: s?.total_on_hand ?? 0,
+            warehouses: s?.warehouses ?? [],
+          };
+        });
+
+        setRows(merged);
+        setError(null);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
       } finally {
@@ -51,16 +66,31 @@ export default function ProductsPage() {
     fetchAll();
   }, []);
 
+  // Stable warehouse order — first 6 codes alphabetically across all rows
+  const sparklineCodes = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows) for (const w of r.warehouses) set.add(w.code);
+    return Array.from(set).sort().slice(0, 6);
+  }, [rows]);
+
+  const maxOnHand = useMemo(() => {
+    let max = 0;
+    for (const r of rows) {
+      for (const w of r.warehouses) {
+        if (sparklineCodes.includes(w.code) && w.on_hand > max) max = w.on_hand;
+      }
+    }
+    return max;
+  }, [rows, sparklineCodes]);
+
   const manufacturers = useMemo(() => {
     const set = new Set<string>();
-    products.forEach((p) => {
-      if (p.manufacturer_name) set.add(p.manufacturer_name);
-    });
+    rows.forEach((p) => { if (p.manufacturer_name) set.add(p.manufacturer_name); });
     return Array.from(set).sort();
-  }, [products]);
+  }, [rows]);
 
   const filtered = useMemo(() => {
-    return products.filter((p) => {
+    return rows.filter((p) => {
       if (search) {
         const q = search.toLowerCase();
         const m = p.product_name.toLowerCase().includes(q) ||
@@ -72,57 +102,85 @@ export default function ProductsPage() {
       if (manufacturerFilter !== 'all' && p.manufacturer_name !== manufacturerFilter) return false;
       return true;
     });
-  }, [products, search, categoryFilter, manufacturerFilter]);
+  }, [rows, search, categoryFilter, manufacturerFilter]);
 
-  const pasteCount = products.filter((p) => p.category === 'Toothpaste').length;
-  const brushCount = products.filter((p) => p.category === 'Toothbrush').length;
-
-  // Compute global max on_hand for sparkline scaling
-  const maxOnHand = useMemo(() => {
-    let max = 0;
-    for (const ps of Object.values(stockMap)) {
-      for (const w of ps.warehouses) {
-        if (w.on_hand > max) max = w.on_hand;
+  const sorted = useMemo(() => {
+    const list = [...filtered];
+    list.sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case 'sku':      cmp = a.id.localeCompare(b.id); break;
+        case 'product':  cmp = a.product_name.localeCompare(b.product_name); break;
+        case 'total':    cmp = a.total_on_hand - b.total_on_hand; break;
+        case 'category': cmp = a.category.localeCompare(b.category); break;
       }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return list;
+  }, [filtered, sortKey, sortDir]);
+
+  const pasteCount = rows.filter((p) => p.category === 'Toothpaste').length;
+  const brushCount = rows.filter((p) => p.category === 'Toothbrush').length;
+  const otherCount = rows.length - pasteCount - brushCount;
+
+  function clickHeader(key: SortKey, defaultDir: SortDir = 'asc') {
+    if (sortKey === key) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir(defaultDir);
     }
-    return max || 1;
-  }, [stockMap]);
+  }
 
   return (
     <div className="space-y-8 max-w-7xl">
-      <div>
-        <div className="dx-eyebrow dx-eyebrow-rot mb-2">Master Data</div>
-        <h1
-          style={{
+      <div className="flex items-start justify-between gap-6">
+        <div>
+          <div className="dx-eyebrow dx-eyebrow-rot mb-2">Master Data</div>
+          <h1 style={{
             fontFamily: 'var(--font-display)',
             fontSize: 'var(--fs-display-md)',
             fontWeight: 900,
             letterSpacing: '-0.025em',
             color: 'var(--fg-1)',
+          }}>
+            Products
+          </h1>
+          <p className="mt-2" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
+            {loading
+              ? 'Loading...'
+              : `${rows.length} products · ${pasteCount} toothpastes · ${brushCount} brushes${otherCount > 0 ? ` · ${otherCount} other` : ''}`}
+          </p>
+        </div>
+        <Link
+          href="/products/new"
+          className="inline-flex items-center gap-2 px-4 py-2"
+          style={{
+            backgroundColor: 'var(--brand-rot)',
+            color: 'var(--paper)',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: '14px',
+            fontWeight: 600,
           }}
         >
-          Products
-        </h1>
-        <p className="mt-2" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
-          {loading ? 'Loading...' : `${products.length} products · ${pasteCount} toothpastes · ${brushCount} brushes`}
-        </p>
+          <Plus className="h-4 w-4" />
+          Add product
+        </Link>
       </div>
 
       <div className="dx-ribbon-rule" />
 
       <div className="space-y-3">
         <div className="relative max-w-xl">
-          <Search
-            className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4"
-            style={{ color: 'var(--fg-muted)' }}
-          />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={{ color: 'var(--fg-muted)' }} />
           <input
             type="text"
             placeholder="Search by name or SKU..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 text-sm focus:outline-none"
+            className="w-full pl-10 pr-4 py-2 focus:outline-none"
             style={{
+              fontSize: '14px',
               backgroundColor: 'var(--paper-sunk)',
               border: '1px solid var(--border-hairline)',
               borderRadius: 'var(--radius-sm)',
@@ -135,8 +193,9 @@ export default function ProductsPage() {
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="px-3 py-2 text-sm focus:outline-none"
+            className="px-3 py-2 focus:outline-none"
             style={{
+              fontSize: '14px',
               backgroundColor: 'var(--paper-sunk)',
               border: '1px solid var(--border-hairline)',
               borderRadius: 'var(--radius-sm)',
@@ -146,13 +205,16 @@ export default function ProductsPage() {
             <option value="all">All categories</option>
             <option value="Toothpaste">Toothpaste</option>
             <option value="Toothbrush">Toothbrush</option>
+            <option value="Floss">Floss</option>
+            <option value="Other">Other</option>
           </select>
 
           <select
             value={manufacturerFilter}
             onChange={(e) => setManufacturerFilter(e.target.value)}
-            className="px-3 py-2 text-sm focus:outline-none"
+            className="px-3 py-2 focus:outline-none"
             style={{
+              fontSize: '14px',
               backgroundColor: 'var(--paper-sunk)',
               border: '1px solid var(--border-hairline)',
               borderRadius: 'var(--radius-sm)',
@@ -165,11 +227,8 @@ export default function ProductsPage() {
             ))}
           </select>
 
-          <div
-            className="ml-auto self-center dx-mono"
-            style={{ fontSize: 'var(--fs-caption)', color: 'var(--fg-3)' }}
-          >
-            {filtered.length} / {products.length}
+          <div className="ml-auto self-center dx-mono" style={{ fontSize: 'var(--fs-caption)', color: 'var(--fg-3)' }}>
+            {sorted.length} / {rows.length}
           </div>
         </div>
       </div>
@@ -179,58 +238,41 @@ export default function ProductsPage() {
           <Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--fg-muted)' }} />
         </div>
       ) : error ? (
-        <div
-          className="p-4 text-sm"
-          style={{
-            backgroundColor: 'rgba(229,32,44,0.05)',
-            border: '1px solid rgba(229,32,44,0.2)',
-            color: 'var(--brand-rot)',
-            borderRadius: 'var(--radius-sm)',
-          }}
-        >
+        <div className="p-4" style={{
+          fontSize: '14px',
+          backgroundColor: 'rgba(229,32,44,0.05)',
+          border: '1px solid rgba(229,32,44,0.2)',
+          color: 'var(--brand-rot)',
+          borderRadius: 'var(--radius-sm)',
+        }}>
           Error: {error}
         </div>
       ) : (
-        <div
-          className="bg-card overflow-hidden"
-          style={{
-            border: '1px solid var(--border-hairline)',
-            borderRadius: 'var(--radius-md)',
-          }}
-        >
-          <table className="w-full text-sm">
+        <div className="bg-card overflow-hidden" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
+          <table className="w-full" style={{ fontSize: '14px' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                <ProductTh>SKU</ProductTh>
-                <ProductTh>Product</ProductTh>
-                <ProductTh>Total stock</ProductTh>
-                <ProductTh>Category</ProductTh>
+                <ProductTh sortKey="sku"      active={sortKey} dir={sortDir} onClick={clickHeader}>SKU</ProductTh>
+                <ProductTh sortKey="product"  active={sortKey} dir={sortDir} onClick={clickHeader}>Product</ProductTh>
+                <ProductTh sortKey="total"    active={sortKey} dir={sortDir} onClick={clickHeader} defaultDir="desc">Total stock</ProductTh>
+                <ProductTh sortKey="category" active={sortKey} dir={sortDir} onClick={clickHeader}>Category</ProductTh>
                 <ProductTh>Manufacturer</ProductTh>
                 <ProductTh>Weight</ProductTh>
                 <ProductTh>Barcode</ProductTh>
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {sorted.length === 0 ? (
                 <tr>
-                  <td
-                    colSpan={7}
-                    className="text-center py-12"
-                    style={{ color: 'var(--fg-3)' }}
-                  >
+                  <td colSpan={7} className="text-center py-12" style={{ color: 'var(--fg-3)', fontSize: '14px' }}>
                     No products match the filters
                   </td>
                 </tr>
               ) : (
-                filtered.map((p) => {
-                  const skuShort = p.id.replace('prd_', '').toUpperCase();
-                  const stock = stockMap[p.id];
+                sorted.map((p) => {
+                  const skuShort = p.id.toUpperCase();
                   return (
-                    <tr
-                      key={p.id}
-                      className="transition-colors"
-                      style={{ borderBottom: '1px solid var(--border-hairline)' }}
-                    >
+                    <tr key={p.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                       <td className="px-4 py-3 dx-mono" style={{ fontWeight: 700 }}>
                         <Link href={`/products/${skuShort}`} style={{ color: 'var(--fg-1)' }}>
                           {skuShort}
@@ -242,22 +284,23 @@ export default function ProductsPage() {
                         </Link>
                       </td>
                       <td className="px-4 py-3">
-                        {stock ? (
-                          <StockCell stock={stock} maxOnHand={maxOnHand} warehouseOrder={warehouseOrder} />
-                        ) : (
-                          <span className="dx-mono" style={{ color: 'var(--fg-muted)' }}>—</span>
-                        )}
+                        <StockCell
+                          total={p.total_on_hand}
+                          warehouses={p.warehouses}
+                          codes={sparklineCodes}
+                          maxOnHand={maxOnHand}
+                        />
                       </td>
-                      <td className="px-4 py-3">
-                        <CategoryBadge category={p.category} />
+                      <td className="px-4 py-3" style={{ color: 'var(--fg-1)' }}>
+                        {p.category}
                       </td>
                       <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>
                         {p.manufacturer_name ?? '—'}
                       </td>
-                      <td className="px-4 py-3 dx-mono" style={{ color: 'var(--fg-2)' }}>
-                        {p.weight_kg ? `${p.weight_kg}g` : '—'}
+                      <td className="px-4 py-3 tabular-nums dx-mono" style={{ color: 'var(--fg-2)' }}>
+                        {formatWeight(p.weight_kg)}
                       </td>
-                      <td className="px-4 py-3 dx-mono" style={{ color: 'var(--fg-3)' }}>
+                      <td className="px-4 py-3 tabular-nums dx-mono" style={{ color: 'var(--fg-3)' }}>
                         {p.barcode ?? '—'}
                       </td>
                     </tr>
@@ -272,40 +315,71 @@ export default function ProductsPage() {
   );
 }
 
+// =============================================================================
+// Helpers
+// =============================================================================
+
+function formatWeight(weightG: number | null): string {
+  if (weightG === null || weightG === undefined) return '—';
+  if (weightG >= 1000) {
+    const kg = weightG / 1000;
+    return `${kg.toLocaleString('en-US', { maximumFractionDigits: 2 })} kg`;
+  }
+  return `${weightG.toLocaleString('en-US')} g`;
+}
+
 function StockCell({
-  stock, maxOnHand, warehouseOrder,
+  total, warehouses, codes, maxOnHand,
 }: {
-  stock: ProductWithStock;
+  total: number;
+  warehouses: ProductWithStock['warehouses'];
+  codes: string[];
   maxOnHand: number;
-  warehouseOrder: string[];
 }) {
-  const total = stock.total_on_hand;
   const totalColor = total > 0 ? 'var(--fg-1)' : 'var(--fg-muted)';
 
-  // Order bars by global stable order
   const byCode: Record<string, number> = {};
-  for (const w of stock.warehouses) byCode[w.code] = w.on_hand;
-  const bars = warehouseOrder.length > 0 ? warehouseOrder : stock.warehouses.map((w) => w.code);
+  for (const w of warehouses) byCode[w.code] = w.on_hand;
 
   return (
     <div className="flex items-center gap-3">
-      <span className="dx-mono" style={{ fontSize: '14px', fontWeight: 700, color: totalColor, minWidth: '60px', textAlign: 'right' }}>
+      <span className="tabular-nums dx-mono" style={{
+        fontSize: '14px',
+        fontWeight: 700,
+        color: totalColor,
+        minWidth: '64px',
+        textAlign: 'right',
+      }}>
         {total.toLocaleString('en-US')}
       </span>
-      <div className="flex items-end gap-0.5" style={{ height: '20px' }}>
-        {bars.map((code) => {
+      <div className="flex items-center gap-0.5" style={{ height: '18px' }}>
+        {codes.map((code) => {
           const v = byCode[code] ?? 0;
-          const heightPct = v === 0 ? 0 : Math.max(8, (v / maxOnHand) * 100);
+          if (v === 0 || maxOnHand === 0) {
+            return (
+              <div
+                key={code}
+                title={`${code}: 0`}
+                style={{
+                  width: '4px',
+                  height: '2px',
+                  backgroundColor: 'var(--fg-muted)',
+                  opacity: 0.4,
+                  alignSelf: 'center',
+                }}
+              />
+            );
+          }
+          const heightPx = Math.max(2, Math.round((v / maxOnHand) * 18));
           return (
             <div
               key={code}
               title={`${code}: ${v.toLocaleString('en-US')}`}
               style={{
                 width: '4px',
-                height: v === 0 ? '2px' : `${heightPct}%`,
-                backgroundColor: v === 0 ? 'var(--fg-muted)' : 'var(--fg-1)',
-                opacity: v === 0 ? 0.3 : 1,
-                borderRadius: '1px',
+                height: `${heightPx}px`,
+                backgroundColor: 'var(--fg-1)',
+                alignSelf: 'flex-end',
               }}
             />
           );
@@ -315,37 +389,37 @@ function StockCell({
   );
 }
 
-function ProductTh({ children }: { children: React.ReactNode }) {
+function ProductTh({
+  children, sortKey: key, active, dir, onClick, defaultDir = 'asc',
+}: {
+  children: React.ReactNode;
+  sortKey?: SortKey;
+  active?: SortKey;
+  dir?: SortDir;
+  onClick?: (key: SortKey, defaultDir?: SortDir) => void;
+  defaultDir?: SortDir;
+}) {
+  const isActive = key && active === key;
+  const sortable = !!key && !!onClick;
+
   return (
     <th
       className="text-left px-4 py-3 dx-eyebrow"
       style={{
-        fontSize: '10px',
-        color: 'var(--fg-3)',
+        fontSize: '11px',
+        color: isActive ? 'var(--fg-1)' : 'var(--fg-3)',
         backgroundColor: 'var(--paper-sunk)',
+        cursor: sortable ? 'pointer' : 'default',
+        userSelect: sortable ? 'none' : 'auto',
       }}
+      onClick={() => sortable && onClick && key && onClick(key, defaultDir)}
     >
-      {children}
+      <span className="inline-flex items-center gap-1">
+        {children}
+        {isActive && (dir === 'asc'
+          ? <ChevronUp className="h-3 w-3" />
+          : <ChevronDown className="h-3 w-3" />)}
+      </span>
     </th>
-  );
-}
-
-function CategoryBadge({ category }: { category: string }) {
-  const isPaste = category === 'Toothpaste';
-  return (
-    <span
-      className="dx-eyebrow inline-block"
-      style={{
-        padding: '3px 8px',
-        fontSize: '9px',
-        backgroundColor: isPaste ? 'var(--paper-sunk)' : 'var(--bone)',
-        color: isPaste ? 'var(--line-innoweiss)' : 'var(--brand-schwarz)',
-        border: `1px solid ${isPaste ? 'var(--line-innoweiss)' : 'var(--border-strong)'}`,
-        borderRadius: 'var(--radius-pill)',
-        letterSpacing: '0.15em',
-      }}
-    >
-      {category}
-    </span>
   );
 }

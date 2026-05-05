@@ -95,6 +95,41 @@ export async function getProducts(skuPrefix = 'DE') {
   return apiGet<ProductsLookupResponse>(`/api/products/lookup?sku_prefix=${skuPrefix}`);
 }
 
+// Phase 5.1+ — list endpoint replacing /lookup (which has prd_ prefix bug)
+export interface ProductListItem {
+  id: string;
+  product_name: string;
+  invoice_label: string;
+  category: 'Toothpaste' | 'Toothbrush' | 'Floss' | 'Other';
+  manufacturer_id: string;
+  manufacturer_name: string | null;
+  weight_kg: number | null;
+  barcode: string | null;
+  pieces_per_case: number;
+  hs_code: string | null;
+  ctn_qty: number | null;
+  country_of_origin: string | null;
+  unit_net_weight_g: number | null;
+}
+
+export interface ProductsListPlainResponse {
+  count: number;
+  products: ProductListItem[];
+}
+
+export async function getProductsList(filters?: {
+  category?: string;
+  manufacturer_id?: string;
+  search?: string;
+}) {
+  const params = new URLSearchParams();
+  if (filters?.category) params.set('category', filters.category);
+  if (filters?.manufacturer_id) params.set('manufacturer_id', filters.manufacturer_id);
+  if (filters?.search) params.set('search', filters.search);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return apiGet<ProductsListPlainResponse>(`/api/products${qs}`);
+}
+
 export async function getProductBySku(sku: string) {
   return apiGet<ProductsLookupResponse>(`/api/products/lookup?sku=${sku}`);
 }

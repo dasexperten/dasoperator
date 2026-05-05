@@ -1,30 +1,27 @@
 // =============================================================================
-// IS Variant 2 — Toothpastes / Honghui format. Step 4C V2 from the skill.
-// Trilingual RU+EN+CN, two-party block (Shipper=Honghui, Consignee=DEE),
-// mandatory safety declarations footer. Used for toothpastes (HS 3306xxx)
-// leaving China to Russia.
-//
-// Safety declaration text is taken verbatim from the invoicer skill —
-// changing it requires updating the skill, not this file.
+// IS-V2 — Toothpastes (Honghui format).
+// Trilingual EN+RU+CN. Two-party block (Shipper=Seller, Consignee=Buyer).
+// Mandatory safety declarations footer (verbatim from invoicer skill).
+// Used for toothpastes leaving China to Russia (HS 3306xxx).
 // =============================================================================
 
 import { AlignmentType, Document, Packer } from 'docx';
-import type {
-  CompanyRow, ContractRow, LineItemRow, ManufacturerBankRouteRow,
-  ManufacturerRow,
-} from '../types';
+import type { ContractRow, LineItemRow } from '../types';
 import {
-  blank, buildTable, formatDate, formatMoney, heading, p, subheading,
+  RenderBank, RenderParty, RenderSignature, bankBlock, blank, buildTable,
+  formatDate, formatMoney, heading, p, partyBlock, signatureBlock, subheading,
+  trilingual,
 } from './shared';
 
 export interface RenderIsV2Input {
   reference: string;
   issuedAt: number;
   currency: string;
-  manufacturer: ManufacturerRow;
-  buyerCompany: CompanyRow;          // typically DEE
+  shipperSeller: RenderParty;       // Honghui (or whoever the legal seller is)
+  consigneeBuyer: RenderParty;      // DEE / partner
+  bank: RenderBank | null;
+  signature: RenderSignature;
   contract: ContractRow | null;
-  bankRoute: ManufacturerBankRouteRow | null;
   incoterms: string;
   container: string | null;
   countryStation: string | null;
@@ -42,14 +39,7 @@ const SAFETY_CN =
   '该货物不是危险废物，不用于军事目的，也不与食物/水接触；' +
   '不包含密码和加密工具；不包含消耗臭氧层的物质。';
 
-function trilingual(en: string, ru: string, cn: string): string {
-  return [en, ru, cn].filter(Boolean).join(' / ');
-}
-
 export async function renderInvoiceSpecPastes(input: RenderIsV2Input): Promise<Uint8Array> {
-  const m = input.manufacturer;
-  const dee = input.buyerCompany;
-
   const titleLine = trilingual(
     'INVOICE - PACKING LIST - SPECIFICATION',
     'Счёт-фактура - Упаковочный лист - Спецификация',
@@ -73,8 +63,8 @@ export async function renderInvoiceSpecPastes(input: RenderIsV2Input): Promise<U
   const rows: string[][] = input.lineItems.map((li, idx) => {
     const desc = trilingual(
       li.description_en ?? li.invoice_label ?? li.product_id,
-      li.description_ru ?? '',
-      li.description_cn ?? '',
+      li.description_ru,
+      li.description_cn,
     );
     const qtyPerCtn = li.ctn_qty ?? 0;
     const cartons = li.cartons > 0
@@ -91,7 +81,7 @@ export async function renderInvoiceSpecPastes(input: RenderIsV2Input): Promise<U
       li.hs_code ?? 'TBD',
       trilingual(li.country_of_origin ?? 'China', 'Китай', '中国'),
       desc,
-      'Carton', // type of package — stable for our SKUs
+      'CARTON',
       String(li.qty),
       String(cartons),
       net,
@@ -110,50 +100,32 @@ export async function renderInvoiceSpecPastes(input: RenderIsV2Input): Promise<U
         heading(titleLine),
         blank(),
         p(`${trilingual('Invoice No.', 'Инвойс №', '发票号')}: ${input.reference}`, { bold: true }),
-        p(`${trilingual('Date', 'Дата', '日期')}: ${formatDate(input.issuedAt, 'BILINGUAL')}`),
+        p(`${trilingual('Date', 'Дата', '日期')}: ${formatDate(input.issuedAt)}`),
         ...(input.contract
-          ? [p(`${trilingual('Contract', 'Договор', '合同号')}: ${input.contract.contract_no}`)]
-          : []),
-
+          ? [p(`${trilingual('Contract', 'Договор', '合同号')}: ${input.contract.contract_no}`)] : []),
+        ...(input.contract?.unk_reference
+          ? [p(`УНК: ${input.contract.unk_reference}`)] : []),
         blank(),
-        subheading(trilingual('SHIPPER / SELLER', 'ОТПРАВИТЕЛЬ / ПРОДАВЕЦ', '发货人 / 卖方')),
-        ...(m.legal_name_en ? [p(m.legal_name_en, { bold: true, size: 18 })] : []),
-        ...(m.legal_name_ru ? [p(m.legal_name_ru, { size: 18 })] : []),
-        ...(m.legal_name_cn ? [p(m.legal_name_cn, { size: 18 })] : []),
-        ...(m.registered_address_en ? [p(m.registered_address_en, { size: 18 })] : []),
-        ...(m.registered_address_ru ? [p(m.registered_address_ru, { size: 18 })] : []),
-        ...(m.tax_id ? [p(`USCC: ${m.tax_id}`, { size: 18 })] : []),
-
+        ...partyBlock({
+          language: 'BILINGUAL',
+          label: trilingual('SHIPPER / SELLER', 'ОТПРАВИТЕЛЬ / ПРОДАВЕЦ', '发货人 / 卖方'),
+          party: input.shipperSeller,
+        }),
         blank(),
-        subheading(trilingual('CONSIGNEE / BUYER', 'ПОЛУЧАТЕЛЬ / ПОКУПАТЕЛЬ', '收货人 / 买方')),
-        p(dee.legal_name, { bold: true, size: 18 }),
-        ...(dee.legal_name_ru ? [p(dee.legal_name_ru, { size: 18 })] : []),
-        ...(dee.registered_address ? [p(dee.registered_address, { size: 18 })] : []),
-        ...(dee.tax_id ? [p(`ИНН ${dee.tax_id}`, { size: 18 })] : []),
-        ...(dee.kpp ? [p(`КПП ${dee.kpp}`, { size: 18 })] : []),
-
+        ...partyBlock({
+          language: 'BILINGUAL',
+          label: trilingual('CONSIGNEE / BUYER', 'ПОЛУЧАТЕЛЬ / ПОКУПАТЕЛЬ', '收货人 / 买方'),
+          party: input.consigneeBuyer,
+        }),
         blank(),
         p(`${trilingual('Delivery', 'Условия поставки', '交货条件')}: ${input.incoterms}`, { bold: true }),
         ...(input.container
-          ? [p(`${trilingual('Container', 'Контейнер', '集装箱')}: ${input.container}`)]
-          : []),
+          ? [p(`${trilingual('Container', 'Контейнер', '集装箱')}: ${input.container}`)] : []),
         ...(input.countryStation
-          ? [p(`${trilingual('Country / Station', 'Страна / Станция', '国家 / 车站')}: ${input.countryStation}`)]
+          ? [p(`${trilingual('Country / Station', 'Страна / Станция', '国家 / 车站')}: ${input.countryStation}`)] : []),
+        ...(input.bank
+          ? [blank(), ...bankBlock(input.bank, 'BILINGUAL', trilingual('Bank details', 'Банковские реквизиты', '银行信息'))]
           : []),
-
-        ...(input.bankRoute ? [
-          blank(),
-          subheading(trilingual('Bank details', 'Банковские реквизиты', '银行信息')),
-          p(`${trilingual('Beneficiary', 'Получатель', '受益人')}: ${input.bankRoute.account_holder}`, { size: 18 }),
-          p(input.bankRoute.bank_name, { size: 18 }),
-          ...(input.bankRoute.bank_address ? [p(input.bankRoute.bank_address, { size: 18 })] : []),
-          ...(input.bankRoute.account_number
-            ? [p(`Account: ${input.bankRoute.account_number}`, { size: 18 })] : []),
-          ...(input.bankRoute.iban ? [p(`IBAN: ${input.bankRoute.iban}`, { size: 18 })] : []),
-          p(`SWIFT: ${input.bankRoute.swift}`, { size: 18 }),
-          p(`${trilingual('Currency', 'Валюта', '货币')}: ${input.bankRoute.currency}`, { size: 18 }),
-        ] : []),
-
         blank(),
         buildTable(cols, rows),
         blank(),
@@ -166,8 +138,8 @@ export async function renderInvoiceSpecPastes(input: RenderIsV2Input): Promise<U
         p(SAFETY_CN, { size: 18 }),
 
         blank(),
-        subheading(trilingual('CEO', 'Генеральный директор', '总经理')),
-        p('_______________________   盖章'),
+        ...signatureBlock(input.signature, 'BILINGUAL'),
+        p('盖章', {}, AlignmentType.RIGHT),
       ],
     }],
   });

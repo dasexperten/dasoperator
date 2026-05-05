@@ -1,17 +1,56 @@
 // =============================================================================
 // Renderer helpers shared by CI / PL / IS-V1 / IS-V2.
-// All functions return docx primitives — keep them pure and side-effect-free.
+// All functions are pure docx-primitive builders.
+// =============================================================================
+//
+// The renderers use a small set of generic shapes (RenderParty / RenderBank /
+// RenderSignature) so the same code path handles "company as seller",
+// "manufacturer as seller", and "partner as buyer". The entry point builds
+// these shapes from CompanyRow / ManufacturerRow / PartnerRow.
 // =============================================================================
 
 import {
   AlignmentType, BorderStyle, HeightRule, Paragraph, Table, TableCell, TableRow,
   TextRun, WidthType,
 } from 'docx';
-import type { CompanyRow, DocumentLanguage, PartnerRow } from '../types';
 
 type Alignment = (typeof AlignmentType)[keyof typeof AlignmentType];
 
-// ---- Money / dates -----------------------------------------------------------
+// ---- Public shapes ----------------------------------------------------------
+
+export interface RenderParty {
+  legalNameEn: string | null;
+  legalNameLocal: string | null;   // RU for buyers/companies, RU/CN for manufacturers
+  legalNameCn: string | null;
+  addressEn: string | null;
+  addressLocal: string | null;
+  taxId: string | null;            // ИНН / USCC / Tax ID — print as-is
+  inn: string | null;
+  kpp: string | null;
+  ogrn: string | null;
+  registrationNo: string | null;
+  email: string | null;
+}
+
+export interface RenderBank {
+  bankName: string;
+  bankAddress: string | null;
+  accountNumber: string;
+  iban: string | null;
+  swift: string | null;
+  bik: string | null;
+  correspondentAccount: string | null;
+  accountHolder: string;
+  currency: string;
+}
+
+export interface RenderSignature {
+  name: string | null;
+  titleEn: string | null;
+  titleRu: string | null;
+}
+
+// ---- Money / dates ----------------------------------------------------------
 
 export function minorFactor(currency: string): number {
   return currency === 'VND' ? 1 : 100;
@@ -27,24 +66,27 @@ export function formatMoney(minor: number, currency: string): string {
   return `${sign}${major.toLocaleString('en-US')}.${String(cents).padStart(2, '0')} ${currency}`;
 }
 
-export function formatDate(unixSec: number, language: DocumentLanguage): string {
+export function formatDate(unixSec: number): string {
   const d = new Date(unixSec * 1000);
   const dd = String(d.getUTCDate()).padStart(2, '0');
   const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
   const yy = d.getUTCFullYear();
-  // Russian businesses expect DD.MM.YYYY; international can take either —
-  // standardise on DD.MM.YYYY for both so the parser side has one format.
-  void language;
   return `${dd}.${mm}.${yy}`;
 }
 
-// ---- Bilingual text ----------------------------------------------------------
+// ---- Bilingual / trilingual concatenation -----------------------------------
 
-export function bilingual(en: string, ru: string): string {
-  if (!en && !ru) return '';
-  if (!en) return ru;
-  if (!ru) return en;
-  return `${en} / ${ru}`;
+export function bilingual(en: string | null, ru: string | null): string {
+  const a = en?.trim() ?? '';
+  const b = ru?.trim() ?? '';
+  if (!a && !b) return '';
+  if (!a) return b;
+  if (!b) return a;
+  return `${a} / ${b}`;
+}
+
+export function trilingual(en: string | null, ru: string | null, cn: string | null): string {
+  return [en, ru, cn].filter((x) => x && x.trim()).join(' / ');
 }
 
 // ---- Paragraph / TextRun shorthands -----------------------------------------
@@ -79,26 +121,22 @@ export function subheading(text: string): Paragraph {
   return p(text, { bold: true, size: 22 });
 }
 
-// ---- Table builders ---------------------------------------------------------
+// ---- Table builder ----------------------------------------------------------
 
 const THIN = { style: BorderStyle.SINGLE, size: 4, color: '888888' };
 
 export interface TableColumn {
   header: string;
-  widthPct: number;       // percentage of total table width; should sum to ~100
+  widthPct: number;
 }
 
-export function buildTable(
-  columns: TableColumn[],
-  rows: string[][],
-  opts: { headerBold?: boolean } = {}
-): Table {
+export function buildTable(columns: TableColumn[], rows: string[][]): Table {
   const header = new TableRow({
     tableHeader: true,
     height: { value: 360, rule: HeightRule.ATLEAST },
     children: columns.map((c) => new TableCell({
       width: { size: c.widthPct, type: WidthType.PERCENTAGE },
-      children: [p(c.header, { bold: opts.headerBold !== false, size: 18 })],
+      children: [p(c.header, { bold: true, size: 18 })],
       borders: { top: THIN, bottom: THIN, left: THIN, right: THIN },
     })),
   });
@@ -106,7 +144,7 @@ export function buildTable(
   const bodyRows = rows.map((row) => new TableRow({
     children: row.map((value, colIdx) => new TableCell({
       width: { size: columns[colIdx]!.widthPct, type: WidthType.PERCENTAGE },
-      children: [p(value, { size: 18 })],
+      children: [p(value ?? '', { size: 18 })],
       borders: { top: THIN, bottom: THIN, left: THIN, right: THIN },
     })),
   }));
@@ -117,87 +155,93 @@ export function buildTable(
   });
 }
 
-// ---- Party blocks -----------------------------------------------------------
+// ---- Party / bank / signature blocks ----------------------------------------
 
-export function sellerBlock(
-  ourCompany: CompanyRow, language: DocumentLanguage,
-  bank: import('../types').BankAccountSelection | null,
-  labelOverride?: string
-): Paragraph[] {
-  const label = labelOverride ?? (language === 'RU' ? 'ПРОДАВЕЦ' : 'SELLER');
-  const name = (language === 'RU' && ourCompany.legal_name_ru)
-    ? ourCompany.legal_name_ru
-    : ourCompany.legal_name;
+export interface PartyBlockOpts {
+  /** Language scope: 'EN' = English-only, 'RU' = Russian primary,
+   *  'BILINGUAL' = both. Used to choose name + address rendering order. */
+  language: 'EN' | 'RU' | 'BILINGUAL';
+  label: string;
+  party: RenderParty;
+}
 
-  const out: Paragraph[] = [subheading(label), p(name, { bold: true })];
+export function partyBlock(opts: PartyBlockOpts): Paragraph[] {
+  const { language, label, party } = opts;
+  const out: Paragraph[] = [subheading(label)];
 
-  if (ourCompany.registered_address) {
-    out.push(p(ourCompany.registered_address));
+  const ru = party.legalNameLocal;
+  const en = party.legalNameEn;
+  const cn = party.legalNameCn;
+
+  if (language === 'BILINGUAL') {
+    if (en) out.push(p(en, { bold: true, size: 18 }));
+    if (ru) out.push(p(ru, { size: 18 }));
+    if (cn) out.push(p(cn, { size: 18 }));
+  } else if (language === 'RU') {
+    out.push(p(ru ?? en ?? '', { bold: true, size: 18 }));
+    if (en && en !== ru) out.push(p(en, { italic: true, size: 16 }));
+  } else {
+    out.push(p(en ?? ru ?? '', { bold: true, size: 18 }));
   }
-  const taxLine: string[] = [];
-  if (ourCompany.tax_id) taxLine.push(language === 'RU' ? `ИНН ${ourCompany.tax_id}` : `Tax ID ${ourCompany.tax_id}`);
-  if (ourCompany.kpp) taxLine.push(`КПП ${ourCompany.kpp}`);
-  if (ourCompany.ogrn) taxLine.push(`ОГРН ${ourCompany.ogrn}`);
-  if (ourCompany.registration_no && taxLine.length === 0) {
-    taxLine.push(language === 'RU' ? `Рег. № ${ourCompany.registration_no}` : `Reg. No ${ourCompany.registration_no}`);
-  }
-  if (taxLine.length) out.push(p(taxLine.join(', ')));
 
-  if (bank) {
-    out.push(blank());
-    out.push(p(language === 'RU' ? 'Банковские реквизиты:' : 'Bank details:', { bold: true, size: 18 }));
-    if (bank.bank_name) out.push(p(bank.bank_name, { size: 18 }));
-    if (bank.bank_address) out.push(p(bank.bank_address, { size: 18 }));
-    out.push(p(`${language === 'RU' ? 'Счёт' : 'Account'}: ${bank.account_number}`, { size: 18 }));
-    if (bank.bik) out.push(p(`БИК: ${bank.bik}`, { size: 18 }));
-    if (bank.correspondent_account) {
-      out.push(p(`${language === 'RU' ? 'Корр. счёт' : 'Correspondent account'}: ${bank.correspondent_account}`, { size: 18 }));
+  if (party.addressEn || party.addressLocal) {
+    if (language === 'BILINGUAL') {
+      if (party.addressEn) out.push(p(party.addressEn, { size: 18 }));
+      if (party.addressLocal && party.addressLocal !== party.addressEn) {
+        out.push(p(party.addressLocal, { size: 18 }));
+      }
+    } else if (language === 'RU') {
+      out.push(p(party.addressLocal ?? party.addressEn ?? '', { size: 18 }));
+    } else {
+      out.push(p(party.addressEn ?? party.addressLocal ?? '', { size: 18 }));
     }
-    if (bank.swift) out.push(p(`SWIFT: ${bank.swift}`, { size: 18 }));
-    if (bank.iban) out.push(p(`IBAN: ${bank.iban}`, { size: 18 }));
   }
+
+  // Tax IDs (mostly relevant for RU/BILINGUAL; English-only docs still carry tax_id).
+  const idLine: string[] = [];
+  if (party.inn) idLine.push(`ИНН ${party.inn}`);
+  if (party.kpp) idLine.push(`КПП ${party.kpp}`);
+  if (party.ogrn) idLine.push(`ОГРН ${party.ogrn}`);
+  if (idLine.length === 0 && party.taxId) {
+    idLine.push(language === 'RU' ? `ИНН ${party.taxId}` : `Tax ID ${party.taxId}`);
+  }
+  if (idLine.length === 0 && party.registrationNo) {
+    idLine.push(language === 'RU' ? `Рег. № ${party.registrationNo}` : `Reg. No ${party.registrationNo}`);
+  }
+  if (idLine.length) out.push(p(idLine.join(', '), { size: 18 }));
+
+  if (party.email) out.push(p(`Email: ${party.email}`, { size: 18 }));
   return out;
 }
 
-export function buyerBlock(
-  partner: PartnerRow, language: DocumentLanguage, labelOverride?: string
+export function bankBlock(
+  bank: RenderBank, language: 'EN' | 'RU' | 'BILINGUAL', label?: string
 ): Paragraph[] {
-  const label = labelOverride ?? (language === 'RU' ? 'ПОКУПАТЕЛЬ' : 'BUYER');
-  const name = (language === 'RU' && partner.legal_name_local)
-    ? partner.legal_name_local
-    : (partner.legal_name ?? partner.trade_name);
-
-  const out: Paragraph[] = [subheading(label), p(name, { bold: true })];
-
-  const address = partner.registered_address_local ?? partner.country;
-  if (address) out.push(p(address));
-
-  const taxLine: string[] = [];
-  if (partner.inn) taxLine.push(`ИНН ${partner.inn}`);
-  if (partner.kpp) taxLine.push(`КПП ${partner.kpp}`);
-  if (partner.ogrn) taxLine.push(`ОГРН ${partner.ogrn}`);
-  if (taxLine.length === 0 && partner.tax_id) {
-    taxLine.push(language === 'RU' ? `ИНН ${partner.tax_id}` : `Tax ID ${partner.tax_id}`);
+  const out: Paragraph[] = [];
+  out.push(subheading(label ?? (language === 'RU' ? 'Банковские реквизиты' : 'Bank details')));
+  out.push(p(`${language === 'RU' ? 'Получатель' : 'Beneficiary'}: ${bank.accountHolder}`, { size: 18 }));
+  out.push(p(bank.bankName, { size: 18 }));
+  if (bank.bankAddress) out.push(p(bank.bankAddress, { size: 18 }));
+  if (bank.accountNumber) out.push(p(`${language === 'RU' ? 'Счёт' : 'Account'}: ${bank.accountNumber}`, { size: 18 }));
+  if (bank.iban) out.push(p(`IBAN: ${bank.iban}`, { size: 18 }));
+  if (bank.swift) out.push(p(`SWIFT: ${bank.swift}`, { size: 18 }));
+  if (bank.bik) out.push(p(`БИК: ${bank.bik}`, { size: 18 }));
+  if (bank.correspondentAccount) {
+    out.push(p(`${language === 'RU' ? 'Корр. счёт' : 'Correspondent account'}: ${bank.correspondentAccount}`, { size: 18 }));
   }
-  if (taxLine.length) out.push(p(taxLine.join(', ')));
-
-  if (partner.email) out.push(p(`${language === 'RU' ? 'Эл. почта' : 'Email'}: ${partner.email}`, { size: 18 }));
+  out.push(p(`${language === 'RU' ? 'Валюта' : 'Currency'}: ${bank.currency}`, { size: 18 }));
   return out;
 }
-
-// ---- Signature block --------------------------------------------------------
 
 export function signatureBlock(
-  ourCompany: CompanyRow, language: DocumentLanguage
+  sig: RenderSignature, language: 'EN' | 'RU' | 'BILINGUAL'
 ): Paragraph[] {
   const title = language === 'RU'
-    ? (ourCompany.signing_authority_title_ru ?? 'Генеральный директор')
-    : (ourCompany.signing_authority_title_en ?? 'General Manager');
-  const name = ourCompany.signing_authority_name ?? '';
-
+    ? (sig.titleRu ?? 'Генеральный директор')
+    : (sig.titleEn ?? 'General Manager');
   return [
     blank(), blank(),
     p('_______________________'),
-    p(`${title}${name ? `: ${name}` : ''}`, { size: 18 }),
+    p(`${title}${sig.name ? `: ${sig.name}` : ''}`, { size: 18 }),
   ];
 }

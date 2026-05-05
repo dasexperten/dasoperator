@@ -1,7 +1,7 @@
 // =============================================================================
 // /api/documents — invoicer-backed.
-// POST /issue runs the full skill pipeline (data-loader → selectors →
-// validators → renderers → R2 → D1) and returns the list of issued documents.
+// POST /issue runs the full skill pipeline; engine decides which documents
+// to emit (CI / PL / IS-V1 / IS-V2 or any combination).
 // GET /:id/download streams the .docx blob from R2.
 // =============================================================================
 
@@ -15,7 +15,6 @@ const documents = new Hono<{ Bindings: Env }>();
 
 const issueSchema = z.object({
   operation_id: z.string().min(1),
-  document_type: z.enum(['CI', 'PL', 'IS', 'auto']).default('auto'),
 });
 
 documents.post('/issue', async (c) => {
@@ -35,9 +34,7 @@ documents.post('/issue', async (c) => {
     }]);
   }
 
-  const outcome = await issueDocuments(
-    parsed.data.operation_id, parsed.data.document_type, c.env, c.req.url,
-  );
+  const outcome = await issueDocuments(parsed.data.operation_id, c.env, c.req.url);
 
   if (!outcome.success) {
     return fail(c, outcome.status, [{
@@ -49,10 +46,11 @@ documents.post('/issue', async (c) => {
   }
 
   return ok(c, {
+    operation_id: outcome.operation_id,
+    operation_status_after: outcome.operation_status_after,
     documents: outcome.documents,
     warnings: outcome.warnings,
-    operation_status_after: outcome.operation_status_after,
-  }, outcome.warnings.length > 0 ? outcome.warnings : []);
+  }, outcome.warnings);
 });
 
 documents.get('/:id/download', async (c) => {

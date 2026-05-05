@@ -1,8 +1,8 @@
 // =============================================================================
 // Invoicer engine — HARD STOP validators.
-// "If contacts does not have it, the invoice does not exist yet. Period."
-// Each validator returns either { ok: true } or a ValidationStop the entry
-// point converts to a 422 response. No fabrication.
+// Cardinal rule: if contacts is missing a required field for the chosen
+// format/language, the document does not exist yet. No fabrication, no
+// placeholders, no "TBD" tax IDs, no fall-back to skill-memory.
 // =============================================================================
 
 import type {
@@ -14,46 +14,103 @@ const STALE_THRESHOLD_DAYS = 365;
 const SECONDS_PER_DAY = 86400;
 
 // =============================================================================
-// validateContacts — checks every party block the chosen format will print.
+// Seller and buyer parties carry only the fields the validators care about.
+// Renderers use the full row shapes; validators get a normalised view so
+// company-as-seller and manufacturer-as-seller share one code path.
 // =============================================================================
 
-export interface ContactsValidationArgs {
+export interface PartyView {
+  kind: 'company' | 'manufacturer' | 'partner';
+  id: string;
+  legalName: string | null;
+  legalNameLocal: string | null;     // RU translation for buyers, RU/CN for manufacturers
+  registeredAddress: string | null;
+  registeredAddressLocal: string | null;
+  taxId: string | null;
+  inn: string | null;
+  registrationNo: string | null;
+}
+
+export function viewCompany(c: CompanyRow): PartyView {
+  return {
+    kind: 'company', id: c.id,
+    legalName: c.legal_name,
+    legalNameLocal: c.legal_name_ru ?? c.legal_name_local,
+    registeredAddress: c.registered_address,
+    registeredAddressLocal: c.registered_address,
+    taxId: c.tax_id,
+    inn: null,
+    registrationNo: c.registration_no,
+  };
+}
+
+export function viewManufacturer(m: ManufacturerRow): PartyView {
+  return {
+    kind: 'manufacturer', id: m.id,
+    legalName: m.legal_name_en ?? m.name,
+    legalNameLocal: m.legal_name_ru ?? m.legal_name_cn,
+    registeredAddress: m.registered_address_en,
+    registeredAddressLocal: m.registered_address_ru,
+    taxId: m.tax_id,
+    inn: null,
+    registrationNo: null,
+  };
+}
+
+export function viewPartner(p: PartnerRow): PartyView {
+  return {
+    kind: 'partner', id: p.id,
+    legalName: p.legal_name ?? p.trade_name,
+    legalNameLocal: p.legal_name_local,
+    registeredAddress: p.country,
+    registeredAddressLocal: p.registered_address_local,
+    taxId: p.tax_id,
+    inn: p.inn,
+    registrationNo: null,
+  };
+}
+
+// =============================================================================
+// validateContacts — one entry point per document.
+// =============================================================================
+
+export interface ContactsArgs {
   format: DocumentFormat;
   language: DocumentLanguage;
-  ourCompany: CompanyRow;
-  partner: PartnerRow | null;
-  manufacturer: ManufacturerRow | null;
-  bankSelection: BankAccountSelection | null;
+  seller: PartyView;
+  buyer: PartyView;
+  bankSelection: BankAccountSelection | null; // null for PL or for manufacturer-led docs
+  needsBank: boolean;
 }
 
 export function validateContacts(
-  args: ContactsValidationArgs
+  args: ContactsArgs
 ): { ok: true } | { ok: false; stop: ValidationStop } {
   const missing: string[] = [];
-  const { format, language, ourCompany, partner, manufacturer, bankSelection } = args;
-  const formatNeedsBuyerBlock = true; // every format we render has a buyer party
-  const formatNeedsSellerBank = format === 'CI' || format === 'IS-V1' || format === 'IS-V2';
-  const formatIsIs = format === 'IS-V1' || format === 'IS-V2';
+  const { format, language, seller, buyer, bankSelection, needsBank } = args;
 
-  // ---- Seller block (always required) -----------------------------------
+  // ---- Seller block ----------------------------------------------------
   if (language === 'RU' || language === 'BILINGUAL') {
-    if (!ourCompany.legal_name_ru && !ourCompany.legal_name) {
-      missing.push('our_company.legal_name_ru');
+    if (!seller.legalName && !seller.legalNameLocal) {
+      missing.push(`${seller.kind}.${seller.id}.legal_name|legal_name_ru`);
     }
-  } else if (!ourCompany.legal_name) {
-    missing.push('our_company.legal_name');
+  } else if (!seller.legalName) {
+    missing.push(`${seller.kind}.${seller.id}.legal_name`);
   }
-  if (!ourCompany.registered_address) missing.push('our_company.registered_address');
-  if (!ourCompany.tax_id && !ourCompany.registration_no) {
-    missing.push('our_company.tax_id|registration_no');
+  if (!seller.registeredAddress && !seller.registeredAddressLocal) {
+    missing.push(`${seller.kind}.${seller.id}.registered_address`);
+  }
+  if (!seller.taxId && !seller.registrationNo) {
+    missing.push(`${seller.kind}.${seller.id}.tax_id|registration_no`);
   }
 
-  // ---- Seller banking (CI / IS) -----------------------------------------
-  if (formatNeedsSellerBank) {
+  // ---- Seller bank block (CI / IS) -------------------------------------
+  if (needsBank) {
     if (!bankSelection) {
-      missing.push('our_company.bank_account (no row in company_bank_accounts and no legacy bank columns)');
+      missing.push(`${seller.kind}.${seller.id}.bank (no row in company_bank_accounts and no legacy bank columns)`);
     } else {
       if (!bankSelection.bank_name) missing.push('bank.bank_name');
+      if (!bankSelection.account_holder) missing.push('bank.account_holder');
       if (!bankSelection.account_number && !bankSelection.iban) {
         missing.push('bank.account_number|iban');
       }
@@ -63,32 +120,19 @@ export function validateContacts(
     }
   }
 
-  // ---- Buyer block ------------------------------------------------------
-  if (formatNeedsBuyerBlock) {
-    if (!partner) {
-      missing.push('partner (operation has no partner_id)');
-    } else {
-      const buyerNameField = (language === 'RU' || language === 'BILINGUAL')
-        ? (partner.legal_name_local ?? partner.legal_name)
-        : partner.legal_name;
-      if (!buyerNameField) missing.push('partner.legal_name|legal_name_local');
-
-      const addressField = partner.registered_address_local ?? partner.country;
-      if (!addressField) missing.push('partner.registered_address_local|country');
-
-      if (!partner.tax_id && !partner.inn) missing.push('partner.tax_id|inn');
-    }
+  // ---- Buyer block -----------------------------------------------------
+  const buyerNeedsLocal = language === 'RU' || language === 'BILINGUAL';
+  const buyerName = buyerNeedsLocal
+    ? (buyer.legalNameLocal ?? buyer.legalName)
+    : buyer.legalName;
+  if (!buyerName) {
+    missing.push(`${buyer.kind}.${buyer.id}.legal_name|legal_name_local`);
   }
-
-  // ---- Manufacturer block (IS only) -------------------------------------
-  if (formatIsIs) {
-    if (!manufacturer) {
-      missing.push('manufacturer (IS format requires operation.manufacturer_id)');
-    } else {
-      if (!manufacturer.legal_name_en) missing.push('manufacturer.legal_name_en');
-      if (!manufacturer.registered_address_en) missing.push('manufacturer.registered_address_en');
-      if (!manufacturer.tax_id) missing.push('manufacturer.tax_id (USCC)');
-    }
+  if (!buyer.registeredAddress && !buyer.registeredAddressLocal) {
+    missing.push(`${buyer.kind}.${buyer.id}.registered_address|registered_address_local`);
+  }
+  if (!buyer.taxId && !buyer.inn && !buyer.registrationNo) {
+    missing.push(`${buyer.kind}.${buyer.id}.tax_id|inn|registration_no`);
   }
 
   if (missing.length === 0) return { ok: true };
@@ -98,6 +142,34 @@ export function validateContacts(
       code: 'CONTACTS_INCOMPLETE',
       message: `Cannot issue ${format}: contacts data is missing required fields. ` +
                'Skill rule: do not fabricate.',
+      missing,
+    },
+  };
+}
+
+// =============================================================================
+// validateProductDescriptions — IS-V2 needs RU+EN+CN per line.
+// =============================================================================
+
+export function validateProductDescriptions(
+  format: DocumentFormat, lineItems: LineItemRow[]
+): { ok: true } | { ok: false; stop: ValidationStop } {
+  if (format !== 'IS-V2') return { ok: true };
+  const missing: string[] = [];
+  for (const li of lineItems) {
+    const fields: string[] = [];
+    if (!li.description_en) fields.push('en');
+    if (!li.description_ru) fields.push('ru');
+    if (!li.description_cn) fields.push('cn');
+    if (fields.length > 0) missing.push(`${li.product_id}:${fields.join(',')}`);
+  }
+  if (missing.length === 0) return { ok: true };
+  return {
+    ok: false,
+    stop: {
+      code: 'PRODUCT_DESCRIPTION_INCOMPLETE',
+      message: 'IS-V2 requires RU + EN + CN descriptions for every product. ' +
+               'Populate products.description_{ru,en,cn} before re-trying.',
       missing,
     },
   };
@@ -114,18 +186,14 @@ export function validateStale(
   nowUnix: number
 ): StaleWarning[] {
   const warnings: StaleWarning[] = [];
-
-  function check(
-    entity: 'company' | 'partner' | 'manufacturer',
-    id: string, lastVerified: number | null
-  ) {
+  function check(entity: 'company' | 'partner' | 'manufacturer',
+                 id: string, lastVerified: number | null) {
     if (lastVerified === null) return;
     const daysAgo = Math.floor((nowUnix - lastVerified) / SECONDS_PER_DAY);
     if (daysAgo > STALE_THRESHOLD_DAYS) {
       warnings.push({ entity, entity_id: id, days_ago: daysAgo });
     }
   }
-
   check('company', ourCompany.id, ourCompany.last_verified);
   if (partner) check('partner', partner.id, partner.last_verified);
   if (manufacturer) check('manufacturer', manufacturer.id, manufacturer.last_verified);
@@ -133,8 +201,8 @@ export function validateStale(
 }
 
 // =============================================================================
-// validatePricer — every line on a CI must have a positive unit price.
-// IS variants and PL don't enforce this (PL has no money column).
+// validatePricer — every line on a CI / IS must have a positive unit price.
+// PL has no money column.
 // =============================================================================
 
 export function validatePricer(

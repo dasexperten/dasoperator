@@ -1,45 +1,39 @@
 // =============================================================================
-// CI renderer — Commercial Invoice. Step 4A from the invoicer skill.
-// Single language (EN or RU). For BILINGUAL on a CI we still render in EN.
+// CI renderer — Commercial Invoice (Step 4A from the invoicer skill).
+// Single-language (EN or RU). Seller may be a company OR a manufacturer
+// (e.g. the Factory→DEI leg of a dei_layer chain).
 // =============================================================================
 
 import { AlignmentType, Document, Packer } from 'docx';
-import type {
-  BankAccountSelection, CompanyRow, ContractRow, DocumentLanguage, LineItemRow,
-  PartnerRow,
-} from '../types';
+import type { ContractRow, DocumentLanguage, LineItemRow } from '../types';
 import {
-  blank, buildTable, buyerBlock, formatDate, formatMoney, heading, p, sellerBlock,
-  signatureBlock, subheading,
+  RenderBank, RenderParty, RenderSignature, bankBlock, blank, buildTable,
+  formatDate, formatMoney, heading, p, partyBlock, signatureBlock,
 } from './shared';
 
 export interface RenderCiInput {
   reference: string;
   issuedAt: number;
-  language: DocumentLanguage;
+  language: DocumentLanguage;       // CI is never BILINGUAL — guard upstream
   currency: string;
-  ourCompany: CompanyRow;
-  partner: PartnerRow;
+  seller: RenderParty;
+  buyer: RenderParty;
+  bank: RenderBank;
+  signature: RenderSignature;
   contract: ContractRow | null;
-  bank: BankAccountSelection;
   incoterms: string;
+  paymentTerms: string | null;
   lineItems: LineItemRow[];
   totalMinor: number;
 }
 
 export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uint8Array> {
-  const { language, currency } = input;
-  const isRu = language === 'RU';
+  const isRu = input.language === 'RU';
+  const langLite: 'EN' | 'RU' = isRu ? 'RU' : 'EN';
 
   const titleEn = 'COMMERCIAL INVOICE';
   const titleRu = 'СЧЁТ-ФАКТУРА (КОММЕРЧЕСКИЙ ИНВОЙС)';
-  const refLabel = isRu ? 'Инвойс №' : 'Invoice No.';
-  const dateLabel = isRu ? 'Дата' : 'Date';
-  const contractLabel = isRu ? 'Договор №' : 'Contract No.';
-  const incotermsLabel = isRu ? 'Условия поставки' : 'Delivery terms';
-  const totalLabel = isRu ? 'ИТОГО' : 'TOTAL';
 
-  // Line item table — # | Description | HS Code | Origin | Qty | Unit | Price | Total
   const cols = [
     { header: '#', widthPct: 4 },
     { header: isRu ? 'Описание' : 'Description', widthPct: 32 },
@@ -52,9 +46,9 @@ export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uin
   ];
 
   const rows: string[][] = input.lineItems.map((li, idx) => {
-    const desc = (isRu
+    const desc = isRu
       ? (li.description_ru ?? li.description_en ?? li.invoice_label ?? li.product_id)
-      : (li.description_en ?? li.description_ru ?? li.invoice_label ?? li.product_id));
+      : (li.description_en ?? li.description_ru ?? li.invoice_label ?? li.product_id);
     return [
       String(idx + 1),
       desc,
@@ -62,8 +56,8 @@ export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uin
       li.country_of_origin ?? '',
       String(li.qty),
       isRu ? 'шт.' : 'pcs',
-      formatMoney(li.unit_price_after_disc, currency),
-      formatMoney(li.line_amount, currency),
+      formatMoney(li.unit_price_after_disc, input.currency),
+      formatMoney(li.line_amount, input.currency),
     ];
   });
 
@@ -75,29 +69,33 @@ export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uin
       children: [
         heading(isRu ? titleRu : titleEn),
         blank(),
-        p(`${refLabel}: ${input.reference}`, { bold: true }),
-        p(`${dateLabel}: ${formatDate(input.issuedAt, language)}`),
-        ...(input.contract ? [p(`${contractLabel}: ${input.contract.contract_no}`)] : []),
+        p(`${isRu ? 'Инвойс №' : 'Invoice No.'}: ${input.reference}`, { bold: true }),
+        p(`${isRu ? 'Дата' : 'Date'}: ${formatDate(input.issuedAt)}`),
+        ...(input.contract
+          ? [p(`${isRu ? 'Договор №' : 'Contract No.'}: ${input.contract.contract_no}`)] : []),
         ...(input.contract?.unk_reference
-          ? [p(`УНК: ${input.contract.unk_reference}`)]
-          : []),
+          ? [p(`УНК: ${input.contract.unk_reference}`)] : []),
         blank(),
-        ...sellerBlock(input.ourCompany, language, input.bank),
+        ...partyBlock({
+          language: langLite, label: isRu ? 'ПРОДАВЕЦ' : 'SELLER', party: input.seller,
+        }),
         blank(),
-        ...buyerBlock(input.partner, language),
+        ...bankBlock(input.bank, langLite),
         blank(),
-        p(`${incotermsLabel}: ${input.incoterms}`, { bold: true }),
-        ...(input.partner.payment_terms
-          ? [p(`${isRu ? 'Условия оплаты' : 'Payment terms'}: ${input.partner.payment_terms}`)]
-          : []),
+        ...partyBlock({
+          language: langLite, label: isRu ? 'ПОКУПАТЕЛЬ' : 'BUYER', party: input.buyer,
+        }),
+        blank(),
+        p(`${isRu ? 'Условия поставки' : 'Delivery terms'}: ${input.incoterms}`, { bold: true }),
+        ...(input.paymentTerms
+          ? [p(`${isRu ? 'Условия оплаты' : 'Payment terms'}: ${input.paymentTerms}`)] : []),
         blank(),
         buildTable(cols, rows),
         blank(),
-        p(`${totalLabel}: ${formatMoney(input.totalMinor, currency)}`,
+        p(`${isRu ? 'ИТОГО' : 'TOTAL'}: ${formatMoney(input.totalMinor, input.currency)}`,
           { bold: true, size: 24 }, AlignmentType.RIGHT),
         blank(),
-        subheading(isRu ? 'Подпись продавца' : 'Seller signature'),
-        ...signatureBlock(input.ourCompany, language),
+        ...signatureBlock(input.signature, langLite),
       ],
     }],
   });

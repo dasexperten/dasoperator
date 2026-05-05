@@ -1,23 +1,20 @@
 // =============================================================================
-// Invoicer engine — type contracts shared between data-loader, selectors,
+// Invoicer engine — type contracts shared by data-loader, selectors,
 // validators, renderers, and the entry point.
 // =============================================================================
-// All money values are MINOR units (kopecks/cents). Currency-side conversion
-// (×100 for USD/EUR/RUB/CNY, ×1 for VND) happens once in the renderers via
-// formatMoney().
+// Money values are MINOR units (kopecks/cents). Rendering converts via
+// formatMoney() — ×100 for USD/EUR/RUB/CNY, ×1 for VND.
 //
-// Cardinal philosophy (from invoicer skill): if contacts is missing a
-// required field, the document does not exist yet — return HARD STOP, never
-// substitute a placeholder. See validators.ts.
+// HARD-STOP rule (from invoicer skill): if contacts is missing a required
+// field, the document does not exist yet. Never fabricate, never substitute
+// a placeholder, never fall back to the skill .md "memory". See validators.ts.
 // =============================================================================
 
 export type DocumentLanguage = 'EN' | 'RU' | 'BILINGUAL';
 export type DocumentFormat = 'CI' | 'PL' | 'IS-V1' | 'IS-V2';
-export type DocumentTypeRequest = 'CI' | 'PL' | 'IS' | 'auto';
 
 // =============================================================================
-// D1 row shapes — one for each table the loader reads from.
-// Keep these flat & wide; they're the projection used downstream.
+// D1 row shapes
 // =============================================================================
 
 export interface OperationRow {
@@ -38,6 +35,9 @@ export interface OperationRow {
   reference: string | null;
   contract_id: string | null;
   default_document_language: DocumentLanguage | null;
+  // Added by 0009
+  dei_layer: number;
+  legal_seller_id: string | null;
 }
 
 export interface CompanyRow {
@@ -54,7 +54,6 @@ export interface CompanyRow {
   ogrn: string | null;
   registered_address: string | null;
   base_currency: string;
-  // Direct (legacy single-account) banking columns — kept for fallback only.
   bank_name: string | null;
   bank_account: string | null;
   swift: string | null;
@@ -108,6 +107,10 @@ export interface ManufacturerRow {
   tax_id: string | null;
   has_dual_route_banking: number;
   last_verified: number | null;
+  // Added by 0009
+  slug: string | null;
+  is_packaging_manufacturer: number;
+  is_legal_seller: number;
 }
 
 export interface ContractRow {
@@ -154,11 +157,13 @@ export interface LineItemRow {
   item_description: string | null;
   qty: number;
   cartons: number;
-  unit_price: number;          // minor
+  unit_price: number;
   unit_price_after_disc: number;
-  line_amount: number;         // minor
+  line_amount: number;
   currency: string;
   // Joined product columns
+  product_manufacturer_id: string;     // products.manufacturer_id (legal seller candidate)
+  packaging_manufacturer_id: string | null;  // 0009-added
   description_en: string | null;
   description_ru: string | null;
   description_cn: string | null;
@@ -168,6 +173,7 @@ export interface LineItemRow {
   ctn_weight_gross_kg: number | null;
   unit_net_weight_g: number | null;
   country_of_origin: string | null;
+  category: string;
 }
 
 // =============================================================================
@@ -178,16 +184,34 @@ export interface InvoicerInput {
   operation: OperationRow;
   ourCompany: CompanyRow;
   partner: PartnerRow | null;
-  manufacturer: ManufacturerRow | null;
+  // Resolved legal seller (the manufacturer that goes on the documents as
+  // "seller of record"). May be null for sale operations that do not need a
+  // factory entity (e.g. straight DEE→Russia distribution sale).
+  legalSellerManufacturer: ManufacturerRow | null;
+  // Optional packaging facility (when distinct from legal seller).
+  packagingManufacturer: ManufacturerRow | null;
   contract: ContractRow | null;
   companyBankAccounts: CompanyBankAccountRow[];
   manufacturerBankRoutes: ManufacturerBankRouteRow[];
   lineItems: LineItemRow[];
+  // Companies the engine may need beyond ourCompany (e.g. DEE/DEI lookups
+  // for the dei_layer chain) — keyed by company id.
+  companiesById: Record<string, CompanyRow>;
 }
 
 // =============================================================================
-// Selector results
+// Selector outputs
 // =============================================================================
+
+export type DocumentSpec = {
+  type: 'CI' | 'PL' | 'IS';
+  variant: 'V1' | 'V2' | null;        // only set for IS
+  format: DocumentFormat;
+  sellerKind: 'company' | 'manufacturer';
+  sellerId: string;
+  buyerKind: 'company' | 'partner';
+  buyerId: string;
+};
 
 export interface BankAccountSelection {
   source: 'company_bank_accounts' | 'company_legacy_columns';
@@ -204,11 +228,11 @@ export interface BankAccountSelection {
 
 export type BankRouteSelection =
   | { kind: 'route'; route: ManufacturerBankRouteRow }
-  | { kind: 'no_routing_required' }            // single-route manufacturer, default row missing → not a stop
-  | { kind: 'route_required'; details: { manufacturer_id: string; payer_company_id: string; expected_route: 'A' | 'B' } };
+  | { kind: 'no_routing_required' }
+  | { kind: 'route_required'; details: { manufacturer_id: string; payer_company_id: string; expected_route: 'A' | 'B' | 'default' } };
 
 // =============================================================================
-// Validator results
+// Validator outputs
 // =============================================================================
 
 export interface ValidationStop {
@@ -241,9 +265,10 @@ export interface IssuedDocument {
 
 export interface IssueResult {
   success: true;
+  operation_id: string;
+  operation_status_after: string;
   documents: IssuedDocument[];
   warnings: string[];
-  operation_status_after: string;
 }
 
 export interface IssueError {

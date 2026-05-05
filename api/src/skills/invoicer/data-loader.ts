@@ -1,7 +1,13 @@
 // =============================================================================
 // Invoicer engine — data loader.
-// Single function (loadInvoicerInput) that pulls every row the rest of the
-// pipeline needs from D1 in a small, fixed number of queries.
+// One function (loadInvoicerInput) that pulls every row the rest of the
+// pipeline needs from D1 and resolves the "legal seller" cascade.
+//
+// Legal seller resolution (used by selectDocumentsToIssue):
+//   1. operation.legal_seller_id wins if set.
+//   2. operation.manufacturer_id wins if set.
+//   3. else: derive from products.manufacturer_id — every line must agree.
+//      mixed → throw MixedManufacturerError (limitation #3 in PR description).
 // =============================================================================
 
 import type {
@@ -17,11 +23,22 @@ export class OperationNotFoundError extends Error {
   }
 }
 
+export class MixedManufacturerError extends Error {
+  constructor(public manufacturerIds: string[]) {
+    super(
+      `Operation has line items from multiple legal sellers ` +
+      `(${manufacturerIds.join(', ')}). Split into separate operations.`
+    );
+    this.name = 'MixedManufacturerError';
+  }
+}
+
 const OPERATION_COLS = `
   id, operation_date, operation_type, partner_id, our_company_id,
   manufacturer_id, warehouse_from_id, warehouse_to_id, shipper_id,
   status, currency, total_amount, incoterms, hs_code,
-  reference, contract_id, default_document_language
+  reference, contract_id, default_document_language,
+  dei_layer, legal_seller_id
 `;
 
 const COMPANY_COLS = `
@@ -47,7 +64,8 @@ const MANUFACTURER_COLS = `
   id, name, country, city, address,
   legal_name_en, legal_name_ru, legal_name_cn,
   registered_address_en, registered_address_ru,
-  tax_id, has_dual_route_banking, last_verified
+  tax_id, has_dual_route_banking, last_verified,
+  slug, is_packaging_manufacturer, is_legal_seller
 `;
 
 const CONTRACT_COLS = `
@@ -68,10 +86,66 @@ const MBR_COLS = `
 const LINE_ITEM_COLS = `
   li.id, li.product_id, li.item_description, li.qty, li.cartons,
   li.unit_price, li.unit_price_after_disc, li.line_amount, li.currency,
+  p.manufacturer_id   AS product_manufacturer_id,
+  p.packaging_manufacturer_id,
   p.description_en, p.description_ru, p.description_cn,
   p.invoice_label, p.hs_code,
-  p.ctn_qty, p.ctn_weight_gross_kg, p.unit_net_weight_g, p.country_of_origin
+  p.ctn_qty, p.ctn_weight_gross_kg, p.unit_net_weight_g, p.country_of_origin,
+  p.category
 `;
+
+// =============================================================================
+// Cascade: resolve which manufacturer is the legal seller for this operation.
+// Returns null when no factory entity is involved (pure DEE / DEI distribution
+// sale where no manufacturer is on the documents at all).
+// =============================================================================
+
+function resolveLegalSellerId(
+  op: OperationRow, lineItems: LineItemRow[]
+): string | null {
+  if (op.legal_seller_id) return op.legal_seller_id;
+  if (op.manufacturer_id) return op.manufacturer_id;
+
+  // Sales: derive from products. Every line must agree.
+  if (op.operation_type === 'sale') {
+    const ids = Array.from(new Set(
+      lineItems
+        .map((li) => li.product_manufacturer_id)
+        .filter((x): x is string => !!x)
+    ));
+    if (ids.length === 0) return null;
+    if (ids.length > 1) throw new MixedManufacturerError(ids);
+    return ids[0]!;
+  }
+
+  // Purchase / transfer with neither override → caller decides if this is a problem.
+  return null;
+}
+
+// =============================================================================
+// Resolve a packaging manufacturer when distinct from the legal seller.
+// We only treat the packaging_manufacturer as "distinct" if every line has
+// the same packaging_manufacturer_id AND it differs from the legal seller.
+// =============================================================================
+
+function resolvePackagingManufacturerId(
+  legalSellerId: string | null, lineItems: LineItemRow[]
+): string | null {
+  const ids = Array.from(new Set(
+    lineItems
+      .map((li) => li.packaging_manufacturer_id)
+      .filter((x): x is string => !!x)
+  ));
+  if (ids.length === 0) return null;
+  if (ids.length > 1) return null;       // mixed packaging → fall back to legal seller
+  const id = ids[0]!;
+  if (id === legalSellerId) return null; // same as legal seller → don't double-render
+  return id;
+}
+
+// =============================================================================
+// Public loader
+// =============================================================================
 
 export async function loadInvoicerInput(
   db: D1Database, operationId: string
@@ -82,10 +156,8 @@ export async function loadInvoicerInput(
 
   if (!operation) throw new OperationNotFoundError(operationId);
 
-  // Parallelise everything else — none of these queries depend on each other.
   const [
-    ourCompany, partner, manufacturer, contract,
-    companyBankAccountsRes, manufacturerBankRoutesRes, lineItemsRes,
+    ourCompany, partner, contract, lineItemsRes, companyBankAccountsRes,
   ] = await Promise.all([
     db.prepare(
       `SELECT ${COMPANY_COLS} FROM companies WHERE id = ? AND deleted_at IS NULL`
@@ -97,29 +169,11 @@ export async function loadInvoicerInput(
         ).bind(operation.partner_id).first<PartnerRow>()
       : Promise.resolve(null),
 
-    operation.manufacturer_id
-      ? db.prepare(
-          `SELECT ${MANUFACTURER_COLS} FROM manufacturers WHERE id = ? AND deleted_at IS NULL`
-        ).bind(operation.manufacturer_id).first<ManufacturerRow>()
-      : Promise.resolve(null),
-
     operation.contract_id
       ? db.prepare(
           `SELECT ${CONTRACT_COLS} FROM contracts WHERE id = ? AND deleted_at IS NULL`
         ).bind(operation.contract_id).first<ContractRow>()
       : Promise.resolve(null),
-
-    db.prepare(
-      `SELECT ${CBA_COLS} FROM company_bank_accounts
-        WHERE company_id = ? AND deleted_at IS NULL`
-    ).bind(operation.our_company_id).all<CompanyBankAccountRow>(),
-
-    operation.manufacturer_id
-      ? db.prepare(
-          `SELECT ${MBR_COLS} FROM manufacturer_bank_routes
-            WHERE manufacturer_id = ? AND deleted_at IS NULL`
-        ).bind(operation.manufacturer_id).all<ManufacturerBankRouteRow>()
-      : Promise.resolve({ results: [] as ManufacturerBankRouteRow[] }),
 
     db.prepare(
       `SELECT ${LINE_ITEM_COLS}
@@ -128,20 +182,76 @@ export async function loadInvoicerInput(
         WHERE li.operation_id = ?
         ORDER BY li.created_at ASC`
     ).bind(operationId).all<LineItemRow>(),
+
+    db.prepare(
+      `SELECT ${CBA_COLS} FROM company_bank_accounts
+        WHERE company_id = ? AND deleted_at IS NULL`
+    ).bind(operation.our_company_id).all<CompanyBankAccountRow>(),
   ]);
 
   if (!ourCompany) {
     throw new Error(`Issuer company ${operation.our_company_id} not found`);
   }
 
+  const lineItems = lineItemsRes.results ?? [];
+
+  const legalSellerId = resolveLegalSellerId(operation, lineItems);
+  const packagingManufacturerId = resolvePackagingManufacturerId(legalSellerId, lineItems);
+
+  // Pull manufacturer rows + their bank routes (only when one is involved).
+  const manufacturerIdsToLoad = Array.from(new Set(
+    [legalSellerId, packagingManufacturerId].filter((x): x is string => !!x)
+  ));
+
+  let legalSellerManufacturer: ManufacturerRow | null = null;
+  let packagingManufacturer: ManufacturerRow | null = null;
+  let manufacturerBankRoutes: ManufacturerBankRouteRow[] = [];
+
+  if (manufacturerIdsToLoad.length > 0) {
+    const placeholders = manufacturerIdsToLoad.map(() => '?').join(',');
+    const [mfrRowsRes, routesRes] = await Promise.all([
+      db.prepare(
+        `SELECT ${MANUFACTURER_COLS} FROM manufacturers
+          WHERE id IN (${placeholders}) AND deleted_at IS NULL`
+      ).bind(...manufacturerIdsToLoad).all<ManufacturerRow>(),
+      legalSellerId
+        ? db.prepare(
+            `SELECT ${MBR_COLS} FROM manufacturer_bank_routes
+              WHERE manufacturer_id = ? AND deleted_at IS NULL`
+          ).bind(legalSellerId).all<ManufacturerBankRouteRow>()
+        : Promise.resolve({ results: [] as ManufacturerBankRouteRow[] }),
+    ]);
+    const byId = new Map((mfrRowsRes.results ?? []).map((m) => [m.id, m]));
+    legalSellerManufacturer = legalSellerId ? byId.get(legalSellerId) ?? null : null;
+    packagingManufacturer = packagingManufacturerId ? byId.get(packagingManufacturerId) ?? null : null;
+    manufacturerBankRoutes = routesRes.results ?? [];
+  }
+
+  // For dei_layer flows the entry point also needs DEE + DEI on hand.
+  // Cheap to fetch: pull the small set of well-known company ids in one shot.
+  const extraCompanyIds = Array.from(new Set(
+    ['cmp_dee', 'cmp_dei', operation.our_company_id]
+      .filter((id) => id !== ourCompany.id || id === ourCompany.id)
+  ));
+  const placeholders = extraCompanyIds.map(() => '?').join(',');
+  const extraCompaniesRes = await db.prepare(
+    `SELECT ${COMPANY_COLS} FROM companies
+      WHERE id IN (${placeholders}) AND deleted_at IS NULL`
+  ).bind(...extraCompanyIds).all<CompanyRow>();
+  const companiesById: Record<string, CompanyRow> = {};
+  for (const c of extraCompaniesRes.results ?? []) companiesById[c.id] = c;
+  companiesById[ourCompany.id] = ourCompany;
+
   return {
     operation,
     ourCompany,
     partner: partner ?? null,
-    manufacturer: manufacturer ?? null,
+    legalSellerManufacturer,
+    packagingManufacturer,
     contract: contract ?? null,
     companyBankAccounts: companyBankAccountsRes.results ?? [],
-    manufacturerBankRoutes: manufacturerBankRoutesRes.results ?? [],
-    lineItems: lineItemsRes.results ?? [],
+    manufacturerBankRoutes,
+    lineItems,
+    companiesById,
   };
 }

@@ -31,6 +31,18 @@ export async function apiPost<T = unknown>(
   return res.json();
 }
 
+export async function apiPatch<T = unknown>(
+  path: string,
+  body: unknown
+): Promise<ApiResponse<T>> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
 // =============================================================================
 // Health
 // =============================================================================
@@ -430,4 +442,18 @@ export async function createOperation(body: CreateOperationBody) {
     '/api/operations',
     body
   );
+}
+
+export interface UpdateStatusResponse {
+  id: string;
+  previous_status: string;
+  status: 'shipped' | 'delivered' | 'cancelled';
+  updated_at: number;
+}
+
+export async function updateOperationStatus(
+  id: string,
+  status: 'shipped' | 'delivered' | 'cancelled'
+) {
+  return apiPatch<UpdateStatusResponse>(`/api/operations/${id}/status`, { status });
 }

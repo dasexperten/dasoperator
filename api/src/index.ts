@@ -21,6 +21,7 @@ import stocksRoutes, { productStock } from './routes/stocks';
 import stockMovementsRoutes from './routes/stock-movements';
 import inventorySessionsRoutes from './routes/inventory-sessions';
 import warehousesRoutes from './routes/warehouses';
+import productsPhotosRoutes from './routes/products-photos';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
 
@@ -42,11 +43,12 @@ app.notFound((c) => {
   );
 });
 
-app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.5.1', phase: '4.4-inventory-frontend' }));
+app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.6.0', phase: '5.1-products-foundation' }));
 app.route('/health', healthRoutes);
 app.route('/api/products', productsRoutes);
 app.route('/api/products', productsPricingRoutes);  // adds :productId/price
 app.route('/api/products', productStock);           // adds :id/stock
+app.route('/api/products', productsPhotosRoutes);   // adds :id/images endpoints
 app.route('/api/contacts', contactsRoutes);
 app.route('/api/partners', partnersRoutes);
 app.route('/api/partners', netBalancePerPartner);   // adds :slug/net-balance

@@ -657,7 +657,8 @@ function Kpi({ label, value, sub, highlight = false }: {
         fontSize: '24px',
         fontWeight: 500,
         color: highlight ? INK : '#6B6B6B',
-        fontFamily: 'ui-monospace, monospace',
+        // Inherit Manrope from page default — KPI value should match the
+        // rest of the body text, not look like ledger monospace.
         lineHeight: 1.1,
       }}>
         {value}

@@ -431,7 +431,7 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
                   </td>
                   <td style={{ padding: '10px 12px', color: '#6B6B6B' }}>{pt.used_by_entity}</td>
                   <td style={{ padding: '10px 12px', color: '#6B6B6B' }}>{pt.currency}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: muted ? '#6B6B6B' : INK }}>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-accent-jakarta)', fontWeight: 700, fontSize: '18px', fontVariantNumeric: 'tabular-nums', color: muted ? '#6B6B6B' : INK }}>
                     {row ? formatPrice(row.sell_price, row.currency) : '— not set —'}
                   </td>
                   <td style={{ padding: '10px 12px', fontVariantNumeric: 'tabular-nums', color: '#6B6B6B' }}>

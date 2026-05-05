@@ -11,7 +11,7 @@
 
 import {
   AlignmentType, BorderStyle, HeightRule, Paragraph, Table, TableCell, TableRow,
-  TextRun, WidthType,
+  TextRun, VerticalAlign, WidthType,
 } from 'docx';
 
 type Alignment = (typeof AlignmentType)[keyof typeof AlignmentType];
@@ -252,6 +252,73 @@ export function partyBlock(opts: PartyBlockOpts): Paragraph[] {
 
   if (party.email) out.push(p(`Email: ${party.email}`, { size: 18 }));
   return out;
+}
+
+// =============================================================================
+// partyTable — horizontal 2-column layout for IS variants.
+// Left  = Shipper (always) + optional Seller block underneath when distinct
+//         from Shipper.
+// Right = Consignee (always exactly once — no duplication).
+//
+// Used by IS-V1 (Brushes) and IS-V2 (Toothpastes) on landscape A4. Column
+// widths are 50/50 of the 15400 DXA usable area (7700 each). Cells are
+// top-aligned and borderless to keep the look clean.
+// =============================================================================
+
+export interface PartyTableInput {
+  language: 'EN' | 'RU' | 'BILINGUAL';
+  shipperLabel: string;
+  shipper: RenderParty;
+  consigneeLabel: string;
+  consignee: RenderParty;
+  // Optional second block placed in the LEFT column underneath Shipper.
+  // Only rendered when sellerDistinct === true. Caller decides distinctness
+  // (the renderer has no access to row IDs).
+  sellerLabel?: string;
+  seller?: RenderParty;
+  sellerDistinct?: boolean;
+}
+
+const NO_BORDER = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+
+export function partyTable(input: PartyTableInput): Table {
+  const {
+    language, shipperLabel, shipper, consigneeLabel, consignee,
+    sellerLabel, seller, sellerDistinct,
+  } = input;
+
+  const leftChildren: Paragraph[] = [
+    ...partyBlock({ language, label: shipperLabel, party: shipper }),
+  ];
+  if (sellerDistinct && seller && sellerLabel) {
+    leftChildren.push(blank());
+    leftChildren.push(...partyBlock({ language, label: sellerLabel, party: seller }));
+  }
+
+  const rightChildren = partyBlock({ language, label: consigneeLabel, party: consignee });
+
+  return new Table({
+    width: { size: 15400, type: WidthType.DXA },
+    columnWidths: [7700, 7700],
+    rows: [
+      new TableRow({
+        children: [
+          new TableCell({
+            width: { size: 7700, type: WidthType.DXA },
+            verticalAlign: VerticalAlign.TOP,
+            borders: { top: NO_BORDER, bottom: NO_BORDER, left: NO_BORDER, right: NO_BORDER },
+            children: leftChildren,
+          }),
+          new TableCell({
+            width: { size: 7700, type: WidthType.DXA },
+            verticalAlign: VerticalAlign.TOP,
+            borders: { top: NO_BORDER, bottom: NO_BORDER, left: NO_BORDER, right: NO_BORDER },
+            children: rightChildren,
+          }),
+        ],
+      }),
+    ],
+  });
 }
 
 export function bankBlock(

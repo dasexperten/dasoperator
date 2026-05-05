@@ -8,7 +8,8 @@ import { AlignmentType, Document, Packer, PageOrientation } from 'docx';
 import type { ContractRow, LineItemRow } from '../types';
 import {
   RenderBank, RenderParty, RenderSignature, bankBlock, bilingual, blank,
-  buildTableDxa, formatDate, formatMoney, heading, p, partyBlock, signatureBlock,
+  buildTableDxa, formatDate, formatMoney, heading, p, partyTable,
+  signatureBlock,
 } from './shared';
 
 // A4 landscape — width / height are in DXA (twentieths of a point).
@@ -38,6 +39,10 @@ export interface RenderIsV1Input {
   shipper: RenderParty;       // manufacturer (Jinxia)
   buyer: RenderParty;         // ultimate consignee (DEE or recipient)
   seller: RenderParty;        // selling-side party (DEI for layered, manufacturer otherwise)
+  // True when seller is a different legal entity from shipper (typical
+  // dei_layer Factory→DEI→DEE chain). When false the renderer suppresses
+  // the redundant SELLER block in the layout.
+  sellerDistinctFromShipper: boolean;
   bank: RenderBank | null;
   signature: RenderSignature;
   contract: ContractRow | null;
@@ -109,11 +114,16 @@ export async function renderInvoiceSpecBrushes(input: RenderIsV1Input): Promise<
         ...(input.consigneeAtTerminal
           ? [p(`${bilingual('Consignee at terminal', 'Получатель по ст.')}: ${input.consigneeAtTerminal}`)] : []),
         blank(),
-        ...partyBlock({ language: 'BILINGUAL', label: bilingual('SHIPPER', 'ОТПРАВИТЕЛЬ'), party: input.shipper }),
-        blank(),
-        ...partyBlock({ language: 'BILINGUAL', label: bilingual('BUYER', 'ПОКУПАТЕЛЬ'), party: input.buyer }),
-        blank(),
-        ...partyBlock({ language: 'BILINGUAL', label: bilingual('SELLER', 'ПРОДАВЕЦ'), party: input.seller }),
+        partyTable({
+          language: 'BILINGUAL',
+          shipperLabel: bilingual('SHIPPER', 'ОТПРАВИТЕЛЬ'),
+          shipper: input.shipper,
+          consigneeLabel: bilingual('CONSIGNEE / BUYER', 'ПОЛУЧАТЕЛЬ / ПОКУПАТЕЛЬ'),
+          consignee: input.buyer,
+          sellerLabel: bilingual('SELLER', 'ПРОДАВЕЦ'),
+          seller: input.seller,
+          sellerDistinct: input.sellerDistinctFromShipper,
+        }),
         blank(),
         p(`${bilingual('Terms of delivery', 'Условия поставки')}: ${input.incoterms}`, { bold: true }),
         ...(input.bank ? [blank(), ...bankBlock(input.bank, 'BILINGUAL')] : []),

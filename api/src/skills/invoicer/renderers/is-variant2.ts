@@ -9,7 +9,7 @@ import { AlignmentType, Document, Packer, PageOrientation } from 'docx';
 import type { ContractRow, LineItemRow } from '../types';
 import {
   RenderBank, RenderParty, RenderSignature, bankBlock, blank, buildTableDxa,
-  formatDate, formatMoney, heading, p, partyBlock, signatureBlock, subheading,
+  formatDate, formatMoney, heading, p, partyTable, signatureBlock, subheading,
   trilingual,
 } from './shared';
 
@@ -123,16 +123,13 @@ export async function renderInvoiceSpecPastes(input: RenderIsV2Input): Promise<U
         ...(input.contract?.unk_reference
           ? [p(`УНК: ${input.contract.unk_reference}`)] : []),
         blank(),
-        ...partyBlock({
+        partyTable({
           language: 'BILINGUAL',
-          label: trilingual('SHIPPER / SELLER', 'ОТПРАВИТЕЛЬ / ПРОДАВЕЦ', '发货人 / 卖方'),
-          party: input.shipperSeller,
-        }),
-        blank(),
-        ...partyBlock({
-          language: 'BILINGUAL',
-          label: trilingual('CONSIGNEE / BUYER', 'ПОЛУЧАТЕЛЬ / ПОКУПАТЕЛЬ', '收货人 / 买方'),
-          party: input.consigneeBuyer,
+          shipperLabel: trilingual('SHIPPER / SELLER', 'ОТПРАВИТЕЛЬ / ПРОДАВЕЦ', '发货人 / 卖方'),
+          shipper: input.shipperSeller,
+          consigneeLabel: trilingual('CONSIGNEE / BUYER', 'ПОЛУЧАТЕЛЬ / ПОКУПАТЕЛЬ', '收货人 / 买方'),
+          consignee: input.consigneeBuyer,
+          // shipperSeller is one combined party — no separate Seller block.
         }),
         blank(),
         p(`${trilingual('Delivery', 'Условия поставки', '交货条件')}: ${input.incoterms}`, { bold: true }),

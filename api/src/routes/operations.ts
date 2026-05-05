@@ -569,7 +569,7 @@ async function getOrCreateStock(
   now: number
 ): Promise<StockRow> {
   const existing = await db.prepare(
-    'SELECT id, on_hand FROM stocks WHERE warehouse_id = ? AND product_id = ? AND deleted_at IS NULL'
+    'SELECT id, on_hand FROM stocks WHERE warehouse_id = ? AND product_id = ?'
   ).bind(warehouseId, productId).first<StockRow>();
 
   if (existing) return existing;
@@ -577,8 +577,8 @@ async function getOrCreateStock(
   // Create zero-balance stock row on first touch
   const newId = `stk_${crypto.randomUUID()}`;
   await db.prepare(
-    'INSERT INTO stocks (id, warehouse_id, product_id, on_hand, reserved_qty, created_at, updated_at) VALUES (?, ?, ?, 0, 0, ?, ?)'
-  ).bind(newId, warehouseId, productId, now, now).run();
+    'INSERT INTO stocks (id, warehouse_id, product_id, on_hand, updated_at) VALUES (?, ?, ?, 0, ?)'
+  ).bind(newId, warehouseId, productId, now).run();
 
   return { id: newId, on_hand: 0 };
 }
@@ -735,8 +735,8 @@ operations.patch('/:id/status', async (c) => {
 
     stmts.push(
       c.env.DB.prepare(
-        'UPDATE stocks SET on_hand = ?, updated_at = ? WHERE warehouse_id = ? AND product_id = ? AND deleted_at IS NULL'
-      ).bind(balanceAfter, now, spec.warehouseId, spec.productId)
+        'UPDATE stocks SET on_hand = ?, last_movement_at = ?, updated_at = ? WHERE warehouse_id = ? AND product_id = ?'
+      ).bind(balanceAfter, now, now, spec.warehouseId, spec.productId)
     );
 
     // Optimistically update local cache so next iteration in same batch sees correct balance

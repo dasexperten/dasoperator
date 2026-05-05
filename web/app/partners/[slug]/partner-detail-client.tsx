@@ -243,8 +243,13 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
             <tbody>
               {operations.map((op) => (
                 <tr key={op.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                  <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-1)' }}>
-                    {op.reference ?? op.id}
+                  <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px' }}>
+                    <Link
+                      href={`/partners/${slug}/operations/${op.id}`}
+                      style={{ color: 'var(--fg-1)', textDecoration: 'underline', textDecorationColor: 'var(--border-hairline)', textUnderlineOffset: '3px' }}
+                    >
+                      {op.reference ?? op.id}
+                    </Link>
                   </td>
                   <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>
                     {formatDate(op.operation_date)}

@@ -142,7 +142,14 @@ export default function OperationsPage() {
                   const tc = TYPE_COLORS[op.operation_type];
                   return (
                     <tr key={op.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                      <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-1)' }}>{op.reference ?? op.id}</td>
+                      <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px' }}>
+                        <Link
+                          href={`/partners/${op.partner_id}/operations/${op.id}`}
+                          style={{ color: 'var(--fg-1)', textDecoration: 'underline', textDecorationColor: 'var(--border-hairline)', textUnderlineOffset: '3px' }}
+                        >
+                          {op.reference ?? op.id}
+                        </Link>
+                      </td>
                       <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>{formatDate(op.operation_date)}</td>
                       <td className="px-4 py-3" style={{ color: 'var(--fg-1)' }}>
                         {op.partner_trade_name ? (

@@ -96,6 +96,7 @@ interface ContractRow {
   our_company_id: string;
   currency: string;
   status: string;
+  vat_rate: number;
 }
 
 // =============================================================================
@@ -125,7 +126,7 @@ operations.post('/', async (c) => {
   // Step 1: Resolve contract → partner_id, our_company_id, currency
   // ---------------------------------------------------------------------------
   const contract = await c.env.DB.prepare(
-    'SELECT id, partner_id, our_company_id, currency, status FROM contracts WHERE id = ? AND deleted_at IS NULL'
+    'SELECT id, partner_id, our_company_id, currency, status, vat_rate FROM contracts WHERE id = ? AND deleted_at IS NULL'
   ).bind(data.contract_id).first<ContractRow>();
 
   if (!contract) {
@@ -318,7 +319,7 @@ operations.post('/', async (c) => {
       reference, status,
       price_type_id, currency, fx_rate_to_usd,
       total_amount, total_usd_equiv,
-      incoterms, notes,
+      incoterms, notes, vat_rate,
       created_at, updated_at, deleted_at
     ) VALUES (
       ?, ?, ?, ?,
@@ -327,7 +328,7 @@ operations.post('/', async (c) => {
       ?, 'draft',
       ?, ?, ?,
       ?, ?,
-      ?, ?,
+      ?, ?, ?,
       ?, ?, NULL
     )
   `).bind(
@@ -348,6 +349,7 @@ operations.post('/', async (c) => {
     totalUsdEquiv,
     data.incoterms ?? null,
     data.notes ?? null,
+    contract.vat_rate,
     now,
     now
   );
@@ -400,6 +402,7 @@ operations.post('/', async (c) => {
       total_usd_equiv: totalUsdEquiv,
       incoterms: data.incoterms ?? null,
       notes: data.notes ?? null,
+      vat_rate: contract.vat_rate,
       created_at: now,
       updated_at: now,
     },
@@ -427,7 +430,7 @@ operations.get('/', async (c) => {
       o.operation_type, o.operation_date,
       o.warehouse_from_id, o.warehouse_to_id,
       o.currency, o.total_amount, o.total_usd_equiv,
-      o.status, o.reference, o.notes,
+      o.status, o.reference, o.notes, o.vat_rate,
       o.created_at, o.updated_at
     FROM operations o
     LEFT JOIN contracts ct ON o.contract_id = ct.id

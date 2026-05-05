@@ -185,6 +185,7 @@ export interface Contract {
   incoterms?: string | null;
   status: 'draft' | 'active' | 'expired' | 'cancelled';
   notes?: string | null;
+  vat_rate: 0 | 5 | 20;
   created_at: number;
   updated_at: number;
 }
@@ -218,6 +219,7 @@ export interface CreateContractBody {
   incoterms?: string;
   status?: 'draft' | 'active' | 'expired' | 'cancelled';
   notes?: string;
+  vat_rate?: 0 | 5 | 20;
 }
 
 export async function createContract(body: CreateContractBody) {
@@ -365,6 +367,7 @@ export interface Operation {
   order_doc_ref: string | null;
   notes: string | null;
   incoterms: string | null;
+  vat_rate: 0 | 5 | 20;
   created_at: number;
   updated_at: number;
 }

@@ -24,7 +24,13 @@ export class OperationNotFoundError extends Error {
 }
 
 export class MixedManufacturerError extends Error {
-  constructor(public manufacturerIds: string[]) {
+  constructor(
+    public manufacturerIds: string[],
+    /** Mapping manufacturer_id → product_ids that resolve to it. Used by the
+     *  entry point to render a friendly "WDAA (DE201, DE206) + Jinxia (DE119)"
+     *  message after enriching IDs with manufacturer slugs. */
+    public productGrouping: Record<string, string[]> = {}
+  ) {
     super(
       `Operation has line items from multiple legal sellers ` +
       `(${manufacturerIds.join(', ')}). Split into separate operations.`
@@ -108,13 +114,16 @@ function resolveLegalSellerId(
 
   // Sales: derive from products. Every line must agree.
   if (op.operation_type === 'sale') {
-    const ids = Array.from(new Set(
-      lineItems
-        .map((li) => li.product_manufacturer_id)
-        .filter((x): x is string => !!x)
-    ));
+    const grouping: Record<string, string[]> = {};
+    for (const li of lineItems) {
+      const mfrId = li.product_manufacturer_id;
+      if (!mfrId) continue;
+      if (!grouping[mfrId]) grouping[mfrId] = [];
+      grouping[mfrId]!.push(li.product_id);
+    }
+    const ids = Object.keys(grouping);
     if (ids.length === 0) return null;
-    if (ids.length > 1) throw new MixedManufacturerError(ids);
+    if (ids.length > 1) throw new MixedManufacturerError(ids, grouping);
     return ids[0]!;
   }
 

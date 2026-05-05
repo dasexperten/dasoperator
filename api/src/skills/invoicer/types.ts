@@ -227,9 +227,14 @@ export interface BankAccountSelection {
 }
 
 export type BankRouteSelection =
-  | { kind: 'route'; route: ManufacturerBankRouteRow }
+  | { kind: 'route'; route: ManufacturerBankRouteRow; usedFallback?: boolean }
   | { kind: 'no_routing_required' }
-  | { kind: 'route_required'; details: { manufacturer_id: string; payer_company_id: string; expected_route: 'A' | 'B' | 'default' } };
+  | { kind: 'route_required'; details: {
+      manufacturer_id: string;
+      payer_company_id: string;
+      expected_route: 'A' | 'B' | 'default';
+      routes_found: string[];
+    } };
 
 // =============================================================================
 // Validator outputs

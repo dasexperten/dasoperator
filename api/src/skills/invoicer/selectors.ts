@@ -218,7 +218,10 @@ export function selectManufacturerBankRoute(
   payerCompany: CompanyRow,
   routes: ManufacturerBankRouteRow[]
 ): BankRouteSelection {
+  const routesFound = routes.map((r) => r.route_code);
   const defaultRoute = routes.find((r) => r.route_code === 'default');
+
+  // ---- Single-route manufacturer ------------------------------------------
   if (manufacturer.has_dual_route_banking !== 1) {
     if (defaultRoute) return { kind: 'route', route: defaultRoute };
     if (routes.length === 0) {
@@ -228,22 +231,33 @@ export function selectManufacturerBankRoute(
           manufacturer_id: manufacturer.id,
           payer_company_id: payerCompany.id,
           expected_route: 'default',
+          routes_found: routesFound,
         },
       };
     }
-    // No 'default' but other routes exist — pick the first one as a single-route fallback.
-    return { kind: 'route', route: routes[0]! };
+    // No 'default' but other routes exist — pick the first one as a fallback.
+    return { kind: 'route', route: routes[0]!, usedFallback: true };
   }
 
+  // ---- Dual-route manufacturer (Honghui / Jinxia) -------------------------
+  // CIS payer (DEE) → Route A; everyone else (DEI / DEASEAN / DEC) → Route B.
   const expected: 'A' | 'B' = payerCompany.abbreviation === 'DEE' ? 'A' : 'B';
-  const route = routes.find((r) => r.route_code === expected);
-  if (route) return { kind: 'route', route };
+  const exact = routes.find((r) => r.route_code === expected);
+  if (exact) return { kind: 'route', route: exact };
+
+  // Last-resort fallback: a 'default' row covers any payer when the specific
+  // A/B route is missing. This is intentionally permissive — Aram's review
+  // explicitly asked for a fallback before HARD-STOP. If neither matches,
+  // surface ROUTE_REQUIRED with full diagnostic details.
+  if (defaultRoute) return { kind: 'route', route: defaultRoute, usedFallback: true };
+
   return {
     kind: 'route_required',
     details: {
       manufacturer_id: manufacturer.id,
       payer_company_id: payerCompany.id,
       expected_route: expected,
+      routes_found: routesFound,
     },
   };
 }

@@ -22,6 +22,10 @@ const SECONDS_PER_DAY = 86400;
 export interface PartyView {
   kind: 'company' | 'manufacturer' | 'partner';
   id: string;
+  // Human-friendly identifier used in CONTACTS_INCOMPLETE error paths.
+  // Companies → abbreviation (DEE); manufacturers → slug (guangzhou-honghui)
+  // or fallback to name; partners → strip prt_ prefix from id.
+  label: string;
   legalName: string | null;
   legalNameLocal: string | null;     // RU translation for buyers, RU/CN for manufacturers
   registeredAddress: string | null;
@@ -34,6 +38,7 @@ export interface PartyView {
 export function viewCompany(c: CompanyRow): PartyView {
   return {
     kind: 'company', id: c.id,
+    label: c.abbreviation || c.id,
     legalName: c.legal_name,
     legalNameLocal: c.legal_name_ru ?? c.legal_name_local,
     registeredAddress: c.registered_address,
@@ -47,6 +52,7 @@ export function viewCompany(c: CompanyRow): PartyView {
 export function viewManufacturer(m: ManufacturerRow): PartyView {
   return {
     kind: 'manufacturer', id: m.id,
+    label: m.slug || m.legal_name_en || m.name || m.id,
     legalName: m.legal_name_en ?? m.name,
     legalNameLocal: m.legal_name_ru ?? m.legal_name_cn,
     registeredAddress: m.registered_address_en,
@@ -60,6 +66,7 @@ export function viewManufacturer(m: ManufacturerRow): PartyView {
 export function viewPartner(p: PartnerRow): PartyView {
   return {
     kind: 'partner', id: p.id,
+    label: p.id.replace(/^prt_/, '') || p.trade_name,
     legalName: p.legal_name ?? p.trade_name,
     legalNameLocal: p.legal_name_local,
     registeredAddress: p.country,
@@ -92,22 +99,22 @@ export function validateContacts(
   // ---- Seller block ----------------------------------------------------
   if (language === 'RU' || language === 'BILINGUAL') {
     if (!seller.legalName && !seller.legalNameLocal) {
-      missing.push(`${seller.kind}.${seller.id}.legal_name|legal_name_ru`);
+      missing.push(`${seller.kind}.${seller.label}.legal_name|legal_name_ru`);
     }
   } else if (!seller.legalName) {
-    missing.push(`${seller.kind}.${seller.id}.legal_name`);
+    missing.push(`${seller.kind}.${seller.label}.legal_name`);
   }
   if (!seller.registeredAddress && !seller.registeredAddressLocal) {
-    missing.push(`${seller.kind}.${seller.id}.registered_address`);
+    missing.push(`${seller.kind}.${seller.label}.registered_address`);
   }
   if (!seller.taxId && !seller.registrationNo) {
-    missing.push(`${seller.kind}.${seller.id}.tax_id|registration_no`);
+    missing.push(`${seller.kind}.${seller.label}.tax_id|registration_no`);
   }
 
   // ---- Seller bank block (CI / IS) -------------------------------------
   if (needsBank) {
     if (!bankSelection) {
-      missing.push(`${seller.kind}.${seller.id}.bank (no row in company_bank_accounts and no legacy bank columns)`);
+      missing.push(`${seller.kind}.${seller.label}.bank (no row in company_bank_accounts and no legacy bank columns)`);
     } else {
       if (!bankSelection.bank_name) missing.push('bank.bank_name');
       if (!bankSelection.account_holder) missing.push('bank.account_holder');
@@ -126,13 +133,13 @@ export function validateContacts(
     ? (buyer.legalNameLocal ?? buyer.legalName)
     : buyer.legalName;
   if (!buyerName) {
-    missing.push(`${buyer.kind}.${buyer.id}.legal_name|legal_name_local`);
+    missing.push(`${buyer.kind}.${buyer.label}.legal_name|legal_name_local`);
   }
   if (!buyer.registeredAddress && !buyer.registeredAddressLocal) {
-    missing.push(`${buyer.kind}.${buyer.id}.registered_address|registered_address_local`);
+    missing.push(`${buyer.kind}.${buyer.label}.registered_address|registered_address_local`);
   }
   if (!buyer.taxId && !buyer.inn && !buyer.registrationNo) {
-    missing.push(`${buyer.kind}.${buyer.id}.tax_id|inn|registration_no`);
+    missing.push(`${buyer.kind}.${buyer.label}.tax_id|inn|registration_no`);
   }
 
   if (missing.length === 0) return { ok: true };

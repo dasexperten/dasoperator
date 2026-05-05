@@ -44,6 +44,14 @@ const createOperationSchema = z.object({
   order_doc_ref: z.string().nullable().optional(),
 
   line_items: z.array(lineItemSchema).min(1),
+
+  // Invoicer routing flags (added by 0009_invoicer_roles_and_routes.sql).
+  // dei_layer = 1 means a sale to Russia routes Factory→DEI→DEE and the
+  // invoicer emits CI+PL (Factory→DEI) plus an IS (DEI→buyer) at issue
+  // time. legal_seller_id overrides the products-derived legal seller for
+  // operations where multiple manufacturers ship under one invoice.
+  dei_layer: z.union([z.boolean(), z.literal(0), z.literal(1)]).optional().default(0),
+  legal_seller_id: z.string().nullable().optional(),
 }).refine(
   (data) => {
     if (data.operation_type === 'sale' || data.operation_type === 'transfer') {
@@ -311,6 +319,8 @@ operations.post('/', async (c) => {
   const operationId = genId('op');
   const now = Math.floor(Date.now() / 1000);
 
+  const deiLayerInt = (data.dei_layer === true || data.dei_layer === 1) ? 1 : 0;
+
   const insertOpStmt = c.env.DB.prepare(`
     INSERT INTO operations (
       id, contract_id, operation_date, operation_type,
@@ -320,6 +330,7 @@ operations.post('/', async (c) => {
       price_type_id, currency, fx_rate_to_usd,
       total_amount, total_usd_equiv,
       incoterms, notes, vat_rate,
+      dei_layer, legal_seller_id,
       created_at, updated_at, deleted_at
     ) VALUES (
       ?, ?, ?, ?,
@@ -329,6 +340,7 @@ operations.post('/', async (c) => {
       ?, ?, ?,
       ?, ?,
       ?, ?, ?,
+      ?, ?,
       ?, ?, NULL
     )
   `).bind(
@@ -350,6 +362,8 @@ operations.post('/', async (c) => {
     data.incoterms ?? null,
     data.notes ?? null,
     contract.vat_rate,
+    deiLayerInt,
+    data.legal_seller_id ?? null,
     now,
     now
   );
@@ -403,6 +417,8 @@ operations.post('/', async (c) => {
       incoterms: data.incoterms ?? null,
       notes: data.notes ?? null,
       vat_rate: contract.vat_rate,
+      dei_layer: deiLayerInt,
+      legal_seller_id: data.legal_seller_id ?? null,
       created_at: now,
       updated_at: now,
     },

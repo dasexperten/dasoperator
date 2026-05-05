@@ -215,13 +215,13 @@ export default function WarehousesPage() {
 // field is set in /api/warehouses).
 type CountryGroup = 'russia' | 'china' | 'transit';
 
-export function groupForWarehouse(wh: { country?: string | null }): CountryGroup {
+function groupForWarehouse(wh: { country?: string | null }): CountryGroup {
   if (wh.country === 'Russia') return 'russia';
   if (wh.country === 'China') return 'china';
   return 'transit';
 }
 
-export const TINT_BY_GROUP: Record<CountryGroup, string> = {
+const TINT_BY_GROUP: Record<CountryGroup, string> = {
   russia:  'rgba(252, 235, 235, 0.5)',  // warm beige-red
   china:   'rgba(230, 241, 251, 0.5)',  // cool slate-blue
   transit: 'rgba(225, 245, 238, 0.5)',  // neutral mint

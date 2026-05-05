@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Plus, AlertTriangle, Loader2 } from 'lucide-react';
-import { getPartner, getPartnerContracts, getOperations, type Partner, type Contract, type Operation } from '@/lib/api';
+import { getPartner, getPartnerContracts, getOperations, getPayments, type Partner, type Contract, type Operation, type Payment } from '@/lib/api';
 import { CopyableValue, SectionCard } from '@/components/ui/copyable';
 import Breadcrumb from '@/components/layout/breadcrumb';
 
@@ -42,16 +42,18 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
   const [partner, setPartner] = useState<Partner | null>(null);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [operations, setOperations] = useState<Operation[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [partnerRes, contractsRes, opsRes] = await Promise.all([
+        const [partnerRes, contractsRes, opsRes, paysRes] = await Promise.all([
           getPartner(slug),
           getPartnerContracts(slug),
           getOperations({ partner_id: slug }),
+          getPayments({ partner_id: slug }),
         ]);
 
         if (partnerRes.success && partnerRes.result) {
@@ -67,6 +69,10 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
 
         if (opsRes.success && opsRes.result) {
           setOperations(opsRes.result.operations);
+        }
+
+        if (paysRes.success && paysRes.result) {
+          setPayments(paysRes.result.payments);
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
@@ -242,14 +248,40 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
         )}
       </SectionListBlock>
 
-      {/* PAYMENTS SECTION (placeholder для PR-B) */}
+      {/* PAYMENTS SECTION */}
       <SectionListBlock
         label="Payments"
-        count={0}
+        count={payments.length}
         addNewHref={`/partners/${slug}/payments/new`}
-        addDisabled
       >
-        <EmptyTable message="Payments module — coming in next phase" />
+        {payments.length === 0 ? (
+          <EmptyTable message="No payments yet — click [+ Add new] to record" />
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                <Th>Date</Th><Th>Direction</Th><Th>Type</Th><Th>Operation</Th><Th>Amount</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {payments.map((p) => (
+                <tr key={p.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                  <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>{formatDate(p.payment_date)}</td>
+                  <td className="px-4 py-3 dx-eyebrow" style={{ fontSize: '10px', letterSpacing: '0.15em', color: p.direction === 'incoming' ? 'var(--status-success)' : 'var(--brand-rot)' }}>
+                    {p.direction}
+                  </td>
+                  <td className="px-4 py-3 dx-eyebrow" style={{ fontSize: '10px', color: 'var(--fg-2)', letterSpacing: '0.15em' }}>{p.type}</td>
+                  <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>
+                    {p.operation_id ? p.operation_id.replace('op_', '').slice(0, 8) : 'advance'}
+                  </td>
+                  <td className="px-4 py-3 dx-mono text-right" style={{ fontSize: '12px', color: 'var(--fg-1)' }}>
+                    {formatMoney(p.amount, p.currency)} {p.currency}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </SectionListBlock>
     </div>
   );

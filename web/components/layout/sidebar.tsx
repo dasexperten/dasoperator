@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Users, Package, Warehouse, BarChart3 } from 'lucide-react';
+import { Home, Users, FileText, Package, Warehouse, BarChart3 } from 'lucide-react';
 
 interface NavItem {
   name: string;
@@ -13,6 +13,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { name: 'Home',       icon: Home,       href: '/' },
   { name: 'Partners',   icon: Users,      href: '/partners' },
+  { name: 'Operations', icon: FileText,   href: '/operations' },
   { name: 'Products',   icon: Package,    href: '/products' },
   { name: 'Warehouses', icon: Warehouse,  href: '/warehouses' },
   { name: 'Analytics',  icon: BarChart3,  href: '/analytics' },
@@ -95,7 +96,7 @@ export default function Sidebar() {
             Das Operator
           </div>
           <div className="dx-mono" style={{ color: 'var(--stone-400)', fontSize: '10px', letterSpacing: '0.05em' }}>
-            v1.0
+            v1.1
           </div>
         </div>
       </div>

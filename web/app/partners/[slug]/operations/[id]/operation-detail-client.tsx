@@ -7,6 +7,7 @@ import {
   getOperation,
   getPartner,
   getPayments,
+  updateOperationStatus,
   type Operation,
   type OperationLineItem,
   type Partner,
@@ -313,7 +314,22 @@ export default function OperationDetailClient({
       )}
 
       {activeTab === 'status' && (
-        <StatusTab status={operation.status} />
+        <StatusTab
+          status={operation.status}
+          operationId={operationId}
+          onStatusChange={async (newStatus) => {
+            const res = await updateOperationStatus(operationId, newStatus);
+            if (res.success && res.result) {
+              setOperation({
+                ...operation,
+                status: res.result.status,
+                updated_at: res.result.updated_at,
+              });
+            } else {
+              throw new Error(res.errors?.[0]?.message ?? 'Update failed');
+            }
+          }}
+        />
       )}
 
       {activeTab === 'documents' && (
@@ -469,7 +485,37 @@ const STATUS_TARGETS = [
   { id: 'cancelled', label: 'Cancel' },
 ] as const;
 
-function StatusTab({ status }: { status: string }) {
+type StatusTarget = typeof STATUS_TARGETS[number]['id'];
+
+function StatusTab({
+  status,
+  operationId,
+  onStatusChange,
+}: {
+  status: string;
+  operationId: string;
+  onStatusChange: (newStatus: StatusTarget) => Promise<void>;
+}) {
+  const [pending, setPending] = useState<StatusTarget | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleClick = async (target: StatusTarget) => {
+    const verb = target === 'cancelled' ? 'cancel' : `mark as ${target}`;
+    if (!confirm(`Confirm: ${verb} this operation?`)) return;
+    setError(null);
+    setPending(target);
+    try {
+      await onStatusChange(target);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Update failed');
+    } finally {
+      setPending(null);
+    }
+  };
+
+  // Once cancelled, no further moves available
+  const terminal = status === 'cancelled';
+
   return (
     <div
       className="p-6 space-y-6"
@@ -479,35 +525,52 @@ function StatusTab({ status }: { status: string }) {
       }}
     >
       <div className="flex items-center gap-3">
-        <span className="dx-eyebrow" style={{ fontSize: '11px' }}>Current</span>
+        <span className="dx-eyebrow">Current</span>
         {statusChip(status)}
       </div>
 
       <div>
-        <p className="dx-eyebrow mb-3" style={{ fontSize: '11px' }}>Move to</p>
+        <p className="dx-eyebrow mb-3">Move to</p>
         <div className="flex flex-wrap gap-2">
-          {STATUS_TARGETS.map((target) => (
-            <button
-              key={target.id}
-              disabled
-              className="px-4 py-2 text-sm transition-colors"
-              style={{
-                border: '1px solid var(--border-hairline)',
-                borderRadius: 'var(--radius-sm)',
-                backgroundColor: 'transparent',
-                color: target.id === 'cancelled' ? 'var(--brand-rot)' : 'var(--fg-1)',
-                opacity: 0.5,
-                cursor: 'not-allowed',
-              }}
-              title="Status update wiring lands in next PR"
-            >
-              {target.label}
-            </button>
-          ))}
+          {STATUS_TARGETS.map((target) => {
+            const isPending = pending === target.id;
+            const isCurrent = status === target.id;
+            const disabled = terminal || isCurrent || pending !== null;
+            return (
+              <button
+                key={target.id}
+                onClick={() => handleClick(target.id)}
+                disabled={disabled}
+                className="px-4 py-2 transition-colors inline-flex items-center gap-2"
+                style={{
+                  border: '1px solid var(--border-hairline)',
+                  borderRadius: 'var(--radius-sm)',
+                  backgroundColor: target.id === 'cancelled' ? 'transparent' : 'var(--paper-sunk)',
+                  color: target.id === 'cancelled' ? 'var(--brand-rot)' : 'var(--fg-1)',
+                  opacity: disabled ? 0.4 : 1,
+                  cursor: disabled ? 'not-allowed' : 'pointer',
+                  fontWeight: 600,
+                }}
+                title={isCurrent ? 'Already in this status' : terminal ? 'Operation is cancelled' : ''}
+              >
+                {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                {target.label}
+              </button>
+            );
+          })}
         </div>
-        <p className="mt-3" style={{ fontSize: '11px', color: 'var(--fg-3)' }}>
-          Backend PATCH endpoint already deployed — buttons get wired in next PR.
-        </p>
+
+        {terminal && (
+          <p className="mt-3" style={{ color: 'var(--fg-3)' }}>
+            This operation is cancelled — status cannot change further.
+          </p>
+        )}
+
+        {error && (
+          <p className="mt-3" style={{ color: 'var(--brand-rot)' }}>
+            {error}
+          </p>
+        )}
       </div>
     </div>
   );

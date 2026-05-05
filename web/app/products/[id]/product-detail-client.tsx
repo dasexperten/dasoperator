@@ -385,13 +385,13 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
                       <span style={{ marginLeft: '8px', color: '#6B6B6B' }}>{w.name}</span>
                     </td>
                     <td style={{ padding: '10px 12px', color: '#6B6B6B' }}>{w.country ?? '—'}</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'ui-monospace, monospace', fontWeight: 500, color: INK }}>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: INK }}>
                       {onHand.toLocaleString('en-US')}
                     </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'ui-monospace, monospace', color: muted ? '#6B6B6B' : INK }}>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: muted ? '#6B6B6B' : INK }}>
                       {formatCases(onHand, piecesPerCase)}
                     </td>
-                    <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, monospace', fontSize: '14px', color: '#6B6B6B' }}>
+                    <td style={{ padding: '10px 12px', fontVariantNumeric: 'tabular-nums', color: '#6B6B6B' }}>
                       {lastMov ? formatDate(lastMov) : '—'}
                     </td>
                   </tr>
@@ -431,10 +431,10 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
                   </td>
                   <td style={{ padding: '10px 12px', color: '#6B6B6B' }}>{pt.used_by_entity}</td>
                   <td style={{ padding: '10px 12px', color: '#6B6B6B' }}>{pt.currency}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'ui-monospace, monospace', fontWeight: 500, color: muted ? '#6B6B6B' : INK }}>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: muted ? '#6B6B6B' : INK }}>
                     {row ? formatPrice(row.sell_price, row.currency) : '— not set —'}
                   </td>
-                  <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, monospace', fontSize: '14px', color: '#6B6B6B' }}>
+                  <td style={{ padding: '10px 12px', fontVariantNumeric: 'tabular-nums', color: '#6B6B6B' }}>
                     {row ? formatEffective(row.effective_from, row.effective_until) : '—'}
                   </td>
                 </tr>
@@ -579,7 +579,7 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
         </div>
         {images.length === 0 && (
           <p style={{ marginTop: '12px', fontSize: '14px', color: '#6B6B6B' }}>
-            Stored in R2 bucket <code style={{ fontFamily: 'ui-monospace, monospace' }}>das-erp-docs-dev</code> under <code style={{ fontFamily: 'ui-monospace, monospace' }}>products/{idUpper}/</code>
+            Stored in R2 bucket <code style={{ fontVariantNumeric: 'tabular-nums' }}>das-erp-docs-dev</code> under <code style={{ fontVariantNumeric: 'tabular-nums' }}>products/{idUpper}/</code>
           </p>
         )}
       </Card>
@@ -606,7 +606,7 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
                 const qtyColor = a.quantity > 0 ? '#27500A' : a.quantity < 0 ? '#A32D2D' : '#6B6B6B';
                 return (
                   <tr key={a.id} style={{ borderBottom: '0.5px solid #E0DCD7' }}>
-                    <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, monospace', fontSize: '14px', color: '#6B6B6B' }}>
+                    <td style={{ padding: '10px 12px', fontVariantNumeric: 'tabular-nums', color: '#6B6B6B' }}>
                       {formatDate(a.performed_at)}
                     </td>
                     <td style={{ padding: '10px 12px', fontSize: '14px', color: '#6B6B6B', textTransform: 'uppercase', letterSpacing: 0 }}>
@@ -615,7 +615,7 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
                     <td style={{ padding: '10px 12px', fontWeight: 600, color: INK }}>
                       {a.warehouse_code ?? '—'}
                     </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'ui-monospace, monospace', fontWeight: 500, color: qtyColor }}>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: qtyColor }}>
                       {a.quantity > 0 ? '+' : ''}{a.quantity.toLocaleString('en-US')}
                     </td>
                     <td style={{ padding: '10px 12px', fontSize: '14px', color: '#6B6B6B' }}>{a.source}</td>
@@ -703,7 +703,7 @@ function DefList({ rows }: { rows: Array<{ label: string; value: string; mono?: 
             margin: 0,
             color: INK,
             fontWeight: r.regular ? 400 : 500,
-            fontFamily: r.mono ? 'ui-monospace, monospace' : 'inherit',
+            fontVariantNumeric: r.mono ? 'tabular-nums' : 'normal',
             wordBreak: 'break-word',
           }}>
             {r.value}

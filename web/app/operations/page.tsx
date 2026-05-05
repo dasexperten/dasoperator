@@ -142,7 +142,7 @@ export default function OperationsPage() {
                   const tc = TYPE_COLORS[op.operation_type];
                   return (
                     <tr key={op.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                      <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px' }}>
+                      <td className="px-4 py-3 dx-mono" style={{ fontWeight: 700 }}>
                         <Link
                           href={`/partners/${op.partner_id}/operations/${op.id}`}
                           style={{ color: 'var(--fg-1)', textDecoration: 'underline', textDecorationColor: 'var(--border-hairline)', textUnderlineOffset: '3px' }}
@@ -150,22 +150,22 @@ export default function OperationsPage() {
                           {op.reference ?? op.id}
                         </Link>
                       </td>
-                      <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>{formatDate(op.operation_date)}</td>
-                      <td className="px-4 py-3" style={{ color: 'var(--fg-1)' }}>
+                      <td className="px-4 py-3 dx-mono" style={{ color: 'var(--fg-3)' }}>{formatDate(op.operation_date)}</td>
+                      <td className="px-4 py-3" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>
                         {op.partner_trade_name ? (
                           <Link href={`/partners/${op.partner_id}`} style={{ color: 'var(--fg-1)' }}>
                             {op.partner_trade_name}
                           </Link>
                         ) : '—'}
                       </td>
-                      <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-2)' }}>{op.contract_no ?? '—'}</td>
+                      <td className="px-4 py-3 dx-mono" style={{ color: 'var(--fg-2)' }}>{op.contract_no ?? '—'}</td>
                       <td className="px-4 py-3">
-                        <span className="dx-eyebrow inline-block" style={{ padding: '3px 8px', fontSize: '9px', backgroundColor: tc?.bg, color: tc?.fg, borderRadius: 'var(--radius-pill)', letterSpacing: '0.15em' }}>
+                        <span className="dx-eyebrow inline-block" style={{ padding: '3px 8px', backgroundColor: tc?.bg, color: tc?.fg, borderRadius: 'var(--radius-pill)' }}>
                           {op.operation_type}
                         </span>
                       </td>
-                      <td className="px-4 py-3 dx-mono text-right" style={{ fontSize: '12px', color: 'var(--fg-1)' }}>{formatMoney(op.total_amount, op.currency)} {op.currency}</td>
-                      <td className="px-4 py-3 dx-eyebrow" style={{ fontSize: '10px', color: 'var(--fg-2)', letterSpacing: '0.15em' }}>{op.status}</td>
+                      <td className="px-4 py-3 dx-mono text-right" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>{formatMoney(op.total_amount, op.currency)} {op.currency}</td>
+                      <td className="px-4 py-3 dx-eyebrow" style={{ color: 'var(--fg-2)' }}>{op.status}</td>
                     </tr>
                   );
                 })

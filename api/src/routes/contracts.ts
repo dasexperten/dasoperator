@@ -19,6 +19,7 @@ const createSchema = z.object({
   incoterms: z.string().nullable().optional(),
   status: z.enum(['draft', 'active', 'expired', 'cancelled']).default('active'),
   notes: z.string().nullable().optional(),
+  vat_rate: z.union([z.literal(0), z.literal(5), z.literal(20)]).default(0),
 });
 
 function genContractId(contractNo: string): string {
@@ -38,7 +39,7 @@ contracts.get('/', async (c) => {
       c.id, c.contract_no, c.partner_id, p.trade_name as partner_trade_name,
       c.our_company_id, co.abbreviation as entity_abbreviation,
       c.currency, c.signed_date, c.expiry_date, c.incoterms,
-      c.status, c.notes, c.created_at, c.updated_at
+      c.status, c.notes, c.vat_rate, c.created_at, c.updated_at
     FROM contracts c
     LEFT JOIN partners p ON c.partner_id = p.id
     LEFT JOIN companies co ON c.our_company_id = co.id
@@ -129,13 +130,13 @@ contracts.post('/', async (c) => {
     await c.env.DB.prepare(`
       INSERT INTO contracts (
         id, contract_no, partner_id, our_company_id, currency,
-        signed_date, expiry_date, incoterms, status, notes,
+        signed_date, expiry_date, incoterms, status, notes, vat_rate,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       id, data.contract_no, data.partner_id, data.our_company_id, data.currency,
       data.signed_date ?? null, data.expiry_date ?? null,
-      data.incoterms ?? null, data.status, data.notes ?? null,
+      data.incoterms ?? null, data.status, data.notes ?? null, data.vat_rate,
       now, now
     ).run();
   } catch (err) {
@@ -156,7 +157,8 @@ contracts.post('/', async (c) => {
   return ok(c, {
     id, contract_no: data.contract_no, partner_id: data.partner_id,
     our_company_id: data.our_company_id, currency: data.currency,
-    status: data.status, created_at: now, updated_at: now,
+    status: data.status, vat_rate: data.vat_rate,
+    created_at: now, updated_at: now,
   }, ['Contract created']);
 });
 

@@ -24,6 +24,7 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
   const [contractNo, setContractNo] = useState('');
   const [companyId, setCompanyId] = useState('cmp_dee');
   const [currency, setCurrency] = useState('USD');
+  const [vatRate, setVatRate] = useState<0 | 5 | 20>(0);
   const [signedDate, setSignedDate] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
   const [incoterms, setIncoterms] = useState('');
@@ -48,6 +49,7 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
       our_company_id: companyId,
       currency,
       status,
+      vat_rate: vatRate,
     };
 
     if (signedDate) body.signed_date = Math.floor(new Date(signedDate).getTime() / 1000);
@@ -109,7 +111,7 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-3 gap-4">
           <div>
             <label className="dx-eyebrow block mb-1" style={{ fontSize: '10px' }}>Our Entity *</label>
             <select value={companyId} onChange={(e) => setCompanyId(e.target.value)}
@@ -124,6 +126,16 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
               className="w-full px-3 py-2 text-sm focus:outline-none dx-mono"
               style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}>
               {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="dx-eyebrow block mb-1" style={{ fontSize: '10px' }}>VAT Rate</label>
+            <select value={vatRate} onChange={(e) => setVatRate(Number(e.target.value) as 0 | 5 | 20)}
+              className="w-full px-3 py-2 text-sm focus:outline-none"
+              style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}>
+              <option value={0}>None</option>
+              <option value={5}>5%</option>
+              <option value={20}>20%</option>
             </select>
           </div>
         </div>

@@ -62,11 +62,13 @@ export default function Sidebar() {
               <Link
                 key={item.name}
                 href={item.href}
-                className="flex items-center gap-3 px-3 py-2.5 text-sm transition-colors duration-fast"
+                className="flex items-center gap-3 px-3 py-2.5 transition-colors duration-fast"
                 style={{
                   backgroundColor: active ? 'var(--brand-rot)' : 'transparent',
                   color: active ? 'var(--paper)' : 'var(--stone-200)',
                   borderRadius: 'var(--radius-sm)',
+                  fontSize: '18px',
+                  fontWeight: 700,
                 }}
                 onMouseEnter={(e) => {
                   if (!active) {
@@ -81,7 +83,7 @@ export default function Sidebar() {
                   }
                 }}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="h-5 w-5" />
                 <span>{item.name}</span>
               </Link>
             );

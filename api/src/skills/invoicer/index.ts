@@ -170,10 +170,37 @@ export async function issueDocuments(
       return fail({ code: 'operation_not_found', message: err.message }, 404, []);
     }
     if (err instanceof MixedManufacturerError) {
+      // Enrich the error with manufacturer slugs/names so the message reads
+      // "WDAA (DE201, DE206) + Jinxia (DE119)" instead of bare mfr_* IDs.
+      let friendly: string | null = null;
+      try {
+        const placeholders = err.manufacturerIds.map(() => '?').join(',');
+        const rows = await env.DB.prepare(
+          `SELECT id, slug, name, legal_name_en FROM manufacturers
+            WHERE id IN (${placeholders}) AND deleted_at IS NULL`
+        ).bind(...err.manufacturerIds).all<{
+          id: string; slug: string | null; name: string | null;
+          legal_name_en: string | null;
+        }>();
+        const labelById = new Map<string, string>();
+        for (const m of rows.results ?? []) {
+          labelById.set(m.id, m.slug ?? m.legal_name_en ?? m.name ?? m.id);
+        }
+        const parts = err.manufacturerIds.map((mid) => {
+          const label = labelById.get(mid) ?? mid;
+          const skus = (err.productGrouping[mid] ?? []).map((s) => s.toUpperCase()).join(', ');
+          return skus ? `${label} (${skus})` : label;
+        });
+        friendly = `Operation has products from multiple legal sellers: ${parts.join(' + ')}. ` +
+                   'Split into separate operations.';
+      } catch { /* fall back to raw IDs */ }
       return fail({
         code: 'MIXED_MANUFACTURER',
-        message: err.message,
-        details: { manufacturer_ids: err.manufacturerIds },
+        message: friendly ?? err.message,
+        details: {
+          manufacturer_ids: err.manufacturerIds,
+          product_grouping: err.productGrouping,
+        },
       }, 422, []);
     }
     return fail({
@@ -281,11 +308,20 @@ export async function issueDocuments(
           seller.row as ManufacturerRow, payer, input.manufacturerBankRoutes,
         );
         if (result.kind === 'route_required') {
+          // Resolve human-readable identifiers (slug / abbreviation) so the
+          // message points at "guangzhou-honghui" / "DEI" instead of raw IDs.
+          const mfr = seller.row as ManufacturerRow;
+          const mfrLabel = mfr.slug ?? mfr.legal_name_en ?? mfr.name ?? mfr.id;
+          const payerLabel = payer.abbreviation ?? payer.id;
+          const found = result.details.routes_found.length
+            ? `[${result.details.routes_found.join(', ')}]`
+            : '[]';
           return fail({
             code: 'ROUTE_REQUIRED',
-            message: `Dual-route manufacturer ${result.details.manufacturer_id} has no row ` +
-                     `for route ${result.details.expected_route} (payer ${result.details.payer_company_id}). ` +
-                     'Seed manufacturer_bank_routes before re-trying.',
+            message: `Manufacturer '${mfrLabel}' has no bank route for payer '${payerLabel}'. ` +
+                     `Routes found: ${found}. ` +
+                     `Required: ${result.details.expected_route}. ` +
+                     'Add the missing row to manufacturer_bank_routes.',
             details: result.details,
           }, 422, warnings);
         }

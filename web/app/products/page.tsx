@@ -3,10 +3,15 @@
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Search, Loader2 } from 'lucide-react';
-import { getProducts, type Product } from '@/lib/api';
+import {
+  getProducts, getProductsWithStock,
+  type Product, type ProductWithStock,
+} from '@/lib/api';
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [stockMap, setStockMap] = useState<Record<string, ProductWithStock>>({});
+  const [warehouseOrder, setWarehouseOrder] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -14,15 +19,28 @@ export default function ProductsPage() {
   const [manufacturerFilter, setManufacturerFilter] = useState<string>('all');
 
   useEffect(() => {
-    const fetchProducts = async () => {
+    const fetchAll = async () => {
       setLoading(true);
       try {
-        const res = await getProducts('DE');
-        if (res.success && res.result) {
-          setProducts(res.result.products);
+        const [prodRes, stockRes] = await Promise.all([
+          getProducts('DE'),
+          getProductsWithStock(),
+        ]);
+        if (prodRes.success && prodRes.result) {
+          setProducts(prodRes.result.products);
           setError(null);
         } else {
-          setError(res.errors[0]?.message ?? 'Failed to load products');
+          setError(prodRes.errors[0]?.message ?? 'Failed to load products');
+        }
+        if (stockRes.success && stockRes.result) {
+          const map: Record<string, ProductWithStock> = {};
+          for (const p of stockRes.result.products) {
+            map[p.id] = p;
+          }
+          setStockMap(map);
+          // Stable warehouse order from first product
+          const first = stockRes.result.products[0];
+          if (first) setWarehouseOrder(first.warehouses.map((w) => w.code));
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
@@ -30,7 +48,7 @@ export default function ProductsPage() {
         setLoading(false);
       }
     };
-    fetchProducts();
+    fetchAll();
   }, []);
 
   const manufacturers = useMemo(() => {
@@ -58,6 +76,17 @@ export default function ProductsPage() {
 
   const pasteCount = products.filter((p) => p.category === 'Toothpaste').length;
   const brushCount = products.filter((p) => p.category === 'Toothbrush').length;
+
+  // Compute global max on_hand for sparkline scaling
+  const maxOnHand = useMemo(() => {
+    let max = 0;
+    for (const ps of Object.values(stockMap)) {
+      for (const w of ps.warehouses) {
+        if (w.on_hand > max) max = w.on_hand;
+      }
+    }
+    return max || 1;
+  }, [stockMap]);
 
   return (
     <div className="space-y-8 max-w-7xl">
@@ -174,6 +203,7 @@ export default function ProductsPage() {
               <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                 <ProductTh>SKU</ProductTh>
                 <ProductTh>Product</ProductTh>
+                <ProductTh>Total stock</ProductTh>
                 <ProductTh>Category</ProductTh>
                 <ProductTh>Manufacturer</ProductTh>
                 <ProductTh>Weight</ProductTh>
@@ -184,7 +214,7 @@ export default function ProductsPage() {
               {filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="text-center py-12"
                     style={{ color: 'var(--fg-3)' }}
                   >
@@ -194,6 +224,7 @@ export default function ProductsPage() {
               ) : (
                 filtered.map((p) => {
                   const skuShort = p.id.replace('prd_', '').toUpperCase();
+                  const stock = stockMap[p.id];
                   return (
                     <tr
                       key={p.id}
@@ -209,6 +240,13 @@ export default function ProductsPage() {
                         <Link href={`/products/${skuShort}`} style={{ color: 'var(--fg-1)' }}>
                           <span className="dx-product-name">{p.product_name}</span>
                         </Link>
+                      </td>
+                      <td className="px-4 py-3">
+                        {stock ? (
+                          <StockCell stock={stock} maxOnHand={maxOnHand} warehouseOrder={warehouseOrder} />
+                        ) : (
+                          <span className="dx-mono" style={{ color: 'var(--fg-muted)' }}>—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <CategoryBadge category={p.category} />
@@ -230,6 +268,49 @@ export default function ProductsPage() {
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+function StockCell({
+  stock, maxOnHand, warehouseOrder,
+}: {
+  stock: ProductWithStock;
+  maxOnHand: number;
+  warehouseOrder: string[];
+}) {
+  const total = stock.total_on_hand;
+  const totalColor = total > 0 ? 'var(--fg-1)' : 'var(--fg-muted)';
+
+  // Order bars by global stable order
+  const byCode: Record<string, number> = {};
+  for (const w of stock.warehouses) byCode[w.code] = w.on_hand;
+  const bars = warehouseOrder.length > 0 ? warehouseOrder : stock.warehouses.map((w) => w.code);
+
+  return (
+    <div className="flex items-center gap-3">
+      <span className="dx-mono" style={{ fontSize: '14px', fontWeight: 700, color: totalColor, minWidth: '60px', textAlign: 'right' }}>
+        {total.toLocaleString('en-US')}
+      </span>
+      <div className="flex items-end gap-0.5" style={{ height: '20px' }}>
+        {bars.map((code) => {
+          const v = byCode[code] ?? 0;
+          const heightPct = v === 0 ? 0 : Math.max(8, (v / maxOnHand) * 100);
+          return (
+            <div
+              key={code}
+              title={`${code}: ${v.toLocaleString('en-US')}`}
+              style={{
+                width: '4px',
+                height: v === 0 ? '2px' : `${heightPct}%`,
+                backgroundColor: v === 0 ? 'var(--fg-muted)' : 'var(--fg-1)',
+                opacity: v === 0 ? 0.3 : 1,
+                borderRadius: '1px',
+              }}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }

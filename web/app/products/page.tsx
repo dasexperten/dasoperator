@@ -136,12 +136,12 @@ export default function ProductsPage() {
     <div className="space-y-8 max-w-7xl">
       <div className="flex items-start justify-between gap-6">
         <div>
-          <div className="dx-eyebrow dx-eyebrow-rot mb-2">Master Data</div>
+          <div className="dx-eyebrow-rot mb-2">Master Data</div>
           <h1 style={{
             fontFamily: 'var(--font-display)',
             fontSize: 'var(--fs-display-md)',
             fontWeight: 900,
-            letterSpacing: '-0.025em',
+            
             color: 'var(--fg-1)',
           }}>
             Products
@@ -227,7 +227,7 @@ export default function ProductsPage() {
             ))}
           </select>
 
-          <div className="ml-auto self-center dx-mono" style={{ fontSize: 'var(--fs-caption)', color: 'var(--fg-3)' }}>
+          <div className="ml-auto self-center" style={{ fontSize: 'var(--fs-caption)', color: 'var(--fg-3)' }}>
             {sorted.length} / {rows.length}
           </div>
         </div>
@@ -275,7 +275,7 @@ export default function ProductsPage() {
                   // exact key stored in D1 (and prerendered statically).
                   return (
                     <tr key={p.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                      <td className="px-4 py-3 dx-mono" style={{ fontWeight: 700 }}>
+                      <td className="px-4 py-3" style={{ fontWeight: 700 }}>
                         <Link href={`/products/${p.id}`} style={{ color: 'var(--fg-1)' }}>
                           {skuShort}
                         </Link>
@@ -299,10 +299,10 @@ export default function ProductsPage() {
                       <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>
                         {p.manufacturer_name ?? '—'}
                       </td>
-                      <td className="px-4 py-3 tabular-nums dx-mono" style={{ color: 'var(--fg-2)' }}>
+                      <td className="px-4 py-3 tabular-nums" style={{ color: 'var(--fg-2)' }}>
                         {formatWeight(p.weight_kg)}
                       </td>
-                      <td className="px-4 py-3 tabular-nums dx-mono" style={{ color: 'var(--fg-3)' }}>
+                      <td className="px-4 py-3 tabular-nums" style={{ color: 'var(--fg-3)' }}>
                         {p.barcode ?? '—'}
                       </td>
                     </tr>
@@ -353,7 +353,7 @@ function StockCell({
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
       <span
-        className="tabular-nums dx-mono"
+        className="tabular-nums"
         style={{
           fontSize: '14px',
           fontWeight: 700,
@@ -419,9 +419,9 @@ function ProductTh({
 
   return (
     <th
-      className="text-left px-4 py-3 dx-eyebrow"
+      className="text-left px-4 py-3"
       style={{
-        fontSize: '11px',
+        fontSize: '14px',
         color: isActive ? 'var(--fg-1)' : 'var(--fg-3)',
         backgroundColor: 'var(--paper-sunk)',
         cursor: sortable ? 'pointer' : 'default',

@@ -82,7 +82,7 @@ export default function OperationsPage() {
           <div style={{ fontFamily: 'var(--font-sans)', fontSize: '14px', fontWeight: 500, color: 'var(--fg-3)', marginBottom: '8px' }}>
             Operations
           </div>
-          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--fs-display-md)', fontWeight: 900, letterSpacing: '-0.025em', color: 'var(--fg-1)' }}>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--fs-display-md)', fontWeight: 900, color: 'var(--fg-1)' }}>
             All Operations
           </h1>
           <p className="mt-2" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>

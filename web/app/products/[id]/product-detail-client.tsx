@@ -90,7 +90,7 @@ function RoleTag({ role }: { role: 'supply' | 'master' | 'sales' }) {
       display: 'inline-block',
       backgroundColor: t.bg,
       color: t.fg,
-      fontSize: '11px',
+      fontSize: '14px',
       fontWeight: 500,
       padding: '2px 8px',
       borderRadius: '6px',
@@ -111,7 +111,7 @@ function SectionEyebrow({
 }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-      <div style={{ fontSize: '11px', textTransform: 'uppercase', fontWeight: 500, color: '#6B6B6B', letterSpacing: 0 }}>
+      <div style={{ fontSize: '14px', textTransform: 'uppercase', fontWeight: 500, color: '#6B6B6B', letterSpacing: 0 }}>
         {label}
         <RoleTag role={role} />
       </div>
@@ -298,7 +298,7 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
       {/* HEADER */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '32px' }}>
         <div>
-          <div style={{ fontSize: '11px', textTransform: 'uppercase', fontWeight: 500, color: '#6B6B6B', marginBottom: '8px' }}>
+          <div style={{ fontSize: '14px', textTransform: 'uppercase', fontWeight: 500, color: '#6B6B6B', marginBottom: '8px' }}>
             Master Data
           </div>
           <h1 style={{ fontSize: '26px', fontWeight: 500, color: INK, margin: 0, lineHeight: 1.2 }}>
@@ -391,7 +391,7 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
                     <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'ui-monospace, monospace', color: muted ? '#6B6B6B' : INK }}>
                       {formatCases(onHand, piecesPerCase)}
                     </td>
-                    <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, monospace', fontSize: '13px', color: '#6B6B6B' }}>
+                    <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, monospace', fontSize: '14px', color: '#6B6B6B' }}>
                       {lastMov ? formatDate(lastMov) : '—'}
                     </td>
                   </tr>
@@ -427,14 +427,14 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
                 <tr key={pt.id} style={{ borderBottom: '0.5px solid #E0DCD7', opacity: muted ? 0.55 : 1 }}>
                   <td style={{ padding: '10px 12px' }}>
                     <div style={{ fontFamily: 'ui-monospace, monospace', fontWeight: 500, color: INK }}>{pt.code}</div>
-                    <div style={{ fontSize: '12px', color: '#6B6B6B', marginTop: '2px' }}>{pt.description}</div>
+                    <div style={{ fontSize: '14px', color: '#6B6B6B', marginTop: '2px' }}>{pt.description}</div>
                   </td>
                   <td style={{ padding: '10px 12px', color: '#6B6B6B' }}>{pt.used_by_entity}</td>
                   <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, monospace', color: '#6B6B6B' }}>{pt.currency}</td>
                   <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'ui-monospace, monospace', fontWeight: 500, color: muted ? '#6B6B6B' : INK }}>
                     {row ? formatPrice(row.sell_price, row.currency) : '— not set —'}
                   </td>
-                  <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, monospace', fontSize: '13px', color: '#6B6B6B' }}>
+                  <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, monospace', fontSize: '14px', color: '#6B6B6B' }}>
                     {row ? formatEffective(row.effective_from, row.effective_until) : '—'}
                   </td>
                 </tr>
@@ -506,7 +506,7 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
                 alignItems: 'center',
                 gap: '6px',
                 padding: '6px 12px',
-                fontSize: '13px',
+                fontSize: '14px',
                 fontWeight: 500,
                 color: '#FFFFFF',
                 backgroundColor: '#E5202C',
@@ -532,7 +532,7 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
           <div style={{
             padding: '10px 12px',
             marginBottom: '12px',
-            fontSize: '13px',
+            fontSize: '14px',
             backgroundColor: 'rgba(229,32,44,0.05)',
             border: '0.5px solid rgba(229,32,44,0.2)',
             color: '#A32D2D',
@@ -559,7 +559,7 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
                     alignItems: 'center',
                     justifyContent: 'center',
                     color: '#6B6B6B',
-                    fontSize: '13px',
+                    fontSize: '14px',
                   }}
                 >
                   no photo
@@ -578,7 +578,7 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
           )}
         </div>
         {images.length === 0 && (
-          <p style={{ marginTop: '12px', fontSize: '12px', color: '#6B6B6B' }}>
+          <p style={{ marginTop: '12px', fontSize: '14px', color: '#6B6B6B' }}>
             Stored in R2 bucket <code style={{ fontFamily: 'ui-monospace, monospace' }}>das-erp-docs-dev</code> under <code style={{ fontFamily: 'ui-monospace, monospace' }}>products/{idUpper}/</code>
           </p>
         )}
@@ -606,10 +606,10 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
                 const qtyColor = a.quantity > 0 ? '#27500A' : a.quantity < 0 ? '#A32D2D' : '#6B6B6B';
                 return (
                   <tr key={a.id} style={{ borderBottom: '0.5px solid #E0DCD7' }}>
-                    <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, monospace', fontSize: '13px', color: '#6B6B6B' }}>
+                    <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, monospace', fontSize: '14px', color: '#6B6B6B' }}>
                       {formatDate(a.performed_at)}
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: '13px', color: '#6B6B6B', textTransform: 'uppercase', letterSpacing: 0 }}>
+                    <td style={{ padding: '10px 12px', fontSize: '14px', color: '#6B6B6B', textTransform: 'uppercase', letterSpacing: 0 }}>
                       {a.type}
                     </td>
                     <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, monospace', fontWeight: 500, color: INK }}>
@@ -618,8 +618,8 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
                     <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'ui-monospace, monospace', fontWeight: 500, color: qtyColor }}>
                       {a.quantity > 0 ? '+' : ''}{a.quantity.toLocaleString('en-US')}
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: '13px', color: '#6B6B6B' }}>{a.source}</td>
-                    <td style={{ padding: '10px 12px', fontSize: '13px', color: '#6B6B6B', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <td style={{ padding: '10px 12px', fontSize: '14px', color: '#6B6B6B' }}>{a.source}</td>
+                    <td style={{ padding: '10px 12px', fontSize: '14px', color: '#6B6B6B', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {a.reason ?? '—'}
                     </td>
                   </tr>
@@ -650,7 +650,7 @@ function Kpi({ label, value, sub, highlight = false }: {
       borderRadius: '8px',
       padding: '16px',
     }}>
-      <div style={{ fontSize: '11px', textTransform: 'uppercase', fontWeight: 500, color: '#6B6B6B', marginBottom: '8px' }}>
+      <div style={{ fontSize: '14px', textTransform: 'uppercase', fontWeight: 500, color: '#6B6B6B', marginBottom: '8px' }}>
         {label}
       </div>
       <div style={{
@@ -663,7 +663,7 @@ function Kpi({ label, value, sub, highlight = false }: {
       }}>
         {value}
       </div>
-      <div style={{ fontSize: '12px', color: '#6B6B6B', marginTop: '6px' }}>
+      <div style={{ fontSize: '14px', color: '#6B6B6B', marginTop: '6px' }}>
         {sub}
       </div>
     </div>
@@ -675,7 +675,7 @@ function Th({ children, right }: { children: React.ReactNode; right?: boolean })
     <th style={{
       textAlign: right ? 'right' : 'left',
       padding: '10px 12px',
-      fontSize: '11px',
+      fontSize: '14px',
       fontWeight: 500,
       textTransform: 'uppercase',
       color: '#6B6B6B',
@@ -743,7 +743,7 @@ function PhotoTile({ img, onSetPrimary, onDelete }: {
           left: '6px',
           backgroundColor: '#F5C4B3',
           color: '#712B13',
-          fontSize: '10px',
+          fontSize: '14px',
           fontWeight: 500,
           padding: '2px 8px',
           borderRadius: '4px',

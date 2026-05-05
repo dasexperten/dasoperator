@@ -79,12 +79,12 @@ export default function ContractDetailClient({ partnerSlug, contractId }: { part
 
       <div>
         <div className="flex items-center gap-3 mb-3">
-          <span className="dx-mono" style={{ fontSize: '11px', padding: '3px 8px', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)', color: 'var(--fg-2)' }}>{contract.id}</span>
-          <span className="dx-eyebrow inline-block" style={{ padding: '3px 8px', fontSize: '9px', backgroundColor: statusStyle.bg, color: statusStyle.fg, border: `1px solid ${statusStyle.border}`, borderRadius: 'var(--radius-pill)' }}>{contract.status}</span>
+          <span style={{ fontSize: '14px', padding: '3px 8px', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)', color: 'var(--fg-2)' }}>{contract.id}</span>
+          <span className="inline-block" style={{ padding: '3px 8px', fontSize: '14px', backgroundColor: statusStyle.bg, color: statusStyle.fg, border: `1px solid ${statusStyle.border}`, borderRadius: 'var(--radius-pill)' }}>{contract.status}</span>
         </div>
-        <h1 className="dx-mono" style={{ fontSize: '36px', color: 'var(--fg-1)', letterSpacing: '0.02em', lineHeight: 1.1 }}>{contract.contract_no}</h1>
+        <h1 style={{ fontSize: '36px', color: 'var(--fg-1)', lineHeight: 1.1 }}>{contract.contract_no}</h1>
         <p className="mt-3" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
-          {contract.entity_abbreviation} ↔ {contract.partner_trade_name} <span className="dx-mono">({contract.currency})</span>
+          {contract.entity_abbreviation} ↔ {contract.partner_trade_name} <span>({contract.currency})</span>
         </p>
       </div>
 
@@ -105,7 +105,7 @@ export default function ContractDetailClient({ partnerSlug, contractId }: { part
 
       {contract.notes && (
         <div className="p-4" style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
-          <div className="dx-eyebrow mb-2" style={{ fontSize: '10px' }}>Notes</div>
+          <div className="mb-2" style={{ fontSize: '14px' }}>Notes</div>
           <p style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-1)' }}>{contract.notes}</p>
         </div>
       )}
@@ -117,7 +117,7 @@ function CopyableField({ label, value, mono }: { label: string; value?: string |
   const missing = !value || value === 'MISSING' || value === '—' || value.trim() === '';
   return (
     <div>
-      <dt className="dx-eyebrow mb-1" style={{ fontSize: '10px', color: 'var(--fg-3)' }}>{label}</dt>
+      <dt className="mb-1" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{label}</dt>
       <dd>
         {missing ? <span style={{ fontSize: mono ? '12px' : 'var(--fs-body-sm)', color: 'var(--fg-3)' }}>—</span>
                  : <CopyableValue value={value!} mono={mono} style={{ fontSize: mono ? '12px' : 'var(--fs-body-sm)', color: 'var(--fg-1)' }} />}

@@ -90,8 +90,8 @@ export default function PartnersPage() {
   return (
     <div className="space-y-8 max-w-7xl">
       <div>
-        <div className="dx-eyebrow dx-eyebrow-rot mb-2">Master Data</div>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--fs-display-md)', fontWeight: 900, letterSpacing: '-0.025em', color: 'var(--fg-1)' }}>
+        <div className="dx-eyebrow-rot mb-2">Master Data</div>
+        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--fs-display-md)', fontWeight: 900, color: 'var(--fg-1)' }}>
           Partners
         </h1>
         <p className="mt-2" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
@@ -130,7 +130,7 @@ export default function PartnersPage() {
             <option value="all">All entities</option>
             {entities.map((e) => <option key={e} value={e}>{e}</option>)}
           </select>
-          <div className="ml-auto self-center dx-mono" style={{ fontSize: 'var(--fs-caption)', color: 'var(--fg-3)' }}>
+          <div className="ml-auto self-center" style={{ fontSize: 'var(--fs-caption)', color: 'var(--fg-3)' }}>
             {filtered.length} / {partners.length}
           </div>
         </div>
@@ -165,10 +165,10 @@ export default function PartnersPage() {
                         </Link>
                       </td>
                       <td className="px-4 py-3" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>{p.country ?? '—'}</td>
-                      <td className="px-4 py-3 dx-mono" style={{ color: 'var(--fg-2)' }}>{p.currency ?? '—'}</td>
-                      <td className="px-4 py-3 dx-mono" style={{ color: 'var(--fg-2)' }}>{p.entity_abbreviation ?? '—'}</td>
+                      <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>{p.currency ?? '—'}</td>
+                      <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>{p.entity_abbreviation ?? '—'}</td>
                       <td className="px-4 py-3">
-                        <span className="dx-eyebrow inline-block" style={{ padding: '3px 8px', backgroundColor: statusStyle.bg, color: statusStyle.fg, border: `1px solid ${statusStyle.border}`, borderRadius: 'var(--radius-pill)' }}>
+                        <span className="inline-block" style={{ padding: '3px 8px', backgroundColor: statusStyle.bg, color: statusStyle.fg, border: `1px solid ${statusStyle.border}`, borderRadius: 'var(--radius-pill)' }}>
                           {p.status}
                         </span>
                       </td>
@@ -180,10 +180,10 @@ export default function PartnersPage() {
                             size="compact"
                           />
                         ) : (
-                          <span className="dx-mono" style={{ color: 'var(--fg-muted)' }}>—</span>
+                          <span style={{ color: 'var(--fg-muted)' }}>—</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 dx-mono" style={{ color: 'var(--fg-3)' }}>{p.contract_no ?? '—'}</td>
+                      <td className="px-4 py-3" style={{ color: 'var(--fg-3)' }}>{p.contract_no ?? '—'}</td>
                     </tr>
                   );
                 })
@@ -198,7 +198,7 @@ export default function PartnersPage() {
 
 function Th({ children }: { children: React.ReactNode }) {
   return (
-    <th className="text-left px-4 py-3 dx-eyebrow" style={{ fontSize: '10px', color: 'var(--fg-3)', backgroundColor: 'var(--paper-sunk)' }}>
+    <th className="text-left px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-3)', backgroundColor: 'var(--paper-sunk)' }}>
       {children}
     </th>
   );

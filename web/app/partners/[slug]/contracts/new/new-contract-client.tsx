@@ -87,7 +87,7 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
             fontFamily: 'var(--font-display)',
             fontSize: 'var(--fs-display-md)',
             fontWeight: 900,
-            letterSpacing: '-0.025em',
+            
             color: 'var(--fg-1)',
           }}
         >
@@ -102,18 +102,18 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
 
       <div className="bg-card p-6 space-y-4" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
         <div>
-          <label className="dx-eyebrow block mb-1" style={{ fontSize: '10px' }}>Contract Number *</label>
+          <label className="block mb-1" style={{ fontSize: '14px' }}>Contract Number *</label>
           <input
             type="text" value={contractNo} onChange={(e) => setContractNo(e.target.value)}
             placeholder="e.g. DEE-FRED-2026-01"
-            className="w-full px-3 py-2 text-sm focus:outline-none dx-mono"
+            className="w-full px-3 py-2 text-sm focus:outline-none"
             style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}
           />
         </div>
 
         <div className="grid grid-cols-3 gap-4">
           <div>
-            <label className="dx-eyebrow block mb-1" style={{ fontSize: '10px' }}>Our Entity *</label>
+            <label className="block mb-1" style={{ fontSize: '14px' }}>Our Entity *</label>
             <select value={companyId} onChange={(e) => setCompanyId(e.target.value)}
               className="w-full px-3 py-2 text-sm focus:outline-none"
               style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}>
@@ -121,15 +121,15 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
             </select>
           </div>
           <div>
-            <label className="dx-eyebrow block mb-1" style={{ fontSize: '10px' }}>Currency *</label>
+            <label className="block mb-1" style={{ fontSize: '14px' }}>Currency *</label>
             <select value={currency} onChange={(e) => setCurrency(e.target.value)}
-              className="w-full px-3 py-2 text-sm focus:outline-none dx-mono"
+              className="w-full px-3 py-2 text-sm focus:outline-none"
               style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}>
               {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
           <div>
-            <label className="dx-eyebrow block mb-1" style={{ fontSize: '10px' }}>VAT Rate</label>
+            <label className="block mb-1" style={{ fontSize: '14px' }}>VAT Rate</label>
             <select value={vatRate} onChange={(e) => setVatRate(Number(e.target.value) as 0 | 5 | 20)}
               className="w-full px-3 py-2 text-sm focus:outline-none"
               style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}>
@@ -142,7 +142,7 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="dx-eyebrow block mb-1" style={{ fontSize: '10px' }}>Status</label>
+            <label className="block mb-1" style={{ fontSize: '14px' }}>Status</label>
             <select value={status} onChange={(e) => setStatus(e.target.value as 'draft' | 'active')}
               className="w-full px-3 py-2 text-sm focus:outline-none"
               style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}>
@@ -151,7 +151,7 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
             </select>
           </div>
           <div>
-            <label className="dx-eyebrow block mb-1" style={{ fontSize: '10px' }}>Incoterms</label>
+            <label className="block mb-1" style={{ fontSize: '14px' }}>Incoterms</label>
             <input type="text" value={incoterms} onChange={(e) => setIncoterms(e.target.value)} placeholder="FCA Saransk"
               className="w-full px-3 py-2 text-sm focus:outline-none"
               style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
@@ -160,21 +160,21 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="dx-eyebrow block mb-1" style={{ fontSize: '10px' }}>Signed Date</label>
+            <label className="block mb-1" style={{ fontSize: '14px' }}>Signed Date</label>
             <input type="date" value={signedDate} onChange={(e) => setSignedDate(e.target.value)}
-              className="w-full px-3 py-2 text-sm focus:outline-none dx-mono"
+              className="w-full px-3 py-2 text-sm focus:outline-none"
               style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
           </div>
           <div>
-            <label className="dx-eyebrow block mb-1" style={{ fontSize: '10px' }}>Expiry Date</label>
+            <label className="block mb-1" style={{ fontSize: '14px' }}>Expiry Date</label>
             <input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)}
-              className="w-full px-3 py-2 text-sm focus:outline-none dx-mono"
+              className="w-full px-3 py-2 text-sm focus:outline-none"
               style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
           </div>
         </div>
 
         <div>
-          <label className="dx-eyebrow block mb-1" style={{ fontSize: '10px' }}>Notes</label>
+          <label className="block mb-1" style={{ fontSize: '14px' }}>Notes</label>
           <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Optional..."
             className="w-full px-3 py-2 text-sm focus:outline-none"
             style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />

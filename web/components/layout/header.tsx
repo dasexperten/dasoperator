@@ -31,17 +31,17 @@ export default function Header() {
       >
         <div className="flex items-center gap-3">
           <span
-            className="dx-eyebrow"
-            style={{ color: 'var(--stone-300)', fontSize: '10px' }}
+           
+            style={{ color: 'var(--stone-300)', fontSize: '14px' }}
           >
             ERP Portal
           </span>
           <span style={{ color: 'var(--stone-400)' }}>·</span>
-          <span style={{ color: 'var(--stone-300)', fontSize: '10px' }}>
+          <span style={{ color: 'var(--stone-300)', fontSize: '14px' }}>
             Internal use only
           </span>
         </div>
-        <div className="dx-mono" style={{ color: 'var(--stone-300)', fontSize: '10px' }}>
+        <div style={{ color: 'var(--stone-300)', fontSize: '14px' }}>
           {now} UTC
         </div>
       </div>
@@ -76,8 +76,8 @@ export default function Header() {
 
         <div className="flex items-center gap-4">
           <div
-            className="dx-eyebrow"
-            style={{ fontSize: '10px', color: 'var(--fg-3)' }}
+           
+            style={{ fontSize: '14px', color: 'var(--fg-3)' }}
           >
             DEE / DEI / DASEAN / DEC
           </div>

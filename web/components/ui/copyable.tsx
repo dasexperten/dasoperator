@@ -33,7 +33,7 @@ export function CopyableValue({ value, mono = false, className = '', style }: Co
     <span
       onClick={handleClick}
       title={value && value !== '—' ? `Click to copy: ${value}` : undefined}
-      className={`${mono ? 'dx-mono' : ''} ${className}`}
+      className={`${className}`}
       style={{
         cursor: value && value !== '—' ? 'pointer' : 'default',
         position: 'relative',
@@ -91,10 +91,10 @@ export function CopyAllButton({ fields }: CopyAllButtonProps) {
       className="inline-flex items-center gap-1.5 transition-colors"
       style={{
         fontFamily: 'var(--font-narrow)',
-        fontSize: '10px',
+        fontSize: '14px',
         fontWeight: 700,
         textTransform: 'uppercase',
-        letterSpacing: '0.15em',
+        
         color: copied ? 'var(--status-success)' : 'var(--fg-3)',
         backgroundColor: 'transparent',
         padding: '4px 8px',
@@ -145,7 +145,7 @@ export function SectionCard({ label, fields, children }: SectionCardProps) {
             fontFamily: 'var(--font-accent-jakarta)',
             fontSize: '24px',
             fontWeight: 800,
-            letterSpacing: '-0.005em',
+            
             textTransform: 'uppercase',
             color: 'var(--fg-1)',
             lineHeight: 1,

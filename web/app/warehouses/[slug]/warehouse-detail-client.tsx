@@ -108,11 +108,11 @@ export default function WarehouseDetailClient({ warehouseId }: { warehouseId: st
       <div className="flex items-start justify-between gap-6">
         <div>
           <div className="flex items-center gap-3 mb-3">
-            <span className="dx-mono px-2 py-1" style={{ fontSize: '11px', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)', color: 'var(--fg-2)', letterSpacing: '0.05em', fontWeight: 700 }}>
+            <span className="px-2 py-1" style={{ fontSize: '14px', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)', color: 'var(--fg-2)', fontWeight: 700 }}>
               {warehouse.code}
             </span>
             {warehouse.warehouse_type && (
-              <span className="dx-eyebrow inline-block" style={{ padding: '3px 8px', fontSize: '9px', backgroundColor: 'var(--paper-sunk)', color: 'var(--fg-2)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-pill)', letterSpacing: '0.15em' }}>
+              <span className="inline-block" style={{ padding: '3px 8px', fontSize: '14px', backgroundColor: 'var(--paper-sunk)', color: 'var(--fg-2)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-pill)' }}>
                 {warehouse.warehouse_type}
               </span>
             )}
@@ -192,7 +192,7 @@ function StockTab({ stocks, initialSku, warehouseId }: { stocks: StockRow[]; ini
                 borderBottom: '1px solid var(--border-hairline)',
                 backgroundColor: highlighted ? 'rgba(254,240,4,0.12)' : undefined,
               }}>
-                <td className="px-4 py-3 dx-mono" style={{ fontSize: '14px', fontWeight: 700, color: muted ? 'var(--fg-muted)' : 'var(--fg-1)' }}>
+                <td className="px-4 py-3" style={{ fontSize: '14px', fontWeight: 700, color: muted ? 'var(--fg-muted)' : 'var(--fg-1)' }}>
                   <Link href={`/products/${skuShort}`} style={{ color: 'inherit' }}>{skuShort}</Link>
                 </td>
                 <td className="px-4 py-3" style={{ fontSize: '14px', fontWeight: 700, color: muted ? 'var(--fg-muted)' : 'var(--fg-1)' }}>
@@ -200,16 +200,16 @@ function StockTab({ stocks, initialSku, warehouseId }: { stocks: StockRow[]; ini
                     <span className="dx-product-name">{s.product_name}</span>
                   </Link>
                 </td>
-                <td className="px-4 py-3 dx-mono text-right" style={{ fontSize: '14px', fontWeight: 700, color: muted ? 'var(--fg-muted)' : 'var(--fg-1)' }}>
+                <td className="px-4 py-3 text-right" style={{ fontSize: '14px', fontWeight: 700, color: muted ? 'var(--fg-muted)' : 'var(--fg-1)' }}>
                   {s.on_hand.toLocaleString('en-US')}
                 </td>
-                <td className="px-4 py-3 dx-mono text-right" style={{ fontSize: '13px', color: muted ? 'var(--fg-muted)' : 'var(--fg-2)' }}>
+                <td className="px-4 py-3 text-right" style={{ fontSize: '14px', color: muted ? 'var(--fg-muted)' : 'var(--fg-2)' }}>
                   {formatCases(s.on_hand, s.pieces_per_case)}
                 </td>
-                <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>
+                <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
                   {formatDate(s.last_movement_at)}
                 </td>
-                <td className="px-4 py-3" style={{ fontSize: '12px' }}>
+                <td className="px-4 py-3" style={{ fontSize: '14px' }}>
                   <Link href={`/warehouses/${warehouseId}/adjust?sku=${skuShort}`} style={{ color: 'var(--brand-rot)', marginRight: '12px' }}>Adjust</Link>
                   <Link href={`/warehouses/${warehouseId}/recount?sku=${skuShort}`} style={{ color: 'var(--brand-rot)' }}>Recount</Link>
                 </td>
@@ -244,23 +244,23 @@ function MovementsTab({ movements }: { movements: StockMovement[] }) {
             const qtyColor = m.quantity > 0 ? 'var(--status-success)' : m.quantity < 0 ? 'var(--brand-rot)' : 'var(--fg-3)';
             return (
               <tr key={m.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>{formatDate(m.performed_at)}</td>
-                <td className="px-4 py-3 dx-mono" style={{ fontSize: '13px', fontWeight: 700, color: 'var(--fg-1)' }}>
+                <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{formatDate(m.performed_at)}</td>
+                <td className="px-4 py-3" style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
                   <Link href={`/products/${skuShort}`} style={{ color: 'inherit' }}>{skuShort}</Link>
                 </td>
-                <td className="px-4 py-3 dx-eyebrow" style={{ fontSize: '10px', color: 'var(--fg-2)', letterSpacing: '0.15em' }}>
+                <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
                   {m.movement_type}
                 </td>
-                <td className="px-4 py-3 dx-mono text-right" style={{ fontSize: '14px', fontWeight: 700, color: qtyColor }}>
+                <td className="px-4 py-3 text-right" style={{ fontSize: '14px', fontWeight: 700, color: qtyColor }}>
                   {m.quantity > 0 ? '+' : ''}{m.quantity.toLocaleString('en-US')}
                 </td>
-                <td className="px-4 py-3 dx-eyebrow" style={{ fontSize: '10px', color: 'var(--fg-3)', letterSpacing: '0.15em' }}>
+                <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
                   {m.source}
                 </td>
-                <td className="px-4 py-3" style={{ fontSize: '13px', color: 'var(--fg-2)', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-2)', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {m.reason ?? '—'}
                 </td>
-                <td className="px-4 py-3 dx-mono text-right" style={{ fontSize: '13px', color: 'var(--fg-1)' }}>
+                <td className="px-4 py-3 text-right" style={{ fontSize: '14px', color: 'var(--fg-1)' }}>
                   {m.balance_after.toLocaleString('en-US')}
                 </td>
               </tr>
@@ -293,21 +293,21 @@ function SessionsTab({ sessions }: { sessions: InventorySession[] }) {
             const ss = SESSION_STATUS_COLORS[s.status];
             return (
               <tr key={s.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                <td className="px-4 py-3 dx-mono" style={{ fontSize: '13px', fontWeight: 700, color: 'var(--fg-1)' }}>
+                <td className="px-4 py-3" style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
                   {s.reference}
                 </td>
                 <td className="px-4 py-3">
-                  <span className="dx-eyebrow inline-block" style={{ padding: '3px 8px', fontSize: '9px', backgroundColor: ss.bg, color: ss.fg, border: `1px solid ${ss.border}`, borderRadius: 'var(--radius-pill)', letterSpacing: '0.15em' }}>
+                  <span className="inline-block" style={{ padding: '3px 8px', fontSize: '14px', backgroundColor: ss.bg, color: ss.fg, border: `1px solid ${ss.border}`, borderRadius: 'var(--radius-pill)' }}>
                     {s.status}
                   </span>
                 </td>
-                <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>
+                <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
                   {formatDate(s.started_at)}
                 </td>
-                <td className="px-4 py-3 dx-mono text-right" style={{ fontSize: '13px', color: 'var(--fg-2)' }}>
+                <td className="px-4 py-3 text-right" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
                   {s.total_lines}
                 </td>
-                <td className="px-4 py-3 dx-mono text-right" style={{ fontSize: '13px', color: s.total_discrepancies > 0 ? 'var(--brand-rot)' : 'var(--fg-3)', fontWeight: s.total_discrepancies > 0 ? 700 : 400 }}>
+                <td className="px-4 py-3 text-right" style={{ fontSize: '14px', color: s.total_discrepancies > 0 ? 'var(--brand-rot)' : 'var(--fg-3)', fontWeight: s.total_discrepancies > 0 ? 700 : 400 }}>
                   {s.total_discrepancies}
                 </td>
               </tr>
@@ -322,8 +322,8 @@ function SessionsTab({ sessions }: { sessions: InventorySession[] }) {
 function KpiCard({ label, value, suffix }: { label: string; value: string; suffix?: string }) {
   return (
     <div className="bg-card p-4" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
-      <div className="dx-eyebrow mb-2" style={{ fontSize: '10px', color: 'var(--fg-3)' }}>{label}</div>
-      <div className="dx-mono" style={{ fontSize: '28px', fontWeight: 700, color: 'var(--fg-1)', lineHeight: 1 }}>
+      <div className="mb-2" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{label}</div>
+      <div style={{ fontSize: '28px', fontWeight: 700, color: 'var(--fg-1)', lineHeight: 1 }}>
         {value}
         {suffix && <span style={{ fontSize: '14px', color: 'var(--fg-3)', fontWeight: 400, marginLeft: '6px' }}>{suffix}</span>}
       </div>
@@ -335,10 +335,10 @@ function TabButton({ active, onClick, label }: { active: boolean; onClick: () =>
   return (
     <button
       onClick={onClick}
-      className="px-4 py-2 dx-eyebrow"
+      className="px-4 py-2"
       style={{
-        fontSize: '11px',
-        letterSpacing: '0.15em',
+        fontSize: '14px',
+        
         backgroundColor: 'transparent',
         border: 'none',
         borderBottom: active ? '2px solid var(--brand-rot)' : '2px solid transparent',
@@ -367,7 +367,7 @@ function ActionButton({ href, icon, children, primary = false }: {
         color: primary ? 'var(--paper)' : 'var(--fg-1)',
         border: primary ? 'none' : '1px solid var(--border-hairline)',
         borderRadius: 'var(--radius-sm)',
-        fontSize: '13px',
+        fontSize: '14px',
         fontWeight: 600,
       }}
     >
@@ -379,7 +379,7 @@ function ActionButton({ href, icon, children, primary = false }: {
 
 function Th({ children, right }: { children: React.ReactNode; right?: boolean }) {
   return (
-    <th className={`${right ? 'text-right' : 'text-left'} px-4 py-3 dx-eyebrow`} style={{ fontSize: '10px', color: 'var(--fg-3)', backgroundColor: 'var(--paper-sunk)' }}>
+    <th className={`${right ? 'text-right' : 'text-left'} px-4 py-3`} style={{ fontSize: '14px', color: 'var(--fg-3)', backgroundColor: 'var(--paper-sunk)' }}>
       {children}
     </th>
   );

@@ -163,7 +163,7 @@ export default function HomeDashboard() {
       {/* HEADER ===================================================== */}
       <div>
         <div
-          className="dx-eyebrow dx-eyebrow-rot mb-3"
+          className="dx-eyebrow-rot mb-3"
           style={{ fontSize: 'var(--fs-body-sm)' }}
         >
           Pulse
@@ -265,7 +265,7 @@ export default function HomeDashboard() {
                       borderBottom: idx === recentOps.length - 1 ? 'none' : '1px solid var(--border-hairline)',
                     }}
                   >
-                    <td className="px-4 py-3 dx-mono" style={{ fontWeight: 700 }}>
+                    <td className="px-4 py-3" style={{ fontWeight: 700 }}>
                       <Link
                         href={`/partners/${op.partner_id}/operations/${op.id}`}
                         style={{
@@ -278,7 +278,7 @@ export default function HomeDashboard() {
                         {op.reference ?? op.id.slice(0, 12)}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 dx-mono" style={{ color: 'var(--fg-3)' }}>
+                    <td className="px-4 py-3" style={{ color: 'var(--fg-3)' }}>
                       {formatDateShort(op.operation_date)}
                     </td>
                     <td className="px-4 py-3" style={{ fontWeight: 700 }}>
@@ -289,7 +289,7 @@ export default function HomeDashboard() {
                         {op.partner_trade_name ?? op.partner_id}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 dx-mono text-right" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>
+                    <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>
                       {formatMoney(op.total_amount, op.currency)} {op.currency}
                     </td>
                     <td className="px-4 py-3">
@@ -339,7 +339,7 @@ export default function HomeDashboard() {
                       borderBottom: idx === recentPayments.length - 1 ? 'none' : '1px solid var(--border-hairline)',
                     }}
                   >
-                    <td className="px-4 py-3 dx-mono" style={{ color: 'var(--fg-3)' }}>
+                    <td className="px-4 py-3" style={{ color: 'var(--fg-3)' }}>
                       {formatDateShort(p.payment_date)}
                     </td>
                     <td className="px-4 py-3" style={{ fontWeight: 700 }}>
@@ -353,7 +353,7 @@ export default function HomeDashboard() {
                     <td className="px-4 py-3">
                       <DirectionChip direction={p.direction} />
                     </td>
-                    <td className="px-4 py-3 dx-mono text-right" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>
+                    <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>
                       {formatMoney(p.amount, p.currency)} {p.currency}
                     </td>
                   </tr>
@@ -400,7 +400,7 @@ function MetricCard({
       }}
     >
       <div
-        className="dx-eyebrow"
+       
         style={{ color: 'var(--fg-2)' }}
       >
         {label}
@@ -477,7 +477,7 @@ function SectionHeader({
 function Th({ children, align }: { children: React.ReactNode; align?: 'left' | 'right' }) {
   return (
     <th
-      className="dx-eyebrow"
+     
       style={{
         textAlign: align ?? 'left',
         padding: '12px 16px',

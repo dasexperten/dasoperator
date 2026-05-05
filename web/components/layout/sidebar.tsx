@@ -35,17 +35,17 @@ export default function Sidebar() {
       <div className="px-5 pt-6 pb-5">
         <div
           className="dx-product-name text-paper"
-          style={{ fontSize: '22px', lineHeight: 1, letterSpacing: '-0.005em' }}
+          style={{ fontSize: '22px', lineHeight: 1 }}
         >
           das experten
           <sup
-            className="dx-mono"
-            style={{ fontSize: '10px', marginLeft: '2px', color: 'var(--brand-gold)' }}
+           
+            style={{ fontSize: '14px', marginLeft: '2px', color: 'var(--brand-gold)' }}
           >®</sup>
         </div>
         <div
-          className="dx-eyebrow mt-3"
-          style={{ color: 'var(--stone-300)', fontSize: '10px', letterSpacing: '0.2em' }}
+          className="mt-3"
+          style={{ color: 'var(--stone-300)', fontSize: '14px' }}
         >
           innovativ und praktisch
         </div>
@@ -92,10 +92,10 @@ export default function Sidebar() {
       <div className="px-5 py-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
         <div className="dx-ribbon-rule mb-3" />
         <div className="flex items-center justify-between">
-          <div className="dx-eyebrow" style={{ color: 'var(--stone-400)', fontSize: '9px' }}>
+          <div style={{ color: 'var(--stone-400)', fontSize: '14px' }}>
             Das Operator
           </div>
-          <div className="dx-mono" style={{ color: 'var(--stone-400)', fontSize: '10px', letterSpacing: '0.05em' }}>
+          <div style={{ color: 'var(--stone-400)', fontSize: '14px' }}>
             v1.1
           </div>
         </div>

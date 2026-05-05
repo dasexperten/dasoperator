@@ -20,8 +20,8 @@ export default function Breadcrumb({ items }: { items: BreadcrumbItem[] }) {
             {item.href && !isLast ? (
               <Link
                 href={item.href}
-                className="dx-eyebrow transition-colors"
-                style={{ fontSize: '11px', color: 'var(--fg-3)', letterSpacing: '0.15em' }}
+                className="transition-colors"
+                style={{ fontSize: '14px', color: 'var(--fg-3)' }}
                 onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--brand-rot)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--fg-3)'; }}
               >
@@ -29,11 +29,11 @@ export default function Breadcrumb({ items }: { items: BreadcrumbItem[] }) {
               </Link>
             ) : (
               <span
-                className="dx-eyebrow"
+               
                 style={{
-                  fontSize: '11px',
+                  fontSize: '14px',
                   color: isLast ? 'var(--fg-1)' : 'var(--fg-3)',
-                  letterSpacing: '0.15em',
+                  
                 }}
               >
                 {item.label}

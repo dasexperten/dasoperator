@@ -58,11 +58,11 @@ export default function NetBalance({ usdCents, currencies, fxDate, size = 'compa
             flexShrink: 0,
           }}
         />
-        <span className="dx-mono" style={{ fontSize: '13px', color: colors.fg, fontWeight: 600 }}>
+        <span style={{ fontSize: '14px', color: colors.fg, fontWeight: 600 }}>
           {sign}${usdMajor}
         </span>
         {hintCcy && hintAmount !== undefined && hintAmount !== null && (
-          <span className="dx-mono" style={{ fontSize: '11px', color: 'var(--fg-3)' }}>
+          <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
             ({hintCcy})
           </span>
         )}
@@ -84,7 +84,7 @@ export default function NetBalance({ usdCents, currencies, fxDate, size = 'compa
           fontFamily: 'var(--font-accent-jakarta)',
           fontSize: '24px',
           fontWeight: 800,
-          letterSpacing: '-0.005em',
+          
           textTransform: 'uppercase',
           color: 'var(--fg-1)',
           lineHeight: 1,
@@ -92,7 +92,7 @@ export default function NetBalance({ usdCents, currencies, fxDate, size = 'compa
           Net Balance
         </h2>
         {fxDate && (
-          <span className="dx-eyebrow" style={{ fontSize: '10px', color: 'var(--fg-3)' }}>
+          <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
             FX @ {fxDate}
           </span>
         )}
@@ -106,20 +106,20 @@ export default function NetBalance({ usdCents, currencies, fxDate, size = 'compa
             backgroundColor: colors.dot,
           }}
         />
-        <span className="dx-mono" style={{ fontSize: '40px', color: colors.fg, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1 }}>
+        <span style={{ fontSize: '40px', color: colors.fg, fontWeight: 700, lineHeight: 1 }}>
           {sign}${usdMajor}
         </span>
       </div>
 
       {currencies && Object.keys(currencies).length > 0 && (
         <div>
-          <div className="dx-eyebrow mb-2" style={{ fontSize: '10px', color: 'var(--fg-3)' }}>Currencies</div>
+          <div className="mb-2" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>Currencies</div>
           <div className="flex flex-wrap gap-3">
             {Object.entries(currencies).map(([ccy, amount]) => {
               const ccySign = amount > 0 ? '+' : amount < 0 ? '−' : '';
               const ccyColor = amount > 0 ? 'var(--brand-rot)' : amount < 0 ? 'var(--status-success)' : 'var(--fg-3)';
               return (
-                <span key={ccy} className="dx-mono" style={{ fontSize: '13px', color: ccyColor }}>
+                <span key={ccy} style={{ fontSize: '14px', color: ccyColor }}>
                   {ccySign}{formatMajor(amount, ccy)} {ccy}
                 </span>
               );

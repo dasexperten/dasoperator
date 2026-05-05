@@ -27,7 +27,7 @@
   /* Headings use display font with tight tracking — apothecary editorial */
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
-    letter-spacing: -0.015em;
+    letter-spacing: 0;
     line-height: var(--lh-heading);
   }
 
@@ -50,12 +50,11 @@
    =========================================================================== */
 
 @layer components {
-  /* Small UPPERCASE eyebrow label — section markers, badges */
+  /* Eyebrow label — was tiny uppercase mono, now Manrope 14px regular per font rules */
   .dx-eyebrow {
-    font-family: var(--font-mono);
-    font-size: var(--fs-body-sm);
+    font-family: var(--font-sans);
+    font-size: 14px;
     font-weight: 600;
-    text-transform: uppercase;
     letter-spacing: 0;
     color: var(--fg-2);
   }
@@ -69,7 +68,7 @@
     font-family: var(--font-display);
     font-size: var(--fs-display-md);
     font-weight: 900;
-    letter-spacing: -0.025em;
+    letter-spacing: 0;
     line-height: var(--lh-tight);
   }
 
@@ -80,9 +79,9 @@
     color: var(--fg-1);
   }
 
-  /* Mono numerals — for prices, references, IDs */
+  /* Mono numerals — was JetBrains Mono, now Manrope with tabular numerals per font rules */
   .dx-mono {
-    font-family: var(--font-mono);
+    font-family: var(--font-sans);
     font-feature-settings: 'tnum' 1, 'zero' 1;
   }
 
@@ -150,7 +149,7 @@
 h1, h2, h3,
 .dx-display-2xl, .dx-display-xl, .dx-display-lg, .dx-display-md,
 .dx-display, .dx-h1, .dx-h2, .dx-h3, .dx-h4 {
-  letter-spacing: -0.015em !important;
+  letter-spacing: 0 !important;
 }
 
 /* Floor for micro / tabular / control text — never below 14px */

@@ -73,13 +73,13 @@ export default function WarehousesPage() {
   return (
     <div className="space-y-8 max-w-full">
       <div>
-        <div className="dx-eyebrow dx-eyebrow-rot mb-2">Inventory</div>
+        <div className="dx-eyebrow-rot mb-2">Inventory</div>
         <h1
           style={{
             fontFamily: 'var(--font-display)',
             fontSize: 'var(--fs-display-md)',
             fontWeight: 900,
-            letterSpacing: '-0.025em',
+            
             color: 'var(--fg-1)',
           }}
         >
@@ -152,7 +152,7 @@ export default function WarehousesPage() {
 
                   return (
                     <tr key={p.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                      <td className="px-3 py-2 dx-mono" style={{ fontWeight: 700, color: 'var(--fg-1)', fontSize: '13px' }}>
+                      <td className="px-3 py-2" style={{ fontWeight: 700, color: 'var(--fg-1)', fontSize: '14px' }}>
                         <Link href={`/products/${skuShort}`} style={{ color: 'inherit' }}>{skuShort}</Link>
                       </td>
                       <td className="px-3 py-2" style={{ fontWeight: 700, color: 'var(--fg-1)', fontSize: '14px', maxWidth: '280px' }}>
@@ -169,7 +169,7 @@ export default function WarehousesPage() {
                           />
                         );
                       })}
-                      <td className="px-3 py-2 dx-mono text-right" style={{
+                      <td className="px-3 py-2 text-right" style={{
                         fontSize: '14px',
                         fontWeight: 700,
                         color: p.total_on_hand > 0 ? 'var(--fg-1)' : 'var(--fg-muted)',
@@ -185,11 +185,11 @@ export default function WarehousesPage() {
             {filtered.length > 0 && (
               <tfoot>
                 <tr style={{ borderTop: '2px solid var(--border-hairline)' }}>
-                  <td className="px-3 py-2 dx-eyebrow" style={{ fontSize: '10px', color: 'var(--fg-3)', backgroundColor: 'var(--paper-sunk)' }}>Total</td>
+                  <td className="px-3 py-2" style={{ fontSize: '14px', color: 'var(--fg-3)', backgroundColor: 'var(--paper-sunk)' }}>Total</td>
                   <td className="px-3 py-2" style={{ backgroundColor: 'var(--paper-sunk)' }}></td>
                   {sortedWarehouses.map((w) => (
-                    <td key={w.id} className="px-3 py-2 dx-mono text-right" style={{
-                      fontSize: '13px',
+                    <td key={w.id} className="px-3 py-2 text-right" style={{
+                      fontSize: '14px',
                       fontWeight: 700,
                       color: 'var(--fg-1)',
                       backgroundColor: TINT_BY_GROUP[groupForWarehouse(w)],
@@ -197,7 +197,7 @@ export default function WarehousesPage() {
                       {(totalsByWarehouse.totals[w.code] ?? 0).toLocaleString('en-US')}
                     </td>
                   ))}
-                  <td className="px-3 py-2 dx-mono text-right" style={{
+                  <td className="px-3 py-2 text-right" style={{
                     fontSize: '14px',
                     fontWeight: 700,
                     color: 'var(--fg-1)',
@@ -273,7 +273,7 @@ function StockCellTd({ value, href, tint }: { value: number; href: string; tint?
   }
 
   return (
-    <td className="px-3 py-2 dx-mono text-right" style={{ backgroundColor: bg, fontSize: '13px', color }}>
+    <td className="px-3 py-2 text-right" style={{ backgroundColor: bg, fontSize: '14px', color }}>
       <Link href={href} style={{ color: 'inherit' }}>
         {value === 0 ? '—' : value.toLocaleString('en-US')}
       </Link>
@@ -291,9 +291,9 @@ function Th({ children, sticky, sticky2, center, accent, bg }: {
 }) {
   return (
     <th
-      className={`px-3 py-3 dx-eyebrow ${center ? 'text-center' : 'text-left'}`}
+      className={`px-3 py-3 ${center ? 'text-center' : 'text-left'}`}
       style={{
-        fontSize: '10px',
+        fontSize: '14px',
         color: 'var(--fg-3)',
         backgroundColor: bg ?? (accent ? 'var(--paper-sunk)' : 'var(--paper-sunk)'),
         borderBottom: '1px solid var(--border-hairline)',

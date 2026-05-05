@@ -159,7 +159,7 @@ export default function NewPaymentClient({ partnerSlug }: { partnerSlug: string 
           fontFamily: 'var(--font-display)',
           fontSize: 'var(--fs-display-md)',
           fontWeight: 900,
-          letterSpacing: '-0.025em',
+          
           color: 'var(--fg-1)',
         }}>
           New Payment
@@ -230,14 +230,14 @@ export default function NewPaymentClient({ partnerSlug }: { partnerSlug: string 
           <div>
             <Label>Amount *</Label>
             <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={!contractId} min={0} step={0.01} placeholder="0.00"
-              className="w-full px-3 py-2 text-sm focus:outline-none dx-mono text-right"
+              className="w-full px-3 py-2 text-sm focus:outline-none text-right"
               style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
           </div>
           <div>
             <Label>Currency</Label>
             <div className="flex items-center gap-2">
               <select value={effectiveCurrency} onChange={(e) => setCurrency(e.target.value)} disabled={!contractId || !useDifferentCurrency}
-                className="flex-1 px-3 py-2 text-sm focus:outline-none dx-mono"
+                className="flex-1 px-3 py-2 text-sm focus:outline-none"
                 style={{
                   backgroundColor: 'var(--paper-sunk)',
                   border: '1px solid var(--border-hairline)',
@@ -259,7 +259,7 @@ export default function NewPaymentClient({ partnerSlug }: { partnerSlug: string 
           <div>
             <Label>Payment Date *</Label>
             <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} disabled={!contractId}
-              className="w-full px-3 py-2 text-sm focus:outline-none dx-mono"
+              className="w-full px-3 py-2 text-sm focus:outline-none"
               style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
           </div>
           <div>
@@ -328,7 +328,7 @@ function Section({ label, children, disabled = false }: { label: string; childre
         fontFamily: 'var(--font-accent-jakarta)',
         fontSize: '24px',
         fontWeight: 800,
-        letterSpacing: '-0.005em',
+        
         textTransform: 'uppercase',
         color: 'var(--fg-1)',
         lineHeight: 1,
@@ -343,7 +343,7 @@ function Section({ label, children, disabled = false }: { label: string; childre
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <label className="dx-eyebrow block mb-1" style={{ fontSize: '10px', color: 'var(--fg-3)' }}>
+    <label className="block mb-1" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
       {children}
     </label>
   );

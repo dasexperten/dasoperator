@@ -189,7 +189,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
           fontFamily: 'var(--font-display)',
           fontSize: 'var(--fs-display-md)',
           fontWeight: 900,
-          letterSpacing: '-0.025em',
+          
           color: 'var(--fg-1)',
         }}>
           New Operation
@@ -223,9 +223,9 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
           )}
           {selectedContract && (
             <div className="mt-3 grid grid-cols-3 gap-3" style={{ fontSize: 'var(--fs-caption)' }}>
-              <div><Label>Entity</Label><div className="dx-mono" style={{ color: 'var(--fg-1)' }}>{contractEntity}</div></div>
-              <div><Label>Currency</Label><div className="dx-mono" style={{ color: 'var(--fg-1)' }}>{contractCurrency}</div></div>
-              <div><Label>Contract</Label><div className="dx-mono" style={{ color: 'var(--fg-1)' }}>{selectedContract.contract_no}</div></div>
+              <div><Label>Entity</Label><div style={{ color: 'var(--fg-1)' }}>{contractEntity}</div></div>
+              <div><Label>Currency</Label><div style={{ color: 'var(--fg-1)' }}>{contractCurrency}</div></div>
+              <div><Label>Contract</Label><div style={{ color: 'var(--fg-1)' }}>{selectedContract.contract_no}</div></div>
             </div>
           )}
         </div>
@@ -247,7 +247,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
           <div>
             <Label>Date *</Label>
             <input type="date" value={opDate} onChange={(e) => setOpDate(e.target.value)} disabled={!contractId}
-              className="w-full px-3 py-2 text-sm focus:outline-none dx-mono"
+              className="w-full px-3 py-2 text-sm focus:outline-none"
               style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
           </div>
         </div>
@@ -256,14 +256,14 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
             <Label>Warehouse From {(opType === 'sale' || opType === 'transfer') && '*'}</Label>
             <input type="text" value={warehouseFromId} onChange={(e) => setWarehouseFromId(e.target.value)} disabled={!contractId}
               placeholder="e.g. wh_lbr"
-              className="w-full px-3 py-2 text-sm focus:outline-none dx-mono"
+              className="w-full px-3 py-2 text-sm focus:outline-none"
               style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
           </div>
           <div>
             <Label>Warehouse To {(opType === 'purchase' || opType === 'transfer') && '*'}</Label>
             <input type="text" value={warehouseToId} onChange={(e) => setWarehouseToId(e.target.value)} disabled={!contractId}
               placeholder="e.g. wh_yer"
-              className="w-full px-3 py-2 text-sm focus:outline-none dx-mono"
+              className="w-full px-3 py-2 text-sm focus:outline-none"
               style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
           </div>
         </div>
@@ -292,11 +292,11 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
           <tbody>
             {lineItems.map((li, idx) => (
               <tr key={li.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                <td className="px-3 py-2 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>{idx + 1}</td>
+                <td className="px-3 py-2" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{idx + 1}</td>
                 <td className="px-3 py-2">
                   <select value={li.product_id} onChange={(e) => handleProductChange(idx, e.target.value)} disabled={!contractId}
-                    className="w-full px-2 py-1 text-sm focus:outline-none dx-mono"
-                    style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)', fontSize: '12px' }}>
+                    className="w-full px-2 py-1 text-sm focus:outline-none"
+                    style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)', fontSize: '14px' }}>
                     <option value="">—</option>
                     {products.map((p) => (
                       <option key={p.id} value={p.id}>{p.id.replace('prd_', '').toUpperCase()} — {p.product_name}</option>
@@ -305,15 +305,15 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                 </td>
                 <td className="px-3 py-2">
                   <input type="number" value={li.qty || ''} onChange={(e) => updateLineItem(idx, { qty: parseInt(e.target.value) || 0 })} disabled={!contractId} min={0}
-                    className="w-20 px-2 py-1 text-sm focus:outline-none dx-mono text-right"
+                    className="w-20 px-2 py-1 text-sm focus:outline-none text-right"
                     style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }} />
                 </td>
                 <td className="px-3 py-2">
                   <input type="number" value={li.unit_price || ''} onChange={(e) => updateLineItem(idx, { unit_price: parseInt(e.target.value) || 0 })} disabled={!contractId} min={0}
-                    className="w-28 px-2 py-1 text-sm focus:outline-none dx-mono text-right"
+                    className="w-28 px-2 py-1 text-sm focus:outline-none text-right"
                     style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }} />
                 </td>
-                <td className="px-3 py-2 dx-mono text-right" style={{ fontSize: '12px', color: 'var(--fg-1)' }}>
+                <td className="px-3 py-2 text-right" style={{ fontSize: '14px', color: 'var(--fg-1)' }}>
                   {formatMoney(li.line_total, contractCurrency)} {contractCurrency}
                 </td>
                 <td className="px-3 py-2">
@@ -344,12 +344,12 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
             <div>
               <Label>Overall discount %</Label>
               <input type="number" value={overallDiscountPct || ''} onChange={(e) => setOverallDiscountPct(parseFloat(e.target.value) || 0)} disabled={!contractId} min={0} max={100} step={0.1}
-                className="w-24 px-2 py-1 text-sm focus:outline-none dx-mono text-right"
+                className="w-24 px-2 py-1 text-sm focus:outline-none text-right"
                 style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }} />
             </div>
             <div className="text-right">
               <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--fg-3)' }}>Subtotal: {formatMoney(subtotal, contractCurrency)} {contractCurrency}</div>
-              <div className="dx-mono mt-1" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--fg-1)' }}>
+              <div className="mt-1" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--fg-1)' }}>
                 {formatMoney(grandTotal, contractCurrency)} {contractCurrency}
               </div>
             </div>
@@ -392,7 +392,7 @@ function Section({ label, children, disabled = false }: { label: string; childre
         fontFamily: 'var(--font-accent-jakarta)',
         fontSize: '24px',
         fontWeight: 800,
-        letterSpacing: '-0.005em',
+        
         textTransform: 'uppercase',
         color: 'var(--fg-1)',
         lineHeight: 1,
@@ -407,7 +407,7 @@ function Section({ label, children, disabled = false }: { label: string; childre
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <label className="dx-eyebrow block mb-1" style={{ fontSize: '10px', color: 'var(--fg-3)' }}>
+    <label className="block mb-1" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
       {children}
     </label>
   );
@@ -415,7 +415,7 @@ function Label({ children }: { children: React.ReactNode }) {
 
 function Th({ children }: { children?: React.ReactNode }) {
   return (
-    <th className="text-left px-3 py-2 dx-eyebrow" style={{ fontSize: '10px', color: 'var(--fg-3)', backgroundColor: 'var(--paper-sunk)' }}>
+    <th className="text-left px-3 py-2" style={{ fontSize: '14px', color: 'var(--fg-3)', backgroundColor: 'var(--paper-sunk)' }}>
       {children}
     </th>
   );

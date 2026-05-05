@@ -36,14 +36,14 @@ function formatMoney(minor: number, currency: string): string {
 }
 
 function formatUsdCompact(cents: number): string {
-  const dollars = cents / 100;
+  const dollars = Math.round(cents / 100);
   if (Math.abs(dollars) >= 1_000_000) {
-    return `$${(dollars / 1_000_000).toFixed(1)}M`;
+    return `$${Math.round(dollars / 1_000_000).toLocaleString('en-US')}M`;
   }
   if (Math.abs(dollars) >= 10_000) {
-    return `$${(dollars / 1_000).toFixed(1)}K`;
+    return `$${Math.round(dollars / 1_000).toLocaleString('en-US')}K`;
   }
-  return `$${dollars.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  return `$${dollars.toLocaleString('en-US')}`;
 }
 
 function convertToUsdCents(localMinor: number, currency: string, fx: FxLatest | null): number {

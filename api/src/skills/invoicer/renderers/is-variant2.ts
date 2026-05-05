@@ -5,13 +5,23 @@
 // Used for toothpastes leaving China to Russia (HS 3306xxx).
 // =============================================================================
 
-import { AlignmentType, Document, Packer } from 'docx';
+import { AlignmentType, Document, Packer, PageOrientation } from 'docx';
 import type { ContractRow, LineItemRow } from '../types';
 import {
-  RenderBank, RenderParty, RenderSignature, bankBlock, blank, buildTable,
+  RenderBank, RenderParty, RenderSignature, bankBlock, blank, buildTableDxa,
   formatDate, formatMoney, heading, p, partyBlock, signatureBlock, subheading,
   trilingual,
 } from './shared';
+
+// A4 landscape — same setup as IS-V1; trilingual headers need the extra width.
+const PAGE_LANDSCAPE = {
+  size: {
+    orientation: PageOrientation.LANDSCAPE,
+    width: 16838,
+    height: 11906,
+  },
+  margin: { top: 720, right: 720, bottom: 720, left: 720 },
+} as const;
 
 export interface RenderIsV2Input {
   reference: string;
@@ -46,18 +56,22 @@ export async function renderInvoiceSpecPastes(input: RenderIsV2Input): Promise<U
     '发票 - 装箱单 - 规格',
   );
 
+  // DXA widths balanced for A4 landscape with 720 DXA margins (15398 DXA usable).
+  // Description is the widest column — trilingual product names dominate it.
+  // Column order intentionally matches the existing layout (Type sits after
+  // Description); only widths and units change.
   const cols = [
-    { header: '#', widthPct: 4 },
-    { header: 'HS Code', widthPct: 11 },
-    { header: trilingual('Origin', 'Страна', '原产地'), widthPct: 9 },
-    { header: trilingual('Description', 'Описание', '产品描述'), widthPct: 26 },
-    { header: trilingual('Type', 'Тип', '包装类型'), widthPct: 6 },
-    { header: trilingual('Qty', 'Кол-во', '数量'), widthPct: 7 },
-    { header: trilingual('Cartons', 'Кор.', '箱数'), widthPct: 7 },
-    { header: trilingual('Net (kg)', 'Нетто', '净重'), widthPct: 8 },
-    { header: trilingual('Gross (kg)', 'Брутто', '毛重'), widthPct: 8 },
-    { header: trilingual('Price', 'Цена', '单价'), widthPct: 7 },
-    { header: trilingual('Amount', 'Сумма', '总额'), widthPct: 7 },
+    { header: '#', widthDxa: 500 },
+    { header: 'HS Code', widthDxa: 1300 },
+    { header: trilingual('Origin', 'Страна', '原产地'), widthDxa: 1200 },
+    { header: trilingual('Description', 'Описание', '产品描述'), widthDxa: 4500 },
+    { header: trilingual('Type', 'Тип', '包装类型'), widthDxa: 1300 },
+    { header: trilingual('Qty', 'Кол-во', '数量'), widthDxa: 1000 },
+    { header: trilingual('Cartons', 'Кор.', '箱数'), widthDxa: 900 },
+    { header: trilingual('Net (kg)', 'Нетто', '净重'), widthDxa: 1100 },
+    { header: trilingual('Gross (kg)', 'Брутто', '毛重'), widthDxa: 1100 },
+    { header: trilingual('Price', 'Цена', '单价'), widthDxa: 1100 },
+    { header: trilingual('Amount', 'Сумма', '总额'), widthDxa: 1400 },
   ];
 
   const rows: string[][] = input.lineItems.map((li, idx) => {
@@ -95,7 +109,7 @@ export async function renderInvoiceSpecPastes(input: RenderIsV2Input): Promise<U
     creator: 'dasoperator-api',
     title: `IS-V2 ${input.reference}`,
     sections: [{
-      properties: {},
+      properties: { page: PAGE_LANDSCAPE },
       children: [
         heading(titleLine),
         blank(),
@@ -127,7 +141,7 @@ export async function renderInvoiceSpecPastes(input: RenderIsV2Input): Promise<U
           ? [blank(), ...bankBlock(input.bank, 'BILINGUAL', trilingual('Bank details', 'Банковские реквизиты', '银行信息'))]
           : []),
         blank(),
-        buildTable(cols, rows),
+        buildTableDxa(cols, rows),
         blank(),
         p(`${trilingual('TOTAL', 'ИТОГО', '总计')}: ${formatMoney(input.totalMinor, input.currency)}`,
           { bold: true, size: 24 }, AlignmentType.RIGHT),

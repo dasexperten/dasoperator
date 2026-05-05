@@ -4,12 +4,23 @@
 // toothbrushes leaving China to Russia (HS 9603xxx).
 // =============================================================================
 
-import { AlignmentType, Document, Packer } from 'docx';
+import { AlignmentType, Document, Packer, PageOrientation } from 'docx';
 import type { ContractRow, LineItemRow } from '../types';
 import {
   RenderBank, RenderParty, RenderSignature, bankBlock, bilingual, blank,
-  buildTable, formatDate, formatMoney, heading, p, partyBlock, signatureBlock,
+  buildTableDxa, formatDate, formatMoney, heading, p, partyBlock, signatureBlock,
 } from './shared';
+
+// A4 landscape — width / height are in DXA (twentieths of a point).
+// 16838 = 842pt = 297mm; 11906 = 595pt = 210mm. 720 DXA = 0.5 inch margin.
+const PAGE_LANDSCAPE = {
+  size: {
+    orientation: PageOrientation.LANDSCAPE,
+    width: 16838,
+    height: 11906,
+  },
+  margin: { top: 720, right: 720, bottom: 720, left: 720 },
+} as const;
 
 export interface RenderIsV1Input {
   reference: string;
@@ -28,17 +39,19 @@ export interface RenderIsV1Input {
 }
 
 export async function renderInvoiceSpecBrushes(input: RenderIsV1Input): Promise<Uint8Array> {
+  // DXA widths balanced for A4 landscape with 720 DXA margins (15398 DXA usable).
+  // Description is the widest column — bilingual product names need the room.
   const cols = [
-    { header: '#', widthPct: 4 },
-    { header: 'HS Code', widthPct: 11 },
-    { header: bilingual('Origin', 'Страна'), widthPct: 9 },
-    { header: bilingual('Description', 'Описание'), widthPct: 30 },
-    { header: bilingual('Qty (pcs)', 'Кол-во (шт)'), widthPct: 8 },
-    { header: bilingual('Cartons', 'Кор-ов'), widthPct: 8 },
-    { header: bilingual('Net (kg)', 'Нетто'), widthPct: 8 },
-    { header: bilingual('Gross (kg)', 'Брутто'), widthPct: 8 },
-    { header: bilingual('Price', 'Цена'), widthPct: 7 },
-    { header: bilingual('Amount', 'Сумма'), widthPct: 7 },
+    { header: '#', widthDxa: 500 },
+    { header: 'HS Code', widthDxa: 1300 },
+    { header: bilingual('Origin', 'Страна'), widthDxa: 1300 },
+    { header: bilingual('Description', 'Описание'), widthDxa: 5000 },
+    { header: bilingual('Qty (pcs)', 'Кол-во (шт)'), widthDxa: 1100 },
+    { header: bilingual('Cartons', 'Кор-ов'), widthDxa: 900 },
+    { header: bilingual('Net (kg)', 'Нетто'), widthDxa: 1100 },
+    { header: bilingual('Gross (kg)', 'Брутто'), widthDxa: 1100 },
+    { header: bilingual('Price', 'Цена'), widthDxa: 1100 },
+    { header: bilingual('Amount', 'Сумма'), widthDxa: 2000 },
   ];
 
   const rows: string[][] = input.lineItems.map((li, idx) => {
@@ -74,7 +87,7 @@ export async function renderInvoiceSpecBrushes(input: RenderIsV1Input): Promise<
     creator: 'dasoperator-api',
     title: `IS-V1 ${input.reference}`,
     sections: [{
-      properties: {},
+      properties: { page: PAGE_LANDSCAPE },
       children: [
         heading('INVOICE-SPECIFICATION / СЧЁТ-СПЕЦИФИКАЦИЯ'),
         blank(),
@@ -96,7 +109,7 @@ export async function renderInvoiceSpecBrushes(input: RenderIsV1Input): Promise<
         p(`${bilingual('Terms of delivery', 'Условия поставки')}: ${input.incoterms}`, { bold: true }),
         ...(input.bank ? [blank(), ...bankBlock(input.bank, 'BILINGUAL')] : []),
         blank(),
-        buildTable(cols, rows),
+        buildTableDxa(cols, rows),
         blank(),
         p(`${bilingual('TOTAL', 'ИТОГО')}: ${formatMoney(input.totalMinor, input.currency)}`,
           { bold: true, size: 24 }, AlignmentType.RIGHT),

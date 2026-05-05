@@ -161,18 +161,18 @@ export default function PartnersPage() {
                       <td className="px-4 py-3">
                         <Link href={`/partners/${p.id}`} style={{ color: 'var(--fg-1)' }}>
                           <div className="dx-product-name" style={{ fontSize: 'var(--fs-body-sm)' }}>{p.trade_name}</div>
-                          {p.legal_name && <div className="text-xs mt-0.5" style={{ color: 'var(--fg-3)' }}>{p.legal_name}</div>}
+                          {p.legal_name && <div className="mt-0.5" style={{ color: 'var(--fg-3)' }}>{p.legal_name}</div>}
                         </Link>
                       </td>
-                      <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>{p.country ?? '—'}</td>
-                      <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-2)' }}>{p.currency ?? '—'}</td>
-                      <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-2)' }}>{p.entity_abbreviation ?? '—'}</td>
+                      <td className="px-4 py-3" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>{p.country ?? '—'}</td>
+                      <td className="px-4 py-3 dx-mono" style={{ color: 'var(--fg-2)' }}>{p.currency ?? '—'}</td>
+                      <td className="px-4 py-3 dx-mono" style={{ color: 'var(--fg-2)' }}>{p.entity_abbreviation ?? '—'}</td>
                       <td className="px-4 py-3">
-                        <span className="dx-eyebrow inline-block" style={{ padding: '3px 8px', fontSize: '9px', backgroundColor: statusStyle.bg, color: statusStyle.fg, border: `1px solid ${statusStyle.border}`, borderRadius: 'var(--radius-pill)', letterSpacing: '0.15em' }}>
+                        <span className="dx-eyebrow inline-block" style={{ padding: '3px 8px', backgroundColor: statusStyle.bg, color: statusStyle.fg, border: `1px solid ${statusStyle.border}`, borderRadius: 'var(--radius-pill)' }}>
                           {p.status}
                         </span>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3" style={{ fontWeight: 700 }}>
                         {netBalances[p.id] ? (
                           <NetBalance
                             usdCents={netBalances[p.id]!.usd}
@@ -180,10 +180,10 @@ export default function PartnersPage() {
                             size="compact"
                           />
                         ) : (
-                          <span className="dx-mono" style={{ fontSize: '12px', color: 'var(--fg-muted)' }}>—</span>
+                          <span className="dx-mono" style={{ color: 'var(--fg-muted)' }}>—</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>{p.contract_no ?? '—'}</td>
+                      <td className="px-4 py-3 dx-mono" style={{ color: 'var(--fg-3)' }}>{p.contract_no ?? '—'}</td>
                     </tr>
                   );
                 })

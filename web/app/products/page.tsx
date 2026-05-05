@@ -200,12 +200,12 @@ export default function ProductsPage() {
                       className="transition-colors"
                       style={{ borderBottom: '1px solid var(--border-hairline)' }}
                     >
-                      <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px' }}>
+                      <td className="px-4 py-3 dx-mono" style={{ fontWeight: 700 }}>
                         <Link href={`/products/${skuShort}`} style={{ color: 'var(--fg-1)' }}>
                           {skuShort}
                         </Link>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3" style={{ fontWeight: 700 }}>
                         <Link href={`/products/${skuShort}`} style={{ color: 'var(--fg-1)' }}>
                           <span className="dx-product-name">{p.product_name}</span>
                         </Link>
@@ -216,10 +216,10 @@ export default function ProductsPage() {
                       <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>
                         {p.manufacturer_name ?? '—'}
                       </td>
-                      <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-2)' }}>
+                      <td className="px-4 py-3 dx-mono" style={{ color: 'var(--fg-2)' }}>
                         {p.weight_kg ? `${p.weight_kg}g` : '—'}
                       </td>
-                      <td className="px-4 py-3 dx-mono" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>
+                      <td className="px-4 py-3 dx-mono" style={{ color: 'var(--fg-3)' }}>
                         {p.barcode ?? '—'}
                       </td>
                     </tr>

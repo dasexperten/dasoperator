@@ -25,10 +25,11 @@ async function checkBinding(check: () => Promise<unknown>): Promise<BindingStatu
 health.get('/', async (c) => {
   const env = c.env;
 
-  const [dbStatus, docsStatus, countersStatus, fxStatus, cacheStatus, documentsCheck] =
+  const [dbStatus, docsStatus, pricelistsStatus, countersStatus, fxStatus, cacheStatus, documentsCheck] =
     await Promise.all([
       checkBinding(() => env.DB.prepare('SELECT 1 as ping').first()),
-      checkBinding(() => env.DOCS.head('__healthcheck__')),  // head on non-existent key is fine
+      checkBinding(() => env.DOCS.head('__healthcheck__')),
+      checkBinding(() => env.PRICELISTS.head('__healthcheck__')),
       checkBinding(() => env.COUNTERS.get('__healthcheck__')),
       checkBinding(() => env.FX.get('__healthcheck__')),
       checkBinding(() => env.CACHE.get('__healthcheck__')),
@@ -46,6 +47,7 @@ health.get('/', async (c) => {
     bindings: {
       DB: dbStatus,
       DOCS: docsStatus,
+      PRICELISTS: pricelistsStatus,
       COUNTERS: countersStatus,
       FX: fxStatus,
       CACHE: cacheStatus,

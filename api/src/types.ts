@@ -10,6 +10,10 @@ export interface Env {
   // Stores PDFs (CI/PL/contracts), photos, certificates
   DOCS: R2Bucket;
 
+  // R2 Bucket — pricer skill markdown files (Phase 5.1-pricer-r2)
+  // Source of truth for product prices. Read by /api/products/:id/price endpoint.
+  PRICELISTS: R2Bucket;
+
   // KV Namespaces (Phase 1.3)
   COUNTERS: KVNamespace;  // sequences cache (DEE-001, CI-202605-0001 etc)
   FX: KVNamespace;        // daily FX rates snapshot
@@ -43,6 +47,7 @@ export interface HealthStatus {
   bindings: {
     DB: BindingStatus;
     DOCS: BindingStatus;
+    PRICELISTS: BindingStatus;
     COUNTERS: BindingStatus;
     FX: BindingStatus;
     CACHE: BindingStatus;

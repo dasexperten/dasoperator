@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { queryAll } from '../lib/db';
+import { getProductPrice } from '../lib/pricelist';
 
 // =============================================================================
 // GET /api/products/lookup
@@ -228,11 +229,12 @@ products.get('/:id', async (c) => {
 
 // =============================================================================
 // GET /api/products/:id/prices — all price_types for this SKU
+// Phase 5.1-pricer-r2: R2 pricelist first (source of truth), D1 fallback.
+// Returns unified format compatible with UI ProductPriceRow type.
 // =============================================================================
 products.get('/:id/prices', async (c) => {
   const id = c.req.param('id');
 
-  // Verify product exists
   const prod = await c.env.DB.prepare(
     'SELECT id FROM products WHERE id = ? AND deleted_at IS NULL'
   ).bind(id).first();
@@ -240,35 +242,101 @@ products.get('/:id/prices', async (c) => {
     return fail(c, 404, [{ code: 'product_not_found', message: id }]);
   }
 
-  const now = Math.floor(Date.now() / 1000);
-  const result = await c.env.DB.prepare(`
-    SELECT
-      pp.id,
-      pp.price_type_id,
-      pt.code AS price_type_code,
-      pt.description AS price_type_description,
-      pt.currency AS price_type_currency,
-      pt.used_by_entity,
-      pp.sell_price,
-      pp.currency,
-      pp.effective_from,
-      pp.effective_until,
-      pp.notes,
-      CASE
-        WHEN pp.effective_until IS NULL THEN 1
-        WHEN pp.effective_until > ? THEN 1
-        ELSE 0
-      END AS is_active
-    FROM product_prices pp
-    LEFT JOIN price_types pt ON pt.id = pp.price_type_id
-    WHERE pp.product_id = ?
-    ORDER BY pp.price_type_id ASC, pp.effective_from DESC
-  `).bind(now, id).all();
+  // Reference price types from D1 (for code/description/used_by metadata)
+  const priceTypes = await c.env.DB.prepare(`
+    SELECT id, code, description, currency, used_by_entity
+    FROM price_types
+    ORDER BY id ASC
+  `).all<{
+    id: string;
+    code: string;
+    description: string | null;
+    currency: string;
+    used_by_entity: string | null;
+  }>();
 
-  return ok(c, {
-    count: result.results.length,
-    prices: result.results,
-  });
+  const now = Math.floor(Date.now() / 1000);
+
+  // For each price_type: R2 first, D1 fallback
+  const enriched = await Promise.all(
+    priceTypes.results.map(async (pt) => {
+      // Try R2
+      try {
+        const r2 = await getProductPrice(c.env, id, pt.id);
+        if (r2) {
+          const isZeroDecimal = ['VND', 'JPY', 'KRW'].includes(r2.currency);
+          const minorFactor = isZeroDecimal ? 1 : 100;
+          return {
+            id: `r2_${pt.id}_${id}`,
+            price_type_id: pt.id,
+            price_type_code: pt.code,
+            price_type_description: pt.description,
+            price_type_currency: pt.currency,
+            used_by_entity: pt.used_by_entity,
+            sell_price: Math.round(r2.price * minorFactor),  // minor units
+            currency: r2.currency,
+            effective_from: null,
+            effective_until: null,
+            notes: null,
+            is_active: 1,
+            source: 'pricer_r2',
+            source_file: r2.source,
+          };
+        }
+      } catch {
+        // fall through to D1
+      }
+
+      // D1 fallback
+      const dbRow = await c.env.DB.prepare(`
+        SELECT
+          pp.id, pp.price_type_id, pp.sell_price, pp.currency,
+          pp.effective_from, pp.effective_until, pp.notes,
+          CASE
+            WHEN pp.effective_until IS NULL THEN 1
+            WHEN pp.effective_until > ? THEN 1
+            ELSE 0
+          END AS is_active
+        FROM product_prices pp
+        WHERE pp.product_id = ? AND pp.price_type_id = ?
+        ORDER BY pp.effective_from DESC
+        LIMIT 1
+      `).bind(now, id, pt.id).first<{
+        id: string;
+        price_type_id: string;
+        sell_price: number;
+        currency: string;
+        effective_from: number;
+        effective_until: number | null;
+        notes: string | null;
+        is_active: number;
+      }>();
+
+      if (dbRow) {
+        return {
+          id: dbRow.id,
+          price_type_id: dbRow.price_type_id,
+          price_type_code: pt.code,
+          price_type_description: pt.description,
+          price_type_currency: pt.currency,
+          used_by_entity: pt.used_by_entity,
+          sell_price: dbRow.sell_price,
+          currency: dbRow.currency,
+          effective_from: dbRow.effective_from,
+          effective_until: dbRow.effective_until,
+          notes: dbRow.notes,
+          is_active: dbRow.is_active,
+          source: 'd1_fallback',
+          source_file: null,
+        };
+      }
+
+      return null;
+    })
+  );
+
+  const prices = enriched.filter((x): x is NonNullable<typeof x> => x !== null);
+  return ok(c, { count: prices.length, prices });
 });
 
 // =============================================================================

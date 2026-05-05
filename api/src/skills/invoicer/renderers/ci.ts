@@ -1,20 +1,21 @@
 // =============================================================================
-// CI renderer — Commercial Invoice (Step 4A from the invoicer skill).
-// Single-language (EN or RU). Seller may be a company OR a manufacturer
-// (e.g. the Factory→DEI leg of a dei_layer chain).
+// CI — Commercial Invoice. Portrait A4. EN / RU (never BILINGUAL — guarded
+// upstream). Seller may be a company or a manufacturer (dei_layer Factory→DEI
+// CI leg).
 // =============================================================================
 
-import { AlignmentType, Document, Packer } from 'docx';
 import type { ContractRow, DocumentLanguage, LineItemRow } from '../types';
 import {
-  RenderBank, RenderParty, RenderSignature, bankBlock, blank, buildTable,
-  formatDate, formatMoney, heading, p, partyBlock, signatureBlock,
+  Document, Packer, PORTRAIT_PAGE, PORTRAIT_USABLE_DXA, RenderBank, RenderParty,
+  RenderSignature, blank, buildDeliveryBankTable, buildMetaRow, buildPartyTable,
+  buildProductTable, buildSignature, buildTitle, formatDate, formatMoney,
+  type ProductCell,
 } from './shared';
 
 export interface RenderCiInput {
   reference: string;
   issuedAt: number;
-  language: DocumentLanguage;       // CI is never BILINGUAL — guard upstream
+  language: DocumentLanguage;
   currency: string;
   seller: RenderParty;
   buyer: RenderParty;
@@ -29,77 +30,113 @@ export interface RenderCiInput {
 
 export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uint8Array> {
   const isRu = input.language === 'RU';
-  const langLite: 'EN' | 'RU' = isRu ? 'RU' : 'EN';
+  const language: 'EN' | 'RU' = isRu ? 'RU' : 'EN';
 
-  const titleEn = 'COMMERCIAL INVOICE';
-  const titleRu = 'СЧЁТ-ФАКТУРА (КОММЕРЧЕСКИЙ ИНВОЙС)';
+  const titleText = isRu
+    ? 'СЧЁТ-ФАКТУРА'
+    : 'COMMERCIAL INVOICE';
 
-  const cols = [
-    { header: '#', widthPct: 4 },
-    { header: isRu ? 'Описание' : 'Description', widthPct: 32 },
-    { header: isRu ? 'Код ТН ВЭД' : 'HS Code', widthPct: 11 },
-    { header: isRu ? 'Страна' : 'Origin', widthPct: 9 },
-    { header: isRu ? 'Кол-во' : 'Qty', widthPct: 7 },
-    { header: isRu ? 'Ед.' : 'Unit', widthPct: 6 },
-    { header: isRu ? 'Цена' : 'Unit Price', widthPct: 14 },
-    { header: isRu ? 'Сумма' : 'Total', widthPct: 17 },
+  // Meta row — labels stay bilingual EN/RU for clarity even on RU-only docs.
+  const meta = [
+    { label: '№ / No.', value: input.reference },
+    { label: 'Date / Дата', value: formatDate(input.issuedAt) },
+  ];
+  if (input.contract) {
+    meta.push({ label: 'Contract / Договор', value: input.contract.contract_no });
+  }
+  if (input.contract?.unk_reference) {
+    meta.push({ label: 'УНК', value: input.contract.unk_reference });
+  }
+
+  const partyTable = buildPartyTable({
+    language,
+    totalWidthDxa: PORTRAIT_USABLE_DXA,
+    shipperLabel: isRu ? 'ПРОДАВЕЦ' : 'SELLER',
+    shipper: input.seller,
+    consigneeLabel: isRu ? 'ПОКУПАТЕЛЬ' : 'BUYER',
+    consignee: input.buyer,
+  });
+
+  const deliveryLines: string[] = [
+    `${isRu ? 'Условия' : 'Terms'}: ${input.incoterms}`,
+  ];
+  if (input.paymentTerms) {
+    deliveryLines.push(`${isRu ? 'Оплата' : 'Payment'}: ${input.paymentTerms}`);
+  }
+  const deliveryBankTable = buildDeliveryBankTable({
+    language,
+    totalWidthDxa: PORTRAIT_USABLE_DXA,
+    deliveryHeader: isRu ? 'УСЛОВИЯ ПОСТАВКИ' : 'DELIVERY',
+    deliveryLines,
+    bankHeader: isRu ? 'БАНКОВСКИЕ РЕКВИЗИТЫ' : 'BANK DETAILS',
+    bank: input.bank,
+  });
+
+  // Product table — 9 cols, sum to 10500 DXA.
+  // [#, SKU, Description, HS Code, Origin, Qty, Unit, Unit Price, Total]
+  const widths = [350, 800, 3300, 850, 750, 700, 600, 1100, 2050];
+  const headers = [
+    { text: '#', align: 'center' as const },
+    { text: 'SKU', align: 'left' as const },
+    { text: isRu ? 'Описание' : 'Description', align: 'left' as const },
+    { text: 'HS Code', align: 'center' as const },
+    { text: isRu ? 'Страна' : 'Origin', align: 'center' as const },
+    { text: isRu ? 'Кол-во' : 'Qty', align: 'right' as const },
+    { text: isRu ? 'Ед.' : 'Unit', align: 'center' as const },
+    { text: isRu ? 'Цена' : 'Unit Price', align: 'right' as const },
+    { text: isRu ? 'Сумма' : 'Total', align: 'right' as const },
   ];
 
-  const rows: string[][] = input.lineItems.map((li, idx) => {
+  const rows: ProductCell[][] = input.lineItems.map((li, idx) => {
     const desc = isRu
       ? (li.description_ru ?? li.description_en ?? li.invoice_label ?? li.product_id)
       : (li.description_en ?? li.description_ru ?? li.invoice_label ?? li.product_id);
     return [
-      String(idx + 1),
-      desc,
-      li.hs_code ?? '',
-      li.country_of_origin ?? '',
-      String(li.qty),
-      isRu ? 'шт.' : 'pcs',
-      formatMoney(li.unit_price_after_disc, input.currency),
-      formatMoney(li.line_amount, input.currency),
+      { text: String(idx + 1), align: 'center' },
+      { text: li.product_id, align: 'left' },
+      { text: desc, align: 'left' },
+      { text: li.hs_code ?? '', align: 'center' },
+      { text: li.country_of_origin ?? '', align: 'center' },
+      { text: String(li.qty), align: 'right' },
+      { text: isRu ? 'шт.' : 'pcs', align: 'center' },
+      { text: formatMoney(li.unit_price_after_disc, input.currency), align: 'right' },
+      { text: formatMoney(li.line_amount, input.currency), align: 'right' },
     ];
+  });
+
+  // TOTAL row: merge first 7 cells into the label, leaving the last 2 cols
+  // for blank Unit Price + Total Amount.
+  const productTable = buildProductTable({
+    totalWidthDxa: PORTRAIT_USABLE_DXA,
+    widths,
+    headers,
+    rows,
+    totalLabel: isRu ? 'ИТОГО' : 'TOTAL',
+    totalLabelSpan: 7,
+    totalValues: [
+      { text: '', align: 'right' },
+      { text: formatMoney(input.totalMinor, input.currency), align: 'right', bold: true },
+    ],
   });
 
   const doc = new Document({
     creator: 'dasoperator-api',
-    title: `${titleEn} ${input.reference}`,
+    title: `Commercial Invoice ${input.reference}`,
     sections: [{
-      properties: {},
+      properties: { page: PORTRAIT_PAGE },
       children: [
-        heading(isRu ? titleRu : titleEn),
+        buildTitle(titleText),
+        buildMetaRow(meta),
+        partyTable,
         blank(),
-        p(`${isRu ? 'Инвойс №' : 'Invoice No.'}: ${input.reference}`, { bold: true }),
-        p(`${isRu ? 'Дата' : 'Date'}: ${formatDate(input.issuedAt)}`),
-        ...(input.contract
-          ? [p(`${isRu ? 'Договор №' : 'Contract No.'}: ${input.contract.contract_no}`)] : []),
-        ...(input.contract?.unk_reference
-          ? [p(`УНК: ${input.contract.unk_reference}`)] : []),
+        deliveryBankTable,
         blank(),
-        ...partyBlock({
-          language: langLite, label: isRu ? 'ПРОДАВЕЦ' : 'SELLER', party: input.seller,
-        }),
-        blank(),
-        ...bankBlock(input.bank, langLite),
-        blank(),
-        ...partyBlock({
-          language: langLite, label: isRu ? 'ПОКУПАТЕЛЬ' : 'BUYER', party: input.buyer,
-        }),
-        blank(),
-        p(`${isRu ? 'Условия поставки' : 'Delivery terms'}: ${input.incoterms}`, { bold: true }),
-        ...(input.paymentTerms
-          ? [p(`${isRu ? 'Условия оплаты' : 'Payment terms'}: ${input.paymentTerms}`)] : []),
-        blank(),
-        buildTable(cols, rows),
-        blank(),
-        p(`${isRu ? 'ИТОГО' : 'TOTAL'}: ${formatMoney(input.totalMinor, input.currency)}`,
-          { bold: true, size: 24 }, AlignmentType.RIGHT),
-        blank(),
-        ...signatureBlock(input.signature, langLite),
+        productTable,
+        ...buildSignature(input.signature, language),
       ],
     }],
   });
 
-  const buffer = await Packer.toBuffer(doc);
-  return new Uint8Array(buffer);
+  const buf = await Packer.toBuffer(doc);
+  return new Uint8Array(buf);
 }

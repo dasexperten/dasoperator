@@ -1,47 +1,25 @@
 // =============================================================================
-// IS-V1 — Brushes (Yangzhou Jinxia format).
-// Bilingual EN+RU. Three-party block (Shipper / Buyer / Seller). Used for
+// IS-V1 — Brushes (Yangzhou Jinxia format). Landscape A4. Bilingual EN+RU.
+// Three-party block (Shipper / Consignee / optional Seller). Used for
 // toothbrushes leaving China to Russia (HS 9603xxx).
 // =============================================================================
 
-import { AlignmentType, Document, Packer, PageOrientation } from 'docx';
 import type { ContractRow, LineItemRow } from '../types';
 import {
-  RenderBank, RenderParty, RenderSignature, bankBlock, bilingual, blank,
-  buildTableDxa, formatDate, formatMoney, heading, p, partyTable,
-  signatureBlock,
+  Document, LANDSCAPE_PAGE, LANDSCAPE_USABLE_DXA, Packer, RenderBank,
+  RenderParty, RenderSignature, bilingual, blank, buildDeliveryBankTable,
+  buildMetaRow, buildPartyTable, buildProductTable, buildSignature, buildTitle,
+  formatDate, formatMoney, trilingual,
+  type ProductCell,
 } from './shared';
-
-// A4 landscape — width / height are in DXA (twentieths of a point).
-// 16838 = 842pt = 297mm (long side); 11906 = 595pt = 210mm (short side).
-// 720 DXA = 0.5 inch margin.
-//
-// QUIRK: docx@9's createPageSize swaps `width`/`height` when
-// `orientation === LANDSCAPE`. Specifically it emits
-//   w:w = input.height
-//   w:h = input.width
-// so to land at the correct XML (w="16838" h="11906" orient="landscape")
-// we must feed it PORTRAIT dimensions here. PR #37 had it the other way
-// round, which produced w="11906" h="16838" and a portrait canvas in Word.
-const PAGE_LANDSCAPE = {
-  size: {
-    orientation: PageOrientation.LANDSCAPE,
-    width: 11906,    // docx will swap → emits w:w = 16838 (long side)
-    height: 16838,   // docx will swap → emits w:h = 11906 (short side)
-  },
-  margin: { top: 720, right: 720, bottom: 720, left: 720 },
-} as const;
 
 export interface RenderIsV1Input {
   reference: string;
   issuedAt: number;
   currency: string;
-  shipper: RenderParty;       // manufacturer (Jinxia)
-  buyer: RenderParty;         // ultimate consignee (DEE or recipient)
-  seller: RenderParty;        // selling-side party (DEI for layered, manufacturer otherwise)
-  // True when seller is a different legal entity from shipper (typical
-  // dei_layer Factory→DEI→DEE chain). When false the renderer suppresses
-  // the redundant SELLER block in the layout.
+  shipper: RenderParty;
+  buyer: RenderParty;
+  seller: RenderParty;
   sellerDistinctFromShipper: boolean;
   bank: RenderBank | null;
   signature: RenderSignature;
@@ -53,91 +31,143 @@ export interface RenderIsV1Input {
 }
 
 export async function renderInvoiceSpecBrushes(input: RenderIsV1Input): Promise<Uint8Array> {
-  // DXA widths balanced for A4 landscape with 720 DXA margins (15398 DXA usable).
-  // Description is the widest column — bilingual product names need the room.
-  const cols = [
-    { header: '#', widthDxa: 500 },
-    { header: 'HS Code', widthDxa: 1300 },
-    { header: bilingual('Origin', 'Страна'), widthDxa: 1300 },
-    { header: bilingual('Description', 'Описание'), widthDxa: 5000 },
-    { header: bilingual('Qty (pcs)', 'Кол-во (шт)'), widthDxa: 1100 },
-    { header: bilingual('Cartons', 'Кор-ов'), widthDxa: 900 },
-    { header: bilingual('Net (kg)', 'Нетто'), widthDxa: 1100 },
-    { header: bilingual('Gross (kg)', 'Брутто'), widthDxa: 1100 },
-    { header: bilingual('Price', 'Цена'), widthDxa: 1100 },
-    { header: bilingual('Amount', 'Сумма'), widthDxa: 2000 },
+  const titleText = trilingual(
+    'INVOICE-SPECIFICATION',
+    'СЧЁТ-СПЕЦИФИКАЦИЯ',
+    '发票-规格',
+  );
+
+  const meta = [
+    { label: '№ / No.', value: input.reference },
+    { label: trilingual('Date', 'Дата', '日期'), value: formatDate(input.issuedAt) },
+  ];
+  if (input.contract) {
+    meta.push({ label: trilingual('Contract', 'Договор', '合同号'), value: input.contract.contract_no });
+  }
+  if (input.contract?.unk_reference) {
+    meta.push({ label: 'УНК', value: input.contract.unk_reference });
+  }
+
+  const partyTable = buildPartyTable({
+    language: 'BILINGUAL',
+    totalWidthDxa: LANDSCAPE_USABLE_DXA,
+    shipperLabel: trilingual('SHIPPER', 'ОТПРАВИТЕЛЬ', '发货人'),
+    shipper: input.shipper,
+    consigneeLabel: trilingual('CONSIGNEE / BUYER', 'ПОЛУЧАТЕЛЬ / ПОКУПАТЕЛЬ', '收货人'),
+    consignee: input.buyer,
+    sellerLabel: trilingual('SELLER', 'ПРОДАВЕЦ', '卖方'),
+    seller: input.seller,
+    sellerDistinct: input.sellerDistinctFromShipper,
+  });
+
+  const deliveryLines = [input.incoterms || 'FOB Shanghai'];
+  if (input.consigneeAtTerminal) {
+    deliveryLines.push(`${trilingual('Consignee at terminal', 'Получатель по ст.', '终点站收货人')}: ${input.consigneeAtTerminal}`);
+  }
+
+  const deliveryBankTable = buildDeliveryBankTable({
+    language: 'BILINGUAL',
+    totalWidthDxa: LANDSCAPE_USABLE_DXA,
+    deliveryHeader: trilingual('DELIVERY', 'УСЛОВИЯ ПОСТАВКИ', '交货条件'),
+    deliveryLines,
+    bank: input.bank,
+    ...(input.bank
+      ? { bankHeader: trilingual('BANK DETAILS', 'БАНКОВСКИЕ РЕКВИЗИТЫ', '银行信息') }
+      : {}),
+  });
+
+  // Product table — 10 cols, sum 15400 DXA.
+  // [#, HS Code, Origin, Description, Qty pcs, Cartons, Net kg, Gross kg, Price, Amount]
+  const widths = [400, 1200, 1100, 5400, 1100, 1000, 1100, 1100, 1100, 1900];
+  const headers = [
+    { text: '#', align: 'center' as const },
+    { text: 'HS Code', align: 'center' as const },
+    { text: bilingual('Origin', 'Страна'), align: 'center' as const },
+    { text: bilingual('Description', 'Описание'), align: 'left' as const },
+    { text: bilingual('Qty (pcs)', 'Кол-во'), align: 'right' as const },
+    { text: bilingual('Cartons', 'Кор-ов'), align: 'right' as const },
+    { text: bilingual('Net (kg)', 'Нетто'), align: 'right' as const },
+    { text: bilingual('Gross (kg)', 'Брутто'), align: 'right' as const },
+    { text: bilingual('Price', 'Цена'), align: 'right' as const },
+    { text: bilingual('Amount', 'Сумма'), align: 'right' as const },
   ];
 
-  const rows: string[][] = input.lineItems.map((li, idx) => {
-    const desc = bilingual(
-      li.description_en ?? li.invoice_label ?? li.product_id,
-      li.description_ru,
-    );
+  let totalQty = 0;
+  let totalCartons = 0;
+  let totalNet = 0;
+  let totalGross = 0;
+  let allWeightsKnown = true;
+
+  const rows: ProductCell[][] = input.lineItems.map((li, idx) => {
+    const desc = [li.description_en, li.description_ru]
+      .filter((x): x is string => !!x)
+      .join('\n')
+      || (li.invoice_label ?? li.product_id);
     const qtyPerCtn = li.ctn_qty ?? 0;
     const cartons = li.cartons > 0
       ? li.cartons
       : (qtyPerCtn > 0 ? Math.ceil(li.qty / qtyPerCtn) : 0);
-    const net = li.unit_net_weight_g !== null
-      ? ((li.qty * li.unit_net_weight_g) / 1000).toFixed(3)
-      : 'TBD';
-    const gross = (li.ctn_weight_gross_kg !== null && cartons > 0)
-      ? (cartons * li.ctn_weight_gross_kg).toFixed(3)
-      : 'TBD';
+    const lineNetKg = li.unit_net_weight_g !== null
+      ? (li.qty * li.unit_net_weight_g) / 1000 : null;
+    const lineGrossKg = (li.ctn_weight_gross_kg !== null && cartons > 0)
+      ? cartons * li.ctn_weight_gross_kg : null;
+
+    if (lineNetKg !== null) totalNet += lineNetKg; else allWeightsKnown = false;
+    if (lineGrossKg !== null) totalGross += lineGrossKg; else allWeightsKnown = false;
+    totalCartons += cartons;
+    totalQty += li.qty;
+
     return [
-      String(idx + 1),
-      li.hs_code ?? 'TBD',
-      bilingual(li.country_of_origin ?? 'China', 'Китай'),
-      desc,
-      String(li.qty),
-      String(cartons),
-      net,
-      gross,
-      formatMoney(li.unit_price_after_disc, input.currency),
-      formatMoney(li.line_amount, input.currency),
+      { text: String(idx + 1), align: 'center' },
+      { text: li.hs_code ?? 'TBD', align: 'center' },
+      { text: bilingual(li.country_of_origin ?? 'China', 'Китай'), align: 'center' },
+      { text: desc, align: 'left' },
+      { text: String(li.qty), align: 'right' },
+      { text: String(cartons), align: 'right' },
+      { text: lineNetKg !== null ? lineNetKg.toFixed(3) : 'TBD', align: 'right' },
+      { text: lineGrossKg !== null ? lineGrossKg.toFixed(3) : 'TBD', align: 'right' },
+      { text: formatMoney(li.unit_price_after_disc, input.currency), align: 'right' },
+      { text: formatMoney(li.line_amount, input.currency), align: 'right' },
     ];
+  });
+
+  // TOTAL row: merge the first 4 cells (label spans #..Description) and
+  // print Qty / Cartons / Net / Gross / Price / Amount (6 values).
+  const productTable = buildProductTable({
+    totalWidthDxa: LANDSCAPE_USABLE_DXA,
+    widths,
+    headers,
+    rows,
+    totalLabel: bilingual('TOTAL', 'ИТОГО'),
+    totalLabelSpan: 4,
+    totalValues: [
+      { text: String(totalQty), align: 'right' },
+      { text: String(totalCartons), align: 'right' },
+      { text: allWeightsKnown ? totalNet.toFixed(3) : 'TBD', align: 'right' },
+      { text: allWeightsKnown ? totalGross.toFixed(3) : 'TBD', align: 'right' },
+      { text: '', align: 'right' },
+      { text: formatMoney(input.totalMinor, input.currency), align: 'right' },
+    ],
   });
 
   const doc = new Document({
     creator: 'dasoperator-api',
     title: `IS-V1 ${input.reference}`,
     sections: [{
-      properties: { page: PAGE_LANDSCAPE },
+      properties: { page: LANDSCAPE_PAGE },
       children: [
-        heading('INVOICE-SPECIFICATION / СЧЁТ-СПЕЦИФИКАЦИЯ'),
+        buildTitle(titleText),
+        buildMetaRow(meta),
+        partyTable,
         blank(),
-        p(`${bilingual('Invoice No.', 'Инвойс №')}: ${input.reference}`, { bold: true }),
-        p(`${bilingual('Date', 'Дата')}: ${formatDate(input.issuedAt)}`),
-        ...(input.contract
-          ? [p(`${bilingual('Contract', 'Договор')}: ${input.contract.contract_no}`)] : []),
-        ...(input.contract?.unk_reference
-          ? [p(`УНК: ${input.contract.unk_reference}`)] : []),
-        ...(input.consigneeAtTerminal
-          ? [p(`${bilingual('Consignee at terminal', 'Получатель по ст.')}: ${input.consigneeAtTerminal}`)] : []),
+        deliveryBankTable,
         blank(),
-        partyTable({
-          language: 'BILINGUAL',
-          shipperLabel: bilingual('SHIPPER', 'ОТПРАВИТЕЛЬ'),
-          shipper: input.shipper,
-          consigneeLabel: bilingual('CONSIGNEE / BUYER', 'ПОЛУЧАТЕЛЬ / ПОКУПАТЕЛЬ'),
-          consignee: input.buyer,
-          sellerLabel: bilingual('SELLER', 'ПРОДАВЕЦ'),
-          seller: input.seller,
-          sellerDistinct: input.sellerDistinctFromShipper,
-        }),
-        blank(),
-        p(`${bilingual('Terms of delivery', 'Условия поставки')}: ${input.incoterms}`, { bold: true }),
-        ...(input.bank ? [blank(), ...bankBlock(input.bank, 'BILINGUAL')] : []),
-        blank(),
-        buildTableDxa(cols, rows),
-        blank(),
-        p(`${bilingual('TOTAL', 'ИТОГО')}: ${formatMoney(input.totalMinor, input.currency)}`,
-          { bold: true, size: 24 }, AlignmentType.RIGHT),
-        blank(),
-        ...signatureBlock(input.signature, 'BILINGUAL'),
+        productTable,
+        ...buildSignature(input.signature, 'BILINGUAL'),
       ],
     }],
   });
 
-  const buffer = await Packer.toBuffer(doc);
-  return new Uint8Array(buffer);
+  const buf = await Packer.toBuffer(doc);
+  return new Uint8Array(buf);
 }

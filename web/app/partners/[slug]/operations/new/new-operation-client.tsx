@@ -6,7 +6,7 @@ import { Loader2 } from 'lucide-react';
 import {
   getPartner, getPartnerContracts, getProductsList, getPartners,
   getCompanies, getManufacturers, getProductsByManufacturer,
-  getWarehouses, getPricelistMap,
+  getWarehouses, getPricelistMap, getStocks,
   createOperation, getProductPriceForContract,
   type Partner, type Contract, type Product, type ProductListItem, type Company, type Manufacturer,
   type Warehouse
@@ -85,6 +85,12 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   // Purchase pricelist — SKU → decimal price in CNY (from R2 via /api/pricer/list).
   // Loaded once when opType becomes 'purchase'. Used by handleProductChange.
   const [purchasePrices, setPurchasePrices] = useState<Record<string, number>>({});
+
+  // Per-warehouse on-hand stock map: productId → on_hand pieces.
+  // Reloaded whenever warehouseFromId changes. Used to render the "In stock"
+  // column in the line items grid so user sees what's available at the
+  // outgoing warehouse before deciding pieces.
+  const [stockMap, setStockMap] = useState<Record<string, number>>({});
 
   // First effect: load products + (always) companies + manufacturers + partners
   useEffect(() => {
@@ -261,6 +267,24 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
       }
     }).catch(() => setPurchasePrices({}));
   }, [opType]);
+
+  // Reload on-hand stock for the selected outgoing warehouse.
+  // Empty when no warehouse selected — column hides naturally.
+  useEffect(() => {
+    if (!warehouseFromId) {
+      setStockMap({});
+      return;
+    }
+    getStocks({ warehouse_id: warehouseFromId }).then((res) => {
+      if (res.success && res.result) {
+        const map: Record<string, number> = {};
+        for (const s of res.result.stocks) {
+          map[s.product_id] = s.on_hand;
+        }
+        setStockMap(map);
+      }
+    }).catch(() => setStockMap({}));
+  }, [warehouseFromId]);
 
   const isReadyForDetails = useMemo(() => {
     if (opType === 'sale')     return Boolean(contractId);
@@ -770,6 +794,9 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
             Floss: 'Floss',
             Other: 'Other',
           };
+          // Show "In stock" column only for sale/transfer (where outgoing
+          // warehouse stock matters) AND when a warehouse is selected.
+          const showStockColumn = Boolean(warehouseFromId) && opType !== 'purchase';
           const groups = order
             .map((cat) => ({
               cat,
@@ -827,6 +854,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                           <tr style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>
                             <Th>SKU</Th>
                             <Th>Name</Th>
+                            {showStockColumn && <Th>In stock</Th>}
                             <Th>Pieces</Th>
                             <Th>Cartons</Th>
                             <Th>Price ({effectiveCurrency || '—'})</Th>
@@ -853,6 +881,21 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                                 <td className="px-3 py-2" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
                                   {p.product_name}
                                 </td>
+                                {showStockColumn && (() => {
+                                  const onHand = stockMap[p.id] ?? 0;
+                                  const isLow = onHand <= 0;
+                                  return (
+                                    <td className="px-3 py-2" style={{
+                                      fontSize: '14px',
+                                      fontWeight: 700,
+                                      fontStyle: 'italic',
+                                      fontVariantNumeric: 'tabular-nums',
+                                      color: isLow ? 'var(--brand-rot)' : 'var(--fg-1)',
+                                    }}>
+                                      {onHand.toLocaleString('en-US')}
+                                    </td>
+                                  );
+                                })()}
                                 <td className="px-3 py-2">
                                   <input
                                     type="number"

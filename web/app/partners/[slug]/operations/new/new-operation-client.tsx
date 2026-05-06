@@ -268,6 +268,57 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
     return false;
   }, [opType, contractId, manufacturerId, ourCompanyId, receivingCompanyId]);
 
+  // When contract / opType / manufacturer changes, re-resolve prices for any
+  // already-picked line items. Without this, switching from a RUB contract to
+  // a USD contract would leave stale RUB prices in lines but the column header
+  // would now read "Price (USD)" — silent currency mismatch.
+  useEffect(() => {
+    if (!isReadyForDetails) return;
+    let cancelled = false;
+    async function refetch() {
+      const next: { idx: number; price: number }[] = [];
+      for (let idx = 0; idx < lineItems.length; idx++) {
+        const li = lineItems[idx]!;
+        if (!li.product_id) continue;
+        if (opType === 'sale' && contractId) {
+          try {
+            const res = await getProductPriceForContract(li.product_id, contractId);
+            if (res.success && res.result?.price !== null && res.result?.price !== undefined) {
+              next.push({ idx, price: res.result.price });
+            } else {
+              next.push({ idx, price: 0 });
+            }
+          } catch {
+            next.push({ idx, price: 0 });
+          }
+        } else if (opType === 'purchase') {
+          const sku = li.product_id.toUpperCase();
+          const decimal = purchasePrices[sku];
+          next.push({ idx, price: decimal ?? 0 });
+        } else {
+          next.push({ idx, price: 0 });
+        }
+      }
+      if (cancelled) return;
+      setLineItems((rows) => {
+        const updated = [...rows];
+        for (const { idx, price } of next) {
+          const row = updated[idx];
+          if (!row) continue;
+          updated[idx] = {
+            ...row,
+            unit_price: price,
+            line_total: Math.round(row.qty * price * (100 - row.discount_pct)) / 100,
+          };
+        }
+        return updated;
+      });
+    }
+    refetch();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contractId, opType, manufacturerId, isReadyForDetails]);
+
   // Products available for line items.
   // For Purchase: filtered by manufacturer via product_manufacturers M:N table
   //   (paste factories Honghui/Meizhiyuan/WDAA all produce same 9 pastes).

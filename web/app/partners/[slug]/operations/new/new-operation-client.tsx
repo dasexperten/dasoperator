@@ -152,6 +152,17 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
     return false;
   }, [opType, contractId, manufacturerId, ourCompanyId, receivingCompanyId]);
 
+  // Products filtered by manufacturer for Purchase ops
+  // (each factory makes only certain SKUs — Jinxia: brushes/floss/accessories;
+  //  paste factories Honghui/Meizhiyuan/WDAA: only toothpastes).
+  // For sale/transfer: all products available.
+  const availableProducts = useMemo(() => {
+    if (opType === 'purchase' && manufacturerId) {
+      return products.filter((p) => p.manufacturer_id === manufacturerId);
+    }
+    return products;
+  }, [products, opType, manufacturerId]);
+
   // Subtotal before overall discount
   const subtotal = useMemo(
     () => lineItems.reduce((sum, li) => sum + li.line_total, 0),
@@ -515,7 +526,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                     className="w-full px-2 py-1 text-sm focus:outline-none"
                     style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)', fontSize: '14px' }}>
                     <option value="">—</option>
-                    {products.map((p) => (
+                    {availableProducts.map((p) => (
                       <option key={p.id} value={p.id}>{p.id.replace('prd_', '').toUpperCase()} — {p.product_name}</option>
                     ))}
                   </select>

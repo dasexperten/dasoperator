@@ -2,15 +2,29 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Search, Loader2 } from 'lucide-react';
+import { Search, Loader2, Plus } from 'lucide-react';
 import { getPartners, getAllNetBalances, type Partner } from '@/lib/api';
 import NetBalance from '@/components/ui/net-balance';
 
 type ExtendedPartner = Partner & {
   entity_abbreviation?: string | null;
   price_type_code?: string | null;
+  crm_status?: 'lead' | 'potential' | 'active' | 'sleeping' | null;
 };
 
+// CRM status colors (Phase 5.x): visual semantics matching sales pipeline.
+//   lead       — fresh contact, no agreement signed (gray)
+//   potential  — NDA/MOU/LOI signed, no operations yet (warning amber)
+//   active     — at least one operation in progress (success green)
+//   sleeping   — was active but no shipped/delivered for 365+ days (muted)
+const CRM_COLORS: Record<string, { bg: string; fg: string; border: string }> = {
+  lead:      { bg: 'var(--paper-sunk)',     fg: 'var(--fg-3)',           border: 'var(--border-hairline)' },
+  potential: { bg: 'rgba(199,122,0,0.08)',  fg: 'var(--status-warning)', border: 'rgba(199,122,0,0.3)' },
+  active:    { bg: 'rgba(46,125,79,0.08)',  fg: 'var(--status-success)', border: 'rgba(46,125,79,0.3)' },
+  sleeping:  { bg: 'rgba(0,0,0,0.04)',      fg: 'var(--fg-3)',           border: 'var(--border-hairline)' },
+};
+
+// Legacy status colors kept as fallback when crm_status is missing
 const STATUS_COLORS: Record<Partner['status'], { bg: string; fg: string; border: string }> = {
   active:   { bg: 'rgba(46,125,79,0.08)',  fg: 'var(--status-success)', border: 'rgba(46,125,79,0.3)' },
   pending:  { bg: 'rgba(199,122,0,0.08)',  fg: 'var(--status-warning)', border: 'rgba(199,122,0,0.3)' },
@@ -78,7 +92,7 @@ export default function PartnersPage() {
                   (p.country?.toLowerCase().includes(q) ?? false);
         if (!m) return false;
       }
-      if (statusFilter !== 'all' && p.status !== statusFilter) return false;
+      if (statusFilter !== 'all' && (p.crm_status ?? p.status) !== statusFilter) return false;
       if (entityFilter !== 'all' && p.entity_abbreviation !== entityFilter) return false;
       return true;
     });
@@ -89,14 +103,26 @@ export default function PartnersPage() {
 
   return (
     <div className="space-y-8 max-w-7xl">
-      <div>
-        <div className="dx-eyebrow-rot mb-2">Master Data</div>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--fs-display-md)', fontWeight: 900, color: 'var(--fg-1)' }}>
-          Partners
-        </h1>
-        <p className="mt-2" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
-          {loading ? 'Loading...' : `${partners.length} partners · ${activeCount} active${pendingCount > 0 ? ` · ${pendingCount} pending` : ''}`}
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="dx-eyebrow-rot mb-2">Master Data</div>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--fs-display-md)', fontWeight: 900, color: 'var(--fg-1)' }}>
+            Partners
+          </h1>
+          <p className="mt-2" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
+            {loading ? 'Loading...' : `${partners.length} partners · ${activeCount} active${pendingCount > 0 ? ` · ${pendingCount} pending` : ''}`}
+          </p>
+        </div>
+        <Link
+          href="/partners/new"
+          className="inline-flex items-center gap-2 px-4 py-2 mt-2"
+          style={{
+            backgroundColor: 'var(--brand-rot)', color: 'var(--paper)',
+            borderRadius: 'var(--radius-sm)', fontSize: 'var(--fs-body-sm)', fontWeight: 600,
+          }}
+        >
+          <Plus className="h-4 w-4" /> Add new partner
+        </Link>
       </div>
 
       <div className="dx-ribbon-rule" />
@@ -119,10 +145,10 @@ export default function PartnersPage() {
             className="px-3 py-2 text-sm focus:outline-none"
             style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}>
             <option value="all">All statuses</option>
+            <option value="lead">Lead</option>
+            <option value="potential">Potential</option>
             <option value="active">Active</option>
-            <option value="pending">Pending</option>
-            <option value="inactive">Inactive</option>
-            <option value="blocked">Blocked</option>
+            <option value="sleeping">Sleeping</option>
           </select>
           <select value={entityFilter} onChange={(e) => setEntityFilter(e.target.value)}
             className="px-3 py-2 text-sm focus:outline-none"
@@ -155,7 +181,9 @@ export default function PartnersPage() {
                 <tr><td colSpan={7} className="text-center py-12" style={{ color: 'var(--fg-3)' }}>No partners match the filters</td></tr>
               ) : (
                 filtered.map((p) => {
-                  const statusStyle = STATUS_COLORS[p.status];
+                  // Prefer crm_status; fall back to legacy mapping
+                  const effective = p.crm_status ?? (p.status === 'pending' ? 'lead' : p.status);
+                  const statusStyle = CRM_COLORS[effective] ?? STATUS_COLORS[p.status];
                   return (
                     <tr key={p.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                       <td className="px-4 py-3">
@@ -169,7 +197,7 @@ export default function PartnersPage() {
                       <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>{p.entity_abbreviation ?? '—'}</td>
                       <td className="px-4 py-3">
                         <span className="inline-block" style={{ padding: '3px 8px', backgroundColor: statusStyle.bg, color: statusStyle.fg, border: `1px solid ${statusStyle.border}`, borderRadius: 'var(--radius-pill)' }}>
-                          {p.status}
+                          {effective}
                         </span>
                       </td>
                       <td className="px-4 py-3" style={{ fontWeight: 700 }}>

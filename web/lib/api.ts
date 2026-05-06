@@ -342,9 +342,22 @@ export interface Partner {
   contract_no?: string | null;
   contract_date?: number | null;
   email?: string | null;
+  // Legacy DB column with old CHECK constraint — keep for compat
   status: 'active' | 'inactive' | 'blocked' | 'pending';
+  // CRM source of truth — Phase 5.x
+  crm_status?: 'lead' | 'potential' | 'active' | 'sleeping' | null;
   partner_type: 'buyer' | 'supplier' | 'shipper' | 'other';
   notes?: string | null;
+  // Optional extended fields (PATCH-able)
+  legal_name_local?: string | null;
+  registered_address_local?: string | null;
+  inn?: string | null;
+  kpp?: string | null;
+  ogrn?: string | null;
+  payment_terms?: string | null;
+  preferred_incoterms?: string | null;
+  preferred_invoice_language?: 'EN' | 'RU' | 'BILINGUAL' | null;
+  last_verified?: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -359,6 +372,93 @@ export interface PartnersListResponse {
 
 export async function getPartners() {
   return apiGet<PartnersListResponse>('/api/partners');
+}
+
+// =============================================================================
+// Partner CRUD — Phase 5.x
+// =============================================================================
+export interface CreatePartnerBody {
+  trade_name: string;
+  partner_type: 'buyer' | 'supplier' | 'shipper' | 'other';
+  country?: string | null;
+  legal_name?: string | null;
+  email?: string | null;
+  notes?: string | null;
+}
+
+export async function createPartner(body: CreatePartnerBody) {
+  return apiPost<Partner>('/api/partners', body);
+}
+
+export type UpdatePartnerBody = Partial<{
+  trade_name: string;
+  legal_name: string | null;
+  country: string | null;
+  email: string | null;
+  partner_type: 'buyer' | 'supplier' | 'shipper' | 'other';
+  iban: string | null;
+  swift_bic: string | null;
+  bank_name: string | null;
+  tax_id: string | null;
+  inn: string | null;
+  kpp: string | null;
+  ogrn: string | null;
+  legal_name_local: string | null;
+  registered_address_local: string | null;
+  preferred_incoterms: string | null;
+  preferred_invoice_language: 'EN' | 'RU' | 'BILINGUAL' | null;
+  payment_terms: string | null;
+  linked_entity_id: string | null;
+  price_type_id: string | null;
+  currency: string | null;
+  notes: string | null;
+}>;
+
+export async function updatePartner(slug: string, body: UpdatePartnerBody) {
+  return apiPatch<{ id: string; updated_at: number; fields_updated: number }>(
+    `/api/partners/${slug}`, body
+  );
+}
+
+// Partner agreements (NDA / MOU / LOI / Contract) — drives CRM promotion lead → potential
+export interface PartnerAgreement {
+  id: string;
+  agreement_type: 'nda' | 'mou' | 'loi' | 'contract' | 'amendment' | 'other';
+  title?: string | null;
+  signed_date?: number | null;
+  expiry_date?: number | null;
+  file_r2_key?: string | null;
+  status: 'draft' | 'signed' | 'expired' | 'cancelled';
+  notes?: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export async function getPartnerAgreements(slug: string) {
+  return apiGet<{ partner_id: string; count: number; agreements: PartnerAgreement[] }>(
+    `/api/partners/${slug}/agreements`
+  );
+}
+
+export interface CreateAgreementBody {
+  agreement_type: 'nda' | 'mou' | 'loi' | 'contract' | 'amendment' | 'other';
+  title?: string | null;
+  signed_date?: number | null;
+  expiry_date?: number | null;
+  file_r2_key?: string | null;
+  status?: 'draft' | 'signed' | 'expired' | 'cancelled';
+  notes?: string | null;
+}
+
+export async function createPartnerAgreement(slug: string, body: CreateAgreementBody) {
+  return apiPost<{
+    id: string;
+    partner_id: string;
+    agreement_type: string;
+    status: string;
+    crm_promoted: boolean;
+    new_crm_status: string;
+  }>(`/api/partners/${slug}/agreements`, body);
 }
 
 // Internal entities (DEE/DEI/DEASEAN/DEC) — used in Transfer + Purchase (DEI as seller)

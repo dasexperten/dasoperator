@@ -258,6 +258,44 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [opType, ourCompanyId, receivingCompanyId]);
 
+  // Auto-select rules for single-option dropdowns:
+  // If a list has exactly one viable option, fill it in automatically so the
+  // user doesn't have to click an obvious choice.
+
+  // Sale: if the partner has exactly one active contract, pick it.
+  useEffect(() => {
+    if (opType !== 'sale') return;
+    if (contracts.length === 1 && !contractId) {
+      setContractId(contracts[0]!.id);
+    }
+  }, [opType, contracts, contractId]);
+
+  // Global mode: if there's exactly one active partner in the catalog, pick it.
+  useEffect(() => {
+    if (!isGlobalMode) return;
+    if (allPartners.length === 1 && !selectedPartnerSlug) {
+      setSelectedPartnerSlug(allPartners[0]!.id);
+    }
+  }, [isGlobalMode, allPartners, selectedPartnerSlug]);
+
+  // Purchase: if there's exactly one manufacturer, pick it.
+  useEffect(() => {
+    if (opType !== 'purchase') return;
+    if (manufacturers.length === 1 && !manufacturerId) {
+      setManufacturerId(manufacturers[0]!.id);
+    }
+  }, [opType, manufacturers, manufacturerId]);
+
+  // Transfer: if the receiving-entity list has exactly one option (i.e. only
+  // one company other than ourCompanyId), pick it.
+  useEffect(() => {
+    if (opType !== 'transfer') return;
+    const candidates = companies.filter((co) => co.id !== ourCompanyId);
+    if (candidates.length === 1 && !receivingCompanyId) {
+      setReceivingCompanyId(candidates[0]!.id);
+    }
+  }, [opType, companies, ourCompanyId, receivingCompanyId]);
+
   // Purchase pricelist — load once when entering purchase mode.
   // Cached in component state; used by handleProductChange to autofill price.
   useEffect(() => {

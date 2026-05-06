@@ -51,6 +51,7 @@ export default function ContractDetailClient({ partnerSlug: _partnerSlug, contra
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!partnerSlug || partnerSlug === '__fallback' || !contractId || contractId === '__fallback') return;
     const fetchData = async () => {
       try {
         const [cRes, pRes] = await Promise.all([

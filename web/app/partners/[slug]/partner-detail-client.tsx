@@ -110,6 +110,7 @@ export default function PartnerDetailClient({ slug: _slug }: { slug: string }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!slug || slug === '__fallback') return;
     const fetchAll = async () => {
       try {
         const [partnerRes, contractsRes, opsRes, paysRes, balRes, agrRes] = await Promise.all([

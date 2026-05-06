@@ -47,6 +47,7 @@ export default function NewContractClient({ partnerSlug: _partnerSlug }: { partn
   const [notes, setNotes] = useState('');
 
   useEffect(() => {
+    if (!partnerSlug || partnerSlug === '__fallback') return;
     const fetch = async () => {
       const res = await getPartner(partnerSlug);
       if (res.success && res.result) setPartner(res.result);

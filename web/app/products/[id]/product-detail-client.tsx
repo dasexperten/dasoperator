@@ -173,8 +173,10 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
+    if (id === '__fallback' || !id) return;
     const fetchAll = async () => {
       setLoading(true);
+      setError(null);
       try {
         const [pRes, sRes, prRes, aRes, iRes, wRes] = await Promise.all([
           getProduct(id),

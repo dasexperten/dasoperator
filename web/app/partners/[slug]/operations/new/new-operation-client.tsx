@@ -108,6 +108,7 @@ export default function NewOperationClient({ partnerSlug: _partnerSlug }: { part
 
   // First effect: load products + (always) companies + manufacturers + partners
   useEffect(() => {
+    if (!partnerSlug || partnerSlug === '__fallback') return;
     const fetchInitial = async () => {
       try {
         const [prodRes, partnersRes, companiesRes, manufacturersRes] = await Promise.all([

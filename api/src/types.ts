@@ -18,6 +18,10 @@ export interface Env {
   COUNTERS: KVNamespace;  // sequences cache (DEE-001, CI-202605-0001 etc)
   FX: KVNamespace;        // daily FX rates snapshot
   CACHE: KVNamespace;     // generic ERP cache (hot lookups, sessions)
+
+  // Secrets (Phase 5.x — LLM integration)
+  // Set via Cloudflare Workers secrets, never committed to repo.
+  DEEPSEEK_API_KEY: string;
 }
 
 // =============================================================================

@@ -2,8 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus, AlertTriangle, Loader2 } from 'lucide-react';
-import { getPartner, getPartnerContracts, getOperations, getPayments, getPartnerNetBalance, type Partner, type Contract, type Operation, type Payment, type PartnerNetBalance } from '@/lib/api';
+import { Plus, AlertTriangle, Loader2, FileText, Sparkles, Download } from 'lucide-react';
+import {
+  getPartner, getPartnerContracts, getOperations, getPayments, getPartnerNetBalance,
+  getPartnerAgreements, generatePartnerNda, agreementDownloadUrl,
+  type Partner, type Contract, type Operation, type Payment, type PartnerNetBalance,
+  type PartnerAgreement,
+} from '@/lib/api';
 import { CopyableValue, SectionCard } from '@/components/ui/copyable';
 import NetBalance from '@/components/ui/net-balance';
 import Breadcrumb from '@/components/layout/breadcrumb';
@@ -69,18 +74,22 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
   const [operations, setOperations] = useState<Operation[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [netBalance, setNetBalance] = useState<PartnerNetBalance | null>(null);
+  const [agreements, setAgreements] = useState<PartnerAgreement[]>([]);
+  const [generatingNda, setGeneratingNda] = useState(false);
+  const [ndaError, setNdaError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [partnerRes, contractsRes, opsRes, paysRes, balRes] = await Promise.all([
+        const [partnerRes, contractsRes, opsRes, paysRes, balRes, agrRes] = await Promise.all([
           getPartner(slug),
           getPartnerContracts(slug),
           getOperations({ partner_id: slug }),
           getPayments({ partner_id: slug }),
           getPartnerNetBalance(slug),
+          getPartnerAgreements(slug),
         ]);
 
         if (partnerRes.success && partnerRes.result) {
@@ -105,6 +114,10 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
         if (balRes.success && balRes.result) {
           setNetBalance(balRes.result);
         }
+
+        if (agrRes.success && agrRes.result) {
+          setAgreements(agrRes.result.agreements);
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
       } finally {
@@ -113,6 +126,34 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
     };
     fetchAll();
   }, [slug]);
+
+  // Trigger NDA generation via DeepSeek PRO. On success, refresh agreements list
+  // (and partner — promotion lead → potential happens server-side on FIRST signed
+  // agreement; for 'draft' generated NDA the promotion does NOT trigger yet).
+  async function handleGenerateNda() {
+    setNdaError(null);
+    setGeneratingNda(true);
+    try {
+      const res = await generatePartnerNda(slug);
+      if (res.success && res.result) {
+        // Refresh agreements list
+        const refreshed = await getPartnerAgreements(slug);
+        if (refreshed.success && refreshed.result) {
+          setAgreements(refreshed.result.agreements);
+        }
+        // Open download in new tab
+        window.open(res.result.download_url.startsWith('http')
+          ? res.result.download_url
+          : agreementDownloadUrl(slug, res.result.agreement_id), '_blank');
+      } else {
+        setNdaError(res.errors?.[0]?.message ?? 'Failed to generate NDA');
+      }
+    } catch (e) {
+      setNdaError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setGeneratingNda(false);
+    }
+  }
 
   if (loading) return <div className="flex items-center justify-center py-16"><Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--fg-muted)' }} /></div>;
 
@@ -204,6 +245,117 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
           size="large"
         />
       )}
+
+      {/* AGREEMENTS SECTION (Phase 5.x — NDA / MOU / LOI / Contract docs) */}
+      <div className="bg-card p-5" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <h2 style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: '20px',
+              fontWeight: 700,
+              color: 'var(--fg-1)',
+              textTransform: 'uppercase',
+              letterSpacing: '0',
+            }}>
+              Agreements
+            </h2>
+            <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
+              {agreements.length} on file
+            </span>
+          </div>
+          <button
+            onClick={handleGenerateNda}
+            disabled={generatingNda}
+            className="inline-flex items-center gap-2 px-4 py-2"
+            style={{
+              backgroundColor: generatingNda ? 'var(--paper-sunk)' : 'var(--brand-rot)',
+              color: generatingNda ? 'var(--fg-3)' : 'var(--paper)',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: '14px',
+              fontWeight: 600,
+              cursor: generatingNda ? 'not-allowed' : 'pointer',
+              border: 'none',
+            }}
+          >
+            {generatingNda ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Generating NDA via DeepSeek...
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4" />
+                Generate NDA
+              </>
+            )}
+          </button>
+        </div>
+
+        {ndaError && (
+          <div className="mb-4 p-3" style={{
+            backgroundColor: 'rgba(229,32,44,0.05)',
+            border: '1px solid rgba(229,32,44,0.2)',
+            color: 'var(--brand-rot)',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: '14px',
+          }}>
+            {ndaError}
+          </div>
+        )}
+
+        {agreements.length === 0 ? (
+          <p style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
+            No agreements yet. Click <strong>Generate NDA</strong> above to draft a Mutual NDA via DeepSeek.
+            A signed agreement will promote this partner from <strong>Lead</strong> to <strong>Potential</strong>.
+          </p>
+        ) : (
+          <table className="w-full" style={{ fontSize: '14px' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                <Th>Type</Th><Th>Title</Th><Th>Signed</Th><Th>Status</Th><Th>{' '}</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {agreements.map((agr) => (
+                <tr key={agr.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                  <td className="px-4 py-3" style={{ fontWeight: 700, textTransform: 'uppercase' }}>
+                    {agr.agreement_type}
+                  </td>
+                  <td className="px-4 py-3" style={{ color: 'var(--fg-1)' }}>{agr.title ?? '—'}</td>
+                  <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>{formatDate(agr.signed_date)}</td>
+                  <td className="px-4 py-3">
+                    <span className="inline-block" style={{
+                      padding: '3px 8px',
+                      borderRadius: 'var(--radius-pill)',
+                      fontSize: '14px',
+                      backgroundColor: agr.status === 'signed' ? 'rgba(46,125,79,0.08)' : 'var(--paper-sunk)',
+                      color: agr.status === 'signed' ? 'var(--status-success)' : 'var(--fg-3)',
+                      border: `1px solid ${agr.status === 'signed' ? 'rgba(46,125,79,0.3)' : 'var(--border-hairline)'}`,
+                    }}>
+                      {agr.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {agr.file_r2_key && (
+                      <a
+                        href={agreementDownloadUrl(slug, agr.id)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1"
+                        style={{ color: 'var(--brand-rot)', fontSize: '14px' }}
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Download
+                      </a>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
 
       {/* CONTRACTS SECTION */}
       <SectionListBlock

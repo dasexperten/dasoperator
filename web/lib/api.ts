@@ -461,6 +461,25 @@ export async function createPartnerAgreement(slug: string, body: CreateAgreement
   }>(`/api/partners/${slug}/agreements`, body);
 }
 
+// Generate NDA via DeepSeek PRO + render to DOCX + upload to R2
+export interface GenerateNdaResult {
+  agreement_id: string;
+  partner_id: string;
+  file_r2_key: string;
+  download_url: string;
+  status: string;
+  tokens_used: { in: number; out: number };
+}
+
+export async function generatePartnerNda(slug: string) {
+  return apiPost<GenerateNdaResult>(`/api/partners/${slug}/agreements/generate-nda`, {});
+}
+
+// Build absolute download URL for an agreement file
+export function agreementDownloadUrl(slug: string, agreementId: string): string {
+  return `${API_BASE}/api/partners/${slug}/agreements/${agreementId}/download`;
+}
+
 // Internal entities (DEE/DEI/DEASEAN/DEC) — used in Transfer + Purchase (DEI as seller)
 export interface Company {
   id: string;

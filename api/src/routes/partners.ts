@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
+import { generateNda, type DeiCompanyForNda } from '../lib/llm-tasks/generate-nda';
+import { markdownToDocxBuffer } from '../lib/md-to-docx';
 
 const partners = new Hono<{ Bindings: Env }>();
 
@@ -425,6 +427,224 @@ partners.post('/:slug/agreements', async (c) => {
   }, promoted
     ? [`Partner promoted: lead → potential (first signed ${data.agreement_type.toUpperCase()})`]
     : ['Agreement recorded']);
+});
+
+// =============================================================================
+// POST /api/partners/:slug/agreements/generate-nda
+// Workflow:
+//   1. Read partner data from DB (must have crm_status='lead')
+//   2. Read DEI company data from DB (cmp_dei) — currently DEI is the
+//      only signing entity for NDAs; if other entities are needed later
+//      we add ?signing_entity=cmp_dee param
+//   3. Read NDA template + skill extract from R2 das-pricelists
+//   4. Call DeepSeek PRO via legalizer-style prompt
+//   5. Render markdown → DOCX
+//   6. Upload to R2 das-erp-docs-dev under agreements/
+//   7. Insert partner_agreements row (status='draft', agreement_type='nda')
+//   8. Return agreement_id + download_url
+// =============================================================================
+partners.post('/:slug/agreements/generate-nda', async (c) => {
+  const slug = c.req.param('slug');
+
+  // Step 1 — partner
+  interface PartnerRow {
+    id: string;
+    trade_name: string;
+    legal_name: string | null;
+    country: string | null;
+    registered_address_local: string | null;
+    crm_status: string;
+    email: string | null;
+  }
+  const partner = await c.env.DB.prepare(
+    `SELECT id, trade_name, legal_name, country, registered_address_local,
+            crm_status, email
+     FROM partners WHERE id = ? AND deleted_at IS NULL`
+  ).bind(slug).first<PartnerRow>();
+
+  if (!partner) {
+    return fail(c, 404, [{ code: 'partner_not_found', message: `Partner ${slug} not found` }]);
+  }
+
+  // Step 2 — DEI
+  interface DeiRow {
+    legal_name: string;
+    jurisdiction: string;
+    registered_address: string;
+    registration_no: string;
+    signing_authority_name: string;
+    signing_authority_title_en: string;
+  }
+  const dei = await c.env.DB.prepare(
+    `SELECT legal_name, jurisdiction, registered_address, registration_no,
+            signing_authority_name, signing_authority_title_en
+     FROM companies WHERE id = 'cmp_dei'`
+  ).first<DeiRow>();
+
+  if (!dei || !dei.legal_name || !dei.signing_authority_name) {
+    return fail(c, 500, [{
+      code: 'dei_data_incomplete',
+      message: 'DEI company record is missing required fields for NDA generation',
+    }]);
+  }
+
+  // Step 3 — read templates from R2
+  const skillExtractObj = await c.env.PRICELISTS.get('templates/nda-skill-extract.md');
+  const templateObj = await c.env.PRICELISTS.get('templates/nda-mutual-en.md');
+
+  if (!skillExtractObj || !templateObj) {
+    return fail(c, 500, [{
+      code: 'template_missing',
+      message: 'NDA template or skill extract not found in R2',
+    }]);
+  }
+
+  const skillExtract = await skillExtractObj.text();
+  const template = await templateObj.text();
+
+  // Step 4 — call DeepSeek
+  const signingDate = new Date().toLocaleDateString('en-US', {
+    year: 'numeric', month: 'long', day: 'numeric',
+  });
+
+  const deiForNda: DeiCompanyForNda = {
+    legal_name: dei.legal_name,
+    jurisdiction: dei.jurisdiction,
+    registered_address: dei.registered_address,
+    registration_no: dei.registration_no,
+    signing_authority_name: dei.signing_authority_name,
+    signing_authority_title: dei.signing_authority_title_en,
+  };
+
+  let ndaMarkdown: string;
+  let tokensUsed: { in: number; out: number };
+  try {
+    const result = await generateNda({
+      partner: {
+        id: partner.id,
+        trade_name: partner.trade_name,
+        legal_name: partner.legal_name,
+        country: partner.country,
+        registered_address_local: partner.registered_address_local,
+      },
+      dei: deiForNda,
+      signingDate,
+      skillExtract,
+      template,
+      apiKey: c.env.DEEPSEEK_API_KEY,
+    });
+    ndaMarkdown = result.markdown;
+    tokensUsed = result.tokensUsed;
+  } catch (err) {
+    return fail(c, 500, [{
+      code: 'llm_failed',
+      message: 'DeepSeek call failed',
+      details: { error: err instanceof Error ? err.message : String(err) },
+    }]);
+  }
+
+  // Step 5 — render DOCX
+  let docxBuffer: Uint8Array;
+  try {
+    docxBuffer = await markdownToDocxBuffer(ndaMarkdown);
+  } catch (err) {
+    return fail(c, 500, [{
+      code: 'render_failed',
+      message: 'Markdown→DOCX rendering failed',
+      details: { error: err instanceof Error ? err.message : String(err) },
+    }]);
+  }
+
+  // Step 6 — upload to R2
+  const now = Math.floor(Date.now() / 1000);
+  const dateStr = new Date(now * 1000).toISOString().slice(0, 10);
+  const r2Key = `agreements/nda-${slug}-${dateStr}-${now}.docx`;
+
+  try {
+    await c.env.DOCS.put(r2Key, docxBuffer, {
+      httpMetadata: {
+        contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        contentDisposition: `attachment; filename="NDA-${partner.trade_name.replace(/[^a-z0-9]/gi, '_')}-${dateStr}.docx"`,
+      },
+    });
+  } catch (err) {
+    return fail(c, 500, [{
+      code: 'r2_upload_failed',
+      message: 'Failed to upload generated NDA to R2',
+      details: { error: err instanceof Error ? err.message : String(err) },
+    }]);
+  }
+
+  // Step 7 — insert agreement record (draft, not signed)
+  const agreementId = `agr_${crypto.randomUUID()}`;
+  try {
+    await c.env.DB.prepare(`
+      INSERT INTO partner_agreements (
+        id, partner_id, agreement_type, title, signed_date, expiry_date,
+        file_r2_key, status, notes, created_at, updated_at
+      ) VALUES (?, ?, 'nda', ?, NULL, NULL, ?, 'draft', ?, ?, ?)
+    `).bind(
+      agreementId, slug,
+      `Mutual NDA — ${partner.trade_name} (${dateStr})`,
+      r2Key,
+      `Generated by DeepSeek PRO. Tokens: ${tokensUsed.in} in, ${tokensUsed.out} out.`,
+      now, now
+    ).run();
+  } catch (err) {
+    return fail(c, 500, [{
+      code: 'db_insert_failed',
+      message: 'NDA generated but failed to record in DB',
+      details: { error: err instanceof Error ? err.message : String(err), r2_key: r2Key },
+    }]);
+  }
+
+  return ok(c, {
+    agreement_id: agreementId,
+    partner_id: slug,
+    file_r2_key: r2Key,
+    download_url: `/api/partners/${slug}/agreements/${agreementId}/download`,
+    status: 'draft',
+    tokens_used: tokensUsed,
+  }, [`NDA generated. Status: draft. Send to ${partner.email ?? 'partner'} for signing.`]);
+});
+
+// =============================================================================
+// GET /api/partners/:slug/agreements/:id/download
+// Streams the agreement file from R2 directly to the browser.
+// =============================================================================
+partners.get('/:slug/agreements/:id/download', async (c) => {
+  const slug = c.req.param('slug');
+  const id = c.req.param('id');
+
+  const agreement = await c.env.DB.prepare(
+    `SELECT file_r2_key, agreement_type, title
+     FROM partner_agreements
+     WHERE id = ? AND partner_id = ? AND deleted_at IS NULL`
+  ).bind(id, slug).first<{ file_r2_key: string | null; agreement_type: string; title: string | null }>();
+
+  if (!agreement) {
+    return fail(c, 404, [{ code: 'agreement_not_found', message: `Agreement ${id} not found` }]);
+  }
+
+  if (!agreement.file_r2_key) {
+    return fail(c, 404, [{ code: 'no_file', message: 'Agreement has no attached file' }]);
+  }
+
+  const obj = await c.env.DOCS.get(agreement.file_r2_key);
+  if (!obj) {
+    return fail(c, 404, [{ code: 'r2_file_missing', message: `File ${agreement.file_r2_key} not in R2` }]);
+  }
+
+  const filename = agreement.title
+    ? `${agreement.title.replace(/[^\w\s-]/g, '_')}.docx`
+    : `${agreement.agreement_type}.docx`;
+
+  return new Response(obj.body, {
+    headers: {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    },
+  });
 });
 
 export default partners;

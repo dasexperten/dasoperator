@@ -23,10 +23,11 @@ export interface Env {
   // Set via Cloudflare Workers secrets, never committed to repo.
   DEEPSEEK_API_KEY: string;
 
-  // Secrets (Phase 6.0 — marketplace integration)
-  // Set via Cloudflare Workers secrets, never committed to repo.
+  // Marketplace API credentials (Phase 6.0 — marketplace integrations)
+  // Ozon Seller API (https://api-seller.ozon.ru) — Client-Id + Api-Key headers
   OZON_CLIENT_ID: string;
   OZON_API_KEY: string;
+  // Wildberries API (https://*-api.wildberries.ru) — bare token, no Bearer prefix
   WB_API_TOKEN: string;
 }
 

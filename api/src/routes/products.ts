@@ -139,6 +139,8 @@ interface StockJoinRow {
   code: string;
   warehouse_name: string;
   on_hand: number;
+  marketplace_ozon: number;
+  marketplace_wb: number;
 }
 
 products.get('/with-stock', async (c) => {
@@ -152,12 +154,24 @@ products.get('/with-stock', async (c) => {
       w.id AS warehouse_id,
       w.code,
       w.name AS warehouse_name,
-      COALESCE(s.on_hand, 0) AS on_hand
+      COALESCE(s.on_hand, 0) AS on_hand,
+      COALESCE(oz.qty, 0) AS marketplace_ozon,
+      COALESCE(wb.qty, 0) AS marketplace_wb
     FROM products p
     CROSS JOIN warehouses w
     LEFT JOIN stocks s
       ON s.product_id = p.id
      AND s.warehouse_id = w.id
+    LEFT JOIN (
+      SELECT base_sku, SUM(fbo_available * pack_factor) AS qty
+      FROM marketplace_stocks_ozon
+      GROUP BY base_sku
+    ) oz ON oz.base_sku = p.id
+    LEFT JOIN (
+      SELECT base_sku, SUM(quantity * pack_factor) AS qty
+      FROM marketplace_stocks_wb
+      GROUP BY base_sku
+    ) wb ON wb.base_sku = p.id
     WHERE p.deleted_at IS NULL
       AND w.deleted_at IS NULL
     ORDER BY p.product_name, w.code
@@ -170,6 +184,8 @@ products.get('/with-stock', async (c) => {
     manufacturer_id: string | null;
     pieces_per_case: number;
     total_on_hand: number;
+    marketplace_ozon: number;
+    marketplace_wb: number;
     warehouses: Array<{ warehouse_id: string; code: string; name: string; on_hand: number }>;
   }>();
 
@@ -183,6 +199,8 @@ products.get('/with-stock', async (c) => {
         manufacturer_id: row.manufacturer_id,
         pieces_per_case: row.pieces_per_case,
         total_on_hand: 0,
+        marketplace_ozon: row.marketplace_ozon,
+        marketplace_wb: row.marketplace_wb,
         warehouses: [],
       };
       byProduct.set(row.product_id, prod);

@@ -4,14 +4,13 @@ import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Loader2, Search } from 'lucide-react';
 import {
-  getProductsWithStock, getWarehouses, getMarketplaceStocks,
-  type ProductWithStock, type Warehouse, type MarketplaceStockRow,
+  getProductsWithStock, getWarehouses,
+  type ProductWithStock, type Warehouse,
 } from '@/lib/api';
 
 export default function WarehousesPage() {
   const [products, setProducts] = useState<ProductWithStock[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [marketplaces, setMarketplaces] = useState<Record<string, MarketplaceStockRow>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -20,10 +19,9 @@ export default function WarehousesPage() {
     const fetchAll = async () => {
       setLoading(true);
       try {
-        const [stockRes, whRes, mpRes] = await Promise.all([
+        const [stockRes, whRes] = await Promise.all([
           getProductsWithStock(),
           getWarehouses(),
-          getMarketplaceStocks(),
         ]);
         if (stockRes.success && stockRes.result) {
           setProducts(stockRes.result.products);
@@ -32,12 +30,6 @@ export default function WarehousesPage() {
         }
         if (whRes.success && whRes.result) {
           setWarehouses(whRes.result.warehouses);
-        }
-        if (mpRes.success && mpRes.result) {
-          // Index by canonical SKU for O(1) lookup per row
-          const byId: Record<string, MarketplaceStockRow> = {};
-          for (const row of mpRes.result.products) byId[row.sku] = row;
-          setMarketplaces(byId);
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
@@ -70,17 +62,20 @@ export default function WarehousesPage() {
     return { totals, grandTotal };
   }, [products]);
 
-  // Sums for marketplace columns (footer Total row)
-  const marketplaceTotals = useMemo(() => {
-    let ozon = 0, wb = 0;
+  // Marketplace footer totals — sum across visible products
+  const totalsByMarketplace = useMemo(() => {
+    let ozon = 0;
+    let wb = 0;
     for (const p of products) {
-      const m = marketplaces[p.id];
-      if (!m) continue;
-      ozon += m.ozon || 0;
-      wb   += m.wb || 0;
+      ozon += p.marketplace_ozon ?? 0;
+      wb += p.marketplace_wb ?? 0;
     }
     return { ozon, wb };
-  }, [products, marketplaces]);
+  }, [products]);
+
+  // Marketplace tint colors — keep light to match warehouse-group tints
+  const TINT_OZON = 'rgba(55, 138, 221, 0.06)';
+  const TINT_WB = 'rgba(217, 90, 48, 0.06)';
 
   // Sort warehouses by [country group, code]. Russia first (pink), then
   // transit (mint), then China (blue). Header, body cells, and footer
@@ -99,7 +94,7 @@ export default function WarehousesPage() {
             fontFamily: 'var(--font-display)',
             fontSize: 'var(--fs-display-md)',
             fontWeight: 900,
-           
+            
             color: 'var(--fg-1)',
           }}
         >
@@ -153,8 +148,8 @@ export default function WarehousesPage() {
                     </Link>
                   </Th>
                 ))}
-                <Th center bg={MARKETPLACE_TINT.ozon}>Ozon</Th>
-                <Th center bg={MARKETPLACE_TINT.wb}>WB</Th>
+                <Th center bg={TINT_OZON}>Ozon</Th>
+                <Th center bg={TINT_WB}>WB</Th>
                 <Th center accent>Total</Th>
               </tr>
             </thead>
@@ -172,10 +167,6 @@ export default function WarehousesPage() {
                   // Map by warehouse_id for fast lookup
                   const byWh: Record<string, number> = {};
                   for (const w of p.warehouses) byWh[w.warehouse_id] = w.on_hand;
-
-                  const mp = marketplaces[p.id];
-                  const ozonVal = mp?.ozon ?? 0;
-                  const wbVal   = mp?.wb ?? 0;
 
                   return (
                     <tr key={p.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
@@ -196,8 +187,22 @@ export default function WarehousesPage() {
                           />
                         );
                       })}
-                      <MarketplaceCellTd value={ozonVal} tint={MARKETPLACE_TINT.ozon} />
-                      <MarketplaceCellTd value={wbVal}   tint={MARKETPLACE_TINT.wb} />
+                      <td className="px-3 py-2 text-right" style={{
+                        fontSize: '14px',
+                        fontWeight: p.marketplace_ozon > 0 ? 700 : 400,
+                        color: p.marketplace_ozon > 0 ? 'var(--fg-1)' : 'var(--fg-muted)',
+                        backgroundColor: TINT_OZON,
+                      }}>
+                        {p.marketplace_ozon > 0 ? p.marketplace_ozon.toLocaleString('en-US') : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-right" style={{
+                        fontSize: '14px',
+                        fontWeight: p.marketplace_wb > 0 ? 700 : 400,
+                        color: p.marketplace_wb > 0 ? 'var(--fg-1)' : 'var(--fg-muted)',
+                        backgroundColor: TINT_WB,
+                      }}>
+                        {p.marketplace_wb > 0 ? p.marketplace_wb.toLocaleString('en-US') : '—'}
+                      </td>
                       <td className="px-3 py-2 text-right" style={{
                         fontSize: '14px',
                         fontWeight: 700,
@@ -230,17 +235,17 @@ export default function WarehousesPage() {
                     fontSize: '14px',
                     fontWeight: 700,
                     color: 'var(--fg-1)',
-                    backgroundColor: MARKETPLACE_TINT.ozon,
+                    backgroundColor: TINT_OZON,
                   }}>
-                    {marketplaceTotals.ozon.toLocaleString('en-US')}
+                    {totalsByMarketplace.ozon.toLocaleString('en-US')}
                   </td>
                   <td className="px-3 py-2 text-right" style={{
                     fontSize: '14px',
                     fontWeight: 700,
                     color: 'var(--fg-1)',
-                    backgroundColor: MARKETPLACE_TINT.wb,
+                    backgroundColor: TINT_WB,
                   }}>
-                    {marketplaceTotals.wb.toLocaleString('en-US')}
+                    {totalsByMarketplace.wb.toLocaleString('en-US')}
                   </td>
                   <td className="px-3 py-2 text-right" style={{
                     fontSize: '14px',
@@ -263,9 +268,13 @@ export default function WarehousesPage() {
 // =============================================================================
 // Country grouping → soft column tint (Phase 4.4 follow-up)
 // =============================================================================
+// Group derivation by warehouse.country (no hardcoded code list — DGN/future
+// warehouses fall into the right bucket automatically as long as country
+// field is set in /api/warehouses).
 type CountryGroup = 'russia' | 'china' | 'transit';
 
 function groupForWarehouse(wh: { country?: string | null }): CountryGroup {
+  // Defensive normalization: trim whitespace, fall through if null/empty.
   const c = (wh.country ?? '').trim();
   if (c === 'Russia') return 'russia';
   if (c === 'China') return 'china';
@@ -293,14 +302,12 @@ const TINT_BY_GROUP: Record<CountryGroup, string> = {
   transit: 'rgba(225, 245, 238, 0.5)',  // neutral mint
 };
 
-// Phase 6.0 — marketplace columns get their own tints, distinct from physical wh.
-// Ozon = blue brand. Wildberries = pink/violet brand.
-const MARKETPLACE_TINT = {
-  ozon: 'rgba(0, 91, 255, 0.06)',
-  wb:   'rgba(203, 17, 122, 0.06)',
-};
-
 function StockCellTd({ value, href, tint }: { value: number; href: string; tint?: string }) {
+  // Cell coloring rules (Phase 4.4) — semantic warning bg overrides country tint:
+  //   0       → muted text, fall through to tint
+  //   1-50    → red bg + red text (tint hidden)
+  //   51-200  → amber bg + amber text (tint hidden)
+  //   201+    → fall through to tint
   let bg: string | undefined = tint;
   let color: string;
   if (value === 0) {
@@ -320,17 +327,6 @@ function StockCellTd({ value, href, tint }: { value: number; href: string; tint?
       <Link href={href} style={{ color: 'inherit' }}>
         {value === 0 ? '—' : value.toLocaleString('en-US')}
       </Link>
-    </td>
-  );
-}
-
-// Marketplace cell — same tint always (no semantic warning recolor).
-// Marketplaces have their own logic (low on FBO ≠ critical, may be in transit).
-function MarketplaceCellTd({ value, tint }: { value: number; tint: string }) {
-  const color = value === 0 ? 'var(--fg-muted)' : 'var(--fg-1)';
-  return (
-    <td className="px-3 py-2 text-right" style={{ backgroundColor: tint, fontSize: '14px', color, fontWeight: value > 0 ? 600 : 400 }}>
-      {value === 0 ? '—' : value.toLocaleString('en-US')}
     </td>
   );
 }

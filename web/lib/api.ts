@@ -972,6 +972,8 @@ export interface ProductWithStock {
   manufacturer_id: string | null;
   pieces_per_case: number;
   total_on_hand: number;
+  marketplace_ozon: number;
+  marketplace_wb: number;
   warehouses: ProductWarehouseStock[];
 }
 

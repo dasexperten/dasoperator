@@ -82,22 +82,7 @@ function formatMoney(minor: number, currency: string): string {
   });
 }
 
-
-// SPA-fallback URL resolvers — when route matches __fallback static page,
-// derive the real id from window.location at runtime.
-function resolve_slug(propValue: string): string {
-  if (typeof window !== 'undefined') {
-    const m = window.location.pathname.match(/^\/partners\/([^\/]+)/);
-    if (m && m[1] && m[1] !== '__fallback') {
-      return decodeURIComponent(m[1]);
-    }
-  }
-  return propValue;
-}
-
-export default function PartnerDetailClient({ slug: _slug }: { slug: string }) {
-  const [slug, set_slug] = useState(_slug);
-  useEffect(() => { set_slug(resolve_slug(_slug)); }, [_slug]);
+export default function PartnerDetailClient({ slug }: { slug: string }) {
   const [partner, setPartner] = useState<Partner | null>(null);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [operations, setOperations] = useState<Operation[]>([]);

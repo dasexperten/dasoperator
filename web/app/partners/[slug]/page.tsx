@@ -1,30 +1,20 @@
 import PartnerDetailClient from './partner-detail-client';
 
-const API_BASE = 'https://dasoperator-api.dasexperten.workers.dev';
+// =============================================================================
+// /partners/[slug] — server component shell for Static Export.
+// generateStaticParams enumerates all 6 partner slugs from Phase 1.2 seed.
+// Update when adding/removing partners.
+// =============================================================================
 
-export const dynamicParams = false;
-
-export async function generateStaticParams() {
-  let slugs: Array<{ slug: string }> = [];
-  try {
-    const res = await fetch(`${API_BASE}/api/partners`, { cache: 'no-store' });
-    if (res.ok) {
-      const data = (await res.json()) as { success: boolean; result?: { partners?: Array<{ id: string }> } };
-      if (data.success && data.result?.partners) {
-        slugs = data.result.partners.map((p) => ({ slug: p.id }));
-      }
-    }
-  } catch (err) {
-    console.error('generateStaticParams partners failed', err);
-  }
-  if (slugs.length === 0) {
-    slugs = [
-      { slug: 'torwey' }, { slug: 'tama' }, { slug: 'tori_georgia' },
-      { slug: 'vip_sales' }, { slug: 'arvitpharm' }, { slug: 'natusana' },
-    ];
-  }
-  slugs.push({ slug: '__fallback' });
-  return slugs;
+export function generateStaticParams() {
+  return [
+    { slug: 'torwey' },
+    { slug: 'tama' },
+    { slug: 'tori_georgia' },
+    { slug: 'vip_sales' },
+    { slug: 'arvitpharm' },
+    { slug: 'natusana' },
+  ];
 }
 
 export default function PartnerDetailPage({ params }: { params: { slug: string } }) {

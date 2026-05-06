@@ -41,22 +41,7 @@ const selectStyle: React.CSSProperties = {
   color: 'var(--fg-1)',
 };
 
-
-// SPA-fallback URL resolvers — when route matches __fallback static page,
-// derive the real id from window.location at runtime.
-function resolve_partnerSlug(propValue: string): string {
-  if (typeof window !== 'undefined') {
-    const m = window.location.pathname.match(/^\/partners\/([^\/]+)/);
-    if (m && m[1] && m[1] !== '__fallback') {
-      return decodeURIComponent(m[1]);
-    }
-  }
-  return propValue;
-}
-
-export default function NewOperationClient({ partnerSlug: _partnerSlug }: { partnerSlug: string }) {
-  const [partnerSlug, set_partnerSlug] = useState(_partnerSlug);
-  useEffect(() => { set_partnerSlug(resolve_partnerSlug(_partnerSlug)); }, [_partnerSlug]);
+export default function NewOperationClient({ partnerSlug }: { partnerSlug: string }) {
   const router = useRouter();
 
   // Reference data

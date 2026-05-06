@@ -18,33 +18,7 @@ function formatDate(unix?: number | null): string {
   return new Date(unix * 1000).toISOString().split('T')[0]!;
 }
 
-
-// SPA-fallback URL resolvers — when route matches __fallback static page,
-// derive the real id from window.location at runtime.
-function resolve_partnerSlug(propValue: string): string {
-  if (typeof window !== 'undefined') {
-    const m = window.location.pathname.match(/^\/partners\/([^\/]+)/);
-    if (m && m[1] && m[1] !== '__fallback') {
-      return decodeURIComponent(m[1]);
-    }
-  }
-  return propValue;
-}
-function resolve_contractId(propValue: string): string {
-  if (typeof window !== 'undefined') {
-    const m = window.location.pathname.match(/\/contracts\/([^\/]+)/);
-    if (m && m[1] && m[1] !== '__fallback') {
-      return decodeURIComponent(m[1]);
-    }
-  }
-  return propValue;
-}
-
-export default function ContractDetailClient({ partnerSlug: _partnerSlug, contractId: _contractId }: { partnerSlug: string; contractId: string }) {
-  const [partnerSlug, set_partnerSlug] = useState(_partnerSlug);
-  useEffect(() => { set_partnerSlug(resolve_partnerSlug(_partnerSlug)); }, [_partnerSlug]);
-  const [contractId, set_contractId] = useState(_contractId);
-  useEffect(() => { set_contractId(resolve_contractId(_contractId)); }, [_contractId]);
+export default function ContractDetailClient({ partnerSlug, contractId }: { partnerSlug: string; contractId: string }) {
   const [contract, setContract] = useState<Contract | null>(null);
   const [partner, setPartner] = useState<Partner | null>(null);
   const [loading, setLoading] = useState(true);

@@ -143,22 +143,9 @@ function Card({ children, style }: { children: React.ReactNode; style?: React.CS
 // Main client component
 // =============================================================================
 
-// Resolve the actual product id. When the page is rendered via the
-// __fallback static route (see _redirects), the route param is the literal
-// "__fallback" — we read the real id from the URL instead.
-function resolveProductId(sku: string): string {
-  if (typeof window !== 'undefined') {
-    const m = window.location.pathname.match(/\/products\/([^/]+)/);
-    if (m && m[1] && m[1] !== '__fallback') {
-      return decodeURIComponent(m[1]).toLowerCase();
-    }
-  }
-  return sku.toLowerCase();
-}
-
 export default function ProductDetailClient({ sku }: { sku: string }) {
-  const [id, setId] = useState(sku.toLowerCase());
-  useEffect(() => { setId(resolveProductId(sku)); }, [sku]);
+  const id = sku.toLowerCase();
+
   const [product, setProduct] = useState<ProductFull | null>(null);
   const [stock, setStock] = useState<ProductStockResponse | null>(null);
   const [prices, setPrices] = useState<ProductPriceRow[]>([]);

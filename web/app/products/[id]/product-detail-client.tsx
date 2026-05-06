@@ -2,13 +2,14 @@
 
 import { useEffect, useState, useRef, useMemo } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, Star, Trash2, Upload } from 'lucide-react';
+import { ArrowLeft, Loader2, Star, Trash2, Upload, Pencil, Save as SaveIcon, X } from 'lucide-react';
 import {
   getProduct, getProductStock, getProductPrices, getProductActivity,
   getProductImages, uploadProductImage, setPrimaryImage, deleteProductImage,
-  getWarehouses,
+  getWarehouses, getManufacturers, updateProduct,
   type ProductFull, type ProductPriceRow, type ProductActivityRow,
   type ProductImage, type Warehouse, type ProductStockResponse,
+  type Manufacturer, type UpdateProductBody,
 } from '@/lib/api';
 
 // =============================================================================
@@ -157,6 +158,13 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
+  // Edit mode state
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<UpdateProductBody>({});
+  const [manufacturers, setManufacturers] = useState<Manufacturer[]>([]);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -182,6 +190,10 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
         if (aRes.success && aRes.result) setActivity(aRes.result.activity);
         if (iRes.success && iRes.result) setImages(iRes.result.images);
         if (wRes.success && wRes.result) setWarehouses(wRes.result.warehouses);
+        // Lazy-load manufacturers for edit dropdown (non-blocking)
+        getManufacturers().then((mRes) => {
+          if (mRes.success && mRes.result) setManufacturers(mRes.result.manufacturers);
+        });
         setError(null);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
@@ -288,6 +300,61 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
     );
   }
 
+  function handleEditStart() {
+    if (!product) return;
+    setDraft({
+      product_name: product.product_name,
+      invoice_label: product.invoice_label,
+      category: product.category,
+      manufacturer_id: product.manufacturer_id,
+      barcode: product.barcode ?? null,
+      country_of_origin: product.country_of_origin ?? null,
+      hs_code: product.hs_code ?? null,
+      pieces_per_case: product.pieces_per_case ?? 1,
+      ctn_qty: product.ctn_qty ?? null,
+      ctn_weight_gross_kg: product.ctn_weight_gross_kg ?? null,
+      ctn_dim_l_cm: product.ctn_dim_l_cm ?? null,
+      ctn_dim_w_cm: product.ctn_dim_w_cm ?? null,
+      ctn_dim_h_cm: product.ctn_dim_h_cm ?? null,
+      unit_net_weight_g: product.unit_net_weight_g ?? null,
+      description_ru: product.description_ru ?? null,
+      description_en: product.description_en ?? null,
+      description_cn: product.description_cn ?? null,
+      notes: product.notes ?? null,
+    });
+    setEditError(null);
+    setEditing(true);
+  }
+
+  function handleEditCancel() {
+    setDraft({});
+    setEditError(null);
+    setEditing(false);
+  }
+
+  async function handleEditSave() {
+    if (!product) return;
+    setEditError(null);
+    setSaving(true);
+    try {
+      const res = await updateProduct(id, draft);
+      if (res.success && res.result) {
+        // Re-fetch full product (response is partial — server returns row only,
+        // but joined fields like manufacturer_name come from JOIN)
+        const fresh = await getProduct(id);
+        if (fresh.success && fresh.result) setProduct(fresh.result);
+        setEditing(false);
+        setDraft({});
+      } else {
+        setEditError(res.errors?.[0]?.message ?? 'Failed to save changes');
+      }
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const totalOnHand = stock?.total_on_hand ?? 0;
   const warehousesWithStock = stock?.by_warehouse.filter((w) => w.on_hand > 0).length ?? 0;
   const idUpper = product.id.toUpperCase();
@@ -310,16 +377,79 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
             {' · '}{product.manufacturer_name ?? '—'}
           </p>
         </div>
-        <Link href="/products" style={{
-          fontSize: '14px',
-          color: '#6B6B6B',
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '4px',
-          padding: '8px 12px',
-        }}>
-          <ArrowLeft className="h-4 w-4" />Back to products
-        </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Link href="/products" style={{
+            fontSize: '14px',
+            color: '#6B6B6B',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            padding: '8px 12px',
+          }}>
+            <ArrowLeft className="h-4 w-4" />Back to products
+          </Link>
+          {!editing ? (
+            <button
+              onClick={handleEditStart}
+              style={{
+                fontSize: '14px',
+                fontWeight: 600,
+                color: '#FFFFFF',
+                backgroundColor: 'var(--brand-rot, #C8102E)',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '8px 16px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: 'pointer',
+              }}
+            >
+              <Pencil className="h-4 w-4" /> Edit
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={handleEditCancel}
+                disabled={saving}
+                style={{
+                  fontSize: '14px',
+                  color: '#6B6B6B',
+                  backgroundColor: 'transparent',
+                  border: '0.5px solid #E0DCD7',
+                  borderRadius: '6px',
+                  padding: '8px 14px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                }}
+              >
+                <X className="h-4 w-4" /> Cancel
+              </button>
+              <button
+                onClick={handleEditSave}
+                disabled={saving}
+                style={{
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  color: '#FFFFFF',
+                  backgroundColor: 'var(--brand-rot, #C8102E)',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '8px 16px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: saving ? 'not-allowed' : 'pointer',
+                  opacity: saving ? 0.6 : 1,
+                }}
+              >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <SaveIcon className="h-4 w-4" />} Save
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* SECTION 1 — At a glance */}
@@ -445,6 +575,19 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
       </Card>
 
       {/* SECTION 4 — Master data + Logistics (two columns) */}
+      {editError && (
+        <div style={{
+          marginBottom: '16px',
+          padding: '12px 16px',
+          backgroundColor: '#FBE9E9',
+          border: '1px solid #E5B3B3',
+          borderRadius: '6px',
+          color: '#A32D2D',
+          fontSize: '14px',
+        }}>
+          {editError}
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
         <div style={{
           backgroundColor: '#FFFFFF',
@@ -453,15 +596,63 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
           padding: '20px 24px',
         }}>
           <SectionEyebrow label="Master data" role="master" />
-          <DefList rows={[
-            { label: 'SKU', value: idUpper, mono: true },
-            { label: 'Invoice label', value: product.invoice_label },
-            { label: 'Category', value: product.category },
-            { label: 'Barcode', value: product.barcode ?? '—', mono: true },
-            { label: 'Manufacturer', value: `${product.manufacturer_name ?? '—'}${product.manufacturer_country ? ` (${product.manufacturer_country})` : ''}` },
-            { label: 'Country of origin', value: product.country_of_origin ?? '—' },
-            { label: 'Notes', value: product.notes ?? '—' },
-          ]} />
+          {!editing ? (
+            <DefList rows={[
+              { label: 'SKU', value: idUpper, mono: true },
+              { label: 'Invoice label', value: product.invoice_label },
+              { label: 'Category', value: product.category },
+              { label: 'Barcode', value: product.barcode ?? '—', mono: true },
+              { label: 'Manufacturer', value: `${product.manufacturer_name ?? '—'}${product.manufacturer_country ? ` (${product.manufacturer_country})` : ''}` },
+              { label: 'Country of origin', value: product.country_of_origin ?? '—' },
+              { label: 'Notes', value: product.notes ?? '—' },
+            ]} />
+          ) : (
+            <div style={{ display: 'grid', gap: '12px' }}>
+              <EditField label="SKU (read-only)">
+                <input type="text" value={idUpper} disabled style={readOnlyInput} />
+              </EditField>
+              <EditField label="Product name">
+                <input type="text" value={draft.product_name ?? ''}
+                  onChange={(e) => setDraft({ ...draft, product_name: e.target.value })} style={editInput} />
+              </EditField>
+              <EditField label="Invoice label">
+                <input type="text" value={draft.invoice_label ?? ''}
+                  onChange={(e) => setDraft({ ...draft, invoice_label: e.target.value })} style={editInput} />
+              </EditField>
+              <EditField label="Category">
+                <select value={draft.category ?? 'Other'}
+                  onChange={(e) => setDraft({ ...draft, category: e.target.value as 'Toothpaste' | 'Toothbrush' | 'Floss' | 'Other' })}
+                  style={editInput}>
+                  <option value="Toothpaste">Toothpaste</option>
+                  <option value="Toothbrush">Toothbrush</option>
+                  <option value="Floss">Floss</option>
+                  <option value="Other">Other</option>
+                </select>
+              </EditField>
+              <EditField label="Manufacturer">
+                <select value={draft.manufacturer_id ?? ''}
+                  onChange={(e) => setDraft({ ...draft, manufacturer_id: e.target.value })}
+                  style={editInput}>
+                  {manufacturers.map((m) => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+              </EditField>
+              <EditField label="Barcode">
+                <input type="text" value={draft.barcode ?? ''}
+                  onChange={(e) => setDraft({ ...draft, barcode: e.target.value || null })} style={editInput} />
+              </EditField>
+              <EditField label="Country of origin">
+                <input type="text" value={draft.country_of_origin ?? ''}
+                  onChange={(e) => setDraft({ ...draft, country_of_origin: e.target.value || null })} style={editInput} />
+              </EditField>
+              <EditField label="Notes">
+                <textarea value={draft.notes ?? ''}
+                  onChange={(e) => setDraft({ ...draft, notes: e.target.value || null })}
+                  rows={2} style={{ ...editInput, resize: 'vertical' }} />
+              </EditField>
+            </div>
+          )}
         </div>
         <div style={{
           backgroundColor: '#FFFFFF',
@@ -470,26 +661,81 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
           padding: '20px 24px',
         }}>
           <SectionEyebrow label="Logistics" role="supply" />
-          <DefList rows={[
-            { label: 'HS code', value: product.hs_code ?? '—', mono: true },
-            { label: 'Pieces per case', value: piecesPerCase.toLocaleString('en-US'), mono: true },
-            { label: 'Carton qty', value: product.ctn_qty !== null ? `${product.ctn_qty.toLocaleString('en-US')} pcs` : '—', mono: true },
-            { label: 'Carton weight', value: product.ctn_weight_gross_kg !== null ? `${product.ctn_weight_gross_kg.toLocaleString(undefined, { maximumFractionDigits: 2 })} kg gross` : '—', mono: true },
-            { label: 'Carton dims', value: formatCartonDims(product.ctn_dim_l_cm, product.ctn_dim_w_cm, product.ctn_dim_h_cm), mono: true },
-            { label: 'Unit weight', value: product.unit_net_weight_g !== null ? `${product.unit_net_weight_g.toLocaleString(undefined, { maximumFractionDigits: 2 })} g net` : '—', mono: true },
-            { label: 'Unit volume', value: product.volume_m3_micro !== null ? `${product.volume_m3_micro.toLocaleString('en-US')} cm³` : '—', mono: true },
-          ]} />
+          {!editing ? (
+            <DefList rows={[
+              { label: 'HS code', value: product.hs_code ?? '—', mono: true },
+              { label: 'Pieces per case', value: piecesPerCase.toLocaleString('en-US'), mono: true },
+              { label: 'Carton qty', value: product.ctn_qty !== null ? `${product.ctn_qty.toLocaleString('en-US')} pcs` : '—', mono: true },
+              { label: 'Carton weight', value: product.ctn_weight_gross_kg !== null ? `${product.ctn_weight_gross_kg.toLocaleString(undefined, { maximumFractionDigits: 2 })} kg gross` : '—', mono: true },
+              { label: 'Carton dims', value: formatCartonDims(product.ctn_dim_l_cm, product.ctn_dim_w_cm, product.ctn_dim_h_cm), mono: true },
+              { label: 'Unit weight', value: product.unit_net_weight_g !== null ? `${product.unit_net_weight_g.toLocaleString(undefined, { maximumFractionDigits: 2 })} g net` : '—', mono: true },
+              { label: 'Unit volume', value: product.volume_m3_micro !== null ? `${product.volume_m3_micro.toLocaleString('en-US')} cm³` : '—', mono: true },
+            ]} />
+          ) : (
+            <div style={{ display: 'grid', gap: '12px' }}>
+              <EditField label="HS code">
+                <input type="text" value={draft.hs_code ?? ''}
+                  onChange={(e) => setDraft({ ...draft, hs_code: e.target.value || null })} style={editInput} />
+              </EditField>
+              <EditField label="Pieces per case">
+                <input type="number" min={1} value={draft.pieces_per_case ?? 1}
+                  onChange={(e) => setDraft({ ...draft, pieces_per_case: parseInt(e.target.value, 10) || 1 })} style={editInput} />
+              </EditField>
+              <EditField label="Carton qty (units)">
+                <input type="number" min={0} value={draft.ctn_qty ?? ''}
+                  onChange={(e) => setDraft({ ...draft, ctn_qty: e.target.value ? parseInt(e.target.value, 10) : null })} style={editInput} />
+              </EditField>
+              <EditField label="Carton weight gross (kg)">
+                <input type="number" step="0.01" min={0} value={draft.ctn_weight_gross_kg ?? ''}
+                  onChange={(e) => setDraft({ ...draft, ctn_weight_gross_kg: e.target.value ? parseFloat(e.target.value) : null })} style={editInput} />
+              </EditField>
+              <EditField label="Carton dims (L × W × H, cm)">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                  <input type="number" step="0.1" min={0} placeholder="L" value={draft.ctn_dim_l_cm ?? ''}
+                    onChange={(e) => setDraft({ ...draft, ctn_dim_l_cm: e.target.value ? parseFloat(e.target.value) : null })} style={editInput} />
+                  <input type="number" step="0.1" min={0} placeholder="W" value={draft.ctn_dim_w_cm ?? ''}
+                    onChange={(e) => setDraft({ ...draft, ctn_dim_w_cm: e.target.value ? parseFloat(e.target.value) : null })} style={editInput} />
+                  <input type="number" step="0.1" min={0} placeholder="H" value={draft.ctn_dim_h_cm ?? ''}
+                    onChange={(e) => setDraft({ ...draft, ctn_dim_h_cm: e.target.value ? parseFloat(e.target.value) : null })} style={editInput} />
+                </div>
+              </EditField>
+              <EditField label="Unit net weight (g)">
+                <input type="number" step="0.1" min={0} value={draft.unit_net_weight_g ?? ''}
+                  onChange={(e) => setDraft({ ...draft, unit_net_weight_g: e.target.value ? parseFloat(e.target.value) : null })} style={editInput} />
+              </EditField>
+            </div>
+          )}
         </div>
       </div>
 
       {/* SECTION 5 — Descriptions */}
       <Card>
         <SectionEyebrow label="Descriptions" role="sales" />
-        <DefList rows={[
-          { label: 'RU', value: product.description_ru ?? '—', regular: true },
-          { label: 'EN', value: product.description_en ?? '—', regular: true },
-          { label: 'CN', value: product.description_cn ?? '—', regular: true },
-        ]} />
+        {!editing ? (
+          <DefList rows={[
+            { label: 'RU', value: product.description_ru ?? '—', regular: true },
+            { label: 'EN', value: product.description_en ?? '—', regular: true },
+            { label: 'CN', value: product.description_cn ?? '—', regular: true },
+          ]} />
+        ) : (
+          <div style={{ display: 'grid', gap: '12px' }}>
+            <EditField label="RU description">
+              <textarea value={draft.description_ru ?? ''}
+                onChange={(e) => setDraft({ ...draft, description_ru: e.target.value || null })}
+                rows={3} style={{ ...editInput, resize: 'vertical' }} />
+            </EditField>
+            <EditField label="EN description">
+              <textarea value={draft.description_en ?? ''}
+                onChange={(e) => setDraft({ ...draft, description_en: e.target.value || null })}
+                rows={3} style={{ ...editInput, resize: 'vertical' }} />
+            </EditField>
+            <EditField label="CN description">
+              <textarea value={draft.description_cn ?? ''}
+                onChange={(e) => setDraft({ ...draft, description_cn: e.target.value || null })}
+                rows={3} style={{ ...editInput, resize: 'vertical' }} />
+            </EditField>
+          </div>
+        )}
       </Card>
 
       {/* SECTION 6 — Photos */}
@@ -797,3 +1043,41 @@ const iconButtonStyle: React.CSSProperties = {
   cursor: 'pointer',
   color: INK,
 };
+
+// =============================================================================
+// Edit-mode helpers
+// =============================================================================
+
+const editInput: React.CSSProperties = {
+  width: '100%',
+  padding: '8px 12px',
+  fontSize: '14px',
+  fontFamily: 'inherit',
+  border: '0.5px solid #C9C5BF',
+  borderRadius: '6px',
+  backgroundColor: '#FFFFFF',
+  color: INK,
+};
+
+const readOnlyInput: React.CSSProperties = {
+  ...editInput,
+  backgroundColor: '#F5F2EE',
+  color: '#9C9890',
+  cursor: 'not-allowed',
+};
+
+function EditField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{
+        fontSize: '14px',
+        fontWeight: 600,
+        color: '#6B6B6B',
+        marginBottom: '4px',
+      }}>
+        {label}
+      </div>
+      {children}
+    </div>
+  );
+}

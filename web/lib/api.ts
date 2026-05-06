@@ -43,6 +43,18 @@ export async function apiPatch<T = unknown>(
   return res.json();
 }
 
+export async function apiPut<T = unknown>(
+  path: string,
+  body: unknown
+): Promise<ApiResponse<T>> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
 // =============================================================================
 // Health
 // =============================================================================
@@ -317,6 +329,44 @@ export async function getProductBySku(sku: string) {
 export interface ContactResponse {
   type: 'company' | 'partner' | 'manufacturer' | 'shipper' | 'warehouse';
   data: Record<string, unknown>;
+}
+
+
+// =============================================================================
+// Product create / update
+// =============================================================================
+
+export interface CreateProductBody {
+  id: string;
+  product_name: string;
+  invoice_label: string;
+  category: 'Toothpaste' | 'Toothbrush' | 'Floss' | 'Other';
+  manufacturer_id: string;
+  barcode?: string | null;
+  pieces_per_case?: number;
+  ctn_qty?: number | null;
+  ctn_weight_gross_kg?: number | null;
+  ctn_dim_l_cm?: number | null;
+  ctn_dim_w_cm?: number | null;
+  ctn_dim_h_cm?: number | null;
+  unit_net_weight_g?: number | null;
+  hs_code?: string | null;
+  country_of_origin?: string | null;
+  description_ru?: string | null;
+  description_en?: string | null;
+  description_cn?: string | null;
+  packaging_manufacturer_id?: string | null;
+  notes?: string | null;
+}
+
+export type UpdateProductBody = Partial<Omit<CreateProductBody, 'id'>>;
+
+export async function createProduct(body: CreateProductBody) {
+  return apiPost<Product>('/api/products', body);
+}
+
+export async function updateProduct(id: string, body: UpdateProductBody) {
+  return apiPut<Product>(`/api/products/${id}`, body);
 }
 
 export async function getContact(slug: string) {

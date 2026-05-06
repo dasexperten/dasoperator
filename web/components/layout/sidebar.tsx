@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Users, FileText, Package, Warehouse, BarChart3 } from 'lucide-react';
+import { Home, Users, FileText, Package, Warehouse, ShoppingCart, BarChart3 } from 'lucide-react';
 
 interface NavItem {
   name: string;
@@ -11,12 +11,13 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { name: 'Home',       icon: Home,       href: '/' },
-  { name: 'Partners',   icon: Users,      href: '/partners' },
-  { name: 'Operations', icon: FileText,   href: '/operations' },
-  { name: 'Products',   icon: Package,    href: '/products' },
-  { name: 'Warehouses', icon: Warehouse,  href: '/warehouses' },
-  { name: 'Analytics',  icon: BarChart3,  href: '/analytics' },
+  { name: 'Home',         icon: Home,         href: '/' },
+  { name: 'Partners',     icon: Users,        href: '/partners' },
+  { name: 'Operations',   icon: FileText,     href: '/operations' },
+  { name: 'Products',     icon: Package,      href: '/products' },
+  { name: 'Warehouses',   icon: Warehouse,    href: '/warehouses' },
+  { name: 'Marketplaces', icon: ShoppingCart, href: '/marketplaces' },
+  { name: 'Analytics',    icon: BarChart3,    href: '/analytics' },
 ];
 
 export default function Sidebar() {

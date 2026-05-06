@@ -24,6 +24,7 @@ import inventorySessionsRoutes from './routes/inventory-sessions';
 import warehousesRoutes from './routes/warehouses';
 import productsPhotosRoutes from './routes/products-photos';
 import adminMigrationsRoutes from './routes/admin-migrations';
+import marketplacesRoutes from './routes/marketplaces';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
 
@@ -45,7 +46,7 @@ app.notFound((c) => {
   );
 });
 
-app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.6.0', phase: '5.1-products-foundation' }));
+app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.7.1', phase: '6.0-marketplaces' }));
 app.route('/health', healthRoutes);
 app.route('/api/products', productsRoutes);
 app.route('/api/products', productsPricingRoutes);  // adds :productId/price
@@ -68,6 +69,7 @@ app.route('/api/stocks', stocksRoutes);
 app.route('/api/stock-movements', stockMovementsRoutes);
 app.route('/api/inventory-sessions', inventorySessionsRoutes);
 app.route('/api/warehouses', warehousesRoutes);
+app.route('/api/marketplaces', marketplacesRoutes);
 app.route('/admin', adminMigrationsRoutes);
 
 export default {

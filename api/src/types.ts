@@ -22,6 +22,12 @@ export interface Env {
   // Secrets (Phase 5.x — LLM integration)
   // Set via Cloudflare Workers secrets, never committed to repo.
   DEEPSEEK_API_KEY: string;
+
+  // Secrets (Phase 6.0 — marketplace integration)
+  // Set via Cloudflare Workers secrets, never committed to repo.
+  OZON_CLIENT_ID: string;
+  OZON_API_KEY: string;
+  WB_API_TOKEN: string;
 }
 
 // =============================================================================

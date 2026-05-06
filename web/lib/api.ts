@@ -1136,3 +1136,30 @@ export async function getInventorySessions(filters?: { warehouse_id?: string; st
   const qs = params.toString() ? `?${params.toString()}` : '';
   return apiGet<InventorySessionsListResponse>(`/api/inventory-sessions${qs}`);
 }
+
+
+// =============================================================================
+// Marketplace stocks (Phase 6.0)
+// =============================================================================
+// Aggregated marketplace stock per canonical SKU.
+// Multipack listings (DE201AA = 2 pcs, DE201AAAA = 4 pcs) are already
+// multiplied by their pack_factor server-side.
+
+export interface MarketplaceStockRow {
+  sku: string;
+  product_name: string;
+  ozon: number;
+  ozon_listings: number;
+  wb: number;
+  wb_listings: number;
+}
+
+export interface MarketplaceStocksResponse {
+  count: number;
+  synced_at: { ozon: number | null; wb: number | null };
+  products: MarketplaceStockRow[];
+}
+
+export async function getMarketplaceStocks() {
+  return apiGet<MarketplaceStocksResponse>('/api/marketplaces/stocks');
+}

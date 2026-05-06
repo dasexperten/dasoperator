@@ -159,3 +159,21 @@ button, input, select, textarea, label,
 [class~="text-xs"], [class~="text-sm"], [class~="text-[10px]"], [class~="text-[11px]"], [class~="text-[12px]"], [class~="text-[13px]"] {
   font-size: 14px !important;
 }
+
+/* ===========================================================================
+   FORM CONTROL VALUES — bold across the system
+   All values typed/selected inside inputs, selects, and textareas render
+   in font-weight 700. Placeholder text stays at normal weight + muted color
+   so empty fields don't look filled.
+   =========================================================================== */
+
+input, select, textarea {
+  font-weight: 700;
+}
+
+input::placeholder,
+textarea::placeholder {
+  font-weight: 400;
+  color: var(--fg-3, #6B6B6B);
+  opacity: 1;
+}

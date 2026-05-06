@@ -49,16 +49,20 @@ const lineItemSchema = z.object({
 });
 
 const createOperationSchema = z.object({
-  // NEW required field — derives partner+company+currency.
-  contract_id: z.string().min(1),
+  // SALE path: contract_id provided → derives partner+company+currency from contract.
+  // PURCHASE / TRANSFER paths: contract_id omitted, fields provided directly.
+  contract_id: z.string().nullable().optional(),
 
   // Operation type — DB CHECK constraint allows only these 3 values.
-  // 'service' would require ALTER TABLE migration; not in this PR.
   operation_type: z.enum(['sale', 'purchase', 'transfer']),
   operation_date: z.number().int().positive(),
 
-  // Optional — supplied by user, not derivable from contract.
-  manufacturer_id: z.string().nullable().optional(),
+  // Direct fields for purchase/transfer (ignored when contract_id supplied).
+  manufacturer_id: z.string().nullable().optional(),       // PURCHASE: factory we buy from
+  our_company_id: z.string().nullable().optional(),        // PURCHASE/TRANSFER: our buying / sending entity
+  receiving_company_id: z.string().nullable().optional(),  // TRANSFER: recipient entity
+  currency: z.string().length(3).nullable().optional(),    // PURCHASE/TRANSFER: ISO-4217 (CNY/USD/etc.)
+
   warehouse_from_id: z.string().nullable().optional(),
   warehouse_to_id: z.string().nullable().optional(),
   price_type_id: z.string().nullable().optional(),
@@ -75,23 +79,49 @@ const createOperationSchema = z.object({
   // operations where multiple manufacturers ship under one invoice.
   dei_layer: z.union([z.boolean(), z.literal(0), z.literal(1)]).optional().default(0),
   legal_seller_id: z.string().nullable().optional(),
-}).refine(
-  (data) => {
-    if (data.operation_type === 'sale' || data.operation_type === 'transfer') {
-      return !!data.warehouse_from_id;
-    }
-    return true;
-  },
-  { message: 'warehouse_from_id required for sale and transfer operations' }
-).refine(
-  (data) => {
-    if (data.operation_type === 'purchase' || data.operation_type === 'transfer') {
-      return !!data.warehouse_to_id;
-    }
-    return true;
-  },
-  { message: 'warehouse_to_id required for purchase and transfer operations' }
-);
+})
+  // SALE: must supply contract_id (carries partner + company + currency)
+  .refine(
+    (data) => data.operation_type !== 'sale' || !!data.contract_id,
+    { message: 'contract_id required for sale operations' }
+  )
+  // PURCHASE: must supply manufacturer_id + our_company_id + currency
+  .refine(
+    (data) => data.operation_type !== 'purchase'
+      || (!!data.manufacturer_id && !!data.our_company_id && !!data.currency),
+    { message: 'manufacturer_id, our_company_id and currency required for purchase operations' }
+  )
+  // TRANSFER: must supply our_company_id + receiving_company_id + currency
+  .refine(
+    (data) => data.operation_type !== 'transfer'
+      || (!!data.our_company_id && !!data.receiving_company_id && !!data.currency),
+    { message: 'our_company_id, receiving_company_id and currency required for transfer operations' }
+  )
+  // TRANSFER: sender and receiver must differ
+  .refine(
+    (data) => data.operation_type !== 'transfer'
+      || data.our_company_id !== data.receiving_company_id,
+    { message: 'our_company_id and receiving_company_id must differ for transfer operations' }
+  )
+  // Warehouse rules
+  .refine(
+    (data) => {
+      if (data.operation_type === 'sale' || data.operation_type === 'transfer') {
+        return !!data.warehouse_from_id;
+      }
+      return true;
+    },
+    { message: 'warehouse_from_id required for sale and transfer operations' }
+  )
+  .refine(
+    (data) => {
+      if (data.operation_type === 'purchase' || data.operation_type === 'transfer') {
+        return !!data.warehouse_to_id;
+      }
+      return true;
+    },
+    { message: 'warehouse_to_id required for purchase and transfer operations' }
+  );
 
 // =============================================================================
 // Helpers
@@ -154,52 +184,124 @@ operations.post('/', async (c) => {
   const warnings: string[] = [];
 
   // ---------------------------------------------------------------------------
-  // Step 1: Resolve contract → partner_id, our_company_id, currency
+  // Step 1-3: Resolve counterparty fields per operation_type
+  //   SALE     → from contract: partner_id, our_company_id, currency, vat_rate
+  //   PURCHASE → from body:     manufacturer_id, our_company_id, currency
+  //              partner_id = NULL, vat_rate = 0
+  //   TRANSFER → from body:     our_company_id, receiving_company_id, currency
+  //              partner_id = NULL, manufacturer_id = NULL, vat_rate = 0
   // ---------------------------------------------------------------------------
-  const contract = await c.env.DB.prepare(
-    'SELECT id, partner_id, our_company_id, currency, status, vat_rate FROM contracts WHERE id = ? AND deleted_at IS NULL'
-  ).bind(data.contract_id).first<ContractRow>();
+  let resolvedContractId: string | null = null;
+  let resolvedPartnerId: string | null = null;
+  let resolvedCompanyId: string;
+  let resolvedReceivingCompanyId: string | null = null;
+  let resolvedManufacturerId: string | null = null;
+  let resolvedCurrency: string;
+  let resolvedVatRate = 0;
 
-  if (!contract) {
-    return fail(c, 404, [{
-      code: 'contract_not_found',
-      message: `contract_id ${data.contract_id} does not exist`,
-    }]);
-  }
-  if (contract.status !== 'active') {
-    warnings.push(`contract_status_${contract.status}: contract is not active`);
-  }
+  if (data.operation_type === 'sale') {
+    // SALE — derive from contract
+    const contract = await c.env.DB.prepare(
+      'SELECT id, partner_id, our_company_id, currency, status, vat_rate FROM contracts WHERE id = ? AND deleted_at IS NULL'
+    ).bind(data.contract_id!).first<ContractRow>();
 
-  // ---------------------------------------------------------------------------
-  // Step 2: Verify partner exists (consistency check; should always pass)
-  // ---------------------------------------------------------------------------
-  const partner = await c.env.DB.prepare(
-    'SELECT id, trade_name, status FROM partners WHERE id = ? AND deleted_at IS NULL'
-  ).bind(contract.partner_id).first<PartnerRow>();
+    if (!contract) {
+      return fail(c, 404, [{
+        code: 'contract_not_found',
+        message: `contract_id ${data.contract_id} does not exist`,
+      }]);
+    }
+    if (contract.status !== 'active') {
+      warnings.push(`contract_status_${contract.status}: contract is not active`);
+    }
 
-  if (!partner) {
-    return fail(c, 500, [{
-      code: 'partner_inconsistent',
-      message: `Contract ${contract.id} references missing partner ${contract.partner_id}`,
-    }]);
-  }
+    const partner = await c.env.DB.prepare(
+      'SELECT id, trade_name, status FROM partners WHERE id = ? AND deleted_at IS NULL'
+    ).bind(contract.partner_id).first<PartnerRow>();
 
-  if (partner.status === 'pending' || partner.status === 'blocked') {
-    warnings.push(`partner_${partner.status}: ${partner.trade_name} has status ${partner.status}`);
-  }
+    if (!partner) {
+      return fail(c, 500, [{
+        code: 'partner_inconsistent',
+        message: `Contract ${contract.id} references missing partner ${contract.partner_id}`,
+      }]);
+    }
 
-  // ---------------------------------------------------------------------------
-  // Step 3: Verify company (FK)
-  // ---------------------------------------------------------------------------
-  const company = await c.env.DB.prepare(
-    'SELECT id, abbreviation FROM companies WHERE id = ?'
-  ).bind(contract.our_company_id).first<{ id: string; abbreviation: string }>();
+    if (partner.status === 'pending' || partner.status === 'blocked') {
+      warnings.push(`partner_${partner.status}: ${partner.trade_name} has status ${partner.status}`);
+    }
 
-  if (!company) {
-    return fail(c, 500, [{
-      code: 'company_inconsistent',
-      message: `Contract references non-existent company ${contract.our_company_id}`,
-    }]);
+    const company = await c.env.DB.prepare(
+      'SELECT id FROM companies WHERE id = ?'
+    ).bind(contract.our_company_id).first<{ id: string }>();
+
+    if (!company) {
+      return fail(c, 500, [{
+        code: 'company_inconsistent',
+        message: `Contract references non-existent company ${contract.our_company_id}`,
+      }]);
+    }
+
+    resolvedContractId = contract.id;
+    resolvedPartnerId = contract.partner_id;
+    resolvedCompanyId = contract.our_company_id;
+    resolvedCurrency = contract.currency;
+    resolvedVatRate = contract.vat_rate;
+
+  } else if (data.operation_type === 'purchase') {
+    // PURCHASE — fields from body, validate FKs
+    const manufacturer = await c.env.DB.prepare(
+      'SELECT id FROM manufacturers WHERE id = ?'
+    ).bind(data.manufacturer_id!).first<{ id: string }>();
+
+    if (!manufacturer) {
+      return fail(c, 404, [{
+        code: 'manufacturer_not_found',
+        message: `manufacturer_id ${data.manufacturer_id} does not exist`,
+      }]);
+    }
+
+    const company = await c.env.DB.prepare(
+      'SELECT id FROM companies WHERE id = ?'
+    ).bind(data.our_company_id!).first<{ id: string }>();
+
+    if (!company) {
+      return fail(c, 404, [{
+        code: 'company_not_found',
+        message: `our_company_id ${data.our_company_id} does not exist`,
+      }]);
+    }
+
+    resolvedManufacturerId = data.manufacturer_id!;
+    resolvedCompanyId = data.our_company_id!;
+    resolvedCurrency = data.currency!;
+
+  } else {
+    // TRANSFER — both companies from body, validate FKs
+    const sender = await c.env.DB.prepare(
+      'SELECT id FROM companies WHERE id = ?'
+    ).bind(data.our_company_id!).first<{ id: string }>();
+
+    if (!sender) {
+      return fail(c, 404, [{
+        code: 'company_not_found',
+        message: `our_company_id ${data.our_company_id} does not exist`,
+      }]);
+    }
+
+    const receiver = await c.env.DB.prepare(
+      'SELECT id FROM companies WHERE id = ?'
+    ).bind(data.receiving_company_id!).first<{ id: string }>();
+
+    if (!receiver) {
+      return fail(c, 404, [{
+        code: 'company_not_found',
+        message: `receiving_company_id ${data.receiving_company_id} does not exist`,
+      }]);
+    }
+
+    resolvedCompanyId = data.our_company_id!;
+    resolvedReceivingCompanyId = data.receiving_company_id!;
+    resolvedCurrency = data.currency!;
   }
 
   // ---------------------------------------------------------------------------
@@ -253,11 +355,11 @@ operations.post('/', async (c) => {
   // ---------------------------------------------------------------------------
   // Step 6: Issue reference number from company sequence
   // ---------------------------------------------------------------------------
-  const sequenceId = sequenceIdForCompany(contract.our_company_id);
+  const sequenceId = sequenceIdForCompany(resolvedCompanyId);
   if (!sequenceId) {
     return fail(c, 500, [{
       code: 'sequence_mapping_missing',
-      message: `No sequence mapped for company ${contract.our_company_id}`,
+      message: `No sequence mapped for company ${resolvedCompanyId}`,
     }]);
   }
 
@@ -275,17 +377,17 @@ operations.post('/', async (c) => {
   const opDateStr = isoDate(data.operation_date);
   let fxRateToUsdNano: number | null = null;
 
-  if (contract.currency === 'USD') {
+  if (resolvedCurrency === 'USD') {
     fxRateToUsdNano = 1_000_000_000; // 1.0 in nano units
   } else {
     const snapshot = await getRatesFor(c.env.FX, opDateStr);
     if (snapshot) {
-      const rate = getRateToUsdNano(snapshot, contract.currency);
+      const rate = getRateToUsdNano(snapshot, resolvedCurrency);
       if (rate !== null) {
         fxRateToUsdNano = rate;
       } else {
         warnings.push(
-          `fx_currency_unsupported: ${contract.currency} not in CBR feed for ${opDateStr}`
+          `fx_currency_unsupported: ${resolvedCurrency} not in CBR feed for ${opDateStr}`
         );
       }
     } else {
@@ -312,7 +414,7 @@ operations.post('/', async (c) => {
     totalAmount += lineAmount;
 
     const lineUsdEquiv = fxRateToUsdNano !== null
-      ? applyFxToAmount(lineAmount, fxRateToUsdNano, contract.currency)
+      ? applyFxToAmount(lineAmount, fxRateToUsdNano, resolvedCurrency)
       : null;
 
     return {
@@ -326,13 +428,13 @@ operations.post('/', async (c) => {
       discount_pct: li.discount_pct,
       unit_price_after_disc: unitPriceAfterDisc,
       line_amount: lineAmount,
-      currency: contract.currency,
+      currency: resolvedCurrency,
       line_usd_equiv: lineUsdEquiv,
     };
   });
 
   const totalUsdEquiv = fxRateToUsdNano !== null
-    ? applyFxToAmount(totalAmount, fxRateToUsdNano, contract.currency)
+    ? applyFxToAmount(totalAmount, fxRateToUsdNano, resolvedCurrency)
     : null;
 
   // ---------------------------------------------------------------------------
@@ -347,7 +449,7 @@ operations.post('/', async (c) => {
   const insertOpStmt = c.env.DB.prepare(`
     INSERT INTO operations (
       id, contract_id, operation_date, operation_type,
-      partner_id, our_company_id, manufacturer_id,
+      partner_id, our_company_id, receiving_company_id, manufacturer_id,
       warehouse_from_id, warehouse_to_id,
       reference, status,
       price_type_id, currency, fx_rate_to_usd,
@@ -357,7 +459,7 @@ operations.post('/', async (c) => {
       created_at, updated_at, deleted_at
     ) VALUES (
       ?, ?, ?, ?,
-      ?, ?, ?,
+      ?, ?, ?, ?,
       ?, ?,
       ?, 'draft',
       ?, ?, ?,
@@ -368,23 +470,24 @@ operations.post('/', async (c) => {
     )
   `).bind(
     operationId,
-    contract.id,
+    resolvedContractId,
     data.operation_date,
     data.operation_type,
-    contract.partner_id,
-    contract.our_company_id,
-    data.manufacturer_id ?? null,
+    resolvedPartnerId,
+    resolvedCompanyId,
+    resolvedReceivingCompanyId,
+    resolvedManufacturerId ?? data.manufacturer_id ?? null,
     data.warehouse_from_id ?? null,
     data.warehouse_to_id ?? null,
     seqResult.formatted,
     data.price_type_id ?? null,
-    contract.currency,
+    resolvedCurrency,
     fxRateToUsdNano,
     totalAmount,
     totalUsdEquiv,
     data.incoterms ?? null,
     data.notes ?? null,
-    contract.vat_rate,
+    resolvedVatRate,
     deiLayerInt,
     data.legal_seller_id ?? null,
     now,
@@ -422,24 +525,25 @@ operations.post('/', async (c) => {
   return ok(c, {
     operation: {
       id: operationId,
-      contract_id: contract.id,
+      contract_id: resolvedContractId,
       reference: seqResult.formatted,
       operation_type: data.operation_type,
       operation_date: data.operation_date,
-      our_company_id: contract.our_company_id,
-      partner_id: contract.partner_id,
-      manufacturer_id: data.manufacturer_id ?? null,
+      our_company_id: resolvedCompanyId,
+      receiving_company_id: resolvedReceivingCompanyId,
+      partner_id: resolvedPartnerId,
+      manufacturer_id: resolvedManufacturerId ?? data.manufacturer_id ?? null,
       warehouse_from_id: data.warehouse_from_id ?? null,
       warehouse_to_id: data.warehouse_to_id ?? null,
       status: 'draft',
       price_type_id: data.price_type_id ?? null,
-      currency: contract.currency,
+      currency: resolvedCurrency,
       fx_rate_to_usd: fxRateToUsdNano,
       total_amount: totalAmount,
       total_usd_equiv: totalUsdEquiv,
       incoterms: data.incoterms ?? null,
       notes: data.notes ?? null,
-      vat_rate: contract.vat_rate,
+      vat_rate: resolvedVatRate,
       dei_layer: deiLayerInt,
       legal_seller_id: data.legal_seller_id ?? null,
       created_at: now,

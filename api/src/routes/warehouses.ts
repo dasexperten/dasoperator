@@ -21,35 +21,44 @@ warehouses.get('/', async (c) => {
   const manufacturerId = c.req.query('manufacturer_id');
   const partnerId = c.req.query('partner_id');
 
+  // Any of company_id / manufacturer_id triggers junction-aware lookup
+  // since both have M:N junction tables (warehouse_companies, warehouse_manufacturers).
+  // Partners don't have a junction (B decision: no partner warehouses), so they
+  // only check owner_partner_id.
+  const useJunction = Boolean(companyId || manufacturerId);
+
   let sql: string;
   const binds: unknown[] = [];
 
-  if (manufacturerId) {
-    // Manufacturer warehouses come from TWO sources, unioned:
-    //   1. Direct ownership (warehouses.owner_manufacturer_id) — single owner case
-    //   2. M:N junction (warehouse_manufacturers) — shared/consolidation hubs,
-    //      e.g. GZH serves Honghui as production + Meizhiyuan/WDAA as consolidation.
-    // Additional filters (company_id / partner_id) compose with AND.
+  if (useJunction) {
+    // Build the join + filter dynamically. Each filter contributes:
+    //   - owner_*_id direct match  OR
+    //   - junction membership match
+    // All filters AND together (intersection of warehouses matching all conditions).
+    const conditions: string[] = [];
+
+    if (companyId) {
+      conditions.push('(w.owner_company_id = ? OR EXISTS (SELECT 1 FROM warehouse_companies wc WHERE wc.warehouse_id = w.id AND wc.company_id = ?))');
+      binds.push(companyId, companyId);
+    }
+    if (manufacturerId) {
+      conditions.push('(w.owner_manufacturer_id = ? OR EXISTS (SELECT 1 FROM warehouse_manufacturers wm WHERE wm.warehouse_id = w.id AND wm.manufacturer_id = ?))');
+      binds.push(manufacturerId, manufacturerId);
+    }
+    if (partnerId) {
+      conditions.push('w.owner_partner_id = ?');
+      binds.push(partnerId);
+    }
+
     sql = `
-      SELECT DISTINCT
+      SELECT
         w.id, w.code, w.name, w.country, w.city, w.warehouse_type,
         w.owner_id, w.owner_company_id, w.owner_manufacturer_id, w.owner_partner_id,
         w.notes, w.created_at, w.updated_at
       FROM warehouses w
-      LEFT JOIN warehouse_manufacturers wm ON wm.warehouse_id = w.id
       WHERE w.deleted_at IS NULL
-        AND (w.owner_manufacturer_id = ? OR wm.manufacturer_id = ?)
+        AND ${conditions.join(' AND ')}
     `;
-    binds.push(manufacturerId, manufacturerId);
-
-    if (companyId) {
-      sql += ' AND w.owner_company_id = ?';
-      binds.push(companyId);
-    }
-    if (partnerId) {
-      sql += ' AND w.owner_partner_id = ?';
-      binds.push(partnerId);
-    }
   } else {
     sql = `
       SELECT
@@ -60,10 +69,6 @@ warehouses.get('/', async (c) => {
       WHERE deleted_at IS NULL
     `;
 
-    if (companyId) {
-      sql += ' AND owner_company_id = ?';
-      binds.push(companyId);
-    }
     if (partnerId) {
       sql += ' AND owner_partner_id = ?';
       binds.push(partnerId);

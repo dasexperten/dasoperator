@@ -61,7 +61,6 @@ export default function NewPaymentClient({ partnerSlug: _partnerSlug }: { partne
 
   // Load partner + contracts on mount
   useEffect(() => {
-    if (!partnerSlug || partnerSlug === '__fallback') return;
     const fetch = async () => {
       try {
         const [pRes, cRes] = await Promise.all([

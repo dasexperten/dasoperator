@@ -116,7 +116,6 @@ export default function OperationDetailClient({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!partnerSlug || partnerSlug === '__fallback' || !operationId || operationId === '__fallback') return;
     const fetchAll = async () => {
       try {
         const [partnerRes, opRes, paysRes] = await Promise.all([

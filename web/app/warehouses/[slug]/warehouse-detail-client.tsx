@@ -63,7 +63,6 @@ export default function WarehouseDetailClient({ warehouseId: _warehouseId }: { w
   }, []);
 
   useEffect(() => {
-    if (!warehouseId || warehouseId === '__fallback') return;
     const fetchAll = async () => {
       try {
         const [whRes, stocksRes, movRes, sessRes] = await Promise.all([

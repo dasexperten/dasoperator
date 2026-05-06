@@ -47,7 +47,7 @@ export default function WarehousesPage() {
         }
         if (mpRes.success && mpRes.result) {
           const byId: Record<string, MarketplaceStockRow> = {};
-          for (const row of mpRes.result.products) byId[row.sku] = row;
+          for (const row of mpRes.result.stocks) byId[row.base_sku] = row;
           setMarketplaces(byId);
         }
       } catch (e) {
@@ -91,11 +91,11 @@ export default function WarehousesPage() {
         va = a.total_on_hand;
         vb = b.total_on_hand;
       } else if (sort.key === 'ozon') {
-        va = marketplaces[a.id]?.ozon ?? 0;
-        vb = marketplaces[b.id]?.ozon ?? 0;
+        va = marketplaces[a.id]?.ozon_units ?? 0;
+        vb = marketplaces[b.id]?.ozon_units ?? 0;
       } else if (sort.key === 'wb') {
-        va = marketplaces[a.id]?.wb ?? 0;
-        vb = marketplaces[b.id]?.wb ?? 0;
+        va = marketplaces[a.id]?.wb_units ?? 0;
+        vb = marketplaces[b.id]?.wb_units ?? 0;
       } else {
         // warehouse_id — find on_hand for that warehouse on each product
         const ai = a.warehouses.find((w) => w.warehouse_id === sort.key);
@@ -141,8 +141,8 @@ export default function WarehousesPage() {
     for (const p of products) {
       const m = marketplaces[p.id];
       if (!m) continue;
-      ozon += m.ozon || 0;
-      wb   += m.wb || 0;
+      ozon += m.ozon_units || 0;
+      wb   += m.wb_units || 0;
     }
     return { ozon, wb };
   }, [products, marketplaces]);
@@ -257,8 +257,8 @@ export default function WarehousesPage() {
                   for (const w of p.warehouses) byWh[w.warehouse_id] = w.on_hand;
 
                   const mp = marketplaces[p.id];
-                  const ozonVal = mp?.ozon ?? 0;
-                  const wbVal   = mp?.wb ?? 0;
+                  const ozonVal = mp?.ozon_units ?? 0;
+                  const wbVal   = mp?.wb_units ?? 0;
 
                   return (
                     <tr key={p.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
@@ -466,3 +466,4 @@ function SortableTh({
     </th>
   );
 }
+

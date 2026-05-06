@@ -409,6 +409,30 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
     }
   }
 
+  // Excel-like keyboard nav: Enter on a grid input moves focus to the next
+  // input *in the same column*. We tag each grid input with data-grid-col,
+  // then walk all inputs with the same col attribute and pick the next one
+  // after the current. Skips disabled fields, wraps gracefully (last → blur).
+  function handleGridKeyDown(ev: React.KeyboardEvent<HTMLInputElement>) {
+    if (ev.key !== 'Enter') return;
+    ev.preventDefault();
+    const current = ev.currentTarget;
+    const col = current.getAttribute('data-grid-col');
+    if (!col) return;
+    const all = Array.from(
+      document.querySelectorAll<HTMLInputElement>(`input[data-grid-col="${col}"]:not([disabled])`)
+    );
+    const idx = all.indexOf(current);
+    if (idx === -1) return;
+    const next = all[idx + 1];
+    if (next) {
+      next.focus();
+      next.select();
+    } else {
+      current.blur();
+    }
+  }
+
   async function handleSubmit() {
     setError(null);
     setSubmitting(true);
@@ -885,6 +909,8 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                                 <td className="px-3 py-2">
                                   <input
                                     type="number"
+                                    data-grid-col="pieces"
+                                    onKeyDown={handleGridKeyDown}
                                     value={e.pieces || ''}
                                     onChange={(ev) => {
                                       const v = parseInt(ev.target.value) || 0;
@@ -903,6 +929,8 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                                     <input
                                       type="text"
                                       inputMode="decimal"
+                                      data-grid-col="cartons"
+                                      onKeyDown={handleGridKeyDown}
                                       value={cartonsDisplay || ''}
                                       onChange={(ev) => {
                                         const raw = ev.target.value.replace(',', '.').trim();
@@ -926,6 +954,8 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                                   <input
                                     type="text"
                                     inputMode="decimal"
+                                    data-grid-col="price"
+                                    onKeyDown={handleGridKeyDown}
                                     value={e.unit_price || ''}
                                     onChange={(ev) => {
                                       const raw = ev.target.value.replace(',', '.').trim();

@@ -23,6 +23,7 @@ import stockMovementsRoutes from './routes/stock-movements';
 import inventorySessionsRoutes from './routes/inventory-sessions';
 import warehousesRoutes from './routes/warehouses';
 import productsPhotosRoutes from './routes/products-photos';
+import adminMigrationsRoutes from './routes/admin-migrations';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
 
@@ -67,6 +68,7 @@ app.route('/api/stocks', stocksRoutes);
 app.route('/api/stock-movements', stockMovementsRoutes);
 app.route('/api/inventory-sessions', inventorySessionsRoutes);
 app.route('/api/warehouses', warehousesRoutes);
+app.route('/admin', adminMigrationsRoutes);
 
 export default {
   fetch: app.fetch,

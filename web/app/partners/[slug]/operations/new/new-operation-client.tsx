@@ -2,26 +2,24 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Trash2, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import {
-  getPartner, getPartnerContracts, getProducts, getPartners,
+  getPartner, getPartnerContracts, getProductsList, getPartners,
   getCompanies, getManufacturers, getProductsByManufacturer,
   getWarehouses, getPricelistMap,
   createOperation, getProductPriceForContract,
-  type Partner, type Contract, type Product, type Company, type Manufacturer,
+  type Partner, type Contract, type Product, type ProductListItem, type Company, type Manufacturer,
   type Warehouse
 } from '@/lib/api';
 import { formatMoney } from '@/lib/money';
 import Breadcrumb from '@/components/layout/breadcrumb';
 
-interface LineItemRow {
-  id: string;            // local UUID for React key
-  product_id: string;
-  qty: number;
+// Per-SKU entry — keyed by product_id. pieces > 0 means included in submission.
+// cartons is derived from pieces / ctn_qty for display; sole source of truth is pieces.
+// No per-line discount — discount applies to the operation as a whole (overallDiscountPct).
+interface LineEntry {
+  pieces: number;
   unit_price: number;
-  discount_pct: number;
-  // computed:
-  line_total: number;
 }
 
 
@@ -41,7 +39,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   // Reference data
   const [partner, setPartner] = useState<Partner | null>(null);
   const [contracts, setContracts] = useState<Contract[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<ProductListItem[]>([]);
   const [allPartners, setAllPartners] = useState<Partner[]>([]);  // for global mode
   const [companies, setCompanies] = useState<Company[]>([]);
   const [manufacturers, setManufacturers] = useState<Manufacturer[]>([]);
@@ -68,9 +66,12 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   const [notes, setNotes] = useState<string>('');
   const [overallDiscountPct, setOverallDiscountPct] = useState<number>(0);
 
-  const [lineItems, setLineItems] = useState<LineItemRow[]>([
-    { id: crypto.randomUUID(), product_id: '', qty: 0, unit_price: 0, discount_pct: 0, line_total: 0 },
-  ]);
+  // entries: productId → { pieces, unit_price, discount_pct }
+  // Only entries with pieces > 0 are submitted as line_items to the API.
+  const [entries, setEntries] = useState<Record<string, LineEntry>>({});
+
+  // Which category groups are expanded in the UI
+  const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({});
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,7 +91,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
     const fetchInitial = async () => {
       try {
         const [prodRes, partnersRes, companiesRes, manufacturersRes] = await Promise.all([
-          getProducts('DE'),
+          getProductsList(),
           getPartners(),
           getCompanies(),
           getManufacturers(),
@@ -276,42 +277,34 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
     if (!isReadyForDetails) return;
     let cancelled = false;
     async function refetch() {
-      const next: { idx: number; price: number }[] = [];
-      for (let idx = 0; idx < lineItems.length; idx++) {
-        const li = lineItems[idx]!;
-        if (!li.product_id) continue;
+      const productIds = Object.keys(entries);
+      const updates: Record<string, number> = {};
+      for (const productId of productIds) {
         if (opType === 'sale' && contractId) {
           try {
-            const res = await getProductPriceForContract(li.product_id, contractId);
-            if (res.success && res.result?.price !== null && res.result?.price !== undefined) {
-              next.push({ idx, price: res.result.price });
-            } else {
-              next.push({ idx, price: 0 });
-            }
+            const res = await getProductPriceForContract(productId, contractId);
+            updates[productId] = (res.success && res.result?.price !== null && res.result?.price !== undefined)
+              ? res.result.price
+              : 0;
           } catch {
-            next.push({ idx, price: 0 });
+            updates[productId] = 0;
           }
         } else if (opType === 'purchase') {
-          const sku = li.product_id.toUpperCase();
-          const decimal = purchasePrices[sku];
-          next.push({ idx, price: decimal ?? 0 });
+          const sku = productId.toUpperCase();
+          updates[productId] = purchasePrices[sku] ?? 0;
         } else {
-          next.push({ idx, price: 0 });
+          updates[productId] = 0;
         }
       }
       if (cancelled) return;
-      setLineItems((rows) => {
-        const updated = [...rows];
-        for (const { idx, price } of next) {
-          const row = updated[idx];
-          if (!row) continue;
-          updated[idx] = {
-            ...row,
-            unit_price: price,
-            line_total: Math.round(row.qty * price * (100 - row.discount_pct)) / 100,
-          };
+      setEntries((prev) => {
+        const next = { ...prev };
+        for (const [pid, price] of Object.entries(updates)) {
+          const e = next[pid];
+          if (!e) continue;
+          next[pid] = { ...e, unit_price: price };
         }
-        return updated;
+        return next;
       });
     }
     refetch();
@@ -335,81 +328,83 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
     }).catch(() => setPurchaseProducts([]));
   }, [opType, manufacturerId]);
 
-  const availableProducts = useMemo(() => {
-    if (opType === 'purchase' && manufacturerId) return purchaseProducts;
+  const availableProducts = useMemo<ProductListItem[]>(() => {
+    if (opType === 'purchase' && manufacturerId) {
+      // Filter the full ProductListItem set by ids returned for this manufacturer
+      const ids = new Set(purchaseProducts.map((p) => p.id));
+      return products.filter((p) => ids.has(p.id));
+    }
     return products;
   }, [products, purchaseProducts, opType, manufacturerId]);
 
-  // Subtotal before overall discount
-  const subtotal = useMemo(
-    () => lineItems.reduce((sum, li) => sum + li.line_total, 0),
-    [lineItems]
-  );
+  // Subtotal = sum of (pieces × unit_price) across entries with pieces > 0.
+  // Per-line discount does NOT exist — overallDiscountPct applies once to the whole subtotal.
+  const subtotal = useMemo(() => {
+    let s = 0;
+    for (const e of Object.values(entries)) {
+      if (e.pieces > 0 && e.unit_price > 0) {
+        s += e.pieces * e.unit_price;
+      }
+    }
+    return Math.round(s * 100) / 100;
+  }, [entries]);
+
   const grandTotal = useMemo(
     () => Math.round(subtotal * (100 - overallDiscountPct)) / 100,
     [subtotal, overallDiscountPct]
   );
 
-  // Recalculate line_total when product/qty/price/discount changes
-  function updateLineItem(idx: number, patch: Partial<LineItemRow>) {
-    setLineItems((rows) => {
-      const next = [...rows];
-      const row = { ...next[idx]!, ...patch };
-      row.line_total = Math.round(row.qty * row.unit_price * (100 - row.discount_pct)) / 100;
-      next[idx] = row;
-      return next;
+  // Patch a single SKU entry. If pieces and unit_price both fall to 0, drop the
+  // entry entirely so empty rows don't pile up in state.
+  function updateEntry(productId: string, patch: Partial<LineEntry>) {
+    setEntries((prev) => {
+      const existing = prev[productId] ?? { pieces: 0, unit_price: 0 };
+      const next = { ...existing, ...patch };
+      if (next.pieces <= 0 && next.unit_price <= 0) {
+        const { [productId]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [productId]: next };
     });
   }
 
-  // Auto-fill price when product selected.
-  //   sale     → uses contract-bound price types via /api/products/:id/price?contract_id=X
-  //   purchase → uses Pricer R2 purchase pricelist (CNY decimal → minor units)
-  //   transfer → no autofill (internal transfer pricing is set manually)
-  async function handleProductChange(idx: number, productId: string) {
-    updateLineItem(idx, { product_id: productId });
-    if (!productId) return;
-
+  // When user starts entering pieces for a SKU that has no price yet, fetch it.
+  // Used as a fallback to the bulk refetch effect when entry is created mid-form.
+  async function ensurePriceFor(productId: string) {
+    const current = entries[productId];
+    if (current && current.unit_price > 0) return;
     if (opType === 'sale' && contractId) {
       try {
         const res = await getProductPriceForContract(productId, contractId);
         if (res.success && res.result?.price) {
-          updateLineItem(idx, { product_id: productId, unit_price: res.result.price });
+          updateEntry(productId, { unit_price: res.result.price });
         }
-      } catch { /* silent — manual entry */ }
-      return;
+      } catch { /* silent */ }
+    } else if (opType === 'purchase') {
+      const decimal = purchasePrices[productId.toUpperCase()];
+      if (decimal !== undefined) updateEntry(productId, { unit_price: decimal });
     }
-
-    if (opType === 'purchase') {
-      // Pricer keys are uppercase SKU (e.g. "DE205"), our IDs are lowercase ("de205").
-      // Pricelist value is decimal CNY → convert to minor units (×100).
-      const sku = productId.toUpperCase();
-      const decimal = purchasePrices[sku];
-      if (decimal !== undefined) {
-        updateLineItem(idx, { product_id: productId, unit_price: decimal });
-      }
-      return;
-    }
-    // transfer — no autofill
-  }
-
-  function addLineItem() {
-    setLineItems((rows) => [
-      ...rows,
-      { id: crypto.randomUUID(), product_id: '', qty: 0, unit_price: 0, discount_pct: 0, line_total: 0 },
-    ]);
-  }
-
-  function removeLineItem(id: string) {
-    setLineItems((rows) => rows.filter((r) => r.id !== id));
   }
 
   async function handleSubmit() {
     setError(null);
     setSubmitting(true);
 
-    const validItems = lineItems.filter((li) => li.product_id && li.qty > 0 && li.unit_price >= 0);
+    // Build line_items from entries map.
+    // Per Aram's rule: discount_pct is ALWAYS 0 on individual lines.
+    // The single overall discount is applied once on the whole order at the
+    // payment / accounting level via overallDiscountPct (separate field on the operation).
+    const validItems = Object.entries(entries)
+      .filter(([_, e]) => e.pieces > 0 && e.unit_price >= 0)
+      .map(([productId, e]) => ({
+        product_id: productId,
+        qty: e.pieces,
+        unit_price: e.unit_price,
+        discount_pct: 0,
+      }));
+
     if (validItems.length === 0) {
-      setError('At least one line item with product, qty, and price required');
+      setError('Enter pieces for at least one product (with a price set)');
       setSubmitting(false);
       return;
     }
@@ -425,12 +420,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
       warehouse_to_id: warehouseToId || undefined,
       incoterms: incoterms.trim() || undefined,
       notes: notes.trim() || undefined,
-      line_items: validItems.map((li) => ({
-        product_id: li.product_id,
-        qty: li.qty,
-        unit_price: li.unit_price,
-        discount_pct: overallDiscountPct,  // apply overall to each line per Q3
-      })),
+      line_items: validItems,
     };
 
     let body: import('@/lib/api').CreateOperationBody;
@@ -469,8 +459,8 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
     }
   }
 
-  // Submit-readiness mirrors isReadyForDetails plus at least one valid line item.
-  const canSubmit = isReadyForDetails && lineItems.some((li) => li.product_id && li.qty > 0);
+  // Submit-readiness: at least one entry with positive pieces.
+  const canSubmit = isReadyForDetails && Object.values(entries).some((e) => e.pieces > 0);
 
   if (loadingRef) {
     return <div className="flex items-center justify-center py-16"><Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--fg-muted)' }} /></div>;
@@ -769,74 +759,185 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
         </div>
       </Section>
 
-      {/* Section 3: Line items */}
+      {/* Section 3: Line items — full grid grouped by category */}
       <Section label="Line Items" disabled={!isReadyForDetails}>
-        <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-              <Th>#</Th><Th>SKU</Th><Th>Qty</Th><Th>Price ({effectiveCurrency || '—'})</Th><Th>Total</Th><Th></Th>
-            </tr>
-          </thead>
-          <tbody>
-            {lineItems.map((li, idx) => (
-              <tr key={li.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                <td className="px-3 py-2" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{idx + 1}</td>
-                <td className="px-3 py-2">
-                  <select value={li.product_id} onChange={(e) => handleProductChange(idx, e.target.value)} disabled={!isReadyForDetails}
-                    className="w-full px-2 py-1 text-sm focus:outline-none"
-                    style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)', fontSize: '14px' }}>
-                    <option value="">—</option>
-                    {availableProducts.map((p) => (
-                      <option key={p.id} value={p.id}>{p.id.replace('prd_', '').toUpperCase()} — {p.product_name}</option>
-                    ))}
-                  </select>
-                </td>
-                <td className="px-3 py-2">
-                  <input type="number" value={li.qty || ''} onChange={(e) => updateLineItem(idx, { qty: parseInt(e.target.value) || 0 })} disabled={!isReadyForDetails} min={0}
-                    className="w-20 px-2 py-1 text-sm focus:outline-none text-right"
-                    style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }} />
-                </td>
-                <td className="px-3 py-2">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={li.unit_price || ''}
-                    onChange={(e) => {
-                      const raw = e.target.value.replace(',', '.').trim();
-                      if (raw === '') { updateLineItem(idx, { unit_price: 0 }); return; }
-                      const v = parseFloat(raw);
-                      if (isNaN(v)) return;
-                      updateLineItem(idx, { unit_price: v });
-                    }}
-                    disabled={!isReadyForDetails}
-                    className="w-28 px-2 py-1 text-sm focus:outline-none text-right"
-                    style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }}
-                  />
-                </td>
-                <td className="px-3 py-2 text-right" style={{ fontSize: '14px', color: 'var(--fg-1)' }}>
-                  {formatMoney(li.line_total, effectiveCurrency)} {effectiveCurrency}
-                </td>
-                <td className="px-3 py-2">
-                  {lineItems.length > 1 && (
-                    <button onClick={() => removeLineItem(li.id)} className="p-1" style={{ color: 'var(--fg-3)', cursor: 'pointer', backgroundColor: 'transparent', border: 'none' }} title="Remove line">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        {(() => {
+          // Group available products by category. Empty categories are hidden.
+          const order = ['Toothpaste', 'Toothbrush', 'Floss', 'Other'] as const;
+          const labelMap: Record<string, string> = {
+            Toothpaste: 'Toothpastes',
+            Toothbrush: 'Toothbrushes',
+            Floss: 'Floss',
+            Other: 'Other',
+          };
+          const groups = order
+            .map((cat) => ({
+              cat,
+              label: labelMap[cat] ?? cat,
+              items: availableProducts.filter((p) => p.category === cat),
+            }))
+            .filter((g) => g.items.length > 0);
 
-        <button onClick={addLineItem} disabled={!isReadyForDetails}
-          className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 text-sm transition-colors"
-          style={{
-            backgroundColor: 'transparent', color: 'var(--brand-rot)',
-            border: '1px solid var(--brand-rot)', borderRadius: 'var(--radius-sm)',
-            opacity: !isReadyForDetails ? 0.5 : 1, cursor: !isReadyForDetails ? 'not-allowed' : 'pointer',
-          }}>
-          <Plus className="h-3.5 w-3.5" /> Add line item
-        </button>
+          return (
+            <div className="space-y-2">
+              {groups.map((g) => {
+                const filledInGroup = g.items.filter((p) => (entries[p.id]?.pieces ?? 0) > 0).length;
+                const groupSubtotal = g.items.reduce((s, p) => {
+                  const e = entries[p.id];
+                  if (!e || e.pieces <= 0) return s;
+                  return s + e.pieces * e.unit_price;
+                }, 0);
+                // Auto-expand if any item in this group has pieces filled
+                const isOpen = openCategories[g.cat] ?? (filledInGroup > 0);
+
+                return (
+                  <div key={g.cat} style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)' }}>
+                    <button
+                      type="button"
+                      onClick={() => setOpenCategories((prev) => ({ ...prev, [g.cat]: !isOpen }))}
+                      disabled={!isReadyForDetails}
+                      className="w-full px-4 py-3 flex items-center justify-between text-left"
+                      style={{
+                        backgroundColor: 'var(--paper-sunk)',
+                        border: 'none',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: 600,
+                        color: 'var(--fg-1)',
+                        opacity: !isReadyForDetails ? 0.5 : 1,
+                      }}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <span style={{ width: '10px', display: 'inline-block', color: 'var(--fg-3)' }}>{isOpen ? '▼' : '▶'}</span>
+                        {g.label}
+                        <span style={{ color: 'var(--fg-3)', fontWeight: 400, marginLeft: '8px' }}>
+                          ({filledInGroup} of {g.items.length})
+                        </span>
+                      </span>
+                      <span style={{ color: 'var(--fg-3)', fontWeight: 400, fontVariantNumeric: 'tabular-nums' }}>
+                        {groupSubtotal > 0
+                          ? `${formatMoney(groupSubtotal, effectiveCurrency)} ${effectiveCurrency}`
+                          : '—'}
+                      </span>
+                    </button>
+
+                    {isOpen && (
+                      <table className="w-full text-sm" style={{ borderCollapse: 'collapse', borderTop: '1px solid var(--border-hairline)' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>
+                            <Th>SKU</Th>
+                            <Th>Name</Th>
+                            <Th>Pieces</Th>
+                            <Th>Cartons</Th>
+                            <Th>Price ({effectiveCurrency || '—'})</Th>
+                            <Th>Total</Th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {g.items.map((p) => {
+                            const e = entries[p.id] ?? { pieces: 0, unit_price: 0 };
+                            const ctnQty = p.ctn_qty ?? 0;
+                            const cartonsDisplay = ctnQty > 0 && e.pieces > 0
+                              ? Math.round((e.pieces / ctnQty) * 100) / 100
+                              : 0;
+                            const lineTotal = e.pieces > 0 && e.unit_price > 0
+                              ? Math.round(e.pieces * e.unit_price * 100) / 100
+                              : 0;
+                            const noPrice = e.unit_price <= 0;
+
+                            return (
+                              <tr key={p.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                                <td className="px-3 py-2" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-1)' }}>
+                                  {p.id.toUpperCase()}
+                                </td>
+                                <td className="px-3 py-2" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
+                                  {p.product_name}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="number"
+                                    value={e.pieces || ''}
+                                    onChange={(ev) => {
+                                      const v = parseInt(ev.target.value) || 0;
+                                      updateEntry(p.id, { pieces: v });
+                                      if (v > 0) ensurePriceFor(p.id);
+                                    }}
+                                    disabled={!isReadyForDetails}
+                                    min={0}
+                                    placeholder="0"
+                                    className="w-24 px-2 py-1 text-sm focus:outline-none text-right"
+                                    style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }}
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  {ctnQty > 0 ? (
+                                    <input
+                                      type="text"
+                                      inputMode="decimal"
+                                      value={cartonsDisplay || ''}
+                                      onChange={(ev) => {
+                                        const raw = ev.target.value.replace(',', '.').trim();
+                                        if (raw === '') { updateEntry(p.id, { pieces: 0 }); return; }
+                                        const c = parseFloat(raw);
+                                        if (isNaN(c) || c < 0) return;
+                                        const newPieces = Math.round(c * ctnQty);
+                                        updateEntry(p.id, { pieces: newPieces });
+                                        if (newPieces > 0) ensurePriceFor(p.id);
+                                      }}
+                                      disabled={!isReadyForDetails}
+                                      placeholder="0"
+                                      className="w-24 px-2 py-1 text-sm focus:outline-none text-right"
+                                      style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }}
+                                    />
+                                  ) : (
+                                    <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>—</span>
+                                  )}
+                                  {ctnQty > 0 && (
+                                    <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '2px' }}>
+                                      ×{ctnQty}/ctn
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={e.unit_price || ''}
+                                    onChange={(ev) => {
+                                      const raw = ev.target.value.replace(',', '.').trim();
+                                      if (raw === '') { updateEntry(p.id, { unit_price: 0 }); return; }
+                                      const v = parseFloat(raw);
+                                      if (isNaN(v) || v < 0) return;
+                                      updateEntry(p.id, { unit_price: v });
+                                    }}
+                                    disabled={!isReadyForDetails}
+                                    placeholder={noPrice ? 'no price set' : '0.00'}
+                                    className="w-28 px-2 py-1 text-sm focus:outline-none text-right"
+                                    style={{
+                                      backgroundColor: 'var(--paper-sunk)',
+                                      border: '1px solid var(--border-hairline)',
+                                      borderRadius: 'var(--radius-xs)',
+                                      color: noPrice ? 'var(--fg-3)' : 'var(--fg-1)',
+                                    }}
+                                  />
+                                </td>
+                                <td className="px-3 py-2 text-right" style={{ fontSize: '14px', color: lineTotal > 0 ? 'var(--fg-1)' : 'var(--fg-3)', fontVariantNumeric: 'tabular-nums' }}>
+                                  {lineTotal > 0
+                                    ? `${formatMoney(lineTotal, effectiveCurrency)} ${effectiveCurrency}`
+                                    : '0.00'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         {/* Discount + Total */}
         <div className="mt-6 pt-4" style={{ borderTop: '1px solid var(--border-hairline)' }}>

@@ -747,18 +747,17 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                 </td>
                 <td className="px-3 py-2">
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     value={li.unit_price || ''}
                     onChange={(e) => {
-                      const raw = e.target.value;
+                      const raw = e.target.value.replace(',', '.').trim();
                       if (raw === '') { updateLineItem(idx, { unit_price: 0 }); return; }
                       const v = parseFloat(raw);
                       if (isNaN(v)) return;
                       updateLineItem(idx, { unit_price: v });
                     }}
                     disabled={!isReadyForDetails}
-                    min={0}
-                    step={['VND', 'JPY', 'KRW'].includes(effectiveCurrency) ? 1 : 0.01}
                     className="w-28 px-2 py-1 text-sm focus:outline-none text-right"
                     style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }}
                   />

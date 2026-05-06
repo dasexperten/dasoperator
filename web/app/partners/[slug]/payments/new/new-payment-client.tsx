@@ -219,7 +219,7 @@ export default function NewPaymentClient({ partnerSlug }: { partnerSlug: string 
         <div className="grid grid-cols-2 gap-4">
           <div>
             <Label>Amount *</Label>
-            <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={!contractId} min={0} step={0.01} placeholder="0.00"
+            <input type="text" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(',', '.'))} disabled={!contractId} placeholder="0.00"
               className="w-full px-3 py-2 text-sm focus:outline-none text-right"
               style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
           </div>

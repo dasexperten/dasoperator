@@ -71,6 +71,7 @@ const STATUS_TONES: Record<string, { bg: string; fg: string }> = {
   issued:            { bg: 'rgba(31,73,125,0.10)',  fg: 'var(--status-info)' },
   order_fulfilment:  { bg: 'rgba(31,73,125,0.10)',  fg: 'var(--status-info)' },
   production:        { bg: 'rgba(31,73,125,0.10)',  fg: 'var(--status-info)' },
+  stocked:           { bg: 'rgba(31,73,125,0.10)',  fg: 'var(--status-info)' },
   shipped:           { bg: 'rgba(31,73,125,0.10)',  fg: 'var(--status-info)' },
   delivered:         { bg: 'rgba(46,125,79,0.10)',  fg: 'var(--status-success)' },
   cancelled:         { bg: 'rgba(229,32,44,0.10)',  fg: 'var(--brand-rot)' },

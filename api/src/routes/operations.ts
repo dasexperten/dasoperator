@@ -591,17 +591,39 @@ operations.get('/:id', async (c) => {
 // =============================================================================
 
 const updateStatusSchema = z.object({
-  status: z.enum(['issued', 'shipped', 'delivered', 'cancelled']),
+  status: z.enum(['issued', 'order_fulfilment', 'production', 'stocked', 'shipped', 'delivered', 'cancelled']),
   notes: z.string().optional(),
 });
 
-// Allowed transitions — prevents going backwards
-const ALLOWED_TRANSITIONS: Record<string, string[]> = {
-  draft:     ['issued', 'cancelled'],
-  issued:    ['shipped', 'cancelled'],
-  shipped:   ['delivered', 'cancelled'],
-  delivered: [],
-  cancelled: [],
+// Allowed transitions — branched by operation_type
+// SALE:     draft → issued → order_fulfilment → shipped → delivered (+cancel)
+// PURCHASE: draft → issued → production → stocked → shipped → delivered (+cancel)
+// TRANSFER: draft → issued → shipped → delivered (+cancel)
+const ALLOWED_TRANSITIONS_BY_TYPE: Record<string, Record<string, string[]>> = {
+  sale: {
+    draft:            ['issued', 'cancelled'],
+    issued:           ['order_fulfilment', 'shipped', 'cancelled'],  // direct skip allowed
+    order_fulfilment: ['shipped', 'cancelled'],
+    shipped:          ['delivered', 'cancelled'],
+    delivered:        [],
+    cancelled:        [],
+  },
+  purchase: {
+    draft:      ['issued', 'cancelled'],
+    issued:     ['production', 'stocked', 'shipped', 'cancelled'],  // skip allowed
+    production: ['stocked', 'cancelled'],
+    stocked:    ['shipped', 'cancelled'],
+    shipped:    ['delivered', 'cancelled'],
+    delivered:  [],
+    cancelled:  [],
+  },
+  transfer: {
+    draft:     ['issued', 'cancelled'],
+    issued:    ['shipped', 'cancelled'],
+    shipped:   ['delivered', 'cancelled'],
+    delivered: [],
+    cancelled: [],
+  },
 };
 
 interface OpFull {
@@ -669,13 +691,14 @@ operations.patch('/:id/status', async (c) => {
     return fail(c, 404, [{ code: 'operation_not_found', message: `Operation ${opId} not found` }]);
   }
 
-  // Guard: check allowed transition
-  const allowed = ALLOWED_TRANSITIONS[op.status] ?? [];
+  // Guard: check allowed transition (branched by operation_type)
+  const transitionsForType = ALLOWED_TRANSITIONS_BY_TYPE[op.operation_type] ?? {};
+  const allowed = transitionsForType[op.status] ?? [];
   if (!allowed.includes(targetStatus)) {
     return fail(c, 422, [{
       code: 'invalid_transition',
-      message: `Cannot move from '${op.status}' to '${targetStatus}'`,
-      details: { current: op.status, target: targetStatus, allowed },
+      message: `Cannot move ${op.operation_type} from '${op.status}' to '${targetStatus}'`,
+      details: { operation_type: op.operation_type, current: op.status, target: targetStatus, allowed },
     }]);
   }
 
@@ -710,7 +733,21 @@ operations.patch('/:id/status', async (c) => {
 
   const opType = op.operation_type;
 
-  if (targetStatus === 'shipped') {
+  if (targetStatus === 'stocked') {
+    // PURCHASE only: factory finished production, goods now at factory warehouse
+    if (opType === 'purchase' && op.warehouse_from_id) {
+      for (const li of lineItems) {
+        movementSpecs.push({
+          warehouseId: op.warehouse_from_id,
+          productId: li.product_id,
+          movementType: 'production_complete',
+          qty: +li.qty,
+          reason: 'purchase_stocked_at_factory',
+        });
+      }
+    }
+
+  } else if (targetStatus === 'shipped') {
     // sale or transfer: goods leave warehouse_from
     if ((opType === 'sale' || opType === 'transfer') && op.warehouse_from_id) {
       for (const li of lineItems) {
@@ -723,7 +760,18 @@ operations.patch('/:id/status', async (c) => {
         });
       }
     }
-    // purchase at shipped: goods in transit, no warehouse touch yet
+    // purchase at shipped: goods leave factory warehouse (was added at stocked)
+    if (opType === 'purchase' && op.warehouse_from_id) {
+      for (const li of lineItems) {
+        movementSpecs.push({
+          warehouseId: op.warehouse_from_id,
+          productId: li.product_id,
+          movementType: 'shipment',
+          qty: -li.qty,
+          reason: 'purchase_shipped_from_factory',
+        });
+      }
+    }
 
   } else if (targetStatus === 'delivered') {
     // transfer or purchase: goods arrive at warehouse_to

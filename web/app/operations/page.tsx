@@ -19,6 +19,22 @@ const PAYMENT_OVERLAY: Record<string, { bg: string; fg: string; dot: string; lab
   neutral: { bg: 'var(--paper-sunk)',    fg: 'var(--fg-3)', dot: 'var(--fg-muted)', label: '' },
 };
 
+// Phase 5.x — Status display labels (DB enum → human-readable)
+const STATUS_LABELS: Record<string, string> = {
+  draft:            'Draft',
+  issued:           'Issued',
+  order_fulfilment: 'Boxing',
+  production:       'In Production',
+  stocked:          'Stocked',
+  shipped:          'Shipped',
+  delivered:        'Delivered',
+  cancelled:        'Cancelled',
+};
+
+function statusLabel(status: string): string {
+  return STATUS_LABELS[status] ?? status;
+}
+
 function formatDate(unix: number): string {
   return new Date(unix * 1000).toISOString().split('T')[0]!;
 }
@@ -126,6 +142,9 @@ export default function OperationsPage() {
             <option value="all">All statuses</option>
             <option value="draft">Draft</option>
             <option value="issued">Issued</option>
+            <option value="order_fulfilment">Boxing</option>
+            <option value="production">In Production</option>
+            <option value="stocked">Stocked</option>
             <option value="shipped">Shipped</option>
             <option value="delivered">Delivered</option>
             <option value="cancelled">Cancelled</option>
@@ -200,7 +219,7 @@ export default function OperationsPage() {
                           fontWeight: 500,
                         }}>
                           <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: po.dot, display: 'inline-block' }} />
-                          <span style={{ color: 'var(--fg-1)', fontWeight: 600 }}>{op.status}</span>
+                          <span style={{ color: 'var(--fg-1)', fontWeight: 600 }}>{statusLabel(op.status)}</span>
                           {ps !== 'neutral' && (
                             <span style={{ color: po.fg, fontWeight: 500 }}>· {po.label} {pct}%</span>
                           )}

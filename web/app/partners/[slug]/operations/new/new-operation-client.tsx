@@ -62,7 +62,6 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   const [opDate, setOpDate] = useState<string>(new Date().toISOString().split('T')[0]!);
   const [warehouseFromId, setWarehouseFromId] = useState<string>('');
   const [warehouseToId, setWarehouseToId] = useState<string>('');
-  const [incoterms, setIncoterms] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [overallDiscountPct, setOverallDiscountPct] = useState<number>(0);
 
@@ -442,7 +441,6 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
       operation_date: Math.floor(new Date(opDate).getTime() / 1000),
       warehouse_from_id: warehouseFromId || undefined,
       warehouse_to_id: warehouseToId || undefined,
-      incoterms: incoterms.trim() || undefined,
       notes: notes.trim() || undefined,
       line_items: validItems,
     };
@@ -768,12 +766,6 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
               )}
             </div>
           )}
-        </div>
-        <div className="mt-4">
-          <Label>Incoterms</Label>
-          <input type="text" value={incoterms} onChange={(e) => setIncoterms(e.target.value)} disabled={!isReadyForDetails} placeholder="FCA Saransk"
-            className="w-full px-3 py-2 text-sm focus:outline-none"
-            style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
         </div>
         <div className="mt-4">
           <Label>Notes</Label>

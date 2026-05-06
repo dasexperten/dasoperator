@@ -6,6 +6,7 @@ import { corsMiddleware } from './middleware/cors';
 import healthRoutes from './routes/health';
 import productsRoutes from './routes/products';
 import contactsRoutes from './routes/contacts';
+import directoriesRoutes from './routes/directories';
 import pricerRoutes from './routes/pricer';
 import emailRoutes from './routes/email';
 import partnersRoutes from './routes/partners';
@@ -50,6 +51,7 @@ app.route('/api/products', productsPricingRoutes);  // adds :productId/price
 app.route('/api/products', productStock);           // adds :id/stock
 app.route('/api/products', productsPhotosRoutes);   // adds :id/images endpoints
 app.route('/api/contacts', contactsRoutes);
+app.route('/api', directoriesRoutes);  // companies + manufacturers list
 app.route('/api/partners', partnersRoutes);
 app.route('/api/partners', netBalancePerPartner);   // adds :slug/net-balance
 app.route('/api/net-balance', netBalanceBulk);

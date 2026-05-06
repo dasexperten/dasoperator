@@ -346,6 +346,35 @@ export async function getPartners() {
   return apiGet<PartnersListResponse>('/api/partners');
 }
 
+// Internal entities (DEE/DEI/DEASEAN/DEC) — used in Transfer + Purchase (DEI as seller)
+export interface Company {
+  id: string;
+  abbreviation: string | null;
+  legal_name: string;
+  country: string | null;
+}
+export interface CompaniesResponse {
+  count: number;
+  companies: Company[];
+}
+export async function getCompanies() {
+  return apiGet<CompaniesResponse>('/api/companies');
+}
+
+// Factory manufacturers — used in Purchase as primary seller list
+export interface Manufacturer {
+  id: string;
+  name: string;
+  country: string | null;
+}
+export interface ManufacturersResponse {
+  count: number;
+  manufacturers: Manufacturer[];
+}
+export async function getManufacturers() {
+  return apiGet<ManufacturersResponse>('/api/manufacturers');
+}
+
 export async function getPartner(slug: string): Promise<ApiResponse<Partner>> {
   const res = await getContact(slug);
   if (!res.success || !res.result) {

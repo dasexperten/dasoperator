@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation';
 import { Plus, Trash2, Loader2 } from 'lucide-react';
 import {
   getPartner, getPartnerContracts, getProducts, getPartners,
+  getCompanies, getManufacturers,
   createOperation, getProductPriceForContract,
-  type Partner, type Contract, type Product
+  type Partner, type Contract, type Product, type Company, type Manufacturer
 } from '@/lib/api';
 import Breadcrumb from '@/components/layout/breadcrumb';
 
@@ -28,6 +29,16 @@ function formatMoney(minor: number, currency: string): string {
   });
 }
 
+const selectStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '10px 12px',
+  fontSize: '14px',
+  backgroundColor: 'var(--paper-sunk)',
+  border: '1px solid var(--border-hairline)',
+  borderRadius: 'var(--radius-sm)',
+  color: 'var(--fg-1)',
+};
+
 export default function NewOperationClient({ partnerSlug }: { partnerSlug: string }) {
   const router = useRouter();
 
@@ -36,6 +47,8 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [allPartners, setAllPartners] = useState<Partner[]>([]);  // for global mode
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [manufacturers, setManufacturers] = useState<Manufacturer[]>([]);
   const [loadingRef, setLoadingRef] = useState(true);
 
   // In global mode (no partnerSlug), user picks partner from dropdown
@@ -43,8 +56,11 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   const isGlobalMode = !partnerSlug;
 
   // Form state
-  const [contractId, setContractId] = useState<string>('');
   const [opType, setOpType] = useState<'sale' | 'purchase' | 'transfer'>('sale');
+  const [contractId, setContractId] = useState<string>('');
+  const [manufacturerId, setManufacturerId] = useState<string>('');     // Purchase
+  const [ourCompanyId, setOurCompanyId] = useState<string>('cmp_dee');  // for purchase/transfer
+  const [receivingCompanyId, setReceivingCompanyId] = useState<string>('');  // Transfer
   const [opDate, setOpDate] = useState<string>(new Date().toISOString().split('T')[0]!);
   const [warehouseFromId, setWarehouseFromId] = useState<string>('');
   const [warehouseToId, setWarehouseToId] = useState<string>('');
@@ -59,17 +75,25 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // First effect: load products and (if global mode) all partners
+  // First effect: load products + (always) companies + manufacturers + partners
   useEffect(() => {
     const fetchInitial = async () => {
       try {
-        const [prodRes, partnersRes] = await Promise.all([
+        const [prodRes, partnersRes, companiesRes, manufacturersRes] = await Promise.all([
           getProducts('DE'),
-          isGlobalMode ? getPartners() : Promise.resolve(null),
+          getPartners(),
+          getCompanies(),
+          getManufacturers(),
         ]);
         if (prodRes.success && prodRes.result) setProducts(prodRes.result.products);
         if (partnersRes && partnersRes.success && partnersRes.result) {
           setAllPartners(partnersRes.result.partners.filter((p) => p.status === 'active'));
+        }
+        if (companiesRes.success && companiesRes.result) {
+          setCompanies(companiesRes.result.companies);
+        }
+        if (manufacturersRes.success && manufacturersRes.result) {
+          setManufacturers(manufacturersRes.result.manufacturers);
         }
       } catch {
         // silent
@@ -108,6 +132,14 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
 
   const contractCurrency = selectedContract?.currency ?? '';
   const contractEntity = selectedContract?.entity_abbreviation ?? '';
+
+  // Counterparty completeness gate per type — used to enable Operation Details
+  const isReadyForDetails = useMemo(() => {
+    if (opType === 'sale')     return Boolean(contractId);
+    if (opType === 'purchase') return Boolean(manufacturerId && ourCompanyId);
+    if (opType === 'transfer') return Boolean(ourCompanyId && receivingCompanyId);
+    return false;
+  }, [opType, contractId, manufacturerId, ourCompanyId, receivingCompanyId]);
 
   // Subtotal before overall discount
   const subtotal = useMemo(
@@ -232,110 +264,175 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
 
       <div className="dx-ribbon-rule" />
 
-      {/* Sections 0+1 combined: Partner (global mode only) + Contract side-by-side */}
-      <Section label={isGlobalMode ? 'Partner & Contract' : 'Contract'}>
-        <div className={isGlobalMode ? 'grid grid-cols-2 gap-6' : ''}>
-          {/* Partner selector — only in global mode */}
-          {isGlobalMode && (
-            <div>
-              <Label>Select partner *</Label>
-              <select
-                value={selectedPartnerSlug}
-                onChange={(e) => {
-                  setSelectedPartnerSlug(e.target.value);
+      {/* Section A: Operation Type — must come first, drives everything else */}
+      <Section label="Type">
+        <div className="grid grid-cols-3 gap-3">
+          {([
+            { id: 'sale',     label: 'Sales',    desc: 'Sell to a buyer' },
+            { id: 'purchase', label: 'Purchase', desc: 'Buy from factory' },
+            { id: 'transfer', label: 'Transfer', desc: 'Between our entities' },
+          ] as const).map((t) => {
+            const active = opType === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => {
+                  setOpType(t.id);
+                  // reset counterparty fields on type change
+                  setSelectedPartnerSlug(partnerSlug);
                   setContractId('');
+                  setManufacturerId('');
+                  setReceivingCompanyId('');
                 }}
                 style={{
-                  width: '100%', padding: '10px 12px',
-                  fontSize: '14px',
-                  backgroundColor: 'var(--paper-sunk)',
-                  border: '1px solid var(--border-hairline)',
+                  padding: '14px 16px',
+                  textAlign: 'left',
+                  backgroundColor: active ? 'var(--brand-rot)' : 'var(--paper-sunk)',
+                  color: active ? 'var(--paper)' : 'var(--fg-1)',
+                  border: `1px solid ${active ? 'var(--brand-rot)' : 'var(--border-hairline)'}`,
                   borderRadius: 'var(--radius-sm)',
-                  color: 'var(--fg-1)',
+                  cursor: 'pointer',
                 }}
               >
-                <option value="">— Choose a partner —</option>
-                {allPartners.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.trade_name} ({p.country ?? '—'})
+                <div style={{ fontWeight: 700, fontSize: '16px', marginBottom: '4px' }}>{t.label}</div>
+                <div style={{ fontSize: '14px', opacity: active ? 0.9 : 0.7 }}>{t.desc}</div>
+              </button>
+            );
+          })}
+        </div>
+      </Section>
+
+      {/* Section B: Counterparty — varies by type */}
+      {opType === 'sale' && (
+        <Section label="Buyer & Contract">
+          <div className={isGlobalMode ? 'grid grid-cols-2 gap-6' : ''}>
+            {isGlobalMode && (
+              <div>
+                <Label>Select buyer *</Label>
+                <select
+                  value={selectedPartnerSlug}
+                  onChange={(e) => {
+                    setSelectedPartnerSlug(e.target.value);
+                    setContractId('');
+                  }}
+                  style={selectStyle}
+                >
+                  <option value="">— Choose a buyer —</option>
+                  {allPartners.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.trade_name} ({p.country ?? '—'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div>
+              <Label>Select contract *</Label>
+              {!selectedPartnerSlug ? (
+                <p style={{ fontSize: '14px', color: 'var(--fg-3)' }}>Select a buyer first.</p>
+              ) : contracts.length === 0 ? (
+                <p style={{ fontSize: '14px', color: 'var(--status-warning)' }}>No active contracts.</p>
+              ) : (
+                <select value={contractId} onChange={(e) => setContractId(e.target.value)} style={selectStyle}>
+                  <option value="">— Choose contract —</option>
+                  {contracts.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.contract_no} ({c.entity_abbreviation} · {c.currency})
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          </div>
+          {selectedContract && (
+            <div className="mt-4 grid grid-cols-3 gap-3" style={{ fontSize: '14px' }}>
+              <div><Label>Entity</Label><div style={{ color: 'var(--fg-1)' }}>{contractEntity}</div></div>
+              <div><Label>Currency</Label><div style={{ color: 'var(--fg-1)' }}>{contractCurrency}</div></div>
+              <div><Label>Contract</Label><div style={{ color: 'var(--fg-1)' }}>{selectedContract.contract_no}</div></div>
+            </div>
+          )}
+        </Section>
+      )}
+
+      {opType === 'purchase' && (
+        <Section label="Supplier (Factory)">
+          <div className="grid grid-cols-2 gap-6">
+            <div>
+              <Label>Manufacturer *</Label>
+              <select value={manufacturerId} onChange={(e) => setManufacturerId(e.target.value)} style={selectStyle}>
+                <option value="">— Choose factory —</option>
+                {manufacturers.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}{m.country ? ` (${m.country})` : ''}
                   </option>
                 ))}
               </select>
             </div>
-          )}
-
-          <div>
-            <Label>Select contract *</Label>
-            {!selectedPartnerSlug ? (
-              <p style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-3)' }}>
-                Select a partner first.
-              </p>
-            ) : contracts.length === 0 ? (
-              <p style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--status-warning)' }}>
-                No active contracts for this partner.
-              </p>
-            ) : (
-              <select value={contractId} onChange={(e) => setContractId(e.target.value)}
-                className="w-full focus:outline-none"
-                style={{
-                  padding: '10px 12px',
-                  fontSize: '14px',
-                  backgroundColor: 'var(--paper-sunk)',
-                  border: '1px solid var(--border-hairline)',
-                  borderRadius: 'var(--radius-sm)',
-                  color: 'var(--fg-1)',
-                }}>
-                <option value="">— Choose contract —</option>
-                {contracts.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.contract_no} ({c.entity_abbreviation} · {c.currency})
+            <div>
+              <Label>Buying company *</Label>
+              <select value={ourCompanyId} onChange={(e) => setOurCompanyId(e.target.value)} style={selectStyle}>
+                {companies.map((co) => (
+                  <option key={co.id} value={co.id}>
+                    {co.abbreviation} — {co.legal_name}
                   </option>
                 ))}
               </select>
-            )}
+            </div>
           </div>
-        </div>
+        </Section>
+      )}
 
-        {selectedContract && (
-          <div className="mt-4 grid grid-cols-3 gap-3" style={{ fontSize: '14px' }}>
-            <div><Label>Entity</Label><div style={{ color: 'var(--fg-1)' }}>{contractEntity}</div></div>
-            <div><Label>Currency</Label><div style={{ color: 'var(--fg-1)' }}>{contractCurrency}</div></div>
-            <div><Label>Contract</Label><div style={{ color: 'var(--fg-1)' }}>{selectedContract.contract_no}</div></div>
+      {opType === 'transfer' && (
+        <Section label="Internal Transfer">
+          <div className="grid grid-cols-2 gap-6">
+            <div>
+              <Label>From entity *</Label>
+              <select value={ourCompanyId} onChange={(e) => setOurCompanyId(e.target.value)} style={selectStyle}>
+                {companies.map((co) => (
+                  <option key={co.id} value={co.id}>
+                    {co.abbreviation} — {co.legal_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label>To entity *</Label>
+              <select value={receivingCompanyId} onChange={(e) => setReceivingCompanyId(e.target.value)} style={selectStyle}>
+                <option value="">— Choose receiving entity —</option>
+                {companies.filter((co) => co.id !== ourCompanyId).map((co) => (
+                  <option key={co.id} value={co.id}>
+                    {co.abbreviation} — {co.legal_name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-        )}
-      </Section>
+          <p className="mt-3" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
+            Documents will be issued as a sale invoice from the sending entity to the receiving entity.
+          </p>
+        </Section>
+      )}
 
-      {/* Section 2: Operation Details — disabled until contract selected */}
-      <Section label="Operation Details" disabled={!contractId}>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <Label>Type *</Label>
-            <select value={opType} onChange={(e) => setOpType(e.target.value as 'sale' | 'purchase' | 'transfer')} disabled={!contractId}
-              className="w-full px-3 py-2 text-sm focus:outline-none"
-              style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}>
-              <option value="sale">Sale</option>
-              <option value="purchase">Purchase</option>
-              <option value="transfer">Transfer</option>
-            </select>
-          </div>
-          <div>
-            <Label>Date *</Label>
-            <input type="date" value={opDate} onChange={(e) => setOpDate(e.target.value)} disabled={!contractId}
-              className="w-full px-3 py-2 text-sm focus:outline-none"
-              style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
-          </div>
+      {/* Section C: Operation Details — disabled until prerequisites met */}
+      <Section label="Operation Details" disabled={!isReadyForDetails}>
+        <div>
+          <Label>Date *</Label>
+          <input type="date" value={opDate} onChange={(e) => setOpDate(e.target.value)} disabled={!isReadyForDetails}
+            className="w-full px-3 py-2 text-sm focus:outline-none"
+            style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
         </div>
         <div className="grid grid-cols-2 gap-4 mt-4">
           <div>
             <Label>Warehouse From {(opType === 'sale' || opType === 'transfer') && '*'}</Label>
-            <input type="text" value={warehouseFromId} onChange={(e) => setWarehouseFromId(e.target.value)} disabled={!contractId}
+            <input type="text" value={warehouseFromId} onChange={(e) => setWarehouseFromId(e.target.value)} disabled={!isReadyForDetails}
               placeholder="e.g. wh_lbr"
               className="w-full px-3 py-2 text-sm focus:outline-none"
               style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
           </div>
           <div>
             <Label>Warehouse To {(opType === 'purchase' || opType === 'transfer') && '*'}</Label>
-            <input type="text" value={warehouseToId} onChange={(e) => setWarehouseToId(e.target.value)} disabled={!contractId}
+            <input type="text" value={warehouseToId} onChange={(e) => setWarehouseToId(e.target.value)} disabled={!isReadyForDetails}
               placeholder="e.g. wh_yer"
               className="w-full px-3 py-2 text-sm focus:outline-none"
               style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />

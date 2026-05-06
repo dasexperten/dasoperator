@@ -222,6 +222,25 @@ export async function getProductPrices(id: string) {
   return apiGet<ProductPricesResponse>(`/api/products/${id}/prices`);
 }
 
+export interface CreateProductPriceBody {
+  price_type_id: string;
+  sell_price: number;
+  effective_from?: number;
+  effective_until?: number | null;
+  notes?: string | null;
+}
+
+export async function createProductPrice(productId: string, body: CreateProductPriceBody) {
+  return apiPost<ProductPriceRow>(`/api/products/${productId}/prices`, body);
+}
+
+export async function deleteProductPrice(productId: string, priceId: string) {
+  const res = await fetch(`${API_BASE}/api/products/${productId}/prices/${priceId}`, {
+    method: 'DELETE',
+  });
+  return res.json() as Promise<ApiResponse<{ id: string; closed_at: number }>>;
+}
+
 // Bulk pricelist — full SKU→price map for one price type
 export interface PricelistResponse {
   price_type_id: string;

@@ -7,6 +7,7 @@ import {
   getProduct, getProductStock, getProductPrices, getProductActivity,
   getProductImages, uploadProductImage, setPrimaryImage, deleteProductImage,
   getWarehouses, getManufacturers, updateProduct,
+  createProductPrice, deleteProductPrice,
   type ProductFull, type ProductPriceRow, type ProductActivityRow,
   type ProductImage, type Warehouse, type ProductStockResponse,
   type Manufacturer, type UpdateProductBody,
@@ -163,6 +164,16 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
   const [editError, setEditError] = useState<string | null>(null);
   const [draft, setDraft] = useState<UpdateProductBody>({});
   const [manufacturers, setManufacturers] = useState<Manufacturer[]>([]);
+
+  // Add-price form state
+  const [addingPrice, setAddingPrice] = useState(false);
+  const [priceSaving, setPriceSaving] = useState(false);
+  const [priceError, setPriceError] = useState<string | null>(null);
+  const [priceDraft, setPriceDraft] = useState<{ price_type_id: string; sell_price: string; notes: string }>({
+    price_type_id: 'pt_distr_rub',
+    sell_price: '',
+    notes: '',
+  });
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -354,6 +365,59 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
     }
   }
 
+  function handleAddPriceStart() {
+    setPriceDraft({ price_type_id: 'pt_distr_rub', sell_price: '', notes: '' });
+    setPriceError(null);
+    setAddingPrice(true);
+  }
+
+  function handleAddPriceCancel() {
+    setAddingPrice(false);
+    setPriceError(null);
+  }
+
+  async function handleAddPriceSave() {
+    setPriceError(null);
+    const raw = priceDraft.sell_price.replace(',', '.').trim();
+    const value = parseFloat(raw);
+    if (!raw || isNaN(value) || value < 0) {
+      setPriceError('Enter a valid price');
+      return;
+    }
+    setPriceSaving(true);
+    try {
+      const res = await createProductPrice(id, {
+        price_type_id: priceDraft.price_type_id,
+        sell_price: value,
+        notes: priceDraft.notes.trim() || null,
+      });
+      if (res.success && res.result) {
+        // Re-fetch all prices to refresh table
+        const fresh = await getProductPrices(id);
+        if (fresh.success && fresh.result) setPrices(fresh.result.prices);
+        setAddingPrice(false);
+      } else {
+        setPriceError(res.errors?.[0]?.message ?? 'Failed to save price');
+      }
+    } catch (e) {
+      setPriceError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setPriceSaving(false);
+    }
+  }
+
+  async function handleDeletePrice(priceId: string) {
+    try {
+      const res = await deleteProductPrice(id, priceId);
+      if (res.success) {
+        const fresh = await getProductPrices(id);
+        if (fresh.success && fresh.result) setPrices(fresh.result.prices);
+      }
+    } catch {
+      // silent — user can refresh
+    }
+  }
+
   const totalOnHand = stock?.total_on_hand ?? 0;
   const warehousesWithStock = stock?.by_warehouse.filter((w) => w.on_hand > 0).length ?? 0;
   const idUpper = product.id.toUpperCase();
@@ -536,8 +600,126 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
         <SectionEyebrow
           label="Prices"
           role="sales"
-          right={<span style={{ color: MUTED }}>+ Add price</span>}
+          right={
+            !addingPrice ? (
+              <button
+                onClick={handleAddPriceStart}
+                style={{
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  color: 'var(--brand-rot, #C8102E)',
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: 0,
+                }}
+              >
+                + Add price
+              </button>
+            ) : null
+          }
         />
+
+        {addingPrice && (
+          <div style={{
+            marginBottom: '16px',
+            padding: '16px',
+            backgroundColor: '#FAF8F5',
+            border: '0.5px solid #E0DCD7',
+            borderRadius: '8px',
+          }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 2fr', gap: '12px', alignItems: 'end' }}>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 600, color: '#6B6B6B', marginBottom: '4px' }}>
+                  Price type
+                </div>
+                <select
+                  value={priceDraft.price_type_id}
+                  onChange={(e) => setPriceDraft({ ...priceDraft, price_type_id: e.target.value })}
+                  disabled={priceSaving}
+                  style={{
+                    width: '100%', padding: '8px 12px', fontSize: '14px',
+                    border: '0.5px solid #C9C5BF', borderRadius: '6px',
+                    backgroundColor: '#FFFFFF', color: INK,
+                  }}
+                >
+                  {PRICE_TYPES_REFERENCE.map((pt) => (
+                    <option key={pt.id} value={pt.id}>{pt.code} ({pt.currency})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 600, color: '#6B6B6B', marginBottom: '4px' }}>
+                  Price
+                </div>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={priceDraft.sell_price}
+                  onChange={(e) => setPriceDraft({ ...priceDraft, sell_price: e.target.value })}
+                  disabled={priceSaving}
+                  placeholder="0.00"
+                  style={{
+                    width: '100%', padding: '8px 12px', fontSize: '14px',
+                    border: '0.5px solid #C9C5BF', borderRadius: '6px',
+                    backgroundColor: '#FFFFFF', color: INK,
+                    textAlign: 'right',
+                  }}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 600, color: '#6B6B6B', marginBottom: '4px' }}>
+                  Notes (optional)
+                </div>
+                <input
+                  type="text"
+                  value={priceDraft.notes}
+                  onChange={(e) => setPriceDraft({ ...priceDraft, notes: e.target.value })}
+                  disabled={priceSaving}
+                  style={{
+                    width: '100%', padding: '8px 12px', fontSize: '14px',
+                    border: '0.5px solid #C9C5BF', borderRadius: '6px',
+                    backgroundColor: '#FFFFFF', color: INK,
+                  }}
+                />
+              </div>
+            </div>
+            {priceError && (
+              <div style={{ marginTop: '10px', padding: '8px 12px', backgroundColor: '#FBE9E9', border: '0.5px solid #E5B3B3', borderRadius: '6px', color: '#A32D2D', fontSize: '14px' }}>
+                {priceError}
+              </div>
+            )}
+            <div style={{ marginTop: '12px', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={handleAddPriceCancel}
+                disabled={priceSaving}
+                style={{
+                  fontSize: '14px', color: '#6B6B6B',
+                  backgroundColor: 'transparent', border: '0.5px solid #E0DCD7',
+                  borderRadius: '6px', padding: '8px 14px', cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddPriceSave}
+                disabled={priceSaving}
+                style={{
+                  fontSize: '14px', fontWeight: 600,
+                  color: '#FFFFFF', backgroundColor: 'var(--brand-rot, #C8102E)',
+                  border: 'none', borderRadius: '6px', padding: '8px 16px',
+                  display: 'inline-flex', alignItems: 'center', gap: '6px',
+                  cursor: priceSaving ? 'not-allowed' : 'pointer',
+                  opacity: priceSaving ? 0.6 : 1,
+                }}
+              >
+                {priceSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+                Save
+              </button>
+            </div>
+          </div>
+        )}
+
         <table style={{ width: '100%', fontSize: '14px', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '0.5px solid #E0DCD7' }}>
@@ -546,6 +728,7 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
               <Th>Currency</Th>
               <Th right>Price</Th>
               <Th>Effective</Th>
+              <Th> </Th>
             </tr>
           </thead>
           <tbody>
@@ -565,6 +748,17 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
                   </td>
                   <td style={{ padding: '10px 12px', fontVariantNumeric: 'tabular-nums', color: '#6B6B6B' }}>
                     {row ? formatEffective(row.effective_from, row.effective_until) : '—'}
+                  </td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                    {row && (
+                      <button
+                        onClick={() => handleDeletePrice(row.id)}
+                        title="Close this price (set effective_until = now)"
+                        style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#6B6B6B' }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
                   </td>
                 </tr>
               );

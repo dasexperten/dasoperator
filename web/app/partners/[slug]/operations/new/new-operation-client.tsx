@@ -435,6 +435,29 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
 
   async function handleSubmit() {
     setError(null);
+
+    // Pre-flight checks with human-readable messages.
+    if (opType === 'sale' && !contractId) {
+      setError('Choose a contract for the buyer.');
+      return;
+    }
+    if (opType === 'purchase' && !manufacturerId) {
+      setError('Choose a factory.');
+      return;
+    }
+    if (opType === 'transfer' && !receivingCompanyId) {
+      setError('Choose the receiving entity.');
+      return;
+    }
+    if ((opType === 'sale' || opType === 'transfer') && !warehouseFromId) {
+      setError('Choose a warehouse to ship from (under Operation Details).');
+      return;
+    }
+    if (opType !== 'sale' && !warehouseToId) {
+      setError('Choose a warehouse to receive into (under Operation Details).');
+      return;
+    }
+
     setSubmitting(true);
 
     // Build line_items from entries map.
@@ -496,7 +519,10 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
         // Redirect back to partner hub (operation detail page comes in PR-C3)
         router.push(isGlobalMode ? '/operations' : `/partners/${selectedPartnerSlug}`);
       } else {
-        setError(res.errors?.[0]?.message ?? 'Failed to create operation');
+        // Walk into validation issues if present, otherwise top-level message
+        const err = res.errors?.[0];
+        const issue = (err?.details as { issues?: Array<{ message: string }> } | undefined)?.issues?.[0];
+        setError(issue?.message ?? err?.message ?? 'Failed to create operation');
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Network error');

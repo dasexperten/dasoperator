@@ -137,6 +137,15 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   const contractCurrency = selectedContract?.currency ?? '';
   const contractEntity = selectedContract?.entity_abbreviation ?? '';
 
+  // Effective currency for line item display & totals:
+  //   sale     → from contract (selected by user)
+  //   purchase → from currency state (CNY default)
+  //   transfer → from currency state (USD default)
+  const effectiveCurrency = useMemo(() => {
+    if (opType === 'sale') return contractCurrency;
+    return currency;
+  }, [opType, contractCurrency, currency]);
+
   // DEI passthrough auto-rules:
   // - DASEAN buyer → checkbox FORCED ON (DASEAN can't buy direct from factory, tax efficiency)
   // - DEI buyer → checkbox hidden + value reset (DEI can't pass to itself)
@@ -207,10 +216,11 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
     });
   }
 
-  // Auto-fill price when product selected
+  // Auto-fill price when product selected — only for sale (uses contract price types).
+  // For purchase/transfer: user enters price manually.
   async function handleProductChange(idx: number, productId: string) {
     updateLineItem(idx, { product_id: productId });
-    if (!productId || !contractId) return;
+    if (!productId || opType !== 'sale' || !contractId) return;
     try {
       const res = await getProductPriceForContract(productId, contractId);
       if (res.success && res.result?.price) {
@@ -563,24 +573,24 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
         </div>
         <div className="mt-4">
           <Label>Incoterms</Label>
-          <input type="text" value={incoterms} onChange={(e) => setIncoterms(e.target.value)} disabled={!contractId} placeholder="FCA Saransk"
+          <input type="text" value={incoterms} onChange={(e) => setIncoterms(e.target.value)} disabled={!isReadyForDetails} placeholder="FCA Saransk"
             className="w-full px-3 py-2 text-sm focus:outline-none"
             style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
         </div>
         <div className="mt-4">
           <Label>Notes</Label>
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!contractId} rows={2} placeholder="Optional"
+          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!isReadyForDetails} rows={2} placeholder="Optional"
             className="w-full px-3 py-2 text-sm focus:outline-none"
             style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
         </div>
       </Section>
 
       {/* Section 3: Line items */}
-      <Section label="Line Items" disabled={!contractId}>
+      <Section label="Line Items" disabled={!isReadyForDetails}>
         <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-              <Th>#</Th><Th>SKU</Th><Th>Qty</Th><Th>Price ({contractCurrency || '—'})</Th><Th>Total</Th><Th></Th>
+              <Th>#</Th><Th>SKU</Th><Th>Qty</Th><Th>Price ({effectiveCurrency || '—'})</Th><Th>Total</Th><Th></Th>
             </tr>
           </thead>
           <tbody>
@@ -588,7 +598,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
               <tr key={li.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                 <td className="px-3 py-2" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{idx + 1}</td>
                 <td className="px-3 py-2">
-                  <select value={li.product_id} onChange={(e) => handleProductChange(idx, e.target.value)} disabled={!contractId}
+                  <select value={li.product_id} onChange={(e) => handleProductChange(idx, e.target.value)} disabled={!isReadyForDetails}
                     className="w-full px-2 py-1 text-sm focus:outline-none"
                     style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)', fontSize: '14px' }}>
                     <option value="">—</option>
@@ -598,17 +608,17 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                   </select>
                 </td>
                 <td className="px-3 py-2">
-                  <input type="number" value={li.qty || ''} onChange={(e) => updateLineItem(idx, { qty: parseInt(e.target.value) || 0 })} disabled={!contractId} min={0}
+                  <input type="number" value={li.qty || ''} onChange={(e) => updateLineItem(idx, { qty: parseInt(e.target.value) || 0 })} disabled={!isReadyForDetails} min={0}
                     className="w-20 px-2 py-1 text-sm focus:outline-none text-right"
                     style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }} />
                 </td>
                 <td className="px-3 py-2">
-                  <input type="number" value={li.unit_price || ''} onChange={(e) => updateLineItem(idx, { unit_price: parseInt(e.target.value) || 0 })} disabled={!contractId} min={0}
+                  <input type="number" value={li.unit_price || ''} onChange={(e) => updateLineItem(idx, { unit_price: parseInt(e.target.value) || 0 })} disabled={!isReadyForDetails} min={0}
                     className="w-28 px-2 py-1 text-sm focus:outline-none text-right"
                     style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }} />
                 </td>
                 <td className="px-3 py-2 text-right" style={{ fontSize: '14px', color: 'var(--fg-1)' }}>
-                  {formatMoney(li.line_total, contractCurrency)} {contractCurrency}
+                  {formatMoney(li.line_total, effectiveCurrency)} {effectiveCurrency}
                 </td>
                 <td className="px-3 py-2">
                   {lineItems.length > 1 && (
@@ -622,12 +632,12 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
           </tbody>
         </table>
 
-        <button onClick={addLineItem} disabled={!contractId}
+        <button onClick={addLineItem} disabled={!isReadyForDetails}
           className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 text-sm transition-colors"
           style={{
             backgroundColor: 'transparent', color: 'var(--brand-rot)',
             border: '1px solid var(--brand-rot)', borderRadius: 'var(--radius-sm)',
-            opacity: !contractId ? 0.5 : 1, cursor: !contractId ? 'not-allowed' : 'pointer',
+            opacity: !isReadyForDetails ? 0.5 : 1, cursor: !isReadyForDetails ? 'not-allowed' : 'pointer',
           }}>
           <Plus className="h-3.5 w-3.5" /> Add line item
         </button>
@@ -637,14 +647,14 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
           <div className="flex items-center justify-between gap-4">
             <div>
               <Label>Overall discount %</Label>
-              <input type="number" value={overallDiscountPct || ''} onChange={(e) => setOverallDiscountPct(parseFloat(e.target.value) || 0)} disabled={!contractId} min={0} max={100} step={0.1}
+              <input type="number" value={overallDiscountPct || ''} onChange={(e) => setOverallDiscountPct(parseFloat(e.target.value) || 0)} disabled={!isReadyForDetails} min={0} max={100} step={0.1}
                 className="w-24 px-2 py-1 text-sm focus:outline-none text-right"
                 style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }} />
             </div>
             <div className="text-right">
-              <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--fg-3)' }}>Subtotal: {formatMoney(subtotal, contractCurrency)} {contractCurrency}</div>
+              <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--fg-3)' }}>Subtotal: {formatMoney(subtotal, effectiveCurrency)} {effectiveCurrency}</div>
               <div className="mt-1" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--fg-1)' }}>
-                {formatMoney(grandTotal, contractCurrency)} {contractCurrency}
+                {formatMoney(grandTotal, effectiveCurrency)} {effectiveCurrency}
               </div>
             </div>
           </div>

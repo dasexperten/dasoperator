@@ -323,6 +323,33 @@ export async function uploadProductImage(id: string, file: File) {
   return res.json() as Promise<ApiResponse<ProductImage>>;
 }
 
+export interface ParseExcelMatched {
+  sku: string;
+  qty: number;
+  source_row: string;
+}
+
+export interface ParseExcelUnmatched {
+  text: string;
+  reason: string;
+}
+
+export interface ParseExcelResponse {
+  matched: ParseExcelMatched[];
+  unmatched: ParseExcelUnmatched[];
+  rows_processed: number;
+}
+
+export async function parseOperationExcel(file: File) {
+  const fd = new FormData();
+  fd.set('file', file);
+  const res = await fetch(`${API_BASE}/api/operations/parse-excel`, {
+    method: 'POST',
+    body: fd,
+  });
+  return res.json() as Promise<ApiResponse<ParseExcelResponse>>;
+}
+
 export async function setPrimaryImage(productId: string, imageId: string) {
   return apiPatch<{ id: string; updated_at: number }>(
     `/api/products/${productId}/images/${imageId}`,

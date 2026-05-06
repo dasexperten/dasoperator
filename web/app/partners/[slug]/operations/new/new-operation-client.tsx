@@ -7,7 +7,7 @@ import {
   getPartner, getPartnerContracts, getProductsList, getPartners,
   getCompanies, getManufacturers, getProductsByManufacturer,
   getWarehouses, getPricelistMap, getStocks,
-  createOperation, getProductPriceForContract,
+  createOperation, getProductPriceForContract, parseOperationExcel,
   type Partner, type Contract, type Product, type ProductListItem, type Company, type Manufacturer,
   type Warehouse
 } from '@/lib/api';
@@ -90,6 +90,11 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   // column in the line items grid so user sees what's available at the
   // outgoing warehouse before deciding pieces.
   const [stockMap, setStockMap] = useState<Record<string, number>>({});
+
+  // Excel-import state
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [unmatched, setUnmatched] = useState<Array<{ text: string; reason: string }>>([]);
 
   // First effect: load products + (always) companies + manufacturers + partners
   useEffect(() => {
@@ -406,6 +411,65 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
     } else if (opType === 'purchase') {
       const decimal = purchasePrices[productId.toUpperCase()];
       if (decimal !== undefined) updateEntry(productId, { unit_price: decimal });
+    }
+  }
+
+  // Bulk price loader for parsed Excel — runs price autofill for each
+  // matched SKU after entries map has been updated.
+  async function bulkLoadPrices(productIds: string[]) {
+    for (const pid of productIds) {
+      await ensurePriceFor(pid);
+    }
+  }
+
+  // Excel upload → DeepSeek parse → fill entries map.
+  async function handleExcelUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';  // allow re-selecting the same file
+    if (!file) return;
+    setImportError(null);
+    setUnmatched([]);
+    setImporting(true);
+    try {
+      const res = await parseOperationExcel(file);
+      if (!res.success || !res.result) {
+        setImportError(res.errors?.[0]?.message ?? 'Could not parse file');
+        return;
+      }
+      const { matched, unmatched: unm } = res.result;
+      if (matched.length === 0 && unm.length === 0) {
+        setImportError('No matching products found in the file');
+        return;
+      }
+
+      // Drop matched into entries; reset previous entries to avoid surprises.
+      const newEntries: Record<string, LineEntry> = {};
+      for (const m of matched) {
+        newEntries[m.sku] = { pieces: m.qty, unit_price: 0 };
+      }
+      setEntries(newEntries);
+
+      // Open all categories that received items so user sees them right away
+      const cats = new Set<string>();
+      for (const m of matched) {
+        const prod = availableProducts.find((p) => p.id === m.sku);
+        if (prod) cats.add(prod.category);
+      }
+      setOpenCategories((prev) => {
+        const next = { ...prev };
+        Array.from(cats).forEach((c) => { next[c] = true; });
+        return next;
+      });
+
+      // Show unmatched warnings if any
+      if (unm.length > 0) setUnmatched(unm);
+
+      // Async-load prices for newly added SKUs
+      bulkLoadPrices(matched.map((m) => m.sku));
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Network error');
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -821,6 +885,80 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
 
       {/* Section 3: Line items — full grid grouped by category */}
       <Section label="Line Items" disabled={!isReadyForDetails}>
+        {/* Excel upload toolbar */}
+        <div className="mb-4 flex items-center justify-between">
+          <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
+            Type pieces or cartons by hand, or upload an Excel order to auto-fill.
+          </div>
+          <label
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              padding: '8px 14px',
+              backgroundColor: importing ? 'var(--paper-sunk)' : 'transparent',
+              border: '1px solid var(--brand-rot, #C8102E)',
+              borderRadius: 'var(--radius-sm)',
+              color: 'var(--brand-rot, #C8102E)',
+              fontSize: '14px',
+              fontWeight: 600,
+              cursor: importing || !isReadyForDetails ? 'not-allowed' : 'pointer',
+              opacity: !isReadyForDetails ? 0.5 : 1,
+            }}
+          >
+            {importing ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Parsing...
+              </>
+            ) : (
+              <>+ Upload Excel</>
+            )}
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={handleExcelUpload}
+              disabled={importing || !isReadyForDetails}
+              style={{ display: 'none' }}
+            />
+          </label>
+        </div>
+
+        {importError && (
+          <div className="mb-4 p-3" style={{
+            backgroundColor: 'rgba(229,32,44,0.05)',
+            border: '1px solid rgba(229,32,44,0.2)',
+            borderRadius: 'var(--radius-sm)',
+            color: 'var(--brand-rot)',
+            fontSize: '14px',
+          }}>
+            {importError}
+          </div>
+        )}
+
+        {unmatched.length > 0 && (
+          <div className="mb-4 p-3" style={{
+            backgroundColor: 'rgba(212,150,30,0.08)',
+            border: '1px solid rgba(212,150,30,0.3)',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: '14px',
+          }}>
+            <div style={{ fontWeight: 700, marginBottom: '6px', color: 'var(--fg-1)' }}>
+              {unmatched.length} {unmatched.length === 1 ? 'row' : 'rows'} could not be matched:
+            </div>
+            <ul style={{ paddingLeft: '20px', margin: 0, color: 'var(--fg-2)' }}>
+              {unmatched.slice(0, 10).map((u, i) => (
+                <li key={i} style={{ marginTop: '2px' }}>
+                  <span style={{ fontWeight: 600 }}>{u.text}</span> — {u.reason}
+                </li>
+              ))}
+              {unmatched.length > 10 && (
+                <li style={{ marginTop: '4px', color: 'var(--fg-3)', fontStyle: 'italic' }}>
+                  ...and {unmatched.length - 10} more
+                </li>
+              )}
+            </ul>
+          </div>
+        )}
+
         {(() => {
           // Group available products by category. Empty categories are hidden.
           const order = ['Toothpaste', 'Toothbrush', 'Floss', 'Other'] as const;

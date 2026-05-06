@@ -12,6 +12,7 @@ import emailRoutes from './routes/email';
 import partnersRoutes from './routes/partners';
 import sequencesRoutes from './routes/sequences';
 import operationsRoutes from './routes/operations';
+import operationsImportRoutes from './routes/operations-import';
 import fxRoutes from './routes/fx';
 import contractsRoutes from './routes/contracts';
 import paymentsRoutes from './routes/payments';
@@ -63,6 +64,7 @@ app.route('/api/pricer', pricerRoutes);
 app.route('/api/email', emailRoutes);
 app.route('/api/sequences', sequencesRoutes);
 app.route('/api/operations', operationsRoutes);
+app.route('/api/operations', operationsImportRoutes);  // adds /parse-excel
 app.route('/api/payments', paymentsRoutes);
 app.route('/api/fx', fxRoutes);
 app.route('/api/documents', documentsRoutes);

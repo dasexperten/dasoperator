@@ -753,9 +753,28 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                     style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }} />
                 </td>
                 <td className="px-3 py-2">
-                  <input type="number" value={li.unit_price || ''} onChange={(e) => updateLineItem(idx, { unit_price: parseInt(e.target.value) || 0 })} disabled={!isReadyForDetails} min={0}
-                    className="w-28 px-2 py-1 text-sm focus:outline-none text-right"
-                    style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }} />
+                  {(() => {
+                    const factor = ['VND', 'JPY', 'KRW'].includes(effectiveCurrency) ? 1 : 100;
+                    const displayValue = li.unit_price ? (li.unit_price / factor).toString() : '';
+                    return (
+                      <input
+                        type="number"
+                        value={displayValue}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          if (raw === '') { updateLineItem(idx, { unit_price: 0 }); return; }
+                          const major = parseFloat(raw);
+                          if (isNaN(major)) return;
+                          updateLineItem(idx, { unit_price: Math.round(major * factor) });
+                        }}
+                        disabled={!isReadyForDetails}
+                        min={0}
+                        step={factor === 1 ? 1 : 0.01}
+                        className="w-28 px-2 py-1 text-sm focus:outline-none text-right"
+                        style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }}
+                      />
+                    );
+                  })()}
                 </td>
                 <td className="px-3 py-2 text-right" style={{ fontSize: '14px', color: 'var(--fg-1)' }}>
                   {formatMoney(li.line_total, effectiveCurrency)} {effectiveCurrency}

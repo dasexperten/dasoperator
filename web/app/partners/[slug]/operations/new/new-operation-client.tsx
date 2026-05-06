@@ -232,69 +232,77 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
 
       <div className="dx-ribbon-rule" />
 
-      {/* Section 0: Partner selector — only in global mode */}
-      {isGlobalMode && (
-        <Section label="Partner">
-          <div>
-            <Label>Select partner *</Label>
-            <select
-              value={selectedPartnerSlug}
-              onChange={(e) => {
-                setSelectedPartnerSlug(e.target.value);
-                setContractId('');
-              }}
-              style={{
-                width: '100%', padding: '10px 12px',
-                fontSize: '14px',
-                backgroundColor: 'var(--paper-sunk)',
-                border: '1px solid var(--border-hairline)',
-                borderRadius: 'var(--radius-sm)',
-                color: 'var(--fg-1)',
-              }}
-            >
-              <option value="">— Choose a partner —</option>
-              {allPartners.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.trade_name} ({p.country ?? '—'})
-                </option>
-              ))}
-            </select>
-          </div>
-        </Section>
-      )}
-
-      {/* Section 1: Contract */}
-      <Section label="Contract">
-        <div>
-          <Label>Select contract *</Label>
-          {!selectedPartnerSlug ? (
-            <p style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-3)' }}>
-              Select a partner first.
-            </p>
-          ) : contracts.length === 0 ? (
-            <p style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--status-warning)' }}>
-              No active contracts for this partner. Create a contract first.
-            </p>
-          ) : (
-            <select value={contractId} onChange={(e) => setContractId(e.target.value)}
-              className="w-full px-3 py-2 text-sm focus:outline-none"
-              style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}>
-              <option value="">— Choose contract —</option>
-              {contracts.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.contract_no} ({c.entity_abbreviation} · {c.currency})
-                </option>
-              ))}
-            </select>
-          )}
-          {selectedContract && (
-            <div className="mt-3 grid grid-cols-3 gap-3" style={{ fontSize: 'var(--fs-caption)' }}>
-              <div><Label>Entity</Label><div style={{ color: 'var(--fg-1)' }}>{contractEntity}</div></div>
-              <div><Label>Currency</Label><div style={{ color: 'var(--fg-1)' }}>{contractCurrency}</div></div>
-              <div><Label>Contract</Label><div style={{ color: 'var(--fg-1)' }}>{selectedContract.contract_no}</div></div>
+      {/* Sections 0+1 combined: Partner (global mode only) + Contract side-by-side */}
+      <Section label={isGlobalMode ? 'Partner & Contract' : 'Contract'}>
+        <div className={isGlobalMode ? 'grid grid-cols-2 gap-6' : ''}>
+          {/* Partner selector — only in global mode */}
+          {isGlobalMode && (
+            <div>
+              <Label>Select partner *</Label>
+              <select
+                value={selectedPartnerSlug}
+                onChange={(e) => {
+                  setSelectedPartnerSlug(e.target.value);
+                  setContractId('');
+                }}
+                style={{
+                  width: '100%', padding: '10px 12px',
+                  fontSize: '14px',
+                  backgroundColor: 'var(--paper-sunk)',
+                  border: '1px solid var(--border-hairline)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--fg-1)',
+                }}
+              >
+                <option value="">— Choose a partner —</option>
+                {allPartners.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.trade_name} ({p.country ?? '—'})
+                  </option>
+                ))}
+              </select>
             </div>
           )}
+
+          <div>
+            <Label>Select contract *</Label>
+            {!selectedPartnerSlug ? (
+              <p style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-3)' }}>
+                Select a partner first.
+              </p>
+            ) : contracts.length === 0 ? (
+              <p style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--status-warning)' }}>
+                No active contracts for this partner.
+              </p>
+            ) : (
+              <select value={contractId} onChange={(e) => setContractId(e.target.value)}
+                className="w-full focus:outline-none"
+                style={{
+                  padding: '10px 12px',
+                  fontSize: '14px',
+                  backgroundColor: 'var(--paper-sunk)',
+                  border: '1px solid var(--border-hairline)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--fg-1)',
+                }}>
+                <option value="">— Choose contract —</option>
+                {contracts.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.contract_no} ({c.entity_abbreviation} · {c.currency})
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
         </div>
+
+        {selectedContract && (
+          <div className="mt-4 grid grid-cols-3 gap-3" style={{ fontSize: '14px' }}>
+            <div><Label>Entity</Label><div style={{ color: 'var(--fg-1)' }}>{contractEntity}</div></div>
+            <div><Label>Currency</Label><div style={{ color: 'var(--fg-1)' }}>{contractCurrency}</div></div>
+            <div><Label>Contract</Label><div style={{ color: 'var(--fg-1)' }}>{selectedContract.contract_no}</div></div>
+          </div>
+        )}
       </Section>
 
       {/* Section 2: Operation Details — disabled until contract selected */}

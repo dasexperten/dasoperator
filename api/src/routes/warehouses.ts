@@ -12,14 +12,42 @@ const warehouses = new Hono<{ Bindings: Env }>();
 //   - inventory session creation (to pick warehouse)
 // =============================================================================
 warehouses.get('/', async (c) => {
-  const result = await c.env.DB.prepare(`
+  // Optional ownership filters — used by operations form to scope dropdowns:
+  //   ?company_id=cmp_dee       → only warehouses owned by DEE (Russia 3PLs)
+  //   ?manufacturer_id=mfr_jinxia → only Jinxia's factory warehouse (YZH)
+  //   ?partner_id=prt_X         → only partner's warehouses (rare; partners
+  //                               usually receive via incoterms, no warehouse)
+  const companyId = c.req.query('company_id');
+  const manufacturerId = c.req.query('manufacturer_id');
+  const partnerId = c.req.query('partner_id');
+
+  let sql = `
     SELECT
-      id, code, name, country, city, warehouse_type, owner_id, notes,
-      created_at, updated_at
+      id, code, name, country, city, warehouse_type,
+      owner_id, owner_company_id, owner_manufacturer_id, owner_partner_id,
+      notes, created_at, updated_at
     FROM warehouses
     WHERE deleted_at IS NULL
-    ORDER BY code
-  `).all();
+  `;
+  const binds: unknown[] = [];
+
+  if (companyId) {
+    sql += ' AND owner_company_id = ?';
+    binds.push(companyId);
+  }
+  if (manufacturerId) {
+    sql += ' AND owner_manufacturer_id = ?';
+    binds.push(manufacturerId);
+  }
+  if (partnerId) {
+    sql += ' AND owner_partner_id = ?';
+    binds.push(partnerId);
+  }
+
+  sql += ' ORDER BY code';
+
+  const stmt = c.env.DB.prepare(sql);
+  const result = binds.length > 0 ? await stmt.bind(...binds).all() : await stmt.all();
 
   return ok(c, {
     count: result.results.length,
@@ -35,8 +63,9 @@ warehouses.get('/:id', async (c) => {
 
   const wh = await c.env.DB.prepare(`
     SELECT
-      id, code, name, country, city, warehouse_type, owner_id, notes,
-      created_at, updated_at
+      id, code, name, country, city, warehouse_type,
+      owner_id, owner_company_id, owner_manufacturer_id, owner_partner_id,
+      notes, created_at, updated_at
     FROM warehouses
     WHERE id = ? AND deleted_at IS NULL
   `).bind(id).first();

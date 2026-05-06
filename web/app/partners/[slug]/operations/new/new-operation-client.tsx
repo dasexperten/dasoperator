@@ -6,8 +6,10 @@ import { Plus, Trash2, Loader2 } from 'lucide-react';
 import {
   getPartner, getPartnerContracts, getProducts, getPartners,
   getCompanies, getManufacturers, getProductsByManufacturer,
+  getWarehouses, getPricelistMap,
   createOperation, getProductPriceForContract,
-  type Partner, type Contract, type Product, type Company, type Manufacturer
+  type Partner, type Contract, type Product, type Company, type Manufacturer,
+  type Warehouse
 } from '@/lib/api';
 import Breadcrumb from '@/components/layout/breadcrumb';
 
@@ -78,6 +80,16 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Warehouse dropdowns — filtered by counterparty context.
+  // FROM list: depends on opType (sale=our company, purchase=manufacturer, transfer=our company)
+  // TO list:   sale=hidden, purchase=our company, transfer=receiving company
+  const [warehousesFrom, setWarehousesFrom] = useState<Warehouse[]>([]);
+  const [warehousesTo, setWarehousesTo] = useState<Warehouse[]>([]);
+
+  // Purchase pricelist — SKU → decimal price in CNY (from R2 via /api/pricer/list).
+  // Loaded once when opType becomes 'purchase'. Used by handleProductChange.
+  const [purchasePrices, setPurchasePrices] = useState<Record<string, number>>({});
 
   // First effect: load products + (always) companies + manufacturers + partners
   useEffect(() => {
@@ -167,6 +179,94 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
     if (opType === 'transfer') setCurrency('USD');
   }, [opType]);
 
+  // Warehouse FROM dropdown — context determines whose warehouses to show:
+  //   sale     → seller's warehouses (our_company derived from contract)
+  //   purchase → manufacturer's warehouses (factory ships from its own)
+  //   transfer → sending company's warehouses
+  useEffect(() => {
+    let ownerCompany: string | undefined;
+    let ownerManufacturer: string | undefined;
+
+    if (opType === 'sale') {
+      ownerCompany = selectedContract?.our_company_id ?? undefined;
+    } else if (opType === 'purchase') {
+      ownerManufacturer = manufacturerId || undefined;
+    } else {
+      // transfer
+      ownerCompany = ourCompanyId || undefined;
+    }
+
+    if (!ownerCompany && !ownerManufacturer) {
+      setWarehousesFrom([]);
+      return;
+    }
+
+    getWarehouses({
+      company_id: ownerCompany,
+      manufacturer_id: ownerManufacturer,
+    }).then((res) => {
+      if (res.success && res.result) {
+        setWarehousesFrom(res.result.warehouses);
+        // Hybrid auto-select: if exactly one warehouse, pre-fill the field.
+        if (res.result.warehouses.length === 1) {
+          setWarehouseFromId(res.result.warehouses[0]!.id);
+        } else if (!res.result.warehouses.find((w) => w.id === warehouseFromId)) {
+          // Clear stale selection that doesn't match new context
+          setWarehouseFromId('');
+        }
+      }
+    }).catch(() => setWarehousesFrom([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opType, selectedContract?.our_company_id, manufacturerId, ourCompanyId]);
+
+  // Warehouse TO dropdown:
+  //   sale     → not used (B decision: deliver per incoterms, no warehouse_to)
+  //   purchase → buying company's warehouses (where goods arrive)
+  //   transfer → receiving company's warehouses
+  useEffect(() => {
+    if (opType === 'sale') {
+      setWarehousesTo([]);
+      setWarehouseToId('');
+      return;
+    }
+
+    const ownerCompany =
+      opType === 'purchase' ? ourCompanyId :
+      opType === 'transfer' ? receivingCompanyId :
+      '';
+
+    if (!ownerCompany) {
+      setWarehousesTo([]);
+      return;
+    }
+
+    getWarehouses({ company_id: ownerCompany }).then((res) => {
+      if (res.success && res.result) {
+        setWarehousesTo(res.result.warehouses);
+        if (res.result.warehouses.length === 1) {
+          setWarehouseToId(res.result.warehouses[0]!.id);
+        } else if (!res.result.warehouses.find((w) => w.id === warehouseToId)) {
+          setWarehouseToId('');
+        }
+      }
+    }).catch(() => setWarehousesTo([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opType, ourCompanyId, receivingCompanyId]);
+
+  // Purchase pricelist — load once when entering purchase mode.
+  // Cached in component state; used by handleProductChange to autofill price.
+  useEffect(() => {
+    if (opType !== 'purchase') {
+      setPurchasePrices({});
+      return;
+    }
+    getPricelistMap('pt_purchase_cny').then((res) => {
+      if (res.success && res.result) {
+        setPurchasePrices(res.result.prices);
+      }
+    }).catch(() => setPurchasePrices({}));
+  }, [opType]);
+
   const isReadyForDetails = useMemo(() => {
     if (opType === 'sale')     return Boolean(contractId);
     if (opType === 'purchase') return Boolean(manufacturerId && ourCompanyId);
@@ -216,19 +316,36 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
     });
   }
 
-  // Auto-fill price when product selected — only for sale (uses contract price types).
-  // For purchase/transfer: user enters price manually.
+  // Auto-fill price when product selected.
+  //   sale     → uses contract-bound price types via /api/products/:id/price?contract_id=X
+  //   purchase → uses Pricer R2 purchase pricelist (CNY decimal → minor units)
+  //   transfer → no autofill (internal transfer pricing is set manually)
   async function handleProductChange(idx: number, productId: string) {
     updateLineItem(idx, { product_id: productId });
-    if (!productId || opType !== 'sale' || !contractId) return;
-    try {
-      const res = await getProductPriceForContract(productId, contractId);
-      if (res.success && res.result?.price) {
-        updateLineItem(idx, { product_id: productId, unit_price: res.result.price });
-      }
-    } catch (e) {
-      // silent — user can enter price manually
+    if (!productId) return;
+
+    if (opType === 'sale' && contractId) {
+      try {
+        const res = await getProductPriceForContract(productId, contractId);
+        if (res.success && res.result?.price) {
+          updateLineItem(idx, { product_id: productId, unit_price: res.result.price });
+        }
+      } catch { /* silent — manual entry */ }
+      return;
     }
+
+    if (opType === 'purchase') {
+      // Pricer keys are uppercase SKU (e.g. "DE205"), our IDs are lowercase ("de205").
+      // Pricelist value is decimal CNY → convert to minor units (×100).
+      const sku = productId.toUpperCase();
+      const decimal = purchasePrices[sku];
+      if (decimal !== undefined) {
+        const minorUnits = Math.round(decimal * 100);
+        updateLineItem(idx, { product_id: productId, unit_price: minorUnits });
+      }
+      return;
+    }
+    // transfer — no autofill
   }
 
   function addLineItem() {
@@ -555,21 +672,44 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
             className="w-full px-3 py-2 text-sm focus:outline-none"
             style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
         </div>
-        <div className="grid grid-cols-2 gap-4 mt-4">
+        <div className={`grid ${opType === 'sale' ? 'grid-cols-1' : 'grid-cols-2'} gap-4 mt-4`}>
           <div>
-            <Label>Warehouse From {(opType === 'sale' || opType === 'transfer') && '*'}</Label>
-            <input type="text" value={warehouseFromId} onChange={(e) => setWarehouseFromId(e.target.value)} disabled={!isReadyForDetails}
-              placeholder="e.g. wh_lbr"
-              className="w-full px-3 py-2 text-sm focus:outline-none"
-              style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
+            <Label>Warehouse From *</Label>
+            <select value={warehouseFromId} onChange={(e) => setWarehouseFromId(e.target.value)} disabled={!isReadyForDetails}
+              style={selectStyle}>
+              <option value="">— Choose warehouse —</option>
+              {warehousesFrom.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.code} — {w.name}{w.country ? ` (${w.country})` : ''}
+                </option>
+              ))}
+            </select>
+            {warehousesFrom.length === 0 && isReadyForDetails && (
+              <p className="mt-1" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>
+                No warehouses found for this counterparty.
+              </p>
+            )}
           </div>
-          <div>
-            <Label>Warehouse To {(opType === 'purchase' || opType === 'transfer') && '*'}</Label>
-            <input type="text" value={warehouseToId} onChange={(e) => setWarehouseToId(e.target.value)} disabled={!isReadyForDetails}
-              placeholder="e.g. wh_yer"
-              className="w-full px-3 py-2 text-sm focus:outline-none"
-              style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
-          </div>
+          {/* Warehouse To — hidden for Sale (B decision: deliver per incoterms) */}
+          {opType !== 'sale' && (
+            <div>
+              <Label>Warehouse To *</Label>
+              <select value={warehouseToId} onChange={(e) => setWarehouseToId(e.target.value)} disabled={!isReadyForDetails}
+                style={selectStyle}>
+                <option value="">— Choose warehouse —</option>
+                {warehousesTo.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.code} — {w.name}{w.country ? ` (${w.country})` : ''}
+                  </option>
+                ))}
+              </select>
+              {warehousesTo.length === 0 && isReadyForDetails && (
+                <p className="mt-1" style={{ fontSize: '12px', color: 'var(--fg-3)' }}>
+                  No warehouses found.
+                </p>
+              )}
+            </div>
+          )}
         </div>
         <div className="mt-4">
           <Label>Incoterms</Label>

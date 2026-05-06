@@ -747,6 +747,9 @@ export interface Warehouse {
   city?: string | null;
   warehouse_type?: string | null;
   owner_id?: string | null;
+  owner_company_id?: string | null;
+  owner_manufacturer_id?: string | null;
+  owner_partner_id?: string | null;
   notes?: string | null;
   created_at: number;
   updated_at: number;
@@ -757,8 +760,17 @@ export interface WarehousesListResponse {
   warehouses: Warehouse[];
 }
 
-export async function getWarehouses() {
-  return apiGet<WarehousesListResponse>('/api/warehouses');
+export async function getWarehouses(filters?: {
+  company_id?: string;
+  manufacturer_id?: string;
+  partner_id?: string;
+}) {
+  const params = new URLSearchParams();
+  if (filters?.company_id) params.set('company_id', filters.company_id);
+  if (filters?.manufacturer_id) params.set('manufacturer_id', filters.manufacturer_id);
+  if (filters?.partner_id) params.set('partner_id', filters.partner_id);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return apiGet<WarehousesListResponse>(`/api/warehouses${qs}`);
 }
 
 export interface WarehouseDetail extends Warehouse {

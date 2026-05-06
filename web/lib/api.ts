@@ -351,7 +351,7 @@ export interface Company {
   id: string;
   abbreviation: string | null;
   legal_name: string;
-  country: string | null;
+  jurisdiction: string | null;
 }
 export interface CompaniesResponse {
   count: number;

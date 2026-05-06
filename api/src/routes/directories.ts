@@ -12,7 +12,7 @@ interface Company {
   id: string;
   abbreviation: string | null;
   legal_name: string;
-  country: string | null;
+  jurisdiction: string | null;
 }
 
 interface Manufacturer {
@@ -25,7 +25,7 @@ const directories = new Hono<{ Bindings: Env }>();
 
 directories.get('/companies', async (c) => {
   const result = await c.env.DB.prepare(`
-    SELECT id, abbreviation, legal_name, country
+    SELECT id, abbreviation, legal_name, jurisdiction
     FROM companies
     WHERE deleted_at IS NULL
     ORDER BY abbreviation, id

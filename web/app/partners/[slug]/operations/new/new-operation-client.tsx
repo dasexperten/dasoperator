@@ -61,6 +61,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   const [manufacturerId, setManufacturerId] = useState<string>('');     // Purchase
   const [ourCompanyId, setOurCompanyId] = useState<string>('cmp_dee');  // for purchase/transfer
   const [receivingCompanyId, setReceivingCompanyId] = useState<string>('');  // Transfer
+  const [viaDei, setViaDei] = useState<boolean>(false);  // Purchase: through DEI passthrough
   const [opDate, setOpDate] = useState<string>(new Date().toISOString().split('T')[0]!);
   const [warehouseFromId, setWarehouseFromId] = useState<string>('');
   const [warehouseToId, setWarehouseToId] = useState<string>('');
@@ -133,7 +134,17 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   const contractCurrency = selectedContract?.currency ?? '';
   const contractEntity = selectedContract?.entity_abbreviation ?? '';
 
-  // Counterparty completeness gate per type — used to enable Operation Details
+  // DEI passthrough auto-rules:
+  // - DASEAN buyer → checkbox FORCED ON (DASEAN can't buy direct from factory, tax efficiency)
+  // - DEI buyer → checkbox hidden + value reset (DEI can't pass to itself)
+  useEffect(() => {
+    if (opType !== 'purchase') return;
+    if (ourCompanyId === 'cmp_dasean') {
+      setViaDei(true);
+    } else if (ourCompanyId === 'cmp_dei') {
+      setViaDei(false);
+    }
+  }, [opType, ourCompanyId]);
   const isReadyForDetails = useMemo(() => {
     if (opType === 'sale')     return Boolean(contractId);
     if (opType === 'purchase') return Boolean(manufacturerId && ourCompanyId);
@@ -268,9 +279,9 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
       <Section label="Type">
         <div className="grid grid-cols-3 gap-3">
           {([
-            { id: 'sale',     label: 'Sales',    desc: 'Sell to a buyer' },
-            { id: 'purchase', label: 'Purchase', desc: 'Buy from factory' },
-            { id: 'transfer', label: 'Transfer', desc: 'Between our entities' },
+            { id: 'sale',     label: 'Sales',    desc: 'Sell to a buyer',         color: '#2E7D4F' /* green */ },
+            { id: 'purchase', label: 'Purchase', desc: 'Buy from factory',        color: '#7D481C' /* brown */ },
+            { id: 'transfer', label: 'Transfer', desc: 'Between our entities',    color: '#5C5C5C' /* gray  */ },
           ] as const).map((t) => {
             const active = opType === t.id;
             return (
@@ -288,9 +299,9 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                 style={{
                   padding: '14px 16px',
                   textAlign: 'left',
-                  backgroundColor: active ? 'var(--brand-rot)' : 'var(--paper-sunk)',
+                  backgroundColor: active ? t.color : 'var(--paper-sunk)',
                   color: active ? 'var(--paper)' : 'var(--fg-1)',
-                  border: `1px solid ${active ? 'var(--brand-rot)' : 'var(--border-hairline)'}`,
+                  border: `1px solid ${active ? t.color : 'var(--border-hairline)'}`,
                   borderRadius: 'var(--radius-sm)',
                   cursor: 'pointer',
                 }}
@@ -380,6 +391,41 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
               </select>
             </div>
           </div>
+
+          {/* DEI passthrough — visible for DEE/DASEAN/DEC; hidden for DEI itself */}
+          {ourCompanyId !== 'cmp_dei' && (
+            <div
+              className="mt-4 p-4"
+              style={{
+                backgroundColor: 'var(--paper-sunk)',
+                border: '1px solid var(--border-hairline)',
+                borderRadius: 'var(--radius-sm)',
+              }}
+            >
+              <label
+                className="flex items-start gap-3"
+                style={{ cursor: ourCompanyId === 'cmp_dasean' ? 'not-allowed' : 'pointer' }}
+              >
+                <input
+                  type="checkbox"
+                  checked={viaDei}
+                  disabled={ourCompanyId === 'cmp_dasean'}
+                  onChange={(e) => setViaDei(e.target.checked)}
+                  style={{ marginTop: '2px', width: '18px', height: '18px', cursor: 'inherit' }}
+                />
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
+                    Through DEI
+                  </div>
+                  <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '2px' }}>
+                    {ourCompanyId === 'cmp_dasean'
+                      ? 'DASEAN always purchases through DEI for tax efficiency. This option is required.'
+                      : 'Generates two document packages: factory → DEI (CI + PL), then DEI → buyer (CI + PL + IS).'}
+                  </div>
+                </div>
+              </label>
+            </div>
+          )}
         </Section>
       )}
 

@@ -1,18 +1,32 @@
-import NewContractClient from './new-contract-client';
+import NewContractsClient from './new-contract-client';
 
-export function generateStaticParams() {
-  return [
-    { slug: 'torwey' },
-    { slug: 'tama' },
-    { slug: 'tori_georgia' },
-    { slug: 'arvitpharm' },
-    { slug: 'natusana' },
-    { slug: 'vip_sales' },
-  ];
-}
+const API_BASE = 'https://dasoperator-api.dasexperten.workers.dev';
 
 export const dynamicParams = false;
 
-export default function NewContractPage({ params }: { params: { slug: string } }) {
-  return <NewContractClient partnerSlug={params.slug} />;
+export async function generateStaticParams() {
+  let slugs: Array<{ slug: string }> = [];
+  try {
+    const res = await fetch(`${API_BASE}/api/partners`, { cache: 'no-store' });
+    if (res.ok) {
+      const data = (await res.json()) as { success: boolean; result?: { partners?: Array<{ id: string }> } };
+      if (data.success && data.result?.partners) {
+        slugs = data.result.partners.map((p) => ({ slug: p.id }));
+      }
+    }
+  } catch (err) {
+    console.error('generateStaticParams new contracts failed', err);
+  }
+  if (slugs.length === 0) {
+    slugs = [
+      { slug: 'torwey' }, { slug: 'tama' }, { slug: 'tori_georgia' },
+      { slug: 'arvitpharm' }, { slug: 'natusana' }, { slug: 'vip_sales' },
+    ];
+  }
+  slugs.push({ slug: '__fallback' });
+  return slugs;
+}
+
+export default function NewContractsPage({ params }: { params: { slug: string } }) {
+  return <NewContractsClient partnerSlug={params.slug} />;
 }

@@ -1,19 +1,27 @@
 import ContractDetailClient from './contract-detail-client';
 
-// Static export requires generateStaticParams. 6 known partner+contract pairs
-// from migration 0005 backfill (verified against live API at deploy time).
-export function generateStaticParams() {
-  return [
-    { slug: 'torwey',       id: 'ctr_dee_tw_2024_01' },  // Torwey
-    { slug: 'tama',         id: 'ctr_dee_tm_2024_02' },  // TAMA
-    { slug: 'tori_georgia', id: 'ctr_dei_tg_2024_01' },  // TORI Georgia
-    { slug: 'arvitpharm',   id: 'ctr_dee_ap_2024_04' },  // ArvitPharm
-    { slug: 'natusana',     id: 'ctr_dee_nt_2024_05' },  // Natusana
-    { slug: 'vip_sales',    id: 'ctr_dei_vs_2024_03' },  // VIP SALES
-  ];
-}
+const API_BASE = 'https://dasoperator-api.dasexperten.workers.dev';
 
 export const dynamicParams = false;
+
+export async function generateStaticParams() {
+  let pairs: Array<{ slug: string; id: string }> = [];
+  try {
+    const res = await fetch(`${API_BASE}/api/contracts`, { cache: 'no-store' });
+    if (res.ok) {
+      const data = (await res.json()) as { success: boolean; result?: { contracts?: Array<{ id: string; partner_slug?: string; partner_id?: string }> } };
+      const list = data.result?.contracts ?? [];
+      for (const c of list) {
+        const slug = c.partner_slug ?? c.partner_id;
+        if (slug) pairs.push({ slug, id: c.id });
+      }
+    }
+  } catch (err) {
+    console.error('generateStaticParams contracts failed', err);
+  }
+  pairs.push({ slug: '__fallback', id: '__fallback' });
+  return pairs;
+}
 
 export default function ContractDetailPage({ params }: { params: { slug: string; id: string } }) {
   return <ContractDetailClient partnerSlug={params.slug} contractId={params.id} />;

@@ -20,7 +20,22 @@ function formatMoney(minor: number, currency: string): string {
   });
 }
 
-export default function NewPaymentClient({ partnerSlug }: { partnerSlug: string }) {
+
+// SPA-fallback URL resolvers — when route matches __fallback static page,
+// derive the real id from window.location at runtime.
+function resolve_partnerSlug(propValue: string): string {
+  if (typeof window !== 'undefined') {
+    const m = window.location.pathname.match(/^\/partners\/([^\/]+)/);
+    if (m && m[1] && m[1] !== '__fallback') {
+      return decodeURIComponent(m[1]);
+    }
+  }
+  return propValue;
+}
+
+export default function NewPaymentClient({ partnerSlug: _partnerSlug }: { partnerSlug: string }) {
+  const [partnerSlug, set_partnerSlug] = useState(_partnerSlug);
+  useEffect(() => { set_partnerSlug(resolve_partnerSlug(_partnerSlug)); }, [_partnerSlug]);
   const router = useRouter();
 
   // Reference data

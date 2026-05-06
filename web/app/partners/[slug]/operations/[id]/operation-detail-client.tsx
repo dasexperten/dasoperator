@@ -74,13 +74,39 @@ function statusChip(status: string) {
 // =============================================================================
 type Tab = 'items' | 'status' | 'documents' | 'payments';
 
+
+// SPA-fallback URL resolvers — when route matches __fallback static page,
+// derive the real id from window.location at runtime.
+function resolve_partnerSlug(propValue: string): string {
+  if (typeof window !== 'undefined') {
+    const m = window.location.pathname.match(/^\/partners\/([^\/]+)/);
+    if (m && m[1] && m[1] !== '__fallback') {
+      return decodeURIComponent(m[1]);
+    }
+  }
+  return propValue;
+}
+function resolve_operationId(propValue: string): string {
+  if (typeof window !== 'undefined') {
+    const m = window.location.pathname.match(/\/operations\/([^\/]+)/);
+    if (m && m[1] && m[1] !== '__fallback') {
+      return decodeURIComponent(m[1]);
+    }
+  }
+  return propValue;
+}
+
 export default function OperationDetailClient({
-  partnerSlug,
-  operationId,
+  partnerSlug: _partnerSlug,
+  operationId: _operationId,
 }: {
   partnerSlug: string;
   operationId: string;
 }) {
+  const [partnerSlug, set_partnerSlug] = useState(_partnerSlug);
+  useEffect(() => { set_partnerSlug(resolve_partnerSlug(_partnerSlug)); }, [_partnerSlug]);
+  const [operationId, set_operationId] = useState(_operationId);
+  useEffect(() => { set_operationId(resolve_operationId(_operationId)); }, [_operationId]);
   const [partner, setPartner] = useState<Partner | null>(null);
   const [operation, setOperation] = useState<Operation | null>(null);
   const [lineItems, setLineItems] = useState<OperationLineItem[]>([]);

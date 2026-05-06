@@ -31,7 +31,22 @@ function formatCases(onHand: number, piecesPerCase: number): string {
   return `${cases} cs + ${pcs} pcs`;
 }
 
-export default function WarehouseDetailClient({ warehouseId }: { warehouseId: string }) {
+
+// SPA-fallback URL resolvers — when route matches __fallback static page,
+// derive the real id from window.location at runtime.
+function resolve_warehouseId(propValue: string): string {
+  if (typeof window !== 'undefined') {
+    const m = window.location.pathname.match(/^\/warehouses\/([^\/]+)/);
+    if (m && m[1] && m[1] !== '__fallback') {
+      return decodeURIComponent(m[1]);
+    }
+  }
+  return propValue;
+}
+
+export default function WarehouseDetailClient({ warehouseId: _warehouseId }: { warehouseId: string }) {
+  const [warehouseId, set_warehouseId] = useState(_warehouseId);
+  useEffect(() => { set_warehouseId(resolve_warehouseId(_warehouseId)); }, [_warehouseId]);
   const [warehouse, setWarehouse] = useState<WarehouseDetail | null>(null);
   const [stocks, setStocks] = useState<StockRow[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);

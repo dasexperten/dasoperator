@@ -1,10 +1,15 @@
 import ProductDetailClient from './product-detail-client';
 
 // =============================================================================
-// /products/[id] — server component shell for Static Export.
+// /products/[id] — SPA-style dynamic route.
 //
-// SKU list is fetched from the live D1 catalog at build time so any SKU
-// that exists in production gets a prerendered page. No more hardcoded list.
+// generateStaticParams returns ALL known SKUs so each gets prerendered HTML.
+// PLUS one special "__fallback" route that receives any unknown SKU created
+// after the last build, via _redirects rule:
+//   /products/*  /products/__fallback/  200
+//
+// The detail client reads the actual SKU from URL pathname at runtime,
+// so it works for both prerendered and fallback paths.
 // =============================================================================
 
 const API_BASE = 'https://dasoperator-api.dasexperten.workers.dev';
@@ -12,21 +17,23 @@ const API_BASE = 'https://dasoperator-api.dasexperten.workers.dev';
 export const dynamicParams = false;
 
 export async function generateStaticParams() {
+  let skus: Array<{ id: string }> = [];
   try {
     const res = await fetch(`${API_BASE}/api/products`, { cache: 'no-store' });
-    if (!res.ok) throw new Error(`API returned ${res.status}`);
-    const data = (await res.json()) as {
-      success: boolean;
-      result?: { products?: Array<{ id: string }> };
-    };
-    if (!data.success || !data.result?.products) {
-      throw new Error('API response missing products array');
+    if (res.ok) {
+      const data = (await res.json()) as {
+        success: boolean;
+        result?: { products?: Array<{ id: string }> };
+      };
+      if (data.success && data.result?.products) {
+        skus = data.result.products.map((p) => ({ id: p.id }));
+      }
     }
-    return data.result.products.map((p) => ({ id: p.id }));
   } catch (err) {
-    // Fallback to known SKUs so build never fails completely
-    console.error('generateStaticParams: fetch failed, falling back to hardcoded list', err);
-    return [
+    console.error('generateStaticParams products: fetch failed', err);
+  }
+  if (skus.length === 0) {
+    skus = [
       { id: 'de201' }, { id: 'de202' }, { id: 'de203' },
       { id: 'de205' }, { id: 'de206' }, { id: 'de207' },
       { id: 'de208' }, { id: 'de209' }, { id: 'de210' },
@@ -36,8 +43,13 @@ export async function generateStaticParams() {
       { id: 'de130' }, { id: 'de131' },
     ];
   }
+  // Always include the catch-all fallback.
+  skus.push({ id: '__fallback' });
+  return skus;
 }
 
 export default function ProductDetailPage({ params }: { params: { id: string } }) {
+  // Client component reads actual SKU from window.location.pathname at runtime,
+  // ignoring the static-render-time params for fallback safety.
   return <ProductDetailClient sku={params.id} />;
 }

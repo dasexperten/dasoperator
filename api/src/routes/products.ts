@@ -282,8 +282,6 @@ products.get('/:id/prices', async (c) => {
       try {
         const r2 = await getProductPrice(c.env, id, pt.id);
         if (r2) {
-          const isZeroDecimal = ['VND', 'JPY', 'KRW'].includes(r2.currency);
-          const minorFactor = isZeroDecimal ? 1 : 100;
           return {
             id: `r2_${pt.id}_${id}`,
             price_type_id: pt.id,
@@ -291,7 +289,7 @@ products.get('/:id/prices', async (c) => {
             price_type_description: pt.description,
             price_type_currency: pt.currency,
             used_by_entity: pt.used_by_entity,
-            sell_price: Math.round(r2.price * minorFactor),  // minor units
+            sell_price: r2.price,
             currency: r2.currency,
             effective_from: null,
             effective_until: null,

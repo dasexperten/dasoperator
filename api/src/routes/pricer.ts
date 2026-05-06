@@ -62,11 +62,9 @@ pricer.post('/quote', async (c) => {
   try {
     const r2Price = await getProductPrice(c.env, productId, priceTypeId);
     if (r2Price) {
-      const isZeroDecimal = ['VND', 'JPY', 'KRW'].includes(r2Price.currency);
-      const minorFactor = isZeroDecimal ? 1 : 100;
-      const unitPriceMinor = Math.round(r2Price.price * minorFactor);
-      const unitPriceAfterDiscMinor = Math.round(unitPriceMinor * (100 - discount_pct) / 100);
-      const lineAmountMinor = unitPriceAfterDiscMinor * qty;
+      const unitPrice = r2Price.price;
+      const unitPriceAfterDisc = Math.round(unitPrice * (100 - discount_pct)) / 100;
+      const lineAmount = Math.round(unitPriceAfterDisc * qty * 100) / 100;
 
       // Fetch product display name from D1 for the response
       const productMeta = await queryFirst<{ product_name: string; invoice_label: string }>(
@@ -83,12 +81,10 @@ pricer.post('/quote', async (c) => {
           price_type: priceTypeId,
           qty,
           currency: r2Price.currency,
-          unit_price: unitPriceMinor / minorFactor,
-          unit_price_minor: unitPriceMinor,
+          unit_price: unitPrice,
           discount_pct,
-          unit_price_after_discount: unitPriceAfterDiscMinor / minorFactor,
-          line_amount: lineAmountMinor / minorFactor,
-          line_amount_minor: lineAmountMinor,
+          unit_price_after_discount: unitPriceAfterDisc,
+          line_amount: lineAmount,
         },
         metadata: {
           source: 'pricer_r2',
@@ -138,11 +134,9 @@ pricer.post('/quote', async (c) => {
     }]);
   }
 
-  const isZeroDecimal = ['VND', 'JPY', 'KRW'].includes(priceRow.currency);
-  const minorFactor = isZeroDecimal ? 1 : 100;
-  const unitPriceMinor = priceRow.sell_price;
-  const unitPriceAfterDiscMinor = Math.round(unitPriceMinor * (100 - discount_pct) / 100);
-  const lineAmountMinor = unitPriceAfterDiscMinor * qty;
+  const unitPrice = priceRow.sell_price;
+  const unitPriceAfterDisc = Math.round(unitPrice * (100 - discount_pct)) / 100;
+  const lineAmount = Math.round(unitPriceAfterDisc * qty * 100) / 100;
 
   return ok(c, {
     quote: {
@@ -152,12 +146,10 @@ pricer.post('/quote', async (c) => {
       price_type: priceRow.price_type_code,
       qty,
       currency: priceRow.currency,
-      unit_price: unitPriceMinor / minorFactor,
-      unit_price_minor: unitPriceMinor,
+      unit_price: unitPrice,
       discount_pct,
-      unit_price_after_discount: unitPriceAfterDiscMinor / minorFactor,
-      line_amount: lineAmountMinor / minorFactor,
-      line_amount_minor: lineAmountMinor,
+      unit_price_after_discount: unitPriceAfterDisc,
+      line_amount: lineAmount,
     },
     metadata: {
       source: 'd1_fallback',

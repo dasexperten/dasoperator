@@ -53,12 +53,11 @@ function formatCases(onHand: number, piecesPerCase: number): string {
   return `${cases} cs + ${pcs} pcs`;
 }
 
-function formatPrice(sellPriceMinor: number, currency: string): string {
-  const factor = ['VND', 'JPY', 'KRW'].includes(currency) ? 1 : 100;
-  const major = sellPriceMinor / factor;
-  return major.toLocaleString(undefined, {
-    minimumFractionDigits: factor === 1 ? 0 : 2,
-    maximumFractionDigits: factor === 1 ? 0 : 2,
+function formatPrice(sellPrice: number, currency: string): string {
+  const isZeroDecimal = ['VND', 'JPY', 'KRW'].includes(currency);
+  return sellPrice.toLocaleString(undefined, {
+    minimumFractionDigits: isZeroDecimal ? 0 : 2,
+    maximumFractionDigits: isZeroDecimal ? 0 : 2,
   });
 }
 

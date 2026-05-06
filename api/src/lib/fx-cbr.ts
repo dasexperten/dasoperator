@@ -179,17 +179,23 @@ export function getRateToUsdNano(snapshot: FxSnapshot, currency: string): number
 // multiplication by target_factor=100 corrects what would otherwise be
 // a 100× understated result.
 // =============================================================================
+// =============================================================================
+// applyFxToAmount: convert a decimal money amount from sourceCurrency to
+// targetCurrency (default USD) using the cached nano-precision rate to USD.
+//
+// Both input and output are decimal major-unit values (e.g. 1234.56 RUB,
+// 14.32 USD). The internal NANO_FACTOR keeps FX precision without losing
+// fractional cents.
+// =============================================================================
 export function applyFxToAmount(
-  amountSourceMinor: number,
+  amountSource: number,
   rateToUsdNano: number,
-  sourceCurrency: string,
-  targetCurrency: string = 'USD'
+  _sourceCurrency: string,
+  _targetCurrency: string = 'USD'
 ): number {
-  const sourceFactor = minorFactorFor(sourceCurrency);
-  const targetFactor = minorFactorFor(targetCurrency);
-
-  return Math.round(
-    (amountSourceMinor * rateToUsdNano * targetFactor) /
-    (NANO_FACTOR * sourceFactor)
-  );
+  // amount_target = amount_source × (rate_to_usd / NANO_FACTOR)
+  // For non-USD target we'd need the inverse rate, but right now everything
+  // is converted to USD; cross-currency conversion stays as a TODO when needed.
+  const usd = (amountSource * rateToUsdNano) / NANO_FACTOR;
+  return Math.round(usd * 100) / 100;
 }

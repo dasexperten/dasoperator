@@ -1,49 +1,44 @@
 'use client';
 
 interface NetBalanceProps {
-  usdCents: number;
+  usd: number;
   currencies?: Record<string, number>;
   fxDate?: string | null;
   size?: 'compact' | 'large';
 }
 
-const FACTOR_BY_CURRENCY: Record<string, number> = {
-  VND: 1, JPY: 1, KRW: 1,
-};
-
-function formatMajor(minor: number, currency: string): string {
-  const factor = FACTOR_BY_CURRENCY[currency] ?? 100;
-  return Math.abs(minor / factor).toLocaleString('en-US', {
-    minimumFractionDigits: factor === 1 ? 0 : 2,
-    maximumFractionDigits: factor === 1 ? 0 : 2,
+function formatAmount(amount: number, currency: string): string {
+  const isZeroDecimal = ['VND', 'JPY', 'KRW'].includes(currency);
+  return Math.abs(amount).toLocaleString('en-US', {
+    minimumFractionDigits: isZeroDecimal ? 0 : 2,
+    maximumFractionDigits: isZeroDecimal ? 0 : 2,
   });
 }
 
-function semanticColor(usdCents: number): { dot: string; fg: string } {
+function semanticColor(usd: number): { dot: string; fg: string } {
   // Q1=A: positive (they owe us) = RED, negative (we owe them) = GREEN, zero = NEUTRAL
-  if (usdCents > 0) return { dot: '#E5202C', fg: 'var(--brand-rot)' };
-  if (usdCents < 0) return { dot: '#2E7D4F', fg: 'var(--status-success)' };
+  if (usd > 0) return { dot: '#E5202C', fg: 'var(--brand-rot)' };
+  if (usd < 0) return { dot: '#2E7D4F', fg: 'var(--status-success)' };
   return { dot: 'var(--fg-muted)', fg: 'var(--fg-3)' };
 }
 
-function signPrefix(usdCents: number): string {
-  if (usdCents > 0) return '+';
-  if (usdCents < 0) return '−';
+function signPrefix(usd: number): string {
+  if (usd > 0) return '+';
+  if (usd < 0) return '−';
   return '';
 }
 
 function pickHintCurrency(currencies: Record<string, number>): string | null {
-  // Pick non-USD currency with largest absolute value
   const entries = Object.entries(currencies).filter(([k]) => k !== 'USD');
   if (entries.length === 0) return null;
   entries.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
   return entries[0]?.[0] ?? null;
 }
 
-export default function NetBalance({ usdCents, currencies, fxDate, size = 'compact' }: NetBalanceProps) {
-  const colors = semanticColor(usdCents);
-  const sign = signPrefix(usdCents);
-  const usdMajor = formatMajor(usdCents, 'USD');
+export default function NetBalance({ usd, currencies, fxDate, size = 'compact' }: NetBalanceProps) {
+  const colors = semanticColor(usd);
+  const sign = signPrefix(usd);
+  const usdFmt = formatAmount(usd, 'USD');
   const hintCcy = currencies ? pickHintCurrency(currencies) : null;
   const hintAmount = hintCcy && currencies ? currencies[hintCcy] : null;
 
@@ -59,7 +54,7 @@ export default function NetBalance({ usdCents, currencies, fxDate, size = 'compa
           }}
         />
         <span style={{ fontSize: '14px', color: colors.fg, fontWeight: 600 }}>
-          {sign}${usdMajor}
+          {sign}${usdFmt}
         </span>
         {hintCcy && hintAmount !== undefined && hintAmount !== null && (
           <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
@@ -84,7 +79,7 @@ export default function NetBalance({ usdCents, currencies, fxDate, size = 'compa
           fontFamily: 'var(--font-accent-jakarta)',
           fontSize: '24px',
           fontWeight: 800,
-          
+
           textTransform: 'uppercase',
           color: 'var(--fg-1)',
           lineHeight: 1,
@@ -107,7 +102,7 @@ export default function NetBalance({ usdCents, currencies, fxDate, size = 'compa
           }}
         />
         <span style={{ fontSize: '40px', color: colors.fg, fontWeight: 700, lineHeight: 1 }}>
-          {sign}${usdMajor}
+          {sign}${usdFmt}
         </span>
       </div>
 
@@ -120,7 +115,7 @@ export default function NetBalance({ usdCents, currencies, fxDate, size = 'compa
               const ccyColor = amount > 0 ? 'var(--brand-rot)' : amount < 0 ? 'var(--status-success)' : 'var(--fg-3)';
               return (
                 <span key={ccy} style={{ fontSize: '14px', color: ccyColor }}>
-                  {ccySign}{formatMajor(amount, ccy)} {ccy}
+                  {ccySign}{formatAmount(amount, ccy)} {ccy}
                 </span>
               );
             })}
@@ -130,9 +125,9 @@ export default function NetBalance({ usdCents, currencies, fxDate, size = 'compa
 
       <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border-hairline)' }}>
         <p style={{ fontSize: 'var(--fs-caption)', color: 'var(--fg-3)' }}>
-          {usdCents > 0 && '🔴 Partner owes us'}
-          {usdCents < 0 && '🟢 We owe partner'}
-          {usdCents === 0 && '⚪ Settled'}
+          {usd > 0 && '🔴 Partner owes us'}
+          {usd < 0 && '🟢 We owe partner'}
+          {usd === 0 && '⚪ Settled'}
           {' · USD pivot via today\'s CBR rates · only delivered/shipped operations counted'}
         </p>
       </div>

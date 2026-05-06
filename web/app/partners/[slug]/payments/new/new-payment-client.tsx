@@ -8,17 +8,11 @@ import {
   createPayment,
   type Partner, type Contract, type Operation
 } from '@/lib/api';
+import { formatMoney } from '@/lib/money';
 import Breadcrumb from '@/components/layout/breadcrumb';
 
 const CURRENCIES = ['USD', 'RUB', 'EUR', 'CNY', 'VND'];
 
-function formatMoney(minor: number, currency: string): string {
-  const factor = ['VND', 'JPY', 'KRW'].includes(currency) ? 1 : 100;
-  return (minor / factor).toLocaleString('en-US', {
-    minimumFractionDigits: factor === 1 ? 0 : 2,
-    maximumFractionDigits: factor === 1 ? 0 : 2,
-  });
-}
 
 export default function NewPaymentClient({ partnerSlug }: { partnerSlug: string }) {
   const router = useRouter();
@@ -106,15 +100,11 @@ export default function NewPaymentClient({ partnerSlug }: { partnerSlug: string 
 
     setSubmitting(true);
 
-    // Convert major to minor units
-    const factor = ['VND', 'JPY', 'KRW'].includes(effectiveCurrency) ? 1 : 100;
-    const amountMinor = Math.round(parseFloat(amount) * factor);
-
     const body = {
       partner_id: partnerSlug,
       contract_id: contractId,
       operation_id: operationId || undefined,
-      amount: amountMinor,
+      amount: parseFloat(amount),
       currency: effectiveCurrency,
       payment_date: Math.floor(new Date(paymentDate).getTime() / 1000),
       type,

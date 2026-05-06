@@ -121,14 +121,15 @@ export function minorFactor(currency: string): number {
   return currency === 'VND' ? 1 : 100;
 }
 
-export function formatMoney(minor: number, currency: string): string {
-  const factor = minorFactor(currency);
-  const sign = minor < 0 ? '-' : '';
-  const abs = Math.abs(minor);
-  if (factor === 1) return `${sign}${abs.toLocaleString('en-US')} ${currency}`;
-  const major = Math.floor(abs / factor);
-  const cents = abs % factor;
-  return `${sign}${major.toLocaleString('en-US')}.${String(cents).padStart(2, '0')} ${currency}`;
+export function formatMoney(amount: number, currency: string): string {
+  // amount is now a decimal major-unit value (e.g. 1234.56). VND/JPY/KRW
+  // have no subdivision so we render with 0 fraction digits, others with 2.
+  const isZeroDecimal = ['VND', 'JPY', 'KRW'].includes(currency);
+  const fractionDigits = isZeroDecimal ? 0 : 2;
+  return `${amount.toLocaleString('en-US', {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  })} ${currency}`;
 }
 
 export function formatDate(unixSec: number): string {

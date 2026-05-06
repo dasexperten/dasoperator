@@ -408,8 +408,8 @@ operations.post('/', async (c) => {
     const unitPriceAfterDisc =
       li.discount_pct === 0
         ? li.unit_price
-        : Math.round(li.unit_price * (100 - li.discount_pct) / 100);
-    const lineAmount = unitPriceAfterDisc * li.qty;
+        : Math.round(li.unit_price * (100 - li.discount_pct)) / 100;
+    const lineAmount = Math.round(unitPriceAfterDisc * li.qty * 100) / 100;
 
     totalAmount += lineAmount;
 

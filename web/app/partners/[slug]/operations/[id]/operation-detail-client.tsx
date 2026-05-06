@@ -13,6 +13,7 @@ import {
   type Partner,
   type Payment,
 } from '@/lib/api';
+import { formatMoney } from '@/lib/money';
 import Breadcrumb from '@/components/layout/breadcrumb';
 
 // =============================================================================
@@ -23,13 +24,6 @@ function formatDate(unixSec?: number | null): string {
   return new Date(unixSec * 1000).toISOString().split('T')[0]!;
 }
 
-function formatMoney(minor: number, currency: string): string {
-  const factor = ['VND', 'JPY', 'KRW'].includes(currency) ? 1 : 100;
-  return (minor / factor).toLocaleString('en-US', {
-    minimumFractionDigits: factor === 1 ? 0 : 2,
-    maximumFractionDigits: factor === 1 ? 0 : 2,
-  });
-}
 
 function getMinorFactor(currency: string): number {
   return ['VND', 'JPY', 'KRW'].includes(currency) ? 1 : 100;
@@ -152,16 +146,16 @@ export default function OperationDetailClient({
   const totalAfterDiscount = lineItems.reduce((sum, li) => sum + li.line_amount, 0);
   const discount = subtotal - totalAfterDiscount;
   const discountPct = subtotal > 0 ? Math.round((discount / subtotal) * 1000) / 10 : 0;
-  const vatAmount = Math.round(totalAfterDiscount * (operation.vat_rate / 100));
-  const grandTotal = totalAfterDiscount + vatAmount;
+  const vatAmount = Math.round(totalAfterDiscount * operation.vat_rate) / 100;
+  const grandTotal = Math.round((totalAfterDiscount + vatAmount) * 100) / 100;
   const showVat = operation.vat_rate > 0;
 
   // Payments aggregation — incoming reduces outstanding, outgoing increases it.
-  const paidMinor = payments.reduce(
+  const paidAmount = payments.reduce(
     (sum, p) => sum + (p.direction === 'incoming' ? p.amount : -p.amount),
     0
   );
-  const outstanding = grandTotal - paidMinor;
+  const outstanding = Math.round((grandTotal - paidAmount) * 100) / 100;
 
   return (
     <div className="space-y-6">
@@ -342,7 +336,7 @@ export default function OperationDetailClient({
           payments={payments}
           currency={operation.currency}
           grandTotal={grandTotal}
-          paidMinor={paidMinor}
+          paidMinor={paidAmount}
           outstanding={outstanding}
         />
       )}

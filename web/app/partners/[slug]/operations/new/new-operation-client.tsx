@@ -11,6 +11,7 @@ import {
   type Partner, type Contract, type Product, type Company, type Manufacturer,
   type Warehouse
 } from '@/lib/api';
+import { formatMoney } from '@/lib/money';
 import Breadcrumb from '@/components/layout/breadcrumb';
 
 interface LineItemRow {
@@ -23,13 +24,6 @@ interface LineItemRow {
   line_total: number;
 }
 
-function formatMoney(minor: number, currency: string): string {
-  const factor = ['VND', 'JPY', 'KRW'].includes(currency) ? 1 : 100;
-  return (minor / factor).toLocaleString('en-US', {
-    minimumFractionDigits: factor === 1 ? 0 : 2,
-    maximumFractionDigits: factor === 1 ? 0 : 2,
-  });
-}
 
 const selectStyle: React.CSSProperties = {
   width: '100%',
@@ -301,7 +295,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
     [lineItems]
   );
   const grandTotal = useMemo(
-    () => Math.round(subtotal * (1 - overallDiscountPct / 100)),
+    () => Math.round(subtotal * (100 - overallDiscountPct)) / 100,
     [subtotal, overallDiscountPct]
   );
 
@@ -310,7 +304,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
     setLineItems((rows) => {
       const next = [...rows];
       const row = { ...next[idx]!, ...patch };
-      row.line_total = Math.round(row.qty * row.unit_price * (1 - row.discount_pct / 100));
+      row.line_total = Math.round(row.qty * row.unit_price * (100 - row.discount_pct)) / 100;
       next[idx] = row;
       return next;
     });
@@ -340,8 +334,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
       const sku = productId.toUpperCase();
       const decimal = purchasePrices[sku];
       if (decimal !== undefined) {
-        const minorUnits = Math.round(decimal * 100);
-        updateLineItem(idx, { product_id: productId, unit_price: minorUnits });
+        updateLineItem(idx, { product_id: productId, unit_price: decimal });
       }
       return;
     }
@@ -753,28 +746,22 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                     style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }} />
                 </td>
                 <td className="px-3 py-2">
-                  {(() => {
-                    const factor = ['VND', 'JPY', 'KRW'].includes(effectiveCurrency) ? 1 : 100;
-                    const displayValue = li.unit_price ? (li.unit_price / factor).toString() : '';
-                    return (
-                      <input
-                        type="number"
-                        value={displayValue}
-                        onChange={(e) => {
-                          const raw = e.target.value;
-                          if (raw === '') { updateLineItem(idx, { unit_price: 0 }); return; }
-                          const major = parseFloat(raw);
-                          if (isNaN(major)) return;
-                          updateLineItem(idx, { unit_price: Math.round(major * factor) });
-                        }}
-                        disabled={!isReadyForDetails}
-                        min={0}
-                        step={factor === 1 ? 1 : 0.01}
-                        className="w-28 px-2 py-1 text-sm focus:outline-none text-right"
-                        style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }}
-                      />
-                    );
-                  })()}
+                  <input
+                    type="number"
+                    value={li.unit_price || ''}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw === '') { updateLineItem(idx, { unit_price: 0 }); return; }
+                      const v = parseFloat(raw);
+                      if (isNaN(v)) return;
+                      updateLineItem(idx, { unit_price: v });
+                    }}
+                    disabled={!isReadyForDetails}
+                    min={0}
+                    step={['VND', 'JPY', 'KRW'].includes(effectiveCurrency) ? 1 : 0.01}
+                    className="w-28 px-2 py-1 text-sm focus:outline-none text-right"
+                    style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }}
+                  />
                 </td>
                 <td className="px-3 py-2 text-right" style={{ fontSize: '14px', color: 'var(--fg-1)' }}>
                   {formatMoney(li.line_total, effectiveCurrency)} {effectiveCurrency}

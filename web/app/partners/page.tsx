@@ -203,7 +203,7 @@ export default function PartnersPage() {
                       <td className="px-4 py-3" style={{ fontWeight: 700 }}>
                         {netBalances[p.id] ? (
                           <NetBalance
-                            usdCents={netBalances[p.id]!.usd}
+                            usd={netBalances[p.id]!.usd}
                             currencies={netBalances[p.id]!.currencies}
                             size="compact"
                           />

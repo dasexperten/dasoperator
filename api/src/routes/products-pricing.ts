@@ -79,11 +79,8 @@ productsPricing.get('/:productId/price', async (c) => {
   try {
     const r2Price = await getProductPrice(c.env, productId, priceTypeId);
     if (r2Price) {
-      const isZeroDecimal = ['VND', 'JPY', 'KRW'].includes(r2Price.currency);
-      const minorFactor = isZeroDecimal ? 1 : 100;
-      const sellPriceMinor = Math.round(r2Price.price * minorFactor);
       return ok(c, {
-        price: sellPriceMinor,
+        price: r2Price.price,
         currency: r2Price.currency,
         source: 'pricer_r2',
         source_file: r2Price.source,

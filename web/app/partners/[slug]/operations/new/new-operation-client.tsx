@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Trash2, Loader2 } from 'lucide-react';
 import {
-  getPartner, getPartnerContracts, getProducts,
+  getPartner, getPartnerContracts, getProducts, getPartners,
   createOperation, getProductPriceForContract,
   type Partner, type Contract, type Product
 } from '@/lib/api';
@@ -35,7 +35,12 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   const [partner, setPartner] = useState<Partner | null>(null);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [allPartners, setAllPartners] = useState<Partner[]>([]);  // for global mode
   const [loadingRef, setLoadingRef] = useState(true);
+
+  // In global mode (no partnerSlug), user picks partner from dropdown
+  const [selectedPartnerSlug, setSelectedPartnerSlug] = useState<string>(partnerSlug);
+  const isGlobalMode = !partnerSlug;
 
   // Form state
   const [contractId, setContractId] = useState<string>('');
@@ -54,25 +59,47 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // First effect: load products and (if global mode) all partners
   useEffect(() => {
-    const fetch = async () => {
+    const fetchInitial = async () => {
       try {
-        const [pRes, cRes, prodRes] = await Promise.all([
-          getPartner(partnerSlug),
-          getPartnerContracts(partnerSlug),
+        const [prodRes, partnersRes] = await Promise.all([
           getProducts('DE'),
+          isGlobalMode ? getPartners() : Promise.resolve(null),
+        ]);
+        if (prodRes.success && prodRes.result) setProducts(prodRes.result.products);
+        if (partnersRes && partnersRes.success && partnersRes.result) {
+          setAllPartners(partnersRes.result.partners.filter((p) => p.status === 'active'));
+        }
+      } catch {
+        // silent
+      } finally {
+        if (!selectedPartnerSlug) setLoadingRef(false);
+      }
+    };
+    fetchInitial();
+  }, []);
+
+  // Second effect: load partner-specific data when slug becomes available
+  useEffect(() => {
+    if (!selectedPartnerSlug) return;
+    const fetchPartnerData = async () => {
+      setLoadingRef(true);
+      try {
+        const [pRes, cRes] = await Promise.all([
+          getPartner(selectedPartnerSlug),
+          getPartnerContracts(selectedPartnerSlug),
         ]);
         if (pRes.success && pRes.result) setPartner(pRes.result);
         if (cRes.success && cRes.result) setContracts(cRes.result.contracts.filter((c) => c.status === 'active'));
-        if (prodRes.success && prodRes.result) setProducts(prodRes.result.products);
-      } catch (e) {
+      } catch {
         // silent — user sees disabled form
       } finally {
         setLoadingRef(false);
       }
     };
-    fetch();
-  }, [partnerSlug]);
+    fetchPartnerData();
+  }, [selectedPartnerSlug]);
 
   const selectedContract = useMemo(
     () => contracts.find((c) => c.id === contractId),
@@ -159,7 +186,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
       const res = await createOperation(body);
       if (res.success && res.result) {
         // Redirect back to partner hub (operation detail page comes in PR-C3)
-        router.push(`/partners/${partnerSlug}`);
+        router.push(isGlobalMode ? '/operations' : `/partners/${selectedPartnerSlug}`);
       } else {
         setError(res.errors?.[0]?.message ?? 'Failed to create operation');
       }
@@ -178,9 +205,12 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
 
   return (
     <div className="space-y-6 max-w-5xl">
-      <Breadcrumb items={[
+      <Breadcrumb items={isGlobalMode ? [
+        { label: 'Operations', href: '/operations' },
+        { label: 'New Operation' },
+      ] : [
         { label: 'Partners', href: '/partners' },
-        { label: partner?.trade_name ?? partnerSlug, href: `/partners/${partnerSlug}` },
+        { label: partner?.trade_name ?? selectedPartnerSlug, href: `/partners/${selectedPartnerSlug}` },
         { label: 'New Operation' },
       ]} />
 
@@ -189,23 +219,59 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
           fontFamily: 'var(--font-display)',
           fontSize: 'var(--fs-display-md)',
           fontWeight: 900,
-          
           color: 'var(--fg-1)',
         }}>
           New Operation
         </h1>
-        <p className="mt-2" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
-          For partner: <strong>{partner?.trade_name ?? partnerSlug}</strong>
-        </p>
+        {!isGlobalMode && (
+          <p className="mt-2" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
+            For partner: <strong>{partner?.trade_name ?? selectedPartnerSlug}</strong>
+          </p>
+        )}
       </div>
 
       <div className="dx-ribbon-rule" />
+
+      {/* Section 0: Partner selector — only in global mode */}
+      {isGlobalMode && (
+        <Section label="Partner">
+          <div>
+            <Label>Select partner *</Label>
+            <select
+              value={selectedPartnerSlug}
+              onChange={(e) => {
+                setSelectedPartnerSlug(e.target.value);
+                setContractId('');
+              }}
+              style={{
+                width: '100%', padding: '10px 12px',
+                fontSize: '14px',
+                backgroundColor: 'var(--paper-sunk)',
+                border: '1px solid var(--border-hairline)',
+                borderRadius: 'var(--radius-sm)',
+                color: 'var(--fg-1)',
+              }}
+            >
+              <option value="">— Choose a partner —</option>
+              {allPartners.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.trade_name} ({p.country ?? '—'})
+                </option>
+              ))}
+            </select>
+          </div>
+        </Section>
+      )}
 
       {/* Section 1: Contract */}
       <Section label="Contract">
         <div>
           <Label>Select contract *</Label>
-          {contracts.length === 0 ? (
+          {!selectedPartnerSlug ? (
+            <p style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-3)' }}>
+              Select a partner first.
+            </p>
+          ) : contracts.length === 0 ? (
             <p style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--status-warning)' }}>
               No active contracts for this partner. Create a contract first.
             </p>

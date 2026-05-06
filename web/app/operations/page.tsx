@@ -90,7 +90,7 @@ export default function OperationsPage() {
           </p>
         </div>
         <Link
-          href="/partners"
+          href="/operations/new"
           className="inline-flex items-center gap-2 px-4 py-2"
           style={{
             backgroundColor: 'var(--brand-rot)', color: 'var(--paper)',
@@ -98,7 +98,7 @@ export default function OperationsPage() {
           }}
         >
           <Plus className="h-4 w-4" />
-          Add new (select partner)
+          Add new
         </Link>
       </div>
 

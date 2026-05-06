@@ -847,7 +847,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
 
                             return (
                               <tr key={p.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                                <td className="px-3 py-2" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-1)' }}>
+                                <td className="px-3 py-2" style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
                                   {p.id.toUpperCase()}
                                 </td>
                                 <td className="px-3 py-2" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
@@ -866,7 +866,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                                     min={0}
                                     placeholder="0"
                                     className="w-24 px-2 py-1 text-sm focus:outline-none text-right"
-                                    style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }}
+                                    style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)', fontWeight: 700 }}
                                   />
                                 </td>
                                 <td className="px-3 py-2">
@@ -887,15 +887,10 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                                       disabled={!isReadyForDetails}
                                       placeholder="0"
                                       className="w-24 px-2 py-1 text-sm focus:outline-none text-right"
-                                      style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }}
+                                      style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)', fontWeight: 700 }}
                                     />
                                   ) : (
                                     <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>—</span>
-                                  )}
-                                  {ctnQty > 0 && (
-                                    <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '2px' }}>
-                                      ×{ctnQty}/ctn
-                                    </div>
                                   )}
                                 </td>
                                 <td className="px-3 py-2">
@@ -918,10 +913,11 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                                       border: '1px solid var(--border-hairline)',
                                       borderRadius: 'var(--radius-xs)',
                                       color: noPrice ? 'var(--fg-3)' : 'var(--fg-1)',
+                                      fontWeight: 700,
                                     }}
                                   />
                                 </td>
-                                <td className="px-3 py-2 text-right" style={{ fontSize: '14px', color: lineTotal > 0 ? 'var(--fg-1)' : 'var(--fg-3)', fontVariantNumeric: 'tabular-nums' }}>
+                                <td className="px-3 py-2 text-right" style={{ fontSize: '14px', color: lineTotal > 0 ? 'var(--fg-1)' : 'var(--fg-3)', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
                                   {lineTotal > 0
                                     ? `${formatMoney(lineTotal, effectiveCurrency)} ${effectiveCurrency}`
                                     : '0.00'}

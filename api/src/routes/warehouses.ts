@@ -21,27 +21,53 @@ warehouses.get('/', async (c) => {
   const manufacturerId = c.req.query('manufacturer_id');
   const partnerId = c.req.query('partner_id');
 
-  let sql = `
-    SELECT
-      id, code, name, country, city, warehouse_type,
-      owner_id, owner_company_id, owner_manufacturer_id, owner_partner_id,
-      notes, created_at, updated_at
-    FROM warehouses
-    WHERE deleted_at IS NULL
-  `;
+  let sql: string;
   const binds: unknown[] = [];
 
-  if (companyId) {
-    sql += ' AND owner_company_id = ?';
-    binds.push(companyId);
-  }
   if (manufacturerId) {
-    sql += ' AND owner_manufacturer_id = ?';
-    binds.push(manufacturerId);
-  }
-  if (partnerId) {
-    sql += ' AND owner_partner_id = ?';
-    binds.push(partnerId);
+    // Manufacturer warehouses come from TWO sources, unioned:
+    //   1. Direct ownership (warehouses.owner_manufacturer_id) — single owner case
+    //   2. M:N junction (warehouse_manufacturers) — shared/consolidation hubs,
+    //      e.g. GZH serves Honghui as production + Meizhiyuan/WDAA as consolidation.
+    // Additional filters (company_id / partner_id) compose with AND.
+    sql = `
+      SELECT DISTINCT
+        w.id, w.code, w.name, w.country, w.city, w.warehouse_type,
+        w.owner_id, w.owner_company_id, w.owner_manufacturer_id, w.owner_partner_id,
+        w.notes, w.created_at, w.updated_at
+      FROM warehouses w
+      LEFT JOIN warehouse_manufacturers wm ON wm.warehouse_id = w.id
+      WHERE w.deleted_at IS NULL
+        AND (w.owner_manufacturer_id = ? OR wm.manufacturer_id = ?)
+    `;
+    binds.push(manufacturerId, manufacturerId);
+
+    if (companyId) {
+      sql += ' AND w.owner_company_id = ?';
+      binds.push(companyId);
+    }
+    if (partnerId) {
+      sql += ' AND w.owner_partner_id = ?';
+      binds.push(partnerId);
+    }
+  } else {
+    sql = `
+      SELECT
+        id, code, name, country, city, warehouse_type,
+        owner_id, owner_company_id, owner_manufacturer_id, owner_partner_id,
+        notes, created_at, updated_at
+      FROM warehouses
+      WHERE deleted_at IS NULL
+    `;
+
+    if (companyId) {
+      sql += ' AND owner_company_id = ?';
+      binds.push(companyId);
+    }
+    if (partnerId) {
+      sql += ' AND owner_partner_id = ?';
+      binds.push(partnerId);
+    }
   }
 
   sql += ' ORDER BY code';

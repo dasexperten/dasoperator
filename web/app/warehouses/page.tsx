@@ -2,26 +2,40 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Loader2, Search } from 'lucide-react';
+import { Loader2, Search, ArrowUp, ArrowDown } from 'lucide-react';
 import {
-  getProductsWithStock, getWarehouses,
-  type ProductWithStock, type Warehouse,
+  getProductsWithStock, getWarehouses, getMarketplaceStocks,
+  type ProductWithStock, type Warehouse, type MarketplaceStockRow,
 } from '@/lib/api';
+
+// Sort key — special string ids for fixed columns ('sku', 'product', 'ozon',
+// 'wb', 'total') or warehouse_id for per-warehouse columns.
+type SortKey = string;
+type SortDir = 'desc' | 'asc';
+interface SortState {
+  key: SortKey;
+  dir: SortDir;
+}
 
 export default function WarehousesPage() {
   const [products, setProducts] = useState<ProductWithStock[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [marketplaces, setMarketplaces] = useState<Record<string, MarketplaceStockRow>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  // Sort: null = default order (alphabetical by SKU as the API returns).
+  // Click cycles desc → asc → null.
+  const [sort, setSort] = useState<SortState | null>(null);
 
   useEffect(() => {
     const fetchAll = async () => {
       setLoading(true);
       try {
-        const [stockRes, whRes] = await Promise.all([
+        const [stockRes, whRes, mpRes] = await Promise.all([
           getProductsWithStock(),
           getWarehouses(),
+          getMarketplaceStocks(),
         ]);
         if (stockRes.success && stockRes.result) {
           setProducts(stockRes.result.products);
@@ -30,6 +44,11 @@ export default function WarehousesPage() {
         }
         if (whRes.success && whRes.result) {
           setWarehouses(whRes.result.warehouses);
+        }
+        if (mpRes.success && mpRes.result) {
+          const byId: Record<string, MarketplaceStockRow> = {};
+          for (const row of mpRes.result.products) byId[row.sku] = row;
+          setMarketplaces(byId);
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
@@ -40,15 +59,70 @@ export default function WarehousesPage() {
     fetchAll();
   }, []);
 
+  // Toggle sort: same key → cycles desc → asc → null.
+  // Different key → starts at desc (most useful default for stock columns).
+  function handleSortClick(key: SortKey) {
+    setSort((prev) => {
+      if (!prev || prev.key !== key) return { key, dir: 'desc' };
+      if (prev.dir === 'desc') return { key, dir: 'asc' };
+      return null; // back to default
+    });
+  }
+
+  // Build numeric value extractor for current sort key.
+  // Returns string for SKU/Product (text sort), number for everything else.
+  const sortedProducts = useMemo(() => {
+    const list = [...products];
+    if (!sort) return list;
+
+    const dir = sort.dir === 'desc' ? -1 : 1;
+
+    list.sort((a, b) => {
+      let va: number | string = 0;
+      let vb: number | string = 0;
+
+      if (sort.key === 'sku') {
+        va = a.id;
+        vb = b.id;
+      } else if (sort.key === 'product') {
+        va = a.product_name.toLowerCase();
+        vb = b.product_name.toLowerCase();
+      } else if (sort.key === 'total') {
+        va = a.total_on_hand;
+        vb = b.total_on_hand;
+      } else if (sort.key === 'ozon') {
+        va = marketplaces[a.id]?.ozon ?? 0;
+        vb = marketplaces[b.id]?.ozon ?? 0;
+      } else if (sort.key === 'wb') {
+        va = marketplaces[a.id]?.wb ?? 0;
+        vb = marketplaces[b.id]?.wb ?? 0;
+      } else {
+        // warehouse_id — find on_hand for that warehouse on each product
+        const ai = a.warehouses.find((w) => w.warehouse_id === sort.key);
+        const bi = b.warehouses.find((w) => w.warehouse_id === sort.key);
+        va = ai?.on_hand ?? 0;
+        vb = bi?.on_hand ?? 0;
+      }
+
+      if (typeof va === 'string' && typeof vb === 'string') {
+        return va < vb ? dir * -1 : va > vb ? dir : 0;
+      }
+      return ((va as number) - (vb as number)) * dir;
+    });
+
+    return list;
+  }, [products, sort, marketplaces]);
+
+  // Apply search filter on top of sort
   const filtered = useMemo(() => {
-    if (!search) return products;
+    if (!search) return sortedProducts;
     const q = search.toLowerCase();
-    return products.filter((p) =>
+    return sortedProducts.filter((p) =>
       p.product_name.toLowerCase().includes(q) ||
       p.id.toLowerCase().includes(q) ||
       p.invoice_label.toLowerCase().includes(q)
     );
-  }, [products, search]);
+  }, [sortedProducts, search]);
 
   const totalsByWarehouse = useMemo(() => {
     const totals: Record<string, number> = {};
@@ -62,24 +136,17 @@ export default function WarehousesPage() {
     return { totals, grandTotal };
   }, [products]);
 
-  // Marketplace footer totals — sum across visible products
-  const totalsByMarketplace = useMemo(() => {
-    let ozon = 0;
-    let wb = 0;
+  const marketplaceTotals = useMemo(() => {
+    let ozon = 0, wb = 0;
     for (const p of products) {
-      ozon += p.marketplace_ozon ?? 0;
-      wb += p.marketplace_wb ?? 0;
+      const m = marketplaces[p.id];
+      if (!m) continue;
+      ozon += m.ozon || 0;
+      wb   += m.wb || 0;
     }
     return { ozon, wb };
-  }, [products]);
+  }, [products, marketplaces]);
 
-  // Marketplace tint colors — keep light to match warehouse-group tints
-  const TINT_OZON = 'rgba(55, 138, 221, 0.06)';
-  const TINT_WB = 'rgba(217, 90, 48, 0.06)';
-
-  // Sort warehouses by [country group, code]. Russia first (pink), then
-  // transit (mint), then China (blue). Header, body cells, and footer
-  // totals all consume this same sorted array so columns align.
   const sortedWarehouses = useMemo(
     () => sortWarehousesByGroup(warehouses),
     [warehouses]
@@ -94,7 +161,6 @@ export default function WarehousesPage() {
             fontFamily: 'var(--font-display)',
             fontSize: 'var(--fs-display-md)',
             fontWeight: 900,
-            
             color: 'var(--fg-1)',
           }}
         >
@@ -139,18 +205,41 @@ export default function WarehousesPage() {
           <table className="w-full text-sm" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
             <thead>
               <tr>
-                <Th sticky>SKU</Th>
-                <Th sticky2>Product</Th>
+                <SortableTh sticky sortKey="sku" sort={sort} onClick={handleSortClick}>SKU</SortableTh>
+                <SortableTh sticky2 sortKey="product" sort={sort} onClick={handleSortClick}>Product</SortableTh>
                 {sortedWarehouses.map((w) => (
-                  <Th key={w.id} center bg={TINT_BY_GROUP[groupForWarehouse(w)]}>
-                    <Link href={`/warehouses/${w.id}`} style={{ color: 'inherit' }}>
-                      {w.code}
-                    </Link>
-                  </Th>
+                  <SortableTh
+                    key={w.id}
+                    center
+                    bg={TINT_BY_GROUP[groupForWarehouse(w)]}
+                    sortKey={w.id}
+                    sort={sort}
+                    onClick={handleSortClick}
+                  >
+                    {w.code}
+                  </SortableTh>
                 ))}
-                <Th center bg={TINT_OZON}>Ozon</Th>
-                <Th center bg={TINT_WB}>WB</Th>
-                <Th center accent>Total</Th>
+                <SortableTh
+                  center
+                  bg={MARKETPLACE_TINT.ozon}
+                  sortKey="ozon"
+                  sort={sort}
+                  onClick={handleSortClick}
+                >Ozon</SortableTh>
+                <SortableTh
+                  center
+                  bg={MARKETPLACE_TINT.wb}
+                  sortKey="wb"
+                  sort={sort}
+                  onClick={handleSortClick}
+                >WB</SortableTh>
+                <SortableTh
+                  center
+                  accent
+                  sortKey="total"
+                  sort={sort}
+                  onClick={handleSortClick}
+                >Total</SortableTh>
               </tr>
             </thead>
             <tbody>
@@ -164,9 +253,12 @@ export default function WarehousesPage() {
                 filtered.map((p) => {
                   const skuShort = p.id.replace('prd_', '').toUpperCase();
                   const skuLower = p.id.replace('prd_', '').toLowerCase();
-                  // Map by warehouse_id for fast lookup
                   const byWh: Record<string, number> = {};
                   for (const w of p.warehouses) byWh[w.warehouse_id] = w.on_hand;
+
+                  const mp = marketplaces[p.id];
+                  const ozonVal = mp?.ozon ?? 0;
+                  const wbVal   = mp?.wb ?? 0;
 
                   return (
                     <tr key={p.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
@@ -187,22 +279,8 @@ export default function WarehousesPage() {
                           />
                         );
                       })}
-                      <td className="px-3 py-2 text-right" style={{
-                        fontSize: '14px',
-                        fontWeight: p.marketplace_ozon > 0 ? 700 : 400,
-                        color: p.marketplace_ozon > 0 ? 'var(--fg-1)' : 'var(--fg-muted)',
-                        backgroundColor: TINT_OZON,
-                      }}>
-                        {p.marketplace_ozon > 0 ? p.marketplace_ozon.toLocaleString('en-US') : '—'}
-                      </td>
-                      <td className="px-3 py-2 text-right" style={{
-                        fontSize: '14px',
-                        fontWeight: p.marketplace_wb > 0 ? 700 : 400,
-                        color: p.marketplace_wb > 0 ? 'var(--fg-1)' : 'var(--fg-muted)',
-                        backgroundColor: TINT_WB,
-                      }}>
-                        {p.marketplace_wb > 0 ? p.marketplace_wb.toLocaleString('en-US') : '—'}
-                      </td>
+                      <MarketplaceCellTd value={ozonVal} tint={MARKETPLACE_TINT.ozon} />
+                      <MarketplaceCellTd value={wbVal}   tint={MARKETPLACE_TINT.wb} />
                       <td className="px-3 py-2 text-right" style={{
                         fontSize: '14px',
                         fontWeight: 700,
@@ -235,17 +313,17 @@ export default function WarehousesPage() {
                     fontSize: '14px',
                     fontWeight: 700,
                     color: 'var(--fg-1)',
-                    backgroundColor: TINT_OZON,
+                    backgroundColor: MARKETPLACE_TINT.ozon,
                   }}>
-                    {totalsByMarketplace.ozon.toLocaleString('en-US')}
+                    {marketplaceTotals.ozon.toLocaleString('en-US')}
                   </td>
                   <td className="px-3 py-2 text-right" style={{
                     fontSize: '14px',
                     fontWeight: 700,
                     color: 'var(--fg-1)',
-                    backgroundColor: TINT_WB,
+                    backgroundColor: MARKETPLACE_TINT.wb,
                   }}>
-                    {totalsByMarketplace.wb.toLocaleString('en-US')}
+                    {marketplaceTotals.wb.toLocaleString('en-US')}
                   </td>
                   <td className="px-3 py-2 text-right" style={{
                     fontSize: '14px',
@@ -266,15 +344,11 @@ export default function WarehousesPage() {
 }
 
 // =============================================================================
-// Country grouping → soft column tint (Phase 4.4 follow-up)
+// Country grouping → soft column tint
 // =============================================================================
-// Group derivation by warehouse.country (no hardcoded code list — DGN/future
-// warehouses fall into the right bucket automatically as long as country
-// field is set in /api/warehouses).
 type CountryGroup = 'russia' | 'china' | 'transit';
 
 function groupForWarehouse(wh: { country?: string | null }): CountryGroup {
-  // Defensive normalization: trim whitespace, fall through if null/empty.
   const c = (wh.country ?? '').trim();
   if (c === 'Russia') return 'russia';
   if (c === 'China') return 'china';
@@ -297,17 +371,17 @@ function sortWarehousesByGroup<T extends { country?: string | null; code: string
 }
 
 const TINT_BY_GROUP: Record<CountryGroup, string> = {
-  russia:  'rgba(252, 235, 235, 0.5)',  // warm beige-red
-  china:   'rgba(230, 241, 251, 0.5)',  // cool slate-blue
-  transit: 'rgba(225, 245, 238, 0.5)',  // neutral mint
+  russia:  'rgba(252, 235, 235, 0.5)',
+  china:   'rgba(230, 241, 251, 0.5)',
+  transit: 'rgba(225, 245, 238, 0.5)',
+};
+
+const MARKETPLACE_TINT = {
+  ozon: 'rgba(0, 91, 255, 0.06)',
+  wb:   'rgba(203, 17, 122, 0.06)',
 };
 
 function StockCellTd({ value, href, tint }: { value: number; href: string; tint?: string }) {
-  // Cell coloring rules (Phase 4.4) — semantic warning bg overrides country tint:
-  //   0       → muted text, fall through to tint
-  //   1-50    → red bg + red text (tint hidden)
-  //   51-200  → amber bg + amber text (tint hidden)
-  //   201+    → fall through to tint
   let bg: string | undefined = tint;
   let color: string;
   if (value === 0) {
@@ -331,28 +405,64 @@ function StockCellTd({ value, href, tint }: { value: number; href: string; tint?
   );
 }
 
-function Th({ children, sticky, sticky2, center, accent, bg }: {
+function MarketplaceCellTd({ value, tint }: { value: number; tint: string }) {
+  const color = value === 0 ? 'var(--fg-muted)' : 'var(--fg-1)';
+  return (
+    <td className="px-3 py-2 text-right" style={{ backgroundColor: tint, fontSize: '14px', color, fontWeight: value > 0 ? 600 : 400 }}>
+      {value === 0 ? '—' : value.toLocaleString('en-US')}
+    </td>
+  );
+}
+
+// =============================================================================
+// Sortable column header
+// =============================================================================
+function SortableTh({
+  children, sortKey, sort, onClick,
+  sticky, sticky2, center, accent, bg,
+}: {
   children: React.ReactNode;
+  sortKey: string;
+  sort: SortState | null;
+  onClick: (key: string) => void;
   sticky?: boolean;
   sticky2?: boolean;
   center?: boolean;
   accent?: boolean;
   bg?: string;
 }) {
+  const isActive = sort?.key === sortKey;
+  const dir = isActive ? sort!.dir : null;
+
   return (
     <th
+      onClick={() => onClick(sortKey)}
       className={`px-3 py-3 ${center ? 'text-center' : 'text-left'}`}
       style={{
         fontSize: '14px',
-        color: 'var(--fg-3)',
+        color: isActive ? 'var(--fg-1)' : 'var(--fg-3)',
+        fontWeight: isActive ? 700 : 400,
         backgroundColor: bg ?? (accent ? 'var(--paper-sunk)' : 'var(--paper-sunk)'),
         borderBottom: '1px solid var(--border-hairline)',
         position: sticky || sticky2 ? 'sticky' : undefined,
         left: sticky ? 0 : sticky2 ? '60px' : undefined,
         zIndex: sticky || sticky2 ? 1 : undefined,
+        cursor: 'pointer',
+        userSelect: 'none',
+        whiteSpace: 'nowrap',
+      }}
+      onMouseEnter={(e) => {
+        if (!isActive) e.currentTarget.style.color = 'var(--fg-1)';
+      }}
+      onMouseLeave={(e) => {
+        if (!isActive) e.currentTarget.style.color = 'var(--fg-3)';
       }}
     >
-      {children}
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', justifyContent: center ? 'center' : 'flex-start' }}>
+        {children}
+        {dir === 'desc' && <ArrowDown className="h-3 w-3" style={{ color: 'var(--brand-rot)' }} />}
+        {dir === 'asc'  && <ArrowUp   className="h-3 w-3" style={{ color: 'var(--brand-rot)' }} />}
+      </span>
     </th>
   );
 }

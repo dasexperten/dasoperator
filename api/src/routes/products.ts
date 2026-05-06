@@ -377,4 +377,194 @@ products.get('/:id/activity', async (c) => {
   });
 });
 
+
+// =============================================================================
+// POST /api/products — create new SKU
+// Required: id, product_name, invoice_label, category, manufacturer_id
+// All other fields optional. Returns the created row.
+// =============================================================================
+const createSchema = z.object({
+  id: z.string().min(1).max(50).transform((s) => s.toLowerCase().trim()),
+  product_name: z.string().min(1).max(200),
+  invoice_label: z.string().min(1).max(200),
+  category: z.enum(['Toothpaste', 'Toothbrush', 'Floss', 'Other']),
+  manufacturer_id: z.string().min(1),
+
+  barcode: z.string().max(50).nullable().optional(),
+  pieces_per_case: z.number().int().min(1).optional().default(1),
+  ctn_qty: z.number().int().min(0).nullable().optional(),
+  ctn_weight_gross_kg: z.number().min(0).nullable().optional(),
+  ctn_dim_l_cm: z.number().min(0).nullable().optional(),
+  ctn_dim_w_cm: z.number().min(0).nullable().optional(),
+  ctn_dim_h_cm: z.number().min(0).nullable().optional(),
+  unit_net_weight_g: z.number().min(0).nullable().optional(),
+  hs_code: z.string().max(20).nullable().optional(),
+  country_of_origin: z.string().max(100).nullable().optional(),
+  weight_kg: z.number().int().min(0).nullable().optional(),
+  volume_m3_micro: z.number().int().min(0).nullable().optional(),
+  description_ru: z.string().nullable().optional(),
+  description_en: z.string().nullable().optional(),
+  description_cn: z.string().nullable().optional(),
+  packaging_manufacturer_id: z.string().nullable().optional(),
+  buy_price: z.number().int().min(0).nullable().optional(),
+  buy_currency: z.string().length(3).nullable().optional(),
+  buy_term: z.string().max(50).nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+
+products.post('/', async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!body) return fail(c, 400, [{ code: 'invalid_json', message: 'Request body must be JSON' }]);
+
+  const parsed = createSchema.safeParse(body);
+  if (!parsed.success) {
+    return fail(c, 400, [{ code: 'invalid_body', message: 'Validation failed', details: { issues: parsed.error.issues } }]);
+  }
+  const data = parsed.data;
+
+  // Check duplicate id
+  const dup = await c.env.DB.prepare('SELECT id FROM products WHERE id = ?').bind(data.id).first();
+  if (dup) {
+    return fail(c, 409, [{ code: 'product_exists', message: `Product with id ${data.id} already exists` }]);
+  }
+
+  // Check manufacturer exists
+  const mfr = await c.env.DB.prepare('SELECT id FROM manufacturers WHERE id = ?').bind(data.manufacturer_id).first();
+  if (!mfr) {
+    return fail(c, 400, [{ code: 'invalid_manufacturer', message: `Manufacturer ${data.manufacturer_id} does not exist` }]);
+  }
+
+  // Check packaging_manufacturer if provided
+  if (data.packaging_manufacturer_id) {
+    const pm = await c.env.DB.prepare('SELECT id FROM manufacturers WHERE id = ?').bind(data.packaging_manufacturer_id).first();
+    if (!pm) {
+      return fail(c, 400, [{ code: 'invalid_packaging_manufacturer', message: `Packaging manufacturer ${data.packaging_manufacturer_id} does not exist` }]);
+    }
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+
+  await c.env.DB.prepare(`
+    INSERT INTO products (
+      id, product_name, invoice_label, category, manufacturer_id,
+      barcode, pieces_per_case, ctn_qty, ctn_weight_gross_kg,
+      ctn_dim_l_cm, ctn_dim_w_cm, ctn_dim_h_cm,
+      unit_net_weight_g, hs_code, country_of_origin,
+      weight_kg, volume_m3_micro,
+      description_ru, description_en, description_cn,
+      packaging_manufacturer_id,
+      buy_price, buy_currency, buy_term, notes,
+      created_at, updated_at
+    ) VALUES (
+      ?, ?, ?, ?, ?,
+      ?, ?, ?, ?,
+      ?, ?, ?,
+      ?, ?, ?,
+      ?, ?,
+      ?, ?, ?,
+      ?,
+      ?, ?, ?, ?,
+      ?, ?
+    )
+  `).bind(
+    data.id, data.product_name, data.invoice_label, data.category, data.manufacturer_id,
+    data.barcode ?? null, data.pieces_per_case ?? 1, data.ctn_qty ?? null, data.ctn_weight_gross_kg ?? null,
+    data.ctn_dim_l_cm ?? null, data.ctn_dim_w_cm ?? null, data.ctn_dim_h_cm ?? null,
+    data.unit_net_weight_g ?? null, data.hs_code ?? null, data.country_of_origin ?? null,
+    data.weight_kg ?? null, data.volume_m3_micro ?? null,
+    data.description_ru ?? null, data.description_en ?? null, data.description_cn ?? null,
+    data.packaging_manufacturer_id ?? null,
+    data.buy_price ?? null, data.buy_currency ?? null, data.buy_term ?? null, data.notes ?? null,
+    now, now
+  ).run();
+
+  const created = await c.env.DB.prepare(`
+    SELECT p.*, m.name AS manufacturer_name, m.country AS manufacturer_country
+    FROM products p
+    LEFT JOIN manufacturers m ON m.id = p.manufacturer_id
+    WHERE p.id = ?
+  `).bind(data.id).first();
+
+  return ok(c, created);
+});
+
+// =============================================================================
+// PUT /api/products/:id — update existing SKU
+// All fields optional except id (from URL). Only provided fields are updated.
+// =============================================================================
+const updateSchema = createSchema.partial().omit({ id: true });
+
+products.put('/:id', async (c) => {
+  const id = c.req.param('id').toLowerCase();
+  const body = await c.req.json().catch(() => null);
+  if (!body) return fail(c, 400, [{ code: 'invalid_json', message: 'Request body must be JSON' }]);
+
+  const parsed = updateSchema.safeParse(body);
+  if (!parsed.success) {
+    return fail(c, 400, [{ code: 'invalid_body', message: 'Validation failed', details: { issues: parsed.error.issues } }]);
+  }
+  const data = parsed.data;
+
+  const existing = await c.env.DB.prepare('SELECT id FROM products WHERE id = ? AND deleted_at IS NULL').bind(id).first();
+  if (!existing) {
+    return fail(c, 404, [{ code: 'product_not_found', message: `Product ${id} not found` }]);
+  }
+
+  if (data.manufacturer_id) {
+    const mfr = await c.env.DB.prepare('SELECT id FROM manufacturers WHERE id = ?').bind(data.manufacturer_id).first();
+    if (!mfr) {
+      return fail(c, 400, [{ code: 'invalid_manufacturer', message: `Manufacturer ${data.manufacturer_id} does not exist` }]);
+    }
+  }
+  if (data.packaging_manufacturer_id) {
+    const pm = await c.env.DB.prepare('SELECT id FROM manufacturers WHERE id = ?').bind(data.packaging_manufacturer_id).first();
+    if (!pm) {
+      return fail(c, 400, [{ code: 'invalid_packaging_manufacturer', message: `Packaging manufacturer ${data.packaging_manufacturer_id} does not exist` }]);
+    }
+  }
+
+  // Build dynamic UPDATE — only fields that were sent
+  const fields: string[] = [];
+  const binds: unknown[] = [];
+
+  const allowed = [
+    'product_name', 'invoice_label', 'category', 'manufacturer_id',
+    'barcode', 'pieces_per_case', 'ctn_qty', 'ctn_weight_gross_kg',
+    'ctn_dim_l_cm', 'ctn_dim_w_cm', 'ctn_dim_h_cm',
+    'unit_net_weight_g', 'hs_code', 'country_of_origin',
+    'weight_kg', 'volume_m3_micro',
+    'description_ru', 'description_en', 'description_cn',
+    'packaging_manufacturer_id',
+    'buy_price', 'buy_currency', 'buy_term', 'notes',
+  ] as const;
+
+  for (const key of allowed) {
+    if (key in data) {
+      fields.push(`${key} = ?`);
+      binds.push((data as Record<string, unknown>)[key] ?? null);
+    }
+  }
+
+  if (fields.length === 0) {
+    return fail(c, 400, [{ code: 'no_changes', message: 'No fields to update' }]);
+  }
+
+  fields.push('updated_at = ?');
+  binds.push(Math.floor(Date.now() / 1000));
+  binds.push(id);
+
+  await c.env.DB.prepare(`UPDATE products SET ${fields.join(', ')} WHERE id = ?`).bind(...binds).run();
+
+  const updated = await c.env.DB.prepare(`
+    SELECT p.*, m.name AS manufacturer_name, m.country AS manufacturer_country
+    FROM products p
+    LEFT JOIN manufacturers m ON m.id = p.manufacturer_id
+    WHERE p.id = ?
+  `).bind(id).first();
+
+  return ok(c, updated);
+});
+
+
 export default products;
+

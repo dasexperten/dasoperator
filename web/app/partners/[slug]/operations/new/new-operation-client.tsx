@@ -767,12 +767,6 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
             </div>
           )}
         </div>
-        <div className="mt-4">
-          <Label>Notes</Label>
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!isReadyForDetails} rows={2} placeholder="Optional"
-            className="w-full px-3 py-2 text-sm focus:outline-none"
-            style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
-        </div>
       </Section>
 
       {/* Section 3: Line items — full grid grouped by category */}
@@ -987,6 +981,18 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
             </div>
           </div>
         </div>
+      </Section>
+
+      <Section label="Notes" disabled={!isReadyForDetails}>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          disabled={!isReadyForDetails}
+          rows={3}
+          placeholder="Optional"
+          className="w-full px-3 py-2 text-sm focus:outline-none"
+          style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}
+        />
       </Section>
 
       {error && (

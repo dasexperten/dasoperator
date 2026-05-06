@@ -45,4 +45,28 @@ directories.get('/manufacturers', async (c) => {
   return ok(c, { count: result.results.length, manufacturers: result.results });
 });
 
+// =============================================================================
+// GET /api/manufacturers/:id/products
+// Returns products this factory can produce, via product_manufacturers M:N table.
+// Used by Purchase form to filter SKU dropdown by selected factory.
+// (Replaces simple products.manufacturer_id filter — needed because paste
+// factories Honghui/Meizhiyuan/WDAA all produce the same SKUs.)
+// =============================================================================
+
+directories.get('/manufacturers/:id/products', async (c) => {
+  const mfrId = c.req.param('id');
+
+  const result = await c.env.DB.prepare(`
+    SELECT p.id, p.product_name, p.invoice_label, p.category, p.barcode,
+           p.manufacturer_id, p.buy_price, p.buy_currency
+    FROM product_manufacturers pm
+    INNER JOIN products p ON p.id = pm.product_id
+    WHERE pm.manufacturer_id = ?
+      AND p.deleted_at IS NULL
+    ORDER BY p.id
+  `).bind(mfrId).all();
+
+  return ok(c, { count: result.results.length, products: result.results });
+});
+
 export default directories;

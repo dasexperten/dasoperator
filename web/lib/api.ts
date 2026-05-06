@@ -375,6 +375,12 @@ export async function getManufacturers() {
   return apiGet<ManufacturersResponse>('/api/manufacturers');
 }
 
+// Products this factory can produce (via product_manufacturers M:N).
+// Used by Purchase form to filter SKU dropdown.
+export async function getProductsByManufacturer(manufacturerId: string) {
+  return apiGet<{ count: number; products: Product[] }>(`/api/manufacturers/${manufacturerId}/products`);
+}
+
 export async function getPartner(slug: string): Promise<ApiResponse<Partner>> {
   const res = await getContact(slug);
   if (!res.success || !res.result) {

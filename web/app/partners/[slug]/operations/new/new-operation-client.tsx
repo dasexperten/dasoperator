@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Plus, Trash2, Loader2 } from 'lucide-react';
 import {
   getPartner, getPartnerContracts, getProducts, getPartners,
-  getCompanies, getManufacturers,
+  getCompanies, getManufacturers, getProductsByManufacturer,
   createOperation, getProductPriceForContract,
   type Partner, type Contract, type Product, type Company, type Manufacturer
 } from '@/lib/api';
@@ -152,16 +152,26 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
     return false;
   }, [opType, contractId, manufacturerId, ourCompanyId, receivingCompanyId]);
 
-  // Products filtered by manufacturer for Purchase ops
-  // (each factory makes only certain SKUs — Jinxia: brushes/floss/accessories;
-  //  paste factories Honghui/Meizhiyuan/WDAA: only toothpastes).
-  // For sale/transfer: all products available.
-  const availableProducts = useMemo(() => {
-    if (opType === 'purchase' && manufacturerId) {
-      return products.filter((p) => p.manufacturer_id === manufacturerId);
+  // Products available for line items.
+  // For Purchase: filtered by manufacturer via product_manufacturers M:N table
+  //   (paste factories Honghui/Meizhiyuan/WDAA all produce same 9 pastes).
+  // For Sale/Transfer: all products.
+  const [purchaseProducts, setPurchaseProducts] = useState<Product[]>([]);
+
+  useEffect(() => {
+    if (opType !== 'purchase' || !manufacturerId) {
+      setPurchaseProducts([]);
+      return;
     }
+    getProductsByManufacturer(manufacturerId).then((res) => {
+      if (res.success && res.result) setPurchaseProducts(res.result.products);
+    }).catch(() => setPurchaseProducts([]));
+  }, [opType, manufacturerId]);
+
+  const availableProducts = useMemo(() => {
+    if (opType === 'purchase' && manufacturerId) return purchaseProducts;
     return products;
-  }, [products, opType, manufacturerId]);
+  }, [products, purchaseProducts, opType, manufacturerId]);
 
   // Subtotal before overall discount
   const subtotal = useMemo(

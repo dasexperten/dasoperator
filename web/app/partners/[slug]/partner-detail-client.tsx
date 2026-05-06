@@ -51,6 +51,20 @@ function statusLabel(status: string): string {
   return STATUS_LABELS[status] ?? status;
 }
 
+const LANGUAGE_LABELS: Record<string, string> = {
+  'EN':    'English',
+  'RU':    'Русский',
+  'EN-RU': 'English + Русский',
+  'EN-AR': 'English + العربية',
+  'EN-VI': 'English + Tiếng Việt',
+  'EN-ZH': 'English + 中文',
+};
+
+function languageLabel(lang: string | null | undefined): string {
+  if (!lang) return 'English';
+  return LANGUAGE_LABELS[lang] ?? lang;
+}
+
 const MISSING = 'MISSING';
 function isMissing(value: string | null | undefined): boolean {
   return !value || value === MISSING || value.trim() === '';
@@ -222,6 +236,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
         <SectionCard label="General" fields={generalFields}>
           <CopyableField label="Country" value={partner.country} />
           <CopyableField label="Type" value={partner.partner_type} />
+          <CopyableField label="Language" value={languageLabel(partner.partner_language)} />
           <CopyableField label="Tax ID" value={partner.tax_id} mono />
           <CopyableField label="Email" value={partner.email} mono />
         </SectionCard>
@@ -286,7 +301,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
             ) : (
               <>
                 <Sparkles className="h-4 w-4" />
-                Generate NDA
+                Generate NDA ({partner.partner_language ?? 'EN'})
               </>
             )}
           </button>

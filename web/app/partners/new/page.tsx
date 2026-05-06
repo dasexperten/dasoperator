@@ -27,6 +27,7 @@ export default function NewPartnerPage() {
   const [legalName, setLegalName] = useState('');
   const [country, setCountry] = useState('');
   const [partnerType, setPartnerType] = useState<'buyer' | 'supplier' | 'shipper' | 'other'>('buyer');
+  const [partnerLanguage, setPartnerLanguage] = useState<'EN' | 'RU' | 'EN-RU' | 'EN-AR' | 'EN-VI' | 'EN-ZH'>('EN');
   const [email, setEmail] = useState('');
   const [notes, setNotes] = useState('');
 
@@ -42,7 +43,6 @@ export default function NewPartnerPage() {
   const [registeredAddressLocal, setRegisteredAddressLocal] = useState('');
   const [preferredIncoterms, setPreferredIncoterms] = useState('');
   const [paymentTerms, setPaymentTerms] = useState('');
-  const [preferredInvoiceLanguage, setPreferredInvoiceLanguage] = useState<'EN' | 'RU' | 'BILINGUAL' | ''>('');
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +59,7 @@ export default function NewPartnerPage() {
       const res = await createPartner({
         trade_name: tradeName.trim(),
         partner_type: partnerType,
+        partner_language: partnerLanguage,
         legal_name: legalName.trim() || null,
         country: country.trim() || null,
         email: email.trim() || null,
@@ -94,7 +95,6 @@ export default function NewPartnerPage() {
       if (registeredAddressLocal.trim()) patch.registered_address_local = registeredAddressLocal.trim();
       if (preferredIncoterms.trim()) patch.preferred_incoterms = preferredIncoterms.trim();
       if (paymentTerms.trim()) patch.payment_terms = paymentTerms.trim();
-      if (preferredInvoiceLanguage) patch.preferred_invoice_language = preferredInvoiceLanguage;
 
       if (Object.keys(patch).length > 0) {
         await updatePartner(partnerSlug, patch);
@@ -201,6 +201,20 @@ export default function NewPartnerPage() {
               </select>
             </div>
             <div className="col-span-2">
+              <Label>Partner language *</Label>
+              <select value={partnerLanguage} onChange={(e) => setPartnerLanguage(e.target.value as typeof partnerLanguage)} style={inputStyle}>
+                <option value="EN">English</option>
+                <option value="RU">Русский</option>
+                <option value="EN-RU">English + Русский</option>
+                <option value="EN-AR">English + العربية</option>
+                <option value="EN-VI">English + Tiếng Việt</option>
+                <option value="EN-ZH">English + 中文</option>
+              </select>
+              <p className="mt-1" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
+                Applies to all outbound documents and communication: invoices, packing lists, contracts, NDAs, emails.
+              </p>
+            </div>
+            <div className="col-span-2">
               <Label>Contact email</Label>
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
                 placeholder="contact@partner.com"
@@ -286,22 +300,11 @@ export default function NewPartnerPage() {
 
           <Section label="Trade Preferences">
             <div className="grid grid-cols-2 gap-4">
-              <div>
+              <div className="col-span-2">
                 <Label>Preferred incoterms</Label>
                 <input type="text" value={preferredIncoterms}
                   onChange={(e) => setPreferredIncoterms(e.target.value)}
                   placeholder="FCA Saransk / DAP Frankfurt" style={inputStyle} />
-              </div>
-              <div>
-                <Label>Invoice language</Label>
-                <select value={preferredInvoiceLanguage}
-                  onChange={(e) => setPreferredInvoiceLanguage(e.target.value as typeof preferredInvoiceLanguage)}
-                  style={inputStyle}>
-                  <option value="">— Default —</option>
-                  <option value="EN">English</option>
-                  <option value="RU">Russian</option>
-                  <option value="BILINGUAL">Bilingual</option>
-                </select>
               </div>
               <div className="col-span-2">
                 <Label>Payment terms</Label>

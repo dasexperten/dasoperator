@@ -2,7 +2,10 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
-import { generateNda, type DeiCompanyForNda } from '../lib/llm-tasks/generate-nda';
+import {
+  generateNda, ndaTemplateKey, isPartnerLanguageSupported, requiresLocalLegalReview,
+  type DeiCompanyForNda,
+} from '../lib/llm-tasks/generate-nda';
 import { markdownToDocxBuffer } from '../lib/md-to-docx';
 
 const partners = new Hono<{ Bindings: Env }>();
@@ -58,6 +61,7 @@ partners.get('/', async (c) => {
       p.price_type_id, pt.code as price_type_code,
       p.currency, p.contract_no, p.contract_date,
       p.email, p.status, p.crm_status, p.partner_type, p.notes,
+      p.partner_language,
       p.created_at, p.updated_at
     FROM partners p
     LEFT JOIN companies c ON p.linked_entity_id = c.id
@@ -86,6 +90,7 @@ partners.get('/:slug', async (c) => {
       p.price_type_id, pt.code as price_type_code,
       p.currency, p.contract_no, p.contract_date,
       p.email, p.status, p.crm_status, p.partner_type, p.notes,
+      p.partner_language,
       p.legal_name_local, p.registered_address_local,
       p.kpp, p.inn, p.ogrn,
       p.payment_terms, p.preferred_incoterms, p.preferred_invoice_language,
@@ -117,6 +122,7 @@ const createPartnerSchema = z.object({
   country: z.string().max(60).nullable().optional(),
   legal_name: z.string().max(200).nullable().optional(),
   email: z.string().email().nullable().optional(),
+  partner_language: z.enum(['EN', 'RU', 'EN-RU', 'EN-AR', 'EN-VI', 'EN-ZH']).optional(),
   notes: z.string().max(2000).nullable().optional(),
 });
 
@@ -149,9 +155,9 @@ partners.post('/', async (c) => {
     await c.env.DB.prepare(`
       INSERT INTO partners (
         id, trade_name, legal_name, country, email,
-        status, crm_status, partner_type, notes,
+        status, crm_status, partner_type, partner_language, notes,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'pending', 'lead', ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, 'pending', 'lead', ?, ?, ?, ?, ?)
     `).bind(
       slug,
       data.trade_name,
@@ -159,6 +165,7 @@ partners.post('/', async (c) => {
       data.country ?? null,
       data.email ?? null,
       data.partner_type,
+      data.partner_language ?? 'EN',
       data.notes ?? null,
       now,
       now
@@ -176,6 +183,7 @@ partners.post('/', async (c) => {
     trade_name: data.trade_name,
     crm_status: 'lead',
     partner_type: data.partner_type,
+    partner_language: data.partner_language ?? 'EN',
     country: data.country ?? null,
     legal_name: data.legal_name ?? null,
     email: data.email ?? null,
@@ -205,6 +213,7 @@ const updatePartnerSchema = z.object({
   registered_address_local: z.string().max(500).nullable().optional(),
   preferred_incoterms: z.string().max(20).nullable().optional(),
   preferred_invoice_language: z.enum(['EN', 'RU', 'BILINGUAL']).nullable().optional(),
+  partner_language: z.enum(['EN', 'RU', 'EN-RU', 'EN-AR', 'EN-VI', 'EN-ZH']).optional(),
   payment_terms: z.string().max(200).nullable().optional(),
   linked_entity_id: z.string().nullable().optional(),
   price_type_id: z.string().nullable().optional(),
@@ -446,7 +455,7 @@ partners.post('/:slug/agreements', async (c) => {
 partners.post('/:slug/agreements/generate-nda', async (c) => {
   const slug = c.req.param('slug');
 
-  // Step 1 — partner
+  // Step 1 — partner (now includes partner_language for template selection)
   interface PartnerRow {
     id: string;
     trade_name: string;
@@ -455,15 +464,24 @@ partners.post('/:slug/agreements/generate-nda', async (c) => {
     registered_address_local: string | null;
     crm_status: string;
     email: string | null;
+    partner_language: string | null;
   }
   const partner = await c.env.DB.prepare(
     `SELECT id, trade_name, legal_name, country, registered_address_local,
-            crm_status, email
+            crm_status, email, partner_language
      FROM partners WHERE id = ? AND deleted_at IS NULL`
   ).bind(slug).first<PartnerRow>();
 
   if (!partner) {
     return fail(c, 404, [{ code: 'partner_not_found', message: `Partner ${slug} not found` }]);
+  }
+
+  // Validate partner_language is supported
+  if (!isPartnerLanguageSupported(partner.partner_language)) {
+    return fail(c, 422, [{
+      code: 'language_not_supported',
+      message: `Partner language '${partner.partner_language}' has no NDA template yet. Supported: EN, RU, EN-RU, EN-AR, EN-VI, EN-ZH.`,
+    }]);
   }
 
   // Step 2 — DEI
@@ -488,19 +506,24 @@ partners.post('/:slug/agreements/generate-nda', async (c) => {
     }]);
   }
 
-  // Step 3 — read templates from R2
-  const skillExtractObj = await c.env.PRICELISTS.get('templates/nda-skill-extract.md');
-  const templateObj = await c.env.PRICELISTS.get('templates/nda-mutual-en.md');
+  // Step 3 — read templates + design canon from R2
+  const templateR2Key = ndaTemplateKey(partner.partner_language);
+  const [skillExtractObj, templateObj, canonObj] = await Promise.all([
+    c.env.PRICELISTS.get('templates/nda-skill-extract.md'),
+    c.env.PRICELISTS.get(templateR2Key),
+    c.env.PRICELISTS.get('templates/das-design-canon.md'),
+  ]);
 
-  if (!skillExtractObj || !templateObj) {
+  if (!skillExtractObj || !templateObj || !canonObj) {
     return fail(c, 500, [{
       code: 'template_missing',
-      message: 'NDA template or skill extract not found in R2',
+      message: `Required template not found in R2 (key: ${templateR2Key})`,
     }]);
   }
 
   const skillExtract = await skillExtractObj.text();
   const template = await templateObj.text();
+  const designCanon = await canonObj.text();
 
   // Step 4 — call DeepSeek
   const signingDate = new Date().toLocaleDateString('en-US', {
@@ -529,6 +552,7 @@ partners.post('/:slug/agreements/generate-nda', async (c) => {
       },
       dei: deiForNda,
       signingDate,
+      designCanon,
       skillExtract,
       template,
       apiKey: c.env.DEEPSEEK_API_KEY,
@@ -577,6 +601,12 @@ partners.post('/:slug/agreements/generate-nda', async (c) => {
 
   // Step 7 — insert agreement record (draft, not signed)
   const agreementId = `agr_${crypto.randomUUID()}`;
+  const partnerLang = partner.partner_language ?? 'EN';
+  const needsReview = requiresLocalLegalReview(partner.partner_language);
+  const reviewNote = needsReview
+    ? ' ⚠ Translation requires local legal review before signing.'
+    : '';
+
   try {
     await c.env.DB.prepare(`
       INSERT INTO partner_agreements (
@@ -585,9 +615,9 @@ partners.post('/:slug/agreements/generate-nda', async (c) => {
       ) VALUES (?, ?, 'nda', ?, NULL, NULL, ?, 'draft', ?, ?, ?)
     `).bind(
       agreementId, slug,
-      `Mutual NDA — ${partner.trade_name} (${dateStr})`,
+      `Mutual NDA (${partnerLang}) — ${partner.trade_name} (${dateStr})`,
       r2Key,
-      `Generated by DeepSeek PRO. Tokens: ${tokensUsed.in} in, ${tokensUsed.out} out.`,
+      `Generated by DeepSeek PRO. Language: ${partnerLang}. Tokens: ${tokensUsed.in} in, ${tokensUsed.out} out.${reviewNote}`,
       now, now
     ).run();
   } catch (err) {
@@ -598,14 +628,24 @@ partners.post('/:slug/agreements/generate-nda', async (c) => {
     }]);
   }
 
+  const messages = [`NDA (${partnerLang}) generated. Status: draft.`];
+  if (needsReview) {
+    messages.push('⚠ Translation requires local legal review before sending.');
+  }
+  if (partner.email) {
+    messages.push(`Send to ${partner.email} for signing.`);
+  }
+
   return ok(c, {
     agreement_id: agreementId,
     partner_id: slug,
+    partner_language: partnerLang,
     file_r2_key: r2Key,
     download_url: `/api/partners/${slug}/agreements/${agreementId}/download`,
     status: 'draft',
+    requires_legal_review: needsReview,
     tokens_used: tokensUsed,
-  }, [`NDA generated. Status: draft. Send to ${partner.email ?? 'partner'} for signing.`]);
+  }, messages);
 });
 
 // =============================================================================

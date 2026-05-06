@@ -19,6 +19,45 @@ interface InlineSpan {
   bold: boolean;
 }
 
+// =============================================================================
+// RTL detection (Arabic + Hebrew + Persian / Urdu)
+// Ranges:
+//   U+0590-05FF  Hebrew
+//   U+0600-06FF  Arabic
+//   U+0700-074F  Syriac
+//   U+0750-077F  Arabic Supplement
+//   U+0780-07BF  Thaana
+//   U+08A0-08FF  Arabic Extended-A
+//   U+FB50-FDFF  Arabic Presentation Forms-A
+//   U+FE70-FEFF  Arabic Presentation Forms-B
+// =============================================================================
+const RTL_RANGE = /[\u0590-\u05FF\u0600-\u06FF\u0700-\u074F\u0750-\u077F\u0780-\u07BF\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+
+// Exposed for tests / external code that needs to detect RTL content
+export function containsRtl(text: string): boolean {
+  return RTL_RANGE.test(text);
+}
+
+// Build paragraph option object that conditionally includes RTL props.
+// Required because `exactOptionalPropertyTypes: true` rejects `alignment: undefined`.
+function paraOpts(rtl: boolean, base: Record<string, unknown>): Record<string, unknown> {
+  if (rtl) {
+    return { ...base, alignment: AlignmentType.RIGHT, bidirectional: true };
+  }
+  return base;
+}
+
+// A line is "RTL-dominant" if it has RTL chars AND at least 30% of letter-chars are RTL.
+// Lower threshold would catch lines like "EN. text" + arabic mixed; we want full-AR para.
+function isRtlDominant(line: string): boolean {
+  if (!RTL_RANGE.test(line)) return false;
+  const letters = line.replace(/[^\p{L}]/gu, '');
+  if (!letters.length) return false;
+  let rtlCount = 0;
+  for (const ch of letters) if (RTL_RANGE.test(ch)) rtlCount++;
+  return rtlCount / letters.length >= 0.3;
+}
+
 // Parse **bold** runs in a single line, return spans
 function parseInline(line: string): InlineSpan[] {
   const spans: InlineSpan[] = [];
@@ -35,12 +74,19 @@ function parseInline(line: string): InlineSpan[] {
   return spans;
 }
 
-function spansToTextRuns(spans: InlineSpan[], opts: { bold?: boolean; size?: number } = {}): TextRun[] {
-  return spans.map((s) => new TextRun({
-    text: s.text,
-    bold: s.bold || opts.bold || false,
-    size: opts.size ?? 22,  // 11pt — half-points
-  }));
+function spansToTextRuns(
+  spans: InlineSpan[],
+  opts: { bold?: boolean; size?: number; rtl?: boolean } = {}
+): TextRun[] {
+  return spans.map((s) => {
+    const runOpts: Record<string, unknown> = {
+      text: s.text,
+      bold: s.bold || opts.bold || false,
+      size: opts.size ?? 22,  // 11pt — half-points
+    };
+    if (opts.rtl) runOpts.rightToLeft = true;
+    return new TextRun(runOpts as ConstructorParameters<typeof TextRun>[0]);
+  });
 }
 
 function parseTableLine(line: string): string[] {
@@ -123,19 +169,25 @@ export function markdownToDocx(markdown: string): Document {
         rows: [
           // Header row
           new TableRow({
-            children: headerCells.map((cell) => new TableCell({
-              children: [new Paragraph({
-                children: spansToTextRuns(parseInline(cell), { bold: true }),
-              })],
-            })),
+            children: headerCells.map((cell) => {
+              const rtl = isRtlDominant(cell);
+              return new TableCell({
+                children: [new Paragraph(paraOpts(rtl, {
+                  children: spansToTextRuns(parseInline(cell), { bold: true, rtl }),
+                }) as ConstructorParameters<typeof Paragraph>[0])],
+              });
+            }),
           }),
           // Body rows
           ...rows.map((row) => new TableRow({
-            children: row.map((cell) => new TableCell({
-              children: [new Paragraph({
-                children: spansToTextRuns(parseInline(cell)),
-              })],
-            })),
+            children: row.map((cell) => {
+              const rtl = isRtlDominant(cell);
+              return new TableCell({
+                children: [new Paragraph(paraOpts(rtl, {
+                  children: spansToTextRuns(parseInline(cell), { rtl }),
+                }) as ConstructorParameters<typeof Paragraph>[0])],
+              });
+            }),
           })),
         ],
         width: { size: 100, type: WidthType.PERCENTAGE },
@@ -146,32 +198,37 @@ export function markdownToDocx(markdown: string): Document {
 
     // Bullet list
     if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-      elements.push(new Paragraph({
-        children: spansToTextRuns(parseInline(trimmed.slice(2))),
+      const rtl = isRtlDominant(trimmed);
+      elements.push(new Paragraph(paraOpts(rtl, {
+        children: spansToTextRuns(parseInline(trimmed.slice(2)), { rtl }),
         bullet: { level: 0 },
         spacing: { after: 80 },
-      }));
+      }) as ConstructorParameters<typeof Paragraph>[0]));
       i++;
       continue;
     }
 
     // Numbered list (a) ... or 1. ... or a. ...)
     if (/^([a-z]\)|[a-z]\.|\d+\.)\s/.test(trimmed)) {
-      elements.push(new Paragraph({
-        children: spansToTextRuns(parseInline(trimmed)),
+      const rtl = isRtlDominant(trimmed);
+      elements.push(new Paragraph(paraOpts(rtl, {
+        children: spansToTextRuns(parseInline(trimmed), { rtl }),
         spacing: { after: 80 },
         indent: { left: 360 },
-      }));
+      }) as ConstructorParameters<typeof Paragraph>[0]));
       i++;
       continue;
     }
 
     // Default: paragraph
-    elements.push(new Paragraph({
-      children: spansToTextRuns(parseInline(trimmed)),
-      spacing: { after: 120 },
-    }));
-    i++;
+    {
+      const rtl = isRtlDominant(trimmed);
+      elements.push(new Paragraph(paraOpts(rtl, {
+        children: spansToTextRuns(parseInline(trimmed), { rtl }),
+        spacing: { after: 120 },
+      }) as ConstructorParameters<typeof Paragraph>[0]));
+      i++;
+    }
   }
 
   return new Document({

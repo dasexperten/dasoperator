@@ -396,6 +396,8 @@ export interface Partner {
   status: 'active' | 'inactive' | 'blocked' | 'pending';
   // CRM source of truth — Phase 5.x
   crm_status?: 'lead' | 'potential' | 'active' | 'sleeping' | null;
+  // Phase 5.x — single source of truth for language of all outbound docs
+  partner_language?: 'EN' | 'RU' | 'EN-RU' | 'EN-AR' | 'EN-VI' | 'EN-ZH' | null;
   partner_type: 'buyer' | 'supplier' | 'shipper' | 'other';
   notes?: string | null;
   // Optional extended fields (PATCH-able)
@@ -430,6 +432,7 @@ export async function getPartners() {
 export interface CreatePartnerBody {
   trade_name: string;
   partner_type: 'buyer' | 'supplier' | 'shipper' | 'other';
+  partner_language?: 'EN' | 'RU' | 'EN-RU' | 'EN-AR' | 'EN-VI' | 'EN-ZH';
   country?: string | null;
   legal_name?: string | null;
   email?: string | null;

@@ -1162,3 +1162,41 @@ export async function getMarketplaceStocks() {
   return apiGet<MarketplaceStocksResponse>('/api/marketplaces/stocks');
 }
 
+
+
+// =============================================================================
+// Marketplace sync health + log (Phase 6.0b)
+// =============================================================================
+
+// /api/marketplaces/health — last sync per marketplace (provided by parallel chat)
+export interface MarketplaceSyncEntry {
+  marketplace: 'ozon' | 'wb';
+  started_at: number;
+  finished_at: number | null;
+  status: 'running' | 'ok' | 'error';
+  rows_synced: number | null;
+  error_message: string | null;
+}
+
+export interface MarketplaceHealthResponse {
+  ozon: MarketplaceSyncEntry | null;
+  wb: MarketplaceSyncEntry | null;
+}
+
+export async function getMarketplaceHealth() {
+  return apiGet<MarketplaceHealthResponse>('/api/marketplaces/health');
+}
+
+// /api/marketplaces/sync/log — last N attempts (this chat's extras endpoint)
+export interface MarketplaceSyncLogEntry extends MarketplaceSyncEntry {
+  id: number;
+}
+
+export interface MarketplaceSyncLogResponse {
+  count: number;
+  log: MarketplaceSyncLogEntry[];
+}
+
+export async function getMarketplaceSyncLog(limit = 20) {
+  return apiGet<MarketplaceSyncLogResponse>(`/api/marketplaces/sync/log?limit=${limit}`);
+}

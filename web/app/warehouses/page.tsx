@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Loader2, Search, ArrowUp, ArrowDown } from 'lucide-react';
+import { Loader2, Search, ArrowUp, ArrowDown, AlertTriangle } from 'lucide-react';
 import {
-  getProductsWithStock, getWarehouses, getMarketplaceStocks,
+  getProductsWithStock, getWarehouses, getMarketplaceStocks, getMarketplaceHealth,
   type ProductWithStock, type Warehouse, type MarketplaceStockRow,
+  type MarketplaceHealthResponse,
 } from '@/lib/api';
 
 // Sort key — special string ids for fixed columns ('sku', 'product', 'ozon',
@@ -21,6 +22,7 @@ export default function WarehousesPage() {
   const [products, setProducts] = useState<ProductWithStock[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [marketplaces, setMarketplaces] = useState<Record<string, MarketplaceStockRow>>({});
+  const [mpHealth, setMpHealth] = useState<MarketplaceHealthResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -32,10 +34,11 @@ export default function WarehousesPage() {
     const fetchAll = async () => {
       setLoading(true);
       try {
-        const [stockRes, whRes, mpRes] = await Promise.all([
+        const [stockRes, whRes, mpRes, mpHealthRes] = await Promise.all([
           getProductsWithStock(),
           getWarehouses(),
           getMarketplaceStocks(),
+          getMarketplaceHealth(),
         ]);
         if (stockRes.success && stockRes.result) {
           setProducts(stockRes.result.products);
@@ -49,6 +52,9 @@ export default function WarehousesPage() {
           const byId: Record<string, MarketplaceStockRow> = {};
           for (const row of mpRes.result.stocks) byId[row.base_sku] = row;
           setMarketplaces(byId);
+        }
+        if (mpHealthRes.success && mpHealthRes.result) {
+          setMpHealth(mpHealthRes.result);
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
@@ -191,6 +197,8 @@ export default function WarehousesPage() {
           />
         </div>
       </div>
+
+      <SyncWarningBanner health={mpHealth} />
 
       {loading ? (
         <div className="flex items-center justify-center py-16">
@@ -465,5 +473,59 @@ function SortableTh({
       </span>
     </th>
   );
+}
+
+// =============================================================================
+// Marketplace sync warning banner (Phase 6.0b)
+// =============================================================================
+// Renders a red strip if the last sync attempt for either marketplace failed.
+// Hidden when both syncs are OK or running.
+
+function SyncWarningBanner({ health }: { health: MarketplaceHealthResponse | null }) {
+  if (!health) return null;
+
+  const failed: string[] = [];
+  for (const [key, name] of [['ozon', 'Ozon'], ['wb', 'Wildberries']] as const) {
+    const entry = health[key];
+    if (!entry) continue;
+    if (entry.status === 'error') failed.push(name);
+  }
+  if (failed.length === 0) return null;
+
+  const failedAt = Math.max(
+    health.ozon?.status === 'error' ? (health.ozon.started_at ?? 0) : 0,
+    health.wb?.status === 'error' ? (health.wb.started_at ?? 0) : 0,
+  );
+
+  return (
+    <div
+      className="flex items-start gap-3 p-3"
+      style={{
+        backgroundColor: 'rgba(229,32,44,0.06)',
+        border: '1px solid rgba(229,32,44,0.25)',
+        borderRadius: 'var(--radius-sm)',
+        fontSize: '14px',
+        color: 'var(--fg-1)',
+      }}
+    >
+      <AlertTriangle className="h-5 w-5 mt-0.5 flex-shrink-0" style={{ color: 'var(--brand-rot)' }} />
+      <div>
+        <div style={{ color: 'var(--brand-rot)', fontWeight: 700 }}>
+          Marketplace sync failed: {failed.join(', ')}
+        </div>
+        <div className="mt-1" style={{ color: 'var(--fg-2)' }}>
+          Last attempt at {formatBannerTimestamp(failedAt)} did not complete. Stock columns below show data from the previous successful sync. <a href="/marketplaces" style={{ color: 'var(--brand-rot)', textDecoration: 'underline' }}>View sync log</a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function formatBannerTimestamp(unix: number): string {
+  if (!unix) return 'unknown time';
+  const d = new Date(unix * 1000);
+  return d.toLocaleString('en-GB', {
+    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+  });
 }
 

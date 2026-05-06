@@ -67,9 +67,15 @@ binding = "CACHE"
 id = "43f2004892714cbb919e5174ce2a8556"
 
 # -----------------------------------------------------------------------------
-# Cron triggers (Phase 2.0c-2b)
-# Daily FX refresh from CBR at 12:00 UTC (15:00 Moscow time, after CBR daily
-# publication at 11:30 Moscow). Handler: src/scheduled.ts handleScheduled.
+# Cron triggers
+#
+# 0 12 * * *   — daily FX refresh from CBR at 12:00 UTC (15:00 Moscow time,
+#                after CBR daily publication at 11:30 Moscow). Phase 2.0c-2b.
+# 0 * * * *    — hourly marketplace stock refresh from Ozon and Wildberries.
+#                Phase 6.0b. WB is heavily rate-limited (~1 req/min), so we
+#                synchronize Ozon first, then WB after a short delay.
+#
+# Handler: src/scheduled.ts handleScheduled — dispatches by event.cron string.
 # -----------------------------------------------------------------------------
 [triggers]
-crons = ["0 12 * * *"]
+crons = ["0 12 * * *", "0 * * * *"]

@@ -62,6 +62,9 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   const [ourCompanyId, setOurCompanyId] = useState<string>('cmp_dee');  // for purchase/transfer
   const [receivingCompanyId, setReceivingCompanyId] = useState<string>('');  // Transfer
   const [viaDei, setViaDei] = useState<boolean>(false);  // Purchase: through DEI passthrough
+  // Currency for purchase (default CNY) and transfer (default USD).
+  // For sale, currency comes from contract — this state is unused.
+  const [currency, setCurrency] = useState<string>('CNY');
   const [opDate, setOpDate] = useState<string>(new Date().toISOString().split('T')[0]!);
   const [warehouseFromId, setWarehouseFromId] = useState<string>('');
   const [warehouseToId, setWarehouseToId] = useState<string>('');
@@ -145,6 +148,16 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
       setViaDei(false);
     }
   }, [opType, ourCompanyId]);
+
+  // Reset currency to sensible default when type changes:
+  // purchase → CNY (we buy in yuan from Chinese factories)
+  // transfer → USD (cross-border invoice between our entities, USD pivot)
+  // sale     → comes from contract, not from this state
+  useEffect(() => {
+    if (opType === 'purchase') setCurrency('CNY');
+    if (opType === 'transfer') setCurrency('USD');
+  }, [opType]);
+
   const isReadyForDetails = useMemo(() => {
     if (opType === 'sale')     return Boolean(contractId);
     if (opType === 'purchase') return Boolean(manufacturerId && ourCompanyId);
@@ -230,8 +243,11 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
       return;
     }
 
-    const body = {
-      contract_id: contractId,
+    // Build body per operation type:
+    // SALE     — contract_id carries partner + company + currency (backend reads contract).
+    // PURCHASE — manufacturer_id + our_company_id + currency provided directly.
+    // TRANSFER — our_company_id + receiving_company_id + currency provided directly.
+    const baseBody = {
       operation_type: opType,
       operation_date: Math.floor(new Date(opDate).getTime() / 1000),
       warehouse_from_id: warehouseFromId || undefined,
@@ -245,6 +261,27 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
         discount_pct: overallDiscountPct,  // apply overall to each line per Q3
       })),
     };
+
+    let body: import('@/lib/api').CreateOperationBody;
+    if (opType === 'sale') {
+      body = { ...baseBody, contract_id: contractId };
+    } else if (opType === 'purchase') {
+      body = {
+        ...baseBody,
+        manufacturer_id: manufacturerId,
+        our_company_id: ourCompanyId,
+        currency,
+        dei_layer: viaDei ? 1 : 0,
+      };
+    } else {
+      // transfer
+      body = {
+        ...baseBody,
+        our_company_id: ourCompanyId,
+        receiving_company_id: receivingCompanyId,
+        currency,
+      };
+    }
 
     try {
       const res = await createOperation(body);
@@ -261,7 +298,8 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
     }
   }
 
-  const canSubmit = contractId && lineItems.some((li) => li.product_id && li.qty > 0);
+  // Submit-readiness mirrors isReadyForDetails plus at least one valid line item.
+  const canSubmit = isReadyForDetails && lineItems.some((li) => li.product_id && li.qty > 0);
 
   if (loadingRef) {
     return <div className="flex items-center justify-center py-16"><Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--fg-muted)' }} /></div>;
@@ -389,7 +427,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
 
       {opType === 'purchase' && (
         <Section label="Supplier (Factory)">
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-3 gap-6">
             <div>
               <Label>Manufacturer *</Label>
               <select value={manufacturerId} onChange={(e) => setManufacturerId(e.target.value)} style={selectStyle}>
@@ -409,6 +447,15 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                     {co.abbreviation} — {co.legal_name}
                   </option>
                 ))}
+              </select>
+            </div>
+            <div>
+              <Label>Currency *</Label>
+              <select value={currency} onChange={(e) => setCurrency(e.target.value)} style={selectStyle}>
+                <option value="CNY">CNY — Chinese Yuan</option>
+                <option value="USD">USD — US Dollar</option>
+                <option value="EUR">EUR — Euro</option>
+                <option value="RUB">RUB — Russian Ruble</option>
               </select>
             </div>
           </div>
@@ -452,7 +499,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
 
       {opType === 'transfer' && (
         <Section label="Internal Transfer">
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-3 gap-6">
             <div>
               <Label>From entity *</Label>
               <select value={ourCompanyId} onChange={(e) => setOurCompanyId(e.target.value)} style={selectStyle}>
@@ -472,6 +519,15 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                     {co.abbreviation} — {co.legal_name}
                   </option>
                 ))}
+              </select>
+            </div>
+            <div>
+              <Label>Currency *</Label>
+              <select value={currency} onChange={(e) => setCurrency(e.target.value)} style={selectStyle}>
+                <option value="USD">USD — US Dollar</option>
+                <option value="EUR">EUR — Euro</option>
+                <option value="CNY">CNY — Chinese Yuan</option>
+                <option value="RUB">RUB — Russian Ruble</option>
               </select>
             </div>
           </div>

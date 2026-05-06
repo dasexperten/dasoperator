@@ -675,12 +675,23 @@ export interface CreateOperationLineItem {
 }
 
 export interface CreateOperationBody {
-  contract_id: string;
+  // SALE: contract_id required (carries partner+company+currency).
+  // PURCHASE / TRANSFER: contract_id omitted, fields below provided directly.
+  contract_id?: string;
   operation_type: 'sale' | 'purchase' | 'transfer';
   operation_date: number;
   warehouse_from_id?: string;
   warehouse_to_id?: string;
+  // PURCHASE: factory we buy from
   manufacturer_id?: string;
+  // PURCHASE / TRANSFER: our buying / sending entity
+  our_company_id?: string;
+  // TRANSFER: recipient entity
+  receiving_company_id?: string;
+  // PURCHASE / TRANSFER: ISO-4217 currency (CNY/USD/EUR/RUB/...)
+  currency?: string;
+  // PURCHASE: 1 = Through DEI passthrough (DEE/DASEAN/DEC buyers only)
+  dei_layer?: 0 | 1;
   price_type_id?: string;
   incoterms?: string;
   notes?: string;

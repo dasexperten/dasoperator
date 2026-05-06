@@ -146,6 +146,7 @@ export default function WarehousesPage() {
               ) : (
                 filtered.map((p) => {
                   const skuShort = p.id.replace('prd_', '').toUpperCase();
+                  const skuLower = p.id.replace('prd_', '').toLowerCase();
                   // Map by warehouse_id for fast lookup
                   const byWh: Record<string, number> = {};
                   for (const w of p.warehouses) byWh[w.warehouse_id] = w.on_hand;
@@ -153,10 +154,10 @@ export default function WarehousesPage() {
                   return (
                     <tr key={p.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                       <td className="px-3 py-2" style={{ fontWeight: 700, color: 'var(--fg-1)', fontSize: '14px' }}>
-                        <Link href={`/products/${skuShort}`} style={{ color: 'inherit' }}>{skuShort}</Link>
+                        <Link href={`/products/${skuLower}`} style={{ color: 'inherit' }}>{skuShort}</Link>
                       </td>
                       <td className="px-3 py-2" style={{ fontWeight: 700, color: 'var(--fg-1)', fontSize: '14px', maxWidth: '280px' }}>
-                        <Link href={`/products/${skuShort}`} style={{ color: 'inherit' }}>{p.product_name}</Link>
+                        <Link href={`/products/${skuLower}`} style={{ color: 'inherit' }}>{p.product_name}</Link>
                       </td>
                       {sortedWarehouses.map((w) => {
                         const v = byWh[w.id] ?? 0;
@@ -164,7 +165,7 @@ export default function WarehousesPage() {
                           <StockCellTd
                             key={w.id}
                             value={v}
-                            href={`/warehouses/${w.id}?sku=${skuShort}`}
+                            href={`/warehouses/${w.id}?sku=${skuLower}`}
                             tint={TINT_BY_GROUP[groupForWarehouse(w)]}
                           />
                         );

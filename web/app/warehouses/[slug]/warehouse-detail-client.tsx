@@ -185,6 +185,7 @@ function StockTab({ stocks, initialSku, warehouseId }: { stocks: StockRow[]; ini
         <tbody>
           {stocks.map((s) => {
             const skuShort = s.product_id.replace('prd_', '').toUpperCase();
+            const skuLower = s.product_id.replace('prd_', '').toLowerCase();
             const highlighted = initialSku && skuShort.toLowerCase() === initialSku;
             const muted = s.on_hand === 0;
             return (
@@ -193,10 +194,10 @@ function StockTab({ stocks, initialSku, warehouseId }: { stocks: StockRow[]; ini
                 backgroundColor: highlighted ? 'rgba(254,240,4,0.12)' : undefined,
               }}>
                 <td className="px-4 py-3" style={{ fontSize: '14px', fontWeight: 700, color: muted ? 'var(--fg-muted)' : 'var(--fg-1)' }}>
-                  <Link href={`/products/${skuShort}`} style={{ color: 'inherit' }}>{skuShort}</Link>
+                  <Link href={`/products/${skuLower}`} style={{ color: 'inherit' }}>{skuShort}</Link>
                 </td>
                 <td className="px-4 py-3" style={{ fontSize: '14px', fontWeight: 700, color: muted ? 'var(--fg-muted)' : 'var(--fg-1)' }}>
-                  <Link href={`/products/${skuShort}`} style={{ color: 'inherit' }}>
+                  <Link href={`/products/${skuLower}`} style={{ color: 'inherit' }}>
                     <span className="dx-product-name">{s.product_name}</span>
                   </Link>
                 </td>
@@ -210,8 +211,8 @@ function StockTab({ stocks, initialSku, warehouseId }: { stocks: StockRow[]; ini
                   {formatDate(s.last_movement_at)}
                 </td>
                 <td className="px-4 py-3" style={{ fontSize: '14px' }}>
-                  <Link href={`/warehouses/${warehouseId}/adjust?sku=${skuShort}`} style={{ color: 'var(--brand-rot)', marginRight: '12px' }}>Adjust</Link>
-                  <Link href={`/warehouses/${warehouseId}/recount?sku=${skuShort}`} style={{ color: 'var(--brand-rot)' }}>Recount</Link>
+                  <Link href={`/warehouses/${warehouseId}/adjust?sku=${skuLower}`} style={{ color: 'var(--brand-rot)', marginRight: '12px' }}>Adjust</Link>
+                  <Link href={`/warehouses/${warehouseId}/recount?sku=${skuLower}`} style={{ color: 'var(--brand-rot)' }}>Recount</Link>
                 </td>
               </tr>
             );
@@ -241,12 +242,13 @@ function MovementsTab({ movements }: { movements: StockMovement[] }) {
         <tbody>
           {movements.map((m) => {
             const skuShort = m.product_id.replace('prd_', '').toUpperCase();
+            const skuLower = m.product_id.replace('prd_', '').toLowerCase();
             const qtyColor = m.quantity > 0 ? 'var(--status-success)' : m.quantity < 0 ? 'var(--brand-rot)' : 'var(--fg-3)';
             return (
               <tr key={m.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                 <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{formatDate(m.performed_at)}</td>
                 <td className="px-4 py-3" style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
-                  <Link href={`/products/${skuShort}`} style={{ color: 'inherit' }}>{skuShort}</Link>
+                  <Link href={`/products/${skuLower}`} style={{ color: 'inherit' }}>{skuShort}</Link>
                 </td>
                 <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
                   {m.movement_type}

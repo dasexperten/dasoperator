@@ -92,7 +92,22 @@ export interface ProductsLookupResponse {
 }
 
 export async function getProducts(skuPrefix = 'DE') {
-  return apiGet<ProductsLookupResponse>(`/api/products/lookup?sku_prefix=${skuPrefix}`);
+  // Note: /api/products/lookup has a known schema bug (searches non-existent 'sku' column).
+  // Until parallel chat fixes it, route through /api/products which returns the full list.
+  // The skuPrefix arg is preserved for API compatibility but applied client-side.
+  const res = await apiGet<ProductsListPlainResponse>('/api/products');
+  if (res.success && res.result) {
+    const filtered = skuPrefix
+      ? res.result.products.filter((p) => p.id.toLowerCase().startsWith(skuPrefix.toLowerCase()))
+      : res.result.products;
+    return {
+      success: true as const,
+      result: { count: filtered.length, products: filtered as unknown as Product[] },
+      errors: [],
+      messages: [],
+    };
+  }
+  return res as unknown as Awaited<ReturnType<typeof apiGet<ProductsLookupResponse>>>;
 }
 
 // Phase 5.1+ — list endpoint replacing /lookup (which has prd_ prefix bug)

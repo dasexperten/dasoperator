@@ -33,19 +33,19 @@ marketplaces.get('/stocks', async (c) => {
       wb.synced_at AS wb_synced_at
     FROM products p
     LEFT JOIN (
-      SELECT base_sku,
-             SUM(fbo_available * pack_factor) AS qty,
+      SELECT LOWER(offer_id) AS sku_lc,
+             SUM(fbo_available) AS qty,
              MAX(synced_at) AS synced_at
       FROM marketplace_stocks_ozon
-      GROUP BY base_sku
-    ) oz ON oz.base_sku = p.id
+      GROUP BY LOWER(offer_id)
+    ) oz ON oz.sku_lc = p.id
     LEFT JOIN (
-      SELECT base_sku,
-             SUM(quantity * pack_factor) AS qty,
+      SELECT LOWER(supplier_article) AS sku_lc,
+             SUM(quantity) AS qty,
              MAX(synced_at) AS synced_at
       FROM marketplace_stocks_wb
-      GROUP BY base_sku
-    ) wb ON wb.base_sku = p.id
+      GROUP BY LOWER(supplier_article)
+    ) wb ON wb.sku_lc = p.id
     WHERE p.deleted_at IS NULL
     ORDER BY p.id
   `).all();
@@ -289,3 +289,4 @@ marketplaces.post('/sync/wb', async (c) => {
 });
 
 export default marketplaces;
+

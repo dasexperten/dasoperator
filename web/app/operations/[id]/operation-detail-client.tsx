@@ -20,6 +20,7 @@ import {
 } from '@/lib/api';
 import { formatMoney } from '@/lib/money';
 import Breadcrumb from '@/components/layout/breadcrumb';
+import DocumentActionBar from '@/components/operations/document-action-bar';
 
 // =============================================================================
 // Helpers
@@ -241,6 +242,19 @@ export default function OperationDetailClient({
 
       <div className="dx-ribbon-rule" />
 
+      {/* QUICK ACTIONS ============================================ */}
+      <DocumentActionBar
+        operationId={operationId}
+        operationStatus={operation.status}
+        onIssued={async () => {
+          const opRes = await getOperation(operationId);
+          if (opRes.success && opRes.result) {
+            setOperation(opRes.result.operation);
+            setLineItems(opRes.result.line_items);
+          }
+        }}
+      />
+
       {/* REFERENCE STRIP ============================================ */}
       <div
         className="grid grid-cols-2 md:grid-cols-5 gap-4 p-4"
@@ -305,10 +319,11 @@ export default function OperationDetailClient({
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className="px-4 py-3 text-sm transition-colors"
+              className="px-4 py-3 transition-colors"
               style={{
+                fontSize: '18px',
+                fontWeight: 700,
                 color: isActive ? 'var(--fg-1)' : 'var(--fg-3)',
-                fontWeight: isActive ? 600 : 400,
                 borderBottom: isActive ? '2px solid var(--fg-1)' : '2px solid transparent',
                 marginBottom: '-1px',
                 backgroundColor: 'transparent',
@@ -317,7 +332,7 @@ export default function OperationDetailClient({
             >
               {tab.label}
               {tab.count !== null && tab.count > 0 && (
-                <span style={{ color: 'var(--fg-3)', marginLeft: '6px', fontSize: '14px' }}>
+                <span style={{ color: 'var(--fg-3)', marginLeft: '8px', fontSize: '16px', fontWeight: 400 }}>
                   {tab.count}
                 </span>
               )}

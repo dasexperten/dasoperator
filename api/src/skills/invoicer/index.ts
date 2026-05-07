@@ -159,7 +159,8 @@ function genDocId(): string { return `doc_${crypto.randomUUID()}`; }
 function originFromRequest(reqUrl: string): string { return new URL(reqUrl).origin; }
 
 export async function issueDocuments(
-  operationId: string, env: Env, reqUrl: string
+  operationId: string, env: Env, reqUrl: string,
+  filterTypes?: Array<'CI' | 'PL' | 'IS-V1' | 'IS-V2'>,
 ): Promise<IssueOutcome> {
   // 1. Load
   let input: Awaited<ReturnType<typeof loadInvoicerInput>>;
@@ -230,6 +231,24 @@ export async function issueDocuments(
     return fail({
       code: 'plan_failed', message: err instanceof Error ? err.message : String(err),
     }, 422, []);
+  }
+
+  // Filter plan by requested types — allows printing CI alone, PL alone, etc.
+  if (filterTypes && filterTypes.length > 0) {
+    plan = plan.filter((spec) => {
+      if (spec.format === 'CI') return filterTypes.includes('CI');
+      if (spec.format === 'PL') return filterTypes.includes('PL');
+      if (spec.format === 'IS') {
+        return filterTypes.includes(`IS-V${spec.variant ?? 1}` as any);
+      }
+      return false;
+    });
+    if (plan.length === 0) {
+      return fail({
+        code: 'no_matching_documents',
+        message: `Requested types [${filterTypes.join(',')}] are not part of the document plan for this operation.`,
+      }, 422, []);
+    }
   }
 
   // Stale warnings (non-blocking)

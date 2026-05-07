@@ -131,6 +131,7 @@ documents.get('/', async (c) => {
 // -----------------------------------------------------------------------------
 const issueSchema = z.object({
   operation_id: z.string().min(1),
+  types: z.array(z.enum(['CI', 'PL', 'IS-V1', 'IS-V2'])).optional(),
 });
 
 documents.post('/issue', async (c) => {
@@ -150,7 +151,7 @@ documents.post('/issue', async (c) => {
     }]);
   }
 
-  const outcome = await issueDocuments(parsed.data.operation_id, c.env, c.req.url);
+  const outcome = await issueDocuments(parsed.data.operation_id, c.env, c.req.url, parsed.data.types);
 
   if (!outcome.success) {
     return fail(c, outcome.status, [{

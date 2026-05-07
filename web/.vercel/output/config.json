@@ -127,6 +127,14 @@
       "dest": "/operations/[id]?nxtPid=$nxtPid"
     },
     {
+      "src": "^/operations/(?<nxtPid>[^/]+?)/freight\\-rfq(?:\\.rsc)(?:/)?$",
+      "dest": "/operations/[id]/freight-rfq.rsc?nxtPid=$nxtPid"
+    },
+    {
+      "src": "^/operations/(?<nxtPid>[^/]+?)/freight\\-rfq(?:/)?$",
+      "dest": "/operations/[id]/freight-rfq?nxtPid=$nxtPid"
+    },
+    {
       "src": "^/partners/(?<nxtPslug>[^/]+?)(?:\\.rsc)(?:/)?$",
       "dest": "/partners/[slug].rsc?nxtPslug=$nxtPslug"
     },
@@ -226,7 +234,7 @@
       "handle": "hit"
     },
     {
-      "src": "/_next/static/(?:[^/]+/pages|pages|chunks|runtime|css|image|media|build\\-1778180652093)/.+",
+      "src": "/_next/static/(?:[^/]+/pages|pages|chunks|runtime|css|image|media|build\\-1778182264286)/.+",
       "headers": {
         "cache-control": "public,max-age=31536000,immutable"
       },

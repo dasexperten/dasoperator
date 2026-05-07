@@ -647,8 +647,9 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
     try {
       const res = await createOperation(body);
       if (res.success && res.result) {
-        // Redirect back to partner hub (operation detail page comes in PR-C3)
-        router.push(isGlobalMode ? '/operations' : `/partners/${selectedPartnerSlug}`);
+        // Redirect to the new operation's detail page — works for sales,
+        // purchases (no partner), and transfers alike.
+        router.push(`/operations/${res.result.operation.id}`);
       } else {
         // Walk into validation issues if present, otherwise top-level message
         const err = res.errors?.[0];

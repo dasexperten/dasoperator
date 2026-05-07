@@ -1,15 +1,14 @@
 // =============================================================================
-// NAK — Транспортная накладная.
+// TN — Транспортная накладная.
 // Form per Postanovlenie 2200 (21.12.2020). Russian standard waybill.
-// STUB: produces a basic DOCX with header data. Full 17-section form
-// to be added later.
+// STUB: produces a basic DOCX with header data.
+// Full 17-section official form will replace this once user provides exact layout.
 // =============================================================================
 
-import type { ContractRow, DocumentLanguage, LineItemRow } from '../types';
+import type { ContractRow, LineItemRow } from '../types';
 import {
   Document, Packer, PORTRAIT_PAGE, PORTRAIT_USABLE_DXA, RenderParty,
-  RenderSignature, blank, buildPartyTable, buildProductTable,
-  buildSignature, formatDate,
+  RenderSignature, blank, buildProductTable, buildSignature, formatDate,
   type ProductCell,
 } from './shared';
 import { Paragraph, TextRun, AlignmentType } from 'docx';
@@ -17,20 +16,53 @@ import { Paragraph, TextRun, AlignmentType } from 'docx';
 export interface RenderTnInput {
   reference: string;
   issuedAt: number;
-  shipper: RenderParty;     // Грузоотправитель
-  consignee: RenderParty;   // Грузополучатель
+  shipper: RenderParty;
+  consignee: RenderParty;
   signature: RenderSignature;
   contract: ContractRow | null;
   lineItems: LineItemRow[];
-  upcomingUpdRef: string | null; // Ref to corresponding UPD
+  upcomingUpdRef: string | null;
+}
+
+function partyBlock(party: RenderParty): Paragraph[] {
+  const lines: Paragraph[] = [
+    new Paragraph({
+      children: [new TextRun({
+        text: party.legalNameLocal ?? party.legalNameEn ?? '',
+        bold: true, size: 22,
+      })],
+    }),
+  ];
+  const addr = party.addressLocal ?? party.addressEn;
+  if (addr) {
+    lines.push(new Paragraph({
+      children: [new TextRun({ text: addr, size: 20 })],
+    }));
+  }
+  const idParts: string[] = [];
+  if (party.inn) idParts.push(`ИНН ${party.inn}`);
+  else if (party.taxId) idParts.push(`ИНН ${party.taxId}`);
+  if (party.kpp) idParts.push(`КПП ${party.kpp}`);
+  if (idParts.length > 0) {
+    lines.push(new Paragraph({
+      children: [new TextRun({ text: idParts.join(' / '), size: 20 })],
+    }));
+  }
+  return lines;
 }
 
 export async function renderTn(input: RenderTnInput): Promise<Uint8Array> {
   const issuedDate = formatDate(input.issuedAt);
 
-  // Total weight and packages from line items
   const totalQty = input.lineItems.reduce((sum, li) => sum + li.qty, 0);
   const totalCartons = input.lineItems.reduce((sum, li) => sum + (li.cartons ?? 0), 0);
+
+  const cargoHeaders = [
+    { text: '№' }, { text: 'Наименование' }, { text: 'Кол-во' },
+    { text: 'Ед.' }, { text: 'Картоны' },
+  ];
+  const colW = Math.floor(PORTRAIT_USABLE_DXA / cargoHeaders.length);
+  const widths = cargoHeaders.map(() => colW);
 
   const cargoRows: ProductCell[][] = input.lineItems.map((li, i) => [
     { text: String(i + 1) },
@@ -50,63 +82,46 @@ export async function renderTn(input: RenderTnInput): Promise<Uint8Array> {
         }),
         new Paragraph({
           alignment: AlignmentType.CENTER,
-          children: [
-            new TextRun({ text: `№ ${input.reference}   от ${issuedDate}`, size: 22 }),
-          ],
+          children: [new TextRun({ text: `№ ${input.reference}   от ${issuedDate}`, size: 22 })],
         }),
         blank(),
 
-        // Раздел 1: Грузоотправитель
         new Paragraph({
-          children: [new TextRun({ text: '1. Грузоотправитель (грузовладелец)', bold: true, size: 22 })],
+          children: [new TextRun({ text: '1. Грузоотправитель', bold: true, size: 22 })],
         }),
-        buildPartyTable('', input.shipper, 'RU'),
+        ...partyBlock(input.shipper),
         blank(),
 
-        // Раздел 2: Грузополучатель
         new Paragraph({
           children: [new TextRun({ text: '2. Грузополучатель', bold: true, size: 22 })],
         }),
-        buildPartyTable('', input.consignee, 'RU'),
+        ...partyBlock(input.consignee),
         blank(),
 
-        // Раздел 3: Груз
         new Paragraph({
           children: [new TextRun({ text: '3. Наименование груза', bold: true, size: 22 })],
         }),
-        buildProductTable(
-          ['№', 'Наименование', 'Кол-во', 'Ед.изм.', 'Кол-во мест (картонов)'],
-          cargoRows,
-          PORTRAIT_USABLE_DXA,
-        ),
+        buildProductTable({
+          totalWidthDxa: PORTRAIT_USABLE_DXA,
+          widths, headers: cargoHeaders, rows: cargoRows,
+        }),
         new Paragraph({
-          children: [
-            new TextRun({ text: `Всего: ${totalQty} шт, мест: ${totalCartons}`, bold: true, size: 22 }),
-          ],
+          children: [new TextRun({
+            text: `Всего: ${totalQty} шт, мест (картонов): ${totalCartons}`,
+            bold: true, size: 22,
+          })],
         }),
         blank(),
 
-        // Раздел 4: Сопроводительные документы
         new Paragraph({
-          children: [new TextRun({ text: '4. Сопроводительные документы на груз', bold: true, size: 22 })],
+          children: [new TextRun({ text: '4. Сопроводительные документы', bold: true, size: 22 })],
         }),
         new Paragraph({
-          children: [
-            new TextRun({
-              text: input.upcomingUpdRef
-                ? `УПД № ${input.upcomingUpdRef} от ${issuedDate}`
-                : '—',
-              size: 22,
-            }),
-          ],
+          children: [new TextRun({
+            text: input.upcomingUpdRef ? `УПД № ${input.upcomingUpdRef} от ${issuedDate}` : '—',
+            size: 22,
+          })],
         }),
-        blank(),
-
-        // Разделы 5-9: пустые placeholder'ы
-        new Paragraph({
-          children: [new TextRun({ text: '5. Указания грузоотправителя', bold: true, size: 22 })],
-        }),
-        new Paragraph({ children: [new TextRun({ text: '—', size: 22 })] }),
         blank(),
 
         new Paragraph({
@@ -118,26 +133,14 @@ export async function renderTn(input: RenderTnInput): Promise<Uint8Array> {
         blank(),
 
         new Paragraph({
-          children: [new TextRun({ text: '7. Сдача груза', bold: true, size: 22 })],
-        }),
-        new Paragraph({
-          children: [new TextRun({ text: `Адрес сдачи: ${input.consignee.addressLocal ?? input.consignee.addressEn ?? '—'}`, size: 22 })],
-        }),
-        blank(),
-
-        new Paragraph({
           children: [new TextRun({ text: '10. Перевозчик', bold: true, size: 22 })],
         }),
-        new Paragraph({ children: [new TextRun({ text: '(заполняется при отгрузке)', italics: true, size: 22 })] }),
-        blank(),
-
         new Paragraph({
-          children: [new TextRun({ text: '11. Транспортное средство', bold: true, size: 22 })],
+          children: [new TextRun({ text: '(заполняется при отгрузке)', italics: true, size: 22 })],
         }),
-        new Paragraph({ children: [new TextRun({ text: '(заполняется при отгрузке)', italics: true, size: 22 })] }),
         blank(),
 
-        buildSignature(input.signature, 'RU'),
+        ...buildSignature(input.signature, 'RU'),
       ],
     }],
   });

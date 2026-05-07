@@ -2,14 +2,14 @@
 // UPD — Универсальный передаточный документ.
 // Form per Postanovlenie 1137 (with edits 534).
 // Status 1 = invoice + transfer act combined.
-// STUB: produces a basic DOCX with header data. Full form to be added later.
+// STUB: produces a basic DOCX with header data and product table.
+// Full official 17-column form will replace this once user provides exact layout.
 // =============================================================================
 
-import type { ContractRow, DocumentLanguage, LineItemRow } from '../types';
+import type { ContractRow, LineItemRow } from '../types';
 import {
-  Document, Packer, PORTRAIT_PAGE, PORTRAIT_USABLE_DXA, RenderBank, RenderParty,
-  RenderSignature, blank, buildPartyTable, buildProductTable,
-  buildSignature, buildTitle, formatDate, formatMoney,
+  Document, Packer, PORTRAIT_PAGE, PORTRAIT_USABLE_DXA, RenderParty,
+  RenderSignature, blank, buildProductTable, buildSignature, formatDate,
   type ProductCell,
 } from './shared';
 import { Paragraph, TextRun, AlignmentType } from 'docx';
@@ -24,36 +24,78 @@ export interface RenderUpdInput {
   contract: ContractRow | null;
   lineItems: LineItemRow[];
   totalMinor: number;
-  vatRatePct: number; // 5 for DEE on USN+VAT
+  vatRatePct: number;
+}
+
+function partyBlock(label: string, party: RenderParty): Paragraph[] {
+  const lines: Paragraph[] = [
+    new Paragraph({
+      children: [new TextRun({ text: `${label}:`, bold: true, size: 22 })],
+    }),
+    new Paragraph({
+      children: [new TextRun({
+        text: party.legalNameLocal ?? party.legalNameEn ?? '',
+        bold: true, size: 22,
+      })],
+    }),
+  ];
+  const addr = party.addressLocal ?? party.addressEn;
+  if (addr) {
+    lines.push(new Paragraph({
+      children: [new TextRun({ text: `Адрес: ${addr}`, size: 20 })],
+    }));
+  }
+  const idParts: string[] = [];
+  if (party.inn) idParts.push(`ИНН ${party.inn}`);
+  else if (party.taxId) idParts.push(`ИНН ${party.taxId}`);
+  if (party.kpp) idParts.push(`КПП ${party.kpp}`);
+  if (idParts.length > 0) {
+    lines.push(new Paragraph({
+      children: [new TextRun({ text: idParts.join(' / '), size: 20 })],
+    }));
+  }
+  return lines;
+}
+
+function fmt(n: number): string {
+  return n.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 export async function renderUpd(input: RenderUpdInput): Promise<Uint8Array> {
   const issuedDate = formatDate(input.issuedAt);
   const vatRateLabel = input.vatRatePct === 0 ? 'Без НДС' : `${input.vatRatePct}%`;
 
-  // Compute totals
   const totalWithoutVat = input.vatRatePct > 0
-    ? Math.round(input.totalMinor / (1 + input.vatRatePct / 100))
+    ? input.totalMinor / (1 + input.vatRatePct / 100)
     : input.totalMinor;
   const totalVat = input.totalMinor - totalWithoutVat;
 
-  const productRows: ProductCell[][] = input.lineItems.map((li, i) => [
-    { text: String(i + 1) },
-    { text: '' }, // Код товара
-    { text: li.invoice_label ?? li.item_description ?? li.product_id },
-    { text: '' }, // Код вида товара
-    { text: '796' }, // Единица измерения - код
-    { text: 'шт' }, // условное
-    { text: String(li.qty) },
-    { text: formatMoney(li.unit_price_after_disc, input.currency, 4) },
-    { text: formatMoney(li.line_amount, input.currency, 2) },
-    { text: 'без акциза' },
-    { text: vatRateLabel },
-    { text: input.vatRatePct > 0 ? formatMoney(Math.round(li.line_amount * input.vatRatePct / (100 + input.vatRatePct)), input.currency, 2) : '0' },
-    { text: formatMoney(li.line_amount, input.currency, 2) },
-    { text: '' }, // Страна происхождения
-    { text: '' }, // Номер ТД
-  ]);
+  const productHeaders = [
+    { text: '№' }, { text: 'Наименование' }, { text: 'Ед.' },
+    { text: 'Кол-во' }, { text: 'Цена' }, { text: 'Без НДС' },
+    { text: 'Ставка' }, { text: 'НДС' }, { text: 'С НДС' },
+  ];
+  const colW = Math.floor(PORTRAIT_USABLE_DXA / productHeaders.length);
+  const widths = productHeaders.map(() => colW);
+
+  const rows: ProductCell[][] = input.lineItems.map((li, i) => {
+    const lineWithVat = li.line_amount;
+    const lineNoVat = input.vatRatePct > 0
+      ? lineWithVat / (1 + input.vatRatePct / 100)
+      : lineWithVat;
+    const lineVat = lineWithVat - lineNoVat;
+    return [
+      { text: String(i + 1) },
+      { text: li.invoice_label ?? li.item_description ?? li.product_id },
+      { text: 'шт' },
+      { text: String(li.qty) },
+      { text: fmt(li.unit_price_after_disc) },
+      { text: fmt(lineNoVat) },
+      { text: vatRateLabel },
+      { text: fmt(lineVat) },
+      { text: fmt(lineWithVat) },
+    ];
+  });
 
   const doc = new Document({
     sections: [{
@@ -65,7 +107,7 @@ export async function renderUpd(input: RenderUpdInput): Promise<Uint8Array> {
         }),
         new Paragraph({
           alignment: AlignmentType.CENTER,
-          children: [new TextRun({ text: `Статус: 1 (счёт-фактура и передаточный документ)`, size: 22 })],
+          children: [new TextRun({ text: 'Статус: 1 (счёт-фактура и передаточный документ)', size: 20 })],
         }),
         blank(),
         new Paragraph({
@@ -75,44 +117,33 @@ export async function renderUpd(input: RenderUpdInput): Promise<Uint8Array> {
           ],
         }),
         blank(),
-        buildPartyTable('Продавец', input.seller, 'RU'),
+        ...partyBlock('Продавец', input.seller),
         blank(),
-        buildPartyTable('Покупатель', input.buyer, 'RU'),
+        ...partyBlock('Покупатель', input.buyer),
         blank(),
         new Paragraph({
           children: [new TextRun({ text: 'Валюта: Российский рубль, код 643', size: 22 })],
         }),
         blank(),
-        buildProductTable(
-          [
-            '№', 'Код', 'Наименование', 'Вид', 'Ед.изм. (код)', 'Ед.изм.',
-            'Кол-во', 'Цена', 'Сумма без НДС', 'Акциз', 'Ставка НДС',
-            'Сумма НДС', 'Сумма с НДС', 'Страна', 'ТД №',
-          ],
-          productRows,
-          PORTRAIT_USABLE_DXA,
-        ),
-        blank(),
-        new Paragraph({
-          alignment: AlignmentType.RIGHT,
-          children: [
-            new TextRun({ text: `Всего без НДС: ${formatMoney(totalWithoutVat, input.currency, 2)} ₽`, size: 22 }),
-          ],
-        }),
-        new Paragraph({
-          alignment: AlignmentType.RIGHT,
-          children: [
-            new TextRun({ text: `НДС (${vatRateLabel}): ${formatMoney(totalVat, input.currency, 2)} ₽`, size: 22 }),
-          ],
-        }),
-        new Paragraph({
-          alignment: AlignmentType.RIGHT,
-          children: [
-            new TextRun({ text: `Итого с НДС: ${formatMoney(input.totalMinor, input.currency, 2)} ₽`, bold: true, size: 24 }),
-          ],
+        buildProductTable({
+          totalWidthDxa: PORTRAIT_USABLE_DXA,
+          widths, headers: productHeaders, rows,
         }),
         blank(),
-        buildSignature(input.signature, 'RU'),
+        new Paragraph({
+          alignment: AlignmentType.RIGHT,
+          children: [new TextRun({ text: `Всего без НДС: ${fmt(totalWithoutVat)} ₽`, size: 22 })],
+        }),
+        new Paragraph({
+          alignment: AlignmentType.RIGHT,
+          children: [new TextRun({ text: `НДС (${vatRateLabel}): ${fmt(totalVat)} ₽`, size: 22 })],
+        }),
+        new Paragraph({
+          alignment: AlignmentType.RIGHT,
+          children: [new TextRun({ text: `Итого с НДС: ${fmt(input.totalMinor)} ₽`, bold: true, size: 24 })],
+        }),
+        blank(),
+        ...buildSignature(input.signature, 'RU'),
       ],
     }],
   });

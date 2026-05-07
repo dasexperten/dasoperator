@@ -90,8 +90,9 @@ export function selectDocumentsToIssue(input: InvoicerInput): DocumentSpec[] {
   }
 
   // CASE 3 — purchase from a manufacturer.
-  // Buyer = our_company (DEE / DEI / DEASEAN / DEC). When DEE buys → IS
-  // (CIS customs); otherwise CI + PL (international).
+  // Seller is the manufacturer (Jinxia / Honghui / Meizhiyuan / WDAA),
+  // buyer is our_company. We generate CI + PL on the manufacturer's behalf
+  // (they sign and send back), plus IS for CIS customs when buyer is DEE.
   if (operation.operation_type === 'purchase') {
     if (!legalSellerManufacturer) {
       throw new Error(
@@ -99,14 +100,7 @@ export function selectDocumentsToIssue(input: InvoicerInput): DocumentSpec[] {
         'or operation.legal_seller_id.'
       );
     }
-    if (ourCompany.abbreviation === 'DEE') {
-      return [{
-        type: 'IS', variant: isVariant, format: isFormat,
-        sellerKind: 'manufacturer', sellerId: legalSellerManufacturer.id,
-        buyerKind: 'company', buyerId: ourCompany.id,
-      }];
-    }
-    return [
+    const ciPl: DocumentSpec[] = [
       { type: 'CI', variant: null, format: 'CI',
         sellerKind: 'manufacturer', sellerId: legalSellerManufacturer.id,
         buyerKind: 'company', buyerId: ourCompany.id },
@@ -114,6 +108,16 @@ export function selectDocumentsToIssue(input: InvoicerInput): DocumentSpec[] {
         sellerKind: 'manufacturer', sellerId: legalSellerManufacturer.id,
         buyerKind: 'company', buyerId: ourCompany.id },
     ];
+    if (ourCompany.abbreviation === 'DEE') {
+      // CIS import — add IS for customs.
+      return [
+        ...ciPl,
+        { type: 'IS', variant: isVariant, format: isFormat,
+          sellerKind: 'manufacturer', sellerId: legalSellerManufacturer.id,
+          buyerKind: 'company', buyerId: ourCompany.id },
+      ];
+    }
+    return ciPl;
   }
 
   // Transfers don't currently produce customer-facing documents.

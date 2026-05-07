@@ -248,13 +248,13 @@ export default function BundlingFormClient() {
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', tableLayout: 'fixed' }}>
               <colgroup>
-                <col style={{ width: '27%' }} />
+                <col style={{ width: '25%' }} />
                 <col style={{ width: '9%' }} />
-                <col style={{ width: '9%' }} />
+                <col style={{ width: '11%' }} />
                 <col style={{ width: '5%' }} />
-                <col style={{ width: '27%' }} />
+                <col style={{ width: '25%' }} />
                 <col style={{ width: '9%' }} />
-                <col style={{ width: '9%' }} />
+                <col style={{ width: '11%' }} />
                 <col style={{ width: '5%' }} />
               </colgroup>
               <thead>
@@ -289,7 +289,7 @@ export default function BundlingFormClient() {
                   const toDisplay   = input?.side === 'to'   ? input.value : (toQty   > 0 ? toQty   : '');
 
                   const inputStyle = (active: boolean, warn: boolean) => ({
-                    width: '64px',
+                    width: '80px',
                     textAlign: 'right' as const,
                     padding: '4px 6px',
                     fontSize: '14px',
@@ -309,7 +309,7 @@ export default function BundlingFormClient() {
                         <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{fromSku.toUpperCase()}</div>
                       </td>
                       {/* FROM stock */}
-                      <td style={{ textAlign: 'right', padding: '8px 12px', color: 'var(--fg-3)', fontVariantNumeric: 'tabular-nums' }}>
+                      <td style={{ textAlign: 'right', padding: '8px 12px', color: 'var(--fg-3)', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
                         {fmt(fromStk)}
                       </td>
                       {/* FROM qty input */}
@@ -356,7 +356,7 @@ export default function BundlingFormClient() {
                         <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{toSku.toUpperCase()}</div>
                       </td>
                       {/* TO stock */}
-                      <td style={{ textAlign: 'right', padding: '8px 12px', color: 'var(--fg-3)', fontVariantNumeric: 'tabular-nums' }}>
+                      <td style={{ textAlign: 'right', padding: '8px 12px', color: 'var(--fg-3)', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
                         {fmt(toStk)}
                       </td>
                       {/* TO qty — editable for pastes, read-only display for brushes */}

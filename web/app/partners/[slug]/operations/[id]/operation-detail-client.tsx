@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Loader2, Plus } from 'lucide-react';
 import {
@@ -423,6 +423,14 @@ export default function OperationDetailClient({
           vatAmount={vatAmount}
           grandTotal={grandTotal}
           showVat={showVat}
+          operationId={operationId}
+          onLineItemUpdate={async () => {
+            const opRes = await getOperation(operationId);
+            if (opRes.success && opRes.result) {
+              setOperation(opRes.result.operation);
+              setLineItems(opRes.result.line_items);
+            }
+          }}
         />
       )}
 
@@ -467,6 +475,12 @@ export default function OperationDetailClient({
 // =============================================================================
 // Items tab
 // =============================================================================
+interface EditingCell {
+  lineItemId: string;
+  field: 'qty' | 'unit_price';
+  value: string;
+}
+
 function ItemsTab({
   lineItems,
   currency,
@@ -478,6 +492,8 @@ function ItemsTab({
   vatAmount,
   grandTotal,
   showVat,
+  operationId,
+  onLineItemUpdate,
 }: {
   lineItems: OperationLineItem[];
   currency: string;
@@ -489,8 +505,67 @@ function ItemsTab({
   vatAmount: number;
   grandTotal: number;
   showVat: boolean;
+  operationId: string;
+  onLineItemUpdate: () => Promise<void>;
 }) {
+  const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const showDiscount = discount > 0;
+
+  const handleCellEdit = (lineItemId: string, field: 'qty' | 'unit_price', currentValue: number) => {
+    setEditingCell({
+      lineItemId,
+      field,
+      value: String(currentValue),
+    });
+  };
+
+  const handleSaveCell = async () => {
+    if (!editingCell) return;
+    setIsSaving(true);
+    try {
+      const newValue = editingCell.field === 'qty' 
+        ? parseInt(editingCell.value, 10)
+        : parseFloat(editingCell.value);
+      
+      if (isNaN(newValue) || newValue < 0) {
+        setEditingCell(null);
+        return;
+      }
+
+      const updatePayload = editingCell.field === 'qty'
+        ? { qty: newValue }
+        : { unit_price: newValue };
+
+      const response = await fetch(
+        `/api/line-items/${editingCell.lineItemId}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatePayload),
+        }
+      );
+
+      if (response.ok) {
+        setEditingCell(null);
+        await onLineItemUpdate();
+      }
+    } catch (e) {
+      console.error('Failed to update line item:', e);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSaveCell();
+    } else if (e.key === 'Escape') {
+      setEditingCell(null);
+    }
+  };
+
   return (
     <div
       className="overflow-hidden"
@@ -518,11 +593,76 @@ function ItemsTab({
               <td className="px-4 py-3" style={{ color: 'var(--fg-1)' }}>
                 {li.product_name ?? li.item_description ?? li.product_id}
               </td>
-              <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)' }}>
-                {li.qty}
+              <td 
+                className="px-4 py-3 text-right"
+                onClick={() => handleCellEdit(li.id, 'qty', li.qty)}
+                style={{ 
+                  color: li.qty === 0 ? 'var(--brand-rot)' : 'var(--fg-1)',
+                  cursor: 'pointer',
+                  backgroundColor: editingCell?.lineItemId === li.id && editingCell.field === 'qty' ? 'var(--paper-sunk)' : 'transparent',
+                  borderRadius: '4px',
+                  transition: 'background-color 150ms',
+                }}
+              >
+                {editingCell?.lineItemId === li.id && editingCell.field === 'qty' ? (
+                  <input
+                    autoFocus
+                    type="number"
+                    value={editingCell.value}
+                    onChange={(e) => setEditingCell({ ...editingCell, value: e.target.value })}
+                    onBlur={handleSaveCell}
+                    onKeyDown={handleKeyDown}
+                    disabled={isSaving}
+                    style={{
+                      width: '60px',
+                      padding: '4px 6px',
+                      fontSize: '14px',
+                      border: '1px solid var(--border-hairline)',
+                      borderRadius: '4px',
+                      backgroundColor: 'var(--paper)',
+                      color: 'var(--fg-1)',
+                      fontWeight: 600,
+                    }}
+                  />
+                ) : (
+                  li.qty
+                )}
               </td>
-              <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)' }}>
-                {formatMoney(li.unit_price, currency)}
+              <td 
+                className="px-4 py-3 text-right"
+                onClick={() => handleCellEdit(li.id, 'unit_price', li.unit_price)}
+                style={{ 
+                  color: 'var(--fg-1)',
+                  cursor: 'pointer',
+                  backgroundColor: editingCell?.lineItemId === li.id && editingCell.field === 'unit_price' ? 'var(--paper-sunk)' : 'transparent',
+                  borderRadius: '4px',
+                  transition: 'background-color 150ms',
+                }}
+              >
+                {editingCell?.lineItemId === li.id && editingCell.field === 'unit_price' ? (
+                  <input
+                    autoFocus
+                    type="number"
+                    step="0.01"
+                    value={editingCell.value}
+                    onChange={(e) => setEditingCell({ ...editingCell, value: e.target.value })}
+                    onBlur={handleSaveCell}
+                    onKeyDown={handleKeyDown}
+                    disabled={isSaving}
+                    style={{
+                      width: '80px',
+                      padding: '4px 6px',
+                      fontSize: '14px',
+                      border: '1px solid var(--border-hairline)',
+                      borderRadius: '4px',
+                      backgroundColor: 'var(--paper)',
+                      color: 'var(--fg-1)',
+                      fontWeight: 600,
+                    }}
+                  />
+                ) : (
+                  formatMoney(li.unit_price, currency)
+                )}
               </td>
               <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)', fontWeight: 600 }}>
                 {formatMoney(li.line_amount, currency)}

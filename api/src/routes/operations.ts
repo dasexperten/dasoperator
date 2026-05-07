@@ -975,4 +975,41 @@ operations.patch('/:id/status', async (c) => {
   }, [`Status: ${op.status} → ${targetStatus}`, `${movementSpecs.length} stock movement(s) written`]);
 });
 
+// PATCH /api/line-items/:id — update line item qty or unit_price
+operations.patch('/api/line-items/:id', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json<{ qty?: number; unit_price?: number }>();
+
+  if (!body.qty && body.unit_price === undefined) {
+    return fail(c, 400, [{ code: 'missing_fields', message: 'qty or unit_price required' }]);
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const updates: string[] = [];
+  const binds: (string | number)[] = [];
+
+  if (body.qty !== undefined) {
+    updates.push('qty = ?');
+    binds.push(body.qty);
+  }
+  if (body.unit_price !== undefined) {
+    updates.push('unit_price = ?');
+    binds.push(body.unit_price);
+  }
+
+  updates.push('updated_at = ?');
+  binds.push(now);
+  binds.push(id);
+
+  const sql = `UPDATE line_items SET ${updates.join(', ')} WHERE id = ?`;
+
+  try {
+    await c.env.DB.prepare(sql).bind(...binds).run();
+  } catch (err) {
+    return fail(c, 500, [{ code: 'update_failed', message: 'Failed to update line item', details: { error: String(err) } }]);
+  }
+
+  return ok(c, { id, updated_at: now }, ['Line item updated']);
+});
+
 export default operations;

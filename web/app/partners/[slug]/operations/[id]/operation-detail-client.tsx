@@ -35,26 +35,25 @@ function getMinorFactor(currency: string): number {
 // Transition chains — sequential only (variant A)
 const TRANSITION_CHAINS: Record<string, Record<string, string | null>> = {
   sale: {
-    draft: 'issued',
-    issued: 'order_fulfilment',
+    draft:            'issued',
+    issued:           'order_fulfilment',  // "Boxing" in UI
     order_fulfilment: 'shipped',
-    shipped: 'delivered',
-    delivered: null,
-    cancelled: null,
+    shipped:          null,                // final
+    cancelled:        null,
   },
   purchase: {
-    draft: 'issued',
-    issued: 'production',
+    draft:      'issued',
+    issued:     'production',
     production: 'stocked',
-    stocked: 'shipped',
-    shipped: 'delivered',
-    delivered: null,
-    cancelled: null,
+    stocked:    'shipped',
+    shipped:    'delivered',
+    delivered:  null,
+    cancelled:  null,
   },
   transfer: {
-    draft: 'issued',
-    issued: 'shipped',
-    shipped: 'delivered',
+    draft:     'issued',
+    issued:    'shipped',
+    shipped:   'delivered',
     delivered: null,
     cancelled: null,
   },
@@ -309,7 +308,8 @@ export default function OperationDetailClient({
                 </button>
               );
             })()}
-            {operation.status !== 'cancelled' && operation.status !== 'delivered' && (
+            {operation.status !== 'cancelled' && operation.status !== 'delivered' &&
+             !(operation.operation_type === 'sale' && operation.status === 'shipped') && (
               <button
                 onClick={() => handleStatusChange('cancelled')}
                 disabled={isUpdating}

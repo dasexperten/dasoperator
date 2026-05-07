@@ -112,6 +112,18 @@ async function runMarketplaceSync(): Promise<void> {
     console.error('[cron] wb sales threw:', e);
   }
 
+  // CPC refine — async report from Ozon Performance API, takes 1-5 min.
+  // Updates cost_per_click_rub with SKU-level precision, replacing the rough
+  // estimate from the inline daily endpoint.
+  await new Promise((r) => setTimeout(r, 5000));
+  try {
+    const r = await fetch(`${SELF_BASE}/api/marketplaces/sync/cpc-refine`, { method: 'POST' });
+    console.log(`[cron] ozon cpc refine HTTP ${r.status}`);
+  } catch (e) {
+    console.error('[cron] cpc refine threw:', e);
+  }
+
   console.log('[cron] marketplace sync done');
 }
+
 

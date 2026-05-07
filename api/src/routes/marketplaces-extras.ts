@@ -457,6 +457,180 @@ marketplacesExtras.post('/sync/sales/wb', async (c) => {
 
 
 // =============================================================================
+// POST /api/marketplaces/sync/cpc-refine
+//
+// Asynchronously refines per-SKU CPC ad spend using Performance API
+// SKU-level reports. Slower than the inline daily endpoint, but matches
+// what Ozon shows in Unit Economy.
+//
+// Flow:
+//   1. List active campaigns of types SKU/SEARCH_PROMO/BRAND_SHELF/ACTION
+//   2. Create one async report for ALL of them with groupBy=OBJECT (SKU-level)
+//   3. Poll up to 5 minutes
+//   4. Download CSV, parse per-SKU spend
+//   5. Update marketplace_sales_ozon.cost_per_click_rub for each SKU
+// =============================================================================
+marketplacesExtras.post('/sync/cpc-refine', async (c) => {
+  const startedAt = Math.floor(Date.now() / 1000);
+  const logResult = await c.env.DB.prepare(
+    "INSERT INTO marketplace_sync_log (marketplace, started_at, status) VALUES (?, ?, 'running')"
+  ).bind('ozon-cpc', startedAt).run();
+  const logId = logResult.meta.last_row_id as number;
+
+  try {
+    if (!c.env.OZON_PERF_CLIENT_ID || !c.env.OZON_PERF_CLIENT_SECRET) {
+      throw new Error('OZON_PERF_CLIENT_ID or OZON_PERF_CLIENT_SECRET not configured');
+    }
+
+    const today = new Date();
+    const dateTo = isoDate(today);
+    const from = new Date(today.getTime() - PERIOD_DAYS * 24 * 3600_000);
+    const dateFrom = isoDate(from);
+
+    // 1. Refresh sku map (need it to translate ozon-sku → catalog SKU)
+    const skuMap = await refreshOzonSkuMap(c.env);
+
+    // 2. Fetch active SKU-bearing campaigns
+    const token = await getOzonPerfToken(c.env);
+    const campResp = await fetch('https://api-performance.ozon.ru/api/client/campaign', {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!campResp.ok) throw new Error(`campaigns HTTP ${campResp.status}`);
+    const campData = await campResp.json<{ list: any[] }>();
+    const skuTypes = new Set(['SKU', 'SEARCH_PROMO', 'BRAND_SHELF', 'ACTION']);
+    const campaigns = (campData.list || [])
+      .filter((c) => c.state === 'CAMPAIGN_STATE_RUNNING' && skuTypes.has(c.advObjectType))
+      .map((c) => c.id);
+
+    if (campaigns.length === 0) {
+      await c.env.DB.prepare(
+        'UPDATE marketplace_sync_log SET finished_at = ?, status = ?, rows_synced = 0 WHERE id = ?'
+      ).bind(Math.floor(Date.now() / 1000), 'ok', logId).run();
+      return ok(c, { skus_updated: 0, message: 'No SKU-bearing active campaigns' });
+    }
+
+    // 3. Create async report — group by OBJECT for SKU-level
+    const createResp = await fetch('https://api-performance.ozon.ru/api/client/statistics/json', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        campaigns,
+        dateFrom, dateTo,
+        groupBy: 'NO_GROUP_BY',  // returns one row per (campaign, sku)
+      }),
+    });
+    if (!createResp.ok) throw new Error(`create report HTTP ${createResp.status}`);
+    const createData = await createResp.json<{ UUID: string }>();
+    const uuid = createData.UUID;
+    if (!uuid) throw new Error('No UUID returned');
+
+    // 4. Poll up to 5 minutes
+    let downloadUrl: string | null = null;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      await new Promise((r) => setTimeout(r, 10_000));
+      const pollResp = await fetch(`https://api-performance.ozon.ru/api/client/statistics/${uuid}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!pollResp.ok) continue;
+      const pollData = await pollResp.json<{ state: string; link: string }>();
+      if (pollData.state === 'OK' && pollData.link) {
+        downloadUrl = `https://api-performance.ozon.ru${pollData.link}`;
+        break;
+      }
+      if (pollData.state && pollData.state.includes('ERR')) {
+        throw new Error(`Report failed: ${JSON.stringify(pollData)}`);
+      }
+    }
+
+    if (!downloadUrl) throw new Error('Report did not complete in 5 minutes');
+
+    // 5. Download CSV (refresh token if needed — 30min lifetime)
+    const tokenAgain = await getOzonPerfToken(c.env);
+    const dlResp = await fetch(downloadUrl, {
+      headers: { 'Authorization': `Bearer ${tokenAgain}` },
+    });
+    if (!dlResp.ok) throw new Error(`download HTTP ${dlResp.status}`);
+    const csv = await dlResp.text();
+
+    // 6. Parse CSV: identify SKU column and moneySpent column
+    const cpcBySku = parseCpcCsv(csv, skuMap);
+
+    // 7. Update DB
+    const now = Math.floor(Date.now() / 1000);
+    const stmts: D1PreparedStatement[] = [];
+    let updated = 0;
+    for (const [sku, kopecks] of cpcBySku.entries()) {
+      stmts.push(
+        c.env.DB.prepare(
+          `UPDATE marketplace_sales_ozon
+           SET cost_per_click_rub = ?,
+               expenses_total_rub = ? + cost_per_order_rub + stars_promo_rub + brand_commission_rub + reviews_cost_rub + stars_membership_rub + acquiring_rub
+           WHERE base_sku = ?`
+        ).bind(kopecks, kopecks, sku)
+      );
+      updated++;
+    }
+    // Simplification — use a 2-step: clear cpc then set + recompute total
+    // The above SQL works but clearer is two updates. Use batch.
+    if (stmts.length > 0) await c.env.DB.batch(stmts);
+
+    await c.env.DB.prepare(
+      'UPDATE marketplace_sync_log SET finished_at = ?, status = ?, rows_synced = ? WHERE id = ?'
+    ).bind(Math.floor(Date.now() / 1000), 'ok', updated, logId).run();
+
+    return ok(c, {
+      skus_updated: updated,
+      campaigns_in_report: campaigns.length,
+      csv_lines: csv.split('\n').length,
+      period: { from: dateFrom, to: dateTo, days: PERIOD_DAYS },
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await c.env.DB.prepare(
+      'UPDATE marketplace_sync_log SET finished_at = ?, status = ?, error_message = ? WHERE id = ?'
+    ).bind(Math.floor(Date.now() / 1000), 'error', msg, logId).run();
+    return fail(c, 502, [{ code: 'cpc_refine_failed', message: msg }]);
+  }
+});
+
+/**
+ * Parses Performance API CSV report. Each row is one (campaign, sku) combination
+ * with views/clicks/moneySpent/orders/ordersMoney columns. We sum moneySpent
+ * per SKU across all campaigns the SKU appeared in.
+ */
+function parseCpcCsv(csv: string, skuMap: Map<number, OzonSkuMapEntry>): Map<string, number> {
+  const result = new Map<string, number>();
+  const lines = csv.split('\n').filter((l) => l.trim().length > 0);
+  if (lines.length < 2) return result;
+
+  const headers = lines[0].split(';').map((h) => h.replace(/^\ufeff/, '').replace(/^"|"$/g, '').trim().toLowerCase());
+  const skuCol = headers.findIndex((h) => h.includes('sku') || h.includes('товар') || h === 'id');
+  const spentCol = headers.findIndex((h) => h.includes('moneyspent') || h.includes('расход') || h.includes('потрачено'));
+
+  if (skuCol < 0 || spentCol < 0) {
+    console.error('[parseCpcCsv] columns not found. headers=' + JSON.stringify(headers));
+    return result;
+  }
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(';').map((c) => c.replace(/^"|"$/g, '').trim());
+    const ozonSkuStr = cols[skuCol];
+    const spentStr = cols[spentCol];
+    if (!ozonSkuStr || !spentStr) continue;
+    const ozonSku = parseInt(ozonSkuStr, 10);
+    if (Number.isNaN(ozonSku)) continue;
+    const spent = parseFloat(spentStr.replace(',', '.').replace(/\s/g, ''));
+    if (Number.isNaN(spent) || spent <= 0) continue;
+    const mapped = skuMap.get(ozonSku);
+    if (!mapped || !mapped.catalog_sku) continue;
+    const sku = mapped.catalog_sku;
+    const cur = result.get(sku) || 0;
+    result.set(sku, cur + Math.round(spent * 100));
+  }
+  return result;
+}
+
+// =============================================================================
 // Helpers — Ozon Performance API (advertising)
 // =============================================================================
 

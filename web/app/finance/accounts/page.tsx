@@ -4,7 +4,7 @@ export const runtime = 'edge';
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Loader2, ChevronLeft, RefreshCw, Copy, CheckCircle2, ListOrdered } from 'lucide-react';
+import { Loader2, ChevronLeft, RefreshCw, Copy, CheckCircle2, ListOrdered, Hourglass } from 'lucide-react';
 import { getBankAccounts, syncBankHistory, type BankAccount } from '@/lib/api';
 
 // Hard-coded entity list — the four Das Experten companies. Activation status comes from
@@ -147,7 +147,6 @@ export default function BankReferencePage() {
   }
 
   const activeEntityInfo = ENTITIES.find((e) => e.abbr === activeEntity)!;
-  const isActiveEntityActivated = (accountsByEntity[activeEntity] ?? []).some((a) => a.api_enabled === 1);
 
   return (
     <div className="px-8 py-6 max-w-6xl">
@@ -182,8 +181,24 @@ export default function BankReferencePage() {
       {/* Entity selector — row of buttons */}
       <div className="mb-6 flex flex-wrap gap-2">
         {ENTITIES.map((ent) => {
-          const activated = (accountsByEntity[ent.abbr] ?? []).some((a) => a.api_enabled === 1);
+          const entAccounts = accountsByEntity[ent.abbr] ?? [];
+          const hasAccounts = entAccounts.length > 0;
+          const hasLiveApi = entAccounts.some((a) => a.api_enabled === 1);
+          const activated = hasAccounts;
           const isActive = ent.abbr === activeEntity;
+
+          // Status label: Live API (Modulbank), Manual (Wio pre-approval), Not activated
+          const statusLabel = hasLiveApi
+            ? 'Live API'
+            : hasAccounts
+              ? 'Manual entry'
+              : 'Not activated';
+          const statusColor = hasLiveApi
+            ? 'var(--status-success)'
+            : hasAccounts
+              ? 'var(--line-innoweiss)'
+              : 'var(--fg-3)';
+
           return (
             <button
               key={ent.abbr}
@@ -208,8 +223,8 @@ export default function BankReferencePage() {
               }}>
                 {ent.abbr}
               </div>
-              <div style={{ fontSize: '14px', color: 'var(--fg-2)', marginTop: '2px' }}>
-                {activated ? 'Activated' : 'Not activated'}
+              <div style={{ fontSize: '14px', color: statusColor, marginTop: '2px', fontWeight: 700 }}>
+                {statusLabel}
               </div>
             </button>
           );
@@ -237,7 +252,12 @@ export default function BankReferencePage() {
       )}
 
       {/* Entity card */}
-      {!loading && (
+      {!loading && (() => {
+        const authMethod = selectedAccount?.bank_auth_method ?? null;
+        const isLiveApi = authMethod === 'static_token' || authMethod === 'oauth2';
+        const isManual = authMethod === 'manual';
+
+        return (
         <div style={{
           border: '1px solid var(--line-1)',
           borderRadius: 'var(--radius-md)',
@@ -267,11 +287,13 @@ export default function BankReferencePage() {
                 <div style={{ fontSize: '14px', color: 'var(--fg-2)', marginTop: '2px' }}>
                   Bank: <strong>{selectedAccount.bank_name}</strong>
                   {selectedAccount.bank_legal_name_ru && ` (${selectedAccount.bank_legal_name_ru})`}
+                  {selectedAccount.bank_country && ` · ${selectedAccount.bank_country}`}
                 </div>
               )}
             </div>
 
-            {isActiveEntityActivated && (
+            {/* Sync All button only for live API providers */}
+            {isLiveApi && (
               <button
                 onClick={() => handleSync()}
                 disabled={syncing !== null}
@@ -293,9 +315,25 @@ export default function BankReferencePage() {
                 Sync All History
               </button>
             )}
+
+            {/* Manual badge for manual-mode providers (Wio etc.) */}
+            {isManual && (
+              <div className="flex items-center gap-2 px-4 py-2" style={{
+                border: '1px solid var(--line-innoweiss)',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: 'rgba(13,25,158,0.06)',
+                color: 'var(--line-innoweiss)',
+                fontSize: '14px',
+                fontWeight: 700,
+              }}>
+                <Hourglass className="h-4 w-4" />
+                Manual entry — API access pending
+              </div>
+            )}
           </div>
 
-          {!isActiveEntityActivated && (
+          {/* Empty state — entity has no accounts at all */}
+          {entityAccounts.length === 0 && (
             <div style={{
               padding: '24px',
               backgroundColor: 'var(--paper-sunk)',
@@ -308,22 +346,22 @@ export default function BankReferencePage() {
             </div>
           )}
 
-          {/* Currency tabs */}
+          {/* Currency tabs + reference card */}
           {entityAccounts.length > 0 && (
             <>
               <div className="flex flex-wrap gap-2 mb-4">
                 {entityAccounts.map((acc) => {
-                  const isActive = acc.currency === activeCurrency;
+                  const isCurActive = acc.currency === activeCurrency;
                   return (
                     <button
                       key={acc.id}
                       onClick={() => setActiveCurrency(acc.currency)}
                       className="px-4 py-2"
                       style={{
-                        border: isActive ? '1px solid var(--brand-rot)' : '1px solid var(--line-1)',
+                        border: isCurActive ? '1px solid var(--brand-rot)' : '1px solid var(--line-1)',
                         borderRadius: 'var(--radius-sm)',
-                        backgroundColor: isActive ? 'var(--brand-rot)' : 'var(--paper)',
-                        color: isActive ? 'var(--paper)' : 'var(--fg-1)',
+                        backgroundColor: isCurActive ? 'var(--brand-rot)' : 'var(--paper)',
+                        color: isCurActive ? 'var(--paper)' : 'var(--fg-1)',
                         fontSize: '14px',
                         fontWeight: 700,
                         cursor: 'pointer',
@@ -349,37 +387,61 @@ export default function BankReferencePage() {
                   <CopyableRow label="SWIFT" value={selectedAccount.bank_swift} />
                   <CopyableRow label="Correspondent account" value={selectedAccount.bank_correspondent_account} />
 
-                  {/* Sync status row */}
-                  <div className="flex items-center justify-between pt-3 mt-2" style={{ borderTop: '1px solid var(--line-1)' }}>
-                    <div style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
-                      Last sync: <strong>{formatLastSync(selectedAccount.last_sync_at)}</strong>
+                  {/* Notes for manual accounts */}
+                  {isManual && selectedAccount.notes && (
+                    <div style={{
+                      marginTop: '12px',
+                      padding: '10px 12px',
+                      backgroundColor: 'rgba(13,25,158,0.04)',
+                      borderRadius: 'var(--radius-sm)',
+                      fontSize: '14px',
+                      color: 'var(--fg-2)',
+                      lineHeight: 1.5,
+                    }}>
+                      <strong>Note:</strong> {selectedAccount.notes}
                     </div>
-                    <button
-                      onClick={() => handleSync(selectedAccount.id)}
-                      disabled={syncing !== null}
-                      className="flex items-center gap-1 px-3 py-1"
-                      style={{
-                        border: '1px solid var(--line-1)',
-                        borderRadius: 'var(--radius-sm)',
-                        backgroundColor: 'var(--paper)',
-                        color: 'var(--fg-1)',
-                        fontSize: '14px',
-                        fontWeight: 700,
-                        cursor: syncing !== null ? 'not-allowed' : 'pointer',
-                        opacity: syncing !== null ? 0.6 : 1,
-                      }}
-                    >
-                      {syncing === selectedAccount.id
-                        ? <Loader2 className="h-3 w-3 animate-spin" />
-                        : <RefreshCw className="h-3 w-3" />}
-                      Sync this currency
-                    </button>
+                  )}
+
+                  {/* Status footer — different for live API vs manual */}
+                  <div className="flex items-center justify-between pt-3 mt-2" style={{ borderTop: '1px solid var(--line-1)' }}>
+                    {isLiveApi && (
+                      <>
+                        <div style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
+                          Last sync: <strong>{formatLastSync(selectedAccount.last_sync_at)}</strong>
+                        </div>
+                        <button
+                          onClick={() => handleSync(selectedAccount.id)}
+                          disabled={syncing !== null}
+                          className="flex items-center gap-1 px-3 py-1"
+                          style={{
+                            border: '1px solid var(--line-1)',
+                            borderRadius: 'var(--radius-sm)',
+                            backgroundColor: 'var(--paper)',
+                            color: 'var(--fg-1)',
+                            fontSize: '14px',
+                            fontWeight: 700,
+                            cursor: syncing !== null ? 'not-allowed' : 'pointer',
+                            opacity: syncing !== null ? 0.6 : 1,
+                          }}
+                        >
+                          {syncing === selectedAccount.id
+                            ? <Loader2 className="h-3 w-3 animate-spin" />
+                            : <RefreshCw className="h-3 w-3" />}
+                          Sync this currency
+                        </button>
+                      </>
+                    )}
+                    {isManual && (
+                      <div style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
+                        Sync via API not available yet. Once <strong>{selectedAccount.bank_name}</strong> approves API access, this account will become live.
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
 
-              {/* Quick link to filtered transactions */}
-              {selectedAccount && (
+              {/* Quick link to filtered transactions — only for live API */}
+              {selectedAccount && isLiveApi && (
                 <div className="mt-4">
                   <Link
                     href={`/finance?account=${selectedAccount.id}`}
@@ -394,7 +456,8 @@ export default function BankReferencePage() {
             </>
           )}
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

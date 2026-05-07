@@ -1393,6 +1393,7 @@ export interface BankAccount {
   external_company_id: string | null;
   api_enabled: 0 | 1;
   last_sync_at: number | null;
+  notes: string | null;
   company_abbreviation: string;
   company_legal_name: string;
   company_tax_id: string | null;
@@ -1405,6 +1406,8 @@ export interface BankAccount {
   bank_bic: string | null;
   bank_swift: string | null;
   bank_correspondent_account: string | null;
+  bank_country: string | null;
+  bank_auth_method: 'static_token' | 'oauth2' | 'manual' | null;
 }
 
 export interface BankTransaction {

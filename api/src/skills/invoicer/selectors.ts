@@ -90,9 +90,11 @@ export function selectDocumentsToIssue(input: InvoicerInput): DocumentSpec[] {
   }
 
   // CASE 3 — purchase from a manufacturer.
-  // Seller is the manufacturer (Jinxia / Honghui / Meizhiyuan / WDAA),
-  // buyer is our_company. We generate CI + PL on the manufacturer's behalf
-  // (they sign and send back), plus IS for CIS customs when buyer is DEE.
+  // Direct: factory → buyer. ERP generates CI + PL on factory's behalf.
+  //         When buyer is DEE → also IS for CIS customs.
+  // Through DEI (dei_layer=1): two packages.
+  //         (a) factory → DEI: CI + PL (manufacturer issues to DEI)
+  //         (b) DEI → DEE: CI + PL + IS (DEI issues to DEE for customs)
   if (operation.operation_type === 'purchase') {
     if (!legalSellerManufacturer) {
       throw new Error(
@@ -100,6 +102,31 @@ export function selectDocumentsToIssue(input: InvoicerInput): DocumentSpec[] {
         'or operation.legal_seller_id.'
       );
     }
+
+    // Through DEI: two packages
+    if (operation.dei_layer === 1) {
+      return [
+        // (a) Factory → DEI
+        { type: 'CI', variant: null, format: 'CI',
+          sellerKind: 'manufacturer', sellerId: legalSellerManufacturer.id,
+          buyerKind: 'company', buyerId: 'cmp_dei' },
+        { type: 'PL', variant: null, format: 'PL',
+          sellerKind: 'manufacturer', sellerId: legalSellerManufacturer.id,
+          buyerKind: 'company', buyerId: 'cmp_dei' },
+        // (b) DEI → buyer (DEE in CIS scenarios)
+        { type: 'CI', variant: null, format: 'CI',
+          sellerKind: 'company', sellerId: 'cmp_dei',
+          buyerKind: 'company', buyerId: ourCompany.id },
+        { type: 'PL', variant: null, format: 'PL',
+          sellerKind: 'company', sellerId: 'cmp_dei',
+          buyerKind: 'company', buyerId: ourCompany.id },
+        { type: 'IS', variant: isVariant, format: isFormat,
+          sellerKind: 'company', sellerId: 'cmp_dei',
+          buyerKind: 'company', buyerId: ourCompany.id },
+      ];
+    }
+
+    // Direct: factory → buyer
     const ciPl: DocumentSpec[] = [
       { type: 'CI', variant: null, format: 'CI',
         sellerKind: 'manufacturer', sellerId: legalSellerManufacturer.id,

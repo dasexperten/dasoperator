@@ -1296,3 +1296,54 @@ export interface MarketplaceSalesResponse {
 export async function getMarketplaceSales() {
   return apiGet<MarketplaceSalesResponse>('/api/marketplaces/sales');
 }
+
+// =============================================================================
+// Inventory actions — Phase 4.5
+// =============================================================================
+
+export interface StockMovementResult {
+  id: string;
+  warehouse_id: string;
+  product_id: string;
+  movement_type: string;
+  quantity: number;
+  balance_after: number;
+  created_at: number;
+}
+
+export interface CreateMovementBody {
+  warehouse_id: string;
+  product_id: string;
+  movement_type: 'receipt' | 'adjustment' | 'session_correction' | 'write_off' | 'opening_balance';
+  quantity: number;
+  reason?: string | null;
+  notes?: string | null;
+  performed_by?: string | null;
+  performed_at?: number;
+}
+
+export async function createStockMovement(body: CreateMovementBody) {
+  return apiPost<StockMovementResult>('/api/stock-movements', body);
+}
+
+export interface CreateInventorySessionBody {
+  warehouse_id: string;
+  scope: 'full' | 'partial' | 'spot';
+  notes?: string | null;
+  started_by?: string | null;
+}
+
+export interface InventorySession {
+  id: string;
+  reference: string;
+  warehouse_id: string;
+  status: string;
+  scope: string;
+  started_at: number;
+  started_by: string | null;
+}
+
+export async function createInventorySession(body: CreateInventorySessionBody) {
+  return apiPost<InventorySession>('/api/inventory-sessions', body);
+}
+

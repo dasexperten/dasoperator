@@ -9,7 +9,7 @@ const createSchema = z.object({
   partner_id: z.string().min(1),
   contract_id: z.string().min(1),
   operation_id: z.string().nullable().optional(),
-  amount: z.number().int().positive(),
+  amount: z.number().positive(),
   currency: z.string().min(3).max(3),
   payment_date: z.number().int().positive(),
   type: z.enum(['advance', 'final', 'refund', 'partial']),

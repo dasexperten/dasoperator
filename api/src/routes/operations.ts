@@ -41,8 +41,8 @@ function derivePaymentState(total: number, paid: number, status: string): Paymen
 const lineItemSchema = z.object({
   product_id: z.string().min(1),
   qty: z.number().int().positive(),
-  unit_price: z.number().int().nonnegative(),
-  discount_pct: z.number().int().min(0).max(100).default(0),
+  unit_price: z.number().nonnegative(),
+  discount_pct: z.number().min(0).max(100).default(0),
   cartons: z.number().int().nonnegative().default(0),
   inner_boxes: z.number().int().nonnegative().default(0),
   item_description: z.string().nullable().optional(),

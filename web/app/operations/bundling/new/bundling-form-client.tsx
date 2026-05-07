@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 
 // =============================================================================
-// SKU pair definitions — from_sku (single) → to_sku (bundle), ratio
-// brushOnly = true means no swap (can only pack, not unpack)
+// SKU pair definitions
+// fromSku = single unit, toSku = bundle
+// ratio: how many singles make one bundle
+// brushOnly = no swap (pack direction only)
 // =============================================================================
 interface SkuPair {
   fromSku: string;
@@ -18,23 +20,21 @@ interface SkuPair {
 }
 
 const SKU_PAIRS: SkuPair[] = [
-  // Pastes 2-pack
-  { fromSku: 'de201', fromName: 'SCHWARZ Paste 70ml',       toSku: 'de201aa', toName: 'SCHWARZ 2-pack',         ratio: 2 },
-  { fromSku: 'de202', fromName: 'DETOX Paste 70ml',          toSku: 'de202aa', toName: 'DETOX 2-pack',           ratio: 2 },
-  { fromSku: 'de203', fromName: 'GINGER FORCE Paste 70ml',   toSku: 'de203aa', toName: 'GINGER FORCE 2-pack',   ratio: 2 },
-  { fromSku: 'de205', fromName: 'COCOCANNABIS Paste 70ml',   toSku: 'de205aa', toName: 'COCOCANNABIS 2-pack',   ratio: 2 },
-  { fromSku: 'de206', fromName: 'SYMBIOS Paste 70ml',        toSku: 'de206aa', toName: 'SYMBIOS 2-pack',         ratio: 2 },
-  { fromSku: 'de207', fromName: 'BUDDY MICROBIES Paste 50ml',toSku: 'de207aa', toName: 'BUDDY MICROBIES 2-pack', ratio: 2 },
-  { fromSku: 'de208', fromName: 'EVOLUTION Kids Paste 50ml', toSku: 'de208aa', toName: 'EVOLUTION Kids 2-pack',  ratio: 2 },
-  // Brushes (pack only)
-  { fromSku: 'de101', fromName: 'ETALON Brush',              toSku: 'de101aa',   toName: 'ETALON 2in1',          ratio: 2,  brushOnly: true },
-  { fromSku: 'de107', fromName: 'MITTEL Brush',              toSku: 'de107aaaa', toName: 'MITTEL 4in1',          ratio: 4,  brushOnly: true },
-  { fromSku: 'de116', fromName: 'KRAFT Brush',               toSku: 'de116aaaa', toName: 'KRAFT 4in1',           ratio: 4,  brushOnly: true },
-  { fromSku: 'de117', fromName: 'ZERO Brush',                toSku: 'de117aa',   toName: 'ZERO 2in1',            ratio: 2,  brushOnly: true },
-  { fromSku: 'de119', fromName: 'GROSSE Brush',              toSku: 'de119aa',   toName: 'GROSSE 2in1',          ratio: 2,  brushOnly: true },
-  { fromSku: 'de120', fromName: 'NANO MASSAGE Brush',        toSku: 'de120aaaa', toName: 'NANO MASSAGE 4in1',    ratio: 4,  brushOnly: true },
-  { fromSku: 'de122', fromName: 'AKTIV Brush',               toSku: 'de122aaaa', toName: 'AKTIV 4in1',           ratio: 4,  brushOnly: true },
-  { fromSku: 'de123', fromName: 'BIO Brush',                 toSku: 'de123aaaa', toName: 'BIO 4in1',             ratio: 4,  brushOnly: true },
+  { fromSku: 'de201', fromName: 'SCHWARZ Paste 70ml',        toSku: 'de201aa',   toName: 'SCHWARZ 2-pack',          ratio: 2 },
+  { fromSku: 'de202', fromName: 'DETOX Paste 70ml',           toSku: 'de202aa',   toName: 'DETOX 2-pack',            ratio: 2 },
+  { fromSku: 'de203', fromName: 'GINGER FORCE Paste 70ml',    toSku: 'de203aa',   toName: 'GINGER FORCE 2-pack',     ratio: 2 },
+  { fromSku: 'de205', fromName: 'COCOCANNABIS Paste 70ml',    toSku: 'de205aa',   toName: 'COCOCANNABIS 2-pack',     ratio: 2 },
+  { fromSku: 'de206', fromName: 'SYMBIOS Paste 70ml',         toSku: 'de206aa',   toName: 'SYMBIOS 2-pack',          ratio: 2 },
+  { fromSku: 'de207', fromName: 'BUDDY MICROBIES Paste 50ml', toSku: 'de207aa',   toName: 'BUDDY MICROBIES 2-pack',  ratio: 2 },
+  { fromSku: 'de208', fromName: 'EVOLUTION Kids Paste 50ml',  toSku: 'de208aa',   toName: 'EVOLUTION Kids 2-pack',   ratio: 2 },
+  { fromSku: 'de101', fromName: 'ETALON Brush',               toSku: 'de101aa',   toName: 'ETALON 2in1',             ratio: 2,  brushOnly: true },
+  { fromSku: 'de107', fromName: 'MITTEL Brush',               toSku: 'de107aaaa', toName: 'MITTEL 4in1',             ratio: 4,  brushOnly: true },
+  { fromSku: 'de116', fromName: 'KRAFT Brush',                toSku: 'de116aaaa', toName: 'KRAFT 4in1',              ratio: 4,  brushOnly: true },
+  { fromSku: 'de117', fromName: 'ZERO Brush',                 toSku: 'de117aa',   toName: 'ZERO 2in1',               ratio: 2,  brushOnly: true },
+  { fromSku: 'de119', fromName: 'GROSSE Brush',               toSku: 'de119aa',   toName: 'GROSSE 2in1',             ratio: 2,  brushOnly: true },
+  { fromSku: 'de120', fromName: 'NANO MASSAGE Brush',         toSku: 'de120aaaa', toName: 'NANO MASSAGE 4in1',       ratio: 4,  brushOnly: true },
+  { fromSku: 'de122', fromName: 'AKTIV Brush',                toSku: 'de122aaaa', toName: 'AKTIV 4in1',              ratio: 4,  brushOnly: true },
+  { fromSku: 'de123', fromName: 'BIO Brush',                  toSku: 'de123aaaa', toName: 'BIO 4in1',                ratio: 4,  brushOnly: true },
 ];
 
 const BUNDLING_WAREHOUSES = [
@@ -47,28 +47,49 @@ const COMPANY_MAP: Record<string, string> = {
   'wh_flp': 'cmp_dee',
 };
 
+const API_BASE = 'https://dasoperator-api.dasexperten.workers.dev';
+
 function fmt(n: number): string {
   return Math.round(n).toLocaleString('ru-RU');
 }
 
-const API_BASE = 'https://dasoperator-api.dasexperten.workers.dev';
+// =============================================================================
+// Per-row state: either "from" side or "to" side was last edited.
+// This lets the user drive from either column.
+// =============================================================================
+type RowInput = { side: 'from' | 'to'; value: number } | null;
 
 export default function BundlingFormClient() {
   const router = useRouter();
   const [warehouseId, setWarehouseId] = useState('wh_lbr');
   const [stocks, setStocks] = useState<Record<string, number>>({});
   const [loadingStocks, setLoadingStocks] = useState(false);
-  const [qtys, setQtys] = useState<Record<number, number>>({});
+
+  // rowInputs[i] = the last side + value the user typed for row i
+  const [rowInputs, setRowInputs] = useState<Record<number, RowInput>>({});
   const [swapped, setSwapped] = useState<Record<number, boolean>>({});
+
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Refs for Enter-key navigation: fromRefs[i] and toRefs[i]
+  const fromRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const toRefs   = useRef<(HTMLInputElement | null)[]>([]);
+
+  useEffect(() => {
+    fromRefs.current = fromRefs.current.slice(0, SKU_PAIRS.length);
+    toRefs.current   = toRefs.current.slice(0, SKU_PAIRS.length);
+  }, []);
 
   useEffect(() => {
     const load = async () => {
       setLoadingStocks(true);
       try {
         const res = await fetch(`${API_BASE}/api/stocks?warehouse_id=${warehouseId}`);
-        const d = await res.json() as { success: boolean; result?: { stocks?: Array<{ product_id: string; on_hand: number }> } };
+        const d = await res.json() as {
+          success: boolean;
+          result?: { stocks?: Array<{ product_id: string; on_hand: number }> };
+        };
         if (d.success && d.result?.stocks) {
           const map: Record<string, number> = {};
           for (const s of d.result.stocks) map[s.product_id] = s.on_hand;
@@ -78,29 +99,72 @@ export default function BundlingFormClient() {
       setLoadingStocks(false);
     };
     load();
-    setQtys({});
+    setRowInputs({});
     setSwapped({});
   }, [warehouseId]);
 
   const handleSwap = (i: number) => {
     setSwapped(prev => ({ ...prev, [i]: !prev[i] }));
-    setQtys(prev => ({ ...prev, [i]: 0 }));
+    setRowInputs(prev => ({ ...prev, [i]: null }));
   };
 
-  const handleQty = (i: number, val: string) => {
+  // Compute derived qty for a row given the input
+  function deriveQtys(i: number, input: RowInput, sw: boolean) {
+    const ratio = SKU_PAIRS[i]!.ratio;
+    if (!input || input.value === 0) return { fromQty: 0, toQty: 0 };
+
+    if (input.side === 'from') {
+      const fromQty = input.value;
+      const toQty   = sw ? fromQty * ratio : Math.floor(fromQty / ratio);
+      return { fromQty, toQty };
+    } else {
+      // side === 'to': user told us how many bundles they want
+      const toQty   = input.value;
+      const fromQty = sw ? Math.floor(toQty / ratio) : toQty * ratio;
+      return { fromQty, toQty };
+    }
+  }
+
+  const handleFromChange = (i: number, val: string) => {
     const n = Math.max(0, parseInt(val) || 0);
-    setQtys(prev => ({ ...prev, [i]: n }));
+    setRowInputs(prev => ({ ...prev, [i]: n > 0 ? { side: 'from', value: n } : null }));
+  };
+
+  const handleToChange = (i: number, val: string) => {
+    const n = Math.max(0, parseInt(val) || 0);
+    setRowInputs(prev => ({ ...prev, [i]: n > 0 ? { side: 'to', value: n } : null }));
+  };
+
+  // Enter key: move to next visible row in the same column
+  const handleFromKeyDown = (i: number, e: React.KeyboardEvent) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    for (let j = i + 1; j < SKU_PAIRS.length; j++) {
+      if (fromRefs.current[j]) { fromRefs.current[j]!.focus(); break; }
+    }
+  };
+
+  const handleToKeyDown = (i: number, e: React.KeyboardEvent) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    for (let j = i + 1; j < SKU_PAIRS.length; j++) {
+      // For brushOnly rows the "to" input doesn't exist — skip
+      if (!SKU_PAIRS[j]?.brushOnly && toRefs.current[j]) {
+        toRefs.current[j]!.focus();
+        break;
+      }
+    }
   };
 
   const activeItems = SKU_PAIRS.map((pair, i) => {
-    const sw = swapped[i] ?? false;
-    const qty = qtys[i] ?? 0;
-    if (qty === 0) return null;
-    const fromSku = sw ? pair.toSku : pair.fromSku;
+    const sw    = swapped[i] ?? false;
+    const input = rowInputs[i] ?? null;
+    const { fromQty, toQty } = deriveQtys(i, input, sw);
+    if (fromQty === 0 || toQty === 0) return null;
+    const fromSku = sw ? pair.toSku   : pair.fromSku;
     const toSku   = sw ? pair.fromSku : pair.toSku;
-    const gets    = sw ? qty * pair.ratio : Math.floor(qty / pair.ratio);
     const dir     = sw ? 'unpack' : 'pack';
-    return { from_product_id: fromSku, to_product_id: toSku, from_qty: qty, to_qty: gets, direction: dir as 'pack' | 'unpack' };
+    return { from_product_id: fromSku, to_product_id: toSku, from_qty: fromQty, to_qty: toQty, direction: dir as 'pack' | 'unpack' };
   }).filter(Boolean);
 
   const totalFrom = activeItems.reduce((s, it) => s + (it?.from_qty ?? 0), 0);
@@ -115,12 +179,16 @@ export default function BundlingFormClient() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          warehouse_id: warehouseId,
+          warehouse_id:   warehouseId,
           our_company_id: COMPANY_MAP[warehouseId] ?? 'cmp_dee',
           items: activeItems,
         }),
       });
-      const d = await res.json() as { success: boolean; result?: { id: string; reference: string }; errors?: Array<{ message: string }> };
+      const d = await res.json() as {
+        success: boolean;
+        result?: { id: string; reference: string };
+        errors?: Array<{ message: string }>;
+      };
       if (d.success && d.result) {
         router.push(`/operations/${d.result.id}`);
       } else {
@@ -180,22 +248,22 @@ export default function BundlingFormClient() {
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', tableLayout: 'fixed' }}>
               <colgroup>
-                <col style={{ width: '28%' }} />
+                <col style={{ width: '27%' }} />
                 <col style={{ width: '9%' }} />
                 <col style={{ width: '9%' }} />
                 <col style={{ width: '5%' }} />
-                <col style={{ width: '28%' }} />
+                <col style={{ width: '27%' }} />
                 <col style={{ width: '9%' }} />
                 <col style={{ width: '9%' }} />
-                <col style={{ width: '3%' }} />
+                <col style={{ width: '5%' }} />
               </colgroup>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>
-                  <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: '14px', color: 'var(--fg-2)', fontWeight: 500 }} id="th-from">Списать</th>
+                  <th style={{ textAlign: 'left',  padding: '8px 12px', fontSize: '14px', color: 'var(--fg-2)', fontWeight: 500 }}>Списать</th>
                   <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: '14px', color: 'var(--fg-2)', fontWeight: 500 }}>Остаток</th>
                   <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: '14px', color: 'var(--fg-2)', fontWeight: 500 }}>Qty</th>
                   <th />
-                  <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: '14px', color: 'var(--fg-2)', fontWeight: 500 }}>Получить</th>
+                  <th style={{ textAlign: 'left',  padding: '8px 12px', fontSize: '14px', color: 'var(--fg-2)', fontWeight: 500 }}>Получить</th>
                   <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: '14px', color: 'var(--fg-2)', fontWeight: 500 }}>Остаток</th>
                   <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: '14px', color: 'var(--fg-2)', fontWeight: 500 }}>Получим</th>
                   <th />
@@ -203,46 +271,61 @@ export default function BundlingFormClient() {
               </thead>
               <tbody>
                 {SKU_PAIRS.map((pair, i) => {
-                  const sw = swapped[i] ?? false;
-                  const fromSku  = sw ? pair.toSku  : pair.fromSku;
-                  const fromName = sw ? pair.toName : pair.fromName;
+                  const sw     = swapped[i] ?? false;
+                  const input  = rowInputs[i] ?? null;
+                  const { fromQty, toQty } = deriveQtys(i, input, sw);
+
+                  const fromSku  = sw ? pair.toSku   : pair.fromSku;
+                  const fromName = sw ? pair.toName  : pair.fromName;
                   const toSku    = sw ? pair.fromSku : pair.toSku;
-                  const toName   = sw ? pair.fromName : pair.toName;
+                  const toName   = sw ? pair.fromName: pair.toName;
                   const fromStk  = stocks[fromSku] ?? 0;
                   const toStk    = stocks[toSku]   ?? 0;
-                  const qty      = qtys[i] ?? 0;
-                  const gets     = qty > 0 ? (sw ? qty * pair.ratio : Math.floor(qty / pair.ratio)) : 0;
-                  const over     = qty > 0 && qty > fromStk;
+                  const over     = fromQty > 0 && fromQty > fromStk;
+
+                  // Display values in inputs — show the one the user typed,
+                  // show the derived one as a calculated value in the other field
+                  const fromDisplay = input?.side === 'from' ? input.value : (fromQty > 0 ? fromQty : '');
+                  const toDisplay   = input?.side === 'to'   ? input.value : (toQty   > 0 ? toQty   : '');
+
+                  const inputStyle = (active: boolean, warn: boolean) => ({
+                    width: '64px',
+                    textAlign: 'right' as const,
+                    padding: '4px 6px',
+                    fontSize: '14px',
+                    fontWeight: 700,
+                    border: `1px solid ${warn ? 'var(--brand-rot)' : active ? 'var(--fg-2)' : 'var(--border-hairline)'}`,
+                    borderRadius: 'var(--radius-sm)',
+                    backgroundColor: active ? 'var(--paper)' : 'var(--paper-sunk)',
+                    color: warn ? 'var(--brand-rot)' : 'var(--fg-1)',
+                    outline: 'none',
+                  });
 
                   return (
                     <tr key={i} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                      {/* FROM name */}
                       <td style={{ padding: '8px 12px' }}>
                         <div style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{fromName}</div>
                         <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{fromSku.toUpperCase()}</div>
                       </td>
+                      {/* FROM stock */}
                       <td style={{ textAlign: 'right', padding: '8px 12px', color: 'var(--fg-3)', fontVariantNumeric: 'tabular-nums' }}>
                         {fmt(fromStk)}
                       </td>
+                      {/* FROM qty input */}
                       <td style={{ textAlign: 'right', padding: '8px 8px' }}>
                         <input
+                          ref={el => { fromRefs.current[i] = el; }}
                           type="number"
                           min="0"
-                          value={qty || ''}
+                          value={fromDisplay}
                           placeholder="0"
-                          onChange={e => handleQty(i, e.target.value)}
-                          style={{
-                            width: '64px',
-                            textAlign: 'right',
-                            padding: '4px 6px',
-                            fontSize: '14px',
-                            fontWeight: 700,
-                            border: `1px solid ${over ? 'var(--brand-rot)' : 'var(--border-hairline)'}`,
-                            borderRadius: 'var(--radius-sm)',
-                            backgroundColor: 'var(--paper-sunk)',
-                            color: over ? 'var(--brand-rot)' : 'var(--fg-1)',
-                          }}
+                          onChange={e => handleFromChange(i, e.target.value)}
+                          onKeyDown={e => handleFromKeyDown(i, e)}
+                          style={inputStyle(input?.side === 'from', over)}
                         />
                       </td>
+                      {/* SWAP / ARROW */}
                       <td style={{ textAlign: 'center', padding: '0 4px' }}>
                         {pair.brushOnly ? (
                           <span style={{ color: 'var(--fg-3)', fontSize: '16px' }}>→</span>
@@ -267,18 +350,41 @@ export default function BundlingFormClient() {
                           </button>
                         )}
                       </td>
+                      {/* TO name */}
                       <td style={{ padding: '8px 12px' }}>
                         <div style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{toName}</div>
                         <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{toSku.toUpperCase()}</div>
                       </td>
+                      {/* TO stock */}
                       <td style={{ textAlign: 'right', padding: '8px 12px', color: 'var(--fg-3)', fontVariantNumeric: 'tabular-nums' }}>
                         {fmt(toStk)}
                       </td>
-                      <td style={{ textAlign: 'right', padding: '8px 12px', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
-                        {gets > 0 ? (
-                          <span style={{ color: 'var(--status-success)' }}>+{fmt(gets)}</span>
+                      {/* TO qty — editable for pastes, read-only display for brushes */}
+                      <td style={{ textAlign: 'right', padding: '8px 8px' }}>
+                        {pair.brushOnly ? (
+                          // Brushes: show derived result, not editable
+                          toQty > 0 ? (
+                            <span style={{ color: 'var(--status-success)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                              +{fmt(toQty)}
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--fg-3)' }}>—</span>
+                          )
                         ) : (
-                          <span style={{ color: 'var(--fg-3)' }}>—</span>
+                          // Pastes: editable from either side
+                          <input
+                            ref={el => { toRefs.current[i] = el; }}
+                            type="number"
+                            min="0"
+                            value={toDisplay}
+                            placeholder="0"
+                            onChange={e => handleToChange(i, e.target.value)}
+                            onKeyDown={e => handleToKeyDown(i, e)}
+                            style={{
+                              ...inputStyle(input?.side === 'to', false),
+                              color: toQty > 0 ? 'var(--status-success)' : 'var(--fg-3)',
+                            }}
+                          />
                         )}
                       </td>
                       <td />

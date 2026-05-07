@@ -7,11 +7,13 @@ import {
   getOperation,
   getPartner,
   getPayments,
+  getStockMovements,
   updateOperationStatus,
   type Operation,
   type OperationLineItem,
   type Partner,
   type Payment,
+  type StockMovement,
 } from '@/lib/api';
 import { formatMoney } from '@/lib/money';
 import Breadcrumb from '@/components/layout/breadcrumb';
@@ -66,7 +68,7 @@ function statusChip(status: string) {
 // =============================================================================
 // Component
 // =============================================================================
-type Tab = 'items' | 'status' | 'documents' | 'payments';
+type Tab = 'items' | 'status' | 'stock' | 'documents' | 'payments';
 
 export default function OperationDetailClient({
   operationId,
@@ -77,6 +79,7 @@ export default function OperationDetailClient({
   const [operation, setOperation] = useState<Operation | null>(null);
   const [lineItems, setLineItems] = useState<OperationLineItem[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>('items');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -84,9 +87,10 @@ export default function OperationDetailClient({
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [opRes, paysRes] = await Promise.all([
+        const [opRes, paysRes, movesRes] = await Promise.all([
           getOperation(operationId),
           getPayments({ operation_id: operationId }),
+          getStockMovements({ source_ref_id: operationId, source: 'operation' }),
         ]);
 
         if (opRes.success && opRes.result) {
@@ -108,6 +112,10 @@ export default function OperationDetailClient({
 
         if (paysRes.success && paysRes.result) {
           setPayments(paysRes.result.payments);
+        }
+
+        if (movesRes.success && movesRes.result) {
+          setStockMovements(movesRes.result.movements);
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
@@ -283,10 +291,11 @@ export default function OperationDetailClient({
         style={{ borderBottom: '1px solid var(--border-hairline)' }}
       >
         {([
-          { id: 'items',     label: 'Line items', count: lineItems.length },
-          { id: 'status',    label: 'Status',     count: null },
-          { id: 'documents', label: 'Documents',  count: 0 }, // placeholder until backend join
-          { id: 'payments',  label: 'Payments',   count: payments.length },
+          { id: 'items',     label: 'Line items',      count: lineItems.length },
+          { id: 'status',    label: 'Status',          count: null },
+          { id: 'stock',     label: 'Stock movements', count: stockMovements.length },
+          { id: 'documents', label: 'Documents',       count: 0 }, // placeholder until backend join
+          { id: 'payments',  label: 'Payments',        count: payments.length },
         ] as { id: Tab; label: string; count: number | null }[]).map((tab) => {
           const isActive = activeTab === tab.id;
           return (
@@ -347,6 +356,10 @@ export default function OperationDetailClient({
             }
           }}
         />
+      )}
+
+      {activeTab === 'stock' && (
+        <StockMovementsTab movements={stockMovements} />
       )}
 
       {activeTab === 'documents' && (
@@ -767,6 +780,125 @@ function PaymentsTab({
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Stock movements tab — physical inventory movements created by this operation.
+// Sale: shipment row at "shipped" status (out wh_from).
+// Purchase: receipt row at "delivered" status (in wh_to).
+// Transfer: out at "shipped" + in at "delivered".
+// Cancellation after shipped writes a return row.
+// =============================================================================
+const MOVEMENT_TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
+  receipt:             { bg: 'rgba(46,125,79,0.08)', fg: 'var(--status-success)' },
+  shipment:            { bg: 'rgba(229,32,44,0.08)', fg: 'var(--brand-rot)' },
+  transfer_in:         { bg: 'rgba(46,125,79,0.08)', fg: 'var(--status-success)' },
+  transfer_out:        { bg: 'rgba(229,32,44,0.08)', fg: 'var(--brand-rot)' },
+  return:              { bg: 'rgba(125,72,28,0.10)', fg: '#7D481C' },
+  adjustment:          { bg: 'var(--paper-sunk)',    fg: 'var(--fg-2)' },
+  session_correction:  { bg: 'var(--paper-sunk)',    fg: 'var(--fg-2)' },
+  sync_correction:     { bg: 'var(--paper-sunk)',    fg: 'var(--fg-2)' },
+  opening_balance:     { bg: 'rgba(31,73,125,0.08)', fg: 'var(--status-info)' },
+  write_off:           { bg: 'rgba(229,32,44,0.08)', fg: 'var(--brand-rot)' },
+};
+
+function movementTypeLabel(t: string): string {
+  return t.replace(/_/g, ' ');
+}
+
+function StockMovementsTab({ movements }: { movements: StockMovement[] }) {
+  if (movements.length === 0) {
+    return (
+      <div
+        className="px-4 py-12 text-center"
+        style={{
+          color: 'var(--fg-3)',
+          fontSize: 'var(--fs-body-sm)',
+          backgroundColor: 'var(--paper-sunk)',
+          border: '1px solid var(--border-hairline)',
+          borderRadius: 'var(--radius-md)',
+        }}
+      >
+        No stock movements yet.
+        <br />
+        <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
+          Movements appear when the operation status moves to{' '}
+          <strong style={{ color: 'var(--fg-2)' }}>shipped</strong> or{' '}
+          <strong style={{ color: 'var(--fg-2)' }}>delivered</strong> (depending on operation type).
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="overflow-hidden"
+      style={{
+        border: '1px solid var(--border-hairline)',
+        borderRadius: 'var(--radius-md)',
+      }}
+    >
+      <table className="w-full" style={{ fontSize: 'var(--fs-body-sm)' }}>
+        <thead>
+          <tr style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>
+            <th className="text-left px-4 py-2" style={{ fontSize: '14px' }}>Date</th>
+            <th className="text-left px-4 py-2" style={{ fontSize: '14px' }}>Warehouse</th>
+            <th className="text-left px-4 py-2" style={{ fontSize: '14px' }}>Product</th>
+            <th className="text-left px-4 py-2" style={{ fontSize: '14px' }}>Type</th>
+            <th className="text-right px-4 py-2" style={{ fontSize: '14px' }}>Quantity</th>
+            <th className="text-right px-4 py-2" style={{ fontSize: '14px' }}>Balance after</th>
+          </tr>
+        </thead>
+        <tbody>
+          {movements.map((m) => {
+            const tc = MOVEMENT_TYPE_COLORS[m.movement_type] ?? { bg: 'var(--paper-sunk)', fg: 'var(--fg-2)' };
+            const positive = m.quantity >= 0;
+            return (
+              <tr key={m.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                <td className="px-4 py-3" style={{ color: 'var(--fg-3)' }}>
+                  {formatDate(m.performed_at)}
+                </td>
+                <td className="px-4 py-3" style={{ color: 'var(--fg-1)', fontWeight: 600 }}>
+                  {m.code ?? m.warehouse_id}
+                </td>
+                <td className="px-4 py-3" style={{ color: 'var(--fg-1)' }}>
+                  <span style={{ fontWeight: 700 }}>{m.product_id.toUpperCase()}</span>
+                  <span style={{ color: 'var(--fg-3)', marginLeft: '8px' }}>{m.product_name ?? ''}</span>
+                </td>
+                <td className="px-4 py-3">
+                  <span
+                    className="inline-block"
+                    style={{
+                      fontSize: '14px',
+                      fontWeight: 500,
+                      padding: '3px 10px',
+                      backgroundColor: tc.bg,
+                      color: tc.fg,
+                      borderRadius: 'var(--radius-pill)',
+                    }}
+                  >
+                    {movementTypeLabel(m.movement_type)}
+                  </span>
+                </td>
+                <td
+                  className="px-4 py-3 text-right"
+                  style={{
+                    color: positive ? 'var(--status-success)' : 'var(--brand-rot)',
+                    fontWeight: 700,
+                  }}
+                >
+                  {positive ? '+' : ''}{m.quantity.toLocaleString('en-US')}
+                </td>
+                <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)', fontWeight: 600 }}>
+                  {m.balance_after.toLocaleString('en-US')}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

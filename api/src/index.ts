@@ -27,6 +27,7 @@ import productsPhotosRoutes from './routes/products-photos';
 import adminMigrationsRoutes from './routes/admin-migrations';
 import marketplacesRoutes from './routes/marketplaces';
 import marketplacesExtrasRoutes from './routes/marketplaces-extras';
+import bundlingRoutes from './routes/bundling';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
 
@@ -75,6 +76,7 @@ app.route('/api/warehouses', warehousesRoutes);
 app.route('/admin', adminMigrationsRoutes);
 app.route('/api/marketplaces', marketplacesRoutes);
 app.route('/api/marketplaces', marketplacesExtrasRoutes);
+app.route('/api/bundling', bundlingRoutes);
 
 export default {
   fetch: app.fetch,

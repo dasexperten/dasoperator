@@ -1,0 +1,18 @@
+{
+  "runtime": "edge",
+  "name": "finance",
+  "deploymentTarget": "v8-worker",
+  "entrypoint": "index.js",
+  "assets": [],
+  "framework": {
+    "slug": "nextjs",
+    "version": "14.2.18"
+  },
+  "environment": {
+    "__NEXT_BUILD_ID": "build-1778178968065",
+    "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY": "guIXlN4vidfFjd9eV4htX3wA/KzJEd38tooG/yOoqNo=",
+    "__NEXT_PREVIEW_MODE_ID": "93b567bfeaa61ff4a9c7bb27296ceec1",
+    "__NEXT_PREVIEW_MODE_ENCRYPTION_KEY": "54d5c20cd369e04dc562d25745be47055cf89d82734189c120149dd264c3e8f7",
+    "__NEXT_PREVIEW_MODE_SIGNING_KEY": "03fa9437912e2ac780bd4570bd71adf766b5b7706106c97765035fe4e2e93966"
+  }
+}

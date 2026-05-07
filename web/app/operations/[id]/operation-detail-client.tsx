@@ -9,11 +9,14 @@ import {
   getPayments,
   getStockMovements,
   updateOperationStatus,
+  getDocuments,
+  issueDocuments,
   type Operation,
   type OperationLineItem,
   type Partner,
   type Payment,
   type StockMovement,
+  type OperationDocument,
 } from '@/lib/api';
 import { formatMoney } from '@/lib/money';
 import Breadcrumb from '@/components/layout/breadcrumb';
@@ -607,47 +610,139 @@ function StatusTab({
 }
 
 // =============================================================================
-// Documents tab — placeholder until parallel chat exposes operation→docs join
+// Documents tab — live data from GET /api/documents?operation_id=...
 // =============================================================================
 function DocumentsTab({ operationId }: { operationId: string }) {
+  const [docs, setDocs] = useState<OperationDocument[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [issuing, setIssuing] = useState(false);
+  const [issueError, setIssueError] = useState<string | null>(null);
+  const [issueSuccess, setIssueSuccess] = useState<string | null>(null);
+
+  const fetchDocs = async () => {
+    const res = await getDocuments({ operation_id: operationId });
+    if (res.success && res.result) setDocs(res.result.documents);
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchDocs(); }, [operationId]);
+
+  const handleIssue = async () => {
+    setIssueError(null);
+    setIssueSuccess(null);
+    setIssuing(true);
+    try {
+      const res = await issueDocuments(operationId);
+      if (res.success && res.result) {
+        const { issued, skipped } = res.result;
+        setIssueSuccess(
+          issued.length > 0
+            ? `Issued: ${issued.join(', ')}${skipped.length > 0 ? ` · Already existed: ${skipped.join(', ')}` : ''}`
+            : `Already up to date — ${skipped.join(', ')}`
+        );
+        await fetchDocs();
+      } else {
+        setIssueError(res.errors?.[0]?.message ?? 'Failed to issue documents');
+      }
+    } catch (e) {
+      setIssueError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setIssuing(false);
+    }
+  };
+
+  const DOC_TYPE_LABELS: Record<string, string> = {
+    CI: 'Commercial Invoice',
+    PL: 'Packing List',
+    'IS-V1': 'Issuance Statement',
+    'IS-V2': 'Issuance Statement v2',
+  };
+
+  const STATUS_STYLE: Record<string, { fg: string; bg: string }> = {
+    issued:   { fg: 'var(--status-success)', bg: 'rgba(46,125,79,0.08)' },
+    draft:    { fg: 'var(--status-warning)', bg: 'rgba(199,122,0,0.08)' },
+    voided:   { fg: 'var(--fg-3)',           bg: 'var(--paper-sunk)' },
+  };
+
   return (
-    <div
-      className="p-6 space-y-3"
-      style={{
-        border: '1px solid var(--border-hairline)',
-        borderRadius: 'var(--radius-md)',
-      }}
-    >
-      <div className="flex justify-between items-center">
-        <p style={{ color: 'var(--fg-2)', fontSize: 'var(--fs-body-sm)' }}>
-          Documents will appear here once issued.
+    <div style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+      <div className="flex justify-between items-center px-4 py-3" style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>
+        <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)', margin: 0 }}>
+          {loading ? 'Documents' : `Documents${docs.length > 0 ? ` (${docs.length})` : ''}`}
         </p>
         <button
-          disabled
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm"
-          style={{
-            backgroundColor: 'var(--paper-sunk)',
-            border: '1px solid var(--border-hairline)',
-            borderRadius: 'var(--radius-sm)',
-            color: 'var(--fg-2)',
-            opacity: 0.6,
-            cursor: 'not-allowed',
-          }}
-          title="Issue Document UI lands in next PR"
+          onClick={handleIssue}
+          disabled={issuing}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 14px', fontSize: '14px', fontWeight: 600, border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper)', color: 'var(--fg-1)', cursor: issuing ? 'not-allowed' : 'pointer', opacity: issuing ? 0.6 : 1 }}
         >
-          <Plus className="h-4 w-4" />
-          Issue document
+          {issuing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+          Issue documents
         </button>
       </div>
-      <p style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
-        Available types: Commercial invoice · Packing list · Issuance statement
-      </p>
-      <p style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
-        Operation id: {operationId}
-      </p>
+      {issueSuccess && (
+        <div style={{ padding: '10px 16px', backgroundColor: 'rgba(46,125,79,0.08)', borderBottom: '1px solid var(--border-hairline)' }}>
+          <p style={{ fontSize: '14px', color: 'var(--status-success)', margin: 0 }}>{issueSuccess}</p>
+        </div>
+      )}
+      {issueError && (
+        <div style={{ padding: '10px 16px', backgroundColor: 'rgba(229,32,44,0.08)', borderBottom: '1px solid var(--border-hairline)' }}>
+          <p style={{ fontSize: '14px', color: 'var(--brand-rot)', margin: 0 }}>{issueError}</p>
+        </div>
+      )}
+      {loading ? (
+        <div className="flex justify-center py-10">
+          <Loader2 className="h-5 w-5 animate-spin" style={{ color: 'var(--fg-3)' }} />
+        </div>
+      ) : docs.length === 0 ? (
+        <div style={{ padding: '32px 16px', textAlign: 'center' }}>
+          <p style={{ fontSize: '14px', color: 'var(--fg-3)', margin: '0 0 4px' }}>No documents yet</p>
+          <p style={{ fontSize: '14px', color: 'var(--fg-3)', margin: 0 }}>Click Issue documents to generate CI and PL</p>
+        </div>
+      ) : (
+        <table className="w-full" style={{ fontSize: '14px' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>
+              <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Document</th>
+              <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Type</th>
+              <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Date</th>
+              <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Status</th>
+              <th className="text-right px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>File</th>
+            </tr>
+          </thead>
+          <tbody>
+            {docs.map((doc) => {
+              const statusStyle = STATUS_STYLE[doc.status] ?? STATUS_STYLE.draft!;
+              const typeLabel = DOC_TYPE_LABELS[doc.document_type] ?? doc.document_type;
+              const date = doc.document_date ? new Date(doc.document_date * 1000).toISOString().split('T')[0] : '—';
+              return (
+                <tr key={doc.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                  <td className="px-4 py-3" style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{doc.document_number}</td>
+                  <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>{typeLabel}</td>
+                  <td className="px-4 py-3" style={{ color: 'var(--fg-3)' }}>{date}</td>
+                  <td className="px-4 py-3">
+                    <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '999px', fontSize: '14px', fontWeight: 500, color: statusStyle.fg, backgroundColor: statusStyle.bg }}>
+                      {doc.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {doc.pdf_r2_url ? (
+                      <a href={`https://dasoperator-api.dasexperten.workers.dev/api/documents/${doc.id}/download`} target="_blank" rel="noopener noreferrer" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--brand-rot)', textDecoration: 'none' }}>
+                        Download
+                      </a>
+                    ) : (
+                      <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
+
 
 // =============================================================================
 // Payments tab

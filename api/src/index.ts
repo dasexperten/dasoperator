@@ -28,6 +28,7 @@ import adminMigrationsRoutes from './routes/admin-migrations';
 import marketplacesRoutes from './routes/marketplaces';
 import marketplacesExtrasRoutes from './routes/marketplaces-extras';
 import bundlingRoutes from './routes/bundling';
+import banksModulbankRoutes from './routes/banks-modulbank';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
 
@@ -49,7 +50,7 @@ app.notFound((c) => {
   );
 });
 
-app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.7.0', phase: '6.0-marketplace-integration' }));
+app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.8.0', phase: '7.0-bank-integration' }));
 app.route('/health', healthRoutes);
 app.route('/api/products', productsRoutes);
 app.route('/api/products', productsPricingRoutes);  // adds :productId/price
@@ -77,6 +78,7 @@ app.route('/admin', adminMigrationsRoutes);
 app.route('/api/marketplaces', marketplacesRoutes);
 app.route('/api/marketplaces', marketplacesExtrasRoutes);
 app.route('/api/bundling', bundlingRoutes);
+app.route('/api/banks/modulbank', banksModulbankRoutes);
 
 export default {
   fetch: app.fetch,

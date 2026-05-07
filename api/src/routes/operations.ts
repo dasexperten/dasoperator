@@ -569,6 +569,7 @@ operations.get('/', async (c) => {
     SELECT
       o.id, o.contract_id, ct.contract_no,
       o.partner_id, p.trade_name as partner_trade_name,
+      o.manufacturer_id, mfr.name as manufacturer_name,
       o.our_company_id, co.abbreviation as entity_abbreviation,
       o.operation_type, o.operation_date,
       o.warehouse_from_id, o.warehouse_to_id,
@@ -585,6 +586,7 @@ operations.get('/', async (c) => {
     FROM operations o
     LEFT JOIN contracts ct ON o.contract_id = ct.id
     LEFT JOIN partners p ON o.partner_id = p.id
+    LEFT JOIN manufacturers mfr ON o.manufacturer_id = mfr.id
     LEFT JOIN companies co ON o.our_company_id = co.id
     WHERE o.deleted_at IS NULL
   `;
@@ -626,10 +628,12 @@ operations.get('/:id', async (c) => {
       o.*,
       ct.contract_no, ct.currency as contract_currency,
       p.trade_name as partner_trade_name,
+      mfr.name as manufacturer_name,
       co.abbreviation as entity_abbreviation
     FROM operations o
     LEFT JOIN contracts ct ON o.contract_id = ct.id
     LEFT JOIN partners p ON o.partner_id = p.id
+    LEFT JOIN manufacturers mfr ON o.manufacturer_id = mfr.id
     LEFT JOIN companies co ON o.our_company_id = co.id
     WHERE o.id = ? AND o.deleted_at IS NULL
   `).bind(opId).first<Record<string, unknown>>();

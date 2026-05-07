@@ -1298,6 +1298,45 @@ export async function getMarketplaceSales() {
 }
 
 // =============================================================================
+// Documents — Phase 3.0e
+// =============================================================================
+
+export interface OperationDocument {
+  id: string;
+  document_number: string;
+  document_type: string;
+  operation_id: string | null;
+  issuer_id: string;
+  partner_id: string | null;
+  contract_ref: string | null;
+  document_date: number;
+  currency: string | null;
+  total_amount: number | null;
+  pdf_r2_url: string | null;
+  status: string;
+  issuer_name: string | null;
+  partner_name: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface DocumentsListResponse {
+  documents: OperationDocument[];
+  count: number;
+}
+
+export async function getDocuments(filters: { operation_id?: string; partner_id?: string }) {
+  const params = new URLSearchParams();
+  if (filters.operation_id) params.set('operation_id', filters.operation_id);
+  if (filters.partner_id) params.set('partner_id', filters.partner_id);
+  return apiGet<DocumentsListResponse>(`/api/documents?${params.toString()}`);
+}
+
+export async function issueDocuments(operation_id: string) {
+  return apiPost<{ issued: string[]; skipped: string[] }>('/api/documents/issue', { operation_id });
+}
+
+// =============================================================================
 // Inventory actions — Phase 4.5
 // =============================================================================
 

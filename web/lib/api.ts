@@ -1396,6 +1396,15 @@ export interface BankAccount {
   company_abbreviation: string;
   company_legal_name: string;
   company_tax_id: string | null;
+  company_kpp: string | null;
+  company_ogrn: string | null;
+  company_registered_address: string | null;
+  bank_name: string | null;
+  bank_legal_name: string | null;
+  bank_legal_name_ru: string | null;
+  bank_bic: string | null;
+  bank_swift: string | null;
+  bank_correspondent_account: string | null;
 }
 
 export interface BankTransaction {

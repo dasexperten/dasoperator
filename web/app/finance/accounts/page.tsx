@@ -2,21 +2,22 @@
 
 export const runtime = 'edge';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Loader2, ChevronLeft, CheckCircle2, Circle, RefreshCw } from 'lucide-react';
+import { Loader2, ChevronLeft, RefreshCw, Copy, CheckCircle2, ListOrdered } from 'lucide-react';
 import { getBankAccounts, syncBankHistory, type BankAccount } from '@/lib/api';
 
-function formatBalance(minor: number, currency: string): string {
-  const factor = ['VND', 'JPY', 'KRW'].includes(currency) ? 1 : 100;
-  return (minor / factor).toLocaleString('en-US', {
-    minimumFractionDigits: factor === 1 ? 0 : 2,
-    maximumFractionDigits: factor === 1 ? 0 : 2,
-  });
-}
+// Hard-coded entity list — the four Das Experten companies. Activation status comes from
+// whether any returned BankAccount belongs to this entity with api_enabled = 1.
+const ENTITIES = [
+  { abbr: 'DEE',     name: 'Das Experten Eurasia LLC' },
+  { abbr: 'DEI',     name: 'Das Experten International LLC' },
+  { abbr: 'DEASEAN', name: 'Das Experten ASEAN Co. Ltd.' },
+  { abbr: 'DEC',     name: 'Das Experten Corporation' },
+] as const;
 
 function formatLastSync(unix: number | null): string {
-  if (!unix) return '—';
+  if (!unix) return 'Never';
   const date = new Date(unix * 1000);
   const now = Date.now();
   const diff = (now - date.getTime()) / 1000;
@@ -26,12 +27,55 @@ function formatLastSync(unix: number | null): string {
   return date.toISOString().split('T')[0]!;
 }
 
-export default function BankAccountsPage() {
+function CopyableRow({ label, value }: { label: string; value: string | null }) {
+  const [copied, setCopied] = useState(false);
+
+  if (!value) return null;
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(value!);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard not available */
+    }
+  }
+
+  return (
+    <div
+      onClick={handleCopy}
+      className="flex items-center justify-between py-2 cursor-pointer group"
+      style={{ borderBottom: '1px solid var(--line-1)' }}
+    >
+      <div style={{ fontSize: '14px', color: 'var(--fg-2)', fontWeight: 700, minWidth: '140px' }}>
+        {label}
+      </div>
+      <div className="flex items-center gap-2">
+        <div style={{
+          fontSize: '14px',
+          fontFamily: 'Manrope, sans-serif',
+          fontWeight: 700,
+          color: 'var(--fg-1)',
+        }}>
+          {value}
+        </div>
+        {copied
+          ? <CheckCircle2 className="h-4 w-4" style={{ color: 'var(--status-success)' }} />
+          : <Copy className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--fg-3)' }} />}
+      </div>
+    </div>
+  );
+}
+
+export default function BankReferencePage() {
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [syncing, setSyncing] = useState<string | null>(null); // 'all' | account_id | null
+  const [syncing, setSyncing] = useState<string | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [activeEntity, setActiveEntity] = useState<string>('DEE');
+  const [activeCurrency, setActiveCurrency] = useState<string | null>(null);
 
   async function loadAccounts() {
     setLoading(true);
@@ -52,6 +96,34 @@ export default function BankAccountsPage() {
 
   useEffect(() => { loadAccounts(); }, []);
 
+  // Group accounts by entity to compute activation status
+  const accountsByEntity = useMemo(() => {
+    const map: Record<string, BankAccount[]> = {};
+    for (const acc of accounts) {
+      const key = acc.company_abbreviation;
+      if (!map[key]) map[key] = [];
+      map[key].push(acc);
+    }
+    return map;
+  }, [accounts]);
+
+  // Accounts of the currently selected entity
+  const entityAccounts = accountsByEntity[activeEntity] ?? [];
+
+  // Default-select the first currency once data lands
+  useEffect(() => {
+    if (entityAccounts.length > 0 && !activeCurrency) {
+      const defaultAcc = entityAccounts.find((a) => a.is_default) ?? entityAccounts[0]!;
+      setActiveCurrency(defaultAcc.currency);
+    }
+    if (entityAccounts.length > 0 && activeCurrency &&
+        !entityAccounts.some((a) => a.currency === activeCurrency)) {
+      setActiveCurrency(entityAccounts[0]!.currency);
+    }
+  }, [entityAccounts, activeCurrency]);
+
+  const selectedAccount = entityAccounts.find((a) => a.currency === activeCurrency) ?? null;
+
   async function handleSync(accountId?: string) {
     setSyncing(accountId ?? 'all');
     setSyncMessage(null);
@@ -61,7 +133,7 @@ export default function BankAccountsPage() {
         const r = res.result;
         setSyncMessage(
           `Synced ${r.accounts_synced} account${r.accounts_synced === 1 ? '' : 's'}: ` +
-          `${r.total_inserted} new, ${r.total_updated} updated, ${r.total_fetched} fetched total.`
+          `${r.total_inserted} new, ${r.total_updated} updated.`
         );
         await loadAccounts();
       } else {
@@ -74,8 +146,11 @@ export default function BankAccountsPage() {
     }
   }
 
+  const activeEntityInfo = ENTITIES.find((e) => e.abbr === activeEntity)!;
+  const isActiveEntityActivated = (accountsByEntity[activeEntity] ?? []).some((a) => a.api_enabled === 1);
+
   return (
-    <div className="px-8 py-6 max-w-7xl">
+    <div className="px-8 py-6 max-w-6xl">
       <div className="mb-4">
         <Link
           href="/finance"
@@ -83,62 +158,69 @@ export default function BankAccountsPage() {
           style={{ fontSize: '14px', color: 'var(--fg-2)' }}
         >
           <ChevronLeft className="h-4 w-4" />
-          Finance
+          Transactions
         </Link>
       </div>
 
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 style={{
-            fontFamily: 'Plus Jakarta Sans, sans-serif',
-            fontSize: '24px',
-            fontWeight: 700,
-            color: 'var(--fg-1)',
-            textTransform: 'uppercase',
-            letterSpacing: 0,
-            marginBottom: '8px',
-          }}>
-            Bank Accounts
-          </h1>
-          <p style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
-            Bank accounts linked through API integration. Webhook receives new transactions automatically.
-          </p>
-        </div>
-        <button
-          onClick={() => handleSync()}
-          disabled={syncing !== null}
-          className="flex items-center gap-2 px-4 py-2"
-          style={{
-            border: '1px solid var(--line-1)',
-            borderRadius: 'var(--radius-sm)',
-            backgroundColor: 'var(--paper)',
-            color: 'var(--fg-1)',
-            fontSize: '14px',
-            fontWeight: 700,
-            cursor: syncing !== null ? 'not-allowed' : 'pointer',
-            opacity: syncing !== null ? 0.6 : 1,
-          }}
-        >
-          {syncing === 'all' ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4" />
-          )}
-          Sync All History
-        </button>
+      <div className="mb-6">
+        <h1 style={{
+          fontFamily: 'Plus Jakarta Sans, sans-serif',
+          fontSize: '24px',
+          fontWeight: 700,
+          color: 'var(--fg-1)',
+          textTransform: 'uppercase',
+          letterSpacing: 0,
+          marginBottom: '8px',
+        }}>
+          Bank Reference
+        </h1>
+        <p style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
+          Bank account details for each entity. Click any value to copy.
+        </p>
+      </div>
+
+      {/* Entity selector — row of buttons */}
+      <div className="mb-6 flex flex-wrap gap-2">
+        {ENTITIES.map((ent) => {
+          const activated = (accountsByEntity[ent.abbr] ?? []).some((a) => a.api_enabled === 1);
+          const isActive = ent.abbr === activeEntity;
+          return (
+            <button
+              key={ent.abbr}
+              onClick={() => { setActiveEntity(ent.abbr); setActiveCurrency(null); }}
+              disabled={!activated}
+              className="flex flex-col items-start px-5 py-3 transition-colors"
+              style={{
+                border: isActive ? '2px solid var(--brand-rot)' : '1px solid var(--line-1)',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: isActive ? 'var(--paper)' : (activated ? 'var(--paper)' : 'var(--paper-sunk)'),
+                color: activated ? 'var(--fg-1)' : 'var(--fg-3)',
+                fontSize: '14px',
+                cursor: activated ? 'pointer' : 'not-allowed',
+                opacity: activated ? 1 : 0.6,
+                minWidth: '160px',
+              }}
+            >
+              <div style={{
+                fontSize: '18px',
+                fontWeight: 700,
+                color: isActive ? 'var(--brand-rot)' : (activated ? 'var(--fg-1)' : 'var(--fg-3)'),
+              }}>
+                {ent.abbr}
+              </div>
+              <div style={{ fontSize: '14px', color: 'var(--fg-2)', marginTop: '2px' }}>
+                {activated ? 'Activated' : 'Not activated'}
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       {syncMessage && (
-        <div
-          className="mb-4 px-4 py-3"
-          style={{
-            backgroundColor: 'var(--paper-sunk)',
-            border: '1px solid var(--line-1)',
-            borderRadius: 'var(--radius-sm)',
-            fontSize: '14px',
-            color: 'var(--fg-1)',
-          }}
-        >
+        <div className="mb-4 px-4 py-3" style={{
+          backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--line-1)',
+          borderRadius: 'var(--radius-sm)', fontSize: '14px', color: 'var(--fg-1)',
+        }}>
           {syncMessage}
         </div>
       )}
@@ -151,98 +233,166 @@ export default function BankAccountsPage() {
       )}
 
       {error && (
-        <div style={{ color: 'var(--status-danger)', fontSize: '14px' }}>
-          Error: {error}
-        </div>
+        <div style={{ color: 'var(--status-danger)', fontSize: '14px' }}>Error: {error}</div>
       )}
 
-      {!loading && !error && accounts.length === 0 && (
-        <div style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
-          No bank accounts with API integration yet.
-        </div>
-      )}
-
-      {!loading && accounts.length > 0 && (
+      {/* Entity card */}
+      {!loading && (
         <div style={{
           border: '1px solid var(--line-1)',
           borderRadius: 'var(--radius-md)',
           backgroundColor: 'var(--paper)',
-          overflow: 'hidden',
+          padding: '24px',
         }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-            <thead>
-              <tr style={{ backgroundColor: 'var(--paper-sunk)', borderBottom: '1px solid var(--line-1)' }}>
-                <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--fg-2)', fontWeight: 700 }}>Entity</th>
-                <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--fg-2)', fontWeight: 700 }}>Bank</th>
-                <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--fg-2)', fontWeight: 700 }}>Account</th>
-                <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--fg-2)', fontWeight: 700 }}>Currency</th>
-                <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--fg-2)', fontWeight: 700 }}>API</th>
-                <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--fg-2)', fontWeight: 700 }}>Last Sync</th>
-                <th style={{ textAlign: 'right', padding: '12px 16px', color: 'var(--fg-2)', fontWeight: 700 }}>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {accounts.map((acc) => (
-                <tr key={acc.id} style={{ borderBottom: '1px solid var(--line-1)' }}>
-                  <td style={{ padding: '12px 16px', fontWeight: 700, color: 'var(--fg-1)' }}>
-                    {acc.company_abbreviation}
-                  </td>
-                  <td style={{ padding: '12px 16px', color: 'var(--fg-1)' }}>
-                    {acc.bank_provider_id === 'bp_modulbank' ? 'Modulbank' : acc.bank_provider_id ?? '—'}
-                  </td>
-                  <td style={{ padding: '12px 16px', fontFamily: 'Manrope, sans-serif', color: 'var(--fg-1)' }}>
-                    {acc.account_number}
-                  </td>
-                  <td style={{ padding: '12px 16px', fontWeight: 700, color: 'var(--fg-1)' }}>
-                    {acc.currency}
-                  </td>
-                  <td style={{ padding: '12px 16px' }}>
-                    {acc.api_enabled ? (
-                      <span className="inline-flex items-center gap-1" style={{ color: 'var(--status-success)' }}>
-                        <CheckCircle2 className="h-4 w-4" />
-                        Connected
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1" style={{ color: 'var(--fg-3)' }}>
-                        <Circle className="h-4 w-4" />
-                        Manual
-                      </span>
-                    )}
-                  </td>
-                  <td style={{ padding: '12px 16px', color: 'var(--fg-2)' }}>
-                    {formatLastSync(acc.last_sync_at)}
-                  </td>
-                  <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                    {acc.api_enabled ? (
-                      <button
-                        onClick={() => handleSync(acc.id)}
-                        disabled={syncing !== null}
-                        className="inline-flex items-center gap-1 px-3 py-1"
-                        style={{
-                          border: '1px solid var(--line-1)',
-                          borderRadius: 'var(--radius-sm)',
-                          backgroundColor: 'var(--paper)',
-                          color: 'var(--fg-1)',
-                          fontSize: '14px',
-                          cursor: syncing !== null ? 'not-allowed' : 'pointer',
-                          opacity: syncing !== null ? 0.6 : 1,
-                        }}
-                      >
-                        {syncing === acc.id ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <RefreshCw className="h-3 w-3" />
-                        )}
-                        Sync
-                      </button>
-                    ) : (
-                      <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {/* Company header */}
+          <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
+            <div>
+              <div style={{
+                fontFamily: 'Plus Jakarta Sans, sans-serif',
+                fontSize: '18px',
+                fontWeight: 700,
+                color: 'var(--fg-1)',
+                textTransform: 'uppercase',
+              }}>
+                {activeEntityInfo.name}
+              </div>
+              {selectedAccount?.company_tax_id && (
+                <div style={{ fontSize: '14px', color: 'var(--fg-2)', marginTop: '4px' }}>
+                  INN {selectedAccount.company_tax_id}
+                  {selectedAccount.company_kpp && ` · KPP ${selectedAccount.company_kpp}`}
+                  {selectedAccount.company_ogrn && ` · OGRN ${selectedAccount.company_ogrn}`}
+                </div>
+              )}
+              {selectedAccount?.bank_name && (
+                <div style={{ fontSize: '14px', color: 'var(--fg-2)', marginTop: '2px' }}>
+                  Bank: <strong>{selectedAccount.bank_name}</strong>
+                  {selectedAccount.bank_legal_name_ru && ` (${selectedAccount.bank_legal_name_ru})`}
+                </div>
+              )}
+            </div>
+
+            {isActiveEntityActivated && (
+              <button
+                onClick={() => handleSync()}
+                disabled={syncing !== null}
+                className="flex items-center gap-2 px-4 py-2"
+                style={{
+                  border: '1px solid var(--line-1)',
+                  borderRadius: 'var(--radius-sm)',
+                  backgroundColor: 'var(--paper)',
+                  color: 'var(--fg-1)',
+                  fontSize: '14px',
+                  fontWeight: 700,
+                  cursor: syncing !== null ? 'not-allowed' : 'pointer',
+                  opacity: syncing !== null ? 0.6 : 1,
+                }}
+              >
+                {syncing === 'all'
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <RefreshCw className="h-4 w-4" />}
+                Sync All History
+              </button>
+            )}
+          </div>
+
+          {!isActiveEntityActivated && (
+            <div style={{
+              padding: '24px',
+              backgroundColor: 'var(--paper-sunk)',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: '14px',
+              color: 'var(--fg-2)',
+              textAlign: 'center',
+            }}>
+              This entity is not activated yet. Bank API integration will be added when its bank provides API access.
+            </div>
+          )}
+
+          {/* Currency tabs */}
+          {entityAccounts.length > 0 && (
+            <>
+              <div className="flex flex-wrap gap-2 mb-4">
+                {entityAccounts.map((acc) => {
+                  const isActive = acc.currency === activeCurrency;
+                  return (
+                    <button
+                      key={acc.id}
+                      onClick={() => setActiveCurrency(acc.currency)}
+                      className="px-4 py-2"
+                      style={{
+                        border: isActive ? '1px solid var(--brand-rot)' : '1px solid var(--line-1)',
+                        borderRadius: 'var(--radius-sm)',
+                        backgroundColor: isActive ? 'var(--brand-rot)' : 'var(--paper)',
+                        color: isActive ? 'var(--paper)' : 'var(--fg-1)',
+                        fontSize: '14px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        minWidth: '60px',
+                      }}
+                    >
+                      {acc.currency}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Three-line reference card for selected currency */}
+              {selectedAccount && (
+                <div style={{
+                  backgroundColor: 'var(--paper-sunk)',
+                  border: '1px solid var(--line-1)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '16px 20px',
+                }}>
+                  <CopyableRow label="Account number" value={selectedAccount.account_number} />
+                  <CopyableRow label="BIC" value={selectedAccount.bank_bic} />
+                  <CopyableRow label="SWIFT" value={selectedAccount.bank_swift} />
+                  <CopyableRow label="Correspondent account" value={selectedAccount.bank_correspondent_account} />
+
+                  {/* Sync status row */}
+                  <div className="flex items-center justify-between pt-3 mt-2" style={{ borderTop: '1px solid var(--line-1)' }}>
+                    <div style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
+                      Last sync: <strong>{formatLastSync(selectedAccount.last_sync_at)}</strong>
+                    </div>
+                    <button
+                      onClick={() => handleSync(selectedAccount.id)}
+                      disabled={syncing !== null}
+                      className="flex items-center gap-1 px-3 py-1"
+                      style={{
+                        border: '1px solid var(--line-1)',
+                        borderRadius: 'var(--radius-sm)',
+                        backgroundColor: 'var(--paper)',
+                        color: 'var(--fg-1)',
+                        fontSize: '14px',
+                        fontWeight: 700,
+                        cursor: syncing !== null ? 'not-allowed' : 'pointer',
+                        opacity: syncing !== null ? 0.6 : 1,
+                      }}
+                    >
+                      {syncing === selectedAccount.id
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : <RefreshCw className="h-3 w-3" />}
+                      Sync this currency
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Quick link to filtered transactions */}
+              {selectedAccount && (
+                <div className="mt-4">
+                  <Link
+                    href={`/finance?account=${selectedAccount.id}`}
+                    className="inline-flex items-center gap-2 text-sm"
+                    style={{ color: 'var(--brand-rot)', fontSize: '14px', fontWeight: 700 }}
+                  >
+                    <ListOrdered className="h-4 w-4" />
+                    View transactions for this account
+                  </Link>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>

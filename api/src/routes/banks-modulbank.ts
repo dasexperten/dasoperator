@@ -278,6 +278,8 @@ banksModulbank.get('/transactions/:id', async (c) => {
 
 // =============================================================================
 // GET /api/banks/modulbank/accounts — list company bank accounts linked to Modulbank
+// Now also returns bank reference fields (BIC, SWIFT, correspondent_account, bank_legal_name)
+// from the bank_providers row, which power the Bank Reference UI.
 // =============================================================================
 banksModulbank.get('/accounts', async (c) => {
   const result = await c.env.DB.prepare(`
@@ -287,9 +289,15 @@ banksModulbank.get('/accounts', async (c) => {
       cba.external_account_id, cba.external_company_id, cba.api_enabled,
       cba.last_sync_at,
       co.abbreviation as company_abbreviation, co.legal_name as company_legal_name,
-      co.tax_id as company_tax_id
+      co.tax_id as company_tax_id, co.kpp as company_kpp, co.ogrn as company_ogrn,
+      co.registered_address as company_registered_address,
+      bp.name as bank_name,
+      bp.bank_legal_name, bp.bank_legal_name_ru,
+      bp.bic as bank_bic, bp.swift as bank_swift,
+      bp.correspondent_account as bank_correspondent_account
     FROM company_bank_accounts cba
     JOIN companies co ON cba.company_id = co.id
+    LEFT JOIN bank_providers bp ON cba.bank_provider_id = bp.id
     WHERE cba.deleted_at IS NULL
       AND cba.bank_provider_id = 'bp_modulbank'
     ORDER BY co.abbreviation, cba.account_purpose

@@ -1248,3 +1248,43 @@ export interface MarketplaceSyncLogResponse {
 export async function getMarketplaceSyncLog(limit = 20) {
   return apiGet<MarketplaceSyncLogResponse>(`/api/marketplaces/sync/log?limit=${limit}`);
 }
+
+
+// =============================================================================
+// Marketplace sales (Phase 6.1)
+// =============================================================================
+
+export interface MarketplaceSalesTotal {
+  units_sold: number;
+  revenue_rub: number;        // in kopecks (₽ × 100)
+  synced_at: number | null;
+}
+
+export interface MarketplaceSalesDailyRow {
+  marketplace: 'ozon' | 'wb';
+  date: string;               // YYYY-MM-DD
+  units_sold: number;
+  revenue_rub: number;
+}
+
+export interface MarketplaceSalesTopRow {
+  sku: string;
+  product_name: string;
+  ozon_units: number;
+  ozon_revenue: number;
+  wb_units: number;
+  wb_revenue: number;
+}
+
+export interface MarketplaceSalesResponse {
+  totals: {
+    ozon: MarketplaceSalesTotal;
+    wb: MarketplaceSalesTotal;
+  };
+  daily: MarketplaceSalesDailyRow[];
+  top_skus: MarketplaceSalesTopRow[];
+}
+
+export async function getMarketplaceSales() {
+  return apiGet<MarketplaceSalesResponse>('/api/marketplaces/sales');
+}

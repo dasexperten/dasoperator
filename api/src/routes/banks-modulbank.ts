@@ -301,4 +301,217 @@ banksModulbank.get('/accounts', async (c) => {
   });
 });
 
+// =============================================================================
+// POST /api/banks/modulbank/sync-history
+// Pulls historical operations from Modulbank for one or all linked accounts and
+// stores them in bank_transactions. Idempotent — UNIQUE(account_id, external_id)
+// prevents duplicates on re-run.
+//
+// Body (all optional):
+//   account_id: string  — sync only this account; default: all api_enabled DEE accounts
+//   from: string        — yyyy-MM-dd; default: 90 days ago
+//   till: string        — yyyy-MM-dd; default: today
+//   page_size: number   — Modulbank max 50; default: 50
+//   max_pages: number   — safety cap; default: 50 (= up to 2500 ops per account)
+//
+// Response: per-account summary { account_id, fetched, inserted, updated, errors }.
+// =============================================================================
+const syncHistorySchema = z.object({
+  account_id: z.string().optional(),
+  from: z.string().optional(),
+  till: z.string().optional(),
+  page_size: z.number().int().min(1).max(50).optional(),
+  max_pages: z.number().int().min(1).max(200).optional(),
+});
+
+banksModulbank.post('/sync-history', async (c) => {
+  if (!c.env.MODULBANK_TOKEN_DEE) {
+    return fail(c, 'no_token', 'MODULBANK_TOKEN_DEE secret not configured', 503);
+  }
+
+  let body: z.infer<typeof syncHistorySchema>;
+  try {
+    const json = await c.req.json().catch(() => ({}));
+    body = syncHistorySchema.parse(json);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'parse error';
+    return fail(c, 'invalid_body', `Invalid sync request: ${msg}`, 400);
+  }
+
+  const pageSize = body.page_size ?? 50;
+  const maxPages = body.max_pages ?? 50;
+
+  // Default date range: last 90 days
+  const today = new Date();
+  const ninetyDaysAgo = new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000);
+  const from = body.from ?? ninetyDaysAgo.toISOString().slice(0, 10);
+  const till = body.till ?? today.toISOString().slice(0, 10);
+
+  // Pick accounts to sync
+  let accountsSql = `
+    SELECT id, account_number, external_account_id, webhook_signature_prefix
+    FROM company_bank_accounts
+    WHERE deleted_at IS NULL
+      AND bank_provider_id = 'bp_modulbank'
+      AND api_enabled = 1
+      AND external_account_id IS NOT NULL
+  `;
+  const accountsBinds: unknown[] = [];
+  if (body.account_id) {
+    accountsSql += ` AND id = ?`;
+    accountsBinds.push(body.account_id);
+  }
+
+  const accountsResult = accountsBinds.length
+    ? await c.env.DB.prepare(accountsSql).bind(...accountsBinds).all<{
+        id: string; account_number: string; external_account_id: string;
+        webhook_signature_prefix: string | null;
+      }>()
+    : await c.env.DB.prepare(accountsSql).all<{
+        id: string; account_number: string; external_account_id: string;
+        webhook_signature_prefix: string | null;
+      }>();
+
+  const accounts = accountsResult.results ?? [];
+  if (accounts.length === 0) {
+    return fail(c, 'no_accounts', 'No Modulbank-linked accounts found to sync', 404);
+  }
+
+  const summary: Array<{
+    account_id: string;
+    account_number: string;
+    fetched: number;
+    inserted: number;
+    updated: number;
+    pages: number;
+    error?: string;
+  }> = [];
+
+  for (const acc of accounts) {
+    let fetched = 0;
+    let inserted = 0;
+    let updated = 0;
+    let pages = 0;
+    let errorMsg: string | undefined;
+
+    try {
+      // Paginate through Modulbank operation history
+      for (let page = 0; page < maxPages; page++) {
+        const skip = page * pageSize;
+        const url = `https://api.modulbank.ru/v1/operation-history/${acc.external_account_id}`;
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${c.env.MODULBANK_TOKEN_DEE}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            from: `${from}T00:00:00`,
+            till: `${till}T23:59:59`,
+            skip,
+            records: pageSize,
+          }),
+        });
+
+        if (!resp.ok) {
+          errorMsg = `Modulbank HTTP ${resp.status}: ${(await resp.text()).slice(0, 200)}`;
+          break;
+        }
+
+        const ops = await resp.json() as Array<z.infer<typeof operationSchema>>;
+        if (!Array.isArray(ops) || ops.length === 0) break;
+
+        pages++;
+        fetched += ops.length;
+
+        // Insert each operation. ON CONFLICT counts as update.
+        for (const opRaw of ops) {
+          let op: z.infer<typeof operationSchema>;
+          try {
+            op = operationSchema.parse(opRaw);
+          } catch {
+            continue; // skip malformed rows, keep going
+          }
+
+          const direction = op.category === 'Debet' ? 'incoming' : 'outgoing';
+          const currency = normaliseCurrency(op.currency);
+          const amountMinor = Math.round(op.amount * 100);
+          const executedAt = isoToUnix(op.executed);
+          const createdAtBank = isoToUnix(op.created);
+          const now = Math.floor(Date.now() / 1000);
+          const txId = `btx_${crypto.randomUUID()}`;
+
+          const result = await c.env.DB.prepare(`
+            INSERT INTO bank_transactions (
+              id, company_bank_account_id,
+              external_id, external_abs_id, external_doc_number,
+              direction, status, amount, currency,
+              executed_at, created_at_bank,
+              contragent_name, contragent_inn, contragent_kpp,
+              contragent_account, contragent_bank_name, contragent_bank_bic,
+              payment_purpose,
+              webhook_signature, raw_payload,
+              created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(company_bank_account_id, external_id) DO UPDATE SET
+              status = excluded.status,
+              updated_at = excluded.updated_at
+          `).bind(
+            txId, acc.id,
+            op.id, op.absId, op.docNumber,
+            direction, op.status, amountMinor, currency,
+            executedAt, createdAtBank,
+            op.contragentName, op.contragentInn, op.contragentKpp,
+            op.contragentBankAccountNumber, op.contragentBankName, op.contragentBankBic,
+            op.paymentPurpose,
+            null, JSON.stringify(opRaw),
+            now, now,
+          ).run();
+
+          // D1 reports `meta.changes`. If row was new it's 1 (insert), if it conflicted-updated also 1.
+          // We can't easily distinguish; treat last_row_id presence as a hint.
+          if (result.meta?.last_row_id && result.meta.last_row_id > 0) {
+            inserted++;
+          } else {
+            updated++;
+          }
+        }
+
+        // If page returned less than page_size, no more data.
+        if (ops.length < pageSize) break;
+      }
+
+      // Update last_sync_at on the account row
+      await c.env.DB.prepare(`
+        UPDATE company_bank_accounts SET last_sync_at = ?, updated_at = ? WHERE id = ?
+      `).bind(Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000), acc.id).run();
+    } catch (e) {
+      errorMsg = e instanceof Error ? e.message : String(e);
+    }
+
+    summary.push({
+      account_id: acc.id,
+      account_number: acc.account_number,
+      fetched,
+      inserted,
+      updated,
+      pages,
+      ...(errorMsg ? { error: errorMsg } : {}),
+    });
+  }
+
+  const totalFetched = summary.reduce((s, x) => s + x.fetched, 0);
+  const totalInserted = summary.reduce((s, x) => s + x.inserted, 0);
+  const totalUpdated = summary.reduce((s, x) => s + x.updated, 0);
+
+  return ok(c, {
+    range: { from, till },
+    accounts_synced: summary.length,
+    total_fetched: totalFetched,
+    total_inserted: totalInserted,
+    total_updated: totalUpdated,
+    summary,
+  });
+});
+
 export default banksModulbank;

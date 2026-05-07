@@ -35,6 +35,11 @@ export interface Env {
   OZON_PERF_CLIENT_SECRET: string;
   // Wildberries API (https://*-api.wildberries.ru) — bare token, no Bearer prefix
   WB_API_TOKEN: string;
+
+  // Modulbank API (https://api.modulbank.ru/v1) — LK-issued token, Bearer prefix.
+  // One token per company; token's first 10 chars also seed webhook signature
+  // verification (stored in company_bank_accounts.webhook_signature_prefix).
+  MODULBANK_TOKEN_DEE?: string;
 }
 
 // =============================================================================

@@ -38,14 +38,25 @@ export function selectDocumentsToIssue(input: InvoicerInput): DocumentSpec[] {
   const isFormat: 'IS-V1' | 'IS-V2' = isVariant === 'V2' ? 'IS-V2' : 'IS-V1';
 
   // CASE 1 — sale to Russia
-  // DEE issues UPD + Transport waybill (TN) directly to the Russian buyer.
-  // No DEI layer for sales — DEE → partner only.
+  // ONLY DEE issues УПД + ТН. These are exclusively DEE documents.
+  // DEI/DEASEAN selling to a Russian buyer issue CI + PL like any other sale.
   if (operation.operation_type === 'sale' && isRussiaSide(partner?.country)) {
+    if (ourCompany.abbreviation === 'DEE') {
+      return [
+        { type: 'UPD', variant: null, format: 'UPD',
+          sellerKind: 'company', sellerId: ourCompany.id,
+          buyerKind: 'partner', buyerId: partner!.id },
+        { type: 'TN', variant: null, format: 'TN',
+          sellerKind: 'company', sellerId: ourCompany.id,
+          buyerKind: 'partner', buyerId: partner!.id },
+      ];
+    }
+    // DEI / DEASEAN selling to Russia → CI + PL (never УПД/ТН)
     return [
-      { type: 'UPD', variant: null, format: 'UPD',
+      { type: 'CI', variant: null, format: 'CI',
         sellerKind: 'company', sellerId: ourCompany.id,
         buyerKind: 'partner', buyerId: partner!.id },
-      { type: 'TN', variant: null, format: 'TN',
+      { type: 'PL', variant: null, format: 'PL',
         sellerKind: 'company', sellerId: ourCompany.id,
         buyerKind: 'partner', buyerId: partner!.id },
     ];

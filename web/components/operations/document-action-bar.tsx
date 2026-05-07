@@ -10,6 +10,7 @@ interface DocumentActionBarProps {
   operationStatus: string;
   operationType?: string;
   partnerCountry?: string | null;
+  ourCompanyAbbr?: string | null;
   onIssued: () => Promise<void> | void;
 }
 
@@ -21,6 +22,7 @@ export default function DocumentActionBar({
   operationStatus,
   operationType = 'sale',
   partnerCountry,
+  ourCompanyAbbr,
   onIssued,
 }: DocumentActionBarProps) {
   const [busy, setBusy] = useState<ButtonId | null>(null);
@@ -29,8 +31,11 @@ export default function DocumentActionBar({
   const canIssue = operationStatus !== 'cancelled';
 
   // Detect Russian sale to switch button set to UPD + TN.
+  // УПД и ТН — это исключительно документы DEE.
+  // Другие компании (DEI, DEASEAN) на любого покупателя выпускают CI + PL.
   const isRussianSale = operationType === 'sale' &&
-    (partnerCountry === 'Russia' || partnerCountry === 'Russian Federation' || partnerCountry === 'RU');
+    (partnerCountry === 'Russia' || partnerCountry === 'Russian Federation' || partnerCountry === 'RU') &&
+    ourCompanyAbbr === 'DEE';
 
   const handleIssue = async (id: ButtonId, types?: DocType[]) => {
     if (!canIssue) {

@@ -342,6 +342,7 @@ export default function OperationDetailClient({
         operationStatus={operation.status}
         operationType={operation.operation_type}
         partnerCountry={partner?.country ?? null}
+        ourCompanyAbbr={operation.entity_abbreviation ?? null}
         onIssued={async () => {
           const opRes = await getOperation(operationId);
           if (opRes.success && opRes.result) {

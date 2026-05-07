@@ -246,6 +246,8 @@ export default function OperationDetailClient({
       <DocumentActionBar
         operationId={operationId}
         operationStatus={operation.status}
+        operationType={operation.operation_type}
+        partnerCountry={partner?.country ?? null}
         onIssued={async () => {
           const opRes = await getOperation(operationId);
           if (opRes.success && opRes.result) {

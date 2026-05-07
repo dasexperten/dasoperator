@@ -8,21 +8,29 @@ import { issueDocuments } from '@/lib/api';
 interface DocumentActionBarProps {
   operationId: string;
   operationStatus: string;
+  operationType?: string;
+  partnerCountry?: string | null;
   onIssued: () => Promise<void> | void;
 }
 
-type DocType = 'CI' | 'PL' | 'IS-V1' | 'IS-V2';
-type ButtonId = 'CI' | 'PL' | 'IS' | 'FREIGHT' | 'ALL';
+type DocType = 'CI' | 'PL' | 'IS-V1' | 'IS-V2' | 'UPD' | 'TN';
+type ButtonId = 'CI' | 'PL' | 'IS' | 'UPD' | 'TN' | 'FREIGHT' | 'ALL';
 
 export default function DocumentActionBar({
   operationId,
   operationStatus,
+  operationType = 'sale',
+  partnerCountry,
   onIssued,
 }: DocumentActionBarProps) {
   const [busy, setBusy] = useState<ButtonId | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const canIssue = operationStatus !== 'cancelled';
+
+  // Detect Russian sale to switch button set to UPD + TN.
+  const isRussianSale = operationType === 'sale' &&
+    (partnerCountry === 'Russia' || partnerCountry === 'Russian Federation' || partnerCountry === 'RU');
 
   const handleIssue = async (id: ButtonId, types?: DocType[]) => {
     if (!canIssue) {
@@ -66,33 +74,58 @@ export default function DocumentActionBar({
   return (
     <div className="space-y-3">
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-        <button
-          onClick={() => handleIssue('CI', ['CI'])}
-          disabled={!canIssue || !!busy}
-          style={buttonStyle(canIssue)}
-          title="Generate Commercial Invoice"
-        >
-          {busy === 'CI' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-          CI
-        </button>
-        <button
-          onClick={() => handleIssue('PL', ['PL'])}
-          disabled={!canIssue || !!busy}
-          style={buttonStyle(canIssue)}
-          title="Generate Packing List"
-        >
-          {busy === 'PL' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Package className="h-4 w-4" />}
-          PL
-        </button>
-        <button
-          onClick={() => handleIssue('IS', ['IS-V1', 'IS-V2'])}
-          disabled={!canIssue || !!busy}
-          style={buttonStyle(canIssue)}
-          title="Generate Issuance Statement"
-        >
-          {busy === 'IS' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileCheck className="h-4 w-4" />}
-          IS
-        </button>
+        {isRussianSale ? (
+          <>
+            <button
+              onClick={() => handleIssue('UPD', ['UPD'])}
+              disabled={!canIssue || !!busy}
+              style={buttonStyle(canIssue)}
+              title="Универсальный передаточный документ"
+            >
+              {busy === 'UPD' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+              УПД
+            </button>
+            <button
+              onClick={() => handleIssue('TN', ['TN'])}
+              disabled={!canIssue || !!busy}
+              style={buttonStyle(canIssue)}
+              title="Транспортная накладная"
+            >
+              {busy === 'TN' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
+              ТН
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => handleIssue('CI', ['CI'])}
+              disabled={!canIssue || !!busy}
+              style={buttonStyle(canIssue)}
+              title="Generate Commercial Invoice"
+            >
+              {busy === 'CI' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+              CI
+            </button>
+            <button
+              onClick={() => handleIssue('PL', ['PL'])}
+              disabled={!canIssue || !!busy}
+              style={buttonStyle(canIssue)}
+              title="Generate Packing List"
+            >
+              {busy === 'PL' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Package className="h-4 w-4" />}
+              PL
+            </button>
+            <button
+              onClick={() => handleIssue('IS', ['IS-V1', 'IS-V2'])}
+              disabled={!canIssue || !!busy}
+              style={buttonStyle(canIssue)}
+              title="Generate Issuance Statement"
+            >
+              {busy === 'IS' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileCheck className="h-4 w-4" />}
+              IS
+            </button>
+          </>
+        )}
         <Link
           href={`/operations/${operationId}/freight-rfq`}
           style={{

@@ -11,7 +11,7 @@
 // =============================================================================
 
 export type DocumentLanguage = 'EN' | 'RU' | 'BILINGUAL';
-export type DocumentFormat = 'CI' | 'PL' | 'IS-V1' | 'IS-V2';
+export type DocumentFormat = 'CI' | 'PL' | 'IS-V1' | 'IS-V2' | 'UPD' | 'TN';
 
 // =============================================================================
 // D1 row shapes
@@ -204,7 +204,7 @@ export interface InvoicerInput {
 // =============================================================================
 
 export type DocumentSpec = {
-  type: 'CI' | 'PL' | 'IS';
+  type: 'CI' | 'PL' | 'IS' | 'UPD' | 'TN';
   variant: 'V1' | 'V2' | null;        // only set for IS
   format: DocumentFormat;
   sellerKind: 'company' | 'manufacturer';
@@ -259,7 +259,7 @@ export interface StaleWarning {
 
 export interface IssuedDocument {
   document_id: string;
-  type: 'CI' | 'PL' | 'IS';
+  type: 'CI' | 'PL' | 'IS' | 'UPD' | 'TN';
   variant: 'V1' | 'V2' | null;
   reference: string;
   language: DocumentLanguage;

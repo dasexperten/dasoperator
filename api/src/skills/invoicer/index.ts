@@ -28,6 +28,8 @@ import {
 } from './validators';
 import { renderCommercialInvoice } from './renderers/ci';
 import { renderPackingList } from './renderers/pl';
+import { renderUpd } from './renderers/upd';
+import { renderTn } from './renderers/tn';
 import { renderInvoiceSpecBrushes } from './renderers/is-variant1';
 import { renderInvoiceSpecPastes } from './renderers/is-variant2';
 import type {
@@ -38,8 +40,8 @@ import type {
   RenderBank, RenderParty, RenderSignature,
 } from './renderers/shared';
 
-const SEQUENCE_BY_TYPE: Record<'CI' | 'PL' | 'IS', string> = {
-  CI: 'seq_ci', PL: 'seq_pl', IS: 'seq_is',
+const SEQUENCE_BY_TYPE: Record<'CI' | 'PL' | 'IS' | 'UPD' | 'TN', string> = {
+  CI: 'seq_ci', PL: 'seq_pl', IS: 'seq_is', UPD: 'seq_upd', TN: 'seq_tn',
 };
 
 // =============================================================================
@@ -231,9 +233,11 @@ export async function issueDocuments(
   // Filter plan by requested types — allows printing CI alone, PL alone, etc.
   if (filterTypes && filterTypes.length > 0) {
     plan = plan.filter((spec) => {
-      if (spec.format === 'CI') return filterTypes.includes('CI');
-      if (spec.format === 'PL') return filterTypes.includes('PL');
-      if (spec.format === 'IS') {
+      if (spec.type === 'CI') return filterTypes.includes('CI');
+      if (spec.type === 'PL') return filterTypes.includes('PL');
+      if (spec.type === 'UPD') return filterTypes.includes('UPD');
+      if (spec.type === 'TN') return filterTypes.includes('TN');
+      if (spec.type === 'IS') {
         return filterTypes.includes(`IS-V${spec.variant ?? 1}` as any);
       }
       return false;
@@ -444,6 +448,33 @@ export async function issueDocuments(
           consignee: r.buyer.party,
           ciReference: lastCiReference,
           lineItems: input.lineItems,
+        });
+      } else if (r.spec.type === 'UPD') {
+        // УПД — Russian B2B sale document.
+        bytes = await renderUpd({
+          reference, issuedAt: nowSec, currency: r.currency,
+          seller: r.seller.party,
+          buyer: r.buyer.party,
+          signature: r.spec.sellerKind === 'company'
+            ? signatureFromCompany(r.seller.row as CompanyRow)
+            : signatureFallback(),
+          contract: input.contract,
+          lineItems: input.lineItems,
+          totalMinor: input.operation.total_amount ?? 0,
+          vatRatePct: input.operation.vat_rate ?? 5,
+        });
+      } else if (r.spec.type === 'TN') {
+        // Транспортная накладная.
+        bytes = await renderTn({
+          reference, issuedAt: nowSec,
+          shipper: r.seller.party,
+          consignee: r.buyer.party,
+          signature: r.spec.sellerKind === 'company'
+            ? signatureFromCompany(r.seller.row as CompanyRow)
+            : signatureFallback(),
+          contract: input.contract,
+          lineItems: input.lineItems,
+          upcomingUpdRef: null, // populated below if we already issued the UPD this run
         });
       } else {
         // IS-V1 or IS-V2

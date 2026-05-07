@@ -38,38 +38,15 @@ export function selectDocumentsToIssue(input: InvoicerInput): DocumentSpec[] {
   const isFormat: 'IS-V1' | 'IS-V2' = isVariant === 'V2' ? 'IS-V2' : 'IS-V1';
 
   // CASE 1 — sale to Russia
+  // DEE issues UPD + Transport waybill (TN) directly to the Russian buyer.
+  // No DEI layer for sales — DEE → partner only.
   if (operation.operation_type === 'sale' && isRussiaSide(partner?.country)) {
-    if (operation.dei_layer === 0) {
-      // Factory → DEE direct → emit a single IS for Russian customs
-      if (!legalSellerManufacturer) {
-        throw new Error(
-          'CASE 1 (sale to Russia, no DEI layer) requires a resolved legal seller; ' +
-          'set operation.legal_seller_id or operation.manufacturer_id, ' +
-          'or ensure all line items share the same products.manufacturer_id.'
-        );
-      }
-      return [{
-        type: 'IS', variant: isVariant, format: isFormat,
-        sellerKind: 'manufacturer', sellerId: legalSellerManufacturer.id,
-        buyerKind: 'partner', buyerId: partner!.id,
-      }];
-    }
-
-    // dei_layer = true → Factory→DEI (CI+PL international) + DEI→DEE (IS for customs)
-    if (!legalSellerManufacturer) {
-      throw new Error(
-        'CASE 1 dei_layer requires a resolved legal seller (the Factory leg).'
-      );
-    }
     return [
-      { type: 'CI', variant: null, format: 'CI',
-        sellerKind: 'manufacturer', sellerId: legalSellerManufacturer.id,
-        buyerKind: 'company', buyerId: 'cmp_dei' },
-      { type: 'PL', variant: null, format: 'PL',
-        sellerKind: 'manufacturer', sellerId: legalSellerManufacturer.id,
-        buyerKind: 'company', buyerId: 'cmp_dei' },
-      { type: 'IS', variant: isVariant, format: isFormat,
-        sellerKind: 'company', sellerId: 'cmp_dei',
+      { type: 'UPD', variant: null, format: 'UPD',
+        sellerKind: 'company', sellerId: ourCompany.id,
+        buyerKind: 'partner', buyerId: partner!.id },
+      { type: 'TN', variant: null, format: 'TN',
+        sellerKind: 'company', sellerId: ourCompany.id,
         buyerKind: 'partner', buyerId: partner!.id },
     ];
   }

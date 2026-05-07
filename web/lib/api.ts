@@ -1332,7 +1332,7 @@ export async function getDocuments(filters: { operation_id?: string; partner_id?
   return apiGet<DocumentsListResponse>(`/api/documents?${params.toString()}`);
 }
 
-export async function issueDocuments(operation_id: string, types?: Array<'CI' | 'PL' | 'IS-V1' | 'IS-V2'>) {
+export async function issueDocuments(operation_id: string, types?: Array<'CI' | 'PL' | 'IS-V1' | 'IS-V2' | 'UPD' | 'TN'>) {
   const body: { operation_id: string; types?: string[] } = { operation_id };
   if (types && types.length > 0) body.types = types;
   return apiPost<{ issued: string[]; skipped: string[] }>('/api/documents/issue', body);

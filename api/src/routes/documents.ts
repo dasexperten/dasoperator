@@ -131,7 +131,7 @@ documents.get('/', async (c) => {
 // -----------------------------------------------------------------------------
 const issueSchema = z.object({
   operation_id: z.string().min(1),
-  types: z.array(z.enum(['CI', 'PL', 'IS-V1', 'IS-V2'])).optional(),
+  types: z.array(z.enum(['CI', 'PL', 'IS-V1', 'IS-V2', 'UPD', 'TN'])).optional(),
 });
 
 documents.post('/issue', async (c) => {

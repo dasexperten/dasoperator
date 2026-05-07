@@ -108,7 +108,7 @@ export function validateContacts(
     missing.push(`${seller.kind}.${seller.label}.registered_address`);
   }
   if (!seller.taxId && !seller.registrationNo) {
-    missing.push(`${seller.kind}.${seller.label}.tax_id|registration_no`);
+    // tax_id is optional — skip silently if not present
   }
 
   // ---- Seller bank block (CI / IS) -------------------------------------
@@ -139,7 +139,7 @@ export function validateContacts(
     missing.push(`${buyer.kind}.${buyer.label}.registered_address|registered_address_local`);
   }
   if (!buyer.taxId && !buyer.inn && !buyer.registrationNo) {
-    missing.push(`${buyer.kind}.${buyer.label}.tax_id|inn|registration_no`);
+    // tax_id/inn is optional — skip silently if not present
   }
 
   if (missing.length === 0) return { ok: true };

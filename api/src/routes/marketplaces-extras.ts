@@ -531,7 +531,7 @@ async function fetchOzonAdSpendByPerf(
     if (totalSpend <= 0) continue;
     try {
       const objResp = await fetch(
-        `https://api-performance.ozon.ru/api/client/campaign/${campaignId}/v2/objects`,
+        `https://api-performance.ozon.ru/api/client/campaign/${campaignId}/objects`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
       if (!objResp.ok) continue;

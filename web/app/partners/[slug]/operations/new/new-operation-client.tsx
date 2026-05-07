@@ -206,14 +206,17 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
       return;
     }
 
-    // Use owner_only mode for Sale and Transfer — we only want warehouses
-    // the company actually owns, not ones it's a tenant in via junction.
-    // For Purchase the manufacturer's own factory warehouse is correct,
-    // so owner_only is also fine.
+    // Ownership scope per operation type:
+    //   sale     → seller's own warehouses (owner_only)
+    //   purchase → manufacturer can ship from owned + junction warehouses
+    //              (e.g. MEIZHIYUAN consolidates via Honghui's GZH facility)
+    //   transfer → sending company's own warehouses (owner_only)
+    const useOwnerOnly = opType !== 'purchase';
+
     getWarehouses({
       company_id: ownerCompany,
       manufacturer_id: ownerManufacturer,
-      ownership: 'owner_only',
+      ...(useOwnerOnly ? { ownership: 'owner_only' as const } : {}),
     }).then((res) => {
       if (res.success && res.result) {
         setWarehousesFrom(res.result.warehouses);

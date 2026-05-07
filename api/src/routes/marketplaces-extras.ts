@@ -456,8 +456,6 @@ marketplacesExtras.post('/sync/sales/wb', async (c) => {
 });
 
 
-});
-
 /**
  * Parses Performance API CSV report. Each row is one (campaign, sku) combination
  * with views/clicks/moneySpent/orders/ordersMoney columns. We sum moneySpent

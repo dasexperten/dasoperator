@@ -378,10 +378,6 @@ async function runMarketplaceSync(): Promise<void> {
     console.error('[cron] wb sales threw:', e);
   }
 
-  } catch (e) {
-    console.error('[cron] cpc refine threw:', e);
-  }
-
   console.log('[cron] marketplace sync done');
 }
 

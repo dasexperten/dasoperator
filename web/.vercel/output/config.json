@@ -234,7 +234,7 @@
       "handle": "hit"
     },
     {
-      "src": "/_next/static/(?:[^/]+/pages|pages|chunks|runtime|css|image|media|build\\-1778185440435)/.+",
+      "src": "/_next/static/(?:[^/]+/pages|pages|chunks|runtime|css|image|media|build\\-1778187557947)/.+",
       "headers": {
         "cache-control": "public,max-age=31536000,immutable"
       },

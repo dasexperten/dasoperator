@@ -24,10 +24,13 @@ interface Manufacturer {
 const directories = new Hono<{ Bindings: Env }>();
 
 directories.get('/companies', async (c) => {
+  // DEC is a holding entity — never participates in Purchase/Sale operations.
+  // Exclude from operational dropdowns (operations, contracts).
   const result = await c.env.DB.prepare(`
     SELECT id, abbreviation, legal_name, jurisdiction
     FROM companies
     WHERE deleted_at IS NULL
+      AND abbreviation != 'DEC'
     ORDER BY abbreviation, id
   `).all<Company>();
 

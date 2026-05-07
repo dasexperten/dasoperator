@@ -7,13 +7,13 @@ import Link from 'next/link';
 import { Loader2, ChevronLeft, RefreshCw, Copy, CheckCircle2, ListOrdered, Hourglass } from 'lucide-react';
 import { getBankAccounts, syncBankHistory, type BankAccount } from '@/lib/api';
 
-// Hard-coded entity list — the four Das Experten companies. Activation status comes from
-// whether any returned BankAccount belongs to this entity with api_enabled = 1.
+// Hard-coded entity list — the operational Das Experten companies (DEC is a holding
+// entity and never participates in Purchase/Sale operations). Activation status comes
+// from whether any returned BankAccount belongs to this entity with api_enabled = 1.
 const ENTITIES = [
   { abbr: 'DEE',     name: 'Das Experten Eurasia LLC' },
   { abbr: 'DEI',     name: 'Das Experten International LLC' },
   { abbr: 'DEASEAN', name: 'Das Experten ASEAN Co. Ltd.' },
-  { abbr: 'DEC',     name: 'Das Experten Corporation' },
 ] as const;
 
 function formatLastSync(unix: number | null): string {

@@ -10,7 +10,6 @@ const ENTITIES = [
   { id: 'cmp_dee', label: 'DEE — Das Experten Eurasia' },
   { id: 'cmp_dei', label: 'DEI — Das Experten International' },
   { id: 'cmp_dasean', label: 'DEASEAN — Das Experten ASEAN' },
-  { id: 'cmp_dec', label: 'DEC — Das Experten China' },
 ];
 
 const CURRENCIES = ['USD', 'RUB', 'EUR', 'CNY', 'VND'];

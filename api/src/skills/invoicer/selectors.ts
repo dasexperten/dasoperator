@@ -159,7 +159,7 @@ export function selectCurrency(
   if (sellerKind === 'manufacturer') return 'USD';
   if (sellerIsDee && buyerIsRussia) return 'RUB';
   if (sellerIsDee && !buyerIsRussia) return 'USD';
-  if (['DEI', 'DEASEAN', 'DEC'].includes(ourCompany.abbreviation)) return 'USD';
+  if (['DEI', 'DEASEAN'].includes(ourCompany.abbreviation)) return 'USD';
   return ourCompany.base_currency;
 }
 

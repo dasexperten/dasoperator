@@ -826,9 +826,9 @@ export async function getProductPriceForContract(productId: string, contractId: 
 
 export interface Operation {
   id: string;
-  contract_id: string;
+  contract_id: string | null;
   contract_no?: string | null;
-  partner_id: string;
+  partner_id: string | null;
   partner_trade_name?: string | null;
   our_company_id: string;
   entity_abbreviation?: string | null;
@@ -837,6 +837,7 @@ export interface Operation {
   warehouse_from_id: string | null;
   warehouse_to_id: string | null;
   manufacturer_id: string | null;
+  manufacturer_name?: string | null;
   currency: string;
   fx_rate_to_usd: number | null;
   total_amount: number;

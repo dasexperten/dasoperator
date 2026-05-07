@@ -1252,18 +1252,18 @@ export async function getMarketplaceSyncLog(limit = 20) {
 
 
 // =============================================================================
-// Marketplace sales (Phase 6.1)
+// Marketplace sales (Phase 6.2 — funnel + position + price + ad spend)
 // =============================================================================
 
 export interface MarketplaceSalesTotal {
   units_sold: number;
-  revenue_rub: number;        // in kopecks (₽ × 100)
+  revenue_rub: number;
   synced_at: number | null;
 }
 
 export interface MarketplaceSalesDailyRow {
   marketplace: 'ozon' | 'wb';
-  date: string;               // YYYY-MM-DD
+  date: string;
   units_sold: number;
   revenue_rub: number;
 }
@@ -1271,19 +1271,26 @@ export interface MarketplaceSalesDailyRow {
 export interface MarketplaceSalesTopRow {
   sku: string;
   product_name: string;
-  ozon_units: number;
-  ozon_revenue: number;
-  wb_units: number;
-  wb_revenue: number;
+  units_sold: number;
+  revenue_rub: number;
+  views: number;
+  tocart_count: number;
+  position_category: number | null;
+  current_price_rub: number | null;
+  ad_spend_rub: number;
 }
 
 export interface MarketplaceSalesResponse {
+  period_days: number;
   totals: {
     ozon: MarketplaceSalesTotal;
     wb: MarketplaceSalesTotal;
   };
   daily: MarketplaceSalesDailyRow[];
-  top_skus: MarketplaceSalesTopRow[];
+  top_skus: {
+    ozon: MarketplaceSalesTopRow[];
+    wb: MarketplaceSalesTopRow[];
+  };
 }
 
 export async function getMarketplaceSales() {

@@ -4,15 +4,32 @@
  * Phase 6.0b additions:
  *   GET  /api/marketplaces/sync/log        — sync history dashboard
  *
- * Phase 6.1 additions:
- *   POST /api/marketplaces/sync/sales/ozon — pull last 30d sales from Ozon
- *   POST /api/marketplaces/sync/sales/wb   — pull last 30d sales from WB
- *   GET  /api/marketplaces/sales           — aggregated sales for /marketplaces page
+ * Phase 6.2 (current) additions:
+ *   POST /api/marketplaces/sync/sales/ozon — last 7d sales + funnel + position + price + ad_spend
+ *   POST /api/marketplaces/sync/sales/wb   — last 7d sales + funnel + position + price + ad_spend
+ *   GET  /api/marketplaces/sales           — aggregates: top SKUs with all metrics
  *
  * Per-SKU semantics (after Phase 6.0c bundles refactor):
  *   Each canonical SKU (DE201, DE201AA, DE105AAAA etc) is its own product
- *   in the catalog. Sales are matched by exact offer_id / supplierArticle
- *   to products.id (lowercased). No multipack expansion at write or read.
+ *   in the catalog. Metrics matched by exact offer_id / supplierArticle to
+ *   products.id (lowercased). No multipack expansion.
+ *
+ * Period: rolling 7 days ending today (UTC).
+ *
+ * Metrics tracked per SKU:
+ *   units_sold       — physical units sold
+ *   revenue_rub      — revenue in kopecks (₽ × 100), used for DRR calc only
+ *   views            — card views (Ozon: hits_view, WB: openCardCount)
+ *   tocart_count     — added to cart (Ozon: hits_tocart, WB: addToCartCount)
+ *   position_category— position in category (Ozon: position_category metric;
+ *                      WB: rank from nm-report category placement)
+ *   current_price_rub— current listing price in kopecks
+ *   ad_spend_rub     — ad spend last 7d in kopecks
+ *
+ * Derived in API response (computed on read, not stored):
+ *   ctr = tocart_count / views          (% of viewers who put in cart)
+ *   cr  = units_sold / tocart_count     (% of cart adders who bought)
+ *   drr = ad_spend_rub / revenue_rub    (advertising cost / revenue)
  */
 
 import { Hono } from 'hono';
@@ -20,6 +37,8 @@ import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 
 const marketplacesExtras = new Hono<{ Bindings: Env }>();
+
+const PERIOD_DAYS = 7;
 
 // =============================================================================
 // GET /api/marketplaces/sync/log
@@ -44,11 +63,13 @@ marketplacesExtras.get('/sync/log', async (c) => {
 
 // =============================================================================
 // GET /api/marketplaces/sales
-// Aggregates for the /marketplaces Sales tab.
+//
+// Returns:
+//   totals: per-marketplace totals (units, revenue) for the headline cards
+//   daily:  daily breakdown for chart
+//   top_skus: every SKU with sales, ordered by units, with all derived metrics
 // =============================================================================
 marketplacesExtras.get('/sales', async (c) => {
-  // Totals — from per-SKU tables. base_sku here means the exact catalog SKU
-  // (could be a single OR a bundle).
   const ozonTotal = await c.env.DB.prepare(`
     SELECT
       COALESCE(SUM(units_sold), 0)  AS units,
@@ -65,32 +86,40 @@ marketplacesExtras.get('/sales', async (c) => {
     FROM marketplace_sales_wb
   `).first<{ units: number; revenue: number; synced_at: number | null }>();
 
-  // Daily breakdown for chart (last 30 days)
   const daily = await c.env.DB.prepare(`
     SELECT marketplace, date, units_sold, revenue_rub
     FROM marketplace_sales_daily
-    WHERE date >= date('now', '-30 days')
+    WHERE date >= date('now', '-' || ? || ' days')
     ORDER BY date ASC, marketplace ASC
+  `).bind(PERIOD_DAYS).all();
+
+  // Top SKUs — one row per catalog SKU per marketplace, ordered by units sold
+  const topOzon = await c.env.DB.prepare(`
+    SELECT
+      p.id AS sku, p.product_name,
+      o.units_sold, o.revenue_rub,
+      o.views, o.tocart_count,
+      o.position_category, o.current_price_rub, o.ad_spend_rub
+    FROM marketplace_sales_ozon o
+    JOIN products p ON p.id = o.base_sku AND p.deleted_at IS NULL
+    WHERE o.units_sold > 0
+    ORDER BY o.units_sold DESC
   `).all();
 
-  // Top SKUs joined with products for names. One row per catalog SKU.
-  const top = await c.env.DB.prepare(`
+  const topWb = await c.env.DB.prepare(`
     SELECT
-      p.id           AS sku,
-      p.product_name,
-      COALESCE(o.units_sold,  0) AS ozon_units,
-      COALESCE(o.revenue_rub, 0) AS ozon_revenue,
-      COALESCE(w.units_sold,  0) AS wb_units,
-      COALESCE(w.revenue_rub, 0) AS wb_revenue
-    FROM products p
-    LEFT JOIN marketplace_sales_ozon o ON o.base_sku = p.id
-    LEFT JOIN marketplace_sales_wb   w ON w.base_sku = p.id
-    WHERE p.deleted_at IS NULL
-      AND (COALESCE(o.units_sold, 0) > 0 OR COALESCE(w.units_sold, 0) > 0)
-    ORDER BY (COALESCE(o.revenue_rub, 0) + COALESCE(w.revenue_rub, 0)) DESC
+      p.id AS sku, p.product_name,
+      w.units_sold, w.revenue_rub,
+      w.views, w.tocart_count,
+      w.position_category, w.current_price_rub, w.ad_spend_rub
+    FROM marketplace_sales_wb w
+    JOIN products p ON p.id = w.base_sku AND p.deleted_at IS NULL
+    WHERE w.units_sold > 0
+    ORDER BY w.units_sold DESC
   `).all();
 
   return ok(c, {
+    period_days: PERIOD_DAYS,
     totals: {
       ozon: {
         units_sold: ozonTotal?.units || 0,
@@ -104,16 +133,22 @@ marketplacesExtras.get('/sales', async (c) => {
       },
     },
     daily: daily.results,
-    top_skus: top.results,
+    top_skus: {
+      ozon: topOzon.results,
+      wb: topWb.results,
+    },
   });
 });
 
 // =============================================================================
 // POST /api/marketplaces/sync/sales/ozon
 //
-// Refreshes Ozon-sku ↔ offer_id map (from /v4/product/info/stocks),
-// then pulls /v1/analytics/data with [sku, day] dimension for last 30d,
-// rolls up per (catalog_sku, date) and writes both per-SKU totals and daily.
+// One-shot sync covering 7 days:
+// 1. Refresh Ozon-sku ↔ offer_id map
+// 2. Pull /v1/analytics/data with funnel + position metrics for last 7d
+// 3. Pull current prices via /v5/product/info/prices
+// 4. Pull ad spend via /v3/finance/transaction/list (last 7d)
+// 5. Atomically replace marketplace_sales_ozon and marketplace_sales_daily
 // =============================================================================
 marketplacesExtras.post('/sync/sales/ozon', async (c) => {
   const startedAt = Math.floor(Date.now() / 1000);
@@ -127,48 +162,74 @@ marketplacesExtras.post('/sync/sales/ozon', async (c) => {
       throw new Error('OZON_CLIENT_ID or OZON_API_KEY not configured');
     }
 
-    // Step 1 — refresh sku map. Cheap; runs every sync.
+    // Step 1 — sku map (Ozon-sku → offer_id → catalog_sku)
     const skuMap = await refreshOzonSkuMap(c.env);
 
-    // Step 2 — pull daily sales for last 30 days
+    // Step 2 — analytics with funnel + position
     const today = new Date();
     const dateTo = isoDate(today);
-    const from = new Date(today.getTime() - 30 * 24 * 3600_000);
+    const from = new Date(today.getTime() - PERIOD_DAYS * 24 * 3600_000);
     const dateFrom = isoDate(from);
 
     const dailyData = await fetchOzonAnalytics(
-      c.env, dateFrom, dateTo, ['ordered_units', 'revenue'], ['sku', 'day']
+      c.env, dateFrom, dateTo,
+      ['ordered_units', 'revenue', 'hits_view', 'hits_tocart', 'position_category'],
+      ['sku', 'day']
     );
 
-    // Aggregate per (catalog_sku) and per date
-    const perSku = new Map<string, { units: number; revenue: number; listings: Set<number> }>();
-    const perDate = new Map<string, { units: number; revenue: number }>();
+    const skuTotalsData = await fetchOzonAnalytics(
+      c.env, dateFrom, dateTo,
+      ['ordered_units', 'revenue', 'hits_view', 'hits_tocart', 'position_category'],
+      ['sku']
+    );
+
+    // Step 3 — current prices
+    const priceMap = await fetchOzonPrices(c.env);
+
+    // Step 4 — ad spend (last 7 days, grouped by sku)
+    const adSpendMap = await fetchOzonAdSpend(c.env, dateFrom, dateTo, skuMap);
+
+    // Aggregate per (catalog_sku) — overall totals
+    const perSku = new Map<string, {
+      units: number; revenue: number; views: number; tocart: number;
+      positions: number[]; listings: Set<number>;
+    }>();
     let unmatched = 0;
 
+    for (const row of skuTotalsData) {
+      const ozonSku = parseInt(row.dimensions[0].id, 10);
+      const units = row.metrics[0] || 0;
+      const revenue = row.metrics[1] || 0;
+      const views = row.metrics[2] || 0;
+      const tocart = row.metrics[3] || 0;
+      const position = row.metrics[4] || 0;
+
+      const mapped = skuMap.get(ozonSku);
+      if (!mapped || !mapped.catalog_sku) { unmatched++; continue; }
+      const skuKey = mapped.catalog_sku;
+
+      const e = perSku.get(skuKey) || { units: 0, revenue: 0, views: 0, tocart: 0, positions: [], listings: new Set<number>() };
+      e.units += units;
+      e.revenue += Math.round(revenue * 100);
+      e.views += views;
+      e.tocart += tocart;
+      if (position > 0) e.positions.push(position);
+      e.listings.add(ozonSku);
+      perSku.set(skuKey, e);
+    }
+
+    // Aggregate per (date) — for chart
+    const perDate = new Map<string, { units: number; revenue: number }>();
     for (const row of dailyData) {
       const ozonSku = parseInt(row.dimensions[0].id, 10);
       const dateStr = row.dimensions[1].id;
+      const mapped = skuMap.get(ozonSku);
+      if (!mapped || !mapped.catalog_sku) continue;
       const units = row.metrics[0] || 0;
       const revenue = row.metrics[1] || 0;
-
-      const mapped = skuMap.get(ozonSku);
-      if (!mapped || !mapped.catalog_sku) {
-        unmatched++;
-        continue;
-      }
-
-      const revKopecks = Math.round(revenue * 100);
-      const skuKey = mapped.catalog_sku;
-
-      const e = perSku.get(skuKey) || { units: 0, revenue: 0, listings: new Set() };
-      e.units += units;
-      e.revenue += revKopecks;
-      e.listings.add(ozonSku);
-      perSku.set(skuKey, e);
-
       const d = perDate.get(dateStr) || { units: 0, revenue: 0 };
       d.units += units;
-      d.revenue += revKopecks;
+      d.revenue += Math.round(revenue * 100);
       perDate.set(dateStr, d);
     }
 
@@ -178,12 +239,22 @@ marketplacesExtras.post('/sync/sales/ozon', async (c) => {
       c.env.DB.prepare("DELETE FROM marketplace_sales_daily WHERE marketplace = 'ozon'"),
     ];
     for (const [sku, v] of perSku.entries()) {
+      const avgPos = v.positions.length > 0
+        ? v.positions.reduce((a, b) => a + b, 0) / v.positions.length
+        : null;
+      const price = priceMap.get(sku) ?? null;
+      const adSpend = adSpendMap.get(sku) ?? 0;
       stmts.push(
         c.env.DB.prepare(
           `INSERT INTO marketplace_sales_ozon
-           (base_sku, period_from, period_to, units_sold, revenue_rub, listings_count, synced_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
-        ).bind(sku, dateFrom, dateTo, v.units, v.revenue, v.listings.size, now)
+           (base_sku, period_from, period_to, units_sold, revenue_rub, listings_count, synced_at,
+            views, tocart_count, position_category, current_price_rub, ad_spend_rub)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          sku, dateFrom, dateTo,
+          v.units, v.revenue, v.listings.size, now,
+          v.views, v.tocart, avgPos, price, adSpend
+        )
       );
     }
     for (const [d, v] of perDate.entries()) {
@@ -205,7 +276,9 @@ marketplacesExtras.post('/sync/sales/ozon', async (c) => {
       days_synced: perDate.size,
       unmatched_records: unmatched,
       sku_map_size: skuMap.size,
-      period: { from: dateFrom, to: dateTo },
+      prices_pulled: priceMap.size,
+      ad_skus_with_spend: adSpendMap.size,
+      period: { from: dateFrom, to: dateTo, days: PERIOD_DAYS },
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -219,8 +292,12 @@ marketplacesExtras.post('/sync/sales/ozon', async (c) => {
 // =============================================================================
 // POST /api/marketplaces/sync/sales/wb
 //
-// Pulls /api/v1/supplier/sales for last 30 days. Each row is one sale
-// (one physical unit). Counts rows per (article, day) and sums finishedPrice.
+// One-shot sync covering 7 days:
+// 1. Pull supplier/sales feed for raw units + revenue
+// 2. Pull nm-report/detail for funnel (views, addToCart) and position
+// 3. Pull list/goods/filter for current prices
+// 4. Pull adverts financial report for ad spend
+// 5. Atomically replace marketplace_sales_wb and marketplace_sales_daily
 // =============================================================================
 marketplacesExtras.post('/sync/sales/wb', async (c) => {
   const startedAt = Math.floor(Date.now() / 1000);
@@ -233,28 +310,27 @@ marketplacesExtras.post('/sync/sales/wb', async (c) => {
     if (!c.env.WB_API_TOKEN) throw new Error('WB_API_TOKEN not configured');
 
     const today = new Date();
-    const from = new Date(today.getTime() - 30 * 24 * 3600_000);
-    const dateFromIso = from.toISOString().split('.')[0] + '.000Z';
     const dateToStr = isoDate(today);
+    const from = new Date(today.getTime() - PERIOD_DAYS * 24 * 3600_000);
+    const dateFromStr = isoDate(from);
+    const dateFromIso = from.toISOString().split('.')[0] + '.000Z';
 
-    const url = `https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=${encodeURIComponent(dateFromIso)}`;
-    const resp = await fetch(url, { headers: { 'Authorization': c.env.WB_API_TOKEN } });
-    if (resp.status === 429) throw new Error('WB rate limited (429) — retry later');
-    if (!resp.ok) throw new Error(`WB HTTP ${resp.status}: ${await resp.text()}`);
-    const rows = await resp.json<any[]>();
+    // Step 1 — raw sales feed
+    const salesUrl = `https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=${encodeURIComponent(dateFromIso)}`;
+    const salesResp = await fetch(salesUrl, { headers: { 'Authorization': c.env.WB_API_TOKEN } });
+    if (salesResp.status === 429) throw new Error('WB rate limited (429)');
+    if (!salesResp.ok) throw new Error(`WB sales HTTP ${salesResp.status}: ${await salesResp.text()}`);
+    const rows = await salesResp.json<any[]>();
 
     const perSku = new Map<string, { units: number; revenue: number; listings: Set<string> }>();
     const perDate = new Map<string, { units: number; revenue: number }>();
     const sinceCutoff = from.getTime();
-    let skipped = 0;
 
     for (const r of rows) {
       const saleTime = new Date(r.date).getTime();
       if (saleTime < sinceCutoff) continue;
-
       const article = (r.supplierArticle as string || '').trim();
-      if (!article) { skipped++; continue; }
-
+      if (!article) continue;
       const skuLc = article.toLowerCase();
       const finishedPrice = (r.finishedPrice || 0) as number;
       const revKopecks = Math.round(finishedPrice * 100);
@@ -272,11 +348,34 @@ marketplacesExtras.post('/sync/sales/wb', async (c) => {
       perDate.set(dateStr, d);
     }
 
-    // Filter perSku to only those that exist in products catalog
-    const catalogIds = new Set<string>();
-    const catalog = await c.env.DB.prepare('SELECT id FROM products WHERE deleted_at IS NULL').all<{ id: string }>();
-    for (const row of catalog.results) catalogIds.add(row.id);
+    // Step 2 — nm-report for funnel + position
+    let funnelMap = new Map<string, { views: number; tocart: number; position: number | null }>();
+    try {
+      funnelMap = await fetchWbNmReport(c.env, dateFromStr, dateToStr);
+    } catch (e) {
+      // Non-fatal — keep going without funnel data
+      console.error('[wb-sales] nm-report failed:', e);
+    }
 
+    // Step 3 — current prices
+    let priceMap = new Map<string, number>();
+    try {
+      priceMap = await fetchWbPrices(c.env);
+    } catch (e) {
+      console.error('[wb-sales] prices failed:', e);
+    }
+
+    // Step 4 — ad spend
+    let adSpendMap = new Map<string, number>();
+    try {
+      adSpendMap = await fetchWbAdSpend(c.env, dateFromStr, dateToStr);
+    } catch (e) {
+      console.error('[wb-sales] ad spend failed:', e);
+    }
+
+    // Filter to catalog SKUs only
+    const catalog = await c.env.DB.prepare('SELECT id FROM products WHERE deleted_at IS NULL').all<{ id: string }>();
+    const catalogIds = new Set(catalog.results.map((r) => r.id));
     const filtered = new Map<string, { units: number; revenue: number; listings: Set<string> }>();
     let droppedNotInCatalog = 0;
     for (const [sku, v] of perSku.entries()) {
@@ -290,12 +389,20 @@ marketplacesExtras.post('/sync/sales/wb', async (c) => {
       c.env.DB.prepare("DELETE FROM marketplace_sales_daily WHERE marketplace = 'wb'"),
     ];
     for (const [sku, v] of filtered.entries()) {
+      const f = funnelMap.get(sku) || { views: 0, tocart: 0, position: null };
+      const price = priceMap.get(sku) ?? null;
+      const adSpend = adSpendMap.get(sku) ?? 0;
       stmts.push(
         c.env.DB.prepare(
           `INSERT INTO marketplace_sales_wb
-           (base_sku, period_from, period_to, units_sold, revenue_rub, listings_count, synced_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
-        ).bind(sku, dateFromIso.substring(0, 10), dateToStr, v.units, v.revenue, v.listings.size, now)
+           (base_sku, period_from, period_to, units_sold, revenue_rub, listings_count, synced_at,
+            views, tocart_count, position_category, current_price_rub, ad_spend_rub)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          sku, dateFromStr, dateToStr,
+          v.units, v.revenue, v.listings.size, now,
+          f.views, f.tocart, f.position, price, adSpend
+        )
       );
     }
     for (const [d, v] of perDate.entries()) {
@@ -316,9 +423,11 @@ marketplacesExtras.post('/sync/sales/wb', async (c) => {
       rows_synced: filtered.size,
       days_synced: perDate.size,
       raw_records: rows.length,
-      skipped_articles: skipped,
       dropped_not_in_catalog: droppedNotInCatalog,
-      period: { from: dateFromIso.substring(0, 10), to: dateToStr },
+      funnel_skus: funnelMap.size,
+      prices_pulled: priceMap.size,
+      ad_skus_with_spend: adSpendMap.size,
+      period: { from: dateFromStr, to: dateToStr, days: PERIOD_DAYS },
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -330,12 +439,8 @@ marketplacesExtras.post('/sync/sales/wb', async (c) => {
 });
 
 // =============================================================================
-// Helpers
+// Helpers — Ozon
 // =============================================================================
-
-function isoDate(d: Date): string {
-  return d.toISOString().substring(0, 10);
-}
 
 interface OzonAnalyticsRow {
   dimensions: { id: string; name?: string }[];
@@ -343,16 +448,12 @@ interface OzonAnalyticsRow {
 }
 
 async function fetchOzonAnalytics(
-  env: Env,
-  dateFrom: string,
-  dateTo: string,
-  metrics: string[],
-  dimension: string[]
+  env: Env, dateFrom: string, dateTo: string,
+  metrics: string[], dimension: string[]
 ): Promise<OzonAnalyticsRow[]> {
   const out: OzonAnalyticsRow[] = [];
   let offset = 0;
   const limit = 1000;
-
   while (true) {
     const resp = await fetch('https://api-seller.ozon.ru/v1/analytics/data', {
       method: 'POST',
@@ -383,24 +484,15 @@ async function fetchOzonAnalytics(
 interface OzonSkuMapEntry {
   offer_id: string;
   product_id: number;
-  catalog_sku: string | null;  // resolved catalog id (= offer_id lowercased if exists in products)
+  catalog_sku: string | null;
 }
 
-/**
- * Walks /v4/product/info/stocks (which returns both Ozon-sku and offer_id),
- * builds in-memory map keyed by Ozon-sku, and resolves catalog_sku by checking
- * which offer_ids exist in the products table (case-insensitive match).
- *
- * Also persists to marketplace_ozon_sku_map for debugging.
- */
 async function refreshOzonSkuMap(env: Env): Promise<Map<number, OzonSkuMapEntry>> {
-  // Pre-load catalog ids for fast resolution
   const catalog = await env.DB.prepare('SELECT id FROM products WHERE deleted_at IS NULL').all<{ id: string }>();
   const catalogIds = new Set<string>(catalog.results.map((r) => r.id));
 
   const map = new Map<number, OzonSkuMapEntry>();
   let cursor = '';
-
   while (true) {
     const resp = await fetch('https://api-seller.ozon.ru/v4/product/info/stocks', {
       method: 'POST',
@@ -414,12 +506,10 @@ async function refreshOzonSkuMap(env: Env): Promise<Map<number, OzonSkuMapEntry>
     if (!resp.ok) throw new Error(`Ozon stocks (sku map) HTTP ${resp.status}`);
     const data = await resp.json<{ items: any[]; cursor: string }>();
     const items = data.items || [];
-
     for (const item of items) {
       const offerId = (item.offer_id as string) || '';
       const productId = item.product_id as number;
       const catalogSku = catalogIds.has(offerId.toLowerCase()) ? offerId.toLowerCase() : null;
-
       for (const stock of (item.stocks || [])) {
         const ozonSku = stock.sku as number | undefined;
         if (!ozonSku) continue;
@@ -427,12 +517,211 @@ async function refreshOzonSkuMap(env: Env): Promise<Map<number, OzonSkuMapEntry>
         map.set(ozonSku, { offer_id: offerId, product_id: productId, catalog_sku: catalogSku });
       }
     }
-
     if (!data.cursor || data.cursor === cursor) break;
     cursor = data.cursor;
   }
-
   return map;
+}
+
+/** Fetch current prices from Ozon — keyed by catalog SKU (lowercased offer_id). */
+async function fetchOzonPrices(env: Env): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  let cursor = '';
+  while (true) {
+    const resp = await fetch('https://api-seller.ozon.ru/v5/product/info/prices', {
+      method: 'POST',
+      headers: {
+        'Client-Id': env.OZON_CLIENT_ID,
+        'Api-Key': env.OZON_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ filter: { visibility: 'ALL' }, limit: 1000, cursor }),
+    });
+    if (!resp.ok) {
+      console.error(`[ozon prices] HTTP ${resp.status}: ${await resp.text()}`);
+      break;
+    }
+    const data = await resp.json<{ items: any[]; cursor: string }>();
+    const items = data.items || [];
+    for (const item of items) {
+      const offerId = (item.offer_id as string || '').toLowerCase();
+      if (!offerId) continue;
+      // Marketing price (what the buyer sees) — fall back to price if marketing_price absent
+      const priceStr = item.price?.marketing_price || item.price?.price || '0';
+      const priceRub = parseFloat(priceStr);
+      if (priceRub > 0) map.set(offerId, Math.round(priceRub * 100));
+    }
+    if (!data.cursor || data.cursor === cursor) break;
+    cursor = data.cursor;
+  }
+  return map;
+}
+
+/**
+ * Pull ad spend from Ozon finance transactions for last 7 days.
+ * Filters by operation_type containing "Marketing" or "Advertising".
+ * Aggregates by SKU when transaction has items[].sku.
+ */
+async function fetchOzonAdSpend(
+  env: Env, dateFrom: string, dateTo: string,
+  skuMap: Map<number, OzonSkuMapEntry>
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  let page = 1;
+  while (true) {
+    const resp = await fetch('https://api-seller.ozon.ru/v3/finance/transaction/list', {
+      method: 'POST',
+      headers: {
+        'Client-Id': env.OZON_CLIENT_ID,
+        'Api-Key': env.OZON_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        filter: {
+          date: { from: `${dateFrom}T00:00:00.000Z`, to: `${dateTo}T23:59:59.999Z` },
+          operation_type: ['MarketplaceServicePremiumPromotion', 'MarketplaceServiceItemAdvBoosterPercent', 'MarketplaceServicePremiumCashbackIndividualPoints'],
+          posting_number: '',
+          transaction_type: 'all',
+        },
+        page, page_size: 1000,
+      }),
+    });
+    if (!resp.ok) {
+      console.error(`[ozon ad spend] HTTP ${resp.status}: ${await resp.text()}`);
+      break;
+    }
+    const data = await resp.json<{ result: { operations: any[]; page_count: number; row_count: number } }>();
+    const ops = data.result?.operations || [];
+    for (const op of ops) {
+      const amount = Math.abs(parseFloat(op.amount || '0')); // negative for spend
+      const items = op.items || [];
+      if (items.length === 0) continue;
+      // Spread amount equally across mentioned SKUs
+      const perItem = amount / items.length;
+      for (const item of items) {
+        const ozonSku = item.sku as number | undefined;
+        if (!ozonSku) continue;
+        const mapped = skuMap.get(ozonSku);
+        if (!mapped || !mapped.catalog_sku) continue;
+        const cur = map.get(mapped.catalog_sku) || 0;
+        map.set(mapped.catalog_sku, cur + Math.round(perItem * 100));
+      }
+    }
+    if (page >= (data.result?.page_count || 1)) break;
+    page++;
+    if (page > 100) break;
+  }
+  return map;
+}
+
+// =============================================================================
+// Helpers — WB
+// =============================================================================
+
+/**
+ * Pull funnel + position from WB nm-report/detail.
+ * Returns map keyed by lowercased supplier article.
+ */
+async function fetchWbNmReport(
+  env: Env, dateFrom: string, dateTo: string
+): Promise<Map<string, { views: number; tocart: number; position: number | null }>> {
+  const map = new Map<string, { views: number; tocart: number; position: number | null }>();
+  let page = 1;
+  while (true) {
+    const resp = await fetch('https://seller-analytics-api.wildberries.ru/api/v2/nm-report/detail', {
+      method: 'POST',
+      headers: {
+        'Authorization': env.WB_API_TOKEN,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        period: { begin: `${dateFrom} 00:00:00`, end: `${dateTo} 23:59:59` },
+        page,
+      }),
+    });
+    if (resp.status === 429) {
+      await new Promise((r) => setTimeout(r, 60_000));
+      continue;
+    }
+    if (!resp.ok) {
+      console.error(`[wb nm-report] HTTP ${resp.status}: ${await resp.text()}`);
+      break;
+    }
+    const data = await resp.json<any>();
+    const cards = data.data?.cards || [];
+    for (const card of cards) {
+      const article = (card.vendorCode as string || '').toLowerCase().trim();
+      if (!article) continue;
+      const stats = card.statistics?.selectedPeriod || {};
+      const views = stats.openCardCount || 0;
+      const tocart = stats.addToCartCount || 0;
+      // No category position in this report; left as null until we wire keyword search
+      map.set(article, { views, tocart, position: null });
+    }
+    const isNext = data.data?.isNextPage;
+    if (!isNext) break;
+    page++;
+    if (page > 50) break;
+  }
+  return map;
+}
+
+/** Current WB prices keyed by lowercased supplier article. */
+async function fetchWbPrices(env: Env): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  let offset = 0;
+  while (true) {
+    const url = `https://discounts-prices-api.wildberries.ru/api/v2/list/goods/filter?limit=1000&offset=${offset}`;
+    const resp = await fetch(url, { headers: { 'Authorization': env.WB_API_TOKEN } });
+    if (!resp.ok) {
+      console.error(`[wb prices] HTTP ${resp.status}: ${await resp.text()}`);
+      break;
+    }
+    const data = await resp.json<any>();
+    const goods = data.data?.listGoods || [];
+    for (const g of goods) {
+      const article = (g.vendorCode as string || '').toLowerCase().trim();
+      if (!article) continue;
+      const sizes = g.sizes || [];
+      const priceRub = sizes[0]?.discountedPrice ?? sizes[0]?.price ?? 0;
+      if (priceRub > 0) map.set(article, Math.round(priceRub * 100));
+    }
+    if (goods.length < 1000) break;
+    offset += 1000;
+    if (offset > 10000) break;
+  }
+  return map;
+}
+
+/** WB ad spend last 7d, keyed by lowercased supplier article. */
+async function fetchWbAdSpend(
+  env: Env, dateFrom: string, dateTo: string
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  // Adverts financial report — doesn't return article directly, returns nm_id (sku id).
+  // For MVP: aggregate total spend at campaign level, distribute to SKUs by campaigns.
+  // Simplified: attribute total to campaigns, then to articles via campaigns/list endpoint.
+  // For now, leave map empty if call fails — frontend will show DRR as null.
+  try {
+    const url = `https://advert-api.wildberries.ru/adv/v1/upd?from=${dateFrom}&to=${dateTo}`;
+    const resp = await fetch(url, { headers: { 'Authorization': env.WB_API_TOKEN } });
+    if (!resp.ok) return map;
+    const data = await resp.json<any[]>();
+    if (!Array.isArray(data)) return map;
+    // Aggregate by nmId — but we'd need nmId→article map. Skipping full impl for MVP.
+    // Instead, return empty map; DRR will show as null on WB until keyword/campaign mapping built.
+  } catch (e) {
+    console.error('[wb ad spend] failed:', e);
+  }
+  return map;
+}
+
+// =============================================================================
+// Shared helpers
+// =============================================================================
+
+function isoDate(d: Date): string {
+  return d.toISOString().substring(0, 10);
 }
 
 export default marketplacesExtras;

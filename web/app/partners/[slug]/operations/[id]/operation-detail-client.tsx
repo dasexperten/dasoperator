@@ -998,19 +998,24 @@ function DocumentsTab({ operationId }: { operationId: string }) {
                   </td>
                   <td className="px-4 py-3 text-right">
                     {doc.pdf_r2_url ? (
-                      <a
-                        href={`/api/documents/${doc.id}/download`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          fontSize: '14px',
-                          fontWeight: 600,
-                          color: 'var(--brand-rot)',
-                          textDecoration: 'none',
-                        }}
-                      >
-                        Download
-                      </a>
+                      <div style={{ display: 'inline-flex', gap: '12px', alignItems: 'center' }}>
+                        <a
+                          href={`${process.env.NEXT_PUBLIC_API_URL ?? 'https://dasoperator-api.dasexperten.workers.dev'}/api/documents/${doc.id}/download`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)', textDecoration: 'none' }}
+                        >
+                          .docx
+                        </a>
+                        <a
+                          href={`${process.env.NEXT_PUBLIC_API_URL ?? 'https://dasoperator-api.dasexperten.workers.dev'}/api/documents/${doc.id}/pdf`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ fontSize: '14px', fontWeight: 600, color: 'var(--brand-rot)', textDecoration: 'none' }}
+                        >
+                          PDF
+                        </a>
+                      </div>
                     ) : (
                       <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>—</span>
                     )}

@@ -1376,3 +1376,92 @@ export async function createInventorySession(body: CreateInventorySessionBody) {
   return apiPost<InventorySession>('/api/inventory-sessions', body);
 }
 
+
+// =============================================================================
+// Banks — Modulbank (Phase 7.0+)
+// =============================================================================
+
+export interface BankAccount {
+  id: string;
+  company_id: string;
+  account_number: string;
+  account_purpose: string;
+  currency: string;
+  is_default: 0 | 1;
+  bank_provider_id: string | null;
+  external_account_id: string | null;
+  external_company_id: string | null;
+  api_enabled: 0 | 1;
+  last_sync_at: number | null;
+  company_abbreviation: string;
+  company_legal_name: string;
+  company_tax_id: string | null;
+}
+
+export interface BankTransaction {
+  id: string;
+  company_bank_account_id: string;
+  external_id: string;
+  external_doc_number: string | null;
+  direction: 'incoming' | 'outgoing';
+  status: string;
+  amount: number;
+  currency: string;
+  executed_at: number;
+  created_at_bank: number;
+  contragent_name: string | null;
+  contragent_inn: string | null;
+  contragent_account: string | null;
+  contragent_bank_name: string | null;
+  contragent_bank_bic: string | null;
+  payment_purpose: string | null;
+  matched_payment_id: string | null;
+  match_method: string | null;
+  matched_at: number | null;
+  account_number: string;
+  account_purpose: string;
+  company_abbreviation: string;
+  company_legal_name: string;
+}
+
+export async function getBankAccounts() {
+  return apiGet<{ count: number; accounts: BankAccount[] }>('/api/banks/modulbank/accounts');
+}
+
+export async function getBankTransactions(params?: {
+  account_id?: string;
+  direction?: 'incoming' | 'outgoing';
+  matched?: 'true' | 'false';
+  limit?: number;
+}) {
+  const search = new URLSearchParams();
+  if (params?.account_id) search.set('account_id', params.account_id);
+  if (params?.direction) search.set('direction', params.direction);
+  if (params?.matched) search.set('matched', params.matched);
+  if (params?.limit) search.set('limit', String(params.limit));
+  const qs = search.toString();
+  return apiGet<{ count: number; transactions: BankTransaction[] }>(
+    `/api/banks/modulbank/transactions${qs ? `?${qs}` : ''}`
+  );
+}
+
+export async function syncBankHistory(body?: {
+  account_id?: string;
+  from?: string;
+  till?: string;
+  page_size?: number;
+  max_pages?: number;
+}) {
+  return apiPost<{
+    range: { from: string; till: string };
+    accounts_synced: number;
+    total_fetched: number;
+    total_inserted: number;
+    total_updated: number;
+    summary: Array<{
+      account_id: string; account_number: string;
+      fetched: number; inserted: number; updated: number; pages: number;
+      error?: string;
+    }>;
+  }>('/api/banks/modulbank/sync-history', body ?? {});
+}

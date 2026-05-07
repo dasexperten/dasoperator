@@ -112,19 +112,12 @@ function resolveLegalSellerId(
   if (op.legal_seller_id) return op.legal_seller_id;
   if (op.manufacturer_id) return op.manufacturer_id;
 
-  // Sales: derive from products. Every line must agree.
+  // Sales: seller is always our_company (DEE for Russia UPD/TN, DEI for international CI/PL).
+  // Manufacturers (Honghui/Jinxia/Meizhiyuan/WDAA) never sell to third parties — they
+  // only sell to our companies. So for sale operations the factory behind each line
+  // item is irrelevant; multi-factory sales (pastes + brushes in one shipment) are fine.
   if (op.operation_type === 'sale') {
-    const grouping: Record<string, string[]> = {};
-    for (const li of lineItems) {
-      const mfrId = li.product_manufacturer_id;
-      if (!mfrId) continue;
-      if (!grouping[mfrId]) grouping[mfrId] = [];
-      grouping[mfrId]!.push(li.product_id);
-    }
-    const ids = Object.keys(grouping);
-    if (ids.length === 0) return null;
-    if (ids.length > 1) throw new MixedManufacturerError(ids, grouping);
-    return ids[0]!;
+    return null;
   }
 
   // Purchase / transfer with neither override → caller decides if this is a problem.

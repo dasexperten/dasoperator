@@ -234,7 +234,8 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
 
   // Warehouse TO dropdown:
   //   sale     → not used (B decision: deliver per incoterms, no warehouse_to)
-  //   purchase → buying company's warehouses (where goods arrive)
+  //   purchase → buying company's own warehouses ∪ supplier's warehouses
+  //              (DEI buying paste from MEIZHIYUAN can receive at DGN OR pick up at GZH)
   //   transfer → receiving company's warehouses
   useEffect(() => {
     if (opType === 'sale') {
@@ -253,18 +254,38 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
       return;
     }
 
-    getWarehouses({ company_id: ownerCompany, ownership: 'owner_only' }).then((res) => {
-      if (res.success && res.result) {
-        setWarehousesTo(res.result.warehouses);
-        if (res.result.warehouses.length === 1) {
-          setWarehouseToId(res.result.warehouses[0]!.id);
-        } else if (!res.result.warehouses.find((w) => w.id === warehouseToId)) {
-          setWarehouseToId('');
+    // For Purchase: union of (buying company's own warehouses) ∪ (manufacturer's warehouses).
+    // The buyer can either ship goods to its own warehouse OR collect at the
+    // factory directly (skip-leg consolidation, common for DEI pickup at GZH/YZH).
+    const calls: Promise<{ success: boolean; result?: { warehouses: Warehouse[] } | null }>[] = [
+      getWarehouses({ company_id: ownerCompany, ownership: 'owner_only' }),
+    ];
+    if (opType === 'purchase' && manufacturerId) {
+      calls.push(getWarehouses({ manufacturer_id: manufacturerId }));
+    }
+
+    Promise.all(calls).then((results) => {
+      const merged: Warehouse[] = [];
+      const seen = new Set<string>();
+      for (const r of results) {
+        if (r.success && r.result) {
+          for (const w of r.result.warehouses) {
+            if (!seen.has(w.id)) {
+              seen.add(w.id);
+              merged.push(w);
+            }
+          }
         }
+      }
+      setWarehousesTo(merged);
+      if (merged.length === 1) {
+        setWarehouseToId(merged[0]!.id);
+      } else if (!merged.find((w) => w.id === warehouseToId)) {
+        setWarehouseToId('');
       }
     }).catch(() => setWarehousesTo([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opType, ourCompanyId, receivingCompanyId]);
+  }, [opType, ourCompanyId, receivingCompanyId, manufacturerId]);
 
   // Auto-select rules for single-option dropdowns:
   // If a list has exactly one viable option, fill it in automatically so the

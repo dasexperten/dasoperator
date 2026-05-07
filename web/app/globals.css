@@ -177,3 +177,26 @@ textarea::placeholder {
   color: var(--fg-3, #6B6B6B);
   opacity: 1;
 }
+
+/* ===========================================================================
+   GLOBAL NUMBER WEIGHT RULE — all numeric values across the ERP render bold
+   Applies to: every <td> in every table, plus opt-in .dx-num utility class.
+   Headers (<th>) stay at their existing weight (typically already 700 via
+   inline style); this rule only touches data cells.
+   This makes Account numbers, INNs, amounts, dates, balances, counts,
+   percentages, prices and every other number throughout the system bold by
+   default, without per-component patching.
+   =========================================================================== */
+
+table tbody td,
+.dx-num,
+[data-numeric="true"] {
+  font-weight: 700;
+}
+
+/* Allow explicit overrides — sometimes a cell needs to stay regular weight
+   (e.g. a long counterparty purpose line). Add class .dx-num-soft to opt out. */
+table tbody td.dx-num-soft,
+.dx-num-soft {
+  font-weight: 400 !important;
+}

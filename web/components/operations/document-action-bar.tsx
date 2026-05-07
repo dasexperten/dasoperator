@@ -32,11 +32,7 @@ export default function DocumentActionBar({
     setBusy(id);
     setFeedback(null);
     try {
-      // Try IS-V1 first; if backend says not in plan, retry with IS-V2
-      let res = await issueDocuments(operationId, types);
-      if (!res.success && types?.includes('IS-V1') && res.errors?.[0]?.code === 'no_matching_documents') {
-        res = await issueDocuments(operationId, types.map((t) => (t === 'IS-V1' ? 'IS-V2' : t)) as DocType[]);
-      }
+      const res = await issueDocuments(operationId, types);
       if (res.success && res.result) {
         const issued = (res.result as any).documents?.map((d: any) => d.reference).join(', ') ?? 'documents';
         setFeedback({ type: 'success', text: `Issued: ${issued}` });
@@ -89,7 +85,7 @@ export default function DocumentActionBar({
           PL
         </button>
         <button
-          onClick={() => handleIssue('IS', ['IS-V1'])}
+          onClick={() => handleIssue('IS', ['IS-V1', 'IS-V2'])}
           disabled={!canIssue || !!busy}
           style={buttonStyle(canIssue)}
           title="Generate Issuance Statement"

@@ -29,6 +29,40 @@ function getMinorFactor(currency: string): number {
   return ['VND', 'JPY', 'KRW'].includes(currency) ? 1 : 100;
 }
 
+// Transition chains — sequential only (variant A)
+const TRANSITION_CHAINS: Record<string, Record<string, string | null>> = {
+  sale: {
+    draft: 'issued',
+    issued: 'order_fulfilment',
+    order_fulfilment: 'shipped',
+    shipped: 'delivered',
+    delivered: null,
+    cancelled: null,
+  },
+  purchase: {
+    draft: 'issued',
+    issued: 'production',
+    production: 'stocked',
+    stocked: 'shipped',
+    shipped: 'delivered',
+    delivered: null,
+    cancelled: null,
+  },
+  transfer: {
+    draft: 'issued',
+    issued: 'shipped',
+    shipped: 'delivered',
+    delivered: null,
+    cancelled: null,
+  },
+};
+
+function getNextStatus(operationType: string, currentStatus: string): string | null {
+  const chain = TRANSITION_CHAINS[operationType];
+  if (!chain) return null;
+  return chain[currentStatus] ?? null;
+}
+
 // =============================================================================
 // Status colors (mirror partner-detail-client) — extended for full enum
 // =============================================================================
@@ -82,6 +116,8 @@ export default function OperationDetailClient({
   const [activeTab, setActiveTab] = useState<Tab>('items');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -113,6 +149,30 @@ export default function OperationDetailClient({
     };
     fetchAll();
   }, [partnerSlug, operationId]);
+
+  const handleStatusChange = async (nextStatus: string) => {
+    if (!operation) return;
+    setIsUpdating(true);
+    setStatusError(null);
+
+    try {
+      const res = await updateOperationStatus(operation.id, nextStatus as any);
+      if (res.success) {
+        // Refresh operation data
+        const opRes = await getOperation(operationId);
+        if (opRes.success && opRes.result) {
+          setOperation(opRes.result.operation);
+          setLineItems(opRes.result.line_items);
+        }
+      } else {
+        setStatusError(res.errors?.[0]?.message ?? 'Failed to update status');
+      }
+    } catch (e) {
+      setStatusError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -201,6 +261,66 @@ export default function OperationDetailClient({
             {operation.currency} {formatMoney(grandTotal, operation.currency)}
           </div>
           <div className="mt-2">{statusChip(operation.status)}</div>
+          
+          {/* Status transition buttons */}
+          {statusError && (
+            <p style={{ fontSize: '12px', color: 'var(--brand-rot)', marginTop: '8px' }}>
+              {statusError}
+            </p>
+          )}
+          <div className="mt-3 flex gap-2 flex-wrap justify-end">
+            {(() => {
+              const nextStatus = getNextStatus(operation.operation_type, operation.status);
+              if (!nextStatus) return null;
+              return (
+                <button
+                  onClick={() => handleStatusChange(nextStatus)}
+                  disabled={isUpdating}
+                  style={{
+                    padding: '8px 14px',
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    border: '1px solid var(--border-hairline)',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'var(--bg-elevated)',
+                    color: 'var(--fg-1)',
+                    cursor: isUpdating ? 'not-allowed' : 'pointer',
+                    opacity: isUpdating ? 0.5 : 1,
+                    transition: 'opacity 150ms',
+                  }}
+                >
+                  {isUpdating ? (
+                    <span className="inline-flex gap-2 items-center">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Updating…
+                    </span>
+                  ) : (
+                    `Mark as ${nextStatus.replace('_', ' ')}`
+                  )}
+                </button>
+              );
+            })()}
+            {operation.status !== 'cancelled' && operation.status !== 'delivered' && (
+              <button
+                onClick={() => handleStatusChange('cancelled')}
+                disabled={isUpdating}
+                style={{
+                  padding: '8px 14px',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  border: '1px solid var(--border-hairline)',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'rgba(229,32,44,0.08)',
+                  color: 'var(--brand-rot)',
+                  cursor: isUpdating ? 'not-allowed' : 'pointer',
+                  opacity: isUpdating ? 0.5 : 1,
+                  transition: 'opacity 150ms',
+                }}
+              >
+                Cancel
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

@@ -701,7 +701,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
 
       {/* Section A: Operation Type — must come first, drives everything else */}
       <Section label="Type">
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-4 gap-3">
           {([
             { id: 'sale',     label: 'Sales',    desc: 'Sell to a buyer',         color: '#2E7D4F' /* green */ },
             { id: 'purchase', label: 'Purchase', desc: 'Buy from factory',        color: '#7D481C' /* brown */ },
@@ -735,6 +735,23 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
               </button>
             );
           })}
+          {/* Bundling — separate form */}
+          <button
+            type="button"
+            onClick={() => router.push('/operations/bundling/new')}
+            style={{
+              padding: '14px 16px',
+              textAlign: 'left',
+              backgroundColor: 'var(--paper-sunk)',
+              color: 'var(--fg-1)',
+              border: '1px solid var(--border-hairline)',
+              borderRadius: 'var(--radius-sm)',
+              cursor: 'pointer',
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: '16px', marginBottom: '4px', color: '#1D4ED8' }}>Bundling</div>
+            <div style={{ fontSize: '14px', opacity: 0.7 }}>Pack / unpack SKU</div>
+          </button>
         </div>
       </Section>
 

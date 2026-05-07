@@ -188,7 +188,7 @@ export default function OperationsPage() {
                     <tr key={op.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                       <td className="px-4 py-3" style={{ fontWeight: 700, color: 'var(--fg-1)' }}>
                         <Link
-                          href={`/partners/${op.partner_id}/operations/${op.id}`}
+                          href={`/operations/${op.id}`}
                           style={{ color: 'var(--fg-1)', textDecoration: 'underline', textDecorationColor: 'var(--border-hairline)', textUnderlineOffset: '3px' }}
                         >
                           {op.reference ?? op.id}

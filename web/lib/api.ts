@@ -756,14 +756,14 @@ export async function createPayment(body: CreatePaymentBody) {
 
 export interface NetBalanceBreakdown {
   currency: string;
-  balance_minor: number;
-  balance_usd_cents: number;
+  balance: number;
+  balance_usd: number;
 }
 
 export interface PartnerNetBalance {
   partner_id: string;
   currencies_breakdown: NetBalanceBreakdown[];
-  net_balance_usd_cents: number;
+  net_balance_usd: number;
   fx_date: string | null;
   calculated_at: number;
 }
@@ -776,7 +776,7 @@ export interface BulkNetBalances {
   count: number;
   balances: Array<{
     partner_id: string;
-    net_balance_usd_cents: number;
+    net_balance_usd: number;
     currencies: Record<string, number>;
   }>;
   fx_date: string | null;

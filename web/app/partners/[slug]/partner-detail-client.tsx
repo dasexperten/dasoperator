@@ -251,9 +251,9 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
       {/* NET BALANCE WIDGET */}
       {netBalance && (
         <NetBalance
-          usd={netBalance.net_balance_usd_cents}
+          usd={netBalance.net_balance_usd}
           currencies={netBalance.currencies_breakdown.reduce((acc, b) => {
-            acc[b.currency] = b.balance_minor;
+            acc[b.currency] = b.balance;
             return acc;
           }, {} as Record<string, number>)}
           fxDate={netBalance.fx_date}

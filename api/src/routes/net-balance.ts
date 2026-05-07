@@ -54,24 +54,24 @@ function computeNetBalance(
   }
 
   let totalUsdCents = 0;
-  const breakdown: Array<{ currency: string; balance_minor: number; balance_usd_cents: number }> = [];
+  const breakdown: Array<{ currency: string; balance: number; balance_usd: number }> = [];
 
   for (const [currency, balanceMinor] of Object.entries(byCurrency)) {
     if (currency === 'USD') {
-      breakdown.push({ currency, balance_minor: balanceMinor, balance_usd_cents: balanceMinor });
+      breakdown.push({ currency, balance: balanceMinor, balance_usd: balanceMinor });
       totalUsdCents += balanceMinor;
       continue;
     }
 
     const rateToUsd = snapshot ? getRateToUsdNano(snapshot as never, currency) : null;
     if (rateToUsd === null) {
-      breakdown.push({ currency, balance_minor: balanceMinor, balance_usd_cents: 0 });
+      breakdown.push({ currency, balance: balanceMinor, balance_usd: 0 });
       continue;
     }
 
     const usdCents = applyFxToAmount(Math.abs(balanceMinor), rateToUsd, currency, 'USD');
     const signed = balanceMinor < 0 ? -usdCents : usdCents;
-    breakdown.push({ currency, balance_minor: balanceMinor, balance_usd_cents: signed });
+    breakdown.push({ currency, balance: balanceMinor, balance_usd: signed });
     totalUsdCents += signed;
   }
 
@@ -112,7 +112,7 @@ netBalancePerPartner.get('/:slug/net-balance', async (c) => {
   return ok(c, {
     partner_id: slug,
     currencies_breakdown: breakdown,
-    net_balance_usd_cents: totalUsdCents,
+    net_balance_usd: totalUsdCents,
     fx_date: snapshot?.date ?? null,
     calculated_at: Math.floor(Date.now() / 1000),
   });
@@ -132,7 +132,7 @@ netBalanceBulk.get('/', async (c) => {
   const snapshot = await getRatesFor(c.env.FX, today);
   const balances: Array<{
     partner_id: string;
-    net_balance_usd_cents: number;
+    net_balance_usd: number;
     currencies: Record<string, number>;
   }> = [];
 
@@ -157,7 +157,7 @@ netBalanceBulk.get('/', async (c) => {
 
     balances.push({
       partner_id: p.id,
-      net_balance_usd_cents: totalUsdCents,
+      net_balance_usd: totalUsdCents,
       currencies: byCurrency,
     });
   }

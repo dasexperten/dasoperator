@@ -101,7 +101,7 @@ function StatusChip({ status }: { status: string }) {
 export default function HomeDashboard() {
   const [operations, setOperations] = useState<Operation[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
-  const [balances, setBalances] = useState<{ partner_id: string; net_balance_usd_cents: number }[]>([]);
+  const [balances, setBalances] = useState<{ partner_id: string; net_balance_usd: number }[]>([]);
   const [fx, setFx] = useState<FxLatest | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -140,7 +140,7 @@ export default function HomeDashboard() {
 
   // Outstanding = sum of positive net balances (partners owe us)
   const outstandingUsdCents = balances.reduce(
-    (sum, b) => sum + (b.net_balance_usd_cents > 0 ? b.net_balance_usd_cents : 0),
+    (sum, b) => sum + (b.net_balance_usd > 0 ? b.net_balance_usd : 0),
     0
   );
 

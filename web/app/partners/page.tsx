@@ -62,7 +62,7 @@ export default function PartnersPage() {
         if (balRes.success && balRes.result) {
           const map: Record<string, BalanceRow> = {};
           for (const b of balRes.result.balances) {
-            map[b.partner_id] = { usd: b.net_balance_usd_cents, currencies: b.currencies };
+            map[b.partner_id] = { usd: b.net_balance_usd, currencies: b.currencies };
           }
           setNetBalances(map);
         }

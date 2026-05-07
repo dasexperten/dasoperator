@@ -473,7 +473,7 @@ export default function OperationDetailClient({
           payments={payments}
           currency={operation.currency}
           grandTotal={grandTotal}
-          paidMinor={paidAmount}
+          paidAmount={paidAmount}
           outstanding={outstanding}
         />
       )}
@@ -1034,7 +1034,7 @@ function PaymentsTab({
   payments,
   currency,
   grandTotal,
-  paidMinor,
+  paidAmount,
   outstanding,
 }: {
   partnerSlug: string;
@@ -1042,7 +1042,7 @@ function PaymentsTab({
   payments: Payment[];
   currency: string;
   grandTotal: number;
-  paidMinor: number;
+  paidAmount: number;
   outstanding: number;
 }) {
   return (
@@ -1133,7 +1133,7 @@ function PaymentsTab({
         <div>
           <p style={{ fontSize: '14px' }}>Paid</p>
           <p className="mt-1" style={{ fontSize: 'var(--fs-body-md)', color: 'var(--status-success)', fontWeight: 600 }}>
-            {formatMoney(paidMinor, currency)}
+            {formatMoney(paidAmount, currency)}
           </p>
         </div>
         <div>

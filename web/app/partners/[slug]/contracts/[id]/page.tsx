@@ -1,19 +1,10 @@
 import ContractDetailClient from './contract-detail-client';
 
-// Static export requires generateStaticParams. 6 known partner+contract pairs
-// from migration 0005 backfill (verified against live API at deploy time).
-export function generateStaticParams() {
-  return [
-    { slug: 'torwey',       id: 'ctr_dee_tw_2024_01' },  // Torwey
-    { slug: 'tama',         id: 'ctr_dee_tm_2024_02' },  // TAMA
-    { slug: 'tori_georgia', id: 'ctr_dei_tg_2024_01' },  // TORI Georgia
-    { slug: 'arvitpharm',   id: 'ctr_dee_ap_2024_04' },  // ArvitPharm
-    { slug: 'natusana',     id: 'ctr_dee_nt_2024_05' },  // Natusana
-    { slug: 'vip_sales',    id: 'ctr_dei_vs_2024_03' },  // VIP SALES
-  ];
-}
+// =============================================================================
+// /partners/[slug]/contracts/[id] — contract detail card, SSR.
+// =============================================================================
 
-export const dynamicParams = false;
+export const runtime = 'edge';
 
 export default function ContractDetailPage({ params }: { params: { slug: string; id: string } }) {
   return <ContractDetailClient partnerSlug={params.slug} contractId={params.id} />;

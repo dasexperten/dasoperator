@@ -698,9 +698,41 @@ async function fetchOzonAdSpendByPerf(
     spendByCampaign.set(row.id, (spendByCampaign.get(row.id) || 0) + amt);
   }
 
-  // 2) For each campaign, get list of objects (SKUs / ozon-skus)
-  // The /v2/campaign/{id}/objects endpoint returns objects which for SKU/SEARCH_PROMO
-  // type campaigns include sku ids.
+  // 2) For each campaign, get list of objects + each object's units sold (from analytics)
+  //    and distribute spend proportionally to units_sold
+  // 2a) Pre-fetch units_sold per Ozon-sku from analytics
+  const unitsBySku = new Map<number, number>();
+  try {
+    const today = new Date();
+    const aResp = await fetch('https://api-seller.ozon.ru/v1/analytics/data', {
+      method: 'POST',
+      headers: {
+        'Client-Id': env.OZON_CLIENT_ID,
+        'Api-Key': env.OZON_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        date_from: dateFrom, date_to: dateTo,
+        metrics: ['ordered_units'],
+        dimension: ['sku'],
+        filters: [],
+        sort: [{ key: 'ordered_units', order: 'DESC' }],
+        limit: 1000, offset: 0,
+      }),
+    });
+    if (aResp.ok) {
+      const aData = await aResp.json<{ result: { data: Array<{ dimensions: any[]; metrics: number[] }> } }>();
+      for (const row of aData.result?.data || []) {
+        const sku = parseInt(row.dimensions[0].id, 10);
+        const units = row.metrics[0] || 0;
+        if (sku && units > 0) unitsBySku.set(sku, units);
+      }
+    }
+  } catch (e) {
+    console.error('[perf units fetch]', e);
+  }
+
+  // 2b) For each campaign, get its SKU list and distribute spend by units_sold weight
   for (const [campaignId, totalSpend] of spendByCampaign.entries()) {
     if (totalSpend <= 0) continue;
     try {
@@ -713,13 +745,29 @@ async function fetchOzonAdSpendByPerf(
       const ozonSkus = (objData.list || []).map((o) => parseInt(o.id, 10)).filter((n) => !Number.isNaN(n));
       if (ozonSkus.length === 0) continue;
 
-      // Distribute spend equally
-      const perSku = totalSpend / ozonSkus.length;
-      for (const ozonSku of ozonSkus) {
-        const mapped = skuMap.get(ozonSku);
+      // Compute units weights for SKUs in this campaign
+      const weights = new Map<number, number>();
+      let totalWeight = 0;
+      for (const sku of ozonSkus) {
+        const w = unitsBySku.get(sku) || 0;
+        weights.set(sku, w);
+        totalWeight += w;
+      }
+
+      if (totalWeight === 0) {
+        // Fallback to equal distribution if no sales data
+        const equal = totalSpend / ozonSkus.length;
+        for (const sku of ozonSkus) weights.set(sku, equal);
+        totalWeight = totalSpend;
+      }
+
+      for (const [sku, weight] of weights.entries()) {
+        const mapped = skuMap.get(sku);
         if (!mapped || !mapped.catalog_sku) continue;
+        const share = totalWeight > 0 ? (weight / totalWeight) * totalSpend : 0;
+        if (share <= 0) continue;
         const cur = result.get(mapped.catalog_sku) || 0;
-        result.set(mapped.catalog_sku, cur + Math.round(perSku * 100));
+        result.set(mapped.catalog_sku, cur + Math.round(share * 100));
       }
     } catch (e) {
       console.error(`[perf objects ${campaignId}]`, e);

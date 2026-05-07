@@ -68,6 +68,19 @@ async function sha1Hex(input: string): Promise<string> {
 }
 
 // =============================================================================
+// GET /api/banks/modulbank/webhook — health-check stub
+// Modulbank may probe the webhook URL with GET to verify reachability before
+// accepting it in LK. Real notifications arrive as POST.
+// =============================================================================
+banksModulbank.get('/webhook', (c) => {
+  return c.text(
+    'Modulbank webhook receiver. Send POST with JSON payload per Modulbank API spec.',
+    200,
+    { 'Content-Type': 'text/plain; charset=utf-8' },
+  );
+});
+
+// =============================================================================
 // POST /api/banks/modulbank/webhook — Modulbank pushes transaction notifications here
 // =============================================================================
 banksModulbank.post('/webhook', async (c) => {

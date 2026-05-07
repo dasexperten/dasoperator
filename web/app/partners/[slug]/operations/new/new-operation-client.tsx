@@ -206,9 +206,14 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
       return;
     }
 
+    // Use owner_only mode for Sale and Transfer — we only want warehouses
+    // the company actually owns, not ones it's a tenant in via junction.
+    // For Purchase the manufacturer's own factory warehouse is correct,
+    // so owner_only is also fine.
     getWarehouses({
       company_id: ownerCompany,
       manufacturer_id: ownerManufacturer,
+      ownership: 'owner_only',
     }).then((res) => {
       if (res.success && res.result) {
         setWarehousesFrom(res.result.warehouses);
@@ -245,7 +250,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
       return;
     }
 
-    getWarehouses({ company_id: ownerCompany }).then((res) => {
+    getWarehouses({ company_id: ownerCompany, ownership: 'owner_only' }).then((res) => {
       if (res.success && res.result) {
         setWarehousesTo(res.result.warehouses);
         if (res.result.warehouses.length === 1) {

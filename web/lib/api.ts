@@ -982,11 +982,13 @@ export async function getWarehouses(filters?: {
   company_id?: string;
   manufacturer_id?: string;
   partner_id?: string;
+  ownership?: 'owner_only';
 }) {
   const params = new URLSearchParams();
   if (filters?.company_id) params.set('company_id', filters.company_id);
   if (filters?.manufacturer_id) params.set('manufacturer_id', filters.manufacturer_id);
   if (filters?.partner_id) params.set('partner_id', filters.partner_id);
+  if (filters?.ownership) params.set('ownership', filters.ownership);
   const qs = params.toString() ? `?${params.toString()}` : '';
   return apiGet<WarehousesListResponse>(`/api/warehouses${qs}`);
 }

@@ -20,6 +20,13 @@ warehouses.get('/', async (c) => {
   const companyId = c.req.query('company_id');
   const manufacturerId = c.req.query('manufacturer_id');
   const partnerId = c.req.query('partner_id');
+  // ownership=owner_only restricts the company/manufacturer filter to
+  // warehouses where w.owner_*_id matches directly — junction memberships
+  // (e.g. bonded/storage roles) are excluded. Used by Sale operations:
+  // a seller can only ship from a warehouse it owns, not from one where
+  // it's merely a tenant.
+  const ownershipMode = c.req.query('ownership');
+  const ownerOnly = ownershipMode === 'owner_only';
 
   // Any of company_id / manufacturer_id triggers junction-aware lookup
   // since both have M:N junction tables (warehouse_companies, warehouse_manufacturers).
@@ -31,19 +38,25 @@ warehouses.get('/', async (c) => {
   const binds: unknown[] = [];
 
   if (useJunction) {
-    // Build the join + filter dynamically. Each filter contributes:
-    //   - owner_*_id direct match  OR
-    //   - junction membership match
-    // All filters AND together (intersection of warehouses matching all conditions).
     const conditions: string[] = [];
 
     if (companyId) {
-      conditions.push('(w.owner_company_id = ? OR EXISTS (SELECT 1 FROM warehouse_companies wc WHERE wc.warehouse_id = w.id AND wc.company_id = ?))');
-      binds.push(companyId, companyId);
+      if (ownerOnly) {
+        conditions.push('w.owner_company_id = ?');
+        binds.push(companyId);
+      } else {
+        conditions.push('(w.owner_company_id = ? OR EXISTS (SELECT 1 FROM warehouse_companies wc WHERE wc.warehouse_id = w.id AND wc.company_id = ?))');
+        binds.push(companyId, companyId);
+      }
     }
     if (manufacturerId) {
-      conditions.push('(w.owner_manufacturer_id = ? OR EXISTS (SELECT 1 FROM warehouse_manufacturers wm WHERE wm.warehouse_id = w.id AND wm.manufacturer_id = ?))');
-      binds.push(manufacturerId, manufacturerId);
+      if (ownerOnly) {
+        conditions.push('w.owner_manufacturer_id = ?');
+        binds.push(manufacturerId);
+      } else {
+        conditions.push('(w.owner_manufacturer_id = ? OR EXISTS (SELECT 1 FROM warehouse_manufacturers wm WHERE wm.warehouse_id = w.id AND wm.manufacturer_id = ?))');
+        binds.push(manufacturerId, manufacturerId);
+      }
     }
     if (partnerId) {
       conditions.push('w.owner_partner_id = ?');

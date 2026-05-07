@@ -268,7 +268,7 @@ export default function HomeDashboard() {
                   >
                     <td className="px-4 py-3" style={{ fontWeight: 700 }}>
                       <Link
-                        href={`/partners/${op.partner_id}/operations/${op.id}`}
+                        href={`/operations/${op.id}`}
                         style={{
                           color: 'var(--fg-1)',
                           textDecoration: 'underline',

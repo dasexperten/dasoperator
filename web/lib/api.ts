@@ -1372,16 +1372,6 @@ export interface CreateInventorySessionBody {
   started_by?: string | null;
 }
 
-export interface InventorySession {
-  id: string;
-  reference: string;
-  warehouse_id: string;
-  status: string;
-  scope: string;
-  started_at: number;
-  started_by: string | null;
-}
-
 export async function createInventorySession(body: CreateInventorySessionBody) {
   return apiPost<InventorySession>('/api/inventory-sessions', body);
 }

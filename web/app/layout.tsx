@@ -3,6 +3,8 @@ import type { Metadata } from 'next';
 import Sidebar from '@/components/layout/sidebar';
 import Header from '@/components/layout/header';
 
+export const runtime = 'edge';
+
 export const metadata: Metadata = {
   title: 'Das Operator',
   description: 'Das Experten ERP — innovativ und praktisch',

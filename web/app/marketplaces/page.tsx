@@ -1,5 +1,9 @@
 'use client';
 
+export const runtime = 'edge';
+
+
+
 import { useEffect, useState, useMemo } from 'react';
 import { Loader2, RefreshCw, ChevronDown, ChevronUp, ShoppingCart } from 'lucide-react';
 import { getMarketplaceSales } from '@/lib/api';

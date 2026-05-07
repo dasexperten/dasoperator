@@ -1,3 +1,5 @@
+export const runtime = 'edge';
+
 import NewOperationClient from '@/app/partners/[slug]/operations/new/new-operation-client';
 
 export default function NewOperationGlobalPage() {

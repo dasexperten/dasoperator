@@ -1,5 +1,9 @@
 'use client';
 
+export const runtime = 'edge';
+
+
+
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, CheckCircle } from 'lucide-react';
@@ -62,7 +66,7 @@ export default function RecountPage({ params }: { params: { slug: string } }) {
       ]);
       setProductName(pRes.success && pRes.result ? pRes.result.product_name : '');
       if (sRes.success && sRes.result) {
-        const stockRow = sRes.result.stock?.find((s: any) => s.warehouse_id === warehouseId);
+        const stockRow = sRes.result.by_warehouse?.find((s: any) => s.warehouse_id === warehouseId);
         setSystemBalance(stockRow ? stockRow.on_hand : 0);
       }
       setProductLoading(false);

@@ -1,6 +1,9 @@
+'use client';
+
+export const runtime = 'edge';
+
 // build-bust: 1778137654
 // build-bust: 1778137599
-'use client';
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';

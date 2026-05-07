@@ -8,7 +8,7 @@
 
 import type { ContractRow, LineItemRow } from '../types';
 import {
-  Document, Packer, PORTRAIT_PAGE, PORTRAIT_USABLE_DXA, RenderParty,
+  Document, Packer, LANDSCAPE_PAGE, LANDSCAPE_USABLE_DXA, RenderParty,
   RenderSignature, blank, buildProductTable, buildSignature, formatDate,
   type ProductCell,
 } from './shared';
@@ -75,7 +75,7 @@ export async function renderUpd(input: RenderUpdInput): Promise<Uint8Array> {
     { text: 'Кол-во' }, { text: 'Цена' }, { text: 'Без НДС' },
     { text: 'Ставка' }, { text: 'НДС' }, { text: 'С НДС' },
   ];
-  const colW = Math.floor(PORTRAIT_USABLE_DXA / productHeaders.length);
+  const colW = Math.floor(LANDSCAPE_USABLE_DXA / productHeaders.length);
   const widths = productHeaders.map(() => colW);
 
   const rows: ProductCell[][] = input.lineItems.map((li, i) => {
@@ -99,7 +99,7 @@ export async function renderUpd(input: RenderUpdInput): Promise<Uint8Array> {
 
   const doc = new Document({
     sections: [{
-      properties: { page: PORTRAIT_PAGE },
+      properties: { page: LANDSCAPE_PAGE },
       children: [
         new Paragraph({
           alignment: AlignmentType.CENTER,
@@ -126,7 +126,7 @@ export async function renderUpd(input: RenderUpdInput): Promise<Uint8Array> {
         }),
         blank(),
         buildProductTable({
-          totalWidthDxa: PORTRAIT_USABLE_DXA,
+          totalWidthDxa: LANDSCAPE_USABLE_DXA,
           widths, headers: productHeaders, rows,
         }),
         blank(),

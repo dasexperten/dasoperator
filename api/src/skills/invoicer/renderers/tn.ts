@@ -7,7 +7,7 @@
 
 import type { ContractRow, LineItemRow } from '../types';
 import {
-  Document, Packer, PORTRAIT_PAGE, PORTRAIT_USABLE_DXA, RenderParty,
+  Document, Packer, LANDSCAPE_PAGE, LANDSCAPE_USABLE_DXA, RenderParty,
   RenderSignature, blank, buildProductTable, buildSignature, formatDate,
   type ProductCell,
 } from './shared';
@@ -61,7 +61,7 @@ export async function renderTn(input: RenderTnInput): Promise<Uint8Array> {
     { text: '№' }, { text: 'Наименование' }, { text: 'Кол-во' },
     { text: 'Ед.' }, { text: 'Картоны' },
   ];
-  const colW = Math.floor(PORTRAIT_USABLE_DXA / cargoHeaders.length);
+  const colW = Math.floor(LANDSCAPE_USABLE_DXA / cargoHeaders.length);
   const widths = cargoHeaders.map(() => colW);
 
   const cargoRows: ProductCell[][] = input.lineItems.map((li, i) => [
@@ -74,7 +74,7 @@ export async function renderTn(input: RenderTnInput): Promise<Uint8Array> {
 
   const doc = new Document({
     sections: [{
-      properties: { page: PORTRAIT_PAGE },
+      properties: { page: LANDSCAPE_PAGE },
       children: [
         new Paragraph({
           alignment: AlignmentType.CENTER,
@@ -102,7 +102,7 @@ export async function renderTn(input: RenderTnInput): Promise<Uint8Array> {
           children: [new TextRun({ text: '3. Наименование груза', bold: true, size: 22 })],
         }),
         buildProductTable({
-          totalWidthDxa: PORTRAIT_USABLE_DXA,
+          totalWidthDxa: LANDSCAPE_USABLE_DXA,
           widths, headers: cargoHeaders, rows: cargoRows,
         }),
         new Paragraph({

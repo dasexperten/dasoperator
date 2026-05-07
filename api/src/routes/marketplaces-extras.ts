@@ -99,7 +99,11 @@ marketplacesExtras.get('/sales', async (c) => {
       p.id AS sku, p.product_name,
       o.units_sold, o.revenue_rub,
       o.views, o.tocart_count,
-      o.position_category, o.current_price_rub, o.ad_spend_rub
+      o.position_category, o.current_price_rub,
+      o.cost_per_click_rub, o.cost_per_order_rub,
+      o.stars_promo_rub, o.brand_commission_rub,
+      o.reviews_cost_rub, o.stars_membership_rub,
+      o.acquiring_rub, o.returns_cost_rub, o.expenses_total_rub
     FROM marketplace_sales_ozon o
     JOIN products p ON p.id = o.base_sku AND p.deleted_at IS NULL
     WHERE o.units_sold > 0
@@ -162,10 +166,10 @@ marketplacesExtras.post('/sync/sales/ozon', async (c) => {
       throw new Error('OZON_CLIENT_ID or OZON_API_KEY not configured');
     }
 
-    // Step 1 — sku map (Ozon-sku → offer_id → catalog_sku)
+    // 1. SKU map
     const skuMap = await refreshOzonSkuMap(c.env);
 
-    // Step 2 — analytics with funnel + position
+    // 2. Sales analytics + funnel + position
     const today = new Date();
     const dateTo = isoDate(today);
     const from = new Date(today.getTime() - PERIOD_DAYS * 24 * 3600_000);
@@ -176,26 +180,43 @@ marketplacesExtras.post('/sync/sales/ozon', async (c) => {
       ['ordered_units', 'revenue', 'hits_view', 'hits_tocart', 'position_category'],
       ['sku', 'day']
     );
-
     const skuTotalsData = await fetchOzonAnalytics(
       c.env, dateFrom, dateTo,
       ['ordered_units', 'revenue', 'hits_view', 'hits_tocart', 'position_category'],
       ['sku']
     );
 
-    // Step 3 — current prices
+    // 3. Current prices
     const priceMap = await fetchOzonPrices(c.env);
 
-    // Step 4 — ad spend (last 7 days, grouped by sku)
-    const adSpendMap = await fetchOzonAdSpend(c.env, dateFrom, dateTo, skuMap);
+    // 4. Expenses by SKU from /v3/finance/transaction/list (Brand commission,
+    //    Reviews, Stars Membership, Acquiring, Returns — directly attributed)
+    const expensesMap = await fetchOzonExpensesBySku(c.env, dateFrom, dateTo, skuMap);
 
-    // Aggregate per (catalog_sku) — overall totals
+    // 5. CPC ad spend per SKU from Performance API (campaign-level, distributed)
+    let perfAdMap = new Map<string, number>();
+    try {
+      perfAdMap = await fetchOzonAdSpendByPerf(c.env, dateFrom, dateTo, skuMap);
+    } catch (e) {
+      console.error('[perf ad spend]', e);
+    }
+
+    // Merge perfAdMap into expenses.cpc (Performance is more accurate than transaction list for CPC)
+    for (const [sku, cpcKopecks] of perfAdMap.entries()) {
+      let bucket = expensesMap.get(sku);
+      if (!bucket) {
+        bucket = { cpc: 0, cpo: 0, stars: 0, brand: 0, reviews: 0, membership: 0, acquiring: 0, returns: 0 };
+        expensesMap.set(sku, bucket);
+      }
+      bucket.cpc = cpcKopecks; // override with perf value
+    }
+
+    // Aggregate per (catalog_sku) — overall totals from analytics
     const perSku = new Map<string, {
       units: number; revenue: number; views: number; tocart: number;
       positions: number[]; listings: Set<number>;
     }>();
     let unmatched = 0;
-
     for (const row of skuTotalsData) {
       const ozonSku = parseInt(row.dimensions[0].id, 10);
       const units = row.metrics[0] || 0;
@@ -203,11 +224,9 @@ marketplacesExtras.post('/sync/sales/ozon', async (c) => {
       const views = row.metrics[2] || 0;
       const tocart = row.metrics[3] || 0;
       const position = row.metrics[4] || 0;
-
       const mapped = skuMap.get(ozonSku);
       if (!mapped || !mapped.catalog_sku) { unmatched++; continue; }
       const skuKey = mapped.catalog_sku;
-
       const e = perSku.get(skuKey) || { units: 0, revenue: 0, views: 0, tocart: 0, positions: [], listings: new Set<number>() };
       e.units += units;
       e.revenue += Math.round(revenue * 100);
@@ -218,7 +237,7 @@ marketplacesExtras.post('/sync/sales/ozon', async (c) => {
       perSku.set(skuKey, e);
     }
 
-    // Aggregate per (date) — for chart
+    // Aggregate per (date) for chart
     const perDate = new Map<string, { units: number; revenue: number }>();
     for (const row of dailyData) {
       const ozonSku = parseInt(row.dimensions[0].id, 10);
@@ -233,6 +252,7 @@ marketplacesExtras.post('/sync/sales/ozon', async (c) => {
       perDate.set(dateStr, d);
     }
 
+    // Write
     const now = Math.floor(Date.now() / 1000);
     const stmts: D1PreparedStatement[] = [
       c.env.DB.prepare('DELETE FROM marketplace_sales_ozon'),
@@ -243,17 +263,23 @@ marketplacesExtras.post('/sync/sales/ozon', async (c) => {
         ? v.positions.reduce((a, b) => a + b, 0) / v.positions.length
         : null;
       const price = priceMap.get(sku) ?? null;
-      const adSpend = adSpendMap.get(sku) ?? 0;
+      const exp = expensesMap.get(sku) || { cpc: 0, cpo: 0, stars: 0, brand: 0, reviews: 0, membership: 0, acquiring: 0, returns: 0 };
+      const expensesTotal = exp.cpc + exp.cpo + exp.stars + exp.brand + exp.reviews + exp.membership + exp.acquiring;
       stmts.push(
         c.env.DB.prepare(
           `INSERT INTO marketplace_sales_ozon
            (base_sku, period_from, period_to, units_sold, revenue_rub, listings_count, synced_at,
-            views, tocart_count, position_category, current_price_rub, ad_spend_rub)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            views, tocart_count, position_category, current_price_rub,
+            cost_per_click_rub, cost_per_order_rub, stars_promo_rub, brand_commission_rub,
+            reviews_cost_rub, stars_membership_rub, acquiring_rub, returns_cost_rub, expenses_total_rub,
+            ad_spend_rub)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
           sku, dateFrom, dateTo,
           v.units, v.revenue, v.listings.size, now,
-          v.views, v.tocart, avgPos, price, adSpend
+          v.views, v.tocart, avgPos, price,
+          exp.cpc, exp.cpo, exp.stars, exp.brand, exp.reviews, exp.membership, exp.acquiring, exp.returns, expensesTotal,
+          exp.cpc  // legacy column kept = cpc only
         )
       );
     }
@@ -277,7 +303,8 @@ marketplacesExtras.post('/sync/sales/ozon', async (c) => {
       unmatched_records: unmatched,
       sku_map_size: skuMap.size,
       prices_pulled: priceMap.size,
-      ad_skus_with_spend: adSpendMap.size,
+      expenses_skus: expensesMap.size,
+      perf_ad_skus: perfAdMap.size,
       period: { from: dateFrom, to: dateTo, days: PERIOD_DAYS },
     });
   } catch (e) {
@@ -289,16 +316,6 @@ marketplacesExtras.post('/sync/sales/ozon', async (c) => {
   }
 });
 
-// =============================================================================
-// POST /api/marketplaces/sync/sales/wb
-//
-// One-shot sync covering 7 days:
-// 1. Pull supplier/sales feed for raw units + revenue
-// 2. Pull nm-report/detail for funnel (views, addToCart) and position
-// 3. Pull list/goods/filter for current prices
-// 4. Pull adverts financial report for ad spend
-// 5. Atomically replace marketplace_sales_wb and marketplace_sales_daily
-// =============================================================================
 marketplacesExtras.post('/sync/sales/wb', async (c) => {
   const startedAt = Math.floor(Date.now() / 1000);
   const logResult = await c.env.DB.prepare(
@@ -437,6 +454,196 @@ marketplacesExtras.post('/sync/sales/wb', async (c) => {
     return fail(c, 502, [{ code: 'wb_sales_sync_failed', message: msg }]);
   }
 });
+
+
+// =============================================================================
+// Helpers — Ozon Performance API (advertising)
+// =============================================================================
+
+// Cache token in module scope. Performance API tokens live 30 minutes.
+let ozonPerfToken: { value: string; expiresAt: number } | null = null;
+
+async function getOzonPerfToken(env: Env): Promise<string> {
+  const now = Date.now();
+  if (ozonPerfToken && ozonPerfToken.expiresAt > now + 60_000) {
+    return ozonPerfToken.value;
+  }
+  if (!env.OZON_PERF_CLIENT_ID || !env.OZON_PERF_CLIENT_SECRET) {
+    throw new Error('OZON_PERF_CLIENT_ID or OZON_PERF_CLIENT_SECRET not configured');
+  }
+  const resp = await fetch('https://api-performance.ozon.ru/api/client/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: env.OZON_PERF_CLIENT_ID,
+      client_secret: env.OZON_PERF_CLIENT_SECRET,
+      grant_type: 'client_credentials',
+    }),
+  });
+  if (!resp.ok) throw new Error(`Performance auth HTTP ${resp.status}: ${await resp.text()}`);
+  const data = await resp.json<{ access_token: string; expires_in: number }>();
+  ozonPerfToken = {
+    value: data.access_token,
+    expiresAt: now + data.expires_in * 1000,
+  };
+  return data.access_token;
+}
+
+/**
+ * Pull daily ad spend from Performance API and attribute to SKUs.
+ *
+ * Logic:
+ *   1. /api/client/statistics/daily/json → per-campaign daily spend
+ *   2. For each campaign, /api/client/campaign/{id}/objects → list of SKUs
+ *   3. Distribute campaign spend equally across its SKUs
+ *
+ * Returns map keyed by catalog SKU (lowercased offer_id) with kopecks.
+ */
+async function fetchOzonAdSpendByPerf(
+  env: Env, dateFrom: string, dateTo: string,
+  skuMap: Map<number, OzonSkuMapEntry>
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  const token = await getOzonPerfToken(env);
+
+  // 1) Daily spend per campaign
+  const dailyResp = await fetch(
+    `https://api-performance.ozon.ru/api/client/statistics/daily/json?dateFrom=${dateFrom}&dateTo=${dateTo}`,
+    { headers: { 'Authorization': `Bearer ${token}` } }
+  );
+  if (!dailyResp.ok) {
+    console.error(`[perf daily] HTTP ${dailyResp.status}`);
+    return result;
+  }
+  const daily = await dailyResp.json<{ rows: Array<{ id: string; moneySpent: string }> }>();
+
+  // Sum spend per campaign id
+  const spendByCampaign = new Map<string, number>();
+  for (const row of daily.rows || []) {
+    const amt = parseFloat(String(row.moneySpent || '0').replace(',', '.')) || 0;
+    spendByCampaign.set(row.id, (spendByCampaign.get(row.id) || 0) + amt);
+  }
+
+  // 2) For each campaign, get list of objects (SKUs / ozon-skus)
+  // The /v2/campaign/{id}/objects endpoint returns objects which for SKU/SEARCH_PROMO
+  // type campaigns include sku ids.
+  for (const [campaignId, totalSpend] of spendByCampaign.entries()) {
+    if (totalSpend <= 0) continue;
+    try {
+      const objResp = await fetch(
+        `https://api-performance.ozon.ru/api/client/campaign/${campaignId}/v2/objects`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      if (!objResp.ok) continue;
+      const objData = await objResp.json<{ list: Array<{ id: string }> }>();
+      const ozonSkus = (objData.list || []).map((o) => parseInt(o.id, 10)).filter((n) => !Number.isNaN(n));
+      if (ozonSkus.length === 0) continue;
+
+      // Distribute spend equally
+      const perSku = totalSpend / ozonSkus.length;
+      for (const ozonSku of ozonSkus) {
+        const mapped = skuMap.get(ozonSku);
+        if (!mapped || !mapped.catalog_sku) continue;
+        const cur = result.get(mapped.catalog_sku) || 0;
+        result.set(mapped.catalog_sku, cur + Math.round(perSku * 100));
+      }
+    } catch (e) {
+      console.error(`[perf objects ${campaignId}]`, e);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Fetch ALL transactions for the period and group expenses by catalog SKU.
+ *
+ * Returns map: catalog_sku → { CPC, CPO, stars, brand, reviews, membership, acquiring, returns }
+ * All values in kopecks (positive = cost, even though source amounts are negative).
+ */
+async function fetchOzonExpensesBySku(
+  env: Env, dateFrom: string, dateTo: string,
+  skuMap: Map<number, OzonSkuMapEntry>
+): Promise<Map<string, OzonExpenseBucket>> {
+  const map = new Map<string, OzonExpenseBucket>();
+  let page = 1;
+  while (true) {
+    const resp = await fetch('https://api-seller.ozon.ru/v3/finance/transaction/list', {
+      method: 'POST',
+      headers: {
+        'Client-Id': env.OZON_CLIENT_ID,
+        'Api-Key': env.OZON_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        filter: {
+          date: { from: `${dateFrom}T00:00:00.000Z`, to: `${dateTo}T23:59:59.999Z` },
+          posting_number: '',
+          transaction_type: 'all',
+        },
+        page, page_size: 1000,
+      }),
+    });
+    if (!resp.ok) {
+      console.error(`[transactions p${page}] HTTP ${resp.status}`);
+      break;
+    }
+    const data = await resp.json<{ result: { operations: any[]; page_count: number } }>();
+    const ops = data.result?.operations || [];
+    for (const op of ops) {
+      const t = op.operation_type;
+      const cat = OZON_OP_CATEGORY_MAP[t];
+      if (!cat) continue;
+      const items = op.items || [];
+      if (items.length === 0) continue;
+      const amount = Math.abs(parseFloat(op.amount || '0') || 0);
+      const perItem = amount / items.length;
+      for (const it of items) {
+        const ozonSku = it.sku as number | undefined;
+        if (!ozonSku) continue;
+        const mapped = skuMap.get(ozonSku);
+        if (!mapped || !mapped.catalog_sku) continue;
+        const sku = mapped.catalog_sku;
+        let bucket = map.get(sku);
+        if (!bucket) {
+          bucket = { cpc: 0, cpo: 0, stars: 0, brand: 0, reviews: 0, membership: 0, acquiring: 0, returns: 0 };
+          map.set(sku, bucket);
+        }
+        bucket[cat] += Math.round(perItem * 100);
+      }
+    }
+    const pageCount = data.result?.page_count || 1;
+    if (page >= pageCount) break;
+    page++;
+    if (page > 30) break;
+  }
+  return map;
+}
+
+interface OzonExpenseBucket {
+  cpc: number;        // OperationMarketplaceCostPerClick
+  cpo: number;        // OperationMarketplaceExternalPromotion
+  stars: number;      // MarketplaceServicePremiumCashbackIndividualPoints
+  brand: number;      // MarketplaceServiceBrandCommission
+  reviews: number;    // CustomerReviews
+  membership: number; // StarsMembership
+  acquiring: number;  // MarketplaceRedistributionOfAcquiringOperation
+  returns: number;    // OperationItemReturn / ClientReturnAgentOperation
+}
+
+const OZON_OP_CATEGORY_MAP: Record<string, keyof OzonExpenseBucket> = {
+  'OperationMarketplaceCostPerClick': 'cpc',
+  'OperationMarketplaceExternalPromotion': 'cpo',
+  'MarketplaceServicePremiumCashbackIndividualPoints': 'stars',
+  'OperationMarketplaceServicePremiumCashbackBonusAccrual': 'stars',
+  'MarketplaceServiceBrandCommission': 'brand',
+  'CustomerReviews': 'reviews',
+  'StarsMembership': 'membership',
+  'MarketplaceRedistributionOfAcquiringOperation': 'acquiring',
+  'OperationItemReturn': 'returns',
+  'ClientReturnAgentOperation': 'returns',
+};
+
 
 // =============================================================================
 // Helpers — Ozon
@@ -725,3 +932,4 @@ function isoDate(d: Date): string {
 }
 
 export default marketplacesExtras;
+

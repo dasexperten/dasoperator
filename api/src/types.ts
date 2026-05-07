@@ -27,6 +27,8 @@ export interface Env {
   // Ozon Seller API (https://api-seller.ozon.ru) — Client-Id + Api-Key headers
   OZON_CLIENT_ID: string;
   OZON_API_KEY: string;
+  OZON_PERF_CLIENT_ID: string;
+  OZON_PERF_CLIENT_SECRET: string;
   // Wildberries API (https://*-api.wildberries.ru) — bare token, no Bearer prefix
   WB_API_TOKEN: string;
 }
@@ -69,3 +71,4 @@ export interface HealthStatus {
 export type BindingStatus =
   | { status: 'ok'; latency_ms: number }
   | { status: 'error'; error: string };
+

@@ -439,7 +439,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
                   <tr key={op.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                     <td className="px-4 py-3" style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
                       <Link
-                        href={`/partners/${slug}/operations/${op.id}`}
+                        href={`/operations/${op.id}`}
                         style={{ color: 'var(--fg-1)', textDecoration: 'underline', textDecorationColor: 'var(--border-hairline)', textUnderlineOffset: '3px' }}
                       >
                         {op.reference ?? op.id}
@@ -507,7 +507,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
                   <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
                     {p.operation_id ? (
                       <Link
-                        href={`/partners/${slug}/operations/${p.operation_id}`}
+                        href={`/operations/${p.operation_id}`}
                         style={{ color: 'var(--fg-2)', textDecoration: 'underline', textDecorationColor: 'var(--border-hairline)', textUnderlineOffset: '3px' }}
                       >
                         {p.operation_id.slice(0, 8)}

@@ -209,17 +209,12 @@ export async function issueDocuments(
     }, 500, []);
   }
 
-  // Re-issue prevention.
-  if (input.operation.status === 'issued') {
+  // Re-issue allowed: each press creates fresh documents replacing prior ones.
+  // Block only on terminal states (cancelled) where reprinting makes no sense.
+  if (input.operation.status === 'cancelled') {
     return fail({
-      code: 'documents_already_issued',
-      message: `Operation ${operationId} already has status 'issued'. Re-issue is not supported.`,
-    }, 409, []);
-  }
-  if (input.operation.status !== 'draft') {
-    return fail({
-      code: 'operation_not_draft',
-      message: `Operation status is ${input.operation.status}; documents can only be issued from draft.`,
+      code: 'operation_cancelled',
+      message: `Operation ${operationId} is cancelled — cannot issue documents.`,
     }, 409, []);
   }
 
@@ -386,6 +381,26 @@ export async function issueDocuments(
   const origin = originFromRequest(reqUrl);
   const isInternational = isInternationalDeal(input.ourCompany, input.partner);
   let lastCiReference: string | null = null;
+
+  // Soft-delete prior documents of the same types — re-issue replaces them.
+  // We only mark deleted_at; R2 objects of old documents remain (orphan but harmless).
+  const typesBeingIssued = Array.from(new Set(resolved.map((r) => r.spec.type)));
+  if (typesBeingIssued.length > 0) {
+    const placeholders = typesBeingIssued.map(() => '?').join(',');
+    try {
+      await env.DB.prepare(
+        `UPDATE documents SET deleted_at = ?, updated_at = ?
+           WHERE operation_id = ?
+             AND document_type IN (${placeholders})
+             AND deleted_at IS NULL`
+      ).bind(nowSec, nowSec, operationId, ...typesBeingIssued).run();
+    } catch (err) {
+      return fail({
+        code: 'pipeline_failed',
+        message: `Failed to soft-delete prior documents: ${err instanceof Error ? err.message : String(err)}`,
+      }, 500, warnings);
+    }
+  }
 
   async function rollback(reason: string): Promise<IssueOutcome> {
     for (const key of uploadedR2Keys) {

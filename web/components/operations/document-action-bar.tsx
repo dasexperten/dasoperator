@@ -22,7 +22,7 @@ export default function DocumentActionBar({
   const [busy, setBusy] = useState<ButtonId | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const canIssue = operationStatus === 'draft';
+  const canIssue = operationStatus !== 'cancelled';
 
   const handleIssue = async (id: ButtonId, types?: DocType[]) => {
     if (!canIssue) {
@@ -148,7 +148,7 @@ export default function DocumentActionBar({
       )}
       {!canIssue && (
         <p style={{ fontSize: '14px', color: 'var(--fg-3)', margin: 0 }}>
-          Documents can only be issued from Draft. Current status: {operationStatus}
+          Operation is cancelled — documents cannot be issued.
         </p>
       )}
     </div>

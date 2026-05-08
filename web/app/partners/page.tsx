@@ -305,12 +305,12 @@ export default function PartnersPage() {
           <table className="w-full text-sm">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                <Th>Trade Name</Th><Th>Kind</Th><Th>Country</Th><Th>Lang</Th><Th>Currency</Th><Th>Entity</Th><Th>Status</Th><Th>Net Balance</Th>
+                <Th>Trade Name</Th><Th>Kind</Th><Th>Country</Th><Th>Lang</Th><Th>Currency</Th><Th>Entity</Th><Th>Status</Th><Th>Net Balance</Th><Th>Contract</Th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12" style={{ color: 'var(--fg-3)' }}>No partners match the filters</td></tr>
+                <tr><td colSpan={9} className="text-center py-12" style={{ color: 'var(--fg-3)' }}>No partners match the filters</td></tr>
               ) : (
                 filtered.map((p) => {
                   const effective = p.crm_status ?? (p.status === 'pending' ? 'lead' : p.status);
@@ -349,6 +349,9 @@ export default function PartnersPage() {
                         ) : (
                           <span style={{ color: 'var(--fg-muted)' }}>—</span>
                         )}
+                      </td>
+                      <td className="px-4 py-3" style={{ fontWeight: 700, color: 'var(--fg-1)' }}>
+                        {p.contract_no ? p.contract_no : <span style={{ color: 'var(--fg-muted)', fontWeight: 400 }}>—</span>}
                       </td>
                     </tr>
                   );

@@ -387,6 +387,15 @@ async function runMarketplaceSync(): Promise<void> {
 // =============================================================================
 // Daily partner crm_status recalc — runs alongside FX refresh at 12:00 UTC.
 // Pure SQL, no network, runs in well under 1s.
+//
+// Rules:
+//   - operation last 365d  → active
+//   - any operation         → sleeping
+//   - contract, no ops      → potential
+//   - else                  → sleeping
+//
+// Skips partners with crm_status='lead'. Lead is set only on UI creation,
+// and survives until the partner gets its first contract or operation.
 // =============================================================================
 async function runPartnerStatusRecalc(env: Env): Promise<void> {
   const oneYearAgo = Math.floor(Date.now() / 1000) - 31_536_000;
@@ -412,9 +421,10 @@ async function runPartnerStatusRecalc(env: Env): Promise<void> {
           WHERE c.partner_id = partners.id
             AND c.deleted_at IS NULL
         ) THEN 'potential'
-        ELSE 'lead'
+        ELSE 'sleeping'
       END
       WHERE deleted_at IS NULL
+        AND crm_status != 'lead'
     `).bind(oneYearAgo).run();
 
     console.log(`[cron] partner status recalc done — ${result.meta.changes ?? 0} partners updated`);

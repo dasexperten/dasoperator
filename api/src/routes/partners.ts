@@ -691,11 +691,15 @@ partners.get('/:slug/agreements/:id/download', async (c) => {
 // POST /api/partners/recalc-status — recompute crm_status for all partners
 // based on operations + contracts. Idempotent. Safe to call from cron or UI.
 //
-// Rules (Phase 8.0 lifecycle):
+// Rules (Phase 8.1 lifecycle):
 //   - operation in last 365 days  → active
 //   - any operation (older)        → sleeping
 //   - contract exists, no ops      → potential
-//   - nothing                      → lead
+//   - nothing (existing partner)   → sleeping
+//
+// `lead` is NEVER assigned by recalc — it is set ONLY when a brand-new
+// partner is created via the UI form. As soon as recalc runs, a lead with
+// no further activity transitions to sleeping.
 // =============================================================================
 partners.post('/recalc-status', async (c) => {
   const oneYearAgo = Math.floor(Date.now() / 1000) - 31_536_000;
@@ -719,9 +723,10 @@ partners.post('/recalc-status', async (c) => {
         WHERE c.partner_id = partners.id
           AND c.deleted_at IS NULL
       ) THEN 'potential'
-      ELSE 'lead'
+      ELSE 'sleeping'
     END
     WHERE deleted_at IS NULL
+      AND crm_status != 'lead'
   `).bind(oneYearAgo).run();
 
   // Pull a breakdown so the caller sees what happened

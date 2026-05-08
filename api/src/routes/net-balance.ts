@@ -1,14 +1,15 @@
 // =============================================================================
 // Net Balance — partner financial position in USD
 //
-// Logic (Phase 3.0e Q5/Q7/Q8/Q14):
-//   - Sale operation (delivered/shipped):    they owe us total_amount  (+ for us)
-//   - Purchase operation (delivered/shipped): we owe them total_amount (- for us)
-//   - Service/Transfer operations:           ignored for net balance
-//   - Payment incoming:                      cancels their debt        (- for us)
-//   - Payment outgoing:                      cancels our debt          (+ for us)
-//   - Status filter (Q5):                    only delivered/shipped count
-//   - FX (Q14):                              today's CBR rate, USD pivot
+// Logic:
+//   Operations create debt obligations once they're confirmed:
+//     - Sale issued/shipped/delivered:    they owe us total_amount  (+ for us)
+//     - Purchase issued/shipped/delivered: we owe them total_amount (- for us)
+//     - Other types (transfer/bundling):  ignored
+//   Payments cancel debt:
+//     - Incoming payment: a sale is being paid down → reduces what they owe (- for us)
+//     - Outgoing payment: a purchase is being paid down → reduces what we owe (+ for us)
+//   FX: today's CBR rate, USD pivot.
 // =============================================================================
 
 import { Hono } from 'hono';
@@ -31,6 +32,8 @@ interface PaymentRow {
   direction: string;
 }
 
+const DEBT_STATUSES = new Set(['issued', 'shipped', 'delivered']);
+
 // Compute USD-pivoted net balance for a partner from raw rows + FX snapshot.
 function computeNetBalance(
   ops: OperationRow[],
@@ -40,6 +43,7 @@ function computeNetBalance(
   const byCurrency: Record<string, number> = {};
 
   for (const op of ops) {
+    if (!DEBT_STATUSES.has(op.status)) continue;
     const sign = op.operation_type === 'sale'     ? 1 :
                  op.operation_type === 'purchase' ? -1 : 0;
     if (sign === 0) continue;
@@ -47,8 +51,8 @@ function computeNetBalance(
   }
 
   for (const p of pays) {
-    // payment cancels debt: incoming reduces what they owe (negative for us in their column);
-    // outgoing reduces what we owe (positive in their column from our perspective)
+    // Incoming payment: we received money — sale debt reduces (subtract from + side).
+    // Outgoing payment: we sent money — purchase debt reduces (add to - side).
     const sign = p.direction === 'incoming' ? -1 : 1;
     byCurrency[p.currency] = (byCurrency[p.currency] ?? 0) + sign * p.amount;
   }
@@ -94,7 +98,7 @@ netBalancePerPartner.get('/:slug/net-balance', async (c) => {
     JOIN contracts c ON o.contract_id = c.id
     WHERE c.partner_id = ?
       AND o.deleted_at IS NULL
-      AND o.status IN ('delivered','shipped')
+      AND o.status IN ('issued','shipped','delivered')
   `).bind(slug).all<OperationRow>();
 
   const paysResult = await c.env.DB.prepare(`
@@ -141,7 +145,7 @@ netBalanceBulk.get('/', async (c) => {
       SELECT o.operation_type, o.total_amount, o.currency, o.status, o.contract_id
       FROM operations o
       JOIN contracts c ON o.contract_id = c.id
-      WHERE c.partner_id = ? AND o.deleted_at IS NULL AND o.status IN ('delivered','shipped')
+      WHERE c.partner_id = ? AND o.deleted_at IS NULL AND o.status IN ('issued','shipped','delivered')
     `).bind(p.id).all<OperationRow>();
 
     const paysResult = await c.env.DB.prepare(`

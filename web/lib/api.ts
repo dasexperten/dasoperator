@@ -652,6 +652,9 @@ export interface Contract {
   status: 'draft' | 'active' | 'expired' | 'cancelled';
   notes?: string | null;
   vat_rate: 0 | 5 | 20;
+  agreement_type?: 'main' | 'addendum' | 'annex' | 'sla' | null;
+  parent_contract_id?: string | null;
+  addendum_no?: string | null;
   created_at: number;
   updated_at: number;
 }

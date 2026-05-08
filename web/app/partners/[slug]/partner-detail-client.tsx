@@ -384,18 +384,35 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
           <table className="w-full">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                <Th>Contract No</Th><Th>Entity</Th><Th>Currency</Th><Th>Signed</Th><Th>Status</Th>
+                <Th>Contract No</Th><Th>Type</Th><Th>Entity</Th><Th>Currency</Th><Th>Signed</Th><Th>Status</Th>
               </tr>
             </thead>
             <tbody>
               {contracts.map((c) => {
                 const ss = CONTRACT_STATUS_COLORS[c.status];
+                const isAddendum = c.agreement_type === 'addendum' || c.agreement_type === 'annex';
                 return (
                   <tr key={c.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                     <td className="px-4 py-3">
-                      <Link href={`/partners/${slug}/contracts/${c.id}`} style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', textDecoration: 'underline', textDecorationColor: 'var(--border-hairline)', textUnderlineOffset: '3px' }}>
-                        {c.contract_no}
-                      </Link>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', paddingLeft: isAddendum ? '24px' : '0' }}>
+                        {isAddendum && (
+                          <span aria-hidden="true" style={{ color: 'var(--fg-muted)', fontSize: '14px', fontWeight: 400 }}>└─</span>
+                        )}
+                        <Link href={`/partners/${slug}/contracts/${c.id}`} style={{ fontSize: '14px', fontWeight: 700, color: isAddendum ? 'var(--fg-2)' : 'var(--fg-1)', textDecoration: 'underline', textDecorationColor: 'var(--border-hairline)', textUnderlineOffset: '3px' }}>
+                          {c.contract_no}
+                        </Link>
+                      </span>
+                    </td>
+                    <td className="px-4 py-3" style={{ fontSize: '14px' }}>
+                      {c.agreement_type === 'main' || !c.agreement_type ? (
+                        <span style={{ color: 'var(--fg-2)', fontWeight: 600 }}>Main</span>
+                      ) : c.agreement_type === 'addendum' ? (
+                        <span style={{ color: 'var(--fg-3)', fontWeight: 600 }}>Addendum {c.addendum_no ? `№${c.addendum_no}` : ''}</span>
+                      ) : c.agreement_type === 'annex' ? (
+                        <span style={{ color: 'var(--fg-3)', fontWeight: 600 }}>Annex</span>
+                      ) : (
+                        <span style={{ color: 'var(--fg-3)', fontWeight: 600 }}>{c.agreement_type.toUpperCase()}</span>
+                      )}
                     </td>
                     <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>{c.entity_abbreviation ?? '—'}</td>
                     <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>{c.currency}</td>

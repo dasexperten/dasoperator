@@ -207,7 +207,12 @@ export default function OperationsPage() {
                           </Link>
                         ) : '—'}
                       </td>
-                      <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>{op.contract_no ?? '—'}</td>
+                      <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>{(() => {
+                        const c = op.contract_no;
+                        if (!c) return '—';
+                        if (/^NO[-\s]CONTRACT/i.test(c)) return '---';
+                        return c;
+                      })()}</td>
                       <td className="px-4 py-3">
                         <span className="inline-block" style={{ fontSize: '14px', fontWeight: 500, padding: '3px 10px', backgroundColor: tc?.bg, color: tc?.fg, borderRadius: 'var(--radius-pill)' }}>
                           {op.operation_type}

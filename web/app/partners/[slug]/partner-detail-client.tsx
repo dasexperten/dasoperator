@@ -470,7 +470,12 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
                       {op.operation_type}
                     </td>
                     <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
-                      {op.contract_no ?? '—'}
+                      {(() => {
+                        const c = op.contract_no;
+                        if (!c) return '—';
+                        if (/^NO[-\s]CONTRACT/i.test(c)) return '---';
+                        return c;
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-right" style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
                       {formatMoney(op.total_amount, op.currency)} {op.currency}

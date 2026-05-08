@@ -30,7 +30,6 @@ const STATUS_COLORS: Record<Partner['status'], { bg: string; fg: string; border:
   blocked:  { bg: 'rgba(229,32,44,0.08)',  fg: 'var(--brand-rot)',      border: 'rgba(229,32,44,0.3)' },
 };
 
-// Phase 8.0 — kind chip colors (5 partner kinds)
 type Kind = 'buyer' | 'manufacturer' | 'service_provider' | 'shipper' | '3pl' | 'other';
 
 const KIND_COLORS: Record<Kind, { bg: string; fg: string }> = {
@@ -42,13 +41,22 @@ const KIND_COLORS: Record<Kind, { bg: string; fg: string }> = {
   other:            { bg: 'var(--paper-sunk)', fg: 'var(--fg-3)' },
 };
 
-const KIND_LABELS: Record<Kind, string> = {
-  buyer:            'Buyer',
-  manufacturer:     'Manufacturer',
-  service_provider: 'Service',
-  shipper:          'Shipper',
+const KIND_LABELS_BUTTON: Record<Kind, string> = {
+  buyer:            'BUYERS',
+  manufacturer:     'MANUFACTURERS',
+  service_provider: 'SERVICE PROVIDERS',
+  shipper:          'SHIPPERS',
   '3pl':            '3PL',
-  other:            'Other',
+  other:            'OTHER',
+};
+
+const KIND_LABELS_BADGE: Record<Kind, string> = {
+  buyer:            'BUYER',
+  manufacturer:     'MANUF.',
+  service_provider: 'SERVICE',
+  shipper:          'SHIPPER',
+  '3pl':            '3PL',
+  other:            'OTHER',
 };
 
 function deriveKind(p: ExtendedPartner): Kind {
@@ -142,12 +150,17 @@ export default function PartnersPage() {
   const activeCount = partners.filter((p) => p.status === 'active').length;
   const pendingCount = partners.filter((p) => p.status === 'pending').length;
 
-  const visibleKinds: (Kind | 'all')[] = (
-    ['all', 'buyer', 'manufacturer', 'service_provider', 'shipper', '3pl', 'other'] as const
-  ).filter((k) => k === 'all' || kindCounts[k] > 0);
+  const kindButtons: Array<{ key: Kind | 'all'; label: string; count: number }> = [
+    { key: 'all', label: 'ALL', count: kindCounts.all },
+    { key: 'buyer', label: KIND_LABELS_BUTTON.buyer, count: kindCounts.buyer },
+    { key: 'manufacturer', label: KIND_LABELS_BUTTON.manufacturer, count: kindCounts.manufacturer },
+    { key: 'service_provider', label: KIND_LABELS_BUTTON.service_provider, count: kindCounts.service_provider },
+    { key: 'shipper', label: KIND_LABELS_BUTTON.shipper, count: kindCounts.shipper },
+    { key: '3pl', label: KIND_LABELS_BUTTON['3pl'], count: kindCounts['3pl'] },
+  ];
 
   return (
-    <div className="space-y-8 max-w-7xl">
+    <div className="space-y-6 max-w-7xl">
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="dx-eyebrow-rot mb-2">Master Data</div>
@@ -172,36 +185,53 @@ export default function PartnersPage() {
 
       <div className="dx-ribbon-rule" />
 
-      <div className="space-y-3">
-        <div className="flex flex-wrap gap-2">
-          {visibleKinds.map((k) => {
-            const isActive = kindFilter === k;
-            const colors = k === 'all'
-              ? { bg: 'var(--paper-sunk)', fg: 'var(--fg-1)' }
-              : KIND_COLORS[k as Kind];
-            return (
-              <button
-                key={k}
-                onClick={() => setKindFilter(k)}
-                className="inline-flex items-center gap-2 transition-colors"
-                style={{
-                  padding: '6px 12px',
-                  fontSize: 'var(--fs-body-sm)',
-                  fontWeight: isActive ? 700 : 500,
-                  backgroundColor: isActive ? colors.bg : 'transparent',
-                  color: isActive ? colors.fg : 'var(--fg-2)',
-                  border: `1px solid ${isActive ? colors.fg : 'var(--border-hairline)'}`,
-                  borderRadius: 'var(--radius-pill)',
-                  cursor: 'pointer',
-                }}
-              >
-                <span>{k === 'all' ? 'All' : KIND_LABELS[k as Kind]}</span>
-                <span style={{ fontWeight: 700, opacity: 0.7 }}>{kindCounts[k]}</span>
-              </button>
-            );
-          })}
-        </div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
+          gap: '10px',
+        }}
+      >
+        {kindButtons.map((btn) => {
+          const isActive = kindFilter === btn.key;
+          const palette = btn.key === 'all'
+            ? { bg: '#1F2937', fg: '#FFFFFF' }
+            : KIND_COLORS[btn.key as Kind];
+          const muted = !isActive;
+          return (
+            <button
+              key={btn.key}
+              onClick={() => setKindFilter(btn.key)}
+              style={{
+                padding: '14px 10px',
+                background: isActive
+                  ? palette.bg
+                  : (btn.key === 'all' ? 'var(--paper-sunk)' : palette.bg),
+                color: isActive
+                  ? palette.fg
+                  : (btn.key === 'all' ? 'var(--fg-2)' : palette.fg),
+                opacity: muted && btn.key !== 'all' ? 0.55 : 1,
+                border: `1px solid ${isActive ? (btn.key === 'all' ? '#1F2937' : palette.fg) : 'transparent'}`,
+                borderRadius: 'var(--radius-md)',
+                cursor: 'pointer',
+                textAlign: 'left',
+                transition: 'opacity 0.15s, border-color 0.15s',
+              }}
+              onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.opacity = '1'; }}
+              onMouseLeave={(e) => { if (!isActive && btn.key !== 'all') e.currentTarget.style.opacity = '0.55'; }}
+            >
+              <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: 0, marginBottom: 4, opacity: 0.75 }}>
+                {btn.label}
+              </div>
+              <div style={{ fontSize: '22px', fontWeight: 700 }}>
+                {btn.count}
+              </div>
+            </button>
+          );
+        })}
+      </div>
 
+      <div className="space-y-3">
         <div className="relative max-w-xl">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={{ color: 'var(--fg-muted)' }} />
           <input
@@ -247,12 +277,12 @@ export default function PartnersPage() {
           <table className="w-full text-sm">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                <Th>Trade Name</Th><Th>Kind</Th><Th>Country</Th><Th>Lang</Th><Th>Currency</Th><Th>Entity</Th><Th>Status</Th><Th>Net Balance</Th><Th>Contract</Th>
+                <Th>Trade Name</Th><Th>Kind</Th><Th>Country</Th><Th>Lang</Th><Th>Currency</Th><Th>Entity</Th><Th>Status</Th><Th>Net Balance</Th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={9} className="text-center py-12" style={{ color: 'var(--fg-3)' }}>No partners match the filters</td></tr>
+                <tr><td colSpan={8} className="text-center py-12" style={{ color: 'var(--fg-3)' }}>No partners match the filters</td></tr>
               ) : (
                 filtered.map((p) => {
                   const effective = p.crm_status ?? (p.status === 'pending' ? 'lead' : p.status);
@@ -268,8 +298,8 @@ export default function PartnersPage() {
                         </Link>
                       </td>
                       <td className="px-4 py-3">
-                        <span className="inline-block" style={{ padding: '3px 8px', backgroundColor: kindStyle.bg, color: kindStyle.fg, fontSize: 'var(--fs-caption)', fontWeight: 700, borderRadius: 'var(--radius-pill)' }}>
-                          {KIND_LABELS[k]}
+                        <span className="inline-block" style={{ padding: '3px 10px', backgroundColor: kindStyle.bg, color: kindStyle.fg, fontSize: '11px', fontWeight: 700, letterSpacing: 0, borderRadius: 'var(--radius-pill)' }}>
+                          {KIND_LABELS_BADGE[k]}
                         </span>
                       </td>
                       <td className="px-4 py-3" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>{p.country ?? '—'}</td>
@@ -292,7 +322,6 @@ export default function PartnersPage() {
                           <span style={{ color: 'var(--fg-muted)' }}>—</span>
                         )}
                       </td>
-                      <td className="px-4 py-3" style={{ color: 'var(--fg-3)' }}>{p.contract_no ?? '—'}</td>
                     </tr>
                   );
                 })

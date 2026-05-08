@@ -43,11 +43,12 @@ function formatDate(unix: number): string {
   return new Date(unix * 1000).toISOString().split('T')[0]!;
 }
 
-function formatMoney(minor: number, currency: string): string {
-  const factor = ['VND', 'JPY', 'KRW'].includes(currency) ? 1 : 100;
-  return (minor / factor).toLocaleString('en-US', {
-    minimumFractionDigits: factor === 1 ? 0 : 2,
-    maximumFractionDigits: factor === 1 ? 0 : 2,
+function formatMoney(amount: number, currency: string): string {
+  const isZeroDecimal = ['VND', 'JPY', 'KRW'].includes(currency);
+  const fractionDigits = isZeroDecimal ? 0 : 2;
+  return amount.toLocaleString('en-US', {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
   });
 }
 

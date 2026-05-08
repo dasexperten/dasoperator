@@ -23,15 +23,12 @@ function formatDateShort(unixSec?: number | null): string {
   return `${d.getDate()} ${month}`;
 }
 
-function getMinorFactor(currency: string): number {
-  return ['VND', 'JPY', 'KRW'].includes(currency) ? 1 : 100;
-}
-
-function formatMoney(minor: number, currency: string): string {
-  const factor = getMinorFactor(currency);
-  return (minor / factor).toLocaleString('en-US', {
-    minimumFractionDigits: factor === 1 ? 0 : 2,
-    maximumFractionDigits: factor === 1 ? 0 : 2,
+function formatMoney(amount: number, currency: string): string {
+  const isZeroDecimal = ['VND', 'JPY', 'KRW'].includes(currency);
+  const fractionDigits = isZeroDecimal ? 0 : 2;
+  return amount.toLocaleString('en-US', {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
   });
 }
 
@@ -46,14 +43,12 @@ function formatUsdCompact(cents: number): string {
   return `$${dollars.toLocaleString('en-US')}`;
 }
 
-function convertToUsdCents(localMinor: number, currency: string, fx: FxLatest | null): number {
+function convertToUsdCents(amount: number, currency: string, fx: FxLatest | null): number {
   if (!fx) return 0;
   const rate = fx.rates[currency];
   if (!rate) return 0;
-  // local_minor -> local_units -> usd_units -> usd_cents
-  const localFactor = getMinorFactor(currency);
-  const localUnits = localMinor / localFactor;
-  const usdUnits = (localUnits * rate.rate_to_usd_nano) / 1_000_000_000;
+  // amount is in major units (e.g. 25500 RUB, not kopecks)
+  const usdUnits = (amount * rate.rate_to_usd_nano) / 1_000_000_000;
   return Math.round(usdUnits * 100);
 }
 

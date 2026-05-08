@@ -1,1 +1,0 @@
-var t={},a=(r,s,o)=>(t.__chunk_7408=(_,c,e)=>{"use strict";e.d(c,{Z:()=>l});let l=(0,e(2361).Z)("CircleCheck",[["circle",{cx:"12",cy:"12",r:"10",key:"1mglay"}],["path",{d:"m9 12 2 2 4-4",key:"dzmm74"}]])},t);export{a as __getNamedExports};

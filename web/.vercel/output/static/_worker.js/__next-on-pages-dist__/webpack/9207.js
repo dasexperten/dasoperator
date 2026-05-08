@@ -1,1 +1,0 @@
-var e={},u=(c,l,a)=>(e.__chunk_9207=(m,i,n)=>{"use strict";function o(r,s){let t=["VND","JPY","KRW"].includes(s)?0:2;return r.toLocaleString("en-US",{minimumFractionDigits:t,maximumFractionDigits:t})}n.d(i,{l:()=>o})},e);export{u as __getNamedExports};

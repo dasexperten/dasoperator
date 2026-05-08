@@ -20,7 +20,7 @@ function formatDate(unix: number): string {
 }
 
 const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
-  Executed:        { bg: 'rgba(46,125,79,0.10)', fg: '#2E7D4F' },
+  Executed:        { bg: 'rgba(229,32,44,0.10)', fg: '#A82029' },
   Received:        { bg: 'rgba(46,125,79,0.10)', fg: '#2E7D4F' },
   PayReceived:     { bg: 'rgba(46,125,79,0.10)', fg: '#2E7D4F' },
   SendToBank:      { bg: 'rgba(125,72,28,0.10)', fg: '#7D481C' },

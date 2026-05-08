@@ -41,7 +41,7 @@ import type {
 } from './renderers/shared';
 
 const SEQUENCE_BY_TYPE: Record<'CI' | 'PL' | 'IS' | 'UPD' | 'TN', string> = {
-  CI: 'seq_ci', PL: 'seq_pl', IS: 'seq_is', UPD: 'seq_upd', TN: 'seq_tn',
+  CI: 'ci', PL: 'pl', IS: 'is', UPD: 'upd', TN: 'tn',
 };
 
 // =============================================================================

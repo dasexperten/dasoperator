@@ -232,8 +232,7 @@ export async function loadInvoicerInput(
   // For dei_layer flows the entry point also needs DEE + DEI on hand.
   // Cheap to fetch: pull the small set of well-known company ids in one shot.
   const extraCompanyIds = Array.from(new Set(
-    ['cmp_dee', 'cmp_dei', operation.our_company_id]
-      .filter((id) => id !== ourCompany.id || id === ourCompany.id)
+    ['dee', 'dei', operation.our_company_id]
   ));
   const placeholders = extraCompanyIds.map(() => '?').join(',');
   const extraCompaniesRes = await db.prepare(

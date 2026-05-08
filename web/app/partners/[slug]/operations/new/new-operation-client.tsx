@@ -53,7 +53,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   const [opType, setOpType] = useState<'sale' | 'purchase' | 'transfer'>('sale');
   const [contractId, setContractId] = useState<string>('');
   const [manufacturerId, setManufacturerId] = useState<string>('');     // Purchase
-  const [ourCompanyId, setOurCompanyId] = useState<string>('cmp_dee');  // for purchase/transfer
+  const [ourCompanyId, setOurCompanyId] = useState<string>('dee');  // for purchase/transfer
   const [receivingCompanyId, setReceivingCompanyId] = useState<string>('');  // Transfer
   const [viaDei, setViaDei] = useState<boolean>(false);  // Purchase: through DEI passthrough
   // Currency for purchase (default CNY) and transfer (default USD).
@@ -168,9 +168,9 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   // - DEI buyer → checkbox hidden + value reset (DEI can't pass to itself)
   useEffect(() => {
     if (opType !== 'purchase') return;
-    if (ourCompanyId === 'cmp_dasean') {
+    if (ourCompanyId === 'dasean') {
       setViaDei(true);
-    } else if (ourCompanyId === 'cmp_dei') {
+    } else if (ourCompanyId === 'dei') {
       setViaDei(false);
     }
   }, [opType, ourCompanyId]);
@@ -332,7 +332,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
       setPurchasePrices({});
       return;
     }
-    getPricelistMap('pt_purchase_cny').then((res) => {
+    getPricelistMap('purchase_cny').then((res) => {
       if (res.success && res.result) {
         setPurchasePrices(res.result.prices);
       }
@@ -843,7 +843,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
           </div>
 
           {/* DEI passthrough — visible for DEE/DASEAN/DEC; hidden for DEI itself */}
-          {ourCompanyId !== 'cmp_dei' && (
+          {ourCompanyId !== 'dei' && (
             <div
               className="mt-4 p-4"
               style={{
@@ -854,12 +854,12 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
             >
               <label
                 className="flex items-start gap-3"
-                style={{ cursor: ourCompanyId === 'cmp_dasean' ? 'not-allowed' : 'pointer' }}
+                style={{ cursor: ourCompanyId === 'dasean' ? 'not-allowed' : 'pointer' }}
               >
                 <input
                   type="checkbox"
                   checked={viaDei}
-                  disabled={ourCompanyId === 'cmp_dasean'}
+                  disabled={ourCompanyId === 'dasean'}
                   onChange={(e) => setViaDei(e.target.checked)}
                   style={{ marginTop: '2px', width: '18px', height: '18px', cursor: 'inherit' }}
                 />
@@ -868,7 +868,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                     Through DEI
                   </div>
                   <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '2px' }}>
-                    {ourCompanyId === 'cmp_dasean'
+                    {ourCompanyId === 'dasean'
                       ? 'DASEAN always purchases through DEI for tax efficiency. This option is required.'
                       : 'Generates two document packages: factory → DEI (CI + PL), then DEI → buyer (CI + PL + IS).'}
                   </div>

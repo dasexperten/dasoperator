@@ -73,7 +73,7 @@ export default function NewProductPage() {
         setManufacturers(res.result.manufacturers);
         if (res.result.manufacturers.length > 0) {
           // Sensible defaults: jinxia for brushes, wdaa for paste, honghui for floss/other
-          const jinxia = res.result.manufacturers.find((m) => m.id === 'mfr_jinxia');
+          const jinxia = res.result.manufacturers.find((m) => m.id === 'jinxia');
           if (jinxia) setManufacturerId(jinxia.id);
         }
       }
@@ -85,9 +85,9 @@ export default function NewProductPage() {
   useEffect(() => {
     if (manufacturers.length === 0) return;
     let preferred: string | undefined;
-    if (category === 'Toothpaste') preferred = 'mfr_wdaa';
-    else if (category === 'Toothbrush') preferred = 'mfr_jinxia';
-    else preferred = 'mfr_honghui';
+    if (category === 'Toothpaste') preferred = 'wdaa';
+    else if (category === 'Toothbrush') preferred = 'jinxia';
+    else preferred = 'honghui';
     if (preferred && manufacturers.some((m) => m.id === preferred)) {
       setManufacturerId(preferred);
     }

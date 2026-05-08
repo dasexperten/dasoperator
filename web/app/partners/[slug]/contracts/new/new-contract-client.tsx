@@ -7,9 +7,9 @@ import { getPartner, createContract, type Partner } from '@/lib/api';
 import Breadcrumb from '@/components/layout/breadcrumb';
 
 const ENTITIES = [
-  { id: 'cmp_dee', label: 'DEE — Das Experten Eurasia' },
-  { id: 'cmp_dei', label: 'DEI — Das Experten International' },
-  { id: 'cmp_dasean', label: 'DEASEAN — Das Experten ASEAN' },
+  { id: 'dee', label: 'DEE — Das Experten Eurasia' },
+  { id: 'dei', label: 'DEI — Das Experten International' },
+  { id: 'dasean', label: 'DEASEAN — Das Experten ASEAN' },
 ];
 
 const CURRENCIES = ['USD', 'RUB', 'EUR', 'CNY', 'VND'];
@@ -21,7 +21,7 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
   const [error, setError] = useState<string | null>(null);
 
   const [contractNo, setContractNo] = useState('');
-  const [companyId, setCompanyId] = useState('cmp_dee');
+  const [companyId, setCompanyId] = useState('dee');
   const [currency, setCurrency] = useState('USD');
   const [vatRate, setVatRate] = useState<0 | 5 | 20>(0);
   const [signedDate, setSignedDate] = useState('');

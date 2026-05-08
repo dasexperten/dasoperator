@@ -3,10 +3,10 @@
 // =============================================================================
 
 const COMPANY_TO_SEQUENCE: Record<string, string> = {
-  cmp_dee: 'seq_dee',
-  cmp_dei: 'seq_dei',
-  cmp_dasean: 'seq_dasean',
-  cmp_dec: 'seq_dec',
+  dee: 'dee',
+  dei: 'dei',
+  dasean: 'dasean',
+  dec: 'dec',
 };
 
 export function sequenceIdForCompany(companyId: string): string | null {

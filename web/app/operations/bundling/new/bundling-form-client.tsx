@@ -38,13 +38,13 @@ const SKU_PAIRS: SkuPair[] = [
 ];
 
 const BUNDLING_WAREHOUSES = [
-  { id: 'wh_lbr', label: 'wh_lbr — Люберцы' },
-  { id: 'wh_flp', label: 'wh_flp — FlyPost' },
+  { id: 'lbr', label: 'LBR — Люберцы' },
+  { id: 'flp', label: 'FLP — FlyPost' },
 ];
 
 const COMPANY_MAP: Record<string, string> = {
-  'wh_lbr': 'cmp_dee',
-  'wh_flp': 'cmp_dee',
+  'lbr': 'dee',
+  'flp': 'dee',
 };
 
 const API_BASE = 'https://dasoperator-api.dasexperten.workers.dev';
@@ -61,7 +61,7 @@ type RowInput = { side: 'from' | 'to'; value: number } | null;
 
 export default function BundlingFormClient() {
   const router = useRouter();
-  const [warehouseId, setWarehouseId] = useState('wh_lbr');
+  const [warehouseId, setWarehouseId] = useState('lbr');
   const [stocks, setStocks] = useState<Record<string, number>>({});
   const [loadingStocks, setLoadingStocks] = useState(false);
 
@@ -180,7 +180,7 @@ export default function BundlingFormClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           warehouse_id:   warehouseId,
-          our_company_id: COMPANY_MAP[warehouseId] ?? 'cmp_dee',
+          our_company_id: COMPANY_MAP[warehouseId] ?? 'dee',
           items: activeItems,
         }),
       });

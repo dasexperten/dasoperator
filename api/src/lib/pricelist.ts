@@ -28,19 +28,19 @@
 import type { Env } from '../types';
 
 export const PRICE_TYPE_TO_FILE: Record<string, string> = {
-  pt_distr_rub:  'PL-DISTR_RF.md',
-  pt_distr_usd:  'PL-DASEX-USD.md',
-  pt_export_usd: 'PL-INT_USD.md',
-  pt_wb_ru:      'PL-RSP_RF.md',
-  pt_purchase_cny:     'PL-PRCH_CNY.md',
+  distr_rub:  'PL-DISTR_RF.md',
+  distr_usd:  'PL-DASEX-USD.md',
+  export_usd: 'PL-INT_USD.md',
+  wb_ru:      'PL-RSP_RF.md',
+  purchase_cny:     'PL-PRCH_CNY.md',
 };
 
 export const PRICE_TYPE_CURRENCY: Record<string, string> = {
-  pt_distr_rub:  'RUB',
-  pt_distr_usd:  'USD',
-  pt_export_usd: 'USD',
-  pt_wb_ru:      'RUB',
-  pt_purchase_cny:     'CNY',
+  distr_rub:  'RUB',
+  distr_usd:  'USD',
+  export_usd: 'USD',
+  wb_ru:      'RUB',
+  purchase_cny:     'CNY',
 };
 
 const CACHE_TTL_SECONDS = 3600;  // 1 hour

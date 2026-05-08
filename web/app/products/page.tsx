@@ -15,11 +15,11 @@ import {
 } from '@/lib/api';
 
 const PRICE_TYPES: Array<{ id: string; label: string; currency: string }> = [
-  { id: 'pt_distr_usd',    label: 'Distributor USD',  currency: 'USD' },
-  { id: 'pt_distr_rub',    label: 'Distributor RUB',  currency: 'RUB' },
-  { id: 'pt_export_usd',   label: 'EXPORT_USD',       currency: 'USD' },
-  { id: 'pt_wb_ru',        label: 'WB_RU (RRP)',      currency: 'RUB' },
-  { id: 'pt_purchase_cny', label: 'PURCHASE_CNY',     currency: 'CNY' },
+  { id: 'distr_usd',    label: 'Distributor USD',  currency: 'USD' },
+  { id: 'distr_rub',    label: 'Distributor RUB',  currency: 'RUB' },
+  { id: 'export_usd',   label: 'EXPORT_USD',       currency: 'USD' },
+  { id: 'wb_ru',        label: 'WB_RU (RRP)',      currency: 'RUB' },
+  { id: 'purchase_cny', label: 'PURCHASE_CNY',     currency: 'CNY' },
 ];
 
 type SortKey = 'sku' | 'product' | 'total' | 'price';
@@ -39,7 +39,7 @@ export default function ProductsPage() {
   const [manufacturerFilter, setManufacturerFilter] = useState<string>('all');
   const [sortKey, setSortKey] = useState<SortKey>('sku');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
-  const [priceTypeId, setPriceTypeId] = useState<string>('pt_distr_usd');
+  const [priceTypeId, setPriceTypeId] = useState<string>('distr_usd');
   const [priceMap, setPriceMap] = useState<Record<string, number>>({});
   const [priceCurrency, setPriceCurrency] = useState<string>('USD');
   const [priceLoading, setPriceLoading] = useState(false);

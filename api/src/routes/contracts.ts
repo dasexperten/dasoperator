@@ -27,7 +27,7 @@ function genContractId(contractNo: string): string {
     .replace(/[^a-z0-9]/g, '_')
     .replace(/_+/g, '_')
     .replace(/^_|_$/g, '');
-  return `ctr_${slug}`;
+  return slug;
 }
 
 // =============================================================================

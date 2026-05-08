@@ -496,7 +496,7 @@ partners.post('/:slug/agreements/generate-nda', async (c) => {
   const dei = await c.env.DB.prepare(
     `SELECT legal_name, jurisdiction, registered_address, registration_no,
             signing_authority_name, signing_authority_title_en
-     FROM companies WHERE id = 'cmp_dei'`
+     FROM companies WHERE id = 'dei'`
   ).first<DeiRow>();
 
   if (!dei || !dei.legal_name || !dei.signing_authority_name) {

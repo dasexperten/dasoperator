@@ -687,4 +687,57 @@ partners.get('/:slug/agreements/:id/download', async (c) => {
   });
 });
 
+// =============================================================================
+// POST /api/partners/recalc-status — recompute crm_status for all partners
+// based on operations + contracts. Idempotent. Safe to call from cron or UI.
+//
+// Rules (Phase 8.0 lifecycle):
+//   - operation in last 365 days  → active
+//   - any operation (older)        → sleeping
+//   - contract exists, no ops      → potential
+//   - nothing                      → lead
+// =============================================================================
+partners.post('/recalc-status', async (c) => {
+  const oneYearAgo = Math.floor(Date.now() / 1000) - 31_536_000;
+
+  const result = await c.env.DB.prepare(`
+    UPDATE partners
+    SET crm_status = CASE
+      WHEN EXISTS (
+        SELECT 1 FROM operations o
+        WHERE o.partner_id = partners.id
+          AND o.deleted_at IS NULL
+          AND o.operation_date >= ?
+      ) THEN 'active'
+      WHEN EXISTS (
+        SELECT 1 FROM operations o
+        WHERE o.partner_id = partners.id
+          AND o.deleted_at IS NULL
+      ) THEN 'sleeping'
+      WHEN EXISTS (
+        SELECT 1 FROM contracts c
+        WHERE c.partner_id = partners.id
+          AND c.deleted_at IS NULL
+      ) THEN 'potential'
+      ELSE 'lead'
+    END
+    WHERE deleted_at IS NULL
+  `).bind(oneYearAgo).run();
+
+  // Pull a breakdown so the caller sees what happened
+  const breakdown = await c.env.DB.prepare(`
+    SELECT crm_status, COUNT(*) AS cnt
+    FROM partners
+    WHERE deleted_at IS NULL
+    GROUP BY crm_status
+  `).all<{ crm_status: string; cnt: number }>();
+
+  return ok(c, {
+    partners_updated: result.meta.changes ?? 0,
+    breakdown: breakdown.results,
+    threshold_unix: oneYearAgo,
+    threshold_iso: new Date(oneYearAgo * 1000).toISOString(),
+  });
+});
+
 export default partners;

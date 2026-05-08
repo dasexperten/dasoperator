@@ -274,6 +274,7 @@ export async function handleScheduled(
 
   if (cron === '0 12 * * *') {
     await runFxRefresh();
+    await runPartnerStatusRecalc(env);
     return;
   }
 
@@ -382,3 +383,42 @@ async function runMarketplaceSync(): Promise<void> {
 }
 
 
+
+// =============================================================================
+// Daily partner crm_status recalc — runs alongside FX refresh at 12:00 UTC.
+// Pure SQL, no network, runs in well under 1s.
+// =============================================================================
+async function runPartnerStatusRecalc(env: Env): Promise<void> {
+  const oneYearAgo = Math.floor(Date.now() / 1000) - 31_536_000;
+  console.log(`[cron] partner status recalc starting (threshold ${new Date(oneYearAgo * 1000).toISOString()})`);
+
+  try {
+    const result = await env.DB.prepare(`
+      UPDATE partners
+      SET crm_status = CASE
+        WHEN EXISTS (
+          SELECT 1 FROM operations o
+          WHERE o.partner_id = partners.id
+            AND o.deleted_at IS NULL
+            AND o.operation_date >= ?
+        ) THEN 'active'
+        WHEN EXISTS (
+          SELECT 1 FROM operations o
+          WHERE o.partner_id = partners.id
+            AND o.deleted_at IS NULL
+        ) THEN 'sleeping'
+        WHEN EXISTS (
+          SELECT 1 FROM contracts c
+          WHERE c.partner_id = partners.id
+            AND c.deleted_at IS NULL
+        ) THEN 'potential'
+        ELSE 'lead'
+      END
+      WHERE deleted_at IS NULL
+    `).bind(oneYearAgo).run();
+
+    console.log(`[cron] partner status recalc done — ${result.meta.changes ?? 0} partners updated`);
+  } catch (e) {
+    console.error('[cron] partner status recalc FAILED:', e);
+  }
+}

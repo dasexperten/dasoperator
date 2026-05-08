@@ -44,3 +44,6 @@ yarn-debug.log*
 .cache/
 coverage/
 web/tsconfig.tsbuildinfo
+
+# Build output for direct wrangler deploys
+web/.vercel/

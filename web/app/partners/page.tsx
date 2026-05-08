@@ -171,16 +171,44 @@ export default function PartnersPage() {
             {loading ? 'Loading...' : `${partners.length} partners · ${activeCount} active${pendingCount > 0 ? ` · ${pendingCount} pending` : ''}`}
           </p>
         </div>
-        <Link
-          href="/partners/new"
-          className="inline-flex items-center gap-2 px-4 py-2 mt-2"
-          style={{
-            backgroundColor: 'var(--brand-rot)', color: 'var(--paper)',
-            borderRadius: 'var(--radius-sm)', fontSize: 'var(--fs-body-sm)', fontWeight: 600,
-          }}
-        >
-          <Plus className="h-4 w-4" /> Add new partner
-        </Link>
+        <div className="flex gap-2 mt-2">
+          <button
+            onClick={async () => {
+              try {
+                const r = await fetch('https://dasoperator-api.dasexperten.workers.dev/api/partners/recalc-status', {
+                  method: 'POST',
+                });
+                const data = await r.json() as { success?: boolean };
+                if (data.success) window.location.reload();
+              } catch (e) {
+                console.error('recalc failed', e);
+              }
+            }}
+            className="inline-flex items-center gap-2 px-3 py-2"
+            style={{
+              backgroundColor: 'transparent',
+              color: 'var(--fg-2)',
+              border: '1px solid var(--border-hairline)',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: 'var(--fs-body-sm)',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+            title="Recompute crm_status from operations + contracts"
+          >
+            Recalculate statuses
+          </button>
+          <Link
+            href="/partners/new"
+            className="inline-flex items-center gap-2 px-4 py-2"
+            style={{
+              backgroundColor: 'var(--brand-rot)', color: 'var(--paper)',
+              borderRadius: 'var(--radius-sm)', fontSize: 'var(--fs-body-sm)', fontWeight: 600,
+            }}
+          >
+            <Plus className="h-4 w-4" /> Add new partner
+          </Link>
+        </div>
       </div>
 
       <div className="dx-ribbon-rule" />
@@ -341,4 +369,3 @@ function Th({ children }: { children: React.ReactNode }) {
     </th>
   );
 }
-// build-marker 1778242804

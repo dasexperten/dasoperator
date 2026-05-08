@@ -97,19 +97,19 @@ export function selectDocumentsToIssue(input: InvoicerInput): DocumentSpec[] {
         // (a) Factory → DEI
         { type: 'CI', variant: null, format: 'CI',
           sellerKind: 'manufacturer', sellerId: legalSellerManufacturer.id,
-          buyerKind: 'company', buyerId: 'cmp_dei' },
+          buyerKind: 'company', buyerId: 'dei' },
         { type: 'PL', variant: null, format: 'PL',
           sellerKind: 'manufacturer', sellerId: legalSellerManufacturer.id,
-          buyerKind: 'company', buyerId: 'cmp_dei' },
+          buyerKind: 'company', buyerId: 'dei' },
         // (b) DEI → buyer (DEE in CIS scenarios)
         { type: 'CI', variant: null, format: 'CI',
-          sellerKind: 'company', sellerId: 'cmp_dei',
+          sellerKind: 'company', sellerId: 'dei',
           buyerKind: 'company', buyerId: ourCompany.id },
         { type: 'PL', variant: null, format: 'PL',
-          sellerKind: 'company', sellerId: 'cmp_dei',
+          sellerKind: 'company', sellerId: 'dei',
           buyerKind: 'company', buyerId: ourCompany.id },
         { type: 'IS', variant: isVariant, format: isFormat,
-          sellerKind: 'company', sellerId: 'cmp_dei',
+          sellerKind: 'company', sellerId: 'dei',
           buyerKind: 'company', buyerId: ourCompany.id },
       ];
     }

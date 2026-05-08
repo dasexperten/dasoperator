@@ -60,7 +60,7 @@ partners.get('/', async (c) => {
       p.linked_entity_id, c.abbreviation as entity_abbreviation,
       p.price_type_id, pt.code as price_type_code,
       p.currency, p.contract_no, p.contract_date,
-      p.email, p.status, p.crm_status, p.partner_type, p.notes,
+      p.email, p.status, p.crm_status, p.partner_type, p.kind, p.notes,
       p.partner_language,
       p.created_at, p.updated_at
     FROM partners p

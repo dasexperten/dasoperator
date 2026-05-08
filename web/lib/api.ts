@@ -445,6 +445,8 @@ export interface Partner {
   // Phase 5.x — single source of truth for language of all outbound docs
   partner_language?: 'EN' | 'RU' | 'EN-RU' | 'EN-AR' | 'EN-VI' | 'EN-ZH' | null;
   partner_type: 'buyer' | 'supplier' | 'shipper' | 'other';
+  // Phase 8.0 — canonical kind classifier (5 values). Replaces partner_type going forward.
+  kind?: 'buyer' | 'manufacturer' | 'service_provider' | 'shipper' | '3pl' | 'other' | null;
   notes?: string | null;
   // Optional extended fields (PATCH-able)
   legal_name_local?: string | null;

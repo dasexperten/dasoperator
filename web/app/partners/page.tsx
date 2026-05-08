@@ -16,11 +16,6 @@ type ExtendedPartner = Partner & {
   crm_status?: 'lead' | 'potential' | 'active' | 'sleeping' | null;
 };
 
-// CRM status colors (Phase 5.x): visual semantics matching sales pipeline.
-//   lead       — fresh contact, no agreement signed (gray)
-//   potential  — NDA/MOU/LOI signed, no operations yet (warning amber)
-//   active     — at least one operation in progress (success green)
-//   sleeping   — was active but no shipped/delivered for 365+ days (muted)
 const CRM_COLORS: Record<string, { bg: string; fg: string; border: string }> = {
   lead:      { bg: 'var(--paper-sunk)',     fg: 'var(--fg-3)',           border: 'var(--border-hairline)' },
   potential: { bg: 'rgba(199,122,0,0.08)',  fg: 'var(--status-warning)', border: 'rgba(199,122,0,0.3)' },
@@ -28,13 +23,41 @@ const CRM_COLORS: Record<string, { bg: string; fg: string; border: string }> = {
   sleeping:  { bg: 'rgba(0,0,0,0.04)',      fg: 'var(--fg-3)',           border: 'var(--border-hairline)' },
 };
 
-// Legacy status colors kept as fallback when crm_status is missing
 const STATUS_COLORS: Record<Partner['status'], { bg: string; fg: string; border: string }> = {
   active:   { bg: 'rgba(46,125,79,0.08)',  fg: 'var(--status-success)', border: 'rgba(46,125,79,0.3)' },
   pending:  { bg: 'rgba(199,122,0,0.08)',  fg: 'var(--status-warning)', border: 'rgba(199,122,0,0.3)' },
   inactive: { bg: 'var(--paper-sunk)',     fg: 'var(--fg-3)',           border: 'var(--border-hairline)' },
   blocked:  { bg: 'rgba(229,32,44,0.08)',  fg: 'var(--brand-rot)',      border: 'rgba(229,32,44,0.3)' },
 };
+
+// Phase 8.0 — kind chip colors (5 partner kinds)
+type Kind = 'buyer' | 'manufacturer' | 'service_provider' | 'shipper' | '3pl' | 'other';
+
+const KIND_COLORS: Record<Kind, { bg: string; fg: string }> = {
+  buyer:            { bg: '#E6F1FB', fg: '#0C447C' },
+  manufacturer:     { bg: '#EEEDFE', fg: '#3C3489' },
+  service_provider: { bg: '#FAEEDA', fg: '#633806' },
+  shipper:          { bg: '#E1F5EE', fg: '#085041' },
+  '3pl':            { bg: '#FAECE7', fg: '#712B13' },
+  other:            { bg: 'var(--paper-sunk)', fg: 'var(--fg-3)' },
+};
+
+const KIND_LABELS: Record<Kind, string> = {
+  buyer:            'Buyer',
+  manufacturer:     'Manufacturer',
+  service_provider: 'Service',
+  shipper:          'Shipper',
+  '3pl':            '3PL',
+  other:            'Other',
+};
+
+function deriveKind(p: ExtendedPartner): Kind {
+  if (p.kind) return p.kind as Kind;
+  if (p.partner_type === 'buyer') return 'buyer';
+  if (p.partner_type === 'shipper') return 'shipper';
+  if (p.partner_type === 'supplier') return 'manufacturer';
+  return 'other';
+}
 
 interface BalanceRow {
   usd: number;
@@ -47,6 +70,7 @@ export default function PartnersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [kindFilter, setKindFilter] = useState<Kind | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [entityFilter, setEntityFilter] = useState<string>('all');
 
@@ -87,8 +111,21 @@ export default function PartnersPage() {
     return Array.from(set).sort();
   }, [partners]);
 
+  const kindCounts = useMemo(() => {
+    const counts: Record<Kind | 'all', number> = {
+      all: partners.length,
+      buyer: 0, manufacturer: 0, service_provider: 0, shipper: 0, '3pl': 0, other: 0,
+    };
+    partners.forEach((p) => {
+      const k = deriveKind(p);
+      counts[k]++;
+    });
+    return counts;
+  }, [partners]);
+
   const filtered = useMemo(() => {
     return partners.filter((p) => {
+      if (kindFilter !== 'all' && deriveKind(p) !== kindFilter) return false;
       if (search) {
         const q = search.toLowerCase();
         const m = p.trade_name.toLowerCase().includes(q) ||
@@ -100,10 +137,14 @@ export default function PartnersPage() {
       if (entityFilter !== 'all' && p.entity_abbreviation !== entityFilter) return false;
       return true;
     });
-  }, [partners, search, statusFilter, entityFilter]);
+  }, [partners, search, kindFilter, statusFilter, entityFilter]);
 
   const activeCount = partners.filter((p) => p.status === 'active').length;
   const pendingCount = partners.filter((p) => p.status === 'pending').length;
+
+  const visibleKinds: (Kind | 'all')[] = (
+    ['all', 'buyer', 'manufacturer', 'service_provider', 'shipper', '3pl', 'other'] as const
+  ).filter((k) => k === 'all' || kindCounts[k] > 0);
 
   return (
     <div className="space-y-8 max-w-7xl">
@@ -132,6 +173,35 @@ export default function PartnersPage() {
       <div className="dx-ribbon-rule" />
 
       <div className="space-y-3">
+        <div className="flex flex-wrap gap-2">
+          {visibleKinds.map((k) => {
+            const isActive = kindFilter === k;
+            const colors = k === 'all'
+              ? { bg: 'var(--paper-sunk)', fg: 'var(--fg-1)' }
+              : KIND_COLORS[k as Kind];
+            return (
+              <button
+                key={k}
+                onClick={() => setKindFilter(k)}
+                className="inline-flex items-center gap-2 transition-colors"
+                style={{
+                  padding: '6px 12px',
+                  fontSize: 'var(--fs-body-sm)',
+                  fontWeight: isActive ? 700 : 500,
+                  backgroundColor: isActive ? colors.bg : 'transparent',
+                  color: isActive ? colors.fg : 'var(--fg-2)',
+                  border: `1px solid ${isActive ? colors.fg : 'var(--border-hairline)'}`,
+                  borderRadius: 'var(--radius-pill)',
+                  cursor: 'pointer',
+                }}
+              >
+                <span>{k === 'all' ? 'All' : KIND_LABELS[k as Kind]}</span>
+                <span style={{ fontWeight: 700, opacity: 0.7 }}>{kindCounts[k]}</span>
+              </button>
+            );
+          })}
+        </div>
+
         <div className="relative max-w-xl">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={{ color: 'var(--fg-muted)' }} />
           <input
@@ -177,17 +247,18 @@ export default function PartnersPage() {
           <table className="w-full text-sm">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                <Th>Trade Name</Th><Th>Country</Th><Th>Currency</Th><Th>Entity</Th><Th>Status</Th><Th>Net Balance</Th><Th>Contract</Th>
+                <Th>Trade Name</Th><Th>Kind</Th><Th>Country</Th><Th>Lang</Th><Th>Currency</Th><Th>Entity</Th><Th>Status</Th><Th>Net Balance</Th><Th>Contract</Th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-12" style={{ color: 'var(--fg-3)' }}>No partners match the filters</td></tr>
+                <tr><td colSpan={9} className="text-center py-12" style={{ color: 'var(--fg-3)' }}>No partners match the filters</td></tr>
               ) : (
                 filtered.map((p) => {
-                  // Prefer crm_status; fall back to legacy mapping
                   const effective = p.crm_status ?? (p.status === 'pending' ? 'lead' : p.status);
                   const statusStyle = CRM_COLORS[effective] ?? STATUS_COLORS[p.status];
+                  const k = deriveKind(p);
+                  const kindStyle = KIND_COLORS[k];
                   return (
                     <tr key={p.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                       <td className="px-4 py-3">
@@ -196,9 +267,15 @@ export default function PartnersPage() {
                           {p.legal_name && <div className="mt-0.5" style={{ color: 'var(--fg-3)' }}>{p.legal_name}</div>}
                         </Link>
                       </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-block" style={{ padding: '3px 8px', backgroundColor: kindStyle.bg, color: kindStyle.fg, fontSize: 'var(--fs-caption)', fontWeight: 700, borderRadius: 'var(--radius-pill)' }}>
+                          {KIND_LABELS[k]}
+                        </span>
+                      </td>
                       <td className="px-4 py-3" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>{p.country ?? '—'}</td>
-                      <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>{p.currency ?? '—'}</td>
-                      <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>{p.entity_abbreviation ?? '—'}</td>
+                      <td className="px-4 py-3" style={{ color: 'var(--fg-2)', fontWeight: 700 }}>{p.partner_language ?? '—'}</td>
+                      <td className="px-4 py-3" style={{ color: 'var(--fg-2)', fontWeight: 700 }}>{p.currency ?? '—'}</td>
+                      <td className="px-4 py-3" style={{ color: 'var(--fg-2)', fontWeight: 700 }}>{p.entity_abbreviation ?? '—'}</td>
                       <td className="px-4 py-3">
                         <span className="inline-block" style={{ padding: '3px 8px', backgroundColor: statusStyle.bg, color: statusStyle.fg, border: `1px solid ${statusStyle.border}`, borderRadius: 'var(--radius-pill)' }}>
                           {effective}

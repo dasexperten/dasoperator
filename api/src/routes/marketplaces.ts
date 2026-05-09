@@ -312,10 +312,10 @@ marketplaces.get('/pulse/sku-spotlight', async (c) => {
   const top = await c.env.DB.prepare(`
     SELECT s.base_sku,
            p.product_name,
-           SUM(s.units_sold)  AS units_sold,
-           SUM(s.revenue_rub) AS revenue_rub,
-           SUM(s.ozon_units)  AS ozon_units,
-           SUM(s.wb_units)    AS wb_units
+           SUM(s.units_sold)        AS units_sold,
+           SUM(s.revenue_rub) / 100 AS revenue_rub,
+           SUM(s.ozon_units)        AS ozon_units,
+           SUM(s.wb_units)          AS wb_units
     FROM (
       SELECT base_sku, units_sold, revenue_rub,
              units_sold AS ozon_units, 0 AS wb_units
@@ -367,13 +367,13 @@ marketplaces.get('/pulse/sku-funnel/:base_sku', async (c) => {
   const baseSku = c.req.param('base_sku').toLowerCase();
 
   const ozon = await c.env.DB.prepare(`
-    SELECT views, tocart_count, units_sold, revenue_rub, period_from, period_to
+    SELECT views, tocart_count, units_sold, revenue_rub / 100 AS revenue_rub, period_from, period_to
     FROM marketplace_sales_ozon
     WHERE base_sku = ?
   `).bind(baseSku).first<{ views: number | null; tocart_count: number | null; units_sold: number; revenue_rub: number; period_from: string; period_to: string } | null>();
 
   const wb = await c.env.DB.prepare(`
-    SELECT views, tocart_count, units_sold, revenue_rub, period_from, period_to
+    SELECT views, tocart_count, units_sold, revenue_rub / 100 AS revenue_rub, period_from, period_to
     FROM marketplace_sales_wb
     WHERE base_sku = ?
   `).bind(baseSku).first<{ views: number | null; tocart_count: number | null; units_sold: number; revenue_rub: number; period_from: string; period_to: string } | null>();
@@ -425,7 +425,7 @@ marketplaces.get('/pulse/sku-funnel/:base_sku', async (c) => {
 // ---------------------------------------------------------------------------
 marketplaces.get('/pulse/daily-trend', async (c) => {
   const rows = await c.env.DB.prepare(`
-    SELECT marketplace, date, units_sold, revenue_rub, synced_at
+    SELECT marketplace, date, units_sold, revenue_rub / 100 AS revenue_rub, synced_at
     FROM marketplace_sales_daily
     WHERE date >= date('now', '-21 days')
     ORDER BY date ASC
@@ -473,7 +473,7 @@ marketplaces.get('/pulse/daily-trend', async (c) => {
 // ---------------------------------------------------------------------------
 marketplaces.get('/pulse/sales-today', async (c) => {
   const rows = await c.env.DB.prepare(`
-    SELECT marketplace, date, units_sold, revenue_rub
+    SELECT marketplace, date, units_sold, revenue_rub / 100 AS revenue_rub
     FROM marketplace_sales_daily
     WHERE date >= date('now', '-3 days')
     ORDER BY date DESC
@@ -507,7 +507,7 @@ marketplaces.get('/pulse/sales-today', async (c) => {
 
   // Mini 7-day spark (combined revenue per day, oldest first)
   const spark = await c.env.DB.prepare(`
-    SELECT date, SUM(revenue_rub) AS revenue_rub
+    SELECT date, SUM(revenue_rub) / 100 AS revenue_rub
     FROM marketplace_sales_daily
     WHERE date >= date('now', '-13 days')
     GROUP BY date

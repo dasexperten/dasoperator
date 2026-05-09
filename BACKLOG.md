@@ -179,8 +179,8 @@ When picking up an item from this list:
   if unknown partner, T no auto-create if uncertain, N2 cron 03:00 МСК,
   C1 sale_payment → payment_pending (amber dot)
 
-### 🚧 Blocked — needs parallel chat coordination
-- Apps Script Web App at production deployment URL is currently broken
+### 🟢 BREAKTHROUGH — pipeline works end-to-end
+- Apps Script Web App reachable via emailer-bridge Worker (TLS-inspection workaround)
   (returns 405 Method Not Allowed page instead of executing doPost).
   Already-deployed v30 "attachment pipeline live" is in this state.
   - Refreshed deployment to v31 from current HEAD — still broken.
@@ -206,3 +206,25 @@ When picking up an item from this list:
 - Phase 9: Amber dot ("payment_pending") in payment overlay
 - Phase 10: Morning digest email
 - Phase 11: Test on 10-20 real invoices
+
+### 🟢 First invoice processed end-to-end (2026-05-09 evening)
+
+Test case: Accuvat Tax Invoice 2026/00659 (UAE accountant, monthly bookkeeping)
+  - Found via emailer-bridge → Apps Script `find` action with Gmail query
+  - PDF auto-uploaded to R2 by Apps Script (existing pipeline)
+  - Downloaded from R2 via Cloudflare API
+  - Text extracted by pdftotext (96 lines)
+  - DeepSeek classified as 'service' with 0.95 confidence
+  - Extracted: vendor, TRN, invoice no, date, period, AED amount, VAT,
+    line item description, buyer_entity_guess=DEI
+  - Vendor not found in partners table
+  - Inserted into invoice_inbox with status=needs_partner_link
+  - Row id: inv_44332bd44c2640b2
+
+The full conservative-profile pipeline is proven. Next:
+  - Phase 2: Cloudflare cron Worker that does this automatically at 03:00 МСК
+  - Phase 8: /inbox UI page where Aram can see the queue and link partners
+
+7 more service-invoice-looking emails sit in Gmail awaiting first cron run:
+  Wio VAT statement, Pay finance, ИФНС Требование, Магнит Маркет УПД,
+  HeyGen, АТОЛ УПД.

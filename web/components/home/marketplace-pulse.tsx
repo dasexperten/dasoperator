@@ -99,7 +99,6 @@ export default function MarketplacePulse() {
   const [spotlight, setSpotlight] = useState<Spotlight | null>(null);
   const [trend, setTrend] = useState<DailyTrend | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeSku, setActiveSku] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -136,12 +135,8 @@ export default function MarketplacePulse() {
       <div className="grid grid-cols-2 gap-4">
         <SalesTodayCard data={salesToday} loading={loading} />
         <TrendCard data={trend} loading={loading} />
-        <TopBottomCard data={spotlight} loading={loading} onSkuClick={setActiveSku} />
+        <TopBottomCard data={spotlight} loading={loading} />
       </div>
-
-      {activeSku && (
-        <SkuFunnelModal sku={activeSku} onClose={() => setActiveSku(null)} />
-      )}
     </section>
   );
 }
@@ -333,7 +328,7 @@ function TrendCard({ data, loading }: { data: DailyTrend | null; loading: boolea
 // ═══════════════════════════════════════════════════════════════════════════
 type SortMode = 'units' | 'revenue';
 
-function TopBottomCard({ data, loading, onSkuClick }: { data: Spotlight | null; loading: boolean; onSkuClick: (sku: string) => void }) {
+function TopBottomCard({ data, loading }: { data: Spotlight | null; loading: boolean }) {
   const [sortMode, setSortMode] = useState<SortMode>('revenue');
 
   const sortedTop = useMemo(() => {
@@ -349,9 +344,6 @@ function TopBottomCard({ data, loading, onSkuClick }: { data: Spotlight | null; 
           <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', textTransform: 'uppercase' }}>
             Top &amp; Bottom SKUs
           </span>
-          <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
-            click any top SKU for funnel
-          </span>
         </div>
         <SortToggle value={sortMode} onChange={setSortMode} />
       </div>
@@ -363,7 +355,7 @@ function TopBottomCard({ data, loading, onSkuClick }: { data: Spotlight | null; 
               Top 5 movers
             </div>
             {sortedTop.map(row => (
-              <TopRow key={row.base_sku} row={row} sortMode={sortMode} onClick={() => onSkuClick(row.base_sku)} />
+              <TopRow key={row.base_sku} row={row} sortMode={sortMode} />
             ))}
           </div>
 
@@ -402,27 +394,19 @@ function TopBottomCard({ data, loading, onSkuClick }: { data: Spotlight | null; 
   );
 }
 
-function TopRow({ row, sortMode, onClick }: { row: Spotlight['top'][number]; sortMode: SortMode; onClick: () => void }) {
+function TopRow({ row, sortMode }: { row: Spotlight['top'][number]; sortMode: SortMode }) {
   const valueLabel = sortMode === 'units' ? `${row.units_sold} ед` : fmtRubCompact(row.revenue_rub) + ' ₽';
   const wbShare = row.units_sold > 0 ? (row.wb_units / row.units_sold) * 100 : 0;
 
   return (
-    <button
-      onClick={onClick}
+    <div
       style={{
         display: 'block',
         width: '100%',
         padding: '10px 8px',
         margin: '0 -8px',
-        background: 'transparent',
-        border: 'none',
         borderBottom: '1px solid var(--border-hairline)',
-        cursor: 'pointer',
-        textAlign: 'left',
-        transition: 'background 80ms ease',
       }}
-      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--paper-sunk)')}
-      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
         <span>
@@ -443,7 +427,7 @@ function TopRow({ row, sortMode, onClick }: { row: Spotlight['top'][number]; sor
         <span>WB {row.wb_units}</span>
         <span>Ozon {row.ozon_units}</span>
       </div>
-    </button>
+    </div>
   );
 }
 

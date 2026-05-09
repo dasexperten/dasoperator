@@ -331,7 +331,7 @@ marketplaces.get('/pulse/sku-spotlight', async (c) => {
   `).all<{ base_sku: string; units_sold: number; revenue_rub: number; ozon_units: number; wb_units: number }>();
 
   const bottom = await c.env.DB.prepare(`
-    SELECT p.id AS base_sku, p.name AS product_name,
+    SELECT p.id AS base_sku, p.product_name AS product_name,
            COALESCE(s.units_sold, 0) AS units_sold
     FROM products p
     LEFT JOIN (
@@ -378,7 +378,7 @@ marketplaces.get('/pulse/sku-funnel/:base_sku', async (c) => {
 
   // Read product display name if present
   const product = await c.env.DB.prepare(
-    'SELECT id, name FROM products WHERE id = ? AND deleted_at IS NULL'
+    'SELECT id, product_name AS name FROM products WHERE id = ? AND deleted_at IS NULL'
   ).bind(baseSku).first<{ id: string; name: string | null }>();
 
   const period = ozon?.period_from || wb?.period_from

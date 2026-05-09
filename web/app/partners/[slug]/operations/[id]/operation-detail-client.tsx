@@ -528,6 +528,8 @@ export default function OperationDetailClient({
         <StatusTab
           status={operation.status}
           operationType={operation.operation_type}
+          hasDocuments={documentCount > 0}
+          movements={movements}
         />
       )}
 
@@ -839,18 +841,39 @@ const STATUS_VERBS: Record<string, string> = {
 function StatusTab({
   status,
   operationType,
+  hasDocuments,
+  movements,
 }: {
   status: string;
   operationType: string;
+  hasDocuments: boolean;
+  movements: StockMovement[];
 }) {
   const cancelled = status === 'cancelled';
   const baseTimeline = STATUS_TIMELINE[operationType] ?? STATUS_TIMELINE.purchase!;
   const currentIdx = baseTimeline.indexOf(status);
 
-  // Build full visual timeline: base steps + cancelled (if applicable)
-  const steps = cancelled
-    ? [...baseTimeline.slice(0, baseTimeline.length), 'cancelled']
-    : baseTimeline;
+  // For cancelled operations — infer the last reached step from side-effects.
+  // No history table exists; we use stock movements + documents as evidence.
+  //
+  //   purchase: shipment(out) at shipped, receipt(in) at delivered
+  //   sale:     shipment(out) at shipped
+  //   transfer: shipment(out) at shipped, receipt(in) at delivered
+  //   any:      documents exist at issued
+  //
+  // We pick the furthest step whose evidence is present.
+  let cancelledLastReachedIdx = -1;
+  if (cancelled) {
+    const hasReceipt = movements.some((m) => m.movement_type === 'receipt' || m.movement_type === 'transfer_in');
+    const hasShipment = movements.some((m) => m.movement_type === 'shipment' || m.movement_type === 'transfer_out');
+    if (hasReceipt) cancelledLastReachedIdx = baseTimeline.indexOf('delivered');
+    else if (hasShipment) cancelledLastReachedIdx = baseTimeline.indexOf('shipped');
+    else if (hasDocuments) cancelledLastReachedIdx = baseTimeline.indexOf('issued');
+    else cancelledLastReachedIdx = baseTimeline.indexOf('draft');
+  }
+
+  // Build full visual timeline: base steps + cancelled marker (if applicable)
+  const steps = cancelled ? [...baseTimeline, 'cancelled'] : baseTimeline;
 
   return (
     <div
@@ -871,15 +894,15 @@ function StatusTab({
 
       <ol className="space-y-3" style={{ position: 'relative' }}>
         {steps.map((step, idx) => {
-          let state: 'past' | 'current' | 'future' | 'cancelled';
+          let state: 'past' | 'current' | 'future' | 'cancel-marker' | 'cancel-here';
           if (step === 'cancelled') {
-            state = 'cancelled';
+            state = 'cancel-marker';
           } else if (cancelled) {
-            // If operation is cancelled, all base steps before cancellation
-            // marker show as past (or future if op was cancelled before reaching them).
-            // Heuristic: we can't know exactly when cancel happened from this state alone,
-            // so we fade base steps and emphasize the cancelled marker.
-            state = 'future';
+            // Op is cancelled — render base steps relative to the inferred
+            // last-reached index instead of currentIdx (-1 anyway).
+            if (idx < cancelledLastReachedIdx) state = 'past';
+            else if (idx === cancelledLastReachedIdx) state = 'cancel-here';
+            else state = 'future';
           } else if (idx < currentIdx) {
             state = 'past';
           } else if (idx === currentIdx) {
@@ -896,6 +919,7 @@ function StatusTab({
                   fg: 'var(--fg-1)',
                   weight: 600,
                   prefix: '✓',
+                  filled: true,
                 };
               case 'current':
                 return {
@@ -903,6 +927,17 @@ function StatusTab({
                   fg: 'var(--fg-1)',
                   weight: 700,
                   prefix: '●',
+                  filled: true,
+                };
+              case 'cancel-here':
+                // The step at which cancellation happened — past tense, but
+                // marked red so the eye lands here.
+                return {
+                  dot: 'var(--brand-rot)',
+                  fg: 'var(--brand-rot)',
+                  weight: 700,
+                  prefix: '✓',
+                  filled: true,
                 };
               case 'future':
                 return {
@@ -910,13 +945,15 @@ function StatusTab({
                   fg: 'var(--fg-3)',
                   weight: 400,
                   prefix: '○',
+                  filled: false,
                 };
-              case 'cancelled':
+              case 'cancel-marker':
                 return {
                   dot: 'var(--brand-rot)',
                   fg: 'var(--brand-rot)',
                   weight: 700,
                   prefix: '✕',
+                  filled: true,
                 };
             }
           })();
@@ -935,21 +972,15 @@ function StatusTab({
                   width: '24px',
                   height: '24px',
                   borderRadius: '50%',
-                  backgroundColor:
-                    state === 'past' || state === 'current' || state === 'cancelled'
-                      ? visual.dot
-                      : 'transparent',
-                  border:
-                    state === 'future'
-                      ? '1px solid var(--border-hairline)'
-                      : 'none',
+                  backgroundColor: visual.filled ? visual.dot : 'transparent',
+                  border: visual.filled ? 'none' : '1px solid var(--border-hairline)',
                   color: 'var(--paper)',
                   fontSize: '13px',
                   fontWeight: 700,
                   flexShrink: 0,
                 }}
               >
-                {state === 'future' ? '' : visual.prefix}
+                {visual.filled ? visual.prefix : ''}
               </span>
               <span
                 style={{
@@ -974,6 +1005,22 @@ function StatusTab({
                   }}
                 >
                   Current
+                </span>
+              )}
+              {state === 'cancel-here' && (
+                <span
+                  className="ml-auto"
+                  style={{
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    color: 'var(--brand-rot)',
+                    padding: '2px 10px',
+                    backgroundColor: 'rgba(229,32,44,0.08)',
+                    border: '1px solid rgba(229,32,44,0.3)',
+                    borderRadius: 'var(--radius-pill)',
+                  }}
+                >
+                  Cancelled here
                 </span>
               )}
             </li>

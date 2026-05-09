@@ -8,6 +8,7 @@ import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Search, Loader2, Plus } from 'lucide-react';
 import { getOperations, type Operation } from '@/lib/api';
+import { ContractRef } from '@/components/ui/contract-ref';
 
 const TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
   sale:     { bg: 'rgba(46,125,79,0.08)',  fg: 'var(--status-success)' },
@@ -207,12 +208,9 @@ export default function OperationsPage() {
                           </Link>
                         ) : '—'}
                       </td>
-                      <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>{(() => {
-                        const c = op.contract_no;
-                        if (!c) return '—';
-                        if (/^NO[-\s]CONTRACT/i.test(c)) return '---';
-                        return c;
-                      })()}</td>
+                      <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>
+                        <ContractRef contractNo={op.contract_no} />
+                      </td>
                       <td className="px-4 py-3">
                         <span className="inline-block" style={{ fontSize: '14px', fontWeight: 500, padding: '3px 10px', backgroundColor: tc?.bg, color: tc?.fg, borderRadius: 'var(--radius-pill)' }}>
                           {op.operation_type}

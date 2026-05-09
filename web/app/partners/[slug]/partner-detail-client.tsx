@@ -10,6 +10,7 @@ import {
   type PartnerAgreement,
 } from '@/lib/api';
 import { CopyableValue, SectionCard } from '@/components/ui/copyable';
+import { ContractRef, isPlaceholderContractNo } from '@/components/ui/contract-ref';
 import NetBalance from '@/components/ui/net-balance';
 import Breadcrumb from '@/components/layout/breadcrumb';
 
@@ -395,13 +396,33 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
                 return (
                   <tr key={c.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                     <td className="px-4 py-3">
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', paddingLeft: isAddendum ? '24px' : '0' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', paddingLeft: isAddendum ? '24px' : '0' }}>
                         {isAddendum && (
                           <span aria-hidden="true" style={{ color: 'var(--fg-muted)', fontSize: '14px', fontWeight: 400 }}>└─</span>
                         )}
                         <Link href={`/partners/${slug}/contracts/${c.id}`} style={{ fontSize: '14px', fontWeight: 700, color: isAddendum ? 'var(--fg-2)' : 'var(--fg-1)', textDecoration: 'underline', textDecorationColor: 'var(--border-hairline)', textUnderlineOffset: '3px' }}>
-                          {c.contract_no}
+                          {isPlaceholderContractNo(c.contract_no) ? (
+                            <span style={{ color: 'var(--fg-3)', fontStyle: 'italic' }}>—</span>
+                          ) : c.contract_no}
                         </Link>
+                        {isPlaceholderContractNo(c.contract_no) && (
+                          <span
+                            className="inline-flex items-center gap-1.5"
+                            style={{
+                              padding: '2px 8px',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                              color: 'var(--fg-3)',
+                              backgroundColor: 'var(--paper-sunk)',
+                              border: '1px dashed var(--border-hairline)',
+                              borderRadius: 'var(--radius-pill)',
+                            }}
+                            title="Technical placeholder — replace when a real contract is signed"
+                          >
+                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: 'var(--fg-muted)', display: 'inline-block' }} />
+                            Placeholder
+                          </span>
+                        )}
                       </span>
                     </td>
                     <td className="px-4 py-3" style={{ fontSize: '14px' }}>
@@ -470,12 +491,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
                       {op.operation_type}
                     </td>
                     <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
-                      {(() => {
-                        const c = op.contract_no;
-                        if (!c) return '—';
-                        if (/^NO[-\s]CONTRACT/i.test(c)) return '---';
-                        return c;
-                      })()}
+                      <ContractRef contractNo={op.contract_no} />
                     </td>
                     <td className="px-4 py-3 text-right" style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
                       {formatMoney(op.total_amount, op.currency)} {op.currency}

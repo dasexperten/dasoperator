@@ -220,8 +220,28 @@ export default function OperationDetailClient({
             ) : (
               counterpartyName
             )}
-            {operation.contract_no && (
-              <> · Contract <span>{operation.contract_no}</span></>
+            {operation.contract_no && !/^NO[-\s]CONTRACT/i.test(operation.contract_no) && (
+              <> · Contract <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{operation.contract_no}</span></>
+            )}
+            {operation.contract_no && /^NO[-\s]CONTRACT/i.test(operation.contract_no) && (
+              <>
+                {' · '}
+                <span
+                  style={{
+                    padding: '2px 8px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: 'var(--fg-3)',
+                    backgroundColor: 'var(--paper-sunk)',
+                    border: '1px dashed var(--border-hairline)',
+                    borderRadius: 'var(--radius-pill)',
+                    marginLeft: '4px',
+                  }}
+                  title="Technical placeholder — replace when a real contract is signed"
+                >
+                  Placeholder contract
+                </span>
+              </>
             )}
           </p>
         </div>

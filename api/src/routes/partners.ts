@@ -52,6 +52,9 @@ async function resolveUniqueSlug(db: D1Database, base: string): Promise<string> 
 // =============================================================================
 // GET /api/partners — list all
 // =============================================================================
+// contract_no / contract_date now derived from contracts table (earliest
+// active main contract per partner). Falls back to legacy columns
+// p.contract_no / p.contract_date when no real contract exists.
 partners.get('/', async (c) => {
   const sql = `
     SELECT
@@ -59,13 +62,27 @@ partners.get('/', async (c) => {
       p.tax_id, p.iban, p.swift_bic, p.bank_name,
       p.linked_entity_id, c.abbreviation as entity_abbreviation,
       p.price_type_id, pt.code as price_type_code,
-      p.currency, p.contract_no, p.contract_date,
+      p.currency,
+      COALESCE(ct.contract_no, p.contract_no) as contract_no,
+      COALESCE(ct.signed_date, p.contract_date) as contract_date,
       p.email, p.status, p.crm_status, p.partner_type, p.kind, p.notes,
       p.partner_language,
       p.created_at, p.updated_at
     FROM partners p
     LEFT JOIN companies c ON p.linked_entity_id = c.id
     LEFT JOIN price_types pt ON p.price_type_id = pt.id
+    LEFT JOIN (
+      SELECT partner_id, contract_no, signed_date,
+             ROW_NUMBER() OVER (
+               PARTITION BY partner_id
+               ORDER BY signed_date ASC, created_at ASC
+             ) as rn
+      FROM contracts
+      WHERE deleted_at IS NULL
+        AND agreement_type = 'main'
+        AND status = 'active'
+        AND contract_no NOT LIKE 'NO-CONTRACT-%'
+    ) ct ON ct.partner_id = p.id AND ct.rn = 1
     WHERE p.deleted_at IS NULL
     ORDER BY p.trade_name
   `;
@@ -79,6 +96,8 @@ partners.get('/', async (c) => {
 // =============================================================================
 // GET /api/partners/:slug — single partner detail
 // =============================================================================
+// contract_no / contract_date derived from contracts table (same logic
+// as the list endpoint above).
 partners.get('/:slug', async (c) => {
   const slug = c.req.param('slug');
 
@@ -88,7 +107,9 @@ partners.get('/:slug', async (c) => {
       p.tax_id, p.iban, p.swift_bic, p.bank_name,
       p.linked_entity_id, c.abbreviation as entity_abbreviation,
       p.price_type_id, pt.code as price_type_code,
-      p.currency, p.contract_no, p.contract_date,
+      p.currency,
+      COALESCE(ct.contract_no, p.contract_no) as contract_no,
+      COALESCE(ct.signed_date, p.contract_date) as contract_date,
       p.email, p.status, p.crm_status, p.partner_type, p.notes,
       p.partner_language,
       p.legal_name_local, p.registered_address_local,
@@ -100,6 +121,18 @@ partners.get('/:slug', async (c) => {
     FROM partners p
     LEFT JOIN companies c ON p.linked_entity_id = c.id
     LEFT JOIN price_types pt ON p.price_type_id = pt.id
+    LEFT JOIN (
+      SELECT partner_id, contract_no, signed_date,
+             ROW_NUMBER() OVER (
+               PARTITION BY partner_id
+               ORDER BY signed_date ASC, created_at ASC
+             ) as rn
+      FROM contracts
+      WHERE deleted_at IS NULL
+        AND agreement_type = 'main'
+        AND status = 'active'
+        AND contract_no NOT LIKE 'NO-CONTRACT-%'
+    ) ct ON ct.partner_id = p.id AND ct.rn = 1
     WHERE p.id = ? AND p.deleted_at IS NULL
   `;
 

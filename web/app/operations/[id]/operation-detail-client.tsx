@@ -1298,52 +1298,6 @@ function StockMovementsTab({ movements }: { movements: StockMovement[] }) {
         borderRadius: 'var(--radius-md)',
       }}
     >
-      {!locked && (
-        <div className="px-4 py-3 flex items-center justify-between" style={{
-          borderBottom: '1px solid var(--border-hairline)',
-          backgroundColor: 'var(--paper-sunk)',
-        }}>
-          <div className="flex items-center gap-3">
-            <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)', margin: 0 }}>
-              Composition
-            </p>
-            {issuedOrLater && editMode && (
-              <span className="inline-flex items-center gap-1.5" style={{ fontSize: '14px', color: 'var(--brand-rot)', backgroundColor: 'rgba(229,32,44,0.06)', padding: '2px 8px', borderRadius: 'var(--radius-sm)' }}>
-                <AlertTriangle className="h-3.5 w-3.5" />
-                Edits will cancel existing documents
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {editMode && !showAddRow && (
-              <button
-                onClick={() => setShowAddRow(true)}
-                disabled={busy}
-                style={{ padding: '6px 12px', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)', backgroundColor: 'var(--paper)', cursor: busy ? 'wait' : 'pointer', fontSize: '14px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-              >
-                <Plus className="h-3.5 w-3.5" /> Add line
-              </button>
-            )}
-            <button
-              onClick={() => { setEditMode(!editMode); setEditing(null); setShowAddRow(false); }}
-              disabled={busy}
-              style={{ padding: '6px 12px', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: editMode ? 'var(--paper)' : 'var(--fg-1)', backgroundColor: editMode ? 'var(--brand-rot)' : 'var(--paper)', cursor: busy ? 'wait' : 'pointer', fontSize: '14px', fontWeight: 600 }}
-            >
-              {editMode ? 'Done editing' : 'Edit composition'}
-            </button>
-          </div>
-        </div>
-      )}
-      {actionMsg && (
-        <div className="px-4 py-2" style={{
-          fontSize: '14px',
-          color: actionMsg.startsWith('Error') || actionMsg.startsWith('Network') ? 'var(--brand-rot)' : 'var(--fg-1)',
-          backgroundColor: actionMsg.startsWith('Error') || actionMsg.startsWith('Network') ? 'rgba(229,32,44,0.06)' : 'rgba(46,125,79,0.06)',
-          borderBottom: '1px solid var(--border-hairline)',
-        }}>
-          {actionMsg}
-        </div>
-      )}
       <table className="w-full" style={{ fontSize: 'var(--fs-body-sm)' }}>
         <thead>
           <tr style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>

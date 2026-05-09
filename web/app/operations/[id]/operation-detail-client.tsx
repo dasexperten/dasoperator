@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { Loader2, Plus } from 'lucide-react';
+import { Loader2, Plus, Trash2, Pencil, Save, X, Check } from 'lucide-react';
 import {
   getOperation,
   getPartner,
@@ -11,6 +11,10 @@ import {
   updateOperationStatus,
   getDocuments,
   issueDocuments,
+  addLineItem,
+  updateLineItem,
+  deleteLineItem,
+  getProductsList,
   type Operation,
   type OperationLineItem,
   type Partner,
@@ -373,6 +377,8 @@ export default function OperationDetailClient({
       {/* TAB CONTENT ================================================ */}
       {activeTab === 'items' && (
         <ItemsTab
+          operationId={operationId}
+          operationStatus={operation.status}
           lineItems={lineItems}
           currency={operation.currency}
           subtotal={subtotal}
@@ -383,6 +389,19 @@ export default function OperationDetailClient({
           vatAmount={vatAmount}
           grandTotal={grandTotal}
           showVat={showVat}
+          onMutated={async () => {
+            const [opRes, docsRes] = await Promise.all([
+              getOperation(operationId),
+              getDocuments({ operation_id: operationId }),
+            ]);
+            if (opRes.success && opRes.result) {
+              setOperation(opRes.result.operation);
+              setLineItems(opRes.result.line_items);
+            }
+            if (docsRes.success && docsRes.result) {
+              setDocuments(docsRes.result.documents);
+            }
+          }}
         />
       )}
 
@@ -433,9 +452,24 @@ export default function OperationDetailClient({
 }
 
 // =============================================================================
-// Items tab
+// Items tab — editable line items (Phase 4.5)
+// Editing line items on issued+ ops will:
+//   1. Cancel attached documents (visible as red striked rows)
+//   2. Revert operation status to draft
+//   3. Apply edit + recalc totals
+// Read-only when operation is delivered or cancelled.
 // =============================================================================
+const EDITABLE_OP_STATUSES = new Set(['draft', 'issued', 'order_fulfilment', 'production', 'stocked']);
+
+interface ProductOption {
+  id: string;
+  product_name: string | null;
+  invoice_label: string | null;
+}
+
 function ItemsTab({
+  operationId,
+  operationStatus,
   lineItems,
   currency,
   subtotal,
@@ -446,7 +480,10 @@ function ItemsTab({
   vatAmount,
   grandTotal,
   showVat,
+  onMutated,
 }: {
+  operationId: string;
+  operationStatus: string;
   lineItems: OperationLineItem[];
   currency: string;
   subtotal: number;
@@ -457,102 +494,495 @@ function ItemsTab({
   vatAmount: number;
   grandTotal: number;
   showVat: boolean;
+  onMutated: () => Promise<void>;
 }) {
+  const editable = EDITABLE_OP_STATUSES.has(operationStatus);
   const showDiscount = discount > 0;
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editQty, setEditQty] = useState<string>('');
+  const [editUnitPrice, setEditUnitPrice] = useState<string>('');
+  const [editDiscountPct, setEditDiscountPct] = useState<string>('');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+
+  const [showAdd, setShowAdd] = useState(false);
+  const [products, setProducts] = useState<ProductOption[]>([]);
+  const [productsLoaded, setProductsLoaded] = useState(false);
+  const [addProductId, setAddProductId] = useState('');
+  const [addQty, setAddQty] = useState('');
+  const [addUnitPrice, setAddUnitPrice] = useState('');
+  const [addDiscountPct, setAddDiscountPct] = useState('0');
+
+  const ensureProducts = useCallback(async () => {
+    if (productsLoaded) return;
+    try {
+      const res = await getProductsList();
+      if (res.success && res.result) {
+        const list = (res.result as { products?: ProductOption[] }).products
+          ?? (res.result as { items?: ProductOption[] }).items
+          ?? (res.result as unknown as ProductOption[]);
+        if (Array.isArray(list)) {
+          setProducts(list);
+          setProductsLoaded(true);
+        }
+      }
+    } catch {
+      // ignore — will show empty
+    }
+  }, [productsLoaded]);
+
+  const handleStartEdit = (li: OperationLineItem) => {
+    setEditingId(li.id);
+    setEditQty(String(li.qty));
+    setEditUnitPrice(String(li.unit_price));
+    setEditDiscountPct(String(li.discount_pct));
+    setErr(null);
+    setInfo(null);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setErr(null);
+  };
+
+  const handleSaveEdit = async (li: OperationLineItem) => {
+    const qty = Number(editQty);
+    const unitPrice = Number(editUnitPrice);
+    const discPct = Number(editDiscountPct);
+    if (!Number.isFinite(qty) || qty <= 0) { setErr('Qty must be positive'); return; }
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) { setErr('Unit price must be non-negative'); return; }
+    if (!Number.isFinite(discPct) || discPct < 0 || discPct > 100) { setErr('Discount must be 0-100'); return; }
+
+    setBusy(li.id);
+    setErr(null);
+    try {
+      const res = await updateLineItem(operationId, li.id, {
+        qty, unit_price: unitPrice, discount_pct: discPct,
+      });
+      if (res.success && res.result) {
+        if (res.result.documents_cancelled > 0) {
+          setInfo(`${res.result.documents_cancelled} document(s) cancelled, operation reverted to draft`);
+        } else {
+          setInfo('Line item updated');
+        }
+        setEditingId(null);
+        await onMutated();
+      } else {
+        setErr(res.errors?.[0]?.message ?? 'Update failed');
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleDelete = async (li: OperationLineItem) => {
+    if (!confirm(`Delete line item ${li.product_id} (qty ${li.qty})?\n\nIf this operation has documents, they will be marked cancelled and the operation will revert to draft.`)) return;
+    setBusy(li.id);
+    setErr(null);
+    try {
+      const res = await deleteLineItem(operationId, li.id);
+      if (res.success && res.result) {
+        if (res.result.documents_cancelled > 0) {
+          setInfo(`${res.result.documents_cancelled} document(s) cancelled, operation reverted to draft`);
+        } else {
+          setInfo('Line item deleted');
+        }
+        await onMutated();
+      } else {
+        setErr(res.errors?.[0]?.message ?? 'Delete failed');
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleOpenAdd = async () => {
+    setShowAdd(true);
+    setAddProductId('');
+    setAddQty('');
+    setAddUnitPrice('');
+    setAddDiscountPct('0');
+    setErr(null);
+    setInfo(null);
+    await ensureProducts();
+  };
+
+  const handleSaveAdd = async () => {
+    const qty = Number(addQty);
+    const unitPrice = Number(addUnitPrice);
+    const discPct = Number(addDiscountPct);
+    if (!addProductId) { setErr('Pick a product'); return; }
+    if (!Number.isFinite(qty) || qty <= 0) { setErr('Qty must be positive'); return; }
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) { setErr('Unit price must be non-negative'); return; }
+    if (!Number.isFinite(discPct) || discPct < 0 || discPct > 100) { setErr('Discount must be 0-100'); return; }
+
+    setBusy('__add__');
+    setErr(null);
+    try {
+      const res = await addLineItem(operationId, {
+        product_id: addProductId,
+        qty, unit_price: unitPrice, discount_pct: discPct,
+      });
+      if (res.success && res.result) {
+        if (res.result.documents_cancelled > 0) {
+          setInfo(`${res.result.documents_cancelled} document(s) cancelled, operation reverted to draft`);
+        } else {
+          setInfo('Line item added');
+        }
+        setShowAdd(false);
+        await onMutated();
+      } else {
+        setErr(res.errors?.[0]?.message ?? 'Add failed');
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
-    <div
-      className="overflow-hidden"
-      style={{
+    <div className="space-y-3">
+      {!editable && (
+        <div className="px-4 py-3" style={{
+          fontSize: '14px',
+          color: 'var(--fg-2)',
+          backgroundColor: 'var(--paper-sunk)',
+          border: '1px solid var(--border-hairline)',
+          borderRadius: 'var(--radius-sm)',
+        }}>
+          Line items are read-only — operation status is <strong>{operationStatus}</strong>.
+          To make changes, edits are blocked once shipped, delivered, or cancelled.
+        </div>
+      )}
+
+      {info && (
+        <div className="px-4 py-3" style={{
+          fontSize: '14px', color: 'var(--fg-1)',
+          backgroundColor: 'rgba(46,125,79,0.08)',
+          border: '1px solid rgba(46,125,79,0.2)',
+          borderRadius: 'var(--radius-sm)',
+        }}>{info}</div>
+      )}
+      {err && (
+        <div className="px-4 py-3" style={{
+          fontSize: '14px', color: 'var(--brand-rot)',
+          backgroundColor: 'rgba(229,32,44,0.08)',
+          border: '1px solid rgba(229,32,44,0.3)',
+          borderRadius: 'var(--radius-sm)',
+        }}>{err}</div>
+      )}
+
+      <div className="overflow-hidden" style={{
         border: '1px solid var(--border-hairline)',
         borderRadius: 'var(--radius-md)',
-      }}
-    >
-      <table className="w-full" style={{ fontSize: 'var(--fs-body-sm)' }}>
-        <thead>
-          <tr style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>
-            <th className="text-left px-4 py-3" style={{ fontSize: '14px' }}>SKU</th>
-            <th className="text-left px-4 py-3" style={{ fontSize: '14px' }}>Product</th>
-            <th className="text-right px-4 py-3" style={{ fontSize: '14px' }}>Qty</th>
-            <th className="text-right px-4 py-3" style={{ fontSize: '14px' }}>Unit</th>
-            <th className="text-right px-4 py-3" style={{ fontSize: '14px' }}>Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {lineItems.map((li) => (
-            <tr key={li.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-              <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-1)' }}>
-                {li.product_id.toUpperCase()}
-              </td>
-              <td className="px-4 py-3" style={{ color: 'var(--fg-1)' }}>
-                {li.product_name ?? li.item_description ?? li.product_id}
-              </td>
-              <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)' }}>
-                {li.qty}
-              </td>
-              <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)' }}>
-                {formatMoney(li.unit_price, currency)}
-              </td>
-              <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)', fontWeight: 600 }}>
-                {formatMoney(li.line_amount, currency)}
-              </td>
+      }}>
+        <table className="w-full" style={{ fontSize: 'var(--fs-body-sm)' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>
+              <th className="text-left px-4 py-3" style={{ fontSize: '14px' }}>SKU</th>
+              <th className="text-left px-4 py-3" style={{ fontSize: '14px' }}>Product</th>
+              <th className="text-right px-4 py-3" style={{ fontSize: '14px' }}>Qty</th>
+              <th className="text-right px-4 py-3" style={{ fontSize: '14px' }}>Unit</th>
+              <th className="text-right px-4 py-3" style={{ fontSize: '14px' }}>Disc%</th>
+              <th className="text-right px-4 py-3" style={{ fontSize: '14px' }}>Total</th>
+              {editable && <th className="text-right px-4 py-3" style={{ fontSize: '14px' }}>Actions</th>}
             </tr>
-          ))}
+          </thead>
+          <tbody>
+            {lineItems.map((li) => {
+              const isEditing = editingId === li.id;
+              const isBusy = busy === li.id;
+              return (
+                <tr key={li.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                  <td className="px-4 py-3" style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
+                    {li.product_id.toUpperCase()}
+                  </td>
+                  <td className="px-4 py-3" style={{ color: 'var(--fg-1)' }}>
+                    {li.product_name ?? li.item_description ?? li.product_id}
+                  </td>
+                  <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)' }}>
+                    {isEditing ? (
+                      <input
+                        type="number"
+                        value={editQty}
+                        onChange={(e) => setEditQty(e.target.value)}
+                        style={{ width: '80px', padding: '4px 8px', textAlign: 'right',
+                          fontSize: '14px', fontWeight: 700,
+                          border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)',
+                        }}
+                      />
+                    ) : (
+                      li.qty
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)' }}>
+                    {isEditing ? (
+                      <input
+                        type="number" step="0.01"
+                        value={editUnitPrice}
+                        onChange={(e) => setEditUnitPrice(e.target.value)}
+                        style={{ width: '100px', padding: '4px 8px', textAlign: 'right',
+                          fontSize: '14px', fontWeight: 700,
+                          border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)',
+                        }}
+                      />
+                    ) : (
+                      formatMoney(li.unit_price, currency)
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-3)' }}>
+                    {isEditing ? (
+                      <input
+                        type="number" step="0.01"
+                        value={editDiscountPct}
+                        onChange={(e) => setEditDiscountPct(e.target.value)}
+                        style={{ width: '70px', padding: '4px 8px', textAlign: 'right',
+                          fontSize: '14px', fontWeight: 700,
+                          border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)',
+                        }}
+                      />
+                    ) : (
+                      li.discount_pct > 0 ? `${li.discount_pct}%` : '—'
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>
+                    {formatMoney(li.line_amount, currency)}
+                  </td>
+                  {editable && (
+                    <td className="px-4 py-3 text-right">
+                      <div className="inline-flex items-center gap-1">
+                        {isEditing ? (
+                          <>
+                            <button
+                              onClick={() => handleSaveEdit(li)}
+                              disabled={isBusy}
+                              title="Save"
+                              style={{
+                                fontSize: '14px', fontWeight: 600, padding: '4px 8px',
+                                border: '1px solid rgba(46,125,79,0.3)',
+                                borderRadius: 'var(--radius-sm)',
+                                color: 'var(--status-success)',
+                                background: 'transparent',
+                                cursor: isBusy ? 'wait' : 'pointer',
+                                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                              }}>
+                              {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                              Save
+                            </button>
+                            <button
+                              onClick={handleCancelEdit}
+                              disabled={isBusy}
+                              title="Cancel edit"
+                              style={{
+                                fontSize: '14px', fontWeight: 600, padding: '4px 8px',
+                                border: '1px solid var(--border-hairline)',
+                                borderRadius: 'var(--radius-sm)',
+                                color: 'var(--fg-2)',
+                                background: 'transparent',
+                                cursor: isBusy ? 'wait' : 'pointer',
+                                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                              }}>
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => handleStartEdit(li)}
+                              disabled={busy !== null}
+                              title="Edit"
+                              style={{
+                                fontSize: '14px', fontWeight: 600, padding: '4px 8px',
+                                border: '1px solid var(--border-hairline)',
+                                borderRadius: 'var(--radius-sm)',
+                                color: 'var(--fg-2)',
+                                background: 'transparent',
+                                cursor: busy !== null ? 'not-allowed' : 'pointer',
+                                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                              }}>
+                              <Pencil className="h-3.5 w-3.5" />
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDelete(li)}
+                              disabled={busy !== null}
+                              title="Delete line"
+                              style={{
+                                fontSize: '14px', fontWeight: 600, padding: '4px 8px',
+                                border: '1px solid rgba(229,32,44,0.3)',
+                                borderRadius: 'var(--radius-sm)',
+                                color: '#A82029',
+                                background: 'transparent',
+                                cursor: busy !== null ? 'not-allowed' : 'pointer',
+                                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                              }}>
+                              {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
 
-          {/* Subtotal */}
-          <tr>
-            <td colSpan={4} className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)', fontSize: '14px' }}>
-              Subtotal
-            </td>
-            <td className="px-4 py-2 text-right" style={{ color: 'var(--fg-1)' }}>
-              {formatMoney(subtotal, currency)}
-            </td>
-          </tr>
-
-          {/* Discount (only if >0) */}
-          {showDiscount && (
+            {/* Subtotal */}
             <tr>
-              <td colSpan={4} className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)', fontSize: '14px' }}>
-                Discount {discountPct}%
+              <td colSpan={editable ? 6 : 5} className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)', fontSize: '14px' }}>
+                Subtotal
               </td>
-              <td className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)' }}>
-                −{formatMoney(discount, currency)}
+              <td className="px-4 py-2 text-right" style={{ color: 'var(--fg-1)' }}>
+                {formatMoney(subtotal, currency)}
               </td>
+              {editable && <td className="px-4 py-2"></td>}
             </tr>
-          )}
 
-          {/* VAT — Net + VAT lines (only if rate > 0) */}
-          {showVat && (
-            <>
+            {showDiscount && (
               <tr>
-                <td colSpan={4} className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)', fontSize: '14px' }}>
-                  Net
-                </td>
-                <td className="px-4 py-2 text-right" style={{ color: 'var(--fg-1)' }}>
-                  {formatMoney(totalAfterDiscount, currency)}
-                </td>
-              </tr>
-              <tr>
-                <td colSpan={4} className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)', fontSize: '14px' }}>
-                  VAT {vatRate}%
+                <td colSpan={editable ? 6 : 5} className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)', fontSize: '14px' }}>
+                  Discount {discountPct}%
                 </td>
                 <td className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)' }}>
-                  +{formatMoney(vatAmount, currency)}
+                  −{formatMoney(discount, currency)}
                 </td>
+                {editable && <td className="px-4 py-2"></td>}
               </tr>
-            </>
-          )}
+            )}
 
-          {/* Total */}
-          <tr style={{ borderTop: '1px solid var(--border-hairline)' }}>
-            <td colSpan={4} className="px-4 py-3 text-right" style={{ fontSize: '14px' }}>
-              Total
-            </td>
-            <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)', fontWeight: 700, fontSize: '15px' }}>
-              {formatMoney(grandTotal, currency)} {currency}
-            </td>
-          </tr>
-        </tbody>
-      </table>
+            {showVat && (
+              <>
+                <tr>
+                  <td colSpan={editable ? 6 : 5} className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)', fontSize: '14px' }}>
+                    Net
+                  </td>
+                  <td className="px-4 py-2 text-right" style={{ color: 'var(--fg-1)' }}>
+                    {formatMoney(totalAfterDiscount, currency)}
+                  </td>
+                  {editable && <td className="px-4 py-2"></td>}
+                </tr>
+                <tr>
+                  <td colSpan={editable ? 6 : 5} className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)', fontSize: '14px' }}>
+                    VAT {vatRate}%
+                  </td>
+                  <td className="px-4 py-2 text-right" style={{ color: 'var(--fg-2)' }}>
+                    +{formatMoney(vatAmount, currency)}
+                  </td>
+                  {editable && <td className="px-4 py-2"></td>}
+                </tr>
+              </>
+            )}
+
+            <tr style={{ borderTop: '1px solid var(--border-hairline)' }}>
+              <td colSpan={editable ? 6 : 5} className="px-4 py-3 text-right" style={{ fontSize: '14px' }}>
+                Total
+              </td>
+              <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)', fontWeight: 700, fontSize: '15px' }}>
+                {formatMoney(grandTotal, currency)} {currency}
+              </td>
+              {editable && <td className="px-4 py-3"></td>}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {editable && !showAdd && (
+        <div>
+          <button
+            onClick={handleOpenAdd}
+            disabled={busy !== null}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              padding: '6px 14px', fontSize: '14px', fontWeight: 600,
+              border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)',
+              backgroundColor: 'var(--paper)', color: 'var(--fg-1)',
+              cursor: busy !== null ? 'not-allowed' : 'pointer',
+            }}>
+            <Plus className="h-4 w-4" />
+            Add line item
+          </button>
+        </div>
+      )}
+
+      {editable && showAdd && (
+        <div className="p-4" style={{
+          border: '1px solid var(--border-hairline)',
+          borderRadius: 'var(--radius-md)',
+          backgroundColor: 'var(--paper-sunk)',
+        }}>
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label style={{ fontSize: '14px', color: 'var(--fg-3)', display: 'block', marginBottom: '4px' }}>Product</label>
+              <select
+                value={addProductId}
+                onChange={(e) => setAddProductId(e.target.value)}
+                style={{ minWidth: '260px', padding: '6px 8px', fontSize: '14px', fontWeight: 700,
+                  border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)',
+                  backgroundColor: 'var(--paper)' }}>
+                <option value="">{productsLoaded ? '— pick product —' : 'Loading...'}</option>
+                {products.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.id.toUpperCase()} · {p.invoice_label ?? p.product_name ?? p.id}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: '14px', color: 'var(--fg-3)', display: 'block', marginBottom: '4px' }}>Qty</label>
+              <input type="number" value={addQty} onChange={(e) => setAddQty(e.target.value)}
+                style={{ width: '90px', padding: '6px 8px', textAlign: 'right',
+                  fontSize: '14px', fontWeight: 700,
+                  border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: '14px', color: 'var(--fg-3)', display: 'block', marginBottom: '4px' }}>Unit price</label>
+              <input type="number" step="0.01" value={addUnitPrice} onChange={(e) => setAddUnitPrice(e.target.value)}
+                style={{ width: '110px', padding: '6px 8px', textAlign: 'right',
+                  fontSize: '14px', fontWeight: 700,
+                  border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: '14px', color: 'var(--fg-3)', display: 'block', marginBottom: '4px' }}>Disc %</label>
+              <input type="number" step="0.01" value={addDiscountPct} onChange={(e) => setAddDiscountPct(e.target.value)}
+                style={{ width: '70px', padding: '6px 8px', textAlign: 'right',
+                  fontSize: '14px', fontWeight: 700,
+                  border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)' }} />
+            </div>
+            <button
+              onClick={handleSaveAdd}
+              disabled={busy !== null}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '6px',
+                padding: '6px 14px', fontSize: '14px', fontWeight: 600,
+                border: '1px solid rgba(46,125,79,0.3)', borderRadius: 'var(--radius-sm)',
+                color: 'var(--status-success)', background: 'transparent',
+                cursor: busy !== null ? 'wait' : 'pointer',
+              }}>
+              {busy === '__add__' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Add
+            </button>
+            <button
+              onClick={() => setShowAdd(false)}
+              disabled={busy !== null}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '6px',
+                padding: '6px 14px', fontSize: '14px', fontWeight: 600,
+                border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)',
+                color: 'var(--fg-2)', background: 'transparent',
+                cursor: busy !== null ? 'wait' : 'pointer',
+              }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -722,10 +1152,11 @@ function DocumentsTab({
     'IS-V2': 'Issuance Statement v2',
   };
 
-  const STATUS_STYLE: Record<string, { fg: string; bg: string }> = {
-    issued:   { fg: 'var(--status-success)', bg: 'rgba(46,125,79,0.08)' },
-    draft:    { fg: 'var(--status-warning)', bg: 'rgba(199,122,0,0.08)' },
-    voided:   { fg: 'var(--fg-3)',           bg: 'var(--paper-sunk)' },
+  const STATUS_STYLE: Record<string, { fg: string; bg: string; strike: boolean }> = {
+    issued:    { fg: 'var(--status-success)', bg: 'rgba(46,125,79,0.08)',  strike: false },
+    draft:     { fg: 'var(--status-warning)', bg: 'rgba(199,122,0,0.08)',  strike: false },
+    voided:    { fg: 'var(--fg-3)',           bg: 'var(--paper-sunk)',     strike: false },
+    cancelled: { fg: 'var(--brand-rot)',      bg: 'rgba(229,32,44,0.08)',  strike: true  },
   };
 
   return (
@@ -778,11 +1209,14 @@ function DocumentsTab({
               const statusStyle = STATUS_STYLE[doc.status] ?? STATUS_STYLE.draft!;
               const typeLabel = DOC_TYPE_LABELS[doc.document_type] ?? doc.document_type;
               const date = doc.document_date ? new Date(doc.document_date * 1000).toISOString().split('T')[0] : '—';
+              const cancelledStyle = statusStyle.strike
+                ? { textDecoration: 'line-through', textDecorationColor: 'var(--brand-rot)' }
+                : {};
               return (
-                <tr key={doc.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                  <td className="px-4 py-3" style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{doc.document_number}</td>
-                  <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>{typeLabel}</td>
-                  <td className="px-4 py-3" style={{ color: 'var(--fg-3)' }}>{date}</td>
+                <tr key={doc.id} style={{ borderBottom: '1px solid var(--border-hairline)', ...(statusStyle.strike ? { opacity: 0.7 } : {}) }}>
+                  <td className="px-4 py-3" style={{ fontWeight: 700, color: statusStyle.strike ? 'var(--brand-rot)' : 'var(--fg-1)', ...cancelledStyle }}>{doc.document_number}</td>
+                  <td className="px-4 py-3" style={{ color: 'var(--fg-2)', ...cancelledStyle }}>{typeLabel}</td>
+                  <td className="px-4 py-3" style={{ color: 'var(--fg-3)', ...cancelledStyle }}>{date}</td>
                   <td className="px-4 py-3">
                     <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '999px', fontSize: '14px', fontWeight: 500, color: statusStyle.fg, backgroundColor: statusStyle.bg }}>
                       {doc.status}

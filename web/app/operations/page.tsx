@@ -63,6 +63,7 @@ export default function OperationsPage() {
   const [paymentFilter, setPaymentFilter] = useState<string>('all');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [showCancelled, setShowCancelled] = useState<boolean>(false);
 
   async function handleCancel(op: Operation) {
     const label = op.reference ?? op.id;
@@ -105,9 +106,10 @@ export default function OperationsPage() {
   }
 
   useEffect(() => {
-    const fetch = async () => {
+    const fetchOps = async () => {
+      setLoading(true);
       try {
-        const res = await getOperations();
+        const res = await getOperations({ include_cancelled: showCancelled });
         if (res.success && res.result) {
           setOperations(res.result.operations);
           setError(null);
@@ -120,8 +122,8 @@ export default function OperationsPage() {
         setLoading(false);
       }
     };
-    fetch();
-  }, []);
+    fetchOps();
+  }, [showCancelled]);
 
   const filtered = useMemo(() => {
     return operations.filter((op) => {
@@ -206,6 +208,14 @@ export default function OperationsPage() {
             <option value="paid">Paid</option>
             <option value="neutral">No overlay</option>
           </select>
+          <label className="inline-flex items-center gap-2" style={{
+            fontSize: '14px', color: 'var(--fg-2)', padding: '6px 10px',
+            border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)',
+            backgroundColor: 'var(--paper-sunk)', cursor: 'pointer',
+          }}>
+            <input type="checkbox" checked={showCancelled} onChange={(e) => setShowCancelled(e.target.checked)} />
+            Show cancelled
+          </label>
         </div>
       </div>
 

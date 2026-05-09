@@ -96,6 +96,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
   const [ndaError, setNdaError] = useState<string | null>(null);
   const [opBusyId, setOpBusyId] = useState<string | null>(null);
   const [opActionMsg, setOpActionMsg] = useState<string | null>(null);
+  const [showCancelled, setShowCancelled] = useState<boolean>(false);
 
   async function handleOpCancel(op: Operation) {
     const label = op.reference ?? op.id;
@@ -145,7 +146,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
         const [partnerRes, contractsRes, opsRes, paysRes, balRes] = await Promise.all([
           getPartner(slug),
           getPartnerContracts(slug),
-          getOperations({ partner_id: slug }),
+          getOperations({ partner_id: slug, include_cancelled: showCancelled }),
           getPayments({ partner_id: slug }),
           getPartnerNetBalance(slug),
         ]);
@@ -179,7 +180,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
       }
     };
     fetchAll();
-  }, [slug]);
+  }, [slug, showCancelled]);
 
   // Trigger NDA generation via DeepSeek PRO. On success, refresh contracts list
   // (NDA now lives in `contracts` table — see Phase 8.x agreements unification).
@@ -511,6 +512,12 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
         count={operations.length}
         addNewHref={`/partners/${slug}/operations/new`}
       >
+        <div className="px-4 py-2 flex justify-end" style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+          <label className="inline-flex items-center gap-2" style={{ fontSize: '14px', color: 'var(--fg-2)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={showCancelled} onChange={(e) => setShowCancelled(e.target.checked)} />
+            Show cancelled
+          </label>
+        </div>
         {operations.length === 0 ? (
           <EmptyTable message="No operations yet — click [+ Add new] to create draft" />
         ) : (

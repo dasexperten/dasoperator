@@ -9,6 +9,7 @@ import type { ContractRow, LineItemRow } from '../types';
 import {
   Document, Packer, LANDSCAPE_PAGE, LANDSCAPE_USABLE_DXA, RenderParty,
   RenderSignature, blank, buildProductTable, buildSignature, formatDate,
+  pickLineLabel,
   type ProductCell,
 } from './shared';
 import { Paragraph, TextRun, AlignmentType } from 'docx';
@@ -66,7 +67,7 @@ export async function renderTn(input: RenderTnInput): Promise<Uint8Array> {
 
   const cargoRows: ProductCell[][] = input.lineItems.map((li, i) => [
     { text: String(i + 1) },
-    { text: li.invoice_label ?? li.item_description ?? li.product_id },
+    { text: pickLineLabel(li, { kind: 'TN' }) },
     { text: String(li.qty) },
     { text: 'шт' },
     { text: String(li.cartons ?? 0) },

@@ -10,7 +10,7 @@ import {
   Document, LANDSCAPE_PAGE, LANDSCAPE_USABLE_DXA, Packer, RenderBank,
   RenderParty, RenderSignature, blank, buildDeliveryBankTable, buildMetaRow,
   buildPartyTable, buildProductTable, buildSignature, buildTitle, formatDate,
-  formatMoney, p, trilingual,
+  formatMoney, p, pickLineLabel, trilingual,
   type ProductCell,
 } from './shared';
 
@@ -110,10 +110,7 @@ export async function renderInvoiceSpecPastes(input: RenderIsV2Input): Promise<U
   let allWeightsKnown = true;
 
   const rows: ProductCell[][] = input.lineItems.map((li, idx) => {
-    const desc = [li.description_en, li.description_ru, li.description_cn]
-      .filter((x): x is string => !!x)
-      .join('\n')
-      || (li.invoice_label ?? li.product_id);
+    const desc = pickLineLabel(li, { kind: 'IS', variant: 'V2' });
     const qtyPerCtn = li.ctn_qty ?? 0;
     const cartons = li.cartons > 0
       ? li.cartons

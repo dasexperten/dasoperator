@@ -154,6 +154,66 @@ export function trilingual(en: string | null, ru: string | null, cn: string | nu
 }
 
 // =============================================================================
+// pickLineLabel — single source of truth for "what text goes in the SKU column"
+// of any invoicer-issued document. Replaces the ad-hoc per-renderer logic that
+// used to fall through description_ru/_en chains.
+//
+// Selection rules (agreed with Aram):
+//   - CI / PL  → partner language (RU/EN). NULL or unknown → fall back to EN.
+//   - UPD / TN → always RU (Russian tax / transport docs).
+//   - IS V1    → bilingual EN + RU, stacked with " / ".
+//   - IS V2    → trilingual EN + RU + CN, stacked with " / ".
+//
+// For every leaf pick we go through invoice_label_{lang} → invoice_label_en →
+// invoice_label (deprecated fallback) → item_description → product_id, so a
+// missing translation never crashes the document — it gracefully degrades.
+// =============================================================================
+
+export interface LineLabelInput {
+  invoice_label_ru: string | null;
+  invoice_label_en: string | null;
+  invoice_label_cn: string | null;
+  invoice_label: string | null;
+  item_description: string | null;
+  product_id: string;
+}
+
+export type DocLabelContext =
+  | { kind: 'CI' | 'PL'; partnerLang: 'RU' | 'EN' | null }
+  | { kind: 'UPD' | 'TN' }
+  | { kind: 'IS'; variant: 'V1' | 'V2' };
+
+function fallbackChain(li: LineLabelInput, primary: string | null): string {
+  return primary
+    ?? li.invoice_label_en
+    ?? li.invoice_label
+    ?? li.item_description
+    ?? li.product_id;
+}
+
+export function pickLineLabel(li: LineLabelInput, ctx: DocLabelContext): string {
+  switch (ctx.kind) {
+    case 'CI':
+    case 'PL': {
+      const lang = ctx.partnerLang ?? 'EN';
+      const primary = lang === 'RU' ? li.invoice_label_ru : li.invoice_label_en;
+      return fallbackChain(li, primary);
+    }
+    case 'UPD':
+    case 'TN':
+      return fallbackChain(li, li.invoice_label_ru);
+    case 'IS':
+      if (ctx.variant === 'V1') {
+        return bilingual(li.invoice_label_en, li.invoice_label_ru)
+          || fallbackChain(li, li.invoice_label_en);
+      }
+      // V2 — trilingual stacked label
+      return trilingual(li.invoice_label_en, li.invoice_label_ru, li.invoice_label_cn)
+        || fallbackChain(li, li.invoice_label_en);
+  }
+}
+
+// =============================================================================
 // Paragraph primitives
 // =============================================================================
 

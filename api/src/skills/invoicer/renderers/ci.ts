@@ -9,6 +9,7 @@ import {
   Document, Packer, PORTRAIT_PAGE, PORTRAIT_USABLE_DXA, RenderBank, RenderParty,
   RenderSignature, blank, buildDeliveryBankTable, buildMetaRow, buildPartyTable,
   buildProductTable, buildSignature, buildTitle, formatDate, formatMoney,
+  pickLineLabel,
   type ProductCell,
 } from './shared';
 
@@ -88,9 +89,7 @@ export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uin
   ];
 
   const rows: ProductCell[][] = input.lineItems.map((li, idx) => {
-    const desc = isRu
-      ? (li.description_ru ?? li.description_en ?? li.invoice_label ?? li.product_id)
-      : (li.description_en ?? li.description_ru ?? li.invoice_label ?? li.product_id);
+    const desc = pickLineLabel(li, { kind: 'CI', partnerLang: language });
     return [
       { text: String(idx + 1), align: 'center' },
       { text: li.product_id, align: 'left' },

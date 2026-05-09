@@ -10,6 +10,7 @@ import type { ContractRow, LineItemRow } from '../types';
 import {
   Document, Packer, LANDSCAPE_PAGE, LANDSCAPE_USABLE_DXA, RenderParty,
   RenderSignature, blank, buildProductTable, buildSignature, formatDate,
+  pickLineLabel,
   type ProductCell,
 } from './shared';
 import { Paragraph, TextRun, AlignmentType } from 'docx';
@@ -86,7 +87,7 @@ export async function renderUpd(input: RenderUpdInput): Promise<Uint8Array> {
     const lineVat = lineWithVat - lineNoVat;
     return [
       { text: String(i + 1) },
-      { text: li.invoice_label ?? li.item_description ?? li.product_id },
+      { text: pickLineLabel(li, { kind: 'UPD' }) },
       { text: 'шт' },
       { text: String(li.qty) },
       { text: fmt(li.unit_price_after_disc) },

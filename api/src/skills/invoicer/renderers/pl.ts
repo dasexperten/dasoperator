@@ -8,7 +8,7 @@ import type { DocumentLanguage, LineItemRow } from '../types';
 import {
   Document, Packer, PORTRAIT_PAGE, PORTRAIT_USABLE_DXA, RenderParty, blank,
   buildDeliveryBankTable, buildMetaRow, buildPartyTable, buildProductTable,
-  buildTitle, formatDate, p,
+  buildTitle, formatDate, p, pickLineLabel,
   type ProductCell,
 } from './shared';
 import { AlignmentType } from 'docx';
@@ -55,9 +55,7 @@ export async function renderPackingList(input: RenderPlInput): Promise<Uint8Arra
   let allWeightsKnown = true;
 
   const rows: ProductCell[][] = input.lineItems.map((li, idx) => {
-    const desc = isRu
-      ? (li.description_ru ?? li.description_en ?? li.invoice_label ?? li.product_id)
-      : (li.description_en ?? li.description_ru ?? li.invoice_label ?? li.product_id);
+    const desc = pickLineLabel(li, { kind: 'PL', partnerLang: language });
     const qtyPerCtn = li.ctn_qty ?? 0;
     const cartons = li.cartons > 0
       ? li.cartons

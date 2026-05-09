@@ -9,7 +9,7 @@ import {
   Document, LANDSCAPE_PAGE, LANDSCAPE_USABLE_DXA, Packer, RenderBank,
   RenderParty, RenderSignature, bilingual, blank, buildDeliveryBankTable,
   buildMetaRow, buildPartyTable, buildProductTable, buildSignature, buildTitle,
-  formatDate, formatMoney, trilingual,
+  formatDate, formatMoney, pickLineLabel, trilingual,
   type ProductCell,
 } from './shared';
 
@@ -99,10 +99,7 @@ export async function renderInvoiceSpecBrushes(input: RenderIsV1Input): Promise<
   let allWeightsKnown = true;
 
   const rows: ProductCell[][] = input.lineItems.map((li, idx) => {
-    const desc = [li.description_en, li.description_ru]
-      .filter((x): x is string => !!x)
-      .join('\n')
-      || (li.invoice_label ?? li.product_id);
+    const desc = pickLineLabel(li, { kind: 'IS', variant: 'V1' });
     const qtyPerCtn = li.ctn_qty ?? 0;
     const cartons = li.cartons > 0
       ? li.cartons

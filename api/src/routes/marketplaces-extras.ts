@@ -151,7 +151,7 @@ marketplacesExtras.get('/sales', async (c) => {
       wb: {
         units_sold: wbRow?.units || 0,
         revenue_rub: wbRow?.revenue || 0,
-        synced_at: wbTotal?.synced_at || null,
+        synced_at: wbSync?.synced_at || null,
       },
     },
     daily: daily.results,

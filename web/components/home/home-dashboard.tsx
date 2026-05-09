@@ -12,6 +12,7 @@ import {
   type Payment,
   type FxLatest,
 } from '@/lib/api';
+import MarketplacePulse from './marketplace-pulse';
 
 // =============================================================================
 // Helpers
@@ -222,6 +223,9 @@ export default function HomeDashboard() {
           />
         </div>
       </section>
+
+      {/* MARKETPLACE PULSE ========================================== */}
+      <MarketplacePulse />
 
       {/* RECENT OPERATIONS ========================================== */}
       <section>

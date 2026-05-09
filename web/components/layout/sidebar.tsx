@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Users, FileText, Package, Warehouse, ShoppingCart, Headphones, BarChart3, Wallet } from 'lucide-react';
+import { Home, Users, FileText, Package, Warehouse, ShoppingCart, Headphones, BarChart3, Wallet, Inbox } from 'lucide-react';
 
 interface NavItem {
   name: string;
@@ -12,6 +12,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { name: 'Home',         icon: Home,         href: '/' },
+  { name: 'Inbox',        icon: Inbox,        href: '/inbox' },
   { name: 'Partners',     icon: Users,        href: '/partners' },
   { name: 'Operations',   icon: FileText,     href: '/operations' },
   { name: 'Products',     icon: Package,      href: '/products' },

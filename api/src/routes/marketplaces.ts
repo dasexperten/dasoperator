@@ -310,11 +310,12 @@ marketplaces.get('/pulse/sku-spotlight', async (c) => {
   `).first<{ period_from: string | null; period_to: string | null; synced_at: number | null }>();
 
   const top = await c.env.DB.prepare(`
-    SELECT base_sku,
-           SUM(units_sold)  AS units_sold,
-           SUM(revenue_rub) AS revenue_rub,
-           SUM(ozon_units)  AS ozon_units,
-           SUM(wb_units)    AS wb_units
+    SELECT s.base_sku,
+           p.product_name,
+           SUM(s.units_sold)  AS units_sold,
+           SUM(s.revenue_rub) AS revenue_rub,
+           SUM(s.ozon_units)  AS ozon_units,
+           SUM(s.wb_units)    AS wb_units
     FROM (
       SELECT base_sku, units_sold, revenue_rub,
              units_sold AS ozon_units, 0 AS wb_units
@@ -323,12 +324,13 @@ marketplaces.get('/pulse/sku-spotlight', async (c) => {
       SELECT base_sku, units_sold, revenue_rub,
              0 AS ozon_units, units_sold AS wb_units
       FROM marketplace_sales_wb
-    )
-    GROUP BY base_sku
+    ) s
+    LEFT JOIN products p ON p.id = s.base_sku AND p.deleted_at IS NULL
+    GROUP BY s.base_sku, p.product_name
     HAVING units_sold > 0
     ORDER BY units_sold DESC
     LIMIT 5
-  `).all<{ base_sku: string; units_sold: number; revenue_rub: number; ozon_units: number; wb_units: number }>();
+  `).all<{ base_sku: string; product_name: string | null; units_sold: number; revenue_rub: number; ozon_units: number; wb_units: number }>();
 
   const bottom = await c.env.DB.prepare(`
     SELECT p.id AS base_sku, p.product_name AS product_name,
@@ -503,6 +505,16 @@ marketplaces.get('/pulse/sales-today', async (c) => {
   const ozon = pulseFor('ozon');
   const wb = pulseFor('wb');
 
+  // Mini 7-day spark (combined revenue per day, oldest first)
+  const spark = await c.env.DB.prepare(`
+    SELECT date, SUM(revenue_rub) AS revenue_rub
+    FROM marketplace_sales_daily
+    WHERE date >= date('now', '-13 days')
+    GROUP BY date
+    ORDER BY date ASC
+    LIMIT 14
+  `).all<{ date: string; revenue_rub: number }>();
+
   return ok(c, {
     ozon,
     wb,
@@ -510,6 +522,7 @@ marketplaces.get('/pulse/sales-today', async (c) => {
       revenue_rub: ozon.revenue_rub + wb.revenue_rub,
       units: ozon.units + wb.units,
     },
+    spark: spark.results,
   });
 });
 

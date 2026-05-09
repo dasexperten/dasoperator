@@ -300,4 +300,100 @@ crm.get('/customers', async (c) => {
   }
 });
 
+// =============================================================================
+// GET /api/crm/timeline — daily registrations + orders for last 30 days
+// =============================================================================
+// Walks Retail CRM customers + orders, groups by day. Used by the Daily
+// activity chart on /crm page. Yandex Metrika visits are merged client-side.
+crm.get('/timeline', async (c) => {
+  const domain = c.env.RETAIL_CRM_DOMAIN;
+  const token = c.env.RETAIL_CRM_TOKEN;
+  if (!domain || !token) {
+    return fail(c, 503, [{ code: 'crm_not_configured', message: 'Retail CRM not configured.' }]);
+  }
+
+  // Build last 30 day window — UTC days, oldest first
+  const days = 30;
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const startDate = new Date(today);
+  startDate.setUTCDate(today.getUTCDate() - (days - 1));
+
+  const dayKeys: string[] = [];
+  for (let i = 0; i < days; i++) {
+    const d = new Date(startDate);
+    d.setUTCDate(startDate.getUTCDate() + i);
+    dayKeys.push(d.toISOString().slice(0, 10));
+  }
+
+  const startIso = startDate.toISOString().slice(0, 10);
+  const endIso = today.toISOString().slice(0, 10);
+
+  // Counters: dayKey -> count
+  const regsByDay = new Map<string, number>(dayKeys.map((k) => [k, 0]));
+  const ordersByDay = new Map<string, number>(dayKeys.map((k) => [k, 0]));
+
+  function bumpDay(map: Map<string, number>, isoTimestamp: string | undefined) {
+    if (!isoTimestamp) return;
+    const day = isoTimestamp.slice(0, 10);
+    if (map.has(day)) {
+      map.set(day, (map.get(day) ?? 0) + 1);
+    }
+  }
+
+  try {
+    // Walk all customers in window — Retail CRM uses dateFrom/dateTo for createdAt
+    let page = 1;
+    while (page <= 20) {
+      const resp = await retailGet<{
+        pagination?: { totalPageCount?: number; currentPage?: number };
+        customers?: Array<{ createdAt?: string }>;
+      }>(domain, token, '/customers', {
+        'page': page,
+        'limit': 100,
+        'filter[dateFrom]': startIso,
+        'filter[dateTo]': endIso,
+      });
+      for (const cu of resp.customers ?? []) bumpDay(regsByDay, cu.createdAt);
+      const totalPages = resp.pagination?.totalPageCount ?? 1;
+      if (page >= totalPages) break;
+      page += 1;
+    }
+
+    // Walk all orders in window — Retail CRM uses createdAtFrom/createdAtTo
+    page = 1;
+    while (page <= 20) {
+      const resp = await retailGet<{
+        pagination?: { totalPageCount?: number; currentPage?: number };
+        orders?: Array<{ createdAt?: string }>;
+      }>(domain, token, '/orders', {
+        'page': page,
+        'limit': 100,
+        'filter[createdAtFrom]': startIso,
+        'filter[createdAtTo]': endIso,
+      });
+      for (const o of resp.orders ?? []) bumpDay(ordersByDay, o.createdAt);
+      const totalPages = resp.pagination?.totalPageCount ?? 1;
+      if (page >= totalPages) break;
+      page += 1;
+    }
+
+    const timeline = dayKeys.map((day) => ({
+      date: day,
+      registrations: regsByDay.get(day) ?? 0,
+      orders: ordersByDay.get(day) ?? 0,
+    }));
+
+    return ok(c, {
+      source: `${domain}.retailcrm.ru`,
+      window_days: days,
+      timeline,
+      synced_at: Math.floor(Date.now() / 1000),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return fail(c, 502, [{ code: 'crm_upstream_error', message: msg }]);
+  }
+});
+
 export default crm;

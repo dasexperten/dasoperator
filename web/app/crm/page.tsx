@@ -31,6 +31,13 @@ interface MetrikaStats {
   synced_at: number;
 }
 
+interface CrmTimeline {
+  source: string;
+  window_days: number;
+  timeline: Array<{ date: string; registrations: number; orders: number }>;
+  synced_at: number;
+}
+
 interface CrmOrder {
   id: number;
   number: string;
@@ -77,6 +84,9 @@ export default function CrmPage() {
 
   const [metrika, setMetrika] = useState<MetrikaStats | null>(null);
   const [metrikaLoading, setMetrikaLoading] = useState(true);
+
+  const [timeline, setTimeline] = useState<CrmTimeline | null>(null);
+  const [timelineLoading, setTimelineLoading] = useState(true);
 
   const [tab, setTab] = useState<TabId>('orders');
 
@@ -126,6 +136,19 @@ export default function CrmPage() {
       // Same: silent. Tile will just not appear.
     } finally {
       setMetrikaLoading(false);
+    }
+  }, []);
+
+  const loadTimeline = useCallback(async () => {
+    setTimelineLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/crm/timeline`);
+      const data = await res.json();
+      if (data.success && data.result) setTimeline(data.result);
+    } catch (e) {
+      // Silent — chart simply doesn't render
+    } finally {
+      setTimelineLoading(false);
     }
   }, []);
 
@@ -179,6 +202,7 @@ export default function CrmPage() {
 
   useEffect(() => { loadStats(); }, [loadStats]);
   useEffect(() => { loadMetrika(); }, [loadMetrika]);
+  useEffect(() => { loadTimeline(); }, [loadTimeline]);
   useEffect(() => { if (tab === 'orders') loadOrders(); }, [tab, loadOrders]);
   useEffect(() => { if (tab === 'customers') loadCustomers(); }, [tab, loadCustomers]);
 
@@ -196,11 +220,12 @@ export default function CrmPage() {
   function refreshAll() {
     loadStats();
     loadMetrika();
+    loadTimeline();
     if (tab === 'orders') loadOrders();
     else loadCustomers();
   }
 
-  const isLoading = statsLoading || metrikaLoading || ordersLoading || customersLoading;
+  const isLoading = statsLoading || metrikaLoading || timelineLoading || ordersLoading || customersLoading;
 
   return (
     <div className="space-y-6 max-w-full">
@@ -250,6 +275,13 @@ export default function CrmPage() {
           />
         </div>
       )}
+
+      {/* Daily activity — visits behind, registrations middle, orders front */}
+      <DailyActivityChart
+        crmTimeline={timeline?.timeline ?? null}
+        metrikaTimeline={metrika?.timeline ?? null}
+        loading={timelineLoading || metrikaLoading}
+      />
 
       {/* Tabs */}
       <div className="flex items-center gap-1" style={{ borderBottom: '1px solid var(--border-hairline)' }}>
@@ -324,6 +356,166 @@ export default function CrmPage() {
 // ============================================================================
 // Components
 // ============================================================================
+
+function DailyActivityChart({
+  crmTimeline,
+  metrikaTimeline,
+  loading,
+}: {
+  crmTimeline: Array<{ date: string; registrations: number; orders: number }> | null;
+  metrikaTimeline: Array<{ date: string; visits: number; users: number }> | null;
+  loading: boolean;
+}) {
+  // Merge by date — CRM timeline drives the day list (always 30 entries),
+  // Metrika visits looked up per-day. If a Metrika day is missing, treat as 0.
+  const merged = (crmTimeline ?? []).map((d) => {
+    const m = metrikaTimeline?.find((x) => x.date === d.date);
+    return {
+      date: d.date,
+      visits: m?.visits ?? 0,
+      registrations: d.registrations,
+      orders: d.orders,
+    };
+  });
+
+  if (!loading && merged.length === 0) {
+    return null;
+  }
+
+  // Compute scales — separate axes:
+  //  • visits scale (left) drives the wide gray bars
+  //  • activity scale (right) drives narrow purple+teal bars
+  // This keeps small reg/order numbers visible against tall visit bars.
+  const maxVisits = Math.max(1, ...merged.map((d) => d.visits));
+  const maxActivity = Math.max(1, ...merged.map((d) => Math.max(d.registrations, d.orders)));
+
+  // SVG geometry
+  const W = 600;
+  const H = 140;
+  const padTop = 16;
+  const padBottom = 24;
+  const chartH = H - padTop - padBottom;
+  const days = merged.length || 30;
+  const slot = W / days;
+  const wideBarW = slot * 0.66;
+  const narrowBarW = slot * 0.32;
+
+  function visitsBar(value: number, idx: number) {
+    const h = (value / maxVisits) * chartH;
+    const x = idx * slot + (slot - wideBarW) / 2;
+    const y = padTop + (chartH - h);
+    return { x, y, w: wideBarW, h };
+  }
+
+  function activityBar(value: number, idx: number) {
+    const h = (value / maxActivity) * chartH;
+    const x = idx * slot + (slot - narrowBarW) / 2;
+    const y = padTop + (chartH - h);
+    return { x, y, w: narrowBarW, h };
+  }
+
+  // Totals for header summary
+  const totalVisits = merged.reduce((s, d) => s + d.visits, 0);
+  const totalRegs = merged.reduce((s, d) => s + d.registrations, 0);
+  const totalOrders = merged.reduce((s, d) => s + d.orders, 0);
+
+  return (
+    <div style={{
+      backgroundColor: 'var(--paper)',
+      border: '1px solid var(--border-hairline)',
+      borderRadius: 'var(--radius-sm)',
+      padding: '20px 24px',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--fg-1)' }}>Daily activity</div>
+          <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>Last 30 days · visits, registrations, orders</div>
+        </div>
+        {!loading && merged.length > 0 && (
+          <div style={{ display: 'flex', gap: 16, fontSize: 14 }}>
+            <span style={{ color: 'var(--fg-3)' }}>
+              <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{totalVisits.toLocaleString('ru-RU')}</span> visits
+            </span>
+            <span style={{ color: 'var(--fg-3)' }}>
+              <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{totalRegs.toLocaleString('ru-RU')}</span> reg
+            </span>
+            <span style={{ color: 'var(--fg-3)' }}>
+              <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{totalOrders.toLocaleString('ru-RU')}</span> orders
+            </span>
+          </div>
+        )}
+      </div>
+
+      {loading && merged.length === 0 ? (
+        <div style={{ height: H, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--fg-muted)' }} />
+        </div>
+      ) : (
+        <>
+          <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: H, display: 'block' }}>
+            {/* Visits — gray, wide, behind */}
+            {merged.map((d, i) => {
+              const r = visitsBar(d.visits, i);
+              if (r.h < 0.5) return null;
+              return (
+                <rect key={`v${i}`} x={r.x} y={r.y} width={r.w} height={r.h} rx="2"
+                      fill="#D3D1C7" fillOpacity="0.5" />
+              );
+            })}
+            {/* Registrations — purple, narrow, middle */}
+            {merged.map((d, i) => {
+              const r = activityBar(d.registrations, i);
+              if (r.h < 0.5) return null;
+              return (
+                <rect key={`r${i}`} x={r.x} y={r.y} width={r.w} height={r.h} rx="2"
+                      fill="#7F77DD" fillOpacity="0.55" />
+              );
+            })}
+            {/* Orders — teal, even narrower, front */}
+            {merged.map((d, i) => {
+              const r = activityBar(d.orders, i);
+              const w = r.w * 0.6;
+              const x = r.x + (r.w - w) / 2;
+              if (r.h < 0.5) return null;
+              return (
+                <rect key={`o${i}`} x={x} y={r.y} width={w} height={r.h} rx="1.5"
+                      fill="#1D9E75" />
+              );
+            })}
+          </svg>
+
+          {/* Date axis: show first / mid / last */}
+          {merged.length > 0 && (
+            <div style={{
+              display: 'flex', justifyContent: 'space-between',
+              fontSize: 14, color: 'var(--fg-3)', marginTop: 4,
+            }}>
+              <span>{merged[0].date}</span>
+              <span>{merged[Math.floor(merged.length / 2)].date}</span>
+              <span>{merged[merged.length - 1].date}</span>
+            </div>
+          )}
+
+          {/* Legend */}
+          <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 14 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)' }}>
+              <span style={{ width: 14, height: 10, backgroundColor: '#D3D1C7', opacity: 0.5, borderRadius: 2, display: 'inline-block' }} />
+              Visits (Yandex Metrika)
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)' }}>
+              <span style={{ width: 10, height: 10, backgroundColor: '#7F77DD', opacity: 0.55, borderRadius: 2, display: 'inline-block' }} />
+              Registrations
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)' }}>
+              <span style={{ width: 8, height: 10, backgroundColor: '#1D9E75', borderRadius: 2, display: 'inline-block' }} />
+              Orders
+            </span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 function KpiTile({ label, value }: { label: string; value: string }) {
   return (

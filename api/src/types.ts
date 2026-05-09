@@ -19,6 +19,12 @@ export interface Env {
   FX: KVNamespace;        // daily FX rates snapshot
   CACHE: KVNamespace;     // generic ERP cache (hot lookups, sessions)
 
+  // Service Binding — emailer-bridge Worker (Phase 9.x — inbox cron)
+  // Required because Cloudflare blocks same-account Worker→Worker calls
+  // via public *.workers.dev URLs (error 1042: "loop"). Service bindings
+  // route in-process, no HTTP overhead.
+  EMAILER: Fetcher;
+
   // Secrets (Phase 5.x — LLM integration)
   // Set via Cloudflare Workers secrets, never committed to repo.
   DEEPSEEK_API_KEY: string;

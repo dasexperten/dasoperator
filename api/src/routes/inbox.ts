@@ -12,7 +12,7 @@ inbox.get('/_diag', async (c) => {
   const start = Date.now();
   const result: any = { steps: [] };
   try {
-    const r = await fetch('https://emailer-bridge.dasexperten.workers.dev/', {
+    const r = await c.env.EMAILER.fetch('https://emailer/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'find', query: 'has:attachment newer_than:1d invoice', max_results: 1 }),
@@ -25,6 +25,7 @@ inbox.get('/_diag', async (c) => {
   }
   result.total_ms = Date.now() - start;
   result.has_deepseek_key = !!c.env.DEEPSEEK_API_KEY;
+  result.has_emailer_binding = !!c.env.EMAILER;
   return ok(c, result);
 });
 

@@ -237,7 +237,10 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
 // -----------------------------------------------------------------------------
 
 async function callEmailer(env: Env, body: any): Promise<any> {
-  const r = await fetch(EMAILER_BRIDGE, {
+  // Use service binding — direct Worker-to-Worker call inside Cloudflare,
+  // no HTTP round-trip, no 1042 loop error. The path doesn't matter; the
+  // emailer-bridge Worker has a single root handler.
+  const r = await env.EMAILER.fetch('https://emailer/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

@@ -67,6 +67,16 @@ binding = "CACHE"
 id = "43f2004892714cbb919e5174ce2a8556"
 
 # -----------------------------------------------------------------------------
+# Service Binding — emailer-bridge Worker
+# Lets dasoperator-api call emailer-bridge directly (in-process, no HTTP loop).
+# Cloudflare blocks Worker→same-account-Worker via *.workers.dev (error 1042),
+# so the inbox cron must use this binding to reach emailer.
+# -----------------------------------------------------------------------------
+[[services]]
+binding = "EMAILER"
+service = "emailer-bridge"
+
+# -----------------------------------------------------------------------------
 # Cron triggers
 #
 # 0 12 * * *   — daily FX refresh from CBR at 12:00 UTC (15:00 Moscow time,

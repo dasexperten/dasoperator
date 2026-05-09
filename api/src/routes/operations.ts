@@ -6,6 +6,7 @@ import { issueNextSequence } from '../lib/sequence-format';
 import { sequenceIdForCompany } from '../lib/company-sequence';
 import { getRateToUsdNano, applyFxToAmount } from '../lib/fx-cbr';
 import { getRatesFor } from '../lib/fx-store';
+import type { FxSnapshot } from '../lib/fx-cbr';
 
 const operations = new Hono<{ Bindings: Env }>();
 
@@ -564,6 +565,9 @@ operations.get('/', async (c) => {
   const contractId = c.req.query('contract_id');
   const opType = c.req.query('operation_type');
   const status = c.req.query('status');
+  // By default cancelled operations are hidden from lists.
+  // Pass ?include_cancelled=1 OR ?status=cancelled to see them.
+  const includeCancelled = c.req.query('include_cancelled') === '1' || status === 'cancelled';
 
   let sql = `
     SELECT
@@ -595,7 +599,12 @@ operations.get('/', async (c) => {
   if (partnerId) { sql += ` AND o.partner_id = ?`; binds.push(partnerId); }
   if (contractId) { sql += ` AND o.contract_id = ?`; binds.push(contractId); }
   if (opType) { sql += ` AND o.operation_type = ?`; binds.push(opType); }
-  if (status) { sql += ` AND o.status = ?`; binds.push(status); }
+  if (status) {
+    sql += ` AND o.status = ?`;
+    binds.push(status);
+  } else if (!includeCancelled) {
+    sql += ` AND o.status != 'cancelled'`;
+  }
 
   sql += ` ORDER BY o.operation_date DESC, o.created_at DESC`;
 
@@ -975,41 +984,309 @@ operations.patch('/:id/status', async (c) => {
   }, [`Status: ${op.status} → ${targetStatus}`, `${movementSpecs.length} stock movement(s) written`]);
 });
 
-// PATCH /api/line-items/:id — update line item qty or unit_price
-operations.patch('/api/line-items/:id', async (c) => {
-  const id = c.req.param('id');
-  const body = await c.req.json<{ qty?: number; unit_price?: number }>();
+// =============================================================================
+// Line items editing (Phase 4.4 — Edit-after-Issue with doc cancellation)
+// =============================================================================
+//
+// Logic when editing line items on an already-issued operation:
+//   1. Mark all attached documents as status='cancelled' (visible but red in UI)
+//   2. Revert operation status back to 'draft'
+//   3. Apply the edit
+//   4. Recalculate operation totals
+//   5. Stock movements for shipped ops are reversed by the existing cancel
+//      flow — but we forbid edits past 'shipped' (revertable transitions only)
+//
+// Edits are blocked when operation status is 'delivered' or 'cancelled'.
+//
+// =============================================================================
 
-  if (!body.qty && body.unit_price === undefined) {
-    return fail(c, 400, [{ code: 'missing_fields', message: 'qty or unit_price required' }]);
+const EDITABLE_STATUSES = new Set(['draft', 'issued', 'order_fulfilment', 'production', 'stocked']);
+
+interface OpForEdit {
+  id: string;
+  status: string;
+  currency: string;
+  vat_rate: number | null;
+  operation_date: number;
+}
+
+async function loadOpForEdit(db: D1Database, opId: string): Promise<OpForEdit | null> {
+  return await db.prepare(
+    'SELECT id, status, currency, vat_rate, operation_date FROM operations WHERE id = ? AND deleted_at IS NULL'
+  ).bind(opId).first<OpForEdit>();
+}
+
+// Recalculate operation total_amount + total_usd_equiv from current line_items.
+// Applies operation-level vat_rate on top of summed line_amounts.
+async function recalculateOperationTotal(
+  db: D1Database,
+  opId: string,
+  currency: string,
+  vatRate: number,
+  operationDate: number,
+  fxRates: FxSnapshot | null
+): Promise<{ total: number; usd: number | null }> {
+  const lis = await db.prepare(
+    'SELECT line_amount FROM line_items WHERE operation_id = ?'
+  ).bind(opId).all<{ line_amount: number }>();
+
+  const subtotal = (lis.results || []).reduce((s, r) => s + Number(r.line_amount || 0), 0);
+  const total = subtotal * (1 + (vatRate || 0) / 100);
+
+  let usd: number | null = null;
+  if (fxRates) {
+    const rateNano = getRateToUsdNano(fxRates, currency);
+    if (rateNano !== null) {
+      usd = applyFxToAmount(total, rateNano, currency);
+    }
   }
 
   const now = Math.floor(Date.now() / 1000);
-  const updates: string[] = [];
-  const binds: (string | number)[] = [];
+  await db.prepare(
+    'UPDATE operations SET total_amount = ?, total_usd_equiv = ?, updated_at = ? WHERE id = ?'
+  ).bind(total, usd, now, opId).run();
 
-  if (body.qty !== undefined) {
-    updates.push('qty = ?');
-    binds.push(body.qty);
+  return { total, usd };
+}
+
+// Cancel all documents attached to operation and revert operation to draft.
+// Returns number of documents cancelled.
+async function cancelDocsAndRevertToDraft(
+  db: D1Database,
+  opId: string,
+  currentStatus: string
+): Promise<number> {
+  if (currentStatus === 'draft') return 0;
+  const now = Math.floor(Date.now() / 1000);
+
+  const result = await db.prepare(
+    "UPDATE documents SET status = 'cancelled', updated_at = ? WHERE operation_id = ? AND status != 'cancelled' AND deleted_at IS NULL"
+  ).bind(now, opId).run();
+
+  await db.prepare(
+    "UPDATE operations SET status = 'draft', updated_at = ? WHERE id = ?"
+  ).bind(now, opId).run();
+
+  return result.meta?.changes || 0;
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/operations/:id/line-items — add a new line item
+// ---------------------------------------------------------------------------
+const addLineItemSchema = z.object({
+  product_id: z.string().min(1),
+  qty: z.number().positive(),
+  unit_price: z.number().nonnegative(),
+  discount_pct: z.number().min(0).max(100).default(0),
+  cartons: z.number().int().nonnegative().default(0),
+  inner_boxes: z.number().int().nonnegative().default(0),
+  item_description: z.string().nullable().optional(),
+});
+
+operations.post('/:id/line-items', async (c) => {
+  const opId = c.req.param('id');
+
+  const op = await loadOpForEdit(c.env.DB, opId);
+  if (!op) return fail(c, 404, [{ code: 'not_found', message: 'Operation not found' }]);
+
+  if (!EDITABLE_STATUSES.has(op.status)) {
+    return fail(c, 409, [{
+      code: 'not_editable',
+      message: `Cannot edit line items: operation status is '${op.status}'. Edits are blocked once shipped, delivered, or cancelled.`,
+    }]);
   }
-  if (body.unit_price !== undefined) {
-    updates.push('unit_price = ?');
-    binds.push(body.unit_price);
-  }
 
-  updates.push('updated_at = ?');
-  binds.push(now);
-  binds.push(id);
-
-  const sql = `UPDATE line_items SET ${updates.join(', ')} WHERE id = ?`;
-
+  let parsed: z.infer<typeof addLineItemSchema>;
   try {
-    await c.env.DB.prepare(sql).bind(...binds).run();
-  } catch (err) {
-    return fail(c, 500, [{ code: 'update_failed', message: 'Failed to update line item', details: { error: String(err) } }]);
+    parsed = addLineItemSchema.parse(await c.req.json());
+  } catch (e) {
+    return fail(c, 400, [{ code: 'invalid_body', message: 'Invalid line item body', details: { error: String(e) } }]);
   }
 
-  return ok(c, { id, updated_at: now }, ['Line item updated']);
+  // Verify product exists
+  const product = await c.env.DB.prepare(
+    'SELECT id, invoice_label FROM products WHERE id = ? AND deleted_at IS NULL'
+  ).bind(parsed.product_id).first<{ id: string; invoice_label: string | null }>();
+  if (!product) {
+    return fail(c, 400, [{ code: 'product_not_found', message: `Product ${parsed.product_id} not found` }]);
+  }
+
+  // Cancel docs + revert to draft if currently past draft
+  const cancelledCount = await cancelDocsAndRevertToDraft(c.env.DB, opId, op.status);
+
+  // Insert line item
+  const now = Math.floor(Date.now() / 1000);
+  const liId = `li_${crypto.randomUUID()}`;
+  const unitAfterDisc = parsed.unit_price * (1 - parsed.discount_pct / 100);
+  const lineAmount = unitAfterDisc * parsed.qty;
+
+  await c.env.DB.prepare(`
+    INSERT INTO line_items (
+      id, operation_id, product_id, item_description,
+      qty, cartons, inner_boxes,
+      unit_price, discount_pct, unit_price_after_disc, line_amount,
+      currency, line_usd_equiv, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+  `).bind(
+    liId, opId, parsed.product_id, parsed.item_description ?? null,
+    parsed.qty, parsed.cartons, parsed.inner_boxes,
+    parsed.unit_price, parsed.discount_pct, unitAfterDisc, lineAmount,
+    op.currency, now, now
+  ).run();
+
+  // Recalculate
+  const opDateStrForFx = new Date(op.operation_date * 1000).toISOString().split('T')[0]!;
+  const fxRates = await getRatesFor(c.env.FX, opDateStrForFx).catch(() => null);
+  const totals = await recalculateOperationTotal(c.env.DB, opId, op.currency, op.vat_rate || 0, op.operation_date, fxRates);
+
+  const messages: string[] = ['Line item added'];
+  if (cancelledCount > 0) {
+    messages.push(`${cancelledCount} document(s) marked cancelled, operation reverted to draft`);
+  }
+
+  return ok(c, {
+    line_item_id: liId,
+    operation_total: totals.total,
+    operation_status: cancelledCount > 0 ? 'draft' : op.status,
+    documents_cancelled: cancelledCount,
+  }, messages);
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/operations/:id/line-items/:lineId — update qty/unit_price/discount_pct
+// ---------------------------------------------------------------------------
+const updateLineItemSchema = z.object({
+  qty: z.number().positive().optional(),
+  unit_price: z.number().nonnegative().optional(),
+  discount_pct: z.number().min(0).max(100).optional(),
+  cartons: z.number().int().nonnegative().optional(),
+  inner_boxes: z.number().int().nonnegative().optional(),
+  item_description: z.string().nullable().optional(),
+});
+
+operations.patch('/:id/line-items/:lineId', async (c) => {
+  const opId = c.req.param('id');
+  const lineId = c.req.param('lineId');
+
+  const op = await loadOpForEdit(c.env.DB, opId);
+  if (!op) return fail(c, 404, [{ code: 'not_found', message: 'Operation not found' }]);
+
+  if (!EDITABLE_STATUSES.has(op.status)) {
+    return fail(c, 409, [{
+      code: 'not_editable',
+      message: `Cannot edit line items: operation status is '${op.status}'. Edits are blocked once shipped, delivered, or cancelled.`,
+    }]);
+  }
+
+  const li = await c.env.DB.prepare(
+    'SELECT * FROM line_items WHERE id = ? AND operation_id = ?'
+  ).bind(lineId, opId).first<Record<string, unknown>>();
+  if (!li) return fail(c, 404, [{ code: 'line_item_not_found', message: 'Line item not found' }]);
+
+  let parsed: z.infer<typeof updateLineItemSchema>;
+  try {
+    parsed = updateLineItemSchema.parse(await c.req.json());
+  } catch (e) {
+    return fail(c, 400, [{ code: 'invalid_body', message: 'Invalid body', details: { error: String(e) } }]);
+  }
+
+  const newQty = parsed.qty ?? Number(li.qty);
+  const newUnitPrice = parsed.unit_price ?? Number(li.unit_price);
+  const newDiscPct = parsed.discount_pct ?? Number(li.discount_pct);
+  const newCartons = parsed.cartons ?? Number(li.cartons);
+  const newInnerBoxes = parsed.inner_boxes ?? Number(li.inner_boxes);
+  const newDesc = parsed.item_description !== undefined ? parsed.item_description : (li.item_description as string | null);
+
+  const newUnitAfterDisc = newUnitPrice * (1 - newDiscPct / 100);
+  const newLineAmount = newUnitAfterDisc * newQty;
+
+  // Cancel docs + revert to draft
+  const cancelledCount = await cancelDocsAndRevertToDraft(c.env.DB, opId, op.status);
+
+  const now = Math.floor(Date.now() / 1000);
+  await c.env.DB.prepare(`
+    UPDATE line_items
+    SET qty = ?, unit_price = ?, discount_pct = ?,
+        unit_price_after_disc = ?, line_amount = ?,
+        cartons = ?, inner_boxes = ?, item_description = ?,
+        updated_at = ?
+    WHERE id = ?
+  `).bind(
+    newQty, newUnitPrice, newDiscPct, newUnitAfterDisc, newLineAmount,
+    newCartons, newInnerBoxes, newDesc, now, lineId
+  ).run();
+
+  const opDateStrForFx = new Date(op.operation_date * 1000).toISOString().split('T')[0]!;
+  const fxRates = await getRatesFor(c.env.FX, opDateStrForFx).catch(() => null);
+  const totals = await recalculateOperationTotal(c.env.DB, opId, op.currency, op.vat_rate || 0, op.operation_date, fxRates);
+
+  const messages: string[] = ['Line item updated'];
+  if (cancelledCount > 0) {
+    messages.push(`${cancelledCount} document(s) marked cancelled, operation reverted to draft`);
+  }
+
+  return ok(c, {
+    line_item_id: lineId,
+    line_amount: newLineAmount,
+    operation_total: totals.total,
+    operation_status: cancelledCount > 0 ? 'draft' : op.status,
+    documents_cancelled: cancelledCount,
+  }, messages);
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/operations/:id/line-items/:lineId — remove a line item
+// ---------------------------------------------------------------------------
+operations.delete('/:id/line-items/:lineId', async (c) => {
+  const opId = c.req.param('id');
+  const lineId = c.req.param('lineId');
+
+  const op = await loadOpForEdit(c.env.DB, opId);
+  if (!op) return fail(c, 404, [{ code: 'not_found', message: 'Operation not found' }]);
+
+  if (!EDITABLE_STATUSES.has(op.status)) {
+    return fail(c, 409, [{
+      code: 'not_editable',
+      message: `Cannot edit line items: operation status is '${op.status}'. Edits are blocked once shipped, delivered, or cancelled.`,
+    }]);
+  }
+
+  const li = await c.env.DB.prepare(
+    'SELECT id FROM line_items WHERE id = ? AND operation_id = ?'
+  ).bind(lineId, opId).first<{ id: string }>();
+  if (!li) return fail(c, 404, [{ code: 'line_item_not_found', message: 'Line item not found' }]);
+
+  // Block deleting the last line item — operations require at least one
+  const cnt = await c.env.DB.prepare(
+    'SELECT COUNT(*) as n FROM line_items WHERE operation_id = ?'
+  ).bind(opId).first<{ n: number }>();
+  if (cnt && cnt.n <= 1) {
+    return fail(c, 409, [{
+      code: 'last_line_item',
+      message: 'Cannot delete the only line item. Delete the entire operation instead, or add a replacement line first.',
+    }]);
+  }
+
+  const cancelledCount = await cancelDocsAndRevertToDraft(c.env.DB, opId, op.status);
+
+  await c.env.DB.prepare('DELETE FROM line_items WHERE id = ?').bind(lineId).run();
+
+  const opDateStrForFx = new Date(op.operation_date * 1000).toISOString().split('T')[0]!;
+  const fxRates = await getRatesFor(c.env.FX, opDateStrForFx).catch(() => null);
+  const totals = await recalculateOperationTotal(c.env.DB, opId, op.currency, op.vat_rate || 0, op.operation_date, fxRates);
+
+  const messages: string[] = ['Line item deleted'];
+  if (cancelledCount > 0) {
+    messages.push(`${cancelledCount} document(s) marked cancelled, operation reverted to draft`);
+  }
+
+  return ok(c, {
+    line_item_id: lineId,
+    deleted: true,
+    operation_total: totals.total,
+    operation_status: cancelledCount > 0 ? 'draft' : op.status,
+    documents_cancelled: cancelledCount,
+  }, messages);
 });
 
 // =============================================================================

@@ -2,18 +2,18 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus, AlertTriangle, Loader2, FileText, Sparkles, Download } from 'lucide-react';
+import { Plus, AlertTriangle, Loader2, FileText, Sparkles } from 'lucide-react';
 import {
   getPartner, getPartnerContracts, getOperations, getPayments, getPartnerNetBalance,
-  getPartnerAgreements, generatePartnerNda, agreementDownloadUrl,
+  generatePartnerNda, agreementDownloadUrl,
   getContractFileUrl,
   type Partner, type Contract, type Operation, type Payment, type PartnerNetBalance,
-  type PartnerAgreement,
 } from '@/lib/api';
 import { CopyableValue, SectionCard } from '@/components/ui/copyable';
 import { ContractRef, isPlaceholderContractNo } from '@/components/ui/contract-ref';
 import NetBalance from '@/components/ui/net-balance';
 import Breadcrumb from '@/components/layout/breadcrumb';
+import { agreementTypeLabel } from '@/lib/agreement-types';
 
 const STATUS_COLORS: Record<Partner['status'], { bg: string; fg: string; border: string }> = {
   active:   { bg: 'rgba(46,125,79,0.08)',  fg: 'var(--status-success)', border: 'rgba(46,125,79,0.3)' },
@@ -91,7 +91,6 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
   const [operations, setOperations] = useState<Operation[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [netBalance, setNetBalance] = useState<PartnerNetBalance | null>(null);
-  const [agreements, setAgreements] = useState<PartnerAgreement[]>([]);
   const [generatingNda, setGeneratingNda] = useState(false);
   const [ndaError, setNdaError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -100,13 +99,12 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [partnerRes, contractsRes, opsRes, paysRes, balRes, agrRes] = await Promise.all([
+        const [partnerRes, contractsRes, opsRes, paysRes, balRes] = await Promise.all([
           getPartner(slug),
           getPartnerContracts(slug),
           getOperations({ partner_id: slug }),
           getPayments({ partner_id: slug }),
           getPartnerNetBalance(slug),
-          getPartnerAgreements(slug),
         ]);
 
         if (partnerRes.success && partnerRes.result) {
@@ -131,10 +129,6 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
         if (balRes.success && balRes.result) {
           setNetBalance(balRes.result);
         }
-
-        if (agrRes.success && agrRes.result) {
-          setAgreements(agrRes.result.agreements);
-        }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
       } finally {
@@ -144,19 +138,19 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
     fetchAll();
   }, [slug]);
 
-  // Trigger NDA generation via DeepSeek PRO. On success, refresh agreements list
-  // (and partner — promotion lead → potential happens server-side on FIRST signed
-  // agreement; for 'draft' generated NDA the promotion does NOT trigger yet).
+  // Trigger NDA generation via DeepSeek PRO. On success, refresh contracts list
+  // (NDA now lives in `contracts` table — see Phase 8.x agreements unification).
+  // For 'draft' generated NDA the promotion does NOT trigger yet — only on signed.
   async function handleGenerateNda() {
     setNdaError(null);
     setGeneratingNda(true);
     try {
       const res = await generatePartnerNda(slug);
       if (res.success && res.result) {
-        // Refresh agreements list
-        const refreshed = await getPartnerAgreements(slug);
+        // Refresh contracts (NDA appears here now, since agreements live in contracts)
+        const refreshed = await getPartnerContracts(slug);
         if (refreshed.success && refreshed.result) {
-          setAgreements(refreshed.result.agreements);
+          setContracts(refreshed.result.contracts);
         }
         // Open download in new tab
         window.open(res.result.download_url.startsWith('http')
@@ -292,7 +286,9 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
         />
       )}
 
-      {/* AGREEMENTS SECTION (Phase 5.x — NDA / MOU / LOI / Contract docs) */}
+      {/* AGREEMENTS SECTION (Phase 8.x — unified contracts table)
+          Holds business contracts (Main / Addendum / Annex / SLA) AND legal docs
+          (NDA / MoU / LoI / Other) in a single source of truth. */}
       <div className="bg-card p-5" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -307,35 +303,52 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
               Agreements
             </h2>
             <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
-              {agreements.length} on file
+              {contracts.length} on file
             </span>
           </div>
-          <button
-            onClick={handleGenerateNda}
-            disabled={generatingNda}
-            className="inline-flex items-center gap-2 px-4 py-2"
-            style={{
-              backgroundColor: generatingNda ? 'var(--paper-sunk)' : 'var(--brand-rot)',
-              color: generatingNda ? 'var(--fg-3)' : 'var(--paper)',
-              borderRadius: 'var(--radius-sm)',
-              fontSize: '14px',
-              fontWeight: 600,
-              cursor: generatingNda ? 'not-allowed' : 'pointer',
-              border: 'none',
-            }}
-          >
-            {generatingNda ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Generating NDA via DeepSeek...
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-4 w-4" />
-                Generate NDA ({partner.partner_language ?? 'EN'})
-              </>
-            )}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleGenerateNda}
+              disabled={generatingNda}
+              className="inline-flex items-center gap-2 px-4 py-2"
+              style={{
+                backgroundColor: generatingNda ? 'var(--paper-sunk)' : 'var(--brand-rot)',
+                color: generatingNda ? 'var(--fg-3)' : 'var(--paper)',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '14px',
+                fontWeight: 600,
+                cursor: generatingNda ? 'not-allowed' : 'pointer',
+                border: 'none',
+              }}
+            >
+              {generatingNda ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Generating NDA via DeepSeek...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  Generate NDA ({partner.partner_language ?? 'EN'})
+                </>
+              )}
+            </button>
+            <Link
+              href={`/partners/${slug}/contracts/new`}
+              className="inline-flex items-center gap-2 px-4 py-2"
+              style={{
+                backgroundColor: 'var(--paper)',
+                color: 'var(--fg-1)',
+                border: '1px solid var(--border-hairline)',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '14px',
+                fontWeight: 600,
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              Add new
+            </Link>
+          </div>
         </div>
 
         {ndaError && (
@@ -350,67 +363,12 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
           </div>
         )}
 
-        {agreements.length === 0 ? (
-          <p style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
-            No agreements yet. Click <strong>Generate NDA</strong> above to draft a Mutual NDA via DeepSeek.
-            A signed agreement will promote this partner from <strong>Lead</strong> to <strong>Potential</strong>.
-          </p>
-        ) : (
-          <table className="w-full" style={{ fontSize: '14px' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                <Th>Type</Th><Th>Title</Th><Th>Signed</Th><Th>Status</Th><Th>{' '}</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {agreements.map((agr) => (
-                <tr key={agr.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                  <td className="px-4 py-3" style={{ fontWeight: 700, textTransform: 'uppercase' }}>
-                    {agr.agreement_type}
-                  </td>
-                  <td className="px-4 py-3" style={{ color: 'var(--fg-1)' }}>{agr.title ?? '—'}</td>
-                  <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>{formatDate(agr.signed_date)}</td>
-                  <td className="px-4 py-3">
-                    <span className="inline-block" style={{
-                      padding: '3px 8px',
-                      borderRadius: 'var(--radius-pill)',
-                      fontSize: '14px',
-                      backgroundColor: agr.status === 'signed' ? 'rgba(46,125,79,0.08)' : 'var(--paper-sunk)',
-                      color: agr.status === 'signed' ? 'var(--status-success)' : 'var(--fg-3)',
-                      border: `1px solid ${agr.status === 'signed' ? 'rgba(46,125,79,0.3)' : 'var(--border-hairline)'}`,
-                    }}>
-                      {agr.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {agr.file_r2_key && (
-                      <a
-                        href={agreementDownloadUrl(slug, agr.id)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1"
-                        style={{ color: 'var(--brand-rot)', fontSize: '14px' }}
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        Download
-                      </a>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* CONTRACTS SECTION */}
-      <SectionListBlock
-        label="Contracts"
-        count={contracts.length}
-        addNewHref={`/partners/${slug}/contracts/new`}
-      >
         {contracts.length === 0 ? (
-          <EmptyTable message="No contracts yet" />
+          <p style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
+            No agreements yet. Click <strong>Generate NDA</strong> to draft a Mutual NDA via DeepSeek,
+            or <strong>Add new</strong> to record an existing contract or addendum.
+            A signed agreement promotes this partner from <strong>Lead</strong> to <strong>Potential</strong>.
+          </p>
         ) : (
           <table className="w-full">
             <thead>
@@ -455,14 +413,12 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
                       </span>
                     </td>
                     <td className="px-4 py-3" style={{ fontSize: '14px' }}>
-                      {c.agreement_type === 'main' || !c.agreement_type ? (
-                        <span style={{ color: 'var(--fg-2)', fontWeight: 600 }}>Main</span>
-                      ) : c.agreement_type === 'addendum' ? (
+                      {c.agreement_type === 'addendum' ? (
                         <span style={{ color: 'var(--fg-3)', fontWeight: 600 }}>Addendum {c.addendum_no ? `№${c.addendum_no}` : ''}</span>
-                      ) : c.agreement_type === 'annex' ? (
-                        <span style={{ color: 'var(--fg-3)', fontWeight: 600 }}>Annex</span>
                       ) : (
-                        <span style={{ color: 'var(--fg-3)', fontWeight: 600 }}>{c.agreement_type.toUpperCase()}</span>
+                        <span style={{ color: c.agreement_type === 'main' || !c.agreement_type ? 'var(--fg-2)' : 'var(--fg-3)', fontWeight: 600 }}>
+                          {agreementTypeLabel(c.agreement_type)}
+                        </span>
                       )}
                     </td>
                     <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>{c.entity_abbreviation ?? '—'}</td>
@@ -504,7 +460,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
             </tbody>
           </table>
         )}
-      </SectionListBlock>
+      </div>
 
       {/* OPERATIONS SECTION */}
       <SectionListBlock

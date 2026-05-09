@@ -396,4 +396,78 @@ crm.get('/timeline', async (c) => {
   }
 });
 
+// =============================================================================
+// GET /api/crm/funnel — conversion stages for the funnel widget
+// =============================================================================
+// Walks customers (paginated 100/page, up to ~1000 customers) to count:
+//   • registered_total — all customers
+//   • loyalty_members  — separate /loyalty/accounts call
+//   • bought_at_least_once — customers with ordersCount >= 1
+//   • repeat_buyers    — customers with ordersCount >= 2
+crm.get('/funnel', async (c) => {
+  const domain = c.env.RETAIL_CRM_DOMAIN;
+  const token = c.env.RETAIL_CRM_TOKEN;
+  if (!domain || !token) {
+    return fail(c, 503, [{ code: 'crm_not_configured', message: 'Retail CRM not configured.' }]);
+  }
+
+  try {
+    let registeredTotal = 0;
+    let bought = 0;
+    let repeat = 0;
+
+    // Walk customers — up to 12 pages (1200 customers ceiling, well above current 928)
+    let page = 1;
+    let totalPages = 1;
+    while (page <= 12) {
+      const resp = await retailGet<{
+        pagination?: { totalCount?: number; totalPageCount?: number };
+        customers?: Array<{ ordersCount?: number }>;
+      }>(domain, token, '/customers', { 'page': page, 'limit': 100 });
+
+      if (page === 1) {
+        registeredTotal = resp.pagination?.totalCount ?? 0;
+        totalPages = resp.pagination?.totalPageCount ?? 1;
+      }
+
+      for (const cu of resp.customers ?? []) {
+        const oc = cu.ordersCount ?? 0;
+        if (oc >= 1) bought += 1;
+        if (oc >= 2) repeat += 1;
+      }
+
+      if (page >= totalPages) break;
+      page += 1;
+    }
+
+    // Loyalty count
+    const loyaltyResp = await retailGet<{
+      pagination?: { totalCount?: number };
+    }>(domain, token, '/loyalty/accounts', { 'page': 1, 'limit': 20 });
+    const loyaltyMembers = loyaltyResp.pagination?.totalCount ?? 0;
+
+    return ok(c, {
+      source: `${domain}.retailcrm.ru`,
+      stages: {
+        registered: registeredTotal,
+        loyalty_members: loyaltyMembers,
+        bought_at_least_once: bought,
+        repeat_buyers: repeat,
+      },
+      // Convenience derivatives
+      conversion_to_buyer_pct: registeredTotal > 0
+        ? Math.round((bought / registeredTotal) * 1000) / 10
+        : 0,
+      repeat_rate_pct: bought > 0
+        ? Math.round((repeat / bought) * 1000) / 10
+        : 0,
+      welcome_burnt_estimate: Math.max(0, loyaltyMembers - bought),
+      synced_at: Math.floor(Date.now() / 1000),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return fail(c, 502, [{ code: 'crm_upstream_error', message: msg }]);
+  }
+});
+
 export default crm;

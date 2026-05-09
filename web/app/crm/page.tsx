@@ -38,6 +38,20 @@ interface CrmTimeline {
   synced_at: number;
 }
 
+interface CrmFunnel {
+  source: string;
+  stages: {
+    registered: number;
+    loyalty_members: number;
+    bought_at_least_once: number;
+    repeat_buyers: number;
+  };
+  conversion_to_buyer_pct: number;
+  repeat_rate_pct: number;
+  welcome_burnt_estimate: number;
+  synced_at: number;
+}
+
 interface CrmOrder {
   id: number;
   number: string;
@@ -87,6 +101,9 @@ export default function CrmPage() {
 
   const [timeline, setTimeline] = useState<CrmTimeline | null>(null);
   const [timelineLoading, setTimelineLoading] = useState(true);
+
+  const [funnel, setFunnel] = useState<CrmFunnel | null>(null);
+  const [funnelLoading, setFunnelLoading] = useState(true);
 
   const [tab, setTab] = useState<TabId>('orders');
 
@@ -152,6 +169,19 @@ export default function CrmPage() {
     }
   }, []);
 
+  const loadFunnel = useCallback(async () => {
+    setFunnelLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/crm/funnel`);
+      const data = await res.json();
+      if (data.success && data.result) setFunnel(data.result);
+    } catch (e) {
+      // Silent
+    } finally {
+      setFunnelLoading(false);
+    }
+  }, []);
+
   const loadOrders = useCallback(async () => {
     setOrdersLoading(true);
     setOrdersError(null);
@@ -203,6 +233,7 @@ export default function CrmPage() {
   useEffect(() => { loadStats(); }, [loadStats]);
   useEffect(() => { loadMetrika(); }, [loadMetrika]);
   useEffect(() => { loadTimeline(); }, [loadTimeline]);
+  useEffect(() => { loadFunnel(); }, [loadFunnel]);
   useEffect(() => { if (tab === 'orders') loadOrders(); }, [tab, loadOrders]);
   useEffect(() => { if (tab === 'customers') loadCustomers(); }, [tab, loadCustomers]);
 
@@ -221,11 +252,12 @@ export default function CrmPage() {
     loadStats();
     loadMetrika();
     loadTimeline();
+    loadFunnel();
     if (tab === 'orders') loadOrders();
     else loadCustomers();
   }
 
-  const isLoading = statsLoading || metrikaLoading || timelineLoading || ordersLoading || customersLoading;
+  const isLoading = statsLoading || metrikaLoading || timelineLoading || funnelLoading || ordersLoading || customersLoading;
 
   return (
     <div className="space-y-6 max-w-full">
@@ -275,6 +307,9 @@ export default function CrmPage() {
           />
         </div>
       )}
+
+      {/* Loyalty conversion funnel */}
+      <LoyaltyFunnel funnel={funnel} loading={funnelLoading} />
 
       {/* Daily activity — visits behind, registrations middle, orders front */}
       <DailyActivityChart
@@ -356,6 +391,136 @@ export default function CrmPage() {
 // ============================================================================
 // Components
 // ============================================================================
+
+function LoyaltyFunnel({
+  funnel,
+  loading,
+}: {
+  funnel: CrmFunnel | null;
+  loading: boolean;
+}) {
+  if (loading && !funnel) {
+    return (
+      <div style={{
+        backgroundColor: 'var(--paper)',
+        border: '1px solid var(--border-hairline)',
+        borderRadius: 'var(--radius-sm)',
+        padding: '20px 24px',
+        height: 200,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}>
+        <Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--fg-muted)' }} />
+      </div>
+    );
+  }
+
+  if (!funnel) return null;
+
+  const { stages } = funnel;
+
+  // Normalize bar widths to the largest stage (registered)
+  const maxValue = Math.max(1, stages.registered);
+
+  const stagesData = [
+    {
+      key: 'registered',
+      label: 'Registered',
+      sublabel: 'Total customer accounts',
+      value: stages.registered,
+      color: '#CECBF6',
+      textColor: '#26215C',
+      pct: 100,
+    },
+    {
+      key: 'loyalty',
+      label: 'Loyalty members',
+      sublabel: 'Joined loyalty program',
+      value: stages.loyalty_members,
+      color: '#A8A0EE',
+      textColor: '#26215C',
+      pct: stages.registered > 0 ? Math.round((stages.loyalty_members / stages.registered) * 100) : 0,
+    },
+    {
+      key: 'bought',
+      label: 'Bought once',
+      sublabel: 'Made at least 1 order',
+      value: stages.bought_at_least_once,
+      color: '#9FE1CB',
+      textColor: '#04342C',
+      pct: stages.registered > 0 ? Math.round((stages.bought_at_least_once / stages.registered) * 100) : 0,
+    },
+    {
+      key: 'repeat',
+      label: 'Repeat buyers',
+      sublabel: 'Made 2+ orders',
+      value: stages.repeat_buyers,
+      color: '#5DCAA5',
+      textColor: '#04342C',
+      pct: stages.registered > 0 ? Math.round((stages.repeat_buyers / stages.registered) * 100) : 0,
+    },
+  ];
+
+  return (
+    <div style={{
+      backgroundColor: 'var(--paper)',
+      border: '1px solid var(--border-hairline)',
+      borderRadius: 'var(--radius-sm)',
+      padding: '20px 24px',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--fg-1)' }}>Loyalty conversion funnel</div>
+          <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>Where customers move from sign-up to repeat purchase</div>
+        </div>
+        <div style={{ display: 'flex', gap: 16, fontSize: 14 }}>
+          <span style={{ color: 'var(--fg-3)' }}>
+            Conversion <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{funnel.conversion_to_buyer_pct}%</span>
+          </span>
+          <span style={{ color: 'var(--fg-3)' }}>
+            Welcome burnt <span style={{ fontWeight: 700, color: '#993C1D' }}>~{funnel.welcome_burnt_estimate.toLocaleString('ru-RU')}</span>
+          </span>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {stagesData.map((stage) => {
+          const widthPct = (stage.value / maxValue) * 100;
+          return (
+            <div key={stage.key} style={{ display: 'flex', alignItems: 'stretch', gap: 12 }}>
+              <div style={{ minWidth: 160, paddingTop: 6 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg-1)' }}>{stage.label}</div>
+                <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>{stage.sublabel}</div>
+              </div>
+              <div style={{ flex: 1, position: 'relative' }}>
+                <div style={{
+                  width: `${Math.max(widthPct, 4)}%`,
+                  minWidth: 100,
+                  backgroundColor: stage.color,
+                  padding: '12px 16px',
+                  borderRadius: 'var(--radius-sm)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  transition: 'width 300ms ease',
+                }}>
+                  <span style={{ fontSize: 18, fontWeight: 700, color: stage.textColor }}>
+                    {stage.value.toLocaleString('ru-RU')}
+                  </span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: stage.textColor, opacity: 0.7 }}>
+                    {stage.pct}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function DailyActivityChart({
   crmTimeline,

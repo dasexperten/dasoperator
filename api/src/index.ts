@@ -29,6 +29,7 @@ import marketplacesRoutes from './routes/marketplaces';
 import marketplacesExtrasRoutes from './routes/marketplaces-extras';
 import bundlingRoutes from './routes/bundling';
 import banksModulbankRoutes from './routes/banks-modulbank';
+import crmRoutes from './routes/crm';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
 
@@ -79,6 +80,7 @@ app.route('/api/marketplaces', marketplacesRoutes);
 app.route('/api/marketplaces', marketplacesExtrasRoutes);
 app.route('/api/bundling', bundlingRoutes);
 app.route('/api/banks/modulbank', banksModulbankRoutes);
+app.route('/api/crm', crmRoutes);
 
 export default {
   fetch: app.fetch,

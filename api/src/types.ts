@@ -40,6 +40,11 @@ export interface Env {
   // One token per company; token's first 10 chars also seed webhook signature
   // verification (stored in company_bank_accounts.webhook_signature_prefix).
   MODULBANK_TOKEN_DEE?: string;
+
+  // Retail CRM REST API v5 (https://{shop}.retailcrm.ru/api/v5)
+  // shop-domain stored as env, token as secret. Both required for /api/crm/* endpoints.
+  RETAIL_CRM_DOMAIN?: string;
+  RETAIL_CRM_TOKEN?: string;
 }
 
 // =============================================================================

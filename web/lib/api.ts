@@ -973,14 +973,12 @@ export async function getOperations(filters?: {
   contract_id?: string;
   operation_type?: string;
   status?: string;
-  include_cancelled?: boolean;
 }) {
   const params = new URLSearchParams();
   if (filters?.partner_id) params.set('partner_id', filters.partner_id);
   if (filters?.contract_id) params.set('contract_id', filters.contract_id);
   if (filters?.operation_type) params.set('operation_type', filters.operation_type);
   if (filters?.status) params.set('status', filters.status);
-  if (filters?.include_cancelled) params.set('include_cancelled', '1');
   const qs = params.toString() ? `?${params.toString()}` : '';
   return apiGet<OperationsListResponse>(`/api/operations${qs}`);
 }
@@ -1026,69 +1024,6 @@ export async function createOperation(body: CreateOperationBody) {
     body
   );
 }
-// =============================================================================
-// Line items CRUD (Phase 4.5 — Edit-after-issue)
-//
-// Calling these on an issued/order_fulfilment/production/stocked operation
-// will atomically:
-//   1. Mark all attached documents as cancelled (visible red in UI)
-//   2. Revert operation status back to 'draft'
-//   3. Apply the edit + recalculate totals
-// Frontend MUST refetch the operation after these calls.
-// =============================================================================
-
-export interface AddLineItemBody {
-  product_id: string;
-  qty: number;
-  unit_price: number;
-  discount_pct?: number;
-  cartons?: number;
-  inner_boxes?: number;
-  item_description?: string | null;
-}
-
-export interface UpdateLineItemBody {
-  qty?: number;
-  unit_price?: number;
-  discount_pct?: number;
-  cartons?: number;
-  inner_boxes?: number;
-  item_description?: string | null;
-}
-
-export interface LineItemMutationResult {
-  line_item_id: string;
-  line_amount?: number;
-  deleted?: boolean;
-  operation_total: number;
-  operation_status: string;
-  documents_cancelled: number;
-}
-
-export async function addLineItem(operationId: string, body: AddLineItemBody) {
-  return apiPost<LineItemMutationResult>(
-    `/api/operations/${operationId}/line-items`,
-    body
-  );
-}
-
-export async function updateLineItem(
-  operationId: string,
-  lineId: string,
-  body: UpdateLineItemBody
-) {
-  return apiPatch<LineItemMutationResult>(
-    `/api/operations/${operationId}/line-items/${lineId}`,
-    body
-  );
-}
-
-export async function deleteLineItem(operationId: string, lineId: string) {
-  return apiDelete<LineItemMutationResult>(
-    `/api/operations/${operationId}/line-items/${lineId}`
-  );
-}
-
 
 export interface UpdateStatusResponse {
   id: string;
@@ -1113,6 +1048,44 @@ export interface DeleteOperationResponse {
 export async function deleteOperation(id: string) {
   return apiDelete<DeleteOperationResponse>(`/api/operations/${id}`);
 }
+// =============================================================================
+// Line items — edit composition of an existing operation
+// =============================================================================
+
+export async function updateLineItem(
+  id: string,
+  body: { qty?: number; unit_price?: number }
+) {
+  return apiPatch<{ id: string; operation_id: string; docs_cancelled: boolean; updated_at: number }>(
+    `/api/operations/api/line-items/${id}`,
+    body
+  );
+}
+
+export async function addLineItem(
+  operationId: string,
+  body: {
+    product_id: string;
+    qty: number;
+    unit_price: number;
+    discount_pct?: number;
+    cartons?: number;
+    inner_boxes?: number;
+    item_description?: string | null;
+  }
+) {
+  return apiPost<{ id: string; operation_id: string; docs_cancelled: boolean }>(
+    `/api/operations/${operationId}/line-items`,
+    body
+  );
+}
+
+export async function deleteLineItem(id: string) {
+  return apiDelete<{ id: string; operation_id: string; docs_cancelled: boolean }>(
+    `/api/operations/api/line-items/${id}`
+  );
+}
+
 
 
 // =============================================================================

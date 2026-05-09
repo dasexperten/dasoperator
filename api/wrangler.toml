@@ -1,0 +1,91 @@
+# =============================================================================
+# Das Operator ERP — Workers API configuration
+# =============================================================================
+
+name = "dasoperator-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+account_id = "081ddb85cb399ad62a70210328d744fc"
+
+# -----------------------------------------------------------------------------
+# D1 Database — operational source of truth
+# Phase 1.1: 16 tables created
+# Phase 1.2: 59 reference rows seeded
+# -----------------------------------------------------------------------------
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+# -----------------------------------------------------------------------------
+# R2 Bucket — document storage
+# Stores: PDF (CI/PL/contracts), product photos, packing photos, certificates
+# Phase 1.3: bucket created in EEUR region
+# Folder structure inside bucket: /invoices, /packing-lists, /contracts, /photos
+# -----------------------------------------------------------------------------
+[[r2_buckets]]
+binding = "DOCS"
+bucket_name = "das-erp-docs-dev"
+
+# -----------------------------------------------------------------------------
+# R2 Bucket — Pricer skill price lists (.md files)
+# Stores: PL-DASEX-USD, PL-DISTR_RF, PL-INT_USD, PL-PRCH_CNY, PL-PRCH_USD, PL-RSP_RF
+# Pricer skill = source of truth. Edit .md → re-upload via sync script.
+# -----------------------------------------------------------------------------
+[[r2_buckets]]
+binding = "PRICELISTS"
+bucket_name = "das-pricelists"
+
+# -----------------------------------------------------------------------------
+# KV Namespace — sequences cache
+# Stores: next_number for DEE/DEI/DEASEAN/DEC/CI/PL counters
+# Pattern: KV first, D1 second (write-through cache)
+# -----------------------------------------------------------------------------
+[[kv_namespaces]]
+binding = "COUNTERS"
+id = "c63b6104eb1b43009f2ae65f51333d36"
+
+# -----------------------------------------------------------------------------
+# KV Namespace — daily FX rates
+# Stores: USD/RUB, USD/CNY, USD/EUR, etc. with date as key
+# TTL: 24 hours (refreshed by daily cron)
+# -----------------------------------------------------------------------------
+[[kv_namespaces]]
+binding = "FX"
+id = "47ac2dde6cd041c09597272e422a6c32"
+
+# -----------------------------------------------------------------------------
+# KV Namespace — generic ERP cache
+# Stores: hot lookups (product invoice labels, partner banking refs),
+#         session data when Cloudflare Access integrated
+# TTL: variable per key
+# -----------------------------------------------------------------------------
+[[kv_namespaces]]
+binding = "CACHE"
+id = "43f2004892714cbb919e5174ce2a8556"
+
+# -----------------------------------------------------------------------------
+# Cron triggers
+#
+# 0 12 * * *   — daily FX refresh from CBR at 12:00 UTC (15:00 Moscow time,
+#                after CBR daily publication at 11:30 Moscow). Phase 2.0c-2b.
+# 0 * * * *    — hourly marketplace stock refresh from Ozon and Wildberries.
+#                Phase 6.0b. WB is heavily rate-limited (~1 req/min), so we
+#                synchronize Ozon first, then WB after a short delay.
+#
+# Handler: src/scheduled.ts handleScheduled — dispatches by event.cron string.
+# -----------------------------------------------------------------------------
+[triggers]
+crons = ["0 12 * * *", "0 * * * *", "5 */6 * * *", "*/2 * * * *"]
+
+
+# -----------------------------------------------------------------------------
+# Plain env vars (visible in source — not secrets)
+# Used by /api/crm/* routes (Retail CRM REST v5).
+# Token is RETAIL_CRM_TOKEN, set as Worker secret separately.
+# -----------------------------------------------------------------------------
+[vars]
+RETAIL_CRM_DOMAIN = "dasexperten"
+YANDEX_METRIKA_COUNTER = "107720199"

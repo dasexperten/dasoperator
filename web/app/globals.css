@@ -1,0 +1,267 @@
+/* =============================================================================
+   Das Operator — Global Styles
+   =============================================================================
+   Imports Das Experten Design System tokens (colors, typography, spacing,
+   shadows). All component styling derives from CSS variables defined in
+   das-design-tokens.css.
+   ============================================================================= */
+
+@import '../styles/das-design-tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Apothecary base canvas — warm paper, not stark white */
+  body {
+    background-color: var(--bg-canvas);
+    color: var(--fg-1);
+    font-family: var(--font-body);
+    font-size: var(--fs-body);
+    line-height: var(--lh-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Headings use display font with tight tracking — apothecary editorial */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    letter-spacing: 0;
+    line-height: var(--lh-heading);
+  }
+
+  h1 { font-size: var(--fs-h1); }
+  h2 { font-size: var(--fs-h2); }
+  h3 { font-size: var(--fs-h3); }
+  h4 { font-size: var(--fs-h4); }
+  h5 { font-size: var(--fs-h5); }
+  h6 { font-size: var(--fs-h6); }
+
+  /* Mono for codes, references, IDs */
+  code, pre, kbd {
+    font-family: var(--font-mono);
+  }
+}
+
+/* ===========================================================================
+   Das Experten utility classes — used in JSX as className="dx-eyebrow", etc.
+   These are domain-specific brand patterns from the design system.
+   =========================================================================== */
+
+@layer components {
+  /* Eyebrow label — was tiny uppercase mono, now Manrope 14px regular per font rules */
+  .dx-eyebrow {
+    font-family: var(--font-sans);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0;
+    color: var(--fg-2);
+  }
+
+  .dx-eyebrow-rot {
+    color: var(--brand-rot);
+  }
+
+  /* Display heading — used for hero text in sidebar/headers */
+  .dx-display {
+    font-family: var(--font-display);
+    font-size: var(--fs-display-md);
+    font-weight: 900;
+    letter-spacing: 0;
+    line-height: var(--lh-tight);
+  }
+
+  /* Lede paragraph */
+  .dx-lede {
+    font-size: var(--fs-body-lg);
+    line-height: var(--lh-body);
+    color: var(--fg-1);
+  }
+
+  /* Mono numerals — was JetBrains Mono, now Manrope with tabular numerals per font rules */
+  .dx-mono {
+    font-family: var(--font-sans);
+    font-feature-settings: 'tnum' 1, 'zero' 1;
+  }
+
+  .dx-numeral {
+    font-family: var(--font-accent);
+    font-style: italic;
+    font-weight: 500;
+  }
+
+  /* Product name — Manrope Bold for brand-mark moments */
+  .dx-product-name {
+    font-family: var(--font-sans);
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  /* Three-ribbon divider — schwarz/rot/gold heritage motif */
+  .dx-ribbon-rule {
+    height: 4px;
+    background: linear-gradient(
+      to right,
+      var(--brand-schwarz) 0%,
+      var(--brand-schwarz) 33.33%,
+      var(--brand-rot) 33.33%,
+      var(--brand-rot) 66.66%,
+      var(--brand-gold) 66.66%,
+      var(--brand-gold) 100%
+    );
+    border: 0;
+  }
+
+  /* Small vertical pipe accent — used after pull-quotes */
+  .dx-pipe {
+    display: inline-block;
+    width: 1px;
+    height: 1em;
+    background: var(--border-strong);
+    vertical-align: middle;
+    margin: 0 0.5em;
+  }
+
+  /* Hairline border — apothecary system uses this everywhere */
+  .dx-hairline {
+    border-color: var(--border-hairline);
+  }
+}
+
+/* ===========================================================================
+   GLOBAL TYPOGRAPHY SAFETY NET — project rules locked 2026-05-05
+   1) No tracked-out caps anywhere — letter-spacing forced to 0 globally.
+      Display headings keep their negative tracking via dx-display-* rules
+      below this layer, which are loaded later and can re-set it.
+   2) Tabular / micro / utility text never goes below 14px.
+   =========================================================================== */
+
+*,
+*::before,
+*::after {
+  letter-spacing: 0 !important;
+}
+
+/* Display-size headings keep the slight negative tracking they need
+   for legibility — restore it after the global wipe. */
+h1, h2, h3,
+.dx-display-2xl, .dx-display-xl, .dx-display-lg, .dx-display-md,
+.dx-display, .dx-h1, .dx-h2, .dx-h3, .dx-h4 {
+  letter-spacing: 0 !important;
+}
+
+/* Floor for micro / tabular / control text — never below 14px */
+table, th, td,
+.dx-eyebrow, .dx-label, .dx-mono, .dx-caption, .dx-clinical,
+button, input, select, textarea, label,
+[class~="text-xs"], [class~="text-sm"], [class~="text-[10px]"], [class~="text-[11px]"], [class~="text-[12px]"], [class~="text-[13px]"] {
+  font-size: 14px !important;
+}
+
+/* ===========================================================================
+   FORM CONTROL VALUES — bold across the system
+   All values typed/selected inside inputs, selects, and textareas render
+   in font-weight 700. Placeholder text stays at normal weight + muted color
+   so empty fields don't look filled.
+   =========================================================================== */
+
+input, select, textarea {
+  font-weight: 700;
+}
+
+input::placeholder,
+textarea::placeholder {
+  font-weight: 400;
+  color: var(--fg-3, #6B6B6B);
+  opacity: 1;
+}
+
+/* ===========================================================================
+   GLOBAL NUMBER WEIGHT RULE — all numeric values across the ERP render bold
+   Applies to: every <td> in every table, plus opt-in .dx-num utility class.
+   Headers (<th>) stay at their existing weight (typically already 700 via
+   inline style); this rule only touches data cells.
+   This makes Account numbers, INNs, amounts, dates, balances, counts,
+   percentages, prices and every other number throughout the system bold by
+   default, without per-component patching.
+   =========================================================================== */
+
+table tbody td,
+.dx-num,
+[data-numeric="true"] {
+  font-weight: 700;
+}
+
+/* Allow explicit overrides — sometimes a cell needs to stay regular weight
+   (e.g. a long counterparty purpose line). Add class .dx-num-soft to opt out. */
+table tbody td.dx-num-soft,
+.dx-num-soft {
+  font-weight: 400 !important;
+}
+
+/* ===========================================================================
+   GLOBAL NUMBER-INPUT SPINNER RULE — strip the native browser spinner
+   from inside <input type="number"> and render our own ▲/▼ buttons OUTSIDE
+   the field on the right edge.
+   The buttons are injected at runtime by a tiny script in layout.tsx that
+   wraps every number input in a `.dx-num-wrap` span and appends two buttons.
+   This rule covers the whole ERP without touching individual forms.
+   =========================================================================== */
+
+/* Hide native spinners — Chrome/Safari/Edge */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+/* Hide native spinner — Firefox */
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* Wrapper injected at runtime around every <input type="number"> */
+.dx-num-wrap {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 4px;
+  vertical-align: middle;
+}
+.dx-num-wrap > input[type="number"] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.dx-num-wrap > .dx-num-spin {
+  display: inline-flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+}
+.dx-num-wrap > .dx-num-spin > button {
+  background: var(--bg-2, #f0f0f0);
+  border: 1px solid var(--border-1, #d0d0d0);
+  color: var(--fg-1, #333);
+  cursor: pointer;
+  width: 18px;
+  height: 14px;
+  padding: 0;
+  font-size: 8px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  user-select: none;
+}
+.dx-num-wrap > .dx-num-spin > button:first-child { margin-bottom: 1px; }
+.dx-num-wrap > .dx-num-spin > button:hover {
+  background: var(--bg-3, #e4e4e4);
+}
+.dx-num-wrap > .dx-num-spin > button:active {
+  background: var(--bg-4, #d0d0d0);
+}
+.dx-num-wrap > .dx-num-spin > button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

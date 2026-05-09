@@ -147,4 +147,100 @@ admin.post('/migrate/partner-agreements', async (c) => {
   return ok(c, { applied: true, table: 'partner_agreements created' });
 });
 
+
+// ---------------------------------------------------------------------------
+// POST /admin/run-perf-create
+// Manually trigger the Performance API report-creation cron handler.
+// Useful after deploys to verify the v3 product/list path works without
+// waiting for the next "5 */6 * * *" tick.
+// ---------------------------------------------------------------------------
+admin.post('/run-perf-create', async (c) => {
+  const env = c.env;
+  if (!env.OZON_PERF_CLIENT_ID || !env.OZON_PERF_CLIENT_SECRET) {
+    return fail(c, 500, [{ code: 'no_creds', message: 'Performance API credentials missing' }]);
+  }
+
+  try {
+    // Step 1: get token
+    const tokenResp = await fetch('https://api-performance.ozon.ru/api/client/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: env.OZON_PERF_CLIENT_ID,
+        client_secret: env.OZON_PERF_CLIENT_SECRET,
+        grant_type: 'client_credentials',
+      }),
+    });
+    if (!tokenResp.ok) {
+      return fail(c, 500, [{ code: 'token_fail', message: `token HTTP ${tokenResp.status}` }]);
+    }
+    const tokenData = await tokenResp.json<{ access_token: string }>();
+    const token = tokenData.access_token;
+
+    // Step 2: Probe v3 product/list (this is what was failing before fix)
+    const probeResp = await fetch('https://api-seller.ozon.ru/v3/product/list', {
+      method: 'POST',
+      headers: {
+        'Client-Id': '374116',
+        'Api-Key': '4ac8181b-4cd8-4b4a-964d-905e39cc9b42',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ filter: { visibility: 'ALL' }, last_id: '', limit: 1000 }),
+    });
+    const probeStatus = probeResp.status;
+    const probeData: any = probeResp.ok ? await probeResp.json() : null;
+    const skuCount = probeData?.result?.items?.length ?? 0;
+
+    // Step 3: Get campaigns
+    const campResp = await fetch('https://api-performance.ozon.ru/api/client/campaign', {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!campResp.ok) {
+      return fail(c, 500, [{ code: 'camp_fail', message: `campaigns HTTP ${campResp.status}` }]);
+    }
+    const campData = await campResp.json<{ list: any[] }>();
+    const skuTypes = new Set(['SKU', 'SEARCH_PROMO', 'BRAND_SHELF', 'ACTION']);
+    const campaigns = (campData.list || [])
+      .filter((cmp) => cmp.state === 'CAMPAIGN_STATE_RUNNING' && skuTypes.has(cmp.advObjectType))
+      .map((cmp) => cmp.id);
+
+    // Step 4: Create report
+    const today = new Date();
+    const dateTo = today.toISOString().split('T')[0];
+    const from = new Date(today.getTime() - 7 * 24 * 3600_000);
+    const dateFrom = from.toISOString().split('T')[0];
+
+    const createResp = await fetch('https://api-performance.ozon.ru/api/client/statistics/json', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ campaigns, dateFrom, dateTo, groupBy: 'NO_GROUP_BY' }),
+    });
+
+    let reportUuid: string | null = null;
+    if (createResp.ok) {
+      const createData = await createResp.json<{ UUID: string }>();
+      reportUuid = createData.UUID;
+      if (reportUuid) {
+        await env.DB.prepare(
+          'INSERT INTO perf_reports (uuid, created_at, status) VALUES (?, ?, ?)'
+        ).bind(reportUuid, Math.floor(Date.now() / 1000), 'pending').run();
+      }
+    }
+
+    return ok(c, {
+      probe_v3_status: probeStatus,
+      probe_v3_sku_count: skuCount,
+      campaigns_total: campData.list?.length ?? 0,
+      campaigns_running_sku: campaigns.length,
+      report_create_status: createResp.status,
+      report_uuid: reportUuid,
+      next_step: reportUuid
+        ? 'Wait 5-30 min, then GET /admin/check-perf or wait for */2 * * * * poll cron'
+        : 'Report not created — check logs',
+    });
+  } catch (e: any) {
+    return fail(c, 500, [{ code: 'exception', message: e?.message || String(e) }]);
+  }
+});
+
 export default admin;

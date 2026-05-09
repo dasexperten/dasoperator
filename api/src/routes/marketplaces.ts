@@ -288,5 +288,230 @@ marketplaces.post('/sync/wb', async (c) => {
   }
 });
 
+// ===========================================================================
+// HOME / PULSE ENDPOINTS — Phase 9.x marketplace pulse cards
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// GET /api/marketplaces/pulse/sku-spotlight
+// Card 3 — Top & bottom SKUs by units sold, combined Ozon + WB.
+// ---------------------------------------------------------------------------
+marketplaces.get('/pulse/sku-spotlight', async (c) => {
+  const meta = await c.env.DB.prepare(`
+    SELECT
+      (SELECT MIN(period_from) FROM marketplace_sales_ozon) AS period_from,
+      (SELECT MAX(period_to)   FROM marketplace_sales_ozon) AS period_to,
+      MAX(synced_at) AS synced_at
+    FROM (
+      SELECT synced_at FROM marketplace_sales_ozon
+      UNION ALL
+      SELECT synced_at FROM marketplace_sales_wb
+    )
+  `).first<{ period_from: string | null; period_to: string | null; synced_at: number | null }>();
+
+  const top = await c.env.DB.prepare(`
+    SELECT base_sku,
+           SUM(units_sold)  AS units_sold,
+           SUM(revenue_rub) AS revenue_rub,
+           SUM(ozon_units)  AS ozon_units,
+           SUM(wb_units)    AS wb_units
+    FROM (
+      SELECT base_sku, units_sold, revenue_rub,
+             units_sold AS ozon_units, 0 AS wb_units
+      FROM marketplace_sales_ozon
+      UNION ALL
+      SELECT base_sku, units_sold, revenue_rub,
+             0 AS ozon_units, units_sold AS wb_units
+      FROM marketplace_sales_wb
+    )
+    GROUP BY base_sku
+    HAVING units_sold > 0
+    ORDER BY units_sold DESC
+    LIMIT 5
+  `).all<{ base_sku: string; units_sold: number; revenue_rub: number; ozon_units: number; wb_units: number }>();
+
+  const bottom = await c.env.DB.prepare(`
+    SELECT p.id AS base_sku, p.name AS product_name,
+           COALESCE(s.units_sold, 0) AS units_sold
+    FROM products p
+    LEFT JOIN (
+      SELECT base_sku, SUM(units_sold) AS units_sold FROM (
+        SELECT base_sku, units_sold FROM marketplace_sales_ozon
+        UNION ALL
+        SELECT base_sku, units_sold FROM marketplace_sales_wb
+      )
+      GROUP BY base_sku
+    ) s ON s.base_sku = p.id
+    WHERE p.deleted_at IS NULL
+      AND COALESCE(s.units_sold, 0) = 0
+    ORDER BY p.id
+    LIMIT 5
+  `).all<{ base_sku: string; product_name: string | null; units_sold: number }>();
+
+  return ok(c, {
+    period: { from: meta?.period_from ?? null, to: meta?.period_to ?? null },
+    synced_at: meta?.synced_at ?? null,
+    top: top.results,
+    bottom: bottom.results,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/marketplaces/pulse/sku-funnel/:base_sku
+// Card 9 — Conversion funnel for a single SKU.
+// Returns Views → Cart → Orders for Ozon and WB separately, plus a combined.
+// ---------------------------------------------------------------------------
+marketplaces.get('/pulse/sku-funnel/:base_sku', async (c) => {
+  const baseSku = c.req.param('base_sku').toLowerCase();
+
+  const ozon = await c.env.DB.prepare(`
+    SELECT views, tocart_count, units_sold, revenue_rub, period_from, period_to
+    FROM marketplace_sales_ozon
+    WHERE base_sku = ?
+  `).bind(baseSku).first<{ views: number | null; tocart_count: number | null; units_sold: number; revenue_rub: number; period_from: string; period_to: string } | null>();
+
+  const wb = await c.env.DB.prepare(`
+    SELECT views, tocart_count, units_sold, revenue_rub, period_from, period_to
+    FROM marketplace_sales_wb
+    WHERE base_sku = ?
+  `).bind(baseSku).first<{ views: number | null; tocart_count: number | null; units_sold: number; revenue_rub: number; period_from: string; period_to: string } | null>();
+
+  // Read product display name if present
+  const product = await c.env.DB.prepare(
+    'SELECT id, name FROM products WHERE id = ? AND deleted_at IS NULL'
+  ).bind(baseSku).first<{ id: string; name: string | null }>();
+
+  const period = ozon?.period_from || wb?.period_from
+    ? { from: ozon?.period_from ?? wb?.period_from, to: ozon?.period_to ?? wb?.period_to }
+    : { from: null, to: null };
+
+  const ozonFunnel = ozon ? {
+    views: ozon.views ?? 0,
+    cart: ozon.tocart_count ?? 0,
+    orders: ozon.units_sold ?? 0,
+    revenue_rub: ozon.revenue_rub ?? 0,
+  } : null;
+
+  const wbFunnel = wb ? {
+    views: wb.views ?? 0,
+    cart: wb.tocart_count ?? 0,
+    orders: wb.units_sold ?? 0,
+    revenue_rub: wb.revenue_rub ?? 0,
+  } : null;
+
+  const combined = {
+    views: (ozonFunnel?.views ?? 0) + (wbFunnel?.views ?? 0),
+    cart: (ozonFunnel?.cart ?? 0) + (wbFunnel?.cart ?? 0),
+    orders: (ozonFunnel?.orders ?? 0) + (wbFunnel?.orders ?? 0),
+    revenue_rub: (ozonFunnel?.revenue_rub ?? 0) + (wbFunnel?.revenue_rub ?? 0),
+  };
+
+  return ok(c, {
+    base_sku: baseSku,
+    product_name: product?.name ?? null,
+    period,
+    ozon: ozonFunnel,
+    wb: wbFunnel,
+    combined,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/marketplaces/pulse/daily-trend
+// Card 6 — last 14 days, day-by-day, by marketplace.
+// For each day: revenue, units, plus Δ vs same weekday previous week.
+// ---------------------------------------------------------------------------
+marketplaces.get('/pulse/daily-trend', async (c) => {
+  const rows = await c.env.DB.prepare(`
+    SELECT marketplace, date, units_sold, revenue_rub, synced_at
+    FROM marketplace_sales_daily
+    WHERE date >= date('now', '-21 days')
+    ORDER BY date ASC
+  `).all<{ marketplace: 'ozon' | 'wb'; date: string; units_sold: number; revenue_rub: number; synced_at: number }>();
+
+  // Build maps for quick week-ago lookup
+  const byKey = new Map<string, { units_sold: number; revenue_rub: number }>();
+  for (const r of rows.results) {
+    byKey.set(`${r.marketplace}|${r.date}`, { units_sold: r.units_sold, revenue_rub: r.revenue_rub });
+  }
+
+  // Find last 7 dates that actually have any data
+  const allDates = Array.from(new Set(rows.results.map(r => r.date))).sort();
+  const last7 = allDates.slice(-7);
+
+  function deltaVsLastWeek(mp: 'ozon' | 'wb', date: string, value: number) {
+    const d = new Date(date + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() - 7);
+    const prev = byKey.get(`${mp}|${d.toISOString().slice(0, 10)}`);
+    if (!prev) return null;
+    if (prev.revenue_rub === 0) return null;
+    return Math.round(((value - prev.revenue_rub) / prev.revenue_rub) * 1000) / 10; // %, 1 decimal
+  }
+
+  const days = last7.map(date => {
+    const oz = byKey.get(`ozon|${date}`) || { units_sold: 0, revenue_rub: 0 };
+    const w = byKey.get(`wb|${date}`)   || { units_sold: 0, revenue_rub: 0 };
+    return {
+      date,
+      ozon: { units: oz.units_sold, revenue_rub: oz.revenue_rub, delta_pct: deltaVsLastWeek('ozon', date, oz.revenue_rub) },
+      wb:   { units: w.units_sold,  revenue_rub: w.revenue_rub,  delta_pct: deltaVsLastWeek('wb',   date, w.revenue_rub) },
+    };
+  });
+
+  return ok(c, {
+    days,
+    history_complete: allDates.length >= 14,  // tells UI whether week-over-week deltas are reliable
+    days_available: allDates.length,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/marketplaces/pulse/sales-today
+// Card 1 — today's sales by marketplace, with Δ vs yesterday.
+// ---------------------------------------------------------------------------
+marketplaces.get('/pulse/sales-today', async (c) => {
+  const rows = await c.env.DB.prepare(`
+    SELECT marketplace, date, units_sold, revenue_rub
+    FROM marketplace_sales_daily
+    WHERE date >= date('now', '-3 days')
+    ORDER BY date DESC
+  `).all<{ marketplace: 'ozon' | 'wb'; date: string; units_sold: number; revenue_rub: number }>();
+
+  const byKey = new Map<string, { units: number; revenue: number; date: string }>();
+  for (const r of rows.results) {
+    if (!byKey.has(r.marketplace)) {
+      byKey.set(r.marketplace, { units: r.units_sold, revenue: r.revenue_rub, date: r.date });
+    }
+  }
+  // For each marketplace, locate "today's row" (= most recent) and "previous day"
+  function pulseFor(mp: 'ozon' | 'wb') {
+    const all = rows.results.filter(r => r.marketplace === mp);
+    if (all.length === 0) return { revenue_rub: 0, units: 0, delta_pct: null, last_date: null };
+    const today = all[0];
+    const prev = all[1];
+    const delta = prev && prev.revenue_rub > 0
+      ? Math.round(((today.revenue_rub - prev.revenue_rub) / prev.revenue_rub) * 1000) / 10
+      : null;
+    return {
+      revenue_rub: today.revenue_rub,
+      units: today.units_sold,
+      delta_pct: delta,
+      last_date: today.date,
+    };
+  }
+
+  const ozon = pulseFor('ozon');
+  const wb = pulseFor('wb');
+
+  return ok(c, {
+    ozon,
+    wb,
+    combined: {
+      revenue_rub: ozon.revenue_rub + wb.revenue_rub,
+      units: ozon.units + wb.units,
+    },
+  });
+});
+
 export default marketplaces;
 

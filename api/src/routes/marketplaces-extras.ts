@@ -70,30 +70,44 @@ marketplacesExtras.get('/sync/log', async (c) => {
 //   top_skus: every SKU with sales, ordered by units, with all derived metrics
 // =============================================================================
 marketplacesExtras.get('/sales', async (c) => {
-  const ozonTotal = await c.env.DB.prepare(`
-    SELECT
-      COALESCE(SUM(units_sold), 0)  AS units,
-      COALESCE(SUM(revenue_rub), 0) AS revenue,
-      MAX(synced_at) AS synced_at
-    FROM marketplace_sales_ozon
-  `).first<{ units: number; revenue: number; synced_at: number | null }>();
+  // Window for headline totals — UI may pass ?days=7 / 30 / 60. Default 30.
+  const daysParam = parseInt(c.req.query('days') || '30', 10);
+  const periodDays = Math.min(Math.max(daysParam, 1), 90);
 
-  const wbTotal = await c.env.DB.prepare(`
-    SELECT
-      COALESCE(SUM(units_sold), 0)  AS units,
-      COALESCE(SUM(revenue_rub), 0) AS revenue,
-      MAX(synced_at) AS synced_at
-    FROM marketplace_sales_wb
-  `).first<{ units: number; revenue: number; synced_at: number | null }>();
+  // Headline totals — from daily breakdown for an exact period match.
+  // (Not from marketplace_sales_* tables, which carry rolling-window per-SKU
+  //  totals reflecting the latest sync window — could be 60d after a backfill.)
+  const totalsRows = await c.env.DB.prepare(`
+    SELECT marketplace,
+           COALESCE(SUM(units_sold), 0)  AS units,
+           COALESCE(SUM(revenue_rub), 0) AS revenue
+    FROM marketplace_sales_daily
+    WHERE date >= date('now', '-' || ? || ' days')
+    GROUP BY marketplace
+  `).bind(periodDays).all<{ marketplace: 'ozon' | 'wb'; units: number; revenue: number }>();
+
+  const ozonRow = totalsRows.results.find(r => r.marketplace === 'ozon');
+  const wbRow   = totalsRows.results.find(r => r.marketplace === 'wb');
+
+  // Sync recency comes from the SKU tables (where synced_at lives).
+  const ozonSync = await c.env.DB.prepare(
+    'SELECT MAX(synced_at) AS synced_at, MIN(period_from) AS pf, MAX(period_to) AS pt FROM marketplace_sales_ozon'
+  ).first<{ synced_at: number | null; pf: string | null; pt: string | null }>();
+  const wbSync = await c.env.DB.prepare(
+    'SELECT MAX(synced_at) AS synced_at, MIN(period_from) AS pf, MAX(period_to) AS pt FROM marketplace_sales_wb'
+  ).first<{ synced_at: number | null; pf: string | null; pt: string | null }>();
 
   const daily = await c.env.DB.prepare(`
     SELECT marketplace, date, units_sold, revenue_rub
     FROM marketplace_sales_daily
     WHERE date >= date('now', '-' || ? || ' days')
     ORDER BY date ASC, marketplace ASC
-  `).bind(PERIOD_DAYS).all();
+  `).bind(periodDays).all();
 
-  // Top SKUs — one row per catalog SKU per marketplace, ordered by units sold
+  // Top SKUs — one row per catalog SKU per marketplace.
+  // Note: these reflect the latest *sync window* snapshot, which may be wider
+  // (60d after backfill) or narrower (7d after a regular cron) than the
+  // headline totals window. UI shows a sync-window subtitle to disambiguate.
   const topOzon = await c.env.DB.prepare(`
     SELECT
       p.id AS sku, p.product_name,
@@ -123,16 +137,20 @@ marketplacesExtras.get('/sales', async (c) => {
   `).all();
 
   return ok(c, {
-    period_days: PERIOD_DAYS,
+    period_days: periodDays,
+    sync_windows: {
+      ozon: { from: ozonSync?.pf ?? null, to: ozonSync?.pt ?? null },
+      wb:   { from: wbSync?.pf ?? null,   to: wbSync?.pt ?? null },
+    },
     totals: {
       ozon: {
-        units_sold: ozonTotal?.units || 0,
-        revenue_rub: ozonTotal?.revenue || 0,
-        synced_at: ozonTotal?.synced_at || null,
+        units_sold: ozonRow?.units || 0,
+        revenue_rub: ozonRow?.revenue || 0,
+        synced_at: ozonSync?.synced_at || null,
       },
       wb: {
-        units_sold: wbTotal?.units || 0,
-        revenue_rub: wbTotal?.revenue || 0,
+        units_sold: wbRow?.units || 0,
+        revenue_rub: wbRow?.revenue || 0,
         synced_at: wbTotal?.synced_at || null,
       },
     },

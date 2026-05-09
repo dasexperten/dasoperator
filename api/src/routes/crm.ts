@@ -34,6 +34,20 @@ interface RetailLoyaltyAccount {
   customer?: { id?: number };
 }
 
+interface RetailCustomer {
+  id: number;
+  externalId?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phones?: Array<{ number?: string }>;
+  ordersCount?: number;
+  totalSumm?: number;
+  averageSumm?: number;
+  createdAt?: string;
+  site?: string;
+}
+
 async function retailGet<T = unknown>(
   domain: string,
   token: string,
@@ -187,6 +201,97 @@ crm.get('/orders', async (c) => {
       },
       search,
       orders,
+      synced_at: Math.floor(Date.now() / 1000),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return fail(c, 502, [{ code: 'crm_upstream_error', message: msg }]);
+  }
+});
+
+// =============================================================================
+// GET /api/crm/customers — paginated, searchable customers feed with loyalty
+// =============================================================================
+// Query params:
+//   page    — 1-based page number (default 1)
+//   limit   — 20 / 50 / 100 (default 50)
+//   search  — free-text by name (filter[name]); if digits-only, tries phone
+crm.get('/customers', async (c) => {
+  const domain = c.env.RETAIL_CRM_DOMAIN;
+  const token = c.env.RETAIL_CRM_TOKEN;
+  if (!domain || !token) {
+    return fail(c, 503, [{ code: 'crm_not_configured', message: 'Retail CRM not configured.' }]);
+  }
+
+  const page = Math.max(1, Number(c.req.query('page') ?? 1));
+  const rawLimit = Number(c.req.query('limit') ?? 50);
+  const limit = [20, 50, 100].includes(rawLimit) ? rawLimit : 50;
+  const search = (c.req.query('search') ?? '').trim();
+
+  const params: Record<string, string | number | undefined> = {
+    'page': page,
+    'limit': limit,
+  };
+
+  if (search) {
+    if (/^[\d+\s\-()]+$/.test(search) && search.replace(/\D/g, '').length >= 4) {
+      // Digits-style → search by phone
+      params['filter[phone]'] = search;
+    } else {
+      params['filter[name]'] = search;
+    }
+  }
+
+  try {
+    const customersResp = await retailGet<{
+      pagination?: { totalCount?: number; currentPage?: number; totalPageCount?: number };
+      customers?: RetailCustomer[];
+    }>(domain, token, '/customers', params);
+
+    const customersOnPage = customersResp.customers ?? [];
+
+    // Pull loyalty accounts to enrich balance & level per customer
+    const loyaltyResp = await retailGet<{
+      loyaltyAccounts?: RetailLoyaltyAccount[];
+    }>(domain, token, '/loyalty/accounts', { 'page': 1, 'limit': 100 });
+
+    const loyaltyByCustomer = new Map<number, RetailLoyaltyAccount>();
+    for (const a of loyaltyResp.loyaltyAccounts ?? []) {
+      if (a.customer?.id !== undefined) {
+        loyaltyByCustomer.set(a.customer.id, a);
+      }
+    }
+
+    const customers = customersOnPage.map((cu) => {
+      const acc = loyaltyByCustomer.get(cu.id);
+      const phone = cu.phones?.[0]?.number ?? null;
+      return {
+        id: cu.id,
+        name: [cu.firstName, cu.lastName].filter(Boolean).join(' ') || cu.email || '—',
+        email: cu.email ?? null,
+        phone,
+        orders_count: typeof cu.ordersCount === 'number' ? cu.ordersCount : 0,
+        total_spent: typeof cu.totalSumm === 'number' ? cu.totalSumm : 0,
+        average_order: typeof cu.averageSumm === 'number' ? cu.averageSumm : 0,
+        created_at: cu.createdAt ?? '—',
+        loyalty_balance: typeof acc?.amount === 'number' ? acc.amount : null,
+        loyalty_level: acc?.level?.name ?? null,
+        loyalty_privilege_pct: typeof acc?.level?.privilegeSize === 'number'
+          ? acc.level.privilegeSize
+          : null,
+      };
+    });
+
+    return ok(c, {
+      source: `${domain}.retailcrm.ru`,
+      pagination: {
+        page,
+        limit,
+        total_count: customersResp.pagination?.totalCount ?? 0,
+        total_pages: customersResp.pagination?.totalPageCount ?? 1,
+      },
+      search,
+      customers,
       synced_at: Math.floor(Date.now() / 1000),
     });
   } catch (e) {

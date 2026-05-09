@@ -95,9 +95,11 @@ const LINE_ITEM_COLS = `
   p.manufacturer_id   AS product_manufacturer_id,
   p.packaging_manufacturer_id,
   p.description_en, p.description_ru, p.description_cn,
-  p.invoice_label, p.hs_code,
+  p.invoice_label,
+  p.invoice_label_ru, p.invoice_label_en, p.invoice_label_cn,
+  p.hs_code,
   p.ctn_qty, p.ctn_weight_gross_kg, p.unit_net_weight_g, p.country_of_origin,
-  p.category
+  p.category, p.subcategory
 `;
 
 // =============================================================================

@@ -1114,8 +1114,8 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                             <Th>SKU</Th>
                             <Th>Name</Th>
                             {showStockColumn && <Th>In stock</Th>}
+                            <th style={{ textAlign: 'left', fontSize: '12px', fontWeight: 600, color: '#6B4A1F', textTransform: 'uppercase', letterSpacing: '0.04em', padding: '8px 12px', backgroundColor: '#F5EBDC', borderLeft: '1px solid #E8D7B5', borderRight: '1px solid #E8D7B5' }}>Cartons</th>
                             <Th>Pieces</Th>
-                            <Th>Cartons</Th>
                             <Th>Price ({effectiveCurrency || '—'})</Th>
                             <Th>Total</Th>
                           </tr>
@@ -1155,25 +1155,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                                     </td>
                                   );
                                 })()}
-                                <td className="px-3 py-2">
-                                  <input
-                                    type="number"
-                                    data-grid-col="pieces"
-                                    onKeyDown={handleGridKeyDown}
-                                    value={e.pieces || ''}
-                                    onChange={(ev) => {
-                                      const v = parseInt(ev.target.value) || 0;
-                                      updateEntry(p.id, { pieces: v });
-                                      if (v > 0) ensurePriceFor(p.id);
-                                    }}
-                                    disabled={!isReadyForDetails}
-                                    min={0}
-                                    placeholder="0"
-                                    className="w-24 px-2 py-1 text-sm focus:outline-none text-right"
-                                    style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)', fontWeight: 700 }}
-                                  />
-                                </td>
-                                <td className="px-3 py-2">
+                                <td className="px-3 py-2" style={{ backgroundColor: '#FAF3E5', borderLeft: '1px solid #E8D7B5', borderRight: '1px solid #E8D7B5' }}>
                                   {ctnQty > 0 ? (
                                     <input
                                       type="text"
@@ -1191,13 +1173,31 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                                         if (newPieces > 0) ensurePriceFor(p.id);
                                       }}
                                       disabled={!isReadyForDetails}
-                                      placeholder="0"
+                                      placeholder=""
                                       className="w-24 px-2 py-1 text-sm focus:outline-none text-right"
-                                      style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)', fontWeight: 700 }}
+                                      style={{ backgroundColor: '#FFF8EA', border: '1px solid #C9B584', borderRadius: 'var(--radius-xs)', fontWeight: 700 }}
                                     />
                                   ) : (
                                     <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>—</span>
                                   )}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="number"
+                                    data-grid-col="pieces"
+                                    onKeyDown={handleGridKeyDown}
+                                    value={e.pieces || ''}
+                                    onChange={(ev) => {
+                                      const v = parseInt(ev.target.value) || 0;
+                                      updateEntry(p.id, { pieces: v });
+                                      if (v > 0) ensurePriceFor(p.id);
+                                    }}
+                                    disabled={!isReadyForDetails}
+                                    min={0}
+                                    placeholder=""
+                                    className="w-24 px-2 py-1 text-sm focus:outline-none text-right"
+                                    style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)', fontWeight: 700 }}
+                                  />
                                 </td>
                                 <td className="px-3 py-2">
                                   <input

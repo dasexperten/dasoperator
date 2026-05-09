@@ -109,7 +109,7 @@ inbox.post('/:id/confirm', async (c) => {
           partner_type, role, status, kind,
           currency, modes,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'service_vendor', 'vendor', 'active', 'service',
+        ) VALUES (?, ?, ?, ?, ?, ?, 'other', 'vendor', 'active', 'service_provider',
                   ?, '["service"]', ?, ?)`
       ).bind(
         partnerId, tradeName, legalName, country || null, taxId || null, slug,

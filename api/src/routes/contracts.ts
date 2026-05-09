@@ -30,6 +30,13 @@ function genContractId(contractNo: string): string {
   return slug;
 }
 
+function slugify(s: string): string {
+  return s.toLowerCase()
+    .replace(/[^a-z0-9]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+}
+
 // =============================================================================
 // GET /api/contracts — list all with JOINs
 // =============================================================================
@@ -39,7 +46,8 @@ contracts.get('/', async (c) => {
       c.id, c.contract_no, c.partner_id, p.trade_name as partner_trade_name,
       c.our_company_id, co.abbreviation as entity_abbreviation,
       c.currency, c.signed_date, c.expiry_date, c.incoterms,
-      c.status, c.notes, c.vat_rate, c.created_at, c.updated_at
+      c.status, c.notes, c.vat_rate, c.contract_file_key,
+      c.created_at, c.updated_at
     FROM contracts c
     LEFT JOIN partners p ON c.partner_id = p.id
     LEFT JOIN companies co ON c.our_company_id = co.id
@@ -160,6 +168,173 @@ contracts.post('/', async (c) => {
     status: data.status, vat_rate: data.vat_rate,
     created_at: now, updated_at: now,
   }, ['Contract created']);
+});
+
+// =============================================================================
+// POST /api/contracts/:id/file — upload contract PDF to R2
+// Body: multipart/form-data with field "file" (PDF, max 20 MB)
+// Effects:
+//   - uploads to R2 bucket DOCS at key `contracts/<company>/<partner>_<date>.pdf`
+//   - writes the key to contracts.contract_file_key
+// =============================================================================
+contracts.post('/:id/file', async (c) => {
+  const id = c.req.param('id');
+
+  // Load contract + partner trade_name
+  const row = await c.env.DB.prepare(`
+    SELECT c.id, c.partner_id, c.our_company_id, c.signed_date, c.contract_file_key,
+           p.trade_name as partner_name
+    FROM contracts c
+    LEFT JOIN partners p ON p.id = c.partner_id
+    WHERE c.id = ? AND c.deleted_at IS NULL
+  `).bind(id).first<{
+    id: string;
+    partner_id: string;
+    our_company_id: string;
+    signed_date: number | null;
+    contract_file_key: string | null;
+    partner_name: string | null;
+  }>();
+
+  if (!row) {
+    return fail(c, 404, [{ code: 'contract_not_found', message: `Contract ${id} not found` }]);
+  }
+
+  // Parse multipart form
+  let formData: FormData;
+  try {
+    formData = await c.req.formData();
+  } catch {
+    return fail(c, 400, [{
+      code: 'invalid_multipart',
+      message: 'Body must be multipart/form-data with a "file" field',
+    }]);
+  }
+
+  const file = formData.get('file');
+  if (!(file instanceof File)) {
+    return fail(c, 400, [{
+      code: 'no_file',
+      message: 'Form field "file" missing or not a file',
+    }]);
+  }
+
+  // Validate type and size
+  const MAX_BYTES = 20 * 1024 * 1024; // 20 MB
+  if (file.size > MAX_BYTES) {
+    return fail(c, 413, [{
+      code: 'file_too_large',
+      message: `File size ${file.size} exceeds 20 MB limit`,
+    }]);
+  }
+
+  if (file.type && file.type !== 'application/pdf') {
+    return fail(c, 415, [{
+      code: 'unsupported_media_type',
+      message: `Content-Type ${file.type} not allowed; only application/pdf`,
+    }]);
+  }
+
+  // Build R2 key: contracts/<company>/<partner>_<date>.pdf
+  const partnerSlug = slugify(row.partner_name || row.partner_id);
+  const dateStr = row.signed_date
+    ? new Date(row.signed_date * 1000).toISOString().slice(0, 10)
+    : new Date().toISOString().slice(0, 10);
+  const r2Key = `contracts/${row.our_company_id}/${partnerSlug}_${dateStr}.pdf`;
+
+  // Upload to R2
+  const buffer = await file.arrayBuffer();
+  try {
+    await c.env.DOCS.put(r2Key, buffer, {
+      httpMetadata: { contentType: 'application/pdf' },
+    });
+  } catch (err) {
+    return fail(c, 500, [{
+      code: 'r2_put_failed',
+      message: 'Failed to upload file to R2',
+      details: { error: err instanceof Error ? err.message : String(err) },
+    }]);
+  }
+
+  // Update contract row
+  const now = Math.floor(Date.now() / 1000);
+  await c.env.DB.prepare(`
+    UPDATE contracts
+    SET contract_file_key = ?, updated_at = ?
+    WHERE id = ?
+  `).bind(r2Key, now, id).run();
+
+  return ok(c, {
+    contract_id: id,
+    contract_file_key: r2Key,
+    size_bytes: file.size,
+    uploaded_at: now,
+  }, ['Contract file uploaded']);
+});
+
+// =============================================================================
+// GET /api/contracts/:id/file — stream contract PDF from R2
+// =============================================================================
+contracts.get('/:id/file', async (c) => {
+  const id = c.req.param('id');
+
+  const row = await c.env.DB.prepare(`
+    SELECT contract_file_key FROM contracts WHERE id = ? AND deleted_at IS NULL
+  `).bind(id).first<{ contract_file_key: string | null }>();
+
+  if (!row) {
+    return fail(c, 404, [{ code: 'contract_not_found', message: `Contract ${id} not found` }]);
+  }
+
+  if (!row.contract_file_key) {
+    return fail(c, 404, [{
+      code: 'no_file_uploaded',
+      message: `Contract ${id} has no file attached`,
+    }]);
+  }
+
+  const obj = await c.env.DOCS.get(row.contract_file_key);
+  if (!obj) {
+    return c.text('R2 object missing', 404);
+  }
+
+  return new Response(obj.body, {
+    headers: {
+      'Content-Type': obj.httpMetadata?.contentType || 'application/pdf',
+      'Content-Disposition': `inline; filename="${row.contract_file_key.split('/').pop()}"`,
+      'Cache-Control': 'private, max-age=300',
+    },
+  });
+});
+
+// =============================================================================
+// DELETE /api/contracts/:id/file — remove file from R2 and clear key
+// =============================================================================
+contracts.delete('/:id/file', async (c) => {
+  const id = c.req.param('id');
+
+  const row = await c.env.DB.prepare(`
+    SELECT contract_file_key FROM contracts WHERE id = ? AND deleted_at IS NULL
+  `).bind(id).first<{ contract_file_key: string | null }>();
+
+  if (!row) {
+    return fail(c, 404, [{ code: 'contract_not_found', message: `Contract ${id} not found` }]);
+  }
+
+  if (row.contract_file_key) {
+    try {
+      await c.env.DOCS.delete(row.contract_file_key);
+    } catch {
+      // R2 delete failures are non-fatal — still clear the DB pointer
+    }
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  await c.env.DB.prepare(`
+    UPDATE contracts SET contract_file_key = NULL, updated_at = ? WHERE id = ?
+  `).bind(now, id).run();
+
+  return ok(c, { contract_id: id }, ['Contract file removed']);
 });
 
 export default contracts;

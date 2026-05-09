@@ -17,7 +17,7 @@ interface RetailOrder {
   id: number;
   number?: string;
   status?: string;
-  totalSummary?: number;
+  totalSumm?: number;
   createdAt?: string;
   customer?: {
     firstName?: string;
@@ -98,7 +98,7 @@ crm.get('/stats', async (c) => {
     const ordersThisMonth = ordersMonthResp.pagination?.totalCount ?? 0;
     const monthOrders = ordersMonthResp.orders ?? [];
     const revenueThisMonth = monthOrders.reduce(
-      (sum, o) => sum + (typeof o.totalSummary === 'number' ? o.totalSummary : 0),
+      (sum, o) => sum + (typeof o.totalSumm === 'number' ? o.totalSumm : 0),
       0
     );
 
@@ -117,7 +117,7 @@ crm.get('/stats', async (c) => {
         [o.customer?.firstName, o.customer?.lastName].filter(Boolean).join(' ') ||
         o.customer?.email ||
         '—',
-      total: typeof o.totalSummary === 'number' ? o.totalSummary : 0,
+      total: typeof o.totalSumm === 'number' ? o.totalSumm : 0,
       status: o.status ?? '—',
       created_at: o.createdAt ?? '—',
     }));

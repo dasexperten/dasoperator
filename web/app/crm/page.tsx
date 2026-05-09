@@ -366,6 +366,8 @@ function DailyActivityChart({
   metrikaTimeline: Array<{ date: string; visits: number; users: number }> | null;
   loading: boolean;
 }) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
   // Merge by date — CRM timeline drives the day list (always 30 entries),
   // Metrika visits looked up per-day. If a Metrika day is missing, treat as 0.
   const merged = (crmTimeline ?? []).map((d) => {
@@ -382,10 +384,6 @@ function DailyActivityChart({
     return null;
   }
 
-  // Compute scales — separate axes:
-  //  • visits scale (left) drives the wide gray bars
-  //  • activity scale (right) drives narrow purple+teal bars
-  // This keeps small reg/order numbers visible against tall visit bars.
   const maxVisits = Math.max(1, ...merged.map((d) => d.visits));
   const maxActivity = Math.max(1, ...merged.map((d) => Math.max(d.registrations, d.orders)));
 
@@ -414,10 +412,34 @@ function DailyActivityChart({
     return { x, y, w: narrowBarW, h };
   }
 
-  // Totals for header summary
+  // Mouse handler — figure out which day the cursor is over
+  function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
+    const svg = e.currentTarget;
+    const rect = svg.getBoundingClientRect();
+    // Map screen X to viewBox X
+    const xRatio = (e.clientX - rect.left) / rect.width;
+    const vbX = xRatio * W;
+    const idx = Math.floor(vbX / slot);
+    if (idx >= 0 && idx < merged.length) {
+      setHoverIdx(idx);
+    } else {
+      setHoverIdx(null);
+    }
+  }
+
+  function handleMouseLeave() {
+    setHoverIdx(null);
+  }
+
   const totalVisits = merged.reduce((s, d) => s + d.visits, 0);
   const totalRegs = merged.reduce((s, d) => s + d.registrations, 0);
   const totalOrders = merged.reduce((s, d) => s + d.orders, 0);
+
+  // Tooltip position — keep it inside chart bounds
+  const hoverDay = hoverIdx !== null ? merged[hoverIdx] : null;
+  const tooltipPctLeft = hoverIdx !== null
+    ? Math.min(85, Math.max(2, ((hoverIdx + 0.5) / days) * 100 - 8))
+    : 0;
 
   return (
     <div style={{
@@ -429,7 +451,7 @@ function DailyActivityChart({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
         <div>
           <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--fg-1)' }}>Daily activity</div>
-          <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>Last 30 days · visits, registrations, orders</div>
+          <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>Last 30 days · hover to inspect</div>
         </div>
         {!loading && merged.length > 0 && (
           <div style={{ display: 'flex', gap: 16, fontSize: 14 }}>
@@ -452,39 +474,95 @@ function DailyActivityChart({
         </div>
       ) : (
         <>
-          <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: H, display: 'block' }}>
-            {/* Visits — gray, wide, behind */}
-            {merged.map((d, i) => {
-              const r = visitsBar(d.visits, i);
-              if (r.h < 0.5) return null;
-              return (
-                <rect key={`v${i}`} x={r.x} y={r.y} width={r.w} height={r.h} rx="2"
-                      fill="#D3D1C7" fillOpacity="0.5" />
-              );
-            })}
-            {/* Registrations — purple, narrow, middle */}
-            {merged.map((d, i) => {
-              const r = activityBar(d.registrations, i);
-              if (r.h < 0.5) return null;
-              return (
-                <rect key={`r${i}`} x={r.x} y={r.y} width={r.w} height={r.h} rx="2"
-                      fill="#7F77DD" fillOpacity="0.55" />
-              );
-            })}
-            {/* Orders — teal, even narrower, front */}
-            {merged.map((d, i) => {
-              const r = activityBar(d.orders, i);
-              const w = r.w * 0.6;
-              const x = r.x + (r.w - w) / 2;
-              if (r.h < 0.5) return null;
-              return (
-                <rect key={`o${i}`} x={x} y={r.y} width={w} height={r.h} rx="1.5"
-                      fill="#1D9E75" />
-              );
-            })}
-          </svg>
+          <div style={{ position: 'relative' }}>
+            <svg
+              viewBox={`0 0 ${W} ${H}`}
+              preserveAspectRatio="none"
+              style={{ width: '100%', height: H, display: 'block', cursor: 'crosshair' }}
+              onMouseMove={handleMouseMove}
+              onMouseLeave={handleMouseLeave}
+            >
+              {/* Hover guide: vertical highlight band on slot */}
+              {hoverIdx !== null && (
+                <rect
+                  x={hoverIdx * slot}
+                  y={padTop - 4}
+                  width={slot}
+                  height={chartH + 8}
+                  fill="var(--fg-1)"
+                  fillOpacity="0.05"
+                />
+              )}
 
-          {/* Date axis: show first / mid / last */}
+              {/* Visits — gray, wide, behind */}
+              {merged.map((d, i) => {
+                const r = visitsBar(d.visits, i);
+                if (r.h < 0.5) return null;
+                const isHover = hoverIdx === i;
+                return (
+                  <rect key={`v${i}`} x={r.x} y={r.y} width={r.w} height={r.h} rx="2"
+                        fill="#D3D1C7" fillOpacity={isHover ? 0.75 : 0.5} />
+                );
+              })}
+              {/* Registrations — purple, narrow, middle */}
+              {merged.map((d, i) => {
+                const r = activityBar(d.registrations, i);
+                if (r.h < 0.5) return null;
+                const isHover = hoverIdx === i;
+                return (
+                  <rect key={`r${i}`} x={r.x} y={r.y} width={r.w} height={r.h} rx="2"
+                        fill="#7F77DD" fillOpacity={isHover ? 0.85 : 0.55} />
+                );
+              })}
+              {/* Orders — teal, even narrower, front */}
+              {merged.map((d, i) => {
+                const r = activityBar(d.orders, i);
+                const w = r.w * 0.6;
+                const x = r.x + (r.w - w) / 2;
+                if (r.h < 0.5) return null;
+                return (
+                  <rect key={`o${i}`} x={x} y={r.y} width={w} height={r.h} rx="1.5"
+                        fill="#1D9E75" />
+                );
+              })}
+            </svg>
+
+            {/* Tooltip — absolutely positioned over the chart area */}
+            {hoverDay && (
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                left: `${tooltipPctLeft}%`,
+                pointerEvents: 'none',
+                backgroundColor: 'var(--paper)',
+                border: '1px solid var(--border-hairline)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '10px 14px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                fontSize: 14,
+                whiteSpace: 'nowrap',
+                zIndex: 5,
+              }}>
+                <div style={{ fontWeight: 700, color: 'var(--fg-1)', marginBottom: 6 }}>
+                  {hoverDay.date}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)', marginBottom: 2 }}>
+                  <span style={{ width: 12, height: 10, backgroundColor: '#D3D1C7', opacity: 0.6, borderRadius: 2, display: 'inline-block' }} />
+                  Visits <span style={{ fontWeight: 700, color: 'var(--fg-1)', marginLeft: 'auto' }}>{hoverDay.visits.toLocaleString('ru-RU')}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)', marginBottom: 2 }}>
+                  <span style={{ width: 10, height: 10, backgroundColor: '#7F77DD', opacity: 0.7, borderRadius: 2, display: 'inline-block' }} />
+                  Registrations <span style={{ fontWeight: 700, color: 'var(--fg-1)', marginLeft: 'auto' }}>{hoverDay.registrations.toLocaleString('ru-RU')}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)' }}>
+                  <span style={{ width: 8, height: 10, backgroundColor: '#1D9E75', borderRadius: 2, display: 'inline-block' }} />
+                  Orders <span style={{ fontWeight: 700, color: 'var(--fg-1)', marginLeft: 'auto' }}>{hoverDay.orders.toLocaleString('ru-RU')}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Date axis: first / mid / last */}
           {merged.length > 0 && (
             <div style={{
               display: 'flex', justifyContent: 'space-between',

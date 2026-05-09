@@ -84,6 +84,7 @@ export default function OperationDetailClient({
   const [lineItems, setLineItems] = useState<OperationLineItem[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
+  const [documents, setDocuments] = useState<OperationDocument[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>('items');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -91,10 +92,11 @@ export default function OperationDetailClient({
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [opRes, paysRes, movesRes] = await Promise.all([
+        const [opRes, paysRes, movesRes, docsRes] = await Promise.all([
           getOperation(operationId),
           getPayments({ operation_id: operationId }),
           getStockMovements({ source_ref_id: operationId, source: 'operation' }),
+          getDocuments({ operation_id: operationId }),
         ]);
 
         if (opRes.success && opRes.result) {
@@ -120,6 +122,10 @@ export default function OperationDetailClient({
 
         if (movesRes.success && movesRes.result) {
           setStockMovements(movesRes.result.movements);
+        }
+
+        if (docsRes.success && docsRes.result) {
+          setDocuments(docsRes.result.documents);
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
@@ -334,7 +340,7 @@ export default function OperationDetailClient({
           { id: 'items',     label: 'Line items',      count: lineItems.length },
           { id: 'status',    label: 'Status',          count: null },
           { id: 'stock',     label: 'Stock movements', count: stockMovements.length },
-          { id: 'documents', label: 'Documents',       count: 0 }, // placeholder until backend join
+          { id: 'documents', label: 'Documents',       count: documents.length },
           { id: 'payments',  label: 'Payments',        count: payments.length },
         ] as { id: Tab; label: string; count: number | null }[]).map((tab) => {
           const isActive = activeTab === tab.id;
@@ -404,7 +410,11 @@ export default function OperationDetailClient({
       )}
 
       {activeTab === 'documents' && (
-        <DocumentsTab operationId={operationId} />
+        <DocumentsTab
+          operationId={operationId}
+          initialDocs={documents}
+          onChange={(next) => setDocuments(next)}
+        />
       )}
 
       {activeTab === 'payments' && (
@@ -650,20 +660,36 @@ function StatusTab({
 // =============================================================================
 // Documents tab — live data from GET /api/documents?operation_id=...
 // =============================================================================
-function DocumentsTab({ operationId }: { operationId: string }) {
-  const [docs, setDocs] = useState<OperationDocument[]>([]);
-  const [loading, setLoading] = useState(true);
+function DocumentsTab({
+  operationId,
+  initialDocs,
+  onChange,
+}: {
+  operationId: string;
+  initialDocs: OperationDocument[];
+  onChange: (docs: OperationDocument[]) => void;
+}) {
+  const [docs, setDocs] = useState<OperationDocument[]>(initialDocs);
+  const [loading, setLoading] = useState(initialDocs.length === 0);
   const [issuing, setIssuing] = useState(false);
   const [issueError, setIssueError] = useState<string | null>(null);
   const [issueSuccess, setIssueSuccess] = useState<string | null>(null);
 
   const fetchDocs = async () => {
     const res = await getDocuments({ operation_id: operationId });
-    if (res.success && res.result) setDocs(res.result.documents);
+    if (res.success && res.result) {
+      setDocs(res.result.documents);
+      onChange(res.result.documents);
+    }
     setLoading(false);
   };
 
-  useEffect(() => { fetchDocs(); }, [operationId]);
+  // Re-fetch only if no initial data (parent fetched all in parallel)
+  useEffect(() => {
+    if (initialDocs.length === 0) fetchDocs();
+    else setLoading(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [operationId]);
 
   const handleIssue = async () => {
     setIssueError(null);

@@ -426,11 +426,13 @@ export async function issueDocuments(
     let bytes: Uint8Array;
     try {
       if (r.spec.type === 'CI') {
+        const ciBank = r.manufacturerRoute ? bankFromRoute(r.manufacturerRoute)
+          : (r.bankSelection ? bankFromSelection(r.bankSelection) : null);
         bytes = await renderCommercialInvoice({
           reference, issuedAt: nowSec, language: r.language, currency: r.currency,
           seller: r.seller.party,
           buyer: r.buyer.party,
-          bank: bankFromSelection(r.bankSelection!),
+          bank: ciBank!,
           signature: r.spec.sellerKind === 'company'
             ? signatureFromCompany(r.seller.row as CompanyRow)
             : signatureFallback(),

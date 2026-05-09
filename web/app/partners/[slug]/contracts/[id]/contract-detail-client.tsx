@@ -1,13 +1,15 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Loader2, Upload, FileText, Eye, Replace, Trash2 } from 'lucide-react';
+import { Loader2, Upload, FileText, Eye, Replace, Trash2, Pencil, X, Check } from 'lucide-react';
 import {
   getContract, getPartner, type Contract, type Partner,
   getContractFileUrl, uploadContractFile, deleteContractFile,
+  patchContract, type PatchContractBody, type AgreementType,
 } from '@/lib/api';
 import { CopyableValue, SectionCard } from '@/components/ui/copyable';
 import Breadcrumb from '@/components/layout/breadcrumb';
+import { AGREEMENT_TYPE_LABELS, AGREEMENT_TYPE_ORDER, agreementTypeLabel } from '@/lib/agreement-types';
 
 const STATUS_COLORS: Record<Contract['status'], { bg: string; fg: string; border: string }> = {
   active:    { bg: 'rgba(46,125,79,0.08)',  fg: 'var(--status-success)', border: 'rgba(46,125,79,0.3)' },
@@ -26,6 +28,7 @@ export default function ContractDetailClient({ partnerSlug, contractId }: { part
   const [partner, setPartner] = useState<Partner | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -71,6 +74,7 @@ export default function ContractDetailClient({ partnerSlug, contractId }: { part
     { label: 'Expires', value: formatDate(contract.expiry_date) },
     { label: 'Incoterms', value: contract.incoterms },
   ];
+  const typeLabel = agreementTypeLabel(contract.agreement_type);
 
   return (
     <div className="space-y-8 max-w-4xl">
@@ -80,16 +84,48 @@ export default function ContractDetailClient({ partnerSlug, contractId }: { part
         { label: contract.contract_no },
       ]} />
 
-      <div>
-        <div className="flex items-center gap-3 mb-3">
-          <span style={{ fontSize: '14px', padding: '3px 8px', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)', color: 'var(--fg-2)' }}>{contract.id}</span>
-          <span className="inline-block" style={{ padding: '3px 8px', fontSize: '14px', backgroundColor: statusStyle.bg, color: statusStyle.fg, border: `1px solid ${statusStyle.border}`, borderRadius: 'var(--radius-pill)' }}>{contract.status}</span>
+      {editing ? (
+        <EditContractForm
+          contract={contract}
+          onCancel={() => setEditing(false)}
+          onSaved={(updated) => {
+            setContract(updated);
+            setEditing(false);
+          }}
+        />
+      ) : (
+        <div>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-3 mb-3">
+                <span style={{ fontSize: '14px', padding: '3px 8px', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)', color: 'var(--fg-2)' }}>{contract.id}</span>
+                <span style={{ fontSize: '14px', padding: '3px 8px', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-pill)', color: 'var(--fg-2)', fontWeight: 600, textTransform: 'uppercase' }}>{typeLabel}</span>
+                <span className="inline-block" style={{ padding: '3px 8px', fontSize: '14px', backgroundColor: statusStyle.bg, color: statusStyle.fg, border: `1px solid ${statusStyle.border}`, borderRadius: 'var(--radius-pill)' }}>{contract.status}</span>
+              </div>
+              <h1 style={{ fontSize: '36px', color: 'var(--fg-1)', lineHeight: 1.1 }}>{contract.contract_no}</h1>
+              <p className="mt-3" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
+                {contract.entity_abbreviation} ↔ {contract.partner_trade_name} <span>({contract.currency})</span>
+              </p>
+            </div>
+            <button
+              onClick={() => setEditing(true)}
+              className="inline-flex items-center gap-2 px-4 py-2"
+              style={{
+                backgroundColor: 'var(--paper)',
+                color: 'var(--fg-1)',
+                border: '1px solid var(--border-hairline)',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '14px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              <Pencil className="h-4 w-4" />
+              Edit
+            </button>
+          </div>
         </div>
-        <h1 style={{ fontSize: '36px', color: 'var(--fg-1)', lineHeight: 1.1 }}>{contract.contract_no}</h1>
-        <p className="mt-3" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
-          {contract.entity_abbreviation} ↔ {contract.partner_trade_name} <span>({contract.currency})</span>
-        </p>
-      </div>
+      )}
 
       <div className="dx-ribbon-rule" />
 
@@ -114,6 +150,237 @@ export default function ContractDetailClient({ partnerSlug, contractId }: { part
       )}
 
       <ContractFileSection contract={contract} onChange={(updated) => setContract(updated)} />
+    </div>
+  );
+}
+
+// =============================================================================
+// Inline edit form for contract details — Phase 8.x
+// Replaces the hero card with a tight grid of editable fields. Saves via PATCH
+// /api/contracts/:id and folds back into view mode on success.
+// =============================================================================
+function EditContractForm({
+  contract,
+  onCancel,
+  onSaved,
+}: {
+  contract: Contract;
+  onCancel: () => void;
+  onSaved: (next: Contract) => void;
+}) {
+  const [contractNo, setContractNo] = useState(contract.contract_no);
+  const [agreementType, setAgreementType] = useState<AgreementType>(
+    (contract.agreement_type ?? 'main') as AgreementType
+  );
+  const [signedDate, setSignedDate] = useState(
+    contract.signed_date ? new Date(contract.signed_date * 1000).toISOString().slice(0, 10) : ''
+  );
+  const [expiryDate, setExpiryDate] = useState(
+    contract.expiry_date ? new Date(contract.expiry_date * 1000).toISOString().slice(0, 10) : ''
+  );
+  const [status, setStatus] = useState<Contract['status']>(contract.status);
+  const [currency, setCurrency] = useState(contract.currency);
+  const [incoterms, setIncoterms] = useState(contract.incoterms ?? '');
+  const [vatRate, setVatRate] = useState<0 | 5 | 20>((contract.vat_rate ?? 0) as 0 | 5 | 20);
+  const [notes, setNotes] = useState(contract.notes ?? '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  function buildPatch(): PatchContractBody {
+    const p: PatchContractBody = {};
+    if (contractNo !== contract.contract_no) p.contract_no = contractNo;
+    if (agreementType !== (contract.agreement_type ?? 'main')) p.agreement_type = agreementType;
+    const newSigned = signedDate ? Math.floor(new Date(signedDate + 'T00:00:00Z').getTime() / 1000) : null;
+    if (newSigned !== (contract.signed_date ?? null)) p.signed_date = newSigned;
+    const newExpiry = expiryDate ? Math.floor(new Date(expiryDate + 'T00:00:00Z').getTime() / 1000) : null;
+    if (newExpiry !== (contract.expiry_date ?? null)) p.expiry_date = newExpiry;
+    if (status !== contract.status) p.status = status;
+    if (currency !== contract.currency) p.currency = currency;
+    const newIncoterms = incoterms.trim() || null;
+    if (newIncoterms !== (contract.incoterms ?? null)) p.incoterms = newIncoterms;
+    if (vatRate !== (contract.vat_rate ?? 0)) p.vat_rate = vatRate;
+    const newNotes = notes.trim() || null;
+    if (newNotes !== (contract.notes ?? null)) p.notes = newNotes;
+    return p;
+  }
+
+  async function handleSave() {
+    setErr(null);
+    const patch = buildPatch();
+    if (Object.keys(patch).length === 0) {
+      onCancel();
+      return;
+    }
+    setBusy(true);
+    try {
+      await patchContract(contract.id, patch);
+      // Refetch contract to get JOINs (entity_abbreviation, partner_trade_name)
+      const refreshed = await getContract(contract.id);
+      if (refreshed.success && refreshed.result) {
+        onSaved(refreshed.result);
+      } else {
+        setErr(refreshed.errors[0]?.message ?? 'Failed to refresh contract after save');
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="p-5" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--paper)' }}>
+      <div className="flex items-center justify-between mb-4">
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '20px', fontWeight: 700, color: 'var(--fg-1)', textTransform: 'uppercase', letterSpacing: '0' }}>
+          Edit Contract
+        </h2>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onCancel}
+            disabled={busy}
+            className="inline-flex items-center gap-2 px-4 py-2"
+            style={{ backgroundColor: 'var(--paper-sunk)', color: 'var(--fg-2)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', fontSize: '14px', fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer' }}
+          >
+            <X className="h-4 w-4" />
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={busy}
+            className="inline-flex items-center gap-2 px-4 py-2"
+            style={{ backgroundColor: busy ? 'var(--paper-sunk)' : 'var(--brand-rot)', color: busy ? 'var(--fg-3)' : 'var(--paper)', border: 'none', borderRadius: 'var(--radius-sm)', fontSize: '14px', fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer' }}
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            Save
+          </button>
+        </div>
+      </div>
+
+      {err && (
+        <div className="mb-4 p-3" style={{ backgroundColor: 'rgba(229,32,44,0.05)', border: '1px solid rgba(229,32,44,0.2)', color: 'var(--brand-rot)', borderRadius: 'var(--radius-sm)', fontSize: '14px' }}>
+          {err}
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-4">
+        <FormField label="Contract No">
+          <input
+            type="text"
+            value={contractNo}
+            onChange={(e) => setContractNo(e.target.value)}
+            disabled={busy}
+            style={inputStyle}
+          />
+        </FormField>
+        <FormField label="Type">
+          <select
+            value={agreementType}
+            onChange={(e) => setAgreementType(e.target.value as AgreementType)}
+            disabled={busy}
+            style={inputStyle}
+          >
+            {AGREEMENT_TYPE_ORDER.map((t) => (
+              <option key={t} value={t}>{AGREEMENT_TYPE_LABELS[t]}</option>
+            ))}
+          </select>
+        </FormField>
+        <FormField label="Signed Date">
+          <input
+            type="date"
+            value={signedDate}
+            onChange={(e) => setSignedDate(e.target.value)}
+            disabled={busy}
+            style={inputStyle}
+          />
+        </FormField>
+        <FormField label="Expiry Date">
+          <input
+            type="date"
+            value={expiryDate}
+            onChange={(e) => setExpiryDate(e.target.value)}
+            disabled={busy}
+            style={inputStyle}
+          />
+        </FormField>
+        <FormField label="Status">
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value as Contract['status'])}
+            disabled={busy}
+            style={inputStyle}
+          >
+            <option value="draft">draft</option>
+            <option value="active">active</option>
+            <option value="expired">expired</option>
+            <option value="cancelled">cancelled</option>
+          </select>
+        </FormField>
+        <FormField label="Currency">
+          <input
+            type="text"
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value.toUpperCase().slice(0, 3))}
+            disabled={busy}
+            style={inputStyle}
+            maxLength={3}
+          />
+        </FormField>
+        <FormField label="Incoterms">
+          <input
+            type="text"
+            value={incoterms}
+            onChange={(e) => setIncoterms(e.target.value)}
+            disabled={busy}
+            style={inputStyle}
+            placeholder="e.g. FOB, CIF, DAP"
+          />
+        </FormField>
+        <FormField label="VAT Rate">
+          <select
+            value={vatRate}
+            onChange={(e) => setVatRate(Number(e.target.value) as 0 | 5 | 20)}
+            disabled={busy}
+            style={inputStyle}
+          >
+            <option value={0}>0%</option>
+            <option value={5}>5%</option>
+            <option value={20}>20%</option>
+          </select>
+        </FormField>
+      </div>
+
+      <div className="mt-4">
+        <FormField label="Notes">
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            disabled={busy}
+            rows={3}
+            style={{ ...inputStyle, fontFamily: 'inherit', resize: 'vertical' }}
+          />
+        </FormField>
+      </div>
+    </div>
+  );
+}
+
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '8px 10px',
+  fontSize: '14px',
+  fontWeight: 700,
+  color: 'var(--fg-1)',
+  backgroundColor: 'var(--paper)',
+  border: '1px solid var(--border-hairline)',
+  borderRadius: 'var(--radius-sm)',
+  letterSpacing: '0',
+};
+
+function FormField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block mb-1" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{label}</label>
+      {children}
     </div>
   );
 }

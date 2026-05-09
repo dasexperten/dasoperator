@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
-import { getPartner, createContract, type Partner } from '@/lib/api';
+import { getPartner, createContract, type Partner, type AgreementType } from '@/lib/api';
 import Breadcrumb from '@/components/layout/breadcrumb';
+import { AGREEMENT_TYPE_LABELS, AGREEMENT_TYPE_ORDER, isLegalDocType } from '@/lib/agreement-types';
 
 const ENTITIES = [
   { id: 'dee', label: 'DEE — Das Experten Eurasia' },
@@ -21,6 +22,7 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
   const [error, setError] = useState<string | null>(null);
 
   const [contractNo, setContractNo] = useState('');
+  const [agreementType, setAgreementType] = useState<AgreementType>('main');
   const [companyId, setCompanyId] = useState('dee');
   const [currency, setCurrency] = useState('USD');
   const [vatRate, setVatRate] = useState<0 | 5 | 20>(0);
@@ -29,6 +31,8 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
   const [incoterms, setIncoterms] = useState('');
   const [status, setStatus] = useState<'draft' | 'active'>('active');
   const [notes, setNotes] = useState('');
+
+  const isLegal = isLegalDocType(agreementType);
 
   useEffect(() => {
     const fetch = async () => {
@@ -43,13 +47,17 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
     setSubmitting(true);
 
     const body: Parameters<typeof createContract>[0] = {
-      contract_no: contractNo.trim(),
       partner_id: partnerSlug,
+      agreement_type: agreementType,
       our_company_id: companyId,
       currency,
       status,
       vat_rate: vatRate,
     };
+
+    // contract_no is optional for legal docs (NDA/MOU/LOI/other) — backend
+    // will auto-generate <TYPE>-<ENTITY>-<PARTNER>-<DATE> when blank.
+    if (contractNo.trim()) body.contract_no = contractNo.trim();
 
     if (signedDate) body.signed_date = Math.floor(new Date(signedDate).getTime() / 1000);
     if (expiryDate) body.expiry_date = Math.floor(new Date(expiryDate).getTime() / 1000);
@@ -70,7 +78,8 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
     }
   };
 
-  const valid = contractNo.trim() && companyId && currency;
+  // Legal docs may submit with blank contract_no (auto-generated server-side).
+  const valid = (isLegal || contractNo.trim()) && companyId && currency;
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -101,10 +110,31 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
 
       <div className="bg-card p-6 space-y-4" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
         <div>
-          <label className="block mb-1" style={{ fontSize: '14px' }}>Contract Number *</label>
+          <label className="block mb-1" style={{ fontSize: '14px' }}>Type *</label>
+          <select
+            value={agreementType}
+            onChange={(e) => setAgreementType(e.target.value as AgreementType)}
+            className="w-full px-3 py-2 text-sm focus:outline-none"
+            style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}
+          >
+            {AGREEMENT_TYPE_ORDER.map((t) => (
+              <option key={t} value={t}>{AGREEMENT_TYPE_LABELS[t]}</option>
+            ))}
+          </select>
+          {isLegal && (
+            <p className="mt-1" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
+              For legal docs (NDA / MoU / LoI / Other), Contract Number can be left blank — it will be auto-generated from type, entity, partner abbreviation and date.
+            </p>
+          )}
+        </div>
+
+        <div>
+          <label className="block mb-1" style={{ fontSize: '14px' }}>
+            Contract Number {isLegal ? '' : '*'}
+          </label>
           <input
             type="text" value={contractNo} onChange={(e) => setContractNo(e.target.value)}
-            placeholder="e.g. DEE-FRED-2026-01"
+            placeholder={isLegal ? 'Auto-generated if blank' : 'e.g. DEE-FRED-2026-01'}
             className="w-full px-3 py-2 text-sm focus:outline-none"
             style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}
           />

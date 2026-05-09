@@ -166,3 +166,43 @@ When picking up an item from this list:
 1. Start the next chat with: `продолжаем Das Operator ERP — пункт <letter>`
 2. The `BACKLOG.md` lives in repo root — always reflects current state
 3. After completion, move item to "Done" section + bump session date
+
+---
+
+## Phase 9.x — Email-to-Operation pipeline (started 2026-05-09)
+
+### ✅ Done in this session
+- Migration 0027 applied to D1 prod:
+  - Table `invoice_inbox` (18 columns, 4 indexes, 3 FKs)
+  - Column `payments.inbox_origin` + index
+- Decisions locked: A+B+C types, Y separate ops per line, R no auto-create
+  if unknown partner, T no auto-create if uncertain, N2 cron 03:00 МСК,
+  C1 sale_payment → payment_pending (amber dot)
+
+### 🚧 Blocked — needs parallel chat coordination
+- Apps Script Web App at production deployment URL is currently broken
+  (returns 405 Method Not Allowed page instead of executing doPost).
+  Already-deployed v30 "attachment pipeline live" is in this state.
+  - Refreshed deployment to v31 from current HEAD — still broken.
+  - Manifest looks fine. Source code passes brace balance check.
+  - Likely runtime failure during initialization of one of the recently
+    added files (lib/InboxAttachmentManager, lib/R2InboxUploader).
+  - **Cannot continue invoice-inbox pipeline until parallel chat (which
+    owns these files) verifies and unblocks.**
+  - Affects: rumailer outbound emails for .ru domain may also be affected
+    (if they go through this Apps Script — verify).
+
+### Pending phases (after Apps Script unblocks)
+- Phase 1: Apps Script endpoint to fetch yesterday's invoice candidates
+  (or use existing `find` action with proper Gmail query — already does
+  attachment-to-R2 dedup pipeline)
+- Phase 2: Cloudflare cron Worker `invoice-inbox-worker` skeleton
+- Phase 3: PDF/Excel text extraction (or DeepSeek vision for images)
+- Phase 4: DeepSeek classification (service/purchase/sale_payment) + extraction
+- Phase 5: Partner matching by ИНН + fuzzy name
+- Phase 6: ✅ DONE (D1 migration)
+- Phase 7: Operation/payment creation logic (only on high-confidence match)
+- Phase 8: Frontend `/inbox` page with Confirm/Edit/Reject buttons
+- Phase 9: Amber dot ("payment_pending") in payment overlay
+- Phase 10: Morning digest email
+- Phase 11: Test on 10-20 real invoices

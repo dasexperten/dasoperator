@@ -136,11 +136,11 @@ async function cronPollPerfReports(env: Env) {
             throw new Error(`download HTTP ${dlResp.status}`);
           }
 
-          const csv = await dlResp.text();
+          const reportJson = await dlResp.text();
           
           // Parse and update CPC
           const skuMap = await refreshOzonSkuMap(env);
-          const cpcBySku = parseCpcCsv(csv, skuMap);
+          const cpcBySku = parseCpcJson(reportJson, skuMap);
 
           const stmts: D1PreparedStatement[] = [];
           for (const [sku, kopecks] of cpcBySku.entries()) {
@@ -185,35 +185,48 @@ async function cronPollPerfReports(env: Env) {
 }
 
 // Helper copied from marketplaces-extras.ts
-function parseCpcCsv(csv: string, skuMap: Map<number, any>): Map<string, number> {
+function parseCpcJson(json: string, skuMap: Map<number, any>): Map<string, number> {
+  // Ozon Performance API now returns JSON instead of CSV (confirmed 2026-05-09).
+  // Shape: { "<campaignId>": { title, report: { rows: [{ sku, clicks, moneySpent, ... }, ...] } }, ... }
+  // Numbers use comma as decimal separator (European format).
+  // Skip search_query rows where sku is empty (campaign-summary lines).
   const result = new Map<string, number>();
-  const lines = csv.split('\n').filter((l) => l.trim().length > 0);
-  if (lines.length < 2) return result;
-
-  const headers = lines[0].split(';').map((h) => h.replace(/^\ufeff/, '').replace(/^"|"$/g, '').trim().toLowerCase());
-  const skuCol = headers.findIndex((h) => h.includes('sku') || h.includes('товар') || h === 'id');
-  const spentCol = headers.findIndex((h) => h.includes('moneyspent') || h.includes('расход') || h.includes('потрачено'));
-
-  if (skuCol < 0 || spentCol < 0) {
-    console.error('[parseCpcCsv] columns not found. headers=' + JSON.stringify(headers));
+  let parsed: any;
+  try {
+    parsed = JSON.parse(json);
+  } catch (e) {
+    console.error('[parseCpcJson] not valid JSON, len=' + json.length + ' first120=' + json.slice(0, 120));
     return result;
   }
 
-  for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(';').map((c) => c.replace(/^"|"$/g, '').trim());
-    const ozonSkuStr = cols[skuCol];
-    const spentStr = cols[spentCol];
-    if (!ozonSkuStr || !spentStr) continue;
-    const ozonSku = parseInt(ozonSkuStr, 10);
-    if (Number.isNaN(ozonSku)) continue;
-    const spent = parseFloat(spentStr.replace(',', '.').replace(/\s/g, ''));
-    if (Number.isNaN(spent) || spent <= 0) continue;
-    const mapped = skuMap.get(ozonSku);
-    if (!mapped || !mapped.catalog_sku) continue;
-    const sku = mapped.catalog_sku;
-    const cur = result.get(sku) || 0;
-    result.set(sku, cur + Math.round(spent * 100));
+  if (!parsed || typeof parsed !== 'object') return result;
+
+  for (const campaignId of Object.keys(parsed)) {
+    const body = parsed[campaignId];
+    const rows = body?.report?.rows;
+    if (!Array.isArray(rows)) continue;
+
+    for (const row of rows) {
+      const skuRaw = row?.sku;
+      const moneyRaw = row?.moneySpent;
+      if (!skuRaw || !moneyRaw) continue;
+
+      const ozonSku = parseInt(String(skuRaw), 10);
+      if (Number.isNaN(ozonSku) || ozonSku <= 0) continue;
+
+      const moneyStr = String(moneyRaw).replace(',', '.').replace(/\s/g, '');
+      const spent = parseFloat(moneyStr);
+      if (Number.isNaN(spent) || spent <= 0) continue;
+
+      const mapped = skuMap.get(ozonSku);
+      if (!mapped || !mapped.catalog_sku) continue;
+
+      const sku = mapped.catalog_sku;
+      const cur = result.get(sku) || 0;
+      result.set(sku, cur + Math.round(spent * 100));
+    }
   }
+
   return result;
 }
 
@@ -241,13 +254,18 @@ async function getOzonPerfToken(env: Env): Promise<string> {
 
 // Helper to refresh SKU map (duplicated from extras)
 async function refreshOzonSkuMap(env: Env): Promise<Map<number, any>> {
-  // Switched 2026-05-09 from /v2/product/list (deprecated/disabled by Ozon
-  // 2025-02-09) to /v3/product/list. v3 response no longer carries fbo_sku /
-  // fbs_sku — only product_id and offer_id. We map product_id (numeric) to
-  // catalog_sku derived from offer_id. CPC CSV reports use the same product_id
-  // as the SKU column, so the existing parseCpcCsv logic still works.
-  // Pagination is via last_id cursor; fetch up to 5 pages defensively.
+  // 2-step build (revised 2026-05-09):
+  //   Step 1: /v3/product/list — get all offer_ids
+  //   Step 2: /v3/product/info/list — for each offer_id, get the Ozon SKU
+  //           (the numeric `sku` field, NOT `id` which is product_id).
+  // Performance API reports use Ozon SKU as the row identifier, so we map
+  //   ozon_sku → offer_id.toLowerCase() (= our catalog_sku / base_sku).
+  // Both `item.sku` and entries in `item.sources[].sku` are collected because
+  //   a product can have multiple variants/quants, each with its own SKU.
   const skuMap = new Map<number, any>();
+
+  // Step 1: paginate /v3/product/list to gather offer_ids
+  const offerIds: string[] = [];
   let lastId = '';
   for (let page = 0; page < 5; page++) {
     const apiResp = await fetch('https://api-seller.ozon.ru/v3/product/list', {
@@ -257,26 +275,54 @@ async function refreshOzonSkuMap(env: Env): Promise<Map<number, any>> {
         'Api-Key': '4ac8181b-4cd8-4b4a-964d-905e39cc9b42',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        filter: { visibility: 'ALL' },
-        last_id: lastId,
-        limit: 1000,
-      }),
+      body: JSON.stringify({ filter: { visibility: 'ALL' }, last_id: lastId, limit: 1000 }),
     });
     if (!apiResp.ok) throw new Error(`product/list HTTP ${apiResp.status}`);
     const data = await apiResp.json<{
-      result: { items: Array<{ product_id: number; offer_id: string }>; last_id?: string; total?: number }
+      result: { items: Array<{ product_id: number; offer_id: string }>; last_id?: string }
     }>();
     const items = data.result?.items || [];
     for (const item of items) {
-      if (item.product_id && item.offer_id) {
-        skuMap.set(item.product_id, { catalog_sku: item.offer_id.toLowerCase() });
-      }
+      if (item.offer_id) offerIds.push(item.offer_id);
     }
-    if (items.length < 1000) break;            // last page
+    if (items.length < 1000) break;
     lastId = data.result?.last_id ?? '';
     if (!lastId) break;
   }
+
+  if (offerIds.length === 0) return skuMap;
+
+  // Step 2: /v3/product/info/list batch (limit 1000 per call)
+  const BATCH = 1000;
+  for (let i = 0; i < offerIds.length; i += BATCH) {
+    const slice = offerIds.slice(i, i + BATCH);
+    const infoResp = await fetch('https://api-seller.ozon.ru/v3/product/info/list', {
+      method: 'POST',
+      headers: {
+        'Client-Id': '374116',
+        'Api-Key': '4ac8181b-4cd8-4b4a-964d-905e39cc9b42',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ offer_id: slice, product_id: [], sku: [] }),
+    });
+    if (!infoResp.ok) throw new Error(`product/info/list HTTP ${infoResp.status}`);
+    const infoData = await infoResp.json<{
+      items: Array<{
+        offer_id: string;
+        sku?: number;
+        sources?: Array<{ sku?: number }>;
+      }>
+    }>();
+    for (const item of infoData.items || []) {
+      const offer = (item.offer_id || '').toLowerCase();
+      if (!offer) continue;
+      if (item.sku) skuMap.set(item.sku, { catalog_sku: offer });
+      for (const src of item.sources || []) {
+        if (src?.sku) skuMap.set(src.sku, { catalog_sku: offer });
+      }
+    }
+  }
+
   return skuMap;
 }
 

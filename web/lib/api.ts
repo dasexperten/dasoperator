@@ -665,7 +665,9 @@ export interface Contract {
 
 export interface ContractsListResponse {
   count: number;
-  contracts: Contract[];
+  contracts: Array<Contract & {
+    partner_abbreviation?: string | null;
+  }>;
 }
 
 export async function getContracts() {

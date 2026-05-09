@@ -37,6 +37,7 @@ contracts.get('/', async (c) => {
   const sql = `
     SELECT
       c.id, c.contract_no, c.partner_id, p.trade_name as partner_trade_name,
+      p.abbreviation as partner_abbreviation,
       c.our_company_id, co.abbreviation as entity_abbreviation,
       c.currency, c.signed_date, c.expiry_date, c.incoterms,
       c.status, c.notes, c.vat_rate, c.contract_file_key,

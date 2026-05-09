@@ -100,16 +100,19 @@ inbox.post('/:id/confirm', async (c) => {
 
       partnerId = `prt_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
 
+      // trade_name is NOT NULL — use legal name as default (user can edit later)
+      const tradeName = legalName.length > 60 ? legalName.slice(0, 60) : legalName;
+
       await c.env.DB.prepare(
         `INSERT INTO partners (
-          id, legal_name, country, tax_id, slug,
+          id, trade_name, legal_name, country, tax_id, slug,
           partner_type, role, status, kind,
           currency, modes,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, 'service_vendor', 'vendor', 'active', 'service',
+        ) VALUES (?, ?, ?, ?, ?, ?, 'service_vendor', 'vendor', 'active', 'service',
                   ?, '["service"]', ?, ?)`
       ).bind(
-        partnerId, legalName, country || null, taxId || null, slug,
+        partnerId, tradeName, legalName, country || null, taxId || null, slug,
         row.extracted_currency || null,
         now, now,
       ).run();
@@ -131,15 +134,22 @@ inbox.post('/:id/confirm', async (c) => {
     ).all<{name: string}>();
     const colSet = new Set((cols.results ?? []).map((c) => c.name));
 
+    // Determine which entity (DEE/DEI/DEASEAN/DEC) is the buyer.
+    // DeepSeek may have set buyer_entity_guess in extracted data; default DEI for service.
+    // For now we trust the LLM guess stored elsewhere or fall back to 'dei' for service vendors.
+    const ourCompanyId = String(body.our_company_id ?? 'dei').toLowerCase();
+
+    // operation_type: existing CHECK only allows sale/purchase/transfer/bundling.
+    // Service vendor invoices are recorded as 'purchase' (we're purchasing a service).
+    // The vendor's partner.kind='service' distinguishes them from goods purchases.
+    const opType = 'purchase';
+
     // Build minimal valid INSERT — only columns we know exist
-    const fields: string[] = ['id', 'partner_id', 'operation_type', 'status', 'currency', 'total_amount', 'created_at', 'updated_at'];
-    const values: any[] = [operationId, partnerId, 'service', 'issued', currency, amount, now, now];
+    const fields: string[] = ['id', 'partner_id', 'operation_type', 'our_company_id', 'operation_date', 'status', 'currency', 'total_amount', 'created_at', 'updated_at'];
+    const values: any[] = [operationId, partnerId, opType, ourCompanyId, opDate, 'issued', currency, amount, now, now];
 
     if (colSet.has('reference'))         { fields.push('reference');         values.push(reference); }
-    if (colSet.has('operation_date'))    { fields.push('operation_date');    values.push(opDate); }
-    if (colSet.has('issue_date'))        { fields.push('issue_date');        values.push(opDate); }
-    if (colSet.has('paid_amount'))       { fields.push('paid_amount');       values.push(0); }
-    if (colSet.has('notes'))             { fields.push('notes');             values.push(`Auto-created from invoice_inbox ${id}: ${row.email_subject || ''}`.slice(0, 500)); }
+    if (colSet.has('notes'))             { fields.push('notes');             values.push(`Service vendor invoice from invoice_inbox ${id}: ${row.email_subject || ''}`.slice(0, 500)); }
 
     const placeholders = fields.map(() => '?').join(',');
     await c.env.DB.prepare(

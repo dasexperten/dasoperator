@@ -5,7 +5,7 @@ export const runtime = 'edge';
 import { useEffect, useState, useCallback } from 'react';
 import {
   Loader2, RefreshCw, Headphones, AlertCircle, Search,
-  ChevronLeft, ChevronRight, ShoppingBag, Users
+  ChevronLeft, ChevronRight, ShoppingBag, Users, Archive
 } from 'lucide-react';
 
 interface CrmStats {
@@ -53,9 +53,23 @@ interface PageMeta {
   total_pages: number;
 }
 
+interface LegacyCustomer {
+  external_id: number;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  email_consent: boolean;
+  registered_at: string | null;
+  orders_count: number;
+  total_spent: number;
+  last_completed_order_at: string | null;
+  note: string | null;
+  source: string;
+}
+
 const API_BASE = 'https://dasoperator-api.dasexperten.workers.dev';
 
-type TabId = 'orders' | 'customers';
+type TabId = 'orders' | 'customers' | 'legacy';
 
 export default function CrmPage() {
   const [stats, setStats] = useState<CrmStats | null>(null);
@@ -83,6 +97,16 @@ export default function CrmPage() {
   const [customersLimit, setCustomersLimit] = useState(50);
   const [customersSearchInput, setCustomersSearchInput] = useState('');
   const [customersActiveSearch, setCustomersActiveSearch] = useState('');
+
+  // Legacy customers state (Yandex KIT historical snapshot)
+  const [legacy, setLegacy] = useState<LegacyCustomer[]>([]);
+  const [legacyMeta, setLegacyMeta] = useState<PageMeta | null>(null);
+  const [legacyLoading, setLegacyLoading] = useState(false);
+  const [legacyError, setLegacyError] = useState<string | null>(null);
+  const [legacyPage, setLegacyPage] = useState(1);
+  const [legacyLimit, setLegacyLimit] = useState(50);
+  const [legacySearchInput, setLegacySearchInput] = useState('');
+  const [legacyActiveSearch, setLegacyActiveSearch] = useState('');
 
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
@@ -147,9 +171,34 @@ export default function CrmPage() {
     }
   }, [customersPage, customersLimit, customersActiveSearch]);
 
+  const loadLegacy = useCallback(async () => {
+    setLegacyLoading(true);
+    setLegacyError(null);
+    try {
+      const params = new URLSearchParams({
+        page: String(legacyPage),
+        limit: String(legacyLimit),
+      });
+      if (legacyActiveSearch) params.set('search', legacyActiveSearch);
+      const res = await fetch(`${API_BASE}/api/crm/legacy-customers?${params}`);
+      const data = await res.json();
+      if (data.success && data.result) {
+        setLegacy(data.result.customers);
+        setLegacyMeta(data.result.pagination);
+      } else {
+        setLegacyError(data.errors?.[0]?.message || 'Failed to load legacy customers');
+      }
+    } catch (e) {
+      setLegacyError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setLegacyLoading(false);
+    }
+  }, [legacyPage, legacyLimit, legacyActiveSearch]);
+
   useEffect(() => { loadStats(); }, [loadStats]);
   useEffect(() => { if (tab === 'orders') loadOrders(); }, [tab, loadOrders]);
   useEffect(() => { if (tab === 'customers') loadCustomers(); }, [tab, loadCustomers]);
+  useEffect(() => { if (tab === 'legacy') loadLegacy(); }, [tab, loadLegacy]);
 
   function handleOrdersSearchSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -161,14 +210,20 @@ export default function CrmPage() {
     setCustomersPage(1);
     setCustomersActiveSearch(customersSearchInput.trim());
   }
+  function handleLegacySearchSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLegacyPage(1);
+    setLegacyActiveSearch(legacySearchInput.trim());
+  }
 
   function refreshAll() {
     loadStats();
     if (tab === 'orders') loadOrders();
-    else loadCustomers();
+    else if (tab === 'customers') loadCustomers();
+    else loadLegacy();
   }
 
-  const isLoading = statsLoading || ordersLoading || customersLoading;
+  const isLoading = statsLoading || ordersLoading || customersLoading || legacyLoading;
 
   return (
     <div className="space-y-6 max-w-full">
@@ -231,6 +286,13 @@ export default function CrmPage() {
           label="Customers"
           count={stats?.customers_total ?? null}
         />
+        <TabButton
+          active={tab === 'legacy'}
+          onClick={() => setTab('legacy')}
+          icon={<Archive className="h-4 w-4" />}
+          label="Legacy (Yandex KIT)"
+          count={legacyMeta?.total_count ?? null}
+        />
       </div>
 
       {/* Tab content */}
@@ -273,6 +335,27 @@ export default function CrmPage() {
           setPage={setCustomersPage}
         >
           <CustomersTable customers={customers} hasSearch={!!customersActiveSearch} search={customersActiveSearch} />
+        </DataTablePanel>
+      )}
+
+      {tab === 'legacy' && (
+        <DataTablePanel
+          title="Legacy customers (Yandex KIT)"
+          meta={legacyMeta}
+          loading={legacyLoading}
+          error={legacyError}
+          searchPlaceholder="Search by name, phone, or email"
+          searchInput={legacySearchInput}
+          setSearchInput={setLegacySearchInput}
+          activeSearch={legacyActiveSearch}
+          onSearchSubmit={handleLegacySearchSubmit}
+          onClearSearch={() => { setLegacySearchInput(''); setLegacyActiveSearch(''); setLegacyPage(1); }}
+          limit={legacyLimit}
+          setLimit={(n) => { setLegacyLimit(n); setLegacyPage(1); }}
+          page={legacyPage}
+          setPage={setLegacyPage}
+        >
+          <LegacyTable customers={legacy} hasSearch={!!legacyActiveSearch} search={legacyActiveSearch} />
         </DataTablePanel>
       )}
 
@@ -610,6 +693,61 @@ function CustomersTable({ customers, hasSearch, search }: { customers: CrmCustom
               {cu.loyalty_balance === null ? '—' : cu.loyalty_balance.toLocaleString('ru-RU')}
             </Td>
             <Td muted>{cu.created_at}</Td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function LegacyTable({ customers, hasSearch, search }: { customers: LegacyCustomer[]; hasSearch: boolean; search: string }) {
+  return (
+    <table className="w-full">
+      <thead>
+        <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+          <Th align="left">Customer</Th>
+          <Th align="left">Phone</Th>
+          <Th align="left">Email</Th>
+          <Th align="right">Orders</Th>
+          <Th align="right">Total spent</Th>
+          <Th align="left">Last order</Th>
+          <Th align="left">Registered</Th>
+          <Th align="left">Source</Th>
+        </tr>
+      </thead>
+      <tbody>
+        {customers.length === 0 && (
+          <tr>
+            <td colSpan={8} className="px-6 py-8 text-center" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
+              {hasSearch ? `No legacy customers matching "${search}"` : 'No legacy customers'}
+            </td>
+          </tr>
+        )}
+        {customers.map((cu) => (
+          <tr key={cu.external_id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+            <Td bold>{cu.name}</Td>
+            <Td muted>{cu.phone || '—'}</Td>
+            <Td muted>{cu.email || '—'}</Td>
+            <Td align="right" bold style={{ color: cu.orders_count > 0 ? 'var(--fg-1)' : 'var(--fg-3)' }}>
+              {cu.orders_count}
+            </Td>
+            <Td align="right" bold style={{ color: cu.total_spent > 0 ? 'var(--fg-1)' : 'var(--fg-3)' }}>
+              {cu.total_spent > 0 ? `${cu.total_spent.toLocaleString('ru-RU')} ₽` : '—'}
+            </Td>
+            <Td muted>{cu.last_completed_order_at || '—'}</Td>
+            <Td muted>{cu.registered_at || '—'}</Td>
+            <Td>
+              <span style={{
+                fontSize: 14,
+                fontWeight: 700,
+                padding: '2px 8px',
+                color: 'var(--fg-3)',
+                backgroundColor: 'var(--paper-sunk)',
+                borderRadius: 'var(--radius-sm)',
+              }}>
+                {cu.source === 'yandex_kit' ? 'Yandex KIT' : cu.source}
+              </span>
+            </Td>
           </tr>
         ))}
       </tbody>

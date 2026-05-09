@@ -973,12 +973,14 @@ export async function getOperations(filters?: {
   contract_id?: string;
   operation_type?: string;
   status?: string;
+  include_cancelled?: boolean;
 }) {
   const params = new URLSearchParams();
   if (filters?.partner_id) params.set('partner_id', filters.partner_id);
   if (filters?.contract_id) params.set('contract_id', filters.contract_id);
   if (filters?.operation_type) params.set('operation_type', filters.operation_type);
   if (filters?.status) params.set('status', filters.status);
+  if (filters?.include_cancelled) params.set('include_cancelled', '1');
   const qs = params.toString() ? `?${params.toString()}` : '';
   return apiGet<OperationsListResponse>(`/api/operations${qs}`);
 }

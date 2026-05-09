@@ -11,6 +11,7 @@
 import type { Env } from './types';
 import { todayUtcDate, refreshFxFromCbr } from './lib/fx-cbr';
 import { storeSnapshot } from './lib/fx-store';
+import { runInboxIngestion } from './lib/inbox-ingestion';
 
 
 // =============================================================================
@@ -338,6 +339,18 @@ export async function handleScheduled(
   if (cron === '0 12 * * *') {
     await runFxRefresh();
     await runPartnerStatusRecalc(env);
+    return;
+  }
+
+  // Daily inbox ingestion at 00:00 UTC = 03:00 МСК
+  if (cron === '0 0 * * *') {
+    console.log('[cron:inbox] starting daily invoice ingestion');
+    try {
+      const stats = await runInboxIngestion(env);
+      console.log(`[cron:inbox] complete: ${JSON.stringify(stats)}`);
+    } catch (e) {
+      console.error('[cron:inbox] failed:', e);
+    }
     return;
   }
 

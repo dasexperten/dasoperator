@@ -1,8 +1,25 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
+import { runInboxIngestion } from '../lib/inbox-ingestion';
 
 const inbox = new Hono<{ Bindings: Env }>();
+
+// =============================================================================
+// POST /api/inbox/run-ingestion — manually trigger the daily cron ingestion
+// =============================================================================
+// Same code path the cron uses (03:00 МСК daily). Useful for:
+//   - Testing pipeline changes without waiting for next cron tick
+//   - Forcing a fresh check after a known invoice arrived in Gmail
+//   - End-to-end smoke test from /inbox UI "Refresh from Gmail" button
+inbox.post('/run-ingestion', async (c) => {
+  try {
+    const stats = await runInboxIngestion(c.env);
+    return ok(c, stats);
+  } catch (e) {
+    return fail(c, 500, [{ code: 'ingestion_error', message: e instanceof Error ? e.message : String(e) }]);
+  }
+});
 
 // =============================================================================
 // GET /api/inbox — list invoice_inbox rows

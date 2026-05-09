@@ -90,8 +90,10 @@ metrika.get('/stats', async (c) => {
       source: `Yandex Metrika counter ${counter}`,
       counter_id: Number(counter),
       today: {
-        visits: Math.round(todayTotals[0] ?? 0),
-        users: Math.round(todayTotals[1] ?? 0),
+        // Prefer last timeline entry — Metrika's today endpoint can be sparse
+        // mid-day; the bytime data is already populated even for the current day.
+        visits: timeline.length ? timeline[timeline.length - 1].visits : Math.round(todayTotals[0] ?? 0),
+        users: timeline.length ? timeline[timeline.length - 1].users : Math.round(todayTotals[1] ?? 0),
         bounce_rate_pct: Math.round((todayTotals[2] ?? 0) * 10) / 10,
         avg_duration_sec: Math.round(todayTotals[3] ?? 0),
       },

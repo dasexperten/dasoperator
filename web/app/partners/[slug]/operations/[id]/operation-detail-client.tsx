@@ -10,12 +10,24 @@ import {
   updateOperationStatus,
   getDocuments,
   issueDocuments,
+  getStockMovements,
   type Operation,
   type OperationLineItem,
   type Partner,
   type Payment,
   type OperationDocument,
+  type StockMovement,
 } from '@/lib/api';
+
+// =============================================================================
+// Payment overlay tokens (mirror of /operations top-level page)
+// =============================================================================
+const PAYMENT_OVERLAY: Record<string, { bg: string; fg: string; dot: string; label: string }> = {
+  unpaid:  { bg: 'rgba(229,32,44,0.10)', fg: '#A82029', dot: '#E5202C', label: 'Unpaid' },
+  partial: { bg: 'rgba(125,72,28,0.10)', fg: '#7D481C', dot: '#A06A2C', label: 'Partial' },
+  paid:    { bg: 'rgba(46,125,79,0.10)', fg: '#2E7D4F', dot: '#3E9E63', label: 'Paid' },
+  neutral: { bg: 'var(--paper-sunk)',    fg: 'var(--fg-3)', dot: 'var(--fg-muted)', label: '' },
+};
 import { formatMoney } from '@/lib/money';
 import Breadcrumb from '@/components/layout/breadcrumb';
 import DocumentActionBar from '@/components/operations/document-action-bar';
@@ -103,7 +115,7 @@ function statusChip(status: string) {
 // =============================================================================
 // Component
 // =============================================================================
-type Tab = 'items' | 'status' | 'documents' | 'payments';
+type Tab = 'items' | 'status' | 'documents' | 'payments' | 'movements';
 
 export default function OperationDetailClient({
   partnerSlug,
@@ -116,6 +128,7 @@ export default function OperationDetailClient({
   const [operation, setOperation] = useState<Operation | null>(null);
   const [lineItems, setLineItems] = useState<OperationLineItem[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [movements, setMovements] = useState<StockMovement[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>('items');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -126,11 +139,12 @@ export default function OperationDetailClient({
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [partnerRes, opRes, paysRes, docsRes] = await Promise.all([
+        const [partnerRes, opRes, paysRes, docsRes, movRes] = await Promise.all([
           getPartner(partnerSlug),
           getOperation(operationId),
           getPayments({ operation_id: operationId }),
           getDocuments({ operation_id: operationId }),
+          getStockMovements({ source: 'operation', source_ref_id: operationId }),
         ]);
 
         if (partnerRes.success && partnerRes.result) setPartner(partnerRes.result);
@@ -149,6 +163,10 @@ export default function OperationDetailClient({
 
         if (docsRes.success && docsRes.result) {
           setDocumentCount(docsRes.result.count);
+        }
+
+        if (movRes.success && movRes.result) {
+          setMovements(movRes.result.movements);
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
@@ -269,7 +287,34 @@ export default function OperationDetailClient({
           >
             {operation.currency} {formatMoney(grandTotal, operation.currency)}
           </div>
-          <div className="mt-2">{statusChip(operation.status)}</div>
+          <div className="mt-2 flex justify-end gap-2 flex-wrap items-center">
+            {statusChip(operation.status)}
+            {(() => {
+              const ps = operation.payment_state ?? 'neutral';
+              if (ps === 'neutral') return null;
+              const po = PAYMENT_OVERLAY[ps]!;
+              const total = operation.total_amount || 0;
+              const paid = operation.paid_amount ?? 0;
+              const pct = total > 0 ? Math.round((paid / total) * 100) : 0;
+              return (
+                <span
+                  className="inline-flex items-center gap-2"
+                  style={{
+                    padding: '4px 10px',
+                    backgroundColor: po.bg,
+                    color: po.fg,
+                    borderRadius: 'var(--radius-pill)',
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    border: `1px solid ${po.dot}33`,
+                  }}
+                >
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: po.dot, display: 'inline-block' }} />
+                  {po.label} {pct}%
+                </span>
+              );
+            })()}
+          </div>
           
           {/* Status transition buttons */}
           {statusError && (
@@ -356,7 +401,7 @@ export default function OperationDetailClient({
 
       {/* REFERENCE STRIP ============================================ */}
       <div
-        className="grid grid-cols-2 md:grid-cols-5 gap-4 p-4"
+        className="grid grid-cols-2 md:grid-cols-6 gap-4 p-4"
         style={{
           backgroundColor: 'var(--paper-sunk)',
           border: '1px solid var(--border-hairline)',
@@ -388,6 +433,21 @@ export default function OperationDetailClient({
           </p>
         </div>
         <div>
+          <p style={{ fontSize: '14px' }}>FX → USD</p>
+          <p
+            className="mt-1"
+            style={{
+              fontSize: 'var(--fs-body-sm)',
+              color: operation.fx_rate_to_usd ? 'var(--fg-1)' : 'var(--fg-3)',
+              fontWeight: operation.fx_rate_to_usd ? 700 : 400,
+            }}
+          >
+            {operation.fx_rate_to_usd
+              ? operation.fx_rate_to_usd.toFixed(4)
+              : '—'}
+          </p>
+        </div>
+        <div>
           <p style={{ fontSize: '14px' }}>VAT</p>
           <p
             className="mt-1"
@@ -411,6 +471,7 @@ export default function OperationDetailClient({
           { id: 'status',    label: 'Status',     count: null },
           { id: 'documents', label: 'Documents',  count: documentCount },
           { id: 'payments',  label: 'Payments',   count: payments.length },
+          { id: 'movements', label: 'Stock movements', count: movements.length },
         ] as { id: Tab; label: string; count: number | null }[]).map((tab) => {
           const isActive = activeTab === tab.id;
           return (
@@ -496,6 +557,10 @@ export default function OperationDetailClient({
           paidAmount={paidAmount}
           outstanding={outstanding}
         />
+      )}
+
+      {activeTab === 'movements' && (
+        <MovementsTab movements={movements} />
       )}
     </div>
   );
@@ -1165,6 +1230,105 @@ function PaymentsTab({
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Stock Movements tab — read-only journal of warehouse movements driven by
+// this operation's status transitions. Source = 'operation', source_ref_id = id.
+// =============================================================================
+function MovementsTab({ movements }: { movements: StockMovement[] }) {
+  if (movements.length === 0) {
+    return (
+      <div
+        className="overflow-hidden"
+        style={{
+          border: '1px solid var(--border-hairline)',
+          borderRadius: 'var(--radius-md)',
+        }}
+      >
+        <p
+          className="px-4 py-12 text-center"
+          style={{ color: 'var(--fg-3)', fontSize: 'var(--fs-body-sm)' }}
+        >
+          No stock movements recorded for this operation yet.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="overflow-hidden"
+      style={{
+        border: '1px solid var(--border-hairline)',
+        borderRadius: 'var(--radius-md)',
+      }}
+    >
+      <div
+        className="px-4 py-3"
+        style={{
+          backgroundColor: 'var(--paper-sunk)',
+          borderBottom: '1px solid var(--border-hairline)',
+        }}
+      >
+        <p style={{ color: 'var(--fg-2)', fontSize: 'var(--fs-body-sm)' }}>
+          {movements.length}{' '}
+          {movements.length === 1 ? 'movement' : 'movements'} recorded
+        </p>
+      </div>
+      <table className="w-full" style={{ fontSize: 'var(--fs-body-sm)' }}>
+        <thead>
+          <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+            <th className="text-left px-4 py-2" style={{ fontSize: '14px' }}>Date</th>
+            <th className="text-left px-4 py-2" style={{ fontSize: '14px' }}>Warehouse</th>
+            <th className="text-left px-4 py-2" style={{ fontSize: '14px' }}>Product</th>
+            <th className="text-left px-4 py-2" style={{ fontSize: '14px' }}>Type</th>
+            <th className="text-right px-4 py-2" style={{ fontSize: '14px' }}>Quantity</th>
+            <th className="text-right px-4 py-2" style={{ fontSize: '14px' }}>Balance after</th>
+          </tr>
+        </thead>
+        <tbody>
+          {movements.map((m) => {
+            const isNegative = m.quantity < 0;
+            return (
+              <tr key={m.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>
+                  {formatDate(m.performed_at)}
+                </td>
+                <td className="px-4 py-3" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>
+                  {m.code}
+                </td>
+                <td className="px-4 py-3" style={{ color: 'var(--fg-1)' }}>
+                  <span style={{ fontWeight: 700 }}>{m.product_id.toUpperCase()}</span>
+                  <span style={{ color: 'var(--fg-3)', marginLeft: '8px' }}>
+                    {m.product_name}
+                  </span>
+                </td>
+                <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>
+                  {m.movement_type.replace(/_/g, ' ')}
+                </td>
+                <td
+                  className="px-4 py-3 text-right"
+                  style={{
+                    color: isNegative ? 'var(--brand-rot)' : 'var(--status-success)',
+                    fontWeight: 700,
+                  }}
+                >
+                  {m.quantity > 0 ? '+' : ''}{m.quantity}
+                </td>
+                <td
+                  className="px-4 py-3 text-right"
+                  style={{ color: 'var(--fg-1)', fontWeight: 700 }}
+                >
+                  {m.balance_after}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

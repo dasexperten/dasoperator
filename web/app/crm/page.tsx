@@ -435,11 +435,7 @@ function DailyActivityChart({
   const totalRegs = merged.reduce((s, d) => s + d.registrations, 0);
   const totalOrders = merged.reduce((s, d) => s + d.orders, 0);
 
-  // Tooltip position — keep it inside chart bounds
   const hoverDay = hoverIdx !== null ? merged[hoverIdx] : null;
-  const tooltipPctLeft = hoverIdx !== null
-    ? Math.min(85, Math.max(2, ((hoverIdx + 0.5) / days) * 100 - 8))
-    : 0;
 
   return (
     <div style={{
@@ -526,40 +522,6 @@ function DailyActivityChart({
                 );
               })}
             </svg>
-
-            {/* Tooltip — absolutely positioned over the chart area */}
-            {hoverDay && (
-              <div style={{
-                position: 'absolute',
-                top: 0,
-                left: `${tooltipPctLeft}%`,
-                pointerEvents: 'none',
-                backgroundColor: 'var(--paper)',
-                border: '1px solid var(--border-hairline)',
-                borderRadius: 'var(--radius-sm)',
-                padding: '10px 14px',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                fontSize: 14,
-                whiteSpace: 'nowrap',
-                zIndex: 5,
-              }}>
-                <div style={{ fontWeight: 700, color: 'var(--fg-1)', marginBottom: 6 }}>
-                  {hoverDay.date}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)', marginBottom: 2 }}>
-                  <span style={{ width: 12, height: 10, backgroundColor: '#D3D1C7', opacity: 0.6, borderRadius: 2, display: 'inline-block' }} />
-                  Visits <span style={{ fontWeight: 700, color: 'var(--fg-1)', marginLeft: 'auto' }}>{hoverDay.visits.toLocaleString('ru-RU')}</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)', marginBottom: 2 }}>
-                  <span style={{ width: 10, height: 10, backgroundColor: '#7F77DD', opacity: 0.7, borderRadius: 2, display: 'inline-block' }} />
-                  Registrations <span style={{ fontWeight: 700, color: 'var(--fg-1)', marginLeft: 'auto' }}>{hoverDay.registrations.toLocaleString('ru-RU')}</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)' }}>
-                  <span style={{ width: 8, height: 10, backgroundColor: '#1D9E75', borderRadius: 2, display: 'inline-block' }} />
-                  Orders <span style={{ fontWeight: 700, color: 'var(--fg-1)', marginLeft: 'auto' }}>{hoverDay.orders.toLocaleString('ru-RU')}</span>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Date axis: first / mid / last */}
@@ -573,6 +535,42 @@ function DailyActivityChart({
               <span>{merged[merged.length - 1].date}</span>
             </div>
           )}
+
+          {/* Per-day inspector — shown below the chart, doesn't cover bars */}
+          <div style={{
+            marginTop: 16,
+            padding: '12px 16px',
+            backgroundColor: 'var(--paper-sunk)',
+            border: '1px solid var(--border-hairline)',
+            borderRadius: 'var(--radius-sm)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 24,
+            fontSize: 14,
+            minHeight: 44,
+          }}>
+            {hoverDay ? (
+              <>
+                <div style={{ fontWeight: 700, color: 'var(--fg-1)', minWidth: 110 }}>
+                  {hoverDay.date}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)' }}>
+                  <span style={{ width: 12, height: 10, backgroundColor: '#D3D1C7', opacity: 0.6, borderRadius: 2, display: 'inline-block' }} />
+                  Visits <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{hoverDay.visits.toLocaleString('ru-RU')}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)' }}>
+                  <span style={{ width: 10, height: 10, backgroundColor: '#7F77DD', opacity: 0.7, borderRadius: 2, display: 'inline-block' }} />
+                  Registrations <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{hoverDay.registrations.toLocaleString('ru-RU')}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)' }}>
+                  <span style={{ width: 8, height: 10, backgroundColor: '#1D9E75', borderRadius: 2, display: 'inline-block' }} />
+                  Orders <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{hoverDay.orders.toLocaleString('ru-RU')}</span>
+                </div>
+              </>
+            ) : (
+              <span style={{ color: 'var(--fg-3)' }}>Hover any day on the chart to see exact numbers</span>
+            )}
+          </div>
 
           {/* Legend */}
           <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 14 }}>

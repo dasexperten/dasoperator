@@ -6,6 +6,29 @@ import { runInboxIngestion } from '../lib/inbox-ingestion';
 const inbox = new Hono<{ Bindings: Env }>();
 
 // =============================================================================
+// GET /api/inbox/_diag — diagnostic: test if Worker can reach emailer-bridge
+// =============================================================================
+inbox.get('/_diag', async (c) => {
+  const start = Date.now();
+  const result: any = { steps: [] };
+  try {
+    const r = await fetch('https://emailer-bridge.dasexperten.workers.dev/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'find', query: 'has:attachment newer_than:1d invoice', max_results: 1 }),
+    });
+    result.steps.push({ stage: 'fetch_emailer', ok: r.ok, status: r.status, ms: Date.now() - start });
+    const data: any = await r.json();
+    result.steps.push({ stage: 'parse_json', success: data?.success, total: data?.total_found, error: data?.error });
+  } catch (e: any) {
+    result.steps.push({ stage: 'exception', message: String(e?.message || e), name: e?.name });
+  }
+  result.total_ms = Date.now() - start;
+  result.has_deepseek_key = !!c.env.DEEPSEEK_API_KEY;
+  return ok(c, result);
+});
+
+// =============================================================================
 // POST /api/inbox/run-ingestion — manually trigger the daily cron ingestion
 // =============================================================================
 // Same code path the cron uses (03:00 МСК daily). Useful for:

@@ -11,6 +11,7 @@ interface CrmStats {
   orders_total: number;
   orders_this_month: number;
   revenue_this_month_rub: number;
+  loyalty_members_total: number;
   recent_orders: Array<{
     id: number;
     number: string;
@@ -18,6 +19,11 @@ interface CrmStats {
     total: number;
     status: string;
     created_at: string;
+    bonus_credited: number;
+    bonus_charged: number;
+    loyalty_balance: number | null;
+    loyalty_level: string | null;
+    loyalty_privilege_pct: number | null;
   }>;
   synced_at: number;
 }
@@ -123,10 +129,14 @@ export default function CrmPage() {
 
       {data && !error && (
         <>
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-5 gap-4">
             <KpiTile
               label="Customers"
               value={data.customers_total.toLocaleString('ru-RU')}
+            />
+            <KpiTile
+              label="Loyalty members"
+              value={data.loyalty_members_total.toLocaleString('ru-RU')}
             />
             <KpiTile
               label="Orders (total)"
@@ -164,6 +174,7 @@ export default function CrmPage() {
                     <th className="px-6 py-3 text-left" style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg-3)' }}>Order</th>
                     <th className="px-6 py-3 text-left" style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg-3)' }}>Customer</th>
                     <th className="px-6 py-3 text-right" style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg-3)' }}>Total</th>
+                    <th className="px-6 py-3 text-left" style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg-3)' }}>Bonuses</th>
                     <th className="px-6 py-3 text-left" style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg-3)' }}>Status</th>
                     <th className="px-6 py-3 text-left" style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg-3)' }}>Date</th>
                   </tr>
@@ -171,7 +182,7 @@ export default function CrmPage() {
                 <tbody>
                   {data.recent_orders.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-6 py-8 text-center" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
+                      <td colSpan={6} className="px-6 py-8 text-center" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
                         No orders to display
                       </td>
                     </tr>
@@ -182,6 +193,14 @@ export default function CrmPage() {
                       <td className="px-6 py-3" style={{ fontSize: 14, color: 'var(--fg-1)' }}>{o.customer_name}</td>
                       <td className="px-6 py-3 text-right" style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg-1)' }}>
                         {o.total.toLocaleString('ru-RU')} ₽
+                      </td>
+                      <td className="px-6 py-3" style={{ fontSize: 14, color: 'var(--fg-1)' }}>
+                        <BonusCell
+                          credited={o.bonus_credited}
+                          charged={o.bonus_charged}
+                          balance={o.loyalty_balance}
+                          level={o.loyalty_level}
+                        />
                       </td>
                       <td className="px-6 py-3" style={{ fontSize: 14, color: 'var(--fg-3)' }}>{o.status}</td>
                       <td className="px-6 py-3" style={{ fontSize: 14, color: 'var(--fg-3)' }}>{o.created_at}</td>
@@ -216,6 +235,50 @@ function KpiTile({ label, value }: { label: string; value: string }) {
       <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--fg-1)', marginTop: 8 }}>
         {value}
       </div>
+    </div>
+  );
+}
+
+function BonusCell({
+  credited,
+  charged,
+  balance,
+  level,
+}: {
+  credited: number;
+  charged: number;
+  balance: number | null;
+  level: string | null;
+}) {
+  const noActivity = credited === 0 && charged === 0;
+  const noBalance = balance === null;
+
+  if (noActivity && noBalance) {
+    return <span style={{ color: 'var(--fg-3)' }}>—</span>;
+  }
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      {!noActivity && (
+        <div className="flex items-center gap-2" style={{ fontSize: 14 }}>
+          {credited > 0 && (
+            <span style={{ color: '#0a7a3b', fontWeight: 700 }}>
+              +{credited}
+            </span>
+          )}
+          {charged > 0 && (
+            <span style={{ color: '#a83232', fontWeight: 700 }}>
+              −{charged}
+            </span>
+          )}
+        </div>
+      )}
+      {!noBalance && (
+        <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>
+          balance <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{balance}</span>
+          {level && <span style={{ marginLeft: 6 }}>· {level}</span>}
+        </div>
+      )}
     </div>
   );
 }

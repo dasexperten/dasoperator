@@ -18,12 +18,29 @@ interface RetailOrder {
   number?: string;
   status?: string;
   totalSumm?: number;
+  bonusesCreditTotal?: number;
+  bonusesChargeTotal?: number;
+  loyaltyLevel?: { id?: number; name?: string };
   createdAt?: string;
   customer?: {
+    id?: number;
     firstName?: string;
     lastName?: string;
     email?: string;
   };
+}
+
+interface RetailLoyaltyAccount {
+  id: number;
+  amount?: number;
+  ordersSum?: number;
+  nextLevelSum?: number;
+  level?: {
+    id?: number;
+    name?: string;
+    privilegeSize?: number;
+  };
+  customer?: { id?: number };
 }
 
 async function retailGet<T = unknown>(
@@ -110,17 +127,50 @@ crm.get('/stats', async (c) => {
       { 'page': 1, 'limit': 20 }
     );
 
-    const recentOrders = (recentResp.orders ?? []).slice(0, 10).map((o) => ({
-      id: o.id,
-      number: o.number ?? String(o.id),
-      customer_name:
-        [o.customer?.firstName, o.customer?.lastName].filter(Boolean).join(' ') ||
-        o.customer?.email ||
-        '—',
-      total: typeof o.totalSumm === 'number' ? o.totalSumm : 0,
-      status: o.status ?? '—',
-      created_at: o.createdAt ?? '—',
-    }));
+    const recentRaw = (recentResp.orders ?? []).slice(0, 10);
+
+    // Pull loyalty accounts for these customers in a single page-fetch.
+    // Retail CRM has no bulk-by-id filter, so we grab a slab and index
+    // by customer.id. With 521 active accounts, slabs of 100 cover most
+    // recent customers; if missing we just show '—'.
+    const loyaltyResp = await retailGet<{
+      loyaltyAccounts?: RetailLoyaltyAccount[];
+      pagination?: { totalCount?: number };
+    }>(domain, token, '/loyalty/accounts', { 'page': 1, 'limit': 100 });
+
+    const loyaltyByCustomer = new Map<number, RetailLoyaltyAccount>();
+    for (const a of loyaltyResp.loyaltyAccounts ?? []) {
+      if (a.customer?.id !== undefined) {
+        loyaltyByCustomer.set(a.customer.id, a);
+      }
+    }
+    const loyaltyMembersTotal = loyaltyResp.pagination?.totalCount ?? 0;
+
+    const recentOrders = recentRaw.map((o) => {
+      const acc = o.customer?.id !== undefined
+        ? loyaltyByCustomer.get(o.customer.id)
+        : undefined;
+      return {
+        id: o.id,
+        number: o.number ?? String(o.id),
+        customer_name:
+          [o.customer?.firstName, o.customer?.lastName].filter(Boolean).join(' ') ||
+          o.customer?.email ||
+          '—',
+        total: typeof o.totalSumm === 'number' ? o.totalSumm : 0,
+        status: o.status ?? '—',
+        created_at: o.createdAt ?? '—',
+        // Order-level bonus activity
+        bonus_credited: typeof o.bonusesCreditTotal === 'number' ? o.bonusesCreditTotal : 0,
+        bonus_charged: typeof o.bonusesChargeTotal === 'number' ? o.bonusesChargeTotal : 0,
+        // Customer's overall loyalty status
+        loyalty_balance: typeof acc?.amount === 'number' ? acc.amount : null,
+        loyalty_level: o.loyaltyLevel?.name || acc?.level?.name || null,
+        loyalty_privilege_pct: typeof acc?.level?.privilegeSize === 'number'
+          ? acc.level.privilegeSize
+          : null,
+      };
+    });
 
     return ok(c, {
       source: `${domain}.retailcrm.ru`,
@@ -128,6 +178,7 @@ crm.get('/stats', async (c) => {
       orders_total: ordersTotalResp.pagination?.totalCount ?? 0,
       orders_this_month: ordersThisMonth,
       revenue_this_month_rub: revenueThisMonth,
+      loyalty_members_total: loyaltyMembersTotal,
       recent_orders: recentOrders,
       synced_at: Math.floor(Date.now() / 1000),
     });

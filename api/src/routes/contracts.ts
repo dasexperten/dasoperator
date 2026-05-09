@@ -30,13 +30,6 @@ function genContractId(contractNo: string): string {
   return slug;
 }
 
-function slugify(s: string): string {
-  return s.toLowerCase()
-    .replace(/[^a-z0-9]/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^_|_$/g, '');
-}
-
 // =============================================================================
 // GET /api/contracts — list all with JOINs
 // =============================================================================
@@ -180,10 +173,10 @@ contracts.post('/', async (c) => {
 contracts.post('/:id/file', async (c) => {
   const id = c.req.param('id');
 
-  // Load contract + partner trade_name
+  // Load contract + partner abbreviation
   const row = await c.env.DB.prepare(`
     SELECT c.id, c.partner_id, c.our_company_id, c.signed_date, c.contract_file_key,
-           p.trade_name as partner_name
+           p.abbreviation as partner_abbr, p.trade_name as partner_name
     FROM contracts c
     LEFT JOIN partners p ON p.id = c.partner_id
     WHERE c.id = ? AND c.deleted_at IS NULL
@@ -193,11 +186,23 @@ contracts.post('/:id/file', async (c) => {
     our_company_id: string;
     signed_date: number | null;
     contract_file_key: string | null;
+    partner_abbr: string | null;
     partner_name: string | null;
   }>();
 
   if (!row) {
     return fail(c, 404, [{ code: 'contract_not_found', message: `Contract ${id} not found` }]);
+  }
+
+  // Partner must have a 4-letter abbreviation set before any contract file
+  // can be uploaded. The abbreviation is part of the canonical filename
+  // <ENTITY>-<ABBR>-<YYYY-MM-DD>.pdf — without it the file would not be
+  // identifiable.
+  if (!row.partner_abbr || row.partner_abbr.length === 0) {
+    return fail(c, 422, [{
+      code: 'partner_abbreviation_missing',
+      message: `Partner ${row.partner_id} has no abbreviation set. Set partners.abbreviation (4 letters uppercase) before uploading contract files.`,
+    }]);
   }
 
   // Parse multipart form
@@ -235,12 +240,14 @@ contracts.post('/:id/file', async (c) => {
     }]);
   }
 
-  // Build R2 key: contracts/<company>/<partner>_<date>.pdf
-  const partnerSlug = slugify(row.partner_name || row.partner_id);
+  // Build R2 key: contracts/<company>/<ENTITY>-<ABBR>-<YYYY-MM-DD>.pdf
+  // Entity comes from our_company_id uppercased; abbreviation is partner code.
+  const entity = row.our_company_id.toUpperCase();
+  const abbr = row.partner_abbr.toUpperCase();
   const dateStr = row.signed_date
     ? new Date(row.signed_date * 1000).toISOString().slice(0, 10)
     : new Date().toISOString().slice(0, 10);
-  const r2Key = `contracts/${row.our_company_id}/${partnerSlug}_${dateStr}.pdf`;
+  const r2Key = `contracts/${row.our_company_id}/${entity}-${abbr}-${dateStr}.pdf`;
 
   // Upload to R2
   const buffer = await file.arrayBuffer();

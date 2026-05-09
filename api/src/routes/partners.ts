@@ -220,12 +220,13 @@ const updatePartnerSchema = z.object({
   price_type_id: z.string().nullable().optional(),
   currency: z.string().length(3).nullable().optional(),
   notes: z.string().max(2000).nullable().optional(),
-  // 4-letter uppercase code used in contract filenames:
+  // 2-6 letter uppercase code used in contract filenames:
   //   contracts/<entity>/<ENTITY>-<ABBR>-<YYYY-MM-DD>.pdf
+  // Length 2-6 matches the seed in migration 0019.
   // Empty string allowed (clears the value); null also clears.
   abbreviation: z.string()
-    .max(4)
-    .regex(/^([A-Z]{4})?$/, 'Must be exactly 4 uppercase letters A–Z, or empty')
+    .max(6)
+    .regex(/^([A-Z]{2,6})?$/, 'Must be 2-6 uppercase letters A–Z, or empty')
     .nullable()
     .optional()
     .transform((v) => (v === '' ? null : v)),

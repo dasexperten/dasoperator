@@ -120,7 +120,7 @@ export default function EditPartnerClient({ slug }: { slug: string }) {
 
   function validateAbbreviation(v: string): string | null {
     if (v === '') return null;
-    if (!/^[A-Z]{4}$/.test(v)) return 'Must be exactly 4 uppercase letters A–Z';
+    if (!/^[A-Z]{2,6}$/.test(v)) return 'Must be 2-6 uppercase letters A–Z';
     return null;
   }
 
@@ -217,15 +217,15 @@ export default function EditPartnerClient({ slug }: { slug: string }) {
           />
         </Field>
         <Field
-          label="Abbreviation (4 letters)"
+          label="Abbreviation (2-6 letters)"
           hint="Used in contract filenames: <ENTITY>-<ABBR>-<DATE>.pdf — e.g. DEE-LETU-2024-03-15.pdf"
           error={fieldErrors.abbreviation}
         >
           <input
             type="text"
             value={form.abbreviation}
-            onChange={(e) => update('abbreviation', e.target.value.toUpperCase().slice(0, 4))}
-            maxLength={4}
+            onChange={(e) => update('abbreviation', e.target.value.toUpperCase().slice(0, 6))}
+            maxLength={6}
             placeholder="LETU"
             style={{ ...inputStyle, fontWeight: 700, letterSpacing: 0, textTransform: 'uppercase' }}
           />

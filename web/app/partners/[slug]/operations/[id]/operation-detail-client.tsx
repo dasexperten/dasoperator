@@ -527,19 +527,7 @@ export default function OperationDetailClient({
       {activeTab === 'status' && (
         <StatusTab
           status={operation.status}
-          operationId={operationId}
-          onStatusChange={async (newStatus) => {
-            const res = await updateOperationStatus(operationId, newStatus);
-            if (res.success && res.result) {
-              setOperation({
-                ...operation,
-                status: res.result.status,
-                updated_at: res.result.updated_at,
-              });
-            } else {
-              throw new Error(res.errors?.[0]?.message ?? 'Update failed');
-            }
-          }}
+          operationType={operation.operation_type}
         />
       )}
 
@@ -824,101 +812,174 @@ function ItemsTab({
 }
 
 // =============================================================================
-// Status tab
+// Status tab — read-only timeline. Past steps are filled (✓), current is
+// highlighted, future steps are dimmed. All write actions live in the header
+// "Mark as ..." button. The timeline is purely visual history.
 // =============================================================================
-const STATUS_TARGETS = [
-  { id: 'shipped',   label: 'Mark as shipped' },
-  { id: 'delivered', label: 'Mark as delivered' },
-  { id: 'cancelled', label: 'Cancel' },
-] as const;
 
-type StatusTarget = typeof STATUS_TARGETS[number]['id'];
+// Display order of all statuses per operation_type (terminal cancelled is shown
+// only when the op is actually cancelled).
+const STATUS_TIMELINE: Record<string, string[]> = {
+  sale:     ['draft', 'issued', 'order_fulfilment', 'shipped'],
+  purchase: ['draft', 'issued', 'production', 'stocked', 'shipped', 'delivered'],
+  transfer: ['draft', 'issued', 'shipped', 'delivered'],
+};
+
+const STATUS_VERBS: Record<string, string> = {
+  draft:            'Created',
+  issued:           'Issued',
+  order_fulfilment: 'Boxing',
+  production:       'In production',
+  stocked:          'Stocked',
+  shipped:          'Shipped',
+  delivered:        'Delivered',
+  cancelled:        'Cancelled',
+};
 
 function StatusTab({
   status,
-  operationId,
-  onStatusChange,
+  operationType,
 }: {
   status: string;
-  operationId: string;
-  onStatusChange: (newStatus: StatusTarget) => Promise<void>;
+  operationType: string;
 }) {
-  const [pending, setPending] = useState<StatusTarget | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const cancelled = status === 'cancelled';
+  const baseTimeline = STATUS_TIMELINE[operationType] ?? STATUS_TIMELINE.purchase!;
+  const currentIdx = baseTimeline.indexOf(status);
 
-  const handleClick = async (target: StatusTarget) => {
-    const verb = target === 'cancelled' ? 'cancel' : `mark as ${target}`;
-    if (!confirm(`Confirm: ${verb} this operation?`)) return;
-    setError(null);
-    setPending(target);
-    try {
-      await onStatusChange(target);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Update failed');
-    } finally {
-      setPending(null);
-    }
-  };
-
-  // Once cancelled, no further moves available
-  const terminal = status === 'cancelled';
+  // Build full visual timeline: base steps + cancelled (if applicable)
+  const steps = cancelled
+    ? [...baseTimeline.slice(0, baseTimeline.length), 'cancelled']
+    : baseTimeline;
 
   return (
     <div
-      className="p-6 space-y-6"
+      className="p-6"
       style={{
         border: '1px solid var(--border-hairline)',
         borderRadius: 'var(--radius-md)',
       }}
     >
-      <div className="flex items-center gap-3">
-        <span>Current</span>
-        {statusChip(status)}
-      </div>
+      <p
+        className="mb-6"
+        style={{ fontSize: '14px', color: 'var(--fg-3)' }}
+      >
+        Lifecycle for {operationType} operation. Use{' '}
+        <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>Mark as …</span>{' '}
+        button in the header to advance status.
+      </p>
 
-      <div>
-        <p className="mb-3">Move to</p>
-        <div className="flex flex-wrap gap-2">
-          {STATUS_TARGETS.map((target) => {
-            const isPending = pending === target.id;
-            const isCurrent = status === target.id;
-            const disabled = terminal || isCurrent || pending !== null;
-            return (
-              <button
-                key={target.id}
-                onClick={() => handleClick(target.id)}
-                disabled={disabled}
-                className="px-4 py-2 transition-colors inline-flex items-center gap-2"
+      <ol className="space-y-3" style={{ position: 'relative' }}>
+        {steps.map((step, idx) => {
+          let state: 'past' | 'current' | 'future' | 'cancelled';
+          if (step === 'cancelled') {
+            state = 'cancelled';
+          } else if (cancelled) {
+            // If operation is cancelled, all base steps before cancellation
+            // marker show as past (or future if op was cancelled before reaching them).
+            // Heuristic: we can't know exactly when cancel happened from this state alone,
+            // so we fade base steps and emphasize the cancelled marker.
+            state = 'future';
+          } else if (idx < currentIdx) {
+            state = 'past';
+          } else if (idx === currentIdx) {
+            state = 'current';
+          } else {
+            state = 'future';
+          }
+
+          const visual = (() => {
+            switch (state) {
+              case 'past':
+                return {
+                  dot: 'var(--status-success)',
+                  fg: 'var(--fg-1)',
+                  weight: 600,
+                  prefix: '✓',
+                };
+              case 'current':
+                return {
+                  dot: 'var(--status-info)',
+                  fg: 'var(--fg-1)',
+                  weight: 700,
+                  prefix: '●',
+                };
+              case 'future':
+                return {
+                  dot: 'var(--border-hairline)',
+                  fg: 'var(--fg-3)',
+                  weight: 400,
+                  prefix: '○',
+                };
+              case 'cancelled':
+                return {
+                  dot: 'var(--brand-rot)',
+                  fg: 'var(--brand-rot)',
+                  weight: 700,
+                  prefix: '✕',
+                };
+            }
+          })();
+
+          return (
+            <li
+              key={step}
+              className="flex items-center gap-3"
+              style={{ fontSize: 'var(--fs-body-sm)' }}
+            >
+              <span
                 style={{
-                  border: '1px solid var(--border-hairline)',
-                  borderRadius: 'var(--radius-sm)',
-                  backgroundColor: target.id === 'cancelled' ? 'transparent' : 'var(--paper-sunk)',
-                  color: target.id === 'cancelled' ? 'var(--brand-rot)' : 'var(--fg-1)',
-                  opacity: disabled ? 0.4 : 1,
-                  cursor: disabled ? 'not-allowed' : 'pointer',
-                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '24px',
+                  height: '24px',
+                  borderRadius: '50%',
+                  backgroundColor:
+                    state === 'past' || state === 'current' || state === 'cancelled'
+                      ? visual.dot
+                      : 'transparent',
+                  border:
+                    state === 'future'
+                      ? '1px solid var(--border-hairline)'
+                      : 'none',
+                  color: 'var(--paper)',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  flexShrink: 0,
                 }}
-                title={isCurrent ? 'Already in this status' : terminal ? 'Operation is cancelled' : ''}
               >
-                {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                {target.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {terminal && (
-          <p className="mt-3" style={{ color: 'var(--fg-3)' }}>
-            This operation is cancelled — status cannot change further.
-          </p>
-        )}
-
-        {error && (
-          <p className="mt-3" style={{ color: 'var(--brand-rot)' }}>
-            {error}
-          </p>
-        )}
-      </div>
+                {state === 'future' ? '' : visual.prefix}
+              </span>
+              <span
+                style={{
+                  color: visual.fg,
+                  fontWeight: visual.weight,
+                  textTransform: 'capitalize',
+                }}
+              >
+                {STATUS_VERBS[step] ?? step.replace(/_/g, ' ')}
+              </span>
+              {state === 'current' && (
+                <span
+                  className="ml-auto"
+                  style={{
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    color: 'var(--status-info)',
+                    padding: '2px 10px',
+                    backgroundColor: 'rgba(31,73,125,0.08)',
+                    border: '1px solid rgba(31,73,125,0.3)',
+                    borderRadius: 'var(--radius-pill)',
+                  }}
+                >
+                  Current
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }

@@ -156,6 +156,9 @@ marketplacesExtras.get('/sales', async (c) => {
 // =============================================================================
 marketplacesExtras.post('/sync/sales/ozon', async (c) => {
   const startedAt = Math.floor(Date.now() / 1000);
+  // Allow caller to override sync window via ?days=N (default 7, capped at 90)
+  const daysParam = parseInt(c.req.query('days') || '7', 10);
+  const periodDays = Math.min(Math.max(daysParam, 1), 90);
   const logResult = await c.env.DB.prepare(
     "INSERT INTO marketplace_sync_log (marketplace, started_at, status) VALUES (?, ?, 'running')"
   ).bind('ozon-sales', startedAt).run();
@@ -172,7 +175,7 @@ marketplacesExtras.post('/sync/sales/ozon', async (c) => {
     // 2. Sales analytics + funnel + position
     const today = new Date();
     const dateTo = isoDate(today);
-    const from = new Date(today.getTime() - PERIOD_DAYS * 24 * 3600_000);
+    const from = new Date(today.getTime() - periodDays * 24 * 3600_000);
     const dateFrom = isoDate(from);
 
     const dailyData = await fetchOzonAnalytics(
@@ -305,7 +308,7 @@ marketplacesExtras.post('/sync/sales/ozon', async (c) => {
       prices_pulled: priceMap.size,
       expenses_skus: expensesMap.size,
       perf_ad_skus: perfAdMap.size,
-      period: { from: dateFrom, to: dateTo, days: PERIOD_DAYS },
+      period: { from: dateFrom, to: dateTo, days: periodDays },
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -318,6 +321,9 @@ marketplacesExtras.post('/sync/sales/ozon', async (c) => {
 
 marketplacesExtras.post('/sync/sales/wb', async (c) => {
   const startedAt = Math.floor(Date.now() / 1000);
+  // Allow caller to override sync window via ?days=N (default 7, capped at 90)
+  const daysParam = parseInt(c.req.query('days') || '7', 10);
+  const periodDays = Math.min(Math.max(daysParam, 1), 90);
   const logResult = await c.env.DB.prepare(
     "INSERT INTO marketplace_sync_log (marketplace, started_at, status) VALUES (?, ?, 'running')"
   ).bind('wb-sales', startedAt).run();
@@ -328,7 +334,7 @@ marketplacesExtras.post('/sync/sales/wb', async (c) => {
 
     const today = new Date();
     const dateToStr = isoDate(today);
-    const from = new Date(today.getTime() - PERIOD_DAYS * 24 * 3600_000);
+    const from = new Date(today.getTime() - periodDays * 24 * 3600_000);
     const dateFromStr = isoDate(from);
     const dateFromIso = from.toISOString().split('.')[0] + '.000Z';
 
@@ -444,7 +450,7 @@ marketplacesExtras.post('/sync/sales/wb', async (c) => {
       funnel_skus: funnelMap.size,
       prices_pulled: priceMap.size,
       ad_skus_with_spend: adSpendMap.size,
-      period: { from: dateFromStr, to: dateToStr, days: PERIOD_DAYS },
+      period: { from: dateFromStr, to: dateToStr, days: periodDays },
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

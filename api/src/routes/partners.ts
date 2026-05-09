@@ -305,7 +305,8 @@ partners.get('/:slug/contracts', async (c) => {
       c.id, c.contract_no, c.our_company_id,
       co.abbreviation as entity_abbreviation,
       c.currency, c.signed_date, c.expiry_date, c.status,
-      c.agreement_type, c.parent_contract_id, c.addendum_no, c.notes
+      c.agreement_type, c.parent_contract_id, c.addendum_no, c.notes,
+      c.contract_file_key
     FROM contracts c
     LEFT JOIN companies co ON c.our_company_id = co.id
     WHERE c.partner_id = ? AND c.deleted_at IS NULL

@@ -6,6 +6,7 @@ import { Plus, AlertTriangle, Loader2, FileText, Sparkles, Download } from 'luci
 import {
   getPartner, getPartnerContracts, getOperations, getPayments, getPartnerNetBalance,
   getPartnerAgreements, generatePartnerNda, agreementDownloadUrl,
+  getContractFileUrl,
   type Partner, type Contract, type Operation, type Payment, type PartnerNetBalance,
   type PartnerAgreement,
 } from '@/lib/api';
@@ -386,7 +387,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
           <table className="w-full">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                <Th>Contract No</Th><Th>Type</Th><Th>Entity</Th><Th>Currency</Th><Th>Signed</Th><Th>Status</Th>
+                <Th>Contract No</Th><Th>Type</Th><Th>Entity</Th><Th>Currency</Th><Th>Signed</Th><Th>File</Th><Th>Status</Th>
               </tr>
             </thead>
             <tbody>
@@ -439,6 +440,31 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
                     <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>{c.entity_abbreviation ?? '—'}</td>
                     <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>{c.currency}</td>
                     <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{formatDate(c.signed_date)}</td>
+                    <td className="px-4 py-3">
+                      {c.contract_file_key ? (
+                        <a
+                          href={getContractFileUrl(c.id)}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={c.contract_file_key.split('/').pop() || 'View PDF'}
+                          className="inline-flex items-center gap-1.5"
+                          style={{
+                            padding: '3px 8px',
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            color: 'var(--status-success)',
+                            backgroundColor: 'rgba(46,125,79,0.08)',
+                            border: '1px solid rgba(46,125,79,0.3)',
+                            borderRadius: 'var(--radius-pill)',
+                            textDecoration: 'none',
+                          }}
+                        >
+                          <FileText size={14} /> PDF
+                        </a>
+                      ) : (
+                        <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <span className="inline-block" style={{ padding: '4px 10px', fontSize: '14px', fontWeight: 600, backgroundColor: ss.bg, color: ss.fg, border: `1px solid ${ss.border}`, borderRadius: 'var(--radius-pill)' }}>
                         {c.status}

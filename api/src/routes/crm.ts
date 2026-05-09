@@ -4,15 +4,6 @@ import { ok, fail } from '../lib/responses';
 
 const crm = new Hono<{ Bindings: Env }>();
 
-// =============================================================================
-// Retail CRM REST API v5 client
-// =============================================================================
-// Auth: X-API-KEY header.
-// Base: https://{shop}.retailcrm.ru/api/v5
-// Both env vars must be set: RETAIL_CRM_DOMAIN (e.g. "myshop") and
-// RETAIL_CRM_TOKEN. If either missing, all /api/crm/* endpoints return
-// a structured error so the frontend can show a "not configured" panel.
-
 interface RetailOrder {
   id: number;
   number?: string;
@@ -51,7 +42,7 @@ async function retailGet<T = unknown>(
 ): Promise<T> {
   const url = new URL(`https://${domain}.retailcrm.ru/api/v5${path}`);
   for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined) url.searchParams.set(k, String(v));
+    if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
   }
   const res = await fetch(url.toString(), {
     method: 'GET',
@@ -63,41 +54,21 @@ async function retailGet<T = unknown>(
   return (await res.json()) as T;
 }
 
-// =============================================================================
-// GET /api/crm/stats — dashboard summary (customers, orders, revenue, recent)
-// =============================================================================
 crm.get('/stats', async (c) => {
   const domain = c.env.RETAIL_CRM_DOMAIN;
   const token = c.env.RETAIL_CRM_TOKEN;
-
   if (!domain || !token) {
-    return fail(c, 503, [
-      {
-        code: 'crm_not_configured',
-        message:
-          'Retail CRM not configured. Set RETAIL_CRM_DOMAIN and RETAIL_CRM_TOKEN env/secret.',
-      },
-    ]);
+    return fail(c, 503, [{ code: 'crm_not_configured', message: 'Retail CRM not configured.' }]);
   }
 
   try {
-    // Customers count — single page, take totalCount header (limit must be 20/50/100).
     const customersResp = await retailGet<{ pagination?: { totalCount?: number } }>(
-      domain,
-      token,
-      '/customers',
-      { 'page': 1, 'limit': 20 }
+      domain, token, '/customers', { 'page': 1, 'limit': 20 }
     );
-
-    // Orders total
     const ordersTotalResp = await retailGet<{ pagination?: { totalCount?: number } }>(
-      domain,
-      token,
-      '/orders',
-      { 'page': 1, 'limit': 20 }
+      domain, token, '/orders', { 'page': 1, 'limit': 20 }
     );
 
-    // Orders this month
     const monthStart = new Date();
     monthStart.setUTCDate(1);
     monthStart.setUTCHours(0, 0, 0, 0);
@@ -119,23 +90,60 @@ crm.get('/stats', async (c) => {
       0
     );
 
-    // Recent orders (10 most recent — fetched at limit 20, take first 10).
-    const recentResp = await retailGet<{ orders?: RetailOrder[] }>(
-      domain,
-      token,
-      '/orders',
-      { 'page': 1, 'limit': 20 }
-    );
+    const loyaltyResp = await retailGet<{
+      pagination?: { totalCount?: number };
+    }>(domain, token, '/loyalty/accounts', { 'page': 1, 'limit': 20 });
 
-    const recentRaw = (recentResp.orders ?? []).slice(0, 10);
+    return ok(c, {
+      source: `${domain}.retailcrm.ru`,
+      customers_total: customersResp.pagination?.totalCount ?? 0,
+      orders_total: ordersTotalResp.pagination?.totalCount ?? 0,
+      orders_this_month: ordersThisMonth,
+      revenue_this_month_rub: revenueThisMonth,
+      loyalty_members_total: loyaltyResp.pagination?.totalCount ?? 0,
+      synced_at: Math.floor(Date.now() / 1000),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return fail(c, 502, [{ code: 'crm_upstream_error', message: msg }]);
+  }
+});
 
-    // Pull loyalty accounts for these customers in a single page-fetch.
-    // Retail CRM has no bulk-by-id filter, so we grab a slab and index
-    // by customer.id. With 521 active accounts, slabs of 100 cover most
-    // recent customers; if missing we just show '—'.
+crm.get('/orders', async (c) => {
+  const domain = c.env.RETAIL_CRM_DOMAIN;
+  const token = c.env.RETAIL_CRM_TOKEN;
+  if (!domain || !token) {
+    return fail(c, 503, [{ code: 'crm_not_configured', message: 'Retail CRM not configured.' }]);
+  }
+
+  const page = Math.max(1, Number(c.req.query('page') ?? 1));
+  const rawLimit = Number(c.req.query('limit') ?? 50);
+  const limit = [20, 50, 100].includes(rawLimit) ? rawLimit : 50;
+  const search = (c.req.query('search') ?? '').trim();
+
+  const params: Record<string, string | number | undefined> = {
+    'page': page,
+    'limit': limit,
+  };
+
+  if (search) {
+    if (/^\d+$/.test(search)) {
+      params['filter[numbers][]'] = search;
+    } else {
+      params['filter[customer]'] = search;
+    }
+  }
+
+  try {
+    const ordersResp = await retailGet<{
+      pagination?: { totalCount?: number; currentPage?: number; totalPageCount?: number };
+      orders?: RetailOrder[];
+    }>(domain, token, '/orders', params);
+
+    const ordersOnPage = ordersResp.orders ?? [];
+
     const loyaltyResp = await retailGet<{
       loyaltyAccounts?: RetailLoyaltyAccount[];
-      pagination?: { totalCount?: number };
     }>(domain, token, '/loyalty/accounts', { 'page': 1, 'limit': 100 });
 
     const loyaltyByCustomer = new Map<number, RetailLoyaltyAccount>();
@@ -144,9 +152,8 @@ crm.get('/stats', async (c) => {
         loyaltyByCustomer.set(a.customer.id, a);
       }
     }
-    const loyaltyMembersTotal = loyaltyResp.pagination?.totalCount ?? 0;
 
-    const recentOrders = recentRaw.map((o) => {
+    const orders = ordersOnPage.map((o) => {
       const acc = o.customer?.id !== undefined
         ? loyaltyByCustomer.get(o.customer.id)
         : undefined;
@@ -160,10 +167,8 @@ crm.get('/stats', async (c) => {
         total: typeof o.totalSumm === 'number' ? o.totalSumm : 0,
         status: o.status ?? '—',
         created_at: o.createdAt ?? '—',
-        // Order-level bonus activity
         bonus_credited: typeof o.bonusesCreditTotal === 'number' ? o.bonusesCreditTotal : 0,
         bonus_charged: typeof o.bonusesChargeTotal === 'number' ? o.bonusesChargeTotal : 0,
-        // Customer's overall loyalty status
         loyalty_balance: typeof acc?.amount === 'number' ? acc.amount : null,
         loyalty_level: o.loyaltyLevel?.name || acc?.level?.name || null,
         loyalty_privilege_pct: typeof acc?.level?.privilegeSize === 'number'
@@ -174,12 +179,14 @@ crm.get('/stats', async (c) => {
 
     return ok(c, {
       source: `${domain}.retailcrm.ru`,
-      customers_total: customersResp.pagination?.totalCount ?? 0,
-      orders_total: ordersTotalResp.pagination?.totalCount ?? 0,
-      orders_this_month: ordersThisMonth,
-      revenue_this_month_rub: revenueThisMonth,
-      loyalty_members_total: loyaltyMembersTotal,
-      recent_orders: recentOrders,
+      pagination: {
+        page,
+        limit,
+        total_count: ordersResp.pagination?.totalCount ?? 0,
+        total_pages: ordersResp.pagination?.totalPageCount ?? 1,
+      },
+      search,
+      orders,
       synced_at: Math.floor(Date.now() / 1000),
     });
   } catch (e) {

@@ -69,7 +69,7 @@ export default function MarketplacesPage() {
             Marketplaces
           </h1>
           <p className="mt-2" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
-            Wildberries and Ozon — last 7 days
+            Wildberries and Ozon — last {data?.period_days ?? 7} days
           </p>
         </div>
         <button
@@ -123,12 +123,14 @@ function Dashboard({ data }: { data: SalesData }) {
           accentColor="rgb(0, 91, 255)"
           tint="rgba(0, 91, 255, 0.06)"
           units={data.totals.ozon.units_sold}
+          days={data.period_days}
         />
         <HeadlineCard
           title="Wildberries"
           accentColor="rgb(203, 17, 122)"
           tint="rgba(203, 17, 122, 0.06)"
           units={data.totals.wb.units_sold}
+          days={data.period_days}
         />
       </div>
 
@@ -152,8 +154,8 @@ function Dashboard({ data }: { data: SalesData }) {
 }
 
 function HeadlineCard({
-  title, accentColor, tint, units,
-}: { title: string; accentColor: string; tint: string; units: number }) {
+  title, accentColor, tint, units, days,
+}: { title: string; accentColor: string; tint: string; units: number; days: number }) {
   return (
     <div
       style={{
@@ -171,7 +173,7 @@ function HeadlineCard({
         {units.toLocaleString('en-US')}
       </div>
       <div className="mt-1" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
-        units · last 7 days
+        units · last {days} days
       </div>
     </div>
   );

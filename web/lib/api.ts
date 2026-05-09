@@ -1367,8 +1367,8 @@ export interface MarketplaceSalesResponse {
   };
 }
 
-export async function getMarketplaceSales() {
-  return apiGet<MarketplaceSalesResponse>('/api/marketplaces/sales');
+export async function getMarketplaceSales(days: number = 7) {
+  return apiGet<MarketplaceSalesResponse>(`/api/marketplaces/sales?days=${days}`);
 }
 
 // =============================================================================

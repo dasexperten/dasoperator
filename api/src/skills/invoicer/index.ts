@@ -13,7 +13,6 @@
 // =============================================================================
 
 import type { Env } from '../../types';
-import { issueNextSequence } from '../../lib/sequence-format';
 import {
   loadInvoicerInput, MixedManufacturerError, OperationNotFoundError,
 } from './data-loader';
@@ -40,9 +39,75 @@ import type {
   RenderBank, RenderParty, RenderSignature,
 } from './renderers/shared';
 
-const SEQUENCE_BY_TYPE: Record<'CI' | 'PL' | 'IS' | 'UPD' | 'TN', string> = {
-  CI: 'ci', PL: 'pl', IS: 'is', UPD: 'upd', TN: 'tn',
+// =============================================================================
+// Document reference numbering
+// -----------------------------------------------------------------------------
+// Format: {TYPE}-{ISSUER}-{YY}{NNNN}
+//   TYPE   — CI / PL / IS / UPD / TN
+//   ISSUER — 3-4 letter abbreviation of the entity that issues the document
+//            (the seller party on that specific document)
+//   YY     — last two digits of the document's issue year
+//   NNNN   — numeric tail of the source operation reference, padded to 4
+//            (e.g. "DEE-468" → "0468"). Numbers above 9999 expand naturally.
+//
+// All documents born from one operation share the same NNNN — that is the
+// archival hook ("invoice package #0468"), so CI-WDAA-260468 and IS-DEI-260468
+// are visually obviously the same shipment.
+//
+// Uniqueness is guaranteed by the (type, issuer, year, NNNN) composite, given
+// that NNNN is locked by the operation. The only way to collide would be to
+// have two documents of the same TYPE from the same ISSUER inside one
+// operation — which the current selector plan never produces (the dei_layer
+// flow has two CIs but their issuers are different: factory vs DEI).
+// =============================================================================
+
+const ISSUER_ABBR: Record<string, string> = {
+  // Our entities
+  dee: 'DEE',
+  dei: 'DEI',
+  dasean: 'DSN',
+  dec: 'DEC',
+  // Manufacturers (legal sellers / packaging entities that may sign documents)
+  wdaa: 'WDAA',
+  honghui: 'HHUI',
+  meizhiyuan: 'MZHN',
+  jinxia: 'YGZH',
 };
+
+function issuerAbbr(sellerKind: 'company' | 'manufacturer', sellerId: string): string {
+  const abbr = ISSUER_ABBR[sellerId];
+  if (!abbr) {
+    throw new Error(
+      `No issuer abbreviation registered for ${sellerKind} '${sellerId}'. ` +
+      `Add it to ISSUER_ABBR in invoicer/index.ts before issuing documents from this entity.`,
+    );
+  }
+  return abbr;
+}
+
+function operationNumericTail(reference: string | null | undefined): string {
+  if (!reference) return '0000';
+  const parts = reference.split('-');
+  const last = parts[parts.length - 1];
+  const n = parseInt(last, 10);
+  if (!Number.isFinite(n) || n < 0) return '0000';
+  return String(n).padStart(4, '0');
+}
+
+interface BuildRefInput {
+  type: 'CI' | 'PL' | 'IS' | 'UPD' | 'TN';
+  sellerKind: 'company' | 'manufacturer';
+  sellerId: string;
+  operationReference: string | null;
+  issuedAtSec: number;
+}
+
+function buildDocumentReference(input: BuildRefInput): string {
+  const yy = String(new Date(input.issuedAtSec * 1000).getUTCFullYear() % 100).padStart(2, '0');
+  const issuer = issuerAbbr(input.sellerKind, input.sellerId);
+  const tail = operationNumericTail(input.operationReference);
+  return `${input.type}-${issuer}-${yy}${tail}`;
+}
 
 // =============================================================================
 // Adapter helpers — turn typed rows into the renderer-facing shapes.
@@ -414,14 +479,18 @@ export async function issueDocuments(
   }
 
   for (const r of resolved) {
-    const seq = await issueNextSequence(env.DB, SEQUENCE_BY_TYPE[r.spec.type]);
-    if (!seq) {
-      return rollback(
-        `Sequence ${SEQUENCE_BY_TYPE[r.spec.type]} not found in D1.` +
-        (r.spec.type === 'IS' ? ' Apply migration 0009_invoicer_roles_and_routes.sql.' : '')
-      );
+    let reference: string;
+    try {
+      reference = buildDocumentReference({
+        type: r.spec.type,
+        sellerKind: r.spec.sellerKind,
+        sellerId: r.spec.sellerId,
+        operationReference: input.operation.reference,
+        issuedAtSec: nowSec,
+      });
+    } catch (e) {
+      return rollback((e as Error).message);
     }
-    const reference = seq.formatted;
 
     let bytes: Uint8Array;
     try {

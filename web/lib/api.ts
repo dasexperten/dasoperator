@@ -655,6 +655,7 @@ export interface Contract {
   agreement_type?: 'main' | 'addendum' | 'annex' | 'sla' | null;
   parent_contract_id?: string | null;
   addendum_no?: string | null;
+  contract_file_key?: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -693,6 +694,33 @@ export interface CreateContractBody {
 
 export async function createContract(body: CreateContractBody) {
   return apiPost<Contract>('/api/contracts', body);
+}
+
+// Contract file (PDF in R2) — Phase 7.1
+export function getContractFileUrl(id: string): string {
+  return `${API_BASE}/api/contracts/${id}/file`;
+}
+
+export async function uploadContractFile(
+  id: string,
+  file: File
+): Promise<ApiResponse<{ contract_id: string; contract_file_key: string; size_bytes: number; uploaded_at: number }>> {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(`${API_BASE}/api/contracts/${id}/file`, {
+    method: 'POST',
+    body: fd,
+  });
+  return res.json();
+}
+
+export async function deleteContractFile(
+  id: string
+): Promise<ApiResponse<{ contract_id: string }>> {
+  const res = await fetch(`${API_BASE}/api/contracts/${id}/file`, {
+    method: 'DELETE',
+  });
+  return res.json();
 }
 
 // =============================================================================

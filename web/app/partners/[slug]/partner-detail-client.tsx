@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus, AlertTriangle, Loader2, FileText, Sparkles } from 'lucide-react';
+import { Plus, AlertTriangle, Loader2, FileText, Sparkles, X, Trash2 } from 'lucide-react';
 import {
   getPartner, getPartnerContracts, getOperations, getPayments, getPartnerNetBalance,
   generatePartnerNda, agreementDownloadUrl,
   getContractFileUrl,
+  deleteOperation, updateOperationStatus,
   type Partner, type Contract, type Operation, type Payment, type PartnerNetBalance,
 } from '@/lib/api';
 import { CopyableValue, SectionCard } from '@/components/ui/copyable';
@@ -93,6 +94,48 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
   const [netBalance, setNetBalance] = useState<PartnerNetBalance | null>(null);
   const [generatingNda, setGeneratingNda] = useState(false);
   const [ndaError, setNdaError] = useState<string | null>(null);
+  const [opBusyId, setOpBusyId] = useState<string | null>(null);
+  const [opActionMsg, setOpActionMsg] = useState<string | null>(null);
+
+  async function handleOpCancel(op: Operation) {
+    const label = op.reference ?? op.id;
+    if (!confirm(`Cancel operation ${label}?\n\nThis will move it to status 'cancelled'. If stock has already moved, a return movement will be written. This action cannot be undone.`)) return;
+    setOpBusyId(op.id);
+    setOpActionMsg(null);
+    try {
+      const res = await updateOperationStatus(op.id, 'cancelled');
+      if (res.success) {
+        setOperations((prev) => prev.map((o) => o.id === op.id ? { ...o, status: 'cancelled', payment_state: 'neutral' } : o));
+        setOpActionMsg(`${label} cancelled`);
+      } else {
+        setOpActionMsg(`Failed to cancel ${label}: ${res.errors?.[0]?.message ?? 'unknown error'}`);
+      }
+    } catch (e) {
+      setOpActionMsg(`Network error cancelling ${label}`);
+    } finally {
+      setOpBusyId(null);
+    }
+  }
+
+  async function handleOpDelete(op: Operation) {
+    const label = op.reference ?? op.id;
+    if (!confirm(`Permanently DELETE draft operation ${label}?\n\nThis removes it entirely. Only possible for drafts with no documents, payments, or stock movements. This cannot be undone.`)) return;
+    setOpBusyId(op.id);
+    setOpActionMsg(null);
+    try {
+      const res = await deleteOperation(op.id);
+      if (res.success) {
+        setOperations((prev) => prev.filter((o) => o.id !== op.id));
+        setOpActionMsg(`${label} deleted`);
+      } else {
+        setOpActionMsg(`Failed to delete ${label}: ${res.errors?.[0]?.message ?? 'unknown error'}`);
+      }
+    } catch (e) {
+      setOpActionMsg(`Network error deleting ${label}`);
+    } finally {
+      setOpBusyId(null);
+    }
+  }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -474,7 +517,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
           <table className="w-full">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                <Th>Reference</Th><Th>Date</Th><Th>Type</Th><Th>Contract</Th><Th>Total</Th><Th>Status</Th>
+                <Th>Reference</Th><Th>Date</Th><Th>Type</Th><Th>Contract</Th><Th>Total</Th><Th>Status</Th><Th>Actions</Th>
               </tr>
             </thead>
             <tbody>
@@ -522,11 +565,69 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
                         )}
                       </div>
                     </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="inline-flex items-center gap-2">
+                        {op.status === 'draft' && (
+                          <button
+                            onClick={() => handleOpDelete(op)}
+                            disabled={opBusyId === op.id}
+                            title="Delete (draft only — permanent)"
+                            style={{
+                              fontSize: '14px', fontWeight: 600,
+                              padding: '4px 10px',
+                              border: '1px solid rgba(229,32,44,0.3)',
+                              borderRadius: 'var(--radius-sm)',
+                              color: '#A82029',
+                              backgroundColor: opBusyId === op.id ? 'var(--paper-sunk)' : 'transparent',
+                              cursor: opBusyId === op.id ? 'wait' : 'pointer',
+                              display: 'inline-flex', alignItems: 'center', gap: '4px',
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Delete
+                          </button>
+                        )}
+                        {op.status !== 'draft' && op.status !== 'cancelled' && op.status !== 'delivered' && (
+                          <button
+                            onClick={() => handleOpCancel(op)}
+                            disabled={opBusyId === op.id}
+                            title="Cancel operation (reverses stock if shipped)"
+                            style={{
+                              fontSize: '14px', fontWeight: 600,
+                              padding: '4px 10px',
+                              border: '1px solid var(--border-hairline)',
+                              borderRadius: 'var(--radius-sm)',
+                              color: 'var(--fg-2)',
+                              backgroundColor: opBusyId === op.id ? 'var(--paper-sunk)' : 'transparent',
+                              cursor: opBusyId === op.id ? 'wait' : 'pointer',
+                              display: 'inline-flex', alignItems: 'center', gap: '4px',
+                            }}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                            Cancel
+                          </button>
+                        )}
+                        {(op.status === 'cancelled' || op.status === 'delivered') && (
+                          <span style={{ fontSize: '14px', color: 'var(--fg-muted)' }}>—</span>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+        )}
+        {opActionMsg && (
+          <div className="px-4 py-3 mt-3" style={{
+            fontSize: '14px',
+            color: 'var(--fg-1)',
+            backgroundColor: 'rgba(46,125,79,0.08)',
+            border: '1px solid rgba(46,125,79,0.2)',
+            borderRadius: 'var(--radius-sm)',
+          }}>
+            {opActionMsg}
+          </div>
         )}
       </SectionListBlock>
 

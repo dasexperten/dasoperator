@@ -6,8 +6,8 @@ export const runtime = 'edge';
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Search, Loader2, Plus } from 'lucide-react';
-import { getOperations, type Operation } from '@/lib/api';
+import { Search, Loader2, Plus, X, Trash2 } from 'lucide-react';
+import { getOperations, deleteOperation, updateOperationStatus, type Operation } from '@/lib/api';
 import { ContractRef } from '@/components/ui/contract-ref';
 
 const TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
@@ -61,6 +61,48 @@ export default function OperationsPage() {
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [paymentFilter, setPaymentFilter] = useState<string>('all');
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+
+  async function handleCancel(op: Operation) {
+    const label = op.reference ?? op.id;
+    if (!confirm(`Cancel operation ${label}?\n\nThis will move it to status 'cancelled'. If stock has already moved, a return movement will be written. This action cannot be undone.`)) return;
+    setBusyId(op.id);
+    setActionMsg(null);
+    try {
+      const res = await updateOperationStatus(op.id, 'cancelled');
+      if (res.success) {
+        setOperations((prev) => prev.map((o) => o.id === op.id ? { ...o, status: 'cancelled', payment_state: 'neutral' } : o));
+        setActionMsg(`${label} cancelled`);
+      } else {
+        setActionMsg(`Failed to cancel ${label}: ${res.errors?.[0]?.message ?? 'unknown error'}`);
+      }
+    } catch (e) {
+      setActionMsg(`Network error cancelling ${label}`);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleDelete(op: Operation) {
+    const label = op.reference ?? op.id;
+    if (!confirm(`Permanently DELETE draft operation ${label}?\n\nThis removes it entirely. Only possible for drafts with no documents, payments, or stock movements. This cannot be undone.`)) return;
+    setBusyId(op.id);
+    setActionMsg(null);
+    try {
+      const res = await deleteOperation(op.id);
+      if (res.success) {
+        setOperations((prev) => prev.filter((o) => o.id !== op.id));
+        setActionMsg(`${label} deleted`);
+      } else {
+        setActionMsg(`Failed to delete ${label}: ${res.errors?.[0]?.message ?? 'unknown error'}`);
+      }
+    } catch (e) {
+      setActionMsg(`Network error deleting ${label}`);
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   useEffect(() => {
     const fetch = async () => {
@@ -172,16 +214,28 @@ export default function OperationsPage() {
       ) : error ? (
         <div className="p-4" style={{ fontSize: '14px', backgroundColor: 'rgba(229,32,44,0.05)', border: '1px solid rgba(229,32,44,0.2)', color: 'var(--brand-rot)', borderRadius: 'var(--radius-sm)' }}>Error: {error}</div>
       ) : (
+        <>
+          {actionMsg && (
+            <div className="px-4 py-3 mb-3" style={{
+              fontSize: '14px',
+              color: 'var(--fg-1)',
+              backgroundColor: 'rgba(46,125,79,0.08)',
+              border: '1px solid rgba(46,125,79,0.2)',
+              borderRadius: 'var(--radius-sm)',
+            }}>
+              {actionMsg}
+            </div>
+          )}
         <div className="bg-card overflow-hidden" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
           <table className="w-full" style={{ fontSize: '14px', fontFamily: 'var(--font-sans)' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                <Th>Reference</Th><Th>Date</Th><Th>Partner</Th><Th>Contract</Th><Th>Type</Th><Th align="right">Total</Th><Th>Status</Th>
+                <Th>Reference</Th><Th>Date</Th><Th>Partner</Th><Th>Contract</Th><Th>Type</Th><Th align="right">Total</Th><Th>Status</Th><Th align="right">Actions</Th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-12" style={{ color: 'var(--fg-3)' }}>No operations match the filters</td></tr>
+                <tr><td colSpan={8} className="text-center py-12" style={{ color: 'var(--fg-3)' }}>No operations match the filters</td></tr>
               ) : (
                 filtered.map((op) => {
                   const tc = TYPE_COLORS[op.operation_type];
@@ -233,6 +287,53 @@ export default function OperationsPage() {
                           )}
                         </div>
                       </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="inline-flex items-center gap-2">
+                          {op.status === 'draft' && (
+                            <button
+                              onClick={() => handleDelete(op)}
+                              disabled={busyId === op.id}
+                              title="Delete (draft only — permanent)"
+                              style={{
+                                fontSize: '14px', fontWeight: 600,
+                                padding: '4px 10px',
+                                border: '1px solid rgba(229,32,44,0.3)',
+                                borderRadius: 'var(--radius-sm)',
+                                color: '#A82029',
+                                backgroundColor: busyId === op.id ? 'var(--paper-sunk)' : 'transparent',
+                                cursor: busyId === op.id ? 'wait' : 'pointer',
+                                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                              }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              Delete
+                            </button>
+                          )}
+                          {op.status !== 'draft' && op.status !== 'cancelled' && op.status !== 'delivered' && (
+                            <button
+                              onClick={() => handleCancel(op)}
+                              disabled={busyId === op.id}
+                              title="Cancel operation (reverses stock if shipped)"
+                              style={{
+                                fontSize: '14px', fontWeight: 600,
+                                padding: '4px 10px',
+                                border: '1px solid var(--border-hairline)',
+                                borderRadius: 'var(--radius-sm)',
+                                color: 'var(--fg-2)',
+                                backgroundColor: busyId === op.id ? 'var(--paper-sunk)' : 'transparent',
+                                cursor: busyId === op.id ? 'wait' : 'pointer',
+                                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                              }}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                              Cancel
+                            </button>
+                          )}
+                          {(op.status === 'cancelled' || op.status === 'delivered') && (
+                            <span style={{ fontSize: '14px', color: 'var(--fg-muted)' }}>—</span>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   );
                 })
@@ -240,6 +341,7 @@ export default function OperationsPage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       <div className="flex items-center gap-6 flex-wrap" style={{ fontSize: '14px', color: 'var(--fg-3)', paddingTop: '8px' }}>

@@ -55,6 +55,17 @@ export async function apiPut<T = unknown>(
   return res.json();
 }
 
+export async function apiDelete<T = unknown>(
+  path: string
+): Promise<ApiResponse<T>> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  return res.json();
+}
+
+
 // =============================================================================
 // Health
 // =============================================================================
@@ -1027,6 +1038,17 @@ export async function updateOperationStatus(
 ) {
   return apiPatch<UpdateStatusResponse>(`/api/operations/${id}/status`, { status });
 }
+
+export interface DeleteOperationResponse {
+  id: string;
+  reference: string | null;
+  deleted: true;
+}
+
+export async function deleteOperation(id: string) {
+  return apiDelete<DeleteOperationResponse>(`/api/operations/${id}`);
+}
+
 
 // =============================================================================
 // Inventory — Phase 4.4 frontend wiring

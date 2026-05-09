@@ -64,12 +64,12 @@ crm.get('/stats', async (c) => {
   }
 
   try {
-    // Customers count — single page, take totalCount header.
+    // Customers count — single page, take totalCount header (limit must be 20/50/100).
     const customersResp = await retailGet<{ pagination?: { totalCount?: number } }>(
       domain,
       token,
       '/customers',
-      { 'page': 1, 'limit': 1 }
+      { 'page': 1, 'limit': 20 }
     );
 
     // Orders total
@@ -77,7 +77,7 @@ crm.get('/stats', async (c) => {
       domain,
       token,
       '/orders',
-      { 'page': 1, 'limit': 1 }
+      { 'page': 1, 'limit': 20 }
     );
 
     // Orders this month
@@ -102,15 +102,15 @@ crm.get('/stats', async (c) => {
       0
     );
 
-    // Recent orders (last 10)
+    // Recent orders (10 most recent — fetched at limit 20, take first 10).
     const recentResp = await retailGet<{ orders?: RetailOrder[] }>(
       domain,
       token,
       '/orders',
-      { 'page': 1, 'limit': 10 }
+      { 'page': 1, 'limit': 20 }
     );
 
-    const recentOrders = (recentResp.orders ?? []).map((o) => ({
+    const recentOrders = (recentResp.orders ?? []).slice(0, 10).map((o) => ({
       id: o.id,
       number: o.number ?? String(o.id),
       customer_name:

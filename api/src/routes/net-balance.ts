@@ -57,29 +57,29 @@ function computeNetBalance(
     byCurrency[p.currency] = (byCurrency[p.currency] ?? 0) + sign * p.amount;
   }
 
-  let totalUsdCents = 0;
+  let totalUsd = 0;
   const breakdown: Array<{ currency: string; balance: number; balance_usd: number }> = [];
 
-  for (const [currency, balanceMinor] of Object.entries(byCurrency)) {
+  for (const [currency, balance] of Object.entries(byCurrency)) {
     if (currency === 'USD') {
-      breakdown.push({ currency, balance: balanceMinor, balance_usd: balanceMinor });
-      totalUsdCents += balanceMinor;
+      breakdown.push({ currency, balance, balance_usd: balance });
+      totalUsd += balance;
       continue;
     }
 
     const rateToUsd = snapshot ? getRateToUsdNano(snapshot as never, currency) : null;
     if (rateToUsd === null) {
-      breakdown.push({ currency, balance: balanceMinor, balance_usd: 0 });
+      breakdown.push({ currency, balance, balance_usd: 0 });
       continue;
     }
 
-    const usdCents = applyFxToAmount(Math.abs(balanceMinor), rateToUsd, currency, 'USD');
-    const signed = balanceMinor < 0 ? -usdCents : usdCents;
-    breakdown.push({ currency, balance: balanceMinor, balance_usd: signed });
-    totalUsdCents += signed;
+    const usd = applyFxToAmount(Math.abs(balance), rateToUsd, currency, 'USD');
+    const signed = balance < 0 ? -usd : usd;
+    breakdown.push({ currency, balance, balance_usd: signed });
+    totalUsd += signed;
   }
 
-  return { totalUsdCents, breakdown, byCurrency };
+  return { totalUsd, breakdown, byCurrency };
 }
 
 // =============================================================================
@@ -107,7 +107,7 @@ netBalancePerPartner.get('/:slug/net-balance', async (c) => {
     WHERE partner_id = ? AND deleted_at IS NULL
   `).bind(slug).all<PaymentRow>();
 
-  const { totalUsdCents, breakdown } = computeNetBalance(
+  const { totalUsd, breakdown } = computeNetBalance(
     opsResult.results,
     paysResult.results,
     snapshot
@@ -116,7 +116,7 @@ netBalancePerPartner.get('/:slug/net-balance', async (c) => {
   return ok(c, {
     partner_id: slug,
     currencies_breakdown: breakdown,
-    net_balance_usd: totalUsdCents,
+    net_balance_usd: totalUsd,
     fx_date: snapshot?.date ?? null,
     calculated_at: Math.floor(Date.now() / 1000),
   });
@@ -153,7 +153,7 @@ netBalanceBulk.get('/', async (c) => {
       WHERE partner_id = ? AND deleted_at IS NULL
     `).bind(p.id).all<PaymentRow>();
 
-    const { totalUsdCents, byCurrency } = computeNetBalance(
+    const { totalUsd, byCurrency } = computeNetBalance(
       opsResult.results,
       paysResult.results,
       snapshot
@@ -161,7 +161,7 @@ netBalanceBulk.get('/', async (c) => {
 
     balances.push({
       partner_id: p.id,
-      net_balance_usd: totalUsdCents,
+      net_balance_usd: totalUsd,
       currencies: byCurrency,
     });
   }

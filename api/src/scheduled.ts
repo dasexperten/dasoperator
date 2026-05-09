@@ -241,24 +241,41 @@ async function getOzonPerfToken(env: Env): Promise<string> {
 
 // Helper to refresh SKU map (duplicated from extras)
 async function refreshOzonSkuMap(env: Env): Promise<Map<number, any>> {
+  // Switched 2026-05-09 from /v2/product/list (deprecated/disabled by Ozon
+  // 2025-02-09) to /v3/product/list. v3 response no longer carries fbo_sku /
+  // fbs_sku — only product_id and offer_id. We map product_id (numeric) to
+  // catalog_sku derived from offer_id. CPC CSV reports use the same product_id
+  // as the SKU column, so the existing parseCpcCsv logic still works.
+  // Pagination is via last_id cursor; fetch up to 5 pages defensively.
   const skuMap = new Map<number, any>();
-  const apiResp = await fetch('https://api-seller.ozon.ru/v2/product/list', {
-    method: 'POST',
-    headers: {
-      'Client-Id': '374116',
-      'Api-Key': '4ac8181b-4cd8-4b4a-964d-905e39cc9b42',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ limit: 1000 }),
-  });
-  if (!apiResp.ok) throw new Error(`product/list HTTP ${apiResp.status}`);
-  const data = await apiResp.json<{ result: { items: any[] } }>();
-  for (const item of data.result?.items || []) {
-    const ozonSku = item.fbo_sku || item.fbs_sku;
-    const offerId = item.offer_id;
-    if (ozonSku && offerId) {
-      skuMap.set(ozonSku, { catalog_sku: offerId.toLowerCase() });
+  let lastId = '';
+  for (let page = 0; page < 5; page++) {
+    const apiResp = await fetch('https://api-seller.ozon.ru/v3/product/list', {
+      method: 'POST',
+      headers: {
+        'Client-Id': '374116',
+        'Api-Key': '4ac8181b-4cd8-4b4a-964d-905e39cc9b42',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        filter: { visibility: 'ALL' },
+        last_id: lastId,
+        limit: 1000,
+      }),
+    });
+    if (!apiResp.ok) throw new Error(`product/list HTTP ${apiResp.status}`);
+    const data = await apiResp.json<{
+      result: { items: Array<{ product_id: number; offer_id: string }>; last_id?: string; total?: number }
+    }>();
+    const items = data.result?.items || [];
+    for (const item of items) {
+      if (item.product_id && item.offer_id) {
+        skuMap.set(item.product_id, { catalog_sku: item.offer_id.toLowerCase() });
+      }
     }
+    if (items.length < 1000) break;            // last page
+    lastId = data.result?.last_id ?? '';
+    if (!lastId) break;
   }
   return skuMap;
 }

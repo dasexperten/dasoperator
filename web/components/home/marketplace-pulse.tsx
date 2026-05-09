@@ -1,31 +1,37 @@
 'use client';
 
 // =============================================================================
-// Marketplace Pulse — Home dashboard section
-// Phase 9.x — 4 cards backed by /api/marketplaces/pulse/*
-//   1. Sales today    — combined today's revenue + Δ vs yesterday
-//   3. Top & bottom   — top 5 movers (clickable → funnel modal) + bottom 5 dead SKUs
-//   6. 7-day trend    — Ozon (blue) vs WB (purple), per-day Δ vs same weekday last week
-//   9. SKU funnel     — modal popped when user clicks a top-SKU row
+// Marketplace Pulse — Home dashboard section · Phase 9.x polish pass
+// 4 cards backed by /api/marketplaces/pulse/*:
+//   1. Sales today           — hero number + WB/Ozon split + 14-day spark
+//   6. 7-day trend           — stacked bar chart (Ozon=blue, WB=purple)
+//   3. Top & Bottom SKUs     — toggle units/revenue, product names, hover
+//   9. SKU funnel            — modal: stacked horizontal bars with conv arrows
+//
+// Color discipline LOCKED across the section:
+//   Ozon = #185FA5 (deep blue), WB = #534AB7 (deep purple).
 // =============================================================================
 
-import { useEffect, useState } from 'react';
-import { Loader2, X } from 'lucide-react';
+import { useEffect, useState, useMemo } from 'react';
+import { Loader2, X, Package, ShoppingBag, BarChart3 } from 'lucide-react';
 
-// Brand-locked: Ozon = BLUE, WB = PURPLE (per Aram)
 const COLOR_OZON = '#185FA5';
+const COLOR_OZON_LIGHT = '#85B7EB';
 const COLOR_WB = '#534AB7';
+const COLOR_WB_LIGHT = '#AFA9EC';
 
+// ───────────────────────── Types ─────────────────────────
 type SalesToday = {
   ozon: { revenue_rub: number; units: number; delta_pct: number | null; last_date: string | null };
   wb:   { revenue_rub: number; units: number; delta_pct: number | null; last_date: string | null };
   combined: { revenue_rub: number; units: number };
+  spark: Array<{ date: string; revenue_rub: number }>;
 };
 
 type Spotlight = {
   period: { from: string | null; to: string | null };
   synced_at: number | null;
-  top: Array<{ base_sku: string; units_sold: number; revenue_rub: number; ozon_units: number; wb_units: number }>;
+  top: Array<{ base_sku: string; product_name: string | null; units_sold: number; revenue_rub: number; ozon_units: number; wb_units: number }>;
   bottom: Array<{ base_sku: string; product_name: string | null; units_sold: number }>;
 };
 
@@ -50,25 +56,24 @@ type SkuFunnel = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://dasoperator-api.dasexperten.workers.dev';
 
+// ───────────────────────── Helpers ─────────────────────────
 async function fetchJson<T>(path: string): Promise<T | null> {
   try {
     const res = await fetch(`${API_BASE}${path}`);
     const json = await res.json() as { success: boolean; result: T };
     return json.success ? json.result : null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
-function fmtRub(amount: number): string {
-  if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(1)}M`;
-  if (amount >= 1_000) return `${(amount / 1_000).toFixed(0)}k`;
-  return amount.toString();
+function fmtRubCompact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 10_000)    return `${Math.round(n / 1_000)}k`;
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k`;
+  return Math.round(n).toString();
 }
 
-function fmtRubFull(amount: number): string {
-  // amount is already in rubles (not minor units in this DB) — format with thin spaces
-  return new Intl.NumberFormat('ru-RU').format(amount) + ' ₽';
+function fmtRubFull(n: number): string {
+  return new Intl.NumberFormat('ru-RU').format(Math.round(n)) + ' ₽';
 }
 
 function fmtPct(p: number | null): { text: string; tone: 'up' | 'down' | 'flat' | 'na' } {
@@ -82,6 +87,13 @@ function fmtWeekday(dateStr: string): string {
   return d.toLocaleDateString('en-US', { weekday: 'short' });
 }
 
+function fmtDayMonth(dateStr: string): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00Z');
+  return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+}
+
+// ───────────────────────── Section root ─────────────────────────
 export default function MarketplacePulse() {
   const [salesToday, setSalesToday] = useState<SalesToday | null>(null);
   const [spotlight, setSpotlight] = useState<Spotlight | null>(null);
@@ -95,28 +107,28 @@ export default function MarketplacePulse() {
       fetchJson<Spotlight>('/api/marketplaces/pulse/sku-spotlight'),
       fetchJson<DailyTrend>('/api/marketplaces/pulse/daily-trend'),
     ]).then(([s, sp, t]) => {
-      setSalesToday(s);
-      setSpotlight(sp);
-      setTrend(t);
-      setLoading(false);
+      setSalesToday(s); setSpotlight(sp); setTrend(t); setLoading(false);
     });
   }, []);
 
   return (
     <section>
       <div className="flex items-center justify-between mb-4">
-        <h2 style={{
-          fontFamily: 'var(--font-display)',
-          fontSize: '20px',
-          fontWeight: 700,
-          color: 'var(--fg-1)',
-          textTransform: 'uppercase',
-        }}>
-          Marketplace Pulse
-        </h2>
+        <div className="flex items-center gap-3">
+          <h2 style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: '20px',
+            fontWeight: 700,
+            color: 'var(--fg-1)',
+            textTransform: 'uppercase',
+          }}>
+            Marketplace Pulse
+          </h2>
+          <SectionLegend />
+        </div>
         {spotlight?.period.from && (
           <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
-            {spotlight.period.from} — {spotlight.period.to}
+            {spotlight.period.from} → {spotlight.period.to}
           </span>
         )}
       </div>
@@ -125,7 +137,6 @@ export default function MarketplacePulse() {
         <SalesTodayCard data={salesToday} loading={loading} />
         <TrendCard data={trend} loading={loading} />
         <TopBottomCard data={spotlight} loading={loading} onSkuClick={setActiveSku} />
-        <div /> {/* placeholder — funnel pops as modal, not a static card */}
       </div>
 
       {activeSku && (
@@ -135,33 +146,84 @@ export default function MarketplacePulse() {
   );
 }
 
-// ===========================================================================
-// Card 1 — Sales today
-// ===========================================================================
-function SalesTodayCard({ data, loading }: { data: SalesToday | null; loading: boolean }) {
+function SectionLegend() {
   return (
-    <div className="bg-card p-5" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
-      <div style={{ fontSize: '14px', color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0', marginBottom: '12px' }}>
-        Sales today {data?.ozon.last_date && <span style={{ textTransform: 'none' }}>· {data.ozon.last_date}</span>}
-      </div>
-      {loading ? (
-        <div className="flex items-center justify-center py-6"><Loader2 className="h-5 w-5 animate-spin" style={{ color: 'var(--fg-3)' }} /></div>
-      ) : !data ? (
-        <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>No data yet — cron may not have run.</div>
-      ) : (
-        <>
-          <SalesRow label="Wildberries" amount={data.wb.revenue_rub} units={data.wb.units} delta={data.wb.delta_pct} color={COLOR_WB} />
-          <SalesRow label="Ozon"         amount={data.ozon.revenue_rub} units={data.ozon.units} delta={data.ozon.delta_pct} color={COLOR_OZON} />
-          <div style={{ borderTop: '1px solid var(--border-hairline)', paddingTop: '10px', marginTop: '4px' }}>
-            <SalesRow label="Combined" amount={data.combined.revenue_rub} units={data.combined.units} delta={null} color="var(--fg-1)" bold />
-          </div>
-        </>
-      )}
+    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', color: 'var(--fg-3)' }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+        <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: COLOR_OZON, display: 'inline-block' }} />
+        Ozon
+      </span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+        <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: COLOR_WB, display: 'inline-block' }} />
+        Wildberries
+      </span>
     </div>
   );
 }
 
-function SalesRow({ label, amount, units, delta, color, bold }: { label: string; amount: number; units: number; delta: number | null; color: string; bold?: boolean }) {
+// ═══════════════════════════════════════════════════════════════════════════
+// Card 1 — Sales today (hero number + sparkline + WB/Ozon split)
+// ═══════════════════════════════════════════════════════════════════════════
+function SalesTodayCard({ data, loading }: { data: SalesToday | null; loading: boolean }) {
+  const sparkPoints = useMemo(() => {
+    if (!data?.spark || data.spark.length < 2) return [];
+    const max = Math.max(...data.spark.map(d => d.revenue_rub));
+    const min = Math.min(...data.spark.map(d => d.revenue_rub));
+    const range = max - min || 1;
+    const width = 280, height = 36;
+    return data.spark.map((d, i) => {
+      const x = (i / Math.max(data.spark.length - 1, 1)) * width;
+      const y = height - ((d.revenue_rub - min) / range) * (height - 4) - 2;
+      return { x, y, value: d.revenue_rub, date: d.date };
+    });
+  }, [data]);
+
+  const sparkPath = sparkPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+  const sparkArea = sparkPoints.length > 0
+    ? `${sparkPath} L ${sparkPoints[sparkPoints.length - 1]!.x.toFixed(1)} 38 L 0 38 Z`
+    : '';
+
+  return (
+    <Card>
+      <CardHeader icon={<ShoppingBag className="h-4 w-4" />} title="Sales · last day on record" subtitle={data?.ozon.last_date ?? undefined} />
+
+      {loading ? <CardLoading /> : !data ? <CardEmpty>No data yet — cron may not have run.</CardEmpty> : (
+        <>
+          <div style={{ marginBottom: '14px' }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: '32px', fontWeight: 700, color: 'var(--fg-1)', lineHeight: 1.1 }}>
+              {fmtRubFull(data.combined.revenue_rub)}
+            </div>
+            <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '2px' }}>
+              {data.combined.units} ед · combined WB + Ozon
+            </div>
+          </div>
+
+          {sparkPoints.length >= 2 && data.spark[0] && data.spark[data.spark.length - 1] && (
+            <div style={{ marginBottom: '12px' }}>
+              <svg width="100%" height="40" viewBox="0 0 280 40" preserveAspectRatio="none" style={{ display: 'block' }}>
+                <path d={sparkArea} fill={COLOR_OZON} fillOpacity="0.08" />
+                <path d={sparkPath} fill="none" stroke={COLOR_OZON} strokeWidth="1.5" />
+                <circle cx={sparkPoints[sparkPoints.length - 1]!.x} cy={sparkPoints[sparkPoints.length - 1]!.y} r="2.5" fill={COLOR_OZON} />
+              </svg>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: 'var(--fg-3)', marginTop: '4px' }}>
+                <span>{fmtDayMonth(data.spark[0]!.date)}</span>
+                <span style={{ color: 'var(--fg-2)', fontWeight: 700 }}>{data.spark.length}-day combined revenue</span>
+                <span>{fmtDayMonth(data.spark[data.spark.length - 1]!.date)}</span>
+              </div>
+            </div>
+          )}
+
+          <div style={{ borderTop: '1px solid var(--border-hairline)', paddingTop: '10px' }}>
+            <SplitRow label="Wildberries" amount={data.wb.revenue_rub} units={data.wb.units} delta={data.wb.delta_pct} color={COLOR_WB} />
+            <SplitRow label="Ozon"        amount={data.ozon.revenue_rub} units={data.ozon.units} delta={data.ozon.delta_pct} color={COLOR_OZON} />
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function SplitRow({ label, amount, units, delta, color }: { label: string; amount: number; units: number; delta: number | null; color: string }) {
   const dp = fmtPct(delta);
   return (
     <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', padding: '6px 0' }}>
@@ -169,169 +231,145 @@ function SalesRow({ label, amount, units, delta, color, bold }: { label: string;
         <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: color, display: 'inline-block' }} />
         {label}
       </span>
-      <span style={{ fontSize: '14px', fontWeight: bold ? 700 : 500, color: 'var(--fg-1)' }}>
+      <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
         {fmtRubFull(amount)}
-        <span style={{ fontWeight: 400, color: 'var(--fg-3)', marginLeft: '8px' }}>· {units} ед</span>
-        {dp.tone !== 'na' && (
-          <span style={{
-            marginLeft: '8px',
-            fontSize: '12px',
-            fontWeight: 500,
-            padding: '2px 6px',
-            borderRadius: '3px',
-            backgroundColor: dp.tone === 'up' ? '#EAF3DE' : dp.tone === 'down' ? '#FCEBEB' : 'var(--paper-sunk)',
-            color: dp.tone === 'up' ? '#3B6D11' : dp.tone === 'down' ? '#A32D2D' : 'var(--fg-3)',
-          }}>{dp.text}</span>
-        )}
+        <span style={{ fontWeight: 400, color: 'var(--fg-3)', marginLeft: '8px' }}>{units} ед</span>
+        {dp.tone !== 'na' && <DeltaPill tone={dp.tone}>{dp.text}</DeltaPill>}
       </span>
     </div>
   );
 }
 
-// ===========================================================================
-// Card 6 — 7-day trend (Ozon blue / WB purple, per-day vs last week)
-// ===========================================================================
+// ═══════════════════════════════════════════════════════════════════════════
+// Card 6 — 7-day trend (stacked bar chart with axis labels)
+// ═══════════════════════════════════════════════════════════════════════════
 function TrendCard({ data, loading }: { data: DailyTrend | null; loading: boolean }) {
+  const chart = useMemo(() => {
+    if (!data || data.days.length === 0) return null;
+    const maxTotal = Math.max(...data.days.map(d => d.ozon.revenue_rub + d.wb.revenue_rub));
+    const totalWeek = data.days.reduce((s, d) => s + d.ozon.revenue_rub + d.wb.revenue_rub, 0);
+    return { maxTotal, totalWeek };
+  }, [data]);
+
   return (
-    <div className="bg-card p-5" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
-      <div style={{ fontSize: '14px', color: 'var(--fg-3)', textTransform: 'uppercase', marginBottom: '12px' }}>
-        7-day trend
-        {data && !data.history_complete && (
-          <span style={{ marginLeft: '8px', fontSize: '11px', textTransform: 'none', color: 'var(--fg-3)' }}>
-            (Δ vs last week — needs 14d, have {data.days_available}d)
-          </span>
-        )}
-      </div>
-      {loading ? (
-        <div className="flex items-center justify-center py-6"><Loader2 className="h-5 w-5 animate-spin" style={{ color: 'var(--fg-3)' }} /></div>
-      ) : !data || data.days.length === 0 ? (
-        <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>No daily snapshots yet.</div>
-      ) : (
-        <table style={{ width: '100%', fontSize: '13px' }}>
-          <thead>
-            <tr style={{ color: 'var(--fg-3)', borderBottom: '1px solid var(--border-hairline)' }}>
-              <th style={{ textAlign: 'left',  padding: '6px 4px', fontWeight: 500, fontSize: '11px' }}>Day</th>
-              <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 500, fontSize: '11px', color: COLOR_OZON }}>Ozon</th>
-              <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 500, fontSize: '11px', color: COLOR_WB }}>WB</th>
-              <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 500, fontSize: '11px' }}>Day total</th>
-            </tr>
-          </thead>
-          <tbody>
+    <Card>
+      <CardHeader icon={<BarChart3 className="h-4 w-4" />} title="7-day trend" subtitle={chart ? `Σ ${fmtRubFull(chart.totalWeek)}` : undefined} />
+
+      {loading ? <CardLoading /> : !data || data.days.length === 0 ? <CardEmpty>No daily snapshots yet.</CardEmpty> : (
+        <>
+          {/* Stacked bar chart */}
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', height: '120px', marginBottom: '8px' }}>
+            {data.days.map((d, i) => {
+              const total = d.ozon.revenue_rub + d.wb.revenue_rub;
+              const totalH = chart ? (total / chart.maxTotal) * 100 : 0;
+              const ozH = total > 0 ? (d.ozon.revenue_rub / total) * 100 : 0;
+              const isLast = i === data.days.length - 1;
+              return (
+                <div key={d.date} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%', minWidth: 0 }}
+                     title={`${d.date}\nOzon: ${fmtRubFull(d.ozon.revenue_rub)} (${d.ozon.units} ед)\nWB: ${fmtRubFull(d.wb.revenue_rub)} (${d.wb.units} ед)`}>
+                  <div style={{
+                    width: '100%',
+                    height: `${totalH}%`,
+                    minHeight: total > 0 ? '4px' : '0',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    borderRadius: '3px 3px 0 0',
+                    overflow: 'hidden',
+                  }}>
+                    <div style={{ height: `${ozH}%`, backgroundColor: COLOR_OZON, opacity: isLast ? 1 : 0.85 }} />
+                    <div style={{ height: `${100 - ozH}%`, backgroundColor: COLOR_WB, opacity: isLast ? 1 : 0.85 }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* X-axis labels */}
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
             {data.days.map(d => (
-              <TrendRow key={d.date} day={d} />
+              <div key={d.date} style={{ flex: 1, textAlign: 'center', fontSize: '14px', color: 'var(--fg-3)', minWidth: 0 }}>
+                <div style={{ fontWeight: 700 }}>{fmtWeekday(d.date)}</div>
+                <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{d.date.slice(8)}</div>
+              </div>
             ))}
-          </tbody>
-        </table>
+          </div>
+
+          {/* Last day deltas */}
+          {data.days.length > 0 && (() => {
+            const last = data.days[data.days.length - 1]!;
+            const ozDp = fmtPct(last.ozon.delta_pct);
+            const wbDp = fmtPct(last.wb.delta_pct);
+            return (
+              <div style={{ borderTop: '1px solid var(--border-hairline)', paddingTop: '10px' }}>
+                <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginBottom: '6px' }}>
+                  {fmtDayMonth(last.date)} · vs same weekday last week
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: '14px' }}>
+                  <span style={{ color: COLOR_OZON, fontWeight: 700 }}>
+                    Ozon {fmtRubCompact(last.ozon.revenue_rub)}
+                    {ozDp.tone !== 'na' && <DeltaPill tone={ozDp.tone}>{ozDp.text}</DeltaPill>}
+                  </span>
+                  <span style={{ color: COLOR_WB, fontWeight: 700 }}>
+                    WB {fmtRubCompact(last.wb.revenue_rub)}
+                    {wbDp.tone !== 'na' && <DeltaPill tone={wbDp.tone}>{wbDp.text}</DeltaPill>}
+                  </span>
+                </div>
+                {!data.history_complete && (
+                  <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '8px' }}>
+                    Δ vs last week populates once we have 14d of history (currently {data.days_available}d)
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </>
       )}
-    </div>
+    </Card>
   );
 }
 
-function TrendRow({ day }: { day: DailyTrend['days'][number] }) {
-  const total = day.ozon.revenue_rub + day.wb.revenue_rub;
-  return (
-    <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-      <td style={{ padding: '6px 4px', color: 'var(--fg-2)' }}>
-        <span style={{ fontWeight: 500 }}>{fmtWeekday(day.date)}</span>
-        <span style={{ marginLeft: '6px', fontSize: '11px', color: 'var(--fg-3)' }}>{day.date.slice(5)}</span>
-      </td>
-      <TrendCell amount={day.ozon.revenue_rub} delta={day.ozon.delta_pct} color={COLOR_OZON} />
-      <TrendCell amount={day.wb.revenue_rub}   delta={day.wb.delta_pct}   color={COLOR_WB} />
-      <td style={{ padding: '6px 4px', textAlign: 'right', fontWeight: 700, color: 'var(--fg-1)' }}>{fmtRub(total)} ₽</td>
-    </tr>
-  );
-}
+// ═══════════════════════════════════════════════════════════════════════════
+// Card 3 — Top & Bottom SKUs (toggle units/revenue, product names)
+// ═══════════════════════════════════════════════════════════════════════════
+type SortMode = 'units' | 'revenue';
 
-function TrendCell({ amount, delta, color }: { amount: number; delta: number | null; color: string }) {
-  const dp = fmtPct(delta);
-  return (
-    <td style={{ padding: '6px 4px', textAlign: 'right' }}>
-      <span style={{ fontWeight: 700, color }}>{fmtRub(amount)}</span>
-      {dp.tone !== 'na' && (
-        <span style={{
-          display: 'inline-block',
-          marginLeft: '6px',
-          fontSize: '11px',
-          fontWeight: 500,
-          color: dp.tone === 'up' ? '#3B6D11' : dp.tone === 'down' ? '#A32D2D' : 'var(--fg-3)',
-        }}>{dp.text}</span>
-      )}
-    </td>
-  );
-}
-
-// ===========================================================================
-// Card 3 — Top & Bottom SKUs (clickable rows → funnel modal)
-// ===========================================================================
 function TopBottomCard({ data, loading, onSkuClick }: { data: Spotlight | null; loading: boolean; onSkuClick: (sku: string) => void }) {
+  const [sortMode, setSortMode] = useState<SortMode>('revenue');
+
+  const sortedTop = useMemo(() => {
+    if (!data) return [];
+    return [...data.top].sort((a, b) => sortMode === 'units' ? b.units_sold - a.units_sold : b.revenue_rub - a.revenue_rub);
+  }, [data, sortMode]);
+
   return (
     <div className="bg-card p-5" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', gridColumn: 'span 2' }}>
-      <div style={{ fontSize: '14px', color: 'var(--fg-3)', textTransform: 'uppercase', marginBottom: '12px' }}>
-        Top & bottom SKUs
-        <span style={{ marginLeft: '8px', fontSize: '11px', textTransform: 'none', color: 'var(--fg-3)' }}>
-          (click a top SKU to see its conversion funnel)
-        </span>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <Package className="h-4 w-4" style={{ color: 'var(--fg-2)' }} />
+          <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', textTransform: 'uppercase' }}>
+            Top &amp; Bottom SKUs
+          </span>
+          <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
+            click any top SKU for funnel
+          </span>
+        </div>
+        <SortToggle value={sortMode} onChange={setSortMode} />
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-6"><Loader2 className="h-5 w-5 animate-spin" style={{ color: 'var(--fg-3)' }} /></div>
-      ) : !data ? (
-        <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>No data.</div>
-      ) : (
-        <div className="grid grid-cols-2 gap-6">
+      {loading ? <CardLoading /> : !data ? <CardEmpty>No data.</CardEmpty> : (
+        <div className="grid grid-cols-2 gap-8">
           <div>
-            <div style={{ fontSize: '11px', color: 'var(--fg-3)', textTransform: 'uppercase', marginBottom: '4px' }}>
-              Top 5 by units
+            <div style={{ fontSize: '14px', color: 'var(--fg-3)', textTransform: 'uppercase', marginBottom: '8px' }}>
+              Top 5 movers
             </div>
-            <div>
-              {data.top.map((row, i) => {
-                const max = data.top[0]?.units_sold || 1;
-                return (
-                  <button
-                    key={row.base_sku}
-                    onClick={() => onSkuClick(row.base_sku)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px',
-                      padding: '6px 0',
-                      width: '100%',
-                      background: 'transparent',
-                      border: 'none',
-                      borderBottom: '1px solid var(--border-hairline)',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--paper-sunk)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                  >
-                    <span style={{ width: '70px', fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', textTransform: 'uppercase' }}>
-                      {row.base_sku.toUpperCase()}
-                    </span>
-                    <span style={{ flex: 1, height: '10px', backgroundColor: 'var(--paper-sunk)', borderRadius: '4px', overflow: 'hidden' }}>
-                      <span style={{
-                        display: 'block',
-                        height: '100%',
-                        width: `${(row.units_sold / max) * 100}%`,
-                        background: `linear-gradient(90deg, ${COLOR_WB} 0%, ${COLOR_WB} ${(row.wb_units / row.units_sold) * 100}%, ${COLOR_OZON} ${(row.wb_units / row.units_sold) * 100}%, ${COLOR_OZON} 100%)`,
-                      }} />
-                    </span>
-                    <span style={{ width: '64px', textAlign: 'right', fontSize: '14px', fontWeight: 700 }}>
-                      {row.units_sold}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--fg-3)' }}>
-              <span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: COLOR_WB, marginRight: '4px', borderRadius: '50%' }} />WB
-              <span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: COLOR_OZON, marginLeft: '12px', marginRight: '4px', borderRadius: '50%' }} />Ozon
-            </div>
+            {sortedTop.map(row => (
+              <TopRow key={row.base_sku} row={row} sortMode={sortMode} onClick={() => onSkuClick(row.base_sku)} />
+            ))}
           </div>
 
           <div>
-            <div style={{ fontSize: '11px', color: 'var(--fg-3)', textTransform: 'uppercase', marginBottom: '4px' }}>
-              No sales (catalog SKUs)
+            <div style={{ fontSize: '14px', color: 'var(--fg-3)', textTransform: 'uppercase', marginBottom: '8px' }}>
+              Zero sales (catalog)
             </div>
             {data.bottom.length === 0 ? (
               <div style={{ fontSize: '14px', color: 'var(--fg-3)', padding: '8px 0' }}>
@@ -342,11 +380,17 @@ function TopBottomCard({ data, loading, onSkuClick }: { data: Spotlight | null; 
                 <div key={row.base_sku} style={{
                   display: 'flex',
                   justifyContent: 'space-between',
-                  padding: '6px 0',
+                  alignItems: 'center',
+                  padding: '10px 0',
                   borderBottom: '1px solid var(--border-hairline)',
                   fontSize: '14px',
                 }}>
-                  <span style={{ fontWeight: 700, color: 'var(--fg-2)', textTransform: 'uppercase' }}>{row.base_sku.toUpperCase()}</span>
+                  <span>
+                    <span style={{ fontWeight: 700, color: 'var(--fg-1)', textTransform: 'uppercase' }}>{row.base_sku.toUpperCase()}</span>
+                    {row.product_name && (
+                      <span style={{ color: 'var(--fg-3)', marginLeft: '8px' }}>{row.product_name}</span>
+                    )}
+                  </span>
                   <span style={{ color: '#A32D2D', fontWeight: 700 }}>0</span>
                 </div>
               ))
@@ -358,19 +402,96 @@ function TopBottomCard({ data, loading, onSkuClick }: { data: Spotlight | null; 
   );
 }
 
-// ===========================================================================
-// Card 9 — SKU funnel modal (popped from top-SKU click)
-// ===========================================================================
+function TopRow({ row, sortMode, onClick }: { row: Spotlight['top'][number]; sortMode: SortMode; onClick: () => void }) {
+  const valueLabel = sortMode === 'units' ? `${row.units_sold} ед` : fmtRubCompact(row.revenue_rub) + ' ₽';
+  const wbShare = row.units_sold > 0 ? (row.wb_units / row.units_sold) * 100 : 0;
+
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: 'block',
+        width: '100%',
+        padding: '10px 8px',
+        margin: '0 -8px',
+        background: 'transparent',
+        border: 'none',
+        borderBottom: '1px solid var(--border-hairline)',
+        cursor: 'pointer',
+        textAlign: 'left',
+        transition: 'background 80ms ease',
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--paper-sunk)')}
+      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
+        <span>
+          <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', textTransform: 'uppercase' }}>
+            {row.base_sku.toUpperCase()}
+          </span>
+          {row.product_name && (
+            <span style={{ fontSize: '14px', color: 'var(--fg-3)', marginLeft: '8px' }}>{row.product_name}</span>
+          )}
+        </span>
+        <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>{valueLabel}</span>
+      </div>
+      <div style={{ display: 'flex', height: '6px', borderRadius: '3px', overflow: 'hidden', backgroundColor: 'var(--paper-sunk)' }}>
+        <div style={{ width: `${wbShare}%`, backgroundColor: COLOR_WB }} title={`WB ${row.wb_units} ед`} />
+        <div style={{ width: `${100 - wbShare}%`, backgroundColor: COLOR_OZON }} title={`Ozon ${row.ozon_units} ед`} />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: 'var(--fg-3)', marginTop: '4px' }}>
+        <span>WB {row.wb_units}</span>
+        <span>Ozon {row.ozon_units}</span>
+      </div>
+    </button>
+  );
+}
+
+function SortToggle({ value, onChange }: { value: SortMode; onChange: (m: SortMode) => void }) {
+  return (
+    <div style={{ display: 'inline-flex', backgroundColor: 'var(--paper-sunk)', borderRadius: 'var(--radius-pill)', padding: '2px', border: '1px solid var(--border-hairline)' }}>
+      {(['revenue', 'units'] as SortMode[]).map(m => (
+        <button
+          key={m}
+          onClick={() => onChange(m)}
+          style={{
+            padding: '4px 12px',
+            fontSize: '14px',
+            fontWeight: 700,
+            border: 'none',
+            borderRadius: 'var(--radius-pill)',
+            backgroundColor: value === m ? 'var(--paper)' : 'transparent',
+            color: value === m ? 'var(--fg-1)' : 'var(--fg-3)',
+            cursor: 'pointer',
+            boxShadow: value === m ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
+            transition: 'all 80ms ease',
+          }}
+        >
+          {m === 'revenue' ? 'by revenue' : 'by units'}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Card 9 — SKU funnel modal (polished)
+// ═══════════════════════════════════════════════════════════════════════════
 function SkuFunnelModal({ sku, onClose }: { sku: string; onClose: () => void }) {
   const [funnel, setFunnel] = useState<SkuFunnel | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchJson<SkuFunnel>(`/api/marketplaces/pulse/sku-funnel/${encodeURIComponent(sku)}`).then(d => {
-      setFunnel(d);
-      setLoading(false);
+      setFunnel(d); setLoading(false);
     });
   }, [sku]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   return (
     <div
@@ -378,12 +499,13 @@ function SkuFunnelModal({ sku, onClose }: { sku: string; onClose: () => void }) 
       style={{
         position: 'fixed',
         inset: 0,
-        backgroundColor: 'rgba(0,0,0,0.4)',
+        backgroundColor: 'rgba(0,0,0,0.45)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 50,
         padding: '20px',
+        backdropFilter: 'blur(2px)',
       }}
     >
       <div
@@ -392,63 +514,94 @@ function SkuFunnelModal({ sku, onClose }: { sku: string; onClose: () => void }) 
           backgroundColor: 'var(--paper)',
           border: '1px solid var(--border-hairline)',
           borderRadius: 'var(--radius-md)',
-          maxWidth: '720px',
+          maxWidth: '760px',
           width: '100%',
-          maxHeight: '80vh',
+          maxHeight: '85vh',
           overflow: 'auto',
-          padding: '24px',
+          padding: '28px',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
         }}
       >
-        <div className="flex items-start justify-between mb-4">
+        <div className="flex items-start justify-between mb-6">
           <div>
-            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '24px', fontWeight: 700, color: 'var(--fg-1)' }}>
+            <div style={{ fontSize: '14px', color: 'var(--fg-3)', textTransform: 'uppercase', marginBottom: '4px' }}>
+              Conversion funnel
+            </div>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '28px', fontWeight: 700, color: 'var(--fg-1)', lineHeight: 1.1 }}>
               {sku.toUpperCase()}
             </h2>
             {funnel?.product_name && (
-              <p style={{ fontSize: '14px', color: 'var(--fg-2)', marginTop: '4px' }}>{funnel.product_name}</p>
+              <p style={{ fontSize: '16px', color: 'var(--fg-2)', marginTop: '4px' }}>{funnel.product_name}</p>
             )}
             {funnel?.period.from && (
-              <p style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '4px' }}>
-                Conversion funnel · {funnel.period.from} — {funnel.period.to}
+              <p style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '6px' }}>
+                {funnel.period.from} → {funnel.period.to}
               </p>
             )}
           </div>
           <button
             onClick={onClose}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              padding: '6px',
-              color: 'var(--fg-3)',
-            }}
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '6px', color: 'var(--fg-3)' }}
             aria-label="Close"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        {loading ? (
-          <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--fg-3)' }} /></div>
-        ) : !funnel ? (
-          <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>No funnel data for this SKU.</div>
-        ) : (
-          <div className="grid grid-cols-2 gap-6">
-            <FunnelColumn label="Wildberries" data={funnel.wb} color={COLOR_WB} />
-            <FunnelColumn label="Ozon"        data={funnel.ozon} color={COLOR_OZON} />
-          </div>
+        {loading ? <CardLoading /> : !funnel ? <CardEmpty>No funnel data for this SKU.</CardEmpty> : (
+          <>
+            <div style={{
+              backgroundColor: 'var(--paper-sunk)',
+              borderRadius: 'var(--radius-md)',
+              padding: '16px',
+              marginBottom: '24px',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: '16px',
+            }}>
+              <FunnelStat label="Views" value={funnel.combined.views} />
+              <FunnelStat label="In cart" value={funnel.combined.cart} />
+              <FunnelStat label="Orders" value={funnel.combined.orders} />
+              <FunnelStat label="Revenue" value={funnel.combined.revenue_rub} format="rub" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-6">
+              <FunnelColumn label="Wildberries" data={funnel.wb} color={COLOR_WB} colorLight={COLOR_WB_LIGHT} />
+              <FunnelColumn label="Ozon"        data={funnel.ozon} color={COLOR_OZON} colorLight={COLOR_OZON_LIGHT} />
+            </div>
+          </>
         )}
       </div>
     </div>
   );
 }
 
-function FunnelColumn({ label, data, color }: { label: string; data: { views: number; cart: number; orders: number; revenue_rub: number } | null; color: string }) {
-  if (!data) {
+function FunnelStat({ label, value, format }: { label: string; value: number; format?: 'rub' }) {
+  return (
+    <div>
+      <div style={{ fontSize: '14px', color: 'var(--fg-3)', textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--fg-1)', marginTop: '2px' }}>
+        {format === 'rub' ? fmtRubFull(value) : new Intl.NumberFormat('ru-RU').format(value)}
+      </div>
+    </div>
+  );
+}
+
+function FunnelColumn({ label, data, color, colorLight }: { label: string; data: { views: number; cart: number; orders: number; revenue_rub: number } | null; color: string; colorLight: string }) {
+  if (!data || (data.views === 0 && data.cart === 0 && data.orders === 0)) {
     return (
       <div>
-        <div style={{ fontSize: '14px', fontWeight: 700, color, marginBottom: '12px' }}>{label}</div>
-        <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>Not listed on this marketplace.</div>
+        <div style={{ fontSize: '14px', fontWeight: 700, color, textTransform: 'uppercase', marginBottom: '12px' }}>{label}</div>
+        <div style={{
+          padding: '20px',
+          backgroundColor: 'var(--paper-sunk)',
+          borderRadius: 'var(--radius-sm)',
+          fontSize: '14px',
+          color: 'var(--fg-3)',
+          textAlign: 'center',
+        }}>
+          {!data ? 'Not listed on this marketplace' : 'API did not return funnel events'}
+        </div>
       </div>
     );
   }
@@ -456,21 +609,30 @@ function FunnelColumn({ label, data, color }: { label: string; data: { views: nu
   const viewsToCart = data.views > 0 ? (data.cart / data.views) * 100 : 0;
   const cartToOrder = data.cart > 0 ? (data.orders / data.cart) * 100 : 0;
   const overall = data.views > 0 ? (data.orders / data.views) * 100 : 0;
+  const maxBar = Math.max(data.views, data.cart, data.orders, 1);
 
   return (
     <div>
-      <div style={{ fontSize: '14px', fontWeight: 700, color, marginBottom: '12px', textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ fontSize: '14px', fontWeight: 700, color, textTransform: 'uppercase', marginBottom: '12px' }}>{label}</div>
 
-      <FunnelStep label="Views" count={data.views} pct={100} color={color} prefix="" />
+      <FunnelBar label="Views"   count={data.views}  pct={(data.views  / maxBar) * 100} color={color} />
       <FunnelArrow conv={viewsToCart} note="add to cart" />
-      <FunnelStep label="In cart" count={data.cart} pct={(data.cart / Math.max(data.views, 1)) * 100} color={color} prefix="" opacity={0.7} />
+      <FunnelBar label="In cart" count={data.cart}   pct={(data.cart   / maxBar) * 100} color={color} opacity={0.7} />
       <FunnelArrow conv={cartToOrder} note="checkout" />
-      <FunnelStep label="Ordered" count={data.orders} pct={(data.orders / Math.max(data.views, 1)) * 100} color={color} prefix="" opacity={0.4} />
+      <FunnelBar label="Orders"  count={data.orders} pct={(data.orders / maxBar) * 100} color={colorLight} />
 
-      <div style={{ marginTop: '12px', padding: '10px', backgroundColor: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)', fontSize: '13px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+      <div style={{
+        marginTop: '14px',
+        padding: '12px',
+        backgroundColor: 'var(--paper-sunk)',
+        borderRadius: 'var(--radius-sm)',
+        fontSize: '14px',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
           <span style={{ color: 'var(--fg-3)' }}>View → buy</span>
-          <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{overall.toFixed(2)}%</span>
+          <span style={{ fontWeight: 700, color: overall >= 1.5 ? '#3B6D11' : overall >= 0.8 ? 'var(--fg-1)' : '#A32D2D' }}>
+            {overall.toFixed(2)}%
+          </span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <span style={{ color: 'var(--fg-3)' }}>Revenue</span>
@@ -481,19 +643,20 @@ function FunnelColumn({ label, data, color }: { label: string; data: { views: nu
   );
 }
 
-function FunnelStep({ label, count, pct, color, opacity = 1 }: { label: string; count: number; pct: number; color: string; prefix?: string; opacity?: number }) {
+function FunnelBar({ label, count, pct, color, opacity = 1 }: { label: string; count: number; pct: number; color: string; opacity?: number }) {
   return (
-    <div style={{ marginBottom: '8px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
+    <div style={{ marginBottom: '6px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginBottom: '4px' }}>
         <span style={{ color: 'var(--fg-2)' }}>{label}</span>
         <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{new Intl.NumberFormat('ru-RU').format(count)}</span>
       </div>
-      <div style={{ height: '20px', backgroundColor: 'var(--paper-sunk)', borderRadius: 'var(--radius-xs)', overflow: 'hidden' }}>
+      <div style={{ height: '22px', backgroundColor: 'var(--paper-sunk)', borderRadius: 'var(--radius-xs)', overflow: 'hidden' }}>
         <div style={{
-          width: `${Math.max(pct, 2)}%`,
+          width: `${Math.max(pct, 1)}%`,
           height: '100%',
           backgroundColor: color,
           opacity,
+          borderRadius: 'var(--radius-xs)',
         }} />
       </div>
     </div>
@@ -502,8 +665,59 @@ function FunnelStep({ label, count, pct, color, opacity = 1 }: { label: string; 
 
 function FunnelArrow({ conv, note }: { conv: number; note: string }) {
   return (
-    <div style={{ textAlign: 'center', fontSize: '11px', color: 'var(--fg-3)', padding: '2px 0' }}>
-      ↓ {conv.toFixed(1)}% — {note}
+    <div style={{ textAlign: 'center', fontSize: '14px', color: 'var(--fg-3)', padding: '4px 0' }}>
+      ↓ <span style={{ fontWeight: 700, color: 'var(--fg-2)' }}>{conv.toFixed(1)}%</span> · {note}
     </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Shared atoms
+// ═══════════════════════════════════════════════════════════════════════════
+function Card({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="bg-card p-5" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
+      {children}
+    </div>
+  );
+}
+
+function CardHeader({ icon, title, subtitle }: { icon?: React.ReactNode; title: string; subtitle?: string }) {
+  return (
+    <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center gap-2">
+        {icon && <span style={{ color: 'var(--fg-2)' }}>{icon}</span>}
+        <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', textTransform: 'uppercase' }}>{title}</span>
+      </div>
+      {subtitle && <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{subtitle}</span>}
+    </div>
+  );
+}
+
+function CardLoading() {
+  return <div className="flex items-center justify-center py-6"><Loader2 className="h-5 w-5 animate-spin" style={{ color: 'var(--fg-3)' }} /></div>;
+}
+
+function CardEmpty({ children }: { children: React.ReactNode }) {
+  return <div style={{ fontSize: '14px', color: 'var(--fg-3)', padding: '12px 0' }}>{children}</div>;
+}
+
+function DeltaPill({ tone, children }: { tone: 'up' | 'down' | 'flat'; children: React.ReactNode }) {
+  const styles = {
+    up:   { bg: '#EAF3DE', fg: '#3B6D11' },
+    down: { bg: '#FCEBEB', fg: '#A32D2D' },
+    flat: { bg: 'var(--paper-sunk)', fg: 'var(--fg-3)' },
+  }[tone];
+  return (
+    <span style={{
+      display: 'inline-block',
+      marginLeft: '8px',
+      fontSize: '14px',
+      fontWeight: 700,
+      padding: '2px 8px',
+      borderRadius: 'var(--radius-pill)',
+      backgroundColor: styles.bg,
+      color: styles.fg,
+    }}>{children}</span>
   );
 }

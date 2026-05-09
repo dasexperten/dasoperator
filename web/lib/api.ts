@@ -655,7 +655,7 @@ export interface Contract {
   status: 'draft' | 'active' | 'expired' | 'cancelled';
   notes?: string | null;
   vat_rate: 0 | 5 | 20;
-  agreement_type?: 'main' | 'addendum' | 'annex' | 'sla' | null;
+  agreement_type?: 'main' | 'addendum' | 'annex' | 'sla' | 'nda' | 'mou' | 'loi' | 'other' | null;
   parent_contract_id?: string | null;
   addendum_no?: string | null;
   contract_file_key?: string | null;
@@ -684,11 +684,16 @@ export async function getPartnerContracts(slug: string) {
   );
 }
 
+export type AgreementType =
+  | 'main' | 'addendum' | 'annex' | 'sla'
+  | 'nda' | 'mou' | 'loi' | 'other';
+
 export interface CreateContractBody {
-  contract_no: string;
+  contract_no?: string;  // optional for legal docs (nda/mou/loi/other)
   partner_id: string;
-  our_company_id: string;
-  currency: string;
+  our_company_id?: string;  // optional for legal docs
+  currency?: string;  // optional for legal docs
+  agreement_type?: AgreementType;
   signed_date?: number;
   expiry_date?: number;
   incoterms?: string;
@@ -699,6 +704,37 @@ export interface CreateContractBody {
 
 export async function createContract(body: CreateContractBody) {
   return apiPost<Contract>('/api/contracts', body);
+}
+
+// PATCH /api/contracts/:id — edit existing contract.
+// Only supplied fields are touched. partner_id is intentionally NOT editable.
+export interface PatchContractBody {
+  contract_no?: string;
+  agreement_type?: AgreementType;
+  signed_date?: number | null;
+  expiry_date?: number | null;
+  status?: 'draft' | 'active' | 'expired' | 'cancelled';
+  notes?: string | null;
+  currency?: string;
+  our_company_id?: string;
+  incoterms?: string | null;
+  vat_rate?: 0 | 5 | 20;
+}
+
+export async function patchContract(id: string, body: PatchContractBody) {
+  const res = await fetch(`${API_BASE}/api/contracts/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json();
+  if (!res.ok || !(json as { success?: boolean }).success) {
+    throw new Error(
+      ((json as { errors?: Array<{ message?: string }> }).errors?.[0]?.message) ||
+      `PATCH /api/contracts/${id} failed (${res.status})`
+    );
+  }
+  return (json as { result: { id: string; fields_updated: string[]; crm_promoted: boolean; updated_at: number } }).result;
 }
 
 // Contract file (PDF in R2) — Phase 7.1

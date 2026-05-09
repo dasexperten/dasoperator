@@ -111,40 +111,17 @@ admin.post('/migrate/partners-status', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /admin/migrate/partner-agreements
-// Creates partner_agreements table for NDA/MOU/LOI/Contract tracking.
-// Trigger for status auto-promotion (Lead → Potential on first signed agreement).
+// POST /admin/migrate/partner-agreements — DEPRECATED (migration 0025)
+// All NDA/MOU/LOI/other documents now live in `contracts` with
+// agreement_type IN ('nda','mou','loi','other').
+// This endpoint is kept as a no-op to prevent accidental recreation
+// of the obsolete partner_agreements table.
 // ---------------------------------------------------------------------------
 admin.post('/migrate/partner-agreements', async (c) => {
-  // Check existence
-  const exists = await c.env.DB.prepare(
-    `SELECT name FROM sqlite_master WHERE type='table' AND name='partner_agreements'`
-  ).first();
-
-  if (exists) {
-    return ok(c, { skipped: true, reason: 'already exists' });
-  }
-
-  await c.env.DB.prepare(`CREATE TABLE partner_agreements (
-    id TEXT PRIMARY KEY,
-    partner_id TEXT NOT NULL REFERENCES partners(id) ON DELETE CASCADE,
-    agreement_type TEXT NOT NULL CHECK (agreement_type IN ('nda', 'mou', 'loi', 'contract', 'amendment', 'other')),
-    title TEXT,
-    signed_date INTEGER,
-    expiry_date INTEGER,
-    file_r2_key TEXT,
-    status TEXT NOT NULL DEFAULT 'signed' CHECK (status IN ('draft', 'signed', 'expired', 'cancelled')),
-    notes TEXT,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    deleted_at INTEGER
-  )`).run();
-
-  await c.env.DB.prepare(
-    `CREATE INDEX idx_partner_agreements_partner ON partner_agreements(partner_id, status, deleted_at)`
-  ).run();
-
-  return ok(c, { applied: true, table: 'partner_agreements created' });
+  return ok(c, {
+    skipped: true,
+    reason: 'partner_agreements deprecated — agreements now live in contracts (migration 0025)',
+  });
 });
 
 

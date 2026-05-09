@@ -148,7 +148,7 @@ partners.get('/:slug', async (c) => {
 // =============================================================================
 // POST /api/partners — create new partner (Step 1: minimal)
 // New partners always start as 'lead' (CRM-wise). They can't see prices
-// until at least one signed agreement exists in partner_agreements.
+// until at least one signed agreement (any contract row, including NDA) exists.
 // =============================================================================
 const createPartnerSchema = z.object({
   trade_name: z.string().min(1).max(200),
@@ -368,7 +368,15 @@ partners.get('/:slug/contracts', async (c) => {
 });
 
 // =============================================================================
-// GET /api/partners/:slug/agreements — list NDA/MOU/LOI/Contract docs
+// GET /api/partners/:slug/agreements — list legal docs (NDA / MOU / LOI / other)
+// Now reads from `contracts` (single source of truth) where agreement_type
+// is one of nda/mou/loi/other. Business contracts (main/addendum/annex/sla)
+// continue to live in /api/partners/:slug/contracts.
+//
+// Returned shape preserves original PartnerAgreement contract for callers:
+//   id, agreement_type, title (derived from contract_no), signed_date,
+//   expiry_date, file_r2_key (=contract_file_key), status, notes,
+//   created_at, updated_at.
 // =============================================================================
 partners.get('/:slug/agreements', async (c) => {
   const slug = c.req.param('slug');
@@ -382,10 +390,21 @@ partners.get('/:slug/agreements', async (c) => {
   }
 
   const result = await c.env.DB.prepare(`
-    SELECT id, agreement_type, title, signed_date, expiry_date,
-           file_r2_key, status, notes, created_at, updated_at
-    FROM partner_agreements
-    WHERE partner_id = ? AND deleted_at IS NULL
+    SELECT
+      id,
+      agreement_type,
+      contract_no AS title,
+      signed_date,
+      expiry_date,
+      contract_file_key AS file_r2_key,
+      CASE WHEN status = 'active' THEN 'signed' ELSE status END AS status,
+      notes,
+      created_at,
+      updated_at
+    FROM contracts
+    WHERE partner_id = ?
+      AND deleted_at IS NULL
+      AND agreement_type IN ('nda','mou','loi','other')
     ORDER BY signed_date DESC, created_at DESC
   `).bind(slug).all();
 
@@ -397,9 +416,13 @@ partners.get('/:slug/agreements', async (c) => {
 });
 
 // =============================================================================
-// POST /api/partners/:slug/agreements — record signed agreement
-// On success, if this is a 'signed' agreement and partner is 'lead',
-// auto-promote crm_status: lead → potential.
+// POST /api/partners/:slug/agreements — record a legal doc (NDA/MOU/LOI/other)
+// Now writes into `contracts` (single source of truth). The legacy
+// 'contract' / 'amendment' values are mapped onto contracts.agreement_type:
+//   contract  → 'main'
+//   amendment → 'addendum'
+// On success, if this is a 'signed' agreement (status='signed' → contract status='active')
+// and partner is 'lead', auto-promote crm_status: lead → potential.
 // =============================================================================
 const createAgreementSchema = z.object({
   agreement_type: z.enum(['nda', 'mou', 'loi', 'contract', 'amendment', 'other']),
@@ -411,12 +434,25 @@ const createAgreementSchema = z.object({
   notes: z.string().max(2000).nullable().optional(),
 });
 
+// Map legacy partner_agreements types onto canonical contracts.agreement_type.
+function mapLegacyAgreementType(t: string): string {
+  if (t === 'contract') return 'main';
+  if (t === 'amendment') return 'addendum';
+  return t;  // nda / mou / loi / other pass through
+}
+
+// Map legacy partner_agreements status onto contracts.status.
+function mapLegacyAgreementStatus(s: string): string {
+  if (s === 'signed') return 'active';
+  return s;  // draft / expired / cancelled pass through
+}
+
 partners.post('/:slug/agreements', async (c) => {
   const slug = c.req.param('slug');
 
   const partner = await c.env.DB.prepare(
-    'SELECT id, crm_status FROM partners WHERE id = ? AND deleted_at IS NULL'
-  ).bind(slug).first<{ id: string; crm_status: string }>();
+    'SELECT id, abbreviation, crm_status FROM partners WHERE id = ? AND deleted_at IS NULL'
+  ).bind(slug).first<{ id: string; abbreviation: string | null; crm_status: string }>();
 
   if (!partner) {
     return fail(c, 404, [{ code: 'partner_not_found', message: `Partner ${slug} not found` }]);
@@ -439,22 +475,50 @@ partners.post('/:slug/agreements', async (c) => {
   }
 
   const data = parsed.data;
-  const id = `agr_${crypto.randomUUID()}`;
+  const canonicalType = mapLegacyAgreementType(data.agreement_type);
+  const canonicalStatus = mapLegacyAgreementStatus(data.status);
   const now = Math.floor(Date.now() / 1000);
+
+  // Default our_company_id and currency for legal docs (not financial)
+  const ourCompanyId = 'dee';
+  const currency = 'USD';
+
+  // Need company.abbreviation to build a contract_no fallback
+  const company = await c.env.DB.prepare(
+    'SELECT id, abbreviation FROM companies WHERE id = ?'
+  ).bind(ourCompanyId).first<{ id: string; abbreviation: string | null }>();
+
+  if (!company) {
+    return fail(c, 500, [{
+      code: 'default_company_missing',
+      message: `Default company '${ourCompanyId}' not found in DB`,
+    }]);
+  }
+
+  // Build contract_no: prefer the title if user provided one,
+  // otherwise auto-generate <TYPE>-<ENTITY>-<PARTNER>-<DATE>.
+  const dateForCode = new Date((data.signed_date ?? now) * 1000).toISOString().slice(0, 10);
+  const partnerCode = (partner.abbreviation || slug).toUpperCase();
+  const entityCode = (company.abbreviation || ourCompanyId).toUpperCase();
+  const autoNo = `${canonicalType.toUpperCase()}-${entityCode}-${partnerCode}-${dateForCode}`;
+  const contractNo = data.title?.trim() || autoNo;
+
+  const id = `agr_${crypto.randomUUID()}`;
 
   let promoted = false;
   const stmts = [
     c.env.DB.prepare(`
-      INSERT INTO partner_agreements (
-        id, partner_id, agreement_type, title,
-        signed_date, expiry_date, file_r2_key, status, notes,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO contracts (
+        id, contract_no, partner_id, our_company_id, currency,
+        signed_date, expiry_date, contract_file_key, status, notes,
+        agreement_type, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
-      id, slug, data.agreement_type, data.title ?? null,
-      data.signed_date ?? null, data.expiry_date ?? null, data.file_r2_key ?? null,
-      data.status, data.notes ?? null, now, now
-    )
+      id, contractNo, slug, ourCompanyId, currency,
+      data.signed_date ?? null, data.expiry_date ?? null,
+      data.file_r2_key ?? null, canonicalStatus, data.notes ?? null,
+      canonicalType, now, now
+    ),
   ];
 
   if (data.status === 'signed' && partner.crm_status === 'lead') {
@@ -468,10 +532,17 @@ partners.post('/:slug/agreements', async (c) => {
   try {
     await c.env.DB.batch(stmts);
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('UNIQUE')) {
+      return fail(c, 409, [{
+        code: 'contract_no_exists',
+        message: `Contract number ${contractNo} already exists`,
+      }]);
+    }
     return fail(c, 500, [{
       code: 'insert_failed',
       message: 'Failed to record agreement',
-      details: { error: err instanceof Error ? err.message : String(err) },
+      details: { error: message },
     }]);
   }
 
@@ -480,6 +551,7 @@ partners.post('/:slug/agreements', async (c) => {
     partner_id: slug,
     agreement_type: data.agreement_type,
     status: data.status,
+    contract_no: contractNo,
     crm_promoted: promoted,
     new_crm_status: promoted ? 'potential' : partner.crm_status,
   }, promoted
@@ -648,7 +720,7 @@ partners.post('/:slug/agreements/generate-nda', async (c) => {
     }]);
   }
 
-  // Step 7 — insert agreement record (draft, not signed)
+  // Step 7 — insert agreement record into `contracts` (draft, agreement_type='nda')
   const agreementId = `agr_${crypto.randomUUID()}`;
   const partnerLang = partner.partner_language ?? 'EN';
   const needsReview = requiresLocalLegalReview(partner.partner_language);
@@ -656,17 +728,28 @@ partners.post('/:slug/agreements/generate-nda', async (c) => {
     ? ' ⚠ Translation requires local legal review before signing.'
     : '';
 
+  // Build a unique placeholder contract_no — DEI is the signing entity for NDAs.
+  // Format: NDA-DEI-<PARTNER_ABBR_OR_SLUG>-<DATE>-<UNIX>
+  // We append the unix timestamp so multiple drafts on the same day don't collide.
+  const partnerAbbr = await c.env.DB.prepare(
+    'SELECT abbreviation FROM partners WHERE id = ?'
+  ).bind(slug).first<{ abbreviation: string | null }>();
+  const partnerCode = (partnerAbbr?.abbreviation || slug).toUpperCase();
+  const ndaContractNo = `NDA-DEI-${partnerCode}-${dateStr}-${now}`;
+
   try {
     await c.env.DB.prepare(`
-      INSERT INTO partner_agreements (
-        id, partner_id, agreement_type, title, signed_date, expiry_date,
-        file_r2_key, status, notes, created_at, updated_at
-      ) VALUES (?, ?, 'nda', ?, NULL, NULL, ?, 'draft', ?, ?, ?)
+      INSERT INTO contracts (
+        id, contract_no, partner_id, our_company_id, currency,
+        agreement_type, signed_date, expiry_date,
+        contract_file_key, status, notes, created_at, updated_at
+      ) VALUES (?, ?, ?, 'dei', 'USD', 'nda', NULL, NULL, ?, 'draft', ?, ?, ?)
     `).bind(
-      agreementId, slug,
-      `Mutual NDA (${partnerLang}) — ${partner.trade_name} (${dateStr})`,
+      agreementId,
+      ndaContractNo,
+      slug,
       r2Key,
-      `Generated by DeepSeek PRO. Language: ${partnerLang}. Tokens: ${tokensUsed.in} in, ${tokensUsed.out} out.${reviewNote}`,
+      `Mutual NDA (${partnerLang}) — ${partner.trade_name} (${dateStr}). Generated by DeepSeek PRO. Tokens: ${tokensUsed.in} in, ${tokensUsed.out} out.${reviewNote}`,
       now, now
     ).run();
   } catch (err) {
@@ -706,8 +789,8 @@ partners.get('/:slug/agreements/:id/download', async (c) => {
   const id = c.req.param('id');
 
   const agreement = await c.env.DB.prepare(
-    `SELECT file_r2_key, agreement_type, title
-     FROM partner_agreements
+    `SELECT contract_file_key AS file_r2_key, agreement_type, contract_no AS title
+     FROM contracts
      WHERE id = ? AND partner_id = ? AND deleted_at IS NULL`
   ).bind(id, slug).first<{ file_r2_key: string | null; agreement_type: string; title: string | null }>();
 

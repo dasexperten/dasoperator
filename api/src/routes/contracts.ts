@@ -9,11 +9,25 @@ const contracts = new Hono<{ Bindings: Env }>();
 // Schemas
 // =============================================================================
 
+// agreement_type covers everything stored in `contracts`:
+//   - business contracts: main, addendum, annex, sla
+//   - legal docs:         nda, mou, loi, other
+// For legal docs (nda/mou/loi/other), some business fields don't apply
+// and are made optional below.
+const AGREEMENT_TYPES = ['main', 'addendum', 'annex', 'sla', 'nda', 'mou', 'loi', 'other'] as const;
+const LEGAL_DOC_TYPES = ['nda', 'mou', 'loi', 'other'] as const;
+type AgreementType = typeof AGREEMENT_TYPES[number];
+
+function isLegalDoc(t: AgreementType): boolean {
+  return (LEGAL_DOC_TYPES as readonly string[]).includes(t);
+}
+
 const createSchema = z.object({
-  contract_no: z.string().min(1).max(100),
+  contract_no: z.string().min(1).max(100).optional(),
   partner_id: z.string().min(1),
-  our_company_id: z.string().min(1),
-  currency: z.string().min(3).max(3),
+  our_company_id: z.string().min(1).optional(),
+  currency: z.string().min(3).max(3).optional(),
+  agreement_type: z.enum(AGREEMENT_TYPES).default('main'),
   signed_date: z.number().int().positive().optional(),
   expiry_date: z.number().int().positive().optional(),
   incoterms: z.string().nullable().optional(),
@@ -22,12 +36,42 @@ const createSchema = z.object({
   vat_rate: z.union([z.literal(0), z.literal(5), z.literal(20)]).default(0),
 });
 
+const patchSchema = z.object({
+  contract_no: z.string().min(1).max(100).optional(),
+  agreement_type: z.enum(AGREEMENT_TYPES).optional(),
+  signed_date: z.number().int().positive().nullable().optional(),
+  expiry_date: z.number().int().positive().nullable().optional(),
+  status: z.enum(['draft', 'active', 'expired', 'cancelled']).optional(),
+  notes: z.string().nullable().optional(),
+  currency: z.string().min(3).max(3).optional(),
+  our_company_id: z.string().min(1).optional(),
+  incoterms: z.string().nullable().optional(),
+  vat_rate: z.union([z.literal(0), z.literal(5), z.literal(20)]).optional(),
+});
+
 function genContractId(contractNo: string): string {
   const slug = contractNo.toLowerCase()
     .replace(/[^a-z0-9]/g, '_')
     .replace(/_+/g, '_')
     .replace(/^_|_$/g, '');
   return slug;
+}
+
+// Build a deterministic placeholder contract_no for legal docs (NDA/MOU/LOI/other)
+// when the caller didn't provide one. Format: <TYPE>-<ENTITY>-<PARTNER_ABBR>-<DATE>
+// Example: NDA-DEE-LETU-2026-05-09
+//
+// If no abbreviation is set on the partner yet, falls back to the partner_id.
+function buildLegalDocContractNo(opts: {
+  type: AgreementType;
+  entityAbbr: string;
+  partnerAbbr: string | null;
+  partnerId: string;
+  signedAt: number;
+}): string {
+  const date = new Date(opts.signedAt * 1000).toISOString().slice(0, 10);
+  const partnerCode = (opts.partnerAbbr || opts.partnerId).toUpperCase();
+  return `${opts.type.toUpperCase()}-${opts.entityAbbr.toUpperCase()}-${partnerCode}-${date}`;
 }
 
 // =============================================================================
@@ -41,6 +85,7 @@ contracts.get('/', async (c) => {
       c.our_company_id, co.abbreviation as entity_abbreviation,
       c.currency, c.signed_date, c.expiry_date, c.incoterms,
       c.status, c.notes, c.vat_rate, c.contract_file_key,
+      c.agreement_type, c.addendum_no, c.parent_contract_id,
       c.created_at, c.updated_at
     FROM contracts c
     LEFT JOIN partners p ON c.partner_id = p.id
@@ -81,6 +126,11 @@ contracts.get('/:id', async (c) => {
 
 // =============================================================================
 // POST /api/contracts — create new
+// Supports both:
+//   - business contracts (main/addendum/annex/sla) — requires contract_no, our_company_id, currency
+//   - legal docs (nda/mou/loi/other) — auto-fills missing fields with safe defaults
+//     (our_company_id='dee', currency='USD', auto-generated contract_no based on type+entity+partner_abbr+date)
+// On insert, if status='active' and partner.crm_status='lead', auto-promote to 'potential'.
 // =============================================================================
 contracts.post('/', async (c) => {
   let body: unknown;
@@ -100,11 +150,30 @@ contracts.post('/', async (c) => {
   }
 
   const data = parsed.data;
+  const isLegal = isLegalDoc(data.agreement_type);
 
-  // Verify partner exists
+  // Apply defaults for legal documents (NDA/MOU/LOI/other)
+  const our_company_id = data.our_company_id ?? (isLegal ? 'dee' : null);
+  const currency = data.currency ?? (isLegal ? 'USD' : null);
+
+  // Business contracts require explicit our_company_id and currency
+  if (!our_company_id) {
+    return fail(c, 422, [{
+      code: 'our_company_id_required',
+      message: 'our_company_id is required for business contracts (main/addendum/annex/sla)',
+    }]);
+  }
+  if (!currency) {
+    return fail(c, 422, [{
+      code: 'currency_required',
+      message: 'currency is required for business contracts (main/addendum/annex/sla)',
+    }]);
+  }
+
+  // Verify partner exists (and load abbreviation + crm_status)
   const partner = await c.env.DB.prepare(
-    'SELECT id FROM partners WHERE id = ? AND deleted_at IS NULL'
-  ).bind(data.partner_id).first();
+    'SELECT id, abbreviation, crm_status FROM partners WHERE id = ? AND deleted_at IS NULL'
+  ).bind(data.partner_id).first<{ id: string; abbreviation: string | null; crm_status: string }>();
 
   if (!partner) {
     return fail(c, 404, [{
@@ -113,40 +182,77 @@ contracts.post('/', async (c) => {
     }]);
   }
 
-  // Verify company exists
+  // Verify company exists (and load abbreviation for fallback contract_no)
   const company = await c.env.DB.prepare(
-    'SELECT id FROM companies WHERE id = ?'
-  ).bind(data.our_company_id).first();
+    'SELECT id, abbreviation FROM companies WHERE id = ?'
+  ).bind(our_company_id).first<{ id: string; abbreviation: string | null }>();
 
   if (!company) {
     return fail(c, 404, [{
       code: 'company_not_found',
-      message: `our_company_id ${data.our_company_id} does not exist`,
+      message: `our_company_id ${our_company_id} does not exist`,
     }]);
   }
 
-  const id = genContractId(data.contract_no);
   const now = Math.floor(Date.now() / 1000);
 
-  try {
-    await c.env.DB.prepare(`
+  // Determine final contract_no:
+  //   - business contracts MUST provide it
+  //   - legal docs without contract_no get an auto-generated placeholder
+  let contractNo = data.contract_no;
+  if (!contractNo) {
+    if (!isLegal) {
+      return fail(c, 422, [{
+        code: 'contract_no_required',
+        message: 'contract_no is required for business contracts (main/addendum/annex/sla)',
+      }]);
+    }
+    contractNo = buildLegalDocContractNo({
+      type: data.agreement_type,
+      entityAbbr: company.abbreviation || our_company_id,
+      partnerAbbr: partner.abbreviation,
+      partnerId: data.partner_id,
+      signedAt: data.signed_date ?? now,
+    });
+  }
+
+  const id = genContractId(contractNo);
+
+  // Auto-promotion: if a NEW signed contract lands on a lead partner, promote to potential.
+  // Trigger condition: status='active' (means signed and live).
+  const willPromote = data.status === 'active' && partner.crm_status === 'lead';
+
+  const stmts = [
+    c.env.DB.prepare(`
       INSERT INTO contracts (
         id, contract_no, partner_id, our_company_id, currency,
         signed_date, expiry_date, incoterms, status, notes, vat_rate,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        agreement_type, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
-      id, data.contract_no, data.partner_id, data.our_company_id, data.currency,
+      id, contractNo, data.partner_id, our_company_id, currency,
       data.signed_date ?? null, data.expiry_date ?? null,
       data.incoterms ?? null, data.status, data.notes ?? null, data.vat_rate,
-      now, now
-    ).run();
+      data.agreement_type, now, now
+    ),
+  ];
+
+  if (willPromote) {
+    stmts.push(
+      c.env.DB.prepare(
+        'UPDATE partners SET crm_status = ?, updated_at = ? WHERE id = ?'
+      ).bind('potential', now, data.partner_id)
+    );
+  }
+
+  try {
+    await c.env.DB.batch(stmts);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (message.includes('UNIQUE')) {
       return fail(c, 409, [{
         code: 'contract_no_exists',
-        message: `Contract number ${data.contract_no} already exists`,
+        message: `Contract number ${contractNo} already exists`,
       }]);
     }
     return fail(c, 500, [{
@@ -156,12 +262,145 @@ contracts.post('/', async (c) => {
     }]);
   }
 
+  const messages = ['Contract created'];
+  if (willPromote) {
+    messages.push(`Partner promoted: lead → potential (first signed ${data.agreement_type.toUpperCase()})`);
+  }
+
   return ok(c, {
-    id, contract_no: data.contract_no, partner_id: data.partner_id,
-    our_company_id: data.our_company_id, currency: data.currency,
+    id, contract_no: contractNo, partner_id: data.partner_id,
+    our_company_id, currency,
+    agreement_type: data.agreement_type,
     status: data.status, vat_rate: data.vat_rate,
+    crm_promoted: willPromote,
+    new_crm_status: willPromote ? 'potential' : partner.crm_status,
     created_at: now, updated_at: now,
-  }, ['Contract created']);
+  }, messages);
+});
+
+// =============================================================================
+// PATCH /api/contracts/:id — update editable fields
+// Allowed: contract_no, agreement_type, signed_date, expiry_date,
+//          status, notes, currency, our_company_id, incoterms, vat_rate.
+// NOT allowed via PATCH: partner_id (must delete and recreate to move).
+// On status flip to 'active' on a partner with crm_status='lead', auto-promote.
+// =============================================================================
+contracts.patch('/:id', async (c) => {
+  const id = c.req.param('id');
+
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be valid JSON' }]);
+  }
+
+  const parsed = patchSchema.safeParse(body);
+  if (!parsed.success) {
+    return fail(c, 422, [{
+      code: 'invalid_body',
+      message: 'Body validation failed',
+      details: { issues: parsed.error.issues },
+    }]);
+  }
+
+  const data = parsed.data;
+  if (Object.keys(data).length === 0) {
+    return fail(c, 400, [{ code: 'empty_patch', message: 'PATCH body has no fields to update' }]);
+  }
+
+  // Load existing contract + partner crm_status
+  const existing = await c.env.DB.prepare(`
+    SELECT c.id, c.partner_id, c.status as old_status,
+           p.crm_status as partner_crm_status
+    FROM contracts c
+    LEFT JOIN partners p ON c.partner_id = p.id
+    WHERE c.id = ? AND c.deleted_at IS NULL
+  `).bind(id).first<{
+    id: string;
+    partner_id: string;
+    old_status: string;
+    partner_crm_status: string;
+  }>();
+
+  if (!existing) {
+    return fail(c, 404, [{
+      code: 'contract_not_found',
+      message: `Contract ${id} not found`,
+    }]);
+  }
+
+  // Validate company if changing
+  if (data.our_company_id) {
+    const company = await c.env.DB.prepare(
+      'SELECT id FROM companies WHERE id = ?'
+    ).bind(data.our_company_id).first();
+    if (!company) {
+      return fail(c, 404, [{
+        code: 'company_not_found',
+        message: `our_company_id ${data.our_company_id} does not exist`,
+      }]);
+    }
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const sets: string[] = [];
+  const binds: (string | number | null)[] = [];
+
+  for (const [field, value] of Object.entries(data)) {
+    sets.push(`${field} = ?`);
+    binds.push(value === undefined ? null : (value as string | number | null));
+  }
+  sets.push('updated_at = ?');
+  binds.push(now);
+  binds.push(id); // WHERE
+
+  // Auto-promotion: if status becomes 'active' and partner is 'lead' and the
+  // contract WAS NOT already 'active', promote.
+  const willPromote =
+    data.status === 'active' &&
+    existing.old_status !== 'active' &&
+    existing.partner_crm_status === 'lead';
+
+  const stmts = [
+    c.env.DB.prepare(`UPDATE contracts SET ${sets.join(', ')} WHERE id = ?`).bind(...binds),
+  ];
+
+  if (willPromote) {
+    stmts.push(
+      c.env.DB.prepare(
+        'UPDATE partners SET crm_status = ?, updated_at = ? WHERE id = ?'
+      ).bind('potential', now, existing.partner_id)
+    );
+  }
+
+  try {
+    await c.env.DB.batch(stmts);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('UNIQUE')) {
+      return fail(c, 409, [{
+        code: 'contract_no_exists',
+        message: `Contract number ${data.contract_no} already exists`,
+      }]);
+    }
+    return fail(c, 500, [{
+      code: 'patch_failed',
+      message: 'Failed to update contract',
+      details: { error: message },
+    }]);
+  }
+
+  const messages = ['Contract updated'];
+  if (willPromote) {
+    messages.push('Partner promoted: lead → potential');
+  }
+
+  return ok(c, {
+    id, fields_updated: Object.keys(data),
+    crm_promoted: willPromote,
+    updated_at: now,
+  }, messages);
 });
 
 // =============================================================================

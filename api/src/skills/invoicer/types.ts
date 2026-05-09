@@ -168,12 +168,16 @@ export interface LineItemRow {
   description_ru: string | null;
   description_cn: string | null;
   invoice_label: string | null;
+  invoice_label_ru: string | null;
+  invoice_label_en: string | null;
+  invoice_label_cn: string | null;
   hs_code: string | null;
   ctn_qty: number | null;
   ctn_weight_gross_kg: number | null;
   unit_net_weight_g: number | null;
   country_of_origin: string | null;
   category: string;
+  subcategory: string | null;
 }
 
 // =============================================================================

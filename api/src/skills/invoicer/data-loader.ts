@@ -216,12 +216,14 @@ export async function loadInvoicerInput(
         `SELECT ${MANUFACTURER_COLS} FROM manufacturers
           WHERE id IN (${placeholders}) AND deleted_at IS NULL`
       ).bind(...manufacturerIdsToLoad).all<ManufacturerRow>(),
-      legalSellerId
-        ? db.prepare(
-            `SELECT ${MBR_COLS} FROM manufacturer_bank_routes
-              WHERE manufacturer_id = ? AND deleted_at IS NULL`
-          ).bind(legalSellerId).all<ManufacturerBankRouteRow>()
-        : Promise.resolve({ results: [] as ManufacturerBankRouteRow[] }),
+      // Load routes for every manufacturer in scope. Earlier the query was
+      // gated on legal_seller_id only, which silently returned an empty set
+      // when an operation listed manufacturer_id but left legal_seller_id
+      // null — causing the renderer to crash on a null bank.
+      db.prepare(
+        `SELECT ${MBR_COLS} FROM manufacturer_bank_routes
+          WHERE manufacturer_id IN (${placeholders}) AND deleted_at IS NULL`
+      ).bind(...manufacturerIdsToLoad).all<ManufacturerBankRouteRow>(),
     ]);
     const byId = new Map((mfrRowsRes.results ?? []).map((m) => [m.id, m]));
     legalSellerManufacturer = legalSellerId ? byId.get(legalSellerId) ?? null : null;

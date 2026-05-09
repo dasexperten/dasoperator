@@ -206,16 +206,44 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
 
       {/* Hero */}
       <div>
-        <div className="flex items-center gap-3 mb-3">
+        <div className="flex items-center justify-between gap-3 mb-3">
           <span style={{ fontSize: '14px', fontWeight: 600, padding: '4px 10px', backgroundColor: statusStyle.bg, color: statusStyle.fg, border: `1px solid ${statusStyle.border}`, borderRadius: 'var(--radius-pill)' }}>
             {partner.status}
           </span>
+          <Link
+            href={`/partners/${slug}/edit`}
+            className="inline-flex items-center gap-2 px-3 py-2"
+            style={{
+              fontSize: '14px',
+              fontWeight: 600,
+              backgroundColor: 'var(--paper-1)',
+              color: 'var(--fg-1)',
+              border: '1px solid var(--border-hairline)',
+              borderRadius: 'var(--radius-sm)',
+              textDecoration: 'none',
+            }}
+          >
+            Edit Partner
+          </Link>
         </div>
         <h1 className="dx-product-name" style={{ fontSize: '40px', color: 'var(--fg-1)', lineHeight: 1.05 }}>
           {partner.trade_name}
         </h1>
         {partner.legal_name && !isMissing(partner.legal_name) && (
           <p className="mt-3" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>{partner.legal_name}</p>
+        )}
+        {partner.abbreviation && (
+          <div className="mt-2 inline-flex items-center gap-2 px-2 py-1" style={{
+            fontSize: '14px',
+            fontWeight: 700,
+            letterSpacing: 0,
+            backgroundColor: 'var(--paper-sunk)',
+            border: '1px solid var(--border-hairline)',
+            borderRadius: 'var(--radius-xs)',
+            color: 'var(--fg-2)',
+          }}>
+            <span style={{ color: 'var(--fg-3)', fontWeight: 600 }}>Code:</span> {partner.abbreviation}
+          </div>
         )}
       </div>
 

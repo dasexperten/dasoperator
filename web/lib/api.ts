@@ -458,6 +458,8 @@ export interface Partner {
   preferred_incoterms?: string | null;
   preferred_invoice_language?: 'EN' | 'RU' | 'BILINGUAL' | null;
   last_verified?: number | null;
+  // Phase 7.x — 4-letter uppercase code used in contract filenames
+  abbreviation?: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -513,6 +515,7 @@ export type UpdatePartnerBody = Partial<{
   price_type_id: string | null;
   currency: string | null;
   notes: string | null;
+  abbreviation: string | null;
 }>;
 
 export async function updatePartner(slug: string, body: UpdatePartnerBody) {

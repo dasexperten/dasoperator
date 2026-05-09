@@ -95,6 +95,7 @@ partners.get('/:slug', async (c) => {
       p.kpp, p.inn, p.ogrn,
       p.payment_terms, p.preferred_incoterms, p.preferred_invoice_language,
       p.last_verified,
+      p.abbreviation,
       p.created_at, p.updated_at
     FROM partners p
     LEFT JOIN companies c ON p.linked_entity_id = c.id
@@ -219,6 +220,15 @@ const updatePartnerSchema = z.object({
   price_type_id: z.string().nullable().optional(),
   currency: z.string().length(3).nullable().optional(),
   notes: z.string().max(2000).nullable().optional(),
+  // 4-letter uppercase code used in contract filenames:
+  //   contracts/<entity>/<ENTITY>-<ABBR>-<YYYY-MM-DD>.pdf
+  // Empty string allowed (clears the value); null also clears.
+  abbreviation: z.string()
+    .max(4)
+    .regex(/^([A-Z]{4})?$/, 'Must be exactly 4 uppercase letters A–Z, or empty')
+    .nullable()
+    .optional()
+    .transform((v) => (v === '' ? null : v)),
 });
 
 partners.patch('/:slug', async (c) => {

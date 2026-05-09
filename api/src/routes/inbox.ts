@@ -34,6 +34,9 @@ inbox.get('/', async (c) => {
               extracted_vendor_name, extracted_vendor_inn, extracted_invoice_no,
               extracted_invoice_date, extracted_period, extracted_currency,
               extracted_amount, extracted_line_items_json,
+              extracted_vendor_email, extracted_vendor_country, extracted_vendor_address,
+              extracted_bank_name, extracted_bank_account, extracted_iban, extracted_swift,
+              extracted_service_category, extracted_buyer_entity,
               status, matched_partner_id, created_operation_id, created_payment_id, notes,
               created_at, processed_at, resolved_at
        FROM invoice_inbox
@@ -88,10 +91,17 @@ inbox.post('/:id/confirm', async (c) => {
     if (!partnerId) {
       // Need to create a service vendor partner
       const legalName = String(body.partner_legal_name ?? row.extracted_vendor_name ?? 'Unknown vendor');
-      const country = String(body.partner_country ?? '').trim();
+      const country = String(body.partner_country ?? row.extracted_vendor_country ?? '').trim();
       const taxId = String(body.partner_tax_id ?? row.extracted_vendor_inn ?? '').trim();
+      const email = String(row.extracted_vendor_email ?? '').trim();
+      const city = String(row.extracted_vendor_address ?? '').trim();
+      const bankName = String(row.extracted_bank_name ?? '').trim();
+      const iban = String(row.extracted_iban ?? '').trim();
+      const swift = String(row.extracted_swift ?? '').trim();
+      const bankAccount = String(row.extracted_bank_account ?? '').trim();
+      const serviceCategory = String(row.extracted_service_category ?? '').trim();
 
-      // Slug from name: lowercase alphanumeric + dashes, max 60 chars
+      // Slug from name
       const slug = legalName
         .toLowerCase()
         .replace(/[^a-z0-9а-яё]+/gi, '-')
@@ -99,21 +109,31 @@ inbox.post('/:id/confirm', async (c) => {
         .slice(0, 60) || `vendor-${now}`;
 
       partnerId = `prt_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-
-      // trade_name is NOT NULL — use legal name as default (user can edit later)
       const tradeName = legalName.length > 60 ? legalName.slice(0, 60) : legalName;
 
       await c.env.DB.prepare(
         `INSERT INTO partners (
-          id, trade_name, legal_name, country, tax_id, slug,
+          id, trade_name, legal_name, country, city, tax_id, slug, email,
           partner_type, role, status, kind,
           currency, modes,
+          bank_name, iban, swift_bic, bank_notes,
+          notes,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'other', 'vendor', 'active', 'service_provider',
-                  ?, '["service"]', ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'other', 'vendor', 'active', 'service_provider',
+                  ?, '["service"]',
+                  ?, ?, ?, ?,
+                  ?, ?, ?)`
       ).bind(
-        partnerId, tradeName, legalName, country || null, taxId || null, slug,
+        partnerId, tradeName, legalName,
+        country || null, city || null,
+        taxId || null, slug,
+        email || null,
         row.extracted_currency || null,
+        bankName || null,
+        iban || null,
+        swift || null,
+        bankAccount ? `A/C ${bankAccount}` : null,
+        serviceCategory ? `Service category: ${serviceCategory}` : null,
         now, now,
       ).run();
       partnerCreated = true;
@@ -135,9 +155,10 @@ inbox.post('/:id/confirm', async (c) => {
     const colSet = new Set((cols.results ?? []).map((c) => c.name));
 
     // Determine which entity (DEE/DEI/DEASEAN/DEC) is the buyer.
-    // DeepSeek may have set buyer_entity_guess in extracted data; default DEI for service.
-    // For now we trust the LLM guess stored elsewhere or fall back to 'dei' for service vendors.
-    const ourCompanyId = String(body.our_company_id ?? 'dei').toLowerCase();
+    // Priority: explicit body override > extracted_buyer_entity from LLM > 'dei' default.
+    const buyerHint = (body.our_company_id ?? row.extracted_buyer_entity ?? 'DEI').toString().toLowerCase();
+    const validEntities = ['dee', 'dei', 'dasean', 'dec'];
+    const ourCompanyId = validEntities.includes(buyerHint) ? buyerHint : 'dei';
 
     // operation_type: existing CHECK only allows sale/purchase/transfer/bundling.
     // Service vendor invoices are recorded as 'purchase' (we're purchasing a service).

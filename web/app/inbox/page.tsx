@@ -22,6 +22,15 @@ interface InboxItem {
   extracted_period: string | null;
   extracted_currency: string | null;
   extracted_amount: number | null;
+  extracted_vendor_email: string | null;
+  extracted_vendor_country: string | null;
+  extracted_vendor_address: string | null;
+  extracted_bank_name: string | null;
+  extracted_bank_account: string | null;
+  extracted_iban: string | null;
+  extracted_swift: string | null;
+  extracted_service_category: string | null;
+  extracted_buyer_entity: string | null;
   status: string;
   matched_partner_id: string | null;
   created_operation_id: string | null;
@@ -288,6 +297,47 @@ function InvoiceCard({
                   • {li.description} <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{li.line_total.toLocaleString('ru-RU')} {item.extracted_currency}</span>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Vendor details — what will be saved if Yes is clicked */}
+          {(item.extracted_service_category || item.extracted_bank_name || item.extracted_vendor_country || item.extracted_buyer_entity) && (
+            <div className="mt-3 pt-3 grid grid-cols-2 gap-x-6 gap-y-1" style={{ borderTop: '1px dashed var(--border-hairline)', fontSize: 14 }}>
+              {item.extracted_service_category && (
+                <div style={{ color: 'var(--fg-3)' }}>
+                  Service category <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{item.extracted_service_category}</span>
+                </div>
+              )}
+              {item.extracted_buyer_entity && (
+                <div style={{ color: 'var(--fg-3)' }}>
+                  Buyer entity <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{item.extracted_buyer_entity}</span>
+                </div>
+              )}
+              {item.extracted_vendor_country && (
+                <div style={{ color: 'var(--fg-3)' }}>
+                  Vendor country <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{item.extracted_vendor_country}</span>
+                </div>
+              )}
+              {item.extracted_vendor_email && (
+                <div style={{ color: 'var(--fg-3)' }}>
+                  Email <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{item.extracted_vendor_email}</span>
+                </div>
+              )}
+              {item.extracted_bank_name && (
+                <div style={{ color: 'var(--fg-3)' }}>
+                  Bank <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{item.extracted_bank_name}</span>
+                </div>
+              )}
+              {item.extracted_iban && (
+                <div style={{ color: 'var(--fg-3)' }}>
+                  IBAN <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{item.extracted_iban}</span>
+                </div>
+              )}
+              {item.extracted_swift && (
+                <div style={{ color: 'var(--fg-3)' }}>
+                  SWIFT <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{item.extracted_swift}</span>
+                </div>
+              )}
             </div>
           )}
 

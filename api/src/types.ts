@@ -45,6 +45,12 @@ export interface Env {
   // shop-domain stored as env, token as secret. Both required for /api/crm/* endpoints.
   RETAIL_CRM_DOMAIN?: string;
   RETAIL_CRM_TOKEN?: string;
+
+  // Yandex Metrika Stat API (https://api-metrika.yandex.net/stat/v1)
+  // Counter ID identifies which site's stats to read.
+  // Token is OAuth Bearer issued via https://oauth.yandex.ru/authorize
+  YANDEX_METRIKA_COUNTER?: string;
+  YANDEX_METRIKA_TOKEN?: string;
 }
 
 // =============================================================================

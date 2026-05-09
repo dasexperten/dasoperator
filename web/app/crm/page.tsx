@@ -18,6 +18,19 @@ interface CrmStats {
   synced_at: number;
 }
 
+interface MetrikaStats {
+  source: string;
+  counter_id: number;
+  today: {
+    visits: number;
+    users: number;
+    bounce_rate_pct: number;
+    avg_duration_sec: number;
+  };
+  timeline: Array<{ date: string; visits: number; users: number }>;
+  synced_at: number;
+}
+
 interface CrmOrder {
   id: number;
   number: string;
@@ -62,6 +75,9 @@ export default function CrmPage() {
   const [statsLoading, setStatsLoading] = useState(true);
   const [statsError, setStatsError] = useState<string | null>(null);
 
+  const [metrika, setMetrika] = useState<MetrikaStats | null>(null);
+  const [metrikaLoading, setMetrikaLoading] = useState(true);
+
   const [tab, setTab] = useState<TabId>('orders');
 
   // Orders state
@@ -96,6 +112,20 @@ export default function CrmPage() {
       setStatsError(e instanceof Error ? e.message : 'Network error');
     } finally {
       setStatsLoading(false);
+    }
+  }, []);
+
+  const loadMetrika = useCallback(async () => {
+    setMetrikaLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/metrika/stats`);
+      const data = await res.json();
+      if (data.success && data.result) setMetrika(data.result);
+      // Errors are silent — Metrika is supplementary, not blocking
+    } catch (e) {
+      // Same: silent. Tile will just not appear.
+    } finally {
+      setMetrikaLoading(false);
     }
   }, []);
 
@@ -148,6 +178,7 @@ export default function CrmPage() {
   }, [customersPage, customersLimit, customersActiveSearch]);
 
   useEffect(() => { loadStats(); }, [loadStats]);
+  useEffect(() => { loadMetrika(); }, [loadMetrika]);
   useEffect(() => { if (tab === 'orders') loadOrders(); }, [tab, loadOrders]);
   useEffect(() => { if (tab === 'customers') loadCustomers(); }, [tab, loadCustomers]);
 
@@ -164,11 +195,12 @@ export default function CrmPage() {
 
   function refreshAll() {
     loadStats();
+    loadMetrika();
     if (tab === 'orders') loadOrders();
     else loadCustomers();
   }
 
-  const isLoading = statsLoading || ordersLoading || customersLoading;
+  const isLoading = statsLoading || metrikaLoading || ordersLoading || customersLoading;
 
   return (
     <div className="space-y-6 max-w-full">
@@ -206,12 +238,16 @@ export default function CrmPage() {
 
       {/* KPI tiles */}
       {stats && (
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid grid-cols-6 gap-4">
           <KpiTile label="Customers" value={stats.customers_total.toLocaleString('ru-RU')} />
           <KpiTile label="Loyalty members" value={stats.loyalty_members_total.toLocaleString('ru-RU')} />
           <KpiTile label="Orders (total)" value={stats.orders_total.toLocaleString('ru-RU')} />
           <KpiTile label="Orders this month" value={stats.orders_this_month.toLocaleString('ru-RU')} />
           <KpiTile label="Revenue this month" value={`${stats.revenue_this_month_rub.toLocaleString('ru-RU')} ₽`} />
+          <KpiTile
+            label="Visits today"
+            value={metrika ? metrika.today.visits.toLocaleString('ru-RU') : (metrikaLoading ? '…' : '—')}
+          />
         </div>
       )}
 

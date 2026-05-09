@@ -1012,4 +1012,90 @@ operations.patch('/api/line-items/:id', async (c) => {
   return ok(c, { id, updated_at: now }, ['Line item updated']);
 });
 
+// =============================================================================
+// DELETE /api/operations/:id — hard delete (draft only, no documents)
+// =============================================================================
+//
+// Strict rules:
+//   - Operation status MUST be 'draft' (returns 409 otherwise)
+//   - No documents must reference this operation (returns 409 if found)
+//   - No payments must reference this operation (returns 409 if found)
+//   - Stock movements: draft never writes any, but we double-check (returns 409
+//     if any exist — would mean inconsistent state)
+//
+// Cascade:
+//   - line_items rows for this operation are deleted in same batch
+//
+// Reversibility: NONE. This is hard delete.
+// For non-draft operations, use PATCH /:id/status with target='cancelled'.
+//
+// =============================================================================
+
+operations.delete('/:id', async (c) => {
+  const id = c.req.param('id');
+
+  const op = await c.env.DB.prepare(
+    'SELECT id, status, reference FROM operations WHERE id = ?'
+  ).bind(id).first<{ id: string; status: string; reference: string | null }>();
+
+  if (!op) {
+    return fail(c, 404, [{ code: 'not_found', message: 'Operation not found' }]);
+  }
+
+  if (op.status !== 'draft') {
+    return fail(c, 409, [{
+      code: 'not_draft',
+      message: `Cannot delete operation in status '${op.status}'. Only draft operations can be deleted. Use status change to 'cancelled' instead.`,
+    }]);
+  }
+
+  // Guard: documents
+  const docCount = await c.env.DB.prepare(
+    "SELECT COUNT(*) as cnt FROM documents WHERE operation_id = ?"
+  ).bind(id).first<{ cnt: number }>();
+
+  if (docCount && docCount.cnt > 0) {
+    return fail(c, 409, [{
+      code: 'has_documents',
+      message: `Operation has ${docCount.cnt} document(s) attached. Cannot delete.`,
+    }]);
+  }
+
+  // Guard: payments
+  const payCount = await c.env.DB.prepare(
+    "SELECT COUNT(*) as cnt FROM payments WHERE operation_id = ?"
+  ).bind(id).first<{ cnt: number }>();
+
+  if (payCount && payCount.cnt > 0) {
+    return fail(c, 409, [{
+      code: 'has_payments',
+      message: `Operation has ${payCount.cnt} payment(s) linked. Cannot delete.`,
+    }]);
+  }
+
+  // Guard: stock movements (sanity — draft should never have any)
+  const movCount = await c.env.DB.prepare(
+    "SELECT COUNT(*) as cnt FROM stock_movements WHERE source = 'operation' AND source_ref = ?"
+  ).bind(id).first<{ cnt: number }>();
+
+  if (movCount && movCount.cnt > 0) {
+    return fail(c, 409, [{
+      code: 'has_movements',
+      message: `Operation has ${movCount.cnt} stock movement(s). Inconsistent state — contact admin.`,
+    }]);
+  }
+
+  // Atomic delete: line_items first, then operation
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM line_items WHERE operation_id = ?').bind(id),
+    c.env.DB.prepare('DELETE FROM operations WHERE id = ?').bind(id),
+  ]);
+
+  return ok(c, {
+    id,
+    reference: op.reference,
+    deleted: true,
+  }, [`Operation ${op.reference || id} permanently deleted`]);
+});
+
 export default operations;

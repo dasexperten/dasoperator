@@ -200,3 +200,68 @@ table tbody td.dx-num-soft,
 .dx-num-soft {
   font-weight: 400 !important;
 }
+
+/* ===========================================================================
+   GLOBAL NUMBER-INPUT SPINNER RULE — strip the native browser spinner
+   from inside <input type="number"> and render our own ▲/▼ buttons OUTSIDE
+   the field on the right edge.
+   The buttons are injected at runtime by a tiny script in layout.tsx that
+   wraps every number input in a `.dx-num-wrap` span and appends two buttons.
+   This rule covers the whole ERP without touching individual forms.
+   =========================================================================== */
+
+/* Hide native spinners — Chrome/Safari/Edge */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+/* Hide native spinner — Firefox */
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* Wrapper injected at runtime around every <input type="number"> */
+.dx-num-wrap {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 4px;
+  vertical-align: middle;
+}
+.dx-num-wrap > input[type="number"] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.dx-num-wrap > .dx-num-spin {
+  display: inline-flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+}
+.dx-num-wrap > .dx-num-spin > button {
+  background: var(--bg-2, #f0f0f0);
+  border: 1px solid var(--border-1, #d0d0d0);
+  color: var(--fg-1, #333);
+  cursor: pointer;
+  width: 18px;
+  height: 14px;
+  padding: 0;
+  font-size: 8px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  user-select: none;
+}
+.dx-num-wrap > .dx-num-spin > button:first-child { margin-bottom: 1px; }
+.dx-num-wrap > .dx-num-spin > button:hover {
+  background: var(--bg-3, #e4e4e4);
+}
+.dx-num-wrap > .dx-num-spin > button:active {
+  background: var(--bg-4, #d0d0d0);
+}
+.dx-num-wrap > .dx-num-spin > button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

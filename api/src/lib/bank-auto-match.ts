@@ -146,11 +146,16 @@ export async function autoMatchBankTransaction(
   }
 
   // 3. Find candidate operations.
+  // Unit reconciliation:
+  //   bank_transactions.amount → minor units (kopeks/cents)
+  //   operations.total_amount  → major units (rubles/dollars)
+  // We compare in MAJOR units. Tx is divided by 100; operations stay as-is.
+  const txMajor = tx.amount / 100;
   const windowSec = DATE_WINDOW_DAYS * 86400;
   const minDate = tx.executed_at - windowSec;
   const maxDate = tx.executed_at + windowSec;
 
-  // First pass: exact currency + exact amount (to the kopek/cent).
+  // First pass: exact currency + exact amount (1 kopek/cent tolerance for FP).
   const exactCandidates = await env.DB.prepare(`
     SELECT id, reference, total_amount, currency, operation_date, status
     FROM operations
@@ -159,8 +164,8 @@ export async function autoMatchBankTransaction(
       AND (deleted_at IS NULL OR deleted_at = 0)
       AND operation_date BETWEEN ? AND ?
       AND currency = ?
-      AND total_amount = ?
-  `).bind(partner.id, minDate, maxDate, tx.currency, tx.amount)
+      AND ABS(total_amount - ?) < 0.01
+  `).bind(partner.id, minDate, maxDate, tx.currency, txMajor)
     .all<{ id: string; reference: string; total_amount: number; currency: string; operation_date: number; status: string }>();
 
   let candidates = exactCandidates.results || [];
@@ -179,15 +184,18 @@ export async function autoMatchBankTransaction(
     `).bind(partner.id, minDate, maxDate, tx.currency)
       .all<{ id: string; reference: string; total_amount: number; currency: string; operation_date: number; status: string; fx_rate_to_usd: number }>();
 
-    // FX rates are stored as INTEGER (scaled). Operations layer typically scales
-    // by 10000 (e.g. 88.5 RUB/USD → 885000). We accept ±FX_TOLERANCE_PCT.
-    // Tx amount is in minor units; total_amount is in minor units. Compare USD-equiv.
+    // FX rates stored in KV as decimal string (e.g. "88.50" for RUB/USD).
+    // Both tx and op amounts compared in USD-equivalent major units.
     const txCurrencyRate = await getFxRateToUsd(env, tx.currency, tx.executed_at);
     if (txCurrencyRate && txCurrencyRate > 0) {
-      const txUsdMinor = tx.amount / txCurrencyRate;
+      const txUsdMajor = txMajor / txCurrencyRate;
       candidates = (fxCandidates.results || []).filter((op) => {
-        const opUsdMinor = op.total_amount / (op.fx_rate_to_usd / 10000);
-        const diff = Math.abs(opUsdMinor - txUsdMinor) / txUsdMinor;
+        // operations.fx_rate_to_usd is INTEGER scaled by 10000 (e.g. 885000 = 88.5)
+        const opRate = op.fx_rate_to_usd / 10000;
+        if (opRate <= 0) return false;
+        const opUsdMajor = op.total_amount / opRate;
+        if (txUsdMajor === 0) return false;
+        const diff = Math.abs(opUsdMajor - txUsdMajor) / txUsdMajor;
         return diff <= FX_TOLERANCE_PCT;
       });
     }
@@ -198,7 +206,7 @@ export async function autoMatchBankTransaction(
     // Create a draft operation and attach PMT + parsed INV to it.
     const draftOpId = await createDraftOperation(env, {
       partner_id: partner.id,
-      amount: tx.amount,
+      amount_major: txMajor, // operations.total_amount is in major units
       currency: tx.currency,
       operation_date: tx.executed_at,
       notes: `auto-created from unmatched bank_tx ${txId} (${tx.contragent_name})`,
@@ -307,7 +315,7 @@ async function createDraftOperation(
   env: Env,
   args: {
     partner_id: string;
-    amount: number;
+    amount_major: number;
     currency: string;
     operation_date: number;
     notes: string;
@@ -339,7 +347,7 @@ async function createDraftOperation(
   `).bind(
     opId, args.operation_date, operationType, args.partner_id,
     'co_dee', // DEE is the default Modulbank account holder; adjust if multi-entity
-    args.currency, args.amount,
+    args.currency, args.amount_major,
     args.notes, reference, now, now,
   ).run();
 

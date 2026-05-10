@@ -135,6 +135,13 @@ export default function OperationDetailClient({
   const [isUpdating, setIsUpdating] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [documentCount, setDocumentCount] = useState(0);
+  const [attachments, setAttachments] = useState<Array<{
+    id: string; direction: string; kind: string;
+    doc_number: string | null; doc_date: number | null;
+    amount: number | null; currency: string | null;
+    issuer: string | null; file_url: string | null;
+    parsed_from: string | null; notes: string | null;
+  }>>([]);
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -167,6 +174,18 @@ export default function OperationDetailClient({
 
         if (movRes.success && movRes.result) {
           setMovements(movRes.result.movements);
+        }
+
+        // Fetch operation attachments (incoming/external docs paired with payment)
+        try {
+          const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://dasoperator-api.dasexperten.workers.dev';
+          const attRes = await fetch(`${API_BASE}/api/operations/${operationId}/attachments`);
+          const attData = await attRes.json();
+          if (attData.success && attData.result?.attachments) {
+            setAttachments(attData.result.attachments);
+          }
+        } catch (e) {
+          // Non-blocking — ignore if endpoint not deployed yet
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
@@ -295,6 +314,47 @@ export default function OperationDetailClient({
               </>
             )}
           </p>
+          {/* Attached docs summary — passport line: invoice + payment + act */}
+          {attachments.length > 0 && (
+            <p style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '6px', display: 'flex', flexWrap: 'wrap', gap: '14px' }}>
+              {(() => {
+                const inv = attachments.find(a => a.kind === 'invoice');
+                const pay = attachments.find(a => a.kind === 'payment');
+                const act = attachments.find(a => a.kind === 'act' || a.kind === 'upd');
+                const fmtDate = (ts: number | null) =>
+                  ts ? new Date(ts * 1000).toLocaleDateString('ru-RU') : null;
+                const parts: React.ReactNode[] = [];
+                if (act) {
+                  parts.push(
+                    <span key="act">
+                      <span style={{ color: 'var(--fg-3)' }}>{act.kind === 'upd' ? 'УПД' : 'Акт'} </span>
+                      <span style={{ fontWeight: 700, color: 'var(--fg-2)' }}>{act.doc_number ?? '—'}</span>
+                      {act.doc_date && <span style={{ color: 'var(--fg-3)' }}> от {fmtDate(act.doc_date)}</span>}
+                    </span>
+                  );
+                }
+                if (inv) {
+                  parts.push(
+                    <span key="inv">
+                      <span style={{ color: 'var(--fg-3)' }}>Счёт </span>
+                      <span style={{ fontWeight: 700, color: 'var(--fg-2)' }}>№{inv.doc_number ?? '—'}</span>
+                      {inv.doc_date && <span style={{ color: 'var(--fg-3)' }}> от {fmtDate(inv.doc_date)}</span>}
+                    </span>
+                  );
+                }
+                if (pay) {
+                  parts.push(
+                    <span key="pay">
+                      <span style={{ color: 'var(--fg-3)' }}>Платёжка </span>
+                      <span style={{ fontWeight: 700, color: 'var(--fg-2)' }}>№{pay.doc_number ?? '—'}</span>
+                      {pay.doc_date && <span style={{ color: 'var(--fg-3)' }}> от {fmtDate(pay.doc_date)}</span>}
+                    </span>
+                  );
+                }
+                return parts.length > 0 ? parts : null;
+              })()}
+            </p>
+          )}
         </div>
         <div className="text-right">
           <div
@@ -554,7 +614,7 @@ export default function OperationDetailClient({
       )}
 
       {activeTab === 'documents' && (
-        <DocumentsTab operationId={operationId} />
+        <DocumentsTab operationId={operationId} attachments={attachments} />
       )}
 
       {activeTab === 'payments' && (
@@ -1054,7 +1114,13 @@ function StatusTab({
 // =============================================================================
 // Documents tab — live data from GET /api/documents?operation_id=...
 // =============================================================================
-function DocumentsTab({ operationId }: { operationId: string }) {
+function DocumentsTab({ operationId, attachments }: { operationId: string; attachments: Array<{
+  id: string; direction: string; kind: string;
+  doc_number: string | null; doc_date: number | null;
+  amount: number | null; currency: string | null;
+  issuer: string | null; file_url: string | null;
+  parsed_from: string | null; notes: string | null;
+}> }) {
   const [docs, setDocs] = useState<OperationDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [issuing, setIssuing] = useState(false);
@@ -1107,6 +1173,7 @@ function DocumentsTab({ operationId }: { operationId: string }) {
   };
 
   return (
+    <>
     <div
       style={{
         border: '1px solid var(--border-hairline)',
@@ -1230,6 +1297,60 @@ function DocumentsTab({ operationId }: { operationId: string }) {
         </table>
       )}
     </div>
+    {/* === ATTACHED DOCUMENTS — unified incoming + outgoing list === */}
+    <div style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginTop: '16px' }}>
+      <div className="flex justify-between items-center px-4 py-3" style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>
+        <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)', margin: 0 }}>
+          Attached documents{attachments.length > 0 ? ` (${attachments.length})` : ''}
+        </p>
+      </div>
+      {attachments.length === 0 ? (
+        <div style={{ padding: '24px 16px', textAlign: 'center' }}>
+          <p style={{ fontSize: '14px', color: 'var(--fg-3)', margin: 0 }}>No external documents attached yet</p>
+        </div>
+      ) : (
+        <table className="w-full" style={{ fontSize: '14px' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>
+              <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Direction</th>
+              <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Kind</th>
+              <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Number</th>
+              <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Date</th>
+              <th className="text-right px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Amount</th>
+              <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Issuer</th>
+              <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Source</th>
+            </tr>
+          </thead>
+          <tbody>
+            {attachments.map((att) => {
+              const date = att.doc_date ? new Date(att.doc_date * 1000).toLocaleDateString('ru-RU') : '—';
+              const dirColor = att.direction === 'outgoing' ? 'var(--brand-rot)' : 'var(--status-success)';
+              const dirBg = att.direction === 'outgoing' ? 'rgba(229,32,44,0.08)' : 'rgba(46,125,79,0.08)';
+              return (
+                <tr key={att.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                  <td className="px-4 py-3">
+                    <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '999px', fontSize: '14px', fontWeight: 500, color: dirColor, backgroundColor: dirBg }}>
+                      {att.direction === 'outgoing' ? 'Outgoing' : 'Incoming'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3" style={{ color: 'var(--fg-2)', fontWeight: 600 }}>{att.kind}</td>
+                  <td className="px-4 py-3" style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{att.doc_number ?? '—'}</td>
+                  <td className="px-4 py-3" style={{ color: 'var(--fg-3)' }}>{date}</td>
+                  <td className="px-4 py-3 text-right" style={{ fontWeight: 700, color: 'var(--fg-1)' }}>
+                    {att.amount != null ? `${formatMoney(att.amount, att.currency || 'RUB')} ${att.currency || ''}` : '—'}
+                  </td>
+                  <td className="px-4 py-3" style={{ color: 'var(--fg-3)', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={att.issuer || ''}>
+                    {att.issuer || '—'}
+                  </td>
+                  <td className="px-4 py-3" style={{ color: 'var(--fg-3)', fontSize: '14px' }}>{att.parsed_from || '—'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+    </>
   );
 }
 

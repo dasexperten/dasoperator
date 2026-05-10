@@ -28,6 +28,7 @@ import adminMigrationsRoutes from './routes/admin-migrations';
 import marketplacesRoutes from './routes/marketplaces';
 import marketplacesExtrasRoutes from './routes/marketplaces-extras';
 import bundlingRoutes from './routes/bundling';
+import attachmentsRoutes from './routes/attachments';
 import banksModulbankRoutes from './routes/banks-modulbank';
 import crmRoutes from './routes/crm';
 import metrikaRoutes from './routes/metrika';
@@ -85,6 +86,7 @@ app.route('/api/banks/modulbank', banksModulbankRoutes);
 app.route('/api/crm', crmRoutes);
 app.route('/api/metrika', metrikaRoutes);
 app.route('/api/inbox', inboxRoutes);
+app.route('/', attachmentsRoutes);
 
 export default {
   fetch: app.fetch,

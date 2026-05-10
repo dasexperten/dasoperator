@@ -10,7 +10,7 @@
  */
 import { Hono } from 'hono';
 import type { Env } from '../types';
-import { ok, fail } from '../lib/response';
+import { ok, fail } from '../lib/responses';
 
 const attachments = new Hono<{ Bindings: Env }>();
 

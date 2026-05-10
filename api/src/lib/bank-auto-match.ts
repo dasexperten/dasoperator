@@ -1,27 +1,72 @@
 // =============================================================================
-// Bank transaction → Operation auto-matcher
+// Bank transaction → Operation auto-matcher  (v2 — cascade with service path)
 // =============================================================================
-// Called from the Modulbank webhook handler (and potentially other bank
-// integrations later). Tries to attach an incoming bank_transaction to an
-// existing operation by INN + amount + date window. If exactly one candidate
-// matches, attaches PMT (payment) and parsed INV (invoice) attachments to
-// that operation. Otherwise creates an orphan PMT attachment that surfaces
-// in the Inbox tab for manual handling.
+// Decision cascade:
+//   STEP 1  partner lookup by INN
+//     ├─ found     → STEP 2
+//     └─ not found → STEP 1b: try to classify by payment_purpose
+//          ├─ keyword match → auto-create draft service-provider partner
+//          │                  + close operation immediately
+//          │                  + mark match_method='partner_auto_created'
+//          └─ no clue       → orphan PMT attachment + 'partner_not_found'
+//                             (Inbox asks: "Who? Which category?")
 //
-// Match result is persisted on the bank_transactions row via the legacy
-// fields `matched_payment_id` (now holds operation_id) and `match_method`
-// (now holds a status: auto_matched | auto_created_draft | ambiguous |
-// partner_not_found | no_candidate).
+//   STEP 2  partner known, branch by direction × kind:
+//     OUT + service kind  → close immediately, match_method='auto_service_closed'
+//     OUT + goods kind    → match candidate operations or create draft
+//     IN                  → match candidate sales operations or create draft
+//
+//   Result persisted into:
+//     bank_transactions.matched_payment_id  (now holds operation_id)
+//     bank_transactions.match_method        (outcome enum below)
+//     bank_transactions.matched_at
+//
+// Webhook never sees an exception; failures surface via match_method only.
 // =============================================================================
 
 import type { Env } from '../types';
 
 const DATE_WINDOW_DAYS = 30;
-const FX_TOLERANCE_PCT = 0.01; // 1% for cross-currency matches
+const FX_TOLERANCE_PCT = 0.01;
+
+// Lowercase, ё→е normalised stems. Any hit → service.
+const SERVICE_KEYWORDS = [
+  // rent / occupancy
+  'аренд', 'наем', 'найм',
+  // storage / 3PL
+  'хранен', 'склад', 'ответствен', 'фулфилм', 'фулфилл', 'fulfilment', 'fulfillment',
+  // assembly / packing / kitting
+  'сборк', 'сборщ', 'упаковк', 'комплектац', 'формирован',
+  // shipping / delivery / transport
+  'доставк', 'перевозк', 'транспортн', 'логистич', 'фрахт', 'экспедир', 'отправк', 'shipping',
+  // generic services / fees
+  'услуг', 'обслуживан', 'сервис', 'service',
+  // commissions / agency
+  'комисси', 'вознагражден', 'агентск', 'роялти',
+  // subscriptions / SaaS / access
+  'подписк', 'доступ', 'тариф', 'license', 'лиценз', 'subscription',
+  // marketing / advertising
+  'реклам', 'продвижен', 'маркетинг', 'промо',
+  // accounting / legal / consulting
+  'бухгалтер', 'юридич', 'консультац', 'аудит',
+  // telco / utility / IT
+  'связ', 'телефон', 'интернет', 'хостинг', 'домен', 'банковск',
+  // marketplaces / acquiring
+  'маркетплейс', 'эквайринг', 'процессинг',
+];
+
+const SERVICE_KINDS = new Set(['service_provider', '3pl', 'shipper']);
+
+const RU_MONTHS: Record<string, number> = {
+  'января': 1, 'февраля': 2, 'марта': 3, 'апреля': 4, 'мая': 5, 'июня': 6,
+  'июля': 7, 'августа': 8, 'сентября': 9, 'октября': 10, 'ноября': 11, 'декабря': 12,
+};
 
 export type MatchOutcome =
   | 'auto_matched'
+  | 'auto_service_closed'
   | 'auto_created_draft'
+  | 'partner_auto_created'
   | 'ambiguous'
   | 'partner_not_found'
   | 'no_candidate';
@@ -32,17 +77,31 @@ export interface AutoMatchResult {
   attachment_ids: string[];
   candidate_ids?: string[];
   reason?: string;
+  partner_id?: string | null;
 }
 
-// -----------------------------------------------------------------------------
-// Invoice parser — extracts invoice number + date from payment_purpose.
-// Same regex family as the 2026-05-10 backfill that successfully parsed
-// 187/188 RU payment purposes. Returns null when no match found.
-// -----------------------------------------------------------------------------
-const RU_MONTHS: Record<string, number> = {
-  января: 1, февраля: 2, марта: 3, апреля: 4, мая: 5, июня: 6,
-  июля: 7, августа: 8, сентября: 9, октября: 10, ноября: 11, декабря: 12,
-};
+// ---- public helpers (exported for inbox UI + tests) ------------------------
+
+function normalise(s: string): string {
+  return (s || '').toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+}
+
+export function looksLikeService(purpose: string): boolean {
+  const n = normalise(purpose);
+  return SERVICE_KEYWORDS.some((kw) => n.includes(kw));
+}
+
+export function extractServiceDescription(purpose: string): string {
+  if (!purpose) return '';
+  // Strip "Оплата по счёту № X от DD месяц YYYY г." prefix.
+  let s = purpose.replace(
+    /^.*?сч[её]т[у-яё]*\s*[№#]?\s*[A-Za-z0-9А-Яа-я\-\/_.]+\s*от\s*\d{1,2}[\s.\-\/]+[\s\S]*?(?:\d{4})\s*(?:г\.?)?[\s.,;:]*/i,
+    '',
+  ).trim();
+  // Strip "В т.ч. НДС 22% - 835,28" tail.
+  s = s.replace(/\bВ\s*т\.?ч\.?\s*НДС[\s\S]+$/i, '').trim();
+  return s || purpose.trim();
+}
 
 export function parseInvoiceFromPurpose(purpose: string): {
   doc_number: string;
@@ -50,7 +109,6 @@ export function parseInvoiceFromPurpose(purpose: string): {
 } | null {
   if (!purpose) return null;
 
-  // Variant 1: "счёт № X от DD месяц YYYY"  (most common, RU)
   const re1 = /сч[её]т[у-яё]*\s*[№#]?\s*([A-Za-z0-9А-Яа-я\-\/_.]+)\s*от\s*(\d{1,2})\s*([а-яё]+)\s*(\d{4})/i;
   const m1 = purpose.match(re1);
   if (m1 && m1[1] && m1[2] && m1[3] && m1[4]) {
@@ -63,7 +121,6 @@ export function parseInvoiceFromPurpose(purpose: string): {
     }
   }
 
-  // Variant 2: "счёт № X от DD.MM.YYYY"
   const re2 = /сч[её]т[у-яё]*\s*[№#]?\s*([A-Za-z0-9А-Яа-я\-\/_.]+)\s*от\s*(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})/i;
   const m2 = purpose.match(re2);
   if (m2 && m2[1] && m2[2] && m2[3] && m2[4]) {
@@ -75,7 +132,6 @@ export function parseInvoiceFromPurpose(purpose: string): {
     return { doc_number: m2[1].trim(), doc_date: date };
   }
 
-  // Variant 3: "invoice X" / "inv X" (EN fallback, no date)
   const re3 = /\b(?:invoice|inv\.?)\s*[№#]?\s*([A-Za-z0-9\-\/_.]+)/i;
   const m3 = purpose.match(re3);
   if (m3 && m3[1]) {
@@ -85,16 +141,12 @@ export function parseInvoiceFromPurpose(purpose: string): {
   return null;
 }
 
-// -----------------------------------------------------------------------------
-// Main entry point. Called immediately after a bank_transaction row is
-// inserted. Returns the outcome but never throws — webhook handler must
-// return 200 to Modulbank even if matching fails (the tx is already stored).
-// -----------------------------------------------------------------------------
+// ---- main entry -----------------------------------------------------------
+
 export async function autoMatchBankTransaction(
   env: Env,
   txId: string,
 ): Promise<AutoMatchResult> {
-  // 1. Load the bank_transaction row we just inserted.
   const tx = await env.DB.prepare(`
     SELECT id, direction, amount, currency, executed_at,
            contragent_inn, contragent_name, payment_purpose,
@@ -117,46 +169,211 @@ export async function autoMatchBankTransaction(
     return { outcome: 'no_candidate', operation_id: null, attachment_ids: [], reason: 'tx not found' };
   }
 
-  // 2. Find partner by INN.
-  if (!tx.contragent_inn || tx.contragent_inn.length < 9) {
-    await persistOutcome(env, txId, 'partner_not_found', null);
-    return { outcome: 'partner_not_found', operation_id: null, attachment_ids: [], reason: 'no INN on tx' };
-  }
+  const txMajor = tx.amount / 100;
+  const isService = looksLikeService(tx.payment_purpose);
 
-  const partner = await env.DB.prepare(`
-    SELECT id, trade_name, legal_name, currency
-    FROM partners
-    WHERE tax_id = ? AND (deleted_at IS NULL OR deleted_at = 0)
-    LIMIT 1
-  `).bind(tx.contragent_inn).first<{
-    id: string;
-    trade_name: string;
-    legal_name: string;
-    currency: string;
-  }>();
+  // STEP 1
+  let partner = await findPartnerByInn(env, tx.contragent_inn);
 
+  // STEP 1b — partner not found
   if (!partner) {
+    if (isService && tx.direction === 'outgoing' && tx.contragent_name) {
+      const newPartnerId = await createDraftPartner(env, {
+        trade_name: tx.contragent_name,
+        legal_name: tx.contragent_name,
+        tax_id: tx.contragent_inn || '',
+        currency: tx.currency,
+        kind: 'service_provider',
+      });
+      const opId = await createServiceOperation(env, {
+        partner_id: newPartnerId,
+        amount_major: txMajor,
+        currency: tx.currency,
+        operation_date: tx.executed_at,
+        purpose: tx.payment_purpose,
+        contragent_name: tx.contragent_name,
+      });
+      const attIds = await attachPaymentAndInvoice(env, { operation_id: opId, tx });
+      await persistOutcome(env, txId, 'partner_auto_created', opId);
+      return {
+        outcome: 'partner_auto_created',
+        operation_id: opId,
+        partner_id: newPartnerId,
+        attachment_ids: attIds,
+        reason: 'partner created from tx.contragent_name; verify in Inbox',
+      };
+    }
+
+    const orphanId = await createOrphanAttachment(env, {
+      tx,
+      notes: `partner_not_found: INN=${tx.contragent_inn || 'none'}, name=${tx.contragent_name}`,
+    });
     await persistOutcome(env, txId, 'partner_not_found', null);
     return {
       outcome: 'partner_not_found',
       operation_id: null,
-      attachment_ids: [],
-      reason: `no partner with tax_id=${tx.contragent_inn}`,
+      partner_id: null,
+      attachment_ids: [orphanId],
+      reason: 'no partner by INN; no service keywords for auto-create',
     };
   }
 
-  // 3. Find candidate operations.
-  // Unit reconciliation:
-  //   bank_transactions.amount → minor units (kopeks/cents)
-  //   operations.total_amount  → major units (rubles/dollars)
-  // We compare in MAJOR units. Tx is divided by 100; operations stay as-is.
-  const txMajor = tx.amount / 100;
-  const windowSec = DATE_WINDOW_DAYS * 86400;
-  const minDate = tx.executed_at - windowSec;
-  const maxDate = tx.executed_at + windowSec;
+  // STEP 2 — partner known
+  if (tx.direction === 'outgoing' && SERVICE_KINDS.has(partner.kind || '')) {
+    const opId = await createServiceOperation(env, {
+      partner_id: partner.id,
+      amount_major: txMajor,
+      currency: tx.currency,
+      operation_date: tx.executed_at,
+      purpose: tx.payment_purpose,
+      contragent_name: tx.contragent_name,
+    });
+    const attIds = await attachPaymentAndInvoice(env, { operation_id: opId, tx });
+    await persistOutcome(env, txId, 'auto_service_closed', opId);
+    return {
+      outcome: 'auto_service_closed',
+      operation_id: opId,
+      partner_id: partner.id,
+      attachment_ids: attIds,
+    };
+  }
 
-  // First pass: exact currency + exact amount (1 kopek/cent tolerance for FP).
-  const exactCandidates = await env.DB.prepare(`
+  // Goods or incoming — search candidate operations
+  const candidates = await findCandidateOperations(env, {
+    partner_id: partner.id,
+    txMajor,
+    currency: tx.currency,
+    executed_at: tx.executed_at,
+  });
+
+  if (candidates.length === 1) {
+    const op = candidates[0]!;
+    const attIds = await attachPaymentAndInvoice(env, { operation_id: op.id, tx });
+    await persistOutcome(env, txId, 'auto_matched', op.id);
+    return {
+      outcome: 'auto_matched',
+      operation_id: op.id,
+      partner_id: partner.id,
+      attachment_ids: attIds,
+    };
+  }
+
+  if (candidates.length === 0) {
+    const opId = await createDraftGoodsOperation(env, {
+      partner_id: partner.id,
+      amount_major: txMajor,
+      currency: tx.currency,
+      operation_date: tx.executed_at,
+      direction: tx.direction,
+      notes: `[AUTO-DRAFT] from bank_tx ${txId}. payment_purpose: ${(tx.payment_purpose || '').slice(0, 300)}`,
+    });
+    const attIds = await attachPaymentAndInvoice(env, { operation_id: opId, tx });
+    await persistOutcome(env, txId, 'auto_created_draft', opId);
+    return {
+      outcome: 'auto_created_draft',
+      operation_id: opId,
+      partner_id: partner.id,
+      attachment_ids: attIds,
+    };
+  }
+
+  // 2+ candidates
+  const orphanId = await createOrphanAttachment(env, {
+    tx,
+    notes: `ambiguous: ${candidates.length} candidates: ${candidates.map((c) => c.reference).join(', ')}`,
+  });
+  await persistOutcome(env, txId, 'ambiguous', null);
+  return {
+    outcome: 'ambiguous',
+    operation_id: null,
+    partner_id: partner.id,
+    attachment_ids: [orphanId],
+    candidate_ids: candidates.map((c) => c.id),
+  };
+}
+
+// ---- private helpers ------------------------------------------------------
+
+interface PartnerRow {
+  id: string;
+  trade_name: string;
+  legal_name: string;
+  currency: string;
+  kind: string;
+  partner_type: string;
+}
+
+async function findPartnerByInn(env: Env, inn: string): Promise<PartnerRow | null> {
+  if (!inn || inn.length < 9) return null;
+  const row = await env.DB.prepare(`
+    SELECT id, trade_name, legal_name, currency, kind, partner_type
+    FROM partners
+    WHERE (tax_id = ? OR inn = ?)
+      AND (deleted_at IS NULL OR deleted_at = 0)
+    LIMIT 1
+  `).bind(inn, inn).first<PartnerRow>();
+  return row || null;
+}
+
+async function createDraftPartner(
+  env: Env,
+  args: {
+    trade_name: string;
+    legal_name: string;
+    tax_id: string;
+    currency: string;
+    kind: string;
+  },
+): Promise<string> {
+  const id = `prt_draft_${crypto.randomUUID().slice(0, 8)}`;
+  const now = Math.floor(Date.now() / 1000);
+  const slug = (args.trade_name || `partner-${id.slice(-8)}`)
+    .toLowerCase()
+    .replace(/[^a-zа-я0-9]+/gi, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 60);
+
+  await env.DB.prepare(`
+    INSERT INTO partners (
+      id, trade_name, legal_name, tax_id, inn, currency, kind,
+      partner_type, status, crm_status, partner_language,
+      has_dual_route_banking, is_packaging_manufacturer, is_legal_seller,
+      slug, notes, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'other', 'active', 'lead', 'RU',
+              0, 0, 0, ?, ?, ?, ?)
+  `).bind(
+    id, args.trade_name, args.legal_name, args.tax_id, args.tax_id,
+    args.currency, args.kind, slug || id.slice(-8),
+    '[AUTO-CREATED from Modulbank webhook — please verify & categorise]',
+    now, now,
+  ).run();
+  return id;
+}
+
+interface CandidateOp {
+  id: string;
+  reference: string;
+  total_amount: number;
+  currency: string;
+  operation_date: number;
+  status: string;
+  fx_rate_to_usd?: number;
+}
+
+async function findCandidateOperations(
+  env: Env,
+  args: {
+    partner_id: string;
+    txMajor: number;
+    currency: string;
+    executed_at: number;
+  },
+): Promise<CandidateOp[]> {
+  const windowSec = DATE_WINDOW_DAYS * 86400;
+  const minDate = args.executed_at - windowSec;
+  const maxDate = args.executed_at + windowSec;
+
+  const exact = await env.DB.prepare(`
     SELECT id, reference, total_amount, currency, operation_date, status
     FROM operations
     WHERE partner_id = ?
@@ -165,193 +382,107 @@ export async function autoMatchBankTransaction(
       AND operation_date BETWEEN ? AND ?
       AND currency = ?
       AND ABS(total_amount - ?) < 0.01
-  `).bind(partner.id, minDate, maxDate, tx.currency, txMajor)
-    .all<{ id: string; reference: string; total_amount: number; currency: string; operation_date: number; status: string }>();
+  `).bind(args.partner_id, minDate, maxDate, args.currency, args.txMajor)
+    .all<CandidateOp>();
 
-  let candidates = exactCandidates.results || [];
+  if ((exact.results || []).length > 0) return exact.results || [];
 
-  // Second pass: cross-currency with FX tolerance, only if no exact matches found.
-  if (candidates.length === 0) {
-    const fxCandidates = await env.DB.prepare(`
-      SELECT id, reference, total_amount, currency, operation_date, status, fx_rate_to_usd
-      FROM operations
-      WHERE partner_id = ?
-        AND status NOT IN ('cancelled', 'delivered')
-        AND (deleted_at IS NULL OR deleted_at = 0)
-        AND operation_date BETWEEN ? AND ?
-        AND currency != ?
-        AND fx_rate_to_usd > 0
-    `).bind(partner.id, minDate, maxDate, tx.currency)
-      .all<{ id: string; reference: string; total_amount: number; currency: string; operation_date: number; status: string; fx_rate_to_usd: number }>();
+  const fx = await env.DB.prepare(`
+    SELECT id, reference, total_amount, currency, operation_date, status, fx_rate_to_usd
+    FROM operations
+    WHERE partner_id = ?
+      AND status NOT IN ('cancelled', 'delivered')
+      AND (deleted_at IS NULL OR deleted_at = 0)
+      AND operation_date BETWEEN ? AND ?
+      AND currency != ?
+      AND fx_rate_to_usd > 0
+  `).bind(args.partner_id, minDate, maxDate, args.currency)
+    .all<CandidateOp & { fx_rate_to_usd: number }>();
 
-    // FX rates stored in KV as decimal string (e.g. "88.50" for RUB/USD).
-    // Both tx and op amounts compared in USD-equivalent major units.
-    const txCurrencyRate = await getFxRateToUsd(env, tx.currency, tx.executed_at);
-    if (txCurrencyRate && txCurrencyRate > 0) {
-      const txUsdMajor = txMajor / txCurrencyRate;
-      candidates = (fxCandidates.results || []).filter((op) => {
-        // operations.fx_rate_to_usd is INTEGER scaled by 10000 (e.g. 885000 = 88.5)
-        const opRate = op.fx_rate_to_usd / 10000;
-        if (opRate <= 0) return false;
-        const opUsdMajor = op.total_amount / opRate;
-        if (txUsdMajor === 0) return false;
-        const diff = Math.abs(opUsdMajor - txUsdMajor) / txUsdMajor;
-        return diff <= FX_TOLERANCE_PCT;
-      });
-    }
-  }
-
-  // 4. Dispatch by candidate count.
-  if (candidates.length === 0) {
-    // Create a draft operation and attach PMT + parsed INV to it.
-    const draftOpId = await createDraftOperation(env, {
-      partner_id: partner.id,
-      amount_major: txMajor, // operations.total_amount is in major units
-      currency: tx.currency,
-      operation_date: tx.executed_at,
-      notes: `auto-created from unmatched bank_tx ${txId} (${tx.contragent_name})`,
-      direction: tx.direction,
-    });
-
-    const attachmentIds = await attachPaymentAndInvoice(env, {
-      operation_id: draftOpId,
-      tx,
-    });
-
-    await persistOutcome(env, txId, 'auto_created_draft', draftOpId);
-    return {
-      outcome: 'auto_created_draft',
-      operation_id: draftOpId,
-      attachment_ids: attachmentIds,
-    };
-  }
-
-  if (candidates.length === 1) {
-    const op = candidates[0];
-    if (!op) {
-      // Defensive — shouldn't happen given length check, but TS narrowing demands it.
-      await persistOutcome(env, txId, 'no_candidate', null);
-      return { outcome: 'no_candidate', operation_id: null, attachment_ids: [] };
-    }
-    const attachmentIds = await attachPaymentAndInvoice(env, {
-      operation_id: op.id,
-      tx,
-    });
-
-    await persistOutcome(env, txId, 'auto_matched', op.id);
-    return {
-      outcome: 'auto_matched',
-      operation_id: op.id,
-      attachment_ids: attachmentIds,
-    };
-  }
-
-  // 2+ candidates — ambiguous. Create orphan PMT attachment for Inbox.
-  const orphanId = await createOrphanAttachment(env, {
-    tx,
-    notes: `ambiguous: ${candidates.length} candidates: ${candidates.map((c) => c.reference).join(', ')}`,
+  const rate = await getFxRateToUsd(env, args.currency, args.executed_at);
+  if (!rate || rate <= 0) return [];
+  const txUsdMajor = args.txMajor / rate;
+  return (fx.results || []).filter((op) => {
+    const opRate = (op.fx_rate_to_usd || 0) / 10000;
+    if (opRate <= 0) return false;
+    const opUsdMajor = op.total_amount / opRate;
+    if (txUsdMajor === 0) return false;
+    const diff = Math.abs(opUsdMajor - txUsdMajor) / txUsdMajor;
+    return diff <= FX_TOLERANCE_PCT;
   });
-
-  await persistOutcome(env, txId, 'ambiguous', null);
-  return {
-    outcome: 'ambiguous',
-    operation_id: null,
-    attachment_ids: [orphanId],
-    candidate_ids: candidates.map((c) => c.id),
-  };
 }
 
-// -----------------------------------------------------------------------------
-// Helpers
-// -----------------------------------------------------------------------------
-
-async function persistOutcome(
-  env: Env,
-  txId: string,
-  method: MatchOutcome,
-  operationId: string | null,
-): Promise<void> {
-  const now = Math.floor(Date.now() / 1000);
-  await env.DB.prepare(`
-    UPDATE bank_transactions
-    SET matched_payment_id = ?,
-        match_method = ?,
-        matched_at = ?,
-        updated_at = ?
-    WHERE id = ?
-  `).bind(operationId, method, operationId ? now : null, now, txId).run();
-}
-
-async function getFxRateToUsd(
-  env: Env,
-  currency: string,
-  unixTs: number,
-): Promise<number | null> {
-  if (currency === 'USD') return 1;
-  const dateStr = new Date(unixTs * 1000).toISOString().slice(0, 10);
-  // FX is optional — if no KV binding present, skip cross-currency matching.
-  // Try common binding names; degrade gracefully.
-  const envAny = env as unknown as Record<string, KVNamespace | undefined>;
-  const kv = envAny.DAS_FX || envAny.FX || envAny.KV_FX || envAny.das_fx;
-  if (!kv) return null;
-  try {
-    const cached = await kv.get(`fx:${dateStr}:${currency}`);
-    if (cached) {
-      const parsed = parseFloat(cached);
-      if (parsed > 0) return parsed;
-    }
-    const latest = await kv.get(`fx:latest:${currency}`);
-    if (latest) {
-      const parsed = parseFloat(latest);
-      if (parsed > 0) return parsed;
-    }
-  } catch {
-    // KV miss — return null, downstream skips FX matching
-  }
-  return null;
-}
-
-async function createDraftOperation(
+async function createServiceOperation(
   env: Env,
   args: {
     partner_id: string;
     amount_major: number;
     currency: string;
     operation_date: number;
-    notes: string;
-    direction: string;
+    purpose: string;
+    contragent_name: string;
   },
 ): Promise<string> {
   const opId = `op_${crypto.randomUUID()}`;
   const now = Math.floor(Date.now() / 1000);
-
-  // Generate reference: DEE-{YY}{NNNN}. We pick DEE as default issuer for
-  // bank-originated drafts because Modulbank is the DEE bank account.
-  const yy = new Date(args.operation_date * 1000).getFullYear() % 100;
-  const seqRow = await env.DB.prepare(`
-    SELECT COUNT(*) AS cnt FROM operations WHERE reference LIKE ?
-  `).bind(`DEE-${String(yy).padStart(2, '0')}%`).first<{ cnt: number }>();
-  const seq = ((seqRow?.cnt ?? 0) + 1).toString().padStart(4, '0');
-  const reference = `DEE-${String(yy).padStart(2, '0')}${seq}`;
-
-  // operation_type: bank-derived drafts → 'purchase' if outgoing payment (we paid),
-  // 'sale' if incoming (customer paid us). Status: needs_review.
-  const operationType = args.direction === 'outgoing' ? 'purchase' : 'sale';
+  const reference = await nextOperationReference(env, args.operation_date);
+  const desc = extractServiceDescription(args.purpose);
+  const notes = `[SERVICE EXPENSE — auto-closed] ${desc || args.contragent_name}`;
 
   await env.DB.prepare(`
     INSERT INTO operations (
       id, operation_date, operation_type, partner_id,
       our_company_id, status, currency, total_amount,
       notes, reference, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, 'needs_review', ?, ?, ?, ?, ?, ?)
+    )
+    VALUES (?, ?, 'purchase', ?, 'co_dee', 'issued', ?, ?, ?, ?, ?, ?)
+  `).bind(
+    opId, args.operation_date, args.partner_id,
+    args.currency, args.amount_major,
+    notes, reference, now, now,
+  ).run();
+  return opId;
+}
+
+async function createDraftGoodsOperation(
+  env: Env,
+  args: {
+    partner_id: string;
+    amount_major: number;
+    currency: string;
+    operation_date: number;
+    direction: string;
+    notes: string;
+  },
+): Promise<string> {
+  const opId = `op_${crypto.randomUUID()}`;
+  const now = Math.floor(Date.now() / 1000);
+  const reference = await nextOperationReference(env, args.operation_date);
+  const operationType = args.direction === 'incoming' ? 'sale' : 'purchase';
+
+  await env.DB.prepare(`
+    INSERT INTO operations (
+      id, operation_date, operation_type, partner_id,
+      our_company_id, status, currency, total_amount,
+      notes, reference, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, 'co_dee', 'issued', ?, ?, ?, ?, ?, ?)
   `).bind(
     opId, args.operation_date, operationType, args.partner_id,
-    'co_dee', // DEE is the default Modulbank account holder; adjust if multi-entity
     args.currency, args.amount_major,
     args.notes, reference, now, now,
   ).run();
-
   return opId;
+}
+
+async function nextOperationReference(env: Env, opDate: number): Promise<string> {
+  const yy = new Date(opDate * 1000).getFullYear() % 100;
+  const prefix = `DEE-${String(yy).padStart(2, '0')}`;
+  const row = await env.DB.prepare(`
+    SELECT COUNT(*) AS cnt FROM operations WHERE reference LIKE ?
+  `).bind(`${prefix}%`).first<{ cnt: number }>();
+  const seq = ((row?.cnt ?? 0) + 1).toString().padStart(4, '0');
+  return `${prefix}${seq}`;
 }
 
 async function attachPaymentAndInvoice(
@@ -373,7 +504,6 @@ async function attachPaymentAndInvoice(
   const ids: string[] = [];
   const now = Math.floor(Date.now() / 1000);
 
-  // PMT attachment — always created.
   const pmtId = `att_${crypto.randomUUID()}`;
   await env.DB.prepare(`
     INSERT INTO operation_attachments (
@@ -392,12 +522,8 @@ async function attachPaymentAndInvoice(
   ).run();
   ids.push(pmtId);
 
-  // INV attachment — only if we can parse the invoice ref out of payment_purpose.
   const parsed = parseInvoiceFromPurpose(args.tx.payment_purpose);
   if (parsed) {
-    // Invoice direction is OPPOSITE of payment direction:
-    // outgoing payment → we received an incoming invoice (supplier billed us)
-    // incoming payment → we sent an outgoing invoice (we billed customer)
     const invDirection = args.tx.direction === 'outgoing' ? 'incoming' : 'outgoing';
     const invId = `att_${crypto.randomUUID()}`;
     await env.DB.prepare(`
@@ -417,7 +543,6 @@ async function attachPaymentAndInvoice(
     ).run();
     ids.push(invId);
   }
-
   return ids;
 }
 
@@ -454,4 +579,48 @@ async function createOrphanAttachment(
     now, now,
   ).run();
   return id;
+}
+
+async function persistOutcome(
+  env: Env,
+  txId: string,
+  method: MatchOutcome,
+  operationId: string | null,
+): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  await env.DB.prepare(`
+    UPDATE bank_transactions
+    SET matched_payment_id = ?,
+        match_method = ?,
+        matched_at = ?,
+        updated_at = ?
+    WHERE id = ?
+  `).bind(operationId, method, operationId ? now : null, now, txId).run();
+}
+
+async function getFxRateToUsd(
+  env: Env,
+  currency: string,
+  unixTs: number,
+): Promise<number | null> {
+  if (currency === 'USD') return 1;
+  const dateStr = new Date(unixTs * 1000).toISOString().slice(0, 10);
+  const envAny = env as unknown as Record<string, KVNamespace | undefined>;
+  const kv = envAny.FX || envAny.DAS_FX || envAny.KV_FX;
+  if (!kv) return null;
+  try {
+    const cached = await kv.get(`fx:${dateStr}:${currency}`);
+    if (cached) {
+      const v = parseFloat(cached);
+      if (v > 0) return v;
+    }
+    const latest = await kv.get(`fx:latest:${currency}`);
+    if (latest) {
+      const v = parseFloat(latest);
+      if (v > 0) return v;
+    }
+  } catch {
+    // KV miss
+  }
+  return null;
 }

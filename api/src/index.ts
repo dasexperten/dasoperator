@@ -69,6 +69,7 @@ app.route('/api/contracts', contractsRoutes);
 app.route('/api/pricer', pricerRoutes);
 app.route('/api/email', emailRoutes);
 app.route('/api/sequences', sequencesRoutes);
+app.route('/', attachmentsRoutes);
 app.route('/api/operations', operationsRoutes);
 app.route('/api/operations', operationsImportRoutes);  // adds /parse-excel
 app.route('/api/payments', paymentsRoutes);
@@ -86,7 +87,6 @@ app.route('/api/banks/modulbank', banksModulbankRoutes);
 app.route('/api/crm', crmRoutes);
 app.route('/api/metrika', metrikaRoutes);
 app.route('/api/inbox', inboxRoutes);
-app.route('/', attachmentsRoutes);
 
 export default {
   fetch: app.fetch,

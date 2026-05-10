@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
+import { autoMatchBankTransaction } from '../lib/bank-auto-match';
 
 const banksModulbank = new Hono<{ Bindings: Env }>();
 
@@ -194,12 +195,19 @@ banksModulbank.post('/webhook', async (c) => {
   }
 
   // -----------------------------------------------------------------------------
-  // 4. Auto-match attempt — look for an unmatched payment whose reference appears
-  //    in the payment purpose. Reference pattern in our system: DEE-007, DEI-001 etc.
-  //    This is best-effort; if no match, the transaction stays unmatched and shows
-  //    in the Reconciliation list for manual handling later.
+  // 4. Auto-match attempt — try to attach this bank_tx to an existing operation
+  //    by INN + amount + date window. If no candidate, creates a draft operation
+  //    automatically. If multiple candidates, creates an orphan attachment for
+  //    the Inbox tab. Best-effort: never throws, webhook always returns 200.
   // -----------------------------------------------------------------------------
-  // Note: matching logic itself we extend later. For now we just save the row.
+  let matchResult: Awaited<ReturnType<typeof autoMatchBankTransaction>> | null = null;
+  try {
+    matchResult = await autoMatchBankTransaction(c.env, txId);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'match error';
+    console.error(`[autoMatch] tx=${txId} failed: ${msg}`);
+    // Swallow — tx is already stored, webhook must return 200.
+  }
 
   return ok(c, {
     received: true,
@@ -208,6 +216,13 @@ banksModulbank.post('/webhook', async (c) => {
     direction,
     amount: amountMinor,
     currency,
+    match: matchResult
+      ? {
+          outcome: matchResult.outcome,
+          operation_id: matchResult.operation_id,
+          attachment_ids: matchResult.attachment_ids,
+        }
+      : null,
   });
 });
 

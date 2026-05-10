@@ -1294,7 +1294,7 @@ operations.delete('/:id', async (c) => {
 
   // Guard: stock movements (sanity — draft should never have any)
   const movCount = await c.env.DB.prepare(
-    "SELECT COUNT(*) as cnt FROM stock_movements WHERE source = 'operation' AND source_ref = ?"
+    "SELECT COUNT(*) as cnt FROM stock_movements WHERE source = 'operation' AND source_ref_id = ?"
   ).bind(id).first<{ cnt: number }>();
 
   if (movCount && movCount.cnt > 0) {

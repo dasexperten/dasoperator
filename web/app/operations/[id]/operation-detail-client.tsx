@@ -79,6 +79,29 @@ function statusChip(status: string) {
 // =============================================================================
 type Tab = 'items' | 'status' | 'stock' | 'documents' | 'payments';
 
+// User-defined abbreviations for attachment kinds (per Aram's table)
+const ATTACHMENT_KIND_LABEL: Record<string, string> = {
+  act: 'Акт',
+  upd: 'УПД',
+  invoice: 'INV',
+  invoice_in: 'INV',
+  invoice_out: 'INV',
+  payment: 'PMT',
+  ci: 'CI',
+  pl: 'PL',
+  bl: 'BL',
+  awb: 'AWB',
+  cmr: 'CMR',
+  swift: 'SWIFT',
+  proforma: 'PI',
+  customs_decl: 'ГТД',
+  contract: 'CNTC',
+  certificate: 'CERT',
+  photo: 'PHOTO',
+  other: 'OTHER',
+};
+const labelKind = (k: string) => ATTACHMENT_KIND_LABEL[k] ?? k.toUpperCase();
+
 export default function OperationDetailClient({
   operationId,
 }: {
@@ -1212,7 +1235,7 @@ function DocumentsTab({
                       {att.direction === 'outgoing' ? 'Outgoing' : 'Incoming'}
                     </span>
                   </td>
-                  <td className="px-4 py-3" style={{ color: 'var(--fg-2)', fontWeight: 600 }}>{att.kind}</td>
+                  <td className="px-4 py-3" style={{ color: 'var(--fg-2)', fontWeight: 600 }}>{labelKind(att.kind)}</td>
                   <td className="px-4 py-3" style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{att.doc_number ?? '—'}</td>
                   <td className="px-4 py-3" style={{ color: 'var(--fg-3)' }}>{date}</td>
                   <td className="px-4 py-3 text-right" style={{ fontWeight: 700, color: 'var(--fg-1)' }}>

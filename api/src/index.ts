@@ -35,6 +35,7 @@ import crmRoutes from './routes/crm';
 import metrikaRoutes from './routes/metrika';
 import inboxRoutes from './routes/inbox';
 import inboxBankingRoutes from './routes/inbox-banking';
+import freightRfqRoutes from './routes/freight-rfq';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
 
@@ -91,6 +92,7 @@ app.route('/api/crm', crmRoutes);
 app.route('/api/metrika', metrikaRoutes);
 app.route('/api/inbox/banking', inboxBankingRoutes);
 app.route('/api/inbox', inboxRoutes);
+app.route('/api/freight-rfq', freightRfqRoutes);
 
 export default {
   fetch: app.fetch,

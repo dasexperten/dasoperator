@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Send, CheckCircle, Truck } from 'lucide-react';
+import { Loader2, FileText, CheckCircle, Truck, Mail, Download } from 'lucide-react';
 import {
   getOperation,
   type Operation,
@@ -10,6 +10,25 @@ import {
 } from '@/lib/api';
 import { formatMoney } from '@/lib/money';
 import Breadcrumb from '@/components/layout/breadcrumb';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'https://dasoperator-api.dasexperten.workers.dev';
+
+interface Shipper {
+  id: string;
+  slug: string;
+  trade_name: string;
+  legal_name_en: string | null;
+  email: string | null;
+  country: string | null;
+}
+
+interface IssueResult {
+  document_id: string;
+  document_number: string;
+  r2_key: string;
+  download_url: string;
+  shipper: { id: string; name: string; email: string | null };
+}
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
@@ -31,23 +50,17 @@ const labelStyle: React.CSSProperties = {
   marginBottom: '6px',
 };
 
-// Predefined shipper preset list — populated from the shippers directory.
-// Email is left blank by default — user enters it before sending.
-const SHIPPER_PRESETS: { slug: string; name: string; email: string }[] = [
-  { slug: 'inter-freight', name: 'Inter-Freight LTD', email: '' },
-  { slug: 'trans-imperial', name: 'Trans Imperial', email: '' },
-  { slug: 'dd-logistics', name: 'DD Logistics', email: '' },
-  { slug: 'neptune', name: 'Neptune', email: '' },
-  { slug: 'avis-trans', name: 'Avis-Trans', email: '' },
-  { slug: 'custom', name: 'Other (manual entry)', email: '' },
-];
-
 function formatDate(unixSec?: number | null): string {
   if (!unixSec) return '—';
   return new Date(unixSec * 1000).toISOString().split('T')[0]!;
 }
 
-function buildEmailBody(operation: Operation, lineItems: OperationLineItem[]): string {
+function buildEmailBody(
+  operation: Operation,
+  lineItems: OperationLineItem[],
+  shipperName: string,
+  documentNumber: string,
+): string {
   const skuLines = lineItems.map((li, i) => {
     const sku = (li.product_id ?? '').toUpperCase().replace('PRD_', '');
     const name = li.product_name ?? li.invoice_label ?? sku;
@@ -57,32 +70,28 @@ function buildEmailBody(operation: Operation, lineItems: OperationLineItem[]): s
   const totalQty = lineItems.reduce((s, li) => s + li.qty, 0);
   const totalCartons = lineItems.reduce((s, li) => s + (li.cartons ?? 0), 0);
 
-  return `Dear partner,
+  return `Dear ${shipperName} team,
 
-We would like to request a freight quote for the following shipment.
+Please find attached our freight quotation request ${documentNumber}.
 
-SHIPMENT DETAILS
-Reference: ${operation.reference ?? operation.id}
-Operation type: ${operation.operation_type}
-Date: ${formatDate(operation.operation_date)}
-Manufacturer / Origin: ${operation.manufacturer_name ?? 'TBD'}
-Incoterms: ${operation.incoterms ?? 'TBD'}
+Shipment summary:
+- Reference: ${operation.reference ?? operation.id}
+- Operation type: ${operation.operation_type}
+- Date: ${formatDate(operation.operation_date)}
+- Manufacturer / Origin: ${operation.manufacturer_name ?? 'TBD'}
+- Incoterms: ${operation.incoterms ?? 'TBD'}
 
-LINE ITEMS
+Line items:
 ${skuLines}
 
-TOTALS
-Total quantity: ${totalQty.toLocaleString('en-US')} pcs
-Total cartons: ${totalCartons}
-Goods value: ${operation.currency} ${formatMoney(operation.total_amount, operation.currency)}
+Totals:
+- Total quantity: ${totalQty.toLocaleString('en-US')} pcs
+- Total cartons: ${totalCartons}
+- Goods value: ${operation.currency} ${formatMoney(operation.total_amount, operation.currency)}
 
-Please advise:
-- Estimated freight cost
-- Transit time
-- Required documents from our side
-- Earliest pickup date
+Please advise estimated freight cost, transit time, required documents from our side, and earliest pickup date.
 
-Thank you,
+Kind regards,
 Das Experten`;
 }
 
@@ -91,63 +100,123 @@ export default function FreightRfqClient({ operationId }: { operationId: string 
 
   const [operation, setOperation] = useState<Operation | null>(null);
   const [lineItems, setLineItems] = useState<OperationLineItem[]>([]);
+  const [shippers, setShippers] = useState<Shipper[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [shipperSlug, setShipperSlug] = useState<string>('inter-freight');
-  const [recipientEmail, setRecipientEmail] = useState('');
-  const [subject, setSubject] = useState('');
-  const [bodyText, setBodyText] = useState('');
+  const [shipperId, setShipperId] = useState<string>('');
+  const [pickupDate, setPickupDate] = useState<string>('');
+  const [notes, setNotes] = useState('');
 
+  const [issuing, setIssuing] = useState(false);
+  const [issueError, setIssueError] = useState<string | null>(null);
+  const [issued, setIssued] = useState<IssueResult | null>(null);
+
+  const [sendEmail, setSendEmail] = useState(false);
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailBody, setEmailBody] = useState('');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
 
-  // Load operation
   useEffect(() => {
     (async () => {
-      const res = await getOperation(operationId);
-      if (res.success && res.result) {
-        setOperation(res.result.operation);
-        setLineItems(res.result.line_items);
-        setLoadError(null);
-      } else {
-        setLoadError(res.errors?.[0]?.message ?? 'Operation not found');
+      try {
+        const [opRes, shipRes] = await Promise.all([
+          getOperation(operationId),
+          fetch(`${API_URL}/api/freight-rfq/shippers`).then(r => r.json() as Promise<{
+            success: boolean; result?: { shippers: Shipper[] }; errors?: { message: string }[];
+          }>),
+        ]);
+
+        if (opRes.success && opRes.result) {
+          setOperation(opRes.result.operation);
+          setLineItems(opRes.result.line_items);
+        } else {
+          setLoadError(opRes.errors?.[0]?.message ?? 'Operation not found');
+        }
+
+        if (shipRes.success && shipRes.result) {
+          setShippers(shipRes.result.shippers);
+          if (shipRes.result.shippers.length > 0) {
+            setShipperId(shipRes.result.shippers[0]!.id);
+          }
+        } else {
+          setLoadError(shipRes.errors?.[0]?.message ?? 'Could not load shippers');
+        }
+      } catch (e) {
+        setLoadError(e instanceof Error ? e.message : 'Network error');
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     })();
   }, [operationId]);
 
-  // Auto-fill subject and body once operation is loaded
-  useEffect(() => {
-    if (!operation) return;
-    setSubject(`Freight RFQ — ${operation.reference ?? operation.id}`);
-    setBodyText(buildEmailBody(operation, lineItems));
-  }, [operation, lineItems]);
+  const selectedShipper = shippers.find(s => s.id === shipperId);
 
-  const selectedShipper = useMemo(
-    () => SHIPPER_PRESETS.find((s) => s.slug === shipperSlug) ?? SHIPPER_PRESETS[0]!,
-    [shipperSlug]
-  );
+  async function handleCreate() {
+    setIssueError(null);
+    if (!shipperId) { setIssueError('Pick a shipper first'); return; }
 
-  async function handleSend() {
+    setIssuing(true);
+    try {
+      const pickupTs = pickupDate ? Math.floor(new Date(pickupDate).getTime() / 1000) : null;
+      const res = await fetch(`${API_URL}/api/freight-rfq/operations/${operationId}/issue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shipper_id: shipperId,
+          requested_pickup_date: pickupTs,
+          notes: notes.trim() || null,
+        }),
+      });
+      const data = await res.json() as {
+        success: boolean;
+        result?: IssueResult;
+        errors?: { message: string }[];
+      };
+      if (data.success && data.result) {
+        setIssued(data.result);
+        if (operation && selectedShipper) {
+          setRecipientEmail(selectedShipper.email ?? '');
+          setEmailSubject(`Freight RFQ ${data.result.document_number} — ${operation.reference ?? operationId}`);
+          setEmailBody(buildEmailBody(
+            operation, lineItems,
+            data.result.shipper.name,
+            data.result.document_number,
+          ));
+        }
+      } else {
+        setIssueError(data.errors?.[0]?.message ?? 'Failed to create RFQ document');
+      }
+    } catch (e) {
+      setIssueError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setIssuing(false);
+    }
+  }
+
+  async function handleSendEmail() {
+    if (!issued) return;
     setSendError(null);
     if (!recipientEmail.trim()) { setSendError('Enter recipient email'); return; }
-    if (!subject.trim()) { setSendError('Subject cannot be empty'); return; }
-    if (!bodyText.trim()) { setSendError('Body cannot be empty'); return; }
 
     setSending(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'https://dasoperator-api.dasexperten.workers.dev';
-      const res = await fetch(`${apiUrl}/api/email/send`, {
+      const res = await fetch(`${API_URL}/api/email/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'send',
           recipient: recipientEmail.trim(),
-          subject: subject.trim(),
-          body_plain: bodyText,
-          context: `Freight RFQ for operation ${operation?.reference ?? operationId} to ${selectedShipper.name}`,
+          subject: emailSubject.trim(),
+          body_plain: emailBody,
+          context: `Freight RFQ ${issued.document_number} for operation ${operation?.reference ?? operationId} to ${issued.shipper.name}`,
+          attachments: [{
+            filename: `${issued.document_number}.docx`,
+            r2_key: issued.r2_key,
+          }],
         }),
       });
       const data = await res.json() as { success: boolean; errors?: { message: string }[] };
@@ -183,7 +252,7 @@ export default function FreightRfqClient({ operationId }: { operationId: string 
     );
   }
 
-  if (sent) {
+  if (issued) {
     return (
       <div className="space-y-6">
         <Breadcrumb items={[
@@ -191,28 +260,136 @@ export default function FreightRfqClient({ operationId }: { operationId: string 
           { label: operation.reference ?? operationId, href: `/operations/${operationId}` },
           { label: 'Freight RFQ' },
         ]} />
+
+        <div>
+          <p style={{ fontSize: '14px', color: 'var(--fg-2)' }}>Freight forwarding request</p>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--fs-display-md)', fontWeight: 900, color: 'var(--fg-1)', marginTop: '4px' }}>
+            RFQ created — {issued.document_number}
+          </h1>
+        </div>
+
+        <div className="dx-ribbon-rule" />
+
         <div style={{
-          padding: '32px',
+          maxWidth: '720px',
+          padding: '20px 24px',
           border: '1px solid var(--border-hairline)',
           borderRadius: 'var(--radius-md)',
           backgroundColor: 'var(--paper)',
-          textAlign: 'center',
         }}>
-          <CheckCircle style={{ color: 'var(--status-success)', width: 40, height: 40, margin: '0 auto 16px' }} />
-          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--fs-display-md)', fontWeight: 900, color: 'var(--fg-1)', marginBottom: '8px' }}>
-            Заявка отправлена
-          </h2>
-          <p style={{ fontSize: '14px', color: 'var(--fg-2)', marginBottom: '24px' }}>
-            Sent to <strong>{recipientEmail}</strong> ({selectedShipper.name})
-          </p>
-          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+            <CheckCircle style={{ color: 'var(--status-success)', width: 24, height: 24 }} />
+            <div>
+              <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', margin: 0 }}>
+                Document saved to operation
+              </p>
+              <p style={{ fontSize: '14px', color: 'var(--fg-3)', margin: 0 }}>
+                Recipient: <strong>{issued.shipper.name}</strong>
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <a
+              href={issued.download_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ padding: '10px 16px', fontSize: '14px', fontWeight: 600, border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper-sunk)', color: 'var(--fg-1)', cursor: 'pointer', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+            >
+              <Download className="h-4 w-4" /> Download .docx
+            </a>
             <button
               onClick={() => router.push(`/operations/${operationId}`)}
-              style={{ padding: '10px 24px', fontSize: '14px', fontWeight: 600, border: 'none', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--brand-rot)', color: '#FFFFFF', cursor: 'pointer' }}
+              style={{ padding: '10px 16px', fontSize: '14px', fontWeight: 600, border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper-sunk)', color: 'var(--fg-1)', cursor: 'pointer' }}
             >
               Back to operation
             </button>
           </div>
+        </div>
+
+        <div style={{ maxWidth: '720px' }}>
+          {!sendEmail && !sent && (
+            <button
+              onClick={() => setSendEmail(true)}
+              style={{ padding: '10px 16px', fontSize: '14px', fontWeight: 600, border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', backgroundColor: 'transparent', color: 'var(--fg-1)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+            >
+              <Mail className="h-4 w-4" /> Send by email (optional)
+            </button>
+          )}
+
+          {sent && (
+            <div style={{ padding: '14px 16px', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <CheckCircle style={{ color: 'var(--status-success)', width: 20, height: 20 }} />
+              <p style={{ fontSize: '14px', color: 'var(--fg-1)', margin: 0 }}>
+                Email sent to <strong>{recipientEmail}</strong> with {issued.document_number}.docx attached.
+              </p>
+            </div>
+          )}
+
+          {sendEmail && !sent && (
+            <div style={{ padding: '20px 24px', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--paper)', marginTop: '16px', display: 'grid', gap: '16px' }}>
+              <p style={{ fontSize: '14px', color: 'var(--fg-3)', margin: 0 }}>
+                The RFQ .docx will be attached to the email automatically.
+              </p>
+
+              <div>
+                <label style={labelStyle}>Recipient email</label>
+                <input
+                  type="email"
+                  placeholder="logistics@shipper.com"
+                  value={recipientEmail}
+                  onChange={(e) => setRecipientEmail(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+
+              <div>
+                <label style={labelStyle}>Subject</label>
+                <input
+                  type="text"
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+
+              <div>
+                <label style={labelStyle}>Body</label>
+                <textarea
+                  value={emailBody}
+                  onChange={(e) => setEmailBody(e.target.value)}
+                  rows={16}
+                  style={{
+                    ...inputStyle,
+                    fontFamily: 'var(--font-mono, monospace)',
+                    fontWeight: 400,
+                    minHeight: '320px',
+                    resize: 'vertical',
+                    lineHeight: '1.6',
+                  }}
+                />
+              </div>
+
+              {sendError && <p style={{ fontSize: '14px', color: 'var(--brand-rot)', margin: 0 }}>{sendError}</p>}
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  onClick={() => setSendEmail(false)}
+                  style={{ padding: '10px 20px', fontSize: '14px', fontWeight: 600, border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper-raised)', color: 'var(--fg-1)', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSendEmail}
+                  disabled={sending}
+                  style={{ padding: '10px 24px', fontSize: '14px', fontWeight: 600, border: 'none', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--brand-rot)', color: 'var(--fg-on-brand)', cursor: sending ? 'not-allowed' : 'pointer', opacity: sending ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                >
+                  {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+                  Send with attachment
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -229,10 +406,10 @@ export default function FreightRfqClient({ operationId }: { operationId: string 
       <div>
         <p style={{ fontSize: '14px', color: 'var(--fg-2)' }}>Freight forwarding request</p>
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--fs-display-md)', fontWeight: 900, color: 'var(--fg-1)', marginTop: '4px' }}>
-          Заявка логисту — {operation.reference ?? operationId}
+          Create RFQ — {operation.reference ?? operationId}
         </h1>
         <p style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '4px' }}>
-          Выбери шиппера, проверь содержимое и отправь запрос на котировку
+          Pick a shipper. A Freight RFQ document is created and saved to this operation. Email is optional.
         </p>
       </div>
 
@@ -240,22 +417,24 @@ export default function FreightRfqClient({ operationId }: { operationId: string 
 
       <div style={{ maxWidth: '720px', display: 'grid', gap: '20px' }}>
 
-        {/* Shipper select */}
         <div>
-          <label style={labelStyle}>Шиппер</label>
+          <label style={labelStyle}>Shipper</label>
           <div style={{ display: 'grid', gap: '8px' }}>
-            {SHIPPER_PRESETS.map((s) => (
+            {shippers.length === 0 && (
+              <p style={{ fontSize: '14px', color: 'var(--fg-3)' }}>No shippers configured.</p>
+            )}
+            {shippers.map((s) => (
               <button
-                key={s.slug}
-                onClick={() => setShipperSlug(s.slug)}
+                key={s.id}
+                onClick={() => setShipperId(s.id)}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: '12px',
                   padding: '14px 16px',
-                  border: `1px solid ${shipperSlug === s.slug ? 'var(--brand-rot)' : 'var(--border-hairline)'}`,
+                  border: `1px solid ${shipperId === s.id ? 'var(--brand-rot)' : 'var(--border-hairline)'}`,
                   borderRadius: 'var(--radius-sm)',
-                  backgroundColor: shipperSlug === s.slug ? 'rgba(229,32,44,0.06)' : 'var(--paper-sunk)',
+                  backgroundColor: shipperId === s.id ? 'rgba(229,32,44,0.06)' : 'var(--paper-sunk)',
                   cursor: 'pointer',
                   textAlign: 'left',
                 }}
@@ -264,72 +443,61 @@ export default function FreightRfqClient({ operationId }: { operationId: string 
                   width: '18px',
                   height: '18px',
                   borderRadius: '50%',
-                  border: `2px solid ${shipperSlug === s.slug ? 'var(--brand-rot)' : 'var(--border-hairline)'}`,
+                  border: `2px solid ${shipperId === s.id ? 'var(--brand-rot)' : 'var(--border-hairline)'}`,
                   flexShrink: 0,
-                  backgroundColor: shipperSlug === s.slug ? 'var(--brand-rot)' : 'transparent',
+                  backgroundColor: shipperId === s.id ? 'var(--brand-rot)' : 'transparent',
                 }} />
                 <Truck className="h-4 w-4" style={{ color: 'var(--fg-3)' }} />
-                <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', margin: 0 }}>{s.name}</p>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', margin: 0 }}>
+                    {s.legal_name_en || s.trade_name}
+                  </p>
+                  {s.country && (
+                    <p style={{ fontSize: '14px', color: 'var(--fg-3)', margin: 0 }}>{s.country}</p>
+                  )}
+                </div>
               </button>
             ))}
           </div>
         </div>
 
         <div>
-          <label style={labelStyle}>Email получателя</label>
+          <label style={labelStyle}>Requested pickup date <span style={{ fontWeight: 400, color: 'var(--fg-3)' }}>(optional)</span></label>
           <input
-            type="email"
-            placeholder="logistics@inter-freight.com"
-            value={recipientEmail}
-            onChange={(e) => setRecipientEmail(e.target.value)}
+            type="date"
+            value={pickupDate}
+            onChange={(e) => setPickupDate(e.target.value)}
             style={inputStyle}
           />
         </div>
 
         <div>
-          <label style={labelStyle}>Тема</label>
-          <input
-            type="text"
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            style={inputStyle}
-          />
-        </div>
-
-        <div>
-          <label style={labelStyle}>Текст письма <span style={{ fontWeight: 400, color: 'var(--fg-3)' }}>(автозаполнено из операции)</span></label>
+          <label style={labelStyle}>Notes <span style={{ fontWeight: 400, color: 'var(--fg-3)' }}>(optional)</span></label>
           <textarea
-            value={bodyText}
-            onChange={(e) => setBodyText(e.target.value)}
-            rows={20}
-            style={{
-              ...inputStyle,
-              fontFamily: 'var(--font-mono, monospace)',
-              fontWeight: 400,
-              fontSize: '14px',
-              minHeight: '380px',
-              resize: 'vertical',
-              lineHeight: '1.6',
-            }}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={4}
+            placeholder="Any extra context for the shipper — packaging requirements, special handling, deadlines..."
+            style={{ ...inputStyle, fontWeight: 400, minHeight: '100px', resize: 'vertical', lineHeight: '1.5' }}
           />
         </div>
 
-        {sendError && <p style={{ fontSize: '14px', color: 'var(--brand-rot)' }}>{sendError}</p>}
+        {issueError && <p style={{ fontSize: '14px', color: 'var(--brand-rot)' }}>{issueError}</p>}
 
         <div style={{ display: 'flex', gap: '12px' }}>
           <button
             onClick={() => router.push(`/operations/${operationId}`)}
-            style={{ padding: '10px 20px', fontSize: '14px', fontWeight: 600, border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper-sunk)', color: 'var(--fg-1)', cursor: 'pointer' }}
+            style={{ padding: '10px 20px', fontSize: '14px', fontWeight: 600, border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper-raised)', color: 'var(--fg-1)', cursor: 'pointer' }}
           >
             Cancel
           </button>
           <button
-            onClick={handleSend}
-            disabled={sending}
-            style={{ padding: '10px 24px', fontSize: '14px', fontWeight: 600, border: 'none', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--brand-rot)', color: '#FFFFFF', cursor: sending ? 'not-allowed' : 'pointer', opacity: sending ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+            onClick={handleCreate}
+            disabled={issuing || !shipperId}
+            style={{ padding: '10px 24px', fontSize: '14px', fontWeight: 600, border: 'none', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--brand-rot)', color: 'var(--fg-on-brand)', cursor: issuing ? 'not-allowed' : 'pointer', opacity: issuing ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: '8px' }}
           >
-            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            Отправить заявку
+            {issuing ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+            Create RFQ document
           </button>
         </div>
       </div>

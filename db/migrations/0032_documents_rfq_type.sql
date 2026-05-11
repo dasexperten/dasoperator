@@ -1,0 +1,55 @@
+-- =============================================================================
+-- Migration 0032: Add 'RFQ' to documents.document_type CHECK constraint
+-- and seed the rfq sequence.
+--
+-- RFQ = Freight Request for Quotation.
+-- Generated when user picks a shipper for an operation; lives in the
+-- documents table alongside CI/PL/UPD/TN/ACT so it's visible in the
+-- operation's document list and downloadable from the standard UI.
+--
+-- D1 cannot ALTER a CHECK constraint in place, so this migration was
+-- applied in production via a temporary worker that:
+--   1. PRAGMA defer_foreign_keys = ON
+--   2. Dropped delivery-status triggers
+--   3. Created documents_new with the extended CHECK
+--   4. Copied all rows (11 documents -> 11 documents)
+--   5. Dropped old table, renamed new one
+--   6. Recreated indexes + triggers
+--
+-- Applied: 2026-05-11
+-- =============================================================================
+
+-- Sequence for RFQ document numbering: RFQ-202605-0001 format.
+INSERT INTO sequences (id, description, next_number, padding, format_example, updated_at)
+VALUES ('rfq', 'Freight RFQ document counter', 1, 4, 'RFQ-202605-0001', strftime('%s','now'));
+
+-- Reference target schema after recreation:
+--
+-- CREATE TABLE "documents" (
+--   id TEXT PRIMARY KEY,
+--   document_number TEXT NOT NULL,
+--   document_type TEXT NOT NULL CHECK (document_type IN (
+--     'CI','PL','IS','UPD','TN','ACT','RFQ',
+--     'contract','annex','addendum','other'
+--   )),
+--   operation_id TEXT,
+--   issuer_id TEXT NOT NULL,
+--   partner_id TEXT,
+--   contract_ref TEXT,
+--   document_date INTEGER NOT NULL,
+--   currency TEXT,
+--   total_amount INTEGER,
+--   pdf_r2_url TEXT,
+--   owner_name TEXT,
+--   mandatory_level TEXT CHECK (mandatory_level IN ('mandatory','important','on_request') OR mandatory_level IS NULL),
+--   when_ready TEXT,
+--   status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','issued','cancelled')),
+--   metadata TEXT,
+--   created_at INTEGER NOT NULL,
+--   updated_at INTEGER NOT NULL,
+--   deleted_at INTEGER,
+--   pdf_converted_r2_url TEXT,
+--   FOREIGN KEY (operation_id) REFERENCES operations(id) ON DELETE RESTRICT,
+--   FOREIGN KEY (issuer_id) REFERENCES companies(id) ON DELETE RESTRICT,
+--   FOREIGN KEY (partner_id) REFERENCES partners(id) ON DELETE RESTRICT
+-- );

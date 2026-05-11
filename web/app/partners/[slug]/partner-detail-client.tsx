@@ -51,7 +51,7 @@ const STATUS_LABELS: Record<string, string> = {
   draft:            'Draft',
   issued:           'Issued',
   order_fulfilment: 'Boxing',
-  production:       'In Production',
+  production:       'Production',
   stocked:          'Stocked',
   shipped:          'Shipped',
   delivered:        'Delivered',

@@ -604,9 +604,6 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
                         }}>
                           <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: po.dot, display: 'inline-block' }} />
                           <span style={{ color: 'var(--fg-1)', fontWeight: 600 }}>{statusLabel(op.status)}</span>
-                          {ps !== 'neutral' && (
-                            <span style={{ color: po.fg, fontWeight: 500 }}>· {po.label} {pct}%</span>
-                          )}
                         </div>
                         {(() => {
                           const ds = op.delivery_status ?? 'delivered';

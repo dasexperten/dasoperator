@@ -292,9 +292,6 @@ export default function OperationsPage() {
                         }}>
                           <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: po.dot, display: 'inline-block' }} />
                           <span style={{ color: 'var(--fg-1)', fontWeight: 600 }}>{statusLabel(op.status)}</span>
-                          {ps !== 'neutral' && (
-                            <span style={{ color: po.fg, fontWeight: 500 }}>· {po.label} {pct}%</span>
-                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-right">
@@ -355,11 +352,10 @@ export default function OperationsPage() {
       )}
 
       <div className="flex items-center gap-6 flex-wrap" style={{ fontSize: '14px', color: 'var(--fg-3)', paddingTop: '8px' }}>
-        <span style={{ fontWeight: 500, color: 'var(--fg-2)' }}>Payment overlay:</span>
-        <LegendDot color={PAYMENT_OVERLAY.unpaid!.dot} label="Unpaid (0%)" />
-        <LegendDot color={PAYMENT_OVERLAY.partial!.dot} label="Partial (1–94%)" />
-        <LegendDot color={PAYMENT_OVERLAY.paid!.dot} label="Paid (≥95%)" />
-        <LegendDot color={PAYMENT_OVERLAY.neutral!.dot} label="Draft / cancelled (no overlay)" />
+        <span style={{ fontWeight: 500, color: 'var(--fg-2)' }}>Payment:</span>
+        <LegendDot color={PAYMENT_OVERLAY.unpaid!.dot} label="Not paid" />
+        <LegendDot color={PAYMENT_OVERLAY.partial!.dot} label="Partially paid" />
+        <LegendDot color={PAYMENT_OVERLAY.paid!.dot} label="Fully paid" />
       </div>
     </div>
   );

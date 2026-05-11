@@ -23,9 +23,9 @@ import {
 // Payment overlay tokens (mirror of /operations top-level page)
 // =============================================================================
 const PAYMENT_OVERLAY: Record<string, { bg: string; fg: string; dot: string; label: string }> = {
-  unpaid:  { bg: 'rgba(229,32,44,0.10)', fg: '#A82029', dot: '#E5202C', label: 'Unpaid' },
-  partial: { bg: 'rgba(125,72,28,0.10)', fg: '#7D481C', dot: '#A06A2C', label: 'Partial' },
-  paid:    { bg: 'rgba(46,125,79,0.10)', fg: '#2E7D4F', dot: '#3E9E63', label: 'Paid' },
+  unpaid:  { bg: 'rgba(229,32,44,0.10)', fg: '#A82029', dot: '#E5202C', label: 'Not paid' },
+  partial: { bg: 'rgba(125,72,28,0.10)', fg: '#7D481C', dot: '#A06A2C', label: 'Partially paid' },
+  paid:    { bg: 'rgba(46,125,79,0.10)', fg: '#2E7D4F', dot: '#3E9E63', label: 'Fully paid' },
   neutral: { bg: 'var(--paper-sunk)',    fg: 'var(--fg-3)', dot: 'var(--fg-muted)', label: '' },
 };
 import { formatMoney } from '@/lib/money';
@@ -413,7 +413,7 @@ export default function OperationDetailClient({
                   }}
                 >
                   <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: po.dot, display: 'inline-block' }} />
-                  {po.label} {pct}%
+                  {po.label}
                 </span>
               );
             })()}

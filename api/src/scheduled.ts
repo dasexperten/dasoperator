@@ -369,7 +369,7 @@ export async function handleScheduled(
   }
 
   if (cron === '0 * * * *') {
-    await runMarketplaceSync();
+    await runMarketplaceSync(env);
     return;
   }
 
@@ -403,14 +403,18 @@ export async function handleScheduled(
 // of truth for /marketplaces page.
 // =============================================================================
 
-const SELF_BASE = 'https://dasoperator-api.dasexperten.workers.dev';
+async function runMarketplaceSync(env: Env): Promise<void> {
+  console.log('[cron] marketplace sync starting (via env.SELF binding)');
 
-async function runMarketplaceSync(): Promise<void> {
-  console.log('[cron] marketplace sync starting');
+  // Use the SELF service binding instead of public *.workers.dev.
+  // Cloudflare blocks Worker→same-account-Worker via the public URL
+  // with error 1042; service bindings bypass this restriction.
+  const selfFetch = (path: string) =>
+    env.SELF.fetch(new Request(`https://internal${path}`, { method: 'POST' }));
 
   // Stocks first — they are the priority for the Warehouses page.
   try {
-    const r = await fetch(`${SELF_BASE}/api/marketplaces/sync/ozon`, { method: 'POST' });
+    const r = await selfFetch('/api/marketplaces/sync/ozon');
     console.log(`[cron] ozon stocks HTTP ${r.status}`);
   } catch (e) {
     console.error('[cron] ozon stocks threw:', e);
@@ -419,7 +423,7 @@ async function runMarketplaceSync(): Promise<void> {
   await new Promise((r) => setTimeout(r, 2000));
 
   try {
-    const r = await fetch(`${SELF_BASE}/api/marketplaces/sync/wb`, { method: 'POST' });
+    const r = await selfFetch('/api/marketplaces/sync/wb');
     console.log(`[cron] wb stocks HTTP ${r.status}`);
   } catch (e) {
     console.error('[cron] wb stocks threw:', e);
@@ -438,7 +442,7 @@ async function runMarketplaceSync(): Promise<void> {
   await new Promise((r) => setTimeout(r, 5000));
 
   try {
-    const r = await fetch(`${SELF_BASE}/api/marketplaces/sync/sales/ozon`, { method: 'POST' });
+    const r = await selfFetch('/api/marketplaces/sync/sales/ozon');
     console.log(`[cron] ozon sales HTTP ${r.status}`);
   } catch (e) {
     console.error('[cron] ozon sales threw:', e);
@@ -449,7 +453,7 @@ async function runMarketplaceSync(): Promise<void> {
   await new Promise((r) => setTimeout(r, 90_000));
 
   try {
-    const r = await fetch(`${SELF_BASE}/api/marketplaces/sync/sales/wb`, { method: 'POST' });
+    const r = await selfFetch('/api/marketplaces/sync/sales/wb');
     console.log(`[cron] wb sales HTTP ${r.status}`);
   } catch (e) {
     console.error('[cron] wb sales threw:', e);

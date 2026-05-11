@@ -76,6 +76,15 @@ id = "43f2004892714cbb919e5174ce2a8556"
 binding = "EMAILER"
 service = "emailer-bridge"
 
+# Self-binding: lets scheduled handlers call our own routes without going
+# through *.workers.dev (which Cloudflare blocks for same-account loops
+# with error 1042). Without this, runMarketplaceSync() in scheduled.ts
+# tried fetch('https://dasoperator-api.dasexperten.workers.dev/...') and
+# silently failed every hour for ~40 hours starting 2026-05-09 19:34 UTC.
+[[services]]
+binding = "SELF"
+service = "dasoperator-api"
+
 # -----------------------------------------------------------------------------
 # Cron triggers
 #

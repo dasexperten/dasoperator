@@ -25,6 +25,12 @@ export interface Env {
   // route in-process, no HTTP overhead.
   EMAILER: Fetcher;
 
+  // Service Binding — SELF (this same worker, for cron→route calls)
+  // Required for the same Cloudflare loop reason as EMAILER. The cron
+  // scheduled handler uses env.SELF.fetch() to invoke our own POST
+  // /api/marketplaces/sync/* routes — public *.workers.dev would 1042.
+  SELF: Fetcher;
+
   // Secrets (Phase 5.x — LLM integration)
   // Set via Cloudflare Workers secrets, never committed to repo.
   DEEPSEEK_API_KEY: string;

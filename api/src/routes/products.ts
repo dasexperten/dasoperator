@@ -404,6 +404,7 @@ const createSchema = z.object({
   product_name: z.string().min(1).max(200),
   invoice_label: z.string().min(1).max(200),
   category: z.enum(['Toothpaste', 'Toothbrush', 'Floss', 'Other']),
+  subcategory: z.string().max(100).nullable().optional(),
   manufacturer_id: z.string().min(1),
 
   barcode: z.string().max(50).nullable().optional(),
@@ -421,6 +422,9 @@ const createSchema = z.object({
   description_ru: z.string().nullable().optional(),
   description_en: z.string().nullable().optional(),
   description_cn: z.string().nullable().optional(),
+  invoice_label_ru: z.string().max(300).nullable().optional(),
+  invoice_label_en: z.string().max(300).nullable().optional(),
+  invoice_label_cn: z.string().max(300).nullable().optional(),
   packaging_manufacturer_id: z.string().nullable().optional(),
   buy_price: z.number().int().min(0).nullable().optional(),
   buy_currency: z.string().length(3).nullable().optional(),
@@ -462,33 +466,36 @@ products.post('/', async (c) => {
 
   await c.env.DB.prepare(`
     INSERT INTO products (
-      id, product_name, invoice_label, category, manufacturer_id,
+      id, product_name, invoice_label, category, subcategory, manufacturer_id,
       barcode, pieces_per_case, ctn_qty, ctn_weight_gross_kg,
       ctn_dim_l_cm, ctn_dim_w_cm, ctn_dim_h_cm,
       unit_net_weight_g, hs_code, country_of_origin,
       weight_kg, volume_m3_micro,
       description_ru, description_en, description_cn,
+      invoice_label_ru, invoice_label_en, invoice_label_cn,
       packaging_manufacturer_id,
       buy_price, buy_currency, buy_term, notes,
       created_at, updated_at
     ) VALUES (
-      ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?,
       ?, ?, ?,
       ?, ?, ?,
       ?, ?,
+      ?, ?, ?,
       ?, ?, ?,
       ?,
       ?, ?, ?, ?,
       ?, ?
     )
   `).bind(
-    data.id, data.product_name, data.invoice_label, data.category, data.manufacturer_id,
+    data.id, data.product_name, data.invoice_label, data.category, data.subcategory ?? null, data.manufacturer_id,
     data.barcode ?? null, data.pieces_per_case ?? 1, data.ctn_qty ?? null, data.ctn_weight_gross_kg ?? null,
     data.ctn_dim_l_cm ?? null, data.ctn_dim_w_cm ?? null, data.ctn_dim_h_cm ?? null,
     data.unit_net_weight_g ?? null, data.hs_code ?? null, data.country_of_origin ?? null,
     data.weight_kg ?? null, data.volume_m3_micro ?? null,
     data.description_ru ?? null, data.description_en ?? null, data.description_cn ?? null,
+    data.invoice_label_ru ?? null, data.invoice_label_en ?? null, data.invoice_label_cn ?? null,
     data.packaging_manufacturer_id ?? null,
     data.buy_price ?? null, data.buy_currency ?? null, data.buy_term ?? null, data.notes ?? null,
     now, now
@@ -544,12 +551,13 @@ products.put('/:id', async (c) => {
   const binds: unknown[] = [];
 
   const allowed = [
-    'product_name', 'invoice_label', 'category', 'manufacturer_id',
+    'product_name', 'invoice_label', 'category', 'subcategory', 'manufacturer_id',
     'barcode', 'pieces_per_case', 'ctn_qty', 'ctn_weight_gross_kg',
     'ctn_dim_l_cm', 'ctn_dim_w_cm', 'ctn_dim_h_cm',
     'unit_net_weight_g', 'hs_code', 'country_of_origin',
     'weight_kg', 'volume_m3_micro',
     'description_ru', 'description_en', 'description_cn',
+    'invoice_label_ru', 'invoice_label_en', 'invoice_label_cn',
     'packaging_manufacturer_id',
     'buy_price', 'buy_currency', 'buy_term', 'notes',
   ] as const;

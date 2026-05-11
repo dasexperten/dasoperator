@@ -53,7 +53,7 @@ export default function NetBalance({ usd, currencies, fxDate, size = 'compact' }
             flexShrink: 0,
           }}
         />
-        <span style={{ fontSize: '14px', color: colors.fg, fontWeight: 600 }}>
+        <span style={{ fontSize: '14px', color: colors.fg, fontWeight: 600, whiteSpace: 'nowrap' }}>
           {sign}${usdFmt}
         </span>
         {hintCcy && hintAmount !== undefined && hintAmount !== null && (
@@ -101,7 +101,7 @@ export default function NetBalance({ usd, currencies, fxDate, size = 'compact' }
             backgroundColor: colors.dot,
           }}
         />
-        <span style={{ fontSize: '40px', color: colors.fg, fontWeight: 700, lineHeight: 1 }}>
+        <span style={{ fontSize: '40px', color: colors.fg, fontWeight: 700, lineHeight: 1, whiteSpace: 'nowrap' }}>
           {sign}${usdFmt}
         </span>
       </div>
@@ -114,7 +114,7 @@ export default function NetBalance({ usd, currencies, fxDate, size = 'compact' }
               const ccySign = amount > 0 ? '+' : amount < 0 ? '−' : '';
               const ccyColor = amount > 0 ? 'var(--brand-rot)' : amount < 0 ? 'var(--status-success)' : 'var(--fg-3)';
               return (
-                <span key={ccy} style={{ fontSize: '14px', color: ccyColor }}>
+                <span key={ccy} style={{ fontSize: '14px', color: ccyColor, whiteSpace: 'nowrap' }}>
                   {ccySign}{formatAmount(amount, ccy)} {ccy}
                 </span>
               );
@@ -134,3 +134,4 @@ export default function NetBalance({ usd, currencies, fxDate, size = 'compact' }
     </div>
   );
 }
+

@@ -146,7 +146,7 @@ interface StockJoinRow {
 
 products.get('/with-stock', async (c) => {
   // Per-warehouse on_hand + in_production breakdown.
-  // OTW (wh_otw, virtual warehouse) is summed separately as on_the_way
+  // OTW (otw, virtual warehouse) is summed separately as on_the_way
   // since it appears in its own UI column, not as a regular warehouse cell.
   const result = await c.env.DB.prepare(`
     SELECT
@@ -184,7 +184,7 @@ products.get('/with-stock', async (c) => {
     ) wb ON wb.base_sku = p.id
     WHERE p.deleted_at IS NULL
       AND w.deleted_at IS NULL
-      AND w.id != 'wh_otw'
+      AND w.id != 'otw'
     ORDER BY p.product_name, w.code
   `).all<StockJoinRow>();
 
@@ -192,7 +192,7 @@ products.get('/with-stock', async (c) => {
   const otwResult = await c.env.DB.prepare(`
     SELECT product_id, SUM(on_hand) AS qty
     FROM stocks
-    WHERE warehouse_id = 'wh_otw' AND stock_state = 'in_transit'
+    WHERE warehouse_id = 'otw' AND stock_state = 'in_transit'
     GROUP BY product_id
   `).all<{ product_id: string; qty: number }>();
 

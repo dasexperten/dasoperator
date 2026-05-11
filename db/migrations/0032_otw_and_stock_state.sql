@@ -8,9 +8,9 @@
 --                warehouse (gzh/yzh) with stock_state='in_production'
 --                (rendered green in UI as "+15" suffix on factory cell).
 --   shipped    → quantity LEAVES factory (in_production row -= qty),
---                APPEARS in wh_otw with stock_state='in_transit'
+--                APPEARS in otw with stock_state='in_transit'
 --                (rendered as yellow OTW column cell).
---   delivered  → quantity LEAVES wh_otw (in_transit row -= qty),
+--   delivered  → quantity LEAVES otw (in_transit row -= qty),
 --                APPEARS at destination warehouse with stock_state='on_hand'
 --                (rendered as plain black number, normal stock).
 --                THIS TRANSITION IS AUTOMATIC — triggered when destination
@@ -35,7 +35,7 @@ INSERT INTO warehouses (
   owner_company_id, notes,
   created_at, updated_at
 ) VALUES (
-  'wh_otw', 'OTW', 'On The Way (in transit)', NULL, NULL, 'external',
+  'otw', 'OTW', 'On The Way (in transit)', NULL, NULL, 'external',
   NULL, 'Virtual warehouse: holds goods that have left origin but not yet arrived at destination. Quantity here = sum of all shipped-but-not-delivered purchases and transfers.',
   unixepoch(), unixepoch()
 );

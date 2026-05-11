@@ -96,12 +96,12 @@ warehouses.get('/', async (c) => {
   sql += ' ORDER BY code';
 
   // OTW filter — if not asking for virtual, exclude it.
-  // The id 'wh_otw' is a fixed reserved id (see migration 0032).
+  // The id 'otw' is a fixed reserved id (see migration 0032).
   if (!includeVirtual) {
     // ORDER BY is always the last clause; safe to inject AND before it.
     sql = sql.replace(
       'ORDER BY code',
-      useJunction ? "AND w.id != 'wh_otw' ORDER BY w.code" : "AND id != 'wh_otw' ORDER BY code"
+      useJunction ? "AND w.id != 'otw' ORDER BY w.code" : "AND id != 'otw' ORDER BY code"
     );
   }
 

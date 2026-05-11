@@ -736,9 +736,9 @@ const updateStatusSchema = z.object({
 // PURCHASE LIFECYCLE (per Aram 2026-05-11):
 //   production → +qty appears at factory warehouse with stock_state='in_production'
 //                (rendered green "+15" on factory cell in /warehouses)
-//   shipped    → -qty leaves factory in_production, +qty appears at wh_otw
+//   shipped    → -qty leaves factory in_production, +qty appears at otw
 //                with stock_state='in_transit' (rendered yellow OTW column)
-//   delivered  → -qty leaves wh_otw, +qty arrives at warehouse_to with
+//   delivered  → -qty leaves otw, +qty arrives at warehouse_to with
 //                stock_state='on_hand' (plain black number).
 //                Automatic — triggered by destination warehouse API confirmation,
 //                not a manual button. Manual PATCH is allowed for backfill / fixup.
@@ -829,7 +829,7 @@ async function getOrCreateStockWithState(
   return { id: newId, on_hand: 0 };
 }
 
-const OTW_WAREHOUSE_ID = 'wh_otw';
+const OTW_WAREHOUSE_ID = 'otw';
 
 operations.patch('/:id/delivery-status', async (c) => {
   const id = c.req.param('id');
@@ -993,7 +993,7 @@ operations.patch('/:id/status', async (c) => {
     }
     // PURCHASE at shipped:
     //   1. -qty leaves factory in_production reservation
-    //   2. +qty arrives at wh_otw with state in_transit
+    //   2. +qty arrives at otw with state in_transit
     if (opType === 'purchase' && op.warehouse_from_id) {
       for (const li of lineItems) {
         // Release the in_production reservation at the factory

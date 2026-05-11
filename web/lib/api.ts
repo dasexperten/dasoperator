@@ -1201,7 +1201,7 @@ export interface ProductWithStock {
   total_on_hand: number;
   marketplace_ozon: number;
   marketplace_wb: number;
-  on_the_way?: number;  // OTW (wh_otw) — sum across all in-transit
+  on_the_way?: number;  // OTW (otw) — sum across all in-transit
   warehouses: ProductWarehouseStock[];
 }
 

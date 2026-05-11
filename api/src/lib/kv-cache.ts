@@ -8,7 +8,8 @@
 // Cache miss flow:
 //   1. KV.get(key) → null
 //   2. fetcher() runs (slow: e.g. 17s Retail CRM call)
-//   3. KV.put(key, JSON, expirationTtl=TTL)  ← fire-and-forget via waitUntil
+//   3. KV.put(key, JSON, expirationTtl=TTL) — awaited inside the request
+//      so the write definitely commits before Worker terminates
 //   4. Return data
 //
 // Cache hit flow:
@@ -16,8 +17,7 @@
 //   2. Parse + return
 //
 // Errors from upstream are NOT cached — they bubble up so the next caller
-// retries. We never cache a fail. We also never return stale data on error;
-// callers can implement stale-on-error explicitly if they need it.
+// retries. We never cache a fail.
 // =============================================================================
 
 import type { Env } from '../types';
@@ -36,6 +36,12 @@ export function cacheKey(base: string, params: Record<string, string | number | 
 
 /**
  * Wrap a slow async fetcher with KV cache.
+ *
+ * IMPORTANT: We AWAIT the KV.put on cache miss. Cloudflare Workers kill
+ * unawaited promises after the response is sent unless explicitly extended
+ * via ctx.waitUntil(). Awaiting here adds ~30-50ms to the slow miss path
+ * (which is already multi-second) but guarantees the write commits.
+ * Subsequent hits within TTL serve from KV in <100ms.
  *
  * @param env       Worker env (needs CACHE KVNamespace)
  * @param key       Cache key (use cacheKey() helper)
@@ -61,14 +67,10 @@ export async function withKvCache<T>(
   // Miss — go upstream
   const data = await fetcher();
 
-  // Write-through (don't await — return ASAP)
-  // Note: in Workers, async writes after the response is sent need
-  // ctx.waitUntil() to survive. Without ctx access here we fire-and-forget;
-  // CF runtime keeps the write alive until the request lifecycle completes
-  // for short writes like this.
+  // Write-through — awaited to guarantee commit
   try {
     const safeTtl = Math.max(60, Math.floor(ttlSec));
-    void env.CACHE.put(key, JSON.stringify(data), { expirationTtl: safeTtl });
+    await env.CACHE.put(key, JSON.stringify(data), { expirationTtl: safeTtl });
   } catch {
     // Don't let cache-write failures break the response
   }

@@ -12,7 +12,7 @@
 //   Ozon = #185FA5 (deep blue), WB = #534AB7 (deep purple).
 // =============================================================================
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { Loader2, X, Package, ShoppingBag, BarChart3 } from 'lucide-react';
 
 const COLOR_OZON = '#185FA5';
@@ -194,18 +194,12 @@ function SalesTodayCard({ data, loading }: { data: SalesToday | null; loading: b
           </div>
 
           {sparkPoints.length >= 2 && data.spark[0] && data.spark[data.spark.length - 1] && (
-            <div style={{ marginBottom: '12px' }}>
-              <svg width="100%" height="40" viewBox="0 0 280 40" preserveAspectRatio="none" style={{ display: 'block' }}>
-                <path d={sparkArea} fill={COLOR_OZON} fillOpacity="0.08" />
-                <path d={sparkPath} fill="none" stroke={COLOR_OZON} strokeWidth="1.5" />
-                <circle cx={sparkPoints[sparkPoints.length - 1]!.x} cy={sparkPoints[sparkPoints.length - 1]!.y} r="2.5" fill={COLOR_OZON} />
-              </svg>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: 'var(--fg-3)', marginTop: '4px' }}>
-                <span>{fmtDayMonth(data.spark[0]!.date)}</span>
-                <span style={{ color: 'var(--fg-2)', fontWeight: 700 }}>{data.spark.length}-day combined revenue</span>
-                <span>{fmtDayMonth(data.spark[data.spark.length - 1]!.date)}</span>
-              </div>
-            </div>
+            <SparklineWithHover
+              points={sparkPoints}
+              area={sparkArea}
+              path={sparkPath}
+              spark={data.spark}
+            />
           )}
 
           <div style={{ borderTop: '1px solid var(--border-hairline)', paddingTop: '10px' }}>
@@ -252,42 +246,7 @@ function TrendCard({ data, loading }: { data: DailyTrend | null; loading: boolea
 
       {loading ? <CardLoading /> : !data || data.days.length === 0 ? <CardEmpty>No daily snapshots yet.</CardEmpty> : (
         <>
-          {/* Stacked bar chart */}
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', height: '120px', marginBottom: '8px' }}>
-            {data.days.map((d, i) => {
-              const total = d.ozon.revenue_rub + d.wb.revenue_rub;
-              const totalH = chart ? (total / chart.maxTotal) * 100 : 0;
-              const ozH = total > 0 ? (d.ozon.revenue_rub / total) * 100 : 0;
-              const isLast = i === data.days.length - 1;
-              return (
-                <div key={d.date} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%', minWidth: 0 }}
-                     title={`${d.date}\nOzon: ${fmtRubFull(d.ozon.revenue_rub)} (${d.ozon.units} ед)\nWB: ${fmtRubFull(d.wb.revenue_rub)} (${d.wb.units} ед)`}>
-                  <div style={{
-                    width: '100%',
-                    height: `${totalH}%`,
-                    minHeight: total > 0 ? '4px' : '0',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    borderRadius: '3px 3px 0 0',
-                    overflow: 'hidden',
-                  }}>
-                    <div style={{ height: `${ozH}%`, backgroundColor: COLOR_OZON, opacity: isLast ? 1 : 0.85 }} />
-                    <div style={{ height: `${100 - ozH}%`, backgroundColor: COLOR_WB, opacity: isLast ? 1 : 0.85 }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* X-axis labels */}
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-            {data.days.map(d => (
-              <div key={d.date} style={{ flex: 1, textAlign: 'center', fontSize: '14px', color: 'var(--fg-3)', minWidth: 0 }}>
-                <div style={{ fontWeight: 700 }}>{fmtWeekday(d.date)}</div>
-                <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{d.date.slice(8)}</div>
-              </div>
-            ))}
-          </div>
+          <TrendBars data={data} chart={chart} />
 
           {/* Last day deltas */}
           {data.days.length > 0 && (() => {
@@ -705,3 +664,302 @@ function DeltaPill({ tone, children }: { tone: 'up' | 'down' | 'flat'; children:
     }}>{children}</span>
   );
 }
+
+
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Sparkline with hover — finds nearest point under cursor and shows tooltip
+// ═══════════════════════════════════════════════════════════════════════════
+function SparklineWithHover({
+  points,
+  area,
+  path,
+  spark,
+}: {
+  points: { x: number; y: number; value: number; date: string }[];
+  area: string;
+  path: string;
+  spark: { date: string; revenue_rub: number; ozon_revenue_rub?: number; wb_revenue_rub?: number; units?: number }[];
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [hover, setHover] = useState<{ idx: number; x: number; y: number } | null>(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    if (!wrapRef.current) return;
+    const update = () => { if (wrapRef.current) setWidth(wrapRef.current.offsetWidth); };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(wrapRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  const hovered = hover ? spark[hover.idx] : null;
+  const hoveredPoint = hover ? points[hover.idx] : null;
+
+  function handleMove(e: React.MouseEvent<HTMLDivElement>) {
+    if (!wrapRef.current) return;
+    const rect = wrapRef.current.getBoundingClientRect();
+    const localX = e.clientX - rect.left;
+    const localY = e.clientY - rect.top;
+    // Map localX (0..rect.width) to viewBox X (0..280) to find nearest point
+    const vbX = (localX / rect.width) * 280;
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < points.length; i++) {
+      const d = Math.abs(points[i]!.x - vbX);
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+    setHover({ idx: bestIdx, x: localX, y: localY });
+  }
+
+  return (
+    <div style={{ marginBottom: '12px', position: 'relative' }} ref={wrapRef}
+         onMouseMove={handleMove}
+         onMouseLeave={() => setHover(null)}>
+      <svg width="100%" height="40" viewBox="0 0 280 40" preserveAspectRatio="none" style={{ display: 'block', cursor: 'crosshair' }}>
+        <path d={area} fill={COLOR_OZON} fillOpacity="0.08" />
+        <path d={path} fill="none" stroke={COLOR_OZON} strokeWidth="1.5" />
+        <circle cx={points[points.length - 1]!.x} cy={points[points.length - 1]!.y} r="2.5" fill={COLOR_OZON} />
+        {hoveredPoint && (
+          <>
+            <line x1={hoveredPoint.x} y1={0} x2={hoveredPoint.x} y2={40}
+                  stroke="var(--fg-muted)" strokeWidth="1" strokeDasharray="2,2" opacity="0.6" />
+            <circle cx={hoveredPoint.x} cy={hoveredPoint.y} r="3.5" fill={COLOR_OZON} stroke="var(--paper)" strokeWidth="1.5" />
+          </>
+        )}
+      </svg>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: 'var(--fg-3)', marginTop: '4px' }}>
+        <span>{fmtDayMonth(spark[0]!.date)}</span>
+        <span style={{ color: 'var(--fg-2)', fontWeight: 700 }}>{spark.length}-day combined revenue</span>
+        <span>{fmtDayMonth(spark[spark.length - 1]!.date)}</span>
+      </div>
+      <FloatingTooltip visible={!!hover} x={hover?.x ?? 0} y={hover?.y ?? 0} containerWidth={width}>
+        {hovered && (
+          <>
+            <div style={{ fontWeight: 700, marginBottom: '4px' }}>{fmtWeekday(hovered.date)} · {fmtDayMonth(hovered.date)}</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+              <span style={{ color: 'var(--fg-2)' }}>Combined</span>
+              <span style={{ fontWeight: 700 }}>{fmtRubFull(hovered.revenue_rub)}</span>
+            </div>
+            {typeof hovered.ozon_revenue_rub === 'number' && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '13px' }}>
+                <span style={{ color: COLOR_OZON, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: COLOR_OZON }} />
+                  Ozon
+                </span>
+                <span>{fmtRubFull(hovered.ozon_revenue_rub)}</span>
+              </div>
+            )}
+            {typeof hovered.wb_revenue_rub === 'number' && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '13px' }}>
+                <span style={{ color: COLOR_WB, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: COLOR_WB }} />
+                  WB
+                </span>
+                <span>{fmtRubFull(hovered.wb_revenue_rub)}</span>
+              </div>
+            )}
+            {typeof hovered.units === 'number' && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '13px', color: 'var(--fg-3)', marginTop: '4px' }}>
+                <span>Units</span>
+                <span>{hovered.units} ед</span>
+              </div>
+            )}
+          </>
+        )}
+      </FloatingTooltip>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 7-day trend bars with floating tooltip on hover
+// ═══════════════════════════════════════════════════════════════════════════
+function TrendBars({
+  data,
+  chart,
+}: {
+  data: DailyTrend;
+  chart: { maxTotal: number; totalWeek: number } | null;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [hover, setHover] = useState<{ idx: number; x: number; y: number } | null>(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const update = () => {
+      if (containerRef.current) setWidth(containerRef.current.offsetWidth);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  const hovered = hover ? data.days[hover.idx] : null;
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative', marginBottom: '12px' }}>
+      {/* Bars */}
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', height: '120px', marginBottom: '8px' }}>
+        {data.days.map((d, i) => {
+          const total = d.ozon.revenue_rub + d.wb.revenue_rub;
+          const totalH = chart ? (total / chart.maxTotal) * 100 : 0;
+          const ozH = total > 0 ? (d.ozon.revenue_rub / total) * 100 : 0;
+          const isLast = i === data.days.length - 1;
+          const isHover = hover?.idx === i;
+          return (
+            <div
+              key={d.date}
+              onMouseEnter={(e) => {
+                const rect = (e.currentTarget.parentElement!.parentElement as HTMLElement).getBoundingClientRect();
+                const cx = e.currentTarget.getBoundingClientRect();
+                setHover({ idx: i, x: cx.left + cx.width / 2 - rect.left, y: 0 });
+              }}
+              onMouseMove={(e) => {
+                if (!containerRef.current) return;
+                const rect = containerRef.current.getBoundingClientRect();
+                setHover({ idx: i, x: e.clientX - rect.left, y: e.clientY - rect.top });
+              }}
+              onMouseLeave={() => setHover(null)}
+              style={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'flex-end',
+                height: '100%',
+                minWidth: 0,
+                cursor: 'crosshair',
+              }}
+            >
+              <div style={{
+                width: '100%',
+                height: `${totalH}%`,
+                minHeight: total > 0 ? '4px' : '0',
+                display: 'flex',
+                flexDirection: 'column',
+                borderRadius: '3px 3px 0 0',
+                overflow: 'hidden',
+                transition: 'opacity 80ms ease-out',
+                opacity: !hover ? (isLast ? 1 : 0.85) : (isHover ? 1 : 0.45),
+              }}>
+                <div style={{ height: `${ozH}%`, backgroundColor: COLOR_OZON }} />
+                <div style={{ height: `${100 - ozH}%`, backgroundColor: COLOR_WB }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* X-axis labels */}
+      <div style={{ display: 'flex', gap: '8px' }}>
+        {data.days.map((d, i) => {
+          const isHover = hover?.idx === i;
+          return (
+            <div
+              key={d.date}
+              style={{
+                flex: 1,
+                textAlign: 'center',
+                fontSize: '14px',
+                color: isHover ? 'var(--fg-1)' : 'var(--fg-3)',
+                fontWeight: isHover ? 700 : 400,
+                minWidth: 0,
+                transition: 'color 80ms ease-out',
+              }}
+            >
+              <div style={{ fontWeight: 700 }}>{fmtWeekday(d.date)}</div>
+              <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{d.date.slice(8)}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      <FloatingTooltip visible={!!hover} x={hover?.x ?? 0} y={hover?.y ?? 0} containerWidth={width}>
+        {hovered && (
+          <>
+            <div style={{ fontWeight: 700, marginBottom: '6px' }}>
+              {fmtWeekday(hovered.date)} · {fmtDayMonth(hovered.date)}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+              <span style={{ color: COLOR_OZON, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: COLOR_OZON }} />
+                Ozon
+              </span>
+              <span style={{ fontWeight: 700 }}>{fmtRubFull(hovered.ozon.revenue_rub)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '13px', color: 'var(--fg-3)' }}>
+              <span></span><span>{hovered.ozon.units} ед</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', marginTop: '4px' }}>
+              <span style={{ color: COLOR_WB, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: COLOR_WB }} />
+                WB
+              </span>
+              <span style={{ fontWeight: 700 }}>{fmtRubFull(hovered.wb.revenue_rub)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '13px', color: 'var(--fg-3)' }}>
+              <span></span><span>{hovered.wb.units} ед</span>
+            </div>
+            <div style={{ borderTop: '1px solid var(--border-hairline)', marginTop: '6px', paddingTop: '6px', display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--fg-2)' }}>Total</span>
+              <span style={{ fontWeight: 700 }}>{fmtRubFull(hovered.ozon.revenue_rub + hovered.wb.revenue_rub)}</span>
+            </div>
+          </>
+        )}
+      </FloatingTooltip>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Floating tooltip used by both Sales sparkline and 7-day trend
+// ═══════════════════════════════════════════════════════════════════════════
+function FloatingTooltip({
+  visible,
+  x,
+  y,
+  containerWidth,
+  children,
+}: {
+  visible: boolean;
+  x: number;
+  y: number;
+  containerWidth: number;
+  children: React.ReactNode;
+}) {
+  // Flip horizontally if too close to right edge
+  const tooltipMaxWidth = 220;
+  const flipRight = x + tooltipMaxWidth + 16 > containerWidth;
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: flipRight ? undefined : x + 12,
+        right: flipRight ? containerWidth - x + 12 : undefined,
+        top: Math.max(y - 8, 4),
+        pointerEvents: 'none',
+        opacity: visible ? 1 : 0,
+        transition: 'opacity 80ms ease-out',
+        zIndex: 50,
+        backgroundColor: 'var(--paper)',
+        border: '1px solid var(--border-hairline)',
+        borderRadius: 'var(--radius-sm)',
+        boxShadow: '0 4px 14px rgba(0,0,0,0.08)',
+        padding: '10px 12px',
+        fontSize: '14px',
+        color: 'var(--fg-1)',
+        minWidth: '180px',
+        maxWidth: `${tooltipMaxWidth}px`,
+        lineHeight: 1.45,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+

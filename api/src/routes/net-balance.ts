@@ -105,16 +105,17 @@ export async function loadBulkBalances(env: Env): Promise<{
   const snapshot = await getRatesFor(env.FX, today);
 
   const opsAggResult = await env.DB.prepare(`
-    SELECT c.partner_id AS partner_id,
+    SELECT COALESCE(c.partner_id, o.partner_id) AS partner_id,
            o.operation_type AS operation_type,
            o.currency AS currency,
            o.status AS status,
            SUM(o.total_amount) AS total
     FROM operations o
-    JOIN contracts c ON o.contract_id = c.id
+    LEFT JOIN contracts c ON o.contract_id = c.id
     WHERE o.deleted_at IS NULL
       AND o.status IN ('issued','shipped','delivered')
-    GROUP BY c.partner_id, o.operation_type, o.currency, o.status
+      AND COALESCE(c.partner_id, o.partner_id) IS NOT NULL
+    GROUP BY COALESCE(c.partner_id, o.partner_id), o.operation_type, o.currency, o.status
   `).all<{
     partner_id: string;
     operation_type: string;
@@ -192,8 +193,8 @@ netBalancePerPartner.get('/:slug/net-balance', async (c) => {
   const opsResult = await c.env.DB.prepare(`
     SELECT o.contract_id, o.operation_type, o.total_amount, o.currency, o.status
     FROM operations o
-    JOIN contracts c ON o.contract_id = c.id
-    WHERE c.partner_id = ?
+    LEFT JOIN contracts c ON o.contract_id = c.id
+    WHERE COALESCE(c.partner_id, o.partner_id) = ?
       AND o.deleted_at IS NULL
       AND o.status IN ('issued','shipped','delivered')
   `).bind(slug).all<OperationRow>();

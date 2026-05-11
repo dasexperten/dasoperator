@@ -903,21 +903,43 @@ operations.patch('/:id/status', async (c) => {
     }
 
   } else if (targetStatus === 'cancelled') {
-    // Reverse if we already shipped
-    if (op.status === 'shipped') {
-      if ((opType === 'sale' || opType === 'transfer') && op.warehouse_from_id) {
-        for (const li of lineItems) {
-          movementSpecs.push({
-            warehouseId: op.warehouse_from_id,
-            productId: li.product_id,
-            movementType: 'return',
-            qty: +li.qty, // reverse the shipment
-            reason: 'cancelled_after_shipped',
-          });
-        }
-      }
+    // Universal reversal: undo every stock_movement this operation has produced,
+    // regardless of which status path created them. Without this, cancellations
+    // from non-'shipped' states (e.g. operations that wrote movements via 'stocked',
+    // 'order_fulfilment', or 'delivered') leave permanent ghost balances.
+    //
+    // We look up the actual movements rather than re-deriving them from line items,
+    // because line items may have been edited since the movements were written.
+    const existingMovements = await c.env.DB.prepare(`
+      SELECT id, warehouse_id, product_id, movement_type, quantity
+      FROM stock_movements
+      WHERE source_ref_id = ? AND source_ref_type = 'operation'
+        AND movement_type != 'return'
+        AND NOT EXISTS (
+          SELECT 1 FROM stock_movements rev
+          WHERE rev.source_ref_id = stock_movements.source_ref_id
+            AND rev.movement_type = 'return'
+            AND rev.product_id = stock_movements.product_id
+            AND rev.warehouse_id = stock_movements.warehouse_id
+            AND rev.quantity = -stock_movements.quantity
+        )
+    `).bind(opId).all<{
+      id: string;
+      warehouse_id: string;
+      product_id: string;
+      movement_type: string;
+      quantity: number;
+    }>();
+
+    for (const mov of existingMovements.results || []) {
+      movementSpecs.push({
+        warehouseId: mov.warehouse_id,
+        productId: mov.product_id,
+        movementType: 'return',
+        qty: -mov.quantity, // flip the sign to reverse
+        reason: `cancelled_reversal_of_${mov.movement_type}`,
+      });
     }
-    // If cancelled before shipping: no movements needed
 
     // Mark all documents linked to this operation as cancelled (audit trail kept)
     stmts.push(

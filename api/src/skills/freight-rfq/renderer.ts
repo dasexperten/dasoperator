@@ -1,13 +1,10 @@
 // =============================================================================
 // RFQ — Freight Request for Quotation. English-only. Portrait A4.
 //
-// Lightweight document — no buyer/seller, no tax IDs, no currency conversion.
-// Just: from whom (Das Experten entity) to whom (freight forwarder), what
-// cargo, where to pick up, where to deliver, and the standard ask:
-//   - quote
-//   - transit time
-//   - required documents
-//   - earliest pickup date
+// v2: added logistics calculations so the shipper actually has numbers
+//   to quote against — cartons (computed from qty/ctn_qty if not set),
+//   gross weight (cartons * ctn_weight_gross_kg), volume CBM per line,
+//   and total summary block.
 // =============================================================================
 
 import {
@@ -80,6 +77,69 @@ function cell(children: Paragraph[], opts: { width?: number; bg?: string } = {})
   return new TableCell(o);
 }
 
+// =============================================================================
+// Logistics math
+// =============================================================================
+
+interface LineLogistics {
+  cartons: number;
+  cartonsEstimated: boolean;     // true = computed from qty/ctn_qty, not stated
+  grossKg: number | null;
+  cbm: number | null;            // cubic meters
+  cartonDimsMm: string | null;   // "390×290×195 mm" or null
+  cartonNote: string | null;     // explanation when ctn data missing
+}
+
+function computeLineLogistics(li: RfqLineItem): LineLogistics {
+  let cartons = li.cartons ?? 0;
+  let cartonsEstimated = false;
+
+  // If cartons not given, derive from qty/ctn_qty.
+  if (cartons === 0 && li.ctn_qty && li.ctn_qty > 0) {
+    cartons = Math.ceil(li.qty / li.ctn_qty);
+    cartonsEstimated = true;
+  }
+
+  // Gross weight: cartons * weight per carton.
+  let grossKg: number | null = null;
+  if (cartons > 0 && li.ctn_weight_gross_kg && li.ctn_weight_gross_kg > 0) {
+    grossKg = cartons * li.ctn_weight_gross_kg;
+  }
+
+  // Volume: cartons * (L*W*H in cm) / 1_000_000 → CBM
+  let cbm: number | null = null;
+  let cartonDimsMm: string | null = null;
+  if (li.ctn_dim_l_cm && li.ctn_dim_w_cm && li.ctn_dim_h_cm) {
+    const oneCartonCbm = (li.ctn_dim_l_cm * li.ctn_dim_w_cm * li.ctn_dim_h_cm) / 1_000_000;
+    cbm = cartons > 0 ? cartons * oneCartonCbm : 0;
+    cartonDimsMm = `${li.ctn_dim_l_cm}×${li.ctn_dim_w_cm}×${li.ctn_dim_h_cm} cm`;
+  }
+
+  // Carton note for transparency.
+  let cartonNote: string | null = null;
+  if (cartons === 0) {
+    cartonNote = 'carton qty unknown — please confirm';
+  } else if (cartonsEstimated) {
+    cartonNote = `${li.ctn_qty}/ctn`;
+  }
+
+  return { cartons, cartonsEstimated, grossKg, cbm, cartonDimsMm, cartonNote };
+}
+
+function fmtKg(v: number | null): string {
+  if (v == null) return '—';
+  return v.toLocaleString('en-US', { maximumFractionDigits: 1 }) + ' kg';
+}
+
+function fmtCbm(v: number | null): string {
+  if (v == null) return '—';
+  return v.toLocaleString('en-US', { maximumFractionDigits: 3 }) + ' m³';
+}
+
+// =============================================================================
+// Renderer
+// =============================================================================
+
 export interface RenderRfqInput {
   reference: string;
   issuedAt: number;
@@ -99,13 +159,33 @@ export async function renderRfq(input: RenderRfqInput): Promise<Uint8Array> {
     origin, destination, requestedPickupDate, notes,
   } = input;
 
+  // Pre-compute logistics for every line.
+  const lineLogistics = lineItems.map(computeLineLogistics);
+
+  // Totals across lines.
+  const totalQty = lineItems.reduce((s, li) => s + (li.qty ?? 0), 0);
+  const totalCartons = lineLogistics.reduce((s, l) => s + (l.cartons ?? 0), 0);
+  const anyGross = lineLogistics.some((l) => l.grossKg != null);
+  const totalGrossKg = anyGross
+    ? lineLogistics.reduce((s, l) => s + (l.grossKg ?? 0), 0)
+    : null;
+  const anyCbm = lineLogistics.some((l) => l.cbm != null);
+  const totalCbm = anyCbm
+    ? lineLogistics.reduce((s, l) => s + (l.cbm ?? 0), 0)
+    : null;
+
+  // How many cartons are estimated vs stated — needed for the disclaimer.
+  const hasEstimatedCartons = lineLogistics.some((l) => l.cartonsEstimated);
+  const hasMissingDims = lineLogistics.some((l) => l.cbm == null);
+
+  // ------- Title -------
   const title = new Paragraph({
     children: [new TextRun({ text: 'FREIGHT REQUEST FOR QUOTATION', bold: true, size: 24, font: 'Calibri' })],
     alignment: AlignmentType.CENTER,
     spacing: { after: 180 },
   });
 
-  // Meta row: reference + date.
+  // ------- Meta row -------
   const metaTable = new Table({
     width: { size: USABLE_DXA, type: WidthType.DXA },
     borders: NO_BORDERS,
@@ -119,7 +199,7 @@ export async function renderRfq(input: RenderRfqInput): Promise<Uint8Array> {
     ],
   });
 
-  // From / To block.
+  // ------- From / To -------
   const issuerLines = [
     issuer.legal_name,
     issuer.registered_address,
@@ -151,10 +231,7 @@ export async function renderRfq(input: RenderRfqInput): Promise<Uint8Array> {
     ],
   });
 
-  // Shipment details block.
-  const totalQty = lineItems.reduce((s, li) => s + (li.qty ?? 0), 0);
-  const totalCartons = lineItems.reduce((s, li) => s + (li.cartons ?? 0), 0);
-
+  // ------- Shipment details -------
   const originText = joinLines([origin.name, origin.address, origin.city, origin.country]) || 'TBD';
   const destText = joinLines([destination.name, destination.address, destination.city, destination.country]) || 'TBD';
 
@@ -195,18 +272,6 @@ export async function renderRfq(input: RenderRfqInput): Promise<Uint8Array> {
         cell([para([run(requestedPickupDate ? formatDate(requestedPickupDate) : 'Earliest possible')])]),
       ],
     }),
-    new TableRow({
-      children: [
-        cell([para([run('Total units:', { bold: true })])]),
-        cell([para([run(totalQty.toLocaleString('en-US') + ' pcs')])]),
-      ],
-    }),
-    new TableRow({
-      children: [
-        cell([para([run('Total cartons:', { bold: true })])]),
-        cell([para([run(totalCartons > 0 ? String(totalCartons) : 'TBD')])]),
-      ],
-    }),
   ];
 
   const detailsTable = new Table({
@@ -215,39 +280,134 @@ export async function renderRfq(input: RenderRfqInput): Promise<Uint8Array> {
     rows: detailsRows,
   });
 
-  // Line items table.
+  // ------- Logistics summary (totals at a glance) -------
+  const summaryRows: TableRow[] = [
+    new TableRow({
+      children: [
+        cell([para([run('Total units:', { bold: true })])], { width: 3200 }),
+        cell([para([run(totalQty.toLocaleString('en-US') + ' pcs')])], { width: USABLE_DXA - 3200 }),
+      ],
+    }),
+    new TableRow({
+      children: [
+        cell([para([run('Total cartons:', { bold: true })])]),
+        cell([para([run(
+          totalCartons > 0
+            ? totalCartons.toLocaleString('en-US') + (hasEstimatedCartons ? '  (estimated from carton qty)' : '')
+            : 'TBD — please advise'
+        )])]),
+      ],
+    }),
+    new TableRow({
+      children: [
+        cell([para([run('Total gross weight:', { bold: true })])]),
+        cell([para([run(totalGrossKg != null ? fmtKg(totalGrossKg) + '  (approx)' : 'TBD — carton weight unknown')])]),
+      ],
+    }),
+    new TableRow({
+      children: [
+        cell([para([run('Total volume:', { bold: true })])]),
+        cell([para([run(totalCbm != null ? fmtCbm(totalCbm) + '  (approx)' : 'TBD — carton dimensions unknown')])]),
+      ],
+    }),
+  ];
+
+  const summaryTable = new Table({
+    width: { size: USABLE_DXA, type: WidthType.DXA },
+    borders: HAIRLINE_BORDERS,
+    rows: summaryRows,
+  });
+
+  // ------- Cargo table (per-SKU with logistics) -------
+  // Column widths (DXA totals ~10500)
+  const W = {
+    num: 500,
+    sku: 1100,
+    name: 2800,
+    qty: 900,
+    ctnQty: 700,
+    cartons: 800,
+    weight: 1100,
+    dims: 1400,
+    cbm: 1200,
+  };
+
   const itemHeader = new TableRow({
-    height: { value: 280, rule: HeightRule.ATLEAST },
+    height: { value: 320, rule: HeightRule.ATLEAST },
     children: [
-      cell([para([run('#', { bold: true })])], { width: 600, bg: 'F2F2F2' }),
-      cell([para([run('SKU', { bold: true })])], { width: 1400, bg: 'F2F2F2' }),
-      cell([para([run('Product', { bold: true })])], { width: USABLE_DXA - 600 - 1400 - 1400 - 1400, bg: 'F2F2F2' }),
-      cell([para([run('Quantity', { bold: true })], { alignment: AlignmentType.RIGHT })], { width: 1400, bg: 'F2F2F2' }),
-      cell([para([run('Cartons', { bold: true })], { alignment: AlignmentType.RIGHT })], { width: 1400, bg: 'F2F2F2' }),
+      cell([para([run('#', { bold: true })])], { width: W.num, bg: 'F2F2F2' }),
+      cell([para([run('SKU', { bold: true })])], { width: W.sku, bg: 'F2F2F2' }),
+      cell([para([run('Product', { bold: true })])], { width: W.name, bg: 'F2F2F2' }),
+      cell([para([run('Qty', { bold: true })], { alignment: AlignmentType.RIGHT })], { width: W.qty, bg: 'F2F2F2' }),
+      cell([para([run('Per ctn', { bold: true })], { alignment: AlignmentType.RIGHT })], { width: W.ctnQty, bg: 'F2F2F2' }),
+      cell([para([run('Cartons', { bold: true })], { alignment: AlignmentType.RIGHT })], { width: W.cartons, bg: 'F2F2F2' }),
+      cell([para([run('Gross', { bold: true })], { alignment: AlignmentType.RIGHT })], { width: W.weight, bg: 'F2F2F2' }),
+      cell([para([run('Carton dims', { bold: true })], { alignment: AlignmentType.RIGHT })], { width: W.dims, bg: 'F2F2F2' }),
+      cell([para([run('Volume', { bold: true })], { alignment: AlignmentType.RIGHT })], { width: W.cbm, bg: 'F2F2F2' }),
     ],
   });
 
   const itemRows = lineItems.map((li, i) => {
+    const log = lineLogistics[i]!;
     const sku = (li.product_id ?? '').toUpperCase().replace(/^PRD_/, '');
     const name = li.product_name || li.invoice_label || sku;
+    const cartonsCell = log.cartons > 0
+      ? log.cartons.toLocaleString('en-US') + (log.cartonsEstimated ? ' (est)' : '')
+      : '—';
     return new TableRow({
       children: [
-        cell([para([run(String(i + 1))])]),
-        cell([para([run(sku, { bold: true })])]),
-        cell([para([run(name)])]),
-        cell([para([run(li.qty.toLocaleString('en-US'))], { alignment: AlignmentType.RIGHT })]),
-        cell([para([run(li.cartons != null ? String(li.cartons) : '—')], { alignment: AlignmentType.RIGHT })]),
+        cell([para([run(String(i + 1))])], { width: W.num }),
+        cell([para([run(sku, { bold: true })])], { width: W.sku }),
+        cell([para([run(name)])], { width: W.name }),
+        cell([para([run(li.qty.toLocaleString('en-US'))], { alignment: AlignmentType.RIGHT })], { width: W.qty }),
+        cell([para([run(li.ctn_qty != null ? String(li.ctn_qty) : '—')], { alignment: AlignmentType.RIGHT })], { width: W.ctnQty }),
+        cell([para([run(cartonsCell)], { alignment: AlignmentType.RIGHT })], { width: W.cartons }),
+        cell([para([run(fmtKg(log.grossKg))], { alignment: AlignmentType.RIGHT })], { width: W.weight }),
+        cell([para([run(log.cartonDimsMm ?? '—')], { alignment: AlignmentType.RIGHT })], { width: W.dims }),
+        cell([para([run(fmtCbm(log.cbm))], { alignment: AlignmentType.RIGHT })], { width: W.cbm }),
       ],
     });
+  });
+
+  // Totals row at the bottom of the cargo table.
+  const totalsRow = new TableRow({
+    children: [
+      cell([para([run('')])], { width: W.num, bg: 'F2F2F2' }),
+      cell([para([run('')])], { width: W.sku, bg: 'F2F2F2' }),
+      cell([para([run('TOTAL', { bold: true })])], { width: W.name, bg: 'F2F2F2' }),
+      cell([para([run(totalQty.toLocaleString('en-US'), { bold: true })], { alignment: AlignmentType.RIGHT })], { width: W.qty, bg: 'F2F2F2' }),
+      cell([para([run('')])], { width: W.ctnQty, bg: 'F2F2F2' }),
+      cell([para([run(totalCartons > 0 ? totalCartons.toLocaleString('en-US') : '—', { bold: true })], { alignment: AlignmentType.RIGHT })], { width: W.cartons, bg: 'F2F2F2' }),
+      cell([para([run(fmtKg(totalGrossKg), { bold: true })], { alignment: AlignmentType.RIGHT })], { width: W.weight, bg: 'F2F2F2' }),
+      cell([para([run('')])], { width: W.dims, bg: 'F2F2F2' }),
+      cell([para([run(fmtCbm(totalCbm), { bold: true })], { alignment: AlignmentType.RIGHT })], { width: W.cbm, bg: 'F2F2F2' }),
+    ],
   });
 
   const itemsTable = new Table({
     width: { size: USABLE_DXA, type: WidthType.DXA },
     borders: HAIRLINE_BORDERS,
-    rows: [itemHeader, ...itemRows],
+    rows: [itemHeader, ...itemRows, totalsRow],
   });
 
-  // Ask block.
+  // Footnotes for transparency.
+  const footnotes: Paragraph[] = [];
+  if (hasEstimatedCartons) {
+    footnotes.push(para([run(
+      '(est) — carton count computed from order quantity ÷ units-per-carton, ' +
+      'not yet physically confirmed by the supplier.',
+      { size: 16 }
+    )]));
+  }
+  if (hasMissingDims) {
+    footnotes.push(para([run(
+      'Carton dimensions and volume for some SKUs are not on file — ' +
+      'please request exact values from the supplier if needed for booking.',
+      { size: 16 }
+    )]));
+  }
+
+  // ------- Ask block -------
   const askIntro = para([run('Please advise the following at your earliest convenience:', { bold: true })], { spacingAfter: 80 });
   const askPoints = [
     '— Estimated freight cost',
@@ -257,7 +417,7 @@ export async function renderRfq(input: RenderRfqInput): Promise<Uint8Array> {
     '— Insurance options and cost',
   ].map((line) => para([run(line)], { spacingAfter: 40 }));
 
-  // Notes (optional).
+  // ------- Notes (optional) -------
   const notesBlock: Paragraph[] = [];
   if (notes && notes.trim().length > 0) {
     notesBlock.push(para([run('')]));
@@ -267,7 +427,7 @@ export async function renderRfq(input: RenderRfqInput): Promise<Uint8Array> {
     });
   }
 
-  // Signature.
+  // ------- Signature -------
   const signature = [
     para([run('')]),
     para([run('Kind regards,')]),
@@ -289,8 +449,12 @@ export async function renderRfq(input: RenderRfqInput): Promise<Uint8Array> {
         para([run('SHIPMENT DETAILS', { bold: true })], { spacingAfter: 80 }),
         detailsTable,
         para([run('')]),
-        para([run('CARGO', { bold: true })], { spacingAfter: 80 }),
+        para([run('LOGISTICS SUMMARY', { bold: true })], { spacingAfter: 80 }),
+        summaryTable,
+        para([run('')]),
+        para([run('CARGO BREAKDOWN', { bold: true })], { spacingAfter: 80 }),
         itemsTable,
+        ...footnotes,
         para([run('')]),
         askIntro,
         ...askPoints,

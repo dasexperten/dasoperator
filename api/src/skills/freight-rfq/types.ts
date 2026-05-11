@@ -28,6 +28,14 @@ export interface RfqLineItem {
   qty: number;
   cartons: number | null;
   unit_price: number;
+  // Carton data — pulled from products table for shipper estimates.
+  ctn_qty: number | null;                  // units per master carton
+  pieces_per_case: number | null;          // inner box size (units)
+  ctn_weight_gross_kg: number | null;
+  ctn_dim_l_cm: number | null;
+  ctn_dim_w_cm: number | null;
+  ctn_dim_h_cm: number | null;
+  unit_net_weight_g: number | null;
 }
 
 export interface RfqIssuerCompany {

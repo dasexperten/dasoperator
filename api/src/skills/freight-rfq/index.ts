@@ -98,7 +98,14 @@ export async function issueRfq(
            li.qty,
            li.cartons,
            li.unit_price,
-           p.product_name
+           p.product_name,
+           p.ctn_qty,
+           p.pieces_per_case,
+           p.ctn_weight_gross_kg,
+           p.ctn_dim_l_cm,
+           p.ctn_dim_w_cm,
+           p.ctn_dim_h_cm,
+           p.unit_net_weight_g
     FROM line_items li
     LEFT JOIN products p ON p.id = li.product_id
     WHERE li.operation_id = ?

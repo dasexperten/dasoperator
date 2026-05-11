@@ -67,7 +67,7 @@ export default function NewPaymentClient({ partnerSlug }: { partnerSlug: string 
     const fetchOps = async () => {
       setLoadingOps(true);
       try {
-        const res = await getOperations({ contract_id: contractId });
+        const res = await getOperations({ contract_id: contractId, compact: true });
         if (res.success && res.result) {
           setOperations(res.result.operations);
         }

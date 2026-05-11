@@ -109,7 +109,7 @@ export default function OperationsPage() {
     const fetchOps = async () => {
       setLoading(true);
       try {
-        const res = await getOperations({ include_cancelled: showCancelled });
+        const res = await getOperations({ include_cancelled: showCancelled, compact: true });
         if (res.success && res.result) {
           setOperations(res.result.operations);
           setError(null);

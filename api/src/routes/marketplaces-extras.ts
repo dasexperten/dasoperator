@@ -35,6 +35,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
+import { withKvCache, cacheKey } from '../lib/kv-cache';
 
 const marketplacesExtras = new Hono<{ Bindings: Env }>();
 
@@ -74,92 +75,114 @@ marketplacesExtras.get('/sales', async (c) => {
   const daysParam = parseInt(c.req.query('days') || '30', 10);
   const periodDays = Math.min(Math.max(daysParam, 1), 90);
 
-  // Headline totals — from daily breakdown for an exact period match.
-  // (Not from marketplace_sales_* tables, which carry rolling-window per-SKU
-  //  totals reflecting the latest sync window — could be 60d after a backfill.)
-  const totalsRows = await c.env.DB.prepare(`
-    SELECT marketplace,
-           COALESCE(SUM(units_sold), 0)  AS units,
-           COALESCE(SUM(revenue_rub), 0) AS revenue
-    FROM marketplace_sales_daily
-    WHERE date >= date('now', '-' || ? || ' days')
-    GROUP BY marketplace
-  `).bind(periodDays).all<{ marketplace: 'ozon' | 'wb'; units: number; revenue: number }>();
+  // Two-layer optimisation:
+  //   1. Wrap the whole aggregate in KV cache (TTL 300s). Marketplace data is
+  //      refreshed by cron every ~6h, so a 5-minute stale window is fine.
+  //   2. On cache miss, run all 6 SQL queries as ONE D1.batch() call, replacing
+  //      6 sequential network round-trips to D1 with a single one.
+  const payload = await withKvCache(
+    c.env,
+    cacheKey('marketplaces:sales', { periodDays }),
+    300,
+    async () => {
+      // All six queries shipped in one batch — single D1 round-trip.
+      const batchResults = await c.env.DB.batch([
+          c.env.DB.prepare(`
+            SELECT marketplace,
+                   COALESCE(SUM(units_sold), 0)  AS units,
+                   COALESCE(SUM(revenue_rub), 0) AS revenue
+            FROM marketplace_sales_daily
+            WHERE date >= date('now', '-' || ? || ' days')
+            GROUP BY marketplace
+          `).bind(periodDays),
+          c.env.DB.prepare(
+            'SELECT MAX(synced_at) AS synced_at, MIN(period_from) AS pf, MAX(period_to) AS pt FROM marketplace_sales_ozon'
+          ),
+          c.env.DB.prepare(
+            'SELECT MAX(synced_at) AS synced_at, MIN(period_from) AS pf, MAX(period_to) AS pt FROM marketplace_sales_wb'
+          ),
+          c.env.DB.prepare(`
+            SELECT marketplace, date, units_sold, revenue_rub
+            FROM marketplace_sales_daily
+            WHERE date >= date('now', '-' || ? || ' days')
+            ORDER BY date ASC, marketplace ASC
+          `).bind(periodDays),
+          c.env.DB.prepare(`
+            SELECT
+              p.id AS sku, p.product_name,
+              o.units_sold, o.revenue_rub,
+              o.views, o.tocart_count,
+              o.position_category, o.current_price_rub,
+              o.cost_per_click_rub, o.cost_per_order_rub,
+              o.stars_promo_rub, o.brand_commission_rub,
+              o.reviews_cost_rub, o.stars_membership_rub,
+              o.acquiring_rub, o.returns_cost_rub, o.expenses_total_rub
+            FROM marketplace_sales_ozon o
+            JOIN products p ON p.id = o.base_sku AND p.deleted_at IS NULL
+            WHERE o.units_sold > 0
+            ORDER BY o.units_sold DESC
+          `),
+          c.env.DB.prepare(`
+            SELECT
+              p.id AS sku, p.product_name,
+              w.units_sold, w.revenue_rub,
+              w.views, w.tocart_count,
+              w.position_category, w.current_price_rub, w.ad_spend_rub
+            FROM marketplace_sales_wb w
+            JOIN products p ON p.id = w.base_sku AND p.deleted_at IS NULL
+            WHERE w.units_sold > 0
+            ORDER BY w.units_sold DESC
+          `),
+        ]);
 
-  const ozonRow = totalsRows.results.find(r => r.marketplace === 'ozon');
-  const wbRow   = totalsRows.results.find(r => r.marketplace === 'wb');
+      // batch() returns one D1Result per input statement in order; assert non-null
+      const totalsRes = batchResults[0]!;
+      const ozonSyncRes = batchResults[1]!;
+      const wbSyncRes = batchResults[2]!;
+      const dailyRes = batchResults[3]!;
+      const topOzonRes = batchResults[4]!;
+      const topWbRes = batchResults[5]!;
 
-  // Sync recency comes from the SKU tables (where synced_at lives).
-  const ozonSync = await c.env.DB.prepare(
-    'SELECT MAX(synced_at) AS synced_at, MIN(period_from) AS pf, MAX(period_to) AS pt FROM marketplace_sales_ozon'
-  ).first<{ synced_at: number | null; pf: string | null; pt: string | null }>();
-  const wbSync = await c.env.DB.prepare(
-    'SELECT MAX(synced_at) AS synced_at, MIN(period_from) AS pf, MAX(period_to) AS pt FROM marketplace_sales_wb'
-  ).first<{ synced_at: number | null; pf: string | null; pt: string | null }>();
+      const totalsRows = (totalsRes.results ?? []) as Array<{
+        marketplace: 'ozon' | 'wb'; units: number; revenue: number;
+      }>;
+      const ozonRow = totalsRows.find(r => r.marketplace === 'ozon');
+      const wbRow   = totalsRows.find(r => r.marketplace === 'wb');
 
-  const daily = await c.env.DB.prepare(`
-    SELECT marketplace, date, units_sold, revenue_rub
-    FROM marketplace_sales_daily
-    WHERE date >= date('now', '-' || ? || ' days')
-    ORDER BY date ASC, marketplace ASC
-  `).bind(periodDays).all();
+      const ozonSync = (ozonSyncRes.results?.[0] ?? null) as {
+        synced_at: number | null; pf: string | null; pt: string | null;
+      } | null;
+      const wbSync = (wbSyncRes.results?.[0] ?? null) as {
+        synced_at: number | null; pf: string | null; pt: string | null;
+      } | null;
 
-  // Top SKUs — one row per catalog SKU per marketplace.
-  // Note: these reflect the latest *sync window* snapshot, which may be wider
-  // (60d after backfill) or narrower (7d after a regular cron) than the
-  // headline totals window. UI shows a sync-window subtitle to disambiguate.
-  const topOzon = await c.env.DB.prepare(`
-    SELECT
-      p.id AS sku, p.product_name,
-      o.units_sold, o.revenue_rub,
-      o.views, o.tocart_count,
-      o.position_category, o.current_price_rub,
-      o.cost_per_click_rub, o.cost_per_order_rub,
-      o.stars_promo_rub, o.brand_commission_rub,
-      o.reviews_cost_rub, o.stars_membership_rub,
-      o.acquiring_rub, o.returns_cost_rub, o.expenses_total_rub
-    FROM marketplace_sales_ozon o
-    JOIN products p ON p.id = o.base_sku AND p.deleted_at IS NULL
-    WHERE o.units_sold > 0
-    ORDER BY o.units_sold DESC
-  `).all();
-
-  const topWb = await c.env.DB.prepare(`
-    SELECT
-      p.id AS sku, p.product_name,
-      w.units_sold, w.revenue_rub,
-      w.views, w.tocart_count,
-      w.position_category, w.current_price_rub, w.ad_spend_rub
-    FROM marketplace_sales_wb w
-    JOIN products p ON p.id = w.base_sku AND p.deleted_at IS NULL
-    WHERE w.units_sold > 0
-    ORDER BY w.units_sold DESC
-  `).all();
-
-  return ok(c, {
-    period_days: periodDays,
-    sync_windows: {
-      ozon: { from: ozonSync?.pf ?? null, to: ozonSync?.pt ?? null },
-      wb:   { from: wbSync?.pf ?? null,   to: wbSync?.pt ?? null },
-    },
-    totals: {
-      ozon: {
-        units_sold: ozonRow?.units || 0,
-        revenue_rub: ozonRow?.revenue || 0,
-        synced_at: ozonSync?.synced_at || null,
-      },
-      wb: {
-        units_sold: wbRow?.units || 0,
-        revenue_rub: wbRow?.revenue || 0,
-        synced_at: wbSync?.synced_at || null,
-      },
-    },
-    daily: daily.results,
-    top_skus: {
-      ozon: topOzon.results,
-      wb: topWb.results,
-    },
-  });
+      return {
+        period_days: periodDays,
+        sync_windows: {
+          ozon: { from: ozonSync?.pf ?? null, to: ozonSync?.pt ?? null },
+          wb:   { from: wbSync?.pf ?? null,   to: wbSync?.pt ?? null },
+        },
+        totals: {
+          ozon: {
+            units_sold: ozonRow?.units || 0,
+            revenue_rub: ozonRow?.revenue || 0,
+            synced_at: ozonSync?.synced_at || null,
+          },
+          wb: {
+            units_sold: wbRow?.units || 0,
+            revenue_rub: wbRow?.revenue || 0,
+            synced_at: wbSync?.synced_at || null,
+          },
+        },
+        daily: dailyRes.results ?? [],
+        top_skus: {
+          ozon: topOzonRes.results ?? [],
+          wb: topWbRes.results ?? [],
+        },
+      };
+    }
+  );
+  return ok(c, payload);
 });
 
 // =============================================================================

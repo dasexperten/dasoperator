@@ -565,19 +565,40 @@ operations.get('/', async (c) => {
   const opType = c.req.query('operation_type');
   const status = c.req.query('status');
   const includeCancelled = c.req.query('include_cancelled') === '1';
+  // ?compact=1 — return only fields consumed by list/table views
+  // (no notes, manufacturer_*, warehouse_*, vat_rate, total_usd_equiv, *_at).
+  // Cuts payload by ~80% (277 KB → ~50 KB for 335 operations).
+  const compact = c.req.query('compact') === '1';
+
+  const columns = compact
+    ? `o.id, ct.contract_no, o.partner_id, p.trade_name as partner_trade_name,
+       o.operation_type, o.operation_date,
+       o.currency, o.total_amount,
+       o.status, o.reference, o.delivery_status`
+    : `o.id, o.contract_id, ct.contract_no,
+       o.partner_id, p.trade_name as partner_trade_name,
+       o.manufacturer_id, mfr.name as manufacturer_name,
+       o.our_company_id, co.abbreviation as entity_abbreviation,
+       o.operation_type, o.operation_date,
+       o.warehouse_from_id, o.warehouse_to_id,
+       o.currency, o.total_amount, o.total_usd_equiv,
+       o.status, o.reference, o.notes, o.vat_rate,
+       o.delivery_status,
+       o.created_at, o.updated_at`;
+
+  const fromJoin = compact
+    ? `FROM operations o
+       LEFT JOIN contracts ct ON o.contract_id = ct.id
+       LEFT JOIN partners p ON o.partner_id = p.id`
+    : `FROM operations o
+       LEFT JOIN contracts ct ON o.contract_id = ct.id
+       LEFT JOIN partners p ON o.partner_id = p.id
+       LEFT JOIN manufacturers mfr ON o.manufacturer_id = mfr.id
+       LEFT JOIN companies co ON o.our_company_id = co.id`;
 
   let sql = `
     SELECT
-      o.id, o.contract_id, ct.contract_no,
-      o.partner_id, p.trade_name as partner_trade_name,
-      o.manufacturer_id, mfr.name as manufacturer_name,
-      o.our_company_id, co.abbreviation as entity_abbreviation,
-      o.operation_type, o.operation_date,
-      o.warehouse_from_id, o.warehouse_to_id,
-      o.currency, o.total_amount, o.total_usd_equiv,
-      o.status, o.reference, o.notes, o.vat_rate,
-      o.delivery_status,
-      o.created_at, o.updated_at,
+      ${columns},
       COALESCE((
         SELECT SUM(pay.amount)
         FROM payments pay
@@ -585,11 +606,7 @@ operations.get('/', async (c) => {
           AND pay.currency = o.currency
           AND pay.deleted_at IS NULL
       ), 0) AS paid_amount
-    FROM operations o
-    LEFT JOIN contracts ct ON o.contract_id = ct.id
-    LEFT JOIN partners p ON o.partner_id = p.id
-    LEFT JOIN manufacturers mfr ON o.manufacturer_id = mfr.id
-    LEFT JOIN companies co ON o.our_company_id = co.id
+    ${fromJoin}
     WHERE o.deleted_at IS NULL
   `;
   const binds: unknown[] = [];

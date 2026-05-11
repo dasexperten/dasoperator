@@ -105,7 +105,7 @@ export default function HomeDashboard() {
     const fetchAll = async () => {
       try {
         const [opsRes, paysRes, balRes, fxRes] = await Promise.all([
-          getOperations(),
+          getOperations({ compact: true }),
           getPayments(),
           getAllNetBalances(),
           getFxLatest(),

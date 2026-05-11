@@ -180,7 +180,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
         const [partnerRes, contractsRes, opsRes, paysRes, balRes] = await Promise.all([
           getPartner(slug),
           getPartnerContracts(slug),
-          getOperations({ partner_id: slug, include_cancelled: showCancelled }),
+          getOperations({ partner_id: slug, include_cancelled: showCancelled, compact: true }),
           getPayments({ partner_id: slug }),
           getPartnerNetBalance(slug),
         ]);

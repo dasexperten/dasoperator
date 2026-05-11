@@ -4,9 +4,9 @@ export const runtime = 'edge';
 
 
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, Fragment } from 'react';
 import Link from 'next/link';
-import { Search, Loader2, Plus } from 'lucide-react';
+import { Search, Loader2, Plus, Mail, X, Send } from 'lucide-react';
 import { getPartnersWithBalances, type Partner } from '@/lib/api';
 import NetBalance from '@/components/ui/net-balance';
 
@@ -14,6 +14,7 @@ type ExtendedPartner = Partner & {
   entity_abbreviation?: string | null;
   price_type_code?: string | null;
   crm_status?: 'lead' | 'potential' | 'active' | 'sleeping' | null;
+  email?: string | null;
 };
 
 const CRM_COLORS: Record<string, { bg: string; fg: string; border: string }> = {
@@ -81,6 +82,8 @@ export default function PartnersPage() {
   const [kindFilter, setKindFilter] = useState<Kind | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [entityFilter, setEntityFilter] = useState<string>('all');
+  // Inline email composer — only one open at a time, keyed by partner id
+  const [composerPartnerId, setComposerPartnerId] = useState<string | null>(null);
 
   useEffect(() => {
     // Single combined fetch — partners list + bulk balances in one round-trip.
@@ -305,12 +308,12 @@ export default function PartnersPage() {
           <table className="w-full text-sm">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                <Th>Trade Name</Th><Th>Kind</Th><Th>Country</Th><Th>Lang</Th><Th>Currency</Th><Th>Entity</Th><Th>Status</Th><Th>Net Balance</Th><Th>Contract</Th>
+                <Th>Trade Name</Th><Th>Kind</Th><Th>Country</Th><Th>Lang</Th><Th>Currency</Th><Th>Entity</Th><Th>Status</Th><Th>Email</Th><Th>Net Balance</Th><Th>Contract</Th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={9} className="text-center py-12" style={{ color: 'var(--fg-3)' }}>No partners match the filters</td></tr>
+                <tr><td colSpan={10} className="text-center py-12" style={{ color: 'var(--fg-3)' }}>No partners match the filters</td></tr>
               ) : (
                 filtered.map((p) => {
                   const effective = p.crm_status ?? (p.status === 'pending' ? 'lead' : p.status);
@@ -318,7 +321,8 @@ export default function PartnersPage() {
                   const k = deriveKind(p);
                   const kindStyle = KIND_COLORS[k];
                   return (
-                    <tr key={p.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                    <Fragment key={p.id}>
+                    <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                       <td className="px-4 py-3">
                         <Link href={`/partners/${p.id}`} style={{ color: 'var(--fg-1)' }}>
                           <div className="dx-product-name" style={{ fontSize: 'var(--fs-body-sm)' }}>{p.trade_name}</div>
@@ -339,6 +343,26 @@ export default function PartnersPage() {
                           {effective}
                         </span>
                       </td>
+                      <td className="px-4 py-3">
+                        {p.email ? (
+                          <button
+                            type="button"
+                            onClick={() => setComposerPartnerId(composerPartnerId === p.id ? null : p.id)}
+                            className="inline-flex items-center gap-1.5"
+                            style={{
+                              color: composerPartnerId === p.id ? 'var(--brand-rot)' : 'var(--line-innoweiss, #0D199E)',
+                              fontWeight: 700,
+                              fontSize: 13,
+                              letterSpacing: 0,
+                            }}
+                          >
+                            <Mail size={14} />
+                            <span style={{ borderBottom: '1px dotted currentColor' }}>{p.email}</span>
+                          </button>
+                        ) : (
+                          <span style={{ color: 'var(--fg-muted)' }}>—</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3" style={{ fontWeight: 700 }}>
                         {netBalances[p.id] ? (
                           <NetBalance
@@ -354,6 +378,18 @@ export default function PartnersPage() {
                         {p.contract_no ? p.contract_no : <span style={{ color: 'var(--fg-muted)', fontWeight: 400 }}>—</span>}
                       </td>
                     </tr>
+                    {composerPartnerId === p.id && p.email && (
+                      <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                        <td colSpan={10} style={{ padding: 0, background: 'var(--paper-sunk)' }}>
+                          <EmailComposer
+                            partnerName={p.trade_name}
+                            recipientEmail={p.email}
+                            onClose={() => setComposerPartnerId(null)}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })
               )}
@@ -370,6 +406,168 @@ function Th({ children }: { children: React.ReactNode }) {
     <th className="text-left px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-3)', backgroundColor: 'var(--paper-sunk)' }}>
       {children}
     </th>
+  );
+}
+
+// =============================================================================
+// Inline email composer — renders inside a colspan row under the partner.
+// Send goes through /api/email/send which proxies to emailer-bridge serverside.
+// All email rules from Aram's preferences apply: this is a send tool, not a
+// preview tool. The actual send still passes through the API which preserves
+// the emailer-skill confirmation/audit flow on the backend.
+// =============================================================================
+
+const API_BASE = 'https://dasoperator-api.dasexperten.workers.dev';
+
+function EmailComposer({
+  partnerName, recipientEmail, onClose,
+}: {
+  partnerName: string;
+  recipientEmail: string;
+  onClose: () => void;
+}) {
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<null | { ok: boolean; message: string }>(null);
+
+  const handleSend = async () => {
+    if (!subject.trim() || !body.trim()) {
+      setResult({ ok: false, message: 'Subject and body are required' });
+      return;
+    }
+    setSending(true);
+    setResult(null);
+    try {
+      const r = await fetch(`${API_BASE}/api/email/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'send',
+          recipient: recipientEmail,
+          subject: subject.trim(),
+          body_plain: body.trim(),
+        }),
+      });
+      const data = await r.json();
+      if (data.success) {
+        setResult({ ok: true, message: `Sent to ${recipientEmail}` });
+        setTimeout(onClose, 1500);
+      } else {
+        const errMsg = data.errors?.[0]?.message ?? 'Send failed';
+        setResult({ ok: false, message: errMsg });
+      }
+    } catch (e) {
+      setResult({
+        ok: false,
+        message: e instanceof Error ? e.message : 'Network error',
+      });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: 13, color: 'var(--fg-3)' }}>
+          To: <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{partnerName}</span>
+          <span style={{ marginLeft: 8, color: 'var(--fg-2)' }}>{`<${recipientEmail}>`}</span>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          style={{ color: 'var(--fg-3)', padding: 4 }}
+          aria-label="Close composer"
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      <input
+        type="text"
+        value={subject}
+        onChange={(e) => setSubject(e.target.value)}
+        placeholder="Subject"
+        disabled={sending}
+        style={{
+          padding: '8px 12px',
+          border: '1px solid var(--border-hairline)',
+          borderRadius: 'var(--radius-sm)',
+          fontSize: 14,
+          fontWeight: 700,
+          background: 'var(--paper-base, #fff)',
+          color: 'var(--fg-1)',
+        }}
+      />
+
+      <textarea
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        placeholder="Message body"
+        disabled={sending}
+        rows={6}
+        style={{
+          padding: '10px 12px',
+          border: '1px solid var(--border-hairline)',
+          borderRadius: 'var(--radius-sm)',
+          fontSize: 14,
+          fontWeight: 400,
+          background: 'var(--paper-base, #fff)',
+          color: 'var(--fg-1)',
+          resize: 'vertical',
+          fontFamily: 'inherit',
+        }}
+      />
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button
+          type="button"
+          onClick={handleSend}
+          disabled={sending || !subject.trim() || !body.trim()}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '8px 16px',
+            borderRadius: 'var(--radius-sm)',
+            background: sending || !subject.trim() || !body.trim() ? 'var(--paper-sunk)' : 'var(--brand-rot, #E5202C)',
+            color: sending || !subject.trim() || !body.trim() ? 'var(--fg-3)' : 'white',
+            fontSize: 14,
+            fontWeight: 700,
+            cursor: sending || !subject.trim() || !body.trim() ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+          {sending ? 'Sending…' : 'Send'}
+        </button>
+
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={sending}
+          style={{
+            padding: '8px 14px',
+            background: 'transparent',
+            color: 'var(--fg-3)',
+            fontSize: 14,
+            fontWeight: 500,
+          }}
+        >
+          Cancel
+        </button>
+
+        {result && (
+          <span
+            style={{
+              fontSize: 13,
+              color: result.ok ? 'var(--status-success, #2E7D4F)' : 'var(--brand-rot, #A82029)',
+              fontWeight: 500,
+            }}
+          >
+            {result.message}
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 

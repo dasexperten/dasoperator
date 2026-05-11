@@ -15,6 +15,8 @@ import {
   updateLineItem,
   addLineItem,
   deleteLineItem,
+  deleteDocument,
+  deleteAttachment,
   type Operation,
   type OperationLineItem,
   type Partner,
@@ -1234,6 +1236,7 @@ function DocumentsTab({
               <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Date</th>
               <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Status</th>
               <th className="text-right px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>File</th>
+              <th className="text-right px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)', width: '60px' }}></th>
             </tr>
           </thead>
           <tbody>
@@ -1261,6 +1264,33 @@ function DocumentsTab({
                     ) : (
                       <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>—</span>
                     )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!confirm(`Delete ${doc.document_number}?\n\nThis removes the document record. The file in R2 storage is kept for audit but won't appear in the list.`)) return;
+                        try {
+                          await deleteDocument(doc.id);
+                          const res = await getDocuments({ operation_id: operationId });
+                          if (res.success && res.result) setDocs(res.result.documents);
+                        } catch (e) {
+                          alert('Delete failed: ' + (e instanceof Error ? e.message : String(e)));
+                        }
+                      }}
+                      title="Delete document"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        width: 28, height: 28, padding: 0,
+                        border: '1px solid var(--border-hairline)',
+                        borderRadius: 'var(--radius-sm)',
+                        backgroundColor: 'var(--paper)',
+                        color: 'var(--brand-rot)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <X size={14} />
+                    </button>
                   </td>
                 </tr>
               );
@@ -1306,6 +1336,7 @@ function DocumentsTab({
               <th className="text-right px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Amount</th>
               <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Issuer</th>
               <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Source</th>
+              <th className="text-right px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)', width: '60px' }}></th>
             </tr>
           </thead>
           <tbody>
@@ -1330,6 +1361,32 @@ function DocumentsTab({
                     {att.issuer || '—'}
                   </td>
                   <td className="px-4 py-3" style={{ color: 'var(--fg-3)', fontSize: '14px' }}>{att.parsed_from || '—'}</td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!confirm(`Detach ${att.doc_number || labelKind(att.kind)}?\n\nThis removes the attachment from this operation. The original file is kept.`)) return;
+                        try {
+                          await deleteAttachment(att.id);
+                          await refetchAttachments();
+                        } catch (e) {
+                          alert('Detach failed: ' + (e instanceof Error ? e.message : String(e)));
+                        }
+                      }}
+                      title="Detach"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        width: 28, height: 28, padding: 0,
+                        border: '1px solid var(--border-hairline)',
+                        borderRadius: 'var(--radius-sm)',
+                        backgroundColor: 'var(--paper)',
+                        color: 'var(--brand-rot)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <X size={14} />
+                    </button>
+                  </td>
                 </tr>
               );
             })}

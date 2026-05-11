@@ -6,7 +6,7 @@
 import type { DocumentLanguage, LineItemRow } from '../types';
 import {
   Document, Packer, PORTRAIT_PAGE, PORTRAIT_USABLE_DXA, RenderParty, blank,
-  buildDeliveryBankTable, buildMetaRow, buildPartyTable, buildProductTable,
+  buildBrandBar, buildDeliveryBankTable, buildMetaRow, buildPartyTable, buildProductTable,
   buildTitle, formatDate, p, pickLineLabel,
   t, tBilingual, type RenderLanguage,
   type ProductCell,
@@ -140,6 +140,7 @@ export async function renderPackingList(input: RenderPlInput): Promise<Uint8Arra
       properties: { page: PORTRAIT_PAGE },
       children: [
         buildTitle(translate('title.packing_list')),
+        buildBrandBar(),
         buildMetaRow(meta),
         partyTable,
         blank(),

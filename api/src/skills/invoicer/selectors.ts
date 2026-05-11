@@ -149,9 +149,20 @@ export function selectLanguage(
   partner: PartnerRow | null,
   contract: ContractRow | null
 ): DocumentLanguage {
+  // ISV1 and ISV2 are always bilingual — internal Chinese factory flow needs EN+ZH.
   if (format === 'IS-V1' || format === 'IS-V2') return 'BILINGUAL';
+
+  // Issuer-first policy: documents belong to the seller's bookkeeping.
+  // Order of precedence:
+  //   1. Explicit contract clause (rare override; partner negotiated a language).
+  //   2. Partner asked for BILINGUAL — render issuer language + partner local
+  //      language (handled in the renderer; here we just signal mode).
+  //   3. Issuer's default_document_language (the seller's tax/audit language).
+  //   4. Legacy fallback to default_invoice_language for old data without seed.
+  //   5. Hard fallback to EN.
   if (contract?.invoice_language) return contract.invoice_language;
-  if (partner?.preferred_invoice_language) return partner.preferred_invoice_language;
+  if (partner?.preferred_invoice_language === 'BILINGUAL') return 'BILINGUAL';
+  if (ourCompany.default_document_language) return ourCompany.default_document_language;
   if (ourCompany.default_invoice_language) return ourCompany.default_invoice_language;
   return 'EN';
 }

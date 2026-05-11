@@ -10,7 +10,7 @@
 // a placeholder, never fall back to the skill .md "memory". See validators.ts.
 // =============================================================================
 
-export type DocumentLanguage = 'EN' | 'RU' | 'BILINGUAL';
+export type DocumentLanguage = 'EN' | 'RU' | 'KA' | 'ZH' | 'VI' | 'AM' | 'UK' | 'DE' | 'TR' | 'UZ' | 'KK' | 'TH' | 'ID' | 'MS' | 'HI' | 'AR' | 'FR' | 'ES' | 'PT' | 'BILINGUAL';
 export type DocumentFormat = 'CI' | 'PL' | 'IS-V1' | 'IS-V2' | 'UPD' | 'TN';
 
 // =============================================================================
@@ -66,6 +66,7 @@ export interface CompanyRow {
   signing_authority_title_en: string | null;
   signing_authority_title_ru: string | null;
   default_invoice_language: DocumentLanguage | null;
+  default_document_language: DocumentLanguage | null;
   preferred_incoterms_domestic: string | null;
   preferred_incoterms_international: string | null;
   last_verified: number | null;
@@ -89,6 +90,7 @@ export interface PartnerRow {
   payment_terms: string | null;
   preferred_incoterms: string | null;
   preferred_invoice_language: DocumentLanguage | null;
+  partner_local_language: DocumentLanguage | null;
   last_verified: number | null;
   status: string;
 }

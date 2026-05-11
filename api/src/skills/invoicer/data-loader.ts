@@ -54,7 +54,7 @@ const COMPANY_COLS = `
   bank_name, bank_account, swift, iban, bank_address,
   bank_name_en, bik, correspondent_account,
   signing_authority_name, signing_authority_title_en, signing_authority_title_ru,
-  default_invoice_language, preferred_incoterms_domestic,
+  default_invoice_language, default_document_language, preferred_incoterms_domestic,
   preferred_incoterms_international, last_verified
 `;
 
@@ -63,7 +63,7 @@ const PARTNER_COLS = `
   kpp, inn, ogrn, registered_address_local,
   iban, swift_bic, bank_name, email,
   payment_terms, preferred_incoterms, preferred_invoice_language,
-  last_verified, status
+  partner_local_language, last_verified, status
 `;
 
 const MANUFACTURER_COLS = `

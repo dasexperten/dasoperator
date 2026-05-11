@@ -1168,6 +1168,7 @@ function DocumentsTab({
             : `Already up to date — ${skipped.join(', ')}`
         );
         await fetchDocs();
+      await refetchAttachments();
       } else {
         setIssueError(res.errors?.[0]?.message ?? 'Failed to issue documents');
       }
@@ -1194,136 +1195,41 @@ function DocumentsTab({
 
   return (
     <>
+    {/* === DOCUMENTS — generated + attached, single list === */}
     <div style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
       <div className="flex justify-between items-center px-4 py-3" style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>
         <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)', margin: 0 }}>
-          {loading ? 'Documents' : `Documents${docs.length > 0 ? ` (${docs.length})` : ''}`}
+          Documents{attachments.length > 0 ? ` (${attachments.length})` : ''}
         </p>
-        <button
-          onClick={handleIssue}
-          disabled={issuing}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 14px', fontSize: '14px', fontWeight: 600, border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper)', color: 'var(--fg-1)', cursor: issuing ? 'not-allowed' : 'pointer', opacity: issuing ? 0.6 : 1 }}
-        >
-          {issuing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-          Issue documents
-        </button>
-      </div>
-      {issueSuccess && (
-        <div style={{ padding: '10px 16px', backgroundColor: 'rgba(46,125,79,0.08)', borderBottom: '1px solid var(--border-hairline)' }}>
-          <p style={{ fontSize: '14px', color: 'var(--status-success)', margin: 0 }}>{issueSuccess}</p>
+        <div className="inline-flex items-center gap-2">
+          <button
+            onClick={handleIssue}
+            disabled={issuing}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 14px', fontSize: '14px', fontWeight: 600, border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper)', color: 'var(--fg-1)', cursor: issuing ? 'not-allowed' : 'pointer', opacity: issuing ? 0.6 : 1 }}
+          >
+            {issuing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            Issue documents
+          </button>
+          <button
+            type="button"
+            onClick={() => setAttachModalOpen(true)}
+            className="inline-flex items-center gap-1.5"
+            style={{
+              padding: '6px 14px',
+              background: 'var(--brand-rot, #E5202C)',
+              color: 'white',
+              fontSize: 14,
+              fontWeight: 600,
+              borderRadius: 'var(--radius-sm)',
+            }}
+          >
+            <Plus size={14} /> Attach document
+          </button>
         </div>
-      )}
-      {issueError && (
-        <div style={{ padding: '10px 16px', backgroundColor: 'rgba(229,32,44,0.08)', borderBottom: '1px solid var(--border-hairline)' }}>
-          <p style={{ fontSize: '14px', color: 'var(--brand-rot)', margin: 0 }}>{issueError}</p>
-        </div>
-      )}
-      {loading ? (
-        <div className="flex justify-center py-10">
-          <Loader2 className="h-5 w-5 animate-spin" style={{ color: 'var(--fg-3)' }} />
-        </div>
-      ) : docs.length === 0 ? (
-        <div style={{ padding: '32px 16px', textAlign: 'center' }}>
-          <p style={{ fontSize: '14px', color: 'var(--fg-3)', margin: '0 0 4px' }}>No documents yet</p>
-          <p style={{ fontSize: '14px', color: 'var(--fg-3)', margin: 0 }}>Click Issue documents to generate CI and PL</p>
-        </div>
-      ) : (
-        <table className="w-full" style={{ fontSize: '14px' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>
-              <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Document</th>
-              <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Type</th>
-              <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Date</th>
-              <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Status</th>
-              <th className="text-right px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>File</th>
-              <th className="text-right px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)', width: '60px' }}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {docs.map((doc) => {
-              const statusStyle = STATUS_STYLE[doc.status] ?? STATUS_STYLE.draft!;
-              const typeLabel = DOC_TYPE_LABELS[doc.document_type] ?? doc.document_type;
-              const date = doc.document_date ? new Date(doc.document_date * 1000).toISOString().split('T')[0] : '—';
-              const isCancelled = doc.status === 'cancelled';
-              const cancelledStyle = isCancelled ? { textDecoration: 'line-through', opacity: 0.7 } : {};
-              return (
-                <tr key={doc.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                  <td className="px-4 py-3" style={{ fontWeight: 700, color: isCancelled ? 'var(--brand-rot)' : 'var(--fg-1)', ...cancelledStyle }}>{doc.document_number}</td>
-                  <td className="px-4 py-3" style={{ color: 'var(--fg-2)', ...cancelledStyle }}>{typeLabel}</td>
-                  <td className="px-4 py-3" style={{ color: 'var(--fg-3)', ...cancelledStyle }}>{date}</td>
-                  <td className="px-4 py-3">
-                    <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '999px', fontSize: '14px', fontWeight: 500, color: statusStyle.fg, backgroundColor: statusStyle.bg }}>
-                      {doc.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {doc.pdf_r2_url ? (
-                      <a href={`https://dasoperator-api.dasexperten.workers.dev/api/documents/${doc.id}/download`} target="_blank" rel="noopener noreferrer" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--brand-rot)', textDecoration: 'none' }}>
-                        Download
-                      </a>
-                    ) : (
-                      <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!confirm(`Delete ${doc.document_number}?\n\nThis removes the document record. The file in R2 storage is kept for audit but won't appear in the list.`)) return;
-                        try {
-                          await deleteDocument(doc.id);
-                          const res = await getDocuments({ operation_id: operationId });
-                          if (res.success && res.result) setDocs(res.result.documents);
-                        } catch (e) {
-                          alert('Delete failed: ' + (e instanceof Error ? e.message : String(e)));
-                        }
-                      }}
-                      title="Delete document"
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        width: 28, height: 28, padding: 0,
-                        border: '1px solid var(--border-hairline)',
-                        borderRadius: 'var(--radius-sm)',
-                        backgroundColor: 'var(--paper)',
-                        color: 'var(--brand-rot)',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <X size={14} />
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-    </div>
-    {/* === ATTACHED DOCUMENTS — unified incoming + outgoing list === */}
-    <div style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginTop: '16px' }}>
-      <div className="flex justify-between items-center px-4 py-3" style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>
-        <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)', margin: 0 }}>
-          Attached documents{attachments.length > 0 ? ` (${attachments.length})` : ''}
-        </p>
-        <button
-          type="button"
-          onClick={() => setAttachModalOpen(true)}
-          className="inline-flex items-center gap-1.5"
-          style={{
-            padding: '4px 10px',
-            background: 'var(--brand-rot, #E5202C)',
-            color: 'white',
-            fontSize: 12,
-            fontWeight: 700,
-            borderRadius: 'var(--radius-sm)',
-          }}
-        >
-          <Plus size={12} /> Attach document
-        </button>
       </div>
       {attachments.length === 0 ? (
         <div style={{ padding: '24px 16px', textAlign: 'center' }}>
-          <p style={{ fontSize: '14px', color: 'var(--fg-3)', margin: 0 }}>No external documents attached yet</p>
+          <p style={{ fontSize: '14px', color: 'var(--fg-3)', margin: 0 }}>No documents yet — click "Issue documents" or "Attach document"</p>
         </div>
       ) : (
         <table className="w-full" style={{ fontSize: '14px' }}>
@@ -1336,6 +1242,7 @@ function DocumentsTab({
               <th className="text-right px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Amount</th>
               <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Issuer</th>
               <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Source</th>
+              <th className="text-right px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>File</th>
               <th className="text-right px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)', width: '60px' }}></th>
             </tr>
           </thead>
@@ -1362,30 +1269,43 @@ function DocumentsTab({
                   </td>
                   <td className="px-4 py-3" style={{ color: 'var(--fg-3)', fontSize: '14px' }}>{att.parsed_from || '—'}</td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!confirm(`Detach ${att.doc_number || labelKind(att.kind)}?\n\nThis removes the attachment from this operation. The original file is kept.`)) return;
-                        try {
-                          await deleteAttachment(att.id);
-                          await refetchAttachments();
-                        } catch (e) {
-                          alert('Detach failed: ' + (e instanceof Error ? e.message : String(e)));
-                        }
-                      }}
-                      title="Detach"
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        width: 28, height: 28, padding: 0,
-                        border: '1px solid var(--border-hairline)',
-                        borderRadius: 'var(--radius-sm)',
-                        backgroundColor: 'var(--paper)',
-                        color: 'var(--brand-rot)',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <X size={14} />
-                    </button>
+                    {att.file_url ? (
+                      <a href={`https://dasoperator-api.dasexperten.workers.dev/api/documents/${att.id}/download`} target="_blank" rel="noopener noreferrer" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--brand-rot)', textDecoration: 'none' }}>
+                        Download
+                      </a>
+                    ) : (
+                      <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {att.parsed_from === 'invoicer' ? (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!confirm(`Delete ${att.doc_number || labelKind(att.kind)}?\n\nThis removes our generated document. You can re-issue it via Issue documents.`)) return;
+                          try {
+                            await deleteDocument(att.id);
+                            await refetchAttachments();
+                          } catch (e) {
+                            alert('Delete failed: ' + (e instanceof Error ? e.message : String(e)));
+                          }
+                        }}
+                        title="Delete (regenerable)"
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          width: 28, height: 28, padding: 0,
+                          border: '1px solid var(--border-hairline)',
+                          borderRadius: 'var(--radius-sm)',
+                          backgroundColor: 'var(--paper)',
+                          color: 'var(--brand-rot)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <X size={14} />
+                      </button>
+                    ) : (
+                      <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>—</span>
+                    )}
                   </td>
                 </tr>
               );

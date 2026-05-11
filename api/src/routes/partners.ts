@@ -188,12 +188,47 @@ partners.get('/:slug', async (c) => {
 // New partners always start as 'lead' (CRM-wise). They can't see prices
 // until at least one signed agreement (any contract row, including NDA) exists.
 // =============================================================================
+// =============================================================================
+// Email validator — accepts:
+//   1. null / empty string  → null in DB
+//   2. single email "foo@bar.com"
+//   3. JSON array '["foo@bar.com","baz@qux.com"]'
+// Backwards-compatible with the previous "one email" rule.
+// =============================================================================
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const emailFieldSchema = z.string().nullable().optional().refine(
+  (v) => {
+    if (v === null || v === undefined || v === '') return true;
+    const trimmed = v.trim();
+    // JSON array branch
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (!Array.isArray(parsed)) return false;
+        return parsed.every((x) => {
+          if (typeof x === 'string') return EMAIL_RE.test(x.trim());
+          if (x && typeof x === 'object' && typeof x.email === 'string') {
+            return EMAIL_RE.test(x.email.trim());
+          }
+          return false;
+        });
+      } catch {
+        return false;
+      }
+    }
+    // Plain branch — must be one valid email
+    return EMAIL_RE.test(trimmed);
+  },
+  { message: 'email must be a single valid email or a JSON array of valid emails' },
+);
+
 const createPartnerSchema = z.object({
   trade_name: z.string().min(1).max(200),
   partner_type: z.enum(['buyer', 'supplier', 'shipper', 'other']),
   country: z.string().max(60).nullable().optional(),
   legal_name: z.string().max(200).nullable().optional(),
-  email: z.string().email().nullable().optional(),
+  email: emailFieldSchema,
   partner_language: z.enum(['EN', 'RU', 'EN-RU', 'EN-AR', 'EN-VI', 'EN-ZH']).optional(),
   notes: z.string().max(2000).nullable().optional(),
 });
@@ -272,7 +307,7 @@ const updatePartnerSchema = z.object({
   trade_name: z.string().min(1).max(200).optional(),
   legal_name: z.string().max(200).nullable().optional(),
   country: z.string().max(60).nullable().optional(),
-  email: z.string().email().nullable().optional(),
+  email: emailFieldSchema,
   partner_type: z.enum(['buyer', 'supplier', 'shipper', 'other']).optional(),
   iban: z.string().max(60).nullable().optional(),
   swift_bic: z.string().max(20).nullable().optional(),

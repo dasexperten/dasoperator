@@ -29,7 +29,7 @@ const STATUS_LABELS: Record<string, string> = {
   draft:            'Draft',
   issued:           'Issued',
   order_fulfilment: 'Boxing',
-  production:       'In Production',
+  production:       'Production',
   stocked:          'Stocked',
   shipped:          'Shipped',
   delivered:        'Delivered',
@@ -194,7 +194,7 @@ export default function OperationsPage() {
             <option value="draft">Draft</option>
             <option value="issued">Issued</option>
             <option value="order_fulfilment">Boxing</option>
-            <option value="production">In Production</option>
+            <option value="production">Production</option>
             <option value="stocked">Stocked</option>
             <option value="shipped">Shipped</option>
             <option value="delivered">Delivered</option>

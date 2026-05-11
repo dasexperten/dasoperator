@@ -316,7 +316,9 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
       product_name: product.product_name,
       invoice_label: product.invoice_label,
       category: product.category,
+      subcategory: product.subcategory ?? null,
       manufacturer_id: product.manufacturer_id,
+      packaging_manufacturer_id: product.packaging_manufacturer_id ?? null,
       barcode: product.barcode ?? null,
       country_of_origin: product.country_of_origin ?? null,
       hs_code: product.hs_code ?? null,
@@ -327,9 +329,17 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
       ctn_dim_w_cm: product.ctn_dim_w_cm ?? null,
       ctn_dim_h_cm: product.ctn_dim_h_cm ?? null,
       unit_net_weight_g: product.unit_net_weight_g ?? null,
+      weight_kg: product.weight_kg ?? null,
+      volume_m3_micro: product.volume_m3_micro ?? null,
       description_ru: product.description_ru ?? null,
       description_en: product.description_en ?? null,
       description_cn: product.description_cn ?? null,
+      invoice_label_ru: product.invoice_label_ru ?? null,
+      invoice_label_en: product.invoice_label_en ?? null,
+      invoice_label_cn: product.invoice_label_cn ?? null,
+      buy_price: product.buy_price ?? null,
+      buy_currency: product.buy_currency ?? null,
+      buy_term: product.buy_term ?? null,
       notes: product.notes ?? null,
     });
     setEditError(null);
@@ -822,10 +832,26 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
                   <option value="Other">Other</option>
                 </select>
               </EditField>
+              <EditField label="Subcategory">
+                <input type="text" value={draft.subcategory ?? ''}
+                  onChange={(e) => setDraft({ ...draft, subcategory: e.target.value || null })}
+                  placeholder="e.g. enzyme_paste, manual_toothbrush"
+                  style={editInput} />
+              </EditField>
               <EditField label="Manufacturer">
                 <select value={draft.manufacturer_id ?? ''}
                   onChange={(e) => setDraft({ ...draft, manufacturer_id: e.target.value })}
                   style={editInput}>
+                  {manufacturers.map((m) => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+              </EditField>
+              <EditField label="Packaging manufacturer (optional)">
+                <select value={draft.packaging_manufacturer_id ?? ''}
+                  onChange={(e) => setDraft({ ...draft, packaging_manufacturer_id: e.target.value || null })}
+                  style={editInput}>
+                  <option value="">— None / same as main —</option>
                   {manufacturers.map((m) => (
                     <option key={m.id} value={m.id}>{m.name}</option>
                   ))}
@@ -927,6 +953,88 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
                 onChange={(e) => setDraft({ ...draft, description_cn: e.target.value || null })}
                 rows={3} style={{ ...editInput, resize: 'vertical' }} />
             </EditField>
+          </div>
+        )}
+      </Card>
+
+      {/* SECTION 5a — Invoice labels (multilingual) */}
+      <Card>
+        <SectionEyebrow label="Invoice labels" role="master" />
+        {!editing ? (
+          <DefList rows={[
+            { label: 'RU', value: product.invoice_label_ru ?? '—', regular: true },
+            { label: 'EN', value: product.invoice_label_en ?? '—', regular: true },
+            { label: 'CN', value: product.invoice_label_cn ?? '—', regular: true },
+          ]} />
+        ) : (
+          <div style={{ display: 'grid', gap: '12px' }}>
+            <EditField label="RU invoice label">
+              <input type="text" value={draft.invoice_label_ru ?? ''}
+                onChange={(e) => setDraft({ ...draft, invoice_label_ru: e.target.value || null })}
+                placeholder="Зубная щётка Das Experten ETALON, 1 шт."
+                style={editInput} />
+            </EditField>
+            <EditField label="EN invoice label">
+              <input type="text" value={draft.invoice_label_en ?? ''}
+                onChange={(e) => setDraft({ ...draft, invoice_label_en: e.target.value || null })}
+                placeholder="Toothbrush Das Experten ETALON, 1 pc."
+                style={editInput} />
+            </EditField>
+            <EditField label="CN invoice label">
+              <input type="text" value={draft.invoice_label_cn ?? ''}
+                onChange={(e) => setDraft({ ...draft, invoice_label_cn: e.target.value || null })}
+                placeholder="达斯专家 ETALON 牙刷, 1 支"
+                style={editInput} />
+            </EditField>
+          </div>
+        )}
+      </Card>
+
+      {/* SECTION 5b — Purchase economics */}
+      <Card>
+        <SectionEyebrow label="Purchase economics" role="supply" />
+        {!editing ? (
+          <DefList rows={[
+            { label: 'Buy price', value: product.buy_price != null ? `${product.buy_price / 100} ${product.buy_currency ?? ''}` : '—' },
+            { label: 'Buy term', value: product.buy_term ?? '—' },
+            { label: 'Weight (kg per ctn)', value: product.weight_kg != null ? String(product.weight_kg / 1000) : '—' },
+            { label: 'Volume (m³ per ctn)', value: product.volume_m3_micro != null ? String(product.volume_m3_micro / 1_000_000) : '—' },
+          ]} />
+        ) : (
+          <div style={{ display: 'grid', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 1fr', gap: '8px' }}>
+              <EditField label="Buy price (×100, e.g. 250 = 2.50)">
+                <input type="number" step="1" min={0}
+                  value={draft.buy_price ?? ''}
+                  onChange={(e) => setDraft({ ...draft, buy_price: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
+                  style={editInput} />
+              </EditField>
+              <EditField label="Currency">
+                <input type="text" maxLength={3}
+                  value={draft.buy_currency ?? ''}
+                  onChange={(e) => setDraft({ ...draft, buy_currency: e.target.value.toUpperCase() || null })}
+                  placeholder="CNY" style={editInput} />
+              </EditField>
+              <EditField label="Buy term">
+                <input type="text" value={draft.buy_term ?? ''}
+                  onChange={(e) => setDraft({ ...draft, buy_term: e.target.value || null })}
+                  placeholder="FOB Yangzhou" style={editInput} />
+              </EditField>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              <EditField label="Weight per carton (g, integer)">
+                <input type="number" min={0}
+                  value={draft.weight_kg ?? ''}
+                  onChange={(e) => setDraft({ ...draft, weight_kg: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
+                  style={editInput} />
+              </EditField>
+              <EditField label="Volume per carton (m³ × 1M)">
+                <input type="number" min={0}
+                  value={draft.volume_m3_micro ?? ''}
+                  onChange={(e) => setDraft({ ...draft, volume_m3_micro: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
+                  style={editInput} />
+              </EditField>
+            </div>
           </div>
         )}
       </Card>

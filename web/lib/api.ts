@@ -174,6 +174,7 @@ export interface ProductFull {
   product_name: string;
   invoice_label: string;
   category: 'Toothpaste' | 'Toothbrush' | 'Floss' | 'Other';
+  subcategory: string | null;
   barcode: string | null;
   weight_kg: number | null;
   volume_m3_micro: number | null;
@@ -193,6 +194,9 @@ export interface ProductFull {
   description_ru: string | null;
   description_en: string | null;
   description_cn: string | null;
+  invoice_label_ru: string | null;
+  invoice_label_en: string | null;
+  invoice_label_cn: string | null;
   packaging_manufacturer_id: string | null;
   pieces_per_case: number;
   manufacturer_name: string | null;
@@ -398,6 +402,7 @@ export interface CreateProductBody {
   product_name: string;
   invoice_label: string;
   category: 'Toothpaste' | 'Toothbrush' | 'Floss' | 'Other';
+  subcategory?: string | null;
   manufacturer_id: string;
   barcode?: string | null;
   pieces_per_case?: number;
@@ -409,10 +414,18 @@ export interface CreateProductBody {
   unit_net_weight_g?: number | null;
   hs_code?: string | null;
   country_of_origin?: string | null;
+  weight_kg?: number | null;
+  volume_m3_micro?: number | null;
   description_ru?: string | null;
   description_en?: string | null;
   description_cn?: string | null;
+  invoice_label_ru?: string | null;
+  invoice_label_en?: string | null;
+  invoice_label_cn?: string | null;
   packaging_manufacturer_id?: string | null;
+  buy_price?: number | null;
+  buy_currency?: string | null;
+  buy_term?: string | null;
   notes?: string | null;
 }
 

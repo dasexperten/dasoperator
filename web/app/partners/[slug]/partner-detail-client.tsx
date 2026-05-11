@@ -68,6 +68,33 @@ function languageLabel(lang: string | null | undefined): string {
   return LANGUAGE_LABELS[lang] ?? lang;
 }
 
+const DOC_MODE_LABELS: Record<string, string> = {
+  'EN':        'English only',
+  'RU':        'Русский only (legacy)',
+  'LOCAL':     "Partner's national language only",
+  'BILINGUAL': 'English + national (bilingual)',
+};
+
+function docModeLabel(mode: string | null | undefined): string {
+  if (!mode) return 'Issuer default';
+  return DOC_MODE_LABELS[mode] ?? mode;
+}
+
+const NATIONAL_LANGUAGE_LABELS: Record<string, string> = {
+  'EN': 'English',          'RU': 'Русский',            'KA': 'ქართული',
+  'ZH': '中文',               'VI': 'Tiếng Việt',         'AM': 'Հայերեն',
+  'UK': 'Українська',       'DE': 'Deutsch',            'TR': 'Türkçe',
+  'UZ': "O'zbek",           'KK': 'Қазақша',            'TH': 'ไทย',
+  'ID': 'Bahasa Indonesia', 'MS': 'Bahasa Melayu',      'HI': 'हिन्दी',
+  'AR': 'العربية',          'FR': 'Français',           'ES': 'Español',
+  'PT': 'Português',
+};
+
+function nationalLanguageLabel(code: string | null | undefined): string {
+  if (!code) return '';
+  return NATIONAL_LANGUAGE_LABELS[code] ?? code;
+}
+
 const MISSING = 'MISSING';
 function isMissing(value: string | null | undefined): boolean {
   return !value || value === MISSING || value.trim() === '';
@@ -306,6 +333,8 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
           <CopyableField label="Country" value={partner.country} />
           <CopyableField label="Type" value={partner.partner_type} />
           <CopyableField label="Language" value={languageLabel(partner.partner_language)} />
+          <CopyableField label="Document mode" value={docModeLabel(partner.preferred_invoice_language)} />
+          <CopyableField label="National language" value={nationalLanguageLabel((partner as { partner_local_language?: string | null }).partner_local_language)} />
           <CopyableField label="Tax ID" value={partner.tax_id} mono />
           <CopyableField label="Email" value={partner.email} mono />
         </SectionCard>

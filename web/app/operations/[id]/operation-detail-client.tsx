@@ -1195,7 +1195,7 @@ function DocumentsTab({
 
   return (
     <>
-    {/* === DOCUMENTS — generated + attached, single list === */}
+    {/* === DOCUMENTS — unified list, generated + attached === */}
     <div style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
       <div className="flex justify-between items-center px-4 py-3" style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>
         <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)', margin: 0 }}>
@@ -1229,7 +1229,7 @@ function DocumentsTab({
       </div>
       {attachments.length === 0 ? (
         <div style={{ padding: '24px 16px', textAlign: 'center' }}>
-          <p style={{ fontSize: '14px', color: 'var(--fg-3)', margin: 0 }}>No documents yet — click "Issue documents" or "Attach document"</p>
+          <p style={{ fontSize: '14px', color: 'var(--fg-3)', margin: 0 }}>No documents yet. Use Issue documents or Attach document to add them.</p>
         </div>
       ) : (
         <table className="w-full" style={{ fontSize: '14px' }}>

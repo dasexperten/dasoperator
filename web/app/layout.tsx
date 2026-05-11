@@ -96,9 +96,21 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     }).observe(document.body, { childList: true, subtree: true });
   }
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', startWhenReady);
   } else {
-    init();
+    startWhenReady();
+  }
+
+  function startWhenReady(){
+    // Defer past the first React hydration tick to avoid hydration mismatches
+    // caused by us inserting wrapper spans before React reconciles the SSR'd DOM.
+    // requestAnimationFrame × 2 guarantees we run after at least one paint,
+    // by which time React has finished hydration on the visible tree.
+    requestAnimationFrame(function(){
+      requestAnimationFrame(function(){
+        init();
+      });
+    });
   }
 })();`,
           }}

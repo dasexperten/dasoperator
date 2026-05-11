@@ -273,9 +273,12 @@ export default function OperationsPage() {
                             {op.partner_trade_name}
                           </Link>
                         ) : op.manufacturer_name ? (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: 'var(--fg-1)' }}>
-                            <Factory style={{ width: 14, height: 14, color: 'var(--fg-3)' }} />
-                            {op.manufacturer_name}
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: 'var(--fg-1)', fontWeight: 700 }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: 'var(--radius-pill)', backgroundColor: 'rgba(229,32,44,0.10)', color: 'var(--brand-rot)', fontSize: '12px', fontWeight: 700 }}>
+                              <Factory style={{ width: 12, height: 12 }} />
+                              Factory
+                            </span>
+                            <span>{op.manufacturer_name}</span>
                           </span>
                         ) : '—'}
                       </td>

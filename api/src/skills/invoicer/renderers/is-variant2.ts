@@ -9,7 +9,7 @@ import type { ContractRow, LineItemRow } from '../types';
 import {
   Document, LANDSCAPE_PAGE, LANDSCAPE_USABLE_DXA, Packer, RenderBank,
   RenderParty, RenderSignature, blank, buildDeliveryBankTable, buildMetaRow,
-  buildPartyTable, buildProductTable, buildSignature, buildTitle, formatDate,
+  buildPartyTable, buildProductTable, buildSignature, buildBrandBar, buildTitle, formatDate,
   formatMoney, p, pickLineLabel, trilingual,
   type ProductCell,
 } from './shared';
@@ -166,6 +166,7 @@ export async function renderInvoiceSpecPastes(input: RenderIsV2Input): Promise<U
       properties: { page: LANDSCAPE_PAGE },
       children: [
         buildTitle(titleText),
+        buildBrandBar(),
         buildMetaRow(meta),
         partyTable,
         blank(),

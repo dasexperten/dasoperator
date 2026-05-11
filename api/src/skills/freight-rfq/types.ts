@@ -32,6 +32,7 @@ export interface RfqLineItem {
   ctn_qty: number | null;                  // units per master carton
   pieces_per_case: number | null;          // inner box size (units)
   ctn_weight_gross_kg: number | null;
+  ctn_volume_m3: number | null;            // preferred over L/W/H — Excel master file uses this
   ctn_dim_l_cm: number | null;
   ctn_dim_w_cm: number | null;
   ctn_dim_h_cm: number | null;

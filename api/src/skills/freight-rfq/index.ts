@@ -102,6 +102,7 @@ export async function issueRfq(
            p.ctn_qty,
            p.pieces_per_case,
            p.ctn_weight_gross_kg,
+           p.ctn_volume_m3,
            p.ctn_dim_l_cm,
            p.ctn_dim_w_cm,
            p.ctn_dim_h_cm,

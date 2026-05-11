@@ -106,13 +106,23 @@ function computeLineLogistics(li: RfqLineItem): LineLogistics {
     grossKg = cartons * li.ctn_weight_gross_kg;
   }
 
-  // Volume: cartons * (L*W*H in cm) / 1_000_000 → CBM
+  // Volume: prefer the master-file ctn_volume_m3 column. Fall back to L*W*H/1M.
   let cbm: number | null = null;
   let cartonDimsMm: string | null = null;
+  let oneCartonCbm: number | null = null;
+
+  if (li.ctn_volume_m3 && li.ctn_volume_m3 > 0) {
+    oneCartonCbm = li.ctn_volume_m3;
+  } else if (li.ctn_dim_l_cm && li.ctn_dim_w_cm && li.ctn_dim_h_cm) {
+    oneCartonCbm = (li.ctn_dim_l_cm * li.ctn_dim_w_cm * li.ctn_dim_h_cm) / 1_000_000;
+  }
+
   if (li.ctn_dim_l_cm && li.ctn_dim_w_cm && li.ctn_dim_h_cm) {
-    const oneCartonCbm = (li.ctn_dim_l_cm * li.ctn_dim_w_cm * li.ctn_dim_h_cm) / 1_000_000;
-    cbm = cartons > 0 ? cartons * oneCartonCbm : 0;
     cartonDimsMm = `${li.ctn_dim_l_cm}×${li.ctn_dim_w_cm}×${li.ctn_dim_h_cm} cm`;
+  }
+
+  if (oneCartonCbm != null) {
+    cbm = cartons > 0 ? cartons * oneCartonCbm : 0;
   }
 
   // Carton note for transparency.

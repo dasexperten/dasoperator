@@ -1517,6 +1517,14 @@ export async function issueDocuments(operation_id: string, types?: Array<'CI' | 
   return apiPost<{ issued: string[]; skipped: string[] }>('/api/documents/issue', body);
 }
 
+export async function deleteDocument(id: string) {
+  return apiDelete<{ id: string }>(`/api/documents/${id}`);
+}
+
+export async function deleteAttachment(id: string) {
+  return apiDelete<{ id: string }>(`/api/attachments/${id}`);
+}
+
 // =============================================================================
 // Inventory actions — Phase 4.5
 // =============================================================================

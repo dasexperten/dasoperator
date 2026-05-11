@@ -216,7 +216,53 @@ documents.get('/:id/download', async (c) => {
 });
 
 // -----------------------------------------------------------------------------
-// GET /api/documents/:id/pdf
+// GET /api/documents/:id/file/:filename
+// Same as /download but with the filename baked into the URL path so that
+// callers fetching the URL (e.g. Apps Script's UrlFetchApp) can derive the
+// correct attachment name from the last path segment.
+// `:filename` is purely cosmetic — the actual file is resolved by `:id`.
+// -----------------------------------------------------------------------------
+documents.get('/:id/file/:filename', async (c) => {
+  const docId = c.req.param('id');
+
+  const doc = await c.env.DB.prepare(
+    `SELECT id, document_number, document_type, pdf_r2_url
+       FROM documents WHERE id = ? AND deleted_at IS NULL`
+  ).bind(docId).first<{
+    id: string;
+    document_number: string;
+    document_type: string;
+    pdf_r2_url: string | null;
+  }>();
+
+  if (!doc) {
+    return fail(c, 404, [{ code: 'document_not_found', message: `Document ${docId} not found` }]);
+  }
+  if (!doc.pdf_r2_url) {
+    return fail(c, 404, [{
+      code: 'document_no_object',
+      message: `Document ${docId} has no R2 object key`,
+    }]);
+  }
+
+  const obj = await c.env.DOCS.get(doc.pdf_r2_url);
+  if (!obj) {
+    return fail(c, 404, [{
+      code: 'r2_object_missing',
+      message: `R2 object ${doc.pdf_r2_url} not found`,
+    }]);
+  }
+
+  return new Response(obj.body, {
+    status: 200,
+    headers: {
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'Content-Disposition': `attachment; filename="${doc.document_number}.docx"`,
+      'Cache-Control': 'private, max-age=0, must-revalidate',
+    },
+  });
+});
 // Lazy-converts the .docx to PDF via CloudConvert on first request.
 // Result is cached in R2 (pdf_converted_r2_url). Subsequent requests hit cache.
 // Requires CLOUDCONVERT_API_KEY secret on the Worker.

@@ -204,6 +204,7 @@ export default function FreightRfqClient({ operationId }: { operationId: string 
 
     setSending(true);
     try {
+      const attachmentUrl = `${API_URL}/api/documents/${issued.document_id}/file/${encodeURIComponent(issued.document_number)}.docx`;
       const res = await fetch(`${API_URL}/api/email/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -213,10 +214,7 @@ export default function FreightRfqClient({ operationId }: { operationId: string 
           subject: emailSubject.trim(),
           body_plain: emailBody,
           context: `Freight RFQ ${issued.document_number} for operation ${operation?.reference ?? operationId} to ${issued.shipper.name}`,
-          attachments: [{
-            filename: `${issued.document_number}.docx`,
-            r2_key: issued.r2_key,
-          }],
+          attachments: [attachmentUrl],
         }),
       });
       const data = await res.json() as { success: boolean; errors?: { message: string }[] };

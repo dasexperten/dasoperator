@@ -7,6 +7,7 @@ import {
   type DeiCompanyForNda,
 } from '../lib/llm-tasks/generate-nda';
 import { markdownToDocxBuffer } from '../lib/md-to-docx';
+import { loadBulkBalances } from './net-balance';
 
 const partners = new Hono<{ Bindings: Env }>();
 
@@ -56,20 +57,38 @@ async function resolveUniqueSlug(db: D1Database, base: string): Promise<string> 
 // active main contract per partner). Falls back to legacy columns
 // p.contract_no / p.contract_date when no real contract exists.
 partners.get('/', async (c) => {
+  // Query params:
+  //   ?compact=1         → return only fields the partners table actually uses
+  //                        (cuts payload ~85%: from 42KB → 6KB on 73 partners)
+  //   ?include=balance   → bundle bulk net-balance into the same response,
+  //                        eliminating the second round-trip + its CORS preflight
+  const compact = c.req.query('compact') === '1';
+  const includeBalance = c.req.query('include') === 'balance';
+
+  const columns = compact
+    ? `p.id, p.trade_name, p.legal_name, p.country,
+       p.linked_entity_id, comp.abbreviation as entity_abbreviation,
+       p.currency,
+       COALESCE(ct.contract_no, p.contract_no) as contract_no,
+       COALESCE(ct.signed_date, p.contract_date) as contract_date,
+       p.status, p.crm_status, p.partner_type, p.kind,
+       p.partner_language`
+    : `p.id, p.trade_name, p.legal_name, p.country,
+       p.tax_id, p.iban, p.swift_bic, p.bank_name,
+       p.linked_entity_id, comp.abbreviation as entity_abbreviation,
+       p.price_type_id, pt.code as price_type_code,
+       p.currency,
+       COALESCE(ct.contract_no, p.contract_no) as contract_no,
+       COALESCE(ct.signed_date, p.contract_date) as contract_date,
+       p.email, p.status, p.crm_status, p.partner_type, p.kind, p.notes,
+       p.partner_language,
+       p.created_at, p.updated_at`;
+
   const sql = `
     SELECT
-      p.id, p.trade_name, p.legal_name, p.country,
-      p.tax_id, p.iban, p.swift_bic, p.bank_name,
-      p.linked_entity_id, c.abbreviation as entity_abbreviation,
-      p.price_type_id, pt.code as price_type_code,
-      p.currency,
-      COALESCE(ct.contract_no, p.contract_no) as contract_no,
-      COALESCE(ct.signed_date, p.contract_date) as contract_date,
-      p.email, p.status, p.crm_status, p.partner_type, p.kind, p.notes,
-      p.partner_language,
-      p.created_at, p.updated_at
+      ${columns}
     FROM partners p
-    LEFT JOIN companies c ON p.linked_entity_id = c.id
+    LEFT JOIN companies comp ON p.linked_entity_id = comp.id
     LEFT JOIN price_types pt ON p.price_type_id = pt.id
     LEFT JOIN (
       SELECT partner_id, contract_no, signed_date,
@@ -86,11 +105,29 @@ partners.get('/', async (c) => {
     WHERE p.deleted_at IS NULL
     ORDER BY p.trade_name
   `;
-  const results = await c.env.DB.prepare(sql).all();
-  return ok(c, {
-    count: results.results.length,
-    partners: results.results,
-  });
+
+  // Parallelize: partners SQL + bulk balances when requested.
+  // Bulk balances internally fires its own queries; running in parallel saves
+  // the longer of the two instead of summing them sequentially.
+  const partnersPromise = c.env.DB.prepare(sql).all();
+  const balancesPromise = includeBalance ? loadBulkBalances(c.env) : Promise.resolve(null);
+
+  const [partnersResults, balancesResult] = await Promise.all([
+    partnersPromise,
+    balancesPromise,
+  ]);
+
+  const payload: Record<string, unknown> = {
+    count: partnersResults.results.length,
+    partners: partnersResults.results,
+  };
+
+  if (balancesResult) {
+    payload.balances = balancesResult.balances;
+    payload.fx_date = balancesResult.fx_date;
+  }
+
+  return ok(c, payload);
 });
 
 // =============================================================================
@@ -878,3 +915,4 @@ partners.post('/recalc-status', async (c) => {
 });
 
 export default partners;
+

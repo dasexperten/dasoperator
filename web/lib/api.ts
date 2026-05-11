@@ -481,10 +481,23 @@ export interface PartnersListResponse {
     entity_abbreviation?: string | null;
     price_type_code?: string | null;
   }>;
+  // Optional — populated only when ?include=balance is passed
+  balances?: Array<{
+    partner_id: string;
+    net_balance_usd: number;
+    currencies: Record<string, number>;
+  }>;
+  fx_date?: string | null;
 }
 
 export async function getPartners() {
   return apiGet<PartnersListResponse>('/api/partners');
+}
+
+// Combined endpoint — partners list (compact fields) + bulk net-balances
+// in a single round-trip. Used by /partners table page.
+export async function getPartnersWithBalances() {
+  return apiGet<PartnersListResponse>('/api/partners?compact=1&include=balance');
 }
 
 // =============================================================================
@@ -1615,3 +1628,4 @@ export async function syncBankHistory(body?: {
     }>;
   }>('/api/banks/modulbank/sync-history', body ?? {});
 }
+

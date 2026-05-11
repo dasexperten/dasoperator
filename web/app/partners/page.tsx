@@ -7,7 +7,7 @@ export const runtime = 'edge';
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Search, Loader2, Plus } from 'lucide-react';
-import { getPartners, getAllNetBalances, type Partner } from '@/lib/api';
+import { getPartnersWithBalances, type Partner } from '@/lib/api';
 import NetBalance from '@/components/ui/net-balance';
 
 type ExtendedPartner = Partner & {
@@ -83,17 +83,23 @@ export default function PartnersPage() {
   const [entityFilter, setEntityFilter] = useState<string>('all');
 
   useEffect(() => {
-    // Two independent fetches — partners renders immediately when ready,
-    // balances are slow (~18s on a cold N+1 query) so they hydrate the
-    // rows when they arrive without blocking the initial render.
-    const fetchPartners = async () => {
+    // Single combined fetch — partners list + bulk balances in one round-trip.
+    // Backend returns ~6KB instead of ~42KB and saves a second CORS preflight.
+    const fetchAll = async () => {
       try {
-        const partnersRes = await getPartners();
-        if (partnersRes.success && partnersRes.result) {
-          setPartners(partnersRes.result.partners);
+        const res = await getPartnersWithBalances();
+        if (res.success && res.result) {
+          setPartners(res.result.partners);
+          if (res.result.balances) {
+            const map: Record<string, BalanceRow> = {};
+            for (const b of res.result.balances) {
+              map[b.partner_id] = { usd: b.net_balance_usd, currencies: b.currencies };
+            }
+            setNetBalances(map);
+          }
           setError(null);
         } else {
-          setError(partnersRes.errors[0]?.message ?? 'Failed to load partners');
+          setError(res.errors[0]?.message ?? 'Failed to load partners');
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
@@ -102,23 +108,7 @@ export default function PartnersPage() {
       }
     };
 
-    const fetchBalances = async () => {
-      try {
-        const balRes = await getAllNetBalances();
-        if (balRes.success && balRes.result) {
-          const map: Record<string, BalanceRow> = {};
-          for (const b of balRes.result.balances) {
-            map[b.partner_id] = { usd: b.net_balance_usd, currencies: b.currencies };
-          }
-          setNetBalances(map);
-        }
-      } catch {
-        // Balances are optional — partner list works without them.
-      }
-    };
-
-    fetchPartners();
-    fetchBalances();
+    fetchAll();
   }, []);
 
   const entities = useMemo(() => {
@@ -382,3 +372,4 @@ function Th({ children }: { children: React.ReactNode }) {
     </th>
   );
 }
+

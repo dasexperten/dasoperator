@@ -18,7 +18,7 @@ import { ok } from '../lib/responses';
 import { getRatesFor } from '../lib/fx-store';
 import { getRateToUsdNano, applyFxToAmount, todayUtcDate } from '../lib/fx-cbr';
 
-interface OperationRow {
+export interface OperationRow {
   contract_id: string;
   operation_type: string;
   total_amount: number;
@@ -26,7 +26,7 @@ interface OperationRow {
   status: string;
 }
 
-interface PaymentRow {
+export interface PaymentRow {
   amount: number;
   currency: string;
   direction: string;
@@ -35,7 +35,7 @@ interface PaymentRow {
 const DEBT_STATUSES = new Set(['issued', 'shipped', 'delivered']);
 
 // Compute USD-pivoted net balance for a partner from raw rows + FX snapshot.
-function computeNetBalance(
+export function computeNetBalance(
   ops: OperationRow[],
   pays: PaymentRow[],
   snapshot: { rates: Record<string, { rate_to_usd_nano: number }> } | null
@@ -80,6 +80,103 @@ function computeNetBalance(
   }
 
   return { totalUsd, breakdown, byCurrency };
+}
+
+
+// =============================================================================
+// Shared helper — load bulk balances for many partners in a single round-trip.
+// Used by both /api/net-balance (bulk endpoint) and /api/partners?include=balance.
+// =============================================================================
+export interface BulkBalanceEntry {
+  partner_id: string;
+  net_balance_usd: number;
+  currencies: Record<string, number>;
+}
+
+export async function loadBulkBalances(env: Env): Promise<{
+  balances: BulkBalanceEntry[];
+  fx_date: string | null;
+}> {
+  const partnersResult = await env.DB.prepare(
+    'SELECT id FROM partners WHERE deleted_at IS NULL'
+  ).all<{ id: string }>();
+
+  const today = todayUtcDate();
+  const snapshot = await getRatesFor(env.FX, today);
+
+  const opsAggResult = await env.DB.prepare(`
+    SELECT c.partner_id AS partner_id,
+           o.operation_type AS operation_type,
+           o.currency AS currency,
+           o.status AS status,
+           SUM(o.total_amount) AS total
+    FROM operations o
+    JOIN contracts c ON o.contract_id = c.id
+    WHERE o.deleted_at IS NULL
+      AND o.status IN ('issued','shipped','delivered')
+    GROUP BY c.partner_id, o.operation_type, o.currency, o.status
+  `).all<{
+    partner_id: string;
+    operation_type: string;
+    currency: string;
+    status: string;
+    total: number;
+  }>();
+
+  const paysAggResult = await env.DB.prepare(`
+    SELECT partner_id,
+           currency,
+           direction,
+           SUM(amount) AS total
+    FROM payments
+    WHERE deleted_at IS NULL
+    GROUP BY partner_id, currency, direction
+  `).all<{
+    partner_id: string;
+    currency: string;
+    direction: string;
+    total: number;
+  }>();
+
+  const opsByPartner = new Map<string, OperationRow[]>();
+  for (const r of opsAggResult.results) {
+    if (!r.partner_id) continue;
+    const list = opsByPartner.get(r.partner_id) ?? [];
+    list.push({
+      contract_id: '',
+      operation_type: r.operation_type,
+      total_amount: r.total,
+      currency: r.currency,
+      status: r.status,
+    });
+    opsByPartner.set(r.partner_id, list);
+  }
+
+  const paysByPartner = new Map<string, PaymentRow[]>();
+  for (const r of paysAggResult.results) {
+    if (!r.partner_id) continue;
+    const list = paysByPartner.get(r.partner_id) ?? [];
+    list.push({
+      amount: r.total,
+      currency: r.currency,
+      direction: r.direction,
+    });
+    paysByPartner.set(r.partner_id, list);
+  }
+
+  const balances: BulkBalanceEntry[] = [];
+  for (const p of partnersResult.results) {
+    const ops = opsByPartner.get(p.id) ?? [];
+    const pays = paysByPartner.get(p.id) ?? [];
+    const { totalUsd, byCurrency } = computeNetBalance(ops, pays, snapshot);
+    balances.push({
+      partner_id: p.id,
+      net_balance_usd: totalUsd,
+      currencies: byCurrency,
+    });
+  }
+
+  return { balances, fx_date: snapshot?.date ?? null };
 }
 
 // =============================================================================
@@ -128,102 +225,13 @@ netBalancePerPartner.get('/:slug/net-balance', async (c) => {
 const netBalanceBulk = new Hono<{ Bindings: Env }>();
 
 netBalanceBulk.get('/', async (c) => {
-  const partnersResult = await c.env.DB.prepare(
-    'SELECT id FROM partners WHERE deleted_at IS NULL'
-  ).all<{ id: string }>();
-
-  const today = todayUtcDate();
-  const snapshot = await getRatesFor(c.env.FX, today);
-
-  // -------------------------------------------------------------------------
-  // Two bulk aggregating queries instead of 73 × 2 = 146 sequential round-trips.
-  // We group at the SQL level by (partner_id, operation_type, currency, status)
-  // and (partner_id, currency, direction) — yielding tens of rows per query,
-  // not thousands.
-  // -------------------------------------------------------------------------
-  const opsAggResult = await c.env.DB.prepare(`
-    SELECT c.partner_id AS partner_id,
-           o.operation_type AS operation_type,
-           o.currency AS currency,
-           o.status AS status,
-           SUM(o.total_amount) AS total
-    FROM operations o
-    JOIN contracts c ON o.contract_id = c.id
-    WHERE o.deleted_at IS NULL
-      AND o.status IN ('issued','shipped','delivered')
-    GROUP BY c.partner_id, o.operation_type, o.currency, o.status
-  `).all<{
-    partner_id: string;
-    operation_type: string;
-    currency: string;
-    status: string;
-    total: number;
-  }>();
-
-  const paysAggResult = await c.env.DB.prepare(`
-    SELECT partner_id,
-           currency,
-           direction,
-           SUM(amount) AS total
-    FROM payments
-    WHERE deleted_at IS NULL
-    GROUP BY partner_id, currency, direction
-  `).all<{
-    partner_id: string;
-    currency: string;
-    direction: string;
-    total: number;
-  }>();
-
-  // Group rows back into per-partner buckets that computeNetBalance expects.
-  const opsByPartner = new Map<string, OperationRow[]>();
-  for (const r of opsAggResult.results) {
-    if (!r.partner_id) continue;
-    const list = opsByPartner.get(r.partner_id) ?? [];
-    list.push({
-      contract_id: '',
-      operation_type: r.operation_type,
-      total_amount: r.total,
-      currency: r.currency,
-      status: r.status,
-    });
-    opsByPartner.set(r.partner_id, list);
-  }
-
-  const paysByPartner = new Map<string, PaymentRow[]>();
-  for (const r of paysAggResult.results) {
-    if (!r.partner_id) continue;
-    const list = paysByPartner.get(r.partner_id) ?? [];
-    list.push({
-      amount: r.total,
-      currency: r.currency,
-      direction: r.direction,
-    });
-    paysByPartner.set(r.partner_id, list);
-  }
-
-  const balances: Array<{
-    partner_id: string;
-    net_balance_usd: number;
-    currencies: Record<string, number>;
-  }> = [];
-
-  for (const p of partnersResult.results) {
-    const ops = opsByPartner.get(p.id) ?? [];
-    const pays = paysByPartner.get(p.id) ?? [];
-    const { totalUsd, byCurrency } = computeNetBalance(ops, pays, snapshot);
-    balances.push({
-      partner_id: p.id,
-      net_balance_usd: totalUsd,
-      currencies: byCurrency,
-    });
-  }
-
+  const { balances, fx_date } = await loadBulkBalances(c.env);
   return ok(c, {
     count: balances.length,
     balances,
-    fx_date: snapshot?.date ?? null,
+    fx_date,
   });
 });
 
 export { netBalancePerPartner, netBalanceBulk };
+

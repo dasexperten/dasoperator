@@ -505,6 +505,7 @@ export default function OperationDetailClient({
       {activeTab === 'status' && (
         <StatusTab
           status={operation.status}
+          operationType={operation.operation_type}
           operationId={operationId}
           onStatusChange={async (newStatus) => {
             const res = await updateOperationStatus(operationId, newStatus);
@@ -955,20 +956,53 @@ function ItemsTab({
 // =============================================================================
 // Status tab
 // =============================================================================
+// Full list of all possible status targets — UI filters per operation_type below.
 const STATUS_TARGETS = [
-  { id: 'shipped',   label: 'Mark as shipped' },
-  { id: 'delivered', label: 'Mark as delivered' },
-  { id: 'cancelled', label: 'Cancel' },
+  { id: 'production', label: 'Mark Production' },
+  { id: 'shipped',    label: 'Mark Shipped'    },
+  { id: 'delivered',  label: 'Mark Delivered'  },
+  { id: 'cancelled',  label: 'Cancel'          },
 ] as const;
 
 type StatusTarget = typeof STATUS_TARGETS[number]['id'];
 
+// Operation-type-aware lifecycle map (mirror of backend ALLOWED_TRANSITIONS).
+// `null` means terminal (no further targets).
+const LIFECYCLE_NEXT: Record<string, Record<string, StatusTarget[]>> = {
+  sale: {
+    draft:            ['shipped', 'cancelled'],
+    issued:           ['shipped', 'cancelled'],
+    order_fulfilment: ['shipped', 'cancelled'],
+    shipped:          ['delivered', 'cancelled'],
+    delivered:        [],
+    cancelled:        [],
+  },
+  purchase: {
+    draft:      ['production', 'cancelled'],
+    issued:     ['production', 'cancelled'],
+    production: ['shipped', 'cancelled'],
+    shipped:    ['delivered', 'cancelled'],  // delivered здесь = manual fallback
+    delivered:  [],
+    cancelled:  [],
+    stocked:    ['shipped', 'cancelled'],    // legacy
+  },
+  transfer: {
+    draft:     ['shipped', 'cancelled'],
+    issued:    ['shipped', 'cancelled'],
+    shipped:   ['delivered', 'cancelled'],
+    delivered: [],
+    cancelled: [],
+  },
+};
+
 function StatusTab({
   status,
+  operationType,
   operationId,
   onStatusChange,
 }: {
   status: string;
+  operationType: string;
   operationId: string;
   onStatusChange: (newStatus: StatusTarget) => Promise<void>;
 }) {
@@ -989,6 +1023,10 @@ function StatusTab({
     }
   };
 
+  // Filter to only the targets allowed from current status, per op type.
+  const allowedNext = LIFECYCLE_NEXT[operationType]?.[status] ?? [];
+  const visibleTargets = STATUS_TARGETS.filter((t) => allowedNext.includes(t.id));
+
   // Once cancelled, no further moves available
   const terminal = status === 'cancelled';
 
@@ -1008,7 +1046,9 @@ function StatusTab({
       <div>
         <p className="mb-3">Move to</p>
         <div className="flex flex-wrap gap-2">
-          {STATUS_TARGETS.map((target) => {
+          {visibleTargets.length === 0 ? (
+            <span style={{ color: 'var(--fg-3)', fontSize: '14px' }}>No further transitions available — operation is complete.</span>
+          ) : visibleTargets.map((target) => {
             const isPending = pending === target.id;
             const isCurrent = status === target.id;
             const disabled = terminal || isCurrent || pending !== null;

@@ -139,11 +139,15 @@ interface StockJoinRow {
   code: string;
   warehouse_name: string;
   on_hand: number;
+  in_production: number;
   marketplace_ozon: number;
   marketplace_wb: number;
 }
 
 products.get('/with-stock', async (c) => {
+  // Per-warehouse on_hand + in_production breakdown.
+  // OTW (wh_otw, virtual warehouse) is summed separately as on_the_way
+  // since it appears in its own UI column, not as a regular warehouse cell.
   const result = await c.env.DB.prepare(`
     SELECT
       p.id AS product_id,
@@ -154,14 +158,20 @@ products.get('/with-stock', async (c) => {
       w.id AS warehouse_id,
       w.code,
       w.name AS warehouse_name,
-      COALESCE(s.on_hand, 0) AS on_hand,
+      COALESCE(s_on.on_hand, 0) AS on_hand,
+      COALESCE(s_prod.on_hand, 0) AS in_production,
       COALESCE(oz.qty, 0) AS marketplace_ozon,
       COALESCE(wb.qty, 0) AS marketplace_wb
     FROM products p
     CROSS JOIN warehouses w
-    LEFT JOIN stocks s
-      ON s.product_id = p.id
-     AND s.warehouse_id = w.id
+    LEFT JOIN stocks s_on
+      ON s_on.product_id = p.id
+     AND s_on.warehouse_id = w.id
+     AND s_on.stock_state = 'on_hand'
+    LEFT JOIN stocks s_prod
+      ON s_prod.product_id = p.id
+     AND s_prod.warehouse_id = w.id
+     AND s_prod.stock_state = 'in_production'
     LEFT JOIN (
       SELECT base_sku, SUM(fbo_available * pack_factor) AS qty
       FROM marketplace_stocks_ozon
@@ -174,8 +184,22 @@ products.get('/with-stock', async (c) => {
     ) wb ON wb.base_sku = p.id
     WHERE p.deleted_at IS NULL
       AND w.deleted_at IS NULL
+      AND w.id != 'wh_otw'
     ORDER BY p.product_name, w.code
   `).all<StockJoinRow>();
+
+  // OTW totals per product (single sum across the virtual warehouse)
+  const otwResult = await c.env.DB.prepare(`
+    SELECT product_id, SUM(on_hand) AS qty
+    FROM stocks
+    WHERE warehouse_id = 'wh_otw' AND stock_state = 'in_transit'
+    GROUP BY product_id
+  `).all<{ product_id: string; qty: number }>();
+
+  const otwByProduct = new Map<string, number>();
+  for (const row of otwResult.results || []) {
+    otwByProduct.set(row.product_id, row.qty);
+  }
 
   const byProduct = new Map<string, {
     id: string;
@@ -186,7 +210,8 @@ products.get('/with-stock', async (c) => {
     total_on_hand: number;
     marketplace_ozon: number;
     marketplace_wb: number;
-    warehouses: Array<{ warehouse_id: string; code: string; name: string; on_hand: number }>;
+    on_the_way: number;
+    warehouses: Array<{ warehouse_id: string; code: string; name: string; on_hand: number; in_production: number }>;
   }>();
 
   for (const row of result.results) {
@@ -201,6 +226,7 @@ products.get('/with-stock', async (c) => {
         total_on_hand: 0,
         marketplace_ozon: row.marketplace_ozon,
         marketplace_wb: row.marketplace_wb,
+        on_the_way: otwByProduct.get(row.product_id) ?? 0,
         warehouses: [],
       };
       byProduct.set(row.product_id, prod);
@@ -210,6 +236,7 @@ products.get('/with-stock', async (c) => {
       code: row.code,
       name: row.warehouse_name,
       on_hand: row.on_hand,
+      in_production: row.in_production,
     });
     prod.total_on_hand += row.on_hand;
   }

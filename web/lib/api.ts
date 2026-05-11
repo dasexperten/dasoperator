@@ -1060,16 +1060,24 @@ export async function createOperation(body: CreateOperationBody) {
   );
 }
 
+export type OperationStatusTarget =
+  | 'issued'
+  | 'production'
+  | 'order_fulfilment'
+  | 'shipped'
+  | 'delivered'
+  | 'cancelled';
+
 export interface UpdateStatusResponse {
   id: string;
   previous_status: string;
-  status: 'shipped' | 'delivered' | 'cancelled';
+  status: OperationStatusTarget;
   updated_at: number;
 }
 
 export async function updateOperationStatus(
   id: string,
-  status: 'shipped' | 'delivered' | 'cancelled'
+  status: OperationStatusTarget
 ) {
   return apiPatch<UpdateStatusResponse>(`/api/operations/${id}/status`, { status });
 }
@@ -1181,6 +1189,7 @@ export interface ProductWarehouseStock {
   code: string;
   name: string;
   on_hand: number;
+  in_production?: number;  // factory reservation, rendered as "+N" green suffix
 }
 
 export interface ProductWithStock {
@@ -1192,6 +1201,7 @@ export interface ProductWithStock {
   total_on_hand: number;
   marketplace_ozon: number;
   marketplace_wb: number;
+  on_the_way?: number;  // OTW (wh_otw) — sum across all in-transit
   warehouses: ProductWarehouseStock[];
 }
 

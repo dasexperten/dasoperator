@@ -106,6 +106,9 @@ export default function WarehousesPage() {
       } else if (sort.key === 'wb') {
         va = marketplaces[a.id]?.wb_units ?? 0;
         vb = marketplaces[b.id]?.wb_units ?? 0;
+      } else if (sort.key === 'otw') {
+        va = a.on_the_way ?? 0;
+        vb = b.on_the_way ?? 0;
       } else {
         // warehouse_id — find on_hand for that warehouse on each product
         const ai = a.warehouses.find((w) => w.warehouse_id === sort.key);
@@ -137,13 +140,15 @@ export default function WarehousesPage() {
   const totalsByWarehouse = useMemo(() => {
     const totals: Record<string, number> = {};
     let grandTotal = 0;
+    let otwTotal = 0;
     for (const p of products) {
       for (const w of p.warehouses) {
         totals[w.code] = (totals[w.code] ?? 0) + w.on_hand;
         grandTotal += w.on_hand;
       }
+      otwTotal += p.on_the_way ?? 0;
     }
-    return { totals, grandTotal };
+    return { totals, grandTotal, otwTotal };
   }, [products]);
 
   const marketplaceTotals = useMemo(() => {
@@ -231,6 +236,14 @@ export default function WarehousesPage() {
                     {w.code}
                   </SortableTh>
                 ))}
+                {/* OTW (On The Way) — virtual warehouse, light yellow */}
+                <SortableTh
+                  center
+                  bg="rgba(250, 199, 117, 0.18)"
+                  sortKey="otw"
+                  sort={sort}
+                  onClick={handleSortClick}
+                >OTW</SortableTh>
                 <SortableTh
                   center
                   bg={MARKETPLACE_TINT.ozon}
@@ -257,7 +270,7 @@ export default function WarehousesPage() {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={warehouses.length + 5} className="text-center py-12" style={{ color: 'var(--fg-3)' }}>
+                  <td colSpan={warehouses.length + 6} className="text-center py-12" style={{ color: 'var(--fg-3)' }}>
                     No products match
                   </td>
                 </tr>
@@ -266,7 +279,12 @@ export default function WarehousesPage() {
                   const skuShort = p.id.replace('prd_', '').toUpperCase();
                   const skuLower = p.id.replace('prd_', '').toLowerCase();
                   const byWh: Record<string, number> = {};
-                  for (const w of p.warehouses) byWh[w.warehouse_id] = w.on_hand;
+                  const prodByWh: Record<string, number> = {};
+                  for (const w of p.warehouses) {
+                    byWh[w.warehouse_id] = w.on_hand;
+                    prodByWh[w.warehouse_id] = w.in_production ?? 0;
+                  }
+                  const otwQty = p.on_the_way ?? 0;
 
                   const mp = marketplaces[p.id];
                   const ozonVal = mp?.ozon_units ?? 0;
@@ -282,15 +300,18 @@ export default function WarehousesPage() {
                       </td>
                       {sortedWarehouses.map((w) => {
                         const v = byWh[w.id] ?? 0;
+                        const prod = prodByWh[w.id] ?? 0;
                         return (
                           <StockCellTd
                             key={w.id}
                             value={v}
+                            inProduction={prod}
                             href={`/warehouses/${w.id}?sku=${skuLower}`}
                             tint={TINT_BY_GROUP[groupForWarehouse(w)]}
                           />
                         );
                       })}
+                      <OtwCellTd value={otwQty} />
                       <MarketplaceCellTd value={ozonVal} tint={MARKETPLACE_TINT.ozon} />
                       <MarketplaceCellTd value={wbVal}   tint={MARKETPLACE_TINT.wb} />
                       <td className="px-3 py-2 text-right" style={{
@@ -321,6 +342,15 @@ export default function WarehousesPage() {
                       {(totalsByWarehouse.totals[w.code] ?? 0).toLocaleString('en-US')}
                     </td>
                   ))}
+                  {/* OTW total */}
+                  <td className="px-3 py-2 text-right" style={{
+                    fontSize: '14px',
+                    fontWeight: 700,
+                    color: totalsByWarehouse.otwTotal > 0 ? '#854F0B' : 'var(--fg-1)',
+                    backgroundColor: 'rgba(250, 199, 117, 0.28)',
+                  }}>
+                    {totalsByWarehouse.otwTotal.toLocaleString('en-US')}
+                  </td>
                   <td className="px-3 py-2 text-right" style={{
                     fontSize: '14px',
                     fontWeight: 700,
@@ -393,26 +423,50 @@ const MARKETPLACE_TINT = {
   wb:   'rgba(203, 17, 122, 0.06)',
 };
 
-function StockCellTd({ value, href, tint }: { value: number; href: string; tint?: string }) {
+function StockCellTd({ value, inProduction = 0, href, tint }: { value: number; inProduction?: number; href: string; tint?: string }) {
   let bg: string | undefined = tint;
   let color: string;
-  if (value === 0) {
+  if (value === 0 && inProduction === 0) {
     color = 'var(--fg-muted)';
-  } else if (value <= 50) {
+  } else if (value > 0 && value <= 50) {
     bg = 'rgba(229,32,44,0.08)';
     color = 'var(--brand-rot)';
-  } else if (value <= 200) {
+  } else if (value > 0 && value <= 200) {
     bg = 'rgba(199,122,0,0.08)';
     color = 'var(--status-warning)';
   } else {
     color = 'var(--fg-1)';
   }
 
+  const showValue = value > 0;
+  const showProd = inProduction > 0;
+
   return (
     <td className="px-3 py-2 text-right" style={{ backgroundColor: bg, fontSize: '14px', color }}>
       <Link href={href} style={{ color: 'inherit' }}>
-        {value === 0 ? '—' : value.toLocaleString('en-US')}
+        {!showValue && !showProd && '—'}
+        {showValue && <span>{value.toLocaleString('en-US')}</span>}
+        {showProd && (
+          <span style={{ color: '#3B6D11', fontWeight: 600, marginLeft: showValue ? '4px' : 0 }}>
+            +{inProduction.toLocaleString('en-US')}
+          </span>
+        )}
       </Link>
+    </td>
+  );
+}
+
+// OTW (On The Way) — virtual warehouse cell, always light yellow
+function OtwCellTd({ value }: { value: number }) {
+  const color = value === 0 ? 'var(--fg-muted)' : '#854F0B';
+  return (
+    <td className="px-3 py-2 text-right" style={{
+      backgroundColor: 'rgba(250, 199, 117, 0.18)',
+      fontSize: '14px',
+      color,
+      fontWeight: value > 0 ? 600 : 400,
+    }}>
+      {value === 0 ? '—' : value.toLocaleString('en-US')}
     </td>
   );
 }

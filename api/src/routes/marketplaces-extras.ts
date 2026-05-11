@@ -35,7 +35,6 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
-import { withKvCache, cacheKey } from '../lib/kv-cache';
 
 const marketplacesExtras = new Hono<{ Bindings: Env }>();
 
@@ -75,114 +74,92 @@ marketplacesExtras.get('/sales', async (c) => {
   const daysParam = parseInt(c.req.query('days') || '30', 10);
   const periodDays = Math.min(Math.max(daysParam, 1), 90);
 
-  // Two-layer optimisation:
-  //   1. Wrap the whole aggregate in KV cache (TTL 300s). Marketplace data is
-  //      refreshed by cron every ~6h, so a 5-minute stale window is fine.
-  //   2. On cache miss, run all 6 SQL queries as ONE D1.batch() call, replacing
-  //      6 sequential network round-trips to D1 with a single one.
-  const payload = await withKvCache(
-    c.env,
-    cacheKey('marketplaces:sales', { periodDays }),
-    300,
-    async () => {
-      // All six queries shipped in one batch — single D1 round-trip.
-      const batchResults = await c.env.DB.batch([
-          c.env.DB.prepare(`
-            SELECT marketplace,
-                   COALESCE(SUM(units_sold), 0)  AS units,
-                   COALESCE(SUM(revenue_rub), 0) AS revenue
-            FROM marketplace_sales_daily
-            WHERE date >= date('now', '-' || ? || ' days')
-            GROUP BY marketplace
-          `).bind(periodDays),
-          c.env.DB.prepare(
-            'SELECT MAX(synced_at) AS synced_at, MIN(period_from) AS pf, MAX(period_to) AS pt FROM marketplace_sales_ozon'
-          ),
-          c.env.DB.prepare(
-            'SELECT MAX(synced_at) AS synced_at, MIN(period_from) AS pf, MAX(period_to) AS pt FROM marketplace_sales_wb'
-          ),
-          c.env.DB.prepare(`
-            SELECT marketplace, date, units_sold, revenue_rub
-            FROM marketplace_sales_daily
-            WHERE date >= date('now', '-' || ? || ' days')
-            ORDER BY date ASC, marketplace ASC
-          `).bind(periodDays),
-          c.env.DB.prepare(`
-            SELECT
-              p.id AS sku, p.product_name,
-              o.units_sold, o.revenue_rub,
-              o.views, o.tocart_count,
-              o.position_category, o.current_price_rub,
-              o.cost_per_click_rub, o.cost_per_order_rub,
-              o.stars_promo_rub, o.brand_commission_rub,
-              o.reviews_cost_rub, o.stars_membership_rub,
-              o.acquiring_rub, o.returns_cost_rub, o.expenses_total_rub
-            FROM marketplace_sales_ozon o
-            JOIN products p ON p.id = o.base_sku AND p.deleted_at IS NULL
-            WHERE o.units_sold > 0
-            ORDER BY o.units_sold DESC
-          `),
-          c.env.DB.prepare(`
-            SELECT
-              p.id AS sku, p.product_name,
-              w.units_sold, w.revenue_rub,
-              w.views, w.tocart_count,
-              w.position_category, w.current_price_rub, w.ad_spend_rub
-            FROM marketplace_sales_wb w
-            JOIN products p ON p.id = w.base_sku AND p.deleted_at IS NULL
-            WHERE w.units_sold > 0
-            ORDER BY w.units_sold DESC
-          `),
-        ]);
+  // Headline totals — from daily breakdown for an exact period match.
+  // (Not from marketplace_sales_* tables, which carry rolling-window per-SKU
+  //  totals reflecting the latest sync window — could be 60d after a backfill.)
+  const totalsRows = await c.env.DB.prepare(`
+    SELECT marketplace,
+           COALESCE(SUM(units_sold), 0)  AS units,
+           COALESCE(SUM(revenue_rub), 0) AS revenue
+    FROM marketplace_sales_daily
+    WHERE date >= date('now', '-' || ? || ' days')
+    GROUP BY marketplace
+  `).bind(periodDays).all<{ marketplace: 'ozon' | 'wb'; units: number; revenue: number }>();
 
-      // batch() returns one D1Result per input statement in order; assert non-null
-      const totalsRes = batchResults[0]!;
-      const ozonSyncRes = batchResults[1]!;
-      const wbSyncRes = batchResults[2]!;
-      const dailyRes = batchResults[3]!;
-      const topOzonRes = batchResults[4]!;
-      const topWbRes = batchResults[5]!;
+  const ozonRow = totalsRows.results.find(r => r.marketplace === 'ozon');
+  const wbRow   = totalsRows.results.find(r => r.marketplace === 'wb');
 
-      const totalsRows = (totalsRes.results ?? []) as Array<{
-        marketplace: 'ozon' | 'wb'; units: number; revenue: number;
-      }>;
-      const ozonRow = totalsRows.find(r => r.marketplace === 'ozon');
-      const wbRow   = totalsRows.find(r => r.marketplace === 'wb');
+  // Sync recency comes from the SKU tables (where synced_at lives).
+  const ozonSync = await c.env.DB.prepare(
+    'SELECT MAX(synced_at) AS synced_at, MIN(period_from) AS pf, MAX(period_to) AS pt FROM marketplace_sales_ozon'
+  ).first<{ synced_at: number | null; pf: string | null; pt: string | null }>();
+  const wbSync = await c.env.DB.prepare(
+    'SELECT MAX(synced_at) AS synced_at, MIN(period_from) AS pf, MAX(period_to) AS pt FROM marketplace_sales_wb'
+  ).first<{ synced_at: number | null; pf: string | null; pt: string | null }>();
 
-      const ozonSync = (ozonSyncRes.results?.[0] ?? null) as {
-        synced_at: number | null; pf: string | null; pt: string | null;
-      } | null;
-      const wbSync = (wbSyncRes.results?.[0] ?? null) as {
-        synced_at: number | null; pf: string | null; pt: string | null;
-      } | null;
+  const daily = await c.env.DB.prepare(`
+    SELECT marketplace, date, units_sold, revenue_rub
+    FROM marketplace_sales_daily
+    WHERE date >= date('now', '-' || ? || ' days')
+    ORDER BY date ASC, marketplace ASC
+  `).bind(periodDays).all();
 
-      return {
-        period_days: periodDays,
-        sync_windows: {
-          ozon: { from: ozonSync?.pf ?? null, to: ozonSync?.pt ?? null },
-          wb:   { from: wbSync?.pf ?? null,   to: wbSync?.pt ?? null },
-        },
-        totals: {
-          ozon: {
-            units_sold: ozonRow?.units || 0,
-            revenue_rub: ozonRow?.revenue || 0,
-            synced_at: ozonSync?.synced_at || null,
-          },
-          wb: {
-            units_sold: wbRow?.units || 0,
-            revenue_rub: wbRow?.revenue || 0,
-            synced_at: wbSync?.synced_at || null,
-          },
-        },
-        daily: dailyRes.results ?? [],
-        top_skus: {
-          ozon: topOzonRes.results ?? [],
-          wb: topWbRes.results ?? [],
-        },
-      };
-    }
-  );
-  return ok(c, payload);
+  // Top SKUs — one row per catalog SKU per marketplace.
+  // Note: these reflect the latest *sync window* snapshot, which may be wider
+  // (60d after backfill) or narrower (7d after a regular cron) than the
+  // headline totals window. UI shows a sync-window subtitle to disambiguate.
+  const topOzon = await c.env.DB.prepare(`
+    SELECT
+      p.id AS sku, p.product_name,
+      o.units_sold, o.revenue_rub,
+      o.views, o.tocart_count,
+      o.position_category, o.current_price_rub,
+      o.cost_per_click_rub, o.cost_per_order_rub,
+      o.stars_promo_rub, o.brand_commission_rub,
+      o.reviews_cost_rub, o.stars_membership_rub,
+      o.acquiring_rub, o.returns_cost_rub, o.expenses_total_rub
+    FROM marketplace_sales_ozon o
+    JOIN products p ON p.id = o.base_sku AND p.deleted_at IS NULL
+    WHERE o.units_sold > 0
+    ORDER BY o.units_sold DESC
+  `).all();
+
+  const topWb = await c.env.DB.prepare(`
+    SELECT
+      p.id AS sku, p.product_name,
+      w.units_sold, w.revenue_rub,
+      w.views, w.tocart_count,
+      w.position_category, w.current_price_rub, w.ad_spend_rub
+    FROM marketplace_sales_wb w
+    JOIN products p ON p.id = w.base_sku AND p.deleted_at IS NULL
+    WHERE w.units_sold > 0
+    ORDER BY w.units_sold DESC
+  `).all();
+
+  return ok(c, {
+    period_days: periodDays,
+    sync_windows: {
+      ozon: { from: ozonSync?.pf ?? null, to: ozonSync?.pt ?? null },
+      wb:   { from: wbSync?.pf ?? null,   to: wbSync?.pt ?? null },
+    },
+    totals: {
+      ozon: {
+        units_sold: ozonRow?.units || 0,
+        revenue_rub: ozonRow?.revenue || 0,
+        synced_at: ozonSync?.synced_at || null,
+      },
+      wb: {
+        units_sold: wbRow?.units || 0,
+        revenue_rub: wbRow?.revenue || 0,
+        synced_at: wbSync?.synced_at || null,
+      },
+    },
+    daily: daily.results,
+    top_skus: {
+      ozon: topOzon.results,
+      wb: topWb.results,
+    },
+  });
 });
 
 // =============================================================================
@@ -430,11 +407,11 @@ marketplacesExtras.post('/sync/sales/wb', async (c) => {
     }
 
     // Step 4 — ad spend
-    let adSpendMap = new Map<string, number>();
+    let advertMap = new Map<string, { spendKopecks: number; views: number; clicks: number; tocart: number; orders: number }>();
     try {
-      adSpendMap = await fetchWbAdSpend(c.env, dateFromStr, dateToStr);
+      advertMap = await fetchWbAdvert(c.env, c.env.DB, dateFromStr, dateToStr);
     } catch (e) {
-      console.error('[wb-sales] ad spend failed:', e);
+      console.error('[wb-sales] advert failed:', e);
     }
 
     // Filter to catalog SKUs only
@@ -453,9 +430,16 @@ marketplacesExtras.post('/sync/sales/wb', async (c) => {
       c.env.DB.prepare("DELETE FROM marketplace_sales_daily WHERE marketplace = 'wb'"),
     ];
     for (const [sku, v] of filtered.entries()) {
-      const f = funnelMap.get(sku) || { views: 0, tocart: 0, position: null };
+      const ad = advertMap.get(sku);
+      const fFromNm = funnelMap.get(sku);
+      // Prefer nm-report funnel; fall back to advert-derived funnel (views/atbs from ads).
+      const f = fFromNm
+        ? fFromNm
+        : ad
+          ? { views: ad.views, tocart: ad.tocart, position: null }
+          : { views: 0, tocart: 0, position: null };
       const price = priceMap.get(sku) ?? null;
-      const adSpend = adSpendMap.get(sku) ?? 0;
+      const adSpend = ad ? ad.spendKopecks : 0;
       stmts.push(
         c.env.DB.prepare(
           `INSERT INTO marketplace_sales_wb
@@ -490,7 +474,7 @@ marketplacesExtras.post('/sync/sales/wb', async (c) => {
       dropped_not_in_catalog: droppedNotInCatalog,
       funnel_skus: funnelMap.size,
       prices_pulled: priceMap.size,
-      ad_skus_with_spend: adSpendMap.size,
+      ad_skus_with_spend: advertMap.size,
       period: { from: dateFromStr, to: dateToStr, days: periodDays },
     });
   } catch (e) {
@@ -501,6 +485,72 @@ marketplacesExtras.post('/sync/sales/wb', async (c) => {
     return fail(c, 502, [{ code: 'wb_sales_sync_failed', message: msg }]);
   }
 });
+
+
+// =============================================================================
+// POST /api/marketplaces/sync/advert/wb
+//
+// Lightweight: only pulls advert spend + funnel (views/clicks/atbs/orders)
+// from WB Advert API and UPDATEs existing rows in marketplace_sales_wb without
+// re-pulling the raw sales feed (which is hard rate-limited).
+//
+// Useful when WB statistics-api is temporarily blocking us but we still want
+// to refresh ad spend / DRR.
+// =============================================================================
+marketplacesExtras.post('/sync/advert/wb', async (c) => {
+  const startedAt = Math.floor(Date.now() / 1000);
+  const daysParam = parseInt(c.req.query('days') || '7', 10);
+  const periodDays = Math.min(Math.max(daysParam, 1), 90);
+  const logResult = await c.env.DB.prepare(
+    "INSERT INTO marketplace_sync_log (marketplace, started_at, status) VALUES (?, ?, 'running')"
+  ).bind('wb-advert', startedAt).run();
+  const logId = logResult.meta.last_row_id as number;
+
+  try {
+    if (!c.env.WB_API_TOKEN) throw new Error('WB_API_TOKEN not configured');
+
+    const today = new Date();
+    const dateToStr = isoDate(today);
+    const from = new Date(today.getTime() - periodDays * 24 * 3600_000);
+    const dateFromStr = isoDate(from);
+
+    const advertMap = await fetchWbAdvert(c.env, c.env.DB, dateFromStr, dateToStr);
+
+    // Update existing rows
+    let updated = 0;
+    const stmts: D1PreparedStatement[] = [];
+    for (const [sku, v] of advertMap.entries()) {
+      stmts.push(
+        c.env.DB.prepare(
+          `UPDATE marketplace_sales_wb
+              SET ad_spend_rub = ?,
+                  views        = CASE WHEN views = 0 THEN ? ELSE views END,
+                  tocart_count = CASE WHEN tocart_count = 0 THEN ? ELSE tocart_count END
+            WHERE base_sku = ?`
+        ).bind(v.spendKopecks, v.views, v.tocart, sku)
+      );
+      updated++;
+    }
+    if (stmts.length) await c.env.DB.batch(stmts);
+
+    await c.env.DB.prepare(
+      'UPDATE marketplace_sync_log SET finished_at = ?, status = ?, rows_synced = ? WHERE id = ?'
+    ).bind(Math.floor(Date.now() / 1000), 'ok', updated, logId).run();
+
+    return ok(c, {
+      advert_skus: advertMap.size,
+      rows_updated: updated,
+      period: { from: dateFromStr, to: dateToStr, days: periodDays },
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await c.env.DB.prepare(
+      'UPDATE marketplace_sync_log SET finished_at = ?, status = ?, error_message = ? WHERE id = ?'
+    ).bind(Math.floor(Date.now() / 1000), 'error', msg, logId).run();
+    return fail(c, 500, [{ code: 'wb_advert_sync_failed', message: msg }]);
+  }
+});
+
 
 
 /**
@@ -1005,15 +1055,24 @@ async function fetchWbNmReport(
   return map;
 }
 
-/** Current WB prices keyed by lowercased supplier article. */
+/**
+ * Current WB prices keyed by lowercased supplier article.
+ * WB rate limit is strict: ~1 request per 6 seconds. We sleep 6s between pages,
+ * and retry once on 429 with extra backoff.
+ */
 async function fetchWbPrices(env: Env): Promise<Map<string, number>> {
   const map = new Map<string, number>();
   let offset = 0;
-  while (true) {
+  for (let page = 0; page < 11; page++) {
     const url = `https://discounts-prices-api.wildberries.ru/api/v2/list/goods/filter?limit=1000&offset=${offset}`;
-    const resp = await fetch(url, { headers: { 'Authorization': env.WB_API_TOKEN } });
-    if (!resp.ok) {
-      console.error(`[wb prices] HTTP ${resp.status}: ${await resp.text()}`);
+    let resp: Response | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      resp = await fetch(url, { headers: { 'Authorization': env.WB_API_TOKEN } });
+      if (resp.status !== 429) break;
+      await new Promise((r) => setTimeout(r, 7000 * (attempt + 1)));
+    }
+    if (!resp || !resp.ok) {
+      console.error(`[wb prices] HTTP ${resp?.status ?? 'null'}: ${resp ? await resp.text() : 'no response'}`);
       break;
     }
     const data = await resp.json<any>();
@@ -1027,31 +1086,160 @@ async function fetchWbPrices(env: Env): Promise<Map<string, number>> {
     }
     if (goods.length < 1000) break;
     offset += 1000;
-    if (offset > 10000) break;
+    // Mandatory 6s pause between page calls
+    await new Promise((r) => setTimeout(r, 6500));
   }
   return map;
 }
 
-/** WB ad spend last 7d, keyed by lowercased supplier article. */
-async function fetchWbAdSpend(
-  env: Env, dateFrom: string, dateTo: string
-): Promise<Map<string, number>> {
-  const map = new Map<string, number>();
-  // Adverts financial report — doesn't return article directly, returns nm_id (sku id).
-  // For MVP: aggregate total spend at campaign level, distribute to SKUs by campaigns.
-  // Simplified: attribute total to campaigns, then to articles via campaigns/list endpoint.
-  // For now, leave map empty if call fails — frontend will show DRR as null.
+/**
+ * WB ad spend + funnel last 7d. Returns map<articleLowercase, { spendKopecks, views, clicks, tocart, orders }>.
+ *
+ * Pipeline:
+ *   1. GET /adv/v1/promotion/count — list of all campaigns (active + paused).
+ *   2. POST /adv/v1/promotion/adverts — fetch full campaign details to get nmIDs and advertId pairs.
+ *   3. POST /adv/v1/normquery/stats — actual stats per (advertId, nmId) for the period.
+ *   4. Map nmId → article via marketplace_stocks_wb.nm_id (already in our DB).
+ *
+ * Throttling: advert-api allows ~1 req/sec on most endpoints. We sleep 1100ms between calls.
+ */
+async function fetchWbAdvert(
+  env: Env, db: D1Database, dateFrom: string, dateTo: string
+): Promise<Map<string, { spendKopecks: number; views: number; clicks: number; tocart: number; orders: number }>> {
+  const out = new Map<string, { spendKopecks: number; views: number; clicks: number; tocart: number; orders: number }>();
+
+  // Step 1: load nm_id → article map from our DB (already synced)
+  const stocks = await db
+    .prepare('SELECT nm_id, supplier_article FROM marketplace_stocks_wb')
+    .all<{ nm_id: number; supplier_article: string }>();
+  const nmToArticle = new Map<number, string>();
+  for (const r of stocks.results) nmToArticle.set(r.nm_id, r.supplier_article.toLowerCase().trim());
+
+  if (nmToArticle.size === 0) return out;
+
+  // Step 2: fetch list of all active campaigns
+  let campaignsList: { advert_list: { advertId: number }[] }[] = [];
   try {
-    const url = `https://advert-api.wildberries.ru/adv/v1/upd?from=${dateFrom}&to=${dateTo}`;
-    const resp = await fetch(url, { headers: { 'Authorization': env.WB_API_TOKEN } });
-    if (!resp.ok) return map;
-    const data = await resp.json<any[]>();
-    if (!Array.isArray(data)) return map;
-    // Aggregate by nmId — but we'd need nmId→article map. Skipping full impl for MVP.
-    // Instead, return empty map; DRR will show as null on WB until keyword/campaign mapping built.
+    const r = await fetch('https://advert-api.wildberries.ru/adv/v1/promotion/count', {
+      headers: { Authorization: env.WB_API_TOKEN },
+    });
+    if (!r.ok) {
+      console.error(`[wb advert] promotion/count HTTP ${r.status}`);
+      return out;
+    }
+    const data = await r.json<{ adverts: typeof campaignsList }>();
+    campaignsList = data.adverts || [];
   } catch (e) {
-    console.error('[wb ad spend] failed:', e);
+    console.error('[wb advert] promotion/count threw:', e);
+    return out;
   }
+
+  // Flatten campaign IDs, filter to recently-active ones (statuses 9=active, 11=paused).
+  // Type 8/9 are auto and auction (the ones that generate stats).
+  const activeAdvertIds: number[] = [];
+  for (const group of campaignsList) {
+    for (const c of (group as any).advert_list || []) {
+      activeAdvertIds.push(c.advertId);
+    }
+  }
+  if (activeAdvertIds.length === 0) return out;
+
+  await new Promise((r) => setTimeout(r, 1100));
+
+  // Step 3: fetch campaign details in chunks of 50 to get nmID per advertId
+  // POST /adv/v1/promotion/adverts with body: array of advertIds. Returns nms[].nm per campaign.
+  const advertToNm: Map<number, number[]> = new Map();
+  for (let i = 0; i < activeAdvertIds.length; i += 50) {
+    const chunk = activeAdvertIds.slice(i, i + 50);
+    try {
+      const r = await fetch('https://advert-api.wildberries.ru/adv/v1/promotion/adverts', {
+        method: 'POST',
+        headers: { Authorization: env.WB_API_TOKEN, 'Content-Type': 'application/json' },
+        body: JSON.stringify(chunk),
+      });
+      if (r.status === 429) { await new Promise((x) => setTimeout(x, 5000)); i -= 50; continue; }
+      if (!r.ok) { console.error(`[wb advert] /promotion/adverts HTTP ${r.status}`); continue; }
+      const data = await r.json<any[]>();
+      for (const camp of data || []) {
+        const advertId = camp.advertId as number;
+        const nms: number[] = [];
+        // Campaign types differ: type 8 has params[].nms[].nm, type 9 has autoParams.nms or unitedParams[].nms
+        const params = camp.params || camp.autoParams || camp.unitedParams || [];
+        const paramArr = Array.isArray(params) ? params : [params];
+        for (const p of paramArr) {
+          const nmList = p.nms || p.subject?.nms || [];
+          for (const item of nmList) {
+            const nm = typeof item === 'number' ? item : (item.nm ?? item.nmId);
+            if (typeof nm === 'number') nms.push(nm);
+          }
+        }
+        if (nms.length) advertToNm.set(advertId, nms);
+      }
+    } catch (e) {
+      console.error('[wb advert] /promotion/adverts threw:', e);
+    }
+    await new Promise((x) => setTimeout(x, 1100));
+  }
+
+  if (advertToNm.size === 0) return out;
+
+  // Step 4: pull stats per (advertId, nmId). Endpoint accepts up to 100 items per call.
+  // POST /adv/v1/normquery/stats — body { from, to, items: [{advertId, nmId}] }
+  const items: { advertId: number; nmId: number }[] = [];
+  for (const [advertId, nms] of advertToNm.entries()) {
+    for (const nm of nms) {
+      if (nmToArticle.has(nm)) items.push({ advertId, nmId: nm });
+    }
+  }
+
+  for (let i = 0; i < items.length; i += 100) {
+    const chunk = items.slice(i, i + 100);
+    try {
+      const r = await fetch('https://advert-api.wildberries.ru/adv/v1/normquery/stats', {
+        method: 'POST',
+        headers: { Authorization: env.WB_API_TOKEN, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: dateFrom, to: dateTo, items: chunk }),
+      });
+      if (r.status === 429) { await new Promise((x) => setTimeout(x, 5000)); i -= 100; continue; }
+      if (!r.ok) { console.error(`[wb advert] /normquery/stats HTTP ${r.status}: ${await r.text()}`); continue; }
+      const data = await r.json<any>();
+      const days = data?.days || [];
+      for (const day of days) {
+        for (const app of day.apps || []) {
+          const advertId = app.advertId as number;
+          const nmId = app.nmId as number;
+          const article = nmToArticle.get(nmId);
+          if (!article) continue;
+          const sumRub = (app.sum || 0) as number;
+          const views = (app.views || 0) as number;
+          const clicks = (app.clicks || 0) as number;
+          const atbs = (app.atbs || 0) as number;
+          const orders = (app.orders || 0) as number;
+          const e = out.get(article) || { spendKopecks: 0, views: 0, clicks: 0, tocart: 0, orders: 0 };
+          e.spendKopecks += Math.round(sumRub * 100);
+          e.views += views;
+          e.clicks += clicks;
+          e.tocart += atbs;
+          e.orders += orders;
+          out.set(article, e);
+        }
+      }
+    } catch (e) {
+      console.error('[wb advert] /normquery/stats threw:', e);
+    }
+    await new Promise((x) => setTimeout(x, 1100));
+  }
+
+  return out;
+}
+
+/** Legacy wrapper that returns just the ad spend map. */
+async function fetchWbAdSpend(
+  env: Env, db: D1Database, dateFrom: string, dateTo: string
+): Promise<Map<string, number>> {
+  const full = await fetchWbAdvert(env, db, dateFrom, dateTo);
+  const map = new Map<string, number>();
+  for (const [k, v] of full.entries()) map.set(k, v.spendKopecks);
   return map;
 }
 

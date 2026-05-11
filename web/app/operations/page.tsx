@@ -257,7 +257,7 @@ export default function OperationsPage() {
                   const pct = total > 0 ? Math.round((paid / total) * 100) : 0;
                   return (
                     <tr key={op.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                      <td className="px-4 py-3" style={{ fontWeight: 700, color: 'var(--fg-1)' }}>
+                      <td className="px-4 py-3" style={{ fontWeight: 700, color: 'var(--fg-1)', whiteSpace: 'nowrap' }}>
                         <Link
                           href={`/operations/${op.id}`}
                           style={{ color: 'var(--fg-1)', textDecoration: 'underline', textDecorationColor: 'var(--border-hairline)', textUnderlineOffset: '3px' }}
@@ -265,7 +265,7 @@ export default function OperationsPage() {
                           {op.reference ?? op.id}
                         </Link>
                       </td>
-                      <td className="px-4 py-3" style={{ color: 'var(--fg-3)' }}>{formatDate(op.operation_date)}</td>
+                      <td className="px-4 py-3" style={{ color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>{formatDate(op.operation_date)}</td>
                       {/* v2 manufacturer fallback — deployed 2026-05-11 */}
                       <td className="px-4 py-3" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>
                         {op.partner_trade_name ? (
@@ -282,7 +282,7 @@ export default function OperationsPage() {
                           </span>
                         ) : '—'}
                       </td>
-                      <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>
+                      <td className="px-4 py-3" style={{ color: 'var(--fg-2)', whiteSpace: 'nowrap' }}>
                         <ContractRef contractNo={op.contract_no} />
                       </td>
                       <td className="px-4 py-3">
@@ -290,7 +290,7 @@ export default function OperationsPage() {
                           {op.operation_type}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>{formatMoney(op.total_amount, op.currency)} {op.currency}</td>
+                      <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)', fontWeight: 700, whiteSpace: 'nowrap' }}>{formatMoney(op.total_amount, op.currency)} {op.currency}</td>
                       <td className="px-4 py-3">
                         <div className="inline-flex items-center gap-2" style={{
                           padding: '4px 10px',

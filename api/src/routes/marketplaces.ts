@@ -505,15 +505,20 @@ marketplaces.get('/pulse/sales-today', async (c) => {
   const ozon = pulseFor('ozon');
   const wb = pulseFor('wb');
 
-  // Mini 7-day spark (combined revenue per day, oldest first)
+  // Spark: latest 60 days (current 30d + previous 30d for month-over-month overlay).
+  // Front-end takes last 30 as the foreground line and the 30 before as the ghost line.
   const spark = await c.env.DB.prepare(`
-    SELECT date, SUM(revenue_rub) / 100 AS revenue_rub
+    SELECT date,
+           SUM(revenue_rub) / 100 AS revenue_rub,
+           SUM(CASE WHEN marketplace = 'ozon' THEN revenue_rub ELSE 0 END) / 100 AS ozon_revenue_rub,
+           SUM(CASE WHEN marketplace = 'wb'   THEN revenue_rub ELSE 0 END) / 100 AS wb_revenue_rub,
+           SUM(units_sold) AS units
     FROM marketplace_sales_daily
-    WHERE date >= date('now', '-13 days')
+    WHERE date >= date('now', '-59 days')
     GROUP BY date
     ORDER BY date ASC
-    LIMIT 14
-  `).all<{ date: string; revenue_rub: number }>();
+    LIMIT 60
+  `).all<{ date: string; revenue_rub: number; ozon_revenue_rub: number; wb_revenue_rub: number; units: number }>();
 
   return ok(c, {
     ozon,

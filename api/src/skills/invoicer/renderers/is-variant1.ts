@@ -8,7 +8,7 @@ import type { ContractRow, LineItemRow } from '../types';
 import {
   Document, LANDSCAPE_PAGE, LANDSCAPE_USABLE_DXA, Packer, RenderBank,
   RenderParty, RenderSignature, bilingual, blank, buildDeliveryBankTable,
-  buildMetaRow, buildPartyTable, buildProductTable, buildSignature, buildTitle,
+  buildMetaRow, buildPartyTable, buildProductTable, buildSignature, buildBrandBar, buildTitle,
   formatDate, formatMoney, pickLineLabel, trilingual,
   type ProductCell,
 } from './shared';
@@ -154,6 +154,7 @@ export async function renderInvoiceSpecBrushes(input: RenderIsV1Input): Promise<
       properties: { page: LANDSCAPE_PAGE },
       children: [
         buildTitle(titleText),
+        buildBrandBar(),
         buildMetaRow(meta),
         partyTable,
         blank(),

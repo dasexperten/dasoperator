@@ -8,7 +8,7 @@ import type { ContractRow, DocumentLanguage, LineItemRow } from '../types';
 import {
   t, tBilingual, type RenderLanguage,
   Document, Packer, PORTRAIT_PAGE, PORTRAIT_USABLE_DXA, RenderBank, RenderParty,
-  RenderSignature, blank, buildDeliveryBankTable, buildMetaRow, buildPartyTable,
+  RenderSignature, blank, buildBrandBar, buildDeliveryBankTable, buildMetaRow, buildPartyTable,
   buildProductTable, buildSignature, buildTitle, formatDate, formatMoney,
   pickLineLabel,
   type ProductCell,
@@ -141,6 +141,7 @@ export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uin
       properties: { page: PORTRAIT_PAGE },
       children: [
         buildTitle(titleText),
+        buildBrandBar(),
         buildMetaRow(meta),
         partyTable,
         blank(),

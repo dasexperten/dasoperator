@@ -4,7 +4,7 @@
 // Marketplace Pulse — Home dashboard section · Phase 9.x polish pass
 // 4 cards backed by /api/marketplaces/pulse/*:
 //   1. Sales today           — hero number + WB/Ozon split + 14-day spark
-//   6. 7-day trend           — stacked bar chart (Ozon=blue, WB=purple)
+//   6. 30-day trend          — stacked bar chart (Ozon=blue, WB=purple)
 //   3. Top & Bottom SKUs     — toggle units/revenue, product names, hover
 //   9. SKU funnel            — modal: stacked horizontal bars with conv arrows
 //
@@ -279,19 +279,19 @@ function SplitRow({ label, amount, units, delta, color }: { label: string; amoun
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Card 6 — 7-day trend (stacked bar chart with axis labels)
+// Card 6 — 30-day trend (stacked bar chart with axis labels)
 // ═══════════════════════════════════════════════════════════════════════════
 function TrendCard({ data, loading }: { data: DailyTrend | null; loading: boolean }) {
   const chart = useMemo(() => {
     if (!data || data.days.length === 0) return null;
     const maxTotal = Math.max(...data.days.map(d => d.ozon.revenue_rub + d.wb.revenue_rub));
-    const totalWeek = data.days.reduce((s, d) => s + d.ozon.revenue_rub + d.wb.revenue_rub, 0);
-    return { maxTotal, totalWeek };
+    const totalRange = data.days.reduce((s, d) => s + d.ozon.revenue_rub + d.wb.revenue_rub, 0);
+    return { maxTotal, totalRange };
   }, [data]);
 
   return (
     <Card>
-      <CardHeader icon={<BarChart3 className="h-4 w-4" />} title="7-day trend" subtitle={chart ? `Σ ${fmtRubFull(chart.totalWeek)}` : undefined} />
+      <CardHeader icon={<BarChart3 className="h-4 w-4" />} title="30-day trend" subtitle={chart ? `Σ ${fmtRubFull(chart.totalRange)}` : undefined} />
 
       {loading ? <CardLoading /> : !data || data.days.length === 0 ? <CardEmpty>No daily snapshots yet.</CardEmpty> : (
         <>
@@ -876,14 +876,14 @@ function SparklineWithHover({
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 7-day trend bars with floating tooltip on hover
+// 30-day trend bars with floating tooltip on hover
 // ═══════════════════════════════════════════════════════════════════════════
 function TrendBars({
   data,
   chart,
 }: {
   data: DailyTrend;
-  chart: { maxTotal: number; totalWeek: number } | null;
+  chart: { maxTotal: number; totalRange: number } | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<{ idx: number; x: number; y: number } | null>(null);
@@ -904,8 +904,8 @@ function TrendBars({
 
   return (
     <div ref={containerRef} style={{ position: 'relative', marginBottom: '12px' }}>
-      {/* Bars */}
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', height: '120px', marginBottom: '8px' }}>
+      {/* Bars — gap shrinks for dense (30-day) charts */}
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: data.days.length > 14 ? '3px' : '8px', height: '120px', marginBottom: '8px' }}>
         {data.days.map((d, i) => {
           const total = d.ozon.revenue_rub + d.wb.revenue_rub;
           const totalH = chart ? (total / chart.maxTotal) * 100 : 0;
@@ -956,10 +956,13 @@ function TrendBars({
         })}
       </div>
 
-      {/* X-axis labels */}
-      <div style={{ display: 'flex', gap: '8px' }}>
+      {/* X-axis labels — on 30-day chart we only show every 5th label + first + last + hovered */}
+      <div style={{ display: 'flex', gap: data.days.length > 14 ? '3px' : '8px' }}>
         {data.days.map((d, i) => {
           const isHover = hover?.idx === i;
+          const isLast = i === data.days.length - 1;
+          const isFirst = i === 0;
+          const showLabel = data.days.length <= 10 || isFirst || isLast || isHover || (i % 5 === 0);
           return (
             <div
               key={d.date}
@@ -973,8 +976,14 @@ function TrendBars({
                 transition: 'color 80ms ease-out',
               }}
             >
-              <div style={{ fontWeight: 700 }}>{fmtWeekday(d.date)}</div>
-              <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{d.date.slice(8)}</div>
+              {showLabel ? (
+                <>
+                  <div style={{ fontWeight: 700 }}>{fmtWeekday(d.date)}</div>
+                  <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{d.date.slice(8)}</div>
+                </>
+              ) : (
+                <>&nbsp;</>
+              )}
             </div>
           );
         })}
@@ -1018,7 +1027,7 @@ function TrendBars({
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Floating tooltip used by both Sales sparkline and 7-day trend
+// Floating tooltip used by both Sales sparkline and 30-day trend
 // ═══════════════════════════════════════════════════════════════════════════
 function FloatingTooltip({
   visible,

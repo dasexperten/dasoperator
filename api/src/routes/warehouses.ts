@@ -37,11 +37,6 @@ warehouses.get('/', async (c) => {
   let sql: string;
   const binds: unknown[] = [];
 
-  // OTW is a virtual warehouse (in-transit holding). Excluded from the
-  // standard list to keep dropdowns clean. Pass ?include_virtual=1 to
-  // include it (used by /warehouses matrix view to show OTW column).
-  const includeVirtual = c.req.query('include_virtual') === '1';
-
   if (useJunction) {
     const conditions: string[] = [];
 
@@ -94,16 +89,6 @@ warehouses.get('/', async (c) => {
   }
 
   sql += ' ORDER BY code';
-
-  // OTW filter — if not asking for virtual, exclude it.
-  // The id 'otw' is a fixed reserved id (see migration 0032).
-  if (!includeVirtual) {
-    // ORDER BY is always the last clause; safe to inject AND before it.
-    sql = sql.replace(
-      'ORDER BY code',
-      useJunction ? "AND w.id != 'otw' ORDER BY w.code" : "AND id != 'otw' ORDER BY code"
-    );
-  }
 
   const stmt = c.env.DB.prepare(sql);
   const result = binds.length > 0 ? await stmt.bind(...binds).all() : await stmt.all();

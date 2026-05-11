@@ -15,7 +15,39 @@ import Breadcrumb from '@/components/layout/breadcrumb';
 
 const PARTNER_TYPES = ['buyer', 'supplier', 'shipper', 'other'] as const;
 const LANGS = ['EN', 'RU', 'EN-RU', 'EN-AR', 'EN-VI', 'EN-ZH'] as const;
-const INVOICE_LANGS = ['EN', 'RU', 'BILINGUAL'] as const;
+
+// Document render mode — three options aligned with the issuer-first model:
+//   EN        → render in issuer's primary language only (default for international)
+//   LOCAL     → render in partner's local language only (rare; partner explicitly asks)
+//   BILINGUAL → render in issuer's language + partner's local language
+const INVOICE_MODES = [
+  { value: 'EN',        label: 'English only' },
+  { value: 'LOCAL',     label: "Partner's local language only" },
+  { value: 'BILINGUAL', label: 'English + local (bilingual)' },
+] as const;
+
+// ISO codes of national languages — used when render mode is LOCAL or BILINGUAL
+const PARTNER_LOCAL_LANGUAGES = [
+  { value: 'EN', label: 'English' },
+  { value: 'RU', label: 'Russian (Русский)' },
+  { value: 'KA', label: 'Georgian (ქართული)' },
+  { value: 'ZH', label: 'Chinese (中文)' },
+  { value: 'VI', label: 'Vietnamese (Tiếng Việt)' },
+  { value: 'AM', label: 'Armenian (Հայերեն)' },
+  { value: 'UK', label: 'Ukrainian (Українська)' },
+  { value: 'DE', label: 'German (Deutsch)' },
+  { value: 'TR', label: 'Turkish (Türkçe)' },
+  { value: 'UZ', label: "Uzbek (O'zbek)" },
+  { value: 'KK', label: 'Kazakh (Қазақша)' },
+  { value: 'TH', label: 'Thai (ไทย)' },
+  { value: 'ID', label: 'Indonesian (Bahasa Indonesia)' },
+  { value: 'MS', label: 'Malay (Bahasa Melayu)' },
+  { value: 'HI', label: 'Hindi (हिन्दी)' },
+  { value: 'AR', label: 'Arabic (العربية)' },
+  { value: 'FR', label: 'French (Français)' },
+  { value: 'ES', label: 'Spanish (Español)' },
+  { value: 'PT', label: 'Portuguese (Português)' },
+] as const;
 
 type FormState = {
   abbreviation: string;
@@ -26,7 +58,8 @@ type FormState = {
   email: string;
   partner_type: typeof PARTNER_TYPES[number];
   partner_language: typeof LANGS[number];
-  preferred_invoice_language: typeof INVOICE_LANGS[number] | '';
+  preferred_invoice_language: 'EN' | 'LOCAL' | 'BILINGUAL' | '';
+  partner_local_language: typeof PARTNER_LOCAL_LANGUAGES[number]['value'] | '';
   preferred_incoterms: string;
   payment_terms: string;
   iban: string;
@@ -50,6 +83,7 @@ function partnerToForm(p: Partner): FormState {
     partner_type: p.partner_type ?? 'other',
     partner_language: (p.partner_language as FormState['partner_language']) ?? 'EN',
     preferred_invoice_language: (p.preferred_invoice_language as FormState['preferred_invoice_language']) ?? '',
+    partner_local_language: ((p as { partner_local_language?: string }).partner_local_language as FormState['partner_local_language']) ?? '',
     preferred_incoterms: p.preferred_incoterms ?? '',
     payment_terms: p.payment_terms ?? '',
     iban: p.iban ?? '',
@@ -374,14 +408,24 @@ export default function EditPartnerClient({ slug }: { slug: string }) {
             style={inputStyle}
           />
         </Field>
-        <Field label="Preferred Invoice Language">
+        <Field label="Document language mode">
           <select
             value={form.preferred_invoice_language}
             onChange={(e) => update('preferred_invoice_language', e.target.value as FormState['preferred_invoice_language'])}
             style={inputStyle}
           >
+            <option value="">— use issuer default —</option>
+            {INVOICE_MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Partner's national language">
+          <select
+            value={form.partner_local_language}
+            onChange={(e) => update('partner_local_language', e.target.value as FormState['partner_local_language'])}
+            style={inputStyle}
+          >
             <option value="">— not set —</option>
-            {INVOICE_LANGS.map((l) => <option key={l} value={l}>{l}</option>)}
+            {PARTNER_LOCAL_LANGUAGES.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
           </select>
         </Field>
       </FormSection>

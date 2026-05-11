@@ -152,6 +152,7 @@ partners.get('/:slug', async (c) => {
       p.legal_name_local, p.registered_address_local,
       p.kpp, p.inn, p.ogrn,
       p.payment_terms, p.preferred_incoterms, p.preferred_invoice_language,
+      p.partner_local_language,
       p.last_verified,
       p.abbreviation,
       p.created_at, p.updated_at
@@ -283,7 +284,11 @@ const updatePartnerSchema = z.object({
   legal_name_local: z.string().max(200).nullable().optional(),
   registered_address_local: z.string().max(500).nullable().optional(),
   preferred_incoterms: z.string().max(20).nullable().optional(),
-  preferred_invoice_language: z.enum(['EN', 'RU', 'BILINGUAL']).nullable().optional(),
+  preferred_invoice_language: z.enum(['EN', 'RU', 'LOCAL', 'BILINGUAL']).nullable().optional(),
+  partner_local_language: z.enum([
+    'EN','RU','KA','ZH','VI','AM','UK','DE','TR','UZ','KK',
+    'TH','ID','MS','HI','AR','FR','ES','PT'
+  ]).nullable().optional(),
   partner_language: z.enum(['EN', 'RU', 'EN-RU', 'EN-AR', 'EN-VI', 'EN-ZH']).optional(),
   payment_terms: z.string().max(200).nullable().optional(),
   linked_entity_id: z.string().nullable().optional(),

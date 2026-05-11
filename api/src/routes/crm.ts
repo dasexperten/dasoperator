@@ -78,26 +78,33 @@ crm.get('/stats', async (c) => {
 
   try {
     const payload = await withKvCache(c.env, cacheKey('crm:stats', { domain }), 300, async () => {
-      const customersResp = await retailGet<{ pagination?: { totalCount?: number } }>(
-        domain, token, '/customers', { 'page': 1, 'limit': 20 }
-      );
-      const ordersTotalResp = await retailGet<{ pagination?: { totalCount?: number } }>(
-        domain, token, '/orders', { 'page': 1, 'limit': 20 }
-      );
-
       const monthStart = new Date();
       monthStart.setUTCDate(1);
       monthStart.setUTCHours(0, 0, 0, 0);
       const monthStartIso = monthStart.toISOString().slice(0, 10);
 
-      const ordersMonthResp = await retailGet<{
-        pagination?: { totalCount?: number };
-        orders?: RetailOrder[];
-      }>(domain, token, '/orders', {
-        'filter[createdAtFrom]': monthStartIso,
-        'page': 1,
-        'limit': 100,
-      });
+      // Parallel — all 4 upstream calls run at once instead of in sequence.
+      // Drops worst-case from sum(4 calls) to max(4 calls) — typically 4x faster.
+      const [customersResp, ordersTotalResp, ordersMonthResp, loyaltyResp] =
+        await Promise.all([
+          retailGet<{ pagination?: { totalCount?: number } }>(
+            domain, token, '/customers', { 'page': 1, 'limit': 20 }
+          ),
+          retailGet<{ pagination?: { totalCount?: number } }>(
+            domain, token, '/orders', { 'page': 1, 'limit': 20 }
+          ),
+          retailGet<{
+            pagination?: { totalCount?: number };
+            orders?: RetailOrder[];
+          }>(domain, token, '/orders', {
+            'filter[createdAtFrom]': monthStartIso,
+            'page': 1,
+            'limit': 100,
+          }),
+          retailGet<{
+            pagination?: { totalCount?: number };
+          }>(domain, token, '/loyalty/accounts', { 'page': 1, 'limit': 20 }),
+        ]);
 
       const ordersThisMonth = ordersMonthResp.pagination?.totalCount ?? 0;
       const monthOrders = ordersMonthResp.orders ?? [];
@@ -105,10 +112,6 @@ crm.get('/stats', async (c) => {
         (sum, o) => sum + (typeof o.totalSumm === 'number' ? o.totalSumm : 0),
         0
       );
-
-      const loyaltyResp = await retailGet<{
-        pagination?: { totalCount?: number };
-      }>(domain, token, '/loyalty/accounts', { 'page': 1, 'limit': 20 });
 
       return {
         source: `${domain}.retailcrm.ru`,
@@ -158,16 +161,18 @@ crm.get('/orders', async (c) => {
       cacheKey('crm:orders', { domain, page, limit, search }),
       120,
       async () => {
-        const ordersResp = await retailGet<{
-          pagination?: { totalCount?: number; currentPage?: number; totalPageCount?: number };
-          orders?: RetailOrder[];
-        }>(domain, token, '/orders', params);
+        // Parallel — orders feed + loyalty lookup table fetched simultaneously
+        const [ordersResp, loyaltyResp] = await Promise.all([
+          retailGet<{
+            pagination?: { totalCount?: number; currentPage?: number; totalPageCount?: number };
+            orders?: RetailOrder[];
+          }>(domain, token, '/orders', params),
+          retailGet<{
+            loyaltyAccounts?: RetailLoyaltyAccount[];
+          }>(domain, token, '/loyalty/accounts', { 'page': 1, 'limit': 100 }),
+        ]);
 
         const ordersOnPage = ordersResp.orders ?? [];
-
-        const loyaltyResp = await retailGet<{
-          loyaltyAccounts?: RetailLoyaltyAccount[];
-        }>(domain, token, '/loyalty/accounts', { 'page': 1, 'limit': 100 });
 
         const loyaltyByCustomer = new Map<number, RetailLoyaltyAccount>();
         for (const a of loyaltyResp.loyaltyAccounts ?? []) {
@@ -260,17 +265,18 @@ crm.get('/customers', async (c) => {
       cacheKey('crm:customers', { domain, page, limit, search }),
       120,
       async () => {
-        const customersResp = await retailGet<{
-          pagination?: { totalCount?: number; currentPage?: number; totalPageCount?: number };
-          customers?: RetailCustomer[];
-        }>(domain, token, '/customers', params);
+        // Parallel — customers feed + loyalty lookup table fetched simultaneously
+        const [customersResp, loyaltyResp] = await Promise.all([
+          retailGet<{
+            pagination?: { totalCount?: number; currentPage?: number; totalPageCount?: number };
+            customers?: RetailCustomer[];
+          }>(domain, token, '/customers', params),
+          retailGet<{
+            loyaltyAccounts?: RetailLoyaltyAccount[];
+          }>(domain, token, '/loyalty/accounts', { 'page': 1, 'limit': 100 }),
+        ]);
 
         const customersOnPage = customersResp.customers ?? [];
-
-        // Pull loyalty accounts to enrich balance & level per customer
-        const loyaltyResp = await retailGet<{
-          loyaltyAccounts?: RetailLoyaltyAccount[];
-        }>(domain, token, '/loyalty/accounts', { 'page': 1, 'limit': 100 });
 
         const loyaltyByCustomer = new Map<number, RetailLoyaltyAccount>();
         for (const a of loyaltyResp.loyaltyAccounts ?? []) {
@@ -367,41 +373,48 @@ crm.get('/timeline', async (c) => {
       cacheKey('crm:timeline', { domain, days, endIso }),
       600,
       async () => {
-        // Walk all customers in window — Retail CRM uses dateFrom/dateTo for createdAt
-        let page = 1;
-        while (page <= 20) {
-          const resp = await retailGet<{
-            pagination?: { totalPageCount?: number; currentPage?: number };
-            customers?: Array<{ createdAt?: string }>;
-          }>(domain, token, '/customers', {
-            'page': page,
-            'limit': 100,
-            'filter[dateFrom]': startIso,
-            'filter[dateTo]': endIso,
-          });
-          for (const cu of resp.customers ?? []) bumpDay(regsByDay, cu.createdAt);
-          const totalPages = resp.pagination?.totalPageCount ?? 1;
-          if (page >= totalPages) break;
-          page += 1;
-        }
+        // Parallel — customers and orders pagination walks run concurrently
+        // (each is internally sequential because pages aren't known upfront,
+        // but the two loops don't depend on each other).
+        const walkCustomers = async () => {
+          let page = 1;
+          while (page <= 20) {
+            const resp = await retailGet<{
+              pagination?: { totalPageCount?: number; currentPage?: number };
+              customers?: Array<{ createdAt?: string }>;
+            }>(domain, token, '/customers', {
+              'page': page,
+              'limit': 100,
+              'filter[dateFrom]': startIso,
+              'filter[dateTo]': endIso,
+            });
+            for (const cu of resp.customers ?? []) bumpDay(regsByDay, cu.createdAt);
+            const totalPages = resp.pagination?.totalPageCount ?? 1;
+            if (page >= totalPages) break;
+            page += 1;
+          }
+        };
 
-        // Walk all orders in window — Retail CRM uses createdAtFrom/createdAtTo
-        page = 1;
-        while (page <= 20) {
-          const resp = await retailGet<{
-            pagination?: { totalPageCount?: number; currentPage?: number };
-            orders?: Array<{ createdAt?: string }>;
-          }>(domain, token, '/orders', {
-            'page': page,
-            'limit': 100,
-            'filter[createdAtFrom]': startIso,
-            'filter[createdAtTo]': endIso,
-          });
-          for (const o of resp.orders ?? []) bumpDay(ordersByDay, o.createdAt);
-          const totalPages = resp.pagination?.totalPageCount ?? 1;
-          if (page >= totalPages) break;
-          page += 1;
-        }
+        const walkOrders = async () => {
+          let page = 1;
+          while (page <= 20) {
+            const resp = await retailGet<{
+              pagination?: { totalPageCount?: number; currentPage?: number };
+              orders?: Array<{ createdAt?: string }>;
+            }>(domain, token, '/orders', {
+              'page': page,
+              'limit': 100,
+              'filter[createdAtFrom]': startIso,
+              'filter[createdAtTo]': endIso,
+            });
+            for (const o of resp.orders ?? []) bumpDay(ordersByDay, o.createdAt);
+            const totalPages = resp.pagination?.totalPageCount ?? 1;
+            if (page >= totalPages) break;
+            page += 1;
+          }
+        };
+
+        await Promise.all([walkCustomers(), walkOrders()]);
 
         const timeline = dayKeys.map((day) => ({
           date: day,
@@ -449,6 +462,11 @@ crm.get('/funnel', async (c) => {
         let bought = 0;
         let repeat = 0;
 
+        // Kick off loyalty count in parallel with the customers pagination walk
+        const loyaltyPromise = retailGet<{
+          pagination?: { totalCount?: number };
+        }>(domain, token, '/loyalty/accounts', { 'page': 1, 'limit': 20 });
+
         // Walk customers — up to 12 pages (1200 customers ceiling, well above current 928)
         let page = 1;
         let totalPages = 1;
@@ -473,10 +491,7 @@ crm.get('/funnel', async (c) => {
           page += 1;
         }
 
-        // Loyalty count
-        const loyaltyResp = await retailGet<{
-          pagination?: { totalCount?: number };
-        }>(domain, token, '/loyalty/accounts', { 'page': 1, 'limit': 20 });
+        const loyaltyResp = await loyaltyPromise;
         const loyaltyMembers = loyaltyResp.pagination?.totalCount ?? 0;
 
         return {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Save, X } from 'lucide-react';
+import { Loader2, Save, X, Plus } from 'lucide-react';
 import { getPartner, updatePartner, type Partner, type UpdatePartnerBody } from '@/lib/api';
 import Breadcrumb from '@/components/layout/breadcrumb';
 
@@ -310,11 +310,9 @@ export default function EditPartnerClient({ slug }: { slug: string }) {
           />
         </Field>
         <Field label="Email">
-          <input
-            type="email"
+          <EmailListEditor
             value={form.email}
-            onChange={(e) => update('email', e.target.value)}
-            style={inputStyle}
+            onChange={(v) => update('email', v)}
           />
         </Field>
         <Field label="Partner Type">
@@ -568,3 +566,132 @@ const inputDisabled: React.CSSProperties = {
   color: 'var(--fg-3)',
   cursor: 'not-allowed',
 };
+
+// =============================================================================
+// EmailListEditor — multi-email input
+// Stores as plain string when one email, JSON array string when 2+.
+// First email = primary (shown in /partners list).
+// =============================================================================
+
+function parseEmailsToList(raw: string): string[] {
+  if (!raw || !raw.trim()) return [''];
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((x) => (typeof x === 'string' ? x : (x && typeof x === 'object' && typeof x.email === 'string' ? x.email : '')))
+          .filter((s) => s.length > 0);
+      }
+    } catch {
+      // fall through
+    }
+  }
+  // Comma/semicolon-separated or plain
+  const parts = trimmed.split(/[,;]/).map((s) => s.trim()).filter((s) => s.length > 0);
+  return parts.length > 0 ? parts : [''];
+}
+
+function serializeEmails(list: string[]): string {
+  const cleaned = list.map((s) => s.trim()).filter((s) => s.length > 0);
+  if (cleaned.length === 0) return '';
+  if (cleaned.length === 1) return cleaned[0]!;
+  return JSON.stringify(cleaned);
+}
+
+function EmailListEditor({
+  value, onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [emails, setEmails] = useState<string[]>(() => parseEmailsToList(value));
+
+  // Re-sync if external value changes (e.g. discard form)
+  useEffect(() => {
+    setEmails(parseEmailsToList(value));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  const commit = (next: string[]) => {
+    setEmails(next);
+    onChange(serializeEmails(next));
+  };
+
+  const updateAt = (idx: number, v: string) => {
+    const next = emails.slice();
+    next[idx] = v;
+    commit(next);
+  };
+
+  const removeAt = (idx: number) => {
+    if (emails.length === 1) {
+      commit(['']);
+      return;
+    }
+    const next = emails.slice();
+    next.splice(idx, 1);
+    commit(next);
+  };
+
+  const addEmpty = () => {
+    commit([...emails, '']);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {emails.map((email, idx) => (
+        <div key={idx} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => updateAt(idx, e.target.value)}
+            placeholder={idx === 0 ? 'Primary email' : 'Additional email'}
+            style={{ ...inputStyle, flex: 1 }}
+          />
+          {emails.length > 1 || email ? (
+            <button
+              type="button"
+              onClick={() => removeAt(idx)}
+              aria-label="Remove email"
+              style={{
+                padding: 6,
+                color: 'var(--fg-3)',
+                border: '1px solid var(--border-hairline)',
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--paper-raised)',
+              }}
+            >
+              <X size={14} />
+            </button>
+          ) : null}
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={addEmpty}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 4,
+          alignSelf: 'flex-start',
+          padding: '4px 8px',
+          fontSize: 12,
+          fontWeight: 500,
+          color: 'var(--fg-3)',
+          border: '1px dashed var(--border-hairline)',
+          borderRadius: 'var(--radius-sm)',
+          background: 'transparent',
+        }}
+      >
+        <Plus size={12} /> Add email
+      </button>
+      {emails.filter((e) => e.trim().length > 0).length > 1 && (
+        <div style={{ fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>
+          First email is primary — shown in the partner list.
+        </div>
+      )}
+    </div>
+  );
+}

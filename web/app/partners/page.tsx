@@ -393,34 +393,28 @@ export default function PartnersPage() {
                       </td>
                       <td className="px-4 py-3">
                         {(() => {
-                          const emails = parseEmails(p.email).slice(0, 3);
-                          if (emails.length === 0) {
+                          const emails = parseEmails(p.email);
+                          const primary = emails[0];
+                          if (!primary) {
                             return <span style={{ color: 'var(--fg-muted)' }}>—</span>;
                           }
+                          const isOpen = composerKey?.partnerId === p.id;
                           return (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                              {emails.map((entry, idx) => {
-                                const isOpen = composerKey?.partnerId === p.id && composerKey?.emailIdx === idx;
-                                return (
-                                  <button
-                                    key={`${p.id}-email-${idx}`}
-                                    type="button"
-                                    onClick={() => setComposerKey(isOpen ? null : { partnerId: p.id, emailIdx: idx })}
-                                    className="inline-flex items-center gap-1.5"
-                                    style={{
-                                      color: isOpen ? 'var(--brand-rot)' : 'var(--line-innoweiss, #0D199E)',
-                                      fontWeight: 700,
-                                      fontSize: 13,
-                                      letterSpacing: 0,
-                                      textAlign: 'left',
-                                    }}
-                                  >
-                                    <Mail size={14} />
-                                    <span style={{ borderBottom: '1px dotted currentColor' }}>{entry.email}</span>
-                                  </button>
-                                );
-                              })}
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setComposerKey(isOpen ? null : { partnerId: p.id, emailIdx: 0 })}
+                              className="inline-flex items-center gap-1.5"
+                              style={{
+                                color: isOpen ? 'var(--brand-rot)' : 'var(--line-innoweiss, #0D199E)',
+                                fontWeight: 700,
+                                fontSize: 13,
+                                letterSpacing: 0,
+                                textAlign: 'left',
+                              }}
+                            >
+                              <Mail size={14} />
+                              <span style={{ borderBottom: '1px dotted currentColor' }}>{primary.email}</span>
+                            </button>
                           );
                         })()}
                       </td>
@@ -440,8 +434,8 @@ export default function PartnersPage() {
                       </td>
                     </tr>
                     {composerKey?.partnerId === p.id && (() => {
-                      const emails = parseEmails(p.email).slice(0, 3);
-                      const target = emails[composerKey.emailIdx];
+                      const emails = parseEmails(p.email);
+                      const target = emails[0];
                       if (!target) return null;
                       return (
                         <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>

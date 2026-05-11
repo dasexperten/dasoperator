@@ -420,14 +420,14 @@ marketplaces.get('/pulse/sku-funnel/:base_sku', async (c) => {
 
 // ---------------------------------------------------------------------------
 // GET /api/marketplaces/pulse/daily-trend
-// Card 6 — last 14 days, day-by-day, by marketplace.
+// Card 6 — last 30 days, day-by-day, by marketplace.
 // For each day: revenue, units, plus Δ vs same weekday previous week.
 // ---------------------------------------------------------------------------
 marketplaces.get('/pulse/daily-trend', async (c) => {
   const rows = await c.env.DB.prepare(`
     SELECT marketplace, date, units_sold, revenue_rub / 100 AS revenue_rub, synced_at
     FROM marketplace_sales_daily
-    WHERE date >= date('now', '-21 days')
+    WHERE date >= date('now', '-44 days')
     ORDER BY date ASC
   `).all<{ marketplace: 'ozon' | 'wb'; date: string; units_sold: number; revenue_rub: number; synced_at: number }>();
 
@@ -437,9 +437,9 @@ marketplaces.get('/pulse/daily-trend', async (c) => {
     byKey.set(`${r.marketplace}|${r.date}`, { units_sold: r.units_sold, revenue_rub: r.revenue_rub });
   }
 
-  // Find last 7 dates that actually have any data
+  // Find last 30 dates that actually have any data
   const allDates = Array.from(new Set(rows.results.map(r => r.date))).sort();
-  const last7 = allDates.slice(-7);
+  const last30 = allDates.slice(-30);
 
   function deltaVsLastWeek(mp: 'ozon' | 'wb', date: string, value: number) {
     const d = new Date(date + 'T00:00:00Z');
@@ -450,7 +450,7 @@ marketplaces.get('/pulse/daily-trend', async (c) => {
     return Math.round(((value - prev.revenue_rub) / prev.revenue_rub) * 1000) / 10; // %, 1 decimal
   }
 
-  const days = last7.map(date => {
+  const days = last30.map(date => {
     const oz = byKey.get(`ozon|${date}`) || { units_sold: 0, revenue_rub: 0 };
     const w = byKey.get(`wb|${date}`)   || { units_sold: 0, revenue_rub: 0 };
     return {

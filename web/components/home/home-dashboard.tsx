@@ -53,10 +53,10 @@ function convertToUsdCents(amount: number, currency: string, fx: FxLatest | null
   return Math.round(usdUnits * 100);
 }
 
-function isThisMonth(unixSec: number): boolean {
-  const d = new Date(unixSec * 1000);
-  const now = new Date();
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+function isWithinLast30Days(unixSec: number): boolean {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const thirtyDaysSec = 30 * 24 * 60 * 60;
+  return unixSec >= nowSec - thirtyDaysSec && unixSec <= nowSec;
 }
 
 // =============================================================================
@@ -127,9 +127,9 @@ export default function HomeDashboard() {
   // Compute headline metrics
   // ---------------------------------------------------------------------------
   const activeOps = operations.filter((o) => o.status !== 'cancelled');
-  const opsThisMonth = activeOps.filter((o) => isThisMonth(o.operation_date));
+  const opsLast30d = activeOps.filter((o) => isWithinLast30Days(o.operation_date));
 
-  const revenueUsdCentsThisMonth = opsThisMonth.reduce(
+  const revenueUsdCentsLast30d = opsLast30d.reduce(
     (sum, o) => sum + convertToUsdCents(o.total_amount, o.currency, fx),
     0
   );
@@ -195,15 +195,15 @@ export default function HomeDashboard() {
         <div className="grid grid-cols-4 gap-4">
           <MetricCard
             label="Operations"
-            sublabel="this month"
-            value={opsThisMonth.length.toString()}
+            sublabel="last 30 days"
+            value={opsLast30d.length.toString()}
             tone="default"
             loading={loading}
           />
           <MetricCard
             label="Revenue"
-            sublabel="this month · USD equiv"
-            value={loading ? '—' : formatUsdCompact(revenueUsdCentsThisMonth)}
+            sublabel="last 30 days · USD equiv"
+            value={loading ? '—' : formatUsdCompact(revenueUsdCentsLast30d)}
             tone="default"
             loading={loading}
           />

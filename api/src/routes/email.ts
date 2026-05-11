@@ -3,8 +3,6 @@ import { z } from 'zod';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 
-const EMAILER_BRIDGE_URL = 'https://emailer-bridge.dasexperten.workers.dev/';
-
 const email = new Hono<{ Bindings: Env }>();
 
 const sendSchema = z.object({
@@ -46,18 +44,21 @@ email.post('/send', async (c) => {
     }]);
   }
 
+  // Use EMAILER service binding instead of *.workers.dev public URL.
+  // Cloudflare blocks Worker→same-account-Worker via the public URL with
+  // error 1042 — service bindings bypass that loop check.
   let bridgeResponse: Response;
   try {
-    bridgeResponse = await fetch(EMAILER_BRIDGE_URL, {
+    bridgeResponse = await c.env.EMAILER.fetch(new Request('https://emailer/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(parsed.data),
       signal: AbortSignal.timeout(60_000),
-    });
+    }));
   } catch (err) {
     return fail(c, 502, [{
       code: 'bridge_unreachable',
-      message: 'Failed to reach emailer-bridge worker',
+      message: 'Failed to reach emailer-bridge worker via EMAILER binding',
       details: { error: err instanceof Error ? err.message : String(err) },
     }]);
   }
@@ -99,20 +100,20 @@ email.post('/send', async (c) => {
 email.get('/health', async (c) => {
   const probeStart = Date.now();
   try {
-    const r = await fetch(EMAILER_BRIDGE_URL, {
+    const r = await c.env.EMAILER.fetch(new Request('https://emailer/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ probe: true }),
       signal: AbortSignal.timeout(10_000),
-    });
+    }));
     const latency = Date.now() - probeStart;
     const bridgeOk = r.status < 500;
 
     return ok(c, {
-      bridge_url: EMAILER_BRIDGE_URL,
+      bridge_binding: 'EMAILER (service binding)',
       bridge_status: r.status,
       bridge_ok: bridgeOk,
-      probe_method: 'POST dry-run',
+      probe_method: 'POST dry-run via env.EMAILER.fetch',
       latency_ms: latency,
     });
   } catch (err) {

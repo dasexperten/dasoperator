@@ -1282,7 +1282,6 @@ function DocumentsTab({
                       <button
                         type="button"
                         onClick={async () => {
-                          if (!confirm(`Delete ${att.doc_number || labelKind(att.kind)}?\n\nThis removes our generated document. You can re-issue it via Issue documents.`)) return;
                           try {
                             await deleteDocument(att.id);
                             await refetchAttachments();

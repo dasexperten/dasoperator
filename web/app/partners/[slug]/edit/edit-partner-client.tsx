@@ -52,6 +52,7 @@ const PARTNER_LOCAL_LANGUAGES = [
 ] as const;
 
 type FormState = {
+  trade_name: string;
   abbreviation: string;
   legal_name: string;
   legal_name_local: string;
@@ -76,6 +77,7 @@ type FormState = {
 
 function partnerToForm(p: Partner): FormState {
   return {
+    trade_name: p.trade_name ?? '',
     abbreviation: p.abbreviation ?? '',
     legal_name: p.legal_name ?? '',
     legal_name_local: p.legal_name_local ?? '',
@@ -243,13 +245,12 @@ export default function EditPartnerClient({ slug }: { slug: string }) {
 
       {/* Identity & Code */}
       <FormSection title="Identity">
-        <Field label="Trade Name" hint="Read-only — fixed once partner is created">
+        <Field label="Trade Name" hint="Friendly name used internally. URL slug stays unchanged.">
           <input
             type="text"
-            value={partner.trade_name}
-            readOnly
-            disabled
-            style={inputDisabled}
+            value={form.trade_name}
+            onChange={(e) => update('trade_name', e.target.value)}
+            style={inputStyle}
           />
         </Field>
         <Field
@@ -266,20 +267,30 @@ export default function EditPartnerClient({ slug }: { slug: string }) {
             style={{ ...inputStyle, fontWeight: 700, letterSpacing: 0, textTransform: 'uppercase' }}
           />
         </Field>
-        <Field label="Legal Name (English / Latin)">
+        <Field
+          label="Legal Name (English / Latin)"
+          hint={partner.legal_name ? 'Locked — sourced from bank operation. Contact ops to change.' : 'Will lock once filled from a banking operation.'}
+        >
           <input
             type="text"
             value={form.legal_name}
             onChange={(e) => update('legal_name', e.target.value)}
-            style={inputStyle}
+            readOnly={!!partner.legal_name}
+            disabled={!!partner.legal_name}
+            style={partner.legal_name ? inputDisabled : inputStyle}
           />
         </Field>
-        <Field label="Legal Name (Local script)">
+        <Field
+          label="Legal Name (Local script)"
+          hint={partner.legal_name_local ? 'Locked — sourced from bank operation. Contact ops to change.' : 'Will lock once filled from a banking operation.'}
+        >
           <input
             type="text"
             value={form.legal_name_local}
             onChange={(e) => update('legal_name_local', e.target.value)}
-            style={inputStyle}
+            readOnly={!!partner.legal_name_local}
+            disabled={!!partner.legal_name_local}
+            style={partner.legal_name_local ? inputDisabled : inputStyle}
           />
         </Field>
         <Field label="Registered Address (Local)">

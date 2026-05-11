@@ -467,7 +467,7 @@ export interface Partner {
   ogrn?: string | null;
   payment_terms?: string | null;
   preferred_incoterms?: string | null;
-  preferred_invoice_language?: 'EN' | 'RU' | 'LOCAL' | 'BILINGUAL' | null;
+  preferred_invoice_language?: 'EN' | 'RU' | 'BILINGUAL' | null;
   partner_local_language?: 'EN' | 'RU' | 'KA' | 'ZH' | 'VI' | 'AM' | 'UK' | 'DE' | 'TR' | 'UZ' | 'KK' | 'TH' | 'ID' | 'MS' | 'HI' | 'AR' | 'FR' | 'ES' | 'PT' | null;
   last_verified?: number | null;
   // Phase 7.x — 4-letter uppercase code used in contract filenames
@@ -534,7 +534,7 @@ export type UpdatePartnerBody = Partial<{
   legal_name_local: string | null;
   registered_address_local: string | null;
   preferred_incoterms: string | null;
-  preferred_invoice_language: 'EN' | 'RU' | 'LOCAL' | 'BILINGUAL' | null;
+  preferred_invoice_language: 'EN' | 'RU' | 'BILINGUAL' | null;
   partner_local_language: 'EN' | 'RU' | 'KA' | 'ZH' | 'VI' | 'AM' | 'UK' | 'DE' | 'TR' | 'UZ' | 'KK' | 'TH' | 'ID' | 'MS' | 'HI' | 'AR' | 'FR' | 'ES' | 'PT' | null;
   payment_terms: string | null;
   linked_entity_id: string | null;

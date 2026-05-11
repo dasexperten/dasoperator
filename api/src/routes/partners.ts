@@ -284,7 +284,7 @@ const updatePartnerSchema = z.object({
   legal_name_local: z.string().max(200).nullable().optional(),
   registered_address_local: z.string().max(500).nullable().optional(),
   preferred_incoterms: z.string().max(20).nullable().optional(),
-  preferred_invoice_language: z.enum(['EN', 'RU', 'LOCAL', 'BILINGUAL']).nullable().optional(),
+  preferred_invoice_language: z.enum(['EN', 'RU', 'BILINGUAL']).nullable().optional(),
   partner_local_language: z.enum([
     'EN','RU','KA','ZH','VI','AM','UK','DE','TR','UZ','KK',
     'TH','ID','MS','HI','AR','FR','ES','PT'

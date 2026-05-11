@@ -71,8 +71,7 @@ function languageLabel(lang: string | null | undefined): string {
 const DOC_MODE_LABELS: Record<string, string> = {
   'EN':        'English only',
   'RU':        'Русский only (legacy)',
-  'LOCAL':     "Partner's national language only",
-  'BILINGUAL': 'English + national (bilingual)',
+  'BILINGUAL': 'English + national language (bilingual)',
 };
 
 function docModeLabel(mode: string | null | undefined): string {

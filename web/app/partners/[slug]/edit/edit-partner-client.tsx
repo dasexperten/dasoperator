@@ -20,10 +20,12 @@ const LANGS = ['EN', 'RU', 'EN-RU', 'EN-AR', 'EN-VI', 'EN-ZH'] as const;
 //   EN        → render in issuer's primary language only (default for international)
 //   LOCAL     → render in partner's local language only (rare; partner explicitly asks)
 //   BILINGUAL → render in issuer's language + partner's local language
+// Three render-mode options. Database CHECK constraint accepts only these four
+// values: NULL (issuer default), 'EN', 'RU', 'BILINGUAL'. We surface three
+// semantic options to the user; 'RU' is a legacy override no longer offered.
 const INVOICE_MODES = [
   { value: 'EN',        label: 'English only' },
-  { value: 'LOCAL',     label: "Partner's local language only" },
-  { value: 'BILINGUAL', label: 'English + local (bilingual)' },
+  { value: 'BILINGUAL', label: 'English + national language (bilingual)' },
 ] as const;
 
 // ISO codes of national languages — used when render mode is LOCAL or BILINGUAL
@@ -58,7 +60,7 @@ type FormState = {
   email: string;
   partner_type: typeof PARTNER_TYPES[number];
   partner_language: typeof LANGS[number];
-  preferred_invoice_language: 'EN' | 'LOCAL' | 'BILINGUAL' | '';
+  preferred_invoice_language: 'EN' | 'BILINGUAL' | '';
   partner_local_language: typeof PARTNER_LOCAL_LANGUAGES[number]['value'] | '';
   preferred_incoterms: string;
   payment_terms: string;
@@ -463,7 +465,7 @@ export default function EditPartnerClient({ slug }: { slug: string }) {
             fontSize: '14px',
             fontWeight: 700,
             backgroundColor: 'var(--brand-schwarz)',
-            color: 'var(--paper-1)',
+            color: 'var(--fg-on-brand)',
             border: '1px solid var(--brand-schwarz)',
             borderRadius: 'var(--radius-sm)',
             cursor: saving ? 'wait' : 'pointer',
@@ -479,7 +481,7 @@ export default function EditPartnerClient({ slug }: { slug: string }) {
           className="inline-flex items-center gap-2 px-4 py-2"
           style={{
             fontSize: '14px',
-            backgroundColor: 'var(--paper-1)',
+            backgroundColor: 'var(--paper-raised)',
             color: 'var(--fg-1)',
             border: '1px solid var(--border-hairline)',
             borderRadius: 'var(--radius-sm)',
@@ -545,7 +547,7 @@ const inputStyle: React.CSSProperties = {
   padding: '8px 10px',
   border: '1px solid var(--border-hairline)',
   borderRadius: 'var(--radius-sm)',
-  backgroundColor: 'var(--paper-1)',
+  backgroundColor: 'var(--paper-raised)',
   color: 'var(--fg-1)',
 };
 

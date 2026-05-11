@@ -134,6 +134,74 @@ netBalanceBulk.get('/', async (c) => {
 
   const today = todayUtcDate();
   const snapshot = await getRatesFor(c.env.FX, today);
+
+  // -------------------------------------------------------------------------
+  // Two bulk aggregating queries instead of 73 × 2 = 146 sequential round-trips.
+  // We group at the SQL level by (partner_id, operation_type, currency, status)
+  // and (partner_id, currency, direction) — yielding tens of rows per query,
+  // not thousands.
+  // -------------------------------------------------------------------------
+  const opsAggResult = await c.env.DB.prepare(`
+    SELECT c.partner_id AS partner_id,
+           o.operation_type AS operation_type,
+           o.currency AS currency,
+           o.status AS status,
+           SUM(o.total_amount) AS total
+    FROM operations o
+    JOIN contracts c ON o.contract_id = c.id
+    WHERE o.deleted_at IS NULL
+      AND o.status IN ('issued','shipped','delivered')
+    GROUP BY c.partner_id, o.operation_type, o.currency, o.status
+  `).all<{
+    partner_id: string;
+    operation_type: string;
+    currency: string;
+    status: string;
+    total: number;
+  }>();
+
+  const paysAggResult = await c.env.DB.prepare(`
+    SELECT partner_id,
+           currency,
+           direction,
+           SUM(amount) AS total
+    FROM payments
+    WHERE deleted_at IS NULL
+    GROUP BY partner_id, currency, direction
+  `).all<{
+    partner_id: string;
+    currency: string;
+    direction: string;
+    total: number;
+  }>();
+
+  // Group rows back into per-partner buckets that computeNetBalance expects.
+  const opsByPartner = new Map<string, OperationRow[]>();
+  for (const r of opsAggResult.results) {
+    if (!r.partner_id) continue;
+    const list = opsByPartner.get(r.partner_id) ?? [];
+    list.push({
+      contract_id: '',
+      operation_type: r.operation_type,
+      total_amount: r.total,
+      currency: r.currency,
+      status: r.status,
+    });
+    opsByPartner.set(r.partner_id, list);
+  }
+
+  const paysByPartner = new Map<string, PaymentRow[]>();
+  for (const r of paysAggResult.results) {
+    if (!r.partner_id) continue;
+    const list = paysByPartner.get(r.partner_id) ?? [];
+    list.push({
+      amount: r.total,
+      currency: r.currency,
+      direction: r.direction,
+    });
+    paysByPartner.set(r.partner_id, list);
+  }
+
   const balances: Array<{
     partner_id: string;
     net_balance_usd: number;
@@ -141,24 +209,9 @@ netBalanceBulk.get('/', async (c) => {
   }> = [];
 
   for (const p of partnersResult.results) {
-    const opsResult = await c.env.DB.prepare(`
-      SELECT o.operation_type, o.total_amount, o.currency, o.status, o.contract_id
-      FROM operations o
-      JOIN contracts c ON o.contract_id = c.id
-      WHERE c.partner_id = ? AND o.deleted_at IS NULL AND o.status IN ('issued','shipped','delivered')
-    `).bind(p.id).all<OperationRow>();
-
-    const paysResult = await c.env.DB.prepare(`
-      SELECT amount, currency, direction FROM payments
-      WHERE partner_id = ? AND deleted_at IS NULL
-    `).bind(p.id).all<PaymentRow>();
-
-    const { totalUsd, byCurrency } = computeNetBalance(
-      opsResult.results,
-      paysResult.results,
-      snapshot
-    );
-
+    const ops = opsByPartner.get(p.id) ?? [];
+    const pays = paysByPartner.get(p.id) ?? [];
+    const { totalUsd, byCurrency } = computeNetBalance(ops, pays, snapshot);
     balances.push({
       partner_id: p.id,
       net_balance_usd: totalUsd,

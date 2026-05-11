@@ -82,6 +82,78 @@ banksModulbank.get('/webhook', (c) => {
 });
 
 // =============================================================================
+// GET /api/banks/modulbank/health — webhook ingestion health
+//
+// Reports when the last bank_transaction was received (= last successful
+// webhook) and a traffic-light status based on time elapsed:
+//   green   — last seen ≤ 12h ago             (normal during business days)
+//   yellow  — last seen 12h to 48h ago        (long weekend, holiday, or stall)
+//   red     — last seen > 48h ago             (likely subscription dropped)
+//   unknown — no transactions ever recorded
+//
+// Thresholds err on the side of forgiveness — Modulbank doesn't push on
+// weekends. Friday EOB → Monday morning is naturally ~60h of silence.
+// We still flag red after 48h because most working days have multiple txs.
+// =============================================================================
+banksModulbank.get('/health', async (c) => {
+  const lastTx = await c.env.DB.prepare(
+    `SELECT created_at, executed_at, contragent_name, currency, amount, direction
+     FROM bank_transactions
+     ORDER BY created_at DESC
+     LIMIT 1`,
+  ).first<{
+    created_at: number;
+    executed_at: number;
+    contragent_name: string | null;
+    currency: string;
+    amount: number;
+    direction: string;
+  }>();
+
+  const nowUnix = Math.floor(Date.now() / 1000);
+
+  if (!lastTx) {
+    return ok(c, {
+      status: 'unknown',
+      hours_since_last_webhook: null,
+      last_webhook_at: null,
+      last_transaction: null,
+      message: 'No bank transactions ever received',
+    });
+  }
+
+  const hoursSince = (nowUnix - lastTx.created_at) / 3600;
+
+  let status: 'green' | 'yellow' | 'red';
+  let message: string;
+  if (hoursSince <= 12) {
+    status = 'green';
+    message = `Last webhook ${hoursSince.toFixed(1)}h ago — normal`;
+  } else if (hoursSince <= 48) {
+    status = 'yellow';
+    message = `Last webhook ${hoursSince.toFixed(1)}h ago — possibly normal weekend gap, monitor`;
+  } else {
+    status = 'red';
+    message = `Last webhook ${hoursSince.toFixed(1)}h ago — likely subscription dropped, check Modulbank LK`;
+  }
+
+  return ok(c, {
+    status,
+    hours_since_last_webhook: Math.round(hoursSince * 10) / 10,
+    last_webhook_at: lastTx.created_at,
+    last_transaction: {
+      executed_at: lastTx.executed_at,
+      direction: lastTx.direction,
+      amount: lastTx.amount / 100,
+      currency: lastTx.currency,
+      contragent: lastTx.contragent_name,
+    },
+    thresholds: { green_hours: 12, yellow_hours: 48 },
+    message,
+  });
+});
+
+// =============================================================================
 // POST /api/banks/modulbank/webhook — Modulbank pushes transaction notifications here
 // =============================================================================
 banksModulbank.post('/webhook', async (c) => {

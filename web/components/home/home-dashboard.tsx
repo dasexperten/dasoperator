@@ -13,6 +13,7 @@ import {
   type FxLatest,
 } from '@/lib/api';
 import MarketplacePulse from './marketplace-pulse';
+import SystemHealth from './system-health';
 
 // =============================================================================
 // Helpers
@@ -223,6 +224,9 @@ export default function HomeDashboard() {
           />
         </div>
       </section>
+
+      {/* SYSTEM HEALTH ============================================== */}
+      <SystemHealth />
 
       {/* MARKETPLACE PULSE ========================================== */}
       <MarketplacePulse />

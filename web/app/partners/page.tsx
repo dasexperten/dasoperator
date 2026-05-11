@@ -393,7 +393,7 @@ export default function PartnersPage() {
                       </td>
                       <td className="px-4 py-3">
                         {(() => {
-                          const emails = parseEmails(p.email);
+                          const emails = parseEmails(p.email).slice(0, 3);
                           if (emails.length === 0) {
                             return <span style={{ color: 'var(--fg-muted)' }}>—</span>;
                           }
@@ -417,11 +417,6 @@ export default function PartnersPage() {
                                   >
                                     <Mail size={14} />
                                     <span style={{ borderBottom: '1px dotted currentColor' }}>{entry.email}</span>
-                                    {entry.label && (
-                                      <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--fg-3)', marginLeft: 4 }}>
-                                        {entry.label}
-                                      </span>
-                                    )}
                                   </button>
                                 );
                               })}
@@ -445,14 +440,14 @@ export default function PartnersPage() {
                       </td>
                     </tr>
                     {composerKey?.partnerId === p.id && (() => {
-                      const emails = parseEmails(p.email);
+                      const emails = parseEmails(p.email).slice(0, 3);
                       const target = emails[composerKey.emailIdx];
                       if (!target) return null;
                       return (
                         <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                           <td colSpan={10} style={{ padding: 0, background: 'var(--paper-sunk)' }}>
                             <EmailComposer
-                              partnerName={target.label ? `${p.trade_name} — ${target.label}` : p.trade_name}
+                              partnerName={p.trade_name}
                               recipientEmail={target.email}
                               onClose={() => setComposerKey(null)}
                             />

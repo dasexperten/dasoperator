@@ -975,6 +975,58 @@ operations.patch('/:id/status', async (c) => {
     );
   }
 
+  // 3a. Pre-validation pass — guard against any spec that would push stock < 0.
+  // Without this guard, the system silently writes shipments out of empty
+  // warehouses (the DEI-010 incident on 2026-05-11 left -298,080 pcs at YZH).
+  // Reversal movements ('return') and manual adjustments are allowed to go
+  // negative because they intentionally correct an existing imbalance.
+  const negativeViolations: Array<{
+    product_id: string;
+    warehouse_id: string;
+    current: number;
+    delta: number;
+    would_be: number;
+  }> = [];
+
+  // Build a temporary balance map so multi-line operations validate against
+  // the running balance (e.g. shipping 5 units then 3 of the same SKU from a
+  // stock of 7 should fail on the second line, not pass because each was <7).
+  const tentativeBalances = new Map<string, number>();
+
+  for (const spec of movementSpecs) {
+    const allowNegative = spec.movementType === 'return' || spec.movementType === 'adjustment';
+    if (allowNegative) continue;
+    if (spec.qty >= 0) continue; // only outflows can drive below zero
+
+    const key = `${spec.warehouseId}:${spec.productId}`;
+    let current = tentativeBalances.get(key);
+    if (current === undefined) {
+      const existing = await c.env.DB.prepare(
+        'SELECT on_hand FROM stocks WHERE warehouse_id = ? AND product_id = ?'
+      ).bind(spec.warehouseId, spec.productId).first<{ on_hand: number }>();
+      current = existing?.on_hand ?? 0;
+    }
+    const wouldBe = current + spec.qty;
+    if (wouldBe < 0) {
+      negativeViolations.push({
+        product_id: spec.productId,
+        warehouse_id: spec.warehouseId,
+        current,
+        delta: spec.qty,
+        would_be: wouldBe,
+      });
+    }
+    tentativeBalances.set(key, wouldBe);
+  }
+
+  if (negativeViolations.length > 0) {
+    return fail(c, 422, [{
+      code: 'insufficient_stock',
+      message: `Cannot transition to '${targetStatus}': ${negativeViolations.length} stock line(s) would go negative. Register a receipt first.`,
+      details: { violations: negativeViolations },
+    }]);
+  }
+
   // 3. For each movement spec: compute balance_after, add movement insert + stock update
   for (const spec of movementSpecs) {
     let stock: StockRow;
@@ -986,8 +1038,10 @@ operations.patch('/:id/status', async (c) => {
     }
 
     const balanceAfter = stock.on_hand + spec.qty;
+    // Negative balance still possible here ONLY for return/adjustment specs,
+    // which we explicitly skip in pre-validation. Keep the warning for audit.
     if (balanceAfter < 0) {
-      warnings.push(`negative_stock: ${spec.productId} @ ${spec.warehouseId} would go to ${balanceAfter} — movement written anyway`);
+      warnings.push(`negative_stock_allowed: ${spec.productId} @ ${spec.warehouseId} = ${balanceAfter} (${spec.movementType})`);
     }
 
     const movId = `mov_${crypto.randomUUID()}`;

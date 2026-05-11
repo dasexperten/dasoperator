@@ -68,6 +68,54 @@ function deriveKind(p: ExtendedPartner): Kind {
   return 'other';
 }
 
+interface EmailEntry {
+  email: string;
+  label?: string;
+}
+
+// Parses partners.email which can be:
+//   1. null / empty / dash         → []
+//   2. plain "foo@bar.com"         → [{email:"foo@bar.com"}]
+//   3. comma-separated "a@x, b@y"  → [{email:"a@x"},{email:"b@y"}]
+//   4. JSON array of strings       → [{email:..}, {email:..}]
+//   5. JSON array of objects with {email,label} → as-is
+// Always returns an array (possibly empty). Never throws.
+function parseEmails(raw: string | null | undefined): EmailEntry[] {
+  if (!raw || typeof raw !== 'string') return [];
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed === '—') return [];
+
+  // Try JSON first
+  if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((x) => {
+            if (typeof x === 'string') return { email: x.trim() };
+            if (x && typeof x === 'object' && typeof x.email === 'string') {
+              return { email: x.email.trim(), label: x.label?.toString() };
+            }
+            return null;
+          })
+          .filter((x): x is EmailEntry => x !== null && x.email.length > 0);
+      }
+      if (parsed && typeof parsed === 'object' && typeof parsed.email === 'string') {
+        return [{ email: parsed.email.trim(), label: parsed.label?.toString() }];
+      }
+    } catch {
+      // fall through to plain parsing
+    }
+  }
+
+  // Plain or comma-separated
+  return trimmed
+    .split(/[,;]/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && s.includes('@'))
+    .map((email) => ({ email }));
+}
+
 interface BalanceRow {
   usd: number;
   currencies: Record<string, number>;
@@ -82,8 +130,8 @@ export default function PartnersPage() {
   const [kindFilter, setKindFilter] = useState<Kind | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [entityFilter, setEntityFilter] = useState<string>('all');
-  // Inline email composer — only one open at a time, keyed by partner id
-  const [composerPartnerId, setComposerPartnerId] = useState<string | null>(null);
+  // Inline email composer — only one open at a time, keyed by partner id + email index
+  const [composerKey, setComposerKey] = useState<{ partnerId: string; emailIdx: number } | null>(null);
 
   useEffect(() => {
     // Single combined fetch — partners list + bulk balances in one round-trip.
@@ -344,24 +392,42 @@ export default function PartnersPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        {p.email ? (
-                          <button
-                            type="button"
-                            onClick={() => setComposerPartnerId(composerPartnerId === p.id ? null : p.id)}
-                            className="inline-flex items-center gap-1.5"
-                            style={{
-                              color: composerPartnerId === p.id ? 'var(--brand-rot)' : 'var(--line-innoweiss, #0D199E)',
-                              fontWeight: 700,
-                              fontSize: 13,
-                              letterSpacing: 0,
-                            }}
-                          >
-                            <Mail size={14} />
-                            <span style={{ borderBottom: '1px dotted currentColor' }}>{p.email}</span>
-                          </button>
-                        ) : (
-                          <span style={{ color: 'var(--fg-muted)' }}>—</span>
-                        )}
+                        {(() => {
+                          const emails = parseEmails(p.email);
+                          if (emails.length === 0) {
+                            return <span style={{ color: 'var(--fg-muted)' }}>—</span>;
+                          }
+                          return (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              {emails.map((entry, idx) => {
+                                const isOpen = composerKey?.partnerId === p.id && composerKey?.emailIdx === idx;
+                                return (
+                                  <button
+                                    key={`${p.id}-email-${idx}`}
+                                    type="button"
+                                    onClick={() => setComposerKey(isOpen ? null : { partnerId: p.id, emailIdx: idx })}
+                                    className="inline-flex items-center gap-1.5"
+                                    style={{
+                                      color: isOpen ? 'var(--brand-rot)' : 'var(--line-innoweiss, #0D199E)',
+                                      fontWeight: 700,
+                                      fontSize: 13,
+                                      letterSpacing: 0,
+                                      textAlign: 'left',
+                                    }}
+                                  >
+                                    <Mail size={14} />
+                                    <span style={{ borderBottom: '1px dotted currentColor' }}>{entry.email}</span>
+                                    {entry.label && (
+                                      <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--fg-3)', marginLeft: 4 }}>
+                                        {entry.label}
+                                      </span>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-3" style={{ fontWeight: 700 }}>
                         {netBalances[p.id] ? (
@@ -378,17 +444,22 @@ export default function PartnersPage() {
                         {p.contract_no ? p.contract_no : <span style={{ color: 'var(--fg-muted)', fontWeight: 400 }}>—</span>}
                       </td>
                     </tr>
-                    {composerPartnerId === p.id && p.email && (
-                      <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                        <td colSpan={10} style={{ padding: 0, background: 'var(--paper-sunk)' }}>
-                          <EmailComposer
-                            partnerName={p.trade_name}
-                            recipientEmail={p.email}
-                            onClose={() => setComposerPartnerId(null)}
-                          />
-                        </td>
-                      </tr>
-                    )}
+                    {composerKey?.partnerId === p.id && (() => {
+                      const emails = parseEmails(p.email);
+                      const target = emails[composerKey.emailIdx];
+                      if (!target) return null;
+                      return (
+                        <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                          <td colSpan={10} style={{ padding: 0, background: 'var(--paper-sunk)' }}>
+                            <EmailComposer
+                              partnerName={target.label ? `${p.trade_name} — ${target.label}` : p.trade_name}
+                              recipientEmail={target.email}
+                              onClose={() => setComposerKey(null)}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })()}
                     </Fragment>
                   );
                 })

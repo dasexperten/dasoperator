@@ -30,6 +30,14 @@ const CONTRACT_STATUS_COLORS: Record<Contract['status'], { bg: string; fg: strin
   cancelled: { bg: 'rgba(229,32,44,0.08)',  fg: 'var(--brand-rot)',      border: 'rgba(229,32,44,0.3)' },
 };
 
+// Delivery status — physical fulfilment, independent of document/payment state.
+const DELIVERY_OVERLAY: Record<string, { icon: string; color: string; label: string }> = {
+  delivered: { icon: '✓', color: 'var(--success, #1a7f3a)',  label: 'Delivered' },
+  pending:   { icon: '⏱', color: 'var(--warning, #b07900)',  label: 'Pending'   },
+  disputed:  { icon: '!', color: 'var(--danger,  #A82029)',  label: 'Disputed'  },
+  refunded:  { icon: '↩', color: 'var(--fg-3,    #6b6964)',  label: 'Refunded'  },
+};
+
 // Phase 4.3c — Payment overlay (mirror of /operations page)
 const PAYMENT_OVERLAY: Record<string, { bg: string; fg: string; dot: string; label: string }> = {
   unpaid:  { bg: 'rgba(229,32,44,0.10)', fg: '#A82029', dot: '#E5202C', label: 'Unpaid' },
@@ -585,19 +593,45 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
                       {formatMoney(op.total_amount, op.currency)} {op.currency}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="inline-flex items-center gap-2" style={{
-                        padding: '4px 10px',
-                        backgroundColor: po.bg,
-                        color: po.fg,
-                        borderRadius: 'var(--radius-sm)',
-                        fontSize: '14px',
-                        fontWeight: 500,
-                      }}>
-                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: po.dot, display: 'inline-block' }} />
-                        <span style={{ color: 'var(--fg-1)', fontWeight: 600 }}>{statusLabel(op.status)}</span>
-                        {ps !== 'neutral' && (
-                          <span style={{ color: po.fg, fontWeight: 500 }}>· {po.label} {pct}%</span>
-                        )}
+                      <div className="inline-flex items-center gap-2">
+                        <div className="inline-flex items-center gap-2" style={{
+                          padding: '4px 10px',
+                          backgroundColor: po.bg,
+                          color: po.fg,
+                          borderRadius: 'var(--radius-sm)',
+                          fontSize: '14px',
+                          fontWeight: 500,
+                        }}>
+                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: po.dot, display: 'inline-block' }} />
+                          <span style={{ color: 'var(--fg-1)', fontWeight: 600 }}>{statusLabel(op.status)}</span>
+                          {ps !== 'neutral' && (
+                            <span style={{ color: po.fg, fontWeight: 500 }}>· {po.label} {pct}%</span>
+                          )}
+                        </div>
+                        {(() => {
+                          const ds = op.delivery_status ?? 'delivered';
+                          const dv = DELIVERY_OVERLAY[ds]!;
+                          return (
+                            <span
+                              title={`Delivery: ${dv.label}`}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: '20px',
+                                height: '20px',
+                                borderRadius: '50%',
+                                border: `1px solid ${dv.color}`,
+                                color: dv.color,
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                lineHeight: 1,
+                              }}
+                            >
+                              {dv.icon}
+                            </span>
+                          );
+                        })()}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right">

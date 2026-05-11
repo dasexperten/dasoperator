@@ -576,6 +576,7 @@ operations.get('/', async (c) => {
       o.warehouse_from_id, o.warehouse_to_id,
       o.currency, o.total_amount, o.total_usd_equiv,
       o.status, o.reference, o.notes, o.vat_rate,
+      o.delivery_status,
       o.created_at, o.updated_at,
       COALESCE((
         SELECT SUM(pay.amount)
@@ -774,6 +775,31 @@ async function getOrCreateStock(
 
   return { id: newId, on_hand: 0 };
 }
+
+operations.patch('/:id/delivery-status', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json().catch(() => null);
+  const schema = z.object({
+    delivery_status: z.enum(['pending', 'delivered', 'disputed', 'refunded']),
+  });
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    return fail(c, 400, parsed.error.errors.map((e) => ({
+      code: 'validation', message: e.message, path: e.path.join('.'),
+    })));
+  }
+  const existing = await c.env.DB.prepare(
+    'SELECT id FROM operations WHERE id = ? AND deleted_at IS NULL'
+  ).bind(id).first();
+  if (!existing) {
+    return fail(c, 404, [{ code: 'operation_not_found', message: `Operation ${id} not found` }]);
+  }
+  const now = Math.floor(Date.now() / 1000);
+  await c.env.DB.prepare(
+    'UPDATE operations SET delivery_status = ?, updated_at = ? WHERE id = ?'
+  ).bind(parsed.data.delivery_status, now, id).run();
+  return ok(c, { id, delivery_status: parsed.data.delivery_status, updated_at: now });
+});
 
 operations.patch('/:id/status', async (c) => {
   const opId = c.req.param('id');

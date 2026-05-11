@@ -950,6 +950,7 @@ export interface Operation {
   vat_rate: 0 | 5 | 20;
   paid_amount?: number;
   payment_state?: 'neutral' | 'unpaid' | 'partial' | 'paid';
+  delivery_status?: 'pending' | 'delivered' | 'disputed' | 'refunded';
   created_at: number;
   updated_at: number;
 }

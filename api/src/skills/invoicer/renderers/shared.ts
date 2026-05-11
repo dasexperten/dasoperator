@@ -83,6 +83,11 @@ export interface RenderSignature {
 export const PORTRAIT_USABLE_DXA = 10500;
 export const LANDSCAPE_USABLE_DXA = 15400;
 const SHADE_GRAY = 'F2F2F2';
+const BRAND_ANTHRACITE = '1A1A1A';
+const BRAND_ROT = 'E5202C';
+const SUBTLE_GRAY = '707070';
+const HAIRLINE_GRAY = 'BFBFBF';
+const BRAND_FONT = 'Calibri';  // safe sans-serif, available on all Office installs
 
 const NO_BORDER = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
 const HAIRLINE = { style: BorderStyle.SINGLE, size: 4, color: 'BFBFBF' };
@@ -246,7 +251,7 @@ function makeParagraph(runs: TextRun[], opts: ParaOpts = {}): Paragraph {
 }
 
 function makeRun(text: string, opts: ParaOpts = {}): TextRun {
-  const r: Record<string, unknown> = { text, size: opts.size ?? 16 };
+  const r: Record<string, unknown> = { text, size: opts.size ?? 16, font: BRAND_FONT };
   if (opts.bold !== undefined) r.bold = opts.bold;
   if (opts.italic !== undefined) r.italics = opts.italic;
   if (opts.color !== undefined) r.color = opts.color;
@@ -266,7 +271,16 @@ export function blank(): Paragraph {
 // =============================================================================
 
 export function buildTitle(text: string): Paragraph {
-  return p(text, { bold: true, size: 22, align: AlignmentType.CENTER, spaceAfter: 120 });
+  // Large, bold, anthracite — sets a modern document tone without being noisy.
+  return p(text.toUpperCase(), { bold: true, size: 36, color: BRAND_ANTHRACITE, align: AlignmentType.LEFT, spaceAfter: 60 });
+}
+
+export function buildBrandBar(): Paragraph {
+  // Thin red accent rule under the title — Das Experten brand signature.
+  return makeParagraph(
+    [makeRun('▬▬▬▬▬▬▬▬▬▬▬▬▬', { size: 14, bold: true, color: BRAND_ROT })],
+    { align: AlignmentType.LEFT, spaceAfter: 160 }
+  );
 }
 
 export interface MetaItem {
@@ -277,11 +291,12 @@ export interface MetaItem {
 export function buildMetaRow(items: MetaItem[]): Paragraph {
   const runs: TextRun[] = [];
   items.forEach((item, i) => {
-    if (i > 0) runs.push(makeRun('  ·  ', { size: 18, color: '707070' }));
-    runs.push(makeRun(`${item.label}: `, { size: 18 }));
-    runs.push(makeRun(item.value, { size: 18, bold: true }));
+    if (i > 0) runs.push(makeRun('     ', { size: 18 }));
+    runs.push(makeRun(item.label.toUpperCase(), { size: 14, color: SUBTLE_GRAY, bold: true }));
+    runs.push(makeRun('  ', { size: 14 }));
+    runs.push(makeRun(item.value, { size: 18, bold: true, color: BRAND_ANTHRACITE }));
   });
-  return makeParagraph(runs, { align: AlignmentType.CENTER, spaceAfter: 200 });
+  return makeParagraph(runs, { align: AlignmentType.LEFT, spaceAfter: 240 });
 }
 
 // =============================================================================

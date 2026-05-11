@@ -6,6 +6,7 @@
 
 import type { ContractRow, DocumentLanguage, LineItemRow } from '../types';
 import {
+  t, tBilingual, type RenderLanguage,
   Document, Packer, PORTRAIT_PAGE, PORTRAIT_USABLE_DXA, RenderBank, RenderParty,
   RenderSignature, blank, buildDeliveryBankTable, buildMetaRow, buildPartyTable,
   buildProductTable, buildSignature, buildTitle, formatDate, formatMoney,
@@ -17,6 +18,8 @@ export interface RenderCiInput {
   reference: string;
   issuedAt: number;
   language: DocumentLanguage;
+  issuerLanguage?: import('./shared').RenderLanguage;
+  partnerLanguage?: import('./shared').RenderLanguage;
   currency: string;
   seller: RenderParty;
   buyer: RenderParty;
@@ -29,13 +32,26 @@ export interface RenderCiInput {
   totalMinor: number;
 }
 
+function _resolveTranslator(input: { language: DocumentLanguage; issuerLanguage?: RenderLanguage; partnerLanguage?: RenderLanguage }): {
+  primary: RenderLanguage;
+  translate: (key: string) => string;
+} {
+  if (input.language === 'BILINGUAL') {
+    const issuer = input.issuerLanguage ?? 'EN';
+    const partner = input.partnerLanguage ?? issuer;
+    return { primary: issuer, translate: (key) => tBilingual(key, issuer, partner) };
+  }
+  const lang = input.language as RenderLanguage;
+  return { primary: lang, translate: (key) => t(key, lang) };
+}
+
+
 export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uint8Array> {
-  const isRu = input.language === 'RU';
+  const { primary, translate } = _resolveTranslator(input);
+  const isRu = primary === 'RU';
   const language: 'EN' | 'RU' = isRu ? 'RU' : 'EN';
 
-  const titleText = isRu
-    ? 'СЧЁТ-ФАКТУРА'
-    : 'COMMERCIAL INVOICE';
+  const titleText = translate('title.commercial_invoice');
 
   // Meta row — labels stay bilingual EN/RU for clarity even on RU-only docs.
   const meta = [
@@ -52,24 +68,24 @@ export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uin
   const partyTable = buildPartyTable({
     language,
     totalWidthDxa: PORTRAIT_USABLE_DXA,
-    shipperLabel: isRu ? 'ПРОДАВЕЦ' : 'SELLER',
+    shipperLabel: translate('party.seller'),
     shipper: input.seller,
-    consigneeLabel: isRu ? 'ПОКУПАТЕЛЬ' : 'BUYER',
+    consigneeLabel: translate('party.buyer'),
     consignee: input.buyer,
   });
 
   const deliveryLines: string[] = [
-    `${isRu ? 'Условия' : 'Terms'}: ${input.incoterms}`,
+    `${translate('misc.terms')}: ${input.incoterms}`,
   ];
   if (input.paymentTerms) {
-    deliveryLines.push(`${isRu ? 'Оплата' : 'Payment'}: ${input.paymentTerms}`);
+    deliveryLines.push(`${translate('misc.payment')}: ${input.paymentTerms}`);
   }
   const deliveryBankTable = buildDeliveryBankTable({
     language,
     totalWidthDxa: PORTRAIT_USABLE_DXA,
-    deliveryHeader: isRu ? 'УСЛОВИЯ ПОСТАВКИ' : 'DELIVERY',
+    deliveryHeader: translate('section.delivery'),
     deliveryLines,
-    bankHeader: isRu ? 'БАНКОВСКИЕ РЕКВИЗИТЫ' : 'BANK DETAILS',
+    bankHeader: translate('section.bank'),
     bank: input.bank,
   });
 
@@ -79,13 +95,13 @@ export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uin
   const headers = [
     { text: '#', align: 'center' as const },
     { text: 'SKU', align: 'left' as const },
-    { text: isRu ? 'Описание' : 'Description', align: 'left' as const },
+    { text: translate('col.description'), align: 'left' as const },
     { text: 'HS Code', align: 'center' as const },
-    { text: isRu ? 'Страна' : 'Origin', align: 'center' as const },
-    { text: isRu ? 'Кол-во' : 'Qty', align: 'right' as const },
-    { text: isRu ? 'Ед.' : 'Unit', align: 'center' as const },
-    { text: isRu ? 'Цена' : 'Unit Price', align: 'right' as const },
-    { text: isRu ? 'Сумма' : 'Total', align: 'right' as const },
+    { text: translate('col.origin'), align: 'center' as const },
+    { text: translate('col.qty'), align: 'right' as const },
+    { text: translate('col.unit'), align: 'center' as const },
+    { text: translate('col.unit_price'), align: 'right' as const },
+    { text: translate('col.total'), align: 'right' as const },
   ];
 
   const rows: ProductCell[][] = input.lineItems.map((li, idx) => {
@@ -97,7 +113,7 @@ export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uin
       { text: li.hs_code ?? '', align: 'center' },
       { text: li.country_of_origin ?? '', align: 'center' },
       { text: String(li.qty), align: 'right' },
-      { text: isRu ? 'шт.' : 'pcs', align: 'center' },
+      { text: translate('col.unit_pcs'), align: 'center' },
       { text: formatMoney(li.unit_price_after_disc, input.currency), align: 'right' },
       { text: formatMoney(li.line_amount, input.currency), align: 'right' },
     ];
@@ -110,7 +126,7 @@ export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uin
     widths,
     headers,
     rows,
-    totalLabel: isRu ? 'ИТОГО' : 'TOTAL',
+    totalLabel: translate('total.label'),
     totalLabelSpan: 7,
     totalValues: [
       { text: '', align: 'right' },

@@ -35,7 +35,14 @@ type Alignment = (typeof AlignmentType)[keyof typeof AlignmentType];
 // Public shapes
 // =============================================================================
 
-export type Language = 'EN' | 'RU' | 'BILINGUAL';
+export type Language =
+  | 'EN' | 'RU' | 'KA' | 'ZH' | 'VI' | 'AM' | 'UK'
+  | 'DE' | 'TR' | 'UZ' | 'KK' | 'TH' | 'ID' | 'MS'
+  | 'HI' | 'AR' | 'FR' | 'ES' | 'PT' | 'BILINGUAL';
+
+// Re-export label dictionary so renderers can import { t } from './shared'.
+export { t, tBilingual, hasTranslation, type RenderLanguage } from './i18n';
+
 
 export interface RenderParty {
   legalNameEn: string | null;

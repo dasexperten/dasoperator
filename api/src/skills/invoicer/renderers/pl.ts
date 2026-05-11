@@ -1,7 +1,6 @@
 // =============================================================================
-// PL — Packing List. Portrait A4. EN / RU. No money, no signature beyond a
-// short shipper-signature line. Shipper / consignee can be a company OR a
-// manufacturer (dei_layer Factory→DEI PL leg).
+// PL — Packing List. Portrait A4. Any RenderLanguage. No money, no signature
+// beyond a short shipper-signature line.
 // =============================================================================
 
 import type { DocumentLanguage, LineItemRow } from '../types';
@@ -9,6 +8,7 @@ import {
   Document, Packer, PORTRAIT_PAGE, PORTRAIT_USABLE_DXA, RenderParty, blank,
   buildDeliveryBankTable, buildMetaRow, buildPartyTable, buildProductTable,
   buildTitle, formatDate, p, pickLineLabel,
+  t, tBilingual, type RenderLanguage,
   type ProductCell,
 } from './shared';
 import { AlignmentType } from 'docx';
@@ -17,59 +17,65 @@ export interface RenderPlInput {
   reference: string;
   issuedAt: number;
   language: DocumentLanguage;
+  issuerLanguage?: RenderLanguage;
+  partnerLanguage?: RenderLanguage;
   shipper: RenderParty;
   consignee: RenderParty;
   ciReference: string | null;
   lineItems: LineItemRow[];
 }
 
-export async function renderPackingList(input: RenderPlInput): Promise<Uint8Array> {
-  const isRu = input.language === 'RU';
-  const language: 'EN' | 'RU' = isRu ? 'RU' : 'EN';
+function resolveTranslator(input: RenderPlInput): {
+  primary: RenderLanguage;
+  translate: (key: string) => string;
+} {
+  if (input.language === 'BILINGUAL') {
+    const issuer = input.issuerLanguage ?? 'EN';
+    const partner = input.partnerLanguage ?? issuer;
+    return { primary: issuer, translate: (key) => tBilingual(key, issuer, partner) };
+  }
+  const lang = input.language as RenderLanguage;
+  return { primary: lang, translate: (key) => t(key, lang) };
+}
 
-  const titleText = isRu ? 'УПАКОВОЧНЫЙ ЛИСТ' : 'PACKING LIST';
+export async function renderPackingList(input: RenderPlInput): Promise<Uint8Array> {
+  const { primary, translate } = resolveTranslator(input);
+  const lineLabelLang: 'RU' | 'EN' | null =
+    primary === 'RU' ? 'RU' : primary === 'EN' ? 'EN' : null;
+
+  const partyTableLang: 'EN' | 'RU' | 'BILINGUAL' =
+    input.language === 'BILINGUAL' ? 'BILINGUAL' :
+    primary === 'RU' ? 'RU' : 'EN';
 
   const meta = [
-    { label: '№ / No.', value: input.reference },
-    { label: 'Date / Дата', value: formatDate(input.issuedAt) },
+    { label: translate('meta.number_short'), value: input.reference },
+    { label: translate('meta.date'), value: formatDate(input.issuedAt) },
   ];
   if (input.ciReference) {
-    meta.push({ label: 'Related CI / Связанный СФ', value: input.ciReference });
+    meta.push({ label: translate('meta.related_ci'), value: input.ciReference });
   }
 
   const partyTable = buildPartyTable({
-    language,
+    language: partyTableLang,
     totalWidthDxa: PORTRAIT_USABLE_DXA,
-    shipperLabel: isRu ? 'ОТПРАВИТЕЛЬ' : 'SHIPPER',
+    shipperLabel: translate('party.shipper'),
     shipper: input.shipper,
-    consigneeLabel: isRu ? 'ПОЛУЧАТЕЛЬ' : 'CONSIGNEE',
+    consigneeLabel: translate('party.consignee'),
     consignee: input.consignee,
   });
 
-  // Compute totals once — used for the right-side summary block AND
-  // the TOTAL row of the product table.
-  let totalCartons = 0;
-  let totalQty = 0;
-  let totalNet = 0;
-  let totalGross = 0;
-  let allWeightsKnown = true;
+  let totalCartons = 0, totalQty = 0, totalNet = 0, totalGross = 0, allWeightsKnown = true;
 
   const rows: ProductCell[][] = input.lineItems.map((li, idx) => {
-    const desc = pickLineLabel(li, { kind: 'PL', partnerLang: language });
+    const desc = pickLineLabel(li, { kind: 'PL', partnerLang: lineLabelLang });
     const qtyPerCtn = li.ctn_qty ?? 0;
-    const cartons = li.cartons > 0
-      ? li.cartons
-      : (qtyPerCtn > 0 ? Math.ceil(li.qty / qtyPerCtn) : 0);
-    const lineNetKg = li.unit_net_weight_g !== null
-      ? (li.qty * li.unit_net_weight_g) / 1000 : null;
-    const lineGrossKg = (li.ctn_weight_gross_kg !== null && cartons > 0)
-      ? cartons * li.ctn_weight_gross_kg : null;
-
+    const cartons = li.cartons > 0 ? li.cartons : (qtyPerCtn > 0 ? Math.ceil(li.qty / qtyPerCtn) : 0);
+    const lineNetKg = li.unit_net_weight_g !== null ? (li.qty * li.unit_net_weight_g) / 1000 : null;
+    const lineGrossKg = (li.ctn_weight_gross_kg !== null && cartons > 0) ? cartons * li.ctn_weight_gross_kg : null;
     if (lineNetKg !== null) totalNet += lineNetKg; else allWeightsKnown = false;
     if (lineGrossKg !== null) totalGross += lineGrossKg; else allWeightsKnown = false;
     totalCartons += cartons;
     totalQty += li.qty;
-
     return [
       { text: String(idx + 1), align: 'center' },
       { text: li.product_id, align: 'left' },
@@ -82,24 +88,23 @@ export async function renderPackingList(input: RenderPlInput): Promise<Uint8Arra
     ];
   });
 
-  // Summary block on the right (no bank on a stand-alone PL).
   const summaryLines: string[] = [
-    `${isRu ? 'Мест' : 'Cartons'}: ${totalCartons}`,
-    `${isRu ? 'Штук' : 'Total qty'}: ${totalQty}`,
+    `${translate('summary.cartons')}: ${totalCartons}`,
+    `${translate('summary.qty')}: ${totalQty}`,
   ];
   if (allWeightsKnown) {
-    summaryLines.push(`${isRu ? 'Нетто, кг' : 'Net (kg)'}: ${totalNet.toFixed(3)}`);
-    summaryLines.push(`${isRu ? 'Брутто, кг' : 'Gross (kg)'}: ${totalGross.toFixed(3)}`);
+    summaryLines.push(`${translate('summary.net')}: ${totalNet.toFixed(3)}`);
+    summaryLines.push(`${translate('summary.gross')}: ${totalGross.toFixed(3)}`);
   } else {
-    summaryLines.push(`${isRu ? 'Веса' : 'Weights'}: TBD`);
+    summaryLines.push(`${translate('summary.weights_tbd')}: TBD`);
   }
 
   const summaryTable = buildDeliveryBankTable({
-    language,
+    language: partyTableLang,
     totalWidthDxa: PORTRAIT_USABLE_DXA,
-    deliveryHeader: isRu ? 'ОТГРУЗКА' : 'SHIPMENT',
-    deliveryLines: [`${isRu ? 'К инвойсу' : 'For invoice'}: ${input.ciReference ?? '—'}`],
-    rightHeader: isRu ? 'ИТОГИ' : 'SUMMARY',
+    deliveryHeader: translate('section.shipment'),
+    deliveryLines: [`${translate('summary.for_invoice')}: ${input.ciReference ?? '—'}`],
+    rightHeader: translate('section.summary'),
     rightLines: summaryLines,
   });
 
@@ -107,20 +112,18 @@ export async function renderPackingList(input: RenderPlInput): Promise<Uint8Arra
   const headers = [
     { text: '#', align: 'center' as const },
     { text: 'SKU', align: 'left' as const },
-    { text: isRu ? 'Описание' : 'Description', align: 'left' as const },
-    { text: isRu ? 'Шт./кор.' : 'Qty/CTN', align: 'right' as const },
-    { text: isRu ? 'Кол-во' : 'Total Qty', align: 'right' as const },
-    { text: isRu ? 'Кор-ов' : 'Cartons', align: 'right' as const },
-    { text: isRu ? 'Нетто, кг' : 'Net (kg)', align: 'right' as const },
-    { text: isRu ? 'Брутто, кг' : 'Gross (kg)', align: 'right' as const },
+    { text: translate('col.description'), align: 'left' as const },
+    { text: translate('col.qty_per_ctn'), align: 'right' as const },
+    { text: translate('col.qty_total'), align: 'right' as const },
+    { text: translate('col.cartons'), align: 'right' as const },
+    { text: translate('col.net_kg'), align: 'right' as const },
+    { text: translate('col.gross_kg'), align: 'right' as const },
   ];
 
   const productTable = buildProductTable({
     totalWidthDxa: PORTRAIT_USABLE_DXA,
-    widths,
-    headers,
-    rows,
-    totalLabel: isRu ? 'ИТОГО' : 'TOTAL',
+    widths, headers, rows,
+    totalLabel: translate('total.label'),
     totalLabelSpan: 4,
     totalValues: [
       { text: String(totalQty), align: 'right' },
@@ -136,7 +139,7 @@ export async function renderPackingList(input: RenderPlInput): Promise<Uint8Arra
     sections: [{
       properties: { page: PORTRAIT_PAGE },
       children: [
-        buildTitle(titleText),
+        buildTitle(translate('title.packing_list')),
         buildMetaRow(meta),
         partyTable,
         blank(),
@@ -144,7 +147,7 @@ export async function renderPackingList(input: RenderPlInput): Promise<Uint8Arra
         blank(),
         productTable,
         blank(),
-        p(isRu ? 'Подпись отправителя' : 'Shipper signature',
+        p(translate('sig.shipper'),
           { bold: true, size: 18, align: AlignmentType.RIGHT, spaceBefore: 200 }),
         p('_______________________', { align: AlignmentType.RIGHT, size: 16 }),
       ],

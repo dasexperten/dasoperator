@@ -371,6 +371,12 @@ export async function issueDocuments(
     }
 
     const language = selectLanguage(spec.format, input.ourCompany, input.partner, input.contract);
+    // Issuer-first language model — needed by renderers when language === 'BILINGUAL'.
+    const issuerLanguage = (input.ourCompany.default_document_language
+      ?? input.ourCompany.default_invoice_language
+      ?? 'EN') as import('./renderers/shared').RenderLanguage;
+    const partnerLanguage = (input.partner?.partner_local_language
+      ?? issuerLanguage) as import('./renderers/shared').RenderLanguage;
     const currency = selectCurrency(input.ourCompany, input.partner, input.contract, spec.sellerKind);
     const needsBank = spec.type !== 'PL';
 
@@ -438,7 +444,7 @@ export async function issueDocuments(
     const descCheck = validateProductDescriptions(spec.format, input.lineItems);
     if (!descCheck.ok) return fail(descCheck.stop, 422, warnings);
 
-    resolved.push({ spec, seller, buyer, language, currency, needsBank, bankSelection, manufacturerRoute });
+    resolved.push({ spec, seller, buyer, language, issuerLanguage, partnerLanguage, currency, needsBank, bankSelection, manufacturerRoute });
   }
 
   // ---------------------------------------------------------------------------
@@ -498,7 +504,7 @@ export async function issueDocuments(
         const ciBank = r.manufacturerRoute ? bankFromRoute(r.manufacturerRoute)
           : (r.bankSelection ? bankFromSelection(r.bankSelection) : null);
         bytes = await renderCommercialInvoice({
-          reference, issuedAt: nowSec, language: r.language, currency: r.currency,
+          reference, issuedAt: nowSec, language: r.language, issuerLanguage: r.issuerLanguage, partnerLanguage: r.partnerLanguage, currency: r.currency,
           seller: r.seller.party,
           buyer: r.buyer.party,
           bank: ciBank!,
@@ -514,7 +520,7 @@ export async function issueDocuments(
         lastCiReference = reference;
       } else if (r.spec.type === 'PL') {
         bytes = await renderPackingList({
-          reference, issuedAt: nowSec, language: r.language,
+          reference, issuedAt: nowSec, language: r.language, issuerLanguage: r.issuerLanguage, partnerLanguage: r.partnerLanguage,
           shipper: r.seller.party,
           consignee: r.buyer.party,
           ciReference: lastCiReference,

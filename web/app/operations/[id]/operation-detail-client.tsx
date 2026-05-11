@@ -1615,9 +1615,44 @@ function AttachDocumentModal({
   const [currency, setCurrency] = useState('USD');
   const [issuer, setIssuer] = useState('');
   const [fileUrl, setFileUrl] = useState('');
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadError(null);
+    setUploading(true);
+    try {
+      const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://dasoperator-api.dasexperten.workers.dev';
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await fetch(`${API_BASE}/api/operations/${operationId}/files`, {
+        method: 'POST',
+        body: fd,
+      });
+      const data = await r.json();
+      if (data.success && data.result?.file_url) {
+        // Server returns a path; combine with API base for full URL
+        const path: string = data.result.file_url;
+        const fullUrl = path.startsWith('http') ? path : `${API_BASE}${path}`;
+        setFileUrl(fullUrl);
+        setUploadedFileName(data.result.filename || file.name);
+      } else {
+        setUploadError(data.errors?.[0]?.message ?? 'Upload failed');
+      }
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Network error');
+    } finally {
+      setUploading(false);
+      // Reset input so re-uploading same file fires onChange again
+      e.target.value = '';
+    }
+  };
 
   const handleSubmit = async () => {
     if (!kind) {
@@ -1780,14 +1815,73 @@ function AttachDocumentModal({
         </div>
 
         <div style={{ marginBottom: 12 }}>
-          <Field label="File URL (optional — paste R2/Drive link)">
-            <input
-              type="url"
-              value={fileUrl}
-              onChange={(e) => setFileUrl(e.target.value)}
-              placeholder="https://drive.google.com/file/d/..."
-              style={modalInputStyle}
-            />
+          <Field label="File">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {/* Upload button — primary path */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '7px 12px',
+                    background: uploading ? 'var(--paper-sunk)' : 'var(--paper-raised)',
+                    border: '1px solid var(--border-hairline)',
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: uploading ? 'not-allowed' : 'pointer',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: 'var(--fg-1)',
+                  }}
+                >
+                  {uploading ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                  {uploading ? 'Uploading…' : 'Upload file'}
+                  <input
+                    type="file"
+                    onChange={handleFileUpload}
+                    disabled={uploading}
+                    accept=".pdf,.jpg,.jpeg,.png,.webp,.xlsx,.xls,.docx,.doc,.txt,.csv"
+                    style={{ display: 'none' }}
+                  />
+                </label>
+                {uploadedFileName && !uploading && (
+                  <span style={{ fontSize: 12, color: 'var(--status-success, #2e7d4f)', fontWeight: 600 }}>
+                    <Check size={12} style={{ display: 'inline', marginRight: 4 }} />
+                    {uploadedFileName}
+                  </span>
+                )}
+              </div>
+
+              {uploadError && (
+                <span style={{ fontSize: 12, color: 'var(--brand-rot, #a82029)' }}>
+                  {uploadError}
+                </span>
+              )}
+
+              {/* URL fallback — for cases when file already lives in Drive/etc */}
+              <details style={{ marginTop: 4 }}>
+                <summary
+                  style={{
+                    fontSize: 11,
+                    color: 'var(--fg-3)',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                  }}
+                >
+                  Or paste a link instead
+                </summary>
+                <input
+                  type="url"
+                  value={fileUrl}
+                  onChange={(e) => {
+                    setFileUrl(e.target.value);
+                    setUploadedFileName(null); // clear upload preview if pasting
+                  }}
+                  placeholder="https://drive.google.com/file/d/..."
+                  style={{ ...modalInputStyle, marginTop: 4 }}
+                />
+              </details>
+            </div>
           </Field>
         </div>
 

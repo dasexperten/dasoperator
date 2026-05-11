@@ -370,6 +370,16 @@ export async function handleScheduled(
 
   if (cron === '0 * * * *') {
     await runMarketplaceSync(env);
+    // Right after stocks are refreshed, scan for shipments that can be
+    // auto-delivered. Marketplace sync writes new stock totals; this checks
+    // them against pending shipped operations.
+    try {
+      const { runAutoDeliverySweep } = await import('./auto-delivery');
+      const r = await runAutoDeliverySweep(env);
+      console.log(`[cron:auto-delivery] scanned=${r.scanned} delivered=${r.delivered.length} skipped=${r.skipped.length}`);
+    } catch (e) {
+      console.error('[cron:auto-delivery] failed:', e);
+    }
     return;
   }
 

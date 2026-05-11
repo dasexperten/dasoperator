@@ -76,6 +76,15 @@ app.route('/', attachmentsRoutes);
 app.route('/api', attachmentFilesRoutes);  // /operations/:opId/files (POST) and /attachment-files/* (GET)
 app.route('/api/operations', operationsRoutes);
 app.route('/api/operations', operationsImportRoutes);  // adds /parse-excel
+
+// Manual trigger for the auto-delivery sweep (same code path as cron).
+// Useful for ops: hit this when you've just imported stock and want to
+// fast-forward any pending shipments without waiting for the next cron tick.
+app.post('/api/cron/auto-delivery', async (c) => {
+  const { runAutoDeliverySweep } = await import('./auto-delivery');
+  const result = await runAutoDeliverySweep(c.env);
+  return ok(c, result);
+});
 app.route('/api/payments', paymentsRoutes);
 app.route('/api/fx', fxRoutes);
 app.route('/api/documents', documentsRoutes);

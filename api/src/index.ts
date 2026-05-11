@@ -29,6 +29,7 @@ import marketplacesRoutes from './routes/marketplaces';
 import marketplacesExtrasRoutes from './routes/marketplaces-extras';
 import bundlingRoutes from './routes/bundling';
 import attachmentsRoutes from './routes/attachments';
+import attachmentFilesRoutes from './routes/attachment-files';
 import banksModulbankRoutes from './routes/banks-modulbank';
 import crmRoutes from './routes/crm';
 import metrikaRoutes from './routes/metrika';
@@ -71,6 +72,7 @@ app.route('/api/pricer', pricerRoutes);
 app.route('/api/email', emailRoutes);
 app.route('/api/sequences', sequencesRoutes);
 app.route('/', attachmentsRoutes);
+app.route('/api', attachmentFilesRoutes);  // /operations/:opId/files (POST) and /attachment-files/* (GET)
 app.route('/api/operations', operationsRoutes);
 app.route('/api/operations', operationsImportRoutes);  // adds /parse-excel
 app.route('/api/payments', paymentsRoutes);

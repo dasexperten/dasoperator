@@ -266,6 +266,7 @@ export default function OperationsPage() {
                         </Link>
                       </td>
                       <td className="px-4 py-3" style={{ color: 'var(--fg-3)' }}>{formatDate(op.operation_date)}</td>
+                      {/* v2 manufacturer fallback — deployed 2026-05-11 */}
                       <td className="px-4 py-3" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>
                         {op.partner_trade_name ? (
                           <Link href={`/partners/${op.partner_id}`} style={{ color: 'var(--fg-1)' }}>

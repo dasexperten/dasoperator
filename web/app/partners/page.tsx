@@ -374,7 +374,7 @@ export default function PartnersPage() {
                       <td className="px-4 py-3">
                         <Link href={`/partners/${p.id}`} style={{ color: 'var(--fg-1)' }}>
                           <div className="dx-product-name" style={{ fontSize: 'var(--fs-body-sm)' }}>{p.trade_name}</div>
-                          {p.legal_name && p.legal_name !== p.trade_name && <div className="mt-0.5" style={{ color: 'var(--fg-3)' }}>{p.legal_name}</div>}
+                          {p.legal_name && <div className="mt-0.5" style={{ color: 'var(--fg-3)' }}>{p.legal_name}</div>}
                         </Link>
                       </td>
                       <td className="px-4 py-3">
@@ -630,5 +630,4 @@ function EmailComposer({
     </div>
   );
 }
-
 

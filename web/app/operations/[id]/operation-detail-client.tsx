@@ -124,6 +124,20 @@ export default function OperationDetailClient({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Reusable refetch — called after a successful manual attach
+  const refetchAttachments = async () => {
+    try {
+      const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://dasoperator-api.dasexperten.workers.dev';
+      const attRes = await fetch(`${API_BASE}/api/operations/${operationId}/attachments`);
+      const attData = await attRes.json();
+      if (attData.success && attData.result?.attachments) {
+        setAttachments(attData.result.attachments);
+      }
+    } catch {
+      // non-blocking
+    }
+  };
+
   useEffect(() => {
     const fetchAll = async () => {
       try {
@@ -1065,6 +1079,22 @@ function DocumentsTab({
   const [issuing, setIssuing] = useState(false);
   const [issueError, setIssueError] = useState<string | null>(null);
   const [issueSuccess, setIssueSuccess] = useState<string | null>(null);
+  // Manual attach modal
+  const [attachModalOpen, setAttachModalOpen] = useState(false);
+
+  // Refetch attachments from API after a successful manual attach
+  const refetchAttachments = async () => {
+    try {
+      const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://dasoperator-api.dasexperten.workers.dev';
+      const r = await fetch(`${API_BASE}/api/operations/${operationId}/attachments`);
+      const data = await r.json();
+      if (data.success && data.result?.attachments) {
+        onAttachmentsChange(data.result.attachments);
+      }
+    } catch {
+      // non-blocking
+    }
+  };
 
   const fetchDocs = async () => {
     const res = await getDocuments({ operation_id: operationId });
@@ -1205,6 +1235,21 @@ function DocumentsTab({
         <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)', margin: 0 }}>
           Attached documents{attachments.length > 0 ? ` (${attachments.length})` : ''}
         </p>
+        <button
+          type="button"
+          onClick={() => setAttachModalOpen(true)}
+          className="inline-flex items-center gap-1.5"
+          style={{
+            padding: '4px 10px',
+            background: 'var(--brand-rot, #E5202C)',
+            color: 'white',
+            fontSize: 12,
+            fontWeight: 700,
+            borderRadius: 'var(--radius-sm)',
+          }}
+        >
+          <Plus size={12} /> Attach document
+        </button>
       </div>
       {attachments.length === 0 ? (
         <div style={{ padding: '24px 16px', textAlign: 'center' }}>
@@ -1252,6 +1297,16 @@ function DocumentsTab({
         </table>
       )}
     </div>
+    {attachModalOpen && (
+      <AttachDocumentModal
+        operationId={operationId}
+        onClose={() => setAttachModalOpen(false)}
+        onSuccess={async () => {
+          await refetchAttachments();
+          setAttachModalOpen(false);
+        }}
+      />
+    )}
   </>
   );
 }
@@ -1510,3 +1565,297 @@ function StockMovementsTab({ movements }: { movements: StockMovement[] }) {
     </div>
   );
 }
+
+// =============================================================================
+// Manual attach document modal — for documents arriving outside the auto-channels
+// (whatsapp, hand-delivered, scanned-by-hand). Backend accepts:
+//   direction, kind (required) + doc_number, doc_date, amount, currency,
+//   issuer, file_url, notes (optional)
+// File_url is a free-text URL — typed or pasted by the user. No file upload yet.
+// =============================================================================
+
+const KIND_OPTIONS = [
+  'invoice', 'payment', 'act', 'upd',
+  'ci', 'pl', 'bl', 'awb', 'cmr',
+  'swift', 'proforma', 'customs_decl',
+  'contract', 'certificate', 'photo', 'other',
+];
+
+const KIND_LABEL_RU: Record<string, string> = {
+  invoice: 'INV (Invoice)',
+  payment: 'PMT (Payment / SWIFT)',
+  act: 'Акт',
+  upd: 'УПД',
+  ci: 'CI (Commercial Invoice)',
+  pl: 'PL (Packing List)',
+  bl: 'BL (Bill of Lading)',
+  awb: 'AWB (Air Waybill)',
+  cmr: 'CMR',
+  swift: 'SWIFT',
+  proforma: 'Proforma',
+  customs_decl: 'ГТД (Customs)',
+  contract: 'Contract',
+  certificate: 'Certificate',
+  photo: 'Photo',
+  other: 'Other',
+};
+
+function AttachDocumentModal({
+  operationId, onClose, onSuccess,
+}: {
+  operationId: string;
+  onClose: () => void;
+  onSuccess: () => void | Promise<void>;
+}) {
+  const [direction, setDirection] = useState<'incoming' | 'outgoing'>('incoming');
+  const [kind, setKind] = useState('invoice');
+  const [docNumber, setDocNumber] = useState('');
+  const [docDate, setDocDate] = useState('');
+  const [amount, setAmount] = useState('');
+  const [currency, setCurrency] = useState('USD');
+  const [issuer, setIssuer] = useState('');
+  const [fileUrl, setFileUrl] = useState('');
+  const [notes, setNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async () => {
+    if (!kind) {
+      setError('Kind is required');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://dasoperator-api.dasexperten.workers.dev';
+      const payload: Record<string, unknown> = {
+        direction,
+        kind: kind.trim(),
+        parsed_from: 'manual',
+      };
+      if (docNumber.trim()) payload.doc_number = docNumber.trim();
+      if (docDate) payload.doc_date = docDate; // ISO string, backend parses
+      if (amount.trim()) {
+        const n = parseFloat(amount.replace(',', '.'));
+        if (!Number.isNaN(n)) payload.amount = n;
+      }
+      if (currency.trim()) payload.currency = currency.trim().toUpperCase();
+      if (issuer.trim()) payload.issuer = issuer.trim();
+      if (fileUrl.trim()) payload.file_url = fileUrl.trim();
+      if (notes.trim()) payload.notes = notes.trim();
+
+      const r = await fetch(`${API_BASE}/api/operations/${operationId}/attachments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await r.json();
+      if (data.success) {
+        await onSuccess();
+      } else {
+        setError(data.errors?.[0]?.message ?? 'Failed to attach document');
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0,
+        background: 'rgba(0,0,0,0.5)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 9999, padding: 20,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: 'var(--paper-base, #fff)',
+          borderRadius: 'var(--radius-md)',
+          padding: 24,
+          width: '100%', maxWidth: 560,
+          maxHeight: '90vh', overflow: 'auto',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <h3 style={{ fontSize: 18, fontWeight: 700, color: 'var(--fg-1)', margin: 0 }}>
+            Attach document
+          </h3>
+          <button type="button" onClick={onClose} aria-label="Close" style={{ color: 'var(--fg-3)' }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        {error && (
+          <div
+            className="flex items-center gap-2 mb-3 px-3 py-2"
+            style={{
+              background: 'rgba(229,32,44,0.08)',
+              color: '#A82029',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: 13,
+            }}
+          >
+            <AlertTriangle size={14} /> {error}
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+          <Field label="Direction">
+            <select
+              value={direction}
+              onChange={(e) => setDirection(e.target.value as 'incoming' | 'outgoing')}
+              style={modalInputStyle}
+            >
+              <option value="incoming">Incoming (we received)</option>
+              <option value="outgoing">Outgoing (we issued)</option>
+            </select>
+          </Field>
+          <Field label="Kind">
+            <select value={kind} onChange={(e) => setKind(e.target.value)} style={modalInputStyle}>
+              {KIND_OPTIONS.map((k) => (
+                <option key={k} value={k}>{KIND_LABEL_RU[k] ?? k}</option>
+              ))}
+            </select>
+          </Field>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+          <Field label="Document number">
+            <input
+              type="text"
+              value={docNumber}
+              onChange={(e) => setDocNumber(e.target.value)}
+              placeholder="e.g. INV-2026-042"
+              style={modalInputStyle}
+            />
+          </Field>
+          <Field label="Document date">
+            <input
+              type="date"
+              value={docDate}
+              onChange={(e) => setDocDate(e.target.value)}
+              style={modalInputStyle}
+            />
+          </Field>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px', gap: 12, marginBottom: 12 }}>
+          <Field label="Amount">
+            <input
+              type="text"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.00"
+              style={modalInputStyle}
+            />
+          </Field>
+          <Field label="Currency">
+            <input
+              type="text"
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value.toUpperCase())}
+              maxLength={3}
+              style={modalInputStyle}
+            />
+          </Field>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <Field label="Issuer">
+            <input
+              type="text"
+              value={issuer}
+              onChange={(e) => setIssuer(e.target.value)}
+              placeholder="Counterparty name on the document"
+              style={modalInputStyle}
+            />
+          </Field>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <Field label="File URL (optional — paste R2/Drive link)">
+            <input
+              type="url"
+              value={fileUrl}
+              onChange={(e) => setFileUrl(e.target.value)}
+              placeholder="https://drive.google.com/file/d/..."
+              style={modalInputStyle}
+            />
+          </Field>
+        </div>
+
+        <div style={{ marginBottom: 20 }}>
+          <Field label="Notes">
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              placeholder="Optional context"
+              style={{ ...modalInputStyle, resize: 'vertical', fontFamily: 'inherit' }}
+            />
+          </Field>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={submitting}
+            style={{
+              padding: '8px 14px',
+              background: 'transparent',
+              color: 'var(--fg-3)',
+              fontSize: 14,
+              fontWeight: 500,
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="inline-flex items-center gap-1.5"
+            style={{
+              padding: '8px 16px',
+              background: submitting ? 'var(--paper-sunk)' : 'var(--brand-rot, #E5202C)',
+              color: submitting ? 'var(--fg-3)' : 'white',
+              fontSize: 14,
+              fontWeight: 700,
+              borderRadius: 'var(--radius-sm)',
+            }}
+          >
+            {submitting ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+            {submitting ? 'Attaching…' : 'Attach'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>
+      <span style={{ color: 'var(--fg-3)' }}>{label}</span>
+      {children}
+    </label>
+  );
+}
+
+const modalInputStyle: React.CSSProperties = {
+  padding: '8px 10px',
+  border: '1px solid var(--border-hairline)',
+  borderRadius: 'var(--radius-sm)',
+  fontSize: 14,
+  fontWeight: 700,
+  background: 'var(--paper-base, #fff)',
+  color: 'var(--fg-1)',
+};

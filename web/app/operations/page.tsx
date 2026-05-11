@@ -6,7 +6,7 @@ export const runtime = 'edge';
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Search, Loader2, Plus, X, Trash2 } from 'lucide-react';
+import { Search, Loader2, Plus, X, Trash2, Factory } from 'lucide-react';
 import { getOperations, deleteOperation, updateOperationStatus, type Operation } from '@/lib/api';
 import { ContractRef } from '@/components/ui/contract-ref';
 
@@ -131,6 +131,7 @@ export default function OperationsPage() {
         const q = search.toLowerCase();
         const m = op.reference?.toLowerCase().includes(q) ||
                   op.partner_trade_name?.toLowerCase().includes(q) ||
+                  op.manufacturer_name?.toLowerCase().includes(q) ||
                   op.contract_no?.toLowerCase().includes(q);
         if (!m) return false;
       }
@@ -270,6 +271,11 @@ export default function OperationsPage() {
                           <Link href={`/partners/${op.partner_id}`} style={{ color: 'var(--fg-1)' }}>
                             {op.partner_trade_name}
                           </Link>
+                        ) : op.manufacturer_name ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: 'var(--fg-1)' }}>
+                            <Factory style={{ width: 14, height: 14, color: 'var(--fg-3)' }} />
+                            {op.manufacturer_name}
+                          </span>
                         ) : '—'}
                       </td>
                       <td className="px-4 py-3" style={{ color: 'var(--fg-2)' }}>

@@ -30,9 +30,9 @@ export default function WarehousesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  // Sort: null = default order (alphabetical by SKU as the API returns).
+  // Default sort: Total column, descending (Aram's standing instruction).
   // Click cycles desc → asc → null.
-  const [sort, setSort] = useState<SortState | null>(null);
+  const [sort, setSort] = useState<SortState | null>({ key: 'total', dir: 'desc' });
 
   useEffect(() => {
     const fetchAll = async () => {

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
+import { withKvCache, cacheKey } from '../lib/kv-cache';
 
 const metrika = new Hono<{ Bindings: Env }>();
 
@@ -49,57 +50,65 @@ metrika.get('/stats', async (c) => {
   }
 
   try {
-    // Today's totals
-    const todayResp = await metrikaGet<{
-      totals: number[][];
-    }>(token, '/data', {
-      ids: counter,
-      metrics: 'ym:s:visits,ym:s:users,ym:s:bounceRate,ym:s:avgVisitDurationSeconds',
-      date1: 'today',
-      date2: 'today',
-      accuracy: 'full',
-    });
+    const payload = await withKvCache(
+      c.env,
+      cacheKey('metrika:stats', { counter }),
+      300,
+      async () => {
+        // Today's totals
+        const todayResp = await metrikaGet<{
+          totals: number[][];
+        }>(token, '/data', {
+          ids: counter,
+          metrics: 'ym:s:visits,ym:s:users,ym:s:bounceRate,ym:s:avgVisitDurationSeconds',
+          date1: 'today',
+          date2: 'today',
+          accuracy: 'full',
+        });
 
-    const todayTotals = todayResp.totals?.[0] ?? [0, 0, 0, 0];
+        const todayTotals = todayResp.totals?.[0] ?? [0, 0, 0, 0];
 
-    // 30-day timeline by day (visits + users)
-    const timelineResp = await metrikaGet<{
-      time_intervals: string[][];
-      data: Array<{ metrics: number[][] }>;
-    }>(token, '/data/bytime', {
-      ids: counter,
-      metrics: 'ym:s:visits,ym:s:users',
-      date1: '30daysAgo',
-      date2: 'today',
-      group: 'day',
-    });
+        // 30-day timeline by day (visits + users)
+        const timelineResp = await metrikaGet<{
+          time_intervals: string[][];
+          data: Array<{ metrics: number[][] }>;
+        }>(token, '/data/bytime', {
+          ids: counter,
+          metrics: 'ym:s:visits,ym:s:users',
+          date1: '30daysAgo',
+          date2: 'today',
+          group: 'day',
+        });
 
-    const intervals = timelineResp.time_intervals ?? [];
-    // bytime returns metrics[metric_index] = array of values per day
-    const dataRow = timelineResp.data?.[0]?.metrics ?? [[], []];
-    const visitsSeries = dataRow[0] ?? [];
-    const usersSeries = dataRow[1] ?? [];
+        const intervals = timelineResp.time_intervals ?? [];
+        // bytime returns metrics[metric_index] = array of values per day
+        const dataRow = timelineResp.data?.[0]?.metrics ?? [[], []];
+        const visitsSeries = dataRow[0] ?? [];
+        const usersSeries = dataRow[1] ?? [];
 
-    const timeline = intervals.map((iv, idx) => ({
-      date: iv[0]?.slice(0, 10) ?? '',
-      visits: Math.round(visitsSeries[idx] ?? 0),
-      users: Math.round(usersSeries[idx] ?? 0),
-    }));
+        const timeline = intervals.map((iv, idx) => ({
+          date: iv[0]?.slice(0, 10) ?? '',
+          visits: Math.round(visitsSeries[idx] ?? 0),
+          users: Math.round(usersSeries[idx] ?? 0),
+        }));
 
-    return ok(c, {
-      source: `Yandex Metrika counter ${counter}`,
-      counter_id: Number(counter),
-      today: {
-        // Prefer last timeline entry — Metrika's today endpoint can be sparse
-        // mid-day; the bytime data is already populated even for the current day.
-        visits: timeline.length ? timeline[timeline.length - 1].visits : Math.round(todayTotals[0] ?? 0),
-        users: timeline.length ? timeline[timeline.length - 1].users : Math.round(todayTotals[1] ?? 0),
-        bounce_rate_pct: Math.round((todayTotals[2] ?? 0) * 10) / 10,
-        avg_duration_sec: Math.round(todayTotals[3] ?? 0),
-      },
-      timeline,
-      synced_at: Math.floor(Date.now() / 1000),
-    });
+        return {
+          source: `Yandex Metrika counter ${counter}`,
+          counter_id: Number(counter),
+          today: {
+            // Prefer last timeline entry — Metrika's today endpoint can be sparse
+            // mid-day; the bytime data is already populated even for the current day.
+            visits: timeline.length ? timeline[timeline.length - 1].visits : Math.round(todayTotals[0] ?? 0),
+            users: timeline.length ? timeline[timeline.length - 1].users : Math.round(todayTotals[1] ?? 0),
+            bounce_rate_pct: Math.round((todayTotals[2] ?? 0) * 10) / 10,
+            avg_duration_sec: Math.round(todayTotals[3] ?? 0),
+          },
+          timeline,
+          synced_at: Math.floor(Date.now() / 1000),
+        };
+      }
+    );
+    return ok(c, payload);
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
     return fail(c, 502, [{ code: 'metrika_upstream_error', message: msg }]);

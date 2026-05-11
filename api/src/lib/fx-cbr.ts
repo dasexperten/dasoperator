@@ -160,9 +160,38 @@ export async function refreshFxFromCbr(date: string): Promise<FxSnapshot | null>
   return parseCbrToSnapshot(feed, date);
 }
 
+// =============================================================================
+// Pegged currencies — currencies with fixed/near-fixed pegs that CBR does not
+// always quote. Values are rate_to_usd_nano (1e9 = 1 USD).
+//
+//   AED — UAE Dirham, pegged to USD at 3.6725 since 1997 (Central Bank UAE)
+//         → 1 AED = 1/3.6725 USD = 0.27228... USD
+//         → rate_to_usd_nano = 272282505
+//   SAR — Saudi Riyal, pegged at 3.75 since 1986 → 266666666
+//   QAR — Qatari Riyal, pegged at 3.64 since 2001 → 274725274
+//   OMR — Omani Rial, pegged at 0.385 since 1986 → 2597402597
+//   BHD — Bahraini Dinar, pegged at 0.376 since 2001 → 2659574468
+//   HKD — Hong Kong Dollar, USD-band 7.75–7.85 (use midpoint 7.80) → 128205128
+//
+// These are used only when the daily snapshot from CBR does not include them.
+// =============================================================================
+const PEGGED_RATES_TO_USD_NANO: Record<string, number> = {
+  AED: 272282505,
+  SAR: 266666666,
+  QAR: 274725274,
+  OMR: 2597402597,
+  BHD: 2659574468,
+  HKD: 128205128,
+};
+
 export function getRateToUsdNano(snapshot: FxSnapshot, currency: string): number | null {
   const rate = snapshot.rates[currency];
-  return rate ? rate.rate_to_usd_nano : null;
+  if (rate) return rate.rate_to_usd_nano;
+  // Fallback to hardcoded peg for currencies CBR does not quote
+  if (currency in PEGGED_RATES_TO_USD_NANO) {
+    return PEGGED_RATES_TO_USD_NANO[currency]!;
+  }
+  return null;
 }
 
 // =============================================================================

@@ -83,24 +83,17 @@ export default function PartnersPage() {
   const [entityFilter, setEntityFilter] = useState<string>('all');
 
   useEffect(() => {
-    const fetchAll = async () => {
+    // Two independent fetches — partners renders immediately when ready,
+    // balances are slow (~18s on a cold N+1 query) so they hydrate the
+    // rows when they arrive without blocking the initial render.
+    const fetchPartners = async () => {
       try {
-        const [partnersRes, balRes] = await Promise.all([
-          getPartners(),
-          getAllNetBalances(),
-        ]);
+        const partnersRes = await getPartners();
         if (partnersRes.success && partnersRes.result) {
           setPartners(partnersRes.result.partners);
           setError(null);
         } else {
           setError(partnersRes.errors[0]?.message ?? 'Failed to load partners');
-        }
-        if (balRes.success && balRes.result) {
-          const map: Record<string, BalanceRow> = {};
-          for (const b of balRes.result.balances) {
-            map[b.partner_id] = { usd: b.net_balance_usd, currencies: b.currencies };
-          }
-          setNetBalances(map);
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
@@ -108,7 +101,24 @@ export default function PartnersPage() {
         setLoading(false);
       }
     };
-    fetchAll();
+
+    const fetchBalances = async () => {
+      try {
+        const balRes = await getAllNetBalances();
+        if (balRes.success && balRes.result) {
+          const map: Record<string, BalanceRow> = {};
+          for (const b of balRes.result.balances) {
+            map[b.partner_id] = { usd: b.net_balance_usd, currencies: b.currencies };
+          }
+          setNetBalances(map);
+        }
+      } catch {
+        // Balances are optional — partner list works without them.
+      }
+    };
+
+    fetchPartners();
+    fetchBalances();
   }, []);
 
   const entities = useMemo(() => {

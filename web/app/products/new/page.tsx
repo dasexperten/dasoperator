@@ -50,9 +50,14 @@ export default function NewProductPage() {
   const [productName, setProductName] = useState('');
   const [invoiceLabel, setInvoiceLabel] = useState('');
   const [category, setCategory] = useState<Category>('Toothbrush');
+  const [subcategory, setSubcategory] = useState('');
   const [manufacturerId, setManufacturerId] = useState('');
   const [barcode, setBarcode] = useState('');
   const [countryOfOrigin, setCountryOfOrigin] = useState('China');
+  // Multilingual invoice labels (Step 1 — invoice section)
+  const [invoiceLabelRu, setInvoiceLabelRu] = useState('');
+  const [invoiceLabelEn, setInvoiceLabelEn] = useState('');
+  const [invoiceLabelCn, setInvoiceLabelCn] = useState('');
 
   // Step 2
   const [piecesPerCase, setPiecesPerCase] = useState('12');
@@ -63,6 +68,13 @@ export default function NewProductPage() {
   const [dimH, setDimH] = useState('');
   const [unitNetWeight, setUnitNetWeight] = useState('');
   const [hsCode, setHsCode] = useState('');
+  // Packaging mfr + purchase economics + per-unit logistics
+  const [packagingMfrId, setPackagingMfrId] = useState('');
+  const [buyPrice, setBuyPrice] = useState('');
+  const [buyCurrency, setBuyCurrency] = useState('CNY');
+  const [buyTerm, setBuyTerm] = useState('FOB');
+  const [weightKg, setWeightKg] = useState('');
+  const [volumeM3Micro, setVolumeM3Micro] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -108,9 +120,13 @@ export default function NewProductPage() {
         product_name: productName.trim(),
         invoice_label: invoiceLabel.trim(),
         category,
+        subcategory: subcategory.trim() || null,
         manufacturer_id: manufacturerId,
         barcode: barcode.trim() || null,
         country_of_origin: countryOfOrigin.trim() || null,
+        invoice_label_ru: invoiceLabelRu.trim() || null,
+        invoice_label_en: invoiceLabelEn.trim() || null,
+        invoice_label_cn: invoiceLabelCn.trim() || null,
       });
       if (res.success && res.result) {
         setCreatedId(res.result.id);
@@ -152,6 +168,12 @@ export default function NewProductPage() {
           ctn_dim_h_cm: numOrNull(dimH),
           unit_net_weight_g: numOrNull(unitNetWeight),
           hs_code: hsCode.trim() || null,
+          packaging_manufacturer_id: packagingMfrId || null,
+          buy_price: intOrNull(buyPrice),
+          buy_currency: buyCurrency.trim() || null,
+          buy_term: buyTerm.trim() || null,
+          weight_kg: intOrNull(weightKg),
+          volume_m3_micro: intOrNull(volumeM3Micro),
         });
         if (!res.success) {
           setError(res.errors?.[0]?.message ?? 'Failed to save details');
@@ -282,19 +304,32 @@ export default function NewProductPage() {
             </div>
 
             <div>
-              <label style={labelStyle}>Manufacturer *</label>
-              <select
-                value={manufacturerId}
-                onChange={(e) => setManufacturerId(e.target.value)}
+              <label style={labelStyle}>Subcategory</label>
+              <input
+                type="text"
+                value={subcategory}
+                onChange={(e) => setSubcategory(e.target.value)}
+                placeholder="e.g. SCHWARZ, INNOWEISS, GINGER FORCE"
                 style={inputStyle}
-                disabled={submitting || mfrLoading}
-              >
-                {mfrLoading && <option>Loading…</option>}
-                {!mfrLoading && manufacturers.map((m) => (
-                  <option key={m.id} value={m.id}>{m.name}</option>
-                ))}
-              </select>
+                disabled={submitting}
+              />
+              <div style={helperStyle}>Sub-line within the category. Optional.</div>
             </div>
+          </div>
+
+          <div>
+            <label style={labelStyle}>Manufacturer *</label>
+            <select
+              value={manufacturerId}
+              onChange={(e) => setManufacturerId(e.target.value)}
+              style={inputStyle}
+              disabled={submitting || mfrLoading}
+            >
+              {mfrLoading && <option>Loading…</option>}
+              {!mfrLoading && manufacturers.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
           </div>
 
           <div className="grid grid-cols-2 gap-5">
@@ -320,6 +355,57 @@ export default function NewProductPage() {
                 style={inputStyle}
                 disabled={submitting}
               />
+            </div>
+          </div>
+
+          {/* Multilingual invoice labels — shown on invoices in respective languages */}
+          <div style={{
+            border: '1px solid var(--border-hairline)',
+            borderRadius: 'var(--radius-md)',
+            padding: '16px',
+            backgroundColor: 'var(--paper-sunk)',
+          }}>
+            <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)', marginBottom: '12px' }}>
+              Multilingual invoice labels
+            </div>
+            <div style={{ ...helperStyle, marginTop: 0, marginBottom: '12px' }}>
+              Shown on invoices and customs docs in the issuer&apos;s language. Leave blank to fall back to the main invoice label.
+            </div>
+
+            <div className="grid grid-cols-1 gap-3">
+              <div>
+                <label style={{ ...labelStyle, fontSize: '14px' }}>Russian (RU)</label>
+                <input
+                  type="text"
+                  value={invoiceLabelRu}
+                  onChange={(e) => setInvoiceLabelRu(e.target.value)}
+                  placeholder="напр. зубная щётка Das Experten SCHWARZ 1 шт."
+                  style={inputStyle}
+                  disabled={submitting}
+                />
+              </div>
+              <div>
+                <label style={{ ...labelStyle, fontSize: '14px' }}>English (EN)</label>
+                <input
+                  type="text"
+                  value={invoiceLabelEn}
+                  onChange={(e) => setInvoiceLabelEn(e.target.value)}
+                  placeholder="e.g. toothbrush Das Experten SCHWARZ 1pc."
+                  style={inputStyle}
+                  disabled={submitting}
+                />
+              </div>
+              <div>
+                <label style={{ ...labelStyle, fontSize: '14px' }}>Chinese (CN)</label>
+                <input
+                  type="text"
+                  value={invoiceLabelCn}
+                  onChange={(e) => setInvoiceLabelCn(e.target.value)}
+                  placeholder="例如：达斯专家 SCHWARZ 牙刷 1支"
+                  style={inputStyle}
+                  disabled={submitting}
+                />
+              </div>
             </div>
           </div>
 
@@ -487,6 +573,127 @@ export default function NewProductPage() {
               disabled={submitting}
             />
             <div style={helperStyle}>Customs harmonized system code.</div>
+          </div>
+
+          {/* Packaging manufacturer — defaults to main manufacturer when not set */}
+          <div style={{
+            border: '1px solid var(--border-hairline)',
+            borderRadius: 'var(--radius-md)',
+            padding: '16px',
+            backgroundColor: 'var(--paper-sunk)',
+          }}>
+            <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)', marginBottom: '12px' }}>
+              Packaging manufacturer
+            </div>
+            <div style={{ ...helperStyle, marginTop: 0, marginBottom: '12px' }}>
+              Separate vendor making cartons, dieline boxes, inserts. Leave blank if the main manufacturer handles packaging.
+            </div>
+            <select
+              value={packagingMfrId}
+              onChange={(e) => setPackagingMfrId(e.target.value)}
+              style={inputStyle}
+              disabled={submitting || mfrLoading}
+            >
+              <option value="">— none —</option>
+              {!mfrLoading && manufacturers.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Purchase economics — FOB/EXW/CIF cost and term */}
+          <div style={{
+            border: '1px solid var(--border-hairline)',
+            borderRadius: 'var(--radius-md)',
+            padding: '16px',
+            backgroundColor: 'var(--paper-sunk)',
+          }}>
+            <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)', marginBottom: '12px' }}>
+              Purchase economics
+            </div>
+            <div style={{ ...helperStyle, marginTop: 0, marginBottom: '12px' }}>
+              Reference buying cost per unit. Used by margin and landed-cost views.
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label style={{ ...labelStyle, fontSize: '14px' }}>Buy price (cents/fen)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={buyPrice}
+                  onChange={(e) => setBuyPrice(e.target.value)}
+                  placeholder="e.g. 280"
+                  style={inputStyle}
+                  disabled={submitting}
+                />
+                <div style={helperStyle}>Minor units. 280 = 2.80 in the chosen currency.</div>
+              </div>
+              <div>
+                <label style={{ ...labelStyle, fontSize: '14px' }}>Currency</label>
+                <select
+                  value={buyCurrency}
+                  onChange={(e) => setBuyCurrency(e.target.value)}
+                  style={inputStyle}
+                  disabled={submitting}
+                >
+                  <option value="CNY">CNY</option>
+                  <option value="USD">USD</option>
+                  <option value="EUR">EUR</option>
+                  <option value="AED">AED</option>
+                  <option value="RUB">RUB</option>
+                  <option value="VND">VND</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ ...labelStyle, fontSize: '14px' }}>Term</label>
+                <select
+                  value={buyTerm}
+                  onChange={(e) => setBuyTerm(e.target.value)}
+                  style={inputStyle}
+                  disabled={submitting}
+                >
+                  <option value="FOB">FOB</option>
+                  <option value="EXW">EXW</option>
+                  <option value="CIF">CIF</option>
+                  <option value="DAP">DAP</option>
+                  <option value="DDP">DDP</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Per-unit logistics — weight and volume for freight calculations */}
+          <div className="grid grid-cols-2 gap-5">
+            <div>
+              <label style={labelStyle}>Unit weight (g)</label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={weightKg}
+                onChange={(e) => setWeightKg(e.target.value)}
+                placeholder="e.g. 35"
+                style={inputStyle}
+                disabled={submitting}
+              />
+              <div style={helperStyle}>Gross per unit, in grams. Used by freight calcs.</div>
+            </div>
+            <div>
+              <label style={labelStyle}>Unit volume (cm³)</label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={volumeM3Micro}
+                onChange={(e) => setVolumeM3Micro(e.target.value)}
+                placeholder="e.g. 320"
+                style={inputStyle}
+                disabled={submitting}
+              />
+              <div style={helperStyle}>Per unit, in cubic centimetres (1 cm³ = 1×10⁻⁶ m³).</div>
+            </div>
           </div>
 
           <div className="flex items-center justify-between pt-2">

@@ -161,10 +161,10 @@ export default function ContractDetailClient({ partnerSlug, contractId }: { part
               letterSpacing: 0,
             }}
           >
-            Russian currency control (УНК / ВБК)
+            Russian currency control (УНК)
           </div>
           <div className="grid grid-cols-2 gap-5">
-            <CopyableField label="УНК / ВБК Reference" value={contract.unk_reference ?? '—'} mono />
+            <CopyableField label="УНК (Unique Contract Number)" value={contract.unk_reference ?? '—'} mono />
             <CopyableField label="Valid Until" value={formatDate(contract.unk_valid_until)} mono />
           </div>
         </div>
@@ -395,7 +395,7 @@ function EditContractForm({
       <div className="mt-4">
         {isRussianEntity && (
           <div className="grid grid-cols-2 gap-4 mb-4">
-            <FormField label="УНК / ВБК Reference">
+            <FormField label="УНК (Unique Contract Number — from RU bank registration)">
               <input
                 type="text"
                 value={unkReference}
@@ -405,7 +405,7 @@ function EditContractForm({
                 placeholder="25010001/1481/0001/2/1"
               />
             </FormField>
-            <FormField label="УНК / ВБК Valid Until">
+            <FormField label="УНК Valid Until">
               <input
                 type="date"
                 value={unkValidUntil}

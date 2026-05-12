@@ -142,6 +142,34 @@ export default function ContractDetailClient({ partnerSlug, contractId }: { part
         </SectionCard>
       </div>
 
+      {contract.our_company_id === 'dee' && (
+        <div
+          className="p-5"
+          style={{
+            backgroundColor: 'var(--paper-sunk)',
+            border: '1px solid var(--border-hairline)',
+            borderRadius: 'var(--radius-md)',
+          }}
+        >
+          <div
+            className="mb-3"
+            style={{
+              fontSize: '14px',
+              fontWeight: 700,
+              color: 'var(--fg-1)',
+              textTransform: 'uppercase',
+              letterSpacing: 0,
+            }}
+          >
+            Russian currency control (УНК / ВБК)
+          </div>
+          <div className="grid grid-cols-2 gap-5">
+            <CopyableField label="УНК / ВБК Reference" value={contract.unk_reference ?? '—'} mono />
+            <CopyableField label="Valid Until" value={formatDate(contract.unk_valid_until)} mono />
+          </div>
+        </div>
+      )}
+
       {contract.notes && (
         <div className="p-4" style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
           <div className="mb-2" style={{ fontSize: '14px' }}>Notes</div>
@@ -183,8 +211,14 @@ function EditContractForm({
   const [incoterms, setIncoterms] = useState(contract.incoterms ?? '');
   const [vatRate, setVatRate] = useState<0 | 5 | 20>((contract.vat_rate ?? 0) as 0 | 5 | 20);
   const [notes, setNotes] = useState(contract.notes ?? '');
+  const [unkReference, setUnkReference] = useState(contract.unk_reference ?? '');
+  const [unkValidUntil, setUnkValidUntil] = useState(
+    contract.unk_valid_until ? new Date(contract.unk_valid_until * 1000).toISOString().slice(0, 10) : ''
+  );
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const isRussianEntity = contract.our_company_id === 'dee';
 
   function buildPatch(): PatchContractBody {
     const p: PatchContractBody = {};
@@ -201,6 +235,15 @@ function EditContractForm({
     if (vatRate !== (contract.vat_rate ?? 0)) p.vat_rate = vatRate;
     const newNotes = notes.trim() || null;
     if (newNotes !== (contract.notes ?? null)) p.notes = newNotes;
+    // Russian currency-control fields — only patch when DEE
+    if (isRussianEntity) {
+      const newUnkRef = unkReference.trim() || null;
+      if (newUnkRef !== (contract.unk_reference ?? null)) p.unk_reference = newUnkRef;
+      const newUnkValidUntil = unkValidUntil
+        ? Math.floor(new Date(unkValidUntil + 'T00:00:00Z').getTime() / 1000)
+        : null;
+      if (newUnkValidUntil !== (contract.unk_valid_until ?? null)) p.unk_valid_until = newUnkValidUntil;
+    }
     return p;
   }
 
@@ -350,6 +393,29 @@ function EditContractForm({
       </div>
 
       <div className="mt-4">
+        {isRussianEntity && (
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <FormField label="УНК / ВБК Reference">
+              <input
+                type="text"
+                value={unkReference}
+                onChange={(e) => setUnkReference(e.target.value)}
+                disabled={busy}
+                style={inputStyle}
+                placeholder="25010001/1481/0001/2/1"
+              />
+            </FormField>
+            <FormField label="УНК / ВБК Valid Until">
+              <input
+                type="date"
+                value={unkValidUntil}
+                onChange={(e) => setUnkValidUntil(e.target.value)}
+                disabled={busy}
+                style={inputStyle}
+              />
+            </FormField>
+          </div>
+        )}
         <FormField label="Notes">
           <textarea
             value={notes}

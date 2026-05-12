@@ -698,6 +698,9 @@ export interface Contract {
   parent_contract_id?: string | null;
   addendum_no?: string | null;
   contract_file_key?: string | null;
+  // Russian currency-control fields (УНК / ВБК) — applicable to DEE foreign contracts
+  unk_reference?: string | null;
+  unk_valid_until?: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -739,6 +742,9 @@ export interface CreateContractBody {
   status?: 'draft' | 'active' | 'expired' | 'cancelled';
   notes?: string;
   vat_rate?: 0 | 5 | 20;
+  // Russian currency-control fields (УНК / ВБК) — for DEE foreign contracts
+  unk_reference?: string;
+  unk_valid_until?: number;
 }
 
 export async function createContract(body: CreateContractBody) {
@@ -758,6 +764,8 @@ export interface PatchContractBody {
   our_company_id?: string;
   incoterms?: string | null;
   vat_rate?: 0 | 5 | 20;
+  unk_reference?: string | null;
+  unk_valid_until?: number | null;
 }
 
 export async function patchContract(id: string, body: PatchContractBody) {

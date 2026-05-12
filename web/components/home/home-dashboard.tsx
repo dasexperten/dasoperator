@@ -135,11 +135,13 @@ export default function HomeDashboard() {
     0
   );
 
-  // Outstanding = sum of positive net balances (partners owe us)
-  const outstandingUsdCents = balances.reduce(
-    (sum, b) => sum + (b.net_balance_usd > 0 ? b.net_balance_usd : 0),
-    0
-  );
+  // Payments out (last 30 days) — sum of OUTGOING payments we made, in USD.
+  // Replaces the previous Outstanding card; forward-looking metric moved out.
+  const paymentsOutUsdCentsLast30d = payments.reduce((sum, p) => {
+    if (p.direction !== 'outgoing') return sum;
+    if (!isWithinLast30Days(p.payment_date)) return sum;
+    return sum + convertToUsdCents(p.amount, p.currency, fx);
+  }, 0);
 
   // Active partners = those with at least one non-cancelled operation
   const activePartnerIds = new Set(activeOps.map((o) => o.partner_id));
@@ -209,10 +211,10 @@ export default function HomeDashboard() {
             loading={loading}
           />
           <MetricCard
-            label="Outstanding"
-            sublabel="partners owe us"
-            value={loading ? '—' : formatUsdCompact(outstandingUsdCents)}
-            tone={outstandingUsdCents > 0 ? 'rot' : 'muted'}
+            label="Payments"
+            sublabel="last 30 days · USD equiv"
+            value={loading ? '—' : formatUsdCompact(paymentsOutUsdCentsLast30d)}
+            tone="default"
             loading={loading}
           />
           <MetricCard

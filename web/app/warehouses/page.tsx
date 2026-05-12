@@ -439,7 +439,13 @@ function StockCellTd({ value, inProduction = 0, href, tint }: { value: number; i
   }
 
   const showValue = value > 0;
-  const showProd = inProduction > 0;
+  // Show pending row whenever there's any reservation, positive (purchase
+  // in production) or negative (sale boxing reserved out).
+  const showProd = inProduction !== 0;
+  const isPendingOut = inProduction < 0;
+  const pendingColor = isPendingOut ? 'var(--brand-rot)' : '#3B6D11';
+  const pendingSign = isPendingOut ? '−' : '+';
+  const pendingAbs = Math.abs(inProduction);
 
   return (
     <td className="px-3 py-2 text-right" style={{ backgroundColor: bg, fontSize: '14px', color }}>
@@ -447,8 +453,8 @@ function StockCellTd({ value, inProduction = 0, href, tint }: { value: number; i
         {!showValue && !showProd && '—'}
         {showValue && <span>{value.toLocaleString('en-US')}</span>}
         {showProd && (
-          <span style={{ color: '#3B6D11', fontWeight: 600, marginLeft: showValue ? '4px' : 0 }}>
-            +{inProduction.toLocaleString('en-US')}
+          <span style={{ color: pendingColor, fontWeight: 600, marginLeft: showValue ? '4px' : 0 }}>
+            {pendingSign}{pendingAbs.toLocaleString('en-US')}
           </span>
         )}
       </Link>

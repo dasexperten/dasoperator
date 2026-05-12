@@ -1171,7 +1171,16 @@ operations.patch('/:id/status', async (c) => {
   const tentativeBalances = new Map<string, number>();
 
   for (const spec of movementSpecs) {
-    const allowNegative = spec.movementType === 'return' || spec.movementType === 'adjustment';
+    // Reservations and reversals are allowed to be negative:
+    //  - 'return' / 'adjustment' intentionally correct an existing imbalance
+    //  - 'order_fulfilment_reserve' parks a NEGATIVE qty in 'in_production'
+    //    to mirror purchase production (which parks POSITIVE in the same state).
+    //    The pair (purchase +1000 / sale -200) live in the same column and
+    //    distinguish by sign — this is by design, not a bug.
+    const allowNegative =
+      spec.movementType === 'return' ||
+      spec.movementType === 'adjustment' ||
+      spec.movementType === 'order_fulfilment_reserve';
     if (allowNegative) continue;
     if (spec.qty >= 0) continue; // only outflows can drive below zero
 

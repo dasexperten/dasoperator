@@ -1597,8 +1597,19 @@ operations.delete('/:id', async (c) => {
     }]);
   }
 
-  // Atomic delete: line_items first, then operation
+  // Atomic delete:
+  //   1. hard-delete soft-deleted documents (cleans up RFQ test artifacts + any
+  //      previously soft-deleted commercial docs — guards above already blocked
+  //      live commercial documents)
+  //   2. hard-delete soft-deleted payments (live payments blocked above)
+  //   3. hard-delete soft-deleted attachments
+  //   4. hard-delete line_items
+  //   5. hard-delete the operation itself
+  // All in one batch — runs as a single SQLite transaction.
   await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM documents WHERE operation_id = ? AND deleted_at IS NOT NULL').bind(id),
+    c.env.DB.prepare('DELETE FROM payments WHERE operation_id = ? AND deleted_at IS NOT NULL').bind(id),
+    c.env.DB.prepare('DELETE FROM operation_attachments WHERE operation_id = ? AND deleted_at IS NOT NULL').bind(id),
     c.env.DB.prepare('DELETE FROM line_items WHERE operation_id = ?').bind(id),
     c.env.DB.prepare('DELETE FROM operations WHERE id = ?').bind(id),
   ]);

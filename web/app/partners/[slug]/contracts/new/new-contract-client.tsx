@@ -31,8 +31,12 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
   const [incoterms, setIncoterms] = useState('');
   const [status, setStatus] = useState<'draft' | 'active'>('active');
   const [notes, setNotes] = useState('');
+  // Russian currency-control fields (УНК / ВБК) — shown only when our entity is DEE
+  const [unkReference, setUnkReference] = useState('');
+  const [unkValidUntil, setUnkValidUntil] = useState('');
 
   const isLegal = isLegalDocType(agreementType);
+  const isRussianEntity = companyId === 'dee';
 
   useEffect(() => {
     const fetch = async () => {
@@ -63,6 +67,11 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
     if (expiryDate) body.expiry_date = Math.floor(new Date(expiryDate).getTime() / 1000);
     if (incoterms.trim()) body.incoterms = incoterms.trim();
     if (notes.trim()) body.notes = notes.trim();
+    // Russian currency-control fields — only submit when DEE
+    if (isRussianEntity && unkReference.trim()) body.unk_reference = unkReference.trim();
+    if (isRussianEntity && unkValidUntil) {
+      body.unk_valid_until = Math.floor(new Date(unkValidUntil).getTime() / 1000);
+    }
 
     try {
       const res = await createContract(body);
@@ -201,6 +210,67 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
               style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
           </div>
         </div>
+
+        {isRussianEntity && (
+          <div
+            className="p-4 space-y-3"
+            style={{
+              backgroundColor: 'var(--paper-sunk)',
+              border: '1px solid var(--border-hairline)',
+              borderRadius: 'var(--radius-sm)',
+            }}
+          >
+            <div
+              style={{
+                fontSize: '14px',
+                fontWeight: 700,
+                color: 'var(--fg-1)',
+                letterSpacing: 0,
+              }}
+            >
+              Russian currency control (УНК / ВБК)
+            </div>
+            <p style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
+              For DEE foreign-trade contracts placed on bank registration.
+              Leave blank if not yet assigned.
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block mb-1" style={{ fontSize: '14px' }}>УНК / ВБК Reference</label>
+                <input
+                  type="text"
+                  value={unkReference}
+                  onChange={(e) => setUnkReference(e.target.value)}
+                  placeholder="25010001/1481/0001/2/1"
+                  className="w-full px-3 py-2 text-sm focus:outline-none"
+                  style={{
+                    backgroundColor: 'var(--paper)',
+                    border: '1px solid var(--border-hairline)',
+                    borderRadius: 'var(--radius-sm)',
+                    color: 'var(--fg-1)',
+                    fontWeight: 700,
+                  }}
+                />
+              </div>
+              <div>
+                <label className="block mb-1" style={{ fontSize: '14px' }}>Valid Until</label>
+                <input
+                  type="date"
+                  value={unkValidUntil}
+                  onChange={(e) => setUnkValidUntil(e.target.value)}
+                  className="w-full px-3 py-2 text-sm focus:outline-none"
+                  style={{
+                    backgroundColor: 'var(--paper)',
+                    border: '1px solid var(--border-hairline)',
+                    borderRadius: 'var(--radius-sm)',
+                    color: 'var(--fg-1)',
+                    fontWeight: 700,
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         <div>
           <label className="block mb-1" style={{ fontSize: '14px' }}>Notes</label>

@@ -654,5 +654,76 @@ marketplaces.post('/backfill-sales', async (c) => {
 });
 
 
+// ════════════════════════════════════════════════════════════════════════════
+// POST /api/marketplaces/backfill-wb-missing
+//
+// Smart WB-only retry. Looks at marketplace_sales_daily, finds the gap
+// between earliest WB date and any earlier date that has Ozon data (or a
+// supplied `from`), and pulls WB sales for that gap only. Designed to be
+// poked repeatedly when WB rate-limits — each successful call fills more
+// days, failures don't retry the whole window.
+// ════════════════════════════════════════════════════════════════════════════
+marketplaces.post('/backfill-wb-missing', async (c) => {
+  const body = await c.req.json().catch(() => ({})) as { from?: string };
+  // Determine target window
+  const ozonEarliest = await c.env.DB.prepare(
+    "SELECT MIN(date) as d FROM marketplace_sales_daily WHERE marketplace = 'ozon'"
+  ).first<{ d: string | null }>();
+  const wbEarliest = await c.env.DB.prepare(
+    "SELECT MIN(date) as d FROM marketplace_sales_daily WHERE marketplace = 'wb'"
+  ).first<{ d: string | null }>();
+
+  const from = body.from ?? ozonEarliest?.d ?? '';
+  const toExclusive = wbEarliest?.d ?? '';
+  if (!from || !toExclusive || from >= toExclusive) {
+    return c.json({ success: true, result: { skipped: true, reason: 'no gap', from, toExclusive } });
+  }
+
+  try {
+    const wbToken = c.env.WB_API_TOKEN;
+    if (!wbToken) throw new Error('WB_API_TOKEN not configured');
+
+    const url = `https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=${from}T00:00:00`;
+    const resp = await fetch(url, { headers: { Authorization: wbToken } });
+    if (!resp.ok) throw new Error(`WB HTTP ${resp.status}`);
+    const sales: any[] = await resp.json();
+
+    const byDate: Record<string, { units: number; rev: number }> = {};
+    for (const s of sales) {
+      const d = String(s.date || '').slice(0, 10);
+      if (!d || d < from || d >= toExclusive) continue;
+      const rev = Math.round(Number(s.priceWithDisc || 0) * 100);
+      byDate[d] = byDate[d] || { units: 0, rev: 0 };
+      byDate[d].units += 1;
+      byDate[d].rev += rev;
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const stmts: any[] = [];
+    for (const [date, agg] of Object.entries(byDate)) {
+      stmts.push(c.env.DB.prepare(`
+        INSERT INTO marketplace_sales_daily (marketplace, date, units_sold, revenue_rub, synced_at)
+        VALUES ('wb', ?, ?, ?, ?)
+        ON CONFLICT (marketplace, date) DO UPDATE SET
+          units_sold = excluded.units_sold,
+          revenue_rub = excluded.revenue_rub,
+          synced_at = excluded.synced_at
+      `).bind(date, agg.units, agg.rev, now));
+    }
+    if (stmts.length > 0) await c.env.DB.batch(stmts);
+
+    return c.json({ success: true, result: {
+      ok: true, days_written: stmts.length, raw_sales_rows: sales.length,
+      from, toExclusive,
+    }});
+  } catch (e: any) {
+    return c.json({ success: true, result: {
+      ok: false, error: String(e?.message || e),
+      from, toExclusive,
+    }});
+  }
+});
+
+
 export default marketplaces;
 

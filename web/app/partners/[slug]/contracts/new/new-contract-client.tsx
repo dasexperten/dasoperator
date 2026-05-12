@@ -32,12 +32,14 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
   const [status, setStatus] = useState<'draft' | 'active'>('active');
   const [notes, setNotes] = useState('');
   // Russian currency-control field (УНК = Unique Contract Number, issued by RU bank on registration)
-  // — separate from the paper contract number; shown only when our entity is DEE
+  // — separate from the paper contract number; shown when DEE is on either side
+  // (DEE is the Russian resident; УНК is registered by VTB on the Russian leg of any
+  // foreign-currency or cross-border contract, regardless of which side DEE plays)
   const [unkReference, setUnkReference] = useState('');
   const [unkValidUntil, setUnkValidUntil] = useState('');
 
   const isLegal = isLegalDocType(agreementType);
-  const isRussianEntity = companyId === 'dee';
+  const isRussianEntity = companyId === 'dee' || partner?.id === 'dee_partner';
 
   useEffect(() => {
     const fetch = async () => {

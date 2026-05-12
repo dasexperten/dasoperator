@@ -531,5 +531,128 @@ marketplaces.get('/pulse/sales-today', async (c) => {
   });
 });
 
+// ════════════════════════════════════════════════════════════════════════════
+// POST /api/marketplaces/backfill-sales
+//
+// One-shot historical backfill of marketplace_sales_daily.
+// Pulls daily sales from WB Statistics API and Ozon Analytics API for a
+// configurable window (default: 30 days ending yesterday) and upserts into
+// marketplace_sales_daily as (marketplace, date) → (units_sold, revenue_rub).
+//
+// Body (optional): { from?: "YYYY-MM-DD", to?: "YYYY-MM-DD" }
+// Defaults: from = 30 days ago, to = yesterday (UTC).
+//
+// Idempotent: ON CONFLICT REPLACE on PRIMARY KEY (marketplace, date).
+// Existing rows from cron get overwritten with backfill values — safe because
+// both come from same APIs.
+// ════════════════════════════════════════════════════════════════════════════
+marketplaces.post('/backfill-sales', async (c) => {
+  const body = await c.req.json().catch(() => ({})) as { from?: string; to?: string };
+  const today = new Date();
+  const defFrom = new Date(today.getTime() - 30 * 86400 * 1000);
+  const defTo = new Date(today.getTime() - 1 * 86400 * 1000);
+  const isoDate = (d: Date) => d.toISOString().slice(0, 10);
+  const from = body.from ?? isoDate(defFrom);
+  const to   = body.to   ?? isoDate(defTo);
+
+  const result: { wb: any; ozon: any } = { wb: {}, ozon: {} };
+
+  // ── WB Statistics: /api/v1/supplier/sales gives one row per sale, must aggregate ──
+  try {
+    const wbToken = c.env.WB_API_TOKEN;
+    if (!wbToken) throw new Error('WB_API_TOKEN not configured');
+
+    const url = `https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=${from}T00:00:00`;
+    const resp = await fetch(url, { headers: { Authorization: wbToken } });
+    if (!resp.ok) throw new Error(`WB HTTP ${resp.status}: ${await resp.text()}`);
+    const sales: any[] = await resp.json();
+
+    // Aggregate by date (sales row has `date` like "2026-04-13T10:23:45")
+    const byDate: Record<string, { units: number; rev: number }> = {};
+    for (const s of sales) {
+      const d = String(s.date || '').slice(0, 10);
+      if (!d || d < from || d > to) continue;
+      // forPay = amount actually received by seller (already net of WB fees)
+      // priceWithDisc = gross sale price with discount applied
+      // Use priceWithDisc for revenue, as our cron uses gross.
+      const rev = Math.round(Number(s.priceWithDisc || 0) * 100); // → kopecks
+      byDate[d] = byDate[d] || { units: 0, rev: 0 };
+      byDate[d].units += 1;
+      byDate[d].rev += rev;
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const stmts: any[] = [];
+    for (const [date, agg] of Object.entries(byDate)) {
+      stmts.push(c.env.DB.prepare(`
+        INSERT INTO marketplace_sales_daily (marketplace, date, units_sold, revenue_rub, synced_at)
+        VALUES ('wb', ?, ?, ?, ?)
+        ON CONFLICT (marketplace, date) DO UPDATE SET
+          units_sold = excluded.units_sold,
+          revenue_rub = excluded.revenue_rub,
+          synced_at = excluded.synced_at
+      `).bind(date, agg.units, agg.rev, now));
+    }
+    if (stmts.length > 0) await c.env.DB.batch(stmts);
+
+    result.wb = { ok: true, days_written: stmts.length, raw_sales_rows: sales.length, from, to };
+  } catch (e: any) {
+    result.wb = { ok: false, error: String(e?.message || e) };
+  }
+
+  // ── Ozon Analytics: /v1/analytics/data with daily grouping ──
+  try {
+    const clientId = c.env.OZON_CLIENT_ID;
+    const apiKey = c.env.OZON_API_KEY;
+    if (!clientId || !apiKey) throw new Error('OZON credentials not configured');
+
+    const resp = await fetch('https://api-seller.ozon.ru/v1/analytics/data', {
+      method: 'POST',
+      headers: {
+        'Client-Id': clientId,
+        'Api-Key': apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        date_from: from,
+        date_to: to,
+        metrics: ['ordered_units', 'revenue'],
+        dimension: ['day'],
+        limit: 1000,
+        offset: 0,
+      }),
+    });
+    if (!resp.ok) throw new Error(`Ozon HTTP ${resp.status}: ${await resp.text()}`);
+    const j: any = await resp.json();
+    const rows: any[] = j?.result?.data || [];
+
+    const now = Math.floor(Date.now() / 1000);
+    const stmts: any[] = [];
+    for (const r of rows) {
+      // r.dimensions = [{ id: "2026-04-13", name: "..." }], r.metrics = [units, revenue]
+      const date = r?.dimensions?.[0]?.id;
+      if (!date) continue;
+      const units = Math.round(Number(r.metrics?.[0] || 0));
+      const rev = Math.round(Number(r.metrics?.[1] || 0) * 100); // → kopecks
+      stmts.push(c.env.DB.prepare(`
+        INSERT INTO marketplace_sales_daily (marketplace, date, units_sold, revenue_rub, synced_at)
+        VALUES ('ozon', ?, ?, ?, ?)
+        ON CONFLICT (marketplace, date) DO UPDATE SET
+          units_sold = excluded.units_sold,
+          revenue_rub = excluded.revenue_rub,
+          synced_at = excluded.synced_at
+      `).bind(date, units, rev, now));
+    }
+    if (stmts.length > 0) await c.env.DB.batch(stmts);
+
+    result.ozon = { ok: true, days_written: stmts.length, raw_rows: rows.length, from, to };
+  } catch (e: any) {
+    result.ozon = { ok: false, error: String(e?.message || e) };
+  }
+
+  return c.json({ success: true, result });
+});
+
+
 export default marketplaces;
 

@@ -565,6 +565,11 @@ operations.get('/', async (c) => {
   const opType = c.req.query('operation_type');
   const status = c.req.query('status');
   const includeCancelled = c.req.query('include_cancelled') === '1';
+  // ?q=... — case-insensitive search across reference, partner.trade_name,
+  // and notes. Used by the attach-to-operation modal in /inbox.
+  const searchQ = c.req.query('q')?.trim();
+  // ?limit=N — cap result count. Default unlimited (back-compat).
+  const limit = parseInt(c.req.query('limit') ?? '0', 10);
   // ?compact=1 — return only fields consumed by list/table views
   // (no notes, manufacturer_*, warehouse_*, vat_rate, total_usd_equiv, *_at).
   // Cuts payload by ~80% (277 KB → ~50 KB for 335 operations).
@@ -623,8 +628,21 @@ operations.get('/', async (c) => {
     // Exclude cancelled by default — caller can opt in via include_cancelled=1
     sql += ` AND o.status != 'cancelled'`;
   }
+  if (searchQ) {
+    // Case-insensitive substring match across reference, partner name, notes.
+    sql += ` AND (
+      LOWER(COALESCE(o.reference,'')) LIKE ?
+      OR LOWER(COALESCE(p.trade_name,'')) LIKE ?
+      OR LOWER(COALESCE(o.notes,'')) LIKE ?
+    )`;
+    const pattern = `%${searchQ.toLowerCase()}%`;
+    binds.push(pattern, pattern, pattern);
+  }
 
   sql += ` ORDER BY o.operation_date DESC, o.created_at DESC`;
+  if (limit > 0 && limit <= 500) {
+    sql += ` LIMIT ${limit}`;
+  }
 
   const stmt = c.env.DB.prepare(sql);
   const result = binds.length > 0 ? await stmt.bind(...binds).all() : await stmt.all();

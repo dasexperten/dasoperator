@@ -457,4 +457,72 @@ documents.get('/:id/pdf', async (c) => {
   });
 });
 
+// -----------------------------------------------------------------------------
+// DELETE /api/documents/:id
+// Soft-deletes a single document (sets deleted_at). The R2 object is kept
+// for audit trail — if the same document is re-issued later, a new R2 key
+// is allocated (sequence/counters move forward, so number collision is
+// impossible).
+//
+// If the deletion leaves the parent operation with ZERO issued documents,
+// the operation's status is rolled back: issued → draft. Status is not
+// touched for any other case (cancelled stays cancelled, shipped stays
+// shipped, etc.).
+// -----------------------------------------------------------------------------
+documents.delete('/:id', async (c) => {
+  const docId = c.req.param('id');
+  const now = Math.floor(Date.now() / 1000);
+
+  // 1. Locate the document. Hard 404 if already deleted or never existed.
+  const doc = await c.env.DB.prepare(
+    `SELECT id, operation_id, document_number, document_type, status
+       FROM documents WHERE id = ? AND deleted_at IS NULL`
+  ).bind(docId).first<{
+    id: string;
+    operation_id: string;
+    document_number: string;
+    document_type: string;
+    status: string;
+  }>();
+  if (!doc) {
+    return fail(c, 404, [{ code: 'document_not_found', message: `Document ${docId} not found or already deleted` }]);
+  }
+
+  // 2. Soft-delete the document row.
+  await c.env.DB.prepare(
+    `UPDATE documents SET deleted_at = ?, updated_at = ? WHERE id = ?`
+  ).bind(now, now, docId).run();
+
+  // 3. Check whether the operation now has zero issued (non-deleted) documents.
+  //    If yes AND operation.status === 'issued' → roll back to 'draft'.
+  const remaining = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS cnt
+       FROM documents
+      WHERE operation_id = ? AND deleted_at IS NULL AND status = 'issued'`
+  ).bind(doc.operation_id).first<{ cnt: number }>();
+
+  let opStatusChanged: { from: string; to: string } | null = null;
+  if ((remaining?.cnt ?? 0) === 0) {
+    const op = await c.env.DB.prepare(
+      `SELECT id, status FROM operations WHERE id = ? AND deleted_at IS NULL`
+    ).bind(doc.operation_id).first<{ id: string; status: string }>();
+    if (op && op.status === 'issued') {
+      await c.env.DB.prepare(
+        `UPDATE operations SET status = 'draft', updated_at = ? WHERE id = ?`
+      ).bind(now, doc.operation_id).run();
+      opStatusChanged = { from: 'issued', to: 'draft' };
+    }
+  }
+
+  return ok(c, {
+    deleted: {
+      id: doc.id,
+      document_number: doc.document_number,
+      document_type: doc.document_type,
+    },
+    remaining_issued_count: remaining?.cnt ?? 0,
+    operation_status_changed: opStatusChanged,
+  });
+});
+
 export default documents;

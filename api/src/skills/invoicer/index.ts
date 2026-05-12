@@ -303,7 +303,8 @@ export async function issueDocuments(
       if (spec.type === 'UPD') return filterTypes.includes('UPD');
       if (spec.type === 'TN') return filterTypes.includes('TN');
       if (spec.type === 'IS') {
-        return filterTypes.includes(`IS-V${spec.variant ?? 1}` as any);
+        // spec.format is already 'IS-V1' or 'IS-V2'; compare directly.
+        return filterTypes.includes(spec.format as 'IS-V1' | 'IS-V2');
       }
       return false;
     });
@@ -323,6 +324,46 @@ export async function issueDocuments(
   const warnings: string[] = staleWarnings.map(
     (w) => `stale_${w.entity}: ${w.entity_id} not verified for ${w.days_ago} days`
   );
+
+  // ---------------------------------------------------------------------------
+  // 2b. Duplicate guard — backend safety-net. UI also disables the buttons
+  // when an issued document exists, but this guards against race conditions
+  // (two tabs pressing Issue at the same moment). The documents table tracks
+  // only document_type (CI/PL/IS/UPD/TN); IS-V1 and IS-V2 collapse to one IS
+  // per operation. Delete the existing doc to re-issue.
+  // ---------------------------------------------------------------------------
+  const existingRows = await env.DB.prepare(
+    `SELECT id, document_type, document_number, status
+       FROM documents
+      WHERE operation_id = ? AND deleted_at IS NULL AND status = 'issued'`
+  ).bind(operationId).all<{
+    id: string; document_type: string; document_number: string; status: string;
+  }>();
+  const existingTypes = new Set(
+    (existingRows.results ?? []).map((r) => r.document_type)
+  );
+
+  const skipped: Array<{ type: string; document_number: string }> = [];
+  const planAfterDedup = plan.filter((spec) => {
+    if (existingTypes.has(spec.type)) {
+      const row = (existingRows.results ?? []).find((r) => r.document_type === spec.type);
+      if (row) skipped.push({ type: spec.type, document_number: row.document_number });
+      return false;
+    }
+    return true;
+  });
+
+  if (planAfterDedup.length === 0) {
+    return fail({
+      code: 'already_exists',
+      message: skipped.length === 1
+        ? `${skipped[0].document_number} already exists. Delete it first to re-issue.`
+        : `All requested documents already exist: ${skipped.map((s) => s.document_number).join(', ')}. Delete to re-issue.`,
+      details: { existing: skipped },
+    }, 409, warnings);
+  }
+  // Continue with only the new specs.
+  plan = planAfterDedup;
 
   // ---------------------------------------------------------------------------
   // 3. Per-spec validation pass — every doc must pass before any are emitted.

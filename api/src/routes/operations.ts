@@ -968,6 +968,26 @@ operations.patch('/:id/status', async (c) => {
       }
     }
 
+  } else if (targetStatus === 'order_fulfilment') {
+    // SALE only: Boxing — goods get reserved for the buyer.
+    // -qty appears at warehouse_from with stock_state='in_production'.
+    // This is a NEGATIVE reservation that mirrors purchase 'production': both
+    // sit in the in_production state, sign of qty distinguishes incoming (+)
+    // from outgoing (-). on_hand is left untouched at this stage; the actual
+    // on_hand deduction happens when status moves to 'shipped' (see below).
+    if (opType === 'sale' && op.warehouse_from_id) {
+      for (const li of lineItems) {
+        movementSpecs.push({
+          warehouseId: op.warehouse_from_id,
+          productId: li.product_id,
+          movementType: 'order_fulfilment_reserve',
+          qty: -li.qty,
+          reason: 'sale_boxing_reserved',
+          stockState: 'in_production',
+        });
+      }
+    }
+
   } else if (targetStatus === 'stocked') {
     // LEGACY: kept only for old purchase rows that already used this state.
     // New purchases skip directly production → shipped.
@@ -987,6 +1007,24 @@ operations.patch('/:id/status', async (c) => {
   } else if (targetStatus === 'shipped') {
     // sale or transfer: goods leave warehouse_from on_hand
     if ((opType === 'sale' || opType === 'transfer') && op.warehouse_from_id) {
+      // If sale came via Boxing (order_fulfilment), first release the
+      // -qty reservation that's parked in in_production. Otherwise the
+      // shipment double-counts the deduction (reserved + on_hand both go
+      // negative). Skip case is fine — direct issued → shipped just goes
+      // straight to on_hand without an intermediate release.
+      if (opType === 'sale' && op.status === 'order_fulfilment') {
+        for (const li of lineItems) {
+          movementSpecs.push({
+            warehouseId: op.warehouse_from_id,
+            productId: li.product_id,
+            movementType: 'order_fulfilment_release',
+            qty: +li.qty, // +N zeroes out the -N reservation
+            reason: 'sale_boxing_released',
+            stockState: 'in_production',
+          });
+        }
+      }
+
       for (const li of lineItems) {
         movementSpecs.push({
           warehouseId: op.warehouse_from_id,

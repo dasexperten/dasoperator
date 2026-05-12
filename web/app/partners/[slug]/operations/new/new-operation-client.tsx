@@ -771,11 +771,29 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                   style={selectStyle}
                 >
                   <option value="">— Choose a buyer —</option>
-                  {allPartners.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.trade_name} ({p.country ?? '—'})
-                    </option>
-                  ))}
+                  {allPartners
+                    .filter((p) => {
+                      // Sale → show buyers only.
+                      // Purchase from a non-factory partner → show manufacturers/suppliers.
+                      //   (Most purchases use the manufacturer dropdown elsewhere; this
+                      //   branch covers the rare case of buying through a trade company.)
+                      // Other types fall through and show everyone (back-compat).
+                      const kind = (p.kind ?? p.partner_type) as string | null;
+                      if (opType === 'sale') {
+                        // Buyers, plus marketplaces (Ozon/WB are technically buyers for us)
+                        // and 'other' which catches legacy rows without an explicit kind.
+                        return kind === 'buyer' || kind === 'other' || kind === null;
+                      }
+                      if (opType === 'purchase') {
+                        return kind === 'manufacturer' || kind === 'supplier' || kind === 'other' || kind === null;
+                      }
+                      return true;
+                    })
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.trade_name} ({p.country ?? '—'})
+                      </option>
+                    ))}
                 </select>
               </div>
             )}

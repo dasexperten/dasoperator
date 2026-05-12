@@ -31,7 +31,8 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
   const [incoterms, setIncoterms] = useState('');
   const [status, setStatus] = useState<'draft' | 'active'>('active');
   const [notes, setNotes] = useState('');
-  // Russian currency-control fields (УНК / ВБК) — shown only when our entity is DEE
+  // Russian currency-control field (УНК = Unique Contract Number, issued by RU bank on registration)
+  // — separate from the paper contract number; shown only when our entity is DEE
   const [unkReference, setUnkReference] = useState('');
   const [unkValidUntil, setUnkValidUntil] = useState('');
 
@@ -228,7 +229,7 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
                 letterSpacing: 0,
               }}
             >
-              Russian currency control (УНК / ВБК)
+              Russian currency control (УНК)
             </div>
             <p style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
               For DEE foreign-trade contracts placed on bank registration.
@@ -236,7 +237,7 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
             </p>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block mb-1" style={{ fontSize: '14px' }}>УНК / ВБК Reference</label>
+                <label className="block mb-1" style={{ fontSize: '14px' }}>УНК (Unique Contract Number — assigned by RU bank, e.g. 24080104/1927/0006/2/1)</label>
                 <input
                   type="text"
                   value={unkReference}

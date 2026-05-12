@@ -432,11 +432,21 @@ async function runMarketplaceSync(env: Env): Promise<void> {
 
   await new Promise((r) => setTimeout(r, 2000));
 
-  try {
-    const r = await selfFetch('/api/marketplaces/sync/wb');
-    console.log(`[cron] wb stocks HTTP ${r.status}`);
-  } catch (e) {
-    console.error('[cron] wb stocks threw:', e);
+  // WB stocks — only every 4 hours (UTC 00/04/08/12/16/20). WB's
+  // statistics-api supplier/stocks endpoint enforces a ~1 req per 3-4 hour
+  // budget on our tier; hourly hits returned 429 in ~72% of attempts and
+  // produced no fresher data. Aligning the schedule with the real rate limit
+  // eliminates the error log and keeps Ozon stocks refreshing hourly as before.
+  const hourForWb = new Date().getUTCHours();
+  if (hourForWb % 4 === 0) {
+    try {
+      const r = await selfFetch('/api/marketplaces/sync/wb');
+      console.log(`[cron] wb stocks HTTP ${r.status}`);
+    } catch (e) {
+      console.error('[cron] wb stocks threw:', e);
+    }
+  } else {
+    console.log(`[cron] skipping WB stocks (hour=${hourForWb}, runs at 0/4/8/12/16/20 UTC due to WB rate limit)`);
   }
 
   // Sales — only every 4 hours (UTC 00/04/08/12/16/20). WB has a strict

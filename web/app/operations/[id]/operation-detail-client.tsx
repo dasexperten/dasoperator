@@ -481,7 +481,7 @@ export default function OperationDetailClient({
           { id: 'items',     label: 'Line items',      count: lineItems.length },
           { id: 'status',    label: 'Status',          count: null },
           { id: 'stock',     label: 'Stock movements', count: stockMovements.length },
-          { id: 'documents', label: 'Documents',       count: documents.length },
+          { id: 'documents', label: 'Documents',       count: documents.length + attachments.length },
           { id: 'payments',  label: 'Payments',        count: payments.length },
         ] as { id: Tab; label: string; count: number | null }[]).map((tab) => {
           const isActive = activeTab === tab.id;
@@ -1236,7 +1236,7 @@ function DocumentsTab({
     <div style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
       <div className="flex justify-between items-center px-4 py-3" style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>
         <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)', margin: 0 }}>
-          Documents{attachments.length > 0 ? ` (${attachments.length})` : ''}
+          Documents{docs.length + attachments.length > 0 ? ` (${docs.length + attachments.length})` : ''}
         </p>
         <div className="inline-flex items-center gap-2">
           <button
@@ -1264,7 +1264,7 @@ function DocumentsTab({
           </button>
         </div>
       </div>
-      {attachments.length === 0 ? (
+      {(docs.length === 0 && attachments.length === 0) ? (
         <div style={{ padding: '24px 16px', textAlign: 'center' }}>
           <p style={{ fontSize: '14px', color: 'var(--fg-3)', margin: 0 }}>No documents yet. Use Issue documents or Attach document to add them.</p>
         </div>
@@ -1284,6 +1284,50 @@ function DocumentsTab({
             </tr>
           </thead>
           <tbody>
+            {/* Issued documents (CI / PL / IS / UPD / TN / RFQ from invoicer) */}
+            {docs.map((doc) => {
+              const date = doc.document_date ? new Date(doc.document_date * 1000).toLocaleDateString('ru-RU') : '—';
+              const isCancelled = doc.status === 'cancelled';
+              const textStyle = isCancelled
+                ? { color: 'var(--brand-rot)', textDecoration: 'line-through' as const }
+                : { color: 'var(--fg-1)' };
+              return (
+                <tr key={doc.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                  <td className="px-4 py-3">
+                    <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '999px', fontSize: '14px', fontWeight: 500, color: 'var(--status-success)', backgroundColor: 'rgba(46,125,79,0.08)' }}>
+                      Issued
+                    </span>
+                  </td>
+                  <td className="px-4 py-3" style={{ ...textStyle, fontWeight: 600 }}>{doc.document_type}</td>
+                  <td className="px-4 py-3" style={{ ...textStyle, fontWeight: 700 }}>{doc.document_number}</td>
+                  <td className="px-4 py-3" style={{ color: isCancelled ? 'var(--brand-rot)' : 'var(--fg-3)', textDecoration: isCancelled ? 'line-through' : undefined }}>{date}</td>
+                  <td className="px-4 py-3 text-right" style={{ ...textStyle, fontWeight: 700 }}>
+                    {doc.total_amount != null ? `${formatMoney(doc.total_amount, doc.currency || 'RUB')} ${doc.currency || ''}` : '—'}
+                  </td>
+                  <td className="px-4 py-3" style={{ color: 'var(--fg-3)', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={doc.issuer_name || ''}>
+                    {doc.issuer_name || '—'}
+                  </td>
+                  <td className="px-4 py-3" style={{ color: 'var(--fg-3)', fontSize: '14px' }}>invoicer</td>
+                  <td className="px-4 py-3 text-right">
+                    {doc.pdf_r2_url ? (
+                      <a href={`https://dasoperator-api.dasexperten.workers.dev/api/documents/${doc.id}/download`} target="_blank" rel="noopener noreferrer" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--brand-rot)', textDecoration: 'none' }}>
+                        Download
+                      </a>
+                    ) : (
+                      <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {isCancelled ? (
+                      <span style={{ fontSize: '12px', color: 'var(--brand-rot)', fontWeight: 600 }}>Cancelled</span>
+                    ) : (
+                      <span style={{ fontSize: '12px', color: 'var(--fg-3)' }}></span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {/* Manual attachments — from operation_attachments table */}
             {attachments.map((att) => {
               const date = att.doc_date ? new Date(att.doc_date * 1000).toLocaleDateString('ru-RU') : '—';
               const dirColor = att.direction === 'outgoing' ? 'var(--brand-rot)' : 'var(--status-success)';

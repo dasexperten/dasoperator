@@ -165,17 +165,30 @@ export default function OperationDetailClient({
     issuer: string | null; file_url: string | null;
     parsed_from: string | null; notes: string | null;
   }>>([]);
+  /** id → code map for warehouses, used to detect factory warehouses
+   * (GZH/YZH) so the Shipped button can disable itself. */
+  const [warehouseCodes, setWarehouseCodes] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [partnerRes, opRes, paysRes, docsRes, movRes] = await Promise.all([
+        const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://dasoperator-api.dasexperten.workers.dev';
+        const [partnerRes, opRes, paysRes, docsRes, movRes, whRes] = await Promise.all([
           getPartner(partnerSlug),
           getOperation(operationId),
           getPayments({ operation_id: operationId }),
           getDocuments({ operation_id: operationId }),
           getStockMovements({ source: 'operation', source_ref_id: operationId }),
+          fetch(`${API_BASE}/api/warehouses?compact=1`).then((r) => r.json()).catch(() => null),
         ]);
+
+        if (whRes && whRes.success && whRes.result?.warehouses) {
+          const map: Record<string, string> = {};
+          for (const w of whRes.result.warehouses) {
+            if (w.id && w.code) map[w.id] = w.code;
+          }
+          setWarehouseCodes(map);
+        }
 
         if (partnerRes.success && partnerRes.result) setPartner(partnerRes.result);
 
@@ -491,6 +504,11 @@ export default function OperationDetailClient({
         operationType={operation.operation_type}
         partnerCountry={partner?.country ?? null}
         ourCompanyAbbr={operation.entity_abbreviation ?? null}
+        warehouseCode={
+          operation.operation_type === 'purchase'
+            ? (operation.warehouse_to_id ? warehouseCodes[operation.warehouse_to_id] ?? null : null)
+            : (operation.warehouse_from_id ? warehouseCodes[operation.warehouse_from_id] ?? null : null)
+        }
         onIssued={async () => {
           const opRes = await getOperation(operationId);
           if (opRes.success && opRes.result) {
@@ -499,6 +517,19 @@ export default function OperationDetailClient({
           }
           const docsRes = await getDocuments({ operation_id: operationId });
           if (docsRes.success && docsRes.result) setDocumentCount(docsRes.result.count);
+        }}
+        onStatusChange={async () => {
+          const [opRes, movesRes] = await Promise.all([
+            getOperation(operationId),
+            getStockMovements({ source: 'operation', source_ref_id: operationId }),
+          ]);
+          if (opRes.success && opRes.result) {
+            setOperation(opRes.result.operation);
+            setLineItems(opRes.result.line_items);
+          }
+          if (movesRes.success && movesRes.result) {
+            setMovements(movesRes.result.movements);
+          }
         }}
       />
 

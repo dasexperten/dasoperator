@@ -122,6 +122,9 @@ export default function OperationDetailClient({
     issuer: string | null; file_url: string | null;
     parsed_from: string | null; notes: string | null;
   }>>([]);
+  /** id → code map for warehouses, used to detect factory warehouses
+   * (GZH/YZH) so the Shipped button can disable itself. */
+  const [warehouseCodes, setWarehouseCodes] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState<Tab>('items');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -143,12 +146,23 @@ export default function OperationDetailClient({
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [opRes, paysRes, movesRes, docsRes] = await Promise.all([
+        const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://dasoperator-api.dasexperten.workers.dev';
+        const [opRes, paysRes, movesRes, docsRes, whRes] = await Promise.all([
           getOperation(operationId),
           getPayments({ operation_id: operationId }),
           getStockMovements({ source_ref_id: operationId, source: 'operation' }),
           getDocuments({ operation_id: operationId }),
+          fetch(`${API_BASE}/api/warehouses?compact=1`).then((r) => r.json()).catch(() => null),
         ]);
+
+        // Build warehouse id → code map for action-bar factory detection.
+        if (whRes && whRes.success && whRes.result?.warehouses) {
+          const map: Record<string, string> = {};
+          for (const w of whRes.result.warehouses) {
+            if (w.id && w.code) map[w.id] = w.code;
+          }
+          setWarehouseCodes(map);
+        }
 
         if (opRes.success && opRes.result) {
           setOperation(opRes.result.operation);
@@ -379,11 +393,34 @@ export default function OperationDetailClient({
         operationType={operation.operation_type}
         partnerCountry={partner?.country ?? null}
         ourCompanyAbbr={operation.entity_abbreviation ?? null}
+        warehouseCode={
+          // Purchase: destination is where goods arrive — warehouse_to.
+          // Sale: source is our warehouse — warehouse_from.
+          operation.operation_type === 'purchase'
+            ? (operation.warehouse_to_id ? warehouseCodes[operation.warehouse_to_id] ?? null : null)
+            : (operation.warehouse_from_id ? warehouseCodes[operation.warehouse_from_id] ?? null : null)
+        }
         onIssued={async () => {
           const opRes = await getOperation(operationId);
           if (opRes.success && opRes.result) {
             setOperation(opRes.result.operation);
             setLineItems(opRes.result.line_items);
+          }
+        }}
+        onStatusChange={async () => {
+          // Status change writes stock_movements server-side and updates
+          // operation.status. Refetch both so the bar and the Stock tab
+          // reflect the new state.
+          const [opRes, movesRes] = await Promise.all([
+            getOperation(operationId),
+            getStockMovements({ source_ref_id: operationId, source: 'operation' }),
+          ]);
+          if (opRes.success && opRes.result) {
+            setOperation(opRes.result.operation);
+            setLineItems(opRes.result.line_items);
+          }
+          if (movesRes.success && movesRes.result) {
+            setStockMovements(movesRes.result.movements);
           }
         }}
       />

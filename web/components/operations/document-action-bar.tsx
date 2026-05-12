@@ -168,10 +168,10 @@ export default function DocumentActionBar({
             backgroundColor: 'var(--paper)',
             color: 'var(--fg-1)',
           }}
-          title="Send freight forwarding request to a shipper"
+          title="Send freight forwarding request to a shipper (Request For Quote)"
         >
           <Truck className="h-4 w-4" />
-          Заявка логисту
+          RFQ
         </Link>
       </div>
       {feedback && (

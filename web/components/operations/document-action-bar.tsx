@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Loader2, FileText, Package, FileCheck, Truck, Files } from 'lucide-react';
+import { Loader2, FileText, Package, FileCheck, Truck } from 'lucide-react';
 import { issueDocuments } from '@/lib/api';
 
 interface DocumentActionBarProps {
@@ -11,11 +11,17 @@ interface DocumentActionBarProps {
   operationType?: string;
   partnerCountry?: string | null;
   ourCompanyAbbr?: string | null;
+  /**
+   * Set of document types ('CI', 'PL', 'IS', 'UPD', 'TN') that already exist
+   * for this operation in 'issued' status. Buttons for these types are
+   * disabled — user must delete the doc in the Documents tab to re-issue.
+   */
+  issuedDocTypes?: Set<string>;
   onIssued: () => Promise<void> | void;
 }
 
 type DocType = 'CI' | 'PL' | 'IS-V1' | 'IS-V2' | 'UPD' | 'TN';
-type ButtonId = 'CI' | 'PL' | 'IS' | 'UPD' | 'TN' | 'FREIGHT' | 'ALL';
+type ButtonId = 'CI' | 'PL' | 'IS' | 'UPD' | 'TN' | 'FREIGHT';
 
 export default function DocumentActionBar({
   operationId,
@@ -23,12 +29,23 @@ export default function DocumentActionBar({
   operationType = 'sale',
   partnerCountry,
   ourCompanyAbbr,
+  issuedDocTypes,
   onIssued,
 }: DocumentActionBarProps) {
   const [busy, setBusy] = useState<ButtonId | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const canIssue = operationStatus !== 'cancelled';
+  const issued = issuedDocTypes ?? new Set<string>();
+
+  // Per-type disable flags. UI hint: once a doc is issued, you must delete it
+  // in the Documents tab before pressing the button again. The backend
+  // duplicate-guard (already_exists 409) is the safety-net.
+  const ciIssued = issued.has('CI');
+  const plIssued = issued.has('PL');
+  const isIssued = issued.has('IS');
+  const updIssued = issued.has('UPD');
+  const tnIssued = issued.has('TN');
 
   // Detect Russian sale to switch button set to UPD + TN.
   // УПД и ТН — это исключительно документы DEE.
@@ -83,18 +100,22 @@ export default function DocumentActionBar({
           <>
             <button
               onClick={() => handleIssue('UPD', ['UPD'])}
-              disabled={!canIssue || !!busy}
-              style={buttonStyle(canIssue)}
-              title="Универсальный передаточный документ"
+              disabled={!canIssue || !!busy || updIssued}
+              style={buttonStyle(canIssue && !updIssued)}
+              title={updIssued
+                ? 'УПД уже выпущен — удалите его во вкладке Documents чтобы выпустить заново'
+                : 'Универсальный передаточный документ'}
             >
               {busy === 'UPD' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
               УПД
             </button>
             <button
               onClick={() => handleIssue('TN', ['TN'])}
-              disabled={!canIssue || !!busy}
-              style={buttonStyle(canIssue)}
-              title="Транспортная накладная"
+              disabled={!canIssue || !!busy || tnIssued}
+              style={buttonStyle(canIssue && !tnIssued)}
+              title={tnIssued
+                ? 'ТН уже выпущена — удалите её во вкладке Documents чтобы выпустить заново'
+                : 'Транспортная накладная'}
             >
               {busy === 'TN' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
               ТН
@@ -104,27 +125,33 @@ export default function DocumentActionBar({
           <>
             <button
               onClick={() => handleIssue('CI', ['CI'])}
-              disabled={!canIssue || !!busy}
-              style={buttonStyle(canIssue)}
-              title="Generate Commercial Invoice"
+              disabled={!canIssue || !!busy || ciIssued}
+              style={buttonStyle(canIssue && !ciIssued)}
+              title={ciIssued
+                ? 'CI already issued — delete it in the Documents tab to re-issue'
+                : 'Generate Commercial Invoice'}
             >
               {busy === 'CI' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
               CI
             </button>
             <button
               onClick={() => handleIssue('PL', ['PL'])}
-              disabled={!canIssue || !!busy}
-              style={buttonStyle(canIssue)}
-              title="Generate Packing List"
+              disabled={!canIssue || !!busy || plIssued}
+              style={buttonStyle(canIssue && !plIssued)}
+              title={plIssued
+                ? 'PL already issued — delete it in the Documents tab to re-issue'
+                : 'Generate Packing List'}
             >
               {busy === 'PL' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Package className="h-4 w-4" />}
               PL
             </button>
             <button
               onClick={() => handleIssue('IS', ['IS-V1', 'IS-V2'])}
-              disabled={!canIssue || !!busy}
-              style={buttonStyle(canIssue)}
-              title="Generate Issuance Statement"
+              disabled={!canIssue || !!busy || isIssued}
+              style={buttonStyle(canIssue && !isIssued)}
+              title={isIssued
+                ? 'IS already issued — delete it in the Documents tab to re-issue'
+                : 'Generate Issuance Statement'}
             >
               {busy === 'IS' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileCheck className="h-4 w-4" />}
               IS
@@ -146,20 +173,6 @@ export default function DocumentActionBar({
           <Truck className="h-4 w-4" />
           Заявка логисту
         </Link>
-        <button
-          onClick={() => handleIssue('ALL')}
-          disabled={!canIssue || !!busy}
-          style={{
-            ...buttonStyle(canIssue),
-            backgroundColor: canIssue ? 'var(--brand-rot)' : 'var(--paper-sunk)',
-            color: canIssue ? '#FFFFFF' : 'var(--fg-3)',
-            border: 'none',
-          }}
-          title="Generate all documents (CI + PL + IS)"
-        >
-          {busy === 'ALL' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Files className="h-4 w-4" />}
-          Все документы
-        </button>
       </div>
       {feedback && (
         <div

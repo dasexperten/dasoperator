@@ -15,6 +15,7 @@
 // =============================================================================
 
 import type { Env } from '../types';
+import { findMatchingOperation, applyMatchToInbox } from './inbox-auto-match';
 
 const EMAILER_BRIDGE = 'https://emailer-bridge.dasexperten.workers.dev/';
 const DEEPSEEK_API = 'https://api.deepseek.com/v1/chat/completions';
@@ -73,9 +74,17 @@ interface IngestionStats {
   pdfs_processed: number;
   inserted: number;
   auto_rejected: number;
+  auto_attached: number;       // matched at high confidence, attached to existing operation
+  suggested: number;           // matched at low confidence, awaits user click
   duplicates: number;
   errors: number;
-  invoices_added: Array<{ vendor: string | null; amount: number | null; currency: string | null }>;
+  invoices_added: Array<{
+    vendor: string | null;
+    amount: number | null;
+    currency: string | null;
+    auto_attached_to?: string | null;       // operation reference, e.g. "DEE-547"
+    suggested_match?: string | null;        // operation reference + % e.g. "DEE-547 (75%)"
+  }>;
 }
 
 export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
@@ -84,6 +93,8 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
     pdfs_processed: 0,
     inserted: 0,
     auto_rejected: 0,
+    auto_attached: 0,
+    suggested: 0,
     duplicates: 0,
     errors: 0,
     invoices_added: [],
@@ -200,18 +211,56 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
       if (cls === 'unclear') cls = 'pending';
 
       // Insert
-      await insertInbox(env, c, extracted, text, cls, status, notes);
+      const invId = await insertInbox(env, c, extracted, text, cls, status, notes);
 
       if (isAutoReject) {
         stats.auto_rejected++;
-      } else {
-        stats.inserted++;
-        stats.invoices_added.push({
-          vendor: extracted.vendor_name,
-          amount: extracted.amount_total,
-          currency: extracted.currency,
-        });
+        continue;
       }
+
+      stats.inserted++;
+      const item = {
+        vendor: extracted.vendor_name,
+        amount: extracted.amount_total,
+        currency: extracted.currency,
+        auto_attached_to: null as string | null,
+        suggested_match: null as string | null,
+      };
+
+      // -------------------------------------------------------------------
+      // Auto-match step. Try to find a matching operation. If confidence
+      // is high enough for this classification, auto-attach right now.
+      // Otherwise store the suggestion so the UI can show a 1-click button.
+      // Failures here are non-fatal — the row stays in needs_partner_link.
+      // -------------------------------------------------------------------
+      try {
+        const inboxRow = await env.DB.prepare(
+          `SELECT id, classification, extracted_vendor_name, extracted_vendor_inn,
+                  extracted_vendor_email, extracted_invoice_no, extracted_invoice_date,
+                  extracted_our_invoice_ref, extracted_currency, extracted_amount,
+                  extracted_buyer_entity, attachment_text_extracted, matched_partner_id,
+                  attachment_r2_key, attachment_filename, email_subject, email_from
+             FROM invoice_inbox WHERE id = ?`
+        ).bind(invId).first<any>();
+
+        if (inboxRow) {
+          const match = await findMatchingOperation(inboxRow, env);
+          const outcome = await applyMatchToInbox(inboxRow, match, env);
+
+          if (outcome.kind === 'auto_attached') {
+            stats.auto_attached++;
+            item.auto_attached_to = outcome.match.operation_reference;
+            console.log(`[inbox-cron] auto-attached ${invId} → ${outcome.match.operation_reference} (${(outcome.match.confidence * 100).toFixed(0)}%)`);
+          } else if (outcome.kind === 'suggested') {
+            stats.suggested++;
+            item.suggested_match = `${outcome.match.operation_reference} (${(outcome.match.confidence * 100).toFixed(0)}%)`;
+          }
+        }
+      } catch (matchErr) {
+        console.error(`[inbox-cron] auto-match failed for ${invId}:`, matchErr);
+      }
+
+      stats.invoices_added.push(item);
     } catch (e) {
       console.error(`[inbox-cron] processing failed for ${c.filename}:`, e);
       stats.errors++;
@@ -327,7 +376,7 @@ ${text || '(empty — PDF text extraction failed, classify based on metadata onl
   }
 }
 
-async function insertInbox(env: Env, c: any, e: any, text: string, cls: string, status: string, notes: string) {
+async function insertInbox(env: Env, c: any, e: any, text: string, cls: string, status: string, notes: string): Promise<string> {
   const invId = `inv_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
   const now = Math.floor(Date.now() / 1000);
   const lineItemsJson = JSON.stringify(e.line_items || []);
@@ -360,6 +409,8 @@ async function insertInbox(env: Env, c: any, e: any, text: string, cls: string, 
     e.service_category || null, e.buyer_entity || null,
     status, notes, now, now,
   ).run();
+
+  return invId;
 }
 
 async function sendDailySummary(env: Env, stats: IngestionStats) {
@@ -369,19 +420,47 @@ async function sendDailySummary(env: Env, stats: IngestionStats) {
     `Threads scanned: ${stats.threads_found}`,
     `PDFs processed: ${stats.pdfs_processed}`,
     `New invoices in queue: ${stats.inserted}`,
-    `Auto-rejected (settlement reports / informational / no amount): ${stats.auto_rejected}`,
+    `  · auto-attached to existing op: ${stats.auto_attached}`,
+    `  · with suggested match (1-click): ${stats.suggested}`,
+    `  · need manual selection: ${stats.inserted - stats.auto_attached - stats.suggested}`,
+    `Auto-rejected (settlement / informational / no amount): ${stats.auto_rejected}`,
     `Already known (skipped): ${stats.duplicates}`,
     `Errors: ${stats.errors}`,
     '',
   ];
 
   if (stats.invoices_added.length > 0) {
-    lines.push('New invoices waiting for Yes/No:');
-    for (const inv of stats.invoices_added) {
-      const amt = inv.amount !== null ? `${inv.amount} ${inv.currency || ''}` : '—';
-      lines.push(`  • ${inv.vendor || '?'}: ${amt}`);
+    const autoAttached = stats.invoices_added.filter(i => i.auto_attached_to);
+    const suggested = stats.invoices_added.filter(i => !i.auto_attached_to && i.suggested_match);
+    const orphans = stats.invoices_added.filter(i => !i.auto_attached_to && !i.suggested_match);
+
+    if (autoAttached.length > 0) {
+      lines.push('Auto-attached (already linked):');
+      for (const inv of autoAttached) {
+        const amt = inv.amount !== null ? `${inv.amount} ${inv.currency || ''}` : '—';
+        lines.push(`  ✓ ${inv.vendor || '?'}: ${amt} → ${inv.auto_attached_to}`);
+      }
+      lines.push('');
     }
-    lines.push('');
+
+    if (suggested.length > 0) {
+      lines.push('Suggested matches (1-click in /inbox):');
+      for (const inv of suggested) {
+        const amt = inv.amount !== null ? `${inv.amount} ${inv.currency || ''}` : '—';
+        lines.push(`  ? ${inv.vendor || '?'}: ${amt} → ${inv.suggested_match}`);
+      }
+      lines.push('');
+    }
+
+    if (orphans.length > 0) {
+      lines.push('Need manual selection:');
+      for (const inv of orphans) {
+        const amt = inv.amount !== null ? `${inv.amount} ${inv.currency || ''}` : '—';
+        lines.push(`  • ${inv.vendor || '?'}: ${amt}`);
+      }
+      lines.push('');
+    }
+
     lines.push('Open: https://dasoperator.pages.dev/inbox');
   } else {
     lines.push('No new invoices today.');
@@ -390,7 +469,7 @@ async function sendDailySummary(env: Env, stats: IngestionStats) {
   await callEmailer(env, {
     action: 'send',
     to: 'dasexperten@gmail.com',
-    subject: `Inbox: ${stats.inserted} new, ${stats.auto_rejected} auto-rejected (${new Date().toISOString().slice(0, 10)})`,
+    subject: `Inbox: ${stats.inserted} new (${stats.auto_attached} auto-attached, ${stats.suggested} suggested) · ${new Date().toISOString().slice(0, 10)}`,
     body: lines.join('\n'),
   });
 }

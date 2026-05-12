@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { runInboxIngestion } from '../lib/inbox-ingestion';
+import { findMatchingOperation, thresholdFor } from '../lib/inbox-auto-match';
 
 const inbox = new Hono<{ Bindings: Env }>();
 
@@ -46,6 +47,36 @@ inbox.post('/run-ingestion', async (c) => {
 });
 
 // =============================================================================
+// GET /api/inbox/:id/match-preview
+// Runs the auto-matcher on a single inbox row and returns the suggested
+// operation + confidence WITHOUT attaching. Diagnostic/preview only.
+// =============================================================================
+inbox.get('/:id/match-preview', async (c) => {
+  const id = c.req.param('id');
+  try {
+    const row = await c.env.DB.prepare(
+      `SELECT id, classification, extracted_vendor_name, extracted_vendor_inn,
+              extracted_vendor_email, extracted_invoice_no, extracted_invoice_date,
+              extracted_our_invoice_ref, extracted_currency, extracted_amount,
+              extracted_buyer_entity, attachment_text_extracted, matched_partner_id
+         FROM invoice_inbox
+        WHERE id = ? AND deleted_at IS NULL`
+    ).bind(id).first<any>();
+    if (!row) return fail(c, 404, [{ code: 'inbox_not_found', message: `Inbox row ${id} not found` }]);
+
+    const match = await findMatchingOperation(row, c.env);
+    return ok(c, {
+      inbox_id: id,
+      classification: row.classification,
+      threshold: thresholdFor(row.classification),
+      match,
+    });
+  } catch (e) {
+    return fail(c, 500, [{ code: 'match_preview_error', message: e instanceof Error ? e.message : String(e) }]);
+  }
+});
+
+// =============================================================================
 // GET /api/inbox — list invoice_inbox rows
 // =============================================================================
 // Query params:
@@ -61,7 +92,7 @@ inbox.get('/', async (c) => {
   if (statusFilter === 'open') {
     where += " AND status IN ('queued','processed','needs_partner_link','needs_review')";
   } else if (statusFilter === 'resolved') {
-    where += " AND status IN ('auto_created','manual_confirmed','manual_rejected')";
+    where += " AND status IN ('auto_created','auto_attached','manual_confirmed','manual_rejected')";
   } else if (statusFilter && statusFilter !== 'all') {
     where += ' AND status = ?';
     params.push(statusFilter);
@@ -69,20 +100,25 @@ inbox.get('/', async (c) => {
 
   try {
     const rows = await c.env.DB.prepare(
-      `SELECT id, gmail_message_id, email_from, email_subject, email_received_at,
-              email_snippet, attachment_filename, attachment_r2_key,
-              classification, classification_confidence,
-              extracted_vendor_name, extracted_vendor_inn, extracted_invoice_no,
-              extracted_invoice_date, extracted_period, extracted_currency,
-              extracted_amount, extracted_line_items_json,
-              extracted_vendor_email, extracted_vendor_country, extracted_vendor_address,
-              extracted_bank_name, extracted_bank_account, extracted_iban, extracted_swift,
-              extracted_service_category, extracted_buyer_entity,
-              status, matched_partner_id, created_operation_id, created_payment_id, notes,
-              created_at, processed_at, resolved_at
-       FROM invoice_inbox
-       ${where}
-       ORDER BY email_received_at DESC, created_at DESC
+      `SELECT i.id, i.gmail_message_id, i.email_from, i.email_subject, i.email_received_at,
+              i.email_snippet, i.attachment_filename, i.attachment_r2_key,
+              i.classification, i.classification_confidence,
+              i.extracted_vendor_name, i.extracted_vendor_inn, i.extracted_invoice_no,
+              i.extracted_invoice_date, i.extracted_period, i.extracted_currency,
+              i.extracted_amount, i.extracted_line_items_json,
+              i.extracted_vendor_email, i.extracted_vendor_country, i.extracted_vendor_address,
+              i.extracted_bank_name, i.extracted_bank_account, i.extracted_iban, i.extracted_swift,
+              i.extracted_service_category, i.extracted_buyer_entity,
+              i.status, i.matched_partner_id, i.created_operation_id, i.created_payment_id, i.notes,
+              i.suggested_operation_id, i.suggested_match_confidence, i.suggested_match_reason,
+              i.created_at, i.processed_at, i.resolved_at,
+              co.reference AS created_operation_reference,
+              so.reference AS suggested_operation_reference
+       FROM invoice_inbox i
+       LEFT JOIN operations co ON co.id = i.created_operation_id
+       LEFT JOIN operations so ON so.id = i.suggested_operation_id
+       ${where.replace(/WHERE deleted_at/g, 'WHERE i.deleted_at').replace(/AND status/g, 'AND i.status')}
+       ORDER BY i.email_received_at DESC, i.created_at DESC
        LIMIT ?`
     ).bind(...params, limit).all();
 
@@ -264,6 +300,139 @@ inbox.post('/:id/reject', async (c) => {
     return ok(c, { id, status: 'manual_rejected' });
   } catch (e) {
     return fail(c, 500, [{ code: 'inbox_reject_error', message: e instanceof Error ? e.message : String(e) }]);
+  }
+});
+
+// =============================================================================
+// POST /api/inbox/:id/attach-to-operation
+// Attaches the inbox attachment (PDF in R2) to an EXISTING operation as an
+// operation_attachment row. Unlike /confirm, this does NOT create a new
+// operation or partner — it just links the incoming document to an op the
+// user already has.
+//
+// Body:
+//   operation_id (required) — target operation
+//   direction (optional, default 'incoming') — 'incoming' | 'outgoing'
+//   kind (optional) — defaults to inbox classification (commercial_invoice,
+//                     packing_list, certificate, contract, freight_invoice, other)
+//   notes (optional) — free-text override
+// =============================================================================
+inbox.post('/:id/attach-to-operation', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json().catch(() => ({}));
+  const now = Math.floor(Date.now() / 1000);
+
+  if (!body.operation_id || typeof body.operation_id !== 'string') {
+    return fail(c, 400, [{ code: 'missing_operation_id', message: 'operation_id is required' }]);
+  }
+
+  try {
+    // 1. Load the inbox row.
+    const row = await c.env.DB.prepare(
+      `SELECT id, status, attachment_filename, attachment_r2_key, attachment_content_type,
+              email_subject, email_from, classification, extracted_vendor_name,
+              extracted_invoice_no, extracted_invoice_date, extracted_amount,
+              extracted_currency, matched_partner_id, created_operation_id
+         FROM invoice_inbox
+        WHERE id = ? AND deleted_at IS NULL`
+    ).bind(id).first<any>();
+
+    if (!row) return fail(c, 404, [{ code: 'inbox_not_found', message: 'Inbox row not found' }]);
+    if (row.status === 'manual_confirmed' || row.status === 'auto_created') {
+      return fail(c, 409, [{
+        code: 'already_resolved',
+        message: `Inbox row already resolved as ${row.status} (operation ${row.created_operation_id ?? '—'})`,
+      }]);
+    }
+
+    // 2. Verify the target operation exists and is not deleted.
+    const op = await c.env.DB.prepare(
+      'SELECT id, reference, status FROM operations WHERE id = ? AND deleted_at IS NULL'
+    ).bind(body.operation_id).first<{ id: string; reference: string | null; status: string }>();
+    if (!op) {
+      return fail(c, 404, [{ code: 'operation_not_found', message: `Operation ${body.operation_id} not found` }]);
+    }
+
+    // 3. Map inbox classification → operation_attachments.kind.
+    // Allowed kinds: commercial_invoice, packing_list, certificate, contract,
+    // freight_invoice, service_invoice, customs_declaration, payment_proof, other.
+    const KIND_MAP: Record<string, string> = {
+      commercial_invoice: 'commercial_invoice',
+      packing_list: 'packing_list',
+      certificate: 'certificate',
+      contract: 'contract',
+      freight_invoice: 'freight_invoice',
+      service_invoice: 'service_invoice',
+      customs_declaration: 'customs_declaration',
+      payment_proof: 'payment_proof',
+    };
+    const kind = (body.kind && typeof body.kind === 'string')
+      ? body.kind
+      : (KIND_MAP[row.classification] ?? 'other');
+    const direction = (body.direction === 'outgoing') ? 'outgoing' : 'incoming';
+
+    // 4. Build the public R2 URL for the file (R2 public bucket).
+    const R2_PUBLIC_BASE = 'https://pub-0e2fb2d28ea9408bbaa1bdd64b3bf256.r2.dev/';
+    const fileUrl = row.attachment_r2_key ? `${R2_PUBLIC_BASE}${row.attachment_r2_key}` : null;
+
+    // 5. Insert the attachment row.
+    const attachmentId = `att_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    const docDate = row.extracted_invoice_date
+      ? Math.floor(new Date(row.extracted_invoice_date).getTime() / 1000)
+      : null;
+    const notes = (typeof body.notes === 'string' && body.notes.trim())
+      ? body.notes.trim()
+      : `From email: ${row.email_subject || '(no subject)'} · ${row.email_from || ''}`.slice(0, 500);
+
+    await c.env.DB.prepare(
+      `INSERT INTO operation_attachments (
+         id, operation_id, direction, kind,
+         doc_number, doc_date, amount, currency, issuer,
+         file_url, parsed_from, source_ref_id, notes,
+         created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      attachmentId,
+      body.operation_id,
+      direction,
+      kind,
+      row.extracted_invoice_no || null,
+      docDate,
+      row.extracted_amount || null,
+      row.extracted_currency || null,
+      row.extracted_vendor_name || null,
+      fileUrl,
+      'email_ingestion',
+      id,
+      notes,
+      now,
+      now,
+    ).run();
+
+    // 6. Mark inbox as resolved — link to the existing operation.
+    await c.env.DB.prepare(
+      `UPDATE invoice_inbox
+         SET status = 'manual_confirmed',
+             created_operation_id = ?,
+             resolved_at = ?
+       WHERE id = ?`
+    ).bind(body.operation_id, now, id).run();
+
+    return ok(c, {
+      id,
+      attachment_id: attachmentId,
+      operation_id: body.operation_id,
+      operation_reference: op.reference,
+      kind,
+      direction,
+      file_url: fileUrl,
+      status: 'manual_confirmed',
+    });
+  } catch (e) {
+    return fail(c, 500, [{
+      code: 'inbox_attach_error',
+      message: e instanceof Error ? e.message : String(e),
+    }]);
   }
 });
 

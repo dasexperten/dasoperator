@@ -383,6 +383,33 @@ export async function handleScheduled(
     return;
   }
 
+  // Hourly Modulbank pull-sync — safety net against missed webhooks.
+  // Pulls last 3 days of transactions across all DEE accounts; idempotent
+  // (UNIQUE constraint on company_bank_account_id + external_id treats
+  // duplicates as updates, not inserts).
+  if (cron === '15 * * * *') {
+    console.log('[cron:modulbank-pull] starting hourly safety-net sync');
+    try {
+      const today = new Date();
+      const threeDaysAgo = new Date(today.getTime() - 3 * 24 * 3600_000);
+      const from = threeDaysAgo.toISOString().slice(0, 10);
+      const till = today.toISOString().slice(0, 10);
+      const r = await env.SELF.fetch(new Request(
+        `https://internal/api/banks/modulbank/sync-history`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from, till }),
+        }
+      ));
+      const text = await r.text();
+      console.log(`[cron:modulbank-pull] HTTP ${r.status} body=${text.slice(0, 300)}`);
+    } catch (e) {
+      console.error('[cron:modulbank-pull] failed:', e);
+    }
+    return;
+  }
+
   console.warn(`[cron] no handler for cron expression: ${cron}`);
 
   // FX refresh — daily, internal libs, no self-fetch needed

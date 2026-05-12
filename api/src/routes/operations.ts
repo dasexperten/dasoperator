@@ -1511,8 +1511,12 @@ operations.delete('/:id', async (c) => {
   }
 
   // Guard: documents
+  // Only count alive (non-soft-deleted) documents. Exclude RFQ — those are
+  // logistics-quote artifacts internal to the operation, not commercial
+  // documents like CI/PL/IS/UPD/TN. A draft op with only RFQs should be
+  // deletable; CASCADE soft-delete below will sweep them.
   const docCount = await c.env.DB.prepare(
-    "SELECT COUNT(*) as cnt FROM documents WHERE operation_id = ?"
+    "SELECT COUNT(*) as cnt FROM documents WHERE operation_id = ? AND deleted_at IS NULL AND document_type != 'RFQ'"
   ).bind(id).first<{ cnt: number }>();
 
   if (docCount && docCount.cnt > 0) {
@@ -1522,9 +1526,9 @@ operations.delete('/:id', async (c) => {
     }]);
   }
 
-  // Guard: payments
+  // Guard: payments — alive rows only
   const payCount = await c.env.DB.prepare(
-    "SELECT COUNT(*) as cnt FROM payments WHERE operation_id = ?"
+    "SELECT COUNT(*) as cnt FROM payments WHERE operation_id = ? AND deleted_at IS NULL"
   ).bind(id).first<{ cnt: number }>();
 
   if (payCount && payCount.cnt > 0) {

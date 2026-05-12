@@ -158,21 +158,27 @@ export default function DocumentActionBar({
             </button>
           </>
         )}
-        <Link
-          href={`/operations/${operationId}/freight-rfq`}
-          style={{
-            ...buttonStyle(true),
-            cursor: 'pointer',
-            opacity: 1,
-            textDecoration: 'none',
-            backgroundColor: 'var(--paper)',
-            color: 'var(--fg-1)',
-          }}
-          title="Send freight forwarding request to a shipper (Request For Quote)"
-        >
-          <Truck className="h-4 w-4" />
-          RFQ
-        </Link>
+        {/* RFQ — Request For Quote to a freight forwarder. Only relevant for
+            purchase ops (goods moving from manufacturer → our warehouse).
+            Sale ops ship from our warehouse using our existing logistics,
+            so RFQ doesn't apply. */}
+        {operationType === 'purchase' && (
+          <Link
+            href={`/operations/${operationId}/freight-rfq`}
+            style={{
+              ...buttonStyle(true),
+              cursor: 'pointer',
+              opacity: 1,
+              textDecoration: 'none',
+              backgroundColor: 'var(--paper)',
+              color: 'var(--fg-1)',
+            }}
+            title="Send freight forwarding request to a shipper (Request For Quote)"
+          >
+            <Truck className="h-4 w-4" />
+            RFQ
+          </Link>
+        )}
       </div>
       {feedback && (
         <div

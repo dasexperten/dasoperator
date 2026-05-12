@@ -34,6 +34,9 @@ const createSchema = z.object({
   status: z.enum(['draft', 'active', 'expired', 'cancelled']).default('active'),
   notes: z.string().nullable().optional(),
   vat_rate: z.union([z.literal(0), z.literal(5), z.literal(20)]).default(0),
+  // Russian currency-control fields (УНК / ВБК) — applicable to DEE foreign contracts
+  unk_reference: z.string().nullable().optional(),
+  unk_valid_until: z.number().int().positive().nullable().optional(),
 });
 
 const patchSchema = z.object({
@@ -47,6 +50,9 @@ const patchSchema = z.object({
   our_company_id: z.string().min(1).optional(),
   incoterms: z.string().nullable().optional(),
   vat_rate: z.union([z.literal(0), z.literal(5), z.literal(20)]).optional(),
+  // Russian currency-control fields (УНК / ВБК)
+  unk_reference: z.string().nullable().optional(),
+  unk_valid_until: z.number().int().positive().nullable().optional(),
 });
 
 function genContractId(contractNo: string): string {
@@ -86,6 +92,7 @@ contracts.get('/', async (c) => {
       c.currency, c.signed_date, c.expiry_date, c.incoterms,
       c.status, c.notes, c.vat_rate, c.contract_file_key,
       c.agreement_type, c.addendum_no, c.parent_contract_id,
+      c.unk_reference, c.unk_valid_until,
       c.created_at, c.updated_at
     FROM contracts c
     LEFT JOIN partners p ON c.partner_id = p.id
@@ -227,13 +234,14 @@ contracts.post('/', async (c) => {
       INSERT INTO contracts (
         id, contract_no, partner_id, our_company_id, currency,
         signed_date, expiry_date, incoterms, status, notes, vat_rate,
-        agreement_type, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        agreement_type, unk_reference, unk_valid_until, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       id, contractNo, data.partner_id, our_company_id, currency,
       data.signed_date ?? null, data.expiry_date ?? null,
       data.incoterms ?? null, data.status, data.notes ?? null, data.vat_rate,
-      data.agreement_type, now, now
+      data.agreement_type, data.unk_reference ?? null, data.unk_valid_until ?? null,
+      now, now
     ),
   ];
 

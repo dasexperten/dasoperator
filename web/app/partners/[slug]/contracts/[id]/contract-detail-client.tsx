@@ -142,7 +142,7 @@ export default function ContractDetailClient({ partnerSlug, contractId }: { part
         </SectionCard>
       </div>
 
-      {contract.our_company_id === 'dee' && (
+      {(contract.our_company_id === 'dee' || contract.partner_id === 'dee_partner') && (
         <div
           className="p-5"
           style={{
@@ -218,7 +218,7 @@ function EditContractForm({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const isRussianEntity = contract.our_company_id === 'dee';
+  const isRussianEntity = contract.our_company_id === 'dee' || contract.partner_id === 'dee_partner';
 
   function buildPatch(): PatchContractBody {
     const p: PatchContractBody = {};

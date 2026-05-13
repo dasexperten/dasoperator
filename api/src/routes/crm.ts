@@ -521,4 +521,148 @@ crm.get('/funnel', async (c) => {
   }
 });
 
+
+// ════════════════════════════════════════════════════════════════════════════
+// POST /api/crm/sync-site-sales
+//
+// Fetch Retail CRM orders for the given window (default: last 2 days incl. today)
+// and upsert per-day aggregates into marketplace_sales_daily as marketplace='site'.
+//
+// Business rule (locked 2026-05-13):
+//   "Sale" = any order on site 'dasexperten' EXCEPT status='cancelled'.
+//   This mirrors how Ozon/WB daily aggregates are computed (orders placed, not
+//   shipped/paid). If an order later cancels, the prior day's aggregate is
+//   corrected on the next sync (idempotent UPSERT).
+//
+// Idempotent — UPSERT keyed on (marketplace='site', date).
+// ════════════════════════════════════════════════════════════════════════════
+crm.post('/sync-site-sales', async (c) => {
+  const domain = c.env.RETAIL_CRM_DOMAIN;
+  const token = c.env.RETAIL_CRM_TOKEN;
+  if (!domain || !token) {
+    return fail(c, 'retail_crm_not_configured', 'RETAIL_CRM_DOMAIN/TOKEN not set', 503);
+  }
+
+  let body: { from?: string; till?: string } = {};
+  try { body = await c.req.json(); } catch { /* allow empty body */ }
+
+  const today = new Date();
+  const toIso = (d: Date) => d.toISOString().slice(0, 10);
+  const till = body.till ?? toIso(today);
+  const from = body.from ?? toIso(new Date(today.getTime() - 1 * 86400_000));
+
+  // Page through all orders in [from, till]
+  type Order = {
+    createdAt?: string;
+    status?: string;
+    site?: string;
+    totalSumm?: number;
+    items?: Array<{ quantity?: number }>;
+  };
+  type Page = {
+    success: boolean;
+    pagination?: { totalPageCount?: number; currentPage?: number };
+    orders?: Order[];
+  };
+
+  const dayTotals = new Map<string, { rev: number; units: number; orders: number; cancelled: number }>();
+  let page = 1;
+  let totalPages = 1;
+  let fetched = 0;
+
+  while (page <= totalPages) {
+    const params = {
+      apiKey: token,
+      'filter[createdAtFrom]': `${from} 00:00:00`,
+      'filter[createdAtTo]':   `${till} 23:59:59`,
+      'filter[sites][]':       'dasexperten',
+      page,
+      limit: 100,
+    };
+    // retailGet doesn't accept apiKey-in-params signature, so call fetch directly here
+    const url = new URL(`https://${domain}.retailcrm.ru/api/v5/orders`);
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
+    }
+    const res = await fetch(url.toString(), { method: 'GET' });
+    if (!res.ok) {
+      return fail(c, 'retail_crm_http_error', `HTTP ${res.status}: ${await res.text()}`, 502);
+    }
+    const data = (await res.json()) as Page;
+    if (!data.success) {
+      return fail(c, 'retail_crm_response_error', JSON.stringify(data), 502);
+    }
+    totalPages = data.pagination?.totalPageCount ?? 1;
+
+    for (const o of data.orders ?? []) {
+      const day = (o.createdAt ?? '').slice(0, 10);
+      if (!day) continue;
+      const isCancelled = (o.status ?? '').toLowerCase() === 'cancelled';
+      const bucket = dayTotals.get(day) ?? { rev: 0, units: 0, orders: 0, cancelled: 0 };
+      if (isCancelled) {
+        bucket.cancelled += 1;
+      } else {
+        bucket.rev += Number(o.totalSumm ?? 0);
+        bucket.orders += 1;
+        for (const it of o.items ?? []) bucket.units += Number(it.quantity ?? 0);
+      }
+      dayTotals.set(day, bucket);
+      fetched += 1;
+    }
+    page += 1;
+  }
+
+  // Upsert per-day totals into marketplace_sales_daily (marketplace='site').
+  // revenue_rub stored as INTEGER kopecks (× 100) to match Ozon/WB convention.
+  const now = Math.floor(Date.now() / 1000);
+  const days = Array.from(dayTotals.entries()).sort();
+  for (const [day, totals] of days) {
+    await c.env.DB.prepare(`
+      INSERT INTO marketplace_sales_daily (marketplace, date, units_sold, revenue_rub, synced_at)
+      VALUES ('site', ?1, ?2, ?3, ?4)
+      ON CONFLICT(marketplace, date) DO UPDATE SET
+        units_sold = excluded.units_sold,
+        revenue_rub = excluded.revenue_rub,
+        synced_at = excluded.synced_at
+    `).bind(day, totals.units, Math.round(totals.rev * 100), now).run();
+  }
+
+  return ok(c, {
+    range: { from, till },
+    days: days.map(([day, t]) => ({
+      date: day,
+      orders: t.orders,
+      cancelled_orders: t.cancelled,
+      units: t.units,
+      revenue_rub: Math.round(t.rev),
+    })),
+    orders_processed: fetched,
+    days_written: days.length,
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// POST /api/crm/backfill-site-sales
+//
+// One-shot historical backfill. Same logic as /sync-site-sales but default
+// range is last 30 days. Pass {from,till} for custom range.
+// ════════════════════════════════════════════════════════════════════════════
+crm.post('/backfill-site-sales', async (c) => {
+  let body: { from?: string; till?: string } = {};
+  try { body = await c.req.json(); } catch { /* allow empty body */ }
+
+  const today = new Date();
+  const toIso = (d: Date) => d.toISOString().slice(0, 10);
+  const till = body.till ?? toIso(today);
+  const from = body.from ?? toIso(new Date(today.getTime() - 29 * 86400_000));
+
+  // Delegate to /sync-site-sales by reposting (keeps logic in one place)
+  const innerReq = new Request(`https://internal/api/crm/sync-site-sales`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from, till }),
+  });
+  return c.env.SELF.fetch(innerReq);
+});
+
 export default crm;

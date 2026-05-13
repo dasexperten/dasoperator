@@ -11,7 +11,9 @@ import {
 import {
   getBankTransactions, getBankAccounts, getBankStatementSources,
   createBankStatementSource, deleteBankStatementSource,
+  uploadBankStatement,
   type BankTransaction, type BankAccount, type BankStatementSource,
+  type UploadStatementResult,
 } from '@/lib/api';
 
 function formatAmount(minor: number, currency: string): string {
@@ -208,12 +210,16 @@ function AddSourceModal({
 // MODAL: Upload Bank Statement
 // =============================================================================
 function UploadStatementModal({
-  open, onClose,
+  open, onClose, onImported,
 }: {
-  open: boolean; onClose: () => void;
+  open: boolean; onClose: () => void; onImported?: () => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [companyId, setCompanyId] = useState<'dee' | 'dei' | 'dasean' | 'dec'>('dee');
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState<UploadStatementResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   if (!open) return null;
 
@@ -224,9 +230,37 @@ function UploadStatementModal({
     if (dropped) setFile(dropped);
   };
 
+  const handleClose = () => {
+    setFile(null);
+    setResult(null);
+    setError(null);
+    setImporting(false);
+    onClose();
+  };
+
+  const handleImport = async () => {
+    if (!file) return;
+    setImporting(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await uploadBankStatement(file, companyId);
+      if (res.success && res.result) {
+        setResult(res.result);
+        if (onImported) onImported();
+      } else {
+        setError(res.errors?.[0]?.message ?? 'Upload failed');
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div
-      onClick={onClose}
+      onClick={handleClose}
       style={{
         position: 'fixed', inset: 0, backgroundColor: 'rgba(15,15,15,0.50)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50,
@@ -254,7 +288,7 @@ function UploadStatementModal({
               Drop a CSV or PDF statement file. Parsing will run on next step.
             </p>
           </div>
-          <button onClick={onClose} style={{ color: 'var(--fg-3)' }}>
+          <button onClick={handleClose} style={{ color: 'var(--fg-3)' }}>
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -300,37 +334,110 @@ function UploadStatementModal({
           </label>
         </div>
 
-        <div style={{
-          marginTop: '12px', padding: '12px',
-          backgroundColor: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)',
-          fontSize: '14px', color: 'var(--fg-2)',
-        }}>
-          Parsing pipeline coming next — file accepted, format detection and import will be wired in a follow-up step.
+        {/* Entity selector */}
+        <div style={{ marginTop: '12px', marginBottom: '12px' }}>
+          <label style={{ fontSize: '14px', color: 'var(--fg-2)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+            Entity (hint for account matching)
+          </label>
+          <select
+            value={companyId}
+            onChange={(e) => setCompanyId(e.target.value as 'dee' | 'dei' | 'dasean' | 'dec')}
+            style={{
+              width: '100%', padding: '8px 12px', fontSize: '14px', fontWeight: 700,
+              border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+              backgroundColor: 'var(--paper)', color: 'var(--fg-1)',
+            }}
+          >
+            {ENTITY_OPTIONS.map((c) => (
+              <option key={c.id} value={c.id}>{c.label}</option>
+            ))}
+          </select>
         </div>
 
+        {/* Error */}
+        {error && (
+          <div style={{
+            marginTop: '12px', padding: '12px',
+            border: '1px solid var(--status-danger)', borderRadius: 'var(--radius-sm)',
+            backgroundColor: 'rgba(229,32,44,0.10)', color: '#A82029',
+            fontSize: '14px', fontWeight: 700,
+          }}>
+            {error}
+          </div>
+        )}
+
+        {/* Result panel */}
+        {result && (
+          <div style={{
+            marginTop: '12px', padding: '12px',
+            backgroundColor: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)',
+            fontSize: '14px', color: 'var(--fg-1)',
+          }}>
+            <div style={{ fontWeight: 700, marginBottom: '8px', textTransform: 'uppercase' }}>
+              Import summary
+            </div>
+            <div style={{ display: 'grid', gap: '4px' }}>
+              <div><span style={{ color: 'var(--fg-2)' }}>File:</span> <span style={{ fontWeight: 700 }}>{result.filename}</span></div>
+              {result.account_number && (
+                <div><span style={{ color: 'var(--fg-2)' }}>Account:</span> <span style={{ fontWeight: 700 }}>{result.account_number}</span></div>
+              )}
+              {result.period_from && result.period_to && (
+                <div><span style={{ color: 'var(--fg-2)' }}>Period:</span> <span style={{ fontWeight: 700 }}>{result.period_from} → {result.period_to}</span></div>
+              )}
+              <div>
+                <span style={{ color: 'var(--fg-2)' }}>Parsed:</span> <span style={{ fontWeight: 700 }}>{result.summary.total}</span>{' · '}
+                <span style={{ color: 'var(--fg-2)' }}>Inserted:</span> <span style={{ fontWeight: 700, color: 'var(--status-success)' }}>{result.summary.inserted}</span>{' · '}
+                <span style={{ color: 'var(--fg-2)' }}>Skipped:</span> <span style={{ fontWeight: 700 }}>{result.summary.skipped}</span>{' · '}
+                <span style={{ color: 'var(--fg-2)' }}>Errors:</span> <span style={{ fontWeight: 700, color: result.summary.errors > 0 ? 'var(--status-danger)' : 'var(--fg-1)' }}>{result.summary.errors}</span>
+              </div>
+              <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '4px' }}>
+                Match: <span style={{ fontWeight: 700 }}>{result.summary.account_match_method}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex justify-end gap-2 mt-6">
-          <button
-            onClick={onClose}
-            style={{
-              padding: '8px 16px', border: '1px solid var(--line-1)',
-              borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper)',
-              color: 'var(--fg-1)', fontSize: '14px', fontWeight: 700,
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            disabled={!file}
-            style={{
-              padding: '8px 16px', borderRadius: 'var(--radius-sm)',
-              backgroundColor: 'var(--fg-1)', color: 'var(--paper)',
-              fontSize: '14px', fontWeight: 700,
-              opacity: file ? 1 : 0.4,
-              cursor: file ? 'pointer' : 'not-allowed',
-            }}
-          >
-            Import
-          </button>
+          {result ? (
+            <button
+              onClick={handleClose}
+              style={{
+                padding: '8px 16px', borderRadius: 'var(--radius-sm)',
+                backgroundColor: 'var(--fg-1)', color: 'var(--paper)',
+                fontSize: '14px', fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              Done
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={handleClose}
+                style={{
+                  padding: '8px 16px', border: '1px solid var(--line-1)',
+                  borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper)',
+                  color: 'var(--fg-1)', fontSize: '14px', fontWeight: 700,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                disabled={!file || importing}
+                onClick={handleImport}
+                style={{
+                  padding: '8px 16px', borderRadius: 'var(--radius-sm)',
+                  backgroundColor: 'var(--fg-1)', color: 'var(--paper)',
+                  fontSize: '14px', fontWeight: 700,
+                  opacity: file && !importing ? 1 : 0.4,
+                  cursor: file && !importing ? 'pointer' : 'not-allowed',
+                  display: 'inline-flex', alignItems: 'center', gap: '8px',
+                }}
+              >
+                {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {importing ? 'Parsing & importing...' : 'Import'}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -461,6 +568,19 @@ export default function FinanceTransactionsPage() {
     };
     load();
   }, []);
+
+  const refreshAll = async () => {
+    try {
+      const [txRes, accRes] = await Promise.all([
+        getBankTransactions({ limit: 200 }),
+        getBankAccounts(),
+      ]);
+      if (txRes.success && txRes.result) setTransactions(txRes.result.transactions);
+      if (accRes.success && accRes.result) setAccounts(accRes.result.accounts);
+    } catch (e) {
+      console.error('refreshAll failed', e);
+    }
+  };
 
   const filtered = useMemo(() => {
     return transactions.filter((tx) => {
@@ -762,6 +882,7 @@ export default function FinanceTransactionsPage() {
       <UploadStatementModal
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
+        onImported={refreshAll}
       />
       <SourcesListModal
         open={sourcesListOpen}

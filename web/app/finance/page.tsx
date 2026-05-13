@@ -4,8 +4,12 @@ export const runtime = 'edge';
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Loader2, ArrowDownLeft, ArrowUpRight, CheckCircle2, AlertCircle, Search, BookOpen } from 'lucide-react';
-import { getBankTransactions, getBankAccounts, type BankTransaction, type BankAccount } from '@/lib/api';
+import { Loader2, ArrowDownLeft, ArrowUpRight, CheckCircle2, AlertCircle, Search, BookOpen, Upload, Plus, X, Mail, Trash2 } from 'lucide-react';
+import {
+  getBankTransactions, getBankAccounts,
+  getBankStatementSources, createBankStatementSource, deleteBankStatementSource,
+  type BankTransaction, type BankAccount, type BankStatementSource,
+} from '@/lib/api';
 
 function formatAmount(minor: number, currency: string): string {
   const factor = ['VND', 'JPY', 'KRW'].includes(currency) ? 1 : 100;
@@ -29,6 +33,13 @@ const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
   Canceled:        { bg: 'var(--paper-sunk)',    fg: 'var(--fg-3)' },
 };
 
+const COMPANY_OPTIONS = [
+  { id: 'dee', label: 'DEE — Das Experten Eurasia LLC' },
+  { id: 'dei', label: 'DEI — Das Experten International LLC' },
+  { id: 'dasean', label: 'DEASEAN — Das Experten ASEAN Co. Ltd.' },
+  { id: 'dec', label: 'DEC — Das Experten Corporation' },
+] as const;
+
 export default function FinanceTransactionsPage() {
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
@@ -40,15 +51,30 @@ export default function FinanceTransactionsPage() {
   const [matchedFilter, setMatchedFilter] = useState<'all' | 'matched' | 'unmatched'>('all');
   const [search, setSearch] = useState('');
 
+  // Add source modal
+  const [addSourceOpen, setAddSourceOpen] = useState(false);
+  const [sources, setSources] = useState<BankStatementSource[]>([]);
+  const [sourceEmail, setSourceEmail] = useState('');
+  const [sourceCompany, setSourceCompany] = useState<'dee' | 'dei' | 'dasean' | 'dec'>('dee');
+  const [savingSource, setSavingSource] = useState(false);
+  const [sourceError, setSourceError] = useState<string | null>(null);
+
+  // Upload statement modal
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
   useEffect(() => {
     const load = async () => {
       try {
-        const [txRes, accRes] = await Promise.all([
+        const [txRes, accRes, srcRes] = await Promise.all([
           getBankTransactions({ limit: 200 }),
           getBankAccounts(),
+          getBankStatementSources(),
         ]);
         if (txRes.success && txRes.result) setTransactions(txRes.result.transactions);
         if (accRes.success && accRes.result) setAccounts(accRes.result.accounts);
+        if (srcRes.success && srcRes.result) setSources(srcRes.result.sources);
         setError(null);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
@@ -58,6 +84,43 @@ export default function FinanceTransactionsPage() {
     };
     load();
   }, []);
+
+  const refreshSources = async () => {
+    const res = await getBankStatementSources();
+    if (res.success && res.result) setSources(res.result.sources);
+  };
+
+  const handleAddSource = async () => {
+    setSourceError(null);
+    if (!sourceEmail.trim()) {
+      setSourceError('Email is required');
+      return;
+    }
+    setSavingSource(true);
+    try {
+      const res = await createBankStatementSource({
+        email: sourceEmail.trim().toLowerCase(),
+        company_id: sourceCompany,
+      });
+      if (res.success) {
+        setSourceEmail('');
+        setSourceCompany('dee');
+        await refreshSources();
+      } else {
+        setSourceError(res.errors?.[0]?.message ?? 'Failed to save');
+      }
+    } catch (e) {
+      setSourceError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setSavingSource(false);
+    }
+  };
+
+  const handleDeleteSource = async (id: string) => {
+    if (!confirm('Remove this source?')) return;
+    await deleteBankStatementSource(id);
+    await refreshSources();
+  };
 
   const filtered = useMemo(() => {
     return transactions.filter((tx) => {
@@ -87,6 +150,20 @@ export default function FinanceTransactionsPage() {
     return { incoming, outgoing };
   }, [filtered]);
 
+  const buttonStyle = {
+    border: '1px solid var(--line-1)',
+    borderRadius: 'var(--radius-sm)',
+    backgroundColor: 'var(--paper)',
+    color: 'var(--fg-1)',
+    fontSize: '14px',
+    fontWeight: 700,
+    padding: '8px 16px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '8px',
+    cursor: 'pointer',
+  } as const;
+
   return (
     <div className="px-8 py-6 max-w-screen-2xl">
       <div className="mb-6 flex items-end justify-between gap-4 flex-wrap">
@@ -107,21 +184,20 @@ export default function FinanceTransactionsPage() {
           </p>
         </div>
 
-        <Link
-          href="/finance/accounts"
-          className="inline-flex items-center gap-2 px-4 py-2"
-          style={{
-            border: '1px solid var(--line-1)',
-            borderRadius: 'var(--radius-sm)',
-            backgroundColor: 'var(--paper)',
-            color: 'var(--fg-1)',
-            fontSize: '14px',
-            fontWeight: 700,
-          }}
-        >
-          <BookOpen className="h-4 w-4" />
-          Bank Reference
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => setAddSourceOpen(true)} style={buttonStyle}>
+            <Plus className="h-4 w-4" />
+            Add source
+          </button>
+          <button onClick={() => setUploadOpen(true)} style={buttonStyle}>
+            <Upload className="h-4 w-4" />
+            Upload bank statement
+          </button>
+          <Link href="/finance/accounts" style={{ ...buttonStyle, textDecoration: 'none' }}>
+            <BookOpen className="h-4 w-4" />
+            Bank Reference
+          </Link>
+        </div>
       </div>
 
       {!loading && (
@@ -298,6 +374,251 @@ export default function FinanceTransactionsPage() {
       {!loading && transactions.length === 0 && (
         <div style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
           No transactions yet. Run a sync from Bank Reference page to pull history.
+        </div>
+      )}
+
+      {/* ========================= ADD SOURCE MODAL ========================= */}
+      {addSourceOpen && (
+        <div
+          onClick={() => setAddSourceOpen(false)}
+          style={{
+            position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+            zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: 'var(--paper)', borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--line-1)', maxWidth: '640px', width: '100%',
+              maxHeight: '90vh', overflowY: 'auto', padding: '24px',
+            }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 style={{
+                fontFamily: 'Plus Jakarta Sans, sans-serif', fontSize: '20px',
+                fontWeight: 700, color: 'var(--fg-1)', textTransform: 'uppercase',
+              }}>
+                Bank statement sources
+              </h2>
+              <button onClick={() => setAddSourceOpen(false)} style={{
+                background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fg-2)',
+              }}>
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '14px', color: 'var(--fg-2)', marginBottom: '20px' }}>
+              Emails that emailer-skill watches for incoming bank statements. When a statement arrives at one of these addresses, it gets auto-routed to the linked entity.
+            </p>
+
+            {/* Existing sources */}
+            {sources.length > 0 && (
+              <div style={{ marginBottom: '24px' }}>
+                <div style={{
+                  fontSize: '14px', fontWeight: 700, color: 'var(--fg-2)',
+                  marginBottom: '8px', textTransform: 'uppercase',
+                }}>
+                  Active sources
+                </div>
+                {sources.map((s) => (
+                  <div key={s.id} className="flex items-center justify-between" style={{
+                    padding: '12px 16px', border: '1px solid var(--line-1)',
+                    borderRadius: 'var(--radius-sm)', marginBottom: '8px',
+                  }}>
+                    <div className="flex items-center gap-3">
+                      <Mail className="h-4 w-4" style={{ color: 'var(--fg-3)' }} />
+                      <div>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>{s.email}</div>
+                        <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '2px' }}>
+                          {s.company_abbreviation}
+                        </div>
+                      </div>
+                    </div>
+                    <button onClick={() => handleDeleteSource(s.id)} style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      color: 'var(--status-danger)', padding: '4px',
+                    }}>
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add new */}
+            <div style={{
+              border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+              padding: '16px', backgroundColor: 'var(--paper-sunk)',
+            }}>
+              <div style={{
+                fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)',
+                marginBottom: '12px', textTransform: 'uppercase',
+              }}>
+                Add new source
+              </div>
+
+              <div className="grid gap-3" style={{ gridTemplateColumns: '2fr 1fr' }}>
+                <div>
+                  <label style={{ fontSize: '14px', color: 'var(--fg-2)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="statements@example.com"
+                    value={sourceEmail}
+                    onChange={(e) => setSourceEmail(e.target.value)}
+                    style={{
+                      width: '100%', padding: '8px 12px', fontSize: '14px', fontWeight: 700,
+                      border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+                      backgroundColor: 'var(--paper)', color: 'var(--fg-1)',
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '14px', color: 'var(--fg-2)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                    Entity
+                  </label>
+                  <select
+                    value={sourceCompany}
+                    onChange={(e) => setSourceCompany(e.target.value as 'dee' | 'dei' | 'dasean' | 'dec')}
+                    style={{
+                      width: '100%', padding: '8px 12px', fontSize: '14px', fontWeight: 700,
+                      border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+                      backgroundColor: 'var(--paper)', color: 'var(--fg-1)',
+                    }}
+                  >
+                    {COMPANY_OPTIONS.map((c) => (
+                      <option key={c.id} value={c.id}>{c.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {sourceError && (
+                <div style={{ fontSize: '14px', color: 'var(--status-danger)', marginTop: '8px', fontWeight: 700 }}>
+                  {sourceError}
+                </div>
+              )}
+
+              <button
+                onClick={handleAddSource}
+                disabled={savingSource}
+                style={{
+                  marginTop: '12px', padding: '8px 16px',
+                  border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+                  backgroundColor: 'var(--fg-1)', color: 'var(--paper)',
+                  fontSize: '14px', fontWeight: 700, cursor: savingSource ? 'wait' : 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: '8px',
+                  opacity: savingSource ? 0.6 : 1,
+                }}
+              >
+                {savingSource ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Save source
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================= UPLOAD STATEMENT MODAL ========================= */}
+      {uploadOpen && (
+        <div
+          onClick={() => { setUploadOpen(false); setUploadFile(null); }}
+          style={{
+            position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+            zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: 'var(--paper)', borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--line-1)', maxWidth: '640px', width: '100%',
+              padding: '24px',
+            }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 style={{
+                fontFamily: 'Plus Jakarta Sans, sans-serif', fontSize: '20px',
+                fontWeight: 700, color: 'var(--fg-1)', textTransform: 'uppercase',
+              }}>
+                Upload bank statement
+              </h2>
+              <button onClick={() => { setUploadOpen(false); setUploadFile(null); }} style={{
+                background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fg-2)',
+              }}>
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '14px', color: 'var(--fg-2)', marginBottom: '20px' }}>
+              Drop a PDF or CSV bank statement. File will be parsed and transactions imported into the matching account.
+            </p>
+
+            <label
+              onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragging(false);
+                const f = e.dataTransfer.files[0];
+                if (f) setUploadFile(f);
+              }}
+              style={{
+                display: 'block', padding: '40px 24px',
+                border: `2px dashed ${isDragging ? 'var(--fg-1)' : 'var(--line-1)'}`,
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: isDragging ? 'var(--paper-sunk)' : 'var(--paper)',
+                textAlign: 'center', cursor: 'pointer', transition: 'all 0.15s',
+              }}
+            >
+              <input
+                type="file"
+                accept=".pdf,.csv,.xls,.xlsx"
+                onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+                style={{ display: 'none' }}
+              />
+              <Upload className="h-8 w-8 mx-auto mb-3" style={{ color: 'var(--fg-3)' }} />
+              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', marginBottom: '4px' }}>
+                {uploadFile ? uploadFile.name : 'Drop file here or click to browse'}
+              </div>
+              <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
+                {uploadFile ? `${(uploadFile.size / 1024).toFixed(1)} KB` : 'PDF, CSV, XLS, XLSX'}
+              </div>
+            </label>
+
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                onClick={() => { setUploadOpen(false); setUploadFile(null); }}
+                style={{
+                  padding: '8px 16px',
+                  border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+                  backgroundColor: 'var(--paper)', color: 'var(--fg-1)',
+                  fontSize: '14px', fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                disabled={!uploadFile}
+                style={{
+                  padding: '8px 16px',
+                  border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+                  backgroundColor: uploadFile ? 'var(--fg-1)' : 'var(--paper-sunk)',
+                  color: uploadFile ? 'var(--paper)' : 'var(--fg-3)',
+                  fontSize: '14px', fontWeight: 700,
+                  cursor: uploadFile ? 'pointer' : 'not-allowed',
+                  opacity: uploadFile ? 1 : 0.6,
+                }}
+                onClick={() => {
+                  alert('Parser pipeline coming next — file ready: ' + uploadFile?.name);
+                }}
+              >
+                Import
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

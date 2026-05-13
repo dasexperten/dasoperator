@@ -179,6 +179,33 @@ export default function OperationsPage() {
     if (!uploadFile) return;
     setUploading(true);
     setUploadError(null);
+
+    // STRICT MODE: from global Operations page, always route through verification pipeline.
+    // forcedOpId mode (attaching to specific op) bypasses pipeline as before.
+    if (!forcedOpId) {
+      try {
+        const formData = new FormData();
+        formData.append('file', uploadFile);
+        const r = await fetch(`${process.env.NEXT_PUBLIC_API_BASE || 'https://dasoperator-api.dasexperten.workers.dev'}/api/operations/upload-to-pipeline`, {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await r.json();
+        if (data.success && data.result) {
+          // Document went into the verification queue — redirect to review page
+          window.location.href = `/inbox/documents/${data.result.extraction_id}`;
+        } else {
+          setUploadError(data.errors?.[0]?.message ?? 'Upload failed');
+        }
+      } catch (e) {
+        setUploadError(e instanceof Error ? e.message : 'Network error');
+      } finally {
+        setUploading(false);
+      }
+      return;
+    }
+
+    // LEGACY MODE: attaching to a specific operation (from operation detail page)
     try {
       const res = await uploadOperationDocument(uploadFile, forcedOpId);
       if (res.success && res.result) {
@@ -187,12 +214,7 @@ export default function OperationsPage() {
           const list = await getOperations();
           if (list.success && list.result) setOperations(list.result.operations);
         } else if (res.result.mode === 'low_confidence' || res.result.mode === 'no_match') {
-          // Hydrate create form even though default action is attach.
-          // If Aram switches to "Create new", the form is already filled.
-          if (res.result.prefill) {
-            hydrateFromPrefill(res.result.prefill);
-          }
-          // Load directory lists in background
+          if (res.result.prefill) hydrateFromPrefill(res.result.prefill);
           ensureLookups();
         }
       } else {

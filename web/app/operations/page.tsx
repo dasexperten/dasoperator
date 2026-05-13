@@ -10,7 +10,11 @@ import { Search, Loader2, Plus, X, Trash2, Factory, Upload, CheckCircle2 } from 
 import {
   getOperations, deleteOperation, updateOperationStatus,
   uploadOperationDocument,
+  createOperationFromDocument,
+  getPartners, getManufacturers, getCompanies, getWarehouses,
   type Operation, type UploadDocResult, type OperationCandidate,
+  type UploadDocPrefill, type CreateFromDocBody,
+  type Partner, type Manufacturer, type Company, type Warehouse,
 } from '@/lib/api';
 import { ContractRef } from '@/components/ui/contract-ref';
 
@@ -100,6 +104,59 @@ export default function OperationsPage() {
   const [uploading, setUploading] = useState(false);
   const [manualPickOpId, setManualPickOpId] = useState<string>('');
 
+  // Upload modal — second action ("Attach to existing" vs "Create new")
+  // After upload-document returns no_match/low_confidence, Aram can either
+  // pick an existing operation OR create a stub from the document.
+  const [uploadAction, setUploadAction] = useState<'attach' | 'create'>('attach');
+
+  // Create form state — fields editable, prefilled from backend `prefill`
+  const [cfdType, setCfdType] = useState<'sale' | 'purchase' | 'transfer'>('purchase');
+  const [cfdPartnerId, setCfdPartnerId] = useState<string>('');
+  const [cfdManufacturerId, setCfdManufacturerId] = useState<string>('');
+  const [cfdCompanyId, setCfdCompanyId] = useState<string>('');
+  const [cfdReceivingCompanyId, setCfdReceivingCompanyId] = useState<string>('');
+  const [cfdCurrency, setCfdCurrency] = useState<string>('RUB');
+  const [cfdAmount, setCfdAmount] = useState<string>('');
+  const [cfdDate, setCfdDate] = useState<string>('');
+
+  // Lookup lists for create form
+  const [partnersList, setPartnersList] = useState<Partner[]>([]);
+  const [manufacturersList, setManufacturersList] = useState<Manufacturer[]>([]);
+  const [companiesList, setCompaniesList] = useState<Company[]>([]);
+  const [warehousesList, setWarehousesList] = useState<Warehouse[]>([]);
+  const [lookupsLoaded, setLookupsLoaded] = useState(false);
+
+  const ensureLookups = async () => {
+    if (lookupsLoaded) return;
+    try {
+      const [p, m, comp, wh] = await Promise.all([
+        getPartners(),
+        getManufacturers(),
+        getCompanies(),
+        getWarehouses(),
+      ]);
+      if (p.success && p.result) setPartnersList(p.result.partners ?? []);
+      if (m.success && m.result) setManufacturersList(m.result.manufacturers ?? []);
+      if (comp.success && comp.result) setCompaniesList(comp.result.companies ?? []);
+      if (wh.success && wh.result) setWarehousesList(wh.result.warehouses ?? []);
+      setLookupsLoaded(true);
+    } catch (e) {
+      console.error('[upload-modal] lookups load failed', e);
+    }
+  };
+
+  // When a prefill comes back, hydrate the form
+  const hydrateFromPrefill = (pf: UploadDocPrefill) => {
+    setCfdType(pf.operation_type ?? 'purchase');
+    setCfdPartnerId(pf.partner_id ?? '');
+    setCfdManufacturerId(pf.manufacturer_id ?? '');
+    setCfdCompanyId(pf.our_company_id ?? '');
+    setCfdReceivingCompanyId('');
+    setCfdCurrency(pf.currency ?? 'RUB');
+    setCfdAmount(pf.amount != null ? String(pf.amount) : '');
+    setCfdDate(pf.doc_date ?? new Date().toISOString().slice(0, 10));
+  };
+
   const resetUpload = () => {
     setUploadOpen(false);
     setUploadFile(null);
@@ -107,6 +164,15 @@ export default function OperationsPage() {
     setUploadError(null);
     setUploading(false);
     setManualPickOpId('');
+    setUploadAction('attach');
+    setCfdType('purchase');
+    setCfdPartnerId('');
+    setCfdManufacturerId('');
+    setCfdCompanyId('');
+    setCfdReceivingCompanyId('');
+    setCfdCurrency('RUB');
+    setCfdAmount('');
+    setCfdDate('');
   };
 
   const handleUploadSubmit = async (forcedOpId?: string) => {
@@ -120,9 +186,79 @@ export default function OperationsPage() {
         if (res.result.mode === 'auto_attached' || res.result.mode === 'manual_attached') {
           const list = await getOperations();
           if (list.success && list.result) setOperations(list.result.operations);
+        } else if (res.result.mode === 'low_confidence' || res.result.mode === 'no_match') {
+          // Hydrate create form even though default action is attach.
+          // If Aram switches to "Create new", the form is already filled.
+          if (res.result.prefill) {
+            hydrateFromPrefill(res.result.prefill);
+          }
+          // Load directory lists in background
+          ensureLookups();
         }
       } else {
         setUploadError(res.errors?.[0]?.message ?? 'Upload failed');
+      }
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Submit Create-from-document form → POST /api/operations/create-from-document
+  const handleCreateFromDoc = async () => {
+    if (!uploadResult || uploadResult.mode === 'auto_attached' || uploadResult.mode === 'manual_attached') return;
+    const pf = uploadResult.prefill;
+    if (!pf) {
+      setUploadError('No prefill data — cannot create operation');
+      return;
+    }
+    if (!cfdCompanyId) { setUploadError('Pick our company'); return; }
+    if (!cfdCurrency || cfdCurrency.length !== 3) { setUploadError('Currency must be 3-letter ISO'); return; }
+    if (!cfdDate) { setUploadError('Pick operation date'); return; }
+    if (cfdType === 'sale' && !cfdPartnerId) { setUploadError('Pick partner for sale'); return; }
+    if (cfdType === 'purchase' && !cfdManufacturerId && !cfdPartnerId) {
+      setUploadError('Pick manufacturer or partner for purchase'); return;
+    }
+    if (cfdType === 'transfer' && !cfdReceivingCompanyId) {
+      setUploadError('Pick receiving company for transfer'); return;
+    }
+
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const body: CreateFromDocBody = {
+        operation_type: cfdType,
+        operation_date: Math.floor(new Date(cfdDate + 'T12:00:00Z').getTime() / 1000),
+        our_company_id: cfdCompanyId,
+        currency: cfdCurrency.toUpperCase(),
+        total_amount: cfdAmount ? Number(cfdAmount) : null,
+        r2_key: pf.r2_key,
+        filename: pf.filename,
+        file_mime: pf.file_mime,
+        doc_type: uploadResult.extracted?.doc_type,
+        doc_number: uploadResult.extracted?.doc_number ?? null,
+        doc_date: uploadResult.extracted?.doc_date ?? null,
+        issuer: uploadResult.extracted?.issuer ?? null,
+        direction: uploadResult.extracted?.direction,
+      };
+      if (cfdType === 'sale') body.partner_id = cfdPartnerId;
+      if (cfdType === 'purchase') {
+        if (cfdManufacturerId) body.manufacturer_id = cfdManufacturerId;
+        if (cfdPartnerId) body.partner_id = cfdPartnerId;
+      }
+      if (cfdType === 'transfer') body.receiving_company_id = cfdReceivingCompanyId;
+
+      const res = await createOperationFromDocument(body);
+      if (res.success && res.result) {
+        const reference = res.result.operation.reference;
+        // Refresh ops list and close modal
+        const list = await getOperations();
+        if (list.success && list.result) setOperations(list.result.operations);
+        setActionMsg(`Stub operation ${reference} created and document attached. Add line items from the operation page.`);
+        resetUpload();
+      } else {
+        setUploadError(res.errors?.[0]?.message ?? 'Failed to create operation');
       }
     } catch (e) {
       setUploadError(e instanceof Error ? e.message : 'Network error');
@@ -749,70 +885,354 @@ export default function OperationsPage() {
                     <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '4px' }}>
                       Detected: {uploadResult.extracted.doc_type}
                       {uploadResult.extracted.amount ? `, ${uploadResult.extracted.amount} ${uploadResult.extracted.currency ?? ''}` : ''}
+                      {uploadResult.extracted.issuer ? ` · Issuer: ${uploadResult.extracted.issuer}` : ''}
+                      {uploadResult.extracted.counterparty ? ` · Counterparty: ${uploadResult.extracted.counterparty}` : ''}
                     </div>
                   )}
                 </div>
 
-                <label style={{ fontSize: '14px', color: 'var(--fg-2)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  Pick an operation
-                </label>
-                <select
-                  value={manualPickOpId}
-                  onChange={(e) => setManualPickOpId(e.target.value)}
-                  style={{
-                    width: '100%', padding: '8px 12px', fontSize: '14px', fontWeight: 700,
-                    border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
-                    backgroundColor: 'var(--paper)', color: 'var(--fg-1)', marginBottom: '12px',
-                  }}
-                >
-                  <option value="">— Select operation —</option>
-                  {(uploadResult.candidates ?? []).map((op: OperationCandidate) => {
-                    const d = new Date(op.operation_date * 1000).toISOString().slice(0, 10);
-                    const amt = op.total_amount ? ` · ${op.total_amount} ${op.currency ?? ''}` : '';
-                    const partner = op.partner_name ? ` · ${op.partner_name}` : '';
-                    return (
-                      <option key={op.id} value={op.id}>
-                        {op.reference} · {d} · {op.status}{amt}{partner}
-                      </option>
-                    );
-                  })}
-                </select>
-
-                {uploadError && (
-                  <div style={{
-                    marginBottom: '12px', padding: '12px',
-                    border: '1px solid var(--status-danger)', borderRadius: 'var(--radius-sm)',
-                    backgroundColor: 'rgba(229,32,44,0.10)', color: '#A82029',
-                    fontSize: '14px', fontWeight: 700,
-                  }}>
-                    {uploadError}
-                  </div>
-                )}
-
-                <div className="flex justify-end gap-2">
-                  <button onClick={resetUpload} style={{
-                    padding: '8px 16px', border: '1px solid var(--line-1)',
-                    borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper)',
-                    color: 'var(--fg-1)', fontSize: '14px', fontWeight: 700,
-                  }}>
-                    Cancel
-                  </button>
+                {/* Action tabs: Attach to existing | Create new */}
+                <div style={{
+                  display: 'flex', gap: '0', marginBottom: '16px',
+                  borderBottom: '1px solid var(--line-1)',
+                }}>
                   <button
-                    disabled={!manualPickOpId || uploading}
-                    onClick={() => handleUploadSubmit(manualPickOpId)}
+                    onClick={() => setUploadAction('attach')}
                     style={{
-                      padding: '8px 16px', borderRadius: 'var(--radius-sm)',
-                      backgroundColor: 'var(--fg-1)', color: 'var(--paper)',
-                      fontSize: '14px', fontWeight: 700,
-                      opacity: manualPickOpId && !uploading ? 1 : 0.4,
-                      cursor: manualPickOpId && !uploading ? 'pointer' : 'not-allowed',
-                      display: 'inline-flex', alignItems: 'center', gap: '8px',
+                      flex: 1, padding: '10px 12px', fontSize: '14px', fontWeight: 700,
+                      backgroundColor: uploadAction === 'attach' ? 'var(--paper)' : 'transparent',
+                      color: uploadAction === 'attach' ? 'var(--fg-1)' : 'var(--fg-3)',
+                      borderTop: uploadAction === 'attach' ? '1px solid var(--line-1)' : '1px solid transparent',
+                      borderLeft: uploadAction === 'attach' ? '1px solid var(--line-1)' : '1px solid transparent',
+                      borderRight: uploadAction === 'attach' ? '1px solid var(--line-1)' : '1px solid transparent',
+                      borderBottom: uploadAction === 'attach' ? '1px solid var(--paper)' : 'none',
+                      marginBottom: '-1px',
+                      cursor: 'pointer',
                     }}
                   >
-                    {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                    Attach
+                    Attach to existing operation
+                  </button>
+                  <button
+                    onClick={() => { setUploadAction('create'); ensureLookups(); }}
+                    style={{
+                      flex: 1, padding: '10px 12px', fontSize: '14px', fontWeight: 700,
+                      backgroundColor: uploadAction === 'create' ? 'var(--paper)' : 'transparent',
+                      color: uploadAction === 'create' ? 'var(--fg-1)' : 'var(--fg-3)',
+                      borderTop: uploadAction === 'create' ? '1px solid var(--line-1)' : '1px solid transparent',
+                      borderLeft: uploadAction === 'create' ? '1px solid var(--line-1)' : '1px solid transparent',
+                      borderRight: uploadAction === 'create' ? '1px solid var(--line-1)' : '1px solid transparent',
+                      borderBottom: uploadAction === 'create' ? '1px solid var(--paper)' : 'none',
+                      marginBottom: '-1px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Create new operation
                   </button>
                 </div>
+
+                {/* ATTACH MODE */}
+                {uploadAction === 'attach' && (
+                  <>
+                    <label style={{ fontSize: '14px', color: 'var(--fg-2)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                      Pick an operation
+                    </label>
+                    <select
+                      value={manualPickOpId}
+                      onChange={(e) => setManualPickOpId(e.target.value)}
+                      style={{
+                        width: '100%', padding: '8px 12px', fontSize: '14px', fontWeight: 700,
+                        border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+                        backgroundColor: 'var(--paper)', color: 'var(--fg-1)', marginBottom: '12px',
+                      }}
+                    >
+                      <option value="">— Select operation —</option>
+                      {(uploadResult.candidates ?? []).map((op: OperationCandidate) => {
+                        const d = new Date(op.operation_date * 1000).toISOString().slice(0, 10);
+                        const amt = op.total_amount ? ` · ${op.total_amount} ${op.currency ?? ''}` : '';
+                        const partner = op.partner_name ? ` · ${op.partner_name}` : '';
+                        return (
+                          <option key={op.id} value={op.id}>
+                            {op.reference} · {d} · {op.status}{amt}{partner}
+                          </option>
+                        );
+                      })}
+                    </select>
+
+                    {uploadError && (
+                      <div style={{
+                        marginBottom: '12px', padding: '12px',
+                        border: '1px solid var(--status-danger)', borderRadius: 'var(--radius-sm)',
+                        backgroundColor: 'rgba(229,32,44,0.10)', color: '#A82029',
+                        fontSize: '14px', fontWeight: 700,
+                      }}>
+                        {uploadError}
+                      </div>
+                    )}
+
+                    <div className="flex justify-end gap-2">
+                      <button onClick={resetUpload} style={{
+                        padding: '8px 16px', border: '1px solid var(--line-1)',
+                        borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper)',
+                        color: 'var(--fg-1)', fontSize: '14px', fontWeight: 700,
+                      }}>
+                        Cancel
+                      </button>
+                      <button
+                        disabled={!manualPickOpId || uploading}
+                        onClick={() => handleUploadSubmit(manualPickOpId)}
+                        style={{
+                          padding: '8px 16px', borderRadius: 'var(--radius-sm)',
+                          backgroundColor: 'var(--fg-1)', color: 'var(--paper)',
+                          fontSize: '14px', fontWeight: 700,
+                          opacity: manualPickOpId && !uploading ? 1 : 0.4,
+                          cursor: manualPickOpId && !uploading ? 'pointer' : 'not-allowed',
+                          display: 'inline-flex', alignItems: 'center', gap: '8px',
+                        }}
+                      >
+                        {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                        Attach
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {/* CREATE MODE */}
+                {uploadAction === 'create' && (
+                  <>
+                    {!uploadResult.prefill ? (
+                      <div style={{
+                        padding: '12px', marginBottom: '12px',
+                        backgroundColor: 'var(--paper-sunk)',
+                        border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+                        fontSize: '14px', color: 'var(--fg-2)',
+                      }}>
+                        No prefill data available (LLM did not extract enough info). Please attach to an existing operation instead.
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{
+                          padding: '10px 12px', marginBottom: '12px',
+                          backgroundColor: 'rgba(212,160,23,0.10)',
+                          border: '1px solid rgba(212,160,23,0.5)',
+                          borderRadius: 'var(--radius-sm)',
+                          fontSize: '13px', color: '#7A5C00', lineHeight: 1.5,
+                        }}>
+                          A stub operation will be created in <span style={{ fontWeight: 700 }}>draft</span> status without line items.
+                          You can add positions later from the operation page.
+                        </div>
+
+                        {/* Type selector */}
+                        <label style={{ fontSize: '14px', color: 'var(--fg-2)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                          Operation type
+                        </label>
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                          {(['sale', 'purchase', 'transfer'] as const).map((t) => (
+                            <button
+                              key={t}
+                              onClick={() => setCfdType(t)}
+                              style={{
+                                flex: 1, padding: '8px 12px', fontSize: '14px', fontWeight: 700,
+                                border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+                                backgroundColor: cfdType === t ? 'var(--fg-1)' : 'var(--paper)',
+                                color: cfdType === t ? 'var(--paper)' : 'var(--fg-1)',
+                                cursor: 'pointer',
+                                textTransform: 'capitalize',
+                              }}
+                            >
+                              {t}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Two-column grid for form fields */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                          {/* Partner — sale, optional for purchase */}
+                          {(cfdType === 'sale' || cfdType === 'purchase') && (
+                            <div>
+                              <label style={{ fontSize: '14px', color: 'var(--fg-2)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                                Partner {cfdType === 'sale' ? '*' : '(or manufacturer)'}
+                              </label>
+                              <select
+                                value={cfdPartnerId}
+                                onChange={(e) => setCfdPartnerId(e.target.value)}
+                                style={{
+                                  width: '100%', padding: '8px 10px', fontSize: '14px', fontWeight: 700,
+                                  border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+                                  backgroundColor: 'var(--paper)', color: 'var(--fg-1)',
+                                }}
+                              >
+                                <option value="">— None —</option>
+                                {partnersList.map((p) => (
+                                  <option key={p.id} value={p.id}>{p.trade_name ?? p.id}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
+                          {/* Manufacturer — purchase */}
+                          {cfdType === 'purchase' && (
+                            <div>
+                              <label style={{ fontSize: '14px', color: 'var(--fg-2)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                                Manufacturer
+                              </label>
+                              <select
+                                value={cfdManufacturerId}
+                                onChange={(e) => setCfdManufacturerId(e.target.value)}
+                                style={{
+                                  width: '100%', padding: '8px 10px', fontSize: '14px', fontWeight: 700,
+                                  border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+                                  backgroundColor: 'var(--paper)', color: 'var(--fg-1)',
+                                }}
+                              >
+                                <option value="">— None —</option>
+                                {manufacturersList.map((m) => (
+                                  <option key={m.id} value={m.id}>{m.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
+                          {/* Our company */}
+                          <div>
+                            <label style={{ fontSize: '14px', color: 'var(--fg-2)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                              Our company *
+                            </label>
+                            <select
+                              value={cfdCompanyId}
+                              onChange={(e) => setCfdCompanyId(e.target.value)}
+                              style={{
+                                width: '100%', padding: '8px 10px', fontSize: '14px', fontWeight: 700,
+                                border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+                                backgroundColor: 'var(--paper)', color: 'var(--fg-1)',
+                              }}
+                            >
+                              <option value="">— Select —</option>
+                              {companiesList.map((c) => (
+                                <option key={c.id} value={c.id}>{c.abbreviation ?? c.id} — {c.legal_name ?? c.trade_name ?? ''}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Receiving company — transfer */}
+                          {cfdType === 'transfer' && (
+                            <div>
+                              <label style={{ fontSize: '14px', color: 'var(--fg-2)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                                Receiving company *
+                              </label>
+                              <select
+                                value={cfdReceivingCompanyId}
+                                onChange={(e) => setCfdReceivingCompanyId(e.target.value)}
+                                style={{
+                                  width: '100%', padding: '8px 10px', fontSize: '14px', fontWeight: 700,
+                                  border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+                                  backgroundColor: 'var(--paper)', color: 'var(--fg-1)',
+                                }}
+                              >
+                                <option value="">— Select —</option>
+                                {companiesList.filter((c) => c.id !== cfdCompanyId).map((c) => (
+                                  <option key={c.id} value={c.id}>{c.abbreviation ?? c.id}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
+                          {/* Currency */}
+                          <div>
+                            <label style={{ fontSize: '14px', color: 'var(--fg-2)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                              Currency *
+                            </label>
+                            <select
+                              value={cfdCurrency}
+                              onChange={(e) => setCfdCurrency(e.target.value)}
+                              style={{
+                                width: '100%', padding: '8px 10px', fontSize: '14px', fontWeight: 700,
+                                border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+                                backgroundColor: 'var(--paper)', color: 'var(--fg-1)',
+                              }}
+                            >
+                              {['RUB', 'USD', 'EUR', 'CNY', 'VND', 'AED', 'AMD'].map((cur) => (
+                                <option key={cur} value={cur}>{cur}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Total amount */}
+                          <div>
+                            <label style={{ fontSize: '14px', color: 'var(--fg-2)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                              Total amount
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={cfdAmount}
+                              onChange={(e) => setCfdAmount(e.target.value)}
+                              placeholder="0.00"
+                              style={{
+                                width: '100%', padding: '8px 10px', fontSize: '14px', fontWeight: 700,
+                                border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+                                backgroundColor: 'var(--paper)', color: 'var(--fg-1)',
+                              }}
+                            />
+                          </div>
+
+                          {/* Date */}
+                          <div>
+                            <label style={{ fontSize: '14px', color: 'var(--fg-2)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                              Operation date *
+                            </label>
+                            <input
+                              type="date"
+                              value={cfdDate}
+                              onChange={(e) => setCfdDate(e.target.value)}
+                              style={{
+                                width: '100%', padding: '8px 10px', fontSize: '14px', fontWeight: 700,
+                                border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+                                backgroundColor: 'var(--paper)', color: 'var(--fg-1)',
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        {uploadError && (
+                          <div style={{
+                            marginBottom: '12px', padding: '12px',
+                            border: '1px solid var(--status-danger)', borderRadius: 'var(--radius-sm)',
+                            backgroundColor: 'rgba(229,32,44,0.10)', color: '#A82029',
+                            fontSize: '14px', fontWeight: 700,
+                          }}>
+                            {uploadError}
+                          </div>
+                        )}
+
+                        <div className="flex justify-end gap-2">
+                          <button onClick={resetUpload} style={{
+                            padding: '8px 16px', border: '1px solid var(--line-1)',
+                            borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper)',
+                            color: 'var(--fg-1)', fontSize: '14px', fontWeight: 700,
+                          }}>
+                            Cancel
+                          </button>
+                          <button
+                            disabled={uploading}
+                            onClick={handleCreateFromDoc}
+                            style={{
+                              padding: '8px 16px', borderRadius: 'var(--radius-sm)',
+                              backgroundColor: '#C4302B', color: 'white',
+                              fontSize: '14px', fontWeight: 700,
+                              opacity: uploading ? 0.6 : 1,
+                              cursor: uploading ? 'not-allowed' : 'pointer',
+                              display: 'inline-flex', alignItems: 'center', gap: '8px',
+                              border: 'none',
+                            }}
+                          >
+                            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                            Create stub & attach
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
               </div>
             )}
           </div>

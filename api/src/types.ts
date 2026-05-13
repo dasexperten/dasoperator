@@ -66,6 +66,11 @@ export interface Env {
   // Token is OAuth Bearer issued via https://oauth.yandex.ru/authorize
   YANDEX_METRIKA_COUNTER?: string;
   YANDEX_METRIKA_TOKEN?: string;
+
+  // F4 Lyubertsy fulfillment / Skladbot WMS — Phase 7.x
+  // Bearer token issued 2026-05-13, expires 2026-11-13.
+  // See F4_INVENTORY_SECRETS.md for full integration spec.
+  F4_SKLADBOT_TOKEN?: string;
 }
 
 // =============================================================================

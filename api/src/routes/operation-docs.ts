@@ -443,6 +443,12 @@ operationDocs.post('/upload-to-pipeline', async (c) => {
     stageExtraction,
   } = await import('../lib/verification-pipeline');
 
+  // Which raw name corresponds to which side depends on document direction:
+  //   outgoing — WE issued the doc → issuer = us, counterparty = partner
+  //   incoming — partner issued the doc → issuer = partner, counterparty = us
+  const ourSideRaw = analysis.document_direction === 'outgoing' ? analysis.issuer_raw : analysis.counterparty_raw;
+  const partnerSideRaw = analysis.document_direction === 'outgoing' ? analysis.counterparty_raw : analysis.issuer_raw;
+
   const headerFields: Record<string, any> = {
     operation_type: {
       value: analysis.operation_type,
@@ -454,7 +460,7 @@ operationDocs.post('/upload-to-pipeline', async (c) => {
     },
     our_company_id: {
       value: analysis.our_company_id,
-      raw: analysis.issuer_raw && analysis.document_direction === 'outgoing' ? analysis.issuer_raw : analysis.counterparty_raw,
+      raw: ourSideRaw,
       confidence: analysis.our_company_confidence,
       source: 'claude',
       alternatives: [],
@@ -462,7 +468,7 @@ operationDocs.post('/upload-to-pipeline', async (c) => {
     },
     partner_id: {
       value: analysis.partner_id,
-      raw: analysis.counterparty_raw,
+      raw: partnerSideRaw,
       confidence: analysis.partner_confidence,
       source: 'claude',
       alternatives: (analysis.partner_alternatives || []).map((a) => ({
@@ -472,7 +478,7 @@ operationDocs.post('/upload-to-pipeline', async (c) => {
     },
     manufacturer_id: {
       value: analysis.manufacturer_id,
-      raw: analysis.counterparty_raw,
+      raw: partnerSideRaw,
       confidence: analysis.manufacturer_id ? 0.95 : 0,
       source: 'claude',
       alternatives: [],

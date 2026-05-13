@@ -175,9 +175,9 @@ function SalesTodayCard({ data, loading }: { data: SalesToday | null; loading: b
     const series = all.slice(Math.max(0, all.length - 7));
     if (series.length < 2) return null;
 
-    const width = 280;
-    const height = 36;
-    const pad = 2;
+    const width = 600;
+    const height = 180;
+    const pad = 6;
     const innerH = height - pad * 2;
 
     // Shared Y scale across all three series so they're visually comparable.
@@ -228,31 +228,68 @@ function SalesTodayCard({ data, loading }: { data: SalesToday | null; loading: b
     };
   }, [data]);
 
+  // Hover state lifted to parent — top-right HUD reads from this
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  const hoveredDay = chart && hoverIdx !== null ? chart.series[hoverIdx] : null;
+  const lastDay    = chart ? chart.series[chart.series.length - 1] : null;
+  // Default display: today's snapshot (last day in series). On hover, switch to hovered day.
+  const displayDay = hoveredDay ?? lastDay;
+
   return (
     <Card>
-      <CardHeader icon={<ShoppingBag className="h-4 w-4" />} title="Sales · last day on record" subtitle={data?.ozon.last_date ?? undefined} />
-
       {loading ? <CardLoading /> : !data ? <CardEmpty>No data yet — cron may not have run.</CardEmpty> : (
         <>
-          <div style={{ marginBottom: '14px' }}>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: '32px', fontWeight: 700, color: 'var(--fg-1)', lineHeight: 1.1 }}>
-              {fmtRubFull(data.combined.revenue_rub)}
+          {/* Header row: big totals left, live hover HUD right */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', marginBottom: '14px' }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: '32px', fontWeight: 700, color: 'var(--fg-1)', lineHeight: 1.1 }}>
+                {fmtRubFull(data.combined.revenue_rub)}
+              </div>
+              <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '2px' }}>
+                {data.combined.units} ед · combined WB + Ozon · <span style={{ color: 'var(--fg-muted)' }}>{data.ozon.last_date ?? ''}</span>
+              </div>
             </div>
-            <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '2px' }}>
-              {data.combined.units} ед · combined WB + Ozon
-            </div>
+
+            {displayDay && (
+              <div style={{ textAlign: 'right', fontSize: '14px', lineHeight: 1.5, minWidth: '190px' }}>
+                <div style={{ color: 'var(--fg-muted)', fontSize: '14px', marginBottom: '2px' }}>
+                  {fmtWeekday(displayDay.date)} · {fmtDayMonth(displayDay.date)}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: '10px' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: 'var(--fg-3)' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: COLOR_OZON, display: 'inline-block' }} />
+                    Ozon
+                  </span>
+                  <span style={{ fontWeight: 700, color: 'var(--fg-1)', minWidth: '80px', display: 'inline-block' }}>
+                    {typeof displayDay.ozon_revenue_rub === 'number' ? fmtRubFull(displayDay.ozon_revenue_rub) : '—'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: '10px' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: 'var(--fg-3)' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: COLOR_WB, display: 'inline-block' }} />
+                    WB
+                  </span>
+                  <span style={{ fontWeight: 700, color: 'var(--fg-1)', minWidth: '80px', display: 'inline-block' }}>
+                    {typeof displayDay.wb_revenue_rub === 'number' ? fmtRubFull(displayDay.wb_revenue_rub) : '—'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: '10px' }}>
+                  <span style={{ color: 'var(--fg-3)' }}>Combined</span>
+                  <span style={{ fontWeight: 700, color: 'var(--fg-1)', minWidth: '80px', display: 'inline-block' }}>
+                    {fmtRubFull(displayDay.revenue_rub)}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {chart && (
             <SparklineWithHover
               chart={chart}
+              onHoverChange={setHoverIdx}
             />
           )}
-
-          <div style={{ borderTop: '1px solid var(--border-hairline)', paddingTop: '10px' }}>
-            <SplitRow label="Wildberries" amount={data.wb.revenue_rub} units={data.wb.units} delta={data.wb.delta_pct} color={COLOR_WB} />
-            <SplitRow label="Ozon"        amount={data.ozon.revenue_rub} units={data.ozon.units} delta={data.ozon.delta_pct} color={COLOR_OZON} />
-          </div>
         </>
       )}
     </Card>
@@ -722,6 +759,7 @@ type SparkRaw = { date: string; revenue_rub: number; ozon_revenue_rub?: number; 
 
 function SparklineWithHover({
   chart,
+  onHoverChange,
 }: {
   chart: {
     series: SparkRaw[];
@@ -735,32 +773,40 @@ function SparklineWithHover({
     width: number;
     height: number;
   };
+  onHoverChange?: (idx: number | null) => void;
 }) {
   const { series, combinedPts, ozonPts, wbPts, combinedPath, ozonPath, wbPath, combinedArea, width: viewWidth, height: viewHeight } = chart;
 
   const wrapRef = useRef<HTMLDivElement>(null);
-  const [hover, setHover] = useState<{ idx: number; x: number; y: number } | null>(null);
-  const [width, setWidth] = useState(0);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
-  useEffect(() => {
-    if (!wrapRef.current) return;
-    const update = () => { if (wrapRef.current) setWidth(wrapRef.current.offsetWidth); };
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(wrapRef.current);
-    return () => ro.disconnect();
-  }, []);
+  // Y-axis: derive max from all values to label the gridlines (300k / 225k / 150k / 75k / 0 style)
+  const yMax = useMemo(() => {
+    let m = 0;
+    for (const d of series) {
+      if (d.revenue_rub > m) m = d.revenue_rub;
+      if (typeof d.ozon_revenue_rub === 'number' && d.ozon_revenue_rub > m) m = d.ozon_revenue_rub;
+      if (typeof d.wb_revenue_rub === 'number' && d.wb_revenue_rub > m) m = d.wb_revenue_rub;
+    }
+    return m;
+  }, [series]);
 
-  const hoveredDay         = hover ? series[hover.idx] : null;
-  const hoveredCombinedPt  = hover ? combinedPts[hover.idx] : null;
-  const hoveredOzonPt      = hover ? ozonPts[hover.idx] : null;
-  const hoveredWbPt        = hover ? wbPts[hover.idx] : null;
+  function fmtAxis(v: number): string {
+    if (v >= 1_000_000) return (v / 1_000_000).toFixed(v >= 10_000_000 ? 0 : 1) + 'M';
+    if (v >= 1_000)     return Math.round(v / 1_000) + 'k';
+    return String(Math.round(v));
+  }
+  const axisLabels = [yMax, yMax * 0.75, yMax * 0.5, yMax * 0.25, 0];
+
+  // Grid line Y coordinates inside the viewBox (matches chart's pad=6, height=180)
+  const pad = 6;
+  const innerH = viewHeight - pad * 2;
+  const gridY = [pad, pad + innerH * 0.25, pad + innerH * 0.5, pad + innerH * 0.75, pad + innerH];
 
   function handleMove(e: React.MouseEvent<HTMLDivElement>) {
     if (!wrapRef.current) return;
     const rect = wrapRef.current.getBoundingClientRect();
     const localX = e.clientX - rect.left;
-    const localY = e.clientY - rect.top;
     const vbX = (localX / rect.width) * viewWidth;
     let bestIdx = 0;
     let bestDist = Infinity;
@@ -768,80 +814,105 @@ function SparklineWithHover({
       const d = Math.abs(combinedPts[i]!.x - vbX);
       if (d < bestDist) { bestDist = d; bestIdx = i; }
     }
-    setHover({ idx: bestIdx, x: localX, y: localY });
+    if (bestIdx !== hoverIdx) {
+      setHoverIdx(bestIdx);
+      onHoverChange?.(bestIdx);
+    }
   }
 
+  function handleLeave() {
+    setHoverIdx(null);
+    onHoverChange?.(null);
+  }
+
+  const hoveredCombinedPt = hoverIdx !== null ? combinedPts[hoverIdx] : null;
+  const hoveredOzonPt     = hoverIdx !== null ? ozonPts[hoverIdx]     : null;
+  const hoveredWbPt       = hoverIdx !== null ? wbPts[hoverIdx]       : null;
+
   return (
-    <div style={{ marginBottom: '12px', position: 'relative' }} ref={wrapRef}
-         onMouseMove={handleMove}
-         onMouseLeave={() => setHover(null)}>
-      <svg width="100%" height={viewHeight + 4} viewBox={`0 0 ${viewWidth} ${viewHeight + 4}`} preserveAspectRatio="none" style={{ display: 'block', cursor: 'crosshair' }}>
-        {/* Combined (green) — area fill behind + main line on top */}
-        <path d={combinedArea} fill={COLOR_COMBINED} fillOpacity="0.08" />
-        {/* Ozon (blue) — secondary line */}
-        <path d={ozonPath} fill="none" stroke={COLOR_OZON} strokeWidth="1.4" opacity="0.9" />
-        {/* WB (purple) — secondary line */}
-        <path d={wbPath} fill="none" stroke={COLOR_WB} strokeWidth="1.4" opacity="0.9" />
-        {/* Combined — drawn last so it sits on top */}
-        <path d={combinedPath} fill="none" stroke={COLOR_COMBINED} strokeWidth="1.8" />
-        <circle cx={combinedPts[combinedPts.length - 1]!.x} cy={combinedPts[combinedPts.length - 1]!.y} r="2.5" fill={COLOR_COMBINED} />
+    <div style={{ marginBottom: '4px' }}>
+      <div style={{ display: 'flex', gap: '8px' }}>
+        {/* Y-axis labels column */}
+        <div style={{ width: '48px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+                      fontSize: '14px', color: 'var(--fg-muted)', textAlign: 'right',
+                      height: `${viewHeight}px`, paddingTop: '0px', paddingBottom: '0px' }}>
+          {axisLabels.map((v, i) => (<span key={i}>{fmtAxis(v)}</span>))}
+        </div>
 
-        {/* Hover cursor */}
-        {hoveredCombinedPt && (
-          <>
-            <line x1={hoveredCombinedPt.x} y1={0} x2={hoveredCombinedPt.x} y2={viewHeight}
-                  stroke="var(--fg-muted)" strokeWidth="1" strokeDasharray="2,2" opacity="0.6" />
-            {hoveredOzonPt && (
-              <circle cx={hoveredOzonPt.x} cy={hoveredOzonPt.y} r="3" fill={COLOR_OZON} stroke="var(--paper)" strokeWidth="1.5" />
+        {/* Chart SVG */}
+        <div ref={wrapRef} style={{ flex: 1, position: 'relative', cursor: 'crosshair' }}
+             onMouseMove={handleMove}
+             onMouseLeave={handleLeave}>
+          <svg width="100%" height={viewHeight} viewBox={`0 0 ${viewWidth} ${viewHeight}`}
+               preserveAspectRatio="none" style={{ display: 'block' }}>
+            {/* Y grid */}
+            {gridY.map((y, i) => (
+              <line key={i} x1={0} y1={y} x2={viewWidth} y2={y}
+                    stroke="var(--border-hairline)" strokeWidth="0.5"
+                    strokeDasharray={i === gridY.length - 1 ? undefined : "2 3"} />
+            ))}
+
+            {/* Combined area + lines */}
+            <path d={combinedArea} fill={COLOR_COMBINED} fillOpacity="0.10" />
+            <path d={ozonPath}     fill="none" stroke={COLOR_OZON}     strokeWidth="1.4" opacity="0.9" />
+            <path d={wbPath}       fill="none" stroke={COLOR_WB}       strokeWidth="1.4" opacity="0.9" />
+            <path d={combinedPath} fill="none" stroke={COLOR_COMBINED} strokeWidth="1.8" />
+
+            {/* Last-day marker dots (when no hover) */}
+            {hoverIdx === null && combinedPts.length > 0 && (
+              <>
+                <circle cx={combinedPts[combinedPts.length - 1]!.x} cy={combinedPts[combinedPts.length - 1]!.y} r="3.2" fill={COLOR_COMBINED} />
+                <circle cx={ozonPts[ozonPts.length - 1]!.x}         cy={ozonPts[ozonPts.length - 1]!.y}         r="2.8" fill={COLOR_OZON} />
+                <circle cx={wbPts[wbPts.length - 1]!.x}             cy={wbPts[wbPts.length - 1]!.y}             r="2.8" fill={COLOR_WB} />
+              </>
             )}
-            {hoveredWbPt && (
-              <circle cx={hoveredWbPt.x} cy={hoveredWbPt.y} r="3" fill={COLOR_WB} stroke="var(--paper)" strokeWidth="1.5" />
+
+            {/* Hover cursor */}
+            {hoveredCombinedPt && (
+              <>
+                <line x1={hoveredCombinedPt.x} y1={pad} x2={hoveredCombinedPt.x} y2={viewHeight - pad}
+                      stroke="var(--fg-muted)" strokeWidth="1" strokeDasharray="2,2" opacity="0.6" />
+                {hoveredOzonPt && <circle cx={hoveredOzonPt.x} cy={hoveredOzonPt.y} r="3.2" fill={COLOR_OZON} stroke="var(--paper)" strokeWidth="1.5" />}
+                {hoveredWbPt   && <circle cx={hoveredWbPt.x}   cy={hoveredWbPt.y}   r="3.2" fill={COLOR_WB}   stroke="var(--paper)" strokeWidth="1.5" />}
+                <circle cx={hoveredCombinedPt.x} cy={hoveredCombinedPt.y} r="3.6" fill={COLOR_COMBINED} stroke="var(--paper)" strokeWidth="1.5" />
+              </>
             )}
-            <circle cx={hoveredCombinedPt.x} cy={hoveredCombinedPt.y} r="3.5" fill={COLOR_COMBINED} stroke="var(--paper)" strokeWidth="1.5" />
-          </>
-        )}
-      </svg>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: 'var(--fg-3)', marginTop: '4px' }}>
-        <span>{fmtDayMonth(series[0]!.date)}</span>
-        <span style={{ color: 'var(--fg-2)', fontWeight: 700 }}>
-          {series.length}-day revenue
-        </span>
-        <span>{fmtDayMonth(series[series.length - 1]!.date)}</span>
+          </svg>
+        </div>
       </div>
-      <FloatingTooltip visible={!!hover} x={hover?.x ?? 0} y={hover?.y ?? 0} containerWidth={width}>
-        {hoveredDay && (
-          <>
-            <div style={{ fontWeight: 700, marginBottom: '6px' }}>{fmtWeekday(hoveredDay.date)} · {fmtDayMonth(hoveredDay.date)}</div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'baseline' }}>
-              <span style={{ color: 'var(--fg-2)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ width: '10px', height: '2px', backgroundColor: COLOR_COMBINED, display: 'inline-block' }} />
-                Combined
-              </span>
-              <span style={{ fontWeight: 700 }}>{fmtRubFull(hoveredDay.revenue_rub)}</span>
-            </div>
+      {/* X axis labels: spread evenly under chart, aligned with Y column */}
+      <div style={{ display: 'flex', justifyContent: 'space-between',
+                    fontSize: '14px', color: 'var(--fg-muted)',
+                    marginTop: '6px', paddingLeft: '56px' }}>
+        {series.map((d, i) => {
+          // Show 1st, last, and a few in between to avoid clutter on long series
+          const showCount = Math.min(series.length, 7);
+          const step = (series.length - 1) / (showCount - 1);
+          const shouldShow = i === 0 || i === series.length - 1 ||
+                             Math.abs(i - Math.round(Math.round(i / step) * step)) < 0.5;
+          return shouldShow
+            ? <span key={i}>{fmtDayMonth(d.date)}</span>
+            : <span key={i} />;
+        })}
+      </div>
 
-            {typeof hoveredDay.ozon_revenue_rub === 'number' && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'baseline', marginTop: '2px' }}>
-                <span style={{ color: 'var(--fg-3)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{ width: '10px', height: '2px', backgroundColor: COLOR_OZON, display: 'inline-block' }} />
-                  Ozon
-                </span>
-                <span style={{ fontWeight: 700, color: 'var(--fg-2)' }}>{fmtRubFull(hoveredDay.ozon_revenue_rub)}</span>
-              </div>
-            )}
-            {typeof hoveredDay.wb_revenue_rub === 'number' && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'baseline', marginTop: '2px' }}>
-                <span style={{ color: 'var(--fg-3)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{ width: '10px', height: '2px', backgroundColor: COLOR_WB, display: 'inline-block' }} />
-                  WB
-                </span>
-                <span style={{ fontWeight: 700, color: 'var(--fg-2)' }}>{fmtRubFull(hoveredDay.wb_revenue_rub)}</span>
-              </div>
-            )}
-          </>
-        )}
-      </FloatingTooltip>
+      {/* Legend */}
+      <div style={{ display: 'flex', justifyContent: 'center', gap: '20px',
+                    fontSize: '14px', color: 'var(--fg-3)', marginTop: '10px', paddingLeft: '56px' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ width: '16px', height: '2px', backgroundColor: COLOR_COMBINED, display: 'inline-block' }} />
+          Combined
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ width: '16px', height: '2px', backgroundColor: COLOR_OZON, display: 'inline-block' }} />
+          Ozon
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ width: '16px', height: '2px', backgroundColor: COLOR_WB, display: 'inline-block' }} />
+          Wildberries
+        </span>
+      </div>
     </div>
   );
 }

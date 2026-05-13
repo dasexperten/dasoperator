@@ -13,6 +13,7 @@ import partnersRoutes from './routes/partners';
 import sequencesRoutes from './routes/sequences';
 import operationsRoutes from './routes/operations';
 import operationsImportRoutes from './routes/operations-import';
+import operationDocsRoutes from './routes/operation-docs';
 import fxRoutes from './routes/fx';
 import contractsRoutes from './routes/contracts';
 import paymentsRoutes from './routes/payments';
@@ -76,6 +77,7 @@ app.route('/api/email', emailRoutes);
 app.route('/api/sequences', sequencesRoutes);
 app.route('/', attachmentsRoutes);
 app.route('/api', attachmentFilesRoutes);  // /operations/:opId/files (POST) and /attachment-files/* (GET)
+app.route('/api/operations', operationDocsRoutes);  // /upload-document — must come BEFORE :id routes
 app.route('/api/operations', operationsRoutes);
 app.route('/api/operations', operationsImportRoutes);  // adds /parse-excel
 

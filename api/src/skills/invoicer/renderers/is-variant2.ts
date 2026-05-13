@@ -1,5 +1,5 @@
 // =============================================================================
-// IS-V2 — Toothpastes (Honghui format). Landscape A4. Trilingual EN+RU+CN.
+// IS-V2 — Toothpastes (Honghui format) — compact layout v2. Landscape A4. Trilingual EN+RU+CN.
 // Two-party block (Shipper=Seller, Consignee=Buyer). Mandatory safety
 // declarations footer (verbatim from invoicer skill). Used for toothpastes
 // leaving China to Russia (HS 3306xxx).

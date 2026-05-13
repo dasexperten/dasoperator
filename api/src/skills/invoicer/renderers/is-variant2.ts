@@ -6,13 +6,45 @@
 // =============================================================================
 
 import type { ContractRow, LineItemRow } from '../types';
+import { PageOrientation, AlignmentType, Paragraph, TextRun } from 'docx';
 import {
-  Document, LANDSCAPE_PAGE, LANDSCAPE_USABLE_DXA, Packer, RenderBank,
-  RenderParty, RenderSignature, blank, buildDeliveryBankTable, buildMetaRow,
-  buildPartyTable, buildProductTable, buildSignature, buildBrandBar, buildTitle, formatDate,
+  Document, LANDSCAPE_USABLE_DXA, Packer, RenderBank,
+  RenderParty, RenderSignature, buildDeliveryBankTable, buildMetaRow,
+  buildPartyTable, buildProductTable, buildSignature, formatDate,
   formatMoney, p, pickLineLabel, trilingual,
   type ProductCell,
+  BRAND_ANTHRACITE, BRAND_ROT,
 } from './shared';
+
+// Compact local layout — IS-V2 must fit on one landscape page.
+// Page margins reduced from defaults (567/720 dxa) to (340/567 dxa) ≈ 0.6cm top/bot, 1.0cm sides.
+const IS_V2_PAGE = {
+  size: {
+    orientation: PageOrientation.LANDSCAPE,
+    width: 11906,
+    height: 16838,
+  },
+  margin: { top: 340, right: 567, bottom: 340, left: 567 },
+} as const;
+
+// Tight title (smaller than shared buildTitle, no trailing space) and a thin brand bar.
+function buildIsV2Title(text: string): Paragraph {
+  return new Paragraph({
+    alignment: AlignmentType.LEFT,
+    spacing: { after: 40 },
+    children: [new TextRun({ text: text.toUpperCase(), bold: true, size: 28, color: BRAND_ANTHRACITE })],
+  });
+}
+function buildIsV2BrandBar(): Paragraph {
+  return new Paragraph({
+    alignment: AlignmentType.LEFT,
+    spacing: { after: 80 },
+    children: [new TextRun({ text: '▬▬▬▬▬▬▬▬▬▬', bold: true, size: 12, color: BRAND_ROT })],
+  });
+}
+function tinyBlank(): Paragraph {
+  return new Paragraph({ spacing: { after: 0, before: 0 }, children: [new TextRun({ text: '', size: 8 })] });
+}
 
 export interface RenderIsV2Input {
   reference: string;
@@ -163,21 +195,21 @@ export async function renderInvoiceSpecPastes(input: RenderIsV2Input): Promise<U
     creator: 'dasoperator-api',
     title: `IS-V2 ${input.reference}`,
     sections: [{
-      properties: { page: LANDSCAPE_PAGE },
+      properties: { page: IS_V2_PAGE },
       children: [
-        buildTitle(titleText),
-        buildBrandBar(),
+        buildIsV2Title(titleText),
+        buildIsV2BrandBar(),
         buildMetaRow(meta),
         partyTable,
-        blank(),
+        tinyBlank(),
         deliveryBankTable,
-        blank(),
+        tinyBlank(),
         productTable,
-        blank(),
+        tinyBlank(),
         p(trilingual('Safety declarations', 'Декларации о безопасности', '安全声明'),
-          { bold: true, size: 16 }),
-        p(SAFETY_RU, { size: 14 }),
-        p(SAFETY_CN, { size: 14 }),
+          { bold: true, size: 14 }),
+        p(SAFETY_RU, { size: 12 }),
+        p(SAFETY_CN, { size: 12 }),
         ...buildSignature(input.signature, 'BILINGUAL'),
       ],
     }],

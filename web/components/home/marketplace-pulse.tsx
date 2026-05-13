@@ -19,6 +19,7 @@ const COLOR_OZON = '#185FA5';
 const COLOR_OZON_LIGHT = '#85B7EB';
 const COLOR_WB = '#534AB7';
 const COLOR_WB_LIGHT = '#AFA9EC';
+const COLOR_COMBINED = '#2E7D4F'; // green — combined WB + Ozon line
 
 // ───────────────────────── Types ─────────────────────────
 type SalesToday = {
@@ -160,71 +161,68 @@ function SectionLegend() {
 // Card 1 — Sales today (hero number + sparkline + WB/Ozon split)
 // ═══════════════════════════════════════════════════════════════════════════
 function SalesTodayCard({ data, loading }: { data: SalesToday | null; loading: boolean }) {
-  // Split incoming 60-day spark into two 30-day windows:
-  //   front  = last 30 days (current month) — main dark blue line
-  //   ghost  = the 30 days before that      — light blue line behind
-  // Both lines share the same X axis (day index 0..29) so they overlay.
+  // Build last-7-days chart with 3 series:
+  //   combined (green) — main line with area fill (revenue_rub)
+  //   ozon     (blue)  — secondary line (ozon_revenue_rub)
+  //   wb       (purple) — secondary line (wb_revenue_rub)
+  // All three share the same X axis (day index 0..6) and the same Y scale
+  // so they're directly comparable.
   const chart = useMemo(() => {
     if (!data?.spark || data.spark.length < 2) return null;
 
-    // Align ghost so that ghost[i] corresponds to a calendar offset of -30 days from front[i].
-    // We take the latest 30 (front) and the 30 right before them (ghost).
+    // Take the most recent 7 days from the incoming spark window.
     const all = data.spark;
-    const frontStart = Math.max(0, all.length - 30);
-    const front = all.slice(frontStart);                 // up to 30 entries
-    const ghostStart = Math.max(0, frontStart - front.length);
-    const ghost = all.slice(ghostStart, frontStart);     // up to 30 entries; may be shorter
-
-    if (front.length < 2) return null;
+    const series = all.slice(Math.max(0, all.length - 7));
+    if (series.length < 2) return null;
 
     const width = 280;
     const height = 36;
     const pad = 2;
     const innerH = height - pad * 2;
 
-    // Shared Y scale across both series so the ghost line is comparable to front
-    const allValues: number[] = [
-      ...front.map(d => d.revenue_rub),
-      ...ghost.map(d => d.revenue_rub),
-    ];
+    // Shared Y scale across all three series so they're visually comparable.
+    const allValues: number[] = [];
+    for (const d of series) {
+      allValues.push(d.revenue_rub);
+      if (typeof d.ozon_revenue_rub === 'number') allValues.push(d.ozon_revenue_rub);
+      if (typeof d.wb_revenue_rub === 'number')   allValues.push(d.wb_revenue_rub);
+    }
     const max = Math.max(...allValues, 1);
-    const min = Math.min(...allValues);
+    const min = Math.min(...allValues, 0);
     const range = max - min || 1;
 
-    function project(series: typeof front) {
-      // X is mapped so that series[i] aligns with day i of the front window.
-      // If ghost has 30 entries → exact alignment. If fewer → it sits on the right edge,
-      // aligned with the most recent days of the front window (so the "missing" history
-      // is on the left side of the chart, not the right).
-      const offset = front.length - series.length;
+    function project(getter: (d: typeof series[number]) => number) {
       return series.map((d, i) => {
-        const dayIdx = offset + i;
-        const x = (dayIdx / Math.max(front.length - 1, 1)) * width;
-        const y = height - pad - ((d.revenue_rub - min) / range) * innerH;
-        return { x, y, value: d.revenue_rub, date: d.date, raw: d };
+        const x = (i / Math.max(series.length - 1, 1)) * width;
+        const y = height - pad - ((getter(d) - min) / range) * innerH;
+        return { x, y, value: getter(d), date: d.date, raw: d };
       });
     }
 
-    const frontPts = project(front);
-    const ghostPts = project(ghost);
+    const combinedPts = project(d => d.revenue_rub);
+    const ozonPts     = project(d => d.ozon_revenue_rub ?? 0);
+    const wbPts       = project(d => d.wb_revenue_rub ?? 0);
 
-    const toPath = (pts: typeof frontPts) =>
+    const toPath = (pts: typeof combinedPts) =>
       pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
 
-    const frontPath = toPath(frontPts);
-    const ghostPath = toPath(ghostPts);
-    const frontArea = frontPts.length > 0
-      ? `${frontPath} L ${frontPts[frontPts.length - 1]!.x.toFixed(1)} ${(height - pad).toFixed(1)} L ${frontPts[0]!.x.toFixed(1)} ${(height - pad).toFixed(1)} Z`
+    const combinedPath = toPath(combinedPts);
+    const ozonPath     = toPath(ozonPts);
+    const wbPath       = toPath(wbPts);
+
+    const combinedArea = combinedPts.length > 0
+      ? `${combinedPath} L ${combinedPts[combinedPts.length - 1]!.x.toFixed(1)} ${(height - pad).toFixed(1)} L ${combinedPts[0]!.x.toFixed(1)} ${(height - pad).toFixed(1)} Z`
       : '';
 
     return {
-      front,
-      ghost,
-      frontPts,
-      ghostPts,
-      frontPath,
-      ghostPath,
-      frontArea,
+      series,
+      combinedPts,
+      ozonPts,
+      wbPts,
+      combinedPath,
+      ozonPath,
+      wbPath,
+      combinedArea,
       width,
       height,
     };
@@ -726,18 +724,19 @@ function SparklineWithHover({
   chart,
 }: {
   chart: {
-    front: SparkRaw[];
-    ghost: SparkRaw[];
-    frontPts: { x: number; y: number; value: number; date: string; raw: SparkRaw }[];
-    ghostPts: { x: number; y: number; value: number; date: string; raw: SparkRaw }[];
-    frontPath: string;
-    ghostPath: string;
-    frontArea: string;
+    series: SparkRaw[];
+    combinedPts: { x: number; y: number; value: number; date: string; raw: SparkRaw }[];
+    ozonPts:     { x: number; y: number; value: number; date: string; raw: SparkRaw }[];
+    wbPts:       { x: number; y: number; value: number; date: string; raw: SparkRaw }[];
+    combinedPath: string;
+    ozonPath:     string;
+    wbPath:       string;
+    combinedArea: string;
     width: number;
     height: number;
   };
 }) {
-  const { front, ghost, frontPts, ghostPts, frontPath, ghostPath, frontArea, width: viewWidth, height: viewHeight } = chart;
+  const { series, combinedPts, ozonPts, wbPts, combinedPath, ozonPath, wbPath, combinedArea, width: viewWidth, height: viewHeight } = chart;
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<{ idx: number; x: number; y: number } | null>(null);
@@ -752,14 +751,10 @@ function SparklineWithHover({
     return () => ro.disconnect();
   }, []);
 
-  // Hover index references the FRONT window (latest 30d)
-  const hoveredFront = hover ? front[hover.idx] : null;
-  const hoveredFrontPt = hover ? frontPts[hover.idx] : null;
-  // Ghost point at the same day-of-window position (may be undefined if ghost is shorter)
-  const ghostOffset = front.length - ghost.length;
-  const hoveredGhostIdx = hover ? hover.idx - ghostOffset : -1;
-  const hoveredGhost = hoveredGhostIdx >= 0 && hoveredGhostIdx < ghost.length ? ghost[hoveredGhostIdx] : null;
-  const hoveredGhostPt = hoveredGhostIdx >= 0 && hoveredGhostIdx < ghostPts.length ? ghostPts[hoveredGhostIdx] : null;
+  const hoveredDay         = hover ? series[hover.idx] : null;
+  const hoveredCombinedPt  = hover ? combinedPts[hover.idx] : null;
+  const hoveredOzonPt      = hover ? ozonPts[hover.idx] : null;
+  const hoveredWbPt        = hover ? wbPts[hover.idx] : null;
 
   function handleMove(e: React.MouseEvent<HTMLDivElement>) {
     if (!wrapRef.current) return;
@@ -769,103 +764,79 @@ function SparklineWithHover({
     const vbX = (localX / rect.width) * viewWidth;
     let bestIdx = 0;
     let bestDist = Infinity;
-    for (let i = 0; i < frontPts.length; i++) {
-      const d = Math.abs(frontPts[i]!.x - vbX);
+    for (let i = 0; i < combinedPts.length; i++) {
+      const d = Math.abs(combinedPts[i]!.x - vbX);
       if (d < bestDist) { bestDist = d; bestIdx = i; }
     }
     setHover({ idx: bestIdx, x: localX, y: localY });
   }
-
-  const momPct =
-    hoveredFront && hoveredGhost && hoveredGhost.revenue_rub > 0
-      ? Math.round(((hoveredFront.revenue_rub - hoveredGhost.revenue_rub) / hoveredGhost.revenue_rub) * 1000) / 10
-      : null;
-  const momTone = momPct == null ? 'na' : momPct >= 0 ? 'up' : 'down';
 
   return (
     <div style={{ marginBottom: '12px', position: 'relative' }} ref={wrapRef}
          onMouseMove={handleMove}
          onMouseLeave={() => setHover(null)}>
       <svg width="100%" height={viewHeight + 4} viewBox={`0 0 ${viewWidth} ${viewHeight + 4}`} preserveAspectRatio="none" style={{ display: 'block', cursor: 'crosshair' }}>
-        {/* Ghost (previous 30d) — light blue, behind */}
-        {ghostPts.length >= 2 && (
-          <path d={ghostPath} fill="none" stroke={COLOR_OZON_LIGHT} strokeWidth="1.5" strokeDasharray="0" opacity="0.85" />
-        )}
-        {/* Front (current 30d) — dark blue with area fill */}
-        <path d={frontArea} fill={COLOR_OZON} fillOpacity="0.08" />
-        <path d={frontPath} fill="none" stroke={COLOR_OZON} strokeWidth="1.6" />
-        <circle cx={frontPts[frontPts.length - 1]!.x} cy={frontPts[frontPts.length - 1]!.y} r="2.5" fill={COLOR_OZON} />
+        {/* Combined (green) — area fill behind + main line on top */}
+        <path d={combinedArea} fill={COLOR_COMBINED} fillOpacity="0.08" />
+        {/* Ozon (blue) — secondary line */}
+        <path d={ozonPath} fill="none" stroke={COLOR_OZON} strokeWidth="1.4" opacity="0.9" />
+        {/* WB (purple) — secondary line */}
+        <path d={wbPath} fill="none" stroke={COLOR_WB} strokeWidth="1.4" opacity="0.9" />
+        {/* Combined — drawn last so it sits on top */}
+        <path d={combinedPath} fill="none" stroke={COLOR_COMBINED} strokeWidth="1.8" />
+        <circle cx={combinedPts[combinedPts.length - 1]!.x} cy={combinedPts[combinedPts.length - 1]!.y} r="2.5" fill={COLOR_COMBINED} />
+
         {/* Hover cursor */}
-        {hoveredFrontPt && (
+        {hoveredCombinedPt && (
           <>
-            <line x1={hoveredFrontPt.x} y1={0} x2={hoveredFrontPt.x} y2={viewHeight}
+            <line x1={hoveredCombinedPt.x} y1={0} x2={hoveredCombinedPt.x} y2={viewHeight}
                   stroke="var(--fg-muted)" strokeWidth="1" strokeDasharray="2,2" opacity="0.6" />
-            {hoveredGhostPt && (
-              <circle cx={hoveredGhostPt.x} cy={hoveredGhostPt.y} r="3" fill={COLOR_OZON_LIGHT} stroke="var(--paper)" strokeWidth="1.5" />
+            {hoveredOzonPt && (
+              <circle cx={hoveredOzonPt.x} cy={hoveredOzonPt.y} r="3" fill={COLOR_OZON} stroke="var(--paper)" strokeWidth="1.5" />
             )}
-            <circle cx={hoveredFrontPt.x} cy={hoveredFrontPt.y} r="3.5" fill={COLOR_OZON} stroke="var(--paper)" strokeWidth="1.5" />
+            {hoveredWbPt && (
+              <circle cx={hoveredWbPt.x} cy={hoveredWbPt.y} r="3" fill={COLOR_WB} stroke="var(--paper)" strokeWidth="1.5" />
+            )}
+            <circle cx={hoveredCombinedPt.x} cy={hoveredCombinedPt.y} r="3.5" fill={COLOR_COMBINED} stroke="var(--paper)" strokeWidth="1.5" />
           </>
         )}
       </svg>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: 'var(--fg-3)', marginTop: '4px' }}>
-        <span>{fmtDayMonth(front[0]!.date)}</span>
+        <span>{fmtDayMonth(series[0]!.date)}</span>
         <span style={{ color: 'var(--fg-2)', fontWeight: 700 }}>
-          {front.length}-day revenue
-          {ghost.length > 0 && (
-            <span style={{ color: 'var(--fg-3)', fontWeight: 400, marginLeft: '8px' }}>
-              · vs prev {ghost.length}d
-            </span>
-          )}
+          {series.length}-day revenue
         </span>
-        <span>{fmtDayMonth(front[front.length - 1]!.date)}</span>
+        <span>{fmtDayMonth(series[series.length - 1]!.date)}</span>
       </div>
       <FloatingTooltip visible={!!hover} x={hover?.x ?? 0} y={hover?.y ?? 0} containerWidth={width}>
-        {hoveredFront && (
+        {hoveredDay && (
           <>
-            <div style={{ fontWeight: 700, marginBottom: '6px' }}>{fmtWeekday(hoveredFront.date)} · {fmtDayMonth(hoveredFront.date)}</div>
+            <div style={{ fontWeight: 700, marginBottom: '6px' }}>{fmtWeekday(hoveredDay.date)} · {fmtDayMonth(hoveredDay.date)}</div>
 
-            {/* Current day */}
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'baseline' }}>
               <span style={{ color: 'var(--fg-2)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ width: '10px', height: '2px', backgroundColor: COLOR_OZON, display: 'inline-block' }} />
-                Current
+                <span style={{ width: '10px', height: '2px', backgroundColor: COLOR_COMBINED, display: 'inline-block' }} />
+                Combined
               </span>
-              <span style={{ fontWeight: 700 }}>{fmtRubFull(hoveredFront.revenue_rub)}</span>
+              <span style={{ fontWeight: 700 }}>{fmtRubFull(hoveredDay.revenue_rub)}</span>
             </div>
 
-            {typeof hoveredFront.ozon_revenue_rub === 'number' && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '13px', color: 'var(--fg-3)' }}>
-                <span style={{ paddingLeft: '16px' }}>Ozon</span>
-                <span>{fmtRubFull(hoveredFront.ozon_revenue_rub)}</span>
+            {typeof hoveredDay.ozon_revenue_rub === 'number' && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'baseline', marginTop: '2px' }}>
+                <span style={{ color: 'var(--fg-3)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ width: '10px', height: '2px', backgroundColor: COLOR_OZON, display: 'inline-block' }} />
+                  Ozon
+                </span>
+                <span style={{ fontWeight: 700, color: 'var(--fg-2)' }}>{fmtRubFull(hoveredDay.ozon_revenue_rub)}</span>
               </div>
             )}
-            {typeof hoveredFront.wb_revenue_rub === 'number' && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '13px', color: 'var(--fg-3)' }}>
-                <span style={{ paddingLeft: '16px' }}>WB</span>
-                <span>{fmtRubFull(hoveredFront.wb_revenue_rub)}</span>
-              </div>
-            )}
-
-            {/* Previous month same day */}
-            {hoveredGhost && (
-              <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px solid var(--border-hairline)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'baseline' }}>
-                  <span style={{ color: 'var(--fg-3)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: '10px', height: '2px', backgroundColor: COLOR_OZON_LIGHT, display: 'inline-block' }} />
-                    Month ago
-                  </span>
-                  <span style={{ fontWeight: 700, color: 'var(--fg-2)' }}>{fmtRubFull(hoveredGhost.revenue_rub)}</span>
-                </div>
-                <div style={{ fontSize: '13px', color: 'var(--fg-3)', textAlign: 'right' }}>
-                  {fmtDayMonth(hoveredGhost.date)}
-                </div>
-              </div>
-            )}
-
-            {momPct != null && (
-              <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px solid var(--border-hairline)', display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'baseline' }}>
-                <span style={{ color: 'var(--fg-2)' }}>Δ MoM</span>
-                <DeltaPill tone={momTone as 'up' | 'down'}>{`${momPct >= 0 ? '+' : ''}${momPct.toFixed(1)}%`}</DeltaPill>
+            {typeof hoveredDay.wb_revenue_rub === 'number' && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'baseline', marginTop: '2px' }}>
+                <span style={{ color: 'var(--fg-3)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ width: '10px', height: '2px', backgroundColor: COLOR_WB, display: 'inline-block' }} />
+                  WB
+                </span>
+                <span style={{ fontWeight: 700, color: 'var(--fg-2)' }}>{fmtRubFull(hoveredDay.wb_revenue_rub)}</span>
               </div>
             )}
           </>

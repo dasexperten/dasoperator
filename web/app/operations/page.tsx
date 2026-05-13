@@ -36,6 +36,37 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled:        'Cancelled',
 };
 
+// Mobile status colour — a single dot/chip colour per status, no text label.
+// Sale and Purchase have different state flows but the same colour code is
+// applied based on "how far along is this in its own pipeline":
+//   grey     — draft, cancelled (inert)
+//   orange   — issued (kicked off but nothing physical happened)
+//   amber    — order_fulfilment, production, stocked (in flight)
+//   blue     — shipped (moving)
+//   green    — delivered (closed for delivery)
+const STATUS_DOT: Record<string, { bg: string; fg: string; border: string }> = {
+  draft:            { bg: 'var(--paper-sunk)',     fg: 'var(--fg-3)',      border: 'var(--border-hairline)' },
+  cancelled:        { bg: 'var(--paper-sunk)',     fg: 'var(--fg-3)',      border: 'var(--border-hairline)' },
+  issued:           { bg: 'rgba(199,122,0,0.10)',  fg: '#8A5300',          border: 'rgba(199,122,0,0.5)' },
+  order_fulfilment: { bg: 'rgba(212,160,23,0.12)', fg: '#7A5C00',          border: 'rgba(212,160,23,0.5)' },
+  production:       { bg: 'rgba(212,160,23,0.12)', fg: '#7A5C00',          border: 'rgba(212,160,23,0.5)' },
+  stocked:          { bg: 'rgba(212,160,23,0.12)', fg: '#7A5C00',          border: 'rgba(212,160,23,0.5)' },
+  shipped:          { bg: 'rgba(13,25,158,0.08)',  fg: '#0D199E',          border: 'rgba(13,25,158,0.45)' },
+  delivered:        { bg: 'rgba(46,125,79,0.10)',  fg: '#2E7D4F',          border: 'rgba(46,125,79,0.45)' },
+};
+
+function statusDot(status: string) {
+  return STATUS_DOT[status] ?? STATUS_DOT['draft']!;
+}
+
+// Amount colour for mobile cards — driven by payment_state, not status.
+const AMOUNT_PAYMENT_COLOR: Record<string, string> = {
+  paid:    '#2E7D4F',         // green — fully paid
+  partial: '#A06A2C',         // brown — partially paid
+  unpaid:  '#A82029',         // red — nothing paid
+  neutral: 'var(--fg-1)',     // black — no payment overlay (draft / cancelled)
+};
+
 function statusLabel(status: string): string {
   return STATUS_LABELS[status] ?? status;
 }
@@ -146,11 +177,11 @@ export default function OperationsPage() {
     <div className="space-y-8 max-w-7xl">
       <div className="flex items-start justify-between">
         <div>
-          <div style={{ fontFamily: 'var(--font-sans)', fontSize: '14px', fontWeight: 500, color: 'var(--fg-3)', marginBottom: '8px' }}>
+          <div className="dx-eyebrow-rot dx-hide-mobile" style={{ marginBottom: '8px' }}>
             Operations
           </div>
           <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--fs-display-md)', fontWeight: 900, color: 'var(--fg-1)' }}>
-            All Operations
+            Operations
           </h1>
           <p className="mt-2" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
             {loading ? 'Loading...' : `${operations.length} across all partners · ${filtered.length} shown`}
@@ -178,7 +209,7 @@ export default function OperationsPage() {
             className="w-full pl-10 pr-4 py-2"
             style={{ fontSize: '14px', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
         </div>
-        <div className="flex gap-3 flex-wrap">
+        <div className="dx-hide-mobile flex gap-3 flex-wrap">
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
             className="px-3 py-2"
             style={{ fontSize: '14px', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)' }}>
@@ -218,6 +249,18 @@ export default function OperationsPage() {
             Show cancelled
           </label>
         </div>
+
+        {/* Mobile filter — single 'All types' dropdown full-width */}
+        <div className="dx-show-mobile">
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
+            className="px-3 py-2"
+            style={{ width: '100%', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}>
+            <option value="all">All types</option>
+            <option value="sale">Sale</option>
+            <option value="purchase">Purchase</option>
+            <option value="transfer">Transfer</option>
+          </select>
+        </div>
       </div>
 
       {loading ? (
@@ -237,7 +280,82 @@ export default function OperationsPage() {
               {actionMsg}
             </div>
           )}
-        <div className="bg-card overflow-hidden" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
+
+        {/* Mobile card list — shown on phones (<768px) only.
+            Layout per card:
+              ┌──────────────────────────────────────┐
+              │ DEE-26050706                  [• ]   │  status colour chip (no text)
+              │ Partner Name (bold)                  │
+              │           $12,450 USD                │  amount colour = payment state
+              │                              DEE     │  entity abbreviation
+              └──────────────────────────────────────┘ */}
+        <div className="dx-show-mobile" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {filtered.length === 0 ? (
+            <div className="text-center py-12" style={{ color: 'var(--fg-3)' }}>No operations match the filters</div>
+          ) : (
+            filtered.map((op) => {
+              const sd = statusDot(op.status);
+              const ps = op.payment_state ?? 'neutral';
+              const amountColor = AMOUNT_PAYMENT_COLOR[ps] ?? 'var(--fg-1)';
+              const partnerLabel = op.partner_trade_name ?? op.manufacturer_name ?? '—';
+              return (
+                <Link
+                  key={`m-${op.id}`}
+                  href={`/operations/${op.id}`}
+                  className="bg-card"
+                  style={{
+                    display: 'block',
+                    padding: '12px 14px',
+                    border: '1px solid var(--border-hairline)',
+                    borderRadius: 'var(--radius-md)',
+                    color: 'var(--fg-1)',
+                  }}
+                >
+                  {/* Row 1: reference + status dot chip */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                    <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-2)' }}>
+                      {op.reference ?? op.id.slice(0, 12)}
+                    </span>
+                    <span
+                      aria-label={statusLabel(op.status)}
+                      title={statusLabel(op.status)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: 24,
+                        height: 24,
+                        borderRadius: '50%',
+                        backgroundColor: sd.fg,
+                        border: `2px solid ${sd.border}`,
+                        flexShrink: 0,
+                      }}
+                    />
+                  </div>
+                  {/* Row 2: partner / manufacturer name bold */}
+                  <div className="dx-product-name" style={{ fontSize: '16px', fontWeight: 800, marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {partnerLabel}
+                  </div>
+                  {/* Row 3: amount centred, colour = payment state */}
+                  <div style={{ textAlign: 'center', marginTop: '10px', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '20px', fontWeight: 800, color: amountColor, whiteSpace: 'nowrap' }}>
+                      {formatMoney(op.total_amount, op.currency)}
+                      <span style={{ fontSize: '13px', color: 'var(--fg-3)', marginLeft: '6px', fontWeight: 700 }}>{op.currency}</span>
+                    </span>
+                  </div>
+                  {/* Row 4: entity right-aligned */}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--fg-2)' }}>
+                      {op.entity_abbreviation ?? '—'}
+                    </span>
+                  </div>
+                </Link>
+              );
+            })
+          )}
+        </div>
+
+        <div className="dx-hide-mobile bg-card overflow-hidden" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
           <table className="w-full" style={{ fontSize: '14px', fontFamily: 'var(--font-sans)' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>

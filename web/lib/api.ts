@@ -1675,3 +1675,33 @@ export async function syncBankHistory(body?: {
   }>('/api/banks/modulbank/sync-history', body ?? {});
 }
 
+// =============================================================================
+// Bank statement sources (email inboxes for emailer-skill auto-import)
+// =============================================================================
+export interface BankStatementSource {
+  id: string;
+  email: string;
+  company_id: string;
+  company_abbreviation: string;
+  company_legal_name: string;
+  is_active: number;
+  notes: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export async function getBankStatementSources() {
+  return apiGet<{ sources: BankStatementSource[] }>('/api/bank-statement-sources');
+}
+
+export async function createBankStatementSource(body: {
+  email: string;
+  company_id: 'dee' | 'dei' | 'dasean' | 'dec';
+  notes?: string;
+}) {
+  return apiPost<{ source: BankStatementSource }>('/api/bank-statement-sources', body);
+}
+
+export async function deleteBankStatementSource(id: string) {
+  return apiDelete<{ id: string; deleted: boolean }>(`/api/bank-statement-sources/${id}`);
+}

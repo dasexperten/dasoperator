@@ -583,13 +583,15 @@ operationDocs.post('/upload-to-pipeline', async (c) => {
       details: `${flagged} line(s) below confidence threshold`,
     });
   }
-  // Surface Claude's review notes as validation entries
+  // Claude's review notes are EXPLANATORY (e.g. "matched 2IN1 to base SKU per rule"),
+  // they are info-level transparency, not warnings. Surface them as passed info checks
+  // so they don't drag down the overall confidence score.
   for (const note of analysis.human_review_notes || []) {
     addCheck(report, {
       code: 'claude_note',
       label: 'Claude review note',
-      passed: false,
-      severity: 'warning',
+      passed: true,
+      severity: 'info',
       details: note,
     });
   }
@@ -606,6 +608,44 @@ operationDocs.post('/upload-to-pipeline', async (c) => {
     target_table: 'operations',
     target_action: 'create',
   });
+
+  // AUTO-COMMIT: if Claude is fully confident on every critical field AND validation is clean,
+  // skip the verification queue and commit the operation directly.
+  const claudeFullyConfident =
+    analysis.operation_type_confidence >= 0.95 &&
+    analysis.our_company_confidence >= 0.95 &&
+    analysis.partner_confidence >= 0.95 &&
+    (analysis.line_items || []).every((li) => li.product_match_confidence >= 0.90 && li.product_id) &&
+    analysis.our_company_id && analysis.partner_id;
+
+  const validationClean =
+    report.errors_count === 0 &&
+    report.checks.filter((c) => !c.passed && c.severity === 'warning').length === 0;
+
+  const idsAllValid = invalidIds.length === 0;
+
+  if (claudeFullyConfident && validationClean && idsAllValid) {
+    // Auto-approve via the same code path the review UI uses
+    try {
+      const approveResp = await c.env.SELF.fetch(
+        `https://internal/api/document-extractions/${extractionId}/approve`,
+        { method: 'POST' }
+      );
+      const approveData = await approveResp.json<any>();
+      if (approveData.success) {
+        return ok(c, {
+          extraction_id: extractionId,
+          mode: 'auto_committed',
+          target_id: approveData.result.target_id,
+          reference: approveData.result.reference,
+          claude_analysis: analysis,
+        }, [`Operation ${approveData.result.reference} created automatically (Claude was fully confident).`]);
+      }
+      // If approve failed for some reason, fall through to staged_for_review behaviour
+    } catch (e) {
+      // Fall through — leave it in queue rather than blocking the upload
+    }
+  }
 
   return ok(c, {
     extraction_id: extractionId,

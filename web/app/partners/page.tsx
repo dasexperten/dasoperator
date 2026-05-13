@@ -235,7 +235,7 @@ export default function PartnersPage() {
                 console.error('recalc failed', e);
               }
             }}
-            className="inline-flex items-center gap-2 px-3 py-2"
+            className="dx-hide-mobile inline-flex items-center gap-2 px-3 py-2"
             style={{
               backgroundColor: 'transparent',
               color: 'var(--fg-2)',
@@ -265,6 +265,7 @@ export default function PartnersPage() {
       <div className="dx-ribbon-rule" />
 
       <div
+        className="dx-hide-mobile"
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
@@ -324,6 +325,19 @@ export default function PartnersPage() {
         </div>
 
         <div className="flex gap-3">
+          {/* Mobile-only partner type filter — replaces the 6 type cards above */}
+          <select
+            value={kindFilter}
+            onChange={(e) => setKindFilter(e.target.value as 'all' | Kind)}
+            className="dx-show-mobile px-3 py-2 text-sm focus:outline-none"
+            style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}>
+            <option value="all">All types</option>
+            <option value="buyer">Buyers</option>
+            <option value="manufacturer">Manufacturers</option>
+            <option value="service_provider">Service providers</option>
+            <option value="shipper">Shippers</option>
+            <option value="3pl">3PL</option>
+          </select>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
             className="px-3 py-2 text-sm focus:outline-none"
             style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}>
@@ -339,7 +353,7 @@ export default function PartnersPage() {
             <option value="all">All entities</option>
             {entities.map((e) => <option key={e} value={e}>{e}</option>)}
           </select>
-          <div className="ml-auto self-center" style={{ fontSize: 'var(--fs-caption)', color: 'var(--fg-3)' }}>
+          <div className="dx-hide-mobile ml-auto self-center" style={{ fontSize: 'var(--fs-caption)', color: 'var(--fg-3)' }}>
             {filtered.length} / {partners.length}
           </div>
         </div>

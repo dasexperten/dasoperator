@@ -485,3 +485,116 @@ input[type="number"] {
     display: none;
   }
 }
+
+/* ===========================================================================
+   MOBILE PAGE-HEADER COMPACTION (sections 15-19) — added 2026-05-13
+   Removes decorative elements on phones across every list page without
+   editing the 30+ individual page.tsx files. Targets the recurring pattern:
+
+     <div class="space-y-8">
+       <div class="flex items-start justify-between gap-6">
+         <div>
+           <div class="dx-eyebrow-rot">Master Data</div>
+           <h1 [fs-display-md]>Products</h1>
+           <p>{count description}</p>
+         </div>
+         <Link class="...">+ Add product</Link>
+       </div>
+       <div class="dx-ribbon-rule" />
+       ...search + filters
+     </div>
+   =========================================================================== */
+
+/* ---- 15. Hide decorative eyebrow + ribbon + subtitle on mobile ---- */
+@media (max-width: 767px) {
+  /* "Master Data" / "Inventory" red eyebrow above page title — kill it */
+  .dx-eyebrow-rot {
+    display: none !important;
+  }
+  /* Three-colour ribbon between title-row and content — kill it */
+  .dx-ribbon-rule {
+    display: none !important;
+  }
+  /* Subtitle line under <h1> ("Loading..." / "20 products · 9 toothpastes...")
+     The recurring pattern is <h1> immediately followed by <p>. Hide that p. */
+  h1 + p {
+    display: none !important;
+  }
+}
+
+/* ---- 16. Compact h1 + inline action button on mobile ---- */
+@media (max-width: 767px) {
+  /* Force the title row container to stay on ONE line */
+  .flex.items-start.justify-between {
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    gap: 12px !important;
+  }
+  /* Shrink display-font headings to 22px so they fit next to the button */
+  .flex.items-start.justify-between h1,
+  .flex.items-center.justify-between h1 {
+    font-size: 22px !important;
+    line-height: 1.2 !important;
+    font-weight: 900 !important;
+  }
+  /* The action button (red "+ Add product" Link) — keep it compact, no shrink */
+  .flex.items-start.justify-between a[class*="bg"],
+  .flex.items-center.justify-between a[class*="bg"],
+  .flex.items-start.justify-between > a:last-child,
+  .flex.items-center.justify-between > a:last-child {
+    flex-shrink: 0 !important;
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    min-height: 40px !important;
+    white-space: nowrap;
+  }
+  /* The space-y-8 container above the title row collapses on mobile */
+  .space-y-8 > * + * {
+    margin-top: 16px !important;
+  }
+}
+
+/* ---- 17. Filter row: two selects side-by-side on mobile ---- */
+@media (max-width: 767px) {
+  /* On products / partners / operations pages, filter selects sit inside
+     <div class="flex gap-3 items-center"> rows. We want them side-by-side
+     (2 columns) on phone instead of stacked. */
+  .flex.gap-2.items-center,
+  .flex.gap-3.items-center,
+  .flex.gap-4.items-center {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px !important;
+    align-items: stretch;
+  }
+  /* If there's an odd third item (a button) it spans both columns */
+  .flex.gap-2.items-center > *:nth-child(odd):last-child,
+  .flex.gap-3.items-center > *:nth-child(odd):last-child,
+  .flex.gap-4.items-center > *:nth-child(odd):last-child {
+    grid-column: 1 / -1;
+  }
+  /* Selects inside become full-width within their grid cell */
+  .flex.gap-2.items-center > select,
+  .flex.gap-3.items-center > select,
+  .flex.gap-4.items-center > select {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+}
+
+/* ---- 18. Search input row: full width, max-w-xl ignored on mobile ---- */
+@media (max-width: 767px) {
+  /* Search box wrapper uses max-w-xl/2xl on desktop — let it fill on mobile */
+  .relative.max-w-xl,
+  .relative.max-w-2xl,
+  .relative.max-w-md,
+  .relative.max-w-lg {
+    max-width: 100% !important;
+  }
+}
+
+/* ---- 19. Loading state ("Loading...") inline in subtitle: also hidden ----
+   Captured via rule 15 (h1 + p). No extra rule needed. */
+

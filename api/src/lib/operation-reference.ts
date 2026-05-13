@@ -1,18 +1,16 @@
 // =============================================================================
 // Operation reference generator
-// Format: ENTITY-YYMMDDXX
-//   ENTITY — uppercase company id (DEE, DEI, DASEAN, DEC)
-//   YYMMDD — UTC date from operation_date (unix seconds)
-//   XX     — daily counter within (entity, day), 01..99 (zero-padded, 2 digits)
+// Format: PREFIX-YYMMDDXX
 //
-// Counter is computed by scanning existing references matching the
-// ENTITY-YYMMDD prefix for the same day and taking max+1.
-// Cancelled, deleted, and legacy-format references are still counted
-// (via prefix LIKE) only if they happen to share the new format;
-// historical "DEE-123" style refs never match the prefix and are ignored.
+// Prefix rule:
+//   - PURCHASE  → manufacturer.abbreviation (e.g. HHUI, MEIZ, YZJX, WDAA)
+//   - SALE      → companies.id uppercase   (e.g. DEE, DEI, DASEAN, DEC)
+//   - TRANSFER  → companies.id uppercase   (our_company is sender)
+//   - SERVICE   → companies.id uppercase
+//   - PRODUCTION→ companies.id uppercase
 //
-// In practice the daily count rarely exceeds 9; XX=02 leaves room up to 99.
-// If a day ever overflows (>99) we silently widen to 3+ digits.
+// YYMMDD — UTC date from operation_date (unix seconds)
+// XX     — daily counter within (prefix, day), 01..99 (zero-padded, 2 digits)
 // =============================================================================
 
 const ENTITY_FROM_COMPANY: Record<string, string> = {
@@ -35,37 +33,69 @@ function yymmddFromUnix(unixSec: number): string {
 }
 
 export interface OperationReferenceResult {
-  reference: string;       // e.g. "DEE-26051301"
-  entity: string;          // e.g. "DEE"
+  reference: string;       // e.g. "HHUI-26041601" or "DEE-26051301"
+  entity: string;          // the prefix used
   yymmdd: string;          // e.g. "260513"
   counter: number;         // e.g. 1
 }
 
+export interface ReferenceInput {
+  operationType: string;          // purchase | sale | transfer | service | production
+  operationDateUnix: number;
+  ourCompanyId: string;
+  manufacturerId?: string | null; // for purchases — overrides prefix with manufacturer.abbreviation
+}
+
 /**
- * Issue the next operation reference for the given (company, operation_date).
- * Reads existing references in the same (entity, day) bucket and returns
+ * Resolve the prefix string for this operation.
+ * Purchases use the manufacturer's abbreviation; everything else uses our company.
+ */
+async function resolvePrefix(
+  db: D1Database,
+  input: ReferenceInput,
+): Promise<string | null> {
+  if (input.operationType === 'purchase' && input.manufacturerId) {
+    const row = await db.prepare(
+      'SELECT abbreviation FROM manufacturers WHERE id = ?'
+    ).bind(input.manufacturerId).first<{ abbreviation: string | null }>();
+    if (row?.abbreviation) return row.abbreviation.toUpperCase();
+    // Fallback: if manufacturer has no abbreviation, derive from id
+    return input.manufacturerId.toUpperCase().slice(0, 6);
+  }
+  // Sale / transfer / service / production — use our_company entity
+  return entityForCompany(input.ourCompanyId);
+}
+
+/**
+ * Issue the next operation reference for the given inputs.
+ * Reads existing references in the same (prefix, day) bucket and returns
  * max(counter) + 1.
- *
- * Race condition note: D1 has no UNIQUE constraint on operations.reference,
- * so concurrent inserts in the same millisecond on the same day could in
- * theory issue the same reference. In a single-region single-writer Worker
- * this is effectively impossible; if it ever does happen we accept the
- * collision (operations.reference is informational, not a primary key).
  */
 export async function issueOperationReference(
   db: D1Database,
-  companyId: string,
-  operationDateUnix: number
+  ...args: [ReferenceInput] | [string, number]
 ): Promise<OperationReferenceResult | null> {
-  const entity = entityForCompany(companyId);
+  // Two call signatures supported for backward compat:
+  //   issueOperationReference(db, { operationType, ourCompanyId, manufacturerId, operationDateUnix })
+  //   issueOperationReference(db, companyId, operationDateUnix)  ← legacy, treats as our_company prefix
+  let input: ReferenceInput;
+  if (typeof args[0] === 'string') {
+    input = {
+      operationType: 'unknown',
+      ourCompanyId: args[0] as string,
+      operationDateUnix: args[1] as number,
+    };
+  } else {
+    input = args[0] as ReferenceInput;
+  }
+
+  const entity = await resolvePrefix(db, input);
   if (!entity) return null;
 
-  const yymmdd = yymmddFromUnix(operationDateUnix);
-  const prefix = `${entity}-${yymmdd}`;          // e.g. "DEE-260513"
-  const likePattern = `${prefix}%`;              // e.g. "DEE-260513%"
+  const yymmdd = yymmddFromUnix(input.operationDateUnix);
+  const prefix = `${entity}-${yymmdd}`;
+  const likePattern = `${prefix}%`;
 
-  // Pull all existing refs in this (entity, day) bucket, including cancelled
-  // and soft-deleted, so the counter never collides with a historical row.
   const rows = await db.prepare(`
     SELECT reference
     FROM operations
@@ -75,7 +105,6 @@ export async function issueOperationReference(
   let maxCounter = 0;
   for (const row of rows.results) {
     const ref = row.reference;
-    // Strip prefix; remaining must be all digits (the counter).
     if (!ref || !ref.startsWith(prefix)) continue;
     const tail = ref.slice(prefix.length);
     if (!/^\d+$/.test(tail)) continue;

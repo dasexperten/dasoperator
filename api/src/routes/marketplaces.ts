@@ -486,7 +486,7 @@ marketplaces.get('/pulse/sales-today', async (c) => {
     }
   }
   // For each marketplace, locate "today's row" (= most recent) and "previous day"
-  function pulseFor(mp: 'ozon' | 'wb') {
+  function pulseFor(mp: 'ozon' | 'wb' | 'site') {
     const all = rows.results.filter(r => r.marketplace === mp);
     if (all.length === 0) return { revenue_rub: 0, units: 0, delta_pct: null, last_date: null };
     const today = all[0];
@@ -504,6 +504,7 @@ marketplaces.get('/pulse/sales-today', async (c) => {
 
   const ozon = pulseFor('ozon');
   const wb = pulseFor('wb');
+  const site = pulseFor('site');
 
   // Spark: latest 60 days (current 30d + previous 30d for month-over-month overlay).
   // Front-end takes last 30 as the foreground line and the 30 before as the ghost line.
@@ -512,20 +513,22 @@ marketplaces.get('/pulse/sales-today', async (c) => {
            SUM(revenue_rub) / 100 AS revenue_rub,
            SUM(CASE WHEN marketplace = 'ozon' THEN revenue_rub ELSE 0 END) / 100 AS ozon_revenue_rub,
            SUM(CASE WHEN marketplace = 'wb'   THEN revenue_rub ELSE 0 END) / 100 AS wb_revenue_rub,
+           SUM(CASE WHEN marketplace = 'site' THEN revenue_rub ELSE 0 END) / 100 AS site_revenue_rub,
            SUM(units_sold) AS units
     FROM marketplace_sales_daily
     WHERE date >= date('now', '-59 days')
     GROUP BY date
     ORDER BY date ASC
     LIMIT 60
-  `).all<{ date: string; revenue_rub: number; ozon_revenue_rub: number; wb_revenue_rub: number; units: number }>();
+  `).all<{ date: string; revenue_rub: number; ozon_revenue_rub: number; wb_revenue_rub: number; site_revenue_rub: number; units: number }>();
 
   return ok(c, {
     ozon,
     wb,
+    site,
     combined: {
-      revenue_rub: ozon.revenue_rub + wb.revenue_rub,
-      units: ozon.units + wb.units,
+      revenue_rub: ozon.revenue_rub + wb.revenue_rub + site.revenue_rub,
+      units: ozon.units + wb.units + site.units,
     },
     spark: spark.results,
   });

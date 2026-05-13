@@ -274,10 +274,15 @@ marketplacesExtras.post('/sync/sales/ozon', async (c) => {
     }
 
     // Write
+    // Note: we DELETE FROM marketplace_sales_ozon (per-SKU snapshot — always
+    // reflects last 7d window, so a full wipe is correct).
+    // We do NOT delete from marketplace_sales_daily — that table is a rolling
+    // historical log keyed by (marketplace, date). The cron writes the last
+    // 7 days each run, using ON CONFLICT REPLACE to upsert. Older dates
+    // (e.g. from backfill) stay intact and accumulate over time.
     const now = Math.floor(Date.now() / 1000);
     const stmts: D1PreparedStatement[] = [
       c.env.DB.prepare('DELETE FROM marketplace_sales_ozon'),
-      c.env.DB.prepare("DELETE FROM marketplace_sales_daily WHERE marketplace = 'ozon'"),
     ];
     for (const [sku, v] of perSku.entries()) {
       const avgPos = v.positions.length > 0
@@ -308,11 +313,15 @@ marketplacesExtras.post('/sync/sales/ozon', async (c) => {
       stmts.push(
         c.env.DB.prepare(
           `INSERT INTO marketplace_sales_daily (marketplace, date, units_sold, revenue_rub, synced_at)
-           VALUES ('ozon', ?, ?, ?, ?)`
+           VALUES ('ozon', ?, ?, ?, ?)
+           ON CONFLICT (marketplace, date) DO UPDATE SET
+             units_sold = excluded.units_sold,
+             revenue_rub = excluded.revenue_rub,
+             synced_at = excluded.synced_at`
         ).bind(d, v.units, v.revenue, now)
       );
     }
-    if (stmts.length > 2) await c.env.DB.batch(stmts);
+    if (stmts.length > 1) await c.env.DB.batch(stmts);
 
     await c.env.DB.prepare(
       'UPDATE marketplace_sync_log SET finished_at = ?, status = ?, rows_synced = ? WHERE id = ?'
@@ -427,7 +436,7 @@ marketplacesExtras.post('/sync/sales/wb', async (c) => {
     const now = Math.floor(Date.now() / 1000);
     const stmts: D1PreparedStatement[] = [
       c.env.DB.prepare('DELETE FROM marketplace_sales_wb'),
-      c.env.DB.prepare("DELETE FROM marketplace_sales_daily WHERE marketplace = 'wb'"),
+      // Note: no DELETE from marketplace_sales_daily — see ozon handler comment.
     ];
     for (const [sku, v] of filtered.entries()) {
       const ad = advertMap.get(sku);
@@ -457,11 +466,15 @@ marketplacesExtras.post('/sync/sales/wb', async (c) => {
       stmts.push(
         c.env.DB.prepare(
           `INSERT INTO marketplace_sales_daily (marketplace, date, units_sold, revenue_rub, synced_at)
-           VALUES ('wb', ?, ?, ?, ?)`
+           VALUES ('wb', ?, ?, ?, ?)
+           ON CONFLICT (marketplace, date) DO UPDATE SET
+             units_sold = excluded.units_sold,
+             revenue_rub = excluded.revenue_rub,
+             synced_at = excluded.synced_at`
         ).bind(d, v.units, v.revenue, now)
       );
     }
-    if (stmts.length > 2) await c.env.DB.batch(stmts);
+    if (stmts.length > 1) await c.env.DB.batch(stmts);
 
     await c.env.DB.prepare(
       'UPDATE marketplace_sync_log SET finished_at = ?, status = ?, rows_synced = ? WHERE id = ?'

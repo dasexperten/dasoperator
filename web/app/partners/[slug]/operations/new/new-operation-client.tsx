@@ -1083,8 +1083,10 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
         </Section>
       )}
 
-      {/* Section C: Operation Details — goods track only */}
+      {/* Section C: Operation Details — goods track only.
+          Service track skips Operation Details AND Line Items below. */}
       {!isServiceMode && (
+      <>
       <Section label="Operation Details" disabled={!isReadyForDetails}>
         <div>
           <Label>Date *</Label>
@@ -1445,6 +1447,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
         </div>
       )}
 
+      </>
       )}
 
       <div className="flex gap-3">

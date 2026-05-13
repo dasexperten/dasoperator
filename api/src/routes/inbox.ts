@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { findExistingPartnerByName, isBankProviderName, generateReadablePartnerId } from '../lib/partner-dedup';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { runInboxIngestion } from '../lib/inbox-ingestion';
@@ -164,6 +165,7 @@ inbox.post('/:id/confirm', async (c) => {
     // Resolve target partner — either matched, or create one
     let partnerId: string = row.matched_partner_id;
     let partnerCreated = false;
+    let partnerKind: string = 'service_provider';
 
     if (!partnerId) {
       // Need to create a service vendor partner
@@ -178,18 +180,35 @@ inbox.post('/:id/confirm', async (c) => {
       const bankAccount = String(row.extracted_bank_account ?? '').trim();
       const serviceCategory = String(row.extracted_service_category ?? '').trim();
 
-      // Slug from name
-      const slug = legalName
-        .toLowerCase()
-        .replace(/[^a-z0-9а-яё]+/gi, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 60) || `vendor-${now}`;
+      // Pre-check 1: reject bank names that leaked through as vendor names
+      // (LLM parser sometimes pulls the receiving bank's name from the
+      // payment-instructions block of an invoice). Banks belong in
+      // bank_providers, never in partners.
+      if (await isBankProviderName(c.env.DB, legalName)) {
+        return fail(c, 422, [{
+          code: 'extracted_vendor_is_bank',
+          message: `Extracted vendor name "${legalName}" matches a registered bank provider. ` +
+            `This is a payment-routing artefact from the invoice. ` +
+            `Please re-check the parsed data and supply the actual vendor name or partner_id.`,
+        }]);
+      }
 
-      partnerId = `prt_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-      const tradeName = legalName.length > 60 ? legalName.slice(0, 60) : legalName;
+      // Pre-check 2: dedup by name. If a partner with this name already
+      // exists (live, any kind), reuse it. Prevents 4-Accuvat-rows-in-2-min
+      // incidents from repeated invoice confirms.
+      const existing = await findExistingPartnerByName(c.env.DB, legalName);
+      if (existing) {
+        partnerId = existing.id;
+        partnerKind = existing.kind || 'service_provider';
+      } else {
+        // Brand new vendor — readable id, never opaque prt_${uuid16}.
+        const newId = await generateReadablePartnerId(c.env.DB, legalName);
+        partnerId = newId;
+        const slug = newId; // mirror id for consistency
+        const tradeName = legalName.length > 60 ? legalName.slice(0, 60) : legalName;
 
-      await c.env.DB.prepare(
-        `INSERT INTO partners (
+        await c.env.DB.prepare(
+          `INSERT INTO partners (
           id, trade_name, legal_name, country, city, tax_id, slug, email,
           partner_type, role, status, kind,
           currency, modes,
@@ -213,7 +232,9 @@ inbox.post('/:id/confirm', async (c) => {
         serviceCategory ? `Service category: ${serviceCategory}` : null,
         now, now,
       ).run();
-      partnerCreated = true;
+        partnerCreated = true;
+        partnerKind = 'service_provider';
+      }
     }
 
     // Create service operation

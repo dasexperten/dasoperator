@@ -15,6 +15,7 @@
 // =============================================================================
 
 import { Hono } from 'hono';
+import { findExistingPartnerByName, isBankProviderName, generateReadablePartnerId } from '../lib/partner-dedup';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { suggestRuleFromAssignment } from '../lib/bank-match-rules';
@@ -403,12 +404,22 @@ inboxBanking.post('/:tx_id/assign-partner', async (c) => {
       partnerId = existing.id;
       partnerKind = existing.kind || 'other';
     } else if (body.trade_name && body.kind) {
-      // Create new partner draft.
-      const newId = `prt_inbox_${crypto.randomUUID().slice(0, 8)}`;
-      const slug = body.trade_name.toLowerCase()
-        .replace(/[^a-zа-я0-9]+/gi, '-')
-        .replace(/^-|-$/g, '')
-        .slice(0, 60) || newId.slice(-8);
+      // Pre-check 1: reject bank-provider names (payment-routing artefact).
+      if (await isBankProviderName(c.env.DB, body.trade_name)) {
+        return fail(c, 422, [{
+          code: 'trade_name_is_bank',
+          message: `"${body.trade_name}" matches a registered bank provider. Banks belong in bank_providers, not partners.`,
+        }]);
+      }
+      // Pre-check 2: dedup by name — reuse existing partner if found.
+      const existing = await findExistingPartnerByName(c.env.DB, body.trade_name);
+      if (existing) {
+        partnerId = existing.id;
+        partnerKind = existing.kind || body.kind;
+      } else {
+      // Brand new partner — readable id.
+      const newId = await generateReadablePartnerId(c.env.DB, body.trade_name);
+      const slug = newId;
       await c.env.DB.prepare(`
         INSERT INTO partners (
           id, trade_name, legal_name, tax_id, inn, currency, kind,
@@ -427,6 +438,7 @@ inboxBanking.post('/:tx_id/assign-partner', async (c) => {
       ).run();
       partnerId = newId;
       partnerKind = body.kind;
+      }
     } else {
       return fail(c, 400, [{
         code: 'invalid_body',

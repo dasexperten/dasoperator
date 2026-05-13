@@ -285,7 +285,7 @@ function UploadStatementModal({
               Upload Bank Statement
             </h2>
             <p style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
-              Drop a CSV or PDF statement file. Parsing will run on next step.
+              Drop a CSV, Excel, or PDF statement file. Parsing will run on next step.
             </p>
           </div>
           <button onClick={handleClose} style={{ color: 'var(--fg-3)' }}>
@@ -316,7 +316,7 @@ function UploadStatementModal({
           )}
           <input
             type="file"
-            accept=".csv,.pdf,.xlsx,.xls"
+            accept=".csv,.pdf,.xlsx,.xls,.tsv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/pdf,text/csv,text/plain"
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             style={{ display: 'none' }}
             id="statement-file-input"

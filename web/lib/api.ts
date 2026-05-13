@@ -1406,6 +1406,40 @@ export async function getMarketplaceStocks() {
   return apiGet<MarketplaceStocksResponse>('/api/marketplaces/stocks');
 }
 
+// =============================================================================
+// External warehouse stocks (Phase 7.x — F4 Lyubertsy via Skladbot WMS)
+// =============================================================================
+// The same physical warehouse (lbr) is operated by an external fulfillment
+// partner. Their numbers come from an external WMS API. We store the snapshot
+// in external_stocks and show it in brackets next to our internal number on
+// the warehouses page.
+
+export interface ExternalStockByProductRow {
+  product_id: string | null;
+  warehouse_id: string;
+  external_vendor_code: string;
+  amount: number;
+  reserve_amount: number;
+  repair_amount: number;
+  synced_at: number;
+}
+
+export interface ExternalStocksByProductResponse {
+  rows: ExternalStockByProductRow[];
+}
+
+export async function getExternalStocksByProduct() {
+  return apiGet<ExternalStocksByProductResponse>('/api/external-stocks/by-product');
+}
+
+export async function syncExternalStocks(warehouseId?: string) {
+  return apiPost<{ synced: Array<{ warehouse_id: string; rows: number; provider: string }> }>(
+    '/api/external-stocks/sync',
+    warehouseId ? { warehouse_id: warehouseId } : {}
+  );
+}
+
+
 
 
 // =============================================================================

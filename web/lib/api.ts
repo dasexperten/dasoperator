@@ -1940,3 +1940,85 @@ export async function uploadOperationDocument(file: File, operationId?: string) 
     messages: string[];
   }>;
 }
+
+// =============================================================================
+// Finance categories + bank match rules
+// =============================================================================
+export interface FinanceCategory {
+  id: string;
+  code: string;
+  label: string;
+  description: string | null;
+  direction: 'incoming' | 'outgoing' | 'any';
+  default_operation_type: 'sale' | 'purchase' | 'transfer' | 'bundling';
+  default_partner_kind: string | null;
+  always_confirm: number;
+  sort_order: number;
+  color: string | null;
+  icon: string | null;
+  rule_count?: number;
+  tx_count?: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface BankMatchRule {
+  id: string;
+  category_id: string | null;
+  partner_id: string | null;
+  contragent_inn: string | null;
+  contragent_iban: string | null;
+  purpose_pattern: string | null;
+  direction: 'incoming' | 'outgoing' | 'any';
+  default_operation_type: string | null;
+  default_our_company_id: string | null;
+  hit_count: number;
+  last_hit_at: number | null;
+  category_label?: string;
+  category_color?: string;
+  partner_name?: string;
+  partner_kind?: string;
+  company_abbreviation?: string;
+  notes: string | null;
+  created_at: number;
+}
+
+export async function getFinanceCategories() {
+  return apiGet<{ categories: FinanceCategory[] }>('/api/finance-categories');
+}
+export async function createFinanceCategory(data: Partial<FinanceCategory>) {
+  return apiPost<{ category: FinanceCategory }>('/api/finance-categories', data);
+}
+export async function updateFinanceCategory(id: string, data: Partial<FinanceCategory>) {
+  return apiPatch<{ category: FinanceCategory }>(`/api/finance-categories/${id}`, data);
+}
+export async function deleteFinanceCategory(id: string) {
+  return apiDelete<{ id: string }>(`/api/finance-categories/${id}`);
+}
+
+export async function getBankMatchRules(categoryId?: string) {
+  const qs = categoryId ? `?category_id=${encodeURIComponent(categoryId)}` : '';
+  return apiGet<{ rules: BankMatchRule[] }>(`/api/bank-match-rules${qs}`);
+}
+export async function createBankMatchRule(data: Partial<BankMatchRule>) {
+  return apiPost<{ rule: BankMatchRule }>('/api/bank-match-rules', data);
+}
+export async function updateBankMatchRule(id: string, data: Partial<BankMatchRule>) {
+  return apiPatch<{ id: string }>(`/api/bank-match-rules/${id}`, data);
+}
+export async function deleteBankMatchRule(id: string) {
+  return apiDelete<{ id: string }>(`/api/bank-match-rules/${id}`);
+}
+
+export async function previewRuleClassification(input: {
+  contragent_inn?: string | null;
+  contragent_iban?: string | null;
+  payment_purpose?: string | null;
+  direction: 'incoming' | 'outgoing';
+}) {
+  return apiPost<{
+    result: { category_id: string | null; confidence: number; source: string | null; reason: string };
+    decision: { action: 'auto_classify' | 'inbox_suggest' | 'inbox_blank'; category_id: string | null; reason: string };
+    category: FinanceCategory | null;
+  }>('/api/bank-match-rules/preview', input);
+}

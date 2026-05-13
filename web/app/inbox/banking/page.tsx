@@ -6,7 +6,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import {
   Loader2, RefreshCw, AlertCircle, CheckCircle2, ChevronDown,
-  Link2, UserPlus, FastForward, ArrowUpRight, Wallet,
+  Link2, UserPlus, FastForward, ArrowUpRight, Wallet, Trash2, Sparkles, X,
 } from 'lucide-react';
 
 const API_BASE = 'https://dasoperator-api.dasexperten.workers.dev';
@@ -506,6 +506,7 @@ function ResolutionActions({
   const [mode, setMode] = useState<ActionMode>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [ruleDialogOpId, setRuleDialogOpId] = useState<string | null>(null);
 
   const doSimple = useCallback(async (path: string, body: Record<string, unknown> = {}) => {
     setBusy(true);
@@ -563,11 +564,15 @@ function ResolutionActions({
           />
         )}
         <ActionButton
-          icon={<FastForward size={14} />}
-          label="Skip (handled elsewhere)"
+          icon={<Trash2 size={14} />}
+          label="Dismiss"
           active={false}
           disabled={busy}
-          onClick={() => doSimple('skip', {})}
+          onClick={() => {
+            if (confirm('Dismiss this transaction from the inbox? It stays in bank history.')) {
+              doSimple('skip', { reason: 'dismissed' });
+            }
+          }}
         />
       </div>
 
@@ -577,7 +582,10 @@ function ResolutionActions({
           busy={busy}
           setBusy={setBusy}
           setActionError={setActionError}
-          onResolved={onResolved}
+          onResolved={(opId) => {
+            if (opId) setRuleDialogOpId(opId);
+            else onResolved();
+          }}
         />
       )}
 
@@ -590,7 +598,17 @@ function ResolutionActions({
           onResolved={onResolved}
         />
       )}
-    </div>
+    
+      {ruleDialogOpId && (
+        <RuleSuggestionDialog
+          txId={item.id}
+          operationId={ruleDialogOpId}
+          onClose={() => { setRuleDialogOpId(null); onResolved(); }}
+          onConfirm={() => { setRuleDialogOpId(null); onResolved(); }}
+        />
+      )}
+
+      </div>
   );
 }
 
@@ -635,7 +653,7 @@ function AttachPanel({
   busy: boolean;
   setBusy: (b: boolean) => void;
   setActionError: (s: string | null) => void;
-  onResolved: () => void;
+  onResolved: (operationId?: string) => void;
 }) {
   const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
   const [loadingSugg, setLoadingSugg] = useState(true);
@@ -667,7 +685,7 @@ function AttachPanel({
         body: JSON.stringify({ operation_id: operationId }),
       });
       const data = await r.json();
-      if (data.success) onResolved();
+      if (data.success) onResolved(operationId);
       else setActionError(data.errors?.[0]?.message || 'Attach failed');
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e));
@@ -974,3 +992,191 @@ const inputStyle: React.CSSProperties = {
   background: 'var(--paper-base, #fff)',
   color: 'var(--fg-1)',
 };
+
+
+// =============================================================================
+// Rule Suggestion Dialog — shown after attach/assign succeeds
+// =============================================================================
+function RuleSuggestionDialog({
+  txId, operationId, onClose, onConfirm,
+}: {
+  txId: string; operationId: string;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const [suggestion, setSuggestion] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [pattern, setPattern] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/bank-match-rules/suggest`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tx_id: txId, operation_id: operationId }),
+        });
+        const data = await r.json();
+        if (data.success && data.result?.suggestion) {
+          setSuggestion(data.result.suggestion);
+          setPattern(data.result.suggestion.purpose_pattern || '');
+        }
+      } catch {} finally {
+        setLoading(false);
+      }
+    })();
+  }, [txId, operationId]);
+
+  const createRule = async () => {
+    if (!suggestion) return;
+    setCreating(true);
+    setError(null);
+    try {
+      const r = await fetch(`${API_BASE}/api/bank-match-rules`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          partner_id: suggestion.partner_id,
+          contragent_inn: suggestion.contragent_inn,
+          purpose_pattern: pattern || null,
+          direction: suggestion.direction,
+          default_operation_type: suggestion.default_operation_type,
+          default_our_company_id: suggestion.default_our_company_id,
+          created_from_tx_id: txId,
+        }),
+      });
+      const data = await r.json();
+      if (data.success) {
+        onConfirm();
+      } else {
+        setError(data.errors?.[0]?.message || 'Failed');
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  if (loading) return null;
+  if (!suggestion) return null;
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, backgroundColor: 'rgba(15,15,15,0.50)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 60, padding: '24px',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          backgroundColor: 'var(--paper)', borderRadius: 'var(--radius-md)',
+          padding: '24px', width: '560px', maxWidth: '95vw',
+          border: '1px solid var(--line-1)',
+        }}
+      >
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Sparkles size={18} style={{ color: 'var(--brand-rot)' }} />
+            <h2 style={{
+              fontFamily: 'Plus Jakarta Sans, sans-serif', fontSize: '18px',
+              fontWeight: 700, color: 'var(--fg-1)', textTransform: 'uppercase',
+            }}>
+              Save as rule?
+            </h2>
+          </div>
+          <button onClick={onClose} style={{ color: 'var(--fg-3)' }}><X size={18} /></button>
+        </div>
+
+        <p style={{ fontSize: '14px', color: 'var(--fg-2)', marginBottom: '16px' }}>
+          Next time a similar transaction arrives, ERP will auto-attach it to a matching operation without asking.
+        </p>
+
+        <div style={{ marginBottom: '12px' }}>
+          <label style={{ fontSize: '14px', color: 'var(--fg-2)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+            Purpose pattern (substring match)
+          </label>
+          <input
+            type="text"
+            value={pattern}
+            onChange={(e) => setPattern(e.target.value)}
+            placeholder="e.g. Accounting Services"
+            style={{
+              width: '100%', padding: '8px 12px', fontSize: '14px', fontWeight: 700,
+              border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+              backgroundColor: 'var(--paper)', color: 'var(--fg-1)',
+            }}
+          />
+          <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '4px' }}>
+            Leave empty if INN alone is enough (any payment from this INN → same operation type).
+          </div>
+        </div>
+
+        <div style={{
+          padding: '12px', background: 'var(--paper-sunk)',
+          borderRadius: 'var(--radius-sm)', fontSize: '14px',
+          color: 'var(--fg-2)', marginBottom: '16px',
+        }}>
+          <div style={{ marginBottom: '4px' }}>
+            <span style={{ color: 'var(--fg-3)' }}>INN:</span>{' '}
+            <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{suggestion.contragent_inn || '(none)'}</span>
+          </div>
+          <div style={{ marginBottom: '4px' }}>
+            <span style={{ color: 'var(--fg-3)' }}>Direction:</span>{' '}
+            <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{suggestion.direction}</span>
+          </div>
+          <div style={{ marginBottom: '4px' }}>
+            <span style={{ color: 'var(--fg-3)' }}>Operation type:</span>{' '}
+            <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{suggestion.default_operation_type}</span>
+          </div>
+          {suggestion.rationale && (
+            <div style={{ marginTop: '8px', fontSize: '14px', color: 'var(--fg-3)', fontStyle: 'italic' }}>
+              {suggestion.rationale}
+            </div>
+          )}
+        </div>
+
+        {error && (
+          <div style={{
+            marginBottom: '12px', padding: '12px',
+            background: 'rgba(229,32,44,0.08)', color: '#A82029',
+            borderRadius: 'var(--radius-sm)', fontSize: '14px', fontWeight: 700,
+          }}>
+            {error}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} style={{
+            padding: '8px 16px', border: '1px solid var(--line-1)',
+            borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper)',
+            color: 'var(--fg-1)', fontSize: '14px', fontWeight: 700, cursor: 'pointer',
+          }}>
+            Not now
+          </button>
+          <button
+            onClick={createRule}
+            disabled={creating}
+            style={{
+              padding: '8px 16px', borderRadius: 'var(--radius-sm)',
+              backgroundColor: 'var(--fg-1)', color: 'var(--paper)',
+              fontSize: '14px', fontWeight: 700,
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              cursor: creating ? 'wait' : 'pointer',
+              opacity: creating ? 0.6 : 1,
+            }}
+          >
+            {creating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+            Create rule
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+

@@ -224,14 +224,23 @@ async function resolveLineItemSku(
 
     let hits = 0;
     for (const t of distinct) {
-      // exact token match OR substring match (handles COCANNABIS vs COCOCANNABIS variants)
+      // Exact token match OR substring match
       if (descTokens.has(t)) { hits += 2; continue; }
       if (desc.includes(t)) { hits += 1; continue; }
-      // For each distinctive token, check if a SUBSTRING of it is in description (e.g. "cannabis" ⊂ "cococannabis")
-      // Apply only for tokens length >= 6 to keep noise down
+      // Trigram-overlap fuzzy (handles COCANNABIS vs COCOCANNABIS / typos)
       if (t.length >= 6) {
-        const stem = t.slice(0, Math.max(4, t.length - 2));
-        if (desc.includes(stem)) { hits += 1; }
+        const trigrams = (str: string): Set<string> => {
+          const s = ' ' + str + ' ';
+          const out = new Set<string>();
+          for (let i = 0; i < s.length - 2; i++) out.add(s.slice(i, i + 3));
+          return out;
+        };
+        const tg1 = trigrams(t);
+        const tg2 = trigrams(desc);
+        let inter = 0;
+        for (const g of tg1) if (tg2.has(g)) inter += 1;
+        const sim = inter / tg1.size;  // jaccard-like ratio
+        if (sim >= 0.6) hits += 1;
       }
     }
 

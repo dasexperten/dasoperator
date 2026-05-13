@@ -429,7 +429,7 @@ marketplaces.get('/pulse/daily-trend', async (c) => {
     FROM marketplace_sales_daily
     WHERE date >= date('now', '-44 days')
     ORDER BY date ASC
-  `).all<{ marketplace: 'ozon' | 'wb'; date: string; units_sold: number; revenue_rub: number; synced_at: number }>();
+  `).all<{ marketplace: 'ozon' | 'wb' | 'site'; date: string; units_sold: number; revenue_rub: number; synced_at: number }>();
 
   // Build maps for quick week-ago lookup
   const byKey = new Map<string, { units_sold: number; revenue_rub: number }>();
@@ -441,7 +441,7 @@ marketplaces.get('/pulse/daily-trend', async (c) => {
   const allDates = Array.from(new Set(rows.results.map(r => r.date))).sort();
   const last30 = allDates.slice(-30);
 
-  function deltaVsLastWeek(mp: 'ozon' | 'wb', date: string, value: number) {
+  function deltaVsLastWeek(mp: 'ozon' | 'wb' | 'site', date: string, value: number) {
     const d = new Date(date + 'T00:00:00Z');
     d.setUTCDate(d.getUTCDate() - 7);
     const prev = byKey.get(`${mp}|${d.toISOString().slice(0, 10)}`);
@@ -452,11 +452,13 @@ marketplaces.get('/pulse/daily-trend', async (c) => {
 
   const days = last30.map(date => {
     const oz = byKey.get(`ozon|${date}`) || { units_sold: 0, revenue_rub: 0 };
-    const w = byKey.get(`wb|${date}`)   || { units_sold: 0, revenue_rub: 0 };
+    const w  = byKey.get(`wb|${date}`)   || { units_sold: 0, revenue_rub: 0 };
+    const s  = byKey.get(`site|${date}`) || { units_sold: 0, revenue_rub: 0 };
     return {
       date,
       ozon: { units: oz.units_sold, revenue_rub: oz.revenue_rub, delta_pct: deltaVsLastWeek('ozon', date, oz.revenue_rub) },
       wb:   { units: w.units_sold,  revenue_rub: w.revenue_rub,  delta_pct: deltaVsLastWeek('wb',   date, w.revenue_rub) },
+      site: { units: s.units_sold,  revenue_rub: s.revenue_rub,  delta_pct: deltaVsLastWeek('site', date, s.revenue_rub) },
     };
   });
 

@@ -453,22 +453,52 @@ export async function resolvePartner(
     if (alias) return { value: alias.resolved_id, raw: input.name, confidence: 0.92, source: 'alias_db', alternatives: [], needs_review: false };
 
     const rows = await env.DB.prepare(
-      `SELECT id, trade_name FROM partners WHERE deleted_at IS NULL`
-    ).all<{ id: string; trade_name: string }>();
+      `SELECT id, trade_name, legal_name FROM partners WHERE deleted_at IS NULL`
+    ).all<{ id: string; trade_name: string; legal_name: string | null }>();
 
-    const scored = (rows.results || []).map((p) => ({
-      id: p.id, name: p.trade_name, sim: trigramSimilarity(p.trade_name, input.name!),
-    })).filter((x) => x.sim >= 0.3).sort((a, b) => b.sim - a.sim);
+    // Score against BOTH trade_name and legal_name; keep the best hit per partner.
+    // Also count a "substring containment" boost: if all distinctive tokens of
+    // the shorter name appear in the longer one (or vice versa), treat as strong match.
+    const inputLower = input.name.toLowerCase();
+    const inputTokens = new Set(inputLower.replace(/[^a-z0-9а-яё ]/gi, ' ').split(/\s+/).filter((t) => t.length >= 3 && !['llc','ltd','company','limited','technology','daily','factory','co','inc','corp','gmbh'].includes(t)));
+
+    const scoredMap = new Map<string, { id: string; name: string; sim: number; reason: string }>();
+    for (const p of rows.results || []) {
+      const candidates = [p.trade_name, p.legal_name].filter(Boolean) as string[];
+      for (const cand of candidates) {
+        const candLower = cand.toLowerCase();
+        let sim = trigramSimilarity(cand, input.name!);
+
+        // Containment boost: if shorter name's distinctive tokens are all contained in longer
+        const candTokens = new Set(candLower.replace(/[^a-z0-9а-яё ]/gi, ' ').split(/\s+/).filter((t) => t.length >= 3 && !['llc','ltd','company','limited','technology','daily','factory','co','inc','corp','gmbh'].includes(t)));
+        const shorter = candTokens.size <= inputTokens.size ? candTokens : inputTokens;
+        const longer = candTokens.size > inputTokens.size ? candLower : inputLower;
+        let contained = 0;
+        for (const t of shorter) if (longer.includes(t)) contained += 1;
+        if (shorter.size >= 1 && contained === shorter.size) {
+          sim = Math.max(sim, 0.85);  // all distinctive tokens contained → high confidence
+        } else if (shorter.size >= 2 && contained >= shorter.size - 1) {
+          sim = Math.max(sim, 0.70);  // all-but-one → medium confidence
+        }
+
+        const existing = scoredMap.get(p.id);
+        if (!existing || sim > existing.sim) {
+          scoredMap.set(p.id, { id: p.id, name: cand, sim, reason: sim >= 0.85 ? 'distinctive tokens contained' : 'name similarity' });
+        }
+      }
+    }
+
+    const scored = Array.from(scoredMap.values()).filter((x) => x.sim >= 0.3).sort((a, b) => b.sim - a.sim);
 
     if (scored.length === 0) return blankResolution<string>(input.name);
     const winner = scored[0];
     const margin = scored[1] ? winner.sim - scored[1].sim : winner.sim;
     return {
       value: winner.id, raw: input.name,
-      confidence: Math.min(0.85, winner.sim) * (margin < 0.1 ? 0.8 : 1),
+      confidence: Math.min(0.95, winner.sim) * (margin < 0.1 ? 0.8 : 1),
       source: 'name_fuzzy',
       alternatives: scored.slice(1, 4).map((s) => ({
-        value: s.id, label: s.name, confidence: s.sim, why: `name similarity ${s.sim.toFixed(2)}`,
+        value: s.id, label: s.name, confidence: s.sim, why: `${s.reason} ${s.sim.toFixed(2)}`,
       })),
       needs_review: winner.sim < 0.7 || margin < 0.15,
     };

@@ -285,10 +285,26 @@ export async function extractTextFromFile(
     return extractPdfText(bytes);
   }
 
-  // XLSX — DeepSeek can't parse binary; ask user to export CSV.
-  // We still try ASCII extraction in case strings are embedded.
-  if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
-    return extractPdfText(bytes); // same fallback
+  // XLSX/XLS — use SheetJS to convert all sheets to CSV-like text
+  if (lower.endsWith('.xlsx') || lower.endsWith('.xls') ||
+      mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      mimeType === 'application/vnd.ms-excel') {
+    try {
+      const XLSX = await import('xlsx');
+      const wb = XLSX.read(bytes, { type: 'array' });
+      const parts: string[] = [];
+      for (const sheetName of wb.SheetNames) {
+        const sheet = wb.Sheets[sheetName];
+        if (!sheet) continue;
+        parts.push(`=== Sheet: ${sheetName} ===`);
+        parts.push(XLSX.utils.sheet_to_csv(sheet, { FS: ';', RS: '\n', blankrows: false }));
+      }
+      const text = parts.join('\n');
+      if (text.length > 50) return text.slice(0, 100_000);
+    } catch (e) {
+      console.error('[bank-parser] xlsx parse failed, falling back to strings:', e);
+    }
+    return extractPdfText(bytes);
   }
 
   return decodeWithFallback(bytes);

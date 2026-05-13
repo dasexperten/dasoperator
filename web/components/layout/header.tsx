@@ -83,10 +83,10 @@ export default function Header({ onHamburgerClick }: { onHamburgerClick?: () => 
           {/* Mobile-only brand mark — replaces the search bar visually */}
           <div
             className="dx-show-mobile dx-product-name"
-            style={{ fontSize: '18px', color: 'var(--fg-1)' }}
+            style={{ fontSize: '16px', color: 'var(--fg-1)', whiteSpace: 'nowrap', flexShrink: 0 }}
           >
             das experten
-            <sup style={{ fontSize: '11px', marginLeft: '2px', color: 'var(--brand-gold)' }}>®</sup>
+            <sup style={{ fontSize: '10px', marginLeft: '2px', color: 'var(--brand-gold)' }}>®</sup>
           </div>
 
           {/* Desktop search — hidden on mobile via dx-header-search class */}

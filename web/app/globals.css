@@ -391,12 +391,20 @@ input[type="number"] {
     padding-left: 12px !important;
     padding-right: 12px !important;
     height: 56px !important;
+    gap: 8px !important;
   }
   .dx-header-entities {
     display: none !important;
   }
   .dx-header-search {
     display: none !important;
+  }
+  /* Left cluster (hamburger + brand mark): no flex-grow, fit content only.
+     This stops the brand text from getting squeezed and wrapping. */
+  .dx-header-main > div:first-child {
+    flex: 0 1 auto !important;
+    max-width: none !important;
+    min-width: 0;
   }
 }
 

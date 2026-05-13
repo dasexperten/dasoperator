@@ -127,7 +127,7 @@ export default function PartnersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [kindFilter, setKindFilter] = useState<Kind | 'all'>('all');
+  const [kindFilter, setKindFilter] = useState<Kind | 'all'>('buyer');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [entityFilter, setEntityFilter] = useState<string>('all');
   // Inline email composer — only one open at a time, keyed by partner id + email index
@@ -324,20 +324,8 @@ export default function PartnersPage() {
           />
         </div>
 
-        <div className="flex gap-3">
-          {/* Mobile-only partner type filter — replaces the 6 type cards above */}
-          <select
-            value={kindFilter}
-            onChange={(e) => setKindFilter(e.target.value as 'all' | Kind)}
-            className="dx-show-mobile px-3 py-2 text-sm focus:outline-none"
-            style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}>
-            <option value="all">All types</option>
-            <option value="buyer">Buyers</option>
-            <option value="manufacturer">Manufacturers</option>
-            <option value="service_provider">Service providers</option>
-            <option value="shipper">Shippers</option>
-            <option value="3pl">3PL</option>
-          </select>
+        {/* Desktop filter row — original 3 selects + counter */}
+        <div className="dx-hide-mobile flex gap-3">
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
             className="px-3 py-2 text-sm focus:outline-none"
             style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}>
@@ -353,9 +341,36 @@ export default function PartnersPage() {
             <option value="all">All entities</option>
             {entities.map((e) => <option key={e} value={e}>{e}</option>)}
           </select>
-          <div className="dx-hide-mobile ml-auto self-center" style={{ fontSize: 'var(--fs-caption)', color: 'var(--fg-3)' }}>
+          <div className="ml-auto self-center" style={{ fontSize: 'var(--fs-caption)', color: 'var(--fg-3)' }}>
             {filtered.length} / {partners.length}
           </div>
+        </div>
+
+        {/* Mobile filter row — Partner type + Entity, 50/50 grid */}
+        <div
+          className="dx-show-mobile"
+          style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}
+        >
+          <select
+            value={kindFilter}
+            onChange={(e) => setKindFilter(e.target.value as 'all' | Kind)}
+            className="px-3 py-2 focus:outline-none"
+            style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)', width: '100%' }}>
+            <option value="all">All types</option>
+            <option value="buyer">Buyers</option>
+            <option value="manufacturer">Manufacturers</option>
+            <option value="service_provider">Service providers</option>
+            <option value="shipper">Shippers</option>
+            <option value="3pl">3PL</option>
+          </select>
+          <select
+            value={entityFilter}
+            onChange={(e) => setEntityFilter(e.target.value)}
+            className="px-3 py-2 focus:outline-none"
+            style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)', width: '100%' }}>
+            <option value="all">All entities</option>
+            {entities.map((e) => <option key={e} value={e}>{e}</option>)}
+          </select>
         </div>
       </div>
 

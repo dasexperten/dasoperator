@@ -449,6 +449,42 @@ operationDocs.post('/upload-to-pipeline', async (c) => {
   const ourSideRaw = analysis.document_direction === 'outgoing' ? analysis.issuer_raw : analysis.counterparty_raw;
   const partnerSideRaw = analysis.document_direction === 'outgoing' ? analysis.counterparty_raw : analysis.issuer_raw;
 
+  // Resolve contract_id from contract_no (look up matching contract record)
+  let resolvedContractId: string | null = null;
+  let contractMatchConfidence = 0;
+  let contractMatchReason = '';
+  if (analysis.contract_no && analysis.our_company_id && analysis.partner_id) {
+    // Exact match by contract_no + parties (case-insensitive, ignoring spaces/dashes)
+    const normalize = (s: string) => s.replace(/[\s\-_/]/g, '').toLowerCase();
+    const cnNorm = normalize(analysis.contract_no);
+    const contracts = await c.env.DB.prepare(
+      `SELECT id, contract_no FROM contracts
+       WHERE our_company_id = ? AND partner_id = ? AND deleted_at IS NULL`
+    ).bind(analysis.our_company_id, analysis.partner_id).all<{ id: string; contract_no: string }>();
+    for (const row of contracts.results) {
+      if (normalize(row.contract_no) === cnNorm) {
+        resolvedContractId = row.id;
+        contractMatchConfidence = 0.95;
+        contractMatchReason = `Exact match on contract_no=${row.contract_no}`;
+        break;
+      }
+    }
+    // Fallback: prefix match (handles "080824" matching "080824/A1" parent)
+    if (!resolvedContractId) {
+      for (const row of contracts.results) {
+        if (normalize(row.contract_no).startsWith(cnNorm) || cnNorm.startsWith(normalize(row.contract_no))) {
+          resolvedContractId = row.id;
+          contractMatchConfidence = 0.7;
+          contractMatchReason = `Prefix match on contract_no=${row.contract_no}`;
+          break;
+        }
+      }
+    }
+    if (!resolvedContractId) {
+      contractMatchReason = `No contract found with no=${analysis.contract_no} for (${analysis.our_company_id}, ${analysis.partner_id})`;
+    }
+  }
+
   const headerFields: Record<string, any> = {
     operation_type: {
       value: analysis.operation_type,
@@ -483,6 +519,15 @@ operationDocs.post('/upload-to-pipeline', async (c) => {
       source: 'claude',
       alternatives: [],
       needs_review: false,
+    },
+    contract_id: {
+      value: resolvedContractId,
+      raw: analysis.contract_no,
+      confidence: contractMatchConfidence,
+      source: 'claude',
+      alternatives: [],
+      needs_review: !!analysis.contract_no && !resolvedContractId,
+      note: contractMatchReason || undefined,
     },
     currency: {
       value: analysis.currency,

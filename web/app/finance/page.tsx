@@ -680,6 +680,23 @@ export default function FinanceTransactionsPage() {
           </button>
 
           <Link
+            href="/inbox/banking"
+            className="inline-flex items-center gap-2 px-4 py-2"
+            style={{
+              border: '1px solid var(--line-1)',
+              borderRadius: 'var(--radius-sm)',
+              backgroundColor: 'var(--paper)',
+              color: 'var(--fg-1)',
+              fontSize: '14px',
+              fontWeight: 700,
+              textDecoration: 'none',
+            }}
+          >
+            <AlertCircle className="h-4 w-4" />
+            Triage
+          </Link>
+
+          <Link
             href="/finance/accounts"
             className="inline-flex items-center gap-2 px-4 py-2"
             style={{
@@ -854,7 +871,22 @@ export default function FinanceTransactionsPage() {
                     <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                       {tx.matched_payment_id
                         ? <CheckCircle2 className="h-4 w-4 inline" style={{ color: 'var(--status-success)' }} />
-                        : <AlertCircle className="h-4 w-4 inline" style={{ color: 'var(--fg-3)' }} />}
+                        : (
+                          <Link
+                            href={`/inbox/banking?tx=${tx.id}`}
+                            title="Assign to operation"
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '4px',
+                              padding: '4px 8px', borderRadius: 'var(--radius-sm)',
+                              border: '1px solid var(--line-1)',
+                              fontSize: '14px', fontWeight: 700,
+                              color: 'var(--fg-1)', textDecoration: 'none',
+                            }}
+                          >
+                            <AlertCircle className="h-3 w-3" style={{ color: '#A82029' }} />
+                            Assign
+                          </Link>
+                        )}
                     </td>
                   </tr>
                 );

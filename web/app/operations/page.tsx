@@ -241,6 +241,7 @@ export default function OperationsPage() {
         doc_date: uploadResult.extracted?.doc_date ?? null,
         issuer: uploadResult.extracted?.issuer ?? null,
         direction: uploadResult.extracted?.direction,
+        line_items: uploadResult.extracted?.line_items ?? [],
       };
       if (cfdType === 'sale') body.partner_id = cfdPartnerId;
       if (cfdType === 'purchase') {
@@ -252,10 +253,18 @@ export default function OperationsPage() {
       const res = await createOperationFromDocument(body);
       if (res.success && res.result) {
         const reference = res.result.operation.reference;
+        const r = res.result.line_items_report;
         // Refresh ops list and close modal
         const list = await getOperations();
         if (list.success && list.result) setOperations(list.result.operations);
-        setActionMsg(`Stub operation ${reference} created and document attached. Add line items from the operation page.`);
+        let msg = `Operation ${reference} created`;
+        if (r && r.total > 0) {
+          msg += `, ${r.matched} of ${r.total} positions parsed from document`;
+          if (r.unmatched > 0) msg += ` (${r.unmatched} could not be matched to SKUs — add manually)`;
+        } else {
+          msg += ', no positions found in document — add manually';
+        }
+        setActionMsg(msg);
         resetUpload();
       } else {
         setUploadError(res.errors?.[0]?.message ?? 'Failed to create operation');

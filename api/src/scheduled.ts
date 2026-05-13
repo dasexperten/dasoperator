@@ -12,6 +12,7 @@ import type { Env } from './types';
 import { todayUtcDate, refreshFxFromCbr } from './lib/fx-cbr';
 import { storeSnapshot } from './lib/fx-store';
 import { runInboxIngestion } from './lib/inbox-ingestion';
+import { runBankStatementIngestion } from './lib/bank-statement-ingestion';
 
 
 // =============================================================================
@@ -350,6 +351,15 @@ export async function handleScheduled(
       console.log(`[cron:inbox] complete: ${JSON.stringify(stats)}`);
     } catch (e) {
       console.error('[cron:inbox] failed:', e);
+    }
+
+    // Also run bank statement ingestion for active sources
+    console.log('[cron:bank-statements] starting daily bank statement ingestion');
+    try {
+      const bankStats = await runBankStatementIngestion(env);
+      console.log(`[cron:bank-statements] complete: ${JSON.stringify(bankStats)}`);
+    } catch (e) {
+      console.error('[cron:bank-statements] failed:', e);
     }
     return;
   }

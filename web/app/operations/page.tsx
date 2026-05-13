@@ -311,42 +311,58 @@ export default function OperationsPage() {
                     color: 'var(--fg-1)',
                   }}
                 >
-                  {/* Row 1: reference + status dot chip */}
+                  {/* Row 1: reference + status chip (dot + label) */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
                     <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-2)' }}>
                       {op.reference ?? op.id.slice(0, 12)}
                     </span>
                     <span
-                      aria-label={statusLabel(op.status)}
-                      title={statusLabel(op.status)}
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',
-                        justifyContent: 'center',
-                        width: 24,
-                        height: 24,
-                        borderRadius: '50%',
-                        backgroundColor: sd.fg,
-                        border: `2px solid ${sd.border}`,
+                        gap: '6px',
+                        padding: '4px 10px',
+                        borderRadius: 'var(--radius-pill)',
+                        backgroundColor: sd.bg,
+                        border: `1px solid ${sd.border}`,
+                        color: sd.fg,
+                        fontSize: '12px',
+                        fontWeight: 700,
                         flexShrink: 0,
+                        whiteSpace: 'nowrap',
                       }}
-                    />
+                    >
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: sd.fg, display: 'inline-block' }} />
+                      {statusLabel(op.status)}
+                    </span>
                   </div>
                   {/* Row 2: partner / manufacturer name bold */}
                   <div className="dx-product-name" style={{ fontSize: '16px', fontWeight: 800, marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {partnerLabel}
                   </div>
                   {/* Row 3: amount centred, colour = payment state */}
-                  <div style={{ textAlign: 'center', marginTop: '10px', marginBottom: '6px' }}>
+                  <div style={{ textAlign: 'center', marginTop: '10px', marginBottom: '8px' }}>
                     <span style={{ fontSize: '20px', fontWeight: 800, color: amountColor, whiteSpace: 'nowrap' }}>
                       {formatMoney(op.total_amount, op.currency)}
                       <span style={{ fontSize: '13px', color: 'var(--fg-3)', marginLeft: '6px', fontWeight: 700 }}>{op.currency}</span>
                     </span>
                   </div>
-                  {/* Row 4: entity right-aligned */}
-                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--fg-2)' }}>
-                      {op.entity_abbreviation ?? '—'}
+                  {/* Row 4: entity right-aligned, visible.
+                      Fallback chain when entity_abbreviation is missing:
+                        1. our_company_id uppercased (dee → DEE, dei → DEI)
+                        2. dash placeholder */}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
+                    <span style={{
+                      fontSize: '14px',
+                      fontWeight: 800,
+                      color: 'var(--fg-1)',
+                      padding: '2px 8px',
+                      backgroundColor: 'var(--paper-sunk)',
+                      borderRadius: 'var(--radius-sm)',
+                      letterSpacing: 0,
+                    }}>
+                      {op.entity_abbreviation
+                        ?? (op.our_company_id ? op.our_company_id.toUpperCase() : '—')}
                     </span>
                   </div>
                 </Link>

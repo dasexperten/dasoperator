@@ -471,6 +471,8 @@ export interface Partner {
   partner_type: 'buyer' | 'supplier' | 'shipper' | 'other';
   // Phase 8.0 — canonical kind classifier (5 values). Replaces partner_type going forward.
   kind?: 'buyer' | 'manufacturer' | 'service_provider' | 'shipper' | '3pl' | 'other' | null;
+  // Phase 9.x — finer subtype within a kind (e.g. service_accounting, service_logistics)
+  partner_subtype?: string | null;
   notes?: string | null;
   // Optional extended fields (PATCH-able)
   legal_name_local?: string | null;

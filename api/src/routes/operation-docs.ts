@@ -367,6 +367,8 @@ async function buildPrefill(
 // UI: route operator to /inbox/documents/:extraction_id to review.
 // =============================================================================
 operationDocs.post('/upload-to-pipeline', async (c) => {
+  // STRICT MODE — Claude performs ALL identification & classification.
+  // DeepSeek is NOT invoked. Validation arithmetic happens in the pipeline core.
   const form = await c.req.formData();
   const file = form.get('file');
   if (!(file instanceof File)) {
@@ -379,13 +381,13 @@ operationDocs.post('/upload-to-pipeline', async (c) => {
   const safeName = sanitizeFilename(filename);
   const fileId = crypto.randomUUID();
 
-  // Save to R2
+  // Save original to R2
   const r2Key = `operation-docs/${new Date().toISOString().slice(0, 10)}/${fileId}__${safeName}`;
   await c.env.DOCS.put(r2Key, bytes, {
     httpMetadata: { contentType: mimeType || 'application/octet-stream' },
   });
 
-  // Extract text
+  // Extract text (deterministic code path — pdf-parse / docx-parse etc., no LLM)
   let text: string;
   try {
     text = await extractTextFromFile(bytes, mimeType, filename);
@@ -396,163 +398,202 @@ operationDocs.post('/upload-to-pipeline', async (c) => {
     return fail(c, 422, [{ code: 'unreadable', message: 'Could not read text from file' }]);
   }
 
-  if (!c.env.DEEPSEEK_API_KEY) {
-    return fail(c, 500, [{ code: 'no_llm', message: 'LLM not configured' }]);
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return fail(c, 500, [{ code: 'no_llm', message: 'ANTHROPIC_API_KEY not configured' }]);
   }
 
-  // Run DeepSeek extraction
-  const trimmed = text.length > 60_000 ? text.slice(0, 60_000) : text;
-  const dsResp = await fetch(DEEPSEEK_API, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${c.env.DEEPSEEK_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'deepseek-chat',
-      messages: [
-        { role: 'system', content: DOC_EXTRACTION_PROMPT },
-        { role: 'user', content: `Filename: ${filename}\n\nContents:\n${trimmed}` },
-      ],
-      temperature: 0,
-      response_format: { type: 'json_object' },
-    }),
-  });
+  // Claude analyzes the document with full Das Experten directory context.
+  // Returns already-resolved IDs and operation_type decided by business logic.
+  const { analyzeDocumentWithClaude } = await import('../lib/claude-analyzer');
+  const trimmed = text.length > 80_000 ? text.slice(0, 80_000) : text;
 
-  if (!dsResp.ok) {
-    return fail(c, 500, [{ code: 'llm_error', message: `DeepSeek HTTP ${dsResp.status}` }]);
-  }
-  const dsData = await dsResp.json<{ choices: Array<{ message: { content: string } }> }>();
-  const dsContent = dsData.choices?.[0]?.message?.content ?? '{}';
-  let extracted: ExtractedDoc;
+  let analysis;
   try {
-    extracted = JSON.parse(dsContent);
-  } catch {
-    return fail(c, 500, [{ code: 'llm_bad_json', message: dsContent.slice(0, 200) }]);
+    analysis = await analyzeDocumentWithClaude(c.env, {
+      filename,
+      document_text: trimmed,
+    });
+  } catch (e) {
+    return fail(c, 500, [{ code: 'claude_failed', message: e instanceof Error ? e.message : String(e) }]);
   }
 
-  // Run pipeline: resolve entities + validate
+  // Verify Claude's identified IDs actually exist in DB (sanity check before staging)
+  const idChecks: Array<{ name: string; sql: string; value: string }> = [];
+  if (analysis.our_company_id) idChecks.push({ name: 'our_company_id', sql: 'SELECT 1 FROM companies WHERE id = ? AND deleted_at IS NULL', value: analysis.our_company_id });
+  if (analysis.partner_id) idChecks.push({ name: 'partner_id', sql: 'SELECT 1 FROM partners WHERE id = ? AND deleted_at IS NULL', value: analysis.partner_id });
+  if (analysis.manufacturer_id) idChecks.push({ name: 'manufacturer_id', sql: 'SELECT 1 FROM manufacturers WHERE id = ?', value: analysis.manufacturer_id });
+  for (const li of analysis.line_items || []) {
+    if (li.product_id) idChecks.push({ name: `product:${li.product_id}`, sql: 'SELECT 1 FROM products WHERE id = ? AND deleted_at IS NULL', value: li.product_id });
+  }
+  const invalidIds: string[] = [];
+  for (const chk of idChecks) {
+    const found = await c.env.DB.prepare(chk.sql).bind(chk.value).first();
+    if (!found) invalidIds.push(`${chk.name}=${chk.value}`);
+  }
+  // Don't reject — just record as a review note so the operator sees what to fix.
+  if (invalidIds.length > 0) {
+    analysis.human_review_notes = analysis.human_review_notes || [];
+    analysis.human_review_notes.push(`Claude returned IDs not present in DB: ${invalidIds.join(', ')}`);
+  }
+
+  // Stage in pending_review with Claude's decisions as the resolved values.
   const {
-    resolveProduct, resolvePartner, resolveCompany,
-    emptyReport, addCheck, blankResolution,
+    emptyReport, addCheck,
     validateLineItemsSum, validateEachLineMath, validateDateInRange, validateCurrency,
     stageExtraction,
   } = await import('../lib/verification-pipeline');
 
-  // Resolve header entities
-  const ourSideRaw = extracted.direction === 'outgoing' ? extracted.issuer : extracted.counterparty;
-  const otherSideRaw = extracted.direction === 'outgoing' ? extracted.counterparty : extracted.issuer;
-
-  const companyResolution = await resolveCompany(c.env, { name: ourSideRaw });
-  const partnerResolution = await resolvePartner(c.env, { name: otherSideRaw });
-
-  // Decide operation_type — partner.kind in DB is the SOURCE OF TRUTH.
-  // DeepSeek's "direction" is a weak signal that gets overridden by the partner's business role.
-  let opType: 'sale' | 'purchase' | 'transfer' | 'service' = 'purchase';
-  let opTypeReason = '';
-  let manufacturerIdInferred: string | null = null;
-
-  if (partnerResolution.value) {
-    const partnerRow = await c.env.DB.prepare(
-      `SELECT kind FROM partners WHERE id = ? AND deleted_at IS NULL`
-    ).bind(partnerResolution.value).first<{ kind: string | null }>();
-    const pKind = partnerRow?.kind;
-    if (pKind === 'manufacturer') {
-      opType = 'purchase';
-      opTypeReason = 'counterparty is a manufacturer';
-      manufacturerIdInferred = partnerResolution.value;
-    } else if (pKind === 'buyer') {
-      opType = 'sale';
-      opTypeReason = 'counterparty is a buyer';
-    } else if (pKind === 'shipper' || pKind === '3pl' || pKind === 'service_provider') {
-      opType = 'service' as any;
-      opTypeReason = `counterparty is a ${pKind}`;
-    } else {
-      opType = extracted.direction === 'outgoing' ? 'sale' : 'purchase';
-      opTypeReason = `fallback on document direction (${extracted.direction})`;
-    }
-  } else {
-    opType = extracted.direction === 'outgoing' ? 'sale' : 'purchase';
-    opTypeReason = `partner unresolved — fallback on document direction (${extracted.direction})`;
-  }
-
-  // Resolve line items
-  const resolvedItems: any[] = [];
-  for (const li of (extracted.line_items || [])) {
-    const productRes = await resolveProduct(c.env, {
-      description: li.description,
-      sku_hint: li.sku_hint,
-      qty: li.qty,
-      unit_price: li.unit_price,
-      currency: extracted.currency || undefined,
-    });
-    resolvedItems.push({
-      description: li.description,
-      sku_hint: li.sku_hint,
-      qty: li.qty,
-      unit_price: li.unit_price,
-      line_amount: li.line_amount,
-      hs_code: li.hs_code,
-      cartons: li.cartons,
-      product_id: productRes.value,
-      product_id_source: productRes.source,
-      product_id_confidence: productRes.confidence,
-      product_id_alternatives: productRes.alternatives,
-      needs_review: productRes.needs_review,
-    });
-  }
-
-  // Build header_fields
   const headerFields: Record<string, any> = {
-    operation_type: { value: opType, raw: opTypeReason, confidence: opTypeReason.startsWith('fallback') || opTypeReason.startsWith('partner unresolved') ? 0.55 : 0.95, source: 'derived_from_partner_kind', alternatives: [], needs_review: opTypeReason.startsWith('fallback') },
-    our_company_id: companyResolution,
-    partner_id: partnerResolution,
-    manufacturer_id: manufacturerIdInferred ? { value: manufacturerIdInferred, raw: partnerResolution.raw, confidence: 0.95, source: 'derived_from_partner_kind', alternatives: [], needs_review: false } : { value: null, raw: null, confidence: 0, source: null, alternatives: [], needs_review: false },
-    currency: { value: extracted.currency, raw: extracted.currency, confidence: extracted.currency ? 0.95 : 0, source: 'exact_text', alternatives: [], needs_review: !extracted.currency },
-    total_amount: { value: extracted.amount, raw: String(extracted.amount), confidence: extracted.amount ? 0.95 : 0, source: 'exact_text', alternatives: [], needs_review: !extracted.amount },
-    operation_date: { value: extracted.doc_date ? Math.floor(new Date(extracted.doc_date + 'T12:00:00Z').getTime() / 1000) : null, raw: extracted.doc_date, confidence: extracted.doc_date ? 0.9 : 0, source: 'exact_text', alternatives: [], needs_review: !extracted.doc_date },
-    doc_number: { value: extracted.doc_number, raw: extracted.doc_number, confidence: 0.95, source: 'exact_text', alternatives: [], needs_review: false },
-    doc_date: { value: extracted.doc_date, raw: extracted.doc_date, confidence: 0.9, source: 'exact_text', alternatives: [], needs_review: !extracted.doc_date },
-    issuer: { value: extracted.issuer, raw: extracted.issuer, confidence: 0.95, source: 'exact_text', alternatives: [], needs_review: false },
-    direction: { value: extracted.direction, raw: extracted.direction, confidence: 0.95, source: 'exact_text', alternatives: [], needs_review: false },
+    operation_type: {
+      value: analysis.operation_type,
+      raw: analysis.operation_type_reason,
+      confidence: analysis.operation_type_confidence,
+      source: 'claude',
+      alternatives: [],
+      needs_review: analysis.operation_type_confidence < 0.85,
+    },
+    our_company_id: {
+      value: analysis.our_company_id,
+      raw: analysis.issuer_raw && analysis.document_direction === 'outgoing' ? analysis.issuer_raw : analysis.counterparty_raw,
+      confidence: analysis.our_company_confidence,
+      source: 'claude',
+      alternatives: [],
+      needs_review: analysis.our_company_confidence < 0.85 || !analysis.our_company_id,
+    },
+    partner_id: {
+      value: analysis.partner_id,
+      raw: analysis.counterparty_raw,
+      confidence: analysis.partner_confidence,
+      source: 'claude',
+      alternatives: (analysis.partner_alternatives || []).map((a) => ({
+        value: a.id, label: a.id, confidence: a.confidence, why: a.reason,
+      })),
+      needs_review: analysis.partner_confidence < 0.85 || !analysis.partner_id,
+    },
+    manufacturer_id: {
+      value: analysis.manufacturer_id,
+      raw: analysis.counterparty_raw,
+      confidence: analysis.manufacturer_id ? 0.95 : 0,
+      source: 'claude',
+      alternatives: [],
+      needs_review: false,
+    },
+    currency: {
+      value: analysis.currency,
+      raw: analysis.currency,
+      confidence: analysis.currency ? 0.95 : 0,
+      source: 'claude',
+      alternatives: [],
+      needs_review: !analysis.currency,
+    },
+    total_amount: {
+      value: analysis.total_amount,
+      raw: String(analysis.total_amount),
+      confidence: analysis.total_amount ? 0.95 : 0,
+      source: 'claude',
+      alternatives: [],
+      needs_review: !analysis.total_amount,
+    },
+    operation_date: {
+      value: analysis.operation_date ? Math.floor(new Date(analysis.operation_date + 'T12:00:00Z').getTime() / 1000) : null,
+      raw: analysis.operation_date,
+      confidence: analysis.operation_date ? 0.9 : 0,
+      source: 'claude',
+      alternatives: [],
+      needs_review: !analysis.operation_date,
+    },
+    doc_number: {
+      value: analysis.doc_number,
+      raw: analysis.doc_number,
+      confidence: analysis.doc_number ? 0.95 : 0,
+      source: 'claude',
+      alternatives: [],
+      needs_review: !analysis.doc_number,
+    },
+    doc_date: {
+      value: analysis.doc_date,
+      raw: analysis.doc_date,
+      confidence: analysis.doc_date ? 0.9 : 0,
+      source: 'claude',
+      alternatives: [],
+      needs_review: !analysis.doc_date,
+    },
+    issuer: {
+      value: analysis.issuer_raw,
+      raw: analysis.issuer_raw,
+      confidence: 0.95,
+      source: 'claude',
+      alternatives: [],
+      needs_review: false,
+    },
+    direction: {
+      value: analysis.document_direction,
+      raw: analysis.document_direction,
+      confidence: 0.9,
+      source: 'claude',
+      alternatives: [],
+      needs_review: false,
+    },
   };
 
-  // Run validators
+  const resolvedItems = (analysis.line_items || []).map((li) => ({
+    description: li.raw_description,
+    sku_hint: null,
+    qty: li.qty,
+    unit_price: li.unit_price,
+    line_amount: li.line_amount,
+    hs_code: li.hs_code,
+    cartons: li.cartons,
+    product_id: li.product_id,
+    product_id_source: 'claude',
+    product_id_confidence: li.product_match_confidence,
+    product_id_alternatives: (li.product_alternatives || []).map((a) => ({
+      value: a.id, label: a.id, confidence: a.confidence, why: a.reason,
+    })),
+    needs_review: li.product_match_confidence < 0.85 || !li.product_id,
+  }));
+
+  // Validation arithmetic — pure deterministic code, no LLM
   const report = emptyReport();
-  addCheck(report, validateLineItemsSum(resolvedItems, extracted.amount));
+  addCheck(report, validateLineItemsSum(resolvedItems, analysis.total_amount));
   for (const ch of validateEachLineMath(resolvedItems)) addCheck(report, ch);
-  addCheck(report, validateDateInRange(extracted.doc_date));
-  addCheck(report, validateCurrency(extracted.currency));
-  // Custom check: every line item has product_id
+  addCheck(report, validateDateInRange(analysis.doc_date));
+  addCheck(report, validateCurrency(analysis.currency));
   const unmatched = resolvedItems.filter((r) => !r.product_id).length;
   addCheck(report, {
     code: 'all_lines_matched',
     label: 'All line items matched to SKUs',
     passed: unmatched === 0,
     severity: unmatched === 0 ? 'info' : (unmatched <= resolvedItems.length / 2 ? 'warning' : 'error'),
-    details: unmatched === 0
-      ? `${resolvedItems.length} of ${resolvedItems.length} matched`
-      : `${unmatched} of ${resolvedItems.length} could not be matched to SKUs`,
+    details: unmatched === 0 ? `${resolvedItems.length}/${resolvedItems.length}` : `${unmatched}/${resolvedItems.length} unmatched`,
   });
-  // Custom: lines flagged needs_review
   const flagged = resolvedItems.filter((r) => r.needs_review).length;
   if (flagged > 0) {
     addCheck(report, {
       code: 'lines_low_confidence',
-      label: 'Lines with low-confidence SKU match',
+      label: 'Lines flagged for review',
       passed: false,
       severity: 'warning',
-      details: `${flagged} line(s) below confidence threshold — please verify`,
+      details: `${flagged} line(s) below confidence threshold`,
+    });
+  }
+  // Surface Claude's review notes as validation entries
+  for (const note of analysis.human_review_notes || []) {
+    addCheck(report, {
+      code: 'claude_note',
+      label: 'Claude review note',
+      passed: false,
+      severity: 'warning',
+      details: note,
     });
   }
 
-  // Stage
   const extractionId = await stageExtraction(c.env, {
     source: 'upload',
-    document_kind: (extracted.doc_type as any) || 'other',
+    document_kind: analysis.document_kind || 'other',
     r2_key: r2Key,
     filename, file_mime: mimeType, raw_text: text,
-    raw_extract: extracted as any,
+    raw_extract: analysis as any,
     header_fields: headerFields,
     line_items: resolvedItems,
     validation: report,
@@ -566,7 +607,7 @@ operationDocs.post('/upload-to-pipeline', async (c) => {
     header_fields: headerFields,
     line_items: resolvedItems,
     validation: report,
-    raw_extract: extracted,
+    claude_analysis: analysis,
     r2_key: r2Key,
     filename,
   }, [`Document staged for review (id: ${extractionId}). Open Inbox → Documents to verify and approve.`]);

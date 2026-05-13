@@ -760,10 +760,10 @@ export default function OperationsPage() {
                   fontSize: '18px', fontWeight: 700, color: 'var(--fg-1)',
                   textTransform: 'uppercase', marginBottom: '4px',
                 }}>
-                  Upload Document
+                  Create operation from document
                 </h2>
                 <p style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
-                  Drop an invoice, packing list, contract, or any document. We will read it and try to auto-link it to the right operation.
+                  Drop an invoice, packing list, or other document. We will read it and create a new operation. If a matching operation already exists, we will attach the document to it instead of creating a duplicate.
                 </p>
               </div>
               <button onClick={resetUpload} style={{ color: 'var(--fg-3)' }}>
@@ -837,7 +837,7 @@ export default function OperationsPage() {
                     }}
                   >
                     {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                    {uploading ? 'Reading & matching...' : 'Upload & match'}
+                    {uploading ? 'Reading the document...' : 'Create operation from document'}
                   </button>
                 </div>
               </>

@@ -462,8 +462,44 @@ marketplaces.get('/pulse/daily-trend', async (c) => {
     };
   });
 
+  // 30d totals per marketplace + 30d-vs-prev-30d delta
+  // last30 already computed above; prev30 = 30 dates immediately before last30
+  const prev30 = allDates.slice(Math.max(0, allDates.length - 60), Math.max(0, allDates.length - 30));
+
+  function sumOver(dateList: string[], mp: 'ozon' | 'wb' | 'site') {
+    let units = 0;
+    let revenue = 0;
+    for (const date of dateList) {
+      const r = byKey.get(`${mp}|${date}`);
+      if (r) { units += r.units_sold; revenue += r.revenue_rub; }
+    }
+    return { units, revenue_rub: revenue };
+  }
+
+  function pctChange(curr: number, prev: number): number | null {
+    if (prev === 0) return null;
+    return Math.round(((curr - prev) / prev) * 1000) / 10;
+  }
+
+  const totals30d = (['ozon', 'wb', 'site'] as const).reduce<Record<string, { units: number; revenue_rub: number; delta_pct: number | null; prev_revenue_rub: number }>>((acc, mp) => {
+    const curr = sumOver(last30, mp);
+    const prev = sumOver(prev30, mp);
+    acc[mp] = {
+      units: curr.units,
+      revenue_rub: curr.revenue_rub,
+      delta_pct: pctChange(curr.revenue_rub, prev.revenue_rub),
+      prev_revenue_rub: prev.revenue_rub,
+    };
+    return acc;
+  }, {});
+
   return ok(c, {
     days,
+    totals_30d: {
+      ozon: totals30d.ozon,
+      wb:   totals30d.wb,
+      site: totals30d.site,
+    },
     history_complete: allDates.length >= 14,  // tells UI whether week-over-week deltas are reliable
     days_available: allDates.length,
   });

@@ -12,6 +12,14 @@ import {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://dasoperator-api.dasexperten.workers.dev';
 
+// Reference fields require picking an actual DB record — never free-text
+const REFERENCE_FIELDS: Record<string, { kind: 'partner' | 'company' | 'manufacturer'; endpoint: string; labelField: string }> = {
+  partner_id:           { kind: 'partner',      endpoint: '/api/partners',      labelField: 'trade_name' },
+  our_company_id:       { kind: 'company',      endpoint: '/api/companies',     labelField: 'abbreviation' },
+  receiving_company_id: { kind: 'company',      endpoint: '/api/companies',     labelField: 'abbreviation' },
+  manufacturer_id:      { kind: 'manufacturer', endpoint: '/api/manufacturers', labelField: 'name' },
+};
+
 interface FieldResolution {
   value: any;
   raw: string | null;
@@ -360,15 +368,27 @@ function HeaderRow({ field, resolution, locked, onSave }: {
 }) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState<string>(String(resolution.value ?? ''));
+  const [showPicker, setShowPicker] = useState(false);
 
   const conf = Math.round(resolution.confidence * 100);
+  const refField = REFERENCE_FIELDS[field];
+
   return (
     <tr style={{ borderBottom: '1px solid var(--line-1)', backgroundColor: resolution.needs_review ? '#D4A01708' : undefined }}>
       <td style={fieldTd}>
         <span style={{ fontWeight: 700, fontFamily: 'Manrope, monospace', color: 'var(--fg-3)' }}>{field}</span>
       </td>
       <td style={fieldTd}>
-        {editing ? (
+        {refField && showPicker && !locked ? (
+          <EntityPicker
+            kind={refField.kind}
+            endpoint={refField.endpoint}
+            labelField={refField.labelField}
+            currentValue={resolution.value}
+            onPick={(v) => { onSave(v); setShowPicker(false); }}
+            onCancel={() => setShowPicker(false)}
+          />
+        ) : editing && !refField ? (
           <input
             type="text"
             value={editValue}
@@ -399,8 +419,11 @@ function HeaderRow({ field, resolution, locked, onSave }: {
         </span>
       </td>
       <td style={{ ...fieldTd, textAlign: 'right' }}>
-        {!locked && !editing && (
-          <button onClick={() => { setEditValue(String(resolution.value ?? '')); setEditing(true); }} style={iconBtn}>
+        {!locked && !editing && !showPicker && (
+          <button onClick={() => {
+            if (refField) setShowPicker(true);
+            else { setEditValue(String(resolution.value ?? '')); setEditing(true); }
+          }} style={iconBtn}>
             <Edit2 className="h-3 w-3" />
           </button>
         )}
@@ -416,6 +439,7 @@ function LineItemRow({ idx, item, locked, onSave }: {
   onSave: (field: string, value: any) => void;
 }) {
   const [showAlts, setShowAlts] = useState(false);
+  const [showProductPicker, setShowProductPicker] = useState(false);
   const conf = Math.round(item.product_id_confidence * 100);
 
   return (
@@ -480,17 +504,122 @@ function LineItemRow({ idx, item, locked, onSave }: {
                   </span>
                 </button>
               ))}
-              <button
-                onClick={() => { const v = prompt('Enter product SKU (e.g. de205aa):', item.product_id || ''); if (v) onSave('product_id', v); setShowAlts(false); }}
-                style={{ textAlign: 'left', padding: '6px 10px', backgroundColor: 'var(--paper)', border: '1px dashed var(--line-1)', borderRadius: '4px', cursor: 'pointer', fontSize: '14px', color: 'var(--fg-2)' }}
-              >
-                Enter manually...
-              </button>
+              {!showProductPicker ? (
+                <button
+                  onClick={() => setShowProductPicker(true)}
+                  style={{ textAlign: 'left', padding: '6px 10px', backgroundColor: 'var(--paper)', border: '1px dashed var(--line-1)', borderRadius: '4px', cursor: 'pointer', fontSize: '14px', color: 'var(--fg-2)' }}
+                >
+                  Search all SKUs...
+                </button>
+              ) : (
+                <EntityPicker
+                  kind="product"
+                  endpoint="/api/products"
+                  labelField="product_name"
+                  currentValue={item.product_id}
+                  onPick={(v) => { if (v) onSave('product_id', v); setShowProductPicker(false); setShowAlts(false); }}
+                  onCancel={() => setShowProductPicker(false)}
+                />
+              )}
             </div>
           </td>
         </tr>
       )}
     </>
+  );
+}
+
+
+
+// =============================================================================
+// EntityPicker — searchable dropdown backed by real DB records
+// =============================================================================
+function EntityPicker({ kind, endpoint, labelField, currentValue, onPick, onCancel }: {
+  kind: string;
+  endpoint: string;
+  labelField: string;
+  currentValue: any;
+  onPick: (id: string | null) => void;
+  onCancel: () => void;
+}) {
+  const [items, setItems] = useState<Array<{ id: string; label: string; sub?: string }>>([]);
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(`${API_BASE}${endpoint}`).then((r) => r.json());
+        if (r.success && r.result) {
+          // Different endpoints return different shapes — normalise
+          const list = r.result[kind === 'partner' ? 'partners' :
+                                kind === 'company' ? 'companies' :
+                                kind === 'manufacturer' ? 'manufacturers' :
+                                kind === 'product' ? 'products' : 'items'] || [];
+          setItems(list.map((x: any) => ({
+            id: x.id,
+            label: x[labelField] || x.trade_name || x.name || x.abbreviation || x.id,
+            sub: x.legal_name || x.country || x.kind || '',
+          })));
+        }
+      } catch {}
+      finally { setLoading(false); }
+    })();
+  }, [endpoint, labelField, kind]);
+
+  const filtered = !query.trim() ? items :
+    items.filter((x) => x.label.toLowerCase().includes(query.toLowerCase()) || x.id.toLowerCase().includes(query.toLowerCase()));
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '280px' }}>
+      <input
+        autoFocus type="text" placeholder="Search..."
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Escape') onCancel(); }}
+        style={{ padding: '6px 10px', border: '1px solid var(--fg-1)', borderRadius: '4px', fontSize: '14px', fontWeight: 700 }}
+      />
+      <div style={{
+        maxHeight: '220px', overflowY: 'auto', border: '1px solid var(--line-1)',
+        borderRadius: '4px', backgroundColor: 'var(--paper)',
+      }}>
+        {loading && <div style={{ padding: '8px', fontSize: '14px', color: 'var(--fg-3)' }}>Loading...</div>}
+        {!loading && filtered.length === 0 && (
+          <div style={{ padding: '8px', fontSize: '14px', color: 'var(--fg-3)' }}>
+            No matches for "{query}"
+          </div>
+        )}
+        {filtered.slice(0, 50).map((x) => (
+          <button
+            key={x.id}
+            onClick={() => onPick(x.id)}
+            style={{
+              display: 'block', width: '100%', textAlign: 'left',
+              padding: '6px 10px',
+              backgroundColor: x.id === currentValue ? 'var(--paper-sunk)' : 'var(--paper)',
+              border: 'none', borderBottom: '1px solid var(--line-1)',
+              cursor: 'pointer', fontSize: '14px',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--paper-sunk)')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = x.id === currentValue ? 'var(--paper-sunk)' : 'var(--paper)')}
+          >
+            <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{x.label}</span>
+            <span style={{ marginLeft: '8px', color: 'var(--fg-3)', fontFamily: 'Manrope, monospace', fontSize: '14px' }}>
+              {x.id}
+            </span>
+            {x.sub && <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{x.sub}</div>}
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-1">
+        <button onClick={() => onPick(null)} style={{ padding: '4px 10px', fontSize: '14px', fontWeight: 700, color: 'var(--fg-2)', background: 'none', border: '1px solid var(--line-1)', borderRadius: '4px', cursor: 'pointer' }}>
+          Clear
+        </button>
+        <button onClick={onCancel} style={{ padding: '4px 10px', fontSize: '14px', fontWeight: 700, color: 'var(--fg-2)', background: 'none', border: '1px solid var(--line-1)', borderRadius: '4px', cursor: 'pointer' }}>
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }
 

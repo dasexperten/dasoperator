@@ -1359,7 +1359,15 @@ function DocumentsTab({
                   <td className="px-4 py-3" style={{ color: 'var(--fg-3)', fontSize: '14px' }}>{att.parsed_from || '—'}</td>
                   <td className="px-4 py-3 text-right">
                     {att.file_url ? (
-                      <a href={`https://dasoperator-api.dasexperten.workers.dev/api/documents/${att.id}/download`} target="_blank" rel="noopener noreferrer" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--brand-rot)', textDecoration: 'none' }}>
+                      <a
+                        href={
+                          // Invoicer-generated docs have parsed_from='invoicer' and use the documents endpoint;
+                          // Manually uploaded docs store the R2-resolvable path in file_url
+                          att.parsed_from === 'invoicer'
+                            ? `https://dasoperator-api.dasexperten.workers.dev/api/documents/${att.id}/download`
+                            : (att.file_url.startsWith('http') ? att.file_url : `https://dasoperator-api.dasexperten.workers.dev${att.file_url}`)
+                        }
+                        target="_blank" rel="noopener noreferrer" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--brand-rot)', textDecoration: 'none' }}>
                         Download
                       </a>
                     ) : (
@@ -2058,3 +2066,4 @@ const modalInputStyle: React.CSSProperties = {
   background: 'var(--paper-base, #fff)',
   color: 'var(--fg-1)',
 };
+

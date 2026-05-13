@@ -1108,7 +1108,7 @@ export default function OperationsPage() {
                             >
                               <option value="">— Select —</option>
                               {companiesList.map((c) => (
-                                <option key={c.id} value={c.id}>{c.abbreviation ?? c.id} — {c.legal_name ?? c.trade_name ?? ''}</option>
+                                <option key={c.id} value={c.id}>{c.abbreviation ?? c.id} — {c.legal_name}</option>
                               ))}
                             </select>
                           </div>

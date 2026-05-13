@@ -1783,6 +1783,7 @@ export interface ExtractedDocInfo {
   direction: 'outgoing' | 'incoming';
   confidence: number;
   notes: string;
+  line_items?: ExtractedLineItem[];
 }
 
 // Pre-filled fields for "Create new operation from this document" UX.

@@ -254,6 +254,17 @@ export async function autoMatchBankTransaction(
   // STEP 1
   let partner = await findPartnerByInn(env, tx.contragent_inn);
 
+  // STEP 1a — INN miss: try fuzzy trade_name match (foreign counterparties,
+  // missing INN in bank statement, etc.). Prevents duplicate prt_draft_* rows
+  // for the same real-world company on consecutive transactions.
+  if (!partner && tx.contragent_name) {
+    partner = await findPartnerByTradeName(env, tx.contragent_name);
+    if (partner) {
+      console.log('[bank-auto-match] matched by trade_name fallback:',
+        tx.contragent_name, '→', partner.id);
+    }
+  }
+
   // STEP 1b — partner not found
   if (!partner) {
     if (isService && tx.direction === 'outgoing' && tx.contragent_name) {
@@ -394,6 +405,116 @@ async function findPartnerByInn(env: Env, inn: string): Promise<PartnerRow | nul
   return row || null;
 }
 
+/**
+ * Fuzzy name match: case-insensitive trade_name OR legal_name lookup, used as
+ * a fallback when the bank tx has no INN (typical for foreign counterparties
+ * like UAE auditors, Chinese factories on dual-currency invoices, etc.).
+ *
+ * Normalisation:
+ *   • lowercase
+ *   • collapse whitespace
+ *   • strip common LLC suffixes that vary between filings ("LLC", "ООО",
+ *     "Ltd.", "Co., Ltd.", "GmbH" etc.)
+ *
+ * Returns the most recently created LIVE partner — same heuristic the
+ * UI uses when offering "merge into existing". Prefer canonical over draft.
+ */
+function normalisePartnerName(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/\b(llc|ооо|ltd\.?|co\.?\s*,?\s*ltd\.?|gmbh|inc\.?|jsc|ао|оао|зао|chartered|accounting|bookkeeping|book\s*keeping|trading|technology)\b/g, '')
+    .replace(/[^a-zа-я0-9]+/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function findPartnerByTradeName(
+  env: Env,
+  name: string,
+): Promise<PartnerRow | null> {
+  if (!name || name.trim().length < 3) return null;
+  const norm = normalisePartnerName(name);
+  if (norm.length < 3) return null;
+
+  // First pass: exact case-insensitive match — fast index hit
+  const exact = await env.DB.prepare(`
+    SELECT id, trade_name, legal_name, currency, kind, partner_type
+    FROM partners
+    WHERE (LOWER(TRIM(trade_name)) = ? OR LOWER(TRIM(legal_name)) = ?)
+      AND (deleted_at IS NULL OR deleted_at = 0)
+    ORDER BY
+      CASE WHEN crm_status = 'active' THEN 0 ELSE 1 END,
+      created_at ASC
+    LIMIT 1
+  `).bind(name.trim().toLowerCase(), name.trim().toLowerCase())
+    .first<PartnerRow>();
+  if (exact) return exact;
+
+  // Second pass: normalised fuzzy match. Scan only LIVE partners — cheap
+  // since the table is small (~80 rows) and we run a few times a day.
+  const candidates = await env.DB.prepare(`
+    SELECT id, trade_name, legal_name, currency, kind, partner_type
+    FROM partners
+    WHERE deleted_at IS NULL OR deleted_at = 0
+  `).all<PartnerRow & { trade_name: string; legal_name: string | null }>();
+  for (const row of (candidates.results ?? [])) {
+    const tradeMatch = normalisePartnerName(row.trade_name) === norm;
+    const legalMatch = row.legal_name
+      ? normalisePartnerName(row.legal_name) === norm
+      : false;
+    if (tradeMatch || legalMatch) {
+      return {
+        id: row.id,
+        trade_name: row.trade_name,
+        legal_name: row.legal_name ?? '',
+        currency: row.currency,
+        kind: row.kind,
+        partner_type: row.partner_type,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Generate a human-readable partner id from trade_name.
+ * Example: "Accuvat Accounting & Book Keeping" → "accuvat_accounting_book_keeping"
+ * Falls back to slug + numeric suffix on collision.
+ *
+ * IDs are far more useful in logs, Slack alerts, debug output, and SQL
+ * queries when they actually name the company instead of being a random
+ * 8-char hex blob. Matches the convention of canonical partners already
+ * in the table (inter_freight, dd_logistics, russian_post, uralstandart).
+ */
+async function generateReadablePartnerId(
+  env: Env,
+  tradeName: string,
+): Promise<string> {
+  const base = (tradeName || 'partner')
+    .toLowerCase()
+    .replace(/[^a-z0-9а-я]+/gi, '_')
+    .replace(/^_|_$/g, '')
+    .slice(0, 40)
+    || 'partner';
+
+  // Try plain slug first
+  const exists = await env.DB.prepare(
+    'SELECT id FROM partners WHERE id = ?'
+  ).bind(base).first();
+  if (!exists) return base;
+
+  // Collision — append _2, _3 … up to _99
+  for (let i = 2; i < 100; i++) {
+    const candidate = `${base}_${i}`;
+    const taken = await env.DB.prepare(
+      'SELECT id FROM partners WHERE id = ?'
+    ).bind(candidate).first();
+    if (!taken) return candidate;
+  }
+  // Extreme fallback — never expected in practice
+  return `${base}_${crypto.randomUUID().slice(0, 6)}`;
+}
+
 async function createDraftPartner(
   env: Env,
   args: {
@@ -404,13 +525,9 @@ async function createDraftPartner(
     kind: string;
   },
 ): Promise<string> {
-  const id = `prt_draft_${crypto.randomUUID().slice(0, 8)}`;
+  const id = await generateReadablePartnerId(env, args.trade_name);
   const now = Math.floor(Date.now() / 1000);
-  const slug = (args.trade_name || `partner-${id.slice(-8)}`)
-    .toLowerCase()
-    .replace(/[^a-zа-я0-9]+/gi, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 60);
+  const slug = id; // slug mirrors id — both human-readable, both unique
 
   await env.DB.prepare(`
     INSERT INTO partners (
@@ -422,8 +539,8 @@ async function createDraftPartner(
               0, 0, 0, ?, ?, ?, ?)
   `).bind(
     id, args.trade_name, args.legal_name, args.tax_id, args.tax_id,
-    args.currency, args.kind, slug || id.slice(-8),
-    '[AUTO-CREATED from Modulbank webhook — please verify & categorise]',
+    args.currency, args.kind, slug,
+    '[AUTO-CREATED from Modulbank webhook, no INN/name match — please verify & categorise]',
     now, now,
   ).run();
   return id;

@@ -25,7 +25,8 @@
 // =============================================================================
 
 import type { Env } from '../types';
-import { findMatchingRule, recordRuleHit, findOperationForRule } from './bank-match-rules';
+import { recordRuleHit, findOperationForRule } from './bank-match-rules';
+import { classifyTransaction, decideAction, persistSuggestion } from './transaction-classifier';
 
 const DATE_WINDOW_DAYS = 30;
 const FX_TOLERANCE_PCT = 0.01;
@@ -171,65 +172,84 @@ export async function autoMatchBankTransaction(
   }
 
   // =========================================================================
-  // FAST PATH: check bank_match_rules first (pure SQL, no LLM)
   // =========================================================================
-  const ruleMatch = await findMatchingRule(env, {
-    contragent_inn: tx.contragent_inn,
-    payment_purpose: tx.payment_purpose,
-    direction: tx.direction as 'incoming' | 'outgoing',
-  });
+  // CLASSIFIER CASCADE — L1 rules + L2 counterparty memory (pure SQL, no LLM)
+  // =========================================================================
+  try {
+    const classifierTx = {
+      contragent_inn: tx.contragent_inn,
+      contragent_account: (tx as any).contragent_account ?? null,
+      contragent_name: tx.contragent_name,
+      payment_purpose: tx.payment_purpose,
+      direction: tx.direction as 'incoming' | 'outgoing',
+    };
+    const cls = await classifyTransaction(env, classifierTx);
+    const decision = decideAction(cls);
 
-  if (ruleMatch) {
-    // Try to find a real open operation matching this rule's partner+type+currency
-    const targetOp = await findOperationForRule(env, ruleMatch.rule, {
-      amount: tx.amount,
-      currency: tx.currency,
-      executed_at: tx.executed_at,
-    });
-
-    if (targetOp) {
-      // Attach to existing operation
-      const attIds = await attachPaymentAndInvoice(env, {
-        operation_id: targetOp.operation_id,
-        tx,
-      });
-      await persistOutcome(env, txId, 'rule_matched' as MatchOutcome, targetOp.operation_id);
-      await recordRuleHit(env, ruleMatch.rule.id);
-      return {
-        outcome: 'rule_matched' as MatchOutcome,
-        operation_id: targetOp.operation_id,
-        partner_id: ruleMatch.rule.partner_id,
-        attachment_ids: attIds,
-        reason: `Matched rule ${ruleMatch.rule.id} (${ruleMatch.match_strength}) → ${targetOp.reference}`,
-      };
+    // Persist suggestion regardless of action (helps Inbox UI show 'suggested category')
+    if (decision.category_id) {
+      await persistSuggestion(env, txId, decision);
     }
 
-    // Rule matched but no open op — create a new service operation
-    if (ruleMatch.rule.default_operation_type === 'purchase' && ruleMatch.rule.partner_id) {
-      const opId = await createServiceOperation(env, {
-        partner_id: ruleMatch.rule.partner_id,
-        amount_major: tx.amount / 100,
-        currency: tx.currency,
-        operation_date: tx.executed_at,
-        purpose: tx.payment_purpose,
-        contragent_name: tx.contragent_name,
+    // AUTO classify: rule sure enough AND not always_confirm category
+    if (decision.action === 'auto_classify' && decision.partner_id) {
+      const targetOp = await findOperationForRule(env, {
+        id: decision.matched_rule_id ?? '',
+        partner_id: decision.partner_id,
+        contragent_inn: tx.contragent_inn || null,
+        purpose_pattern: null,
+        direction: 'any',
+        default_operation_type: decision.default_operation_type ?? 'purchase',
+        default_our_company_id: null,
+        hit_count: 0, last_hit_at: null,
+        created_at: 0, updated_at: 0, deleted_at: null, notes: null,
+      } as any, {
+        amount: tx.amount, currency: tx.currency, executed_at: tx.executed_at,
       });
-      const attIds = await attachPaymentAndInvoice(env, { operation_id: opId, tx });
-      await persistOutcome(env, txId, 'rule_matched' as MatchOutcome, opId);
-      await recordRuleHit(env, ruleMatch.rule.id);
-      return {
-        outcome: 'rule_matched' as MatchOutcome,
-        operation_id: opId,
-        partner_id: ruleMatch.rule.partner_id,
-        attachment_ids: attIds,
-        reason: `Matched rule ${ruleMatch.rule.id} → created new ${ruleMatch.rule.default_operation_type} operation`,
-      };
+
+      if (targetOp) {
+        const attIds = await attachPaymentAndInvoice(env, {
+          operation_id: targetOp.operation_id, tx,
+        });
+        await persistOutcome(env, txId, 'rule_matched' as MatchOutcome, targetOp.operation_id);
+        if (decision.matched_rule_id) await recordRuleHit(env, decision.matched_rule_id);
+        return {
+          outcome: 'rule_matched' as MatchOutcome,
+          operation_id: targetOp.operation_id,
+          partner_id: decision.partner_id,
+          attachment_ids: attIds,
+          reason: `Auto-classified: ${decision.reason} → ${targetOp.reference}`,
+        };
+      }
+
+      // No open op found — create new one based on category default_operation_type
+      if (decision.default_operation_type === 'purchase' && decision.partner_id) {
+        const opId = await createServiceOperation(env, {
+          partner_id: decision.partner_id,
+          amount_major: tx.amount / 100,
+          currency: tx.currency,
+          operation_date: tx.executed_at,
+          purpose: tx.payment_purpose,
+          contragent_name: tx.contragent_name,
+        });
+        const attIds = await attachPaymentAndInvoice(env, { operation_id: opId, tx });
+        await persistOutcome(env, txId, 'rule_matched' as MatchOutcome, opId);
+        if (decision.matched_rule_id) await recordRuleHit(env, decision.matched_rule_id);
+        return {
+          outcome: 'rule_matched' as MatchOutcome,
+          operation_id: opId,
+          partner_id: decision.partner_id,
+          attachment_ids: attIds,
+          reason: `Auto-classified & created new op: ${decision.reason}`,
+        };
+      }
     }
+
+    // For 'inbox_suggest' or 'inbox_blank' actions: fall through to old cascade
+    // (which will leave the tx in Inbox; UI reads suggested_category_id from DB).
+  } catch (e) {
+    console.error('[bank-auto-match] classifier failed, falling through:', e);
   }
-
-
-  const txMajor = tx.amount / 100;
-  const isService = looksLikeService(tx.payment_purpose);
 
   // STEP 1
   let partner = await findPartnerByInn(env, tx.contragent_inn);

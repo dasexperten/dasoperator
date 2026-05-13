@@ -176,8 +176,14 @@ export default function WarehousesPage() {
     return { ozon, wb };
   }, [products, marketplaces]);
 
+  // Filter out marketplace-hidden warehouses (ozon, wb) — these are rendered
+  // separately via MarketplaceCellTd which combines API data + our internal.
+  // Keeping them in the warehouses table lets transfer ops target them in
+  // Phase 5, but they don't get their own matrix column.
   const sortedWarehouses = useMemo(
-    () => sortWarehousesByGroup(warehouses),
+    () => sortWarehousesByGroup(
+      warehouses.filter((w) => w.external_provider !== 'ozon' && w.external_provider !== 'wb')
+    ),
     [warehouses]
   );
 
@@ -303,6 +309,11 @@ export default function WarehousesPage() {
                   const mp = marketplaces[p.id];
                   const ozonVal = mp?.ozon_units ?? 0;
                   const wbVal   = mp?.wb_units ?? 0;
+                  // Our internal stock for Ozon/WB hidden warehouses — populated
+                  // by transfer LBR → ozon/wb operations from Phase 5+. Until
+                  // then, shows 0.
+                  const ourOzonVal = byWh['ozon'] ?? 0;
+                  const ourWbVal   = byWh['wb'] ?? 0;
 
                   return (
                     <tr key={p.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
@@ -328,8 +339,8 @@ export default function WarehousesPage() {
                         );
                       })}
                       <OtwCellTd value={otwQty} />
-                      <MarketplaceCellTd value={ozonVal} tint={MARKETPLACE_TINT.ozon} />
-                      <MarketplaceCellTd value={wbVal}   tint={MARKETPLACE_TINT.wb} />
+                      <MarketplaceCellTd value={ozonVal} ourValue={ourOzonVal} tint={MARKETPLACE_TINT.ozon} />
+                      <MarketplaceCellTd value={wbVal}   ourValue={ourWbVal}   tint={MARKETPLACE_TINT.wb} />
                       <td className="px-3 py-2 text-right" style={{
                         fontSize: '14px',
                         fontWeight: 700,
@@ -523,11 +534,38 @@ function OtwCellTd({ value }: { value: number }) {
   );
 }
 
-function MarketplaceCellTd({ value, tint }: { value: number; tint: string }) {
+function MarketplaceCellTd({ value, ourValue = 0, tint }: { value: number; ourValue?: number; tint: string }) {
+  // API number primary (Ozon/WB FBO from /marketplace/stocks endpoint).
+  // ourValue in parens = our internal stock at the hidden 'ozon' / 'wb'
+  // warehouse — built up from transfer LBR → external operations starting
+  // in Phase 5. Until then ourValue = 0.
   const color = value === 0 ? 'var(--fg-muted)' : 'var(--fg-1)';
+
+  // Parens color = drift signal. Compare api vs our.
+  let parensColor = 'var(--fg-3)';
+  if (value > 0) {
+    const diff = Math.abs(value - ourValue);
+    const pct = diff / value;
+    if (pct > 0.05) parensColor = 'var(--brand-rot)';      // >5% off — red
+    else if (pct > 0.01) parensColor = '#854F0B';          // 1-5% off — amber
+  } else if (ourValue > 0) {
+    // API says nothing, but we have transfers recorded — surface this
+    parensColor = '#854F0B';
+  }
+
   return (
     <td className="px-3 py-2 text-right" style={{ backgroundColor: tint, fontSize: '14px', color, fontWeight: value > 0 ? 600 : 400 }}>
-      {value === 0 ? '—' : value.toLocaleString('en-US')}
+      {value === 0 && ourValue === 0
+        ? '—'
+        : (
+          <>
+            {value > 0 ? value.toLocaleString('en-US') : <span style={{ color: 'var(--fg-muted)' }}>0</span>}
+            <span style={{ color: parensColor, fontWeight: 400, fontSize: '12px', marginLeft: '4px' }}>
+              ({ourValue.toLocaleString('en-US')})
+            </span>
+          </>
+        )
+      }
     </td>
   );
 }

@@ -218,8 +218,8 @@ function CategoryEditor({
         color, sort_order: sortOrder,
       };
       const res = mode === 'create'
-        ? await createFinanceCategory(payload)
-        : await updateFinanceCategory(category!.id, payload);
+        ? await createFinanceCategory(payload as any)
+        : await updateFinanceCategory(category!.id, payload as any);
       if (res.success) onSaved();
       else setErr(res.errors?.[0]?.message ?? 'Save failed');
     } catch (e) {

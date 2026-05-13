@@ -60,6 +60,78 @@ const KIND_LABELS_BADGE: Record<Kind, string> = {
   other:            'OTHER',
 };
 
+// Country full-name → ISO-2 code mapping for compact mobile display.
+// Covers all markets Das Experten currently operates in plus common forms.
+// Unknown countries fall back to the first two letters in upper case.
+const COUNTRY_CODES: Record<string, string> = {
+  'russia': 'RU',
+  'russian federation': 'RU',
+  'china': 'CN',
+  'vietnam': 'VN',
+  'armenia': 'AM',
+  'uae': 'AE',
+  'united arab emirates': 'AE',
+  'georgia': 'GE',
+  'belarus': 'BY',
+  'kazakhstan': 'KZ',
+  'uzbekistan': 'UZ',
+  'kyrgyzstan': 'KG',
+  'tajikistan': 'TJ',
+  'turkmenistan': 'TM',
+  'azerbaijan': 'AZ',
+  'moldova': 'MD',
+  'ukraine': 'UA',
+  'turkey': 'TR',
+  'germany': 'DE',
+  'france': 'FR',
+  'italy': 'IT',
+  'spain': 'ES',
+  'netherlands': 'NL',
+  'poland': 'PL',
+  'lithuania': 'LT',
+  'latvia': 'LV',
+  'estonia': 'EE',
+  'india': 'IN',
+  'iran': 'IR',
+  'iraq': 'IQ',
+  'saudi arabia': 'SA',
+  'qatar': 'QA',
+  'kuwait': 'KW',
+  'oman': 'OM',
+  'bahrain': 'BH',
+  'egypt': 'EG',
+  'morocco': 'MA',
+  'tunisia': 'TN',
+  'south africa': 'ZA',
+  'nigeria': 'NG',
+  'kenya': 'KE',
+  'burkina faso': 'BF',
+  'thailand': 'TH',
+  'indonesia': 'ID',
+  'malaysia': 'MY',
+  'singapore': 'SG',
+  'philippines': 'PH',
+  'south korea': 'KR',
+  'japan': 'JP',
+  'hong kong': 'HK',
+  'taiwan': 'TW',
+  'united states': 'US',
+  'usa': 'US',
+  'canada': 'CA',
+  'mexico': 'MX',
+  'brazil': 'BR',
+  'argentina': 'AR',
+  'united kingdom': 'GB',
+  'uk': 'GB',
+};
+
+function countryCode(country: string | null | undefined): string {
+  if (!country) return '—';
+  const code = COUNTRY_CODES[country.toLowerCase()];
+  if (code) return code;
+  return country.slice(0, 2).toUpperCase();
+}
+
 function deriveKind(p: ExtendedPartner): Kind {
   if (p.kind) return p.kind as Kind;
   if (p.partner_type === 'buyer') return 'buyer';
@@ -130,6 +202,7 @@ export default function PartnersPage() {
   const [kindFilter, setKindFilter] = useState<Kind | 'all'>('buyer');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [entityFilter, setEntityFilter] = useState<string>('all');
+  const [sortOrder, setSortOrder] = useState<'name_asc' | 'name_desc'>('name_asc');
   // Inline email composer — only one open at a time, keyed by partner id + email index
   const [composerKey, setComposerKey] = useState<{ partnerId: string; emailIdx: number } | null>(null);
 
@@ -183,7 +256,7 @@ export default function PartnersPage() {
   }, [partners]);
 
   const filtered = useMemo(() => {
-    return partners.filter((p) => {
+    const result = partners.filter((p) => {
       if (kindFilter !== 'all' && deriveKind(p) !== kindFilter) return false;
       if (search) {
         const q = search.toLowerCase();
@@ -196,7 +269,13 @@ export default function PartnersPage() {
       if (entityFilter !== 'all' && p.entity_abbreviation !== entityFilter) return false;
       return true;
     });
-  }, [partners, search, kindFilter, statusFilter, entityFilter]);
+    // Sort by trade_name (A→Z or Z→A)
+    result.sort((a, b) => {
+      const cmp = a.trade_name.localeCompare(b.trade_name, undefined, { sensitivity: 'base' });
+      return sortOrder === 'name_asc' ? cmp : -cmp;
+    });
+    return result;
+  }, [partners, search, kindFilter, statusFilter, entityFilter, sortOrder]);
 
   const activeCount = partners.filter((p) => p.status === 'active').length;
   const pendingCount = partners.filter((p) => p.status === 'pending').length;
@@ -346,30 +425,37 @@ export default function PartnersPage() {
           </div>
         </div>
 
-        {/* Mobile filter row — Partner type + Entity, 50/50 grid */}
-        <div
-          className="dx-show-mobile"
-          style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}
-        >
+        {/* Mobile filter block — Type+Entity row 50/50, then Sort full-width */}
+        <div className="dx-show-mobile" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <select
+              value={kindFilter}
+              onChange={(e) => setKindFilter(e.target.value as 'all' | Kind)}
+              className="px-3 py-2 focus:outline-none"
+              style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)', width: '100%' }}>
+              <option value="all">All types</option>
+              <option value="buyer">Buyers</option>
+              <option value="manufacturer">Manufacturers</option>
+              <option value="service_provider">Service providers</option>
+              <option value="shipper">Shippers</option>
+              <option value="3pl">3PL</option>
+            </select>
+            <select
+              value={entityFilter}
+              onChange={(e) => setEntityFilter(e.target.value)}
+              className="px-3 py-2 focus:outline-none"
+              style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)', width: '100%' }}>
+              <option value="all">All entities</option>
+              {entities.map((e) => <option key={e} value={e}>{e}</option>)}
+            </select>
+          </div>
           <select
-            value={kindFilter}
-            onChange={(e) => setKindFilter(e.target.value as 'all' | Kind)}
+            value={sortOrder}
+            onChange={(e) => setSortOrder(e.target.value as 'name_asc' | 'name_desc')}
             className="px-3 py-2 focus:outline-none"
             style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)', width: '100%' }}>
-            <option value="all">All types</option>
-            <option value="buyer">Buyers</option>
-            <option value="manufacturer">Manufacturers</option>
-            <option value="service_provider">Service providers</option>
-            <option value="shipper">Shippers</option>
-            <option value="3pl">3PL</option>
-          </select>
-          <select
-            value={entityFilter}
-            onChange={(e) => setEntityFilter(e.target.value)}
-            className="px-3 py-2 focus:outline-none"
-            style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)', width: '100%' }}>
-            <option value="all">All entities</option>
-            {entities.map((e) => <option key={e} value={e}>{e}</option>)}
+            <option value="name_asc">Sort: Trade name A → Z</option>
+            <option value="name_desc">Sort: Trade name Z → A</option>
           </select>
         </div>
       </div>
@@ -381,7 +467,72 @@ export default function PartnersPage() {
           Error: {error}
         </div>
       ) : (
-        <div className="bg-card overflow-hidden" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
+        <>
+        {/* Mobile card list — 5 fields per card: Trade Name | Status, Country · Entity, Net Balance */}
+        <div className="dx-show-mobile" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {filtered.length === 0 ? (
+            <div className="text-center py-12" style={{ color: 'var(--fg-3)' }}>No partners match the filters</div>
+          ) : (
+            filtered.map((p) => {
+              const effective = p.crm_status ?? (p.status === 'pending' ? 'lead' : p.status);
+              const statusStyle = CRM_COLORS[effective] ?? STATUS_COLORS[p.status];
+              const bal = netBalances[p.id];
+              return (
+                <Link
+                  key={`m-${p.id}`}
+                  href={`/partners/${p.id}`}
+                  className="bg-card"
+                  style={{
+                    display: 'block',
+                    padding: '12px 14px',
+                    border: '1px solid var(--border-hairline)',
+                    borderRadius: 'var(--radius-md)',
+                    color: 'var(--fg-1)',
+                  }}
+                >
+                  {/* Top row: trade name + status pill */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                    <div className="dx-product-name" style={{ fontSize: '16px', fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {p.trade_name}
+                    </div>
+                    <span
+                      style={{
+                        flexShrink: 0,
+                        padding: '3px 10px',
+                        backgroundColor: statusStyle.bg,
+                        color: statusStyle.fg,
+                        border: `1px solid ${statusStyle.border}`,
+                        borderRadius: 'var(--radius-pill)',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                      }}
+                    >
+                      {effective}
+                    </span>
+                  </div>
+                  {/* Bottom row: country code · entity, then net balance right-aligned */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginTop: '6px' }}>
+                    <div style={{ color: 'var(--fg-2)', fontSize: '14px', fontWeight: 700 }}>
+                      {countryCode(p.country)}
+                      <span style={{ margin: '0 6px', color: 'var(--fg-3)' }}>·</span>
+                      {p.entity_abbreviation ?? '—'}
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: '14px' }}>
+                      {bal ? (
+                        <NetBalance usd={bal.usd} currencies={bal.currencies} size="compact" />
+                      ) : (
+                        <span style={{ color: 'var(--fg-muted)' }}>—</span>
+                      )}
+                    </div>
+                  </div>
+                </Link>
+              );
+            })
+          )}
+        </div>
+
+        {/* Desktop table — original layout, hidden on mobile */}
+        <div className="dx-hide-mobile bg-card overflow-hidden" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
           <table className="w-full text-sm">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
@@ -485,6 +636,7 @@ export default function PartnersPage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

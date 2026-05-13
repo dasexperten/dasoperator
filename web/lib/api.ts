@@ -1802,6 +1802,10 @@ export interface ExtractedDocInfo {
 export interface UploadDocPrefill {
   partner_id: string | null;
   partner_name: string | null;
+  /** Set when the matched partner has a partner_subtype (migration 0034).
+   *  When non-null, the resulting operation goes on the service track and
+   *  the UI shows a "Service operation" badge before the Create button. */
+  partner_subtype: 'service_provider' | 'logistics' | 'agency' | null;
   manufacturer_id: string | null;
   manufacturer_name: string | null;
   our_company_id: string | null;
@@ -1875,6 +1879,7 @@ export interface CreateFromDocResult {
     id: string;
     reference: string;
     operation_type: 'sale' | 'purchase' | 'transfer';
+    operation_track?: 'goods' | 'service';
     operation_date: number;
     partner_id: string | null;
     manufacturer_id: string | null;

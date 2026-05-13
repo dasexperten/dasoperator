@@ -70,6 +70,7 @@ interface PrefillData {
   // Pre-resolved IDs (best fuzzy match against DB) — may be null if no good match
   partner_id: string | null;
   partner_name: string | null;
+  partner_subtype: 'service_provider' | 'logistics' | 'agency' | null;
   manufacturer_id: string | null;
   manufacturer_name: string | null;
   our_company_id: string | null;
@@ -144,8 +145,8 @@ async function buildPrefill(
 ): Promise<PrefillData> {
   // Load partner candidates (active only)
   const partnerRows = await env.DB.prepare(
-    `SELECT id, trade_name as name FROM partners WHERE deleted_at IS NULL`
-  ).all<{ id: string; name: string }>();
+    `SELECT id, trade_name as name, partner_subtype FROM partners WHERE deleted_at IS NULL`
+  ).all<{ id: string; name: string; partner_subtype: string | null }>();
   // Load manufacturer candidates
   const mfgRows = await env.DB.prepare(
     `SELECT id, name FROM manufacturers`
@@ -195,9 +196,16 @@ async function buildPrefill(
     operationType = 'purchase';
   }
 
+  // Look up the matched partner's subtype to surface in UI and downstream
+  // create-from-document call. Drives operation_track=service when set.
+  const partnerSubtype = bestPartner
+    ? ((partnerRows.results ?? []).find((p) => p.id === bestPartner!.id)?.partner_subtype ?? null)
+    : null;
+
   return {
     partner_id: bestPartner?.id ?? null,
     partner_name: bestPartner?.name ?? otherSideRaw ?? null,
+    partner_subtype: partnerSubtype,
     manufacturer_id: bestManufacturer?.id ?? null,
     manufacturer_name: bestManufacturer?.name ?? null,
     our_company_id: bestCompany?.id ?? null,
@@ -508,10 +516,18 @@ operationDocs.post('/create-from-document', async (c) => {
     return fail(c, 404, [{ code: 'company_not_found', message: `our_company_id ${body.our_company_id} does not exist` }]);
   }
 
+  let partnerSubtype: string | null = null;
   if (body.partner_id) {
-    const p = await c.env.DB.prepare('SELECT id FROM partners WHERE id = ? AND deleted_at IS NULL').bind(body.partner_id).first();
+    const p = await c.env.DB.prepare(
+      'SELECT id, partner_subtype FROM partners WHERE id = ? AND deleted_at IS NULL'
+    ).bind(body.partner_id).first<{ id: string; partner_subtype: string | null }>();
     if (!p) return fail(c, 404, [{ code: 'partner_not_found', message: `partner_id ${body.partner_id} does not exist` }]);
+    partnerSubtype = p.partner_subtype;
   }
+  // Derive operation track. Service-only counterparties (auditors, logistics,
+  // agencies — see migration 0034) flip to 'service' track so the operation
+  // page renders Service provided / Paid chips instead of the goods toolbar.
+  const operationTrack: 'goods' | 'service' = partnerSubtype ? 'service' : 'goods';
   if (body.manufacturer_id) {
     const m = await c.env.DB.prepare('SELECT id FROM manufacturers WHERE id = ?').bind(body.manufacturer_id).first();
     if (!m) return fail(c, 404, [{ code: 'manufacturer_not_found', message: `manufacturer_id ${body.manufacturer_id} does not exist` }]);
@@ -557,6 +573,7 @@ operationDocs.post('/create-from-document', async (c) => {
       total_amount, total_usd_equiv,
       incoterms, notes, vat_rate,
       dei_layer, legal_seller_id,
+      operation_track,
       created_at, updated_at, deleted_at
     ) VALUES (
       ?, NULL, ?, ?,
@@ -567,6 +584,7 @@ operationDocs.post('/create-from-document', async (c) => {
       ?, NULL,
       NULL, ?, 0,
       0, NULL,
+      ?,
       ?, ?, NULL
     )
   `).bind(
@@ -583,6 +601,7 @@ operationDocs.post('/create-from-document', async (c) => {
     body.currency,
     totalAmount,
     stubNote,
+    operationTrack,
     now,
     now,
   );

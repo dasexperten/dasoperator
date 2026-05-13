@@ -891,6 +891,32 @@ export default function OperationsPage() {
                   )}
                 </div>
 
+                {/* Service track badge — informs user that creating a new
+                    operation here will produce a service-track operation
+                    (no goods toolbar, just Service provided / Paid chips) */}
+                {uploadResult.prefill?.partner_subtype && (
+                  <div style={{
+                    padding: '10px 14px', marginBottom: '12px',
+                    border: '1px solid rgba(31,73,125,0.3)',
+                    borderRadius: 'var(--radius-sm)',
+                    backgroundColor: 'rgba(31,73,125,0.08)',
+                    display: 'flex', alignItems: 'center', gap: '10px',
+                  }}>
+                    <div style={{
+                      width: '22px', height: '22px', borderRadius: '50%',
+                      backgroundColor: 'var(--status-info)', color: '#fff',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '13px', fontWeight: 700, flexShrink: 0,
+                    }}>S</div>
+                    <div style={{ fontSize: '13px', color: 'var(--status-info)', lineHeight: 1.4 }}>
+                      <span style={{ fontWeight: 700 }}>{uploadResult.prefill.partner_name}</span>
+                      {' '}is a <span style={{ fontWeight: 700 }}>{uploadResult.prefill.partner_subtype.replace('_', ' ')}</span>.
+                      Creating from this document will produce a <span style={{ fontWeight: 700 }}>service operation</span>
+                      {' '}— no production/shipping stages, just Service provided &amp; Paid chips.
+                    </div>
+                  </div>
+                )}
+
                 {/* Action tabs: Attach to existing | Create new */}
                 <div style={{
                   display: 'flex', gap: '0', marginBottom: '16px',

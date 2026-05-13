@@ -516,6 +516,20 @@ async function runMarketplaceSync(env: Env): Promise<void> {
     console.error('[cron] wb sales threw:', e);
   }
 
+  // Site sales — Retail CRM API isn't rate-limited like WB statistics-api,
+  // so no extra sleep needed before this call.
+  try {
+    const req = new Request('https://internal/api/crm/sync-site-sales', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),  // defaults to last 2 days
+    });
+    const r = await env.SELF.fetch(req);
+    console.log(`[cron] site sales HTTP ${r.status}`);
+  } catch (e) {
+    console.error('[cron] site sales threw:', e);
+  }
+
   console.log('[cron] marketplace sync done');
 }
 

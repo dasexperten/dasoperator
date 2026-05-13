@@ -1440,6 +1440,76 @@ export async function syncExternalStocks(warehouseId?: string) {
 }
 
 
+// =============================================================================
+// External warehouse requests (F4 Skladbot заявки) — Phase 7.x
+// =============================================================================
+export interface ExternalRequestRow {
+  id: string;
+  external_id: number;
+  delivery_number: string;
+  warehouse_id: string;
+  request_type_raw: string;
+  request_type_norm: 'acceptance' | 'mp_delivery' | 'writeoff' | 'pickup_acceptance' | 'other';
+  stage_code: string | null;
+  stage_name: string | null;
+  is_completed: number;
+  is_archived: number;
+  is_expired: number;
+  created_at_external: string | null;
+  executor: string | null;
+  creator: string | null;
+  comment: string | null;
+  imported_op_id: string | null;
+  synced_at: number;
+  item_count: number;
+  total_amount: number | null;
+}
+
+export interface ExternalRequestItem {
+  id: string;
+  external_request_id: string;
+  external_item_id: number | null;
+  vendor_code: string;
+  product_id: string | null;
+  product_name: string | null;
+  barcode: string | null;
+  amount: number;
+  accepted_amount: number;
+  delivery_amount: number;
+  repair_amount: number;
+  recycle_amount: number;
+  comment: string | null;
+  bundling_divisor: number | null;
+  bundling_from_qty: number | null;
+  bundling_to_qty: number | null;
+  created_at: number;
+}
+
+export async function getExternalRequests(filters: {
+  warehouse_id?: string;
+  type_norm?: string;
+  completed?: '0' | '1';
+  archived?: '0' | '1';
+}) {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) if (v !== undefined) qs.set(k, v);
+  return apiGet<{ requests: ExternalRequestRow[] }>(`/api/external-requests?${qs.toString()}`);
+}
+
+export async function getExternalRequest(id: string) {
+  return apiGet<{ request: ExternalRequestRow; items: ExternalRequestItem[] }>(
+    `/api/external-requests/${encodeURIComponent(id)}`
+  );
+}
+
+export async function syncExternalRequests() {
+  return apiPost<{ synced: number; total: number; errors: string[] }>(
+    '/api/external-requests/sync',
+    {}
+  );
+}
+
+
 
 
 // =============================================================================

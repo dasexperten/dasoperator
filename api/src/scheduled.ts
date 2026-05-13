@@ -393,10 +393,10 @@ export async function handleScheduled(
     return;
   }
 
-  // F4 Lyubertsy fulfillment / Skladbot WMS — stock snapshot sync.
+  // F4 Lyubertsy fulfillment / Skladbot WMS — stock snapshot + requests mirror sync.
   // Runs every 6 hours at :30 (03:30, 09:30, 15:30, 21:30 МСК), offset from
   // Performance API (:05) and Modulbank (:15) to avoid clustering.
-  // Idempotent — deletes today's external_stocks for the warehouse, re-inserts.
+  // Both calls are idempotent.
   if (cron === '30 */6 * * *') {
     console.log('[cron:f4-sync] starting Skladbot stock snapshot');
     try {
@@ -417,7 +417,27 @@ export async function handleScheduled(
         console.error('[cron:f4-sync] sync returned errors:', JSON.stringify(out.errors));
       }
     } catch (e) {
-      console.error('[cron:f4-sync] failed:', e);
+      console.error('[cron:f4-sync] stock sync failed:', e);
+    }
+
+    console.log('[cron:f4-sync] starting Skladbot requests mirror');
+    try {
+      const r = await env.SELF.fetch(new Request(
+        'https://internal/api/external-requests/sync',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        }
+      ));
+      const out = await r.json() as { success: boolean; result?: { synced: number; total: number; errors: string[] }; errors?: unknown[] };
+      if (out.success && out.result) {
+        console.log(`[cron:f4-sync] requests: ${out.result.synced}/${out.result.total} synced, ${out.result.errors.length} errors`);
+      } else {
+        console.error('[cron:f4-sync] requests sync returned errors:', JSON.stringify(out.errors));
+      }
+    } catch (e) {
+      console.error('[cron:f4-sync] requests sync failed:', e);
     }
     return;
   }

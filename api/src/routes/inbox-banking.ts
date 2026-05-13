@@ -66,15 +66,23 @@ inboxBanking.get('/', async (c) => {
              bt.contragent_name, bt.contragent_inn, bt.payment_purpose,
              bt.matched_payment_id AS matched_operation_id,
              bt.match_method, bt.matched_at,
+             bt.suggested_category_id,
+             bt.suggested_confidence,
+             bt.suggested_reason,
              o.reference AS matched_operation_ref,
              o.status AS matched_operation_status,
              o.notes AS matched_operation_notes,
              p.id AS guess_partner_id, p.trade_name AS guess_partner_name,
-             p.kind AS guess_partner_kind
+             p.kind AS guess_partner_kind,
+             fc.label AS suggested_category_label,
+             fc.color AS suggested_category_color,
+             fc.always_confirm AS suggested_category_always_confirm,
+             fc.default_operation_type AS suggested_category_op_type
       FROM bank_transactions bt
       LEFT JOIN operations o ON o.id = bt.matched_payment_id
       LEFT JOIN partners   p ON (p.tax_id = bt.contragent_inn OR p.inn = bt.contragent_inn)
                              AND (p.deleted_at IS NULL OR p.deleted_at = 0)
+      LEFT JOIN finance_categories fc ON fc.id = bt.suggested_category_id
       WHERE ${where}
       ORDER BY bt.executed_at DESC
       LIMIT ?

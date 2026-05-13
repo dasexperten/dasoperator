@@ -25,6 +25,7 @@
 // =============================================================================
 
 import type { Env } from '../types';
+import { findMatchingRule, recordRuleHit, findOperationForRule } from './bank-match-rules';
 
 const DATE_WINDOW_DAYS = 30;
 const FX_TOLERANCE_PCT = 0.01;
@@ -69,7 +70,7 @@ export type MatchOutcome =
   | 'partner_auto_created'
   | 'ambiguous'
   | 'partner_not_found'
-  | 'no_candidate';
+  | 'no_candidate' | 'rule_matched' | 'rule_matched_no_op';
 
 export interface AutoMatchResult {
   outcome: MatchOutcome;
@@ -168,6 +169,64 @@ export async function autoMatchBankTransaction(
   if (!tx) {
     return { outcome: 'no_candidate', operation_id: null, attachment_ids: [], reason: 'tx not found' };
   }
+
+  // =========================================================================
+  // FAST PATH: check bank_match_rules first (pure SQL, no LLM)
+  // =========================================================================
+  const ruleMatch = await findMatchingRule(env, {
+    contragent_inn: tx.contragent_inn,
+    payment_purpose: tx.payment_purpose,
+    direction: tx.direction as 'incoming' | 'outgoing',
+  });
+
+  if (ruleMatch) {
+    // Try to find a real open operation matching this rule's partner+type+currency
+    const targetOp = await findOperationForRule(env, ruleMatch.rule, {
+      amount: tx.amount,
+      currency: tx.currency,
+      executed_at: tx.executed_at,
+    });
+
+    if (targetOp) {
+      // Attach to existing operation
+      const attIds = await attachPaymentAndInvoice(env, {
+        operation_id: targetOp.operation_id,
+        tx,
+      });
+      await persistOutcome(env, txId, 'rule_matched' as MatchOutcome, targetOp.operation_id);
+      await recordRuleHit(env, ruleMatch.rule.id);
+      return {
+        outcome: 'rule_matched' as MatchOutcome,
+        operation_id: targetOp.operation_id,
+        partner_id: ruleMatch.rule.partner_id,
+        attachment_ids: attIds,
+        reason: `Matched rule ${ruleMatch.rule.id} (${ruleMatch.match_strength}) → ${targetOp.reference}`,
+      };
+    }
+
+    // Rule matched but no open op — create a new service operation
+    if (ruleMatch.rule.default_operation_type === 'purchase' && ruleMatch.rule.partner_id) {
+      const opId = await createServiceOperation(env, {
+        partner_id: ruleMatch.rule.partner_id,
+        amount_major: tx.amount / 100,
+        currency: tx.currency,
+        operation_date: tx.executed_at,
+        purpose: tx.payment_purpose,
+        contragent_name: tx.contragent_name,
+      });
+      const attIds = await attachPaymentAndInvoice(env, { operation_id: opId, tx });
+      await persistOutcome(env, txId, 'rule_matched' as MatchOutcome, opId);
+      await recordRuleHit(env, ruleMatch.rule.id);
+      return {
+        outcome: 'rule_matched' as MatchOutcome,
+        operation_id: opId,
+        partner_id: ruleMatch.rule.partner_id,
+        attachment_ids: attIds,
+        reason: `Matched rule ${ruleMatch.rule.id} → created new ${ruleMatch.rule.default_operation_type} operation`,
+      };
+    }
+  }
+
 
   const txMajor = tx.amount / 100;
   const isService = looksLikeService(tx.payment_purpose);

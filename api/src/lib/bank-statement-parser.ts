@@ -18,7 +18,8 @@ import type { Env } from '../types';
 
 const DEEPSEEK_API = 'https://api.deepseek.com/v1/chat/completions';
 
-const EXTRACTION_PROMPT = `You are a bank statement parser. Extract every transaction line into JSON.
+const EXTRACTION_PROMPT = `You are a bank statement parser. Extract every transaction into JSON.
+Source may be a multi-line statement OR a single payment confirmation (e.g. Wio Transfer copy, Swift copy, payment advice) — in that case the result has exactly one transaction.
 
 Output ONLY valid JSON, no prose, no markdown fences:
 {
@@ -269,8 +270,18 @@ export async function extractTextFromFile(
     return decodeWithFallback(bytes);
   }
 
-  // PDF — extract printable ASCII / UTF-8 chunks (crude but works for text-bearing PDFs)
+  // PDF — use unpdf (PDF.js wrapper) for proper text extraction
   if (lower.endsWith('.pdf') || mimeType === 'application/pdf') {
+    try {
+      const { extractText, getDocumentProxy } = await import('unpdf');
+      const pdf = await getDocumentProxy(bytes);
+      const { text } = await extractText(pdf, { mergePages: true });
+      if (text && text.length > 50) {
+        return text.slice(0, 100_000);
+      }
+    } catch (e) {
+      console.error('[bank-parser] unpdf failed, falling back to strings:', e);
+    }
     return extractPdfText(bytes);
   }
 

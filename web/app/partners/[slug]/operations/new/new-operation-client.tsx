@@ -612,7 +612,8 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
           router.push(`/operations/${res.result.operation.id}`);
         } else {
           const err = res.errors?.[0];
-          setError(err?.message || res.message || 'Failed to create service operation');
+          const issue = (err?.details as { issues?: Array<{ message: string }> } | undefined)?.issues?.[0];
+          setError(issue?.message ?? err?.message ?? 'Failed to create service operation');
           setSubmitting(false);
         }
       } catch (e) {

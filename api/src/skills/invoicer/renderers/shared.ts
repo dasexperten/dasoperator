@@ -83,8 +83,8 @@ export interface RenderSignature {
 export const PORTRAIT_USABLE_DXA = 10500;
 export const LANDSCAPE_USABLE_DXA = 15400;
 const SHADE_GRAY = 'F2F2F2';
-const BRAND_ANTHRACITE = '1A1A1A';
-const BRAND_ROT = 'E5202C';
+export const BRAND_ANTHRACITE = '1A1A1A';
+export const BRAND_ROT = 'E5202C';
 const SUBTLE_GRAY = '707070';
 const HAIRLINE_GRAY = 'BFBFBF';
 const BRAND_FONT = 'Calibri';  // safe sans-serif, available on all Office installs

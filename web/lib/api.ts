@@ -1162,6 +1162,9 @@ export interface Warehouse {
   owner_company_id?: string | null;
   owner_manufacturer_id?: string | null;
   owner_partner_id?: string | null;
+  external_provider?: string | null;
+  external_customer_id?: string | null;
+  external_sync_at?: number | null;
   notes?: string | null;
   created_at: number;
   updated_at: number;

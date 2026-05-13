@@ -109,6 +109,7 @@ warehouses.get('/:id', async (c) => {
     SELECT
       id, code, name, country, city, warehouse_type,
       owner_id, owner_company_id, owner_manufacturer_id, owner_partner_id,
+      external_provider, external_customer_id, external_sync_at,
       notes, created_at, updated_at
     FROM warehouses
     WHERE id = ? AND deleted_at IS NULL

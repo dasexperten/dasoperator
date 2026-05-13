@@ -84,8 +84,8 @@ async function loadDirectoryContext(env: Env): Promise<{
   products: DirectoryRow[];
 }> {
   const [companies, partners, manufacturers, products] = await Promise.all([
-    env.DB.prepare(`SELECT id, abbreviation, legal_name, trade_name, inn FROM companies WHERE deleted_at IS NULL`).all<any>(),
-    env.DB.prepare(`SELECT id, trade_name, legal_name, kind, country, tax_id, inn FROM partners WHERE deleted_at IS NULL ORDER BY kind, trade_name`).all<any>(),
+    env.DB.prepare(`SELECT id, abbreviation, legal_name, trade_name, tax_id FROM companies WHERE deleted_at IS NULL`).all<any>(),
+    env.DB.prepare(`SELECT id, trade_name, legal_name, kind, country, tax_id FROM partners WHERE deleted_at IS NULL ORDER BY kind, trade_name`).all<any>(),
     env.DB.prepare(`SELECT id, name FROM manufacturers`).all<any>(),
     env.DB.prepare(`SELECT id, product_name, invoice_label, invoice_label_en, invoice_label_ru, invoice_label_cn, buy_price, buy_currency FROM products WHERE deleted_at IS NULL ORDER BY id`).all<any>(),
   ]);
@@ -94,12 +94,12 @@ async function loadDirectoryContext(env: Env): Promise<{
     companies: (companies.results || []).map((x: any) => ({
       id: x.id,
       label: `${x.abbreviation} — ${x.legal_name || x.trade_name || ''}`,
-      sub: x.inn ? `INN ${x.inn}` : undefined,
+      sub: x.tax_id ? `TIN ${x.tax_id}` : undefined,
     })),
     partners: (partners.results || []).map((x: any) => ({
       id: x.id,
       label: `${x.trade_name}${x.legal_name && x.legal_name !== x.trade_name ? ' / ' + x.legal_name : ''}`,
-      sub: [x.kind, x.country, x.tax_id || x.inn].filter(Boolean).join(' · '),
+      sub: [x.kind, x.country, x.tax_id].filter(Boolean).join(' · '),
       kind: x.kind,
     })),
     manufacturers: (manufacturers.results || []).map((x: any) => ({

@@ -311,7 +311,7 @@ export default function OperationsPage() {
                     color: 'var(--fg-1)',
                   }}
                 >
-                  {/* Row 1: reference + status chip (dot + label) */}
+                  {/* Row 1: reference (left) + status chip (right) */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
                     <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-2)' }}>
                       {op.reference ?? op.id.slice(0, 12)}
@@ -336,34 +336,59 @@ export default function OperationsPage() {
                       {statusLabel(op.status)}
                     </span>
                   </div>
-                  {/* Row 2: partner / manufacturer name bold */}
-                  <div className="dx-product-name" style={{ fontSize: '16px', fontWeight: 800, marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {partnerLabel}
-                  </div>
-                  {/* Row 3: amount centred, colour = payment state */}
-                  <div style={{ textAlign: 'center', marginTop: '10px', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '20px', fontWeight: 800, color: amountColor, whiteSpace: 'nowrap' }}>
-                      {formatMoney(op.total_amount, op.currency)}
-                      <span style={{ fontSize: '13px', color: 'var(--fg-3)', marginLeft: '6px', fontWeight: 700 }}>{op.currency}</span>
-                    </span>
-                  </div>
-                  {/* Row 4: entity right-aligned, visible.
-                      Fallback chain when entity_abbreviation is missing:
-                        1. our_company_id uppercased (dee → DEE, dei → DEI)
-                        2. dash placeholder */}
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
-                    <span style={{
-                      fontSize: '14px',
+
+                  {/* Row 2: counterparty (bottom-left, bold) + amount stack (bottom-right) */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'flex-end',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                    marginTop: '10px',
+                  }}>
+                    {/* Counterparty — left, takes remaining width */}
+                    <div className="dx-product-name" style={{
+                      fontSize: '16px',
                       fontWeight: 800,
-                      color: 'var(--fg-1)',
-                      padding: '2px 8px',
-                      backgroundColor: 'var(--paper-sunk)',
-                      borderRadius: 'var(--radius-sm)',
-                      letterSpacing: 0,
+                      minWidth: 0,
+                      flex: 1,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      lineHeight: 1.2,
                     }}>
-                      {op.entity_abbreviation
-                        ?? (op.our_company_id ? op.our_company_id.toUpperCase() : '—')}
-                    </span>
+                      {partnerLabel}
+                    </div>
+                    {/* Amount + entity — right, stacked, right-aligned */}
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-end',
+                      flexShrink: 0,
+                      gap: '4px',
+                    }}>
+                      <span style={{
+                        fontSize: '18px',
+                        fontWeight: 800,
+                        color: amountColor,
+                        whiteSpace: 'nowrap',
+                        lineHeight: 1,
+                      }}>
+                        {formatMoney(op.total_amount, op.currency)}
+                        <span style={{ fontSize: '12px', color: 'var(--fg-3)', marginLeft: '4px', fontWeight: 700 }}>{op.currency}</span>
+                      </span>
+                      <span style={{
+                        fontSize: '12px',
+                        fontWeight: 800,
+                        color: 'var(--fg-1)',
+                        padding: '1px 6px',
+                        backgroundColor: 'var(--paper-sunk)',
+                        borderRadius: 'var(--radius-sm)',
+                        letterSpacing: 0,
+                      }}>
+                        {op.entity_abbreviation
+                          ?? (op.our_company_id ? op.our_company_id.toUpperCase() : '—')}
+                      </span>
+                    </div>
                   </div>
                 </Link>
               );

@@ -310,8 +310,13 @@ async function commitOperationCreate(
 
 
   const { issueOperationReference } = await import('../lib/operation-reference');
-  const refResult = await issueOperationReference(env.DB, ourCompanyId, operationDate);
-  if (!refResult) throw new Error(`No reference entity mapping for company ${ourCompanyId}`);
+  const refResult = await issueOperationReference(env.DB, {
+    operationType,
+    ourCompanyId,
+    manufacturerId: manufacturerId || null,
+    operationDateUnix: operationDate,
+  });
+  if (!refResult) throw new Error(`No reference mapping for ${operationType} (company=${ourCompanyId}, mfr=${manufacturerId})`);
 
   const operationId = `op_${crypto.randomUUID()}`;
   const now = Math.floor(Date.now() / 1000);

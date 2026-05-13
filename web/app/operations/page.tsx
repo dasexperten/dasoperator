@@ -410,7 +410,7 @@ export default function OperationsPage() {
             }}
           >
             <Upload className="h-4 w-4" />
-            Upload Document
+            Create from document
           </button>
           <Link
             href="/operations/new"

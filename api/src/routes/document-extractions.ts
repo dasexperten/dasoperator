@@ -287,6 +287,28 @@ async function commitOperationCreate(
     throw new Error('Missing required header fields (operation_type, our_company_id, currency, operation_date)');
   }
 
+  // Pre-validate FKs to give a clear error instead of opaque SQLITE_CONSTRAINT
+  const fkChecks: Array<{ name: string; sql: string; value: any }> = [
+    { name: 'our_company_id', sql: 'SELECT 1 FROM companies WHERE id = ? AND deleted_at IS NULL', value: ourCompanyId },
+  ];
+  if (partnerId) fkChecks.push({ name: 'partner_id', sql: 'SELECT 1 FROM partners WHERE id = ? AND deleted_at IS NULL', value: partnerId });
+  if (manufacturerId) fkChecks.push({ name: 'manufacturer_id', sql: 'SELECT 1 FROM manufacturers WHERE id = ?', value: manufacturerId });
+  if (receivingCompanyId) fkChecks.push({ name: 'receiving_company_id', sql: 'SELECT 1 FROM companies WHERE id = ? AND deleted_at IS NULL', value: receivingCompanyId });
+  for (const li of lineItems) {
+    if (li.product_id) {
+      fkChecks.push({ name: `line_item_product:${li.product_id}`, sql: 'SELECT 1 FROM products WHERE id = ? AND deleted_at IS NULL', value: li.product_id });
+    }
+  }
+  const fkErrors: string[] = [];
+  for (const chk of fkChecks) {
+    const found = await env.DB.prepare(chk.sql).bind(chk.value).first();
+    if (!found) fkErrors.push(`${chk.name}=${chk.value} does not exist`);
+  }
+  if (fkErrors.length > 0) {
+    throw new Error(`Cannot commit — referenced records not found: ${fkErrors.join('; ')}`);
+  }
+
+
   const { issueOperationReference } = await import('../lib/operation-reference');
   const refResult = await issueOperationReference(env.DB, ourCompanyId, operationDate);
   if (!refResult) throw new Error(`No reference entity mapping for company ${ourCompanyId}`);

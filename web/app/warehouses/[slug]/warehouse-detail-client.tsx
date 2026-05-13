@@ -146,15 +146,31 @@ export default function WarehouseDetailClient({ warehouseId }: { warehouseId: st
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <ActionButton href={`/warehouses/${warehouseId}/sessions/new`} icon={<Plus className="h-3.5 w-3.5" />}>
-            Start Session
-          </ActionButton>
-          <ActionButton href={`/warehouses/${warehouseId}/adjust`} icon={<Edit3 className="h-3.5 w-3.5" />}>
-            Adjust Stock
-          </ActionButton>
-          <ActionButton href={`/warehouses/${warehouseId}/receipt`} icon={<PackagePlus className="h-3.5 w-3.5" />} primary>
-            Receipt
-          </ActionButton>
+          {isExternalWarehouse ? (
+            <div style={{
+              padding: '8px 14px',
+              backgroundColor: 'rgba(24,95,165,0.08)',
+              border: '1px solid rgba(24,95,165,0.3)',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: '14px',
+              color: '#0C447C',
+              fontWeight: 600,
+            }}>
+              Stock movements synced from F4 — see F4 заявки
+            </div>
+          ) : (
+            <>
+              <ActionButton href={`/warehouses/${warehouseId}/sessions/new`} icon={<Plus className="h-3.5 w-3.5" />}>
+                Start Session
+              </ActionButton>
+              <ActionButton href={`/warehouses/${warehouseId}/adjust`} icon={<Edit3 className="h-3.5 w-3.5" />}>
+                Adjust Stock
+              </ActionButton>
+              <ActionButton href={`/warehouses/${warehouseId}/receipt`} icon={<PackagePlus className="h-3.5 w-3.5" />} primary>
+                Receipt
+              </ActionButton>
+            </>
+          )}
         </div>
       </div>
 

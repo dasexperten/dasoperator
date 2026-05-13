@@ -45,6 +45,11 @@ type DailyTrend = {
     wb:   { units: number; revenue_rub: number; delta_pct: number | null };
     site: { units: number; revenue_rub: number; delta_pct: number | null };
   }>;
+  totals_30d?: {
+    ozon: { units: number; revenue_rub: number; delta_pct: number | null };
+    wb:   { units: number; revenue_rub: number; delta_pct: number | null };
+    site: { units: number; revenue_rub: number; delta_pct: number | null };
+  };
   history_complete: boolean;
   days_available: number;
 };
@@ -349,33 +354,34 @@ function TrendCard({ data, loading }: { data: DailyTrend | null; loading: boolea
         <>
           <TrendBars data={data} chart={chart} />
 
-          {/* Last day deltas */}
-          {data.days.length > 0 && (() => {
-            const last = data.days[data.days.length - 1]!;
-            const ozDp = fmtPct(last.ozon.delta_pct);
-            const wbDp = fmtPct(last.wb.delta_pct);
+          {/* 30-day totals per channel — sums over the entire 30d window with Δ vs previous 30d */}
+          {data.totals_30d && (() => {
+            const t = data.totals_30d;
+            const ozDp = fmtPct(t.ozon.delta_pct);
+            const wbDp = fmtPct(t.wb.delta_pct);
+            const siDp = fmtPct(t.site.delta_pct);
             return (
               <div style={{ borderTop: '1px solid var(--border-hairline)', paddingTop: '10px' }}>
                 <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginBottom: '6px' }}>
-                  {fmtDayMonth(last.date)} · vs same weekday last week
+                  30-day totals · vs previous 30 days
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: '14px', flexWrap: 'wrap', gap: '8px' }}>
                   <span style={{ color: COLOR_OZON, fontWeight: 700 }}>
-                    Ozon {fmtRubCompact(last.ozon.revenue_rub)}
+                    Ozon {fmtRubCompact(t.ozon.revenue_rub)}
                     {ozDp.tone !== 'na' && <DeltaPill tone={ozDp.tone}>{ozDp.text}</DeltaPill>}
                   </span>
                   <span style={{ color: COLOR_WB, fontWeight: 700 }}>
-                    WB {fmtRubCompact(last.wb.revenue_rub)}
+                    WB {fmtRubCompact(t.wb.revenue_rub)}
                     {wbDp.tone !== 'na' && <DeltaPill tone={wbDp.tone}>{wbDp.text}</DeltaPill>}
                   </span>
                   <span style={{ color: COLOR_SITE, fontWeight: 700 }}>
-                    Site {fmtRubCompact(last.site.revenue_rub)}
-                    {(() => { const sDp = fmtPct(last.site.delta_pct); return sDp.tone !== 'na' && <DeltaPill tone={sDp.tone}>{sDp.text}</DeltaPill>; })()}
+                    dasexperten.ru {fmtRubCompact(t.site.revenue_rub)}
+                    {siDp.tone !== 'na' && <DeltaPill tone={siDp.tone}>{siDp.text}</DeltaPill>}
                   </span>
                 </div>
                 {!data.history_complete && (
                   <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '8px' }}>
-                    Δ vs last week populates once we have 14d of history (currently {data.days_available}d)
+                    Δ vs previous 30 days populates once we have 60d of history (currently {data.days_available}d)
                   </div>
                 )}
               </div>

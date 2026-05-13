@@ -109,10 +109,11 @@ export async function lookupAlias(
 ): Promise<{ resolved_id: string; confidence: number; hit_count: number } | null> {
   const norm = (aliasText || '').toLowerCase().trim();
   if (!norm) return null;
+  // Direct equality — alias_text is stored already-lowercased
   const row = await env.DB.prepare(
     `SELECT resolved_id, confidence, hit_count
        FROM extraction_aliases
-      WHERE alias_kind = ? AND lower(alias_text) = ? AND deleted_at IS NULL
+      WHERE alias_kind = ? AND alias_text = ? AND deleted_at IS NULL
       ORDER BY hit_count DESC, confidence DESC LIMIT 1`
   ).bind(kind, norm).first<{ resolved_id: string; confidence: number; hit_count: number }>();
   return row || null;
@@ -125,26 +126,47 @@ export async function recordAlias(
   resolvedId: string,
   confidence: number = 1.0
 ): Promise<void> {
-  const norm = (aliasText || '').trim();
+  // CRITICAL: SQLite default lower() does not lowercase non-ASCII (Cyrillic, CJK).
+  // To make this work consistently, we store alias_text as the JS-lowercased form so
+  // future comparisons can use direct equality without any SQL lower() function.
+  const norm = (aliasText || '').toLowerCase().trim();
   if (!norm) return;
   const now = Math.floor(Date.now() / 1000);
   const id = `alias_${crypto.randomUUID()}`;
 
-  // Try update first (alias already exists?)
+  // Try update first (alias already exists?). Compare directly — both sides are lowercase already.
   const existing = await env.DB.prepare(
     `SELECT id, hit_count FROM extraction_aliases
-       WHERE alias_kind = ? AND lower(alias_text) = ? AND resolved_id = ? AND deleted_at IS NULL`
-  ).bind(kind, norm.toLowerCase(), resolvedId).first<{ id: string; hit_count: number }>();
+       WHERE alias_kind = ? AND alias_text = ? AND resolved_id = ? AND deleted_at IS NULL`
+  ).bind(kind, norm, resolvedId).first<{ id: string; hit_count: number }>();
 
   if (existing) {
     await env.DB.prepare(
       `UPDATE extraction_aliases SET hit_count = ?, last_used_at = ?, updated_at = ? WHERE id = ?`
     ).bind(existing.hit_count + 1, now, now, existing.id).run();
-  } else {
+    return;
+  }
+
+  // INSERT — but tolerate the UNIQUE constraint as a no-op: it just means a row already
+  // exists for this mapping (perhaps inserted by a concurrent approval) and we should
+  // not block the approve flow over a learning side-effect.
+  try {
     await env.DB.prepare(
       `INSERT INTO extraction_aliases (id, alias_kind, alias_text, resolved_id, confidence, hit_count, last_used_at, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)`
     ).bind(id, kind, norm, resolvedId, confidence, now, now, now).run();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('UNIQUE') || msg.includes('idx_aliases_unique')) {
+      // Row already exists — bump hit_count instead
+      await env.DB.prepare(
+        `UPDATE extraction_aliases SET hit_count = hit_count + 1, last_used_at = ?, updated_at = ?
+           WHERE alias_kind = ? AND alias_text = ? AND resolved_id = ? AND deleted_at IS NULL`
+      ).bind(now, now, kind, norm, resolvedId).run();
+    } else {
+      // Unrelated error — don't swallow it
+      throw err;
+    }
   }
 }
 

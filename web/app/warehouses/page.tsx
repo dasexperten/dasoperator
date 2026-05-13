@@ -9,8 +9,10 @@ import Link from 'next/link';
 import { Loader2, Search, ArrowUp, ArrowDown, AlertTriangle } from 'lucide-react';
 import {
   getProductsWithStock, getWarehouses, getMarketplaceStocks, getMarketplaceHealth,
+  getExternalStocksByProduct,
   type ProductWithStock, type Warehouse, type MarketplaceStockRow,
   type MarketplaceHealthResponse,
+  type ExternalStockByProductRow,
 } from '@/lib/api';
 
 // Sort key — special string ids for fixed columns ('sku', 'product', 'ozon',
@@ -27,6 +29,9 @@ export default function WarehousesPage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [marketplaces, setMarketplaces] = useState<Record<string, MarketplaceStockRow>>({});
   const [mpHealth, setMpHealth] = useState<MarketplaceHealthResponse | null>(null);
+  // External stocks: keyed as `${product_id}|${warehouse_id}` for O(1) lookup in row render.
+  // Source: F4 Lyubertsy WMS via Skladbot API, refreshed by /api/external-stocks/sync cron.
+  const [externalStocks, setExternalStocks] = useState<Record<string, ExternalStockByProductRow>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -38,11 +43,12 @@ export default function WarehousesPage() {
     const fetchAll = async () => {
       setLoading(true);
       try {
-        const [stockRes, whRes, mpRes, mpHealthRes] = await Promise.all([
+        const [stockRes, whRes, mpRes, mpHealthRes, extRes] = await Promise.all([
           getProductsWithStock(),
           getWarehouses(),
           getMarketplaceStocks(),
           getMarketplaceHealth(),
+          getExternalStocksByProduct(),
         ]);
         if (stockRes.success && stockRes.result) {
           setProducts(stockRes.result.products);
@@ -59,6 +65,14 @@ export default function WarehousesPage() {
         }
         if (mpHealthRes.success && mpHealthRes.result) {
           setMpHealth(mpHealthRes.result);
+        }
+        if (extRes.success && extRes.result) {
+          const byKey: Record<string, ExternalStockByProductRow> = {};
+          for (const row of extRes.result.rows) {
+            if (!row.product_id) continue;
+            byKey[`${row.product_id}|${row.warehouse_id}`] = row;
+          }
+          setExternalStocks(byKey);
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
@@ -301,11 +315,13 @@ export default function WarehousesPage() {
                       {sortedWarehouses.map((w) => {
                         const v = byWh[w.id] ?? 0;
                         const prod = prodByWh[w.id] ?? 0;
+                        const ext = externalStocks[`${skuLower}|${w.id}`];
                         return (
                           <StockCellTd
                             key={w.id}
                             value={v}
                             inProduction={prod}
+                            externalAmount={ext?.amount}
                             href={`/warehouses/${w.id}?sku=${skuLower}`}
                             tint={TINT_BY_GROUP[groupForWarehouse(w)]}
                           />
@@ -423,7 +439,7 @@ const MARKETPLACE_TINT = {
   wb:   'rgba(203, 17, 122, 0.06)',
 };
 
-function StockCellTd({ value, inProduction = 0, href, tint }: { value: number; inProduction?: number; href: string; tint?: string }) {
+function StockCellTd({ value, inProduction = 0, externalAmount, href, tint }: { value: number; inProduction?: number; externalAmount?: number; href: string; tint?: string }) {
   let bg: string | undefined = tint;
   let color: string;
   if (value === 0 && inProduction === 0) {
@@ -447,14 +463,35 @@ function StockCellTd({ value, inProduction = 0, href, tint }: { value: number; i
   const pendingSign = isPendingOut ? '−' : '+';
   const pendingAbs = Math.abs(inProduction);
 
+  // External stock from a 3PL partner (e.g. F4 / Skladbot for LBR). We render
+  // it as `1146 (1140)` to let ops eyeball the discrepancy with our internal
+  // ledger. Color the bracket amber/red when the diff is significant.
+  const hasExternal = typeof externalAmount === 'number';
+  let extColor = 'var(--fg-3)';
+  if (hasExternal && showValue) {
+    const diff = Math.abs(value - externalAmount!);
+    const pct = value > 0 ? diff / value : 0;
+    if (pct > 0.05) extColor = 'var(--brand-rot)';     // >5% off — red
+    else if (pct > 0.01) extColor = '#854F0B';         // 1–5% off — amber
+  } else if (hasExternal && !showValue && externalAmount! > 0) {
+    // We say zero but partner says they have stock — surface it
+    extColor = '#854F0B';
+  }
+
   return (
     <td className="px-3 py-2 text-right" style={{ backgroundColor: bg, fontSize: '14px', color }}>
       <Link href={href} style={{ color: 'inherit' }}>
-        {!showValue && !showProd && '—'}
+        {!showValue && !showProd && !hasExternal && '—'}
         {showValue && <span>{value.toLocaleString('en-US')}</span>}
+        {!showValue && hasExternal && <span style={{ color: 'var(--fg-muted)' }}>0</span>}
         {showProd && (
           <span style={{ color: pendingColor, fontWeight: 600, marginLeft: showValue ? '4px' : 0 }}>
             {pendingSign}{pendingAbs.toLocaleString('en-US')}
+          </span>
+        )}
+        {hasExternal && (
+          <span style={{ color: extColor, fontWeight: 400, fontSize: '12px', marginLeft: '4px' }}>
+            ({externalAmount!.toLocaleString('en-US')})
           </span>
         )}
       </Link>

@@ -43,6 +43,7 @@ type DailyTrend = {
     date: string;
     ozon: { units: number; revenue_rub: number; delta_pct: number | null };
     wb:   { units: number; revenue_rub: number; delta_pct: number | null };
+    site: { units: number; revenue_rub: number; delta_pct: number | null };
   }>;
   history_complete: boolean;
   days_available: number;
@@ -250,11 +251,11 @@ function SalesTodayCard({ data, loading }: { data: SalesToday | null; loading: b
           {/* Header row: big totals left, live hover HUD right */}
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', marginBottom: '14px' }}>
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: '32px', fontWeight: 700, color: 'var(--fg-1)', lineHeight: 1.1 }}>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: '32px', fontWeight: 700, color: COLOR_OZON, lineHeight: 1.1 }}>
                 {fmtRubFull(data.combined.revenue_rub)}
               </div>
-              <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '2px' }}>
-                {data.combined.units} ед · combined WB + Ozon · <span style={{ color: 'var(--fg-muted)' }}>{data.ozon.last_date ?? ''}</span>
+              <div style={{ fontSize: '14px', color: COLOR_OZON, marginTop: '2px' }}>
+                {data.combined.units} ед · combined WB + Ozon + Site · <span style={{ opacity: 0.7 }}>{data.ozon.last_date ?? ''}</span>
               </div>
             </div>
 
@@ -335,8 +336,8 @@ function SplitRow({ label, amount, units, delta, color }: { label: string; amoun
 function TrendCard({ data, loading }: { data: DailyTrend | null; loading: boolean }) {
   const chart = useMemo(() => {
     if (!data || data.days.length === 0) return null;
-    const maxTotal = Math.max(...data.days.map(d => d.ozon.revenue_rub + d.wb.revenue_rub));
-    const totalRange = data.days.reduce((s, d) => s + d.ozon.revenue_rub + d.wb.revenue_rub, 0);
+    const maxTotal = Math.max(...data.days.map(d => d.ozon.revenue_rub + d.wb.revenue_rub + d.site.revenue_rub));
+    const totalRange = data.days.reduce((s, d) => s + d.ozon.revenue_rub + d.wb.revenue_rub + d.site.revenue_rub, 0);
     return { maxTotal, totalRange };
   }, [data]);
 
@@ -358,7 +359,7 @@ function TrendCard({ data, loading }: { data: DailyTrend | null; loading: boolea
                 <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginBottom: '6px' }}>
                   {fmtDayMonth(last.date)} · vs same weekday last week
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: '14px', flexWrap: 'wrap', gap: '8px' }}>
                   <span style={{ color: COLOR_OZON, fontWeight: 700 }}>
                     Ozon {fmtRubCompact(last.ozon.revenue_rub)}
                     {ozDp.tone !== 'na' && <DeltaPill tone={ozDp.tone}>{ozDp.text}</DeltaPill>}
@@ -366,6 +367,10 @@ function TrendCard({ data, loading }: { data: DailyTrend | null; loading: boolea
                   <span style={{ color: COLOR_WB, fontWeight: 700 }}>
                     WB {fmtRubCompact(last.wb.revenue_rub)}
                     {wbDp.tone !== 'na' && <DeltaPill tone={wbDp.tone}>{wbDp.text}</DeltaPill>}
+                  </span>
+                  <span style={{ color: COLOR_SITE, fontWeight: 700 }}>
+                    Site {fmtRubCompact(last.site.revenue_rub)}
+                    {(() => { const sDp = fmtPct(last.site.delta_pct); return sDp.tone !== 'na' && <DeltaPill tone={sDp.tone}>{sDp.text}</DeltaPill>; })()}
                   </span>
                 </div>
                 {!data.history_complete && (
@@ -975,9 +980,11 @@ function TrendBars({
       {/* Bars — gap shrinks for dense (30-day) charts */}
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: data.days.length > 14 ? '3px' : '8px', height: '120px', marginBottom: '8px' }}>
         {data.days.map((d, i) => {
-          const total = d.ozon.revenue_rub + d.wb.revenue_rub;
+          const total = d.ozon.revenue_rub + d.wb.revenue_rub + d.site.revenue_rub;
           const totalH = chart ? (total / chart.maxTotal) * 100 : 0;
           const ozH = total > 0 ? (d.ozon.revenue_rub / total) * 100 : 0;
+          const wbH = total > 0 ? (d.wb.revenue_rub   / total) * 100 : 0;
+          const siteH = total > 0 ? 100 - ozH - wbH : 0;
           const isLast = i === data.days.length - 1;
           const isHover = hover?.idx === i;
           return (
@@ -1017,7 +1024,8 @@ function TrendBars({
                 opacity: !hover ? (isLast ? 1 : 0.85) : (isHover ? 1 : 0.45),
               }}>
                 <div style={{ height: `${ozH}%`, backgroundColor: COLOR_OZON }} />
-                <div style={{ height: `${100 - ozH}%`, backgroundColor: COLOR_WB }} />
+                <div style={{ height: `${wbH}%`, backgroundColor: COLOR_WB }} />
+                <div style={{ height: `${siteH}%`, backgroundColor: COLOR_SITE }} />
               </div>
             </div>
           );
@@ -1083,9 +1091,19 @@ function TrendBars({
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '13px', color: 'var(--fg-3)' }}>
               <span></span><span>{hovered.wb.units} ед</span>
             </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', marginTop: '4px' }}>
+              <span style={{ color: COLOR_SITE, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: COLOR_SITE }} />
+                Site
+              </span>
+              <span style={{ fontWeight: 700 }}>{fmtRubFull(hovered.site.revenue_rub)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '13px', color: 'var(--fg-3)' }}>
+              <span></span><span>{hovered.site.units} ед</span>
+            </div>
             <div style={{ borderTop: '1px solid var(--border-hairline)', marginTop: '6px', paddingTop: '6px', display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ color: 'var(--fg-2)' }}>Total</span>
-              <span style={{ fontWeight: 700 }}>{fmtRubFull(hovered.ozon.revenue_rub + hovered.wb.revenue_rub)}</span>
+              <span style={{ fontWeight: 700 }}>{fmtRubFull(hovered.ozon.revenue_rub + hovered.wb.revenue_rub + hovered.site.revenue_rub)}</span>
             </div>
           </>
         )}

@@ -42,9 +42,9 @@ const SAFETY_CN =
 
 export async function renderInvoiceSpecPastes(input: RenderIsV2Input): Promise<Uint8Array> {
   const titleText = trilingual(
-    'INVOICE — PACKING LIST — SPECIFICATION',
-    'Счёт-фактура — Упаковочный лист — Спецификация',
-    '发票 - 装箱单 - 规格',
+    'INVOICE — SPECIFICATION',
+    'ИНВОЙС — СПЕЦИФИКАЦИЯ',
+    '发票 — 规格',
   );
 
   const meta = [

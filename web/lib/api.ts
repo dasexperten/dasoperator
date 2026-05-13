@@ -1060,6 +1060,12 @@ export interface CreateOperationBody {
   incoterms?: string;
   notes?: string;
   order_doc_ref?: string;
+  // Phase 9.x — service operations distinguish 'service' from default 'goods'
+  operation_track?: 'goods' | 'service';
+  partner_id?: string;
+  service_description?: string;
+  service_category_id?: string;
+  service_amount?: number;
   line_items: CreateOperationLineItem[];
 }
 

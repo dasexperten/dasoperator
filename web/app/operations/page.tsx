@@ -6,8 +6,12 @@ export const runtime = 'edge';
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Search, Loader2, Plus, X, Trash2, Factory } from 'lucide-react';
-import { getOperations, deleteOperation, updateOperationStatus, type Operation } from '@/lib/api';
+import { Search, Loader2, Plus, X, Trash2, Factory, Upload, CheckCircle2 } from 'lucide-react';
+import {
+  getOperations, deleteOperation, updateOperationStatus,
+  uploadOperationDocument,
+  type Operation, type UploadDocResult, type OperationCandidate,
+} from '@/lib/api';
 import { ContractRef } from '@/components/ui/contract-ref';
 
 const TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
@@ -86,6 +90,47 @@ function formatMoney(amount: number, currency: string): string {
 
 export default function OperationsPage() {
   const [operations, setOperations] = useState<Operation[]>([]);
+
+  // Upload document modal state
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadDrag, setUploadDrag] = useState(false);
+  const [uploadResult, setUploadResult] = useState<UploadDocResult | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [manualPickOpId, setManualPickOpId] = useState<string>('');
+
+  const resetUpload = () => {
+    setUploadOpen(false);
+    setUploadFile(null);
+    setUploadResult(null);
+    setUploadError(null);
+    setUploading(false);
+    setManualPickOpId('');
+  };
+
+  const handleUploadSubmit = async (forcedOpId?: string) => {
+    if (!uploadFile) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const res = await uploadOperationDocument(uploadFile, forcedOpId);
+      if (res.success && res.result) {
+        setUploadResult(res.result);
+        if (res.result.mode === 'auto_attached' || res.result.mode === 'manual_attached') {
+          const list = await getOperations();
+          if (list.success && list.result) setOperations(list.result.operations);
+        }
+      } else {
+        setUploadError(res.errors?.[0]?.message ?? 'Upload failed');
+      }
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -187,17 +232,31 @@ export default function OperationsPage() {
             {loading ? 'Loading...' : `${operations.length} across all partners · ${filtered.length} shown`}
           </p>
         </div>
-        <Link
-          href="/operations/new"
-          className="inline-flex items-center gap-2 px-4 py-2"
-          style={{
-            backgroundColor: 'var(--brand-rot)', color: 'var(--paper)',
-            borderRadius: 'var(--radius-sm)', fontSize: '14px', fontWeight: 600,
-          }}
-        >
-          <Plus className="h-4 w-4" />
-          Add new
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setUploadOpen(true)}
+            className="inline-flex items-center gap-2 px-4 py-2"
+            style={{
+              backgroundColor: 'var(--paper)', color: 'var(--fg-1)',
+              border: '1px solid var(--line-1)',
+              borderRadius: 'var(--radius-sm)', fontSize: '14px', fontWeight: 700,
+            }}
+          >
+            <Upload className="h-4 w-4" />
+            Upload Document
+          </button>
+          <Link
+            href="/operations/new"
+            className="inline-flex items-center gap-2 px-4 py-2"
+            style={{
+              backgroundColor: 'var(--brand-rot)', color: 'var(--paper)',
+              borderRadius: 'var(--radius-sm)', fontSize: '14px', fontWeight: 600,
+            }}
+          >
+            <Plus className="h-4 w-4" />
+            Add new
+          </Link>
+        </div>
       </div>
 
       <div className="dx-ribbon-rule" />
@@ -508,6 +567,257 @@ export default function OperationsPage() {
         <LegendDot color={PAYMENT_OVERLAY.partial!.dot} label="Partially paid" />
         <LegendDot color={PAYMENT_OVERLAY.paid!.dot} label="Fully paid" />
       </div>
+
+      {uploadOpen && (
+        <div
+          onClick={resetUpload}
+          style={{
+            position: 'fixed', inset: 0, backgroundColor: 'rgba(15,15,15,0.50)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 50, padding: '24px',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: 'var(--paper)', borderRadius: 'var(--radius-md)',
+              padding: '24px', width: '640px', maxWidth: '95vw',
+              maxHeight: '90vh', overflowY: 'auto',
+              border: '1px solid var(--line-1)',
+            }}
+          >
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h2 style={{
+                  fontFamily: 'Plus Jakarta Sans, sans-serif',
+                  fontSize: '18px', fontWeight: 700, color: 'var(--fg-1)',
+                  textTransform: 'uppercase', marginBottom: '4px',
+                }}>
+                  Upload Document
+                </h2>
+                <p style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
+                  Drop an invoice, packing list, contract, or any document. We will read it and try to auto-link it to the right operation.
+                </p>
+              </div>
+              <button onClick={resetUpload} style={{ color: 'var(--fg-3)' }}>
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {!uploadResult && (
+              <>
+                <label
+                  onDragOver={(e) => { e.preventDefault(); setUploadDrag(true); }}
+                  onDragLeave={() => setUploadDrag(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setUploadDrag(false);
+                    const f = e.dataTransfer.files?.[0];
+                    if (f) setUploadFile(f);
+                  }}
+                  style={{
+                    display: 'block', padding: '48px 24px',
+                    border: `2px dashed ${uploadDrag ? 'var(--fg-1)' : 'var(--line-1)'}`,
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: uploadDrag ? 'var(--paper-sunk)' : 'var(--paper)',
+                    textAlign: 'center', cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="file"
+                    accept=".pdf,.csv,.xlsx,.xls,.docx,.png,.jpg,.jpeg,.txt"
+                    onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+                    style={{ display: 'none' }}
+                  />
+                  <Upload className="h-8 w-8 mx-auto mb-3" style={{ color: 'var(--fg-3)' }} />
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', marginBottom: '4px' }}>
+                    {uploadFile ? uploadFile.name : 'Drop file here or click to browse'}
+                  </div>
+                  <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
+                    {uploadFile ? `${(uploadFile.size / 1024).toFixed(1)} KB` : 'PDF, DOCX, XLSX, CSV, images'}
+                  </div>
+                </label>
+
+                {uploadError && (
+                  <div style={{
+                    marginTop: '12px', padding: '12px',
+                    border: '1px solid var(--status-danger)', borderRadius: 'var(--radius-sm)',
+                    backgroundColor: 'rgba(229,32,44,0.10)', color: '#A82029',
+                    fontSize: '14px', fontWeight: 700,
+                  }}>
+                    {uploadError}
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2 mt-6">
+                  <button onClick={resetUpload} style={{
+                    padding: '8px 16px', border: '1px solid var(--line-1)',
+                    borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper)',
+                    color: 'var(--fg-1)', fontSize: '14px', fontWeight: 700,
+                  }}>
+                    Cancel
+                  </button>
+                  <button
+                    disabled={!uploadFile || uploading}
+                    onClick={() => handleUploadSubmit()}
+                    style={{
+                      padding: '8px 16px', borderRadius: 'var(--radius-sm)',
+                      backgroundColor: 'var(--fg-1)', color: 'var(--paper)',
+                      fontSize: '14px', fontWeight: 700,
+                      opacity: uploadFile && !uploading ? 1 : 0.4,
+                      cursor: uploadFile && !uploading ? 'pointer' : 'not-allowed',
+                      display: 'inline-flex', alignItems: 'center', gap: '8px',
+                    }}
+                  >
+                    {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    {uploading ? 'Reading & matching...' : 'Upload & match'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {uploadResult && (uploadResult.mode === 'auto_attached' || uploadResult.mode === 'manual_attached') && (
+              <div style={{
+                padding: '16px',
+                backgroundColor: 'rgba(46,125,79,0.10)',
+                border: '1px solid var(--status-success)',
+                borderRadius: 'var(--radius-sm)',
+              }}>
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckCircle2 className="h-5 w-5" style={{ color: 'var(--status-success)' }} />
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', textTransform: 'uppercase' }}>
+                    {uploadResult.mode === 'auto_attached' ? 'Auto-attached' : 'Attached'}
+                  </span>
+                </div>
+                <div style={{ fontSize: '14px', color: 'var(--fg-1)', display: 'grid', gap: '4px' }}>
+                  <div>
+                    <span style={{ color: 'var(--fg-2)' }}>Operation:</span>{' '}
+                    <span style={{ fontWeight: 700, color: 'var(--brand-rot)' }}>
+                      {uploadResult.operation_reference}
+                    </span>
+                  </div>
+                  {uploadResult.mode === 'auto_attached' && uploadResult.extracted && (
+                    <>
+                      <div>
+                        <span style={{ color: 'var(--fg-2)' }}>Detected type:</span>{' '}
+                        <span style={{ fontWeight: 700 }}>{uploadResult.extracted.doc_type}</span>
+                      </div>
+                      {uploadResult.extracted.amount && uploadResult.extracted.currency && (
+                        <div>
+                          <span style={{ color: 'var(--fg-2)' }}>Amount:</span>{' '}
+                          <span style={{ fontWeight: 700 }}>{uploadResult.extracted.amount} {uploadResult.extracted.currency}</span>
+                        </div>
+                      )}
+                      <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
+                        Confidence: {Math.round(uploadResult.extracted.confidence * 100)}%
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="flex justify-end mt-4">
+                  <button onClick={resetUpload} style={{
+                    padding: '8px 16px', borderRadius: 'var(--radius-sm)',
+                    backgroundColor: 'var(--fg-1)', color: 'var(--paper)',
+                    fontSize: '14px', fontWeight: 700, cursor: 'pointer',
+                  }}>
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {uploadResult && (uploadResult.mode === 'low_confidence' || uploadResult.mode === 'no_match' || uploadResult.mode === 'unreadable' || uploadResult.mode === 'no_llm') && (
+              <div>
+                <div style={{
+                  padding: '12px 16px', marginBottom: '12px',
+                  border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+                  backgroundColor: 'var(--paper-sunk)',
+                }}>
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', marginBottom: '6px', textTransform: 'uppercase' }}>
+                    {uploadResult.mode === 'low_confidence' ? 'Low confidence match — please confirm' :
+                     uploadResult.mode === 'unreadable' ? 'Could not read document' :
+                     uploadResult.mode === 'no_llm' ? 'LLM not configured' :
+                     'No matching operation reference found'}
+                  </div>
+                  {uploadResult.extracted && uploadResult.extracted.operation_reference && (
+                    <div style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
+                      LLM suggested: <span style={{ fontWeight: 700 }}>{uploadResult.extracted.operation_reference}</span>
+                      {' '}({Math.round((uploadResult.extracted.confidence ?? 0) * 100)}% confidence)
+                    </div>
+                  )}
+                  {uploadResult.extracted?.doc_type && (
+                    <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '4px' }}>
+                      Detected: {uploadResult.extracted.doc_type}
+                      {uploadResult.extracted.amount ? `, ${uploadResult.extracted.amount} ${uploadResult.extracted.currency ?? ''}` : ''}
+                    </div>
+                  )}
+                </div>
+
+                <label style={{ fontSize: '14px', color: 'var(--fg-2)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                  Pick an operation
+                </label>
+                <select
+                  value={manualPickOpId}
+                  onChange={(e) => setManualPickOpId(e.target.value)}
+                  style={{
+                    width: '100%', padding: '8px 12px', fontSize: '14px', fontWeight: 700,
+                    border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+                    backgroundColor: 'var(--paper)', color: 'var(--fg-1)', marginBottom: '12px',
+                  }}
+                >
+                  <option value="">— Select operation —</option>
+                  {(uploadResult.candidates ?? []).map((op: OperationCandidate) => {
+                    const d = new Date(op.operation_date * 1000).toISOString().slice(0, 10);
+                    const amt = op.total_amount ? ` · ${op.total_amount} ${op.currency ?? ''}` : '';
+                    const partner = op.partner_name ? ` · ${op.partner_name}` : '';
+                    return (
+                      <option key={op.id} value={op.id}>
+                        {op.reference} · {d} · {op.status}{amt}{partner}
+                      </option>
+                    );
+                  })}
+                </select>
+
+                {uploadError && (
+                  <div style={{
+                    marginBottom: '12px', padding: '12px',
+                    border: '1px solid var(--status-danger)', borderRadius: 'var(--radius-sm)',
+                    backgroundColor: 'rgba(229,32,44,0.10)', color: '#A82029',
+                    fontSize: '14px', fontWeight: 700,
+                  }}>
+                    {uploadError}
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2">
+                  <button onClick={resetUpload} style={{
+                    padding: '8px 16px', border: '1px solid var(--line-1)',
+                    borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper)',
+                    color: 'var(--fg-1)', fontSize: '14px', fontWeight: 700,
+                  }}>
+                    Cancel
+                  </button>
+                  <button
+                    disabled={!manualPickOpId || uploading}
+                    onClick={() => handleUploadSubmit(manualPickOpId)}
+                    style={{
+                      padding: '8px 16px', borderRadius: 'var(--radius-sm)',
+                      backgroundColor: 'var(--fg-1)', color: 'var(--paper)',
+                      fontSize: '14px', fontWeight: 700,
+                      opacity: manualPickOpId && !uploading ? 1 : 0.4,
+                      cursor: manualPickOpId && !uploading ? 'pointer' : 'not-allowed',
+                      display: 'inline-flex', alignItems: 'center', gap: '8px',
+                    }}
+                  >
+                    {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                    Attach
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

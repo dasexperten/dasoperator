@@ -148,12 +148,46 @@ DOCUMENT_DIRECTION rule:
   • If the document was issued BY the counterparty → "incoming"
   • Note: "outgoing" can coexist with operation_type "purchase" if we issued a proforma to a supplier; or with "service" if we issued a payment instruction.
 
-LINE ITEM MATCHING:
-  • Match each item against the products directory by description tokens, distinctive brand keywords (SCHWARZ, DETOX, SYMBIOS, GINGER FORCE, COCOCANNABIS, INNOWEISS, THERMO, ETALON, GROSSE, ZERO, etc.), variant tags (2in1, kids, 70ml, brush type), and price plausibility (compare unit_price to product buy_price if currency matches).
-  • Distinguish 2in1 from single-pack; toothbrush variants by hardness and design.
-  • If you find a STRONG single match → product_match_confidence ≥ 0.85.
-  • If two products are plausible → product_match_confidence ≤ 0.6 and list alternatives.
-  • If no match at all → product_id = null, product_match_confidence = 0.
+LINE ITEM MATCHING — CRITICAL RULES:
+
+PRODUCT IDs IN OUR DIRECTORY:
+  • Base SKU (e.g. de203, de117)            — represents a SINGLE physical unit (one tube of toothpaste, one toothbrush)
+  • Bundle variant '*aa' (e.g. de203aa)      — represents the 2-pack pre-bundled packaging
+  • Bundle variant '*aaaa' (e.g. de117aaaa)  — represents the 4-pack pre-bundled packaging (toothbrushes only)
+
+THE MATCHING RULE (apply mechanically):
+
+  For INVOICE / PURCHASE / SHIPMENT LINE ITEMS — always match to the BASE SKU (single unit).
+  The quantity on a manufacturer invoice always counts SINGLES, even when the description mentions:
+       "2in1", "2pcs", "2 PACK", "pre-bundled", "pre-packed", "2x", "doubled-up", "shrink-wrapped pair", etc.
+  These phrases describe packaging form, NOT a different product. They do NOT mean you should match the '*aa' SKU.
+
+  Example — invoice line:
+       "Das Experten GINGER FORCE 2IN1 70ml — qty 14400"
+       Correct match:   product_id = de203, qty = 14400  ← BASE SKU
+       Wrong match:     product_id = de203aa, qty = 14400 ← variants are warehouse-stock-units, not invoice-units
+
+  Match to the '*aa' or '*aaaa' variant ONLY in these specific contexts (rare):
+       • Inventory adjustment documents that explicitly count bundles
+       • Stock transfer/recount sheets that list bundles as the unit
+       • Customer-facing PL where buyer ordered bundles as separate SKUs
+  When in doubt, default to the BASE SKU.
+
+  Standalone blister-pack products (e.g. de121 "DOPPEL AKTION 1+1 Brush", de125/de126 "Interdental 4 pc")
+  have no base/variant duality — they are their own SKU. Match directly to them.
+
+MATCHING SIGNALS (in order of strength):
+  1. Distinctive brand keyword (SCHWARZ, DETOX, SYMBIOS, GINGER FORCE, COCOCANNABIS, INNOWEISS, THERMO,
+     ETALON, GROSSE, ZERO, KINDER, BUDDY, EVOLUTION, etc.)
+  2. Product type (toothpaste vs toothbrush vs floss vs mouthwash vs tongue cleaner vs interdental)
+  3. Volume/size (70ml, 50ml, 100m floss length)
+  4. Bristle hardness for brushes (soft, medium, hard) — distinguishes SENSITIV/MITTEL/KRAFT
+  5. Unit price plausibility — compare unit_price to product buy_price if currencies match
+
+CONFIDENCE SCORING:
+  • Single distinctive keyword + matching size → product_match_confidence ≥ 0.90
+  • Multiple plausible products → product_match_confidence ≤ 0.6, list alternatives
+  • No match → product_id = null, product_match_confidence = 0
 
 OUTPUT — return ONLY valid JSON, no prose, matching this exact schema:
 {

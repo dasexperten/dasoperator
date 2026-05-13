@@ -25,6 +25,7 @@
 // =============================================================================
 
 import type { Env } from '../types';
+import { findExistingPartnerByName, isBankProviderName, generateReadablePartnerId } from './partner-dedup';
 import { recordRuleHit, findOperationForRule } from './bank-match-rules';
 import { classifyTransaction, decideAction, persistSuggestion } from './transaction-classifier';
 
@@ -259,7 +260,7 @@ export async function autoMatchBankTransaction(
   // missing INN in bank statement, etc.). Prevents duplicate prt_draft_* rows
   // for the same real-world company on consecutive transactions.
   if (!partner && tx.contragent_name) {
-    partner = await findPartnerByTradeName(env, tx.contragent_name);
+    partner = await findExistingPartnerByName(env, tx.contragent_name);
     if (partner) {
       console.log('[bank-auto-match] matched by trade_name fallback:',
         tx.contragent_name, '→', partner.id);
@@ -272,7 +273,7 @@ export async function autoMatchBankTransaction(
     // its own name in contragent_name (commission charge, internal transfer,
     // bank fee, etc.), do NOT create a partner row. Banks belong in
     // bank_providers, not partners.
-    if (tx.contragent_name && await isBankSelfReference(env, tx.contragent_name)) {
+    if (tx.contragent_name && await isBankProviderName(env, tx.contragent_name)) {
       console.log('[bank-auto-match] skipping bank self-reference:', tx.contragent_name);
       await persistOutcome(env, txId, 'bank_self_reference_skipped', null);
       return {
@@ -418,157 +419,6 @@ async function findPartnerByInn(env: Env, inn: string): Promise<PartnerRow | nul
     LIMIT 1
   `).bind(inn, inn).first<PartnerRow>();
   return row || null;
-}
-
-/**
- * Check whether `contragent_name` from a bank webhook is actually the issuing
- * bank itself (its own name, branch, or subsidiary) rather than a real
- * counterparty. Banks already live in the bank_providers table and must not
- * be auto-created as partners.
- *
- * Triggers on: AKKHRUMM, WIOBAEADXXX, etc. via SWIFT match;
- * '%МОДУЛЬБАНК%', '%MODULBANK%', '%WIO BANK%' via name match.
- *
- * If you add a new bank provider, this function picks it up automatically —
- * no hardcoded list needed.
- */
-async function isBankSelfReference(
-  env: Env,
-  contragentName: string,
-): Promise<boolean> {
-  if (!contragentName) return false;
-  const lower = contragentName.toLowerCase().trim();
-
-  const banks = await env.DB.prepare(`
-    SELECT name, bank_legal_name, bank_legal_name_ru
-    FROM bank_providers
-    WHERE is_active = 1 AND (deleted_at IS NULL OR deleted_at = 0)
-  `).all<{ name: string; bank_legal_name: string | null; bank_legal_name_ru: string | null }>();
-
-  for (const b of (banks.results ?? [])) {
-    const candidates = [b.name, b.bank_legal_name, b.bank_legal_name_ru].filter(Boolean) as string[];
-    for (const c of candidates) {
-      const cLower = c.toLowerCase();
-      // Substring match in both directions — covers 'МОСКОВСКИЙ ФИЛИАЛ АО КБ "МОДУЛЬБАНК"'
-      // matching 'АО КБ "МОДУЛЬБАНК"' from bank_legal_name_ru.
-      if (lower.includes(cLower) || cLower.includes(lower)) return true;
-      // Strip the legal form prefix and try again on the core token
-      const coreA = lower.replace(/^(оао|ао|зао|пао|ооо|jsc|llc|cb|кб|акб)\s+/i, '').replace(/^"|"$/g, '');
-      const coreB = cLower.replace(/^(оао|ао|зао|пао|ооо|jsc|llc|cb|кб|акб)\s+/i, '').replace(/^"|"$/g, '');
-      if (coreA && coreB && (coreA.includes(coreB) || coreB.includes(coreA))) return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Fuzzy name match: case-insensitive trade_name OR legal_name lookup, used as
- * a fallback when the bank tx has no INN (typical for foreign counterparties
- * like UAE auditors, Chinese factories on dual-currency invoices, etc.).
- *
- * Normalisation:
- *   • lowercase
- *   • collapse whitespace
- *   • strip common LLC suffixes that vary between filings ("LLC", "ООО",
- *     "Ltd.", "Co., Ltd.", "GmbH" etc.)
- *
- * Returns the most recently created LIVE partner — same heuristic the
- * UI uses when offering "merge into existing". Prefer canonical over draft.
- */
-function normalisePartnerName(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/\b(llc|ооо|ltd\.?|co\.?\s*,?\s*ltd\.?|gmbh|inc\.?|jsc|ао|оао|зао|chartered|accounting|bookkeeping|book\s*keeping|trading|technology)\b/g, '')
-    .replace(/[^a-zа-я0-9]+/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-async function findPartnerByTradeName(
-  env: Env,
-  name: string,
-): Promise<PartnerRow | null> {
-  if (!name || name.trim().length < 3) return null;
-  const norm = normalisePartnerName(name);
-  if (norm.length < 3) return null;
-
-  // First pass: exact case-insensitive match — fast index hit
-  const exact = await env.DB.prepare(`
-    SELECT id, trade_name, legal_name, currency, kind, partner_type
-    FROM partners
-    WHERE (LOWER(TRIM(trade_name)) = ? OR LOWER(TRIM(legal_name)) = ?)
-      AND (deleted_at IS NULL OR deleted_at = 0)
-    ORDER BY
-      CASE WHEN crm_status = 'active' THEN 0 ELSE 1 END,
-      created_at ASC
-    LIMIT 1
-  `).bind(name.trim().toLowerCase(), name.trim().toLowerCase())
-    .first<PartnerRow>();
-  if (exact) return exact;
-
-  // Second pass: normalised fuzzy match. Scan only LIVE partners — cheap
-  // since the table is small (~80 rows) and we run a few times a day.
-  const candidates = await env.DB.prepare(`
-    SELECT id, trade_name, legal_name, currency, kind, partner_type
-    FROM partners
-    WHERE deleted_at IS NULL OR deleted_at = 0
-  `).all<PartnerRow & { trade_name: string; legal_name: string | null }>();
-  for (const row of (candidates.results ?? [])) {
-    const tradeMatch = normalisePartnerName(row.trade_name) === norm;
-    const legalMatch = row.legal_name
-      ? normalisePartnerName(row.legal_name) === norm
-      : false;
-    if (tradeMatch || legalMatch) {
-      return {
-        id: row.id,
-        trade_name: row.trade_name,
-        legal_name: row.legal_name ?? '',
-        currency: row.currency,
-        kind: row.kind,
-        partner_type: row.partner_type,
-      };
-    }
-  }
-  return null;
-}
-
-/**
- * Generate a human-readable partner id from trade_name.
- * Example: "Accuvat Accounting & Book Keeping" → "accuvat_accounting_book_keeping"
- * Falls back to slug + numeric suffix on collision.
- *
- * IDs are far more useful in logs, Slack alerts, debug output, and SQL
- * queries when they actually name the company instead of being a random
- * 8-char hex blob. Matches the convention of canonical partners already
- * in the table (inter_freight, dd_logistics, russian_post, uralstandart).
- */
-async function generateReadablePartnerId(
-  env: Env,
-  tradeName: string,
-): Promise<string> {
-  const base = (tradeName || 'partner')
-    .toLowerCase()
-    .replace(/[^a-z0-9а-я]+/gi, '_')
-    .replace(/^_|_$/g, '')
-    .slice(0, 40)
-    || 'partner';
-
-  // Try plain slug first
-  const exists = await env.DB.prepare(
-    'SELECT id FROM partners WHERE id = ?'
-  ).bind(base).first();
-  if (!exists) return base;
-
-  // Collision — append _2, _3 … up to _99
-  for (let i = 2; i < 100; i++) {
-    const candidate = `${base}_${i}`;
-    const taken = await env.DB.prepare(
-      'SELECT id FROM partners WHERE id = ?'
-    ).bind(candidate).first();
-    if (!taken) return candidate;
-  }
-  // Extreme fallback — never expected in practice
-  return `${base}_${crypto.randomUUID().slice(0, 6)}`;
 }
 
 async function createDraftPartner(

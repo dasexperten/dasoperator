@@ -71,7 +71,8 @@ export type MatchOutcome =
   | 'partner_auto_created'
   | 'ambiguous'
   | 'partner_not_found'
-  | 'no_candidate' | 'rule_matched' | 'rule_matched_no_op';
+  | 'no_candidate' | 'rule_matched' | 'rule_matched_no_op'
+  | 'bank_self_reference_skipped';
 
 export interface AutoMatchResult {
   outcome: MatchOutcome;
@@ -267,6 +268,20 @@ export async function autoMatchBankTransaction(
 
   // STEP 1b — partner not found
   if (!partner) {
+    // STEP 1b-pre — bank self-reference filter. If the bank webhook landed
+    // its own name in contragent_name (commission charge, internal transfer,
+    // bank fee, etc.), do NOT create a partner row. Banks belong in
+    // bank_providers, not partners.
+    if (tx.contragent_name && await isBankSelfReference(env, tx.contragent_name)) {
+      console.log('[bank-auto-match] skipping bank self-reference:', tx.contragent_name);
+      await persistOutcome(env, txId, 'bank_self_reference_skipped', null);
+      return {
+        outcome: 'bank_self_reference_skipped' as MatchOutcome,
+        operation_id: null,
+        attachment_ids: [],
+      };
+    }
+
     if (isService && tx.direction === 'outgoing' && tx.contragent_name) {
       const newPartnerId = await createDraftPartner(env, {
         trade_name: tx.contragent_name,
@@ -403,6 +418,47 @@ async function findPartnerByInn(env: Env, inn: string): Promise<PartnerRow | nul
     LIMIT 1
   `).bind(inn, inn).first<PartnerRow>();
   return row || null;
+}
+
+/**
+ * Check whether `contragent_name` from a bank webhook is actually the issuing
+ * bank itself (its own name, branch, or subsidiary) rather than a real
+ * counterparty. Banks already live in the bank_providers table and must not
+ * be auto-created as partners.
+ *
+ * Triggers on: AKKHRUMM, WIOBAEADXXX, etc. via SWIFT match;
+ * '%МОДУЛЬБАНК%', '%MODULBANK%', '%WIO BANK%' via name match.
+ *
+ * If you add a new bank provider, this function picks it up automatically —
+ * no hardcoded list needed.
+ */
+async function isBankSelfReference(
+  env: Env,
+  contragentName: string,
+): Promise<boolean> {
+  if (!contragentName) return false;
+  const lower = contragentName.toLowerCase().trim();
+
+  const banks = await env.DB.prepare(`
+    SELECT name, bank_legal_name, bank_legal_name_ru
+    FROM bank_providers
+    WHERE is_active = 1 AND (deleted_at IS NULL OR deleted_at = 0)
+  `).all<{ name: string; bank_legal_name: string | null; bank_legal_name_ru: string | null }>();
+
+  for (const b of (banks.results ?? [])) {
+    const candidates = [b.name, b.bank_legal_name, b.bank_legal_name_ru].filter(Boolean) as string[];
+    for (const c of candidates) {
+      const cLower = c.toLowerCase();
+      // Substring match in both directions — covers 'МОСКОВСКИЙ ФИЛИАЛ АО КБ "МОДУЛЬБАНК"'
+      // matching 'АО КБ "МОДУЛЬБАНК"' from bank_legal_name_ru.
+      if (lower.includes(cLower) || cLower.includes(lower)) return true;
+      // Strip the legal form prefix and try again on the core token
+      const coreA = lower.replace(/^(оао|ао|зао|пао|ооо|jsc|llc|cb|кб|акб)\s+/i, '').replace(/^"|"$/g, '');
+      const coreB = cLower.replace(/^(оао|ао|зао|пао|ооо|jsc|llc|cb|кб|акб)\s+/i, '').replace(/^"|"$/g, '');
+      if (coreA && coreB && (coreA.includes(coreB) || coreB.includes(coreA))) return true;
+    }
+  }
+  return false;
 }
 
 /**

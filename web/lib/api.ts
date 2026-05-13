@@ -1785,6 +1785,26 @@ export interface ExtractedDocInfo {
   notes: string;
 }
 
+// Pre-filled fields for "Create new operation from this document" UX.
+// Backend resolves partner/manufacturer/company via fuzzy match on the
+// LLM-extracted issuer + counterparty names.
+export interface UploadDocPrefill {
+  partner_id: string | null;
+  partner_name: string | null;
+  manufacturer_id: string | null;
+  manufacturer_name: string | null;
+  our_company_id: string | null;
+  our_company_abbr: string | null;
+  operation_type: 'sale' | 'purchase' | 'transfer' | null;
+  currency: string | null;
+  amount: number | null;
+  doc_date: string | null;
+  r2_key: string;
+  filename: string;
+  file_mime: string;
+  file_size: number;
+}
+
 export type UploadDocResult =
   | {
       mode: 'auto_attached';
@@ -1810,8 +1830,84 @@ export type UploadDocResult =
       extracted?: ExtractedDocInfo;
       suggestion?: { id: string; reference: string } | null;
       candidates?: OperationCandidate[];
+      prefill?: UploadDocPrefill;
       message?: string;
     };
+
+// =============================================================================
+// Create stub operation from already-uploaded document
+// =============================================================================
+export interface CreateFromDocBody {
+  operation_type: 'sale' | 'purchase' | 'transfer';
+  operation_date: number;
+  partner_id?: string | null;
+  manufacturer_id?: string | null;
+  our_company_id: string;
+  receiving_company_id?: string | null;
+  currency: string;
+  total_amount?: number | null;
+  warehouse_from_id?: string | null;
+  warehouse_to_id?: string | null;
+  notes?: string | null;
+  r2_key: string;
+  filename: string;
+  file_mime: string;
+  doc_type?: string;
+  doc_number?: string | null;
+  doc_date?: string | null;
+  issuer?: string | null;
+  direction?: 'incoming' | 'outgoing';
+}
+
+export interface CreateFromDocResult {
+  operation: {
+    id: string;
+    reference: string;
+    operation_type: 'sale' | 'purchase' | 'transfer';
+    operation_date: number;
+    partner_id: string | null;
+    manufacturer_id: string | null;
+    our_company_id: string;
+    our_company_abbr: string;
+    receiving_company_id: string | null;
+    currency: string;
+    total_amount: number | null;
+    status: string;
+    warehouse_from_id: string | null;
+    warehouse_to_id: string | null;
+    stub: boolean;
+  };
+  attachment: {
+    id: string;
+    file_url: string;
+    filename: string;
+  };
+  warnings: string[];
+}
+
+export async function createOperationFromDocument(body: CreateFromDocBody) {
+  const res = await fetch(`${API_BASE}/api/operations/create-from-document`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as {
+      success: boolean;
+      result: CreateFromDocResult | null;
+      errors: Array<{ code: string; message: string }>;
+      messages: string[];
+    };
+  } catch {
+    return {
+      success: false as const,
+      result: null,
+      errors: [{ code: 'http_error', message: `HTTP ${res.status}: ${text.slice(0, 200)}` }],
+      messages: [],
+    };
+  }
+}
 
 export async function uploadOperationDocument(file: File, operationId?: string) {
   const form = new FormData();

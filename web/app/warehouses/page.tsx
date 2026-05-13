@@ -440,58 +440,67 @@ const MARKETPLACE_TINT = {
 };
 
 function StockCellTd({ value, inProduction = 0, externalAmount, href, tint }: { value: number; inProduction?: number; externalAmount?: number; href: string; tint?: string }) {
+  const hasExternal = typeof externalAmount === 'number';
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Display invariant: warehouses backed by an external API (LBR via F4,
+  // ozon via Ozon Seller, wb via WB Statistics) show **API number primary**
+  // and **our internal value in parens**. Source of truth = the API.
+  //
+  // Other warehouses (FLP, SRN, OTW, factory, bonded) show only `value`.
+  // ────────────────────────────────────────────────────────────────────────
+  const primary = hasExternal ? externalAmount! : value;   // big number
+  const secondary = hasExternal ? value : undefined;        // in parens
+
+  // Background tint based on primary qty (low-stock red/amber signal)
   let bg: string | undefined = tint;
   let color: string;
-  if (value === 0 && inProduction === 0) {
+  if (primary === 0 && inProduction === 0) {
     color = 'var(--fg-muted)';
-  } else if (value > 0 && value <= 50) {
+  } else if (primary > 0 && primary <= 50) {
     bg = 'rgba(229,32,44,0.08)';
     color = 'var(--brand-rot)';
-  } else if (value > 0 && value <= 200) {
+  } else if (primary > 0 && primary <= 200) {
     bg = 'rgba(199,122,0,0.08)';
     color = 'var(--status-warning)';
   } else {
     color = 'var(--fg-1)';
   }
 
-  const showValue = value > 0;
-  // Show pending row whenever there's any reservation, positive (purchase
-  // in production) or negative (sale boxing reserved out).
+  const showPrimary = primary > 0;
   const showProd = inProduction !== 0;
   const isPendingOut = inProduction < 0;
   const pendingColor = isPendingOut ? 'var(--brand-rot)' : '#3B6D11';
   const pendingSign = isPendingOut ? '−' : '+';
   const pendingAbs = Math.abs(inProduction);
 
-  // External stock from a 3PL partner (e.g. F4 / Skladbot for LBR). We render
-  // it as `1146 (1140)` to let ops eyeball the discrepancy with our internal
-  // ledger. Color the bracket amber/red when the diff is significant.
-  const hasExternal = typeof externalAmount === 'number';
-  let extColor = 'var(--fg-3)';
-  if (hasExternal && showValue) {
-    const diff = Math.abs(value - externalAmount!);
-    const pct = value > 0 ? diff / value : 0;
-    if (pct > 0.05) extColor = 'var(--brand-rot)';     // >5% off — red
-    else if (pct > 0.01) extColor = '#854F0B';         // 1–5% off — amber
-  } else if (hasExternal && !showValue && externalAmount! > 0) {
-    // We say zero but partner says they have stock — surface it
-    extColor = '#854F0B';
+  // Parens color = drift signal. Compare api vs our: small=grey, 1-5%=amber,
+  // >5%=red. When primary is 0 but secondary>0 (we still hold stock that
+  // API says is gone) — amber to surface the reconciliation gap.
+  let parensColor = 'var(--fg-3)';
+  if (hasExternal && showPrimary && secondary !== undefined) {
+    const diff = Math.abs(primary - secondary);
+    const pct = primary > 0 ? diff / primary : 0;
+    if (pct > 0.05) parensColor = 'var(--brand-rot)';
+    else if (pct > 0.01) parensColor = '#854F0B';
+  } else if (hasExternal && !showPrimary && (secondary ?? 0) > 0) {
+    parensColor = '#854F0B';
   }
 
   return (
     <td className="px-3 py-2 text-right" style={{ backgroundColor: bg, fontSize: '14px', color }}>
       <Link href={href} style={{ color: 'inherit' }}>
-        {!showValue && !showProd && !hasExternal && '—'}
-        {showValue && <span>{value.toLocaleString('en-US')}</span>}
-        {!showValue && hasExternal && <span style={{ color: 'var(--fg-muted)' }}>0</span>}
+        {!showPrimary && !showProd && !hasExternal && '—'}
+        {showPrimary && <span>{primary.toLocaleString('en-US')}</span>}
+        {!showPrimary && hasExternal && <span style={{ color: 'var(--fg-muted)' }}>0</span>}
         {showProd && (
-          <span style={{ color: pendingColor, fontWeight: 600, marginLeft: showValue ? '4px' : 0 }}>
+          <span style={{ color: pendingColor, fontWeight: 600, marginLeft: showPrimary ? '4px' : 0 }}>
             {pendingSign}{pendingAbs.toLocaleString('en-US')}
           </span>
         )}
-        {hasExternal && (
-          <span style={{ color: extColor, fontWeight: 400, fontSize: '12px', marginLeft: '4px' }}>
-            ({externalAmount!.toLocaleString('en-US')})
+        {hasExternal && secondary !== undefined && (
+          <span style={{ color: parensColor, fontWeight: 400, fontSize: '12px', marginLeft: '4px' }}>
+            ({secondary.toLocaleString('en-US')})
           </span>
         )}
       </Link>

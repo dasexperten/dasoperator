@@ -67,6 +67,7 @@ warehouses.get('/', async (c) => {
       SELECT
         w.id, w.code, w.name, w.country, w.city, w.warehouse_type,
         w.owner_id, w.owner_company_id, w.owner_manufacturer_id, w.owner_partner_id,
+        w.external_provider, w.external_customer_id, w.external_sync_at,
         w.notes, w.created_at, w.updated_at
       FROM warehouses w
       WHERE w.deleted_at IS NULL
@@ -77,6 +78,7 @@ warehouses.get('/', async (c) => {
       SELECT
         id, code, name, country, city, warehouse_type,
         owner_id, owner_company_id, owner_manufacturer_id, owner_partner_id,
+        external_provider, external_customer_id, external_sync_at,
         notes, created_at, updated_at
       FROM warehouses
       WHERE deleted_at IS NULL

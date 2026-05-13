@@ -64,16 +64,30 @@ externalStocks.get('/', async (c) => {
 
 // ---------------------------------------------------------------------------
 // GET /api/external-stocks/by-product
-// Returns { [product_id]: { [warehouse_id]: { amount, reserve, repair, synced_at } } }
-// Convenience for UI rendering of the `1146 (1140)` format on the warehouses page.
+// Returns { rows: [{ product_id, warehouse_id, amount, reserve_amount, repair_amount, synced_at }] }
+// Convenience for UI rendering of the `api (our)` format on the warehouses page.
+//
+// Three sources unioned together:
+//   1. F4 / Skladbot via external_stocks   → warehouse_id='lbr' rows
+//   2. Ozon FBO via marketplace_stocks_ozon → warehouse_id='ozon' rows
+//      (matched by offer_id case-insensitive against products.id)
+//   3. WB FBW via marketplace_stocks_wb     → warehouse_id='wb' rows
+//      (matched by supplier_article case-insensitive against products.id)
+//
+// Marketplace cells do not track reserve/repair separately — those fields
+// come back null. fbo_reserved (Ozon) is folded into a separate aggregate
+// for visibility but kept distinct from F4's reserve_amount semantics.
 // ---------------------------------------------------------------------------
 externalStocks.get('/by-product', async (c) => {
   const sql = `
-    SELECT es.product_id, es.warehouse_id, es.external_vendor_code,
-           SUM(es.amount) AS amount,
-           SUM(es.reserve_amount) AS reserve_amount,
-           SUM(es.repair_amount) AS repair_amount,
-           MAX(es.synced_at) AS synced_at
+    -- 1. F4 / Skladbot (LBR and any future 3PL with external_provider='f4_skladbot')
+    SELECT
+      es.product_id AS product_id,
+      es.warehouse_id AS warehouse_id,
+      SUM(es.amount) AS amount,
+      SUM(es.reserve_amount) AS reserve_amount,
+      SUM(es.repair_amount) AS repair_amount,
+      MAX(es.synced_at) AS synced_at
     FROM external_stocks es
     INNER JOIN (
       SELECT warehouse_id, external_vendor_code, COALESCE(marketplace, '') AS mp_norm,
@@ -87,7 +101,48 @@ externalStocks.get('/by-product', async (c) => {
       AND es.synced_at = latest.max_synced
     WHERE es.product_id IS NOT NULL
     GROUP BY es.product_id, es.warehouse_id
-    ORDER BY es.product_id, es.warehouse_id
+
+    UNION ALL
+
+    -- 2. Ozon FBO — fold by offer_id case-insensitive matched to products.id
+    SELECT
+      p.id AS product_id,
+      'ozon' AS warehouse_id,
+      SUM(mso.fbo_available) AS amount,
+      SUM(mso.fbo_reserved) AS reserve_amount,
+      0 AS repair_amount,
+      MAX(mso.synced_at) AS synced_at
+    FROM marketplace_stocks_ozon mso
+    INNER JOIN products p ON LOWER(mso.offer_id) = LOWER(p.id)
+    INNER JOIN (
+      SELECT offer_id, MAX(synced_at) AS max_synced
+      FROM marketplace_stocks_ozon
+      GROUP BY offer_id
+    ) latest_o ON mso.offer_id = latest_o.offer_id AND mso.synced_at = latest_o.max_synced
+    WHERE p.deleted_at IS NULL
+    GROUP BY p.id
+
+    UNION ALL
+
+    -- 3. WB FBW — fold by supplier_article case-insensitive matched to products.id
+    SELECT
+      p.id AS product_id,
+      'wb' AS warehouse_id,
+      SUM(msw.quantity) AS amount,
+      0 AS reserve_amount,
+      0 AS repair_amount,
+      MAX(msw.synced_at) AS synced_at
+    FROM marketplace_stocks_wb msw
+    INNER JOIN products p ON LOWER(msw.supplier_article) = LOWER(p.id)
+    INNER JOIN (
+      SELECT supplier_article, MAX(synced_at) AS max_synced
+      FROM marketplace_stocks_wb
+      GROUP BY supplier_article
+    ) latest_w ON msw.supplier_article = latest_w.supplier_article AND msw.synced_at = latest_w.max_synced
+    WHERE p.deleted_at IS NULL
+    GROUP BY p.id
+
+    ORDER BY product_id, warehouse_id
   `;
   const result = await c.env.DB.prepare(sql).all();
   return ok(c, { rows: result.results });

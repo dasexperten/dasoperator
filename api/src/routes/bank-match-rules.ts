@@ -1,5 +1,5 @@
 // =============================================================================
-// /api/bank-match-rules — CRUD for auto-attach rules
+// /api/bank-match-rules — CRUD for transaction classification rules
 // =============================================================================
 
 import { Hono } from 'hono';
@@ -10,33 +10,60 @@ import { ok, fail, fromError } from '../lib/responses';
 const bankMatchRules = new Hono<{ Bindings: Env }>();
 
 const createSchema = z.object({
-  partner_id: z.string().min(1),
+  category_id: z.string().min(1, 'category_id is required'),
   contragent_inn: z.string().nullable().optional(),
+  contragent_iban: z.string().nullable().optional(),
   purpose_pattern: z.string().nullable().optional(),
   direction: z.enum(['incoming', 'outgoing', 'any']).default('any'),
-  default_operation_type: z.enum(['sale', 'purchase', 'transfer', 'bundling']),
+  partner_id: z.string().nullable().optional(),
   default_our_company_id: z.string().nullable().optional(),
+  default_operation_type: z.enum(['sale', 'purchase', 'transfer', 'bundling']).optional(),
   created_from_tx_id: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+}).refine(
+  (d) => d.contragent_inn || d.contragent_iban || d.purpose_pattern,
+  { message: 'At least one of contragent_inn, contragent_iban, or purpose_pattern is required' }
+);
+
+const updateSchema = z.object({
+  category_id: z.string().optional(),
+  contragent_inn: z.string().nullable().optional(),
+  contragent_iban: z.string().nullable().optional(),
+  purpose_pattern: z.string().nullable().optional(),
+  direction: z.enum(['incoming', 'outgoing', 'any']).optional(),
+  partner_id: z.string().nullable().optional(),
+  default_our_company_id: z.string().nullable().optional(),
+  default_operation_type: z.enum(['sale', 'purchase', 'transfer', 'bundling']).optional(),
   notes: z.string().nullable().optional(),
 });
 
 // =============================================================================
-// GET /api/bank-match-rules — list with partner JOIN
+// GET /api/bank-match-rules — list with category + partner JOINs
 // =============================================================================
 bankMatchRules.get('/', async (c) => {
   try {
+    const categoryFilter = c.req.query('category_id');
+    let where = 'WHERE r.deleted_at IS NULL';
+    const params: any[] = [];
+    if (categoryFilter) {
+      where += ' AND r.category_id = ?';
+      params.push(categoryFilter);
+    }
+
     const rows = await c.env.DB.prepare(
-      `SELECT r.id, r.partner_id, r.contragent_inn, r.purpose_pattern,
-              r.direction, r.default_operation_type, r.default_our_company_id,
-              r.hit_count, r.last_hit_at, r.created_at, r.notes,
+      `SELECT r.*,
+              fc.label AS category_label, fc.color AS category_color, fc.icon AS category_icon,
+              fc.always_confirm AS category_always_confirm,
               p.trade_name AS partner_name, p.kind AS partner_kind,
-              c.abbreviation AS company_abbreviation
+              comp.abbreviation AS company_abbreviation
          FROM bank_match_rules r
+         LEFT JOIN finance_categories fc ON fc.id = r.category_id
          LEFT JOIN partners p ON p.id = r.partner_id
-         LEFT JOIN companies c ON c.id = r.default_our_company_id
-        WHERE r.deleted_at IS NULL
+         LEFT JOIN companies comp ON comp.id = r.default_our_company_id
+        ${where}
         ORDER BY r.hit_count DESC, r.created_at DESC`
-    ).all();
+    ).bind(...params).all();
+
     return ok(c, { rules: rows.results ?? [] });
   } catch (err) {
     return fail(c, 500, [fromError(err)]);
@@ -44,7 +71,7 @@ bankMatchRules.get('/', async (c) => {
 });
 
 // =============================================================================
-// POST /api/bank-match-rules — create rule
+// POST /api/bank-match-rules — create
 // =============================================================================
 bankMatchRules.post('/', async (c) => {
   try {
@@ -54,36 +81,84 @@ bankMatchRules.post('/', async (c) => {
       return fail(c, 422, [{ code: 'validation', message: 'Invalid input', details: parsed.error.flatten() }]);
     }
     const d = parsed.data;
+
+    // Verify category exists
+    const cat = await c.env.DB.prepare(
+      `SELECT id, default_operation_type FROM finance_categories WHERE id = ? AND deleted_at IS NULL`
+    ).bind(d.category_id).first<{ id: string; default_operation_type: string }>();
+    if (!cat) return fail(c, 404, [{ code: 'category_not_found', message: `Category ${d.category_id} not found` }]);
+
     const id = `bmr_${crypto.randomUUID()}`;
     const now = Math.floor(Date.now() / 1000);
+    const opType = d.default_operation_type ?? cat.default_operation_type;
 
     await c.env.DB.prepare(
       `INSERT INTO bank_match_rules
-         (id, partner_id, contragent_inn, purpose_pattern, direction,
-          default_operation_type, default_our_company_id, hit_count,
-          created_at, updated_at, created_from_tx_id, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
+         (id, category_id, partner_id, contragent_inn, contragent_iban,
+          purpose_pattern, direction, default_operation_type,
+          default_our_company_id, hit_count, created_at, updated_at,
+          created_from_tx_id, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
     ).bind(
-      id,
-      d.partner_id,
-      d.contragent_inn ?? null,
-      d.purpose_pattern ?? null,
-      d.direction,
-      d.default_operation_type,
+      id, d.category_id, d.partner_id ?? null,
+      d.contragent_inn ?? null, d.contragent_iban ?? null,
+      d.purpose_pattern ?? null, d.direction, opType,
       d.default_our_company_id ?? null,
       now, now,
-      d.created_from_tx_id ?? null,
-      d.notes ?? null
+      d.created_from_tx_id ?? null, d.notes ?? null
     ).run();
 
     const created = await c.env.DB.prepare(
-      `SELECT r.*, p.trade_name AS partner_name
+      `SELECT r.*, fc.label AS category_label, p.trade_name AS partner_name
          FROM bank_match_rules r
+         LEFT JOIN finance_categories fc ON fc.id = r.category_id
          LEFT JOIN partners p ON p.id = r.partner_id
         WHERE r.id = ?`
     ).bind(id).first();
 
     return ok(c, { rule: created });
+  } catch (err) {
+    return fail(c, 500, [fromError(err)]);
+  }
+});
+
+// =============================================================================
+// PATCH /api/bank-match-rules/:id
+// =============================================================================
+bankMatchRules.patch('/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const body = await c.req.json();
+    const parsed = updateSchema.safeParse(body);
+    if (!parsed.success) {
+      return fail(c, 422, [{ code: 'validation', message: 'Invalid input', details: parsed.error.flatten() }]);
+    }
+    const d = parsed.data;
+
+    const existing = await c.env.DB.prepare(
+      `SELECT id FROM bank_match_rules WHERE id = ? AND deleted_at IS NULL`
+    ).bind(id).first();
+    if (!existing) return fail(c, 404, [{ code: 'not_found', message: `Rule ${id} not found` }]);
+
+    const updates: string[] = [];
+    const params: any[] = [];
+    for (const [k, v] of Object.entries(d)) {
+      if (v !== undefined) {
+        updates.push(`${k} = ?`);
+        params.push(v);
+      }
+    }
+    if (updates.length === 0) return fail(c, 422, [{ code: 'no_changes', message: 'No fields to update' }]);
+
+    updates.push('updated_at = ?');
+    params.push(Math.floor(Date.now() / 1000));
+    params.push(id);
+
+    await c.env.DB.prepare(
+      `UPDATE bank_match_rules SET ${updates.join(', ')} WHERE id = ?`
+    ).bind(...params).run();
+
+    return ok(c, { id });
   } catch (err) {
     return fail(c, 500, [fromError(err)]);
   }
@@ -106,20 +181,69 @@ bankMatchRules.delete('/:id', async (c) => {
 });
 
 // =============================================================================
-// POST /api/bank-match-rules/suggest — given tx + operation, ask Claude
+// POST /api/bank-match-rules/preview — what would rules say for this tx?
+// Body: { tx_id } or { contragent_inn, payment_purpose, direction, contragent_iban? }
+// Returns: ClassificationResult + ClassifyDecision
 // =============================================================================
-// Body: { tx_id: string, operation_id: string }
-// Returns: RuleSuggestion | null
+bankMatchRules.post('/preview', async (c) => {
+  try {
+    const body = (await c.req.json()) as {
+      tx_id?: string;
+      contragent_inn?: string;
+      contragent_iban?: string;
+      contragent_account?: string;
+      payment_purpose?: string;
+      direction?: 'incoming' | 'outgoing';
+    };
+
+    let tx: any;
+    if (body.tx_id) {
+      tx = await c.env.DB.prepare(
+        `SELECT contragent_inn, contragent_account, contragent_name, payment_purpose, direction
+           FROM bank_transactions WHERE id = ?`
+      ).bind(body.tx_id).first();
+      if (!tx) return fail(c, 404, [{ code: 'tx_not_found', message: `Tx ${body.tx_id} not found` }]);
+    } else {
+      tx = {
+        contragent_inn: body.contragent_inn || null,
+        contragent_account: body.contragent_iban || body.contragent_account || null,
+        contragent_name: null,
+        payment_purpose: body.payment_purpose || null,
+        direction: body.direction || 'outgoing',
+      };
+    }
+
+    const { classifyTransaction, decideAction } = await import('../lib/transaction-classifier');
+    const result = await classifyTransaction(c.env, tx);
+    const decision = decideAction(result);
+
+    let category: any = null;
+    if (decision.category_id) {
+      category = await c.env.DB.prepare(
+        `SELECT id, code, label, color, icon, always_confirm FROM finance_categories WHERE id = ?`
+      ).bind(decision.category_id).first();
+    }
+
+    return ok(c, { result, decision, category });
+  } catch (err) {
+    return fail(c, 500, [fromError(err)]);
+  }
+});
+
+// =============================================================================
+// POST /api/bank-match-rules/suggest — Claude suggests rule after manual assign
+// Body: { tx_id, operation_id, category_id }
 // =============================================================================
 bankMatchRules.post('/suggest', async (c) => {
   try {
-    const body = (await c.req.json()) as { tx_id?: string; operation_id?: string };
+    const body = (await c.req.json()) as { tx_id?: string; operation_id?: string; category_id?: string };
     if (!body.tx_id || !body.operation_id) {
       return fail(c, 400, [{ code: 'missing_params', message: 'tx_id and operation_id required' }]);
     }
 
     const tx = await c.env.DB.prepare(
-      `SELECT id, direction, amount, currency, contragent_name, contragent_inn, payment_purpose
+      `SELECT id, direction, amount, currency, contragent_name, contragent_inn,
+              contragent_account, payment_purpose
          FROM bank_transactions WHERE id = ?`
     ).bind(body.tx_id).first<any>();
     if (!tx) return fail(c, 404, [{ code: 'tx_not_found', message: `Tx ${body.tx_id} not found` }]);
@@ -137,22 +261,17 @@ bankMatchRules.post('/suggest', async (c) => {
       ).bind(op.partner_id).first();
     }
 
-    // Check if rule already exists for this partner+inn+pattern — don't suggest dup
-    if (partner) {
-      const dup = await c.env.DB.prepare(
-        `SELECT id FROM bank_match_rules
-          WHERE partner_id = ? AND deleted_at IS NULL`
-      ).bind(partner.id).first();
-      // If we already have a rule for this partner, still let suggest run but mark
-      // (caller can decide). For now, just continue.
-    }
-
     const { suggestRuleFromAssignment } = await import('../lib/bank-match-rules');
     const suggestion = await suggestRuleFromAssignment(c.env, {
       tx,
       operation: op,
       partner,
     });
+
+    // Inject category_id if user passed one
+    if (suggestion && body.category_id) {
+      (suggestion as any).category_id = body.category_id;
+    }
 
     return ok(c, { suggestion });
   } catch (err) {

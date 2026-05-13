@@ -15,6 +15,7 @@
 // =============================================================================
 
 import type { Env } from '../types';
+import { autoMatchBankTransaction } from './bank-auto-match';
 
 const DEEPSEEK_API = 'https://api.deepseek.com/v1/chat/completions';
 
@@ -207,6 +208,12 @@ export async function insertTransactions(
 
       if (result.meta.changes > 0) {
         summary.inserted++;
+        // Run auto-match cascade: partner lookup by INN → service keyword fallback → close op
+        try {
+          await autoMatchBankTransaction(env, txId);
+        } catch (mErr) {
+          console.error('[bank-statement-parser] autoMatch failed for', txId, mErr);
+        }
       } else {
         summary.skipped++;
       }

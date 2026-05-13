@@ -1244,7 +1244,7 @@ function DocumentsTab({
     <div style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
       <div className="flex justify-between items-center px-4 py-3" style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>
         <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)', margin: 0 }}>
-          Documents{docs.length + attachments.length > 0 ? ` (${docs.length + attachments.length})` : ''}
+          Documents{(() => { const visible = docs.length + attachments.filter((a:any)=>a.parsed_from!=='invoicer').length; return visible > 0 ? ` (${visible})` : ''; })()}
         </p>
         <div className="inline-flex items-center gap-2">
           <button
@@ -1272,7 +1272,7 @@ function DocumentsTab({
           </button>
         </div>
       </div>
-      {(docs.length === 0 && attachments.length === 0) ? (
+      {(docs.length === 0 && attachments.filter((a:any)=>a.parsed_from!=='invoicer').length === 0) ? (
         <div style={{ padding: '24px 16px', textAlign: 'center' }}>
           <p style={{ fontSize: '14px', color: 'var(--fg-3)', margin: 0 }}>No documents yet. Use Issue documents or Attach document to add them.</p>
         </div>
@@ -1335,8 +1335,10 @@ function DocumentsTab({
                 </tr>
               );
             })}
-            {/* Manual attachments — from operation_attachments table */}
-            {attachments.map((att) => {
+            {/* Manual attachments — from operation_attachments table.
+                Skip invoicer-synthesized outgoing rows: those are already
+                shown above as "Issued" docs (same document_number). */}
+            {attachments.filter((att) => att.parsed_from !== 'invoicer').map((att) => {
               const date = att.doc_date ? new Date(att.doc_date * 1000).toLocaleDateString('ru-RU') : '—';
               const dirColor = att.direction === 'outgoing' ? 'var(--brand-rot)' : 'var(--status-success)';
               const dirBg = att.direction === 'outgoing' ? 'rgba(229,32,44,0.08)' : 'rgba(46,125,79,0.08)';

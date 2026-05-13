@@ -1,7 +1,6 @@
 import './globals.css';
-import type { Metadata } from 'next';
-import Sidebar from '@/components/layout/sidebar';
-import Header from '@/components/layout/header';
+import type { Metadata, Viewport } from 'next';
+import MobileShell from '@/components/layout/mobile-shell';
 
 export const runtime = 'edge';
 
@@ -10,19 +9,18 @@ export const metadata: Metadata = {
   description: 'Das Experten ERP — innovativ und praktisch',
 };
 
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  themeColor: '#1a1a1a',
+};
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body className="min-h-screen bg-background text-foreground antialiased">
-        <div className="flex h-screen">
-          <Sidebar />
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <Header />
-            <main className="flex-1 overflow-auto">
-              <div className="px-8 py-8">{children}</div>
-            </main>
-          </div>
-        </div>
+        <MobileShell>{children}</MobileShell>
         <script
           // Strips native spinner from <input type="number"> and attaches
           // ▲/▼ buttons OUTSIDE the field. CSS in globals.css does the
@@ -102,10 +100,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   }
 
   function startWhenReady(){
-    // Defer past the first React hydration tick to avoid hydration mismatches
-    // caused by us inserting wrapper spans before React reconciles the SSR'd DOM.
-    // requestAnimationFrame × 2 guarantees we run after at least one paint,
-    // by which time React has finished hydration on the visible tree.
     requestAnimationFrame(function(){
       requestAnimationFrame(function(){
         init();

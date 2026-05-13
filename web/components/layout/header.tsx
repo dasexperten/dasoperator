@@ -1,9 +1,26 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Search } from 'lucide-react';
+import { Search, Menu } from 'lucide-react';
 
-export default function Header() {
+/**
+ * Header — top of the main content area.
+ *
+ * Desktop:
+ *  - 32px schwarz ribbon row with "ERP Portal · Internal use only · clock"
+ *  - 64px main row with search input + entity list "DEE / DEI / DASEAN / DEC"
+ *
+ * Mobile:
+ *  - Ribbon hidden via dx-header-ribbon → display:none
+ *  - Main row collapses to 56px with: hamburger + brand mark + clock
+ *  - Search input hidden (room reclaimed)
+ *  - Entity list hidden
+ *
+ * Props:
+ *   onHamburgerClick — fires when the mobile hamburger is tapped.
+ *                      Opens the sidebar drawer.
+ */
+export default function Header({ onHamburgerClick }: { onHamburgerClick?: () => void }) {
   const [now, setNow] = useState<string>('');
 
   useEffect(() => {
@@ -19,9 +36,9 @@ export default function Header() {
 
   return (
     <>
-      {/* Top ribbon — 32px schwarz strip with tagline */}
+      {/* Top ribbon — desktop only; class hooks CSS to hide on mobile */}
       <div
-        className="flex items-center justify-between px-8"
+        className="dx-header-ribbon flex items-center justify-between px-8"
         style={{
           height: '32px',
           backgroundColor: 'var(--brand-schwarz)',
@@ -30,10 +47,7 @@ export default function Header() {
         }}
       >
         <div className="flex items-center gap-3">
-          <span
-           
-            style={{ color: 'var(--stone-300)', fontSize: '14px' }}
-          >
+          <span style={{ color: 'var(--stone-300)', fontSize: '14px' }}>
             ERP Portal
           </span>
           <span style={{ color: 'var(--stone-400)' }}>·</span>
@@ -46,16 +60,37 @@ export default function Header() {
         </div>
       </div>
 
-      {/* Primary header — paper canvas with search */}
+      {/* Primary header */}
       <header
-        className="flex items-center justify-between px-8 bg-card"
+        className="dx-header-main flex items-center justify-between px-8 bg-card"
         style={{
           height: '64px',
           borderBottom: '1px solid var(--border-hairline)',
         }}
       >
-        <div className="flex items-center gap-4 flex-1 max-w-md">
-          <div className="relative flex-1">
+        {/* Left cluster */}
+        <div className="flex items-center gap-3 flex-1 max-w-md">
+          {/* Hamburger — mobile only; opens drawer */}
+          <button
+            type="button"
+            className="dx-hamburger"
+            onClick={onHamburgerClick}
+            aria-label="Open navigation"
+          >
+            <Menu className="h-6 w-6" />
+          </button>
+
+          {/* Mobile-only brand mark — replaces the search bar visually */}
+          <div
+            className="dx-show-mobile dx-product-name"
+            style={{ fontSize: '18px', color: 'var(--fg-1)' }}
+          >
+            das experten
+            <sup style={{ fontSize: '11px', marginLeft: '2px', color: 'var(--brand-gold)' }}>®</sup>
+          </div>
+
+          {/* Desktop search — hidden on mobile via dx-header-search class */}
+          <div className="dx-header-search relative flex-1">
             <Search
               className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4"
               style={{ color: 'var(--fg-muted)' }}
@@ -74,12 +109,21 @@ export default function Header() {
           </div>
         </div>
 
+        {/* Right cluster */}
         <div className="flex items-center gap-4">
+          {/* Entity list — desktop only; class hides on mobile */}
           <div
-           
+            className="dx-header-entities"
             style={{ fontSize: '14px', color: 'var(--fg-3)' }}
           >
             DEE / DEI / DASEAN / DEC
+          </div>
+          {/* Mobile-only clock */}
+          <div
+            className="dx-show-mobile"
+            style={{ fontSize: '13px', color: 'var(--fg-3)', fontWeight: 700 }}
+          >
+            {now}
           </div>
         </div>
       </header>

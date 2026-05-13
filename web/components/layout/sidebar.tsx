@@ -23,7 +23,21 @@ const NAV_ITEMS: NavItem[] = [
   { name: 'Analytics',    icon: BarChart3,    href: '/analytics' },
 ];
 
-export default function Sidebar() {
+/**
+ * Sidebar — vertical navigation.
+ *
+ * On desktop (md+): visible in-flow as a 240px-wide left column.
+ * On mobile (<768px): hidden off-canvas via CSS transform; slides in when
+ *   data-mobile-open="true" is set on the root <aside>.
+ *
+ * The class `dx-sidebar` is the hook that drives mobile behavior — see
+ * globals.css section 8.
+ *
+ * Props:
+ *   mobileOpen — whether the drawer should be visible on mobile.
+ *                Has no visual effect on desktop (media-query gated).
+ */
+export default function Sidebar({ mobileOpen = false }: { mobileOpen?: boolean }) {
   const pathname = usePathname();
 
   function isActive(href: string): boolean {
@@ -33,8 +47,9 @@ export default function Sidebar() {
 
   return (
     <aside
-      className="w-60 flex flex-col text-paper"
+      className="dx-sidebar w-60 flex flex-col text-paper"
       style={{ backgroundColor: 'var(--brand-schwarz)' }}
+      data-mobile-open={mobileOpen ? 'true' : 'false'}
     >
       <div className="px-5 pt-6 pb-5">
         <div
@@ -43,7 +58,6 @@ export default function Sidebar() {
         >
           das experten
           <sup
-           
             style={{ fontSize: '14px', marginLeft: '2px', color: 'var(--brand-gold)' }}
           >®</sup>
         </div>
@@ -74,18 +88,6 @@ export default function Sidebar() {
                   fontSize: '18px',
                   fontWeight: 700,
                 }}
-                onMouseEnter={(e) => {
-                  if (!active) {
-                    e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)';
-                    e.currentTarget.style.color = 'var(--paper)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!active) {
-                    e.currentTarget.style.backgroundColor = 'transparent';
-                    e.currentTarget.style.color = 'var(--stone-200)';
-                  }
-                }}
               >
                 <Icon className="h-5 w-5" />
                 <span>{item.name}</span>
@@ -102,7 +104,7 @@ export default function Sidebar() {
             Das Operator
           </div>
           <div style={{ color: 'var(--stone-400)', fontSize: '14px' }}>
-            v1.1
+            v1.2
           </div>
         </div>
       </div>

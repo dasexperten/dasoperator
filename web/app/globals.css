@@ -133,8 +133,6 @@
 /* ===========================================================================
    GLOBAL TYPOGRAPHY SAFETY NET — project rules locked 2026-05-05
    1) No tracked-out caps anywhere — letter-spacing forced to 0 globally.
-      Display headings keep their negative tracking via dx-display-* rules
-      below this layer, which are loaded later and can re-set it.
    2) Tabular / micro / utility text never goes below 14px.
    =========================================================================== */
 
@@ -144,8 +142,6 @@
   letter-spacing: 0 !important;
 }
 
-/* Display-size headings keep the slight negative tracking they need
-   for legibility — restore it after the global wipe. */
 h1, h2, h3,
 .dx-display-2xl, .dx-display-xl, .dx-display-lg, .dx-display-md,
 .dx-display, .dx-h1, .dx-h2, .dx-h3, .dx-h4 {
@@ -162,9 +158,6 @@ button, input, select, textarea, label,
 
 /* ===========================================================================
    FORM CONTROL VALUES — bold across the system
-   All values typed/selected inside inputs, selects, and textareas render
-   in font-weight 700. Placeholder text stays at normal weight + muted color
-   so empty fields don't look filled.
    =========================================================================== */
 
 input, select, textarea {
@@ -179,13 +172,7 @@ textarea::placeholder {
 }
 
 /* ===========================================================================
-   GLOBAL NUMBER WEIGHT RULE — all numeric values across the ERP render bold
-   Applies to: every <td> in every table, plus opt-in .dx-num utility class.
-   Headers (<th>) stay at their existing weight (typically already 700 via
-   inline style); this rule only touches data cells.
-   This makes Account numbers, INNs, amounts, dates, balances, counts,
-   percentages, prices and every other number throughout the system bold by
-   default, without per-component patching.
+   GLOBAL NUMBER WEIGHT RULE
    =========================================================================== */
 
 table tbody td,
@@ -194,35 +181,25 @@ table tbody td,
   font-weight: 700;
 }
 
-/* Allow explicit overrides — sometimes a cell needs to stay regular weight
-   (e.g. a long counterparty purpose line). Add class .dx-num-soft to opt out. */
 table tbody td.dx-num-soft,
 .dx-num-soft {
   font-weight: 400 !important;
 }
 
 /* ===========================================================================
-   GLOBAL NUMBER-INPUT SPINNER RULE — strip the native browser spinner
-   from inside <input type="number"> and render our own ▲/▼ buttons OUTSIDE
-   the field on the right edge.
-   The buttons are injected at runtime by a tiny script in layout.tsx that
-   wraps every number input in a `.dx-num-wrap` span and appends two buttons.
-   This rule covers the whole ERP without touching individual forms.
+   GLOBAL NUMBER-INPUT SPINNER RULE
    =========================================================================== */
 
-/* Hide native spinners — Chrome/Safari/Edge */
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
-/* Hide native spinner — Firefox */
 input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
 
-/* Wrapper injected at runtime around every <input type="number"> */
 .dx-num-wrap {
   display: inline-flex;
   align-items: stretch;
@@ -264,4 +241,247 @@ input[type="number"] {
 .dx-num-wrap > .dx-num-spin > button:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* ===========================================================================
+   MOBILE RESPONSIVE LAYER — added 2026-05-13
+   Goal: every existing desktop page becomes usable on phones without
+   touching individual page files. Breakpoint: <768px = mobile.
+   =========================================================================== */
+
+/* ---- 1. Main content frame: reduce padding on mobile ---- */
+@media (max-width: 767px) {
+  main > div {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+    padding-top: 16px !important;
+    padding-bottom: 80px !important; /* leave room for bottom nav */
+  }
+}
+
+/* ---- 2. Tables: horizontal scroll on mobile ---- */
+@media (max-width: 767px) {
+  table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+  table thead, table tbody, table tfoot {
+    display: table;
+    width: max-content;
+    min-width: 100%;
+  }
+  table tr {
+    display: table-row;
+  }
+  table th, table td {
+    white-space: nowrap;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    padding-top: 12px !important;
+    padding-bottom: 12px !important;
+  }
+}
+
+/* ---- 3. Grid collapse: 2/3/4-col grids → 1 column ---- */
+@media (max-width: 767px) {
+  [class*="grid-cols-2"],
+  [class*="grid-cols-3"],
+  [class*="grid-cols-4"],
+  [class*="grid-cols-5"],
+  [class*="grid-cols-6"] {
+    grid-template-columns: 1fr !important;
+  }
+  .grid {
+    gap: 12px !important;
+  }
+}
+
+/* ---- 4. Flex rows wrap on mobile ---- */
+@media (max-width: 767px) {
+  .flex.gap-2,
+  .flex.gap-3,
+  .flex.gap-4,
+  .flex.gap-5,
+  .flex.gap-6,
+  .flex.gap-8 {
+    flex-wrap: wrap;
+  }
+  .flex.gap-2 > input[type="text"],
+  .flex.gap-3 > input[type="text"],
+  .flex.gap-4 > input[type="text"],
+  .flex.gap-2 > select,
+  .flex.gap-3 > select,
+  .flex.gap-4 > select {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+}
+
+/* ---- 5. Page-header rows stack on mobile ---- */
+@media (max-width: 767px) {
+  .flex.items-center.justify-between {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .flex.items-center.justify-between > * {
+    min-width: 0;
+  }
+}
+
+/* ---- 6. Cards: reduce inner padding ---- */
+@media (max-width: 767px) {
+  [class*="p-6"], [class*="p-8"] {
+    padding: 16px !important;
+  }
+  [class*="px-6"], [class*="px-8"] {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+  [class*="py-6"], [class*="py-8"] {
+    padding-top: 16px !important;
+    padding-bottom: 16px !important;
+  }
+}
+
+/* ---- 7. Mobile-only / desktop-only utility classes ---- */
+@media (max-width: 767px) {
+  .dx-hide-mobile { display: none !important; }
+}
+@media (min-width: 768px) {
+  .dx-show-mobile { display: none !important; }
+}
+
+/* ---- 8. Sidebar: slide off-canvas on mobile, in-flow on desktop ---- */
+@media (max-width: 767px) {
+  aside.dx-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 50;
+    transform: translateX(-100%);
+    transition: transform 200ms ease-out;
+    width: 280px;
+    max-width: 85vw;
+    box-shadow: 4px 0 16px rgba(0,0,0,0.2);
+  }
+  aside.dx-sidebar[data-mobile-open="true"] {
+    transform: translateX(0);
+  }
+  .dx-sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 40;
+  }
+}
+@media (min-width: 768px) {
+  .dx-sidebar-backdrop { display: none; }
+}
+
+/* ---- 9. Header tweaks for mobile ---- */
+@media (max-width: 767px) {
+  .dx-header-ribbon {
+    display: none !important;
+  }
+  .dx-header-main {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    height: 56px !important;
+  }
+  .dx-header-entities {
+    display: none !important;
+  }
+  .dx-header-search {
+    display: none !important;
+  }
+}
+
+/* ---- 10. Bottom navigation bar — phone-only ---- */
+.dx-bottom-nav { display: none; }
+@media (max-width: 767px) {
+  .dx-bottom-nav {
+    display: grid;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 30;
+    grid-template-columns: repeat(5, 1fr);
+    height: 64px;
+    background-color: var(--brand-schwarz, #1a1a1a);
+    border-top: 1px solid rgba(255,255,255,0.08);
+  }
+  .dx-bottom-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    color: var(--stone-300, #b8b8b8);
+    text-decoration: none;
+    padding: 6px 4px;
+  }
+  .dx-bottom-nav-item[data-active="true"] {
+    color: var(--paper, #fff);
+    background-color: var(--brand-rot, #e5202c);
+  }
+  .dx-bottom-nav-item span {
+    font-size: 11px !important;
+    font-weight: 700;
+    line-height: 1;
+  }
+}
+
+/* ---- 11. Hamburger button ---- */
+.dx-hamburger { display: none; }
+@media (max-width: 767px) {
+  .dx-hamburger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    color: var(--fg-1, #1a1a1a);
+    padding: 0;
+  }
+  .dx-hamburger:active {
+    background: var(--paper-sunk, #f0eeea);
+    border-radius: 6px;
+  }
+}
+
+/* ---- 12. Sidebar nav items: larger tap targets on mobile drawer ---- */
+@media (max-width: 767px) {
+  aside.dx-sidebar nav a {
+    font-size: 17px !important;
+    padding-top: 14px !important;
+    padding-bottom: 14px !important;
+  }
+}
+
+/* ---- 13. Mobile inputs: prevent iOS auto-zoom ---- */
+@media (max-width: 767px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+  input, select {
+    min-height: 44px;
+  }
+  button {
+    min-height: 40px;
+  }
+}
+
+/* ---- 14. Number-spinner buttons hidden on mobile ---- */
+@media (max-width: 767px) {
+  .dx-num-wrap > .dx-num-spin {
+    display: none;
+  }
 }

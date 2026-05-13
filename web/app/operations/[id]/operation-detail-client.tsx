@@ -125,7 +125,7 @@ export default function OperationDetailClient({
   /** id → code map for warehouses, used to detect factory warehouses
    * (GZH/YZH) so the Shipped button can disable itself. */
   const [warehouseCodes, setWarehouseCodes] = useState<Record<string, string>>({});
-  const [activeTab, setActiveTab] = useState<Tab>('items');
+  const [activeTab, setActiveTab] = useState<Tab>('documents');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -486,11 +486,11 @@ export default function OperationDetailClient({
         style={{ borderBottom: '1px solid var(--border-hairline)' }}
       >
         {([
+          { id: 'documents', label: 'Documents',       count: documents.length + attachments.filter((a:any)=>a.parsed_from!=='invoicer').length },
+          { id: 'payments',  label: 'Payments',        count: payments.length },
           { id: 'items',     label: 'Line items',      count: lineItems.length },
           { id: 'status',    label: 'Status',          count: null },
           { id: 'stock',     label: 'Stock movements', count: stockMovements.length },
-          { id: 'documents', label: 'Documents',       count: documents.length + attachments.length },
-          { id: 'payments',  label: 'Payments',        count: payments.length },
         ] as { id: Tab; label: string; count: number | null }[]).map((tab) => {
           const isActive = activeTab === tab.id;
           return (

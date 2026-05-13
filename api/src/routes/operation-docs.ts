@@ -618,7 +618,7 @@ operationDocs.post('/create-from-document', async (c) => {
     body.currency,
     body.issuer ?? null,
     attachUrl,
-    'create_from_doc',
+    'manual',
     `Document used to create this stub operation: ${body.filename}`.slice(0, 500),
     now,
     now,

@@ -446,9 +446,35 @@ operationDocs.post('/upload-to-pipeline', async (c) => {
   const companyResolution = await resolveCompany(c.env, { name: ourSideRaw });
   const partnerResolution = await resolvePartner(c.env, { name: otherSideRaw });
 
-  // Decide operation_type from direction + entity kinds
-  let opType: 'sale' | 'purchase' | 'transfer' = 'purchase';
-  if (extracted.direction === 'outgoing') opType = 'sale';
+  // Decide operation_type — partner.kind in DB is the SOURCE OF TRUTH.
+  // DeepSeek's "direction" is a weak signal that gets overridden by the partner's business role.
+  let opType: 'sale' | 'purchase' | 'transfer' | 'service' = 'purchase';
+  let opTypeReason = '';
+  let manufacturerIdInferred: string | null = null;
+
+  if (partnerResolution.value) {
+    const partnerRow = await c.env.DB.prepare(
+      `SELECT kind FROM partners WHERE id = ? AND deleted_at IS NULL`
+    ).bind(partnerResolution.value).first<{ kind: string | null }>();
+    const pKind = partnerRow?.kind;
+    if (pKind === 'manufacturer') {
+      opType = 'purchase';
+      opTypeReason = 'counterparty is a manufacturer';
+      manufacturerIdInferred = partnerResolution.value;
+    } else if (pKind === 'buyer') {
+      opType = 'sale';
+      opTypeReason = 'counterparty is a buyer';
+    } else if (pKind === 'shipper' || pKind === '3pl' || pKind === 'service_provider') {
+      opType = 'service' as any;
+      opTypeReason = `counterparty is a ${pKind}`;
+    } else {
+      opType = extracted.direction === 'outgoing' ? 'sale' : 'purchase';
+      opTypeReason = `fallback on document direction (${extracted.direction})`;
+    }
+  } else {
+    opType = extracted.direction === 'outgoing' ? 'sale' : 'purchase';
+    opTypeReason = `partner unresolved — fallback on document direction (${extracted.direction})`;
+  }
 
   // Resolve line items
   const resolvedItems: any[] = [];
@@ -478,9 +504,10 @@ operationDocs.post('/upload-to-pipeline', async (c) => {
 
   // Build header_fields
   const headerFields: Record<string, any> = {
-    operation_type: { value: opType, raw: extracted.direction, confidence: 0.9, source: 'derived', alternatives: [], needs_review: false },
+    operation_type: { value: opType, raw: opTypeReason, confidence: opTypeReason.startsWith('fallback') || opTypeReason.startsWith('partner unresolved') ? 0.55 : 0.95, source: 'derived_from_partner_kind', alternatives: [], needs_review: opTypeReason.startsWith('fallback') },
     our_company_id: companyResolution,
     partner_id: partnerResolution,
+    manufacturer_id: manufacturerIdInferred ? { value: manufacturerIdInferred, raw: partnerResolution.raw, confidence: 0.95, source: 'derived_from_partner_kind', alternatives: [], needs_review: false } : { value: null, raw: null, confidence: 0, source: null, alternatives: [], needs_review: false },
     currency: { value: extracted.currency, raw: extracted.currency, confidence: extracted.currency ? 0.95 : 0, source: 'exact_text', alternatives: [], needs_review: !extracted.currency },
     total_amount: { value: extracted.amount, raw: String(extracted.amount), confidence: extracted.amount ? 0.95 : 0, source: 'exact_text', alternatives: [], needs_review: !extracted.amount },
     operation_date: { value: extracted.doc_date ? Math.floor(new Date(extracted.doc_date + 'T12:00:00Z').getTime() / 1000) : null, raw: extracted.doc_date, confidence: extracted.doc_date ? 0.9 : 0, source: 'exact_text', alternatives: [], needs_review: !extracted.doc_date },

@@ -41,6 +41,13 @@ interface InboxItem {
   guess_partner_id: string | null;
   guess_partner_name: string | null;
   guess_partner_kind: string | null;
+  suggested_category_id: string | null;
+  suggested_confidence: number | null;
+  suggested_reason: string | null;
+  suggested_category_label: string | null;
+  suggested_category_color: string | null;
+  suggested_category_always_confirm: number | null;
+  suggested_category_op_type: string | null;
 }
 
 interface Suggestion {
@@ -409,6 +416,26 @@ function InboxRow({
             {cleanContragent(item.contragent_name)}
           </span>
         </span>
+        {item.suggested_category_id && item.suggested_category_label && (
+          <span
+            title={item.suggested_reason || ''}
+            style={{
+              fontSize: 12, fontWeight: 700,
+              padding: '3px 8px', borderRadius: 4,
+              background: `${item.suggested_category_color || '#5B4A2F'}1A`,
+              color: item.suggested_category_color || '#5B4A2F',
+              whiteSpace: 'nowrap',
+              border: `1px solid ${item.suggested_category_color || '#5B4A2F'}33`,
+            }}
+          >
+            {item.suggested_category_label}
+            {item.suggested_confidence != null && (
+              <span style={{ opacity: 0.7, marginLeft: 4 }}>
+                {Math.round(item.suggested_confidence * 100)}%
+              </span>
+            )}
+          </span>
+        )}
         <span style={{ fontSize: 12, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
           {formatDate(item.executed_at)}
         </span>

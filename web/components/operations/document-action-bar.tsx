@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Loader2, FileText, Package, FileCheck, Truck, Wrench, Box, CheckCircle2 } from 'lucide-react';
 import { issueDocuments } from '@/lib/api';
+import ServiceStatusBar from './service-status-bar';
 
 interface DocumentActionBarProps {
   operationId: string;
@@ -25,6 +26,17 @@ interface DocumentActionBarProps {
   /** Called after a successful status change so the parent refetches
    * operation + stock movements. */
   onStatusChange?: () => Promise<void> | void;
+  // ── Service track (added 2026-05-13, migration 0034) ──────────────────────
+  /** 'goods' (default) renders the existing CI · PL · IS · RFQ · Production ·
+   *  Shipped · Delivered bar. 'service' renders the two-chip ServiceStatusBar
+   *  and skips the entire goods toolbar.                                     */
+  operationTrack?: 'goods' | 'service';
+  /** Existing operations.delivery_status — drives Service provided chip */
+  deliveryStatus?: 'pending' | 'delivered' | 'disputed' | 'refunded';
+  /** Sum of confirmed payments for this operation, operation currency */
+  paidAmount?: number | null;
+  /** operations.total_amount, operation currency */
+  totalAmount?: number | null;
 }
 
 type DocType = 'CI' | 'PL' | 'IS-V1' | 'IS-V2' | 'UPD' | 'TN';
@@ -43,9 +55,28 @@ export default function DocumentActionBar({
   issuedDocTypes,
   onIssued,
   onStatusChange,
+  operationTrack = 'goods',
+  deliveryStatus = 'delivered',
+  paidAmount = null,
+  totalAmount = null,
 }: DocumentActionBarProps) {
   const [busy, setBusy] = useState<ButtonId | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // ── Service track short-circuit ─────────────────────────────────────────
+  // Service operations (auditors, logistics, agencies) skip the goods
+  // toolbar entirely and show the two-chip ServiceStatusBar instead.
+  // Placed AFTER all hook declarations to satisfy Rules of Hooks even though
+  // operationTrack never changes mid-mount.
+  if (operationTrack === 'service') {
+    return (
+      <ServiceStatusBar
+        deliveryStatus={deliveryStatus}
+        paidAmount={paidAmount}
+        totalAmount={totalAmount}
+      />
+    );
+  }
 
   const canIssue = operationStatus !== 'cancelled';
   const issued = issuedDocTypes ?? new Set<string>();

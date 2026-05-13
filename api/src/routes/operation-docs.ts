@@ -31,7 +31,7 @@ const operationDocs = new Hono<{ Bindings: Env }>();
 
 const DEEPSEEK_API = 'https://api.deepseek.com/v1/chat/completions';
 
-const DOC_EXTRACTION_PROMPT = `You are a document classifier for Das Experten ERP.
+const DOC_EXTRACTION_PROMPT = `You are a document classifier and table extractor for Das Experten ERP.
 Documents reference operations by ID: DEE-N / DEI-N / DEASEAN-N / DEC-N (e.g. DEE-007, DEI-012).
 
 Read the document and output ONLY valid JSON:
@@ -41,16 +41,39 @@ Read the document and output ONLY valid JSON:
   "doc_number": string | null,
   "doc_date": "YYYY-MM-DD" | null,
   "currency": "RUB" | "USD" | "EUR" | "CNY" | "VND" | "AED" | "AMD" | null,
-  "amount": number | null,
+  "amount": number | null,                 // grand total
   "issuer": string | null,                 // name of the company that issued the document
   "counterparty": string | null,           // the other side
   "direction": "outgoing" | "incoming",    // outgoing = Das Experten issued it, incoming = we received it
   "confidence": 0.0-1.0,                   // how sure about the operation_reference
-  "notes": string                          // any other detail worth keeping
+  "notes": string,                         // any other detail worth keeping
+  "line_items": [                          // ARRAY of goods/services in the document; [] if none
+    {
+      "description": string,               // raw row text from the document
+      "sku_hint": string | null,           // any SKU code visible in the row (e.g. "DE201", "de-205aa") — null if not present
+      "qty": number,                       // quantity of pieces/units
+      "unit_price": number,                // price per piece in the document currency
+      "line_amount": number,               // qty * unit_price, as printed in the document
+      "hs_code": string | null,            // HS Code if visible (e.g. "3306100000")
+      "cartons": number | null             // number of cartons / packages if separately stated
+    }
+  ]
 }
+
+For line_items, extract EVERY row from the goods table. Be exact with descriptions — preserve product names like "GINGER FORCE 2IN1 70ML", "SYMBIOS 70ML", "SCHWARZ Toothpaste", "AKTIV forte" — these are matched against SKU master.
 
 operation_reference must match exactly DEE-\\d+ / DEI-\\d+ / DEASEAN-\\d+ / DEC-\\d+. If multiple candidates appear, pick the one most central to the document (in header or main reference field, not random mention).
 Set operation_reference to null if you don't see a clear match.`;
+
+interface ExtractedLineItem {
+  description: string;
+  sku_hint: string | null;
+  qty: number;
+  unit_price: number;
+  line_amount: number;
+  hs_code: string | null;
+  cartons: number | null;
+}
 
 interface ExtractedDoc {
   operation_reference: string | null;
@@ -64,6 +87,7 @@ interface ExtractedDoc {
   direction: 'outgoing' | 'incoming';
   confidence: number;
   notes: string;
+  line_items: ExtractedLineItem[];
 }
 
 interface PrefillData {
@@ -129,6 +153,69 @@ function pickBestMatch<T extends { id: string; name: string }>(
   }
 
   return bestScore >= minOverlap ? best : null;
+}
+
+// =============================================================================
+// Resolve extracted line items → DB product_id by SKU code or fuzzy name match
+// =============================================================================
+async function resolveLineItemSku(
+  env: Env,
+  item: ExtractedLineItem
+): Promise<string | null> {
+  // 1. If sku_hint is present and matches a product id directly
+  const hint = (item.sku_hint || '').toLowerCase().replace(/[\s\-_]/g, '');
+  if (hint) {
+    const direct = await env.DB.prepare(
+      `SELECT id FROM products WHERE deleted_at IS NULL AND lower(replace(replace(replace(id,'-',''),'_',''),' ','')) = ? LIMIT 1`
+    ).bind(hint).first<{ id: string }>();
+    if (direct) return direct.id;
+  }
+
+  // 2. Fuzzy by description against product_name + invoice_label fields (token overlap)
+  const desc = (item.description || '').toLowerCase();
+  if (!desc) return null;
+
+  const rows = await env.DB.prepare(
+    `SELECT id, product_name, invoice_label, invoice_label_en, invoice_label_ru, invoice_label_cn
+       FROM products WHERE deleted_at IS NULL`
+  ).all<{ id: string; product_name: string; invoice_label: string | null; invoice_label_en: string | null; invoice_label_ru: string | null; invoice_label_cn: string | null }>();
+
+  // Key tokens for each row of an oral care invoice
+  const descTokens = new Set(
+    desc.replace(/[^a-z0-9а-яё ]/gi, ' ').split(/\s+/).filter((t) => t.length >= 3)
+  );
+  if (descTokens.size === 0) return null;
+
+  let bestId: string | null = null;
+  let bestScore = 0;
+
+  for (const p of rows.results || []) {
+    const haystack = [
+      p.product_name, p.invoice_label, p.invoice_label_en, p.invoice_label_ru, p.invoice_label_cn,
+    ].filter(Boolean).join(' ').toLowerCase();
+    if (!haystack) continue;
+    const productTokens = new Set(
+      haystack.replace(/[^a-z0-9а-яё ]/gi, ' ').split(/\s+/).filter((t) => t.length >= 3)
+    );
+    let overlap = 0;
+    for (const t of descTokens) if (productTokens.has(t)) overlap += 1;
+    const score = overlap / Math.max(descTokens.size, productTokens.size);
+
+    // Boost: if the descriptor contains "2in1" or "2 in 1" and so does the product
+    const has2in1Desc = /2\s*in\s*1|2\s*pcs|2x|двойн/i.test(desc);
+    const has2in1Prod = /2in1|2pcs|двойн/i.test(haystack);
+    let boosted = score;
+    if (has2in1Desc !== has2in1Prod) {
+      boosted *= 0.5;  // strong penalty for mismatch in 2in1 trait
+    }
+
+    if (boosted > bestScore) {
+      bestScore = boosted;
+      bestId = p.id;
+    }
+  }
+
+  return bestScore >= 0.35 ? bestId : null;
 }
 
 // =============================================================================
@@ -618,20 +705,67 @@ operationDocs.post('/create-from-document', async (c) => {
     body.currency,
     body.issuer ?? null,
     attachUrl,
-    'manual',
+    'create_from_doc',
     `Document used to create this stub operation: ${body.filename}`.slice(0, 500),
     now,
     now,
   );
 
+  // Resolve line items if the upload payload included them (extracted by DeepSeek)
+  const incomingLineItems: any[] = Array.isArray(body.line_items) ? body.line_items : [];
+  const lineItemStmts: any[] = [];
+  const lineItemsReport: { matched: number; unmatched: number; total: number } = {
+    matched: 0, unmatched: 0, total: incomingLineItems.length,
+  };
+
+  for (const li of incomingLineItems) {
+    const productId = await resolveLineItemSku(c.env, li);
+    if (!productId) {
+      lineItemsReport.unmatched += 1;
+      continue;  // skip line items that don't match any SKU
+    }
+    lineItemsReport.matched += 1;
+
+    const qty = Number(li.qty) || 0;
+    const unitPrice = Number(li.unit_price) || 0;
+    const lineAmount = (typeof li.line_amount === 'number' && li.line_amount > 0)
+      ? Number(li.line_amount)
+      : qty * unitPrice;
+    const cartons = li.cartons ? Number(li.cartons) : 0;
+    const liId = `li_${crypto.randomUUID()}`;
+    lineItemStmts.push(
+      c.env.DB.prepare(
+        `INSERT INTO line_items
+           (id, operation_id, product_id, item_description, qty, cartons, inner_boxes,
+            unit_price, discount_pct, unit_price_after_disc, line_amount,
+            currency, line_usd_equiv, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0, ?, ?, ?, NULL, ?, ?)`
+      ).bind(
+        liId, operationId, productId,
+        (li.description || '').slice(0, 500),
+        qty, cartons,
+        unitPrice, unitPrice, lineAmount,
+        body.currency, now, now
+      )
+    );
+  }
+
   try {
-    await c.env.DB.batch([insertOpStmt, insertAttachStmt]);
+    await c.env.DB.batch([insertOpStmt, insertAttachStmt, ...lineItemStmts]);
   } catch (err) {
     return fail(c, 500, [{
       code: 'insert_failed',
       message: 'Failed to create stub operation',
       details: { error: err instanceof Error ? err.message : String(err) },
     }]);
+  }
+
+  // Compose warnings based on what landed
+  const warnings: string[] = [];
+  if (lineItemsReport.total === 0) {
+    warnings.push('No line items found in the document — operation has no positions');
+  } else if (lineItemsReport.unmatched > 0) {
+    warnings.push(`${lineItemsReport.unmatched} of ${lineItemsReport.total} line items could not be matched to existing SKUs and were skipped`);
   }
 
   return ok(c, {
@@ -650,15 +784,16 @@ operationDocs.post('/create-from-document', async (c) => {
       status: 'draft',
       warehouse_from_id: body.warehouse_from_id ?? null,
       warehouse_to_id: body.warehouse_to_id ?? null,
-      stub: true,
+      stub: lineItemsReport.matched === 0,
     },
     attachment: {
       id: attachId,
       file_url: attachUrl,
       filename: body.filename,
     },
-    warnings: ['stub_operation: created without line_items — add positions manually from the operation page'],
-  }, [`Operation ${refResult.reference} created as draft stub and document attached`]);
+    line_items_report: lineItemsReport,
+    warnings,
+  }, [`Operation ${refResult.reference} created with ${lineItemsReport.matched} matched line items`]);
 });
 
 export default operationDocs;

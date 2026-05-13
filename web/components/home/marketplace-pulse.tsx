@@ -19,14 +19,16 @@ const COLOR_OZON = '#185FA5';
 const COLOR_OZON_LIGHT = '#85B7EB';
 const COLOR_WB = '#534AB7';
 const COLOR_WB_LIGHT = '#AFA9EC';
-const COLOR_COMBINED = '#2E7D4F'; // green — combined WB + Ozon line
+const COLOR_COMBINED = '#2E7D4F'; // green — combined WB + Ozon + Site line
+const COLOR_SITE     = '#1A1A1A'; // black — dasexperten.ru site sales line
 
 // ───────────────────────── Types ─────────────────────────
 type SalesToday = {
   ozon: { revenue_rub: number; units: number; delta_pct: number | null; last_date: string | null };
   wb:   { revenue_rub: number; units: number; delta_pct: number | null; last_date: string | null };
+  site: { revenue_rub: number; units: number; delta_pct: number | null; last_date: string | null };
   combined: { revenue_rub: number; units: number };
-  spark: Array<{ date: string; revenue_rub: number; ozon_revenue_rub?: number; wb_revenue_rub?: number; units?: number }>;
+  spark: Array<{ date: string; revenue_rub: number; ozon_revenue_rub?: number; wb_revenue_rub?: number; site_revenue_rub?: number; units?: number }>;
 };
 
 type Spotlight = {
@@ -186,6 +188,7 @@ function SalesTodayCard({ data, loading }: { data: SalesToday | null; loading: b
       allValues.push(d.revenue_rub);
       if (typeof d.ozon_revenue_rub === 'number') allValues.push(d.ozon_revenue_rub);
       if (typeof d.wb_revenue_rub === 'number')   allValues.push(d.wb_revenue_rub);
+      if (typeof d.site_revenue_rub === 'number') allValues.push(d.site_revenue_rub);
     }
     const max = Math.max(...allValues, 1);
     const min = Math.min(...allValues, 0);
@@ -202,6 +205,7 @@ function SalesTodayCard({ data, loading }: { data: SalesToday | null; loading: b
     const combinedPts = project(d => d.revenue_rub);
     const ozonPts     = project(d => d.ozon_revenue_rub ?? 0);
     const wbPts       = project(d => d.wb_revenue_rub ?? 0);
+    const sitePts     = project(d => d.site_revenue_rub ?? 0);
 
     const toPath = (pts: typeof combinedPts) =>
       pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
@@ -209,6 +213,7 @@ function SalesTodayCard({ data, loading }: { data: SalesToday | null; loading: b
     const combinedPath = toPath(combinedPts);
     const ozonPath     = toPath(ozonPts);
     const wbPath       = toPath(wbPts);
+    const sitePath     = toPath(sitePts);
 
     const combinedArea = combinedPts.length > 0
       ? `${combinedPath} L ${combinedPts[combinedPts.length - 1]!.x.toFixed(1)} ${(height - pad).toFixed(1)} L ${combinedPts[0]!.x.toFixed(1)} ${(height - pad).toFixed(1)} Z`
@@ -219,9 +224,11 @@ function SalesTodayCard({ data, loading }: { data: SalesToday | null; loading: b
       combinedPts,
       ozonPts,
       wbPts,
+      sitePts,
       combinedPath,
       ozonPath,
       wbPath,
+      sitePath,
       combinedArea,
       width,
       height,
@@ -272,6 +279,15 @@ function SalesTodayCard({ data, loading }: { data: SalesToday | null; loading: b
                   </span>
                   <span style={{ fontWeight: 700, color: 'var(--fg-1)', minWidth: '80px', display: 'inline-block' }}>
                     {typeof displayDay.wb_revenue_rub === 'number' ? fmtRubFull(displayDay.wb_revenue_rub) : '—'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: '10px' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: 'var(--fg-3)' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: COLOR_SITE, display: 'inline-block' }} />
+                    Site
+                  </span>
+                  <span style={{ fontWeight: 700, color: 'var(--fg-1)', minWidth: '80px', display: 'inline-block' }}>
+                    {typeof displayDay.site_revenue_rub === 'number' ? fmtRubFull(displayDay.site_revenue_rub) : '—'}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: '10px' }}>
@@ -755,7 +771,7 @@ function DeltaPill({ tone, children }: { tone: 'up' | 'down' | 'flat'; children:
 // ═══════════════════════════════════════════════════════════════════════════
 // Sparkline with hover — finds nearest point under cursor and shows tooltip
 // ═══════════════════════════════════════════════════════════════════════════
-type SparkRaw = { date: string; revenue_rub: number; ozon_revenue_rub?: number; wb_revenue_rub?: number; units?: number };
+type SparkRaw = { date: string; revenue_rub: number; ozon_revenue_rub?: number; wb_revenue_rub?: number; site_revenue_rub?: number; units?: number };
 
 function SparklineWithHover({
   chart,
@@ -766,16 +782,18 @@ function SparklineWithHover({
     combinedPts: { x: number; y: number; value: number; date: string; raw: SparkRaw }[];
     ozonPts:     { x: number; y: number; value: number; date: string; raw: SparkRaw }[];
     wbPts:       { x: number; y: number; value: number; date: string; raw: SparkRaw }[];
+    sitePts:     { x: number; y: number; value: number; date: string; raw: SparkRaw }[];
     combinedPath: string;
     ozonPath:     string;
     wbPath:       string;
+    sitePath:     string;
     combinedArea: string;
     width: number;
     height: number;
   };
   onHoverChange?: (idx: number | null) => void;
 }) {
-  const { series, combinedPts, ozonPts, wbPts, combinedPath, ozonPath, wbPath, combinedArea, width: viewWidth, height: viewHeight } = chart;
+  const { series, combinedPts, ozonPts, wbPts, sitePts, combinedPath, ozonPath, wbPath, sitePath, combinedArea, width: viewWidth, height: viewHeight } = chart;
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
@@ -828,6 +846,7 @@ function SparklineWithHover({
   const hoveredCombinedPt = hoverIdx !== null ? combinedPts[hoverIdx] : null;
   const hoveredOzonPt     = hoverIdx !== null ? ozonPts[hoverIdx]     : null;
   const hoveredWbPt       = hoverIdx !== null ? wbPts[hoverIdx]       : null;
+  const hoveredSitePt     = hoverIdx !== null ? sitePts[hoverIdx]     : null;
 
   return (
     <div style={{ marginBottom: '4px' }}>
@@ -856,6 +875,7 @@ function SparklineWithHover({
             <path d={combinedArea} fill={COLOR_COMBINED} fillOpacity="0.10" />
             <path d={ozonPath}     fill="none" stroke={COLOR_OZON}     strokeWidth="1.4" opacity="0.9" />
             <path d={wbPath}       fill="none" stroke={COLOR_WB}       strokeWidth="1.4" opacity="0.9" />
+            <path d={sitePath}     fill="none" stroke={COLOR_SITE}     strokeWidth="1.4" opacity="0.9" />
             <path d={combinedPath} fill="none" stroke={COLOR_COMBINED} strokeWidth="1.8" />
 
             {/* Last-day marker dots (when no hover) */}
@@ -864,6 +884,7 @@ function SparklineWithHover({
                 <circle cx={combinedPts[combinedPts.length - 1]!.x} cy={combinedPts[combinedPts.length - 1]!.y} r="3.2" fill={COLOR_COMBINED} />
                 <circle cx={ozonPts[ozonPts.length - 1]!.x}         cy={ozonPts[ozonPts.length - 1]!.y}         r="2.8" fill={COLOR_OZON} />
                 <circle cx={wbPts[wbPts.length - 1]!.x}             cy={wbPts[wbPts.length - 1]!.y}             r="2.8" fill={COLOR_WB} />
+                <circle cx={sitePts[sitePts.length - 1]!.x}         cy={sitePts[sitePts.length - 1]!.y}         r="2.8" fill={COLOR_SITE} />
               </>
             )}
 
@@ -874,6 +895,7 @@ function SparklineWithHover({
                       stroke="var(--fg-muted)" strokeWidth="1" strokeDasharray="2,2" opacity="0.6" />
                 {hoveredOzonPt && <circle cx={hoveredOzonPt.x} cy={hoveredOzonPt.y} r="3.2" fill={COLOR_OZON} stroke="var(--paper)" strokeWidth="1.5" />}
                 {hoveredWbPt   && <circle cx={hoveredWbPt.x}   cy={hoveredWbPt.y}   r="3.2" fill={COLOR_WB}   stroke="var(--paper)" strokeWidth="1.5" />}
+                {hoveredSitePt && <circle cx={hoveredSitePt.x} cy={hoveredSitePt.y} r="3.2" fill={COLOR_SITE} stroke="var(--paper)" strokeWidth="1.5" />}
                 <circle cx={hoveredCombinedPt.x} cy={hoveredCombinedPt.y} r="3.6" fill={COLOR_COMBINED} stroke="var(--paper)" strokeWidth="1.5" />
               </>
             )}
@@ -911,6 +933,10 @@ function SparklineWithHover({
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
           <span style={{ width: '16px', height: '2px', backgroundColor: COLOR_WB, display: 'inline-block' }} />
           Wildberries
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ width: '16px', height: '2px', backgroundColor: COLOR_SITE, display: 'inline-block' }} />
+          dasexperten.ru
         </span>
       </div>
     </div>

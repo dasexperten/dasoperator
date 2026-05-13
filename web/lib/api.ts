@@ -1705,3 +1705,55 @@ export async function createBankStatementSource(body: {
 export async function deleteBankStatementSource(id: string) {
   return apiDelete<{ id: string; deleted: boolean }>(`/api/bank-statement-sources/${id}`);
 }
+
+// =============================================================================
+// Bank statement upload — multipart/form-data
+// =============================================================================
+export interface UploadStatementResult {
+  filename: string;
+  r2_key: string;
+  account_number: string | null;
+  period_from: string | null;
+  period_to: string | null;
+  summary: {
+    total: number;
+    inserted: number;
+    skipped: number;
+    errors: number;
+    account_id: string | null;
+    account_match_method: 'exact' | 'currency_only' | 'none';
+  };
+}
+
+export async function uploadBankStatement(file: File, companyId?: string) {
+  const form = new FormData();
+  form.append('file', file);
+  if (companyId) form.append('company_id', companyId);
+
+  const res = await fetch(`${API_BASE}/api/bank-statements/upload`, {
+    method: 'POST',
+    body: form,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    try {
+      const json = JSON.parse(text);
+      return json as { success: false; result: null; errors: Array<{ code: string; message: string }> };
+    } catch {
+      return {
+        success: false as const,
+        result: null,
+        errors: [{ code: 'http_error', message: `HTTP ${res.status}: ${text.slice(0, 200)}` }],
+        messages: [],
+      };
+    }
+  }
+
+  return res.json() as Promise<{
+    success: boolean;
+    result: UploadStatementResult | null;
+    errors: Array<{ code: string; message: string }>;
+    messages: string[];
+  }>;
+}

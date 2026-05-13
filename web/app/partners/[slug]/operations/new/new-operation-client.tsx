@@ -65,6 +65,13 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   const [notes, setNotes] = useState<string>('');
   const [overallDiscountPct, setOverallDiscountPct] = useState<number>(0);
 
+  // ── Service track state (migration 0034) ───────────────────────────────
+  // When the selected partner has partner_subtype != null, the form enters
+  // service mode: no line_items, no manufacturer, no warehouses. Just an
+  // amount and a free-text description of the service rendered/purchased.
+  const [serviceAmount, setServiceAmount] = useState<number>(0);
+  const [serviceDescription, setServiceDescription] = useState<string>('');
+
   // entries: productId → { pieces, unit_price, discount_pct }
   // Only entries with pieces > 0 are submitted as line_items to the API.
   const [entries, setEntries] = useState<Record<string, LineEntry>>({});
@@ -73,6 +80,11 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({});
 
   const [submitting, setSubmitting] = useState(false);
+
+  // Derived: is the currently selected partner a service provider?
+  // Auto-flips the form into service mode when true. Goods partners stay
+  // on the regular flow exactly as before.
+  const isServiceMode = !!partner?.partner_subtype;
   const [error, setError] = useState<string | null>(null);
 
   // Warehouse dropdowns — filtered by counterparty context.
@@ -567,6 +579,50 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   async function handleSubmit() {
     setError(null);
 
+    // ── Service track short-circuit (migration 0034) ──────────────────────
+    // Service operations skip all the goods plumbing: no contract, no
+    // manufacturer, no warehouses, no line items. Just amount + description.
+    if (isServiceMode) {
+      if (serviceAmount <= 0) {
+        setError('Enter the service amount (greater than 0).');
+        return;
+      }
+      if (!serviceDescription.trim()) {
+        setError('Enter a short description of the service.');
+        return;
+      }
+      if (!partner) {
+        setError('Select a service provider partner.');
+        return;
+      }
+      setSubmitting(true);
+      try {
+        const body: import('@/lib/api').CreateOperationBody = {
+          operation_type: 'purchase',
+          operation_track: 'service',
+          operation_date: Math.floor(new Date(opDate).getTime() / 1000),
+          our_company_id: ourCompanyId,
+          currency,
+          notes: notes.trim() || undefined,
+          service_description: serviceDescription.trim(),
+          line_items: [], // service ops have no line items
+        };
+        const res = await createOperation(body);
+        if (res.success && res.result) {
+          router.push(`/operations/${res.result.operation.id}`);
+        } else {
+          const err = res.errors?.[0];
+          setError(err?.message || res.message || 'Failed to create service operation');
+          setSubmitting(false);
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Unknown error');
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    // ── Goods track (unchanged) ───────────────────────────────────────────
     // Pre-flight checks with human-readable messages.
     if (opType === 'sale' && !contractId) {
       setError('Choose a contract for the buyer.');
@@ -663,8 +719,12 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
     }
   }
 
-  // Submit-readiness: at least one entry with positive pieces.
-  const canSubmit = isReadyForDetails && Object.values(entries).some((e) => e.pieces > 0);
+  // Submit-readiness:
+  // • goods   — partner picked, prereqs met, ≥1 line with pieces > 0
+  // • service — partner with subtype picked, amount > 0, description filled
+  const canSubmit = isServiceMode
+    ? (serviceAmount > 0 && serviceDescription.trim().length > 0)
+    : (isReadyForDetails && Object.values(entries).some((e) => e.pieces > 0));
 
   if (loadingRef) {
     return <div className="flex items-center justify-center py-16"><Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--fg-muted)' }} /></div>;
@@ -937,7 +997,94 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
         </Section>
       )}
 
-      {/* Section C: Operation Details — disabled until prerequisites met */}
+      {/* ── Service track section (migration 0034) ─────────────────────
+          Shown only when the selected partner has partner_subtype != null.
+          Replaces Section C + line items table for service operations. */}
+      {isServiceMode && (
+        <Section label="Service Details" disabled={false}>
+          <div style={{ marginBottom: '12px', padding: '12px 14px', backgroundColor: 'rgba(31,73,125,0.06)', border: '1px solid rgba(31,73,125,0.2)', borderRadius: 'var(--radius-sm)', fontSize: '14px', color: 'var(--fg-1)' }}>
+            <strong>{partner?.trade_name}</strong> is a <strong>{partner?.partner_subtype}</strong>.
+            This operation will be created on the <strong>service track</strong> — no warehouse,
+            no line items, no goods toolbar. Just amount and description.
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Date *</Label>
+              <input type="date" value={opDate} onChange={(e) => setOpDate(e.target.value)}
+                className="w-full px-3 py-2 text-sm focus:outline-none"
+                style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
+            </div>
+            <div>
+              <Label>Our entity *</Label>
+              <select value={ourCompanyId} onChange={(e) => setOurCompanyId(e.target.value)}
+                className="w-full px-3 py-2 text-sm focus:outline-none"
+                style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}>
+                {companies.map((co) => (
+                  <option key={co.id} value={co.id}>{co.abbreviation ?? co.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 mt-4">
+            <div>
+              <Label>Total amount *</Label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={serviceAmount || ''}
+                onChange={(e) => setServiceAmount(parseFloat(e.target.value) || 0)}
+                placeholder="0.00"
+                className="w-full px-3 py-2 text-sm focus:outline-none"
+                style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}
+              />
+            </div>
+            <div>
+              <Label>Currency *</Label>
+              <select value={currency} onChange={(e) => setCurrency(e.target.value)}
+                className="w-full px-3 py-2 text-sm focus:outline-none"
+                style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}>
+                <option value="RUB">RUB</option>
+                <option value="USD">USD</option>
+                <option value="EUR">EUR</option>
+                <option value="AED">AED</option>
+                <option value="CNY">CNY</option>
+                <option value="VND">VND</option>
+                <option value="AMD">AMD</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <Label>Service description *</Label>
+            <textarea
+              value={serviceDescription}
+              onChange={(e) => setServiceDescription(e.target.value)}
+              placeholder="e.g. UAE VAT audit Q1 2026, freight forwarding Guangzhou → Moscow, trademark renewal IR1550919…"
+              rows={3}
+              className="w-full px-3 py-2 text-sm focus:outline-none resize-none"
+              style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}
+            />
+          </div>
+
+          <div className="mt-4">
+            <Label>Notes (optional)</Label>
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Internal notes, reference numbers, etc."
+              className="w-full px-3 py-2 text-sm focus:outline-none"
+              style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}
+            />
+          </div>
+        </Section>
+      )}
+
+      {/* Section C: Operation Details — goods track only */}
+      {!isServiceMode && (
       <Section label="Operation Details" disabled={!isReadyForDetails}>
         <div>
           <Label>Date *</Label>
@@ -1296,6 +1443,8 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
         <div className="p-3 text-sm" style={{ backgroundColor: 'rgba(229,32,44,0.05)', border: '1px solid rgba(229,32,44,0.2)', color: 'var(--brand-rot)', borderRadius: 'var(--radius-sm)' }}>
           {error}
         </div>
+      )}
+
       )}
 
       <div className="flex gap-3">

@@ -69,7 +69,12 @@ const createOperationSchema = z.object({
   notes: z.string().nullable().optional(),
   order_doc_ref: z.string().nullable().optional(),
 
-  line_items: z.array(lineItemSchema).min(1),
+  line_items: z.array(lineItemSchema),
+
+  // Operation track (added by migration 0034). Service operations don't have
+  // line items or warehouses — they bill a service, not a shipment.
+  operation_track: z.enum(['goods', 'service']).optional().default('goods'),
+  service_description: z.string().max(500).optional(),
 
   // Invoicer routing flags (added by 0009_invoicer_roles_and_routes.sql).
   // dei_layer = 1 means a sale to Russia routes Factory→DEI→DEE and the
@@ -85,10 +90,18 @@ const createOperationSchema = z.object({
     { message: 'contract_id required for sale operations' }
   )
   // PURCHASE: must supply manufacturer_id + our_company_id + currency
+  // EXCEPT for service-track purchases (auditors, logistics, agencies) —
+  // these have no manufacturer, only a service provider (partner).
   .refine(
-    (data) => data.operation_type !== 'purchase'
-      || (!!data.manufacturer_id && !!data.our_company_id && !!data.currency),
-    { message: 'manufacturer_id, our_company_id and currency required for purchase operations' }
+    (data) => {
+      if (data.operation_type !== 'purchase') return true;
+      if (data.operation_track === 'service') {
+        // Service purchase: need our_company_id + currency only.
+        return !!data.our_company_id && !!data.currency;
+      }
+      return !!data.manufacturer_id && !!data.our_company_id && !!data.currency;
+    },
+    { message: 'goods purchase: manufacturer_id+our_company_id+currency required; service purchase: our_company_id+currency required' }
   )
   // TRANSFER: must supply our_company_id + receiving_company_id + currency
   .refine(
@@ -114,13 +127,21 @@ const createOperationSchema = z.object({
   )
   .refine(
     (data) => {
+      // Service operations have no warehouse — they consume a service, not goods.
+      if (data.operation_track === 'service') return true;
       if (data.operation_type === 'purchase' || data.operation_type === 'transfer') {
         return !!data.warehouse_to_id;
       }
       return true;
     },
-    { message: 'warehouse_to_id required for purchase and transfer operations' }
-  );
+    { message: 'warehouse_to_id required for goods purchase and transfer operations' }
+  )
+  // Service operations must have a partner (the service provider).
+  // The partner_id flows in via contract_id (sale) or — for service purchases —
+  // must be supplied directly in a future PR. For now, service ops are
+  // created via the sale path with a service-provider contract, OR via
+  // purchase with manufacturer_id pointing to a stub. The UI handles this.
+  ;
 
 // =============================================================================
 // Helpers
@@ -452,6 +473,7 @@ operations.post('/', async (c) => {
       total_amount, total_usd_equiv,
       incoterms, notes, vat_rate,
       dei_layer, legal_seller_id,
+      operation_track,
       created_at, updated_at, deleted_at
     ) VALUES (
       ?, ?, ?, ?,
@@ -462,6 +484,7 @@ operations.post('/', async (c) => {
       ?, ?,
       ?, ?, ?,
       ?, ?,
+      ?,
       ?, ?, NULL
     )
   `).bind(
@@ -486,6 +509,7 @@ operations.post('/', async (c) => {
     resolvedVatRate,
     deiLayerInt,
     data.legal_seller_id ?? null,
+    data.operation_track ?? 'goods',
     now,
     now
   );

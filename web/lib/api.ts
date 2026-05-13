@@ -471,6 +471,9 @@ export interface Partner {
   partner_type: 'buyer' | 'supplier' | 'shipper' | 'other';
   // Phase 8.0 — canonical kind classifier (5 values). Replaces partner_type going forward.
   kind?: 'buyer' | 'manufacturer' | 'service_provider' | 'shipper' | '3pl' | 'other' | null;
+  // Service track sub-classifier (migration 0034). Drives operation_track
+  // auto-suggest when creating a new operation with this partner.
+  partner_subtype?: 'service_provider' | 'logistics' | 'agency' | null;
   notes?: string | null;
   // Optional extended fields (PATCH-able)
   legal_name_local?: string | null;
@@ -972,6 +975,10 @@ export interface Operation {
   paid_amount?: number;
   payment_state?: 'neutral' | 'unpaid' | 'partial' | 'paid';
   delivery_status?: 'pending' | 'delivered' | 'disputed' | 'refunded';
+  // Operation track (migration 0034). 'service' renders the two-chip
+  // ServiceStatusBar instead of the goods CI · PL · IS · RFQ · ... toolbar.
+  operation_track?: 'goods' | 'service';
+  service_description?: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -1059,6 +1066,10 @@ export interface CreateOperationBody {
   notes?: string;
   order_doc_ref?: string;
   line_items: CreateOperationLineItem[];
+  // Operation track (migration 0034). Default 'goods'. 'service' allows
+  // empty line_items and skips manufacturer/warehouse requirements.
+  operation_track?: 'goods' | 'service';
+  service_description?: string;
 }
 
 export async function createOperation(body: CreateOperationBody) {

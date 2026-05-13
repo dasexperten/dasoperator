@@ -425,7 +425,7 @@ export default function PartnersPage() {
           </div>
         </div>
 
-        {/* Mobile filter block — Type+Entity row 50/50, then Sort full-width */}
+        {/* Mobile filter block — Type+Entity row 50/50 */}
         <div className="dx-show-mobile" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
             <select
@@ -449,14 +449,6 @@ export default function PartnersPage() {
               {entities.map((e) => <option key={e} value={e}>{e}</option>)}
             </select>
           </div>
-          <select
-            value={sortOrder}
-            onChange={(e) => setSortOrder(e.target.value as 'name_asc' | 'name_desc')}
-            className="px-3 py-2 focus:outline-none"
-            style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)', width: '100%' }}>
-            <option value="name_asc">Sort: Trade name A → Z</option>
-            <option value="name_desc">Sort: Trade name Z → A</option>
-          </select>
         </div>
       </div>
 

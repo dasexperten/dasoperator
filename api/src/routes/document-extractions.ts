@@ -274,6 +274,7 @@ async function commitOperationCreate(
   const partnerId = headers.partner_id?.value;
   const manufacturerId = headers.manufacturer_id?.value;
   const ourCompanyId = headers.our_company_id?.value;
+  const contractId = headers.contract_id?.value || null;
   const receivingCompanyId = headers.receiving_company_id?.value;
   const currency = headers.currency?.value;
   const totalAmount = headers.total_amount?.value;
@@ -293,6 +294,7 @@ async function commitOperationCreate(
   ];
   if (partnerId) fkChecks.push({ name: 'partner_id', sql: 'SELECT 1 FROM partners WHERE id = ? AND deleted_at IS NULL', value: partnerId });
   if (manufacturerId) fkChecks.push({ name: 'manufacturer_id', sql: 'SELECT 1 FROM manufacturers WHERE id = ?', value: manufacturerId });
+  if (contractId) fkChecks.push({ name: 'contract_id', sql: 'SELECT 1 FROM contracts WHERE id = ? AND deleted_at IS NULL', value: contractId });
   if (receivingCompanyId) fkChecks.push({ name: 'receiving_company_id', sql: 'SELECT 1 FROM companies WHERE id = ? AND deleted_at IS NULL', value: receivingCompanyId });
   for (const li of lineItems) {
     if (li.product_id) {
@@ -335,7 +337,7 @@ async function commitOperationCreate(
        dei_layer, legal_seller_id,
        created_at, updated_at, deleted_at
      ) VALUES (
-       ?, NULL, ?, ?,
+       ?, ?, ?, ?,
        ?, ?, ?, ?,
        NULL, NULL,
        ?, 'draft',
@@ -346,7 +348,7 @@ async function commitOperationCreate(
        ?, ?, NULL
      )`
   ).bind(
-    operationId, operationDate, operationType,
+    operationId, contractId, operationDate, operationType,
     partnerId ?? null, ourCompanyId, receivingCompanyId ?? null, manufacturerId ?? null,
     refResult.reference,
     currency, totalAmount,

@@ -1757,3 +1757,90 @@ export async function uploadBankStatement(file: File, companyId?: string) {
     messages: string[];
   }>;
 }
+
+// =============================================================================
+// Operation document upload — multipart/form-data, DeepSeek auto-match
+// =============================================================================
+export interface OperationCandidate {
+  id: string;
+  reference: string;
+  status: string;
+  operation_date: number;
+  total_amount: number | null;
+  currency: string | null;
+  partner_name: string | null;
+}
+
+export interface ExtractedDocInfo {
+  operation_reference: string | null;
+  doc_type: string;
+  doc_number: string | null;
+  doc_date: string | null;
+  currency: string | null;
+  amount: number | null;
+  issuer: string | null;
+  counterparty: string | null;
+  direction: 'outgoing' | 'incoming';
+  confidence: number;
+  notes: string;
+}
+
+export type UploadDocResult =
+  | {
+      mode: 'auto_attached';
+      operation_id: string;
+      operation_reference: string;
+      attachment_id: string;
+      file_url: string;
+      extracted: ExtractedDocInfo;
+    }
+  | {
+      mode: 'manual_attached';
+      operation_id: string;
+      operation_reference: string;
+      attachment_id: string;
+      file_url: string;
+    }
+  | {
+      mode: 'low_confidence' | 'no_match' | 'unreadable' | 'no_llm';
+      r2_key?: string;
+      filename: string;
+      file_size?: number;
+      file_mime?: string;
+      extracted?: ExtractedDocInfo;
+      suggestion?: { id: string; reference: string } | null;
+      candidates?: OperationCandidate[];
+      message?: string;
+    };
+
+export async function uploadOperationDocument(file: File, operationId?: string) {
+  const form = new FormData();
+  form.append('file', file);
+  if (operationId) form.append('operation_id', operationId);
+
+  const res = await fetch(`${API_BASE}/api/operations/upload-document`, {
+    method: 'POST',
+    body: form,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    try {
+      return JSON.parse(text) as { success: false; result: null; errors: Array<{ code: string; message: string }> };
+    } catch {
+      return {
+        success: false as const,
+        result: null,
+        errors: [{ code: 'http_error', message: `HTTP ${res.status}: ${text.slice(0, 200)}` }],
+        messages: [],
+      };
+    }
+  }
+
+  return res.json() as Promise<{
+    success: boolean;
+    result: UploadDocResult | null;
+    errors: Array<{ code: string; message: string }>;
+    messages: string[];
+  }>;
+}

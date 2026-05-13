@@ -358,14 +358,8 @@ export default function OperationsPage() {
                     }}>
                       {partnerLabel}
                     </div>
-                    {/* Amount + entity — right, stacked, right-aligned */}
-                    <div style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'flex-end',
-                      flexShrink: 0,
-                      gap: '4px',
-                    }}>
+                    {/* Amount — right, colour = payment state */}
+                    <div style={{ flexShrink: 0 }}>
                       <span style={{
                         fontSize: '18px',
                         fontWeight: 800,
@@ -375,18 +369,6 @@ export default function OperationsPage() {
                       }}>
                         {formatMoney(op.total_amount, op.currency)}
                         <span style={{ fontSize: '12px', color: 'var(--fg-3)', marginLeft: '4px', fontWeight: 700 }}>{op.currency}</span>
-                      </span>
-                      <span style={{
-                        fontSize: '12px',
-                        fontWeight: 800,
-                        color: 'var(--fg-1)',
-                        padding: '1px 6px',
-                        backgroundColor: 'var(--paper-sunk)',
-                        borderRadius: 'var(--radius-sm)',
-                        letterSpacing: 0,
-                      }}>
-                        {op.entity_abbreviation
-                          ?? (op.our_company_id ? op.our_company_id.toUpperCase() : '—')}
                       </span>
                     </div>
                   </div>

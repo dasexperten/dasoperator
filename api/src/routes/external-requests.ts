@@ -111,7 +111,13 @@ externalRequests.get('/', async (c) => {
       r.created_at_external, r.executor, r.creator, r.comment,
       r.imported_op_id, r.synced_at,
       (SELECT COUNT(*) FROM external_request_items i WHERE i.external_request_id = r.id) AS item_count,
-      (SELECT SUM(amount) FROM external_request_items i WHERE i.external_request_id = r.id) AS total_amount
+      (SELECT SUM(amount) FROM external_request_items i WHERE i.external_request_id = r.id) AS total_amount,
+      (
+        SELECT GROUP_CONCAT(DISTINCT es.marketplace)
+        FROM external_request_items i
+        LEFT JOIN external_stocks es ON UPPER(es.external_vendor_code) = UPPER(i.vendor_code)
+        WHERE i.external_request_id = r.id AND es.marketplace IS NOT NULL AND es.marketplace != ''
+      ) AS destinations
     FROM external_requests r
     ${whereClause}
     ORDER BY r.synced_at DESC, r.external_id DESC

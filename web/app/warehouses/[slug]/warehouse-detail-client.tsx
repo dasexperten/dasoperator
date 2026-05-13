@@ -376,6 +376,7 @@ function F4RequestsTab({ requests, onSynced, warehouseId }: {
 }) {
   const [filter, setFilter] = useState<F4Filter>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'completed' | 'expired'>('all');
+  const [destFilter, setDestFilter] = useState<'all' | 'ozon' | 'wb' | 'mixed'>('all');
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
@@ -385,9 +386,17 @@ function F4RequestsTab({ requests, onSynced, warehouseId }: {
       if (statusFilter === 'active' && (r.is_completed || r.is_archived)) return false;
       if (statusFilter === 'completed' && !r.is_completed) return false;
       if (statusFilter === 'expired' && !r.is_expired) return false;
+      if (destFilter !== 'all') {
+        const dests = (r.destinations ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+        const hasOzon = dests.some((d) => d === 'OZON');
+        const hasWb = dests.some((d) => d.toLowerCase().startsWith('wild'));
+        if (destFilter === 'ozon' && (!hasOzon || hasWb)) return false;
+        if (destFilter === 'wb' && (!hasWb || hasOzon)) return false;
+        if (destFilter === 'mixed' && !(hasOzon && hasWb)) return false;
+      }
       return true;
     });
-  }, [requests, filter, statusFilter]);
+  }, [requests, filter, statusFilter, destFilter]);
 
   const counts = useMemo(() => {
     const byType: Record<string, number> = {};
@@ -439,6 +448,13 @@ function F4RequestsTab({ requests, onSynced, warehouseId }: {
 
         <div style={{ width: '12px' }} />
 
+        <FilterChip active={destFilter === 'all'} onClick={() => setDestFilter('all')} label="All MP" />
+        <FilterChip active={destFilter === 'ozon'} onClick={() => setDestFilter('ozon')} label="Ozon only" color="#005BFF" />
+        <FilterChip active={destFilter === 'wb'} onClick={() => setDestFilter('wb')} label="WB only" color="#CB11AB" />
+        <FilterChip active={destFilter === 'mixed'} onClick={() => setDestFilter('mixed')} label="Ozon + WB" color="#854F0B" />
+
+        <div style={{ width: '12px' }} />
+
         <FilterChip active={statusFilter === 'all'} onClick={() => setStatusFilter('all')} label="All status" />
         <FilterChip active={statusFilter === 'active'} onClick={() => setStatusFilter('active')} label="Active" />
         <FilterChip active={statusFilter === 'expired'} onClick={() => setStatusFilter('expired')} label="Expired" color="#A32D2D" />
@@ -480,6 +496,7 @@ function F4RequestsTab({ requests, onSynced, warehouseId }: {
                 <Th>Delivery #</Th>
                 <Th>Date</Th>
                 <Th>Type</Th>
+                <Th>Destination</Th>
                 <Th>Stage</Th>
                 <Th right>Items</Th>
                 <Th right>Qty</Th>
@@ -494,6 +511,15 @@ function F4RequestsTab({ requests, onSynced, warehouseId }: {
                   : r.is_completed
                   ? { bg: 'rgba(46,125,79,0.08)', fg: '#27500A', border: 'rgba(46,125,79,0.3)', text: 'Completed' }
                   : { bg: 'rgba(24,95,165,0.08)', fg: '#0C447C', border: 'rgba(24,95,165,0.3)', text: 'Active' };
+
+                const dests = (r.destinations ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+                const destBadges = dests.map((d) => {
+                  if (d === 'OZON') return { label: 'Ozon', bg: '#005BFF15', fg: '#003D9E' };
+                  if (d.toLowerCase().startsWith('wild')) return { label: 'WB', bg: '#CB11AB15', fg: '#7B0967' };
+                  if (d.toLowerCase().startsWith('yandex')) return { label: 'YM', bg: '#FC3F1D15', fg: '#A8210C' };
+                  return { label: d, bg: '#5F5E5A15', fg: '#444441' };
+                });
+
                 return (
                   <tr key={r.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                     <td className="px-4 py-3" style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
@@ -515,6 +541,24 @@ function F4RequestsTab({ requests, onSynced, warehouseId }: {
                       }}>
                         {typeInfo.label}
                       </span>
+                    </td>
+                    <td className="px-4 py-3" style={{ fontSize: '14px' }}>
+                      {destBadges.length === 0 ? (
+                        <span style={{ color: 'var(--fg-muted)' }}>—</span>
+                      ) : (
+                        <div style={{ display: 'inline-flex', gap: '4px', flexWrap: 'wrap' }}>
+                          {destBadges.map((b, i) => (
+                            <span key={i} style={{
+                              padding: '2px 8px',
+                              backgroundColor: b.bg,
+                              color: b.fg,
+                              borderRadius: 'var(--radius-sm)',
+                              fontWeight: 700,
+                              fontSize: '14px',
+                            }}>{b.label}</span>
+                          ))}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
                       {r.stage_name ?? '—'}

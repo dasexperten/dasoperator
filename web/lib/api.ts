@@ -1466,6 +1466,7 @@ export interface ExternalRequestRow {
   synced_at: number;
   item_count: number;
   total_amount: number | null;
+  destinations: string | null;
 }
 
 export interface ExternalRequestItem {

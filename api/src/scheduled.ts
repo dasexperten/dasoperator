@@ -393,6 +393,35 @@ export async function handleScheduled(
     return;
   }
 
+  // F4 Lyubertsy fulfillment / Skladbot WMS — stock snapshot sync.
+  // Runs every 6 hours at :30 (03:30, 09:30, 15:30, 21:30 МСК), offset from
+  // Performance API (:05) and Modulbank (:15) to avoid clustering.
+  // Idempotent — deletes today's external_stocks for the warehouse, re-inserts.
+  if (cron === '30 */6 * * *') {
+    console.log('[cron:f4-sync] starting Skladbot stock snapshot');
+    try {
+      const r = await env.SELF.fetch(new Request(
+        'https://internal/api/external-stocks/sync',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        }
+      ));
+      const out = await r.json() as { success: boolean; result?: { synced?: Array<{ warehouse_id: string; rows: number; provider: string }> }; errors?: unknown[] };
+      if (out.success && out.result?.synced) {
+        for (const s of out.result.synced) {
+          console.log(`[cron:f4-sync] ${s.warehouse_id} ${s.provider}: ${s.rows} rows`);
+        }
+      } else {
+        console.error('[cron:f4-sync] sync returned errors:', JSON.stringify(out.errors));
+      }
+    } catch (e) {
+      console.error('[cron:f4-sync] failed:', e);
+    }
+    return;
+  }
+
   // Hourly Modulbank pull-sync — safety net against missed webhooks.
   // Pulls last 3 days of transactions across all DEE accounts; idempotent
   // (UNIQUE constraint on company_bank_account_id + external_id treats

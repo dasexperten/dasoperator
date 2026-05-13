@@ -400,6 +400,14 @@ export default function OperationDetailClient({
             ? (operation.warehouse_to_id ? warehouseCodes[operation.warehouse_to_id] ?? null : null)
             : (operation.warehouse_from_id ? warehouseCodes[operation.warehouse_from_id] ?? null : null)
         }
+        // ── Service track wiring (migration 0034) ────────────────────────
+        // operationTrack: 'service' makes the bar render two binary chips
+        // (Service provided / Paid) instead of the goods toolbar. Set on
+        // operation create from partner.partner_subtype.
+        operationTrack={(operation as { operation_track?: 'goods' | 'service' }).operation_track ?? 'goods'}
+        deliveryStatus={(operation as { delivery_status?: 'pending' | 'delivered' | 'disputed' | 'refunded' }).delivery_status ?? 'delivered'}
+        paidAmount={(operation as { paid_amount?: number | null }).paid_amount ?? null}
+        totalAmount={(operation as { total_amount?: number | null }).total_amount ?? null}
         onIssued={async () => {
           const opRes = await getOperation(operationId);
           if (opRes.success && opRes.result) {

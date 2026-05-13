@@ -40,6 +40,10 @@ export interface ClaudeAnalysisResult {
   doc_number: string | null;
   doc_date: string | null;                // ISO YYYY-MM-DD
   operation_date: string | null;          // ISO YYYY-MM-DD — when the goods/services were delivered
+
+  // Contract reference extracted from document — used to link to existing contract record
+  contract_no: string | null;             // e.g. "080824", "MF01-DEA/YZ", "06062022"
+  contract_confidence: number;
   currency: string | null;                // ISO 4217
   total_amount: number | null;
 
@@ -189,12 +193,24 @@ CONFIDENCE SCORING:
   • Multiple plausible products → product_match_confidence ≤ 0.6, list alternatives
   • No match → product_id = null, product_match_confidence = 0
 
+CONTRACT NUMBER EXTRACTION:
+  Look in the document for the contract this transaction references. Common labels:
+    Contract / Договор / Контракт / 合同号 / 合同
+    Agreement / Соглашение
+    "по контракту", "согласно договору", "based on contract", "ref. contract"
+  Some invoices use "Счёт №" or "Invoice №" — that's the DOCUMENT number, NOT the contract.
+  If the document is itself a contract (document_kind='contract'), the contract_no is the document's own number.
+  When found, return the raw contract number string EXACTLY as printed (preserve slashes, dashes, spaces).
+  If not found anywhere → contract_no = null, contract_confidence = 0.
+
 OUTPUT — return ONLY valid JSON, no prose, matching this exact schema:
 {
   "document_kind": "invoice" | "packing_list" | "upd" | "contract" | "annex" | "specification" | "transport_note" | "act" | "bank_statement" | "other",
   "doc_number": string | null,
   "doc_date": "YYYY-MM-DD" | null,
   "operation_date": "YYYY-MM-DD" | null,
+  "contract_no": string | null,
+  "contract_confidence": 0.0-1.0,
   "currency": "RUB"|"USD"|"EUR"|"CNY"|"VND"|"AED"|"AMD" | null,
   "total_amount": number | null,
 

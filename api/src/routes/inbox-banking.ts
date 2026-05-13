@@ -17,6 +17,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
+import { suggestRuleFromAssignment } from '../lib/bank-match-rules';
 
 const inboxBanking = new Hono<{ Bindings: Env }>();
 
@@ -234,13 +235,13 @@ inboxBanking.post('/:tx_id/attach', async (c) => {
     // Load tx to know what to attach.
     const tx = await c.env.DB.prepare(`
       SELECT id, direction, amount, currency, executed_at,
-             contragent_name, payment_purpose, external_doc_number,
+             contragent_name, contragent_inn, payment_purpose, external_doc_number,
              matched_payment_id AS prev_op_id
       FROM bank_transactions WHERE id = ?
     `).bind(txId).first<{
       id: string; direction: string; amount: number; currency: string;
-      executed_at: number; contragent_name: string; payment_purpose: string;
-      external_doc_number: string; prev_op_id: string | null;
+      executed_at: number; contragent_name: string; contragent_inn: string | null;
+      payment_purpose: string; external_doc_number: string; prev_op_id: string | null;
     }>();
     if (!tx) {
       return fail(c, 404, [{ code: 'tx_not_found', message: `bank_tx ${txId} not found` }]);
@@ -282,11 +283,60 @@ inboxBanking.post('/:tx_id/attach', async (c) => {
       WHERE id = ?
     `).bind(op.id, now, now, tx.id).run();
 
+    // After attach, ask Claude if this assignment could become a reusable rule.
+    // The suggestion is non-blocking and surfaces in the response so the UI
+    // can show a "Create rule from this?" confirmation card.
+    let ruleSuggestion: Awaited<ReturnType<typeof suggestRuleFromAssignment>> = null;
+    try {
+      // Reload partner_id from operation for context.
+      const opPartner = await c.env.DB.prepare(`
+        SELECT o.partner_id, o.operation_type, o.our_company_id,
+               p.trade_name AS partner_trade_name, p.kind AS partner_kind
+        FROM operations o
+        LEFT JOIN partners p ON p.id = o.partner_id
+        WHERE o.id = ?
+      `).bind(op.id).first<{
+        partner_id: string | null;
+        operation_type: string;
+        our_company_id: string;
+        partner_trade_name: string | null;
+        partner_kind: string | null;
+      }>();
+
+      if (opPartner) {
+        ruleSuggestion = await suggestRuleFromAssignment(c.env, {
+          tx: {
+            direction: tx.direction as 'incoming' | 'outgoing',
+            contragent_name: tx.contragent_name,
+            contragent_inn: tx.contragent_inn,
+            payment_purpose: tx.payment_purpose,
+            amount: tx.amount,
+            currency: tx.currency,
+          },
+          operation: {
+            id: op.id,
+            reference: op.reference,
+            operation_type: opPartner.operation_type,
+            partner_id: opPartner.partner_id,
+            our_company_id: opPartner.our_company_id,
+          },
+          partner: opPartner.partner_id ? {
+            id: opPartner.partner_id,
+            trade_name: opPartner.partner_trade_name,
+            kind: opPartner.partner_kind ?? 'unknown',
+          } : null,
+        });
+      }
+    } catch (suggestErr) {
+      console.error('[inbox-banking attach] suggestRule failed:', suggestErr);
+    }
+
     return ok(c, {
       tx_id: tx.id,
       operation_id: op.id,
       operation_ref: op.reference,
       attachment_id: pmtId,
+      rule_suggestion: ruleSuggestion,
     });
   } catch (e) {
     return fail(c, 500, [{

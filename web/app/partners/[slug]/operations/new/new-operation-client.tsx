@@ -1022,7 +1022,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                 className="w-full px-3 py-2 text-sm focus:outline-none"
                 style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}>
                 {companies.map((co) => (
-                  <option key={co.id} value={co.id}>{co.abbreviation ?? co.name}</option>
+                  <option key={co.id} value={co.id}>{co.abbreviation ?? co.legal_name}</option>
                 ))}
               </select>
             </div>

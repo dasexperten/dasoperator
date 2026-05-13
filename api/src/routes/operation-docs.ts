@@ -157,12 +157,18 @@ function pickBestMatch<T extends { id: string; name: string }>(
 
 // =============================================================================
 // Resolve extracted line items → DB product_id by SKU code or fuzzy name match
+// Strategy:
+//   1. If sku_hint matches a product id directly → return
+//   2. Find distinctive brand keyword (SYMBIOS, DETOX, GINGER, COCANNABIS, etc.)
+//      that appears in BOTH description and a product label → that product wins
+//   3. Token-overlap fallback as last resort
+// 2in1 / single-pack discriminator applied as final filter
 // =============================================================================
 async function resolveLineItemSku(
   env: Env,
   item: ExtractedLineItem
 ): Promise<string | null> {
-  // 1. If sku_hint is present and matches a product id directly
+  // 1. SKU hint direct match
   const hint = (item.sku_hint || '').toLowerCase().replace(/[\s\-_]/g, '');
   if (hint) {
     const direct = await env.DB.prepare(
@@ -171,7 +177,6 @@ async function resolveLineItemSku(
     if (direct) return direct.id;
   }
 
-  // 2. Fuzzy by description against product_name + invoice_label fields (token overlap)
   const desc = (item.description || '').toLowerCase();
   if (!desc) return null;
 
@@ -180,42 +185,77 @@ async function resolveLineItemSku(
        FROM products WHERE deleted_at IS NULL`
   ).all<{ id: string; product_name: string; invoice_label: string | null; invoice_label_en: string | null; invoice_label_ru: string | null; invoice_label_cn: string | null }>();
 
-  // Key tokens for each row of an oral care invoice
+  // Discriminator: 2in1 in description requires 2in1 in product (and vice versa)
+  const has2in1Desc = /2\s*in\s*1|2\s*pcs|2x|двойн/i.test(desc);
+
+  // 2. Distinctive keyword scoring — brand names usually carry product identity
+  // Build for each product a set of "distinctive tokens" — words that appear only in this product
+  // and not in most others. Practical heuristic: keep any word from product_name/invoice_label
+  // that is alpha-only and >= 4 chars (excluding generic words like "toothpaste", "паста").
+  const STOPWORDS = new Set([
+    'toothpaste','paste','паста','зубная','зубнаа','das','experten','daselzasten',
+    'pcs','box','units','ctn','ml','шт','мл','tube','tubes','toothbrush','щётка','brush',
+    'oral','care','kids','kid','dental','tooth','teeth','tube','cream','gel','gum','gums',
+    '2in1','2pcs','двойн','complex','for','and','the','with','soft','medium','hard','vapor',
+  ]);
+
+  const distinctiveByProduct = new Map<string, Set<string>>();
+  for (const p of rows.results || []) {
+    const blob = [p.product_name, p.invoice_label, p.invoice_label_en, p.invoice_label_ru, p.invoice_label_cn]
+      .filter(Boolean).join(' ').toLowerCase();
+    const tokens = new Set(
+      blob.replace(/[^a-z0-9а-яё ]/gi, ' ').split(/\s+/)
+        .filter((t) => t.length >= 4 && !STOPWORDS.has(t) && !/^\d+$/.test(t))
+    );
+    distinctiveByProduct.set(p.id, tokens);
+  }
+
+  // For each product, count distinctive tokens that ALSO appear in description
   const descTokens = new Set(
-    desc.replace(/[^a-z0-9а-яё ]/gi, ' ').split(/\s+/).filter((t) => t.length >= 3)
+    desc.replace(/[^a-z0-9а-яё ]/gi, ' ').split(/\s+/).filter((t) => t.length >= 4)
   );
-  if (descTokens.size === 0) return null;
 
   let bestId: string | null = null;
-  let bestScore = 0;
+  let bestKwScore = 0;
 
   for (const p of rows.results || []) {
-    const haystack = [
-      p.product_name, p.invoice_label, p.invoice_label_en, p.invoice_label_ru, p.invoice_label_cn,
-    ].filter(Boolean).join(' ').toLowerCase();
-    if (!haystack) continue;
-    const productTokens = new Set(
-      haystack.replace(/[^a-z0-9а-яё ]/gi, ' ').split(/\s+/).filter((t) => t.length >= 3)
-    );
-    let overlap = 0;
-    for (const t of descTokens) if (productTokens.has(t)) overlap += 1;
-    const score = overlap / Math.max(descTokens.size, productTokens.size);
+    const distinct = distinctiveByProduct.get(p.id);
+    if (!distinct || distinct.size === 0) continue;
 
-    // Boost: if the descriptor contains "2in1" or "2 in 1" and so does the product
-    const has2in1Desc = /2\s*in\s*1|2\s*pcs|2x|двойн/i.test(desc);
-    const has2in1Prod = /2in1|2pcs|двойн/i.test(haystack);
-    let boosted = score;
-    if (has2in1Desc !== has2in1Prod) {
-      boosted *= 0.5;  // strong penalty for mismatch in 2in1 trait
+    let hits = 0;
+    for (const t of distinct) {
+      // exact token match OR substring match (handles COCANNABIS vs COCOCANNABIS variants)
+      if (descTokens.has(t)) { hits += 2; continue; }
+      if (desc.includes(t)) { hits += 1; continue; }
+      // For each distinctive token, check if a SUBSTRING of it is in description (e.g. "cannabis" ⊂ "cococannabis")
+      // Apply only for tokens length >= 6 to keep noise down
+      if (t.length >= 6) {
+        const stem = t.slice(0, Math.max(4, t.length - 2));
+        if (desc.includes(stem)) { hits += 1; }
+      }
     }
 
-    if (boosted > bestScore) {
-      bestScore = boosted;
+    if (hits === 0) continue;
+
+    // Filter 2in1 mismatch
+    const haystack = [p.product_name, p.invoice_label, p.invoice_label_en, p.invoice_label_ru, p.invoice_label_cn]
+      .filter(Boolean).join(' ').toLowerCase();
+    const has2in1Prod = /2in1|2pcs|двойн/i.test(haystack);
+    if (has2in1Desc !== has2in1Prod) {
+      hits = Math.floor(hits * 0.4);
+      if (hits === 0) continue;
+    }
+
+    if (hits > bestKwScore) {
+      bestKwScore = hits;
       bestId = p.id;
     }
   }
 
-  return bestScore >= 0.35 ? bestId : null;
+  // 3. Only return if we found at least one strong distinctive token match
+  if (bestId && bestKwScore >= 2) return bestId;
+
+  return null;
 }
 
 // =============================================================================

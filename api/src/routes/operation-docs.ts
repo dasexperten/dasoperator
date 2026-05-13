@@ -356,6 +356,195 @@ async function buildPrefill(
 //   If operation_id is provided, skip parsing and just attach.
 //   If not, parse → match → either auto-attach (high conf) or return candidates.
 // =============================================================================
+// =============================================================================
+// POST /upload-to-pipeline — STRICT mode: parse + STAGE to verification pipeline
+// =============================================================================
+// Same parsing as /upload-document, but instead of auto-attach or stub-create,
+// the result is STAGED in document_extractions for human review.
+// Critical for official documents (invoices, PLs, UPDs) — no direct writes.
+//
+// Returns: { extraction_id, header_fields, line_items, validation, overall_confidence }
+// UI: route operator to /inbox/documents/:extraction_id to review.
+// =============================================================================
+operationDocs.post('/upload-to-pipeline', async (c) => {
+  const form = await c.req.formData();
+  const file = form.get('file');
+  if (!(file instanceof File)) {
+    return fail(c, 422, [{ code: 'no_file', message: 'No file uploaded' }]);
+  }
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const filename = file.name;
+  const mimeType = file.type;
+  const safeName = sanitizeFilename(filename);
+  const fileId = crypto.randomUUID();
+
+  // Save to R2
+  const r2Key = `operation-docs/${new Date().toISOString().slice(0, 10)}/${fileId}__${safeName}`;
+  await c.env.DOCS.put(r2Key, bytes, {
+    httpMetadata: { contentType: mimeType || 'application/octet-stream' },
+  });
+
+  // Extract text
+  let text: string;
+  try {
+    text = await extractTextFromFile(bytes, mimeType, filename);
+  } catch (e) {
+    return fail(c, 500, [{ code: 'extract_failed', message: e instanceof Error ? e.message : String(e) }]);
+  }
+  if (!text || text.length < 5) {
+    return fail(c, 422, [{ code: 'unreadable', message: 'Could not read text from file' }]);
+  }
+
+  if (!c.env.DEEPSEEK_API_KEY) {
+    return fail(c, 500, [{ code: 'no_llm', message: 'LLM not configured' }]);
+  }
+
+  // Run DeepSeek extraction
+  const trimmed = text.length > 60_000 ? text.slice(0, 60_000) : text;
+  const dsResp = await fetch(DEEPSEEK_API, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${c.env.DEEPSEEK_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'deepseek-chat',
+      messages: [
+        { role: 'system', content: DOC_EXTRACTION_PROMPT },
+        { role: 'user', content: `Filename: ${filename}\n\nContents:\n${trimmed}` },
+      ],
+      temperature: 0,
+      response_format: { type: 'json_object' },
+    }),
+  });
+
+  if (!dsResp.ok) {
+    return fail(c, 500, [{ code: 'llm_error', message: `DeepSeek HTTP ${dsResp.status}` }]);
+  }
+  const dsData = await dsResp.json<{ choices: Array<{ message: { content: string } }> }>();
+  const dsContent = dsData.choices?.[0]?.message?.content ?? '{}';
+  let extracted: ExtractedDoc;
+  try {
+    extracted = JSON.parse(dsContent);
+  } catch {
+    return fail(c, 500, [{ code: 'llm_bad_json', message: dsContent.slice(0, 200) }]);
+  }
+
+  // Run pipeline: resolve entities + validate
+  const {
+    resolveProduct, resolvePartner, resolveCompany,
+    emptyReport, addCheck, blankResolution,
+    validateLineItemsSum, validateEachLineMath, validateDateInRange, validateCurrency,
+    stageExtraction,
+  } = await import('../lib/verification-pipeline');
+
+  // Resolve header entities
+  const ourSideRaw = extracted.direction === 'outgoing' ? extracted.issuer : extracted.counterparty;
+  const otherSideRaw = extracted.direction === 'outgoing' ? extracted.counterparty : extracted.issuer;
+
+  const companyResolution = await resolveCompany(c.env, { name: ourSideRaw });
+  const partnerResolution = await resolvePartner(c.env, { name: otherSideRaw });
+
+  // Decide operation_type from direction + entity kinds
+  let opType: 'sale' | 'purchase' | 'transfer' = 'purchase';
+  if (extracted.direction === 'outgoing') opType = 'sale';
+
+  // Resolve line items
+  const resolvedItems: any[] = [];
+  for (const li of (extracted.line_items || [])) {
+    const productRes = await resolveProduct(c.env, {
+      description: li.description,
+      sku_hint: li.sku_hint,
+      qty: li.qty,
+      unit_price: li.unit_price,
+      currency: extracted.currency || undefined,
+    });
+    resolvedItems.push({
+      description: li.description,
+      sku_hint: li.sku_hint,
+      qty: li.qty,
+      unit_price: li.unit_price,
+      line_amount: li.line_amount,
+      hs_code: li.hs_code,
+      cartons: li.cartons,
+      product_id: productRes.value,
+      product_id_source: productRes.source,
+      product_id_confidence: productRes.confidence,
+      product_id_alternatives: productRes.alternatives,
+      needs_review: productRes.needs_review,
+    });
+  }
+
+  // Build header_fields
+  const headerFields: Record<string, any> = {
+    operation_type: { value: opType, raw: extracted.direction, confidence: 0.9, source: 'derived', alternatives: [], needs_review: false },
+    our_company_id: companyResolution,
+    partner_id: partnerResolution,
+    currency: { value: extracted.currency, raw: extracted.currency, confidence: extracted.currency ? 0.95 : 0, source: 'exact_text', alternatives: [], needs_review: !extracted.currency },
+    total_amount: { value: extracted.amount, raw: String(extracted.amount), confidence: extracted.amount ? 0.95 : 0, source: 'exact_text', alternatives: [], needs_review: !extracted.amount },
+    operation_date: { value: extracted.doc_date ? Math.floor(new Date(extracted.doc_date + 'T12:00:00Z').getTime() / 1000) : null, raw: extracted.doc_date, confidence: extracted.doc_date ? 0.9 : 0, source: 'exact_text', alternatives: [], needs_review: !extracted.doc_date },
+    doc_number: { value: extracted.doc_number, raw: extracted.doc_number, confidence: 0.95, source: 'exact_text', alternatives: [], needs_review: false },
+    doc_date: { value: extracted.doc_date, raw: extracted.doc_date, confidence: 0.9, source: 'exact_text', alternatives: [], needs_review: !extracted.doc_date },
+    issuer: { value: extracted.issuer, raw: extracted.issuer, confidence: 0.95, source: 'exact_text', alternatives: [], needs_review: false },
+    direction: { value: extracted.direction, raw: extracted.direction, confidence: 0.95, source: 'exact_text', alternatives: [], needs_review: false },
+  };
+
+  // Run validators
+  const report = emptyReport();
+  addCheck(report, validateLineItemsSum(resolvedItems, extracted.amount));
+  for (const ch of validateEachLineMath(resolvedItems)) addCheck(report, ch);
+  addCheck(report, validateDateInRange(extracted.doc_date));
+  addCheck(report, validateCurrency(extracted.currency));
+  // Custom check: every line item has product_id
+  const unmatched = resolvedItems.filter((r) => !r.product_id).length;
+  addCheck(report, {
+    code: 'all_lines_matched',
+    label: 'All line items matched to SKUs',
+    passed: unmatched === 0,
+    severity: unmatched === 0 ? 'info' : (unmatched <= resolvedItems.length / 2 ? 'warning' : 'error'),
+    details: unmatched === 0
+      ? `${resolvedItems.length} of ${resolvedItems.length} matched`
+      : `${unmatched} of ${resolvedItems.length} could not be matched to SKUs`,
+  });
+  // Custom: lines flagged needs_review
+  const flagged = resolvedItems.filter((r) => r.needs_review).length;
+  if (flagged > 0) {
+    addCheck(report, {
+      code: 'lines_low_confidence',
+      label: 'Lines with low-confidence SKU match',
+      passed: false,
+      severity: 'warning',
+      details: `${flagged} line(s) below confidence threshold — please verify`,
+    });
+  }
+
+  // Stage
+  const extractionId = await stageExtraction(c.env, {
+    source: 'upload',
+    document_kind: (extracted.doc_type as any) || 'other',
+    r2_key: r2Key,
+    filename, file_mime: mimeType, raw_text: text,
+    raw_extract: extracted as any,
+    header_fields: headerFields,
+    line_items: resolvedItems,
+    validation: report,
+    target_table: 'operations',
+    target_action: 'create',
+  });
+
+  return ok(c, {
+    extraction_id: extractionId,
+    mode: 'staged_for_review',
+    header_fields: headerFields,
+    line_items: resolvedItems,
+    validation: report,
+    raw_extract: extracted,
+    r2_key: r2Key,
+    filename,
+  }, [`Document staged for review (id: ${extractionId}). Open Inbox → Documents to verify and approve.`]);
+});
+
 operationDocs.post('/upload-document', async (c) => {
   try {
     const form = await c.req.formData();

@@ -612,4 +612,55 @@ banksModulbank.post('/sync-history', async (c) => {
   });
 });
 
+
+// =============================================================================
+// POST /api/banks/modulbank/rematch-unassigned
+//   Re-runs the auto-match cascade on every bank_transaction without a
+//   matched_payment_id. Useful after rules change or after a backfill of
+//   transactions that bypassed the cascade (e.g. early Wio uploads).
+//
+// Body (optional):
+//   { limit?: number }   default: 200
+// =============================================================================
+banksModulbank.post('/rematch-unassigned', async (c) => {
+  let body: { limit?: number } = {};
+  try { body = await c.req.json(); } catch { /* empty body ok */ }
+  const limit = Math.min(500, Math.max(1, body.limit ?? 200));
+
+  try {
+    const rows = await c.env.DB.prepare(
+      `SELECT id FROM bank_transactions
+        WHERE matched_payment_id IS NULL
+          AND (deleted_at IS NULL OR deleted_at = 0)
+        ORDER BY executed_at DESC
+        LIMIT ?`
+    ).bind(limit).all<{ id: string }>();
+
+    const ids = (rows.results ?? []).map((r) => r.id);
+    let succeeded = 0, failed = 0, matched = 0;
+    const errors: Array<{ tx_id: string; message: string }> = [];
+
+    for (const txId of ids) {
+      try {
+        const result = await autoMatchBankTransaction(c.env, txId);
+        succeeded++;
+        if (result && (result as any).operation_id) matched++;
+      } catch (e) {
+        failed++;
+        errors.push({ tx_id: txId, message: e instanceof Error ? e.message : String(e) });
+      }
+    }
+
+    return ok(c, {
+      processed: ids.length,
+      succeeded,
+      failed,
+      matched_operations: matched,
+      errors: errors.slice(0, 10),
+    });
+  } catch (err) {
+    return fail(c, 500, [{ code: 'rematch_error', message: err instanceof Error ? err.message : String(err) }]);
+  }
+});
+
 export default banksModulbank;

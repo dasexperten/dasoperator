@@ -2,8 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
-import { issueNextSequence } from '../lib/sequence-format';
-import { sequenceIdForCompany } from '../lib/company-sequence';
+import { issueOperationReference } from '../lib/operation-reference';
 import { getRateToUsdNano, applyFxToAmount } from '../lib/fx-cbr';
 import { getRatesFor } from '../lib/fx-store';
 
@@ -353,21 +352,18 @@ operations.post('/', async (c) => {
   }
 
   // ---------------------------------------------------------------------------
-  // Step 6: Issue reference number from company sequence
+  // Step 6: Issue operation reference (format: ENTITY-YYMMDDXX)
+  // XX is the daily counter within (entity, operation_date) bucket.
   // ---------------------------------------------------------------------------
-  const sequenceId = sequenceIdForCompany(resolvedCompanyId);
-  if (!sequenceId) {
+  const refResult = await issueOperationReference(
+    c.env.DB,
+    resolvedCompanyId,
+    data.operation_date
+  );
+  if (!refResult) {
     return fail(c, 500, [{
-      code: 'sequence_mapping_missing',
-      message: `No sequence mapped for company ${resolvedCompanyId}`,
-    }]);
-  }
-
-  const seqResult = await issueNextSequence(c.env.DB, sequenceId);
-  if (!seqResult) {
-    return fail(c, 500, [{
-      code: 'sequence_failed',
-      message: `Failed to issue from sequence ${sequenceId}`,
+      code: 'reference_failed',
+      message: `No entity mapping for company ${resolvedCompanyId}`,
     }]);
   }
 
@@ -479,7 +475,7 @@ operations.post('/', async (c) => {
     resolvedManufacturerId ?? data.manufacturer_id ?? null,
     data.warehouse_from_id ?? null,
     data.warehouse_to_id ?? null,
-    seqResult.formatted,
+    refResult.reference,
     data.price_type_id ?? null,
     resolvedCurrency,
     fxRateToUsdNano,
@@ -526,7 +522,7 @@ operations.post('/', async (c) => {
     operation: {
       id: operationId,
       contract_id: resolvedContractId,
-      reference: seqResult.formatted,
+      reference: refResult.reference,
       operation_type: data.operation_type,
       operation_date: data.operation_date,
       our_company_id: resolvedCompanyId,
@@ -1622,3 +1618,4 @@ operations.delete('/:id', async (c) => {
 });
 
 export default operations;
+

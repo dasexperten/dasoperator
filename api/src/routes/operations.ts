@@ -661,7 +661,7 @@ operations.get('/', async (c) => {
     binds.push(pattern, pattern, pattern);
   }
 
-  sql += ` ORDER BY o.operation_date DESC, o.created_at DESC`;
+  sql += ` ORDER BY o.created_at DESC, o.operation_date DESC`;
   if (limit > 0 && limit <= 500) {
     sql += ` LIMIT ${limit}`;
   }

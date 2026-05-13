@@ -574,6 +574,7 @@ operations.get('/', async (c) => {
   const columns = compact
     ? `o.id, ct.contract_no, o.partner_id, p.trade_name as partner_trade_name,
        o.manufacturer_id, mfr.name as manufacturer_name,
+       o.our_company_id, co.abbreviation as entity_abbreviation,
        o.operation_type, o.operation_date,
        o.currency, o.total_amount,
        o.status, o.reference, o.delivery_status`
@@ -592,7 +593,8 @@ operations.get('/', async (c) => {
     ? `FROM operations o
        LEFT JOIN contracts ct ON o.contract_id = ct.id
        LEFT JOIN partners p ON o.partner_id = p.id
-       LEFT JOIN manufacturers mfr ON o.manufacturer_id = mfr.id`
+       LEFT JOIN manufacturers mfr ON o.manufacturer_id = mfr.id
+       LEFT JOIN companies co ON o.our_company_id = co.id`
     : `FROM operations o
        LEFT JOIN contracts ct ON o.contract_id = ct.id
        LEFT JOIN partners p ON o.partner_id = p.id

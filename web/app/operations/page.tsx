@@ -22,6 +22,7 @@ const TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
   sale:     { bg: 'rgba(46,125,79,0.08)',  fg: 'var(--status-success)' },
   purchase: { bg: 'rgba(13,25,158,0.08)',  fg: 'var(--line-innoweiss)' },
   transfer: { bg: 'var(--paper-sunk)',     fg: 'var(--fg-2)' },
+  service:  { bg: 'rgba(255,159,64,0.12)', fg: '#C46B14' },
 };
 
 // Phase 4.3b — Payment overlay applied on top of status (red/brown/green at 95% tolerance)
@@ -435,15 +436,44 @@ export default function OperationsPage() {
             className="w-full pl-10 pr-4 py-2"
             style={{ fontSize: '14px', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }} />
         </div>
+        {/* Type tabs — desktop */}
+        <div className="dx-hide-mobile flex items-center gap-1 flex-wrap"
+             style={{ borderBottom: '1px solid var(--border-hairline)', marginBottom: '8px' }}>
+          {([
+            { id: 'all',      label: 'All',       activeColor: 'var(--fg-1)' },
+            { id: 'sale',     label: 'Sales',     activeColor: 'var(--status-success)' },
+            { id: 'purchase', label: 'Purchases', activeColor: 'var(--line-innoweiss)' },
+            { id: 'transfer', label: 'Transfers', activeColor: 'var(--fg-2)' },
+            { id: 'service',  label: 'Services',  activeColor: '#C46B14' },
+          ] as { id: string; label: string; activeColor: string }[]).map((t) => {
+            const isActive = typeFilter === t.id;
+            const count = t.id === 'all'
+              ? operations.length
+              : operations.filter((o) => o.operation_type === t.id).length;
+            return (
+              <button key={t.id} type="button" onClick={() => setTypeFilter(t.id)}
+                style={{
+                  padding: '10px 16px',
+                  fontSize: '14px',
+                  fontWeight: isActive ? 700 : 500,
+                  color: isActive ? t.activeColor : 'var(--fg-2)',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: isActive ? `2px solid ${t.activeColor}` : '2px solid transparent',
+                  cursor: 'pointer',
+                  marginBottom: '-1px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}>
+                <span>{t.label}</span>
+                <span style={{ fontWeight: 700, fontSize: '13px', color: isActive ? t.activeColor : 'var(--fg-muted)' }}>{count}</span>
+              </button>
+            );
+          })}
+        </div>
+
         <div className="dx-hide-mobile flex gap-3 flex-wrap">
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
-            className="px-3 py-2"
-            style={{ fontSize: '14px', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)' }}>
-            <option value="all">All types</option>
-            <option value="sale">Sale</option>
-            <option value="purchase">Purchase</option>
-            <option value="transfer">Transfer</option>
-          </select>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
             className="px-3 py-2"
             style={{ fontSize: '14px', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)' }}>
@@ -481,10 +511,11 @@ export default function OperationsPage() {
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
             className="px-3 py-2"
             style={{ width: '100%', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}>
-            <option value="all">All types</option>
-            <option value="sale">Sale</option>
-            <option value="purchase">Purchase</option>
-            <option value="transfer">Transfer</option>
+            <option value="all">All types ({operations.length})</option>
+            <option value="sale">Sales ({operations.filter((o) => o.operation_type === 'sale').length})</option>
+            <option value="purchase">Purchases ({operations.filter((o) => o.operation_type === 'purchase').length})</option>
+            <option value="transfer">Transfers ({operations.filter((o) => o.operation_type === 'transfer').length})</option>
+            <option value="service">Services ({operations.filter((o) => o.operation_type === 'service').length})</option>
           </select>
         </div>
       </div>

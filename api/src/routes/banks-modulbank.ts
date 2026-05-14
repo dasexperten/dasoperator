@@ -82,23 +82,46 @@ banksModulbank.get('/webhook', (c) => {
 });
 
 // =============================================================================
-// GET /api/banks/modulbank/health — webhook ingestion health
+// GET /api/banks/modulbank/health — bank sync health (live)
 //
-// Reports when the last bank_transaction was received (= last successful
-// webhook) and a traffic-light status based on time elapsed:
-//   green   — last seen ≤ 12h ago             (normal during business days)
-//   yellow  — last seen 12h to 48h ago        (long weekend, holiday, or stall)
-//   red     — last seen > 48h ago             (likely subscription dropped)
-//   unknown — no transactions ever recorded
+// Compares what Modulbank API knows vs what's in our DB for the last 24h.
+// This is what the home page Pulse widget renders.
 //
-// Thresholds err on the side of forgiveness — Modulbank doesn't push on
-// weekends. Friday EOB → Monday morning is naturally ~60h of silence.
-// We still flag red after 48h because most working days have multiple txs.
+// Status semantics:
+//   green   — bank API count == DB count (everything in sync)
+//   yellow  — bank API count > DB count by 1-2 (transient gap, hourly cron
+//             will catch up) OR bank API unreachable (fall back to webhook age)
+//   red     — bank API count > DB count by 3+  (subscription likely dropped)
+//   unknown — never received any transaction
+//
+// Result is cached in KV CACHE for 5 minutes to avoid hammering Modulbank
+// on every home page load. Cache key: `modulbank:health`.
 // =============================================================================
 banksModulbank.get('/health', async (c) => {
+  // ---------- 1. Try cache ----------
+  const CACHE_KEY = 'modulbank:health';
+  const CACHE_TTL_SEC = 300;
+  const cachedRaw = await c.env.CACHE.get(CACHE_KEY);
+  if (cachedRaw) {
+    try {
+      const cached = JSON.parse(cachedRaw);
+      if (cached && typeof cached === 'object') {
+        return ok(c, { ...cached, from_cache: true });
+      }
+    } catch {
+      // fall through to fresh compute
+    }
+  }
+
+  const now = new Date();
+  const nowUnix = Math.floor(now.getTime() / 1000);
+  const since24h = nowUnix - 24 * 3600;
+
+  // ---------- 2. Last webhook (legacy info, still useful) ----------
   const lastTx = await c.env.DB.prepare(
     `SELECT created_at, executed_at, contragent_name, currency, amount, direction
      FROM bank_transactions
+     WHERE deleted_at IS NULL
      ORDER BY created_at DESC
      LIMIT 1`,
   ).first<{
@@ -110,36 +133,144 @@ banksModulbank.get('/health', async (c) => {
     direction: string;
   }>();
 
-  const nowUnix = Math.floor(Date.now() / 1000);
-
   if (!lastTx) {
-    return ok(c, {
+    const empty = {
       status: 'unknown',
+      message: 'No bank transactions ever received',
+      bank_ops_24h: 0,
+      db_ops_24h: 0,
+      bank_api_ok: false,
       hours_since_last_webhook: null,
       last_webhook_at: null,
       last_transaction: null,
-      message: 'No bank transactions ever received',
-    });
+      computed_at: nowUnix,
+    };
+    await c.env.CACHE.put(CACHE_KEY, JSON.stringify(empty), { expirationTtl: CACHE_TTL_SEC });
+    return ok(c, empty);
   }
 
-  const hoursSince = (nowUnix - lastTx.created_at) / 3600;
+  const hoursSinceWebhook = (nowUnix - lastTx.created_at) / 3600;
 
+  // ---------- 3. DB count for last 24h on Modulbank accounts ----------
+  const dbCountRow = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS c
+     FROM bank_transactions bt
+     JOIN company_bank_accounts cba ON cba.id = bt.company_bank_account_id
+     WHERE cba.bank_provider_id = 'bp_modulbank'
+       AND cba.deleted_at IS NULL
+       AND bt.deleted_at IS NULL
+       AND bt.executed_at >= ?`,
+  ).bind(since24h).first<{ c: number }>();
+  const dbCount = dbCountRow?.c ?? 0;
+
+  // ---------- 4. Live count from Modulbank API for last 24h ----------
+  let bankCount = 0;
+  let bankApiOk = false;
+  let bankApiError: string | undefined;
+  const perAccount: Array<{ account_id: string; count: number }> = [];
+
+  if (c.env.MODULBANK_TOKEN_DEE) {
+    try {
+      const accountsRes = await c.env.DB.prepare(
+        `SELECT id, external_account_id
+         FROM company_bank_accounts
+         WHERE bank_provider_id = 'bp_modulbank'
+           AND api_enabled = 1
+           AND external_account_id IS NOT NULL
+           AND deleted_at IS NULL`,
+      ).all<{ id: string; external_account_id: string }>();
+
+      const accounts = accountsRes.results ?? [];
+      // Window: from yesterday-midnight to tomorrow-midnight UTC (loose, to be safe).
+      const dayAgoIso = new Date(nowUnix * 1000 - 26 * 3600_000).toISOString().slice(0, 10);
+      const tomorrowIso = new Date(nowUnix * 1000 + 1 * 3600_000).toISOString().slice(0, 10);
+
+      for (const acc of accounts) {
+        const resp = await fetch(
+          `https://api.modulbank.ru/v1/operation-history/${acc.external_account_id}`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${c.env.MODULBANK_TOKEN_DEE}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              from: `${dayAgoIso}T00:00:00`,
+              till: `${tomorrowIso}T23:59:59`,
+              skip: 0,
+              records: 50,
+            }),
+          },
+        );
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status} on ${acc.id}`);
+        }
+        const ops = await resp.json() as unknown;
+        if (!Array.isArray(ops)) {
+          throw new Error(`Non-array response on ${acc.id}`);
+        }
+        // Filter to ops where executed within last 24h (executed comes as ISO string)
+        const recent = ops.filter((o: { executed?: string }) => {
+          if (!o.executed) return false;
+          const t = Date.parse(o.executed);
+          if (isNaN(t)) return false;
+          return t / 1000 >= since24h;
+        });
+        bankCount += recent.length;
+        perAccount.push({ account_id: acc.id, count: recent.length });
+      }
+      bankApiOk = true;
+    } catch (e) {
+      bankApiError = e instanceof Error ? e.message : 'unknown error';
+    }
+  } else {
+    bankApiError = 'MODULBANK_TOKEN_DEE not configured';
+  }
+
+  // ---------- 5. Compute traffic-light verdict ----------
   let status: 'green' | 'yellow' | 'red';
   let message: string;
-  if (hoursSince <= 12) {
+
+  if (!bankApiOk) {
+    // Bank API unreachable — fall back to webhook-age heuristic.
+    if (hoursSinceWebhook <= 24) {
+      status = 'yellow';
+      message = `Bank API check failed (${bankApiError ?? 'unknown'}). Last webhook ${hoursSinceWebhook.toFixed(1)}h ago — recent, likely OK.`;
+    } else {
+      status = 'red';
+      message = `Bank API check failed (${bankApiError ?? 'unknown'}). Last webhook ${hoursSinceWebhook.toFixed(1)}h ago — investigate.`;
+    }
+  } else if (bankCount === dbCount) {
     status = 'green';
-    message = `Last webhook ${hoursSince.toFixed(1)}h ago — normal`;
-  } else if (hoursSince <= 48) {
-    status = 'yellow';
-    message = `Last webhook ${hoursSince.toFixed(1)}h ago — possibly normal weekend gap, monitor`;
+    if (bankCount === 0) {
+      message = `Bank API verified — 0 transactions in last 24h, pipeline healthy`;
+    } else {
+      message = `Bank API verified — ${bankCount} transactions in last 24h, all in DB`;
+    }
+  } else if (bankCount > dbCount) {
+    const drift = bankCount - dbCount;
+    if (drift <= 2) {
+      status = 'yellow';
+      message = `Bank has ${bankCount} ops, DB has ${dbCount} (drift ${drift}) — hourly sync will catch up within ~1h`;
+    } else {
+      status = 'red';
+      message = `Bank has ${bankCount} ops, DB has ${dbCount} (drift ${drift}) — webhooks likely failing, check Modulbank LK`;
+    }
   } else {
-    status = 'red';
-    message = `Last webhook ${hoursSince.toFixed(1)}h ago — likely subscription dropped, check Modulbank LK`;
+    // DB > bank — unusual, probably executed_at timing mismatch, treat as OK
+    status = 'green';
+    message = `Bank API verified — ${bankCount} ops in last 24h window, ${dbCount} in DB (date-edge variance)`;
   }
 
-  return ok(c, {
+  const result = {
     status,
-    hours_since_last_webhook: Math.round(hoursSince * 10) / 10,
+    message,
+    bank_ops_24h: bankCount,
+    db_ops_24h: dbCount,
+    bank_api_ok: bankApiOk,
+    bank_api_error: bankApiError,
+    per_account: perAccount,
+    hours_since_last_webhook: Math.round(hoursSinceWebhook * 10) / 10,
     last_webhook_at: lastTx.created_at,
     last_transaction: {
       executed_at: lastTx.executed_at,
@@ -148,98 +279,14 @@ banksModulbank.get('/health', async (c) => {
       currency: lastTx.currency,
       contragent: lastTx.contragent_name,
     },
-    thresholds: { green_hours: 12, yellow_hours: 48 },
-    message,
-  });
+    computed_at: nowUnix,
+  };
+
+  // ---------- 6. Cache and return ----------
+  await c.env.CACHE.put(CACHE_KEY, JSON.stringify(result), { expirationTtl: CACHE_TTL_SEC });
+  return ok(c, result);
 });
 
-// =============================================================================
-// GET /api/banks/modulbank/_diag — pull operations directly from Modulbank API
-// Temporary diagnostic endpoint to compare what's in the bank vs what we received
-// via webhook. Remove after webhook issue resolved.
-// =============================================================================
-banksModulbank.get('/_diag', async (c) => {
-  const token = c.env.MODULBANK_TOKEN_DEE;
-  if (!token) {
-    return c.json({ error: 'MODULBANK_TOKEN_DEE not bound' }, 500);
-  }
-
-  // 1) Pull account list
-  const accountsResp = await fetch('https://api.modulbank.ru/v1/account-info', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({}),
-  });
-
-  const accountsText = await accountsResp.text();
-  let accounts: any;
-  try { accounts = JSON.parse(accountsText); } catch { accounts = accountsText; }
-
-  if (!accountsResp.ok) {
-    return c.json({
-      step: 'list_accounts',
-      status: accountsResp.status,
-      body: accounts,
-    }, 502);
-  }
-
-  // 2) For each company, take all bank accounts and pull operations since 2026-05-13
-  const results: any[] = [];
-  const companies = Array.isArray(accounts) ? accounts : [];
-
-  for (const company of companies) {
-    const bankAccounts = company.bankAccounts || [];
-    for (const acct of bankAccounts) {
-      const opsResp = await fetch(`https://api.modulbank.ru/v1/operation-history/${acct.id}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: '2026-05-13',
-          till: '2026-05-15',
-          records: 50,
-          skip: 0,
-        }),
-      });
-      const opsText = await opsResp.text();
-      let ops: any;
-      try { ops = JSON.parse(opsText); } catch { ops = opsText; }
-      results.push({
-        company_name: company.companyName,
-        company_inn: company.inn,
-        account_id: acct.id,
-        account_number: acct.number,
-        account_category: acct.category,
-        currency: acct.currency,
-        balance: acct.balance,
-        status_code: opsResp.status,
-        ops_count: Array.isArray(ops) ? ops.length : null,
-        ops_sample: Array.isArray(ops) ? ops.slice(0, 10).map((o: any) => ({
-          id: o.id,
-          docNumber: o.docNumber,
-          category: o.category,
-          status: o.status,
-          executed: o.executed,
-          created: o.created,
-          amount: o.amount,
-          currency: o.currency,
-          contragentName: o.contragentName,
-          paymentPurpose: (o.paymentPurpose || '').slice(0, 80),
-        })) : ops,
-      });
-    }
-  }
-
-  return c.json({
-    now_utc: new Date().toISOString(),
-    accounts_total: companies.length,
-    results,
-  });
 });
 
 // =============================================================================

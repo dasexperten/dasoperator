@@ -956,7 +956,7 @@ export interface Operation {
   our_company_id: string;
   entity_abbreviation?: string | null;
   operation_type: 'sale' | 'purchase' | 'transfer';
-  operation_track?: 'goods' | 'service' | null;
+  operation_track?: 'goods' | 'service';
   operation_date: number;
   warehouse_from_id: string | null;
   warehouse_to_id: string | null;
@@ -975,13 +975,6 @@ export interface Operation {
   paid_amount?: number;
   payment_state?: 'neutral' | 'unpaid' | 'partial' | 'paid';
   delivery_status?: 'pending' | 'delivered' | 'disputed' | 'refunded';
-  arrival_detected_at?: number | null;
-  arrival_source_request_id?: string | null;
-  arrival_received_qtys?: string | null;
-  arrival_rejected_at?: number | null;
-  arrival_delivery_number?: string | null;
-  arrival_request_completed?: number | null;
-  gtd_number?: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -1064,8 +1057,6 @@ export interface CreateOperationBody {
   currency?: string;
   // PURCHASE: 1 = Through DEI passthrough (DEE/DASEAN/DEC buyers only)
   dei_layer?: 0 | 1;
-  // PURCHASE (goods only): customs declaration number — mandatory
-  gtd_number?: string;
   price_type_id?: string;
   incoterms?: string;
   notes?: string;
@@ -1106,25 +1097,6 @@ export async function updateOperationStatus(
   status: OperationStatusTarget
 ) {
   return apiPatch<UpdateStatusResponse>(`/api/operations/${id}/status`, { status });
-}
-
-export interface ConfirmArrivalResponse {
-  id: string;
-  status: string;
-  arrival_confirmed_at: number;
-}
-
-export async function confirmOperationArrival(id: string) {
-  return apiPost<ConfirmArrivalResponse>(`/api/operations/${id}/confirm-arrival`, {});
-}
-
-export interface RejectArrivalResponse {
-  id: string;
-  arrival_rejected_at: number;
-}
-
-export async function rejectOperationArrival(id: string) {
-  return apiPost<RejectArrivalResponse>(`/api/operations/${id}/reject-arrival`, {});
 }
 
 export interface DeleteOperationResponse {
@@ -1770,7 +1742,6 @@ export interface BankTransaction {
   contragent_bank_bic: string | null;
   payment_purpose: string | null;
   matched_payment_id: string | null;
-  matched_operation_id: string | null;
   match_method: string | null;
   matched_at: number | null;
   account_number: string;
@@ -1826,8 +1797,6 @@ export async function syncBankHistory(body?: {
 // =============================================================================
 export interface BankStatementSource {
   id: string;
-  source_type: 'email_inbox' | 'telegram_contact';
-  address: string;
   email: string;
   company_id: string;
   company_abbreviation: string;
@@ -1843,8 +1812,7 @@ export async function getBankStatementSources() {
 }
 
 export async function createBankStatementSource(body: {
-  source_type: 'email_inbox' | 'telegram_contact';
-  address: string;
+  email: string;
   company_id: 'dee' | 'dei' | 'dasean' | 'dec';
   notes?: string;
 }) {

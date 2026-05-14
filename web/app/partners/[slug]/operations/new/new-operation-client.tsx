@@ -63,6 +63,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   const [warehouseFromId, setWarehouseFromId] = useState<string>('');
   const [warehouseToId, setWarehouseToId] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
+  const [gtdNumber, setGtdNumber] = useState<string>('');
   const [overallDiscountPct, setOverallDiscountPct] = useState<number>(0);
 
   // ── Service track state (migration 0034) ───────────────────────────────
@@ -638,6 +639,10 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
       setError('Choose a factory.');
       return;
     }
+    if (opType === 'purchase' && !gtdNumber.trim()) {
+      setError('GTD number is required for goods purchases.');
+      return;
+    }
     if (opType === 'transfer' && !receivingCompanyId) {
       setError('Choose the receiving entity.');
       return;
@@ -695,6 +700,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
         our_company_id: ourCompanyId,
         currency,
         dei_layer: viaDei ? 1 : 0,
+        gtd_number: gtdNumber.trim(),
       };
     } else {
       // transfer
@@ -1487,6 +1493,23 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
           </div>
         </div>
       </Section>
+
+      {opType === 'purchase' && (
+        <Section label="GTD (Customs Declaration) *" disabled={!isReadyForDetails}>
+          <input
+            type="text"
+            value={gtdNumber}
+            onChange={(e) => setGtdNumber(e.target.value)}
+            disabled={!isReadyForDetails}
+            placeholder="e.g. 10228010/130526/5149029"
+            className="w-full px-3 py-2 text-sm focus:outline-none"
+            style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)', fontWeight: 700 }}
+          />
+          <p style={{ fontSize: '12px', color: 'var(--fg-3)', marginTop: '6px' }}>
+            ГТД number is mandatory for all goods purchases. PDF can be attached on the operation page after creation.
+          </p>
+        </Section>
+      )}
 
       <Section label="Notes" disabled={!isReadyForDetails}>
         <textarea

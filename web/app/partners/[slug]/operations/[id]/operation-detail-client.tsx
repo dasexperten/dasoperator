@@ -643,6 +643,9 @@ export default function OperationDetailClient({
             {operation.contract_no && !/^NO[-\s]CONTRACT/i.test(operation.contract_no) && (
               <> · Contract <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{operation.contract_no}</span></>
             )}
+            {operation.gtd_number && (
+              <> · ГТД <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{operation.gtd_number}</span></>
+            )}
             {operation.contract_no && /^NO[-\s]CONTRACT/i.test(operation.contract_no) && (
               <>
                 {' · '}

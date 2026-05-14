@@ -981,6 +981,7 @@ export interface Operation {
   arrival_rejected_at?: number | null;
   arrival_delivery_number?: string | null;
   arrival_request_completed?: number | null;
+  gtd_number?: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -1063,6 +1064,8 @@ export interface CreateOperationBody {
   currency?: string;
   // PURCHASE: 1 = Through DEI passthrough (DEE/DASEAN/DEC buyers only)
   dei_layer?: 0 | 1;
+  // PURCHASE (goods only): customs declaration number — mandatory
+  gtd_number?: string;
   price_type_id?: string;
   incoterms?: string;
   notes?: string;

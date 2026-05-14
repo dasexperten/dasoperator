@@ -83,6 +83,7 @@ const createOperationSchema = z.object({
   // operations where multiple manufacturers ship under one invoice.
   dei_layer: z.union([z.boolean(), z.literal(0), z.literal(1)]).optional().default(0),
   legal_seller_id: z.string().nullable().optional(),
+  gtd_number: z.string().nullable().optional(),
 })
   // SALE: must supply contract_id (carries partner + company + currency)
   .refine(
@@ -102,6 +103,16 @@ const createOperationSchema = z.object({
       return !!data.manufacturer_id && !!data.our_company_id && !!data.currency;
     },
     { message: 'goods purchase: manufacturer_id+our_company_id+currency required; service purchase: our_company_id+currency required' }
+  )
+  // PURCHASE goods: gtd_number is mandatory (customs declaration always exists
+  // for legal imports). Services don't have GTD.
+  .refine(
+    (data) => {
+      if (data.operation_type !== 'purchase') return true;
+      if (data.operation_track === 'service') return true;
+      return !!(data.gtd_number && data.gtd_number.trim());
+    },
+    { message: 'gtd_number is required for goods purchases', path: ['gtd_number'] }
   )
   // TRANSFER: must supply our_company_id + receiving_company_id + currency
   .refine(
@@ -473,7 +484,7 @@ operations.post('/', async (c) => {
       total_amount, total_usd_equiv,
       incoterms, notes, vat_rate,
       dei_layer, legal_seller_id,
-      operation_track,
+      operation_track, gtd_number,
       created_at, updated_at, deleted_at
     ) VALUES (
       ?, ?, ?, ?,
@@ -484,7 +495,7 @@ operations.post('/', async (c) => {
       ?, ?,
       ?, ?, ?,
       ?, ?,
-      ?,
+      ?, ?,
       ?, ?, NULL
     )
   `).bind(
@@ -510,6 +521,7 @@ operations.post('/', async (c) => {
     deiLayerInt,
     data.legal_seller_id ?? null,
     data.operation_track ?? 'goods',
+    data.gtd_number ?? null,
     now,
     now
   );
@@ -610,7 +622,7 @@ operations.get('/', async (c) => {
        o.warehouse_from_id, o.warehouse_to_id,
        o.currency, o.total_amount, o.total_usd_equiv,
        o.status, o.reference, o.notes, o.vat_rate,
-       o.delivery_status,
+       o.delivery_status, o.gtd_number,
        o.created_at, o.updated_at`;
 
   const fromJoin = compact

@@ -1075,6 +1075,7 @@ export interface CreateOperationBody {
   service_description?: string;
   service_category_id?: string;
   service_amount?: number;
+  gtd_number?: string;
   line_items: CreateOperationLineItem[];
 }
 

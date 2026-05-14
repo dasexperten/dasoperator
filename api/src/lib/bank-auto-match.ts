@@ -537,7 +537,7 @@ async function createServiceOperation(
       our_company_id, status, currency, total_amount,
       notes, reference, created_at, updated_at
     )
-    VALUES (?, ?, 'purchase', ?, 'co_dee', 'issued', ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, 'purchase', ?, 'dee', 'issued', ?, ?, ?, ?, ?, ?)
   `).bind(
     opId, args.operation_date, args.partner_id,
     args.currency, args.amount_major,
@@ -568,7 +568,7 @@ async function createDraftGoodsOperation(
       our_company_id, status, currency, total_amount,
       notes, reference, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, 'co_dee', 'issued', ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, 'dee', 'issued', ?, ?, ?, ?, ?, ?)
   `).bind(
     opId, args.operation_date, operationType, args.partner_id,
     args.currency, args.amount_major,

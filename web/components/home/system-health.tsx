@@ -45,21 +45,26 @@ export default function SystemHealth() {
           .then((data): HealthCheck => {
             const r = data?.result;
             if (!r) {
-              return { label: 'Modulbank webhooks', status: 'unknown', message: 'No data' };
+              return { label: 'Modulbank sync', status: 'unknown', message: 'No data' };
+            }
+            // Show how long ago we verified against the bank API (not last txn age).
+            let detail: string | undefined;
+            if (r.computed_at) {
+              const ageSec = Math.max(0, Math.floor(Date.now() / 1000) - r.computed_at);
+              if (ageSec < 60) detail = 'verified just now';
+              else if (ageSec < 3600) detail = `verified ${Math.round(ageSec / 60)}min ago`;
+              else detail = `verified ${(ageSec / 3600).toFixed(1)}h ago`;
             }
             return {
-              label: 'Modulbank webhooks',
+              label: 'Modulbank sync',
               status: r.status,
               message: r.message,
-              detail:
-                r.hours_since_last_webhook != null
-                  ? `Last seen ${r.hours_since_last_webhook}h ago`
-                  : undefined,
+              detail,
               href: '/inbox/banking',
             };
           })
           .catch((): HealthCheck => ({
-            label: 'Modulbank webhooks',
+            label: 'Modulbank sync',
             status: 'unknown',
             message: 'Probe failed',
           })),

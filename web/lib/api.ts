@@ -957,6 +957,13 @@ export interface Operation {
   entity_abbreviation?: string | null;
   operation_type: 'sale' | 'purchase' | 'transfer';
   operation_track?: 'goods' | 'service';
+  partner_kind?: string | null;
+  arrival_detected_at?: number | null;
+  arrival_received_qtys?: string | null;
+  arrival_rejected_at?: number | null;
+  arrival_source_request_id?: string | null;
+  arrival_request_completed?: number | null;
+  arrival_delivery_number?: string | null;
   operation_date: number;
   warehouse_from_id: string | null;
   warehouse_to_id: string | null;

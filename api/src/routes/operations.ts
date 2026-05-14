@@ -608,14 +608,14 @@ operations.get('/', async (c) => {
   const compact = c.req.query('compact') === '1';
 
   const columns = compact
-    ? `o.id, ct.contract_no, o.partner_id, p.trade_name as partner_trade_name,
+    ? `o.id, ct.contract_no, o.partner_id, p.trade_name as partner_trade_name, p.kind as partner_kind,
        o.manufacturer_id, mfr.name as manufacturer_name,
        o.our_company_id, co.abbreviation as entity_abbreviation,
        o.operation_type, o.operation_track, o.operation_date,
        o.currency, o.total_amount,
        o.status, o.reference, o.delivery_status`
     : `o.id, o.contract_id, ct.contract_no,
-       o.partner_id, p.trade_name as partner_trade_name,
+       o.partner_id, p.trade_name as partner_trade_name, p.kind as partner_kind,
        o.manufacturer_id, mfr.name as manufacturer_name,
        o.our_company_id, co.abbreviation as entity_abbreviation,
        o.operation_type, o.operation_track, o.operation_date,

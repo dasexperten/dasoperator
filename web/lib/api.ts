@@ -964,6 +964,7 @@ export interface Operation {
   arrival_source_request_id?: string | null;
   arrival_request_completed?: number | null;
   arrival_delivery_number?: string | null;
+  gtd_number?: string | null;
   operation_date: number;
   warehouse_from_id: string | null;
   warehouse_to_id: string | null;

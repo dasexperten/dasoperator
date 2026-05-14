@@ -6,7 +6,7 @@ export const runtime = 'edge';
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Search, Loader2, Plus, X, Trash2, Factory, Upload, CheckCircle2 } from 'lucide-react';
+import { Search, Loader2, Plus, X, Trash2, Upload, CheckCircle2 } from 'lucide-react';
 import {
   getOperations, deleteOperation, updateOperationStatus,
   uploadOperationDocument,
@@ -673,30 +673,13 @@ export default function OperationsPage() {
                       <td className="px-4 py-3" style={{ color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>{formatDate(op.operation_date)}</td>
                       {/* v2 manufacturer fallback — deployed 2026-05-11 */}
                       <td className="px-4 py-3" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>
-                        {(() => {
-                          // Factory badge shows when the counterparty IS a manufacturer —
-                          // whether resolved via partner_id (kind='manufacturer') or via manufacturer_id fallback.
-                          const isManufacturer = op.partner_kind === 'manufacturer' || (!op.partner_trade_name && !!op.manufacturer_name);
-                          const label = op.partner_trade_name ?? op.manufacturer_name ?? '—';
-                          const linkHref = op.partner_id ? `/partners/${op.partner_id}` : null;
-                          const badge = isManufacturer ? (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: 'var(--radius-pill)', backgroundColor: 'rgba(229,32,44,0.10)', color: 'var(--brand-rot)', fontSize: '12px', fontWeight: 700 }}>
-                              <Factory style={{ width: 12, height: 12 }} />
-                              Factory
-                            </span>
-                          ) : null;
-                          const nameEl = linkHref ? (
-                            <Link href={linkHref} style={{ color: 'var(--fg-1)' }}>{label}</Link>
-                          ) : (
-                            <span>{label}</span>
-                          );
-                          return (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: 'var(--fg-1)', fontWeight: 700 }}>
-                              {badge}
-                              {nameEl}
-                            </span>
-                          );
-                        })()}
+                        {op.partner_id ? (
+                          <Link href={`/partners/${op.partner_id}`} style={{ color: 'var(--fg-1)' }}>
+                            {op.partner_trade_name ?? op.manufacturer_name ?? '—'}
+                          </Link>
+                        ) : (
+                          <span>{op.manufacturer_name ?? op.partner_trade_name ?? '—'}</span>
+                        )}
                       </td>
                       <td className="px-4 py-3" style={{ color: 'var(--fg-2)', whiteSpace: 'nowrap' }}>
                         <ContractRef contractNo={op.contract_no} />

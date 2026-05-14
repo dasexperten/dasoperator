@@ -722,7 +722,7 @@ inboxBanking.post('/:tx_id/assign-partner', async (c) => {
         id, operation_date, operation_type, partner_id,
         our_company_id, status, currency, total_amount,
         notes, reference, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'co_dee', 'issued', ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, 'dee', 'issued', ?, ?, ?, ?, ?, ?)
     `).bind(
       opId, tx.executed_at, operationType, partnerId,
       tx.currency, tx.amount / 100, notes, reference, now, now,

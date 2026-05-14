@@ -535,15 +535,12 @@ async function runMarketplaceSync(env: Env): Promise<void> {
     console.log(`[cron] skipping WB stocks (hour=${hourForWb}, runs at 0/4/8/12/16/20 UTC due to WB rate limit)`);
   }
 
-  // Sales — only every 4 hours (UTC 00/04/08/12/16/20). WB has a strict
-  // 1 req/min rate limit, so we run sales after stocks, with a long pause
-  // between Ozon sales and WB sales.
-  const hour = new Date().getUTCHours();
-  if (hour % 4 !== 0) {
-    console.log(`[cron] skipping sales sync (hour=${hour}, runs at 0/4/8/12/16/20 UTC)`);
-    console.log('[cron] marketplace sync done');
-    return;
-  }
+  // Sales — every hour. WB statistics-api has a 1 req/min rate limit;
+  // we make exactly one WB sales call per cron tick, with a 90-second pause
+  // after Ozon sales, which keeps us well under the limit. Ozon sales and
+  // Site sales (Retail CRM) have no rate limit and can run hourly without
+  // friction. WB stocks alone is gated to every 4 hours (above) because
+  // its own endpoint has a ~1 req per 3-4 hour budget.
 
   await new Promise((r) => setTimeout(r, 5000));
 

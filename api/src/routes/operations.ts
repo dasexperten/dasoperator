@@ -696,12 +696,15 @@ operations.get('/:id', async (c) => {
       ct.contract_no, ct.currency as contract_currency,
       p.trade_name as partner_trade_name,
       mfr.name as manufacturer_name,
-      co.abbreviation as entity_abbreviation
+      co.abbreviation as entity_abbreviation,
+      er.delivery_number as arrival_delivery_number,
+      er.is_completed as arrival_request_completed
     FROM operations o
     LEFT JOIN contracts ct ON o.contract_id = ct.id
     LEFT JOIN partners p ON o.partner_id = p.id
     LEFT JOIN manufacturers mfr ON o.manufacturer_id = mfr.id
     LEFT JOIN companies co ON o.our_company_id = co.id
+    LEFT JOIN external_requests er ON o.arrival_source_request_id = er.id
     WHERE o.id = ? AND o.deleted_at IS NULL
   `).bind(opId).first<Record<string, unknown>>();
 
@@ -1731,6 +1734,130 @@ operations.delete('/:id', async (c) => {
     reference: op.reference,
     deleted: true,
   }, [`Operation ${op.reference || id} permanently deleted`]);
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// PHASE 3 — F4 arrival confirmation flow
+//
+// When the F4 sync cron detects a closed acceptance request matching a
+// shipped purchase op, it stamps arrival_detected_at + arrival_received_qtys
+// on that op. The UI shows a green confirmation card. The user has three
+// choices:
+//
+//   POST /:id/confirm-arrival
+//     → operation transitions to 'delivered'
+//     → existing PATCH /status logic fires (OTW drain, LBR populate,
+//       universal phantom clear)
+//     → If F4 received quantities differ from line items, line items get
+//       updated to F4's numbers before the status change so stock movement
+//       reflects reality.
+//
+//   POST /:id/reject-arrival
+//     → arrival_rejected_at stamped; arrival_detected_at cleared
+//     → card disappears, op stays shipped
+//     → next sync won't re-match this same F4 request to this op
+//
+//   PATCH /api/line-items/:id (existing endpoint, no change needed)
+//     → user manually adjusts qty before confirming
+// ─────────────────────────────────────────────────────────────────────────
+operations.post('/:id/confirm-arrival', async (c) => {
+  const id = c.req.param('id');
+  const op = await c.env.DB.prepare(
+    `SELECT id, status, operation_type, operation_track,
+            arrival_detected_at, arrival_received_qtys
+     FROM operations WHERE id = ? AND deleted_at IS NULL`
+  ).bind(id).first<{
+    id: string;
+    status: string;
+    operation_type: string;
+    operation_track: string | null;
+    arrival_detected_at: number | null;
+    arrival_received_qtys: string | null;
+  }>();
+
+  if (!op) {
+    return fail(c, 404, [{ code: 'operation_not_found', message: `Operation ${id} not found` }]);
+  }
+  if (!op.arrival_detected_at) {
+    return fail(c, 400, [{ code: 'no_arrival_detected', message: 'No F4 arrival to confirm on this operation' }]);
+  }
+  if (op.status !== 'shipped') {
+    return fail(c, 400, [{ code: 'wrong_status', message: `Operation must be in shipped status, got ${op.status}` }]);
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+
+  // 1. If received qtys differ from line_items, update line_items to F4 numbers
+  //    so the subsequent stock movement reflects reality.
+  if (op.arrival_received_qtys) {
+    const receivedMap = JSON.parse(op.arrival_received_qtys) as Record<string, number>;
+    const lineItems = await c.env.DB.prepare(
+      'SELECT id, product_id, qty FROM line_items WHERE operation_id = ?'
+    ).bind(id).all<{ id: string; product_id: string; qty: number }>();
+
+    const adjustStmts: D1PreparedStatement[] = [];
+    for (const li of lineItems.results || []) {
+      const received = receivedMap[li.product_id];
+      if (received !== undefined && received !== li.qty) {
+        adjustStmts.push(
+          c.env.DB.prepare(
+            'UPDATE line_items SET qty = ?, line_amount = qty * unit_price_after_disc, updated_at = ? WHERE id = ?'
+          ).bind(received, now, li.id)
+        );
+      }
+    }
+    if (adjustStmts.length > 0) {
+      await c.env.DB.batch(adjustStmts);
+    }
+  }
+
+  // 2. Fire the existing status PATCH logic by calling the handler internally.
+  //    Using a self-fetch keeps movement logic in one place (the PATCH route)
+  //    so phantom clear, audit movements, etc. all apply identically.
+  const url = new URL(c.req.url);
+  const patchUrl = `${url.origin}/api/operations/${id}/status`;
+  const patchResp = await fetch(patchUrl, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'delivered', notes: 'F4 arrival confirmed' }),
+  });
+  if (!patchResp.ok) {
+    const err = await patchResp.text();
+    return fail(c, 500, [{ code: 'status_transition_failed', message: `Internal PATCH failed: ${err}` }]);
+  }
+
+  return ok(c, { id, status: 'delivered', arrival_confirmed_at: now });
+});
+
+operations.post('/:id/reject-arrival', async (c) => {
+  const id = c.req.param('id');
+  const op = await c.env.DB.prepare(
+    `SELECT id, arrival_detected_at, arrival_source_request_id
+     FROM operations WHERE id = ? AND deleted_at IS NULL`
+  ).bind(id).first<{
+    id: string;
+    arrival_detected_at: number | null;
+    arrival_source_request_id: string | null;
+  }>();
+
+  if (!op) {
+    return fail(c, 404, [{ code: 'operation_not_found', message: `Operation ${id} not found` }]);
+  }
+  if (!op.arrival_detected_at) {
+    return fail(c, 400, [{ code: 'no_arrival_detected', message: 'No F4 arrival to reject on this operation' }]);
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  await c.env.DB.prepare(
+    `UPDATE operations
+     SET arrival_rejected_at = ?,
+         arrival_detected_at = NULL,
+         arrival_received_qtys = NULL,
+         updated_at = ?
+     WHERE id = ?`
+  ).bind(now, now, id).run();
+
+  return ok(c, { id, arrival_rejected_at: now });
 });
 
 export default operations;

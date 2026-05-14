@@ -8,6 +8,8 @@ import {
   getPartner,
   getPayments,
   updateOperationStatus,
+  confirmOperationArrival,
+  rejectOperationArrival,
   getDocuments,
   issueDocuments,
   getStockMovements,
@@ -139,6 +141,238 @@ const ATTACHMENT_KIND_LABEL: Record<string, string> = {
   other: 'OTHER',
 };
 const labelKind = (k: string) => ATTACHMENT_KIND_LABEL[k] ?? k.toUpperCase();
+
+// =============================================================================
+// ArrivalCard — Phase 3 F4 arrival confirmation flow
+//
+// Shown only when operation.arrival_detected_at is set (meaning the sync
+// cron found a matching F4 acceptance request). Three actions:
+//   - Confirm delivery to LBR     → calls /confirm-arrival
+//   - Edit quantities (link to items tab — user adjusts line items manually)
+//   - Not this shipment           → calls /reject-arrival
+// =============================================================================
+function ArrivalCard({
+  operation,
+  lineItems,
+  onConfirmed,
+  onRejected,
+}: {
+  operation: Operation;
+  lineItems: OperationLineItem[];
+  onConfirmed: () => Promise<void>;
+  onRejected: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState<'confirm' | 'reject' | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  if (!operation.arrival_detected_at) return null;
+
+  let receivedMap: Record<string, number> = {};
+  if (operation.arrival_received_qtys) {
+    try {
+      receivedMap = JSON.parse(operation.arrival_received_qtys);
+    } catch { /* malformed JSON — degrade gracefully */ }
+  }
+
+  const rows = lineItems.map((li) => {
+    const received = receivedMap[li.product_id] ?? null;
+    const delta = received === null ? null : received - li.qty;
+    return {
+      sku: li.product_id,
+      product_name: li.product_name ?? li.product_id,
+      expected: li.qty,
+      received,
+      delta,
+    };
+  });
+
+  const anyMismatch = rows.some((r) => r.delta !== null && r.delta !== 0);
+  const detectedDate = new Date((operation.arrival_detected_at ?? 0) * 1000).toISOString().split('T')[0];
+
+  async function handleConfirm() {
+    setBusy('confirm');
+    setErr(null);
+    const res = await confirmOperationArrival(operation.id);
+    setBusy(null);
+    if (!res.success) {
+      setErr(res.errors?.[0]?.message ?? 'Confirmation failed');
+      return;
+    }
+    await onConfirmed();
+  }
+
+  async function handleReject() {
+    if (!confirm('Reject this F4 arrival match? The card will disappear and the operation stays in shipped status.')) return;
+    setBusy('reject');
+    setErr(null);
+    const res = await rejectOperationArrival(operation.id);
+    setBusy(null);
+    if (!res.success) {
+      setErr(res.errors?.[0]?.message ?? 'Rejection failed');
+      return;
+    }
+    await onRejected();
+  }
+
+  return (
+    <div style={{
+      background: '#E1F5EE',
+      border: '1.5px solid #1D9E75',
+      borderRadius: 'var(--radius-md)',
+      padding: '16px 20px',
+    }}>
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+        <div style={{
+          background: '#1D9E75',
+          color: 'white',
+          width: '32px',
+          height: '32px',
+          borderRadius: '50%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+          fontSize: '20px',
+          fontWeight: 700,
+        }}>✓</div>
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: '15px', fontWeight: 600, color: '#04342C', marginBottom: '4px' }}>
+            F4 received this shipment
+          </div>
+          <div style={{ fontSize: '14px', color: '#0F6E56', marginBottom: '14px' }}>
+            Skladbot acceptance request{' '}
+            {operation.arrival_delivery_number ? (
+              <span style={{
+                background: 'white',
+                padding: '1px 6px',
+                borderRadius: '4px',
+                fontWeight: 700,
+              }}>{operation.arrival_delivery_number}</span>
+            ) : 'matched'}
+            {' '}detected on {detectedDate}.
+          </div>
+
+          <div style={{
+            background: 'white',
+            borderRadius: 'var(--radius-md)',
+            padding: '10px 14px',
+            marginBottom: '12px',
+          }}>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '90px 1fr 80px 24px 80px 60px',
+              gap: '10px',
+              alignItems: 'center',
+              padding: '6px 0',
+              fontSize: '12px',
+              color: 'var(--fg-3)',
+              fontWeight: 700,
+              borderBottom: '0.5px solid var(--border-hairline)',
+              marginBottom: '4px',
+            }}>
+              <div>SKU</div>
+              <div>Product</div>
+              <div style={{ textAlign: 'right' }}>Expected</div>
+              <div></div>
+              <div style={{ textAlign: 'right' }}>F4 received</div>
+              <div style={{ textAlign: 'right' }}>Δ</div>
+            </div>
+            {rows.map((r) => (
+              <div key={r.sku} style={{
+                display: 'grid',
+                gridTemplateColumns: '90px 1fr 80px 24px 80px 60px',
+                gap: '10px',
+                alignItems: 'center',
+                padding: '6px 0',
+                fontSize: '14px',
+              }}>
+                <div style={{ fontWeight: 700 }}>{r.sku.toUpperCase()}</div>
+                <div style={{ color: 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.product_name}</div>
+                <div style={{ textAlign: 'right', fontWeight: 700 }}>{r.expected.toLocaleString('en-US')}</div>
+                <div style={{ textAlign: 'center', color: 'var(--fg-muted)' }}>→</div>
+                <div style={{ textAlign: 'right', fontWeight: 700 }}>
+                  {r.received === null ? <span style={{ color: 'var(--fg-muted)' }}>—</span> : r.received.toLocaleString('en-US')}
+                </div>
+                <div style={{
+                  textAlign: 'right',
+                  fontWeight: 700,
+                  color: r.delta === null ? 'var(--fg-muted)' :
+                         r.delta === 0 ? '#27500A' :
+                         Math.abs(r.delta) <= Math.max(10, r.expected * 0.01) ? '#854F0B' :
+                         '#791F1F',
+                }}>
+                  {r.delta === null ? '—' : r.delta > 0 ? `+${r.delta.toLocaleString('en-US')}` : r.delta.toLocaleString('en-US')}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {anyMismatch && (
+            <div style={{
+              fontSize: '13px',
+              color: '#854F0B',
+              marginBottom: '12px',
+              padding: '6px 10px',
+              background: 'rgba(199,122,0,0.08)',
+              borderRadius: 'var(--radius-md)',
+            }}>
+              ⚠ Some SKUs have variance. Confirm uses F4 numbers as final (line items will be updated to match).
+            </div>
+          )}
+
+          {err && (
+            <div style={{
+              fontSize: '13px',
+              color: '#791F1F',
+              marginBottom: '12px',
+              padding: '6px 10px',
+              background: 'rgba(229,32,44,0.08)',
+              borderRadius: 'var(--radius-md)',
+            }}>{err}</div>
+          )}
+
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              onClick={handleConfirm}
+              disabled={busy !== null}
+              style={{
+                background: '#1D9E75',
+                color: 'white',
+                border: 'none',
+                padding: '10px 18px',
+                borderRadius: 'var(--radius-md)',
+                fontSize: '14px',
+                fontWeight: 700,
+                cursor: busy ? 'not-allowed' : 'pointer',
+                opacity: busy ? 0.6 : 1,
+              }}
+            >
+              {busy === 'confirm' ? '✓ Confirming...' : '✓ Confirm delivery to LBR'}
+            </button>
+            <button
+              onClick={handleReject}
+              disabled={busy !== null}
+              style={{
+                background: 'transparent',
+                color: 'var(--fg-3)',
+                border: '0.5px solid var(--border-hairline)',
+                padding: '10px 18px',
+                borderRadius: 'var(--radius-md)',
+                fontSize: '14px',
+                fontWeight: 600,
+                cursor: busy ? 'not-allowed' : 'pointer',
+                opacity: busy ? 0.6 : 1,
+              }}
+            >
+              Not this shipment
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function OperationDetailClient({
   partnerSlug,
@@ -529,6 +763,31 @@ export default function OperationDetailClient({
           }
           if (movesRes.success && movesRes.result) {
             setMovements(movesRes.result.movements);
+          }
+        }}
+      />
+
+      {/* F4 ARRIVAL CARD (Phase 3) ================================== */}
+      <ArrivalCard
+        operation={operation}
+        lineItems={lineItems}
+        onConfirmed={async () => {
+          const [opRes, movesRes] = await Promise.all([
+            getOperation(operationId),
+            getStockMovements({ source: 'operation', source_ref_id: operationId }),
+          ]);
+          if (opRes.success && opRes.result) {
+            setOperation(opRes.result.operation);
+            setLineItems(opRes.result.line_items);
+          }
+          if (movesRes.success && movesRes.result) {
+            setMovements(movesRes.result.movements);
+          }
+        }}
+        onRejected={async () => {
+          const opRes = await getOperation(operationId);
+          if (opRes.success && opRes.result) {
+            setOperation(opRes.result.operation);
           }
         }}
       />

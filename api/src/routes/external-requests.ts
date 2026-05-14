@@ -315,7 +315,129 @@ externalRequests.post('/sync', async (c) => {
     }
   }
 
-  return ok(c, { synced, total: list.length, errors });
+  // ──────────────────────────────────────────────────────────────────────
+  // Post-sync: scan recently-completed acceptance requests and try to match
+  // each to a candidate purchase operation. On match, set arrival_detected_at
+  // and stash per-SKU received qtys for the UI confirmation card.
+  //
+  // Match rule: completed acceptance request → look for a purchase operation
+  // that is:
+  //   - operation_track = 'goods' (services excluded)
+  //   - status = 'shipped' (already in OTW, awaiting arrival)
+  //   - has at least 50% of the request's accepted SKUs in its line items
+  //   - manufacturer matches if both have manufacturer_id set
+  //   - not already matched (arrival_detected_at IS NULL)
+  //   - not user-rejected for this same request (arrival_rejected_at)
+  //
+  // Single best match by SKU overlap count. Ties resolve to the most recently
+  // updated operation. No match → skipped silently, user can match manually
+  // later if needed.
+  // ──────────────────────────────────────────────────────────────────────
+  const matchResults: Array<{ request: string; op: string | null; reason: string }> = [];
+  try {
+    const completedAcceptances = await c.env.DB.prepare(`
+      SELECT r.id AS request_id, r.delivery_number, r.warehouse_id,
+             er.product_id, er.accepted_amount
+      FROM external_requests r
+      JOIN external_request_items er ON er.external_request_id = r.id
+      WHERE r.is_completed = 1
+        AND r.request_type_norm IN ('acceptance', 'pickup_acceptance')
+        AND r.external_provider = 'f4_skladbot'
+        AND er.accepted_amount > 0
+        AND er.product_id IS NOT NULL
+        AND r.synced_at > ?
+    `).bind(now - 1).all<{
+      request_id: string;
+      delivery_number: string;
+      warehouse_id: string;
+      product_id: string;
+      accepted_amount: number;
+    }>();
+
+    const byRequest = new Map<string, {
+      delivery_number: string;
+      warehouse_id: string;
+      qtys: Map<string, number>;
+    }>();
+    for (const row of completedAcceptances.results || []) {
+      let entry = byRequest.get(row.request_id);
+      if (!entry) {
+        entry = {
+          delivery_number: row.delivery_number,
+          warehouse_id: row.warehouse_id,
+          qtys: new Map(),
+        };
+        byRequest.set(row.request_id, entry);
+      }
+      entry.qtys.set(row.product_id, (entry.qtys.get(row.product_id) ?? 0) + row.accepted_amount);
+    }
+
+    for (const [requestId, entry] of byRequest) {
+      const acceptedSkus = Array.from(entry.qtys.keys());
+      if (acceptedSkus.length === 0) continue;
+
+      const skuPlaceholders = acceptedSkus.map(() => '?').join(',');
+      const candidateRows = await c.env.DB.prepare(`
+        SELECT o.id, o.reference, o.warehouse_to_id, o.manufacturer_id,
+               COUNT(DISTINCT li.product_id) AS sku_overlap,
+               o.updated_at
+        FROM operations o
+        JOIN line_items li ON li.operation_id = o.id
+        WHERE o.deleted_at IS NULL
+          AND o.operation_type = 'purchase'
+          AND COALESCE(o.operation_track, 'goods') = 'goods'
+          AND o.status = 'shipped'
+          AND o.arrival_detected_at IS NULL
+          AND (o.arrival_rejected_at IS NULL OR o.arrival_source_request_id != ?)
+          AND (o.warehouse_to_id = ? OR o.warehouse_to_id IS NULL)
+          AND li.product_id IN (${skuPlaceholders})
+        GROUP BY o.id
+        ORDER BY sku_overlap DESC, o.updated_at DESC
+        LIMIT 5
+      `).bind(requestId, entry.warehouse_id, ...acceptedSkus).all<{
+        id: string;
+        reference: string;
+        warehouse_to_id: string | null;
+        manufacturer_id: string | null;
+        sku_overlap: number;
+        updated_at: number;
+      }>();
+
+      const candidates = candidateRows.results || [];
+      if (candidates.length === 0) {
+        matchResults.push({ request: entry.delivery_number, op: null, reason: 'no_candidate' });
+        continue;
+      }
+
+      const best = candidates[0];
+      const requiredOverlap = Math.ceil(acceptedSkus.length * 0.5);
+      if (best.sku_overlap < requiredOverlap) {
+        matchResults.push({
+          request: entry.delivery_number,
+          op: null,
+          reason: `low_overlap_${best.sku_overlap}_of_${acceptedSkus.length}`,
+        });
+        continue;
+      }
+
+      const qtysJson = JSON.stringify(Object.fromEntries(entry.qtys));
+      await c.env.DB.prepare(`
+        UPDATE operations
+        SET arrival_detected_at = ?,
+            arrival_source_request_id = ?,
+            arrival_received_qtys = ?,
+            updated_at = ?
+        WHERE id = ?
+          AND arrival_detected_at IS NULL
+      `).bind(now, requestId, qtysJson, now, best.id).run();
+
+      matchResults.push({ request: entry.delivery_number, op: best.reference, reason: 'matched' });
+    }
+  } catch (e: any) {
+    errors.push(`auto-match: ${e.message ?? String(e)}`);
+  }
+
+  return ok(c, { synced, total: list.length, matched: matchResults, errors });
 });
 
 export default externalRequests;

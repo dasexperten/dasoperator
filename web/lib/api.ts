@@ -975,6 +975,13 @@ export interface Operation {
   paid_amount?: number;
   payment_state?: 'neutral' | 'unpaid' | 'partial' | 'paid';
   delivery_status?: 'pending' | 'delivered' | 'disputed' | 'refunded';
+  operation_track?: 'goods' | 'service' | null;
+  arrival_detected_at?: number | null;
+  arrival_source_request_id?: string | null;
+  arrival_received_qtys?: string | null;
+  arrival_rejected_at?: number | null;
+  arrival_delivery_number?: string | null;
+  arrival_request_completed?: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -1097,6 +1104,25 @@ export async function updateOperationStatus(
   status: OperationStatusTarget
 ) {
   return apiPatch<UpdateStatusResponse>(`/api/operations/${id}/status`, { status });
+}
+
+export interface ConfirmArrivalResponse {
+  id: string;
+  status: string;
+  arrival_confirmed_at: number;
+}
+
+export async function confirmOperationArrival(id: string) {
+  return apiPost<ConfirmArrivalResponse>(`/api/operations/${id}/confirm-arrival`, {});
+}
+
+export interface RejectArrivalResponse {
+  id: string;
+  arrival_rejected_at: number;
+}
+
+export async function rejectOperationArrival(id: string) {
+  return apiPost<RejectArrivalResponse>(`/api/operations/${id}/reject-arrival`, {});
 }
 
 export interface DeleteOperationResponse {

@@ -154,6 +154,95 @@ banksModulbank.get('/health', async (c) => {
 });
 
 // =============================================================================
+// GET /api/banks/modulbank/_diag — pull operations directly from Modulbank API
+// Temporary diagnostic endpoint to compare what's in the bank vs what we received
+// via webhook. Remove after webhook issue resolved.
+// =============================================================================
+banksModulbank.get('/_diag', async (c) => {
+  const token = c.env.MODULBANK_TOKEN_DEE;
+  if (!token) {
+    return c.json({ error: 'MODULBANK_TOKEN_DEE not bound' }, 500);
+  }
+
+  // 1) Pull account list
+  const accountsResp = await fetch('https://api.modulbank.ru/v1/account', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({}),
+  });
+
+  const accountsText = await accountsResp.text();
+  let accounts: any;
+  try { accounts = JSON.parse(accountsText); } catch { accounts = accountsText; }
+
+  if (!accountsResp.ok) {
+    return c.json({
+      step: 'list_accounts',
+      status: accountsResp.status,
+      body: accounts,
+    }, 502);
+  }
+
+  // 2) For each company, take all bank accounts and pull operations since 2026-05-13
+  const results: any[] = [];
+  const companies = Array.isArray(accounts) ? accounts : [];
+
+  for (const company of companies) {
+    const bankAccounts = company.bankAccounts || [];
+    for (const acct of bankAccounts) {
+      const opsResp = await fetch(`https://api.modulbank.ru/v1/operation-history/${acct.id}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: '2026-05-13',
+          till: '2026-05-15',
+          records: 50,
+          skip: 0,
+        }),
+      });
+      const opsText = await opsResp.text();
+      let ops: any;
+      try { ops = JSON.parse(opsText); } catch { ops = opsText; }
+      results.push({
+        company_name: company.companyName,
+        company_inn: company.inn,
+        account_id: acct.id,
+        account_number: acct.number,
+        account_category: acct.category,
+        currency: acct.currency,
+        balance: acct.balance,
+        status_code: opsResp.status,
+        ops_count: Array.isArray(ops) ? ops.length : null,
+        ops_sample: Array.isArray(ops) ? ops.slice(0, 10).map((o: any) => ({
+          id: o.id,
+          docNumber: o.docNumber,
+          category: o.category,
+          status: o.status,
+          executed: o.executed,
+          created: o.created,
+          amount: o.amount,
+          currency: o.currency,
+          contragentName: o.contragentName,
+          paymentPurpose: (o.paymentPurpose || '').slice(0, 80),
+        })) : ops,
+      });
+    }
+  }
+
+  return c.json({
+    now_utc: new Date().toISOString(),
+    accounts_total: companies.length,
+    results,
+  });
+});
+
+// =============================================================================
 // POST /api/banks/modulbank/webhook — Modulbank pushes transaction notifications here
 // =============================================================================
 banksModulbank.post('/webhook', async (c) => {

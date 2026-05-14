@@ -4,6 +4,7 @@ export const runtime = 'edge';
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
+import AssignWizard from '@/components/banking/AssignWizard';
 import {
   Loader2, RefreshCw, AlertCircle, CheckCircle2, ChevronDown,
   Link2, UserPlus, FastForward, ArrowUpRight, Wallet, Trash2, Sparkles, X,
@@ -459,7 +460,16 @@ function InboxRow({
           }}
         >
           <Details item={item} />
-          <ResolutionActions item={item} onResolved={onResolved} />
+          <AssignWizard item={{
+            id: item.id,
+            direction: item.direction,
+            amount: item.amount,
+            currency: item.currency,
+            executed_at: item.executed_at,
+            contragent_name: item.contragent_name,
+            contragent_inn: item.contragent_inn,
+            payment_purpose: item.payment_purpose,
+          }} onResolved={onResolved} />
         </div>
       )}
     </div>

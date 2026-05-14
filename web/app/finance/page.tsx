@@ -54,24 +54,39 @@ function AddSourceModal({
 }: {
   open: boolean; onClose: () => void; onCreated: () => void;
 }) {
-  const [email, setEmail] = useState('');
+  const [sourceType, setSourceType] = useState<'email_inbox' | 'telegram_contact'>('email_inbox');
+  const [address, setAddress] = useState('');
   const [companyId, setCompanyId] = useState<'dee' | 'dei' | 'dasean' | 'dec'>('dee');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!open) return null;
 
+  const placeholder = sourceType === 'email_inbox'
+    ? 'bank-statements@dasexperten.ru'
+    : '@username or +37494004004';
+
+  const description = sourceType === 'email_inbox'
+    ? 'Email inbox where bank sends statements. Linked to entity for auto-import.'
+    : 'Telegram contact who forwards bank statements as attachments. Linked to entity for auto-import.';
+
   const submit = async () => {
-    if (!email.trim()) {
-      setError('Email is required');
+    const a = address.trim();
+    if (!a) {
+      setError(sourceType === 'email_inbox' ? 'Email is required' : 'Telegram handle is required');
       return;
     }
     setSubmitting(true);
     setError(null);
     try {
-      const res = await createBankStatementSource({ email: email.trim(), company_id: companyId });
+      const res = await createBankStatementSource({
+        source_type: sourceType,
+        address: a,
+        company_id: companyId,
+      });
       if (res.success) {
-        setEmail('');
+        setAddress('');
+        setSourceType('email_inbox');
         setCompanyId('dee');
         onCreated();
         onClose();
@@ -84,6 +99,19 @@ function AddSourceModal({
       setSubmitting(false);
     }
   };
+
+  const typeBtnStyle = (active: boolean) => ({
+    flex: 1,
+    padding: '8px 12px',
+    fontSize: '14px',
+    fontWeight: 700,
+    border: `1px solid ${active ? 'var(--fg-1)' : 'var(--line-1)'}`,
+    background: active ? 'var(--fg-1)' : 'var(--paper)',
+    color: active ? 'var(--paper)' : 'var(--fg-2)',
+    borderRadius: 'var(--radius-sm)',
+    cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+  } as const);
 
   return (
     <div
@@ -111,9 +139,7 @@ function AddSourceModal({
             }}>
               Add Source
             </h2>
-            <p style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
-              Email inbox where bank sends statements. Linked to entity for auto-import.
-            </p>
+            <p style={{ fontSize: '14px', color: 'var(--fg-2)' }}>{description}</p>
           </div>
           <button onClick={onClose} style={{ color: 'var(--fg-3)' }}>
             <X className="h-5 w-5" />
@@ -121,19 +147,47 @@ function AddSourceModal({
         </div>
 
         <div className="space-y-4">
+          {/* Source-type picker */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => { setSourceType('email_inbox'); setError(null); }}
+              style={typeBtnStyle(sourceType === 'email_inbox')}
+            >
+              <Mail className="h-4 w-4" />
+              Email inbox
+            </button>
+            <button
+              type="button"
+              onClick={() => { setSourceType('telegram_contact'); setError(null); }}
+              style={typeBtnStyle(sourceType === 'telegram_contact')}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="M21.5 4.5L2.5 11.5c-.8.3-.8 1.4 0 1.7l4.6 1.6 1.7 5.4c.2.6 1 .8 1.4.3l2.5-2.6 4.7 3.4c.6.4 1.3.1 1.5-.6l3.4-15c.2-.7-.5-1.4-1.3-1.2zM9.5 14.6l8.4-6.7-7.1 7.4-1.3 4.1-.9-3.2L9.5 14.6z"/>
+              </svg>
+              Telegram
+            </button>
+          </div>
+
           <div>
             <label style={{
               display: 'block', fontSize: '14px', fontWeight: 700,
               color: 'var(--fg-2)', marginBottom: '6px',
             }}>
-              <Mail className="h-4 w-4 inline mr-1" />
-              Email
+              {sourceType === 'email_inbox' ? (
+                <>
+                  <Mail className="h-4 w-4 inline mr-1" />
+                  Email
+                </>
+              ) : (
+                <>Contact (Telegram @username or +phone)</>
+              )}
             </label>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="bank-statements@dasexperten.ru"
+              type={sourceType === 'email_inbox' ? 'email' : 'text'}
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder={placeholder}
               style={{
                 width: '100%', border: '1px solid var(--line-1)',
                 borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper)',
@@ -141,6 +195,11 @@ function AddSourceModal({
                 color: 'var(--fg-1)',
               }}
             />
+            {sourceType === 'telegram_contact' && (
+              <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: 4 }}>
+                Attachments (.pdf / .csv / .xlsx) from this contact will be auto-ingested as bank statements.
+              </div>
+            )}
           </div>
 
           <div>
@@ -161,55 +220,54 @@ function AddSourceModal({
                 color: 'var(--fg-1)',
               }}
             >
-              {ENTITY_OPTIONS.map((opt) => (
-                <option key={opt.id} value={opt.id}>{opt.label}</option>
-              ))}
+              <option value="dee">DEE — Das Experten Eurasia LLC</option>
+              <option value="dei">DEI — Das Experten International LLC</option>
+              <option value="dasean">DASEAN — Das Experten ASEAN</option>
+              <option value="dec">DEC — Das Experten Crypto</option>
             </select>
           </div>
 
           {error && (
-            <div style={{
-              padding: '8px 12px', backgroundColor: 'rgba(229,32,44,0.10)',
-              color: '#A82029', borderRadius: 'var(--radius-sm)',
-              fontSize: '14px', fontWeight: 700,
-            }}>
+            <div style={{ color: 'var(--status-danger)', fontSize: '14px', fontWeight: 700 }}>
               {error}
             </div>
           )}
-        </div>
 
-        <div className="flex justify-end gap-2 mt-6">
-          <button
-            onClick={onClose}
-            style={{
-              padding: '8px 16px', border: '1px solid var(--line-1)',
-              borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper)',
-              color: 'var(--fg-1)', fontSize: '14px', fontWeight: 700,
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={submit}
-            disabled={submitting}
-            style={{
-              padding: '8px 16px', borderRadius: 'var(--radius-sm)',
-              backgroundColor: 'var(--fg-1)', color: 'var(--paper)',
-              fontSize: '14px', fontWeight: 700,
-              opacity: submitting ? 0.6 : 1,
-            }}
-          >
-            {submitting ? 'Saving...' : 'Save'}
-          </button>
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={submitting}
+              style={{
+                padding: '8px 16px', fontSize: '14px', fontWeight: 700,
+                color: 'var(--fg-2)', background: 'transparent',
+                border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+                cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={submitting}
+              style={{
+                padding: '8px 16px', fontSize: '14px', fontWeight: 700,
+                color: 'var(--paper)', background: 'var(--fg-1)',
+                border: '1px solid var(--fg-1)', borderRadius: 'var(--radius-sm)',
+                cursor: 'pointer',
+                opacity: submitting ? 0.6 : 1,
+              }}
+            >
+              {submitting ? 'Saving…' : 'Save'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-// =============================================================================
-// MODAL: Upload Bank Statement
-// =============================================================================
 function UploadStatementModal({
   open, onClose, onImported,
 }: {
@@ -500,7 +558,8 @@ function SourcesListModal({
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--line-1)' }}>
-                <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--fg-2)', fontWeight: 700 }}>Email</th>
+                <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--fg-2)', fontWeight: 700, width: '110px' }}>Type</th>
+                <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--fg-2)', fontWeight: 700 }}>Address</th>
                 <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--fg-2)', fontWeight: 700 }}>Entity</th>
                 <th style={{ width: '40px' }}></th>
               </tr>
@@ -508,7 +567,10 @@ function SourcesListModal({
             <tbody>
               {sources.map((s) => (
                 <tr key={s.id} style={{ borderBottom: '1px solid var(--line-1)' }}>
-                  <td style={{ padding: '12px', color: 'var(--fg-1)', fontWeight: 700 }}>{s.email}</td>
+                  <td style={{ padding: '12px', color: 'var(--fg-2)', fontWeight: 700 }}>
+                    {s.source_type === 'telegram_contact' ? 'Telegram' : 'Email'}
+                  </td>
+                  <td style={{ padding: '12px', color: 'var(--fg-1)', fontWeight: 700 }}>{s.address ?? s.email}</td>
                   <td style={{ padding: '12px', color: 'var(--fg-1)', fontWeight: 700 }}>{s.company_abbreviation}</td>
                   <td style={{ padding: '12px', textAlign: 'center' }}>
                     <button onClick={() => remove(s.id)} style={{ color: 'var(--fg-3)' }}>

@@ -64,7 +64,7 @@ function AddSourceModal({
 
   const placeholder = sourceType === 'email_inbox'
     ? 'bank-statements@dasexperten.ru'
-    : '@username or +37494004004';
+    : '@username, +phone, or paste t.me link';
 
   const description = sourceType === 'email_inbox'
     ? 'Email inbox where bank sends statements. Linked to entity for auto-import.'
@@ -100,18 +100,6 @@ function AddSourceModal({
     }
   };
 
-  const typeBtnStyle = (active: boolean) => ({
-    flex: 1,
-    padding: '8px 12px',
-    fontSize: '14px',
-    fontWeight: 700,
-    border: `1px solid ${active ? 'var(--fg-1)' : 'var(--line-1)'}`,
-    background: active ? 'var(--fg-1)' : 'var(--paper)',
-    color: active ? 'var(--paper)' : 'var(--fg-2)',
-    borderRadius: 'var(--radius-sm)',
-    cursor: 'pointer',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-  } as const);
 
   return (
     <div
@@ -152,7 +140,18 @@ function AddSourceModal({
             <button
               type="button"
               onClick={() => { setSourceType('email_inbox'); setError(null); }}
-              style={typeBtnStyle(sourceType === 'email_inbox')}
+              style={{
+                flex: 1,
+                padding: '8px 12px',
+                fontSize: '14px',
+                fontWeight: 700,
+                border: '1px solid ' + (sourceType === 'email_inbox' ? 'var(--fg-1)' : 'var(--line-1)'),
+                background: sourceType === 'email_inbox' ? 'var(--fg-1)' : 'var(--paper)',
+                color: sourceType === 'email_inbox' ? 'var(--paper)' : 'var(--fg-2)',
+                borderRadius: 'var(--radius-sm)',
+                cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              }}
             >
               <Mail className="h-4 w-4" />
               Email inbox
@@ -160,7 +159,18 @@ function AddSourceModal({
             <button
               type="button"
               onClick={() => { setSourceType('telegram_contact'); setError(null); }}
-              style={typeBtnStyle(sourceType === 'telegram_contact')}
+              style={{
+                flex: 1,
+                padding: '8px 12px',
+                fontSize: '14px',
+                fontWeight: 700,
+                border: '1px solid ' + (sourceType === 'telegram_contact' ? 'var(--fg-1)' : 'var(--line-1)'),
+                background: sourceType === 'telegram_contact' ? 'var(--fg-1)' : 'var(--paper)',
+                color: sourceType === 'telegram_contact' ? 'var(--paper)' : 'var(--fg-2)',
+                borderRadius: 'var(--radius-sm)',
+                cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                 <path d="M21.5 4.5L2.5 11.5c-.8.3-.8 1.4 0 1.7l4.6 1.6 1.7 5.4c.2.6 1 .8 1.4.3l2.5-2.6 4.7 3.4c.6.4 1.3.1 1.5-.6l3.4-15c.2-.7-.5-1.4-1.3-1.2zM9.5 14.6l8.4-6.7-7.1 7.4-1.3 4.1-.9-3.2L9.5 14.6z"/>
@@ -197,7 +207,7 @@ function AddSourceModal({
             />
             {sourceType === 'telegram_contact' && (
               <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: 4 }}>
-                Attachments (.pdf / .csv / .xlsx) from this contact will be auto-ingested as bank statements.
+                Accepts: @username · +phone · t.me/USERNAME · t.me/c/GROUP_ID · -100GROUP_ID. Auto-ingest of .pdf/.csv/.xlsx.
               </div>
             )}
           </div>

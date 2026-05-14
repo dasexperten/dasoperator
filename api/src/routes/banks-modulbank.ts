@@ -287,8 +287,6 @@ banksModulbank.get('/health', async (c) => {
   return ok(c, result);
 });
 
-});
-
 // =============================================================================
 // POST /api/banks/modulbank/webhook — Modulbank pushes transaction notifications here
 // =============================================================================

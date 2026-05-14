@@ -5,7 +5,25 @@ import { ok, fail, fromError } from '../lib/responses';
 
 const bankStatementSources = new Hono<{ Bindings: Env }>();
 
-const TG_HANDLE_RE = /^(@[A-Za-z0-9_]{4,32}|\+\d{6,15})$/;
+function normalizeTelegramAddress(raw: string): string | null {
+  const v = raw.trim();
+  if (!v) return null;
+  const urlMatch = v.match(/^(?:https?:\/\/)?t\.me\/(.+)$/i);
+  if (urlMatch) {
+    const path = urlMatch[1].replace(/^\/+|\/+$/g, '');
+    const priv = path.match(/^c\/(\d{5,})(?:\/.*)?$/);
+    if (priv) return `-100${priv[1]}`;
+    const pub = path.match(/^([A-Za-z][A-Za-z0-9_]{3,31})(?:\/.*)?$/);
+    if (pub) return `@${pub[1]}`;
+    return null;
+  }
+  if (/^@[A-Za-z][A-Za-z0-9_]{3,31}$/.test(v)) return v;
+  if (/^[A-Za-z][A-Za-z0-9_]{3,31}$/.test(v)) return `@${v}`;
+  if (/^\+\d{6,15}$/.test(v)) return v;
+  if (/^-100\d{5,}$/.test(v)) return v;
+  if (/^\d{5,}$/.test(v)) return `-100${v}`;
+  return null;
+}
 
 const createSchema = z.discriminatedUnion('source_type', [
   z.object({
@@ -16,8 +34,16 @@ const createSchema = z.discriminatedUnion('source_type', [
   }),
   z.object({
     source_type: z.literal('telegram_contact'),
-    address: z.string().trim().refine((v) => TG_HANDLE_RE.test(v), {
-      message: 'Telegram handle must be @username (4–32 chars) or phone +<digits>',
+    address: z.string().trim().transform((v, ctx) => {
+      const n = normalizeTelegramAddress(v);
+      if (!n) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Use @username, +phone, t.me link, or -100<id> for a private group',
+        });
+        return z.NEVER;
+      }
+      return n;
     }),
     company_id: z.enum(['dee', 'dei', 'dasean', 'dec']),
     notes: z.string().optional(),

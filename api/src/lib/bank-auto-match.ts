@@ -692,7 +692,7 @@ async function persistOutcome(
   const now = Math.floor(Date.now() / 1000);
   await env.DB.prepare(`
     UPDATE bank_transactions
-    SET matched_payment_id = ?,
+    SET matched_operation_id = ?,
         match_method = ?,
         matched_at = ?,
         updated_at = ?

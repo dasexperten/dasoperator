@@ -256,14 +256,6 @@ export default function WarehousesPage() {
                     {w.code}
                   </SortableTh>
                 ))}
-                {/* OTW (On The Way) — virtual warehouse, light yellow */}
-                <SortableTh
-                  center
-                  bg="rgba(250, 199, 117, 0.18)"
-                  sortKey="otw"
-                  sort={sort}
-                  onClick={handleSortClick}
-                >OTW</SortableTh>
                 <SortableTh
                   center
                   bg={MARKETPLACE_TINT.ozon}
@@ -338,7 +330,6 @@ export default function WarehousesPage() {
                           />
                         );
                       })}
-                      <OtwCellTd value={otwQty} />
                       <MarketplaceCellTd value={ozonVal} ourValue={ourOzonVal} tint={MARKETPLACE_TINT.ozon} />
                       <MarketplaceCellTd value={wbVal}   ourValue={ourWbVal}   tint={MARKETPLACE_TINT.wb} />
                       <td className="px-3 py-2 text-right" style={{
@@ -370,14 +361,6 @@ export default function WarehousesPage() {
                     </td>
                   ))}
                   {/* OTW total */}
-                  <td className="px-3 py-2 text-right" style={{
-                    fontSize: '14px',
-                    fontWeight: 700,
-                    color: totalsByWarehouse.otwTotal > 0 ? '#854F0B' : 'var(--fg-1)',
-                    backgroundColor: 'rgba(250, 199, 117, 0.28)',
-                  }}>
-                    {totalsByWarehouse.otwTotal.toLocaleString('en-US')}
-                  </td>
                   <td className="px-3 py-2 text-right" style={{
                     fontSize: '14px',
                     fontWeight: 700,

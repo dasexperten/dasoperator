@@ -175,18 +175,57 @@ function ArrivalCard({
   }
 
   const rows = lineItems.map((li) => {
-    const received = receivedMap[li.product_id] ?? null;
-    const delta = received === null ? null : received - li.qty;
+    const directReceived = receivedMap[li.product_id];
+    if (directReceived !== undefined) {
+      return {
+        sku: li.product_id,
+        target_sku: li.product_id,
+        product_name: li.product_name ?? li.product_id,
+        expected: li.qty,
+        received: directReceived,
+        delta: directReceived - li.qty,
+        prebundle: null as null | { ratio: number; aaSku: string },
+      };
+    }
+    const candidateAa = `${li.product_id}aa`;
+    const candidateAaaa = `${li.product_id}aaaa`;
+    let aaSku: string | null = null;
+    let aaReceived: number | null = null;
+    let ratio = 0;
+    if (receivedMap[candidateAa] !== undefined) {
+      aaSku = candidateAa;
+      aaReceived = receivedMap[candidateAa]!;
+      ratio = 2;
+    } else if (receivedMap[candidateAaaa] !== undefined) {
+      aaSku = candidateAaaa;
+      aaReceived = receivedMap[candidateAaaa]!;
+      ratio = 4;
+    }
+    if (aaSku && aaReceived !== null) {
+      const expectedAaUnits = Math.round(li.qty / ratio);
+      return {
+        sku: li.product_id,
+        target_sku: aaSku,
+        product_name: li.product_name ?? li.product_id,
+        expected: li.qty,
+        received: aaReceived,
+        delta: aaReceived - expectedAaUnits,
+        prebundle: { ratio, aaSku },
+      };
+    }
     return {
       sku: li.product_id,
+      target_sku: li.product_id,
       product_name: li.product_name ?? li.product_id,
       expected: li.qty,
-      received,
-      delta,
+      received: null,
+      delta: null,
+      prebundle: null,
     };
   });
 
-  const anyMismatch = rows.some((r) => r.delta !== null && r.delta !== 0);
+  const anyMismatch = rows.some((r) => r.delta !== null && r.delta !== 0 && !r.prebundle);
+  const anyPrebundle = rows.some((r) => r.prebundle !== null);
   const detectedDate = new Date((operation.arrival_detected_at ?? 0) * 1000).toISOString().split('T')[0];
 
   async function handleConfirm() {
@@ -287,8 +326,35 @@ function ArrivalCard({
                 padding: '6px 0',
                 fontSize: '14px',
               }}>
-                <div style={{ fontWeight: 700 }}>{r.sku.toUpperCase()}</div>
-                <div style={{ color: 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.product_name}</div>
+                <div style={{ fontWeight: 700 }}>
+                  {r.sku.toUpperCase()}
+                  {r.prebundle && (
+                    <div style={{
+                      fontSize: '11px',
+                      fontWeight: 500,
+                      color: '#27500A',
+                      marginTop: '2px',
+                    }}>
+                      → {r.prebundle.aaSku.toUpperCase()}
+                    </div>
+                  )}
+                </div>
+                <div style={{ color: 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {r.product_name}
+                  {r.prebundle && (
+                    <span style={{
+                      marginLeft: '8px',
+                      fontSize: '11px',
+                      color: '#1D9E75',
+                      background: '#E1F5EE',
+                      padding: '1px 6px',
+                      borderRadius: '3px',
+                      fontWeight: 700,
+                    }}>
+                      ×{r.prebundle.ratio} pre-bundle
+                    </span>
+                  )}
+                </div>
                 <div style={{ textAlign: 'right', fontWeight: 700 }}>{r.expected.toLocaleString('en-US')}</div>
                 <div style={{ textAlign: 'center', color: 'var(--fg-muted)' }}>→</div>
                 <div style={{ textAlign: 'right', fontWeight: 700 }}>
@@ -298,15 +364,29 @@ function ArrivalCard({
                   textAlign: 'right',
                   fontWeight: 700,
                   color: r.delta === null ? 'var(--fg-muted)' :
+                         r.prebundle ? '#27500A' :
                          r.delta === 0 ? '#27500A' :
                          Math.abs(r.delta) <= Math.max(10, r.expected * 0.01) ? '#854F0B' :
                          '#791F1F',
                 }}>
-                  {r.delta === null ? '—' : r.delta > 0 ? `+${r.delta.toLocaleString('en-US')}` : r.delta.toLocaleString('en-US')}
+                  {r.delta === null ? '—' : r.prebundle ? '✓' : r.delta > 0 ? `+${r.delta.toLocaleString('en-US')}` : r.delta.toLocaleString('en-US')}
                 </div>
               </div>
             ))}
           </div>
+
+          {anyPrebundle && (
+            <div style={{
+              fontSize: '13px',
+              color: '#04342C',
+              marginBottom: '12px',
+              padding: '6px 10px',
+              background: '#E1F5EE',
+              borderRadius: 'var(--radius-md)',
+            }}>
+              ℹ Pre-bundled at factory. Singles in our invoice will be re-labeled as 2in1 packs at delivery.
+            </div>
+          )}
 
           {anyMismatch && (
             <div style={{

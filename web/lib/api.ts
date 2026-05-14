@@ -956,6 +956,7 @@ export interface Operation {
   our_company_id: string;
   entity_abbreviation?: string | null;
   operation_type: 'sale' | 'purchase' | 'transfer';
+  operation_track?: 'goods' | 'service' | null;
   operation_date: number;
   warehouse_from_id: string | null;
   warehouse_to_id: string | null;
@@ -974,7 +975,6 @@ export interface Operation {
   paid_amount?: number;
   payment_state?: 'neutral' | 'unpaid' | 'partial' | 'paid';
   delivery_status?: 'pending' | 'delivered' | 'disputed' | 'refunded';
-  operation_track?: 'goods' | 'service' | null;
   arrival_detected_at?: number | null;
   arrival_source_request_id?: string | null;
   arrival_received_qtys?: string | null;

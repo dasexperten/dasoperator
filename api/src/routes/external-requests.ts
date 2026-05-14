@@ -376,7 +376,20 @@ externalRequests.post('/sync', async (c) => {
       const acceptedSkus = Array.from(entry.qtys.keys());
       if (acceptedSkus.length === 0) continue;
 
-      const skuPlaceholders = acceptedSkus.map(() => '?').join(',');
+      // Pre-bundle expansion: for each accepted SKU that ends in 'aa', also
+      // consider the base SKU (without suffix) when matching to purchase ops.
+      // Reason: factory ships singles, F4 LBR accepts as 2in1 pairs (paste
+      // pre-bundle case). Our purchase line items hold the single SKU.
+      const expandedSkus = new Set<string>(acceptedSkus);
+      for (const sku of acceptedSkus) {
+        if (sku.endsWith('aa')) {
+          const base = sku.replace(/aa$/, '').replace(/aaaa$/, '');
+          if (base.length > 2) expandedSkus.add(base);
+        }
+      }
+      const matchSkus = Array.from(expandedSkus);
+
+      const skuPlaceholders = matchSkus.map(() => '?').join(',');
       const candidateRows = await c.env.DB.prepare(`
         SELECT o.id, o.reference, o.warehouse_to_id, o.manufacturer_id,
                COUNT(DISTINCT li.product_id) AS sku_overlap,
@@ -394,7 +407,7 @@ externalRequests.post('/sync', async (c) => {
         GROUP BY o.id
         ORDER BY sku_overlap DESC, o.updated_at DESC
         LIMIT 5
-      `).bind(requestId, entry.warehouse_id, ...acceptedSkus).all<{
+      `).bind(requestId, entry.warehouse_id, ...matchSkus).all<{
         id: string;
         reference: string;
         warehouse_to_id: string | null;
@@ -410,12 +423,12 @@ externalRequests.post('/sync', async (c) => {
       }
 
       const best = candidates[0];
-      const requiredOverlap = Math.ceil(acceptedSkus.length * 0.5);
+      const requiredOverlap = Math.ceil(matchSkus.length * 0.5);
       if (best.sku_overlap < requiredOverlap) {
         matchResults.push({
           request: entry.delivery_number,
           op: null,
-          reason: `low_overlap_${best.sku_overlap}_of_${acceptedSkus.length}`,
+          reason: `low_overlap_${best.sku_overlap}_of_${matchSkus.length}`,
         });
         continue;
       }

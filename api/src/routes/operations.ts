@@ -1787,8 +1787,20 @@ operations.post('/:id/confirm-arrival', async (c) => {
 
   const now = Math.floor(Date.now() / 1000);
 
-  // 1. If received qtys differ from line_items, update line_items to F4 numbers
-  //    so the subsequent stock movement reflects reality.
+  // 1. Adjust line items based on F4 received qtys. Two paths:
+  //
+  //    Path A — direct match: receivedMap[product_id] = qty
+  //      F4 accepted same SKU we shipped, just possibly different qty.
+  //      Action: update qty only.
+  //
+  //    Path B — pre-bundle: our line item is single (e.g. de202), but F4
+  //      accepted the AA-pack form (de202aa). The factory shipped the pair
+  //      wrapped together with a 2in1 barcode; F4 scanned it as DE202AA.
+  //      Action: rewrite product_id to the AA variant, set qty to F4 received.
+  //      Only paste SKUs that have a sibling _aa entry in our products
+  //      catalog can pre-bundle. Brushes never pre-bundle. SKUs without an
+  //      _aa catalog entry (DE204, DE209, DE210) silently fall through to
+  //      no-op even if they were somehow flagged.
   if (op.arrival_received_qtys) {
     const receivedMap = JSON.parse(op.arrival_received_qtys) as Record<string, number>;
     const lineItems = await c.env.DB.prepare(
@@ -1796,14 +1808,45 @@ operations.post('/:id/confirm-arrival', async (c) => {
     ).bind(id).all<{ id: string; product_id: string; qty: number }>();
 
     const adjustStmts: D1PreparedStatement[] = [];
+
     for (const li of lineItems.results || []) {
-      const received = receivedMap[li.product_id];
-      if (received !== undefined && received !== li.qty) {
-        adjustStmts.push(
-          c.env.DB.prepare(
-            'UPDATE line_items SET qty = ?, line_amount = qty * unit_price_after_disc, updated_at = ? WHERE id = ?'
-          ).bind(received, now, li.id)
-        );
+      // Path A — same SKU received
+      if (receivedMap[li.product_id] !== undefined) {
+        const received = receivedMap[li.product_id]!;
+        if (received !== li.qty) {
+          adjustStmts.push(
+            c.env.DB.prepare(
+              'UPDATE line_items SET qty = ?, line_amount = qty * unit_price_after_disc, updated_at = ? WHERE id = ?'
+            ).bind(received, now, li.id)
+          );
+        }
+        continue;
+      }
+
+      // Path B — pre-bundle. Check if F4 received the AA-pack form.
+      const candidateAa = `${li.product_id}aa`;
+      const candidateAaaa = `${li.product_id}aaaa`;
+      let aaVariant: string | null = null;
+      let aaReceived: number | null = null;
+      if (receivedMap[candidateAa] !== undefined) {
+        aaVariant = candidateAa;
+        aaReceived = receivedMap[candidateAa]!;
+      } else if (receivedMap[candidateAaaa] !== undefined) {
+        aaVariant = candidateAaaa;
+        aaReceived = receivedMap[candidateAaaa]!;
+      }
+      if (aaVariant && aaReceived !== null) {
+        // Verify the AA variant exists in our products catalog before swapping.
+        const aaExists = await c.env.DB.prepare(
+          "SELECT id FROM products WHERE id = ? AND deleted_at IS NULL"
+        ).bind(aaVariant).first();
+        if (aaExists) {
+          adjustStmts.push(
+            c.env.DB.prepare(
+              'UPDATE line_items SET product_id = ?, qty = ?, line_amount = ? * unit_price_after_disc, updated_at = ? WHERE id = ?'
+            ).bind(aaVariant, aaReceived, aaReceived, now, li.id)
+          );
+        }
       }
     }
     if (adjustStmts.length > 0) {

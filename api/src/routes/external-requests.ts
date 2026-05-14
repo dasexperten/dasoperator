@@ -450,7 +450,320 @@ externalRequests.post('/sync', async (c) => {
     errors.push(`auto-match: ${e.message ?? String(e)}`);
   }
 
-  return ok(c, { synced, total: list.length, matched: matchResults, errors });
+  // Phase 5 mp_delivery → transfer operations creation runs as a separate
+  // endpoint (POST /external-requests/mp-delivery-backfill?limit=N) because
+  // creating 56 retroactive operations exceeds the sync request timeout.
+  // The cron will trigger it after sync completes.
+
+  return ok(c, {
+    synced,
+    total: list.length,
+    matched: matchResults,
+    errors,
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// PHASE 5: mp_delivery → transfer operation creation (paginated)
+//
+// Walks unprocessed F4 mp_delivery requests and creates one transfer
+// operation per request based on stage:
+//
+//   'Завершение' + isCompleted=True  → operation 'delivered' (lbr→ozon/wb)
+//   'Забор груза' or later (incomplete) → operation 'shipped' (lbr→otw)
+//   Earlier stages → skip (still at LBR, reserved but not picked up)
+//
+// Idempotency: reference 'MP-{delivery_number}'. Existing skipped.
+// Marketplace OZON → partner_id 'ozon', warehouse_to 'ozon'
+// Marketplace Wildberries → partner_id 'wb', warehouse_to 'wb'
+// Operation date = collection_date (yyyy-mm-dd or dd.mm.yyyy) or now.
+//
+// Query param: limit (default 10, max 30) to keep each request under
+// Worker time budget. Returns has_more flag to drive paginated backfill.
+// ──────────────────────────────────────────────────────────────────────────
+externalRequests.post('/mp-delivery-backfill', async (c) => {
+  const url = new URL(c.req.url);
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '10', 10), 30);
+  const now = Math.floor(Date.now() / 1000);
+
+  // Backfill cutoff: all stock_movements for historical mp_delivery (operations
+  // dated before opening_balance) are stamped at this date so they don't
+  // collide with the May 7 opening snapshot. Day after opening = 2026-05-08.
+  // Forward sync (operations created today and onward) use real op date.
+  const OPENING_BALANCE_DATE = Math.floor(Date.UTC(2026, 4, 7) / 1000); // May 7 2026
+  const BACKFILL_MOVEMENT_DATE = Math.floor(Date.UTC(2026, 4, 8) / 1000); // May 8 2026
+
+  // Find mp_delivery requests not yet converted to operations.
+  // Process oldest first so backfill builds chronologically.
+  const mpRequests = await c.env.DB.prepare(`
+    SELECT er.id, er.delivery_number, er.raw_json, er.created_at_external, er.is_completed
+    FROM external_requests er
+    LEFT JOIN operations o ON o.reference = 'MP-' || er.delivery_number AND o.deleted_at IS NULL
+    WHERE er.request_type_norm = 'mp_delivery'
+      AND er.external_provider = 'f4_skladbot'
+      AND o.id IS NULL
+    ORDER BY er.created_at_external ASC
+    LIMIT ?
+  `).bind(limit).all<{
+    id: string;
+    delivery_number: string;
+    raw_json: string;
+    created_at_external: string;
+    is_completed: number;
+  }>();
+
+  const results: Array<{ request: string; op: string | null; reason: string }> = [];
+
+  for (const req of mpRequests.results || []) {
+    const opRef = `MP-${req.delivery_number}`;
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(req.raw_json);
+    } catch {
+      results.push({ request: req.delivery_number, op: null, reason: 'bad_json' });
+      continue;
+    }
+
+    const fields = (parsed.fields || []) as Array<{ field: string; value: string }>;
+    const stageLogs = (parsed.stageLogs || []) as Array<{ stage: string }>;
+    const productsRaw = (parsed.products || []) as Array<{ vendorCode: string; amount: number }>;
+    const getField = (name: string) => fields.find((f) => f.field === name)?.value || null;
+
+    const marketplace = getField('marketplace');
+    const collectionDateStr = getField('collection_date');
+    const stagesSeen = new Set(stageLogs.map((s) => s.stage));
+
+    // Marketplace dictates destination warehouse, NOT partner.
+    // mp_delivery is an internal stock movement LBR → marketplace_warehouse
+    // (ozon or wb). partner_id stays NULL.
+    let warehouseDest: 'ozon' | 'wb' | null = null;
+    if (marketplace === 'OZON') warehouseDest = 'ozon';
+    else if (marketplace === 'Wildberries') warehouseDest = 'wb';
+    if (!warehouseDest) {
+      results.push({ request: req.delivery_number, op: null, reason: `unknown_marketplace_${marketplace}` });
+      continue;
+    }
+
+    let opStatus: 'delivered' | 'shipped' | null = null;
+    let warehouseTo: 'ozon' | 'wb' | 'otw' | null = null;
+    const isCompleted = req.is_completed === 1;
+    const reachedCompletion = stagesSeen.has('Завершение');
+    const reachedPickup = stagesSeen.has('Забор груза');
+
+    if (reachedCompletion && isCompleted) {
+      opStatus = 'delivered';
+      warehouseTo = warehouseDest;
+    } else if (reachedPickup || reachedCompletion) {
+      opStatus = 'shipped';
+      warehouseTo = 'otw';
+    } else {
+      results.push({ request: req.delivery_number, op: null, reason: 'pre_pickup' });
+      continue;
+    }
+
+    const skuMap: Record<string, number> = {};
+    for (const p of productsRaw) {
+      if (!p.amount || p.amount <= 0) continue;
+      const code = p.vendorCode.toLowerCase();
+      skuMap[code] = (skuMap[code] ?? 0) + p.amount;
+    }
+    const skus = Object.keys(skuMap);
+    if (skus.length === 0) {
+      results.push({ request: req.delivery_number, op: null, reason: 'no_products' });
+      continue;
+    }
+
+    const placeholders = skus.map(() => '?').join(',');
+    const catalogCheck = await c.env.DB.prepare(
+      `SELECT id FROM products WHERE id IN (${placeholders}) AND deleted_at IS NULL`
+    ).bind(...skus).all<{ id: string }>();
+    const validSkus = new Set((catalogCheck.results || []).map((r) => r.id));
+    const lineItems = skus
+      .filter((s) => validSkus.has(s))
+      .map((s) => ({ product_id: s, qty: skuMap[s] }));
+    if (lineItems.length === 0) {
+      results.push({ request: req.delivery_number, op: null, reason: 'no_valid_skus' });
+      continue;
+    }
+
+    // Operation date — actual collection_date from F4 (keeps history intact)
+    let opDate = now;
+    if (collectionDateStr) {
+      const m1 = collectionDateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      const m2 = collectionDateStr.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+      if (m1) opDate = Math.floor(Date.UTC(+m1[1], +m1[2] - 1, +m1[3]) / 1000);
+      else if (m2) opDate = Math.floor(Date.UTC(+m2[3], +m2[2] - 1, +m2[1]) / 1000);
+    }
+
+    // Stock movements: if operation predates opening_balance, stamp movements
+    // at BACKFILL_MOVEMENT_DATE so they live on top of the snapshot. Otherwise
+    // use the real operation date.
+    const isBackfill = opDate < OPENING_BALANCE_DATE;
+    const movementDate = isBackfill ? BACKFILL_MOVEMENT_DATE : opDate;
+    const movementReason = isBackfill
+      ? 'retroactive_backfill_mp_delivery'
+      : 'mp_delivery_f4';
+
+    const opId = `op_${crypto.randomUUID()}`;
+    const stmts: D1PreparedStatement[] = [];
+
+    // Insert operation: partner_id NULL (internal transfer between our warehouses)
+    stmts.push(
+      c.env.DB.prepare(`
+        INSERT INTO operations (
+          id, operation_date, operation_type, operation_track, partner_id,
+          our_company_id, warehouse_from_id, warehouse_to_id, status,
+          currency, total_amount, reference, notes, delivery_status,
+          created_at, updated_at
+        ) VALUES (?, ?, 'transfer', 'goods', NULL, 'dee', 'lbr', ?, ?, 'RUB', 0, ?, ?, ?, ?, ?)
+      `).bind(
+        opId,
+        opDate,
+        warehouseTo,
+        opStatus,
+        opRef,
+        `F4 mp_delivery → ${marketplace}. ${getField('cross_dock') || ''}`.trim(),
+        opStatus === 'delivered' ? 'delivered' : 'pending',
+        now,
+        now
+      )
+    );
+
+    // Line items
+    for (const li of lineItems) {
+      const liId = `li_${crypto.randomUUID()}`;
+      stmts.push(
+        c.env.DB.prepare(`
+          INSERT INTO line_items (
+            id, operation_id, product_id, qty, unit_price, unit_price_after_disc,
+            line_amount, currency, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, 0, 0, 0, 'RUB', ?, ?)
+        `).bind(liId, opId, li.product_id, li.qty, now, now)
+      );
+    }
+
+    try {
+      // First, run inserts of operation + line items in a batch
+      await c.env.DB.batch(stmts);
+
+      // Then stocks update + movement records, both need current balances.
+      // Do them per line item with separate prepare calls (cannot batch
+      // because we need to read updated on_hand for balance_after).
+      for (const li of lineItems) {
+        // ---- LBR on_hand decreases ----
+        await c.env.DB.prepare(`
+          INSERT INTO stocks (id, warehouse_id, product_id, stock_state, on_hand, updated_at)
+          VALUES (?, 'lbr', ?, 'on_hand', ?, ?)
+          ON CONFLICT(warehouse_id, product_id, stock_state)
+          DO UPDATE SET on_hand = on_hand + ?, updated_at = ?
+        `).bind(`stk_${crypto.randomUUID()}`, li.product_id, -li.qty, now, -li.qty, now).run();
+
+        const lbrBalance = await c.env.DB.prepare(
+          "SELECT on_hand FROM stocks WHERE warehouse_id = 'lbr' AND product_id = ? AND stock_state = 'on_hand'"
+        ).bind(li.product_id).first<{ on_hand: number }>();
+
+        await c.env.DB.prepare(`
+          INSERT INTO stock_movements (
+            id, warehouse_id, product_id, movement_type, quantity,
+            source, source_ref_type, source_ref_id,
+            reason, performed_at, balance_after, stock_state, created_at
+          ) VALUES (?, 'lbr', ?, 'shipment_out', ?, 'operation', 'operation', ?, ?, ?, ?, 'on_hand', ?)
+        `).bind(
+          `mov_${crypto.randomUUID()}`,
+          li.product_id,
+          -li.qty,
+          opId,
+          movementReason,
+          movementDate,
+          lbrBalance?.on_hand ?? -li.qty,
+          movementDate
+        ).run();
+
+        // ---- Destination side (ozon/wb on_hand OR otw in_transit) ----
+        if (opStatus === 'delivered') {
+          await c.env.DB.prepare(`
+            INSERT INTO stocks (id, warehouse_id, product_id, stock_state, on_hand, updated_at)
+            VALUES (?, ?, ?, 'on_hand', ?, ?)
+            ON CONFLICT(warehouse_id, product_id, stock_state)
+            DO UPDATE SET on_hand = on_hand + ?, updated_at = ?
+          `).bind(`stk_${crypto.randomUUID()}`, warehouseTo, li.product_id, li.qty, now, li.qty, now).run();
+
+          const destBalance = await c.env.DB.prepare(
+            'SELECT on_hand FROM stocks WHERE warehouse_id = ? AND product_id = ? AND stock_state = \'on_hand\''
+          ).bind(warehouseTo, li.product_id).first<{ on_hand: number }>();
+
+          await c.env.DB.prepare(`
+            INSERT INTO stock_movements (
+              id, warehouse_id, product_id, movement_type, quantity,
+              source, source_ref_type, source_ref_id,
+              reason, performed_at, balance_after, stock_state, created_at
+            ) VALUES (?, ?, ?, 'arrival', ?, 'operation', 'operation', ?, ?, ?, ?, 'on_hand', ?)
+          `).bind(
+            `mov_${crypto.randomUUID()}`,
+            warehouseTo,
+            li.product_id,
+            li.qty,
+            opId,
+            movementReason,
+            movementDate,
+            destBalance?.on_hand ?? li.qty,
+            movementDate
+          ).run();
+        } else {
+          // shipped → OTW in_transit
+          await c.env.DB.prepare(`
+            INSERT INTO stocks (id, warehouse_id, product_id, stock_state, on_hand, updated_at)
+            VALUES (?, 'otw', ?, 'in_transit', ?, ?)
+            ON CONFLICT(warehouse_id, product_id, stock_state)
+            DO UPDATE SET on_hand = on_hand + ?, updated_at = ?
+          `).bind(`stk_${crypto.randomUUID()}`, li.product_id, li.qty, now, li.qty, now).run();
+
+          const otwBalance = await c.env.DB.prepare(
+            "SELECT on_hand FROM stocks WHERE warehouse_id = 'otw' AND product_id = ? AND stock_state = 'in_transit'"
+          ).bind(li.product_id).first<{ on_hand: number }>();
+
+          await c.env.DB.prepare(`
+            INSERT INTO stock_movements (
+              id, warehouse_id, product_id, movement_type, quantity,
+              source, source_ref_type, source_ref_id,
+              reason, performed_at, balance_after, stock_state, created_at
+            ) VALUES (?, 'otw', ?, 'in_transit_in', ?, 'operation', 'operation', ?, ?, ?, ?, 'in_transit', ?)
+          `).bind(
+            `mov_${crypto.randomUUID()}`,
+            li.product_id,
+            li.qty,
+            opId,
+            movementReason,
+            movementDate,
+            otwBalance?.on_hand ?? li.qty,
+            movementDate
+          ).run();
+        }
+      }
+
+      results.push({ request: req.delivery_number, op: opRef, reason: `created_${opStatus}${isBackfill ? '_backfill' : ''}` });
+    } catch (e: any) {
+      results.push({ request: req.delivery_number, op: null, reason: `insert_failed_${e.message}` });
+    }
+  }
+
+  // Check if more remain
+  const remainCheck = await c.env.DB.prepare(`
+    SELECT COUNT(*) AS n
+    FROM external_requests er
+    LEFT JOIN operations o ON o.reference = 'MP-' || er.delivery_number AND o.deleted_at IS NULL
+    WHERE er.request_type_norm = 'mp_delivery'
+      AND er.external_provider = 'f4_skladbot'
+      AND o.id IS NULL
+  `).first<{ n: number }>();
+
+  return ok(c, {
+    processed: results.length,
+    results,
+    remaining: remainCheck?.n ?? 0,
+    has_more: (remainCheck?.n ?? 0) > 0,
+  });
 });
 
 export default externalRequests;

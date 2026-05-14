@@ -72,9 +72,15 @@ externalStocks.get('/', async (c) => {
 // and is served via a separate dedicated endpoint, not here.
 // ---------------------------------------------------------------------------
 externalStocks.get('/by-product', async (c) => {
+  // The `amount` field returned to UI consumers is the physical stock on the
+  // shelf at F4: available (raw amount) + reserved (held for outbound). Both
+  // are real units physically present at LBR — reserve_amount being "earmarked
+  // for a future shipment" doesn't mean the goods left, just that F4 won't
+  // re-allocate them. Clamp at 0 so any negative quirks in their data don't
+  // poison our matrix.
   const sql = `
     SELECT es.product_id, es.warehouse_id, es.external_vendor_code,
-           SUM(es.amount) AS amount,
+           MAX(0, SUM(es.amount) + SUM(es.reserve_amount)) AS amount,
            SUM(es.reserve_amount) AS reserve_amount,
            SUM(es.repair_amount) AS repair_amount,
            MAX(es.synced_at) AS synced_at

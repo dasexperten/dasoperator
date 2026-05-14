@@ -956,7 +956,6 @@ export interface Operation {
   our_company_id: string;
   entity_abbreviation?: string | null;
   operation_type: 'sale' | 'purchase' | 'transfer';
-  operation_track?: 'goods' | 'service';
   operation_date: number;
   warehouse_from_id: string | null;
   warehouse_to_id: string | null;

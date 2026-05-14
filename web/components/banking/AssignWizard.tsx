@@ -20,7 +20,7 @@
 // instantly via Tier 1 auto-match.
 // =============================================================================
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   AlertCircle, ArrowRight, Check, ChevronLeft, Loader2, Plus, Search,
   Sparkles, X,
@@ -138,12 +138,12 @@ export default function AssignWizard({
   // Step 1 — auto-match suggestions
   const [autoMatch, setAutoMatch] = useState<MatchSuggestion[] | null>(null);
   const [autoLoading, setAutoLoading] = useState(true);
-  const [step1Mode, setStep1Mode] = useState<'auto' | 'search' | 'create'>('auto');
+  const [step1Mode, setStep1Mode] = useState<'pick' | 'create'>('pick');
 
   // Step 1 — search-existing fields
   const [search, setSearch] = useState('');
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
+  const [allPartners, setAllPartners] = useState<SearchResult[]>([]);
+  const [allPartnersLoading, setAllPartnersLoading] = useState(false);
 
   // Step 1 — create-new fields
   const [newName, setNewName] = useState(cleanContragent(item.contragent_name));
@@ -178,37 +178,29 @@ export default function AssignWizard({
     return () => { cancelled = true; };
   }, [item.id]);
 
-  // Debounced search by name
-  const searchRef = useRef<NodeJS.Timeout | null>(null);
+  // Load all partners once on mount for the always-visible picker list
   useEffect(() => {
-    if (searchRef.current) clearTimeout(searchRef.current);
-    if (!search || search.length < 2) {
-      setSearchResults([]);
-      return;
-    }
-    searchRef.current = setTimeout(async () => {
-      setSearching(true);
+    let alive = true;
+    (async () => {
+      setAllPartnersLoading(true);
       try {
-        const r = await fetch(`${API_BASE}/api/partners?search=${encodeURIComponent(search)}&limit=8`);
+        const r = await fetch(`${API_BASE}/api/partners?limit=200`);
         const d = await r.json();
+        if (!alive) return;
         if (d.success) {
           const items = Array.isArray(d.result) ? d.result : (d.result?.items || []);
-          setSearchResults(items.map((p: { id: string; trade_name: string; kind?: string; tax_id?: string }) => ({
+          setAllPartners(items.map((p: { id: string; trade_name: string; kind?: string; tax_id?: string }) => ({
             id: p.id, trade_name: p.trade_name, kind: p.kind || '', tax_id: p.tax_id || '',
           })));
-        } else {
-          setSearchResults([]);
         }
       } catch {
-        setSearchResults([]);
+        // silent — list will just be empty
       } finally {
-        setSearching(false);
+        if (alive) setAllPartnersLoading(false);
       }
-    }, 250);
-    return () => {
-      if (searchRef.current) clearTimeout(searchRef.current);
-    };
-  }, [search]);
+    })();
+    return () => { alive = false; };
+  }, []);
 
   // Load operations for the selected partner (Step 2)
   const loadOperations = useCallback(async (p: SelectedPartner) => {
@@ -384,7 +376,8 @@ export default function AssignWizard({
             </div>
           )}
 
-          {!autoLoading && topSuggestion && step1Mode === 'auto' && (
+          {/* Suggested partner banner — always visible in pick mode */}
+          {!autoLoading && topSuggestion && step1Mode === 'pick' && (
             <div style={{
               background: 'rgba(13,25,158,0.04)',
               border: '1px solid rgba(13,25,158,0.18)',
@@ -439,139 +432,115 @@ export default function AssignWizard({
             </div>
           )}
 
-          {/* Other suggestions stacked under banner */}
-          {!autoLoading && autoMatch && autoMatch.length > 1 && step1Mode === 'auto' && (
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 14, color: 'var(--fg-3)', marginBottom: 6 }}>
-                Other matches
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {autoMatch.slice(1).map((m) => (
-                  <button
-                    key={m.partner_id}
-                    type="button"
-                    disabled={busy}
-                    onClick={() => pickPartner({
-                      id: m.partner_id, trade_name: m.trade_name, kind: m.kind,
-                    })}
-                    style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      padding: '8px 10px', borderRadius: 4,
-                      background: 'var(--paper-sunk)',
-                      border: '1px solid transparent',
-                      fontSize: 14, textAlign: 'left',
-                      cursor: busy ? 'default' : 'pointer',
-                    }}
-                  >
-                    <span style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{m.trade_name}</span>
-                      <span style={{ color: 'var(--fg-3)', fontSize: 14 }}>{m.matched_field}</span>
-                    </span>
-                    <ArrowRight size={14} style={{ color: 'var(--fg-3)' }} />
-                  </button>
-                ))}
-              </div>
+          {/* Action: switch to create-new-partner mode */}
+          {step1Mode === 'pick' && (
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setStep1Mode('create')}
+                style={{
+                  background: 'var(--paper-base, #fff)',
+                  color: 'var(--fg-2)',
+                  border: '1px solid var(--paper-divider, rgba(0,0,0,0.12))',
+                  padding: '6px 12px', borderRadius: 4,
+                  fontSize: 14, fontWeight: 700,
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  cursor: 'pointer',
+                }}
+              >
+                <Plus size={14} /> Create new partner
+              </button>
             </div>
           )}
 
-          {/* Action buttons row */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: step1Mode === 'auto' ? 0 : 12 }}>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => setStep1Mode(step1Mode === 'search' ? 'auto' : 'search')}
-              style={{
-                flex: 1,
-                background: step1Mode === 'search' ? 'var(--fg-1)' : 'var(--paper-base, #fff)',
-                color: step1Mode === 'search' ? 'white' : 'var(--fg-2)',
-                border: `1px solid ${step1Mode === 'search' ? 'var(--fg-1)' : 'var(--paper-divider, rgba(0,0,0,0.12))'}`,
-                padding: '8px 12px', borderRadius: 4,
-                fontSize: 14, fontWeight: 700,
-                display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center',
-                cursor: 'pointer',
-              }}
-            >
-              <Search size={14} /> Choose another partner
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => setStep1Mode(step1Mode === 'create' ? 'auto' : 'create')}
-              style={{
-                flex: 1,
-                background: step1Mode === 'create' ? 'var(--fg-1)' : 'var(--paper-base, #fff)',
-                color: step1Mode === 'create' ? 'white' : 'var(--fg-2)',
-                border: `1px solid ${step1Mode === 'create' ? 'var(--fg-1)' : 'var(--paper-divider, rgba(0,0,0,0.12))'}`,
-                padding: '8px 12px', borderRadius: 4,
-                fontSize: 14, fontWeight: 700,
-                display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center',
-                cursor: 'pointer',
-              }}
-            >
-              <Plus size={14} /> Create new partner
-            </button>
-          </div>
-
-          {/* Step 1 — Search panel */}
-          {step1Mode === 'search' && (
+          {/* Always-visible partner picker — search filters the list in place */}
+          {step1Mode === 'pick' && (
             <div style={{
               background: 'var(--paper-sunk)',
-              borderRadius: 4, padding: 12, marginTop: 8,
+              borderRadius: 4, padding: 12,
             }}>
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Type partner name…"
-                autoFocus
-                style={{
-                  width: '100%', padding: '8px 10px', borderRadius: 4,
-                  border: '1px solid var(--paper-divider, rgba(0,0,0,0.15))',
-                  fontSize: 14, fontWeight: 700,
-                  marginBottom: 8,
-                }}
-              />
-              {searching && (
+              <div style={{ position: 'relative', marginBottom: 8 }}>
+                <Search size={14} style={{
+                  position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
+                  color: 'var(--fg-3)', pointerEvents: 'none',
+                }} />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Filter partners by name or ИНН…"
+                  style={{
+                    width: '100%', padding: '8px 10px 8px 30px', borderRadius: 4,
+                    border: '1px solid var(--paper-divider, rgba(0,0,0,0.15))',
+                    fontSize: 14, fontWeight: 700,
+                  }}
+                />
+              </div>
+
+              {allPartnersLoading && (
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: 8,
-                  color: 'var(--fg-3)', fontSize: 14,
+                  color: 'var(--fg-3)', fontSize: 14, padding: '8px 4px',
                 }}>
-                  <Loader2 size={14} className="animate-spin" /> Searching…
+                  <Loader2 size={14} className="animate-spin" /> Loading partners…
                 </div>
               )}
-              {!searching && searchResults.length === 0 && search.length >= 2 && (
-                <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>
-                  No matches. Try <span style={{ fontWeight: 700 }}>Create new partner</span> instead.
-                </div>
-              )}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {searchResults.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    disabled={busy}
-                    onClick={() => pickPartner({ id: p.id, trade_name: p.trade_name, kind: p.kind })}
-                    style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      padding: '8px 10px', borderRadius: 4,
-                      background: 'var(--paper-base, #fff)',
-                      border: '1px solid var(--paper-divider, rgba(0,0,0,0.08))',
-                      fontSize: 14, textAlign: 'left',
-                      cursor: busy ? 'default' : 'pointer',
-                    }}
-                  >
-                    <span>
-                      <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{p.trade_name}</span>
-                      {p.kind && <span style={{ color: 'var(--fg-3)', marginLeft: 8 }}>{p.kind}</span>}
-                    </span>
-                    {p.tax_id && (
-                      <span style={{ color: 'var(--fg-3)', fontSize: 14, fontWeight: 700 }}>
-                        ИНН {p.tax_id}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
+
+              {!allPartnersLoading && (() => {
+                const q = search.trim().toLowerCase();
+                const suggestedId = topSuggestion?.partner_id;
+                const list = allPartners
+                  .filter((p) => !suggestedId || p.id !== suggestedId)
+                  .filter((p) => {
+                    if (!q) return true;
+                    return (
+                      (p.trade_name || '').toLowerCase().includes(q) ||
+                      (p.tax_id || '').toLowerCase().includes(q) ||
+                      (p.kind || '').toLowerCase().includes(q)
+                    );
+                  });
+                if (list.length === 0) {
+                  return (
+                    <div style={{ fontSize: 14, color: 'var(--fg-3)', padding: '8px 4px' }}>
+                      No partners match. Try <span style={{ fontWeight: 700 }}>Create new partner</span> instead.
+                    </div>
+                  );
+                }
+                return (
+                  <div style={{
+                    display: 'flex', flexDirection: 'column', gap: 4,
+                    maxHeight: 320, overflowY: 'auto',
+                  }}>
+                    {list.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        disabled={busy}
+                        onClick={() => pickPartner({ id: p.id, trade_name: p.trade_name, kind: p.kind })}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          padding: '8px 10px', borderRadius: 4,
+                          background: 'var(--paper-base, #fff)',
+                          border: '1px solid var(--paper-divider, rgba(0,0,0,0.08))',
+                          fontSize: 14, textAlign: 'left',
+                          cursor: busy ? 'default' : 'pointer',
+                        }}
+                      >
+                        <span style={{ minWidth: 0, marginRight: 8 }}>
+                          <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{p.trade_name}</span>
+                          {p.kind && <span style={{ color: 'var(--fg-3)', marginLeft: 8 }}>{p.kind}</span>}
+                        </span>
+                        {p.tax_id && (
+                          <span style={{ color: 'var(--fg-3)', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+                            ИНН {p.tax_id}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
           )}
 

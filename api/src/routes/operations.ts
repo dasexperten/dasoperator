@@ -1072,9 +1072,34 @@ operations.patch('/:id/status', async (c) => {
       }
     }
     // PURCHASE at shipped:
-    //   1. -qty leaves factory in_production reservation
-    //   2. +qty arrives at otw with state in_transit
+    //   1. Clear any stale on_hand at factory (phantom — old data from before
+    //      production lifecycle existed; once goods physically leave the
+    //      factory, on_hand at that factory must read zero for these SKUs).
+    //   2. -qty leaves factory in_production reservation
+    //   3. +qty arrives at otw with state in_transit
     if (opType === 'purchase' && op.warehouse_from_id) {
+      // Look up any stale on_hand rows at this factory for the shipped SKUs
+      // and queue a zero-out movement for each. Done as a peek-and-set: we
+      // record a negative movement equal to whatever on_hand currently shows,
+      // bringing balance_after to zero. Skipped for SKUs already at zero.
+      const skuList = lineItems.map((li) => li.product_id);
+      const placeholders = skuList.map(() => '?').join(',');
+      const phantomQuery = await c.env.DB.prepare(
+        `SELECT product_id, on_hand FROM stocks
+         WHERE warehouse_id = ? AND stock_state = 'on_hand'
+           AND product_id IN (${placeholders}) AND on_hand > 0`
+      ).bind(op.warehouse_from_id, ...skuList).all<{ product_id: string; on_hand: number }>();
+      for (const phantom of phantomQuery.results || []) {
+        movementSpecs.push({
+          warehouseId: op.warehouse_from_id,
+          productId: phantom.product_id,
+          movementType: 'factory_phantom_clear',
+          qty: -phantom.on_hand,
+          reason: 'factory_phantom_cleared_at_shipped',
+          stockState: 'on_hand',
+        });
+      }
+
       for (const li of lineItems) {
         // Release the in_production reservation at the factory
         movementSpecs.push({

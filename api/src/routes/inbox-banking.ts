@@ -478,7 +478,7 @@ inboxBanking.post('/:tx_id/attach', async (c) => {
     const tx = await c.env.DB.prepare(`
       SELECT id, direction, amount, currency, executed_at,
              contragent_name, contragent_inn, payment_purpose, external_doc_number,
-             matched_payment_id AS prev_op_id
+             matched_operation_id AS prev_op_id
       FROM bank_transactions WHERE id = ?
     `).bind(txId).first<{
       id: string; direction: string; amount: number; currency: string;
@@ -520,7 +520,7 @@ inboxBanking.post('/:tx_id/attach', async (c) => {
 
     await c.env.DB.prepare(`
       UPDATE bank_transactions
-      SET matched_payment_id = ?, match_method = 'manual_attached',
+      SET matched_operation_id = ?, match_method = 'manual',
           matched_at = ?, updated_at = ?
       WHERE id = ?
     `).bind(op.id, now, now, tx.id).run();
@@ -748,14 +748,13 @@ inboxBanking.post('/:tx_id/assign-partner', async (c) => {
     // Update bank_tx
     await c.env.DB.prepare(`
       UPDATE bank_transactions
-      SET matched_payment_id = ?,
-          match_method = ?,
+      SET matched_operation_id = ?,
+          match_method = 'manual',
           matched_at = ?,
           updated_at = ?
       WHERE id = ?
     `).bind(
       opId,
-      isService ? 'manual_service_closed' : 'manual_partner_assigned',
       now, now, tx.id,
     ).run();
 

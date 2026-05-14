@@ -5,11 +5,24 @@ import { ok, fail, fromError } from '../lib/responses';
 
 const bankStatementSources = new Hono<{ Bindings: Env }>();
 
-const createSchema = z.object({
-  email: z.string().email().toLowerCase().trim(),
-  company_id: z.enum(['dee', 'dei', 'dasean', 'dec']),
-  notes: z.string().optional(),
-});
+const TG_HANDLE_RE = /^(@[A-Za-z0-9_]{4,32}|\+\d{6,15})$/;
+
+const createSchema = z.discriminatedUnion('source_type', [
+  z.object({
+    source_type: z.literal('email_inbox'),
+    address: z.string().email().toLowerCase().trim(),
+    company_id: z.enum(['dee', 'dei', 'dasean', 'dec']),
+    notes: z.string().optional(),
+  }),
+  z.object({
+    source_type: z.literal('telegram_contact'),
+    address: z.string().trim().refine((v) => TG_HANDLE_RE.test(v), {
+      message: 'Telegram handle must be @username (4–32 chars) or phone +<digits>',
+    }),
+    company_id: z.enum(['dee', 'dei', 'dasean', 'dec']),
+    notes: z.string().optional(),
+  }),
+]);
 
 const updateSchema = z.object({
   email: z.string().email().toLowerCase().trim().optional(),
@@ -24,7 +37,7 @@ const updateSchema = z.object({
 bankStatementSources.get('/', async (c) => {
   try {
     const rows = await c.env.DB.prepare(
-      `SELECT s.id, s.email, s.company_id, c.abbreviation AS company_abbreviation,
+      `SELECT s.id, s.source_type, s.address, s.email, s.company_id, c.abbreviation AS company_abbreviation,
               c.legal_name AS company_legal_name, s.is_active, s.notes,
               s.created_at, s.updated_at
          FROM bank_statement_sources s
@@ -52,29 +65,37 @@ bankStatementSources.post('/', async (c) => {
       ]);
     }
 
-    const { email, company_id, notes } = parsed.data;
+    const { source_type, address, company_id, notes } = parsed.data;
     const id = `bss_${crypto.randomUUID()}`;
     const now = Math.floor(Date.now() / 1000);
 
-    // Check duplicate
+    // Check duplicate within same type
     const existing = await c.env.DB.prepare(
-      `SELECT id FROM bank_statement_sources WHERE email = ? AND deleted_at IS NULL`
-    ).bind(email).first();
+      `SELECT id FROM bank_statement_sources
+        WHERE source_type = ? AND address = ? AND deleted_at IS NULL`
+    ).bind(source_type, address).first();
 
     if (existing) {
       return fail(c, 409, [
-        { code: 'duplicate_email', message: `Email ${email} is already registered as a source` },
+        { code: 'duplicate_source', message: `${address} is already registered as a ${source_type} source` },
       ]);
     }
 
+    // email column is NOT NULL UNIQUE in legacy schema. For telegram rows we still
+    // need to satisfy it — write a synthetic value tied to the address.
+    const emailValue = source_type === 'email_inbox'
+      ? address
+      : `tg:${address}`;
+
     await c.env.DB.prepare(
       `INSERT INTO bank_statement_sources
-         (id, email, company_id, is_active, created_at, updated_at, notes)
-       VALUES (?, ?, ?, 1, ?, ?, ?)`
-    ).bind(id, email, company_id, now, now, notes ?? null).run();
+         (id, source_type, address, email, company_id, is_active,
+          created_at, updated_at, notes)
+       VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)`
+    ).bind(id, source_type, address, emailValue, company_id, now, now, notes ?? null).run();
 
     const created = await c.env.DB.prepare(
-      `SELECT s.id, s.email, s.company_id, c.abbreviation AS company_abbreviation,
+      `SELECT s.id, s.source_type, s.address, s.email, s.company_id, c.abbreviation AS company_abbreviation,
               c.legal_name AS company_legal_name, s.is_active, s.notes,
               s.created_at, s.updated_at
          FROM bank_statement_sources s

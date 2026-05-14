@@ -1823,6 +1823,8 @@ export async function syncBankHistory(body?: {
 // =============================================================================
 export interface BankStatementSource {
   id: string;
+  source_type: 'email_inbox' | 'telegram_contact';
+  address: string;
   email: string;
   company_id: string;
   company_abbreviation: string;
@@ -1838,7 +1840,8 @@ export async function getBankStatementSources() {
 }
 
 export async function createBankStatementSource(body: {
-  email: string;
+  source_type: 'email_inbox' | 'telegram_contact';
+  address: string;
   company_id: 'dee' | 'dei' | 'dasean' | 'dec';
   notes?: string;
 }) {

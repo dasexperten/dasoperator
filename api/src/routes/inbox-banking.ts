@@ -162,12 +162,20 @@ inboxBanking.get('/:tx_id/suggestions', async (c) => {
     const minDate = tx.executed_at - windowSec;
     const maxDate = tx.executed_at + windowSec;
 
-    // Find partner by INN (may be null)
-    const partner = await c.env.DB.prepare(`
-      SELECT id FROM partners
-      WHERE (tax_id = ? OR inn = ?) AND (deleted_at IS NULL OR deleted_at = 0)
-      LIMIT 1
-    `).bind(tx.contragent_inn, tx.contragent_inn).first<{ id: string }>();
+    // Find partner by INN (may be null) — or use ?partner_id=X override from wizard Step 2
+    const partnerIdOverride = c.req.query('partner_id');
+    let partner: { id: string } | null = null;
+    if (partnerIdOverride) {
+      partner = await c.env.DB.prepare(
+        `SELECT id FROM partners WHERE id = ? AND (deleted_at IS NULL OR deleted_at = 0) LIMIT 1`
+      ).bind(partnerIdOverride).first<{ id: string }>();
+    } else if (tx.contragent_inn) {
+      partner = await c.env.DB.prepare(`
+        SELECT id FROM partners
+        WHERE (tax_id = ? OR inn = ?) AND (deleted_at IS NULL OR deleted_at = 0)
+        LIMIT 1
+      `).bind(tx.contragent_inn, tx.contragent_inn).first<{ id: string }>();
+    }
 
     // Candidates: same partner OR (no partner found) any partner with matching amount.
     const candidatesSql = partner
@@ -216,6 +224,173 @@ inboxBanking.get('/:tx_id/suggestions', async (c) => {
       message: e instanceof Error ? e.message : String(e),
     }]);
   }
+});
+
+// =============================================================================
+// GET /api/inbox/banking/:tx_id/auto-match
+// Returns ranked partner suggestions for the AssignWizard (Step 1).
+// Tiers (best first, deduped by partner_id):
+//   1. bank_match_rules — INN exact, sorted by hit_count desc          (high)
+//   2. partners.tax_id / partners.inn — INN exact                       (high)
+//   3. partners.iban — IBAN exact (for non-Russian source like Wio)     (high)
+//   4. findExistingPartnerByName — normalised fuzzy on contragent_name (medium)
+//
+// Returns up to 3 distinct partners with confidence + provenance.
+// =============================================================================
+inboxBanking.get('/:tx_id/auto-match', async (c) => {
+  const txId = c.req.param('tx_id');
+
+  const tx = await c.env.DB.prepare(`
+    SELECT id, direction, amount, currency, executed_at,
+           contragent_name, contragent_inn, contragent_account,
+           payment_purpose, source_type
+    FROM bank_transactions WHERE id = ?
+  `).bind(txId).first<{
+    id: string; direction: 'incoming' | 'outgoing';
+    amount: number; currency: string; executed_at: number;
+    contragent_name: string | null; contragent_inn: string | null;
+    contragent_account: string | null; payment_purpose: string | null;
+    source_type: string;
+  }>();
+
+  if (!tx) {
+    return fail(c, 404, [{ code: 'tx_not_found', message: `bank_tx ${txId} not found` }]);
+  }
+
+  type Suggestion = {
+    partner_id: string;
+    trade_name: string;
+    kind: string | null;
+    confidence: 'high' | 'medium' | 'low';
+    via: 'rule' | 'inn' | 'iban' | 'name';
+    matched_field: string;
+    hit_count?: number;
+    rule_id?: string;
+  };
+
+  const seen = new Set<string>();
+  const out: Suggestion[] = [];
+  const inn = (tx.contragent_inn || '').trim();
+
+  // Tier 1 — bank_match_rules by INN, ordered by hit_count desc
+  if (inn) {
+    const rules = await c.env.DB.prepare(`
+      SELECT bmr.id AS rule_id, bmr.partner_id, bmr.hit_count,
+             p.trade_name, p.kind
+      FROM bank_match_rules bmr
+      JOIN partners p ON p.id = bmr.partner_id
+      WHERE bmr.contragent_inn = ?
+        AND (bmr.direction = ? OR bmr.direction = 'any')
+        AND bmr.deleted_at IS NULL
+        AND (p.deleted_at IS NULL OR p.deleted_at = 0)
+      ORDER BY bmr.hit_count DESC, bmr.last_hit_at DESC
+      LIMIT 5
+    `).bind(inn, tx.direction).all<{
+      rule_id: string; partner_id: string; hit_count: number;
+      trade_name: string; kind: string | null;
+    }>();
+    for (const r of rules.results ?? []) {
+      if (seen.has(r.partner_id)) continue;
+      seen.add(r.partner_id);
+      out.push({
+        partner_id: r.partner_id,
+        trade_name: r.trade_name,
+        kind: r.kind,
+        confidence: 'high',
+        via: 'rule',
+        matched_field: `ИНН ${inn} · ${r.hit_count} prior match${r.hit_count === 1 ? '' : 'es'}`,
+        hit_count: r.hit_count,
+        rule_id: r.rule_id,
+      });
+    }
+  }
+
+  // Tier 2 — partners by INN exact
+  if (inn) {
+    const byInn = await c.env.DB.prepare(`
+      SELECT id, trade_name, kind
+      FROM partners
+      WHERE (tax_id = ? OR inn = ?)
+        AND (deleted_at IS NULL OR deleted_at = 0)
+      ORDER BY CASE WHEN crm_status='active' THEN 0 ELSE 1 END, created_at ASC
+      LIMIT 3
+    `).bind(inn, inn).all<{ id: string; trade_name: string; kind: string | null }>();
+    for (const p of byInn.results ?? []) {
+      if (seen.has(p.id)) continue;
+      seen.add(p.id);
+      out.push({
+        partner_id: p.id,
+        trade_name: p.trade_name,
+        kind: p.kind,
+        confidence: 'high',
+        via: 'inn',
+        matched_field: `ИНН ${inn}`,
+      });
+    }
+  }
+
+  // Tier 3 — partners by IBAN exact (for non-Russian transactions)
+  const iban = (tx.contragent_account || '').trim();
+  if (iban && iban.length >= 10) {
+    const byIban = await c.env.DB.prepare(`
+      SELECT id, trade_name, kind
+      FROM partners
+      WHERE iban = ?
+        AND (deleted_at IS NULL OR deleted_at = 0)
+      LIMIT 3
+    `).bind(iban).all<{ id: string; trade_name: string; kind: string | null }>();
+    for (const p of byIban.results ?? []) {
+      if (seen.has(p.id)) continue;
+      seen.add(p.id);
+      out.push({
+        partner_id: p.id,
+        trade_name: p.trade_name,
+        kind: p.kind,
+        confidence: 'high',
+        via: 'iban',
+        matched_field: `IBAN ${iban}`,
+      });
+    }
+  }
+
+  // Tier 4 — fuzzy partner name match
+  const name = (tx.contragent_name || '').trim();
+  if (name.length >= 3 && out.length < 3) {
+    const fuzzy = await findExistingPartnerByName(c.env.DB, name);
+    if (fuzzy && !seen.has(fuzzy.id)) {
+      const p = await c.env.DB.prepare(
+        `SELECT id, trade_name, kind FROM partners WHERE id = ?`
+      ).bind(fuzzy.id).first<{ id: string; trade_name: string; kind: string | null }>();
+      if (p) {
+        seen.add(p.id);
+        out.push({
+          partner_id: p.id,
+          trade_name: p.trade_name,
+          kind: p.kind,
+          confidence: 'medium',
+          via: 'name',
+          matched_field: `name match: ${name.slice(0, 40)}`,
+        });
+      }
+    }
+  }
+
+  return ok(c, {
+    tx: {
+      id: tx.id,
+      direction: tx.direction,
+      amount_minor: tx.amount,
+      amount: tx.amount / 100,
+      currency: tx.currency,
+      executed_at: tx.executed_at,
+      contragent_name: tx.contragent_name,
+      contragent_inn: tx.contragent_inn,
+      contragent_account: tx.contragent_account,
+      payment_purpose: tx.payment_purpose,
+      source_type: tx.source_type,
+    },
+    suggestions: out.slice(0, 3),
+  });
 });
 
 // =============================================================================

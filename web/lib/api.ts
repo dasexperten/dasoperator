@@ -1742,6 +1742,7 @@ export interface BankTransaction {
   contragent_bank_bic: string | null;
   payment_purpose: string | null;
   matched_payment_id: string | null;
+  matched_operation_id?: string | null;
   match_method: string | null;
   matched_at: number | null;
   account_number: string;

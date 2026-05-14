@@ -81,10 +81,15 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
 
   const [submitting, setSubmitting] = useState(false);
 
+  // Manual service-mode toggle — user clicked the 4th "Services" button.
+  // Set independently of partner_subtype, so any partner can be used for a
+  // service operation (e.g. one-off consultants without a saved subtype).
+  const [manualServiceMode, setManualServiceMode] = useState(false);
+
   // Derived: is the currently selected partner a service provider?
   // Auto-flips the form into service mode when true. Goods partners stay
   // on the regular flow exactly as before.
-  const isServiceMode = !!partner?.partner_subtype;
+  const isServiceMode = manualServiceMode || !!partner?.partner_subtype;
   const [error, setError] = useState<string | null>(null);
 
   // Warehouse dropdowns — filtered by counterparty context.
@@ -762,19 +767,20 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
 
       {/* Section A: Operation Type — must come first, drives everything else */}
       <Section label="Type">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           {([
             { id: 'sale',     label: 'Sales',    desc: 'Sell to a buyer',         color: '#2E7D4F' /* green */ },
             { id: 'purchase', label: 'Purchase', desc: 'Buy from factory',        color: '#7D481C' /* brown */ },
             { id: 'transfer', label: 'Transfer', desc: 'Between our entities',    color: '#5C5C5C' /* gray  */ },
           ] as const).map((t) => {
-            const active = opType === t.id;
+            const active = opType === t.id && !manualServiceMode;
             return (
               <button
                 key={t.id}
                 type="button"
                 onClick={() => {
                   setOpType(t.id);
+                  setManualServiceMode(false);
                   // reset counterparty fields on type change
                   setSelectedPartnerSlug(partnerSlug);
                   setContractId('');
@@ -796,6 +802,37 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
               </button>
             );
           })}
+          {/* Services — 4th button. Flips form into service-track mode regardless of partner_subtype.
+              For service partners (accountants, lawyers, etc.) auto-flip still works via partner_subtype. */}
+          {(() => {
+            const SERVICE_COLOR = '#C46B14';
+            const active = manualServiceMode;
+            return (
+              <button
+                type="button"
+                onClick={() => {
+                  setManualServiceMode(true);
+                  // Service ops are purchases of services by default
+                  setOpType('purchase');
+                  setContractId('');
+                  setManufacturerId('');
+                  setReceivingCompanyId('');
+                }}
+                style={{
+                  padding: '14px 16px',
+                  textAlign: 'left',
+                  backgroundColor: active ? SERVICE_COLOR : 'var(--paper-sunk)',
+                  color: active ? 'var(--paper)' : 'var(--fg-1)',
+                  border: `1px solid ${active ? SERVICE_COLOR : 'var(--border-hairline)'}`,
+                  borderRadius: 'var(--radius-sm)',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{ fontWeight: 700, fontSize: '16px', marginBottom: '4px' }}>Services</div>
+                <div style={{ fontSize: '14px', opacity: active ? 0.9 : 0.7 }}>Buy a service</div>
+              </button>
+            );
+          })()}
           {/* Bundling — separate form */}
           <button
             type="button"
@@ -1003,11 +1040,32 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
           Replaces Section C + line items table for service operations. */}
       {isServiceMode && (
         <Section label="Service Details" disabled={false}>
-          <div style={{ marginBottom: '12px', padding: '12px 14px', backgroundColor: 'rgba(31,73,125,0.06)', border: '1px solid rgba(31,73,125,0.2)', borderRadius: 'var(--radius-sm)', fontSize: '14px', color: 'var(--fg-1)' }}>
-            <strong>{partner?.trade_name}</strong> is a <strong>{partner?.partner_subtype}</strong>.
-            This operation will be created on the <strong>service track</strong> — no warehouse,
-            no line items, no goods toolbar. Just amount and description.
-          </div>
+          {/* Global mode + manual service: pick the service provider partner first */}
+          {isGlobalMode && (
+            <div style={{ marginBottom: '16px' }}>
+              <Label>Service provider *</Label>
+              <select
+                value={selectedPartnerSlug}
+                onChange={(e) => setSelectedPartnerSlug(e.target.value)}
+                style={selectStyle}
+              >
+                <option value="">— Choose a partner —</option>
+                {allPartners.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.trade_name}{p.partner_subtype ? ` · ${p.partner_subtype}` : ''}{p.country ? ` (${p.country})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {partner && (
+            <div style={{ marginBottom: '12px', padding: '12px 14px', backgroundColor: 'rgba(31,73,125,0.06)', border: '1px solid rgba(31,73,125,0.2)', borderRadius: 'var(--radius-sm)', fontSize: '14px', color: 'var(--fg-1)' }}>
+              <strong>{partner.trade_name}</strong>{partner.partner_subtype ? <> is a <strong>{partner.partner_subtype}</strong>.</> : <> — service operation.</>}
+              {' '}This will be created on the <strong>service track</strong> — no warehouse,
+              no line items, no goods toolbar. Just amount and description.
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div>

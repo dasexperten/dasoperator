@@ -152,7 +152,7 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
           />
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="block mb-1" style={{ fontSize: '14px' }}>Our Entity *</label>
             <select value={companyId} onChange={(e) => setCompanyId(e.target.value)}
@@ -181,7 +181,7 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block mb-1" style={{ fontSize: '14px' }}>Status</label>
             <select value={status} onChange={(e) => setStatus(e.target.value as 'draft' | 'active')}
@@ -199,7 +199,7 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block mb-1" style={{ fontSize: '14px' }}>Signed Date</label>
             <input type="date" value={signedDate} onChange={(e) => setSignedDate(e.target.value)}
@@ -237,7 +237,7 @@ export default function NewContractClient({ partnerSlug }: { partnerSlug: string
               For DEE foreign-trade contracts placed on bank registration.
               Leave blank if not yet assigned.
             </p>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block mb-1" style={{ fontSize: '14px' }}>УНК (Unique Contract Number — assigned by RU bank, e.g. 24080104/1927/0006/2/1)</label>
                 <input

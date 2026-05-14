@@ -287,7 +287,7 @@ export default function NewProductPage() {
             <div style={helperStyle}>Long descriptive name used on invoices and customs documents.</div>
           </div>
 
-          <div className="grid grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div>
               <label style={labelStyle}>Category *</label>
               <select
@@ -332,7 +332,7 @@ export default function NewProductPage() {
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div>
               <label style={labelStyle}>Barcode</label>
               <input
@@ -474,7 +474,7 @@ export default function NewProductPage() {
             <span style={{ fontWeight: 600 }}>SKU {createdId.toUpperCase()} created.</span> Add carton and packaging details below, or skip and fill in later.
           </div>
 
-          <div className="grid grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div>
               <label style={labelStyle}>Pieces per inner box</label>
               <input
@@ -503,7 +503,7 @@ export default function NewProductPage() {
 
           <div>
             <label style={labelStyle}>Carton dimensions (L × W × H, cm)</label>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <input
                 type="number"
                 step="0.1"
@@ -534,7 +534,7 @@ export default function NewProductPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div>
               <label style={labelStyle}>Carton weight gross (kg)</label>
               <input
@@ -615,7 +615,7 @@ export default function NewProductPage() {
               Reference buying cost per unit. Used by margin and landed-cost views.
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
                 <label style={{ ...labelStyle, fontSize: '14px' }}>Buy price (cents/fen)</label>
                 <input
@@ -665,7 +665,7 @@ export default function NewProductPage() {
           </div>
 
           {/* Per-unit logistics — weight and volume for freight calculations */}
-          <div className="grid grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div>
               <label style={labelStyle}>Unit weight (g)</label>
               <input

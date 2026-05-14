@@ -216,7 +216,7 @@ export default function NewPaymentClient({ partnerSlug }: { partnerSlug: string 
 
       {/* Section 3: Payment Details */}
       <Section label="Payment Details" disabled={!contractId}>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <Label>Amount *</Label>
             <input type="text" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(',', '.'))} disabled={!contractId} placeholder="0.00"
@@ -245,7 +245,7 @@ export default function NewPaymentClient({ partnerSlug }: { partnerSlug: string 
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 mt-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
           <div>
             <Label>Payment Date *</Label>
             <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} disabled={!contractId}

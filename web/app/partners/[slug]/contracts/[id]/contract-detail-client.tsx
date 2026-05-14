@@ -129,7 +129,7 @@ export default function ContractDetailClient({ partnerSlug, contractId }: { part
 
       <div className="dx-ribbon-rule" />
 
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <SectionCard label="Parties" fields={partyFields}>
           <CopyableField label="Our Entity" value={contract.entity_abbreviation} mono />
           <CopyableField label="Partner" value={contract.partner_trade_name} />
@@ -163,7 +163,7 @@ export default function ContractDetailClient({ partnerSlug, contractId }: { part
           >
             Russian currency control (УНК)
           </div>
-          <div className="grid grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <CopyableField label="УНК (Unique Contract Number)" value={contract.unk_reference ?? '—'} mono />
             <CopyableField label="Valid Until" value={formatDate(contract.unk_valid_until)} mono />
           </div>
@@ -305,7 +305,7 @@ function EditContractForm({
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <FormField label="Contract No">
           <input
             type="text"
@@ -394,7 +394,7 @@ function EditContractForm({
 
       <div className="mt-4">
         {isRussianEntity && (
-          <div className="grid grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <FormField label="УНК (Unique Contract Number — from RU bank registration)">
               <input
                 type="text"

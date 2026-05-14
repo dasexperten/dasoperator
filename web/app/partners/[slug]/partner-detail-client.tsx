@@ -335,7 +335,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
       )}
 
       {/* Reference cards (2 columns теперь, без Commercial — переехал в Contracts ниже) */}
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <SectionCard label="General" fields={generalFields}>
           <CopyableField label="Country" value={partner.country} />
           <CopyableField label="Type" value={partner.partner_type} />

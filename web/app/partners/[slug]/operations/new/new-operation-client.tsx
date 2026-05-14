@@ -762,7 +762,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
 
       {/* Section A: Operation Type — must come first, drives everything else */}
       <Section label="Type">
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {([
             { id: 'sale',     label: 'Sales',    desc: 'Sell to a buyer',         color: '#2E7D4F' /* green */ },
             { id: 'purchase', label: 'Purchase', desc: 'Buy from factory',        color: '#7D481C' /* brown */ },
@@ -819,7 +819,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
       {/* Section B: Counterparty — varies by type */}
       {opType === 'sale' && (
         <Section label="Buyer & Contract">
-          <div className={isGlobalMode ? 'grid grid-cols-2 gap-6' : ''}>
+          <div className={isGlobalMode ? 'grid grid-cols-1 md:grid-cols-2 gap-6' : ''}>
             {isGlobalMode && (
               <div>
                 <Label>Select buyer *</Label>
@@ -877,7 +877,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
             </div>
           </div>
           {selectedContract && (
-            <div className="mt-4 grid grid-cols-3 gap-3" style={{ fontSize: '14px' }}>
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3" style={{ fontSize: '14px' }}>
               <div><Label>Entity</Label><div style={{ color: 'var(--fg-1)' }}>{contractEntity}</div></div>
               <div><Label>Currency</Label><div style={{ color: 'var(--fg-1)' }}>{contractCurrency}</div></div>
               <div><Label>Contract</Label><div style={{ color: 'var(--fg-1)' }}>{selectedContract.contract_no}</div></div>
@@ -888,7 +888,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
 
       {opType === 'purchase' && (
         <Section label="Supplier (Factory)">
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
               <Label>Manufacturer *</Label>
               <select value={manufacturerId} onChange={(e) => setManufacturerId(e.target.value)} style={selectStyle}>
@@ -960,7 +960,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
 
       {opType === 'transfer' && (
         <Section label="Internal Transfer">
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
               <Label>From entity *</Label>
               <select value={ourCompanyId} onChange={(e) => setOurCompanyId(e.target.value)} style={selectStyle}>

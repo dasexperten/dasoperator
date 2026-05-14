@@ -354,7 +354,7 @@ function InvoiceCard({
 
           {/* Vendor details — what will be saved if Yes is clicked */}
           {(item.extracted_service_category || item.extracted_bank_name || item.extracted_vendor_country || item.extracted_buyer_entity) && (
-            <div className="mt-3 pt-3 grid grid-cols-2 gap-x-6 gap-y-1" style={{ borderTop: '1px dashed var(--border-hairline)', fontSize: 14 }}>
+            <div className="mt-3 pt-3 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1" style={{ borderTop: '1px dashed var(--border-hairline)', fontSize: 14 }}>
               {item.extracted_service_category && (
                 <div style={{ color: 'var(--fg-3)' }}>
                   Service category <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{item.extracted_service_category}</span>

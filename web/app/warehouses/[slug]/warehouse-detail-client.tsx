@@ -177,7 +177,7 @@ export default function WarehouseDetailClient({ warehouseId }: { warehouseId: st
       <div className="dx-ribbon-rule" />
 
       {/* KPI summary */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <KpiCard label="Total on hand" value={totalOnHand.toLocaleString('en-US')} suffix="pcs" />
         <KpiCard label="SKUs with stock" value={`${nonZeroSkus} / ${totalSkus}`} />
         <KpiCard label="Sessions" value={sessions.length.toString()} />

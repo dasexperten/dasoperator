@@ -518,7 +518,7 @@ function FormSection({ title, children }: { title: string; children: React.React
         color: 'var(--fg-3)',
         fontWeight: 700,
       }}>{title}</h2>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {children}
       </div>
     </section>

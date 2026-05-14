@@ -535,7 +535,7 @@ export default function OperationDetailClient({
 
       {/* REFERENCE STRIP ============================================ */}
       <div
-        className="grid grid-cols-2 md:grid-cols-6 gap-4 p-4"
+        className="grid grid-cols-1 md:grid-cols-2 md:grid-cols-6 gap-4 p-4"
         style={{
           backgroundColor: 'var(--paper-sunk)',
           border: '1px solid var(--border-hairline)',
@@ -1500,7 +1500,7 @@ function PaymentsTab({
 
       {/* Summary strip */}
       <div
-        className="grid grid-cols-3 gap-4 p-4"
+        className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4"
         style={{
           backgroundColor: 'var(--paper-sunk)',
           border: '1px solid var(--border-hairline)',

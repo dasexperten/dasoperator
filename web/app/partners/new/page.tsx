@@ -139,8 +139,8 @@ export default function NewPartnerPage() {
       </div>
 
       {/* Step indicator */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
+      <div className="dx-stepper flex items-center gap-3" style={{ flexWrap: 'nowrap', overflow: 'hidden' }}>
+        <div className="flex items-center gap-2" style={{ flexShrink: 0 }}>
           <div style={{
             width: 28, height: 28,
             borderRadius: '50%',
@@ -148,13 +148,14 @@ export default function NewPartnerPage() {
             color: 'var(--paper)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: '14px', fontWeight: 700,
+            flexShrink: 0,
           }}>
             {step > 1 ? <Check className="h-3.5 w-3.5" /> : '1'}
           </div>
-          <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>Basics</span>
+          <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', whiteSpace: 'nowrap' }}>Basics</span>
         </div>
-        <ChevronRight className="h-4 w-4" style={{ color: 'var(--fg-muted)' }} />
-        <div className="flex items-center gap-2">
+        <ChevronRight className="h-4 w-4" style={{ color: 'var(--fg-muted)', flexShrink: 0 }} />
+        <div className="flex items-center gap-2" style={{ flexShrink: 0 }}>
           <div style={{
             width: 28, height: 28,
             borderRadius: '50%',
@@ -163,10 +164,11 @@ export default function NewPartnerPage() {
             border: step === 2 ? 'none' : '1px solid var(--border-hairline)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: '14px', fontWeight: 700,
+            flexShrink: 0,
           }}>
             2
           </div>
-          <span style={{ fontSize: '14px', fontWeight: 700, color: step === 2 ? 'var(--fg-1)' : 'var(--fg-3)' }}>
+          <span style={{ fontSize: '14px', fontWeight: 700, color: step === 2 ? 'var(--fg-1)' : 'var(--fg-3)', whiteSpace: 'nowrap' }}>
             Banking & Tax
           </span>
         </div>
@@ -176,7 +178,7 @@ export default function NewPartnerPage() {
 
       {step === 1 && (
         <Section label="Basic Info">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label>Trade name *</Label>
               <input type="text" value={tradeName} onChange={(e) => setTradeName(e.target.value)}
@@ -249,7 +251,7 @@ export default function NewPartnerPage() {
       {step === 2 && (
         <>
           <Section label="Banking">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label>IBAN</Label>
                 <input type="text" value={iban} onChange={(e) => setIban(e.target.value)}
@@ -269,7 +271,7 @@ export default function NewPartnerPage() {
           </Section>
 
           <Section label="Tax & Registration">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label>Tax ID</Label>
                 <input type="text" value={taxId} onChange={(e) => setTaxId(e.target.value)}
@@ -303,7 +305,7 @@ export default function NewPartnerPage() {
           </Section>
 
           <Section label="Trade Preferences">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="col-span-2">
                 <Label>Preferred incoterms</Label>
                 <input type="text" value={preferredIncoterms}

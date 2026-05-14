@@ -297,6 +297,12 @@ input[type="number"] {
   .grid {
     gap: 12px !important;
   }
+  /* Inline-styled grids: anything with style="grid-template-columns:..."
+     collapses to single column UNLESS marked as opt-in via class
+     'dx-keep-grid' (e.g. the mobile-only filter row that explicitly wants 2). */
+  [style*="grid-template-columns"]:not(.dx-keep-grid):not(.dx-show-mobile):not(.dx-show-mobile *) {
+    grid-template-columns: 1fr !important;
+  }
 }
 
 /* ---- 4. Flex rows wrap on mobile ---- */

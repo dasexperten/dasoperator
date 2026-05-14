@@ -42,6 +42,64 @@ const UNRESOLVED_METHODS = [
 //     'legacy_unmatched'     → match_method IS NULL (pre-cascade rows)
 //   limit  — default 50, max 200
 // =============================================================================
+
+// Silent auto-write of an INN → partner rule on each successful assign/attach.
+// Bumps hit_count on existing match; inserts new row otherwise. No category
+// is set here — these are partner-matching rules used by the auto-match Tier 1
+// query; category-only rules continue to live alongside.
+async function recordPartnerInnRule(
+  db: D1Database,
+  args: {
+    partnerId: string;
+    inn: string;
+    direction: 'incoming' | 'outgoing';
+    operationType: 'sale' | 'purchase';
+    txId: string;
+  },
+): Promise<void> {
+  if (!args.inn || !args.partnerId) return;
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    // Look for an existing partner-bound rule with this (inn, partner, direction).
+    const existing = await db.prepare(`
+      SELECT id, hit_count FROM bank_match_rules
+      WHERE contragent_inn = ?
+        AND partner_id = ?
+        AND (direction = ? OR direction = 'any')
+        AND deleted_at IS NULL
+      LIMIT 1
+    `).bind(args.inn, args.partnerId, args.direction).first<{
+      id: string; hit_count: number;
+    }>();
+
+    if (existing) {
+      await db.prepare(`
+        UPDATE bank_match_rules
+        SET hit_count = hit_count + 1,
+            last_hit_at = ?,
+            updated_at = ?
+        WHERE id = ?
+      `).bind(now, now, existing.id).run();
+      return;
+    }
+
+    const id = `bmr_${crypto.randomUUID()}`;
+    await db.prepare(`
+      INSERT INTO bank_match_rules
+        (id, partner_id, contragent_inn, direction,
+         default_operation_type, hit_count, last_hit_at,
+         created_at, updated_at, created_from_tx_id)
+      VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+    `).bind(
+      id, args.partnerId, args.inn, args.direction,
+      args.operationType, now, now, now, args.txId,
+    ).run();
+  } catch (err) {
+    console.error('[inbox-banking] recordPartnerInnRule failed:', err);
+    // Non-fatal — rule remembering is best-effort.
+  }
+}
+
 inboxBanking.get('/', async (c) => {
   const filter = c.req.query('filter') ?? 'all';
   const limit = Math.min(200, Math.max(1, Number(c.req.query('limit') ?? 50)));
@@ -515,6 +573,25 @@ inboxBanking.post('/:tx_id/attach', async (c) => {
       console.error('[inbox-banking attach] suggestRule failed:', suggestErr);
     }
 
+    // Auto-remember partner ↔ INN binding so the same counterparty
+    // is recognised instantly next time (auto-match Tier 1).
+    try {
+      const opPartner = await c.env.DB.prepare(
+        `SELECT partner_id, operation_type FROM operations WHERE id = ?`
+      ).bind(op.id).first<{ partner_id: string | null; operation_type: string }>();
+      if (opPartner?.partner_id && tx.contragent_inn) {
+        await recordPartnerInnRule(c.env.DB, {
+          partnerId: opPartner.partner_id,
+          inn: tx.contragent_inn,
+          direction: tx.direction as 'incoming' | 'outgoing',
+          operationType: opPartner.operation_type === 'sale' ? 'sale' : 'purchase',
+          txId: tx.id,
+        });
+      }
+    } catch (memErr) {
+      console.error('[inbox-banking attach] rule-remember failed:', memErr);
+    }
+
     return ok(c, {
       tx_id: tx.id,
       operation_id: op.id,
@@ -681,6 +758,21 @@ inboxBanking.post('/:tx_id/assign-partner', async (c) => {
       isService ? 'manual_service_closed' : 'manual_partner_assigned',
       now, now, tx.id,
     ).run();
+
+    // Auto-remember partner ↔ INN binding for next time.
+    try {
+      if (tx.contragent_inn) {
+        await recordPartnerInnRule(c.env.DB, {
+          partnerId,
+          inn: tx.contragent_inn,
+          direction: tx.direction as 'incoming' | 'outgoing',
+          operationType,
+          txId: tx.id,
+        });
+      }
+    } catch (memErr) {
+      console.error('[inbox-banking assign-partner] rule-remember failed:', memErr);
+    }
 
     return ok(c, {
       tx_id: tx.id,

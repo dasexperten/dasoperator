@@ -207,7 +207,7 @@ function AddSourceModal({
             />
             {sourceType === 'telegram_contact' && (
               <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: 4 }}>
-                Accepts: @username · +phone · t.me/USERNAME · t.me/c/GROUP_ID · -100GROUP_ID. Auto-ingest of .pdf/.csv/.xlsx.
+                Accepts: @username · +phone · t.me link (whole group or specific topic) · -100GROUP_ID · -100GROUP#TOPIC. Auto-ingest of .pdf/.csv/.xlsx.
               </div>
             )}
           </div>

@@ -588,8 +588,8 @@ export default function FinanceTransactionsPage() {
     return transactions.filter((tx) => {
       if (accountFilter !== 'all' && tx.company_bank_account_id !== accountFilter) return false;
       if (directionFilter !== 'all' && tx.direction !== directionFilter) return false;
-      if (matchedFilter === 'matched' && !tx.matched_payment_id) return false;
-      if (matchedFilter === 'unmatched' && tx.matched_payment_id) return false;
+      if (matchedFilter === 'matched' && !tx.matched_payment_id && !tx.matched_operation_id) return false;
+      if (matchedFilter === 'unmatched' && (tx.matched_payment_id || tx.matched_operation_id)) return false;
       if (search) {
         const q = search.toLowerCase();
         const haystack = [
@@ -871,7 +871,7 @@ export default function FinanceTransactionsPage() {
                       </span>
                     </td>
                     <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                      {tx.matched_payment_id
+                      {(tx.matched_payment_id || tx.matched_operation_id)
                         ? <CheckCircle2 className="h-4 w-4 inline" style={{ color: 'var(--status-success)' }} />
                         : (
                           <button

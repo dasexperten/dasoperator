@@ -165,7 +165,7 @@ banksModulbank.get('/_diag', async (c) => {
   }
 
   // 1) Pull account list
-  const accountsResp = await fetch('https://api.modulbank.ru/v1/account', {
+  const accountsResp = await fetch('https://api.modulbank.ru/v1/account-info', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,

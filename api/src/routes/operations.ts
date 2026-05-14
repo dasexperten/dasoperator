@@ -1072,34 +1072,10 @@ operations.patch('/:id/status', async (c) => {
       }
     }
     // PURCHASE at shipped:
-    //   1. Clear any stale on_hand at factory (phantom — old data from before
-    //      production lifecycle existed; once goods physically leave the
-    //      factory, on_hand at that factory must read zero for these SKUs).
-    //   2. -qty leaves factory in_production reservation
-    //   3. +qty arrives at otw with state in_transit
+    //   1. -qty leaves factory in_production reservation
+    //   2. +qty arrives at otw with state in_transit
+    // (Phantom on_hand at warehouse_from cleared by the universal pass below.)
     if (opType === 'purchase' && op.warehouse_from_id) {
-      // Look up any stale on_hand rows at this factory for the shipped SKUs
-      // and queue a zero-out movement for each. Done as a peek-and-set: we
-      // record a negative movement equal to whatever on_hand currently shows,
-      // bringing balance_after to zero. Skipped for SKUs already at zero.
-      const skuList = lineItems.map((li) => li.product_id);
-      const placeholders = skuList.map(() => '?').join(',');
-      const phantomQuery = await c.env.DB.prepare(
-        `SELECT product_id, on_hand FROM stocks
-         WHERE warehouse_id = ? AND stock_state = 'on_hand'
-           AND product_id IN (${placeholders}) AND on_hand > 0`
-      ).bind(op.warehouse_from_id, ...skuList).all<{ product_id: string; on_hand: number }>();
-      for (const phantom of phantomQuery.results || []) {
-        movementSpecs.push({
-          warehouseId: op.warehouse_from_id,
-          productId: phantom.product_id,
-          movementType: 'factory_phantom_clear',
-          qty: -phantom.on_hand,
-          reason: 'factory_phantom_cleared_at_shipped',
-          stockState: 'on_hand',
-        });
-      }
-
       for (const li of lineItems) {
         // Release the in_production reservation at the factory
         movementSpecs.push({
@@ -1195,6 +1171,95 @@ operations.patch('/:id/status', async (c) => {
         `UPDATE documents SET status = 'cancelled', updated_at = ? WHERE operation_id = ? AND status != 'cancelled'`
       ).bind(now, opId)
     );
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // 2.5 UNIVERSAL PHANTOM CLEAR — applies after type-specific logic above
+  //
+  // Purpose: keep stock state consistent with physical reality regardless of
+  // how older data was imported (manual entry, migrations from legacy systems,
+  // F4 sync writes that bypassed the lifecycle).
+  //
+  // Rules:
+  //   SHIPPED — goods physically leave warehouse_from. Any on_hand phantom
+  //             remaining at warehouse_from for these SKUs must be zeroed.
+  //             Applies to: sale, purchase, transfer.
+  //
+  //   DELIVERED — goods physically arrived at warehouse_to. Any in_transit
+  //               phantom in OTW for these SKUs that wasn't already accounted
+  //               for in step 2 must be zeroed. Applies to: purchase, transfer.
+  //               (Sale doesn't touch OTW so no in_transit phantom possible.)
+  //
+  // A "phantom" is non-zero stock that lingers in the wrong state. It's not
+  // an error in itself — it's leftover historical data. Once a real movement
+  // confirms the goods are elsewhere, that phantom must clear automatically.
+  //
+  // Skipped SKUs: those already at zero (no movement created — saves audit noise).
+  // ──────────────────────────────────────────────────────────────────────
+  if (targetStatus === 'shipped' && op.warehouse_from_id && lineItems.length > 0) {
+    const skuList = lineItems.map((li) => li.product_id);
+    const placeholders = skuList.map(() => '?').join(',');
+    const phantomQuery = await c.env.DB.prepare(
+      `SELECT product_id, on_hand FROM stocks
+       WHERE warehouse_id = ? AND stock_state = 'on_hand'
+         AND product_id IN (${placeholders}) AND on_hand > 0`
+    ).bind(op.warehouse_from_id, ...skuList).all<{ product_id: string; on_hand: number }>();
+    for (const phantom of phantomQuery.results || []) {
+      // Skip if a real movement spec already drains this exact phantom — avoids
+      // double-counting (e.g. sale 'shipment' already takes -qty from on_hand;
+      // we only clear what's left over after that real deduction).
+      const alreadyDeducted = movementSpecs
+        .filter((m) =>
+          m.warehouseId === op.warehouse_from_id &&
+          m.productId === phantom.product_id &&
+          m.stockState === 'on_hand'
+        )
+        .reduce((sum, m) => sum + m.qty, 0);
+      const remaining = phantom.on_hand + alreadyDeducted;
+      if (remaining > 0) {
+        movementSpecs.push({
+          warehouseId: op.warehouse_from_id,
+          productId: phantom.product_id,
+          movementType: 'phantom_clear',
+          qty: -remaining,
+          reason: 'phantom_cleared_at_shipped',
+          stockState: 'on_hand',
+        });
+      }
+    }
+  }
+
+  if (targetStatus === 'delivered' && lineItems.length > 0 &&
+      (opType === 'purchase' || opType === 'transfer')) {
+    const skuList = lineItems.map((li) => li.product_id);
+    const placeholders = skuList.map(() => '?').join(',');
+    const otwPhantomQuery = await c.env.DB.prepare(
+      `SELECT product_id, on_hand FROM stocks
+       WHERE warehouse_id = ? AND stock_state = 'in_transit'
+         AND product_id IN (${placeholders}) AND on_hand > 0`
+    ).bind(OTW_WAREHOUSE_ID, ...skuList).all<{ product_id: string; on_hand: number }>();
+    for (const phantom of otwPhantomQuery.results || []) {
+      // Real movement already drains -qty for these SKUs (in_transit_out).
+      // Anything beyond what the real movement clears is phantom — zero it.
+      const alreadyDeducted = movementSpecs
+        .filter((m) =>
+          m.warehouseId === OTW_WAREHOUSE_ID &&
+          m.productId === phantom.product_id &&
+          m.stockState === 'in_transit'
+        )
+        .reduce((sum, m) => sum + m.qty, 0);
+      const remaining = phantom.on_hand + alreadyDeducted;
+      if (remaining > 0) {
+        movementSpecs.push({
+          warehouseId: OTW_WAREHOUSE_ID,
+          productId: phantom.product_id,
+          movementType: 'phantom_clear',
+          qty: -remaining,
+          reason: 'phantom_cleared_at_delivered',
+          stockState: 'in_transit',
+        });
+      }
+    }
   }
 
   // 3a. Pre-validation pass — guard against any spec that would push stock < 0.

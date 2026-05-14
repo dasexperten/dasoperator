@@ -1812,7 +1812,9 @@ export async function getBankStatementSources() {
 }
 
 export async function createBankStatementSource(body: {
-  email: string;
+  email?: string;
+  address?: string;
+  source_type?: string;
   company_id: 'dee' | 'dei' | 'dasean' | 'dec';
   notes?: string;
 }) {
@@ -1821,6 +1823,17 @@ export async function createBankStatementSource(body: {
 
 export async function deleteBankStatementSource(id: string) {
   return apiDelete<{ id: string; deleted: boolean }>(`/api/bank-statement-sources/${id}`);
+}
+
+// =============================================================================
+// Operation arrival confirmation/rejection (F4 flow)
+// =============================================================================
+export async function confirmOperationArrival(operationId: string) {
+  return apiPost<{ operation_id: string; status: string }>(`/api/operations/${operationId}/confirm-arrival`, {});
+}
+
+export async function rejectOperationArrival(operationId: string) {
+  return apiPost<{ operation_id: string; status: string }>(`/api/operations/${operationId}/reject-arrival`, {});
 }
 
 // =============================================================================

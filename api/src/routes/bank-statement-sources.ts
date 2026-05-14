@@ -5,21 +5,39 @@ import { ok, fail, fromError } from '../lib/responses';
 
 const bankStatementSources = new Hono<{ Bindings: Env }>();
 
+// Returns one of:
+//   @username
+//   +<phone>
+//   -100<chat_id>                   — whole private group
+//   -100<chat_id>#<topic_id>        — specific forum topic
 function normalizeTelegramAddress(raw: string): string | null {
   const v = raw.trim();
   if (!v) return null;
+
+  // t.me URL forms
   const urlMatch = v.match(/^(?:https?:\/\/)?t\.me\/(.+)$/i);
   if (urlMatch) {
     const path = urlMatch[1].replace(/^\/+|\/+$/g, '');
-    const priv = path.match(/^c\/(\d{5,})(?:\/.*)?$/);
-    if (priv) return `-100${priv[1]}`;
+    // Private group with forum topic: c/<chat>/<topic>/<msg>
+    const privTopic = path.match(/^c\/(\d{5,})\/(\d+)\/\d+\/?$/);
+    if (privTopic) return `-100${privTopic[1]}#${privTopic[2]}`;
+    // Private group with just a message (no topic): c/<chat>/<msg>
+    const privMsg = path.match(/^c\/(\d{5,})\/\d+\/?$/);
+    if (privMsg) return `-100${privMsg[1]}`;
+    // Private group only: c/<chat>
+    const privOnly = path.match(/^c\/(\d{5,})\/?$/);
+    if (privOnly) return `-100${privOnly[1]}`;
+    // Public username: <username>[/...]
     const pub = path.match(/^([A-Za-z][A-Za-z0-9_]{3,31})(?:\/.*)?$/);
     if (pub) return `@${pub[1]}`;
     return null;
   }
+
+  // Bare forms
   if (/^@[A-Za-z][A-Za-z0-9_]{3,31}$/.test(v)) return v;
   if (/^[A-Za-z][A-Za-z0-9_]{3,31}$/.test(v)) return `@${v}`;
   if (/^\+\d{6,15}$/.test(v)) return v;
+  if (/^-100\d{5,}#\d+$/.test(v)) return v;  // chat#topic
   if (/^-100\d{5,}$/.test(v)) return v;
   if (/^\d{5,}$/.test(v)) return `-100${v}`;
   return null;

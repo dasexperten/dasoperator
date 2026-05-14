@@ -6,15 +6,17 @@ export const runtime = 'edge';
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Search, Loader2, Plus, X, Trash2, Upload, CheckCircle2 } from 'lucide-react';
+import { Search, Loader2, Plus, X, Trash2, Upload, CheckCircle2, Mail, Building2, AlertCircle, Send } from 'lucide-react';
 import {
   getOperations, deleteOperation, updateOperationStatus,
   uploadOperationDocument,
   createOperationFromDocument,
   getPartners, getManufacturers, getCompanies, getWarehouses,
+  getOperationDocumentSources, createOperationDocumentSource, deleteOperationDocumentSource,
   type Operation, type UploadDocResult, type OperationCandidate,
   type UploadDocPrefill, type CreateFromDocBody,
   type Partner, type Manufacturer, type Company, type Warehouse,
+  type OperationDocumentSource,
 } from '@/lib/api';
 import { ContractRef } from '@/components/ui/contract-ref';
 
@@ -93,11 +95,294 @@ function formatMoney(amount: number, currency: string): string {
   });
 }
 
+// =============================================================================
+// MODAL: Add Source — Telegram/Email contact for auto-ingest of documents
+// (mirrors the /finance AddSourceModal pattern)
+// =============================================================================
+function AddSourceModal({
+  open, onClose, onCreated,
+}: {
+  open: boolean; onClose: () => void; onCreated: () => void;
+}) {
+  const [sourceType, setSourceType] = useState<'email_inbox' | 'telegram_contact'>('telegram_contact');
+  const [address, setAddress] = useState('');
+  const [companyId, setCompanyId] = useState<'dee' | 'dei' | 'dasean' | 'dec'>('dee');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!open) return null;
+
+  const placeholder = sourceType === 'email_inbox'
+    ? 'docs@dasexperten.ru'
+    : '@username, +phone, or paste t.me link';
+
+  const description = sourceType === 'email_inbox'
+    ? 'Email inbox where suppliers send invoices, packing lists, contracts. Linked to entity for auto-classification.'
+    : 'Telegram contact who forwards supplier documents as attachments. Linked to entity for auto-classification.';
+
+  const submit = async () => {
+    const a = address.trim();
+    if (!a) {
+      setError(sourceType === 'email_inbox' ? 'Email is required' : 'Telegram handle is required');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await createOperationDocumentSource({
+        source_type: sourceType,
+        address: a,
+        company_id: companyId,
+      });
+      if (res.success) {
+        setAddress('');
+        setSourceType('telegram_contact');
+        setCompanyId('dee');
+        onCreated();
+        onClose();
+      } else {
+        setError(res.errors?.[0]?.message ?? 'Failed to create source');
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, backgroundColor: 'rgba(15,15,15,0.50)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          backgroundColor: 'var(--paper)', borderRadius: 'var(--radius-md)',
+          padding: '24px', width: '480px', maxWidth: '90vw',
+          border: '1px solid var(--line-1)',
+          boxShadow: '0 8px 24px rgba(15,15,15,0.12)',
+        }}
+      >
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h2 style={{
+              fontFamily: 'Plus Jakarta Sans, sans-serif',
+              fontSize: '18px', fontWeight: 700, color: 'var(--fg-1)',
+              textTransform: 'uppercase', letterSpacing: 0, marginBottom: '4px',
+            }}>Add Source</h2>
+            <p style={{ fontSize: '14px', color: 'var(--fg-2)' }}>{description}</p>
+          </div>
+          <button onClick={onClose} style={{ color: 'var(--fg-3)' }}>
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button"
+              onClick={() => { setSourceType('email_inbox'); setError(null); }}
+              style={{
+                flex: 1, padding: '8px 12px', fontSize: '14px', fontWeight: 700,
+                border: '1px solid ' + (sourceType === 'email_inbox' ? 'var(--fg-1)' : 'var(--line-1)'),
+                background: sourceType === 'email_inbox' ? 'var(--fg-1)' : 'var(--paper)',
+                color: sourceType === 'email_inbox' ? 'var(--paper)' : 'var(--fg-2)',
+                borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              }}>
+              <Mail className="h-4 w-4" />Email inbox
+            </button>
+            <button type="button"
+              onClick={() => { setSourceType('telegram_contact'); setError(null); }}
+              style={{
+                flex: 1, padding: '8px 12px', fontSize: '14px', fontWeight: 700,
+                border: '1px solid ' + (sourceType === 'telegram_contact' ? 'var(--fg-1)' : 'var(--line-1)'),
+                background: sourceType === 'telegram_contact' ? 'var(--fg-1)' : 'var(--paper)',
+                color: sourceType === 'telegram_contact' ? 'var(--paper)' : 'var(--fg-2)',
+                borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              }}>
+              <Send className="h-4 w-4" />Telegram
+            </button>
+          </div>
+
+          <div>
+            <label style={{
+              display: 'block', fontSize: '14px', fontWeight: 700,
+              color: 'var(--fg-2)', marginBottom: '6px',
+            }}>
+              {sourceType === 'email_inbox' ? 'Email' : 'Contact (Telegram @username or +phone)'}
+            </label>
+            <input
+              type={sourceType === 'email_inbox' ? 'email' : 'text'}
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder={placeholder}
+              style={{
+                width: '100%', border: '1px solid var(--line-1)',
+                borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper)',
+                padding: '8px 12px', fontSize: '14px', fontWeight: 700,
+                color: 'var(--fg-1)',
+              }}
+            />
+            {sourceType === 'telegram_contact' && (
+              <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: 4 }}>
+                Accepts: @username · +phone · t.me link · -100GROUP_ID · -100GROUP#TOPIC. Auto-classifies .pdf/.jpg/.xlsx/.docx.
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label style={{
+              display: 'block', fontSize: '14px', fontWeight: 700,
+              color: 'var(--fg-2)', marginBottom: '6px',
+            }}>
+              <Building2 className="h-4 w-4 inline mr-1" />Entity
+            </label>
+            <select
+              value={companyId}
+              onChange={(e) => setCompanyId(e.target.value as 'dee' | 'dei' | 'dasean' | 'dec')}
+              style={{
+                width: '100%', border: '1px solid var(--line-1)',
+                borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--paper)',
+                padding: '8px 12px', fontSize: '14px', fontWeight: 700,
+                color: 'var(--fg-1)',
+              }}>
+              <option value="dee">DEE — Das Experten Eurasia LLC</option>
+              <option value="dei">DEI — Das Experten International LLC</option>
+              <option value="dasean">DASEAN — Das Experten ASEAN</option>
+              <option value="dec">DEC — Das Experten Crypto</option>
+            </select>
+          </div>
+
+          {error && (
+            <div style={{ color: 'var(--status-danger)', fontSize: '14px', fontWeight: 700 }}>
+              {error}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={onClose} disabled={submitting}
+              style={{
+                padding: '8px 16px', fontSize: '14px', fontWeight: 700,
+                color: 'var(--fg-2)', background: 'transparent',
+                border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+                cursor: 'pointer',
+              }}>Cancel</button>
+            <button type="button" onClick={submit} disabled={submitting}
+              style={{
+                padding: '8px 16px', fontSize: '14px', fontWeight: 700,
+                color: 'var(--paper)', background: 'var(--fg-1)',
+                border: 'none', borderRadius: 'var(--radius-sm)',
+                cursor: submitting ? 'wait' : 'pointer',
+                opacity: submitting ? 0.6 : 1,
+              }}>{submitting ? 'Saving…' : 'Save'}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// MODAL: Sources list — view + delete existing sources
+// =============================================================================
+function SourcesListModal({
+  open, onClose, sources, onRefresh,
+}: {
+  open: boolean; onClose: () => void;
+  sources: OperationDocumentSource[]; onRefresh: () => void;
+}) {
+  const [deleting, setDeleting] = useState<string | null>(null);
+  if (!open) return null;
+
+  const removeOne = async (id: string) => {
+    if (!confirm('Delete this source? Documents already classified are kept.')) return;
+    setDeleting(id);
+    try {
+      await deleteOperationDocumentSource(id);
+      onRefresh();
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  return (
+    <div onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, backgroundColor: 'rgba(15,15,15,0.50)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50,
+      }}>
+      <div onClick={(e) => e.stopPropagation()}
+        style={{
+          backgroundColor: 'var(--paper)', borderRadius: 'var(--radius-md)',
+          padding: '24px', width: '640px', maxWidth: '95vw',
+          maxHeight: '80vh', overflowY: 'auto',
+          border: '1px solid var(--line-1)',
+        }}>
+        <div className="flex items-start justify-between mb-4">
+          <h2 style={{
+            fontFamily: 'Plus Jakarta Sans, sans-serif',
+            fontSize: '18px', fontWeight: 700, color: 'var(--fg-1)',
+            textTransform: 'uppercase', letterSpacing: 0,
+          }}>Document Sources</h2>
+          <button onClick={onClose} style={{ color: 'var(--fg-3)' }}><X className="h-5 w-5" /></button>
+        </div>
+        {sources.length === 0 ? (
+          <p style={{ fontSize: '14px', color: 'var(--fg-3)' }}>No sources yet. Click <b>Add Source</b> to wire up the first one.</p>
+        ) : (
+          <div className="space-y-2">
+            {sources.map((s) => (
+              <div key={s.id} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '12px', border: '1px solid var(--line-1)',
+                borderRadius: 'var(--radius-sm)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  {s.source_type === 'email_inbox' ? <Mail className="h-4 w-4" /> : <Send className="h-4 w-4" />}
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>{s.address}</div>
+                    <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{s.company_id.toUpperCase()} · {s.is_active ? 'active' : 'paused'}</div>
+                  </div>
+                </div>
+                <button onClick={() => removeOne(s.id)} disabled={deleting === s.id}
+                  style={{
+                    color: 'var(--status-danger)', background: 'transparent',
+                    border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
+                    padding: '6px 10px', fontSize: '14px', fontWeight: 700, cursor: 'pointer',
+                  }}>
+                  <Trash2 className="h-4 w-4 inline" /> {deleting === s.id ? '…' : 'Delete'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function OperationsPage() {
   const [operations, setOperations] = useState<Operation[]>([]);
 
   // Upload document modal state
   const [uploadOpen, setUploadOpen] = useState(false);
+  // Document Sources (auto-ingest from Telegram/Email)
+  const [sources, setSources] = useState<OperationDocumentSource[]>([]);
+  const [addSourceOpen, setAddSourceOpen] = useState(false);
+  const [sourcesListOpen, setSourcesListOpen] = useState(false);
+  const refreshSources = async () => {
+    try {
+      const r = await getOperationDocumentSources();
+      if (r.success && r.result) setSources(r.result.sources);
+    } catch (e) {
+      console.error('[ops:sources] load failed', e);
+    }
+  };
+  useEffect(() => { refreshSources(); }, []);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadDrag, setUploadDrag] = useState(false);
   const [uploadResult, setUploadResult] = useState<UploadDocResult | null>(null);
@@ -405,22 +690,61 @@ export default function OperationsPage() {
             {loading ? 'Loading...' : `${operations.length} across all partners · ${filtered.length} shown`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
-            onClick={() => setUploadOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2"
+            onClick={() => setSourcesListOpen(true)}
+            className="inline-flex items-center gap-2 px-3 py-2"
+            style={{
+              backgroundColor: 'var(--paper)', color: 'var(--fg-2)',
+              border: '1px solid var(--line-1)',
+              borderRadius: 'var(--radius-sm)', fontSize: '14px', fontWeight: 700,
+              cursor: 'pointer',
+            }}
+            title="View existing document sources"
+          >
+            <Send className="h-4 w-4" />
+            {sources.length} {sources.length === 1 ? 'source' : 'sources'}
+          </button>
+          <button
+            onClick={() => setAddSourceOpen(true)}
+            className="inline-flex items-center gap-2 px-3 py-2"
             style={{
               backgroundColor: 'var(--paper)', color: 'var(--fg-1)',
               border: '1px solid var(--line-1)',
               borderRadius: 'var(--radius-sm)', fontSize: '14px', fontWeight: 700,
             }}
           >
+            <Plus className="h-4 w-4" />
+            Add Source
+          </button>
+          <button
+            onClick={() => setUploadOpen(true)}
+            className="inline-flex items-center gap-2 px-3 py-2"
+            style={{
+              backgroundColor: 'var(--fg-1)', color: 'var(--paper)',
+              border: '1px solid var(--fg-1)',
+              borderRadius: 'var(--radius-sm)', fontSize: '14px', fontWeight: 700,
+            }}
+          >
             <Upload className="h-4 w-4" />
-            Create from document
+            Upload Document
           </button>
           <Link
+            href="/inbox/documents"
+            className="inline-flex items-center gap-2 px-3 py-2"
+            style={{
+              backgroundColor: 'var(--paper)', color: 'var(--fg-1)',
+              border: '1px solid var(--line-1)',
+              borderRadius: 'var(--radius-sm)', fontSize: '14px', fontWeight: 700,
+              textDecoration: 'none',
+            }}
+          >
+            <AlertCircle className="h-4 w-4" />
+            Triage
+          </Link>
+          <Link
             href="/operations/new"
-            className="inline-flex items-center gap-2 px-4 py-2"
+            className="inline-flex items-center gap-2 px-3 py-2"
             style={{
               backgroundColor: 'var(--brand-rot)', color: 'var(--paper)',
               borderRadius: 'var(--radius-sm)', fontSize: '14px', fontWeight: 600,
@@ -773,6 +1097,18 @@ export default function OperationsPage() {
         <LegendDot color={PAYMENT_OVERLAY.partial!.dot} label="Partially paid" />
         <LegendDot color={PAYMENT_OVERLAY.paid!.dot} label="Fully paid" />
       </div>
+
+      <AddSourceModal
+        open={addSourceOpen}
+        onClose={() => setAddSourceOpen(false)}
+        onCreated={refreshSources}
+      />
+      <SourcesListModal
+        open={sourcesListOpen}
+        onClose={() => setSourcesListOpen(false)}
+        sources={sources}
+        onRefresh={refreshSources}
+      />
 
       {uploadOpen && (
         <div

@@ -379,7 +379,12 @@ export default function OperationsPage() {
                   op.contract_no?.toLowerCase().includes(q);
         if (!m) return false;
       }
-      if (typeFilter !== 'all' && op.operation_type !== typeFilter) return false;
+      if (typeFilter === 'service') {
+        if (op.operation_track !== 'service') return false;
+      } else if (typeFilter !== 'all') {
+        if (op.operation_type !== typeFilter) return false;
+        if (op.operation_track === 'service') return false; // goods tabs exclude services
+      }
       if (statusFilter !== 'all' && op.status !== statusFilter) return false;
       if (paymentFilter !== 'all' && (op.payment_state ?? 'neutral') !== paymentFilter) return false;
       return true;
@@ -449,7 +454,9 @@ export default function OperationsPage() {
             const isActive = typeFilter === t.id;
             const count = t.id === 'all'
               ? operations.length
-              : operations.filter((o) => o.operation_type === t.id).length;
+              : t.id === 'service'
+                ? operations.filter((o) => o.operation_track === 'service').length
+                : operations.filter((o) => o.operation_type === t.id && o.operation_track !== 'service').length;
             return (
               <button key={t.id} type="button" onClick={() => setTypeFilter(t.id)}
                 style={{
@@ -512,10 +519,10 @@ export default function OperationsPage() {
             className="px-3 py-2"
             style={{ width: '100%', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}>
             <option value="all">All types ({operations.length})</option>
-            <option value="sale">Sales ({operations.filter((o) => o.operation_type === 'sale').length})</option>
-            <option value="purchase">Purchases ({operations.filter((o) => o.operation_type === 'purchase').length})</option>
-            <option value="transfer">Transfers ({operations.filter((o) => o.operation_type === 'transfer').length})</option>
-            <option value="service">Services ({operations.filter((o) => o.operation_type === 'service').length})</option>
+            <option value="sale">Sales ({operations.filter((o) => o.operation_type === 'sale' && o.operation_track !== 'service').length})</option>
+            <option value="purchase">Purchases ({operations.filter((o) => o.operation_type === 'purchase' && o.operation_track !== 'service').length})</option>
+            <option value="transfer">Transfers ({operations.filter((o) => o.operation_type === 'transfer' && o.operation_track !== 'service').length})</option>
+            <option value="service">Services ({operations.filter((o) => o.operation_track === 'service').length})</option>
           </select>
         </div>
       </div>
@@ -684,9 +691,16 @@ export default function OperationsPage() {
                         <ContractRef contractNo={op.contract_no} />
                       </td>
                       <td className="px-4 py-3">
-                        <span className="inline-block" style={{ fontSize: '14px', fontWeight: 500, padding: '3px 10px', backgroundColor: tc?.bg, color: tc?.fg, borderRadius: 'var(--radius-pill)' }}>
-                          {op.operation_type}
-                        </span>
+                        {(() => {
+                          const isService = op.operation_track === 'service';
+                          const badge = isService ? TYPE_COLORS.service : tc;
+                          const label = isService ? 'service' : op.operation_type;
+                          return (
+                            <span className="inline-block" style={{ fontSize: '14px', fontWeight: 500, padding: '3px 10px', backgroundColor: badge?.bg, color: badge?.fg, borderRadius: 'var(--radius-pill)' }}>
+                              {label}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)', fontWeight: 700, whiteSpace: 'nowrap' }}>{formatMoney(op.total_amount, op.currency)} {op.currency}</td>
                       <td className="px-4 py-3">

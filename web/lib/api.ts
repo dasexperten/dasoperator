@@ -1797,7 +1797,9 @@ export async function syncBankHistory(body?: {
 // =============================================================================
 export interface BankStatementSource {
   id: string;
-  email: string;
+  email?: string;
+  address?: string;
+  source_type?: string;
   company_id: string;
   company_abbreviation: string;
   company_legal_name: string;

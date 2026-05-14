@@ -182,7 +182,11 @@ export default function WarehousesPage() {
   // Phase 5, but they don't get their own matrix column.
   const sortedWarehouses = useMemo(
     () => sortWarehousesByGroup(
-      warehouses.filter((w) => w.external_provider !== 'ozon' && w.external_provider !== 'wb')
+      warehouses.filter((w) =>
+        w.external_provider !== 'ozon' &&
+        w.external_provider !== 'wb' &&
+        w.id !== 'otw'
+      )
     ),
     [warehouses]
   );

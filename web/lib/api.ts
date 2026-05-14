@@ -1837,6 +1837,47 @@ export async function deleteBankStatementSource(id: string) {
 }
 
 // =============================================================================
+// Operation document sources (Telegram/Email contacts who forward invoices,
+// service bills, contracts, etc. AI classifies each incoming doc and routes
+// it into the Triage pipeline → draft Purchase / Service / Contract.)
+// =============================================================================
+export interface OperationDocumentSource {
+  id: string;
+  source_type: 'email_inbox' | 'telegram_contact';
+  address: string;
+  company_id: string;
+  is_active: number;
+  notes: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export async function getOperationDocumentSources() {
+  return apiGet<{ sources: OperationDocumentSource[] }>('/api/operation-document-sources');
+}
+
+export async function createOperationDocumentSource(body: {
+  source_type: 'email_inbox' | 'telegram_contact';
+  address: string;
+  company_id: 'dee' | 'dei' | 'dasean' | 'dec';
+  notes?: string;
+}) {
+  return apiPost<{ source: OperationDocumentSource }>('/api/operation-document-sources', body);
+}
+
+export async function updateOperationDocumentSource(id: string, body: {
+  company_id?: 'dee' | 'dei' | 'dasean' | 'dec';
+  is_active?: boolean;
+  notes?: string;
+}) {
+  return apiPatch<{ id: string; updated: boolean }>(`/api/operation-document-sources/${id}`, body);
+}
+
+export async function deleteOperationDocumentSource(id: string) {
+  return apiDelete<{ id: string; deleted: boolean }>(`/api/operation-document-sources/${id}`);
+}
+
+// =============================================================================
 // Operation arrival confirmation/rejection (F4 flow)
 // =============================================================================
 export async function confirmOperationArrival(operationId: string) {

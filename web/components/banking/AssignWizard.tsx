@@ -188,7 +188,7 @@ export default function AssignWizard({
         const d = await r.json();
         if (!alive) return;
         if (d.success) {
-          const items = Array.isArray(d.result) ? d.result : (d.result?.items || []);
+          const items = Array.isArray(d.result) ? d.result : (d.result?.partners || d.result?.items || []);
           setAllPartners(items.map((p: { id: string; trade_name: string; kind?: string; tax_id?: string }) => ({
             id: p.id, trade_name: p.trade_name, kind: p.kind || '', tax_id: p.tax_id || '',
           })));

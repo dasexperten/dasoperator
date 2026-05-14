@@ -450,7 +450,7 @@ banksModulbank.get('/transactions', async (c) => {
       bt.contragent_name, bt.contragent_inn, bt.contragent_account,
       bt.contragent_bank_name, bt.contragent_bank_bic,
       bt.payment_purpose,
-      bt.matched_payment_id, bt.match_method, bt.matched_at,
+      bt.matched_payment_id, bt.matched_operation_id, bt.match_method, bt.matched_at,
       cba.account_number, cba.account_purpose,
       co.abbreviation as company_abbreviation, co.legal_name as company_legal_name
     FROM bank_transactions bt
@@ -464,8 +464,8 @@ banksModulbank.get('/transactions', async (c) => {
   if (direction === 'incoming' || direction === 'outgoing') {
     sql += ` AND bt.direction = ?`; binds.push(direction);
   }
-  if (matchedRaw === 'true')  sql += ` AND bt.matched_payment_id IS NOT NULL`;
-  if (matchedRaw === 'false') sql += ` AND bt.matched_payment_id IS NULL`;
+  if (matchedRaw === 'true')  sql += ` AND (bt.matched_payment_id IS NOT NULL OR bt.matched_operation_id IS NOT NULL)`;
+  if (matchedRaw === 'false') sql += ` AND bt.matched_payment_id IS NULL AND bt.matched_operation_id IS NULL`;
 
   sql += ` ORDER BY bt.executed_at DESC LIMIT ?`;
   binds.push(limit);
@@ -764,7 +764,7 @@ banksModulbank.post('/rematch-unassigned', async (c) => {
   try {
     const rows = await c.env.DB.prepare(
       `SELECT id FROM bank_transactions
-        WHERE matched_payment_id IS NULL
+        WHERE matched_payment_id IS NULL AND matched_operation_id IS NULL
           AND (deleted_at IS NULL OR deleted_at = 0)
         ORDER BY executed_at DESC
         LIMIT ?`

@@ -15,6 +15,7 @@ import {
   type BankTransaction, type BankAccount, type BankStatementSource,
   type UploadStatementResult,
 } from '@/lib/api';
+import AssignWizard from '@/components/banking/AssignWizard';
 
 function formatAmount(minor: number, currency: string): string {
   const factor = ['VND', 'JPY', 'KRW'].includes(currency) ? 1 : 100;
@@ -529,6 +530,7 @@ function SourcesListModal({
 // =============================================================================
 export default function FinanceTransactionsPage() {
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
+  const [assignTx, setAssignTx] = useState<BankTransaction | null>(null);
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [sources, setSources] = useState<BankStatementSource[]>([]);
   const [loading, setLoading] = useState(true);
@@ -872,20 +874,21 @@ export default function FinanceTransactionsPage() {
                       {tx.matched_payment_id
                         ? <CheckCircle2 className="h-4 w-4 inline" style={{ color: 'var(--status-success)' }} />
                         : (
-                          <Link
-                            href={`/inbox/banking?tx=${tx.id}`}
+                          <button
+                            type="button"
+                            onClick={() => setAssignTx(tx)}
                             title="Assign to operation"
                             style={{
                               display: 'inline-flex', alignItems: 'center', gap: '4px',
                               padding: '4px 8px', borderRadius: 'var(--radius-sm)',
                               border: '1px solid var(--line-1)',
                               fontSize: '14px', fontWeight: 700,
-                              color: 'var(--fg-1)', textDecoration: 'none',
+                              color: 'var(--fg-1)', background: 'transparent', cursor: 'pointer',
                             }}
                           >
                             <AlertCircle className="h-3 w-3" style={{ color: '#A82029' }} />
                             Assign
-                          </Link>
+                          </button>
                         )}
                     </td>
                   </tr>
@@ -922,6 +925,49 @@ export default function FinanceTransactionsPage() {
         sources={sources}
         onRefresh={reloadSources}
       />
+      {assignTx && (
+        <div
+          onClick={() => setAssignTx(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 80,
+            background: 'rgba(15,15,15,0.5)',
+            display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+            padding: '64px 24px 24px',
+            overflowY: 'auto',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '720px', maxWidth: '95vw',
+              background: 'var(--paper-base, #fff)',
+              borderRadius: 'var(--radius-md, 6px)',
+              boxShadow: '0 12px 32px rgba(0,0,0,0.18)',
+            }}
+          >
+            <AssignWizard
+              item={{
+                id: assignTx.id,
+                direction: assignTx.direction,
+                amount: assignTx.amount,
+                currency: assignTx.currency,
+                executed_at: assignTx.executed_at,
+                contragent_name: assignTx.contragent_name ?? '',
+                contragent_inn: assignTx.contragent_inn ?? '',
+                payment_purpose: assignTx.payment_purpose ?? '',
+              }}
+              onResolved={() => {
+                setAssignTx(null);
+                void (async () => {
+                  const r = await getBankTransactions();
+                  if (r.success && r.result) setTransactions(r.result.transactions);
+                })();
+              }}
+              onCancel={() => setAssignTx(null)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

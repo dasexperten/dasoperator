@@ -405,6 +405,33 @@ partners.patch('/:slug', async (c) => {
 });
 
 // =============================================================================
+// GET /api/partners/:slug/bank-accounts — list all bank accounts of a partner
+//   (supports multi-account partners — Jinxia has VTB+ICBC, WDAA has CCB Asia,
+//   Honghui has VTB, etc.). Each row carries routing_buyer_entities so the
+//   form can auto-pick the right account based on the buyer entity.
+// =============================================================================
+partners.get('/:slug/bank-accounts', async (c) => {
+  const slug = c.req.param('slug');
+  const partner = await c.env.DB.prepare(
+    'SELECT id FROM partners WHERE id = ? AND deleted_at IS NULL'
+  ).bind(slug).first();
+  if (!partner) {
+    return fail(c, 404, [{ code: 'partner_not_found', message: `Partner ${slug} not found` }]);
+  }
+  const result = await c.env.DB.prepare(`
+    SELECT id, partner_id, account_label, bank_name, bank_address,
+           account_number, swift_bic, iban, currency,
+           correspondent_bank_name, correspondent_swift,
+           is_default, routing_buyer_entities, notes,
+           created_at, updated_at
+    FROM partner_bank_accounts
+    WHERE partner_id = ? AND deleted_at IS NULL
+    ORDER BY is_default DESC, account_label ASC
+  `).bind(slug).all();
+  return ok(c, { count: result.results.length, accounts: result.results });
+});
+
+// =============================================================================
 // GET /api/partners/:slug/contracts — all contracts for a partner
 // =============================================================================
 partners.get('/:slug/contracts', async (c) => {

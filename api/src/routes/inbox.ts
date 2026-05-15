@@ -48,6 +48,22 @@ inbox.post('/run-ingestion', async (c) => {
 });
 
 // =============================================================================
+// POST /api/inbox/telegram/run-once — manually trigger Telegram inbox ingestion
+// =============================================================================
+// Same code path the */15 cron uses. Useful for testing the pipeline without
+// waiting for the next tick. Pulls media from registered telegram_contact
+// sources, classifies via DeepSeek, inserts into invoice_inbox.
+inbox.post('/telegram/run-once', async (c) => {
+  try {
+    const { runInboxIngestionTelegram } = await import('../lib/inbox-ingestion-telegram');
+    const stats = await runInboxIngestionTelegram(c.env);
+    return ok(c, stats);
+  } catch (e) {
+    return fail(c, 500, [{ code: 'tg_ingestion_error', message: e instanceof Error ? e.message : String(e) }]);
+  }
+});
+
+// =============================================================================
 // GET /api/inbox/:id/match-preview
 // Runs the auto-matcher on a single inbox row and returns the suggested
 // operation + confidence WITHOUT attaching. Diagnostic/preview only.

@@ -667,7 +667,10 @@ export default function OperationsPage() {
       if (typeFilter === 'service') {
         if (op.operation_track !== 'service') return false;
       } else if (typeFilter !== 'all') {
-        if (op.operation_type !== typeFilter) return false;
+        if (typeFilter === 'transfer') {
+          // Include both individual transfers and batches under the Transfers tab
+          if (op.operation_type !== 'transfer' && op.operation_type !== 'transfer_batch') return false;
+        } else if (op.operation_type !== typeFilter) return false;
         if (op.operation_track === 'service') return false; // goods tabs exclude services
       }
       if (statusFilter !== 'all' && op.status !== statusFilter) return false;
@@ -780,7 +783,12 @@ export default function OperationsPage() {
               ? operations.length
               : t.id === 'service'
                 ? operations.filter((o) => o.operation_track === 'service').length
-                : operations.filter((o) => o.operation_type === t.id && o.operation_track !== 'service').length;
+                : operations.filter((o) => {
+                    if (t.id === 'transfer') {
+                      return (o.operation_type === 'transfer' || o.operation_type === 'transfer_batch') && o.operation_track !== 'service';
+                    }
+                    return o.operation_type === t.id && o.operation_track !== 'service';
+                  }).length;
             return (
               <button key={t.id} type="button" onClick={() => setTypeFilter(t.id)}
                 style={{
@@ -845,7 +853,7 @@ export default function OperationsPage() {
             <option value="all">All types ({operations.length})</option>
             <option value="sale">Sales ({operations.filter((o) => o.operation_type === 'sale' && o.operation_track !== 'service').length})</option>
             <option value="purchase">Purchases ({operations.filter((o) => o.operation_type === 'purchase' && o.operation_track !== 'service').length})</option>
-            <option value="transfer">Transfers ({operations.filter((o) => o.operation_type === 'transfer' && o.operation_track !== 'service').length})</option>
+            <option value="transfer">Transfers ({operations.filter((o) => (o.operation_type === 'transfer' || o.operation_type === 'transfer_batch') && o.operation_track !== 'service').length})</option>
             <option value="service">Services ({operations.filter((o) => o.operation_track === 'service').length})</option>
           </select>
         </div>
@@ -886,10 +894,13 @@ export default function OperationsPage() {
               const ps = op.payment_state ?? 'neutral';
               const amountColor = AMOUNT_PAYMENT_COLOR[ps] ?? 'var(--fg-1)';
               const partnerLabel = op.partner_trade_name ?? op.manufacturer_name ?? '—';
+              const isBatchRow = (op as { is_batch?: boolean }).is_batch === true;
+              const clusterCount = (op as { cluster_count?: number }).cluster_count ?? null;
+              const href = isBatchRow ? `/operations/batch/${op.id}` : `/operations/${op.id}`;
               return (
                 <Link
                   key={`m-${op.id}`}
-                  href={`/operations/${op.id}`}
+                  href={href}
                   className="bg-card"
                   style={{
                     display: 'block',
@@ -944,21 +955,23 @@ export default function OperationsPage() {
                       whiteSpace: 'nowrap',
                       lineHeight: 1.2,
                     }}>
-                      {partnerLabel}
+                      {isBatchRow ? `${clusterCount ?? 0} clusters` : partnerLabel}
                     </div>
-                    {/* Amount — right, colour = payment state */}
-                    <div style={{ flexShrink: 0 }}>
-                      <span style={{
-                        fontSize: '18px',
-                        fontWeight: 800,
-                        color: amountColor,
-                        whiteSpace: 'nowrap',
-                        lineHeight: 1,
-                      }}>
-                        {formatMoney(op.total_amount, op.currency)}
-                        <span style={{ fontSize: '12px', color: 'var(--fg-3)', marginLeft: '4px', fontWeight: 700 }}>{op.currency}</span>
-                      </span>
-                    </div>
+                    {/* Amount — right, colour = payment state. Hidden for batches. */}
+                    {!isBatchRow && (
+                      <div style={{ flexShrink: 0 }}>
+                        <span style={{
+                          fontSize: '18px',
+                          fontWeight: 800,
+                          color: amountColor,
+                          whiteSpace: 'nowrap',
+                          lineHeight: 1,
+                        }}>
+                          {formatMoney(op.total_amount, op.currency)}
+                          <span style={{ fontSize: '12px', color: 'var(--fg-3)', marginLeft: '4px', fontWeight: 700 }}>{op.currency}</span>
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </Link>
               );
@@ -984,11 +997,13 @@ export default function OperationsPage() {
                   const total = op.total_amount || 0;
                   const paid = op.paid_amount ?? 0;
                   const pct = total > 0 ? Math.round((paid / total) * 100) : 0;
+                  const isBatchRow = (op as { is_batch?: boolean }).is_batch === true;
+                  const clusterCount = (op as { cluster_count?: number }).cluster_count ?? 0;
                   return (
                     <tr key={op.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                       <td className="px-4 py-3" style={{ fontWeight: 700, color: 'var(--fg-1)', whiteSpace: 'nowrap' }}>
                         <Link
-                          href={`/operations/${op.id}`}
+                          href={isBatchRow ? `/operations/batch/${op.id}` : `/operations/${op.id}`}
                           style={{ color: 'var(--fg-1)', textDecoration: 'underline', textDecorationColor: 'var(--border-hairline)', textUnderlineOffset: '3px' }}
                         >
                           {op.reference ?? op.id}
@@ -997,7 +1012,9 @@ export default function OperationsPage() {
                       <td className="px-4 py-3" style={{ color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>{formatDate(op.operation_date)}</td>
                       {/* v2 manufacturer fallback — deployed 2026-05-11 */}
                       <td className="px-4 py-3" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>
-                        {op.partner_id ? (
+                        {isBatchRow ? (
+                          <span style={{ color: 'var(--fg-muted)' }}>—</span>
+                        ) : op.partner_id ? (
                           <Link href={`/partners/${op.partner_id}`} style={{ color: 'var(--fg-1)' }}>
                             {op.partner_trade_name ?? op.manufacturer_name ?? '—'}
                           </Link>
@@ -1006,10 +1023,21 @@ export default function OperationsPage() {
                         )}
                       </td>
                       <td className="px-4 py-3" style={{ color: 'var(--fg-2)', whiteSpace: 'nowrap' }}>
-                        <ContractRef contractNo={op.contract_no} />
+                        {isBatchRow ? (
+                          <span style={{ color: 'var(--fg-muted)' }}>—</span>
+                        ) : (
+                          <ContractRef contractNo={op.contract_no} />
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         {(() => {
+                          if (isBatchRow) {
+                            return (
+                              <span className="inline-block" style={{ fontSize: '14px', fontWeight: 500, padding: '3px 10px', backgroundColor: 'var(--paper-sunk)', color: 'var(--fg-2)', borderRadius: 'var(--radius-pill)' }}>
+                                {clusterCount} {clusterCount === 1 ? 'cluster' : 'clusters'}
+                              </span>
+                            );
+                          }
                           const isService = op.operation_track === 'service';
                           const badge = isService ? TYPE_COLORS.service : tc;
                           const label = isService ? 'service' : op.operation_type;
@@ -1020,7 +1048,9 @@ export default function OperationsPage() {
                           );
                         })()}
                       </td>
-                      <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)', fontWeight: 700, whiteSpace: 'nowrap' }}>{formatMoney(op.total_amount, op.currency)} {op.currency}</td>
+                      <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                        {isBatchRow ? <span style={{ color: 'var(--fg-muted)' }}>—</span> : `${formatMoney(op.total_amount, op.currency)} ${op.currency}`}
+                      </td>
                       <td className="px-4 py-3">
                         <div className="inline-flex items-center gap-2" style={{
                           padding: '4px 10px',

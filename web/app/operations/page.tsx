@@ -667,10 +667,7 @@ export default function OperationsPage() {
       if (typeFilter === 'service') {
         if (op.operation_track !== 'service') return false;
       } else if (typeFilter !== 'all') {
-        if (typeFilter === 'transfer') {
-          // Include both individual transfers and batches under the Transfers tab
-          if (op.operation_type !== 'transfer' && op.operation_type !== 'transfer_batch') return false;
-        } else if (op.operation_type !== typeFilter) return false;
+        if (op.operation_type !== typeFilter) return false;
         if (op.operation_track === 'service') return false; // goods tabs exclude services
       }
       if (statusFilter !== 'all' && op.status !== statusFilter) return false;
@@ -783,12 +780,7 @@ export default function OperationsPage() {
               ? operations.length
               : t.id === 'service'
                 ? operations.filter((o) => o.operation_track === 'service').length
-                : operations.filter((o) => {
-                    if (t.id === 'transfer') {
-                      return (o.operation_type === 'transfer' || o.operation_type === 'transfer_batch') && o.operation_track !== 'service';
-                    }
-                    return o.operation_type === t.id && o.operation_track !== 'service';
-                  }).length;
+                : operations.filter((o) => o.operation_type === t.id && o.operation_track !== 'service').length;
             return (
               <button key={t.id} type="button" onClick={() => setTypeFilter(t.id)}
                 style={{
@@ -853,7 +845,7 @@ export default function OperationsPage() {
             <option value="all">All types ({operations.length})</option>
             <option value="sale">Sales ({operations.filter((o) => o.operation_type === 'sale' && o.operation_track !== 'service').length})</option>
             <option value="purchase">Purchases ({operations.filter((o) => o.operation_type === 'purchase' && o.operation_track !== 'service').length})</option>
-            <option value="transfer">Transfers ({operations.filter((o) => (o.operation_type === 'transfer' || o.operation_type === 'transfer_batch') && o.operation_track !== 'service').length})</option>
+            <option value="transfer">Transfers ({operations.filter((o) => o.operation_type === 'transfer' && o.operation_track !== 'service').length})</option>
             <option value="service">Services ({operations.filter((o) => o.operation_track === 'service').length})</option>
           </select>
         </div>
@@ -955,23 +947,30 @@ export default function OperationsPage() {
                       whiteSpace: 'nowrap',
                       lineHeight: 1.2,
                     }}>
-                      {isBatchRow ? `${clusterCount ?? 0} clusters` : partnerLabel}
+                      {isBatchRow ? `transfer · ${clusterCount ?? 0} ${(clusterCount ?? 0) === 1 ? 'cluster' : 'clusters'}` : partnerLabel}
                     </div>
-                    {/* Amount — right, colour = payment state. Hidden for batches. */}
-                    {!isBatchRow && (
-                      <div style={{ flexShrink: 0 }}>
-                        <span style={{
-                          fontSize: '18px',
-                          fontWeight: 800,
-                          color: amountColor,
-                          whiteSpace: 'nowrap',
-                          lineHeight: 1,
-                        }}>
-                          {formatMoney(op.total_amount, op.currency)}
-                          <span style={{ fontSize: '12px', color: 'var(--fg-3)', marginLeft: '4px', fontWeight: 700 }}>{op.currency}</span>
-                        </span>
-                      </div>
-                    )}
+                    {/* Amount — right, colour = payment state. Batches show pcs count. */}
+                    <div style={{ flexShrink: 0 }}>
+                      <span style={{
+                        fontSize: '18px',
+                        fontWeight: 800,
+                        color: isBatchRow ? 'var(--fg-1)' : amountColor,
+                        whiteSpace: 'nowrap',
+                        lineHeight: 1,
+                      }}>
+                        {isBatchRow ? (
+                          <>
+                            {(op as { total_units?: number }).total_units ?? 0}
+                            <span style={{ fontSize: '12px', color: 'var(--fg-3)', marginLeft: '4px', fontWeight: 700 }}>pcs</span>
+                          </>
+                        ) : (
+                          <>
+                            {formatMoney(op.total_amount, op.currency)}
+                            <span style={{ fontSize: '12px', color: 'var(--fg-3)', marginLeft: '4px', fontWeight: 700 }}>{op.currency}</span>
+                          </>
+                        )}
+                      </span>
+                    </div>
                   </div>
                 </Link>
               );
@@ -1032,9 +1031,22 @@ export default function OperationsPage() {
                       <td className="px-4 py-3">
                         {(() => {
                           if (isBatchRow) {
+                            const mp = (op as { marketplace?: 'OZN' | 'WB' }).marketplace;
+                            const accepted = (op as { batch_accepted?: boolean }).batch_accepted === true;
+                            // Accepted: blue for OZON, purple for WB
+                            // Pending: grey
+                            let bg = 'var(--paper-sunk)';
+                            let fg = 'var(--fg-2)';
+                            if (accepted && mp === 'OZN') {
+                              bg = 'rgba(0,90,200,0.10)';
+                              fg = '#1654B8';
+                            } else if (accepted && mp === 'WB') {
+                              bg = 'rgba(140,40,160,0.10)';
+                              fg = '#7A2890';
+                            }
                             return (
-                              <span className="inline-block" style={{ fontSize: '14px', fontWeight: 500, padding: '3px 10px', backgroundColor: 'var(--paper-sunk)', color: 'var(--fg-2)', borderRadius: 'var(--radius-pill)' }}>
-                                {clusterCount} {clusterCount === 1 ? 'cluster' : 'clusters'}
+                              <span className="inline-block" style={{ fontSize: '14px', fontWeight: 500, padding: '3px 10px', backgroundColor: bg, color: fg, borderRadius: 'var(--radius-pill)' }}>
+                                transfer
                               </span>
                             );
                           }
@@ -1049,7 +1061,11 @@ export default function OperationsPage() {
                         })()}
                       </td>
                       <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                        {isBatchRow ? <span style={{ color: 'var(--fg-muted)' }}>—</span> : `${formatMoney(op.total_amount, op.currency)} ${op.currency}`}
+                        {isBatchRow ? (
+                          <span>{(op as { total_units?: number }).total_units ?? 0} <span style={{ color: 'var(--fg-3)', fontWeight: 600, fontSize: '13px' }}>pcs</span></span>
+                        ) : (
+                          `${formatMoney(op.total_amount, op.currency)} ${op.currency}`
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <div className="inline-flex items-center gap-2" style={{

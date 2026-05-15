@@ -647,6 +647,46 @@ externalRequests.post('/mp-delivery-backfill', async (c) => {
       // First, run inserts of operation + line items in a batch
       await c.env.DB.batch(stmts);
 
+      // ── Transfer batch linking (migration 0039) ──────────────────────
+      // Group new F4-WH-R operations under a parent batch per
+      // (operation_date, marketplace). Reference format: MP-YYMMDD.
+      // Skip when destination is OTW (marketplace not yet decided).
+      if (warehouseTo === 'ozon' || warehouseTo === 'wb') {
+        const mpShort: 'OZN' | 'WB' = warehouseTo === 'ozon' ? 'OZN' : 'WB';
+        // Normalize op date to midnight UTC for stable batch lookup
+        const opDay = Math.floor(opDate / 86400) * 86400;
+        const dateObj = new Date(opDay * 1000);
+        const y = String(dateObj.getUTCFullYear()).slice(2);
+        const m = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+        const d = String(dateObj.getUTCDate()).padStart(2, '0');
+        const batchRef = `${mpShort}-${y}${m}${d}`;
+
+        // Look up existing batch
+        let existing = await c.env.DB.prepare(
+          'SELECT id FROM operation_batches WHERE batch_reference = ? AND deleted_at IS NULL'
+        ).bind(batchRef).first<{ id: string }>();
+
+        let batchId: string;
+        if (existing) {
+          batchId = existing.id;
+        } else {
+          batchId = `bch_${crypto.randomUUID().slice(0, 16).replace(/-/g, '')}`;
+          await c.env.DB.prepare(`
+            INSERT INTO operation_batches (
+              id, batch_reference, marketplace, batch_date,
+              our_company_id, notes, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, 'dee', ?, unixepoch(), unixepoch())
+          `).bind(batchId, batchRef, mpShort, opDay,
+                  `Auto-created by external-requests sync for ${batchRef}`)
+            .run();
+        }
+
+        // Attach the operation we just created
+        await c.env.DB.prepare(
+          'UPDATE operations SET batch_id = ?, updated_at = unixepoch() WHERE id = ?'
+        ).bind(batchId, opId).run();
+      }
+
       // Then stocks update + movement records, both need current balances.
       // Do them per line item with separate prepare calls (cannot batch
       // because we need to read updated on_hand for balance_after).

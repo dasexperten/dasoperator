@@ -357,11 +357,19 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
         </SectionCard>
 
         <SectionCard label="Banking" fields={bankAccounts.length > 0
-          ? bankAccounts.flatMap((a) => [
-              { label: `${a.account_label} — Account`, value: a.account_number },
-              { label: `${a.account_label} — SWIFT`, value: a.swift_bic },
-              { label: `${a.account_label} — Bank`, value: a.bank_name },
-            ])
+          ? bankAccounts.flatMap((a) => {
+              const out = [
+                { label: `${a.account_label} — Account`, value: a.account_number },
+                { label: `${a.account_label} — Bank`, value: a.bank_name },
+              ];
+              // For Russian accounts (BIK), don't show SWIFT as MISSING — it's not used.
+              if (a.bik_code) {
+                out.push({ label: `${a.account_label} — BIK`, value: a.bik_code });
+              } else if (a.swift_bic !== undefined && a.swift_bic !== null) {
+                out.push({ label: `${a.account_label} — SWIFT`, value: a.swift_bic });
+              }
+              return out;
+            })
           : bankingFields}>
           {bankAccounts.length > 0 ? (
             <div className="space-y-5">
@@ -396,6 +404,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
                     </div>
                     <CopyableField label="Account" value={a.account_number} mono />
                     {a.swift_bic && <CopyableField label="SWIFT/BIC" value={a.swift_bic} mono />}
+                    {a.bik_code && <CopyableField label="BIK (РФ)" value={a.bik_code} mono />}
                     {a.cnaps_code && <CopyableField label="CNAPS" value={a.cnaps_code} mono />}
                     {a.iban && <CopyableField label="IBAN" value={a.iban} mono />}
                     <CopyableField label="Bank" value={a.bank_name} />

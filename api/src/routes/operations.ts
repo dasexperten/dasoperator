@@ -790,8 +790,13 @@ operations.get('/', async (c) => {
         b.updated_at,
         (SELECT COUNT(*) FROM operations o
            WHERE o.batch_id = b.id AND o.deleted_at IS NULL) as cluster_count,
-        (SELECT MIN(o.status) FROM operations o
-           WHERE o.batch_id = b.id AND o.deleted_at IS NULL) as agg_status
+        (SELECT COUNT(*) FROM operations o
+           WHERE o.batch_id = b.id AND o.deleted_at IS NULL
+             AND o.status = 'delivered') as delivered_count,
+        (SELECT COALESCE(SUM(li.qty), 0)
+           FROM line_items li
+           JOIN operations o ON li.operation_id = o.id
+           WHERE o.batch_id = b.id AND o.deleted_at IS NULL) as total_units
       FROM operation_batches b
       LEFT JOIN companies co ON b.our_company_id = co.id
       WHERE b.deleted_at IS NULL
@@ -806,23 +811,30 @@ operations.get('/', async (c) => {
     const bRes = batchBinds.length > 0
       ? await bStmt.bind(...batchBinds).all()
       : await bStmt.all();
-    batchRows = (bRes.results as Array<Record<string, unknown>>).map((row) => ({
-      ...row,
-      operation_type: 'transfer_batch',
-      operation_track: 'goods',
-      status: row.agg_status || 'delivered',
-      delivery_status: 'delivered',
-      currency: 'RUB',
-      total_amount: 0,
-      total_usd_equiv: 0,
-      partner_trade_name: null,
-      partner_kind: null,
-      manufacturer_id: null,
-      manufacturer_name: null,
-      paid_amount: 0,
-      payment_state: 'neutral',
-      is_batch: true,
-    }));
+    batchRows = (bRes.results as Array<Record<string, unknown>>).map((row) => {
+      const cluster = Number(row.cluster_count) || 0;
+      const delivered = Number(row.delivered_count) || 0;
+      const batchAccepted = cluster > 0 && delivered === cluster;
+      return {
+        ...row,
+        operation_type: 'transfer',
+        operation_track: 'goods',
+        status: batchAccepted ? 'delivered' : 'shipped',
+        delivery_status: batchAccepted ? 'delivered' : 'pending',
+        currency: 'RUB',
+        total_amount: 0,
+        total_usd_equiv: 0,
+        partner_trade_name: null,
+        partner_kind: null,
+        manufacturer_id: null,
+        manufacturer_name: null,
+        paid_amount: 0,
+        payment_state: 'neutral',
+        is_batch: true,
+        batch_accepted: batchAccepted,
+        total_units: Number(row.total_units) || 0,
+      };
+    });
   }
 
   const merged = [...decorated, ...batchRows].sort((a, b) => {

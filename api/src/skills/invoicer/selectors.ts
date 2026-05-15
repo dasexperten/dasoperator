@@ -162,6 +162,11 @@ export function selectLanguage(
   //   5. Hard fallback to EN.
   if (contract?.invoice_language) return contract.invoice_language;
   if (partner?.preferred_invoice_language === 'BILINGUAL') return 'BILINGUAL';
+  // Legacy 'RU' value reused as "render in partner's national language only".
+  // For service-track (Russian ИП, банки, ФНС), this returns the partner's local language code.
+  if (partner?.preferred_invoice_language === 'RU') {
+    return (partner.partner_local_language as string | null) || 'RU';
+  }
   if (ourCompany.default_document_language) return ourCompany.default_document_language;
   if (ourCompany.default_invoice_language) return ourCompany.default_invoice_language;
   return 'EN';

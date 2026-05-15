@@ -320,6 +320,9 @@ operations.post('/', async (c) => {
       if (mfrPartner) resolvedPartnerId = mfrPartner.id;
     }
 
+  // No route-resolution here — it's done below, just before INSERT,
+  // because it depends on dei_layer which is parsed later.
+
   } else {
     // TRANSFER — both companies from body, validate FKs
     const sender = await c.env.DB.prepare(
@@ -488,6 +491,56 @@ operations.post('/', async (c) => {
 
   const deiLayerInt = (data.dei_layer === true || data.dei_layer === 1) ? 1 : 0;
 
+  // ---------------------------------------------------------------------------
+  // Route resolution — for purchase ops, determine which partner issues the
+  // invoice and which of their bank accounts receives payment. Snapshot at
+  // create time, stored on the operation row so invoicer skill can pull these
+  // directly without re-resolving.
+  // ---------------------------------------------------------------------------
+  let issuingPartnerId: string | null = null;
+  let issuingBankAccountId: string | null = null;
+
+  if (data.operation_type === 'purchase' && resolvedManufacturerId) {
+    // Determine if this is DEE-direct route (no DEI layer)
+    const isDirect = resolvedCompanyId === 'dee' && deiLayerInt === 0;
+    const accountSearchTag = isDirect ? 'dee' : resolvedCompanyId;
+
+    // Lookup manufacturer's group to decide issuer
+    const mfr = await c.env.DB.prepare(
+      'SELECT id, group_id FROM manufacturers WHERE id = ?'
+    ).bind(resolvedManufacturerId).first<{ id: string; group_id: string | null }>();
+
+    if (mfr) {
+      if (mfr.group_id === 'honghui_group') {
+        issuingPartnerId = isDirect ? 'honghui' : 'wdaa';
+      } else if (mfr.group_id === 'jinxia_group') {
+        issuingPartnerId = 'jinxia';
+      } else {
+        issuingPartnerId = resolvedManufacturerId;
+      }
+
+      // Find best matching bank account
+      const accts = await c.env.DB.prepare(`
+        SELECT id, routing_buyer_entities, is_default
+        FROM partner_bank_accounts
+        WHERE partner_id = ? AND deleted_at IS NULL
+        ORDER BY is_default DESC
+      `).bind(issuingPartnerId).all<{
+        id: string; routing_buyer_entities: string | null; is_default: number;
+      }>();
+
+      let chosen = accts.results.find((a) => {
+        if (!a.routing_buyer_entities) return false;
+        const tags = a.routing_buyer_entities.split(',').map((s) => s.trim().toLowerCase());
+        return tags.includes(accountSearchTag!);
+      });
+      if (!chosen) {
+        chosen = accts.results.find((a) => a.is_default === 1) ?? accts.results[0];
+      }
+      if (chosen) issuingBankAccountId = chosen.id;
+    }
+  }
+
   const insertOpStmt = c.env.DB.prepare(`
     INSERT INTO operations (
       id, contract_id, operation_date, operation_type,
@@ -499,6 +552,7 @@ operations.post('/', async (c) => {
       incoterms, notes, vat_rate,
       dei_layer, legal_seller_id,
       operation_track, gtd_number,
+      issuing_partner_id, issuing_bank_account_id,
       created_at, updated_at, deleted_at
     ) VALUES (
       ?, ?, ?, ?,
@@ -508,6 +562,7 @@ operations.post('/', async (c) => {
       ?, ?, ?,
       ?, ?,
       ?, ?, ?,
+      ?, ?,
       ?, ?,
       ?, ?,
       ?, ?, NULL
@@ -536,6 +591,8 @@ operations.post('/', async (c) => {
     data.legal_seller_id ?? null,
     data.operation_track ?? 'goods',
     data.gtd_number ?? null,
+    issuingPartnerId,
+    issuingBankAccountId,
     now,
     now
   );

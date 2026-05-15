@@ -28,15 +28,27 @@ interface DocumentActionBarProps {
   onStatusChange?: () => Promise<void> | void;
   // ── Service track (added 2026-05-13, migration 0034) ──────────────────────
   /** 'goods' (default) renders the existing CI · PL · IS · RFQ · Production ·
-   *  Shipped · Delivered bar. 'service' renders the two-chip ServiceStatusBar
+   *  Shipped · Delivered bar. 'service' renders the three-chip ServiceStatusBar
    *  and skips the entire goods toolbar.                                     */
   operationTrack?: 'goods' | 'service';
-  /** Existing operations.delivery_status — drives Service provided chip */
-  deliveryStatus?: 'pending' | 'delivered' | 'disputed' | 'refunded';
-  /** Sum of confirmed payments for this operation, operation currency */
+  /** True when operation_attachments contains a kind='acceptance' row.
+   *  Drives the Service provided chip (green). */
+  hasAcceptance?: boolean;
+  /** True when operation_attachments contains a kind='invoice' row.
+   *  Drives the Documents issued chip (red) and the Service provided chip
+   *  for subscription partners (partnerAcceptanceRequired=0). */
+  hasInvoice?: boolean;
+  /** partners.acceptance_required (migration 0038). When 0, the invoice
+   *  doubles as acceptance for this partner — Service provided lights up
+   *  on invoice attach. */
+  partnerAcceptanceRequired?: 0 | 1 | null;
+  /** Sum of confirmed payments for this operation, operation currency.
+   *  Drives the Payment chip (blue). */
   paidAmount?: number | null;
   /** operations.total_amount, operation currency */
   totalAmount?: number | null;
+  /** Operation currency code (RUB, USD, CNY...) — shown in Outstanding sublabel */
+  operationCurrency?: string | null;
 }
 
 type DocType = 'CI' | 'PL' | 'IS-V1' | 'IS-V2' | 'UPD' | 'TN';
@@ -56,9 +68,12 @@ export default function DocumentActionBar({
   onIssued,
   onStatusChange,
   operationTrack = 'goods',
-  deliveryStatus = 'delivered',
+  hasAcceptance = false,
+  hasInvoice = false,
+  partnerAcceptanceRequired = 1,
   paidAmount = null,
   totalAmount = null,
+  operationCurrency = null,
 }: DocumentActionBarProps) {
   const [busy, setBusy] = useState<ButtonId | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -71,9 +86,12 @@ export default function DocumentActionBar({
   if (operationTrack === 'service') {
     return (
       <ServiceStatusBar
-        deliveryStatus={deliveryStatus}
+        hasAcceptance={hasAcceptance}
+        hasInvoice={hasInvoice}
+        partnerAcceptanceRequired={partnerAcceptanceRequired}
         paidAmount={paidAmount}
         totalAmount={totalAmount}
+        currency={operationCurrency}
       />
     );
   }

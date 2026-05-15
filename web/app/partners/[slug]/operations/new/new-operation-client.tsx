@@ -10,6 +10,8 @@ import {
   createOperation, getProductPriceForContract, parseOperationExcel,
   type Partner, type Contract, type Product, type ProductListItem, type Company, type Manufacturer,
   type Warehouse
+  resolveSupplierRoute,
+  type SupplierRouteResolution,
 } from '@/lib/api';
 import { formatMoney } from '@/lib/money';
 import Breadcrumb from '@/components/layout/breadcrumb';
@@ -81,6 +83,12 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({});
 
   const [submitting, setSubmitting] = useState(false);
+
+  // Banking route auto-resolution — for purchase operations,
+  // pre-compute which partner issues the invoice + which bank account
+  // receives the payment, based on the manufacturer group + buyer entity rules.
+  const [routeResolution, setRouteResolution] = useState<SupplierRouteResolution | null>(null);
+  const [routeError, setRouteError] = useState<string | null>(null);
 
   // Manual service-mode toggle — user clicked the 4th "Services" button.
   // Set independently of partner_subtype, so any partner can be used for a
@@ -201,6 +209,39 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
     if (opType === 'purchase') setCurrency('CNY');
     if (opType === 'transfer') setCurrency('USD');
   }, [opType]);
+
+  // Auto-resolve banking route for purchase operations.
+  // When manufacturer or buyer entity changes, ask backend which issuer/account
+  // to use. Rules live in DB (partner_bank_accounts.routing_buyer_entities).
+  useEffect(() => {
+    if (opType !== 'purchase') {
+      setRouteResolution(null);
+      setRouteError(null);
+      return;
+    }
+    if (!manufacturerId || !ourCompanyId) {
+      setRouteResolution(null);
+      setRouteError(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const res = await resolveSupplierRoute({
+        manufacturer_id: manufacturerId,
+        our_company_id: ourCompanyId,
+        via_dei: viaDei,
+      });
+      if (cancelled) return;
+      if (res.success && res.result) {
+        setRouteResolution(res.result);
+        setRouteError(null);
+      } else {
+        setRouteResolution(null);
+        setRouteError(res.errors?.[0]?.message ?? 'Could not resolve banking route');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [opType, manufacturerId, ourCompanyId, viaDei]);
 
   // Warehouse FROM dropdown — context determines whose warehouses to show:
   //   sale     → seller's warehouses (our_company derived from contract)
@@ -996,6 +1037,104 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                   </div>
                 </div>
               </label>
+            </div>
+          )}
+        </Section>
+      )}
+
+      {/* BANKING ROUTE — auto-resolved from manufacturer group + buyer entity */}
+      {opType === 'purchase' && (routeResolution || routeError) && (
+        <Section label="Banking Route">
+          {routeError && (
+            <div style={{
+              padding: '12px 14px',
+              backgroundColor: 'rgba(199,122,0,0.08)',
+              border: '1px solid rgba(199,122,0,0.3)',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: '14px',
+              color: 'var(--status-warning)',
+              fontWeight: 600,
+            }}>
+              ⚠️ {routeError}
+            </div>
+          )}
+          {routeResolution && (
+            <div style={{
+              padding: '14px 16px',
+              backgroundColor: routeResolution.bank_account
+                ? 'rgba(46,125,79,0.06)'
+                : 'rgba(199,122,0,0.08)',
+              border: routeResolution.bank_account
+                ? '1px solid rgba(46,125,79,0.25)'
+                : '1px solid rgba(199,122,0,0.3)',
+              borderRadius: 'var(--radius-sm)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                <span style={{
+                  fontSize: '12px',
+                  padding: '2px 9px',
+                  backgroundColor: routeResolution.route_type === 'direct_dee' ? 'rgba(46,125,79,0.15)' : 'rgba(229,32,44,0.10)',
+                  color: routeResolution.route_type === 'direct_dee' ? 'var(--status-success)' : 'var(--brand-rot)',
+                  borderRadius: 'var(--radius-pill)',
+                  fontWeight: 700,
+                }}>
+                  {routeResolution.route_type === 'direct_dee' ? 'DIRECT DEE' : 'VIA INTERMEDIARY'}
+                </span>
+                <span style={{ fontSize: '14px', color: 'var(--fg-2)', fontWeight: 600 }}>
+                  Invoice issuer: <strong style={{ color: 'var(--fg-1)' }}>{routeResolution.issuing_partner_id}</strong>
+                </span>
+              </div>
+              {routeResolution.bank_account ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginBottom: '2px' }}>Bank</div>
+                    <div style={{ fontSize: '14px', fontWeight: 700 }}>{routeResolution.bank_account.bank_name}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginBottom: '2px' }}>Account</div>
+                    <div style={{ fontSize: '14px', fontWeight: 700, fontFamily: 'monospace' }}>{routeResolution.bank_account.account_number}</div>
+                  </div>
+                  {routeResolution.bank_account.swift_bic && (
+                    <div>
+                      <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginBottom: '2px' }}>SWIFT/BIC</div>
+                      <div style={{ fontSize: '14px', fontWeight: 700, fontFamily: 'monospace' }}>{routeResolution.bank_account.swift_bic}</div>
+                    </div>
+                  )}
+                  {routeResolution.bank_account.cnaps_code && (
+                    <div>
+                      <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginBottom: '2px' }}>CNAPS</div>
+                      <div style={{ fontSize: '14px', fontWeight: 700, fontFamily: 'monospace' }}>{routeResolution.bank_account.cnaps_code}</div>
+                    </div>
+                  )}
+                  {routeResolution.bank_account.correspondent_bank_name && (
+                    <div>
+                      <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginBottom: '2px' }}>Correspondent</div>
+                      <div style={{ fontSize: '14px', fontWeight: 700 }}>
+                        {routeResolution.bank_account.correspondent_bank_name}
+                        {routeResolution.bank_account.correspondent_swift && (
+                          <span style={{ marginLeft: '6px', fontFamily: 'monospace', color: 'var(--fg-2)' }}>
+                            ({routeResolution.bank_account.correspondent_swift})
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ fontSize: '14px', color: 'var(--status-warning)', fontWeight: 600 }}>
+                  {routeResolution.reasoning}
+                </div>
+              )}
+              <div style={{
+                marginTop: '12px',
+                fontSize: '13px',
+                color: 'var(--fg-3)',
+                fontStyle: 'italic',
+                paddingTop: '10px',
+                borderTop: '0.5px solid var(--border-hairline)',
+              }}>
+                {routeResolution.reasoning}
+              </div>
             </div>
           )}
         </Section>

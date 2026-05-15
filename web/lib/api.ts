@@ -542,6 +542,7 @@ export type UpdatePartnerBody = Partial<{
   iban: string | null;
   swift_bic: string | null;
   bank_name: string | null;
+  contact_person?: string | null;
   tax_id: string | null;
   inn: string | null;
   kpp: string | null;
@@ -903,6 +904,7 @@ export interface PartnerBankAccount {
   account_number: string;
   swift_bic?: string | null;
   iban?: string | null;
+  cnaps_code?: string | null;
   currency?: string | null;
   correspondent_bank_name?: string | null;
   correspondent_swift?: string | null;

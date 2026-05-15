@@ -74,7 +74,7 @@ partners.get('/', async (c) => {
        p.status, p.crm_status, p.partner_type, p.kind,
        p.partner_language`
     : `p.id, p.trade_name, p.legal_name, p.country,
-       p.tax_id, p.iban, p.swift_bic, p.bank_name,
+       p.tax_id, p.iban, p.swift_bic, p.bank_name, p.contact_person, p.contact_person,
        p.linked_entity_id, comp.abbreviation as entity_abbreviation,
        p.price_type_id, pt.code as price_type_code,
        p.currency,
@@ -420,7 +420,7 @@ partners.get('/:slug/bank-accounts', async (c) => {
   }
   const result = await c.env.DB.prepare(`
     SELECT id, partner_id, account_label, bank_name, bank_address,
-           account_number, swift_bic, iban, currency,
+           account_number, swift_bic, iban, cnaps_code, currency,
            correspondent_bank_name, correspondent_swift,
            is_default, routing_buyer_entities, notes,
            created_at, updated_at

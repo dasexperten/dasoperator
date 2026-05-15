@@ -9,7 +9,7 @@ import {
   getWarehouses, getPricelistMap, getStocks,
   createOperation, getProductPriceForContract, parseOperationExcel,
   type Partner, type Contract, type Product, type ProductListItem, type Company, type Manufacturer,
-  type Warehouse
+  type Warehouse,
   resolveSupplierRoute,
   type SupplierRouteResolution,
 } from '@/lib/api';

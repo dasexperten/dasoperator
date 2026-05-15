@@ -1030,6 +1030,22 @@ export interface Operation {
   paid_amount?: number;
   payment_state?: 'neutral' | 'unpaid' | 'partial' | 'paid';
   delivery_status?: 'pending' | 'delivered' | 'disputed' | 'refunded';
+  // Banking route snapshot (set at create time for purchase ops via auto-resolver)
+  issuing_partner_id?: string | null;
+  issuing_partner_name?: string | null;
+  issuing_bank_account_id?: string | null;
+  issuing_bank_label?: string | null;
+  issuing_bank_name?: string | null;
+  issuing_account_number?: string | null;
+  issuing_bank_swift?: string | null;
+  issuing_bank_cnaps?: string | null;
+  issuing_bank_iban?: string | null;
+  issuing_bank_currency?: string | null;
+  issuing_bank_address?: string | null;
+  issuing_correspondent_bank?: string | null;
+  issuing_correspondent_swift?: string | null;
+  // Pass-through routing info
+  dei_layer?: number | null;
   created_at: number;
   updated_at: number;
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Loader2, Plus } from 'lucide-react';
 import {
@@ -546,6 +546,14 @@ export default function OperationDetailClient({
     fetchAll();
   }, [partnerSlug, operationId]);
 
+  const refreshOperation = async () => {
+    const opRes = await getOperation(operationId);
+    if (opRes.success && opRes.result) {
+      setOperation(opRes.result.operation);
+      setLineItems(opRes.result.line_items);
+    }
+  };
+
   const handleStatusChange = async (nextStatus: string) => {
     if (!operation) return;
     setIsUpdating(true);
@@ -1010,7 +1018,12 @@ export default function OperationDetailClient({
       )}
 
       {activeTab === 'documents' && (
-        <DocumentsTab operationId={operationId} attachments={attachments} />
+        <DocumentsTab
+          operationId={operationId}
+          operation={operation}
+          attachments={attachments}
+          onOperationRefresh={refreshOperation}
+        />
       )}
 
       {activeTab === 'payments' && (
@@ -1510,13 +1523,18 @@ function StatusTab({
 // =============================================================================
 // Documents tab — live data from GET /api/documents?operation_id=...
 // =============================================================================
-function DocumentsTab({ operationId, attachments }: { operationId: string; attachments: Array<{
-  id: string; direction: string; kind: string;
-  doc_number: string | null; doc_date: number | null;
-  amount: number | null; currency: string | null;
-  issuer: string | null; file_url: string | null;
-  parsed_from: string | null; notes: string | null;
-}> }) {
+function DocumentsTab({ operationId, operation, attachments, onOperationRefresh }: {
+  operationId: string;
+  operation: Operation;
+  attachments: Array<{
+    id: string; direction: string; kind: string;
+    doc_number: string | null; doc_date: number | null;
+    amount: number | null; currency: string | null;
+    issuer: string | null; file_url: string | null;
+    parsed_from: string | null; notes: string | null;
+  }>;
+  onOperationRefresh: () => Promise<void>;
+}) {
   const [docs, setDocs] = useState<OperationDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [issuing, setIssuing] = useState(false);
@@ -1568,8 +1586,19 @@ function DocumentsTab({ operationId, attachments }: { operationId: string; attac
     voided:   { fg: 'var(--fg-3)',           bg: 'var(--paper-sunk)' },
   };
 
+  const isPurchase = operation.operation_type === 'purchase';
+  const isGoodsPurchase = isPurchase && operation.operation_track !== 'service';
+
   return (
     <>
+    {isPurchase && (
+      <GtdSection
+        operationId={operationId}
+        currentNumber={operation.gtd_number ?? null}
+        isMandatory={isGoodsPurchase}
+        onUpdated={onOperationRefresh}
+      />
+    )}
     <div
       style={{
         border: '1px solid var(--border-hairline)',
@@ -1748,6 +1777,290 @@ function DocumentsTab({ operationId, attachments }: { operationId: string; attac
     </div>
     </>
   );
+}
+
+// =============================================================================
+// GTD section — editable customs declaration number + PDF upload/download
+// Used inside DocumentsTab for purchase operations.
+// =============================================================================
+function GtdSection({
+  operationId,
+  currentNumber,
+  isMandatory,
+  onUpdated,
+}: {
+  operationId: string;
+  currentNumber: string | null;
+  isMandatory: boolean;
+  onUpdated: () => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(currentNumber ?? '');
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Keep draft in sync if parent refreshes with new number
+  useEffect(() => {
+    if (!editing) setDraft(currentNumber ?? '');
+  }, [currentNumber, editing]);
+
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://dasoperator-api.dasexperten.workers.dev';
+
+  const handleSave = async () => {
+    setError(null);
+    setInfo(null);
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/operations/${operationId}/gtd`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gtd_number: draft.trim() }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setError(data.errors?.[0]?.message ?? 'Failed to save GTD number');
+      } else {
+        setEditing(false);
+        setInfo('GTD number saved.');
+        await onUpdated();
+        setTimeout(() => setInfo(null), 3000);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUploadClick = () => fileInputRef.current?.click();
+
+  const handleFileSelected = async (ev: React.ChangeEvent<HTMLInputElement>) => {
+    const file = ev.target.files?.[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      setError('Only PDF files are accepted.');
+      ev.target.value = '';
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError('File must be under 10 MB.');
+      ev.target.value = '';
+      return;
+    }
+
+    const numberToUse = (draft.trim() || currentNumber || '').trim();
+    if (!numberToUse) {
+      setError('Enter a GTD number first before uploading the PDF.');
+      ev.target.value = '';
+      return;
+    }
+
+    setError(null);
+    setInfo(null);
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('gtd_number', numberToUse);
+
+      const res = await fetch(`${API_BASE}/api/operations/${operationId}/gtd/upload`, {
+        method: 'POST',
+        body: fd,
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setError(data.errors?.[0]?.message ?? 'Upload failed');
+      } else {
+        setInfo(
+          data.result?.replaced
+            ? `Replaced existing GTD PDF (${formatBytes(data.result.file_size)}).`
+            : `Uploaded GTD PDF (${formatBytes(data.result.file_size)}).`
+        );
+        await onUpdated();
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setUploading(false);
+      ev.target.value = '';
+    }
+  };
+
+  const downloadUrl = currentNumber
+    ? `${API_BASE}/api/operations/${operationId}/gtd/download`
+    : null;
+
+  return (
+    <div
+      style={{
+        border: '1px solid var(--border-hairline)',
+        borderRadius: 'var(--radius-md)',
+        marginBottom: '16px',
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        className="flex justify-between items-center px-4 py-3"
+        style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}
+      >
+        <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)', margin: 0 }}>
+          ГТД — Customs Declaration
+          {isMandatory && (
+            <span style={{ marginLeft: '8px', fontSize: '12px', fontWeight: 500, color: 'var(--brand-rot)' }}>
+              * required
+            </span>
+          )}
+        </p>
+        {!editing && (
+          <button
+            onClick={() => { setEditing(true); setError(null); setInfo(null); }}
+            style={{
+              padding: '4px 10px',
+              fontSize: '13px',
+              fontWeight: 500,
+              border: '1px solid var(--border-hairline)',
+              borderRadius: 'var(--radius-sm)',
+              backgroundColor: 'var(--paper)',
+              color: 'var(--fg-2)',
+              cursor: 'pointer',
+            }}
+          >
+            {currentNumber ? 'Edit' : 'Add'}
+          </button>
+        )}
+      </div>
+
+      <div className="px-4 py-3" style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+        {editing ? (
+          <>
+            <input
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="e.g. 10228010/130526/5149029"
+              autoFocus
+              style={{
+                flex: '1 1 280px',
+                padding: '8px 12px',
+                fontSize: '14px',
+                fontWeight: 700,
+                border: '1px solid var(--border-hairline)',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: 'var(--paper-sunk)',
+                color: 'var(--fg-1)',
+              }}
+            />
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              style={{
+                padding: '8px 16px',
+                fontSize: '14px',
+                fontWeight: 600,
+                border: '1px solid var(--brand-rot)',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: 'var(--brand-rot)',
+                color: 'white',
+                cursor: saving ? 'not-allowed' : 'pointer',
+                opacity: saving ? 0.6 : 1,
+              }}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              onClick={() => { setEditing(false); setDraft(currentNumber ?? ''); setError(null); }}
+              disabled={saving}
+              style={{
+                padding: '8px 16px',
+                fontSize: '14px',
+                fontWeight: 500,
+                border: '1px solid var(--border-hairline)',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: 'var(--paper)',
+                color: 'var(--fg-2)',
+                cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', flex: '1 1 auto' }}>
+              {currentNumber ?? <span style={{ color: 'var(--fg-3)', fontWeight: 500, fontStyle: 'italic' }}>Not set</span>}
+            </span>
+            {downloadUrl && (
+              <a
+                href={downloadUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  padding: '6px 14px',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                  border: '1px solid var(--border-hairline)',
+                  borderRadius: 'var(--radius-sm)',
+                  backgroundColor: 'var(--paper)',
+                  color: 'var(--fg-1)',
+                  textDecoration: 'none',
+                }}
+              >
+                View PDF
+              </a>
+            )}
+            <button
+              onClick={handleUploadClick}
+              disabled={uploading}
+              style={{
+                padding: '6px 14px',
+                fontSize: '13px',
+                fontWeight: 500,
+                border: '1px solid var(--border-hairline)',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: 'var(--paper)',
+                color: 'var(--fg-1)',
+                cursor: uploading ? 'not-allowed' : 'pointer',
+                opacity: uploading ? 0.6 : 1,
+              }}
+            >
+              {uploading ? 'Uploading…' : currentNumber ? 'Replace PDF' : 'Upload PDF'}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf,.pdf"
+              onChange={handleFileSelected}
+              style={{ display: 'none' }}
+            />
+          </>
+        )}
+      </div>
+
+      {(error || info) && (
+        <div className="px-4 py-2" style={{
+          borderTop: '1px solid var(--border-hairline)',
+          backgroundColor: error ? 'rgba(229,32,44,0.06)' : 'rgba(46,125,79,0.06)',
+        }}>
+          <p style={{
+            fontSize: '13px',
+            color: error ? 'var(--brand-rot)' : 'var(--status-success)',
+            margin: 0,
+          }}>
+            {error || info}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 // =============================================================================

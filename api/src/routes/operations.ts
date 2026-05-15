@@ -913,6 +913,219 @@ operations.patch('/:id/delivery-status', async (c) => {
   return ok(c, { id, delivery_status: parsed.data.delivery_status, updated_at: now });
 });
 
+// PATCH /:id/gtd — set or update the customs declaration number on a purchase.
+// Goods purchases require a non-empty GTD; sales/transfers/services don't have
+// one. Sending empty string or null clears the field (only allowed on
+// non-goods-purchase operations).
+operations.patch('/:id/gtd', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json().catch(() => null);
+  const schema = z.object({
+    gtd_number: z.string().nullable(),
+  });
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    return fail(c, 400, parsed.error.errors.map((e) => ({
+      code: 'validation', message: e.message, path: e.path.join('.'),
+    })));
+  }
+  const op = await c.env.DB.prepare(
+    'SELECT id, operation_type, operation_track FROM operations WHERE id = ? AND deleted_at IS NULL'
+  ).bind(id).first<{ id: string; operation_type: string; operation_track: string | null }>();
+  if (!op) {
+    return fail(c, 404, [{ code: 'operation_not_found', message: `Operation ${id} not found` }]);
+  }
+
+  const newValue = parsed.data.gtd_number?.trim() || null;
+  const isGoodsPurchase = op.operation_type === 'purchase' && op.operation_track !== 'service';
+  if (isGoodsPurchase && !newValue) {
+    return fail(c, 400, [{
+      code: 'gtd_required',
+      message: 'GTD number cannot be empty on goods purchases',
+      path: 'gtd_number',
+    }]);
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  await c.env.DB.prepare(
+    'UPDATE operations SET gtd_number = ?, updated_at = ? WHERE id = ?'
+  ).bind(newValue, now, id).run();
+  return ok(c, { id, gtd_number: newValue, updated_at: now });
+});
+
+// POST /:id/gtd/upload — upload a GTD PDF for an operation. The same payload
+// can also update the gtd_number text field in one request (recommended). PDF
+// is stored in R2 at documents/<year>/GTD/<sanitized-number>.pdf and a
+// documents row is created/replaced linking it to the operation.
+//
+// Multipart form fields:
+//   file        — required, PDF binary
+//   gtd_number  — optional, if provided also updates operations.gtd_number
+operations.post('/:id/gtd/upload', async (c) => {
+  const id = c.req.param('id');
+  const op = await c.env.DB.prepare(
+    `SELECT id, operation_type, operation_track, gtd_number, our_company_id,
+            partner_id, total_amount, currency
+     FROM operations WHERE id = ? AND deleted_at IS NULL`
+  ).bind(id).first<{
+    id: string;
+    operation_type: string;
+    operation_track: string | null;
+    gtd_number: string | null;
+    our_company_id: string | null;
+    partner_id: string | null;
+    total_amount: number | null;
+    currency: string | null;
+  }>();
+  if (!op) {
+    return fail(c, 404, [{ code: 'operation_not_found', message: `Operation ${id} not found` }]);
+  }
+
+  let form: FormData;
+  try {
+    form = await c.req.formData();
+  } catch {
+    return fail(c, 400, [{ code: 'invalid_multipart', message: 'Expected multipart/form-data' }]);
+  }
+
+  const file = form.get('file');
+  if (!(file instanceof File)) {
+    return fail(c, 400, [{ code: 'file_required', message: 'PDF file is required (field name: file)', path: 'file' }]);
+  }
+  if (file.size === 0) {
+    return fail(c, 400, [{ code: 'empty_file', message: 'Uploaded file is empty', path: 'file' }]);
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    return fail(c, 400, [{ code: 'file_too_large', message: 'PDF must be under 10 MB', path: 'file' }]);
+  }
+
+  const providedNumber = form.get('gtd_number');
+  const newNumberRaw = typeof providedNumber === 'string' ? providedNumber.trim() : '';
+  const isGoodsPurchase = op.operation_type === 'purchase' && op.operation_track !== 'service';
+  const finalNumber = newNumberRaw || op.gtd_number || null;
+
+  if (isGoodsPurchase && !finalNumber) {
+    return fail(c, 400, [{
+      code: 'gtd_required',
+      message: 'GTD number required (either provide gtd_number form field or operation must already have one)',
+      path: 'gtd_number',
+    }]);
+  }
+  if (!finalNumber) {
+    return fail(c, 400, [{
+      code: 'gtd_required',
+      message: 'GTD number required',
+      path: 'gtd_number',
+    }]);
+  }
+
+  // Sanitize number for R2 path: keep digits and dashes, replace slashes
+  const safeKey = finalNumber.replace(/[/\\]/g, '-').replace(/[^a-zA-Z0-9._-]/g, '');
+  const year = new Date().getUTCFullYear();
+  const r2Key = `documents/${year}/GTD/${safeKey}.pdf`;
+
+  // Upload PDF to R2
+  const fileBuffer = await file.arrayBuffer();
+  try {
+    await c.env.DOCS.put(r2Key, fileBuffer, {
+      httpMetadata: { contentType: 'application/pdf' },
+    });
+  } catch (err) {
+    return fail(c, 500, [{
+      code: 'r2_upload_failed',
+      message: err instanceof Error ? err.message : 'Failed to upload to R2',
+    }]);
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+
+  // Check if a GTD document already exists for this operation — replace if so
+  const existingDoc = await c.env.DB.prepare(
+    `SELECT id FROM documents
+     WHERE operation_id = ? AND document_type = 'other'
+       AND metadata LIKE '%"kind"%"GTD"%'
+     LIMIT 1`
+  ).bind(id).first<{ id: string }>();
+
+  const metadata = JSON.stringify({
+    kind: 'GTD',
+    customs_declaration_no: finalNumber,
+    uploaded_at: new Date().toISOString(),
+    file_size: file.size,
+  });
+
+  if (existingDoc) {
+    await c.env.DB.prepare(
+      `UPDATE documents SET
+         document_number = ?, document_date = ?, pdf_r2_url = ?,
+         metadata = ?, updated_at = ?
+       WHERE id = ?`
+    ).bind(finalNumber, now, r2Key, metadata, now, existingDoc.id).run();
+  } else {
+    const docId = `doc_${crypto.randomUUID()}`;
+    const totalAmountMinor = op.total_amount != null
+      ? Math.round(op.total_amount * 100)
+      : null;
+    await c.env.DB.prepare(
+      `INSERT INTO documents (
+         id, document_number, document_type, operation_id, issuer_id, partner_id,
+         contract_ref, document_date, currency, total_amount, pdf_r2_url,
+         mandatory_level, status, metadata, created_at, updated_at
+       ) VALUES (?, ?, 'other', ?, ?, ?,
+         NULL, ?, ?, ?, ?,
+         'mandatory', 'issued', ?, ?, ?)`
+    ).bind(
+      docId, finalNumber, id, op.our_company_id, op.partner_id,
+      now, op.currency, totalAmountMinor, r2Key,
+      metadata, now, now
+    ).run();
+  }
+
+  // Sync gtd_number on operation if changed
+  if (finalNumber !== op.gtd_number) {
+    await c.env.DB.prepare(
+      'UPDATE operations SET gtd_number = ?, updated_at = ? WHERE id = ?'
+    ).bind(finalNumber, now, id).run();
+  }
+
+  return ok(c, {
+    id,
+    gtd_number: finalNumber,
+    pdf_r2_key: r2Key,
+    file_size: file.size,
+    replaced: !!existingDoc,
+  });
+});
+
+// GET /:id/gtd/download — download the GTD PDF for an operation. Returns the
+// raw PDF stream with content-disposition for inline viewing in the browser.
+operations.get('/:id/gtd/download', async (c) => {
+  const id = c.req.param('id');
+  const doc = await c.env.DB.prepare(
+    `SELECT document_number, pdf_r2_url FROM documents
+     WHERE operation_id = ? AND document_type = 'other'
+       AND metadata LIKE '%"kind"%"GTD"%'
+     ORDER BY created_at DESC LIMIT 1`
+  ).bind(id).first<{ document_number: string; pdf_r2_url: string }>();
+  if (!doc || !doc.pdf_r2_url) {
+    return fail(c, 404, [{ code: 'gtd_pdf_not_found', message: 'No GTD PDF attached to this operation' }]);
+  }
+
+  const obj = await c.env.DOCS.get(doc.pdf_r2_url);
+  if (!obj) {
+    return fail(c, 404, [{ code: 'r2_object_missing', message: 'GTD PDF record exists but file not found in storage' }]);
+  }
+
+  const safeFilename = doc.document_number.replace(/[/\\]/g, '-').replace(/[^a-zA-Z0-9._-]/g, '') + '.pdf';
+  return new Response(obj.body, {
+    headers: {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="GTD-${safeFilename}"`,
+      'Cache-Control': 'private, max-age=60',
+    },
+  });
+});
+
 operations.patch('/:id/status', async (c) => {
   const opId = c.req.param('id');
 

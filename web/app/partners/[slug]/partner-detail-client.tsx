@@ -8,7 +8,9 @@ import {
   generatePartnerNda, agreementDownloadUrl,
   getContractFileUrl,
   deleteOperation, updateOperationStatus,
+  getPartnerBankAccounts,
   type Partner, type Contract, type Operation, type Payment, type PartnerNetBalance,
+  type PartnerBankAccount,
 } from '@/lib/api';
 import { CopyableValue, SectionCard } from '@/components/ui/copyable';
 import { ContractRef, isPlaceholderContractNo } from '@/components/ui/contract-ref';
@@ -122,6 +124,7 @@ function formatMoney(amount: number, currency: string): string {
 
 export default function PartnerDetailClient({ slug }: { slug: string }) {
   const [partner, setPartner] = useState<Partner | null>(null);
+  const [bankAccounts, setBankAccounts] = useState<PartnerBankAccount[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [operations, setOperations] = useState<Operation[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -177,12 +180,13 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [partnerRes, contractsRes, opsRes, paysRes, balRes] = await Promise.all([
+        const [partnerRes, contractsRes, opsRes, paysRes, balRes, bankAccountsRes] = await Promise.all([
           getPartner(slug),
           getPartnerContracts(slug),
           getOperations({ partner_id: slug, include_cancelled: showCancelled, compact: true }),
           getPayments({ partner_id: slug }),
           getPartnerNetBalance(slug),
+          getPartnerBankAccounts(slug),
         ]);
 
         if (partnerRes.success && partnerRes.result) {
@@ -206,6 +210,10 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
 
         if (balRes.success && balRes.result) {
           setNetBalance(balRes.result);
+        }
+
+        if (bankAccountsRes.success && bankAccountsRes.result) {
+          setBankAccounts(bankAccountsRes.result.accounts);
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
@@ -346,10 +354,71 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
           <CopyableField label="Email" value={partner.email} mono />
         </SectionCard>
 
-        <SectionCard label="Banking" fields={bankingFields}>
-          <CopyableField label="IBAN" value={partner.iban} mono />
-          <CopyableField label="SWIFT/BIC" value={partner.swift_bic} mono />
-          <CopyableField label="Bank" value={partner.bank_name} />
+        <SectionCard label="Banking" fields={bankAccounts.length > 0
+          ? bankAccounts.flatMap((a) => [
+              { label: `${a.account_label} — Account`, value: a.account_number },
+              { label: `${a.account_label} — SWIFT`, value: a.swift_bic },
+              { label: `${a.account_label} — Bank`, value: a.bank_name },
+            ])
+          : bankingFields}>
+          {bankAccounts.length > 0 ? (
+            <div className="space-y-5">
+              {bankAccounts.map((a, idx) => {
+                const routing = a.routing_buyer_entities
+                  ? a.routing_buyer_entities.split(',').map((s) => s.trim().toUpperCase()).join(' / ')
+                  : null;
+                return (
+                  <div key={a.id} style={{
+                    paddingBottom: idx < bankAccounts.length - 1 ? '20px' : 0,
+                    borderBottom: idx < bankAccounts.length - 1 ? '0.5px solid var(--border-hairline)' : 'none',
+                  }}>
+                    <div className="flex items-center gap-2 flex-wrap" style={{ marginBottom: '10px' }}>
+                      <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
+                        {a.account_label}
+                      </span>
+                      {a.currency && (
+                        <span style={{ fontSize: '12px', padding: '1px 7px', backgroundColor: 'var(--paper-sunk)', color: 'var(--fg-2)', borderRadius: 'var(--radius-pill)', fontWeight: 600 }}>
+                          {a.currency}
+                        </span>
+                      )}
+                      {a.is_default === 1 && (
+                        <span style={{ fontSize: '12px', padding: '1px 7px', backgroundColor: 'rgba(46,125,79,0.10)', color: 'var(--status-success)', borderRadius: 'var(--radius-pill)', fontWeight: 600 }}>
+                          DEFAULT
+                        </span>
+                      )}
+                      {routing && (
+                        <span style={{ fontSize: '12px', padding: '1px 7px', backgroundColor: 'rgba(229,32,44,0.08)', color: 'var(--brand-rot)', borderRadius: 'var(--radius-pill)', fontWeight: 600 }} title="Routes to this account when the buyer entity is one of these">
+                          → {routing}
+                        </span>
+                      )}
+                    </div>
+                    <CopyableField label="Account" value={a.account_number} mono />
+                    {a.swift_bic && <CopyableField label="SWIFT/BIC" value={a.swift_bic} mono />}
+                    {a.iban && <CopyableField label="IBAN" value={a.iban} mono />}
+                    <CopyableField label="Bank" value={a.bank_name} />
+                    {a.bank_address && <CopyableField label="Bank address" value={a.bank_address} />}
+                    {a.correspondent_bank_name && (
+                      <CopyableField label="Correspondent bank" value={a.correspondent_bank_name} />
+                    )}
+                    {a.correspondent_swift && (
+                      <CopyableField label="Correspondent SWIFT" value={a.correspondent_swift} mono />
+                    )}
+                    {a.notes && (
+                      <p style={{ fontSize: '13px', color: 'var(--fg-3)', marginTop: '8px', fontStyle: 'italic' }}>
+                        {a.notes}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <>
+              <CopyableField label="IBAN" value={partner.iban} mono />
+              <CopyableField label="SWIFT/BIC" value={partner.swift_bic} mono />
+              <CopyableField label="Bank" value={partner.bank_name} />
+            </>
+          )}
         </SectionCard>
       </div>
 

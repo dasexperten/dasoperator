@@ -1008,13 +1008,15 @@ export interface Operation {
   partner_trade_name?: string | null;
   our_company_id: string;
   entity_abbreviation?: string | null;
-  operation_type: 'sale' | 'purchase' | 'transfer' | 'transfer_batch';
+  operation_type: 'sale' | 'purchase' | 'transfer';
   operation_track?: 'goods' | 'service';
   partner_kind?: string | null;
   // Phase 0039 — transfer batches
   is_batch?: boolean;
   cluster_count?: number;
   marketplace?: 'OZN' | 'WB';
+  batch_accepted?: boolean;
+  total_units?: number;
   arrival_detected_at?: number | null;
   arrival_received_qtys?: string | null;
   arrival_rejected_at?: number | null;

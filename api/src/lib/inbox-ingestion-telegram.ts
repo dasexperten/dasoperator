@@ -199,7 +199,7 @@ export async function runInboxIngestionTelegram(
           },
           body: JSON.stringify({
             contact: src.address,
-            limit: 50,
+            limit: 200,
             only_with_media: true,
             offset_id: opts.offsetId ?? 0,
           }),

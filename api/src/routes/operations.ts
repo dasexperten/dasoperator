@@ -815,6 +815,9 @@ operations.get('/', async (c) => {
       const cluster = Number(row.cluster_count) || 0;
       const delivered = Number(row.delivered_count) || 0;
       const batchAccepted = cluster > 0 && delivered === cluster;
+      const mp = String(row.marketplace || '').toUpperCase();
+      const partnerId = mp === 'OZN' ? 'ozon' : mp === 'WB' ? 'wb' : null;
+      const partnerName = mp === 'OZN' ? 'Ozon' : mp === 'WB' ? 'Wildberries' : null;
       return {
         ...row,
         operation_type: 'transfer',
@@ -824,8 +827,10 @@ operations.get('/', async (c) => {
         currency: 'RUB',
         total_amount: 0,
         total_usd_equiv: 0,
-        partner_trade_name: null,
-        partner_kind: null,
+        partner_id: partnerId,
+        partner_name: partnerName,
+        partner_trade_name: partnerName,
+        partner_kind: 'marketplace',
         manufacturer_id: null,
         manufacturer_name: null,
         paid_amount: 0,

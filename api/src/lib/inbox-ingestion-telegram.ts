@@ -31,6 +31,10 @@ import type { Env } from '../types';
 import { findMatchingOperation, applyMatchToInbox } from './inbox-auto-match';
 
 const TELEGRAMER_BRIDGE = 'https://telegramer-bridge.dasexperten.workers.dev';
+// Direct VPS endpoints (Worker→VPS via sslip.io DNS).
+// Bridge proxies basic ops (/chat/{contact}/history) but not /chat/media-history or /get-file,
+// so we hit the VPS directly using the same Bearer secret.
+const VPS_BASE_URL = 'http://178-105-129-200.sslip.io:8000';
 const DEEPSEEK_API = 'https://api.deepseek.com/v1/chat/completions';
 
 // Reuse Gmail prompt, but add 'acceptance' as a possible classification.
@@ -174,10 +178,18 @@ export async function runInboxIngestionTelegram(env: Env): Promise<TelegramInges
 
       // Pull media-only history (latest 50 messages)
       const histRes = await fetch(
-        `${TELEGRAMER_BRIDGE}/chat/${encodeURIComponent(src.address)}/media-history?limit=50`,
+        `${VPS_BASE_URL}/chat/media-history`,
         {
-          method: 'GET',
-          headers: { Authorization: `Bearer ${bridgeSecret}` },
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${bridgeSecret}`,
+          },
+          body: JSON.stringify({
+            contact: src.address,
+            limit: 50,
+            only_with_media: true,
+          }),
           signal: AbortSignal.timeout(30_000),
         }
       );
@@ -225,7 +237,7 @@ export async function runInboxIngestionTelegram(env: Env): Promise<TelegramInges
           }
 
           const fileRef = msg.media.file_ref || msg.media.file_id!;
-          const fileRes = await fetch(`${TELEGRAMER_BRIDGE}/get-file`, {
+          const fileRes = await fetch(`${VPS_BASE_URL}/get-file`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

@@ -778,6 +778,7 @@ operations.get('/:id', async (c) => {
       o.*,
       ct.contract_no, ct.currency as contract_currency,
       p.trade_name as partner_trade_name,
+      p.acceptance_required as partner_acceptance_required,
       mfr.name as manufacturer_name,
       co.abbreviation as entity_abbreviation,
       er.delivery_number as arrival_delivery_number,
@@ -831,11 +832,31 @@ operations.get('/:id', async (c) => {
   const total = Number(op.total_amount) || 0;
   const paid = Number(paidRow?.paid_amount) || 0;
 
+  // Service-track signal: which inbound documents are attached.
+  // operation_attachments.kind values are free-text — the canonical pair we
+  // look for is 'acceptance' (ACP, акт выполненных работ) and 'invoice'
+  // (INV, счёт на оплату). Used by ServiceStatusBar to light up the three
+  // status chips (Service provided / Documents issued / Payment).
+  const attachmentCounts = await c.env.DB.prepare(`
+    SELECT
+      SUM(CASE WHEN kind = 'acceptance' THEN 1 ELSE 0 END) AS acceptance_n,
+      SUM(CASE WHEN kind = 'invoice'    THEN 1 ELSE 0 END) AS invoice_n
+    FROM operation_attachments
+    WHERE operation_id = ?
+      AND deleted_at IS NULL
+  `).bind(opId).first<{ acceptance_n: number; invoice_n: number }>();
+
+  const hasAcceptance = Number(attachmentCounts?.acceptance_n ?? 0) > 0;
+  const hasInvoice    = Number(attachmentCounts?.invoice_n ?? 0) > 0;
+
   return ok(c, {
     operation: {
       ...op,
       paid_amount: paid,
       payment_state: derivePaymentState(total, paid, String(op.status)),
+      // Service-track chip signals (read by ServiceStatusBar)
+      has_acceptance_attachment: hasAcceptance,
+      has_invoice_attachment: hasInvoice,
     },
     line_items: lineItems.results,
   });

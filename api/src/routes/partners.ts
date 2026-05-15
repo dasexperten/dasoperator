@@ -261,6 +261,8 @@ partners.get('/:slug', async (c) => {
       p.partner_local_language,
       p.last_verified,
       p.abbreviation,
+      p.kind, p.partner_subtype,
+      p.acceptance_required,
       p.created_at, p.updated_at
     FROM partners p
     LEFT JOIN companies c ON p.linked_entity_id = c.id
@@ -436,6 +438,11 @@ const updatePartnerSchema = z.object({
   price_type_id: z.string().nullable().optional(),
   currency: z.string().length(3).nullable().optional(),
   notes: z.string().max(2000).nullable().optional(),
+  // Service-track partner flag (migration 0038). When false, this partner's
+  // invoices double as acceptance certificates (subscription model — rent,
+  // accounting, banking, telecom). UI checkbox lives on /partners/:slug/edit
+  // and is only surfaced for kind='service_provider' partners.
+  acceptance_required: z.boolean().optional().transform((v) => (v === undefined ? undefined : (v ? 1 : 0))),
   // 2-6 letter uppercase code used in contract filenames:
   //   contracts/<entity>/<ENTITY>-<ABBR>-<YYYY-MM-DD>.pdf
   // Length 2-6 matches the seed in migration 0019.

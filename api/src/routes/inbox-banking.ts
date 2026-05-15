@@ -100,6 +100,112 @@ async function recordPartnerInnRule(
   }
 }
 
+// =============================================================================
+// sweepUnmatchedByInn — retroactive application of a partner-INN binding.
+// When user manually assigns a partner to one bank_tx (and a rule is recorded),
+// we also sweep ALL other unmatched bank_tx rows with the same INN and process
+// them through the same logic: create operation + payment attachment + link.
+// This is what was missing — without this, every recurring payment from the
+// same counterparty required a new manual click. Now: assign once → all caught up.
+//
+// Returns { processed, errors } so the caller can include it in the response.
+// =============================================================================
+async function sweepUnmatchedByInn(
+  db: D1Database,
+  args: {
+    inn: string;
+    partnerId: string;
+    partnerKind: string;
+    excludeTxId: string;  // already processed by caller
+    nowSec: number;
+  },
+): Promise<{ processed: number; refs: string[]; errors: string[] }> {
+  const out = { processed: 0, refs: [] as string[], errors: [] as string[] };
+
+  const candidates = await db.prepare(`
+    SELECT id, direction, amount, currency, executed_at,
+           contragent_name, payment_purpose, external_doc_number
+    FROM bank_transactions
+    WHERE contragent_inn = ?
+      AND id != ?
+      AND matched_operation_id IS NULL
+      AND matched_payment_id IS NULL
+    ORDER BY executed_at ASC
+  `).bind(args.inn, args.excludeTxId).all<{
+    id: string; direction: string; amount: number; currency: string;
+    executed_at: number; contragent_name: string;
+    payment_purpose: string; external_doc_number: string;
+  }>();
+
+  if (!candidates.results.length) return out;
+
+  const SERVICE_KINDS = new Set(['service_provider', '3pl', 'shipper']);
+
+  for (const tx of candidates.results) {
+    try {
+      const isService = tx.direction === 'outgoing' && SERVICE_KINDS.has(args.partnerKind);
+      const operationType = tx.direction === 'incoming' ? 'sale' : 'purchase';
+
+      // Generate reference
+      const yy = new Date(tx.executed_at * 1000).getFullYear() % 100;
+      const prefix = `DEE-${String(yy).padStart(2, '0')}`;
+      const cntRow = await db.prepare(
+        `SELECT COUNT(*) AS cnt FROM operations WHERE reference LIKE ?`
+      ).bind(`${prefix}%`).first<{ cnt: number }>();
+      const seq = ((cntRow?.cnt ?? 0) + 1).toString().padStart(4, '0');
+      const reference = `${prefix}${seq}`;
+
+      const opId = `op_${crypto.randomUUID()}`;
+      const notes = isService
+        ? `[SERVICE EXPENSE — auto-cascaded via INN rule] ${tx.contragent_name}. ${(tx.payment_purpose || '').slice(0, 400)}`
+        : `[GOODS OPERATION — auto-cascaded via INN rule] ${tx.contragent_name}. ${(tx.payment_purpose || '').slice(0, 400)}`;
+
+      await db.prepare(`
+        INSERT INTO operations (
+          id, operation_date, operation_type, partner_id,
+          our_company_id, status, currency, total_amount,
+          notes, reference, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 'dee', 'issued', ?, ?, ?, ?, ?, ?)
+      `).bind(
+        opId, tx.executed_at, operationType, args.partnerId,
+        tx.currency, tx.amount / 100, notes, reference, args.nowSec, args.nowSec,
+      ).run();
+
+      const pmtId = `att_${crypto.randomUUID()}`;
+      await db.prepare(`
+        INSERT INTO operation_attachments (
+          id, operation_id, direction, kind, doc_number, doc_date,
+          amount, currency, issuer, parsed_from, source_ref_id, notes,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, 'payment', ?, ?, ?, ?, ?, 'inbox', ?, ?, ?, ?)
+      `).bind(
+        pmtId, opId, tx.direction,
+        tx.external_doc_number || null, tx.executed_at,
+        tx.amount / 100, tx.currency,
+        tx.contragent_name || 'Modulbank', tx.id,
+        `[auto-cascaded via INN rule] ${(tx.payment_purpose || '').slice(0, 400)}`,
+        args.nowSec, args.nowSec,
+      ).run();
+
+      await db.prepare(`
+        UPDATE bank_transactions
+        SET matched_operation_id = ?,
+            match_method = 'auto_inn_rule',
+            matched_at = ?,
+            updated_at = ?
+        WHERE id = ?
+      `).bind(opId, args.nowSec, args.nowSec, tx.id).run();
+
+      out.processed += 1;
+      out.refs.push(reference);
+    } catch (err) {
+      out.errors.push(`tx ${tx.id}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  return out;
+}
+
 inboxBanking.get('/', async (c) => {
   const filter = c.req.query('filter') ?? 'all';
   const limit = Math.min(200, Math.max(1, Number(c.req.query('limit') ?? 50)));
@@ -759,6 +865,7 @@ inboxBanking.post('/:tx_id/assign-partner', async (c) => {
     ).run();
 
     // Auto-remember partner ↔ INN binding for next time.
+    let sweepResult = { processed: 0, refs: [] as string[], errors: [] as string[] };
     try {
       if (tx.contragent_inn) {
         await recordPartnerInnRule(c.env.DB, {
@@ -768,9 +875,21 @@ inboxBanking.post('/:tx_id/assign-partner', async (c) => {
           operationType,
           txId: tx.id,
         });
+
+        // Retroactive sweep: apply this newly-confirmed partner↔INN binding to
+        // every other unmatched bank_tx with the same INN. Without this, manual
+        // assign affects only one transaction even if 30 identical ones are
+        // queued from the same counterparty.
+        sweepResult = await sweepUnmatchedByInn(c.env.DB, {
+          inn: tx.contragent_inn,
+          partnerId,
+          partnerKind,
+          excludeTxId: tx.id,
+          nowSec: now,
+        });
       }
     } catch (memErr) {
-      console.error('[inbox-banking assign-partner] rule-remember failed:', memErr);
+      console.error('[inbox-banking assign-partner] rule-remember/sweep failed:', memErr);
     }
 
     return ok(c, {
@@ -780,6 +899,11 @@ inboxBanking.post('/:tx_id/assign-partner', async (c) => {
       operation_ref: reference,
       classified_as: isService ? 'service_closed' : 'goods_draft',
       attachment_id: pmtId,
+      retroactive_sweep: {
+        processed: sweepResult.processed,
+        operations_created: sweepResult.refs,
+        errors: sweepResult.errors,
+      },
     });
   } catch (e) {
     return fail(c, 500, [{

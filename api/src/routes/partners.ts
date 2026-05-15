@@ -194,7 +194,7 @@ partners.get('/resolve-supplier-route', async (c) => {
   // Find best account: prefer one whose routing_buyer_entities CONTAINS the searchTag, otherwise default.
   const accounts = await c.env.DB.prepare(`
     SELECT id, partner_id, account_label, bank_name, bank_address,
-           account_number, swift_bic, iban, cnaps_code, currency,
+           account_number, swift_bic, iban, cnaps_code, bik_code, currency,
            correspondent_bank_name, correspondent_swift,
            is_default, routing_buyer_entities, notes
     FROM partner_bank_accounts
@@ -533,7 +533,7 @@ partners.get('/:slug/bank-accounts', async (c) => {
   }
   const result = await c.env.DB.prepare(`
     SELECT id, partner_id, account_label, bank_name, bank_address,
-           account_number, swift_bic, iban, cnaps_code, currency,
+           account_number, swift_bic, iban, cnaps_code, bik_code, currency,
            correspondent_bank_name, correspondent_swift,
            is_default, routing_buyer_entities, notes,
            created_at, updated_at

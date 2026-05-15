@@ -1042,8 +1042,8 @@ operations.post('/:id/gtd/upload', async (c) => {
   // Check if a GTD document already exists for this operation — replace if so
   const existingDoc = await c.env.DB.prepare(
     `SELECT id FROM documents
-     WHERE operation_id = ? AND document_type = 'other'
-       AND metadata LIKE '%"kind"%"GTD"%'
+     WHERE operation_id = ? AND document_type = 'GTD'
+       AND deleted_at IS NULL
      LIMIT 1`
   ).bind(id).first<{ id: string }>();
 
@@ -1063,20 +1063,20 @@ operations.post('/:id/gtd/upload', async (c) => {
     ).bind(finalNumber, now, r2Key, metadata, now, existingDoc.id).run();
   } else {
     const docId = `doc_${crypto.randomUUID()}`;
-    const totalAmountMinor = op.total_amount != null
-      ? Math.round(op.total_amount * 100)
-      : null;
+    // total_amount in documents is stored as decimal (same scale as
+    // operations.total_amount) — NOT minor units. Past pattern was wrong.
+    const totalAmountDecimal = op.total_amount ?? null;
     await c.env.DB.prepare(
       `INSERT INTO documents (
          id, document_number, document_type, operation_id, issuer_id, partner_id,
          contract_ref, document_date, currency, total_amount, pdf_r2_url,
          mandatory_level, status, metadata, created_at, updated_at
-       ) VALUES (?, ?, 'other', ?, ?, ?,
+       ) VALUES (?, ?, 'GTD', ?, ?, ?,
          NULL, ?, ?, ?, ?,
          'mandatory', 'issued', ?, ?, ?)`
     ).bind(
       docId, finalNumber, id, op.our_company_id, op.partner_id,
-      now, op.currency, totalAmountMinor, r2Key,
+      now, op.currency, totalAmountDecimal, r2Key,
       metadata, now, now
     ).run();
   }
@@ -1103,8 +1103,8 @@ operations.get('/:id/gtd/download', async (c) => {
   const id = c.req.param('id');
   const doc = await c.env.DB.prepare(
     `SELECT document_number, pdf_r2_url FROM documents
-     WHERE operation_id = ? AND document_type = 'other'
-       AND metadata LIKE '%"kind"%"GTD"%'
+     WHERE operation_id = ? AND document_type = 'GTD'
+       AND deleted_at IS NULL
      ORDER BY created_at DESC LIMIT 1`
   ).bind(id).first<{ document_number: string; pdf_r2_url: string }>();
   if (!doc || !doc.pdf_r2_url) {

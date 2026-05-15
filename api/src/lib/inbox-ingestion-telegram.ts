@@ -123,7 +123,15 @@ interface TelegramIngestionStats {
   per_source: Array<{ chat_id: string; new: number; inserted: number }>;
 }
 
-export async function runInboxIngestionTelegram(env: Env): Promise<TelegramIngestionStats> {
+export interface TelegramIngestionOptions {
+  offsetId?: number;
+  ignoreHwm?: boolean;
+}
+
+export async function runInboxIngestionTelegram(
+  env: Env,
+  opts: TelegramIngestionOptions = {}
+): Promise<TelegramIngestionStats> {
   const stats: TelegramIngestionStats = {
     sources_checked: 0,
     new_messages: 0,
@@ -167,17 +175,20 @@ export async function runInboxIngestionTelegram(env: Env): Promise<TelegramInges
     const perSourceStat = { chat_id: src.address, new: 0, inserted: 0 };
 
     try {
-      // High-water mark — last tg_msg_id we've processed for this chat
-      const hwmRow = await env.DB.prepare(
-        `SELECT MAX(telegram_msg_id) as hwm
-           FROM invoice_inbox
-          WHERE source_type = 'telegram'
-            AND telegram_chat_id = ?
-            AND deleted_at IS NULL`
-      ).bind(src.address).first<{ hwm: number | null }>();
+      // High-water mark — last tg_msg_id we've processed for this chat.
+      // Skipped in backfill mode when ignoreHwm=true.
+      const hwmRow = opts.ignoreHwm
+        ? null
+        : await env.DB.prepare(
+            `SELECT MAX(telegram_msg_id) as hwm
+               FROM invoice_inbox
+              WHERE source_type = 'telegram'
+                AND telegram_chat_id = ?
+                AND deleted_at IS NULL`
+          ).bind(src.address).first<{ hwm: number | null }>();
       const hwm = hwmRow?.hwm ?? 0;
 
-      // Pull media-only history (latest 50 messages)
+      // Pull media-only history (latest 50 messages, or older window via offset_id)
       const histRes = await fetch(
         `${VPS_BASE_URL}/chat/media-history`,
         {
@@ -190,6 +201,7 @@ export async function runInboxIngestionTelegram(env: Env): Promise<TelegramInges
             contact: src.address,
             limit: 50,
             only_with_media: true,
+            offset_id: opts.offsetId ?? 0,
           }),
           signal: AbortSignal.timeout(30_000),
         }
@@ -202,7 +214,7 @@ export async function runInboxIngestionTelegram(env: Env): Promise<TelegramInges
       }
       const hist = (await histRes.json()) as { messages?: TelegramMessage[] };
       const messages = (hist.messages || []).filter(
-        (m) => m.has_media && m.tg_msg_id > hwm
+        (m) => m.has_media && (opts.ignoreHwm || m.tg_msg_id > hwm)
       );
       perSourceStat.new = messages.length;
       stats.new_messages += messages.length;

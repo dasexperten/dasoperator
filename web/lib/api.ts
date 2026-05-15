@@ -894,6 +894,31 @@ export interface PartnerNetBalance {
 export async function getPartnerNetBalance(slug: string) {
   return apiGet<PartnerNetBalance>(`/api/partners/${slug}/net-balance`);
 }
+export interface PartnerBankAccount {
+  id: string;
+  partner_id: string;
+  account_label: string;
+  bank_name: string;
+  bank_address?: string | null;
+  account_number: string;
+  swift_bic?: string | null;
+  iban?: string | null;
+  currency?: string | null;
+  correspondent_bank_name?: string | null;
+  correspondent_swift?: string | null;
+  is_default: number;
+  routing_buyer_entities?: string | null;
+  notes?: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export async function getPartnerBankAccounts(slug: string) {
+  return apiGet<{ count: number; accounts: PartnerBankAccount[] }>(
+    `/api/partners/${slug}/bank-accounts`
+  );
+}
+
 
 export interface BulkNetBalances {
   count: number;

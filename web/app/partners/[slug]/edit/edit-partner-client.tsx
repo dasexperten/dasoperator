@@ -73,6 +73,7 @@ type FormState = {
   kpp: string;
   ogrn: string;
   notes: string;
+  acceptance_required: boolean;
 };
 
 function partnerToForm(p: Partner): FormState {
@@ -98,6 +99,7 @@ function partnerToForm(p: Partner): FormState {
     kpp: p.kpp ?? '',
     ogrn: p.ogrn ?? '',
     notes: p.notes ?? '',
+    acceptance_required: (p as { acceptance_required?: 0 | 1 | null }).acceptance_required === 0 ? false : true,
   };
 }
 
@@ -440,6 +442,43 @@ export default function EditPartnerClient({ slug }: { slug: string }) {
           </select>
         </Field>
       </FormSection>
+
+      {/* Service-Track Settings — only for service-provider partners */}
+      {partner?.kind === 'service_provider' && (
+        <FormSection title="Service-Track Settings">
+          <Field
+            label="Acceptance required"
+            hint={
+              form.acceptance_required
+                ? 'A separate acceptance certificate (ACP, акт выполненных работ) is needed for each service operation. The Service provided chip on the operation page lights up only when the acceptance document is attached.'
+                : 'This partner runs on a subscription model — the invoice itself serves as the acceptance. Both the Service provided and Documents issued chips light up the moment the invoice is attached. Use this for rent, accounting, banking, hosting, telecom, and similar recurring services.'
+            }
+          >
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '10px 12px',
+                border: '1px solid var(--border-hairline)',
+                borderRadius: 'var(--radius-sm)',
+                cursor: 'pointer',
+                backgroundColor: form.acceptance_required ? 'var(--paper)' : 'rgba(229,32,44,0.04)',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={!form.acceptance_required}
+                onChange={(e) => update('acceptance_required', !e.target.checked)}
+                style={{ width: 18, height: 18, cursor: 'pointer' }}
+              />
+              <span style={{ fontSize: 14, fontWeight: 600 }}>
+                Invoice serves as acceptance (no separate ACP needed)
+              </span>
+            </label>
+          </Field>
+        </FormSection>
+      )}
 
       {/* Notes */}
       <FormSection title="Notes">

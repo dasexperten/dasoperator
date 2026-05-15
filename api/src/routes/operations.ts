@@ -306,6 +306,20 @@ operations.post('/', async (c) => {
     resolvedCompanyId = data.our_company_id!;
     resolvedCurrency = data.currency!;
 
+    // Auto-link partner: if a manufacturer-kind partner exists with the same id,
+    // attach it. Without this, purchase ops have partner_id=NULL even though the
+    // factory exists as a partner in the system — breaks the Partner column UI
+    // (no link) and excludes the op from partner-hub views. Body partner_id wins
+    // if explicitly provided.
+    if (data.partner_id) {
+      resolvedPartnerId = data.partner_id;
+    } else {
+      const mfrPartner = await c.env.DB.prepare(
+        "SELECT id FROM partners WHERE id = ? AND kind = 'manufacturer' AND deleted_at IS NULL"
+      ).bind(resolvedManufacturerId).first<{ id: string }>();
+      if (mfrPartner) resolvedPartnerId = mfrPartner.id;
+    }
+
   } else {
     // TRANSFER — both companies from body, validate FKs
     const sender = await c.env.DB.prepare(

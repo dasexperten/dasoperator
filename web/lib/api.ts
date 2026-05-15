@@ -911,6 +911,7 @@ export interface PartnerBankAccount {
   swift_bic?: string | null;
   iban?: string | null;
   cnaps_code?: string | null;
+  bik_code?: string | null;
   currency?: string | null;
   correspondent_bank_name?: string | null;
   correspondent_swift?: string | null;

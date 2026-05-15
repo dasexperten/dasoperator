@@ -781,13 +781,26 @@ operations.get('/:id', async (c) => {
       mfr.name as manufacturer_name,
       co.abbreviation as entity_abbreviation,
       er.delivery_number as arrival_delivery_number,
-      er.is_completed as arrival_request_completed
+      er.is_completed as arrival_request_completed,
+      ip.trade_name as issuing_partner_name,
+      ba.account_label as issuing_bank_label,
+      ba.bank_name as issuing_bank_name,
+      ba.account_number as issuing_account_number,
+      ba.swift_bic as issuing_bank_swift,
+      ba.cnaps_code as issuing_bank_cnaps,
+      ba.iban as issuing_bank_iban,
+      ba.currency as issuing_bank_currency,
+      ba.bank_address as issuing_bank_address,
+      ba.correspondent_bank_name as issuing_correspondent_bank,
+      ba.correspondent_swift as issuing_correspondent_swift
     FROM operations o
     LEFT JOIN contracts ct ON o.contract_id = ct.id
     LEFT JOIN partners p ON o.partner_id = p.id
     LEFT JOIN manufacturers mfr ON o.manufacturer_id = mfr.id
     LEFT JOIN companies co ON o.our_company_id = co.id
     LEFT JOIN external_requests er ON o.arrival_source_request_id = er.id
+    LEFT JOIN partners ip ON o.issuing_partner_id = ip.id
+    LEFT JOIN partner_bank_accounts ba ON o.issuing_bank_account_id = ba.id
     WHERE o.id = ? AND o.deleted_at IS NULL
   `).bind(opId).first<Record<string, unknown>>();
 

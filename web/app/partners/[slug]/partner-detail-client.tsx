@@ -273,6 +273,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
     { label: 'Type', value: partner.partner_type },
     { label: 'Tax ID', value: partner.tax_id },
     { label: 'Email', value: partner.email },
+    { label: 'Contact person', value: partner.contact_person },
   ];
   const bankingFields = [
     { label: 'IBAN', value: partner.iban },
@@ -352,6 +353,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
           <CopyableField label="National language" value={nationalLanguageLabel((partner as { partner_local_language?: string | null }).partner_local_language)} />
           <CopyableField label="Tax ID" value={partner.tax_id} mono />
           <CopyableField label="Email" value={partner.email} mono />
+          {partner.contact_person && <CopyableField label="Contact person" value={partner.contact_person} />}
         </SectionCard>
 
         <SectionCard label="Banking" fields={bankAccounts.length > 0
@@ -394,6 +396,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
                     </div>
                     <CopyableField label="Account" value={a.account_number} mono />
                     {a.swift_bic && <CopyableField label="SWIFT/BIC" value={a.swift_bic} mono />}
+                    {a.cnaps_code && <CopyableField label="CNAPS" value={a.cnaps_code} mono />}
                     {a.iban && <CopyableField label="IBAN" value={a.iban} mono />}
                     <CopyableField label="Bank" value={a.bank_name} />
                     {a.bank_address && <CopyableField label="Bank address" value={a.bank_address} />}

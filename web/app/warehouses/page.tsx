@@ -112,8 +112,27 @@ export default function WarehousesPage() {
         va = a.product_name.toLowerCase();
         vb = b.product_name.toLowerCase();
       } else if (sort.key === 'total') {
-        va = a.total_on_hand;
-        vb = b.total_on_hand;
+        const computeTotal = (p: ProductWithStock): number => {
+          const skuLower = p.id.replace('prd_', '').toLowerCase();
+          let t = 0;
+          for (const w of p.warehouses) {
+            if (w.warehouse_id === 'lbr') {
+              const ext = externalStocks[`${skuLower}|lbr`];
+              t += (ext && typeof ext.amount === 'number') ? ext.amount : w.on_hand;
+            } else if (w.warehouse_id === 'ozon' || w.warehouse_id === 'wb') {
+              continue;
+            } else {
+              t += w.on_hand;
+            }
+          }
+          t += p.on_the_way ?? 0;
+          const mp = marketplaces[p.id];
+          t += mp?.ozon_units ?? 0;
+          t += mp?.wb_units ?? 0;
+          return t;
+        };
+        va = computeTotal(a);
+        vb = computeTotal(b);
       } else if (sort.key === 'ozon') {
         va = marketplaces[a.id]?.ozon_units ?? 0;
         vb = marketplaces[b.id]?.ozon_units ?? 0;
@@ -138,7 +157,7 @@ export default function WarehousesPage() {
     });
 
     return list;
-  }, [products, sort, marketplaces]);
+  }, [products, sort, marketplaces, externalStocks]);
 
   // Apply search filter on top of sort
   const filtered = useMemo(() => {
@@ -151,19 +170,32 @@ export default function WarehousesPage() {
     );
   }, [sortedProducts, search]);
 
+  // Footer column totals.
+  //
+  // Per-warehouse rule:
+  // - LBR: prefer F4 external_stocks amount (the official Skladbot truth);
+  //   fall back to our on_hand only if F4 hasn't synced this SKU.
+  // - All other internal warehouses (FLP, SRN, DGN, GZH, etc.): our on_hand
+  //   (no external source).
+  // - OTW: our on_hand (computed from on_the_way).
+  // Marketplace totals (Ozon/WB) are computed separately in marketplaceTotals.
   const totalsByWarehouse = useMemo(() => {
     const totals: Record<string, number> = {};
-    let grandTotal = 0;
     let otwTotal = 0;
     for (const p of products) {
+      const skuLower = p.id.replace('prd_', '').toLowerCase();
       for (const w of p.warehouses) {
-        totals[w.code] = (totals[w.code] ?? 0) + w.on_hand;
-        grandTotal += w.on_hand;
+        let val = w.on_hand;
+        if (w.warehouse_id === 'lbr') {
+          const ext = externalStocks[`${skuLower}|lbr`];
+          if (ext && typeof ext.amount === 'number') val = ext.amount;
+        }
+        totals[w.code] = (totals[w.code] ?? 0) + val;
       }
       otwTotal += p.on_the_way ?? 0;
     }
-    return { totals, grandTotal, otwTotal };
-  }, [products]);
+    return { totals, otwTotal };
+  }, [products, externalStocks]);
 
   const marketplaceTotals = useMemo(() => {
     let ozon = 0, wb = 0;
@@ -175,6 +207,41 @@ export default function WarehousesPage() {
     }
     return { ozon, wb };
   }, [products, marketplaces]);
+
+  // Grand total = sum of all column totals in the footer.
+  // This is the single number shown in the header line ("X pieces total").
+  const grandTotal = useMemo(() => {
+    const whSum = Object.values(totalsByWarehouse.totals).reduce((a, b) => a + b, 0);
+    return whSum + totalsByWarehouse.otwTotal + marketplaceTotals.ozon + marketplaceTotals.wb;
+  }, [totalsByWarehouse, marketplaceTotals]);
+
+  // Per-row totals computed client-side using same external-aware rule.
+  // For each product, sum: LBR-from-F4 (or on_hand fallback) + other warehouses' on_hand
+  // + OTW + Ozon (API) + WB (API).
+  const realTotalByProduct = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const p of products) {
+      const skuLower = p.id.replace('prd_', '').toLowerCase();
+      let total = 0;
+      for (const w of p.warehouses) {
+        if (w.warehouse_id === 'lbr') {
+          const ext = externalStocks[`${skuLower}|lbr`];
+          total += (ext && typeof ext.amount === 'number') ? ext.amount : w.on_hand;
+        } else if (w.warehouse_id === 'ozon' || w.warehouse_id === 'wb') {
+          // Marketplace warehouses contribute via API totals below, not on_hand.
+          continue;
+        } else {
+          total += w.on_hand;
+        }
+      }
+      total += p.on_the_way ?? 0;
+      const mp = marketplaces[p.id];
+      total += mp?.ozon_units ?? 0;
+      total += mp?.wb_units ?? 0;
+      m[p.id] = total;
+    }
+    return m;
+  }, [products, externalStocks, marketplaces]);
 
   // Filter out marketplace-hidden warehouses (ozon, wb) — these are rendered
   // separately via MarketplaceCellTd which combines API data + our internal.
@@ -206,7 +273,7 @@ export default function WarehousesPage() {
           Warehouses
         </h1>
         <p className="mt-2" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
-          {loading ? 'Loading...' : `${products.length} SKUs × ${warehouses.length} warehouses · ${totalsByWarehouse.grandTotal.toLocaleString('en-US')} pieces total`}
+          {loading ? 'Loading...' : `${products.length} SKUs × ${warehouses.length} warehouses · ${grandTotal.toLocaleString('en-US')} pieces total`}
         </p>
       </div>
 
@@ -350,10 +417,10 @@ export default function WarehousesPage() {
                       <td className="px-3 py-2 text-right" style={{
                         fontSize: '14px',
                         fontWeight: 700,
-                        color: p.total_on_hand > 0 ? 'var(--fg-1)' : 'var(--fg-muted)',
+                        color: (realTotalByProduct[p.id] ?? 0) > 0 ? 'var(--fg-1)' : 'var(--fg-muted)',
                         backgroundColor: 'var(--paper-sunk)',
                       }}>
-                        {p.total_on_hand.toLocaleString('en-US')}
+                        {(realTotalByProduct[p.id] ?? 0).toLocaleString('en-US')}
                       </td>
                     </tr>
                   );
@@ -406,7 +473,7 @@ export default function WarehousesPage() {
                     color: 'var(--fg-1)',
                     backgroundColor: 'var(--paper-sunk)',
                   }}>
-                    {totalsByWarehouse.grandTotal.toLocaleString('en-US')}
+                    {grandTotal.toLocaleString('en-US')}
                   </td>
                 </tr>
               </tfoot>

@@ -945,6 +945,98 @@ export default function OperationDetailClient({
         </div>
       </div>
 
+      {/* BANKING ROUTE ============================================== */}
+      {operation.operation_type === 'purchase' && operation.issuing_partner_id && (
+        <div
+          className="p-4"
+          style={{
+            backgroundColor: operation.dei_layer === 1 || operation.our_company_id !== 'dee'
+              ? 'rgba(229,32,44,0.04)'
+              : 'rgba(46,125,79,0.04)',
+            border: operation.dei_layer === 1 || operation.our_company_id !== 'dee'
+              ? '1px solid rgba(229,32,44,0.20)'
+              : '1px solid rgba(46,125,79,0.20)',
+            borderRadius: 'var(--radius-md)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '12px' }}>
+            <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
+              Banking Route
+            </span>
+            <span style={{
+              fontSize: '12px',
+              padding: '2px 9px',
+              backgroundColor: operation.dei_layer === 1 || operation.our_company_id !== 'dee'
+                ? 'rgba(229,32,44,0.10)'
+                : 'rgba(46,125,79,0.15)',
+              color: operation.dei_layer === 1 || operation.our_company_id !== 'dee'
+                ? 'var(--brand-rot)'
+                : 'var(--status-success)',
+              borderRadius: 'var(--radius-pill)',
+              fontWeight: 700,
+            }}>
+              {operation.dei_layer === 1 || operation.our_company_id !== 'dee'
+                ? 'VIA INTERMEDIARY'
+                : 'DIRECT DEE'}
+            </span>
+            <span style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
+              Invoice issuer: <strong style={{ color: 'var(--fg-1)' }}>{operation.issuing_partner_name || operation.issuing_partner_id}</strong>
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div>
+              <p style={{ fontSize: '13px', color: 'var(--fg-3)' }}>Bank</p>
+              <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
+                {operation.issuing_bank_label} — {operation.issuing_bank_name}
+              </p>
+            </div>
+            <div>
+              <p style={{ fontSize: '13px', color: 'var(--fg-3)' }}>Account</p>
+              <p style={{ fontSize: '14px', fontWeight: 700, fontFamily: 'monospace', color: 'var(--fg-1)' }}>
+                {operation.issuing_account_number}
+              </p>
+            </div>
+            {operation.issuing_bank_swift && (
+              <div>
+                <p style={{ fontSize: '13px', color: 'var(--fg-3)' }}>SWIFT</p>
+                <p style={{ fontSize: '14px', fontWeight: 700, fontFamily: 'monospace', color: 'var(--fg-1)' }}>
+                  {operation.issuing_bank_swift}
+                </p>
+              </div>
+            )}
+            {operation.issuing_bank_cnaps && (
+              <div>
+                <p style={{ fontSize: '13px', color: 'var(--fg-3)' }}>CNAPS</p>
+                <p style={{ fontSize: '14px', fontWeight: 700, fontFamily: 'monospace', color: 'var(--fg-1)' }}>
+                  {operation.issuing_bank_cnaps}
+                </p>
+              </div>
+            )}
+            {operation.issuing_correspondent_bank && (
+              <div>
+                <p style={{ fontSize: '13px', color: 'var(--fg-3)' }}>Correspondent</p>
+                <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
+                  {operation.issuing_correspondent_bank}
+                  {operation.issuing_correspondent_swift && (
+                    <span style={{ marginLeft: '6px', fontFamily: 'monospace', color: 'var(--fg-2)', fontWeight: 400 }}>
+                      ({operation.issuing_correspondent_swift})
+                    </span>
+                  )}
+                </p>
+              </div>
+            )}
+            {operation.issuing_bank_currency && (
+              <div>
+                <p style={{ fontSize: '13px', color: 'var(--fg-3)' }}>Currency</p>
+                <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
+                  {operation.issuing_bank_currency}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* TABS ======================================================= */}
       <div
         className="flex"

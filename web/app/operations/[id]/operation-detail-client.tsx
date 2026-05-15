@@ -400,14 +400,25 @@ export default function OperationDetailClient({
             ? (operation.warehouse_to_id ? warehouseCodes[operation.warehouse_to_id] ?? null : null)
             : (operation.warehouse_from_id ? warehouseCodes[operation.warehouse_from_id] ?? null : null)
         }
-        // ── Service track wiring (migration 0034) ────────────────────────
-        // operationTrack: 'service' makes the bar render two binary chips
-        // (Service provided / Paid) instead of the goods toolbar. Set on
-        // operation create from partner.partner_subtype.
+        // ── Service track wiring (migrations 0034 + 0038) ───────────────
+        // operationTrack: 'service' renders the three-chip ServiceStatusBar
+        // (Service provided / Documents issued / Payment) instead of the goods
+        // toolbar. Set on operation create from partner.partner_subtype.
+        // Chip signals come from /api/operations/:id:
+        //   has_acceptance_attachment → Service provided (green)
+        //   has_invoice_attachment    → Documents issued (red)
+        //   sum(payments) ≥ total      → Payment (blue)
+        // partner_acceptance_required=0 lets invoice substitute for acceptance
+        // (subscription partners: rent, accounting, banking, hosting).
         operationTrack={(operation as { operation_track?: 'goods' | 'service' }).operation_track ?? 'goods'}
-        deliveryStatus={(operation as { delivery_status?: 'pending' | 'delivered' | 'disputed' | 'refunded' }).delivery_status ?? 'delivered'}
+        hasAcceptance={(operation as { has_acceptance_attachment?: boolean }).has_acceptance_attachment ?? false}
+        hasInvoice={(operation as { has_invoice_attachment?: boolean }).has_invoice_attachment ?? false}
+        partnerAcceptanceRequired={
+          ((operation as { partner_acceptance_required?: 0 | 1 | null }).partner_acceptance_required ?? 1) as 0 | 1
+        }
         paidAmount={(operation as { paid_amount?: number | null }).paid_amount ?? null}
         totalAmount={(operation as { total_amount?: number | null }).total_amount ?? null}
+        operationCurrency={(operation as { currency?: string | null }).currency ?? null}
         onIssued={async () => {
           const opRes = await getOperation(operationId);
           if (opRes.success && opRes.result) {

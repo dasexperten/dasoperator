@@ -1578,6 +1578,16 @@ function DocumentsTab({ operationId, operation, attachments, onOperationRefresh 
     PL: 'Packing List',
     'IS-V1': 'Issuance Statement',
     'IS-V2': 'Issuance Statement v2',
+    IS: 'Issuance Statement',
+    UPD: 'UPD',
+    TN: 'TN',
+    GTD: 'GTD',
+    RFQ: 'RFQ',
+    ACT: 'ACT',
+    contract: 'Contract',
+    annex: 'Annex',
+    addendum: 'Addendum',
+    other: 'Other',
   };
 
   const STATUS_STYLE: Record<string, { fg: string; bg: string }> = {

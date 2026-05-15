@@ -488,6 +488,11 @@ export interface Partner {
   last_verified?: number | null;
   // Phase 7.x — 4-letter uppercase code used in contract filenames
   abbreviation?: string | null;
+  // Migration 0038 — service-track partners only. When false, invoice doubles
+  // as acceptance certificate (subscription model: rent, accounting, banking,
+  // telecom). UI checkbox on /partners/:slug/edit, surfaced only for
+  // kind='service_provider' partners.
+  acceptance_required?: 0 | 1 | null;
   created_at: number;
   updated_at: number;
 }
@@ -558,6 +563,7 @@ export type UpdatePartnerBody = Partial<{
   currency: string | null;
   notes: string | null;
   abbreviation: string | null;
+  acceptance_required: boolean;
 }>;
 
 export async function updatePartner(slug: string, body: UpdatePartnerBody) {
@@ -1048,6 +1054,10 @@ export interface Operation {
   dei_layer?: number | null;
   created_at: number;
   updated_at: number;
+  // Service-track signals (set by GET /api/operations/:id when operation_track='service')
+  has_acceptance_attachment?: boolean;
+  has_invoice_attachment?: boolean;
+  partner_acceptance_required?: 0 | 1 | null;
 }
 
 export interface OperationLineItem {

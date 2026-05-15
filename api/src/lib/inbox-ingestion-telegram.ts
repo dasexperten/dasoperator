@@ -96,15 +96,16 @@ interface TelegramMessage {
   topic_id: number | null;
   sender_id: number | null;
   sender_username: string | null;
+  sender_name?: string | null;
   sent_at: string | null;
   text: string | null;
   has_media: boolean;
+  // VPS media-history returns this lightweight shape; actual file
+  // bytes are fetched separately by (chat_id, tg_msg_id) through /get-file.
   media: {
-    file_id?: string;
-    file_ref?: string;
-    filename?: string | null;
-    mime_type?: string | null;
-    size?: number | null;
+    filename: string | null;
+    mime_type: string | null;
+    size: number | null;
   } | null;
 }
 
@@ -230,20 +231,29 @@ export async function runInboxIngestionTelegram(env: Env): Promise<TelegramInges
             continue;
           }
 
-          // Step B — download file
-          if (!msg.media?.file_id && !msg.media?.file_ref) {
-            console.log(`[tg-inbox] msg ${msg.tg_msg_id}: no file ref, skip`);
+          // Step B — download file. VPS expects {chat_id, tg_msg_id} and
+          // returns base64-encoded bytes in the 'data_base64' field.
+          if (!msg.has_media || !msg.media) {
+            console.log(`[tg-inbox] msg ${msg.tg_msg_id}: no media, skip`);
             continue;
           }
-
-          const fileRef = msg.media.file_ref || msg.media.file_id!;
+          // chat_id is negative for groups, must be int
+          const chatId = parseInt(src.address, 10);
+          if (Number.isNaN(chatId)) {
+            console.error(`[tg-inbox] cannot parse chat_id ${src.address}`);
+            stats.errors++;
+            continue;
+          }
           const fileRes = await fetch(`${VPS_BASE_URL}/get-file`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${bridgeSecret}`,
             },
-            body: JSON.stringify({ file_ref: fileRef }),
+            body: JSON.stringify({
+              chat_id: chatId,
+              tg_msg_id: msg.tg_msg_id,
+            }),
             signal: AbortSignal.timeout(60_000),
           });
 
@@ -252,23 +262,35 @@ export async function runInboxIngestionTelegram(env: Env): Promise<TelegramInges
             stats.errors++;
             continue;
           }
-          const fileBuf = await fileRes.arrayBuffer();
-          if (!fileBuf.byteLength) {
+          const fileResp = (await fileRes.json()) as {
+            data_base64: string;
+            filename: string;
+            mime_type: string;
+            size: number;
+          };
+          if (!fileResp.data_base64) {
             console.error(`[tg-inbox] empty file for msg ${msg.tg_msg_id}`);
             stats.errors++;
             continue;
+          }
+          // Decode base64 → ArrayBuffer
+          const binaryStr = atob(fileResp.data_base64);
+          const fileBuf = new ArrayBuffer(binaryStr.length);
+          const view = new Uint8Array(fileBuf);
+          for (let i = 0; i < binaryStr.length; i++) {
+            view[i] = binaryStr.charCodeAt(i);
           }
 
           stats.files_downloaded++;
 
           // Step C — upload to R2
-          const filename = msg.media.filename ||
-            `tg-${msg.tg_msg_id}.${msg.media.mime_type?.includes('pdf') ? 'pdf' : 'bin'}`;
+          const filename = fileResp.filename || msg.media?.filename ||
+            `tg-${msg.tg_msg_id}.${fileResp.mime_type?.includes('pdf') ? 'pdf' : 'bin'}`;
           const datePrefix = (msg.sent_at || '').slice(0, 10) || 'unknown';
           const r2Key = `telegram_inbox/${src.address}/${datePrefix}/${msg.tg_msg_id}_${sanitizeFilename(filename)}`;
           await env.DOCS.put(r2Key, fileBuf, {
             httpMetadata: {
-              contentType: msg.media.mime_type || 'application/octet-stream',
+              contentType: fileResp.mime_type || 'application/octet-stream',
             },
             customMetadata: {
               source: 'telegram',
@@ -279,7 +301,7 @@ export async function runInboxIngestionTelegram(env: Env): Promise<TelegramInges
           });
 
           // Step D — extract text (PDF text shaft is best-effort)
-          const isPdf = (msg.media.mime_type || '').includes('pdf') ||
+          const isPdf = (fileResp.mime_type || '').includes('pdf') ||
                          filename.toLowerCase().endsWith('.pdf');
           const text = isPdf ? await extractPdfText(fileBuf) : '';
 

@@ -97,7 +97,7 @@ products.get('/', async (c) => {
   const binds: unknown[] = [];
 
   if (category) { sql += ` AND p.category = ?`; binds.push(category); }
-  if (manufacturerId) { sql += ` AND p.manufacturer_id = ?`; binds.push(manufacturerId); }
+  if (manufacturerId) { sql += ` AND p.id IN (SELECT product_id FROM product_manufacturers WHERE manufacturer_id = ?)`; binds.push(manufacturerId); }
   if (search) {
     sql += ` AND (p.product_name LIKE ? OR p.id LIKE ? OR p.invoice_label LIKE ?)`;
     const q = `%${search}%`;

@@ -54,9 +54,15 @@ inbox.post('/run-ingestion', async (c) => {
 // waiting for the next tick. Pulls media from registered telegram_contact
 // sources, classifies via DeepSeek, inserts into invoice_inbox.
 inbox.post('/telegram/run-once', async (c) => {
+  // Optional ?offset_id=N — pull older messages starting before this tg_msg_id.
+  // Useful for backfilling history (the cron path uses HWM auto-tracking).
+  const offsetParam = c.req.query('offset_id');
+  const opts = offsetParam
+    ? { offsetId: parseInt(offsetParam, 10), ignoreHwm: true }
+    : undefined;
   try {
     const { runInboxIngestionTelegram } = await import('../lib/inbox-ingestion-telegram');
-    const stats = await runInboxIngestionTelegram(c.env);
+    const stats = await runInboxIngestionTelegram(c.env, opts);
     return ok(c, stats);
   } catch (e) {
     return fail(c, 500, [{ code: 'tg_ingestion_error', message: e instanceof Error ? e.message : String(e) }]);

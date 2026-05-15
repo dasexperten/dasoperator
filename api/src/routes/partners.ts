@@ -133,6 +133,112 @@ partners.get('/', async (c) => {
 // =============================================================================
 // GET /api/partners/:slug — single partner detail
 // =============================================================================
+// GET /api/partners/resolve-supplier-route
+//   Query: ?manufacturer_id=X&our_company_id=Y&via_dei=0|1
+//   Returns: which actual partner ISSUES the invoice, and which of their bank
+//            accounts SHOULD receive the payment, given the buyer entity rules:
+//
+//   honghui_group rules:
+//     buyer = DEE direct (no DEI layer)            → issuer = honghui, account = honghui's VTB
+//     buyer = DEI / DASEAN / DEC (or via_dei=1)    → issuer = wdaa, account = wdaa's CCB Asia HK
+//
+//   jinxia_group rules:
+//     buyer = DEE direct                            → account = jinxia's VTB
+//     buyer = DEI / DASEAN / DEC (or via_dei=1)    → account = jinxia's ICBC
+//     (issuer stays = jinxia in both cases — one legal entity, two accounts)
+//
+//   Returns 200 with { issuing_partner_id, bank_account, reasoning }
+//   or 404 if no rule matched, with { errors } for the form to display.
+// =============================================================================
+partners.get('/resolve-supplier-route', async (c) => {
+  const manufacturerId = c.req.query('manufacturer_id');
+  const ourCompanyId = (c.req.query('our_company_id') || '').toLowerCase();
+  const viaDei = c.req.query('via_dei') === '1';
+
+  if (!manufacturerId || !ourCompanyId) {
+    return fail(c, 400, [{ code: 'missing_params', message: 'manufacturer_id and our_company_id required' }]);
+  }
+
+  // Get the manufacturer's group
+  const mfr = await c.env.DB.prepare(
+    'SELECT id, group_id FROM manufacturers WHERE id = ?'
+  ).bind(manufacturerId).first<{ id: string; group_id: string }>();
+  if (!mfr) {
+    return fail(c, 404, [{ code: 'manufacturer_not_found', message: `manufacturer ${manufacturerId} not found` }]);
+  }
+
+  // Determine routing key for the buyer side
+  // "dee_direct" means buying DEE without any DEI passthrough
+  // anything else (DEI buyer / DASEAN / DEC / DEE-via-DEI) → "indirect"
+  const isDirect = ourCompanyId === 'dee' && !viaDei;
+  const routingKey = isDirect ? 'dee' : 'indirect';
+
+  // For honghui_group: different issuer per route
+  // For jinxia_group: same issuer, different bank account
+  let issuingPartnerId: string;
+  if (mfr.group_id === 'honghui_group') {
+    issuingPartnerId = isDirect ? 'honghui' : 'wdaa';
+  } else if (mfr.group_id === 'jinxia_group') {
+    issuingPartnerId = 'jinxia';
+  } else {
+    // Unknown group — default to the manufacturer itself
+    issuingPartnerId = manufacturerId;
+  }
+
+  // Now find the bank account on the issuing partner that matches the routing
+  // tag. For DEE-direct we want a row where routing_buyer_entities='dee'.
+  // For indirect we want one that contains 'dei', 'dasean' or 'dec'.
+  // Fall back to is_default=1 if no exact tag match.
+  const accountSearchTag = isDirect ? 'dee' : ourCompanyId;  // 'dei','dasean','dec'
+
+  // Find best account: prefer one whose routing_buyer_entities CONTAINS the searchTag, otherwise default.
+  const accounts = await c.env.DB.prepare(`
+    SELECT id, partner_id, account_label, bank_name, bank_address,
+           account_number, swift_bic, iban, cnaps_code, currency,
+           correspondent_bank_name, correspondent_swift,
+           is_default, routing_buyer_entities, notes
+    FROM partner_bank_accounts
+    WHERE partner_id = ? AND deleted_at IS NULL
+    ORDER BY is_default DESC
+  `).bind(issuingPartnerId).all<{
+    id: string; partner_id: string; account_label: string; bank_name: string;
+    bank_address: string | null; account_number: string; swift_bic: string | null;
+    iban: string | null; cnaps_code: string | null; currency: string | null;
+    correspondent_bank_name: string | null; correspondent_swift: string | null;
+    is_default: number; routing_buyer_entities: string | null; notes: string | null;
+  }>();
+
+  if (!accounts.results.length) {
+    return ok(c, {
+      issuing_partner_id: issuingPartnerId,
+      bank_account: null,
+      reasoning: `No bank accounts on file for partner ${issuingPartnerId}. Add one in the partner card.`,
+      route_type: isDirect ? 'direct_dee' : 'via_intermediary',
+    });
+  }
+
+  // First: exact tag match
+  let chosen = accounts.results.find((a) => {
+    if (!a.routing_buyer_entities) return false;
+    const tags = a.routing_buyer_entities.split(',').map((s) => s.trim().toLowerCase());
+    return tags.includes(accountSearchTag);
+  });
+  // Fallback: default account on this partner
+  if (!chosen) {
+    chosen = accounts.results.find((a) => a.is_default === 1) ?? accounts.results[0];
+  }
+
+  return ok(c, {
+    issuing_partner_id: issuingPartnerId,
+    bank_account: chosen,
+    reasoning: isDirect
+      ? `DEE direct route — invoice issued by ${issuingPartnerId}, payment to ${chosen.account_label}`
+      : `Indirect route via ${ourCompanyId.toUpperCase()}${viaDei ? ' (DEI layer)' : ''} — invoice issued by ${issuingPartnerId}, payment to ${chosen.account_label}`,
+    route_type: isDirect ? 'direct_dee' : 'via_intermediary',
+  });
+});
+
+// =============================================================================
 // contract_no / contract_date derived from contracts table (same logic
 // as the list endpoint above).
 partners.get('/:slug', async (c) => {
@@ -429,112 +535,6 @@ partners.get('/:slug/bank-accounts', async (c) => {
     ORDER BY is_default DESC, account_label ASC
   `).bind(slug).all();
   return ok(c, { count: result.results.length, accounts: result.results });
-});
-
-// =============================================================================
-// GET /api/partners/resolve-supplier-route
-//   Query: ?manufacturer_id=X&our_company_id=Y&via_dei=0|1
-//   Returns: which actual partner ISSUES the invoice, and which of their bank
-//            accounts SHOULD receive the payment, given the buyer entity rules:
-//
-//   honghui_group rules:
-//     buyer = DEE direct (no DEI layer)            → issuer = honghui, account = honghui's VTB
-//     buyer = DEI / DASEAN / DEC (or via_dei=1)    → issuer = wdaa, account = wdaa's CCB Asia HK
-//
-//   jinxia_group rules:
-//     buyer = DEE direct                            → account = jinxia's VTB
-//     buyer = DEI / DASEAN / DEC (or via_dei=1)    → account = jinxia's ICBC
-//     (issuer stays = jinxia in both cases — one legal entity, two accounts)
-//
-//   Returns 200 with { issuing_partner_id, bank_account, reasoning }
-//   or 404 if no rule matched, with { errors } for the form to display.
-// =============================================================================
-partners.get('/resolve-supplier-route', async (c) => {
-  const manufacturerId = c.req.query('manufacturer_id');
-  const ourCompanyId = (c.req.query('our_company_id') || '').toLowerCase();
-  const viaDei = c.req.query('via_dei') === '1';
-
-  if (!manufacturerId || !ourCompanyId) {
-    return fail(c, 400, [{ code: 'missing_params', message: 'manufacturer_id and our_company_id required' }]);
-  }
-
-  // Get the manufacturer's group
-  const mfr = await c.env.DB.prepare(
-    'SELECT id, group_id FROM manufacturers WHERE id = ?'
-  ).bind(manufacturerId).first<{ id: string; group_id: string }>();
-  if (!mfr) {
-    return fail(c, 404, [{ code: 'manufacturer_not_found', message: `manufacturer ${manufacturerId} not found` }]);
-  }
-
-  // Determine routing key for the buyer side
-  // "dee_direct" means buying DEE without any DEI passthrough
-  // anything else (DEI buyer / DASEAN / DEC / DEE-via-DEI) → "indirect"
-  const isDirect = ourCompanyId === 'dee' && !viaDei;
-  const routingKey = isDirect ? 'dee' : 'indirect';
-
-  // For honghui_group: different issuer per route
-  // For jinxia_group: same issuer, different bank account
-  let issuingPartnerId: string;
-  if (mfr.group_id === 'honghui_group') {
-    issuingPartnerId = isDirect ? 'honghui' : 'wdaa';
-  } else if (mfr.group_id === 'jinxia_group') {
-    issuingPartnerId = 'jinxia';
-  } else {
-    // Unknown group — default to the manufacturer itself
-    issuingPartnerId = manufacturerId;
-  }
-
-  // Now find the bank account on the issuing partner that matches the routing
-  // tag. For DEE-direct we want a row where routing_buyer_entities='dee'.
-  // For indirect we want one that contains 'dei', 'dasean' or 'dec'.
-  // Fall back to is_default=1 if no exact tag match.
-  const accountSearchTag = isDirect ? 'dee' : ourCompanyId;  // 'dei','dasean','dec'
-
-  // Find best account: prefer one whose routing_buyer_entities CONTAINS the searchTag, otherwise default.
-  const accounts = await c.env.DB.prepare(`
-    SELECT id, partner_id, account_label, bank_name, bank_address,
-           account_number, swift_bic, iban, cnaps_code, currency,
-           correspondent_bank_name, correspondent_swift,
-           is_default, routing_buyer_entities, notes
-    FROM partner_bank_accounts
-    WHERE partner_id = ? AND deleted_at IS NULL
-    ORDER BY is_default DESC
-  `).bind(issuingPartnerId).all<{
-    id: string; partner_id: string; account_label: string; bank_name: string;
-    bank_address: string | null; account_number: string; swift_bic: string | null;
-    iban: string | null; cnaps_code: string | null; currency: string | null;
-    correspondent_bank_name: string | null; correspondent_swift: string | null;
-    is_default: number; routing_buyer_entities: string | null; notes: string | null;
-  }>();
-
-  if (!accounts.results.length) {
-    return ok(c, {
-      issuing_partner_id: issuingPartnerId,
-      bank_account: null,
-      reasoning: `No bank accounts on file for partner ${issuingPartnerId}. Add one in the partner card.`,
-      route_type: isDirect ? 'direct_dee' : 'via_intermediary',
-    });
-  }
-
-  // First: exact tag match
-  let chosen = accounts.results.find((a) => {
-    if (!a.routing_buyer_entities) return false;
-    const tags = a.routing_buyer_entities.split(',').map((s) => s.trim().toLowerCase());
-    return tags.includes(accountSearchTag);
-  });
-  // Fallback: default account on this partner
-  if (!chosen) {
-    chosen = accounts.results.find((a) => a.is_default === 1) ?? accounts.results[0];
-  }
-
-  return ok(c, {
-    issuing_partner_id: issuingPartnerId,
-    bank_account: chosen,
-    reasoning: isDirect
-      ? `DEE direct route — invoice issued by ${issuingPartnerId}, payment to ${chosen.account_label}`
-      : `Indirect route via ${ourCompanyId.toUpperCase()}${viaDei ? ' (DEI layer)' : ''} — invoice issued by ${issuingPartnerId}, payment to ${chosen.account_label}`,
-    route_type: isDirect ? 'direct_dee' : 'via_intermediary',
-  });
 });
 
 // =============================================================================

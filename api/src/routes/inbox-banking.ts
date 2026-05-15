@@ -16,6 +16,54 @@
 
 import { Hono } from 'hono';
 import { findExistingPartnerByName, isBankProviderName, generateReadablePartnerId } from '../lib/partner-dedup';
+
+// =============================================================================
+// generateServiceReference — issuer-based naming for service-track operations.
+//   Format: {PARTNER_ABBR}-{YYYYMMDD}[-{doc_number}]
+//   Examples: TSAR-20260507-1180, WIO-20260507, ATOL-20260512-12345
+//
+//   For goods-track ops, keep using sequential DEE-NNN format (handled by
+//   the caller's existing logic — we only override when isService=true).
+//
+//   Collision handling: if a ref already exists, append -A/-B/-C/... suffix.
+//   This matches how legacy 285 ops were migrated on 2026-05-15.
+// =============================================================================
+async function generateServiceReference(
+  db: D1Database,
+  args: {
+    partnerId: string;
+    operationDateSec: number;
+    invoiceDocNumber?: string | null;
+  }
+): Promise<string> {
+  const partner = await db.prepare(
+    'SELECT abbreviation FROM partners WHERE id = ?'
+  ).bind(args.partnerId).first<{ abbreviation: string | null }>();
+
+  // Fall back to 4-letter slug from partner_id if no abbreviation (shouldn't happen
+  // — we backfilled all 75 active partners — but safe-guard for any edge case)
+  let abbr = partner?.abbreviation?.trim().toUpperCase() || '';
+  if (!abbr) {
+    abbr = (args.partnerId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4) || 'PART').toUpperCase();
+  }
+
+  const dt = new Date(args.operationDateSec * 1000);
+  const yyyymmdd = `${dt.getUTCFullYear()}${String(dt.getUTCMonth() + 1).padStart(2, '0')}${String(dt.getUTCDate()).padStart(2, '0')}`;
+
+  const docTail = args.invoiceDocNumber ? `-${args.invoiceDocNumber}` : '';
+  const baseRef = `${abbr}-${yyyymmdd}${docTail}`;
+
+  // Collision check: try base, then -A, -B, -C, ... until unique
+  for (let i = 0; i < 26; i++) {
+    const candidate = i === 0 ? baseRef : `${baseRef}-${String.fromCharCode(65 + i - 1)}`;
+    const exists = await db.prepare(
+      'SELECT id FROM operations WHERE reference = ? AND deleted_at IS NULL'
+    ).bind(candidate).first();
+    if (!exists) return candidate;
+  }
+  // 26+ collisions on the same day — extremely unlikely, but fail loudly
+  throw new Error(`Reference collision exhausted A-Z for ${baseRef}`);
+}
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { suggestRuleFromAssignment } from '../lib/bank-match-rules';
@@ -146,14 +194,23 @@ async function sweepUnmatchedByInn(
       const isService = tx.direction === 'outgoing' && SERVICE_KINDS.has(args.partnerKind);
       const operationType = tx.direction === 'incoming' ? 'sale' : 'purchase';
 
-      // Generate reference
-      const yy = new Date(tx.executed_at * 1000).getFullYear() % 100;
-      const prefix = `DEE-${String(yy).padStart(2, '0')}`;
-      const cntRow = await db.prepare(
-        `SELECT COUNT(*) AS cnt FROM operations WHERE reference LIKE ?`
-      ).bind(`${prefix}%`).first<{ cnt: number }>();
-      const seq = ((cntRow?.cnt ?? 0) + 1).toString().padStart(4, '0');
-      const reference = `${prefix}${seq}`;
+      // Generate reference — issuer-based for service, DEE-NNN for goods
+      let reference: string;
+      if (isService) {
+        reference = await generateServiceReference(db, {
+          partnerId: args.partnerId,
+          operationDateSec: tx.executed_at,
+          invoiceDocNumber: tx.external_doc_number || null,
+        });
+      } else {
+        const yy = new Date(tx.executed_at * 1000).getFullYear() % 100;
+        const prefix = `DEE-${String(yy).padStart(2, '0')}`;
+        const cntRow = await db.prepare(
+          `SELECT COUNT(*) AS cnt FROM operations WHERE reference LIKE ?`
+        ).bind(`${prefix}%`).first<{ cnt: number }>();
+        const seq = ((cntRow?.cnt ?? 0) + 1).toString().padStart(4, '0');
+        reference = `${prefix}${seq}`;
+      }
 
       const opId = `op_${crypto.randomUUID()}`;
       const notes = isService
@@ -809,14 +866,23 @@ inboxBanking.post('/:tx_id/assign-partner', async (c) => {
     const isService = tx.direction === 'outgoing' && SERVICE_KINDS.has(partnerKind);
     const operationType = tx.direction === 'incoming' ? 'sale' : 'purchase';
 
-    // Generate reference
-    const yy = new Date(tx.executed_at * 1000).getFullYear() % 100;
-    const prefix = `DEE-${String(yy).padStart(2, '0')}`;
-    const cntRow = await c.env.DB.prepare(
-      `SELECT COUNT(*) AS cnt FROM operations WHERE reference LIKE ?`
-    ).bind(`${prefix}%`).first<{ cnt: number }>();
-    const seq = ((cntRow?.cnt ?? 0) + 1).toString().padStart(4, '0');
-    const reference = `${prefix}${seq}`;
+    // Generate reference — issuer-based for service, DEE-NNN for goods
+    let reference: string;
+    if (isService) {
+      reference = await generateServiceReference(c.env.DB, {
+        partnerId,
+        operationDateSec: tx.executed_at,
+        invoiceDocNumber: tx.external_doc_number || null,
+      });
+    } else {
+      const yy = new Date(tx.executed_at * 1000).getFullYear() % 100;
+      const prefix = `DEE-${String(yy).padStart(2, '0')}`;
+      const cntRow = await c.env.DB.prepare(
+        `SELECT COUNT(*) AS cnt FROM operations WHERE reference LIKE ?`
+      ).bind(`${prefix}%`).first<{ cnt: number }>();
+      const seq = ((cntRow?.cnt ?? 0) + 1).toString().padStart(4, '0');
+      reference = `${prefix}${seq}`;
+    }
 
     const opId = `op_${crypto.randomUUID()}`;
     const notes = isService

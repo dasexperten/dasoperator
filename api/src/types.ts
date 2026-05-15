@@ -71,6 +71,12 @@ export interface Env {
   // Bearer token issued 2026-05-13, expires 2026-11-13.
   // See F4_INVENTORY_SECRETS.md for full integration spec.
   F4_SKLADBOT_TOKEN?: string;
+
+  // Telegramer bridge — used by inbox-ingestion-telegram.ts to pull
+  // documents (invoices and acceptance certificates) from Telegram chats
+  // registered in operation_document_sources with source_type='telegram_contact'.
+  // Bearer token shared with telegramer-bridge Worker.
+  TELEGRAMER_BRIDGE_SECRET?: string;
 }
 
 // =============================================================================

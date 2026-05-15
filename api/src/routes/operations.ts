@@ -281,13 +281,13 @@ operations.post('/', async (c) => {
   } else if (data.operation_type === 'purchase') {
     // PURCHASE — fields from body, validate FKs
     const manufacturer = await c.env.DB.prepare(
-      'SELECT id FROM manufacturers WHERE id = ?'
+      'SELECT id FROM manufacturers WHERE id = ? AND deleted_at IS NULL'
     ).bind(data.manufacturer_id!).first<{ id: string }>();
 
     if (!manufacturer) {
       return fail(c, 404, [{
         code: 'manufacturer_not_found',
-        message: `manufacturer_id ${data.manufacturer_id} does not exist`,
+        message: `manufacturer_id ${data.manufacturer_id} does not exist or is deactivated`,
       }]);
     }
 

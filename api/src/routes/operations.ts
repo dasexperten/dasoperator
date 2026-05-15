@@ -720,6 +720,7 @@ operations.get('/', async (c) => {
       ), 0) AS paid_amount
     ${fromJoin}
     WHERE o.deleted_at IS NULL
+      AND (o.batch_id IS NULL)
   `;
   const binds: unknown[] = [];
 
@@ -761,9 +762,81 @@ operations.get('/', async (c) => {
     };
   });
 
+  // ── Operation batches (migration 0039) ────────────────────────────────
+  // F4-WH-R individual operations are grouped under a parent batch per
+  // (date, marketplace). The batch is shown in the list as one synthetic
+  // row with operation_type='transfer_batch'. Children are hidden above
+  // via `AND o.batch_id IS NULL`. Skip this when filtering by partner,
+  // contract, opType (other than 'transfer' or none), or status — batches
+  // don't carry those attributes.
+  let batchRows: Array<Record<string, unknown>> = [];
+  const showBatches =
+    !partnerId &&
+    !contractId &&
+    (!opType || opType === 'transfer' || opType === 'transfer_batch') &&
+    (!status || status === 'delivered' || status === 'issued');
+
+  if (showBatches) {
+    let batchSql = `
+      SELECT
+        b.id,
+        b.batch_reference as reference,
+        b.batch_date as operation_date,
+        b.marketplace,
+        b.our_company_id,
+        co.abbreviation as entity_abbreviation,
+        b.notes,
+        b.created_at,
+        b.updated_at,
+        (SELECT COUNT(*) FROM operations o
+           WHERE o.batch_id = b.id AND o.deleted_at IS NULL) as cluster_count,
+        (SELECT MIN(o.status) FROM operations o
+           WHERE o.batch_id = b.id AND o.deleted_at IS NULL) as agg_status
+      FROM operation_batches b
+      LEFT JOIN companies co ON b.our_company_id = co.id
+      WHERE b.deleted_at IS NULL
+    `;
+    const batchBinds: unknown[] = [];
+    if (searchQ) {
+      batchSql += ` AND LOWER(b.batch_reference) LIKE ?`;
+      batchBinds.push(`%${searchQ.toLowerCase()}%`);
+    }
+    batchSql += ` ORDER BY b.batch_date DESC, b.created_at DESC`;
+    const bStmt = c.env.DB.prepare(batchSql);
+    const bRes = batchBinds.length > 0
+      ? await bStmt.bind(...batchBinds).all()
+      : await bStmt.all();
+    batchRows = (bRes.results as Array<Record<string, unknown>>).map((row) => ({
+      ...row,
+      operation_type: 'transfer_batch',
+      operation_track: 'goods',
+      status: row.agg_status || 'delivered',
+      delivery_status: 'delivered',
+      currency: 'RUB',
+      total_amount: 0,
+      total_usd_equiv: 0,
+      partner_trade_name: null,
+      partner_kind: null,
+      manufacturer_id: null,
+      manufacturer_name: null,
+      paid_amount: 0,
+      payment_state: 'neutral',
+      is_batch: true,
+    }));
+  }
+
+  const merged = [...decorated, ...batchRows].sort((a, b) => {
+    const ad = Number(a.operation_date) || 0;
+    const bd = Number(b.operation_date) || 0;
+    if (bd !== ad) return bd - ad;
+    const ac = Number(a.created_at) || 0;
+    const bc = Number(b.created_at) || 0;
+    return bc - ac;
+  });
+
   return ok(c, {
-    count: decorated.length,
-    operations: decorated,
+    count: merged.length,
+    operations: merged,
   });
 });
 
@@ -2232,6 +2305,59 @@ operations.post('/:id/reject-arrival', async (c) => {
 
   return ok(c, { id, arrival_rejected_at: now });
 });
+
+// =============================================================================
+// GET /api/operations/batch/:id — single batch with its child operations
+// =============================================================================
+// Returns the batch row plus all F4-WH-R operations linked to it.
+// Used by the frontend detail page for batches (one entry per OZN-260512 etc.)
+operations.get('/batch/:id', async (c) => {
+  const batchId = c.req.param('id');
+
+  const batch = await c.env.DB.prepare(`
+    SELECT
+      b.id,
+      b.batch_reference,
+      b.marketplace,
+      b.batch_date,
+      b.our_company_id,
+      co.abbreviation as entity_abbreviation,
+      b.notes,
+      b.created_at,
+      b.updated_at
+    FROM operation_batches b
+    LEFT JOIN companies co ON b.our_company_id = co.id
+    WHERE b.id = ? AND b.deleted_at IS NULL
+  `).bind(batchId).first();
+
+  if (!batch) {
+    return c.json({ success: false, error: 'batch_not_found' }, 404);
+  }
+
+  const childrenRes = await c.env.DB.prepare(`
+    SELECT
+      o.id, o.reference, o.operation_date, o.operation_type,
+      o.warehouse_from_id, o.warehouse_to_id,
+      o.status, o.delivery_status, o.notes,
+      w_from.code as warehouse_from_code,
+      w_to.code as warehouse_to_code
+    FROM operations o
+    LEFT JOIN warehouses w_from ON o.warehouse_from_id = w_from.id
+    LEFT JOIN warehouses w_to ON o.warehouse_to_id = w_to.id
+    WHERE o.batch_id = ? AND o.deleted_at IS NULL
+    ORDER BY o.reference DESC
+  `).bind(batchId).all();
+
+  return c.json({
+    success: true,
+    result: {
+      batch,
+      children: childrenRes.results,
+      cluster_count: childrenRes.results.length,
+    },
+  });
+});
+
 
 export default operations;
 

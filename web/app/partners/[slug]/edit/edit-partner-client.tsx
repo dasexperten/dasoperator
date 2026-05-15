@@ -23,9 +23,13 @@ const LANGS = ['EN', 'RU', 'EN-RU', 'EN-AR', 'EN-VI', 'EN-ZH'] as const;
 // Three render-mode options. Database CHECK constraint accepts only these four
 // values: NULL (issuer default), 'EN', 'RU', 'BILINGUAL'. We surface three
 // semantic options to the user; 'RU' is a legacy override no longer offered.
+// Stored values in DB CHECK: 'EN' | 'RU' | 'BILINGUAL' | NULL.
+// We reuse legacy 'RU' as a generic "partner's national language only" value —
+// renderer reads partner.partner_local_language to know which language that is.
 const INVOICE_MODES = [
-  { value: 'EN',        label: 'English only' },
+  { value: 'RU',        label: 'Partner national language only' },
   { value: 'BILINGUAL', label: 'English + national language (bilingual)' },
+  { value: 'EN',        label: 'English only' },
 ] as const;
 
 // ISO codes of national languages — used when render mode is LOCAL or BILINGUAL
@@ -61,7 +65,7 @@ type FormState = {
   email: string;
   partner_type: typeof PARTNER_TYPES[number];
   partner_language: typeof LANGS[number];
-  preferred_invoice_language: 'EN' | 'BILINGUAL' | '';
+  preferred_invoice_language: 'EN' | 'RU' | 'BILINGUAL' | '';
   partner_local_language: typeof PARTNER_LOCAL_LANGUAGES[number]['value'] | '';
   preferred_incoterms: string;
   payment_terms: string;
@@ -87,7 +91,15 @@ function partnerToForm(p: Partner): FormState {
     email: p.email ?? '',
     partner_type: p.partner_type ?? 'other',
     partner_language: (p.partner_language as FormState['partner_language']) ?? 'EN',
-    preferred_invoice_language: (p.preferred_invoice_language as FormState['preferred_invoice_language']) ?? '',
+    // For service_provider / 3pl / shipper / other partners, default to 'RU' (partner's national
+    // language) since service documents are usually in the partner's language (банковские, ФНС, etc).
+    // For manufacturer/buyer partners, leave default empty ('use issuer default').
+    preferred_invoice_language: (
+      (p.preferred_invoice_language as FormState['preferred_invoice_language'])
+      ?? (['service_provider', '3pl', 'shipper', 'other'].includes(p.kind ?? '')
+          ? 'RU'
+          : '')
+    ),
     partner_local_language: ((p as { partner_local_language?: string }).partner_local_language as FormState['partner_local_language']) ?? '',
     preferred_incoterms: p.preferred_incoterms ?? '',
     payment_terms: p.payment_terms ?? '',

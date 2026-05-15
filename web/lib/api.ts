@@ -920,6 +920,26 @@ export async function getPartnerBankAccounts(slug: string) {
     `/api/partners/${slug}/bank-accounts`
   );
 }
+export interface SupplierRouteResolution {
+  issuing_partner_id: string;
+  bank_account: PartnerBankAccount | null;
+  reasoning: string;
+  route_type: 'direct_dee' | 'via_intermediary';
+}
+
+export async function resolveSupplierRoute(params: {
+  manufacturer_id: string;
+  our_company_id: string;
+  via_dei?: boolean;
+}) {
+  const qs = new URLSearchParams({
+    manufacturer_id: params.manufacturer_id,
+    our_company_id: params.our_company_id,
+    via_dei: params.via_dei ? '1' : '0',
+  });
+  return apiGet<SupplierRouteResolution>(`/api/partners/resolve-supplier-route?${qs.toString()}`);
+}
+
 
 
 export interface BulkNetBalances {

@@ -415,7 +415,7 @@ export default function EditPartnerClient({ slug }: { slug: string }) {
 
       {/* Commercial */}
       <FormSection title="Commercial">
-{!['service_provider', '3pl', 'shipper', 'other'].includes(p.kind ?? '') && (
+{!['service_provider', '3pl', 'shipper', 'other'].includes(partner.kind ?? '') && (
                 <Field label="Preferred Incoterms">
           <input
             type="text"

@@ -123,8 +123,11 @@ inbox.get('/', async (c) => {
 
   try {
     const rows = await c.env.DB.prepare(
-      `SELECT i.id, i.gmail_message_id, i.email_from, i.email_subject, i.email_received_at,
-              i.email_snippet, i.attachment_filename, i.attachment_r2_key,
+      `SELECT i.id, i.source_type,
+              i.gmail_message_id, i.email_from, i.email_subject, i.email_received_at, i.email_snippet,
+              i.telegram_chat_id, i.telegram_msg_id, i.telegram_topic_id,
+              i.telegram_sender_username, i.telegram_received_at, i.telegram_source_ref_id,
+              i.attachment_filename, i.attachment_r2_key, i.attachment_content_type,
               i.classification, i.classification_confidence,
               i.extracted_vendor_name, i.extracted_vendor_inn, i.extracted_invoice_no,
               i.extracted_invoice_date, i.extracted_period, i.extracted_currency,
@@ -141,7 +144,7 @@ inbox.get('/', async (c) => {
        LEFT JOIN operations co ON co.id = i.created_operation_id
        LEFT JOIN operations so ON so.id = i.suggested_operation_id
        ${where.replace(/WHERE deleted_at/g, 'WHERE i.deleted_at').replace(/AND status/g, 'AND i.status')}
-       ORDER BY i.email_received_at DESC, i.created_at DESC
+       ORDER BY COALESCE(i.email_received_at, i.telegram_received_at) DESC, i.created_at DESC
        LIMIT ?`
     ).bind(...params, limit).all();
 

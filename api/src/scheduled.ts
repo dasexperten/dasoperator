@@ -469,7 +469,19 @@ export async function handleScheduled(
     return;
   }
 
-  console.warn(`[cron] no handler for cron expression: ${cron}`);
+  if (cron === '*/15 * * * *') {
+    console.log('[cron:tg-inbox] starting Telegram inbox ingestion');
+    try {
+      const { runInboxIngestionTelegram } = await import('./lib/inbox-ingestion-telegram');
+      const stats = await runInboxIngestionTelegram(env);
+      console.log(`[cron:tg-inbox] complete: ${JSON.stringify(stats)}`);
+    } catch (e) {
+      console.error('[cron:tg-inbox] failed:', e);
+    }
+    return;
+  }
+
+    console.warn(`[cron] no handler for cron expression: ${cron}`);
 
   // FX refresh — daily, internal libs, no self-fetch needed
   async function runFxRefresh(): Promise<void> {

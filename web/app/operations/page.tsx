@@ -70,6 +70,25 @@ function statusDot(status: string) {
   return STATUS_DOT[status] ?? STATUS_DOT['draft']!;
 }
 
+// Marketplace fallback — when partner_id is null but destination is a marketplace warehouse,
+// show the marketplace name in the partner column. Belt-and-suspenders with backend enrichment.
+function marketplacePartnerFromWarehouse(warehouseId: string | null | undefined): { id: string; name: string } | null {
+  if (!warehouseId) return null;
+  const w = warehouseId.toLowerCase();
+  if (w === 'ozon') return { id: 'ozon', name: 'Ozon' };
+  if (w === 'wb' || w === 'wildberries') return { id: 'wb', name: 'Wildberries' };
+  return null;
+}
+
+function resolvePartnerLabel(op: { partner_id?: string | null; partner_trade_name?: string | null; manufacturer_name?: string | null; warehouse_to_id?: string | null }): { label: string; partnerId: string | null } {
+  if (op.partner_trade_name) return { label: op.partner_trade_name, partnerId: op.partner_id ?? null };
+  const mp = marketplacePartnerFromWarehouse(op.warehouse_to_id);
+  if (mp) return { label: mp.name, partnerId: mp.id };
+  if (op.partner_id) return { label: op.partner_id, partnerId: op.partner_id };
+  if (op.manufacturer_name) return { label: op.manufacturer_name, partnerId: null };
+  return { label: '—', partnerId: null };
+}
+
 // Amount colour for mobile cards — driven by payment_state, not status.
 const AMOUNT_PAYMENT_COLOR: Record<string, string> = {
   paid:    '#2E7D4F',         // green — fully paid
@@ -885,7 +904,7 @@ export default function OperationsPage() {
               const sd = statusDot(op.status);
               const ps = op.payment_state ?? 'neutral';
               const amountColor = AMOUNT_PAYMENT_COLOR[ps] ?? 'var(--fg-1)';
-              const partnerLabel = op.partner_trade_name ?? op.manufacturer_name ?? '—';
+              const { label: partnerLabel } = resolvePartnerLabel(op);
               const isBatchRow = (op as { is_batch?: boolean }).is_batch === true;
               const clusterCount = (op as { cluster_count?: number }).cluster_count ?? null;
               const href = isBatchRow ? `/operations/batch/${op.id}` : `/operations/${op.id}`;
@@ -1013,13 +1032,16 @@ export default function OperationsPage() {
                       <td className="px-4 py-3" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>
                         {isBatchRow ? (
                           <span style={{ color: 'var(--fg-muted)' }}>—</span>
-                        ) : op.partner_id ? (
-                          <Link href={`/partners/${op.partner_id}`} style={{ color: 'var(--fg-1)' }}>
-                            {op.partner_trade_name ?? op.manufacturer_name ?? '—'}
-                          </Link>
-                        ) : (
-                          <span>{op.manufacturer_name ?? op.partner_trade_name ?? '—'}</span>
-                        )}
+                        ) : (() => {
+                          const { label, partnerId } = resolvePartnerLabel(op);
+                          return partnerId ? (
+                            <Link href={`/partners/${partnerId}`} style={{ color: 'var(--fg-1)' }}>
+                              {label}
+                            </Link>
+                          ) : (
+                            <span>{label}</span>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-3" style={{ color: 'var(--fg-2)', whiteSpace: 'nowrap' }}>
                         {isBatchRow ? (

@@ -545,6 +545,7 @@ export type UpdatePartnerBody = Partial<{
   country: string | null;
   email: string | null;
   partner_type: 'buyer' | 'supplier' | 'shipper' | 'other';
+  kind: 'buyer' | 'manufacturer' | 'service_provider' | 'shipper' | '3pl' | 'other';
   iban: string | null;
   swift_bic: string | null;
   bank_name: string | null;

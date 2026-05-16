@@ -143,11 +143,24 @@ export default function WarehousesPage() {
         va = a.on_the_way ?? 0;
         vb = b.on_the_way ?? 0;
       } else {
-        // warehouse_id — find on_hand for that warehouse on each product
-        const ai = a.warehouses.find((w) => w.warehouse_id === sort.key);
-        const bi = b.warehouses.find((w) => w.warehouse_id === sort.key);
-        va = ai?.on_hand ?? 0;
-        vb = bi?.on_hand ?? 0;
+        // warehouse_id — find on_hand for that warehouse on each product.
+        // Special case: LBR is displayed with F4 external_stocks.amount when
+        // available, so we sort by the same value the user sees.
+        if (sort.key === 'lbr') {
+          const skuLowerA = a.id.replace('prd_', '').toLowerCase();
+          const skuLowerB = b.id.replace('prd_', '').toLowerCase();
+          const extA = externalStocks[`${skuLowerA}|lbr`];
+          const extB = externalStocks[`${skuLowerB}|lbr`];
+          const onHandA = a.warehouses.find((w) => w.warehouse_id === 'lbr')?.on_hand ?? 0;
+          const onHandB = b.warehouses.find((w) => w.warehouse_id === 'lbr')?.on_hand ?? 0;
+          va = (extA && typeof extA.amount === 'number') ? extA.amount : onHandA;
+          vb = (extB && typeof extB.amount === 'number') ? extB.amount : onHandB;
+        } else {
+          const ai = a.warehouses.find((w) => w.warehouse_id === sort.key);
+          const bi = b.warehouses.find((w) => w.warehouse_id === sort.key);
+          va = ai?.on_hand ?? 0;
+          vb = bi?.on_hand ?? 0;
+        }
       }
 
       if (typeof va === 'string' && typeof vb === 'string') {
@@ -691,6 +704,7 @@ function SortableTh({
         {children}
         {dir === 'desc' && <ArrowDown className="h-3 w-3" style={{ color: 'var(--brand-rot)' }} />}
         {dir === 'asc'  && <ArrowUp   className="h-3 w-3" style={{ color: 'var(--brand-rot)' }} />}
+        {!isActive && <ArrowDown className="h-3 w-3" style={{ color: 'var(--fg-3)', opacity: 0.35 }} />}
       </span>
     </th>
   );

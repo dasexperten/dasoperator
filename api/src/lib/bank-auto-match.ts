@@ -260,7 +260,7 @@ export async function autoMatchBankTransaction(
   // missing INN in bank statement, etc.). Prevents duplicate prt_draft_* rows
   // for the same real-world company on consecutive transactions.
   if (!partner && tx.contragent_name) {
-    partner = await findExistingPartnerByName(env, tx.contragent_name);
+    partner = await findExistingPartnerByName(env.DB, tx.contragent_name);
     if (partner) {
       console.log('[bank-auto-match] matched by trade_name fallback:',
         tx.contragent_name, '→', partner.id);
@@ -286,7 +286,7 @@ export async function autoMatchBankTransaction(
     // its own name in contragent_name (commission charge, internal transfer,
     // bank fee, etc.), do NOT create a partner row. Banks belong in
     // bank_providers, not partners.
-    if (tx.contragent_name && await isBankProviderName(env, tx.contragent_name)) {
+    if (tx.contragent_name && await isBankProviderName(env.DB, tx.contragent_name)) {
       console.log('[bank-auto-match] skipping bank self-reference:', tx.contragent_name);
       await persistOutcome(env, txId, 'bank_self_reference_skipped', null);
       return {

@@ -481,6 +481,18 @@ export async function handleScheduled(
     return;
   }
 
+    if (cron === '20 * * * *') {
+    console.log('[cron:bank-retry] starting auto-match retry sweep');
+    try {
+      const { retryUnmatchedTransactions } = await import('./lib/bank-auto-match');
+      const stats = await retryUnmatchedTransactions(env);
+      console.log(`[cron:bank-retry] complete: ${JSON.stringify(stats)}`);
+    } catch (e) {
+      console.error('[cron:bank-retry] failed:', e);
+    }
+    return;
+  }
+
     console.warn(`[cron] no handler for cron expression: ${cron}`);
 
   // FX refresh — daily, internal libs, no self-fetch needed

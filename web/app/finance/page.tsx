@@ -785,6 +785,22 @@ export default function FinanceTransactionsPage() {
             <BookOpen className="h-4 w-4" />
             Bank Reference
           </Link>
+
+          <Link
+            href="/finance/settlements"
+            className="inline-flex items-center gap-2 px-4 py-2"
+            style={{
+              border: '1px solid var(--line-1)',
+              borderRadius: 'var(--radius-sm)',
+              backgroundColor: 'var(--paper)',
+              color: 'var(--fg-1)',
+              fontSize: '14px',
+              fontWeight: 700,
+            }}
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2L22 20H2L12 2z"/></svg>
+            Agent Settlements
+          </Link>
         </div>
       </div>
 

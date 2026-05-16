@@ -2299,3 +2299,128 @@ export async function previewRuleClassification(input: {
     category: FinanceCategory | null;
   }>('/api/bank-match-rules/preview', input);
 }
+
+// =============================================================================
+// Agent Settlements — triangle settlement (DEE → Bright Ideas + Centuno → DEI)
+// =============================================================================
+export interface AgentSettlement {
+  id: string;
+  reference: string;
+  settlement_date: number;
+  status: 'draft' | 'pending_match' | 'settled' | 'cancelled';
+  notes: string | null;
+  outbound_amount: number;
+  outbound_currency: string;
+  inbound_amount: number;
+  inbound_currency: string;
+  variance_amount: number | null;
+  variance_currency: string | null;
+  exchange_rate: number | null;
+  clearance_operation_id: string | null;
+  clearance_op_reference: string | null;
+  outbound_company: string;
+  inbound_company: string;
+  outbound_agent_name: string;
+  inbound_agent_name: string;
+  outbound_bank_tx_id: string | null;
+  inbound_bank_tx_id: string | null;
+}
+
+export interface AgentSettlementDetail extends AgentSettlement {
+  outbound_company_id: string;
+  inbound_company_id: string;
+  outbound_agent_partner_id: string;
+  inbound_agent_partner_id: string;
+  clearance_creditor_company_id: string | null;
+  clearance_debtor_company_id: string | null;
+  clearance_creditor_company: string | null;
+  clearance_debtor_company: string | null;
+  paper_invoice_document_id: string | null;
+  clearance_op_total: number | null;
+  clearance_op_currency: string | null;
+  clearance_op_status: string | null;
+  clearance_op_partner_name: string | null;
+  outbound_purpose: string | null;
+  outbound_contragent: string | null;
+  outbound_executed_at: number | null;
+  inbound_purpose: string | null;
+  inbound_contragent: string | null;
+  inbound_executed_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export async function getAgentSettlements(filters?: { status?: string; company_id?: string }) {
+  const qs = new URLSearchParams();
+  if (filters?.status) qs.set('status', filters.status);
+  if (filters?.company_id) qs.set('company_id', filters.company_id);
+  const suffix = qs.toString() ? `?${qs}` : '';
+  return apiGet<{ settlements: AgentSettlement[] }>(`/api/agent-settlements${suffix}`);
+}
+
+export async function getAgentSettlement(id: string) {
+  return apiGet<AgentSettlementDetail>(`/api/agent-settlements/${id}`);
+}
+
+export async function createAgentSettlement(data: {
+  outbound_bank_tx_id?: string | null;
+  inbound_bank_tx_id?: string | null;
+  outbound_company_id: string;
+  inbound_company_id: string;
+  outbound_agent_partner_id: string;
+  inbound_agent_partner_id: string;
+  outbound_amount: number;
+  outbound_currency: string;
+  inbound_amount: number;
+  inbound_currency: string;
+  settlement_date?: string;
+  clearance_operation_id?: string | null;
+  clearance_creditor_company_id?: string | null;
+  clearance_debtor_company_id?: string | null;
+  exchange_rate?: number | null;
+  variance_amount?: number | null;
+  variance_currency?: string | null;
+  notes?: string | null;
+}) {
+  return apiPost<{ id: string; reference: string; status: string }>('/api/agent-settlements', data);
+}
+
+export async function updateAgentSettlement(id: string, data: Partial<AgentSettlementDetail> & Record<string, unknown>) {
+  return apiPatch<{ id: string; updated: number }>(`/api/agent-settlements/${id}`, data);
+}
+
+export async function cancelAgentSettlement(id: string) {
+  return apiPost<{ id: string; status: string }>(`/api/agent-settlements/${id}/cancel`, {});
+}
+
+export interface SettlementSuggestion {
+  outbound: { bank_tx_id: string; executed_at: number; amount: number; currency: string; contragent_name: string; payment_purpose: string | null; op_id: string; op_reference: string; partner_id: string; partner_name: string; company_id: string; company_abbr: string };
+  inbound:  { bank_tx_id: string; executed_at: number; amount: number; currency: string; contragent_name: string; payment_purpose: string | null; op_id: string; op_reference: string; partner_id: string; partner_name: string; company_id: string; company_abbr: string };
+  days_apart: number;
+  implied_rate: number | null;
+}
+
+export async function suggestAgentSettlements(window_days = 60, min_amount = 5000) {
+  return apiPost<{ suggestions: SettlementSuggestion[]; candidates: { outbound: number; inbound: number } }>(
+    '/api/agent-settlements/suggest',
+    { window_days, min_amount }
+  );
+}
+
+export interface AvailableAgentBankTx {
+  id: string;
+  executed_at: number;
+  amount: number;
+  currency: string;
+  direction: 'incoming' | 'outgoing';
+  contragent_name: string | null;
+  payment_purpose: string | null;
+  matched_operation_id: string | null;
+  company_id: string;
+  company_abbr: string;
+  match_method: string | null;
+}
+
+export async function getAvailableAgentBankTxs(direction: 'incoming' | 'outgoing') {
+  return apiGet<{ transactions: AvailableAgentBankTx[] }>(`/api/agent-settlements/available-bank-txs?direction=${direction}`);
+}

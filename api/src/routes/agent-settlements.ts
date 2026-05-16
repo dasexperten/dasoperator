@@ -419,4 +419,50 @@ agentSettlements.post('/suggest', async (c) => {
   }
 });
 
+// =============================================================================
+// GET /api/agent-settlements/available-bank-txs?direction=outgoing|incoming
+// Returns recent bank_transactions that look like agent payments (by contragent
+// name pattern), useful for picking legs when creating a settlement manually.
+// =============================================================================
+agentSettlements.get('/available-bank-txs', async (c) => {
+  try {
+    const direction = c.req.query('direction');
+    if (direction !== 'incoming' && direction !== 'outgoing') {
+      return fail(c, 422, [{ code: 'invalid', message: 'direction must be incoming|outgoing' }]);
+    }
+
+    const patterns = ['%BRIGHT IDEAS%', '%CENTUNO%', '%Bright Ideas%', '%Centuno%'];
+    const pipe = patterns.map(() => 'upper(bt.contragent_name) LIKE upper(?)').join(' OR ');
+
+    const rows = await c.env.DB.prepare(
+      `SELECT bt.id, bt.executed_at, bt.amount, bt.currency, bt.direction,
+              bt.contragent_name, bt.payment_purpose, bt.matched_operation_id,
+              cba.company_id, co.abbreviation AS company_abbr,
+              bt.match_method
+         FROM bank_transactions bt
+         JOIN company_bank_accounts cba ON cba.id = bt.company_bank_account_id
+         JOIN companies co ON co.id = cba.company_id
+        WHERE bt.direction = ?
+          AND (${pipe})
+          AND bt.id NOT IN (
+            SELECT ${direction === 'outgoing' ? 'outbound_bank_tx_id' : 'inbound_bank_tx_id'}
+              FROM agent_settlements
+             WHERE ${direction === 'outgoing' ? 'outbound_bank_tx_id' : 'inbound_bank_tx_id'} IS NOT NULL
+               AND deleted_at IS NULL
+          )
+        ORDER BY bt.executed_at DESC
+        LIMIT 60`
+    ).bind(direction, ...patterns).all();
+
+    return ok(c, { transactions: rows.results ?? [] });
+  } catch (err) {
+    return fail(c, 500, [fromError(err)]);
+  }
+});
+
 export default agentSettlements;
+
+// =============================================================================
+// (above) GET /api/agent-settlements/available-bank-txs handler lives before
+// the export so it actually registers with Hono.
+// =============================================================================

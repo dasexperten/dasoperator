@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Save, X, Plus } from 'lucide-react';
 import { getPartner, updatePartner, type Partner, type UpdatePartnerBody } from '@/lib/api';
+import { COUNTRIES } from '@/lib/countries';
 import Breadcrumb from '@/components/layout/breadcrumb';
 
 // =============================================================================
@@ -316,12 +317,16 @@ export default function EditPartnerClient({ slug }: { slug: string }) {
           />
         </Field>
         <Field label="Country">
-          <input
-            type="text"
+          <select
             value={form.country}
             onChange={(e) => update('country', e.target.value)}
             style={inputStyle}
-          />
+          >
+            <option value="">— Select country —</option>
+            {COUNTRIES.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
         </Field>
         <Field label="Email">
           <EmailListEditor
@@ -748,3 +753,4 @@ function EmailListEditor({
     </div>
   );
 }
+

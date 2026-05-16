@@ -25,6 +25,7 @@ const TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
   purchase: { bg: 'rgba(13,25,158,0.08)',  fg: 'var(--line-innoweiss)' },
   transfer: { bg: 'var(--paper-sunk)',     fg: 'var(--fg-2)' },
   service:  { bg: 'rgba(255,159,64,0.12)', fg: '#C46B14' },
+  tax:      { bg: 'rgba(122,31,31,0.10)',  fg: '#7A1F1F' },
 };
 
 // Phase 4.3b — Payment overlay applied on top of status (red/brown/green at 95% tolerance)
@@ -415,7 +416,7 @@ export default function OperationsPage() {
   const [uploadAction, setUploadAction] = useState<'attach' | 'create'>('attach');
 
   // Create form state — fields editable, prefilled from backend `prefill`
-  const [cfdType, setCfdType] = useState<'sale' | 'purchase' | 'transfer'>('purchase');
+  const [cfdType, setCfdType] = useState<'sale' | 'purchase' | 'transfer' | 'service' | 'tax'>('purchase');
   const [cfdPartnerId, setCfdPartnerId] = useState<string>('');
   const [cfdManufacturerId, setCfdManufacturerId] = useState<string>('');
   const [cfdCompanyId, setCfdCompanyId] = useState<string>('');
@@ -683,11 +684,8 @@ export default function OperationsPage() {
                   op.contract_no?.toLowerCase().includes(q);
         if (!m) return false;
       }
-      if (typeFilter === 'service') {
-        if (op.operation_track !== 'service') return false;
-      } else if (typeFilter !== 'all') {
+      if (typeFilter !== 'all') {
         if (op.operation_type !== typeFilter) return false;
-        if (op.operation_track === 'service') return false; // goods tabs exclude services
       }
       if (statusFilter !== 'all' && op.status !== statusFilter) return false;
       if (paymentFilter !== 'all' && (op.payment_state ?? 'neutral') !== paymentFilter) return false;
@@ -793,13 +791,12 @@ export default function OperationsPage() {
             { id: 'purchase', label: 'Purchases', activeColor: 'var(--line-innoweiss)' },
             { id: 'transfer', label: 'Transfers', activeColor: 'var(--fg-2)' },
             { id: 'service',  label: 'Services',  activeColor: '#C46B14' },
+            { id: 'tax',      label: 'Taxes',     activeColor: '#7A1F1F' },
           ] as { id: string; label: string; activeColor: string }[]).map((t) => {
             const isActive = typeFilter === t.id;
             const count = t.id === 'all'
               ? operations.length
-              : t.id === 'service'
-                ? operations.filter((o) => o.operation_track === 'service').length
-                : operations.filter((o) => o.operation_type === t.id && o.operation_track !== 'service').length;
+              : operations.filter((o) => o.operation_type === t.id).length;
             return (
               <button key={t.id} type="button" onClick={() => setTypeFilter(t.id)}
                 style={{
@@ -862,10 +859,11 @@ export default function OperationsPage() {
             className="px-3 py-2"
             style={{ width: '100%', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)' }}>
             <option value="all">All types ({operations.length})</option>
-            <option value="sale">Sales ({operations.filter((o) => o.operation_type === 'sale' && o.operation_track !== 'service').length})</option>
-            <option value="purchase">Purchases ({operations.filter((o) => o.operation_type === 'purchase' && o.operation_track !== 'service').length})</option>
-            <option value="transfer">Transfers ({operations.filter((o) => o.operation_type === 'transfer' && o.operation_track !== 'service').length})</option>
-            <option value="service">Services ({operations.filter((o) => o.operation_track === 'service').length})</option>
+            <option value="sale">Sales ({operations.filter((o) => o.operation_type === 'sale').length})</option>
+            <option value="purchase">Purchases ({operations.filter((o) => o.operation_type === 'purchase').length})</option>
+            <option value="transfer">Transfers ({operations.filter((o) => o.operation_type === 'transfer').length})</option>
+            <option value="service">Services ({operations.filter((o) => o.operation_type === 'service').length})</option>
+            <option value="tax">Taxes ({operations.filter((o) => o.operation_type === 'tax').length})</option>
           </select>
         </div>
       </div>

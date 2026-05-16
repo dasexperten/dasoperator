@@ -1010,7 +1010,7 @@ export interface Operation {
   partner_trade_name?: string | null;
   our_company_id: string;
   entity_abbreviation?: string | null;
-  operation_type: 'sale' | 'purchase' | 'transfer';
+  operation_type: 'sale' | 'purchase' | 'transfer' | 'service' | 'tax';
   operation_track?: 'goods' | 'service';
   partner_kind?: string | null;
   // Phase 0039 — transfer batches
@@ -1132,7 +1132,7 @@ export interface CreateOperationBody {
   // SALE: contract_id required (carries partner+company+currency).
   // PURCHASE / TRANSFER: contract_id omitted, fields below provided directly.
   contract_id?: string;
-  operation_type: 'sale' | 'purchase' | 'transfer';
+  operation_type: 'sale' | 'purchase' | 'transfer' | 'service' | 'tax';
   operation_date: number;
   warehouse_from_id?: string;
   warehouse_to_id?: string;
@@ -1288,6 +1288,45 @@ export interface WarehouseDetail extends Warehouse {
 
 export async function getWarehouse(id: string) {
   return apiGet<WarehouseDetail>(`/api/warehouses/${id}`);
+}
+
+// -----------------------------------------------------------------------------
+// Bundling suggestions — inferred packing/unpacking activity from stock movements
+// -----------------------------------------------------------------------------
+
+export interface BundlingSuggestionLeg {
+  product_id: string;
+  product_name: string;
+  bundle_size: number;
+  delta: number;
+  sources: string;
+}
+
+export interface BundlingSuggestion {
+  warehouse_id: string;
+  family_base: string;
+  day: string;
+  direction: 'pack' | 'unpack';
+  single: BundlingSuggestionLeg;
+  bundle: BundlingSuggestionLeg;
+  single_units: number;
+  bundle_units_in_singles: number;
+  variance_units: number;
+  variance_pct: number;
+  ts_diff_seconds: number;
+  confidence: 'high' | 'medium' | 'low';
+}
+
+export interface BundlingSuggestionsResponse {
+  warehouse_id: string;
+  days: number;
+  suggestions: BundlingSuggestion[];
+}
+
+export async function getBundlingSuggestions(warehouseId: string, days = 30) {
+  return apiGet<BundlingSuggestionsResponse>(
+    `/api/warehouses/${warehouseId}/bundling-suggestions?days=${days}`
+  );
 }
 
 // -----------------------------------------------------------------------------
@@ -2060,7 +2099,7 @@ export interface UploadDocPrefill {
   manufacturer_name: string | null;
   our_company_id: string | null;
   our_company_abbr: string | null;
-  operation_type: 'sale' | 'purchase' | 'transfer' | null;
+  operation_type: 'sale' | 'purchase' | 'transfer' | 'service' | 'tax' | null;
   currency: string | null;
   amount: number | null;
   doc_date: string | null;
@@ -2113,7 +2152,7 @@ export interface ExtractedLineItem {
 }
 
 export interface CreateFromDocBody {
-  operation_type: 'sale' | 'purchase' | 'transfer';
+  operation_type: 'sale' | 'purchase' | 'transfer' | 'service' | 'tax';
   operation_date: number;
   partner_id?: string | null;
   manufacturer_id?: string | null;
@@ -2139,7 +2178,7 @@ export interface CreateFromDocResult {
   operation: {
     id: string;
     reference: string;
-    operation_type: 'sale' | 'purchase' | 'transfer';
+    operation_type: 'sale' | 'purchase' | 'transfer' | 'service' | 'tax';
     operation_date: number;
     partner_id: string | null;
     manufacturer_id: string | null;
@@ -2227,7 +2266,7 @@ export interface FinanceCategory {
   label: string;
   description: string | null;
   direction: 'incoming' | 'outgoing' | 'any';
-  default_operation_type: 'sale' | 'purchase' | 'transfer' | 'bundling';
+  default_operation_type: 'sale' | 'purchase' | 'transfer' | 'service' | 'tax';
   default_partner_kind: string | null;
   always_confirm: number;
   sort_order: number;

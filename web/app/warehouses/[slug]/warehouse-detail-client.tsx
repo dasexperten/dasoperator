@@ -2,15 +2,15 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, Plus, Edit3, PackagePlus, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Loader2, Plus, Edit3, PackagePlus, RefreshCw, Package } from 'lucide-react';
 import {
   getWarehouse, getStocks, getStockMovements, getInventorySessions,
-  getExternalRequests, syncExternalRequests,
+  getExternalRequests, syncExternalRequests, getBundlingSuggestions,
   type WarehouseDetail, type StockRow, type StockMovement, type InventorySession,
-  type ExternalRequestRow,
+  type ExternalRequestRow, type BundlingSuggestion,
 } from '@/lib/api';
 
-type Tab = 'stock' | 'movements' | 'sessions' | 'f4_requests';
+type Tab = 'stock' | 'movements' | 'sessions' | 'f4_requests' | 'bundling';
 type F4Filter = 'all' | 'acceptance' | 'mp_delivery' | 'writeoff';
 
 const F4_TYPE_LABELS: Record<string, { label: string; color: string }> = {
@@ -48,6 +48,7 @@ export default function WarehouseDetailClient({ warehouseId }: { warehouseId: st
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [sessions, setSessions] = useState<InventorySession[]>([]);
   const [f4Requests, setF4Requests] = useState<ExternalRequestRow[]>([]);
+  const [bundlingSuggestions, setBundlingSuggestions] = useState<BundlingSuggestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('stock');
@@ -64,12 +65,13 @@ export default function WarehouseDetailClient({ warehouseId }: { warehouseId: st
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [whRes, stocksRes, movRes, sessRes, f4Res] = await Promise.all([
+        const [whRes, stocksRes, movRes, sessRes, f4Res, bundlingRes] = await Promise.all([
           getWarehouse(warehouseId),
           getStocks({ warehouse_id: warehouseId }),
           getStockMovements({ warehouse_id: warehouseId, limit: 100 }),
           getInventorySessions({ warehouse_id: warehouseId }),
           getExternalRequests({ warehouse_id: warehouseId }),
+          getBundlingSuggestions(warehouseId, 90),
         ]);
         if (whRes.success && whRes.result) {
           setWarehouse(whRes.result);
@@ -81,6 +83,7 @@ export default function WarehouseDetailClient({ warehouseId }: { warehouseId: st
         if (movRes.success && movRes.result) setMovements(movRes.result.movements);
         if (sessRes.success && sessRes.result) setSessions(sessRes.result.sessions);
         if (f4Res.success && f4Res.result) setF4Requests(f4Res.result.requests);
+        if (bundlingRes.success && bundlingRes.result) setBundlingSuggestions(bundlingRes.result.suggestions);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
       } finally {
@@ -191,12 +194,16 @@ export default function WarehouseDetailClient({ warehouseId }: { warehouseId: st
         {isExternalWarehouse && (
           <TabButton active={tab === 'f4_requests'} onClick={() => setTab('f4_requests')} label={`F4 заявки (${f4Requests.length})`} />
         )}
+        {bundlingSuggestions.length > 0 && (
+          <TabButton active={tab === 'bundling'} onClick={() => setTab('bundling')} label={`Bundling (${bundlingSuggestions.length})`} />
+        )}
       </div>
 
       {tab === 'stock' && <StockTab stocks={stocks} initialSku={initialSku} warehouseId={warehouseId} />}
       {tab === 'movements' && <MovementsTab movements={movements} />}
       {tab === 'sessions' && <SessionsTab sessions={sessions} />}
       {tab === 'f4_requests' && <F4RequestsTab requests={f4Requests} onSynced={(rows) => setF4Requests(rows)} warehouseId={warehouseId} />}
+      {tab === 'bundling' && <BundlingTab suggestions={bundlingSuggestions} />}
     </div>
   );
 }
@@ -671,5 +678,121 @@ function Th({ children, right }: { children: React.ReactNode; right?: boolean })
     <th className={`${right ? 'text-right' : 'text-left'} px-4 py-3`} style={{ fontSize: '14px', color: 'var(--fg-3)', backgroundColor: 'var(--paper-sunk)' }}>
       {children}
     </th>
+  );
+}
+
+// =============================================================================
+// BundlingTab — inferred packing/unpacking activity from stock movements
+// Phase 1: read-only report. Phase 2 will add "Confirm as bundling" actions.
+// =============================================================================
+
+const CONFIDENCE_STYLE: Record<'high' | 'medium' | 'low', { bg: string; fg: string; border: string; label: string }> = {
+  high:   { bg: 'rgba(46,125,79,0.08)', fg: 'var(--status-success)', border: 'rgba(46,125,79,0.3)', label: 'High' },
+  medium: { bg: 'rgba(199,122,0,0.08)', fg: 'var(--status-warning)', border: 'rgba(199,122,0,0.3)', label: 'Medium' },
+  low:    { bg: 'rgba(229,32,44,0.05)', fg: 'var(--brand-rot)',      border: 'rgba(229,32,44,0.2)', label: 'Low' },
+};
+
+function BundlingTab({ suggestions }: { suggestions: BundlingSuggestion[] }) {
+  if (suggestions.length === 0) {
+    return (
+      <div className="bg-card p-12 text-center" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', color: 'var(--fg-3)', fontSize: '14px' }}>
+        No bundling activity detected in the last 90 days. Detection works by matching opposing-sign stock movements within the same SKU family (e.g. de201 ↔ de201aa) where the unit-equivalent counts match the bundle_size ratio.
+      </div>
+    );
+  }
+
+  const high = suggestions.filter(s => s.confidence === 'high').length;
+  const medium = suggestions.filter(s => s.confidence === 'medium').length;
+  const low = suggestions.filter(s => s.confidence === 'low').length;
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-card p-4" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
+        <div className="flex items-center gap-3" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
+          <Package className="h-4 w-4" />
+          <span>
+            <strong>{suggestions.length}</strong> probable bundling events detected over 90 days
+            {high > 0 && <> · <span style={{ color: CONFIDENCE_STYLE.high.fg, fontWeight: 700 }}>{high} high</span></>}
+            {medium > 0 && <> · <span style={{ color: CONFIDENCE_STYLE.medium.fg, fontWeight: 700 }}>{medium} medium</span></>}
+            {low > 0 && <> · <span style={{ color: CONFIDENCE_STYLE.low.fg, fontWeight: 700 }}>{low} low</span></>}
+          </span>
+        </div>
+        <div className="mt-2" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>
+          Detection is read-only. To convert any of these into a recorded bundling operation, action buttons will be added in Phase 2.
+        </div>
+      </div>
+
+      <div className="bg-card overflow-hidden" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
+        <table className="w-full text-sm">
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+              <Th>Day</Th>
+              <Th>Family</Th>
+              <Th>Direction</Th>
+              <Th>Single SKU</Th>
+              <Th right>Δ singles</Th>
+              <Th>Bundle SKU</Th>
+              <Th right>Δ bundles</Th>
+              <Th right>Variance</Th>
+              <Th>Confidence</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {suggestions.map((s, i) => {
+              const conf = CONFIDENCE_STYLE[s.confidence];
+              return (
+                <tr key={i} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                  <td className="px-4 py-3" style={{ fontSize: '14px', fontWeight: 700 }}>{s.day}</td>
+                  <td className="px-4 py-3" style={{ fontSize: '14px', fontWeight: 700 }}>{s.family_base}</td>
+                  <td className="px-4 py-3" style={{ fontSize: '14px' }}>
+                    <span style={{
+                      backgroundColor: s.direction === 'pack' ? 'rgba(13,25,158,0.08)' : 'rgba(199,122,0,0.08)',
+                      color: s.direction === 'pack' ? 'var(--line-innoweiss)' : 'var(--status-warning)',
+                      padding: '3px 8px',
+                      borderRadius: 'var(--radius-sm)',
+                      fontWeight: 700,
+                    }}>
+                      {s.direction === 'pack' ? '↑ pack' : '↓ unpack'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3" style={{ fontSize: '14px' }}>
+                    <div style={{ fontWeight: 700 }}>{s.single.product_id}</div>
+                    <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{s.single.product_name}</div>
+                  </td>
+                  <td className="px-4 py-3 text-right" style={{ fontSize: '14px', fontWeight: 700, color: s.single.delta < 0 ? 'var(--brand-rot)' : 'var(--status-success)' }}>
+                    {s.single.delta > 0 ? '+' : ''}{s.single.delta.toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3" style={{ fontSize: '14px' }}>
+                    <div style={{ fontWeight: 700 }}>{s.bundle.product_id}</div>
+                    <div style={{ fontSize: '14px', color: 'var(--fg-3)' }}>×{s.bundle.bundle_size} · {s.bundle.product_name}</div>
+                  </td>
+                  <td className="px-4 py-3 text-right" style={{ fontSize: '14px', fontWeight: 700, color: s.bundle.delta < 0 ? 'var(--brand-rot)' : 'var(--status-success)' }}>
+                    {s.bundle.delta > 0 ? '+' : ''}{s.bundle.delta.toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3 text-right" style={{ fontSize: '14px', fontWeight: 700 }}>
+                    {s.variance_pct.toFixed(1)}%
+                    <div style={{ fontSize: '14px', color: 'var(--fg-3)', fontWeight: 400 }}>
+                      {s.variance_units > 0 ? `${s.variance_units} pcs off` : 'exact'}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3" style={{ fontSize: '14px' }}>
+                    <span style={{
+                      backgroundColor: conf.bg,
+                      color: conf.fg,
+                      border: `1px solid ${conf.border}`,
+                      padding: '3px 10px',
+                      borderRadius: 'var(--radius-sm)',
+                      fontWeight: 700,
+                    }}>
+                      {conf.label}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }

@@ -14,28 +14,49 @@ import {
   Github,
 } from 'lucide-react';
 
-const STATUS_URL =
-  'https://raw.githubusercontent.com/dasexperten/arams-db/main/docs/ozon-fbo-status.json';
-const RUNS_URL =
-  'https://api.github.com/repos/dasexperten/arams-db/actions/workflows/ozon-fbo-monthly.yml/runs?per_page=10';
-const WORKFLOW_URL =
-  'https://github.com/dasexperten/arams-db/actions/workflows/ozon-fbo-monthly.yml';
-
-const CLUSTER_ORDER = [
-  'Москва',
-  'Санкт-Петербург',
-  'Екатеринбург',
-  'Казань',
-  'Краснодар',
-  'Ростов-на-Дону',
-  'Новосибирск',
-  'Хабаровск',
-];
-
 const OZON_BLUE = 'rgb(0, 91, 255)';
-const OZON_BLUE_TINT = 'rgba(0, 91, 255, 0.06)';
 const WB_PINK = 'rgb(203, 17, 122)';
-const WB_PINK_TINT = 'rgba(203, 17, 122, 0.06)';
+
+const OZON_CONFIG = {
+  accent: OZON_BLUE,
+  accentLabel: 'OZON FBO · SUPPLY PLANNING',
+  statusUrl: 'https://raw.githubusercontent.com/dasexperten/arams-db/main/docs/ozon-fbo-status.json',
+  runsUrl:
+    'https://api.github.com/repos/dasexperten/arams-db/actions/workflows/ozon-fbo-monthly.yml/runs?per_page=10',
+  workflowUrl: 'https://github.com/dasexperten/arams-db/actions/workflows/ozon-fbo-monthly.yml',
+  clusterOrder: [
+    'Москва',
+    'Санкт-Петербург',
+    'Екатеринбург',
+    'Казань',
+    'Краснодар',
+    'Ростов-на-Дону',
+    'Новосибирск',
+    'Хабаровск',
+  ],
+  csvPrefix: 'ozon_fbo',
+};
+
+const WB_CONFIG = {
+  accent: WB_PINK,
+  accentLabel: 'WB FBO · SUPPLY PLANNING',
+  statusUrl: 'https://raw.githubusercontent.com/dasexperten/arams-db/main/docs/wb-fbo-status.json',
+  runsUrl:
+    'https://api.github.com/repos/dasexperten/arams-db/actions/workflows/wb-fbo-monthly.yml/runs?per_page=10',
+  workflowUrl: 'https://github.com/dasexperten/arams-db/actions/workflows/wb-fbo-monthly.yml',
+  clusterOrder: [] as string[],
+  csvPrefix: 'wb_fbo',
+};
+
+interface DashboardConfig {
+  accent: string;
+  accentLabel: string;
+  statusUrl: string;
+  runsUrl: string;
+  workflowUrl: string;
+  clusterOrder: string[];
+  csvPrefix: string;
+}
 
 interface ClusterStats {
   to_ship: number;
@@ -54,6 +75,7 @@ interface SkuRow {
   to_ship: number;
   flag?: string;
   global_oos?: boolean;
+  barcodes?: string[];
 }
 
 interface FboStatus {
@@ -110,12 +132,7 @@ export default function MarketplacesPage() {
       </div>
 
       {/* Tabs */}
-      <div
-        className="flex gap-1"
-        style={{
-          borderBottom: '1px solid var(--border-hairline)',
-        }}
-      >
+      <div className="flex gap-1" style={{ borderBottom: '1px solid var(--border-hairline)' }}>
         <TabButton
           active={tab === 'ozon'}
           onClick={() => setTab('ozon')}
@@ -130,8 +147,8 @@ export default function MarketplacesPage() {
         />
       </div>
 
-      {tab === 'ozon' && <OzonFboDashboard />}
-      {tab === 'wb' && <WbPlaceholder />}
+      {tab === 'ozon' && <FboDashboard config={OZON_CONFIG} key="ozon" />}
+      {tab === 'wb' && <FboDashboard config={WB_CONFIG} key="wb" />}
     </div>
   );
 }
@@ -169,37 +186,11 @@ function TabButton({
   );
 }
 
-function WbPlaceholder() {
-  return (
-    <div
-      style={{
-        backgroundColor: WB_PINK_TINT,
-        border: '1px solid var(--border-hairline)',
-        borderRadius: 'var(--radius-md)',
-        padding: '40px 32px',
-        textAlign: 'center',
-      }}
-    >
-      <ShoppingCart
-        className="mx-auto mb-3"
-        style={{ width: 28, height: 28, color: WB_PINK }}
-      />
-      <div style={{ fontSize: '18px', fontWeight: 700, color: WB_PINK, marginBottom: 8 }}>
-        WB FBO — coming soon
-      </div>
-      <div style={{ fontSize: '14px', color: 'var(--fg-2)', maxWidth: 480, margin: '0 auto' }}>
-        Same supply planning dashboard for Wildberries — cluster breakdown, stock-out alerts,
-        K-coefficient ranking, CSV export for supply orders.
-      </div>
-    </div>
-  );
-}
-
 /* ════════════════════════════════════════════════════════════════════════
-   OZON FBO DASHBOARD
+   FBO DASHBOARD (shared by Ozon and WB)
    ════════════════════════════════════════════════════════════════════════ */
 
-function OzonFboDashboard() {
+function FboDashboard({ config }: { config: DashboardConfig }) {
   const [status, setStatus] = useState<FboStatus | null>(null);
   const [runs, setRuns] = useState<RunRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -212,7 +203,7 @@ function OzonFboDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(STATUS_URL + '?t=' + Date.now());
+      const r = await fetch(config.statusUrl + '?t=' + Date.now());
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const d = (await r.json()) as FboStatus;
       setStatus(d);
@@ -232,7 +223,7 @@ function OzonFboDashboard() {
     setRunsLoading(true);
     setRunsError(null);
     try {
-      const r = await fetch(RUNS_URL, {
+      const r = await fetch(config.runsUrl, {
         headers: { Accept: 'application/vnd.github+json' },
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -248,14 +239,14 @@ function OzonFboDashboard() {
   useEffect(() => {
     loadStatus();
     loadRuns();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.statusUrl]);
 
   function reload() {
     loadStatus();
     loadRuns();
   }
 
-  // Pre-compute per-SKU aggregates for global K coloring
   const skuAgg = useMemo(() => {
     const agg: Record<string, { stock: number; sales: number }> = {};
     if (!status) return agg;
@@ -291,12 +282,19 @@ function OzonFboDashboard() {
   const clusterKeys = useMemo(() => {
     if (!status) return [];
     const clusters = status.clusters || {};
-    const ordered = CLUSTER_ORDER.filter((k) => clusters[k]);
-    Object.keys(clusters).forEach((k) => {
-      if (!CLUSTER_ORDER.includes(k) && k !== 'UNKNOWN') ordered.push(k);
-    });
-    return ordered;
-  }, [status]);
+    if (config.clusterOrder.length > 0) {
+      // Use predefined order for Ozon
+      const ordered = config.clusterOrder.filter((k) => clusters[k]);
+      Object.keys(clusters).forEach((k) => {
+        if (!config.clusterOrder.includes(k) && k !== 'UNKNOWN') ordered.push(k);
+      });
+      return ordered;
+    }
+    // For WB: sort by to_ship desc
+    return Object.keys(clusters)
+      .filter((k) => k !== 'UNKNOWN')
+      .sort((a, b) => (clusters[b].to_ship || 0) - (clusters[a].to_ship || 0));
+  }, [status, config.clusterOrder]);
 
   if (loading && !status) {
     return (
@@ -330,8 +328,15 @@ function OzonFboDashboard() {
       {/* Hero sub */}
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <div style={{ fontSize: '13px', fontWeight: 700, color: OZON_BLUE, marginBottom: 6 }}>
-            OZON FBO · SUPPLY PLANNING
+          <div
+            style={{
+              fontSize: '13px',
+              fontWeight: 700,
+              color: config.accent,
+              marginBottom: 6,
+            }}
+          >
+            {config.accentLabel}
           </div>
           <div
             style={{
@@ -345,11 +350,9 @@ function OzonFboDashboard() {
           >
             Supply control center
           </div>
-          <div
-            className="mt-2"
-            style={{ fontSize: '14px', color: 'var(--fg-2)' }}
-          >
-            run_date={status.run_date} · stocks={fmt(status.stocks_rows)} · sales={fmt(status.sales_rows)}
+          <div className="mt-2" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
+            run_date={status.run_date} · stocks={fmt(status.stocks_rows)} · sales=
+            {fmt(status.sales_rows)}
           </div>
         </div>
         <button
@@ -396,7 +399,7 @@ function OzonFboDashboard() {
           value={fmt(status.to_ship_units)}
           label="Units to ship"
           tone="accent"
-          accent={OZON_BLUE}
+          accent={config.accent}
           active={filter === 'toship'}
           onClick={() => setFilter(filter === 'toship' ? null : 'toship')}
         />
@@ -404,6 +407,7 @@ function OzonFboDashboard() {
           value={fmt(status.to_ship_count)}
           label="Top-5 sales"
           tone="default"
+          accent={config.accent}
           active={filter === 'top5'}
           onClick={() => setFilter(filter === 'top5' ? null : 'top5')}
         />
@@ -411,6 +415,7 @@ function OzonFboDashboard() {
           value={fmt(status.oos_count)}
           label="Stock-out"
           tone={status.oos_count > 0 ? 'danger' : 'default'}
+          accent={config.accent}
           active={filter === 'stockout'}
           onClick={() => setFilter(filter === 'stockout' ? null : 'stockout')}
         />
@@ -418,6 +423,7 @@ function OzonFboDashboard() {
           value={fmt(status.overstock_count)}
           label="Overstock"
           tone="default"
+          accent={config.accent}
           active={filter === 'overstock'}
           onClick={() => setFilter(filter === 'overstock' ? null : 'overstock')}
         />
@@ -447,6 +453,8 @@ function OzonFboDashboard() {
                 skuAgg={skuAgg}
                 skuColorMap={skuColorMap}
                 filter={filter}
+                accent={config.accent}
+                csvPrefix={config.csvPrefix}
               />
             ))}
           </div>
@@ -476,12 +484,12 @@ function OzonFboDashboard() {
         >
           <div className="flex flex-wrap items-center gap-2">
             <a
-              href={WORKFLOW_URL}
+              href={config.workflowUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-4 py-2"
               style={{
-                backgroundColor: OZON_BLUE,
+                backgroundColor: config.accent,
                 color: '#fff',
                 fontSize: '14px',
                 fontWeight: 700,
@@ -531,7 +539,10 @@ function OzonFboDashboard() {
           Run history
         </div>
         {runsLoading && (
-          <div className="flex items-center gap-2 py-4" style={{ color: 'var(--fg-muted)', fontSize: '14px' }}>
+          <div
+            className="flex items-center gap-2 py-4"
+            style={{ color: 'var(--fg-muted)', fontSize: '14px' }}
+          >
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading…
           </div>
@@ -539,9 +550,7 @@ function OzonFboDashboard() {
         {runsError && !runsLoading && (
           <div style={{ color: 'var(--brand-rot)', fontSize: '14px' }}>{runsError}</div>
         )}
-        {!runsLoading && !runsError && (
-          <RunsTable runs={runs} />
-        )}
+        {!runsLoading && !runsError && <RunsTable runs={runs} accent={config.accent} />}
       </div>
     </div>
   );
@@ -558,12 +567,12 @@ function MetricCard({
   value: string;
   label: string;
   tone: 'accent' | 'danger' | 'default';
-  accent?: string;
+  accent: string;
   active: boolean;
   onClick: () => void;
 }) {
   let valueColor = 'var(--fg-1)';
-  if (tone === 'accent') valueColor = accent || OZON_BLUE;
+  if (tone === 'accent') valueColor = accent;
   if (tone === 'danger') valueColor = 'var(--brand-rot)';
 
   return (
@@ -572,7 +581,7 @@ function MetricCard({
       style={{
         backgroundColor: 'var(--paper-1)',
         border: '1px solid var(--border-hairline)',
-        outline: active ? `2px solid ${OZON_BLUE}` : 'none',
+        outline: active ? `2px solid ${accent}` : 'none',
         outlineOffset: 2,
         borderRadius: 'var(--radius-md)',
         padding: '20px',
@@ -602,9 +611,7 @@ function MetricCard({
       >
         {value}
       </div>
-      <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>
-        {label}
-      </div>
+      <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>{label}</div>
     </button>
   );
 }
@@ -616,6 +623,8 @@ function ClusterItem({
   skuAgg,
   skuColorMap,
   filter,
+  accent,
+  csvPrefix,
 }: {
   cluster: string;
   stats: ClusterStats;
@@ -623,10 +632,11 @@ function ClusterItem({
   skuAgg: Record<string, { stock: number; sales: number }>;
   skuColorMap: Record<string, 'red' | 'green' | 'neutral'>;
   filter: FilterType;
+  accent: string;
+  csvPrefix: string;
 }) {
   const [open, setOpen] = useState(false);
 
-  // Auto-open when filter active
   useEffect(() => {
     if (filter) setOpen(true);
   }, [filter]);
@@ -639,25 +649,24 @@ function ClusterItem({
     }
     const lines = ['SKU,Quantity'];
     for (const r of rows) lines.push(`${r.sku},${r.to_ship}`);
-    const csv = '\uFEFF' + lines.join('\n'); // BOM for Excel UTF-8
+    const csv = '\uFEFF' + lines.join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     const dt = new Date().toISOString().slice(0, 10);
-    a.download = `ozon_fbo_${cluster}_${dt}.csv`;
+    a.download = `${csvPrefix}_${cluster}_${dt}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
 
-  // Filter + sort SKUs
   const visibleSkus = useMemo(() => {
     let list = [...skus];
-    list.sort((a, b) =>
-      ((b.to_ship || 0) - (a.to_ship || 0)) ||
-      ((b.sales_30d || 0) - (a.sales_30d || 0)),
+    list.sort(
+      (a, b) =>
+        (b.to_ship || 0) - (a.to_ship || 0) || (b.sales_30d || 0) - (a.sales_30d || 0),
     );
     if (filter === 'stockout') {
       list = list.filter((s) => (skuAgg[s.sku]?.stock || 0) === 0);
@@ -670,7 +679,6 @@ function ClusterItem({
       list.sort((a, b) => (b.sales_30d || 0) - (a.sales_30d || 0));
       list = list.slice(0, 5);
     } else {
-      // default: sort by stock desc
       list.sort((a, b) => (b.stock || 0) - (a.stock || 0));
     }
     return list;
@@ -705,7 +713,7 @@ function ClusterItem({
             fontFamily: 'var(--font-display)',
             fontSize: '24px',
             fontWeight: 800,
-            color: OZON_BLUE,
+            color: accent,
             flex: 1,
             letterSpacing: 0,
           }}
@@ -768,7 +776,7 @@ function ClusterItem({
                     col === 'red'
                       ? 'rgba(229,32,44,0.05)'
                       : col === 'green'
-                      ? 'rgba(212,160,23,0.06)'
+                      ? 'rgba(138,96,0,0.06)'
                       : s.zone === 'DEFICIT'
                       ? 'rgba(212,160,23,0.04)'
                       : s.zone === 'OVERSTOCK'
@@ -860,7 +868,7 @@ function ClusterItem({
               className="inline-flex items-center gap-2"
               style={{
                 padding: '10px 22px',
-                backgroundColor: OZON_BLUE,
+                backgroundColor: accent,
                 color: '#fff',
                 border: 'none',
                 borderRadius: 'var(--radius-sm)',
@@ -879,12 +887,10 @@ function ClusterItem({
   );
 }
 
-function RunsTable({ runs }: { runs: RunRow[] }) {
+function RunsTable({ runs, accent }: { runs: RunRow[]; accent: string }) {
   if (!runs.length) {
     return (
-      <div style={{ padding: 20, color: 'var(--fg-muted)', fontSize: '14px' }}>
-        No runs yet
-      </div>
+      <div style={{ padding: 20, color: 'var(--fg-muted)', fontSize: '14px' }}>No runs yet</div>
     );
   }
   return (
@@ -913,10 +919,7 @@ function RunsTable({ runs }: { runs: RunRow[] }) {
             const dur =
               cr && up ? Math.max(0, Math.round((+up - +cr) / 60000)) + ' min' : '—';
             return (
-              <tr
-                key={r.run_number}
-                style={{ borderBottom: '1px solid var(--border-hairline)' }}
-              >
+              <tr key={r.run_number} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
                 <td style={{ ...tdStyle, color: 'var(--fg-muted)', fontWeight: 700 }}>
                   #{r.run_number}
                 </td>
@@ -933,7 +936,7 @@ function RunsTable({ runs }: { runs: RunRow[] }) {
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{
-                      color: OZON_BLUE,
+                      color: accent,
                       fontWeight: 700,
                       textDecoration: 'none',
                       display: 'inline-flex',

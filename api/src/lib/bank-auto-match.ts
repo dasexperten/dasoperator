@@ -821,7 +821,7 @@ async function attachPaymentAndInvoice(
   `).bind(
     pmtId, args.operation_id, args.tx.direction,
     args.tx.external_doc_number || null, args.tx.executed_at,
-    args.toMajor(tx.amount, tx.currency), args.tx.currency,
+    toMajor(args.tx.amount, args.tx.currency), args.tx.currency,
     args.tx.contragent_name || 'Modulbank',
     args.tx.id,
     args.tx.payment_purpose ? args.tx.payment_purpose.slice(0, 500) : null,
@@ -842,7 +842,7 @@ async function attachPaymentAndInvoice(
     `).bind(
       invId, args.operation_id, invDirection,
       parsed.doc_number, parsed.doc_date,
-      args.toMajor(tx.amount, tx.currency), args.tx.currency,
+      toMajor(args.tx.amount, args.tx.currency), args.tx.currency,
       args.tx.contragent_name || null,
       args.tx.id,
       'parsed from payment_purpose',
@@ -879,7 +879,7 @@ async function createOrphanAttachment(
   `).bind(
     id, args.tx.direction,
     args.tx.external_doc_number || null, args.tx.executed_at,
-    args.toMajor(tx.amount, tx.currency), args.tx.currency,
+    toMajor(args.tx.amount, args.tx.currency), args.tx.currency,
     args.tx.contragent_name || 'Modulbank',
     args.tx.id,
     args.notes,

@@ -47,11 +47,13 @@ Output ONLY valid JSON, no prose, no markdown fences:
 }
 
 Rules:
-- amount in minor units (RUB kopecks = ×100). For VND, JPY, KRW use whole units (×1).
+- amount in MAJOR units (decimal numbers as-is, e.g. 272423.80 not 27242380). Do NOT multiply by 100.
 - direction "incoming" = money received (credit). "outgoing" = money sent (debit).
 - external_id MUST be unique within the file (use docNumber, transaction id, or hash of date+amount+name+purpose).
 - payment_purpose: full text "Назначение платежа" or "Description" field.
-- For VTB/Sberbank/Modulbank CSV: detect "Дебет"/"Кредит", "Сумма списания"/"Сумма зачисления".
+- For VTB/Sberbank/Modulbank CSV/PDF: detect Дебет/Кредит, Сумма списания/Сумма зачисления.
+- VTB PDF specifics: rows wrap across many physical lines. A new transaction begins where column 1 has a date. Use the foreign-currency column (CNY/USD/EUR) for amount when the account currency is non-RUB.
+- For SWIFT MT103 routed through correspondent: contragent_name is the bank itself (БАНК ВТБ); the real beneficiary appears inside payment_purpose. Leave contragent_name as-is — narration-based matching handles the rest downstream.
 - For UAE/international: detect IBAN, SWIFT, debit/credit, balance columns.
 - Skip header/footer/balance lines — only real transaction rows.
 - If currency mixed in file, set top-level currency to null and per-tx currency.`;
@@ -101,14 +103,14 @@ export async function parseStatement(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'deepseek-v4-pro',
+      model: 'deepseek-v4-flash',
       messages: [
         { role: 'system', content: EXTRACTION_PROMPT },
         { role: 'user', content: `Filename: ${filename}\n\nContents:\n${trimmed}` },
       ],
       temperature: 0,
       response_format: { type: 'json_object' },
-      max_tokens: 100000,
+      max_tokens: 16000,
     }),
   });
 

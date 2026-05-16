@@ -15,8 +15,6 @@ const STATUS_LABELS: Record<string, { label: string; bg: string; fg: string; ico
   cancelled:     { label: 'Cancelled',     bg: 'rgba(229,32,44,0.10)',      fg: '#A82029',     icon: XCircle },
 };
 
-) + ' ' + currency;
-}
 
 function formatDate(unix: number): string {
   return new Date(unix * 1000).toISOString().split('T')[0]!;

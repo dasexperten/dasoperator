@@ -13,8 +13,6 @@ import {
 } from '@/lib/api';
 import { formatMinor, toMinor } from '@/lib/money';
 
-) + ' ' + currency;
-}
 function formatDate(unix: number): string {
   return new Date(unix * 1000).toISOString().split('T')[0]!;
 }

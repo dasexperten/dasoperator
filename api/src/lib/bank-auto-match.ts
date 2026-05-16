@@ -254,9 +254,11 @@ export async function autoMatchBankTransaction(
   }
 
   // Pre-compute shared values used across STEP 1b/2 branches.
-  // tx.amount is already stored as decimal major units (memory note —
-  // legacy *_minor naming is vestigial; values are decimal). 2026-05-16.
-  const txMajor = tx.amount;
+  // bank_transactions.amount is stored in MINOR UNITS (kopeks for RUB,
+  // cents for USD/EUR/CNY). Divide by 100 to get decimal major units.
+  // Previous '2026-05-16' note claiming amount is already decimal was WRONG —
+  // caused mass-inflated AUTO-DRAFT operations (49M RUB Ozon sales etc).
+  const txMajor = tx.amount / 100;
   const isService = looksLikeService(tx.payment_purpose);
 
   // STEP 1
@@ -361,96 +363,6 @@ export async function autoMatchBankTransaction(
       partner_id: partner.id,
       attachment_ids: attIds,
     };
-  }
-
-  // STEP 2-pre — invoice_no cross-reference against invoice_inbox.
-  // If the bank tx mentions an invoice number that we already have a TG/email
-  // document for, AND the corresponding operation already exists by reference
-  // (e.g. LBR-YYYYMMDD-NNN), prefer that. This is the F4 Lyubertsy pattern:
-  //   payment_purpose: "Оплата по счёту № 1142 от 13.05.2026"
-  //   invoice_inbox row with extracted_invoice_no='1142', source_type='telegram'
-  // → seek operation with that reference + same partner.
-  const parsedInvNo = parseInvoiceFromPurpose(tx.payment_purpose || '');
-  if (parsedInvNo?.doc_number) {
-    const inboxMatch = await env.DB.prepare(`
-      SELECT id, attachment_r2_key, attachment_filename, classification
-      FROM invoice_inbox
-      WHERE matched_partner_id = ?
-        AND extracted_invoice_no = ?
-        AND status IN ('needs_partner_link','queued','auto_attached')
-        AND (deleted_at IS NULL OR deleted_at = 0)
-      ORDER BY created_at DESC
-      LIMIT 1
-    `).bind(partner.id, parsedInvNo.doc_number).first<{
-      id: string; attachment_r2_key: string; attachment_filename: string; classification: string;
-    }>();
-
-    if (inboxMatch) {
-      // Look for an existing operation with reference pattern like "...{invno}"
-      const refLike = `%-${parsedInvNo.doc_number}`;
-      const matchedOp = await env.DB.prepare(`
-        SELECT id, reference
-        FROM operations
-        WHERE partner_id = ?
-          AND reference LIKE ?
-          AND status NOT IN ('cancelled','delivered')
-          AND (deleted_at IS NULL OR deleted_at = 0)
-        ORDER BY operation_date DESC
-        LIMIT 1
-      `).bind(partner.id, refLike).first<{ id: string; reference: string }>();
-
-      if (matchedOp) {
-        const attIds = await attachPaymentAndInvoice(env, { operation_id: matchedOp.id, tx });
-
-        // Also attach the inbox PDF as a separate document
-        const nowSec = Math.floor(Date.now() / 1000);
-        const docAttId = `att_${crypto.randomUUID()}`;
-        const docKind = inboxMatch.classification === 'acceptance' ? 'acceptance' : 'invoice';
-        const invDirection = tx.direction === 'outgoing' ? 'incoming' : 'outgoing';
-        try {
-          await env.DB.prepare(`
-            INSERT INTO operation_attachments
-              (id, operation_id, direction, kind, doc_number, doc_date, amount, currency,
-               issuer, parsed_from, source_ref_id, notes, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'inbox', ?, ?, ?, ?)
-          `).bind(
-            docAttId, matchedOp.id, invDirection, docKind,
-            parsedInvNo.doc_number, parsedInvNo.doc_date,
-            tx.amount / 100, tx.currency,
-            tx.contragent_name || partner.trade_name,
-            inboxMatch.id,
-            `Auto-linked TG doc: ${inboxMatch.attachment_filename || ''} (R2: ${inboxMatch.attachment_r2_key || ''})`,
-            nowSec, nowSec,
-          ).run();
-          attIds.push(docAttId);
-        } catch {
-          // duplicate or constraint — non-fatal
-        }
-
-        // Close the inbox entry
-        await env.DB.prepare(`
-          UPDATE invoice_inbox
-          SET status = 'auto_attached',
-              created_operation_id = ?,
-              resolved_at = ?,
-              notes = COALESCE(notes,'') || ?
-          WHERE id = ?
-        `).bind(
-          matchedOp.id, nowSec,
-          ` [auto-attached via bank tx invno=${parsedInvNo.doc_number}]`,
-          inboxMatch.id,
-        ).run();
-
-        await persistOutcome(env, txId, 'auto_matched', matchedOp.id);
-        return {
-          outcome: 'auto_matched',
-          operation_id: matchedOp.id,
-          partner_id: partner.id,
-          attachment_ids: attIds,
-          reason: `invoice_no #${parsedInvNo.doc_number} ↔ ${matchedOp.reference}`,
-        };
-      }
-    }
   }
 
   // Goods or incoming — search candidate operations

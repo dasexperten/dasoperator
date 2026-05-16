@@ -11,7 +11,6 @@ import {
   AlertTriangle,
   Download,
   ShoppingCart,
-  Github,
 } from 'lucide-react';
 
 const OZON_BLUE = 'rgb(0, 91, 255)';
@@ -460,70 +459,6 @@ function FboDashboard({ config }: { config: DashboardConfig }) {
           </div>
         </div>
       )}
-
-      {/* Actions */}
-      <div>
-        <div
-          style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: '18px',
-            fontWeight: 700,
-            color: 'var(--fg-1)',
-            marginBottom: 12,
-          }}
-        >
-          Actions
-        </div>
-        <div
-          style={{
-            backgroundColor: 'var(--paper-1)',
-            border: '1px solid var(--border-hairline)',
-            borderRadius: 'var(--radius-md)',
-            padding: '20px 24px',
-          }}
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            <a
-              href={config.workflowUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-4 py-2"
-              style={{
-                backgroundColor: config.accent,
-                color: '#fff',
-                fontSize: '14px',
-                fontWeight: 700,
-                borderRadius: 'var(--radius-sm)',
-                textDecoration: 'none',
-              }}
-            >
-              <Github className="h-4 w-4" />
-              Run in GitHub Actions
-              <ExternalLink className="h-3.5 w-3.5 opacity-70" />
-            </a>
-            <button
-              onClick={reload}
-              className="inline-flex items-center gap-2 px-4 py-2"
-              style={{
-                backgroundColor: 'var(--paper-sunk)',
-                border: '1px solid var(--border-hairline)',
-                color: 'var(--fg-1)',
-                fontSize: '14px',
-                fontWeight: 700,
-                borderRadius: 'var(--radius-sm)',
-                cursor: 'pointer',
-              }}
-            >
-              <RefreshCw className="h-4 w-4" />
-              Refresh data
-            </button>
-          </div>
-          <p className="mt-3" style={{ fontSize: '13px', color: 'var(--fg-2)' }}>
-            Click <strong>Run workflow</strong> in GitHub Actions. The Excel file arrives in
-            Telegram after the run completes.
-          </p>
-        </div>
-      </div>
 
       {/* Runs history */}
       <div>

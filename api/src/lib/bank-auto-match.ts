@@ -191,6 +191,30 @@ export async function autoMatchBankTransaction(
   }
 
   // =========================================================================
+  // IDEMPOTENCY GUARD — bank_tx already matched to an ACTIVE operation? skip.
+  // Without this, repeated invocations on the same tx (cron sweeps, manual
+  // retries, webhook retries) create duplicate service operations every run.
+  // =========================================================================
+  const alreadyMatched = await env.DB.prepare(`
+    SELECT bt.matched_operation_id, bt.match_method, o.reference
+      FROM bank_transactions bt
+      JOIN operations o ON o.id = bt.matched_operation_id
+     WHERE bt.id = ?
+       AND bt.matched_operation_id IS NOT NULL
+       AND o.deleted_at IS NULL
+     LIMIT 1
+  `).bind(txId).first<{ matched_operation_id: string; match_method: string | null; reference: string }>();
+
+  if (alreadyMatched?.matched_operation_id) {
+    return {
+      outcome: (alreadyMatched.match_method as MatchOutcome) || 'auto_matched',
+      operation_id: alreadyMatched.matched_operation_id,
+      attachment_ids: [],
+      reason: `already matched to ${alreadyMatched.reference} via ${alreadyMatched.match_method ?? 'unknown'} — idempotent skip`,
+    };
+  }
+
+  // =========================================================================
   // =========================================================================
   // CLASSIFIER CASCADE — L1 rules + L2 counterparty memory (pure SQL, no LLM)
   // =========================================================================
@@ -369,15 +393,42 @@ export async function autoMatchBankTransaction(
   // STEP 2 — partner known
   if (tx.direction === 'outgoing' && SERVICE_KINDS.has(partner.kind || '')) {
     const parsedInv350 = parseInvoiceFromPurpose(tx.payment_purpose || '');
-    const opId = await createServiceOperation(env, {
-      partner_id: partner.id,
-      amount_major: txMajor,
-      currency: tx.currency,
-      operation_date: tx.executed_at,
-      purpose: tx.payment_purpose,
-      contragent_name: tx.contragent_name,
-      invoice_no: parsedInv350?.doc_number,
-    });
+
+    // SEARCH-BEFORE-CREATE: look for existing active service op with same
+    // (partner, amount, currency, calendar date). Without this, every bank
+    // statement re-import produces a fresh duplicate service operation.
+    const dayStart = Math.floor(tx.executed_at / 86400) * 86400;
+    const dayEnd   = dayStart + 86400;
+    const existingServiceOp = await env.DB.prepare(`
+      SELECT id, reference
+        FROM operations
+       WHERE partner_id = ?
+         AND operation_type = 'purchase'
+         AND currency = ?
+         AND total_amount = ?
+         AND operation_date >= ?
+         AND operation_date < ?
+         AND deleted_at IS NULL
+       ORDER BY created_at ASC
+       LIMIT 1
+    `).bind(
+      partner.id, tx.currency, txMajor, dayStart, dayEnd,
+    ).first<{ id: string; reference: string }>();
+
+    let opId: string;
+    if (existingServiceOp?.id) {
+      opId = existingServiceOp.id;
+    } else {
+      opId = await createServiceOperation(env, {
+        partner_id: partner.id,
+        amount_major: txMajor,
+        currency: tx.currency,
+        operation_date: tx.executed_at,
+        purpose: tx.payment_purpose,
+        contragent_name: tx.contragent_name,
+        invoice_no: parsedInv350?.doc_number,
+      });
+    }
     const attIds = await attachPaymentAndInvoice(env, { operation_id: opId, tx });
     await persistOutcome(env, txId, 'auto_service_closed', opId);
     return {
@@ -385,6 +436,7 @@ export async function autoMatchBankTransaction(
       operation_id: opId,
       partner_id: partner.id,
       attachment_ids: attIds,
+      reason: existingServiceOp ? `linked to existing ${existingServiceOp.reference}` : undefined,
     };
   }
 

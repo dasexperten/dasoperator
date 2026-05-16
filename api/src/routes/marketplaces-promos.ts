@@ -182,10 +182,19 @@ async function setSoldCount(
 
 // ---------------------------------------------------------------------------
 // AUTO-ZERO POLICY
-// For STOCK_DISCOUNT type actions: on first detection, automatically set
-// all products' stock to 0. Ozon enforces a per-SKU min_stock floor on these
-// actions, so the only "way out" without committing to that floor is stock=0.
-// Default policy: opt out. Aram raises individual SKUs manually when needed.
+// For "Распродажа" actions only (clearance/stock-clearing sales — matched by
+// "распродажа" substring in title, case-insensitive): on first detection,
+// automatically set all products' stock to 0. Ozon enforces a per-SKU
+// min_stock floor on STOCK_DISCOUNT actions, so the only "way out" without
+// committing to that floor is stock=0.
+//
+// Default policy for Распродажа: opt out by zeroing on first sighting.
+// Aram raises individual SKUs manually when needed.
+//
+// Other STOCK_DISCOUNT actions (Максимальный бустинг, Эластичный бустинг,
+// boosting variants) are NOT auto-zeroed — they remain fully editable like
+// any other promo.
+//
 // Flag stored in KV — once zeroed, never touched again so manual raises stick.
 // ---------------------------------------------------------------------------
 async function autoZeroStockDiscount(
@@ -198,7 +207,13 @@ async function autoZeroStockDiscount(
   const flagsByAction = new Map<number, string>();
 
   for (const aw of actionsWithProducts) {
+    // Auto-zero rule applies only to "Распродажа" actions
+    // (clearance/stock-clearing sales — case-insensitive match in title).
+    // Other STOCK_DISCOUNT actions like "Максимальный бустинг" are not auto-zeroed —
+    // they remain editable like any other promo.
     if (aw.raw.action_type !== 'STOCK_DISCOUNT') continue;
+    const titleLower = (aw.raw.title || '').toLowerCase();
+    if (!titleLower.includes('распродажа')) continue;
 
     const flagKey = AUTO_ZERO_FLAG_PREFIX + aw.raw.id;
     let existingFlag: string | null = null;

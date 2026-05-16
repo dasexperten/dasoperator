@@ -676,7 +676,11 @@ async function createServiceOperation(
 ): Promise<string> {
   const opId = `op_${crypto.randomUUID()}`;
   const now = Math.floor(Date.now() / 1000);
-  const reference = await nextOperationReference(env, args.operation_date);
+  const reference = await nextOperationReference(env, args.operation_date, {
+    partner_id: args.partner_id,
+    operation_type: 'purchase',
+    invoice_no: args.invoice_no,
+  });
   const desc = extractServiceDescription(args.purpose);
   const notes = `[SERVICE EXPENSE — auto-closed] ${desc || args.contragent_name}`;
 

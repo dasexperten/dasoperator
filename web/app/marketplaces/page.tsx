@@ -984,6 +984,7 @@ interface PromoAction {
   is_voucher_action: boolean;
   participating_products_count: number;
   total_units_left: number;
+  auto_zeroed_at: string | null;
   products: PromoProduct[];
 }
 
@@ -1151,6 +1152,21 @@ function OzonPromotionsWidget() {
         />
       </div>
 
+      {/* Policy notice */}
+      <div
+        style={{
+          padding: '10px 24px',
+          borderBottom: '1px solid var(--border-hairline)',
+          backgroundColor: 'rgba(212,160,23,0.06)',
+          fontSize: '12px',
+          fontWeight: 600,
+          color: '#8A6000',
+          letterSpacing: 0,
+        }}
+      >
+        Policy: stock-discount actions (Распродажа стока etc.) are auto-zeroed on first detection. Raise individual SKUs manually to commit.
+      </div>
+
       {/* Actions list */}
       <div>
         {data.actions.length === 0 && (
@@ -1255,9 +1271,40 @@ function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: ()
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
             }}
           >
-            {action.title}
+            <span
+              style={{
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                minWidth: 0,
+              }}
+            >
+              {action.title}
+            </span>
+            {action.auto_zeroed_at && (
+              <span
+                title={`Auto-zeroed by policy on ${action.auto_zeroed_at.slice(0, 10)} — raise manually to commit`}
+                style={{
+                  flexShrink: 0,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  padding: '2px 8px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  color: '#8A6000',
+                  backgroundColor: 'rgba(212,160,23,0.12)',
+                  borderRadius: 'var(--radius-pill)',
+                  letterSpacing: 0,
+                }}
+              >
+                auto-zeroed
+              </span>
+            )}
           </div>
           <div
             style={{

@@ -417,6 +417,7 @@ const updatePartnerSchema = z.object({
   country: z.string().max(60).nullable().optional(),
   email: emailFieldSchema,
   partner_type: z.enum(['buyer', 'supplier', 'shipper', 'other']).optional(),
+  kind: z.enum(['buyer', 'manufacturer', 'service_provider', 'shipper', '3pl', 'other']).optional(),
   iban: z.string().max(60).nullable().optional(),
   swift_bic: z.string().max(20).nullable().optional(),
   bank_name: z.string().max(200).nullable().optional(),
@@ -483,6 +484,18 @@ partners.patch('/:slug', async (c) => {
   }
 
   const data = parsed.data;
+
+  // Auto-derive legacy partner_type from canonical kind (Phase 8.0 transition).
+  // DB CHECK on partner_type still only allows buyer/supplier/shipper/other,
+  // so we map: manufacturer→supplier, service_provider→other, 3pl→shipper.
+  if (data.kind !== undefined && data.partner_type === undefined) {
+    const k = data.kind;
+    if (k === 'buyer') data.partner_type = 'buyer';
+    else if (k === 'manufacturer') data.partner_type = 'supplier';
+    else if (k === '3pl' || k === 'shipper') data.partner_type = 'shipper';
+    else data.partner_type = 'other'; // service_provider or other
+  }
+
   const now = Math.floor(Date.now() / 1000);
   const fields: string[] = [];
   const binds: unknown[] = [];

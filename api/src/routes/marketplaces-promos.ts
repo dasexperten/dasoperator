@@ -79,6 +79,8 @@ interface CachedActionsPayload {
       discount_pct: number;
       stock: number;
       min_stock: number;
+      sold_count: number | null; // null = unknown, will be set after first manual save
+      left_to_sell: number | null; // = stock - sold_count when sold_count known
     }>;
   }>;
 }
@@ -133,6 +135,50 @@ async function fetchAllProductInfo(
   }
   return map;
 }
+// ---------------------------------------------------------------------------
+// Sold-count tracking — Ozon does NOT expose how many units were sold under
+// a specific action via API. We persist the delta locally per (action, product):
+//
+//   When Aram saves a "left_to_sell" value in the UI, we compute
+//   sold_count = stock - left_to_sell and store it. On subsequent fetches we
+//   compute left_to_sell = stock - sold_count for display. Stock changes
+//   propagate the same delta to "left to sell" automatically.
+// ---------------------------------------------------------------------------
+const SOLD_COUNT_TTL_SEC = 90 * 24 * 3600;
+function soldCountKey(actionId: number, productId: number): string {
+  return `ozon:promo:sold:${actionId}:${productId}`;
+}
+
+async function getSoldCount(
+  env: Env,
+  actionId: number,
+  productId: number,
+): Promise<number | null> {
+  try {
+    const v = await env.CACHE.get(soldCountKey(actionId, productId));
+    if (v == null) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+async function setSoldCount(
+  env: Env,
+  actionId: number,
+  productId: number,
+  soldCount: number,
+): Promise<void> {
+  try {
+    await env.CACHE.put(soldCountKey(actionId, productId), String(soldCount), {
+      expirationTtl: SOLD_COUNT_TTL_SEC,
+    });
+  } catch {
+    // best-effort
+  }
+}
+
 
 // ---------------------------------------------------------------------------
 // AUTO-ZERO POLICY
@@ -264,38 +310,46 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
 
   // 5. Build response
   const now = new Date().toISOString();
-  const actions = actionsWithProducts.map((aw) => {
-    const productsOut = aw.products.map((p) => {
-      const info = infoMap.get(p.id);
-      const discountPct =
-        p.price > 0 ? Math.round(((p.price - p.action_price) / p.price) * 100) : 0;
+  const actions = await Promise.all(
+    actionsWithProducts.map(async (aw) => {
+      const productsOut = await Promise.all(
+        aw.products.map(async (p) => {
+          const info = infoMap.get(p.id);
+          const discountPct =
+            p.price > 0 ? Math.round(((p.price - p.action_price) / p.price) * 100) : 0;
+          const soldCount = await getSoldCount(env, aw.raw.id, p.id);
+          const leftToSell = soldCount != null ? Math.max(0, p.stock - soldCount) : null;
+          return {
+            product_id: p.id,
+            offer_id: info?.offer_id || '',
+            name: info?.name || '',
+            price: p.price,
+            action_price: p.action_price,
+            discount_pct: discountPct,
+            stock: p.stock,
+            min_stock: p.min_stock,
+            sold_count: soldCount,
+            left_to_sell: leftToSell,
+          };
+        }),
+      );
+      productsOut.sort((a, b) => b.stock - a.stock);
+      const totalUnits = productsOut.reduce((s, p) => s + p.stock, 0);
       return {
-        product_id: p.id,
-        offer_id: info?.offer_id || '',
-        name: info?.name || '',
-        price: p.price,
-        action_price: p.action_price,
-        discount_pct: discountPct,
-        stock: p.stock,
-        min_stock: p.min_stock,
+        action_id: aw.raw.id,
+        title: aw.raw.title,
+        action_type: aw.raw.action_type,
+        date_start: aw.raw.date_start,
+        date_end: aw.raw.date_end,
+        days_left: daysBetween(now, aw.raw.date_end),
+        is_voucher_action: aw.raw.is_voucher_action,
+        participating_products_count: aw.raw.participating_products_count,
+        total_units_left: totalUnits,
+        auto_zeroed_at: autoZeroedMap.get(aw.raw.id) || null,
+        products: productsOut,
       };
-    });
-    productsOut.sort((a, b) => b.stock - a.stock);
-    const totalUnits = productsOut.reduce((s, p) => s + p.stock, 0);
-    return {
-      action_id: aw.raw.id,
-      title: aw.raw.title,
-      action_type: aw.raw.action_type,
-      date_start: aw.raw.date_start,
-      date_end: aw.raw.date_end,
-      days_left: daysBetween(now, aw.raw.date_end),
-      is_voucher_action: aw.raw.is_voucher_action,
-      participating_products_count: aw.raw.participating_products_count,
-      total_units_left: totalUnits,
-      auto_zeroed_at: autoZeroedMap.get(aw.raw.id) || null,
-      products: productsOut,
-    };
-  });
+    }),
+  );
 
   // Sort actions: by days_left asc (most urgent first), then by total_units desc
   actions.sort((a, b) => {
@@ -354,25 +408,87 @@ promos.get('/ozon/actions', async (c) => {
 
 // ---------------------------------------------------------------------------
 // POST /api/marketplaces/ozon/actions/:actionId/stock
-// Update remaining quota (and optionally action_price) for ONE product in an action.
-// Body: { product_id: number, stock: number, action_price?: number }
+//
+// Update for ONE product in an action. Body accepts either of two modes:
+//
+//   Mode A — set total quota directly:
+//     { product_id, stock: <new_total>, current_stock: <prev>, action_price? }
+//     If current_stock provided AND current sold_count is known, sold_count
+//     stays the same (left_to_sell shifts by same delta as stock).
+//
+//   Mode B — set "left to sell" (Ozon column "Осталось продать"):
+//     { product_id, left_to_sell: N, current_stock: <prev>, current_left?: <prev>, action_price? }
+//     We compute sold_count = current_stock - (current_left ?? unknown)
+//     and new_stock = sold_count + N, then push that to Ozon.
+//
+//     If current_left was not provided, we assume sold_count = current_stock - 0 (all unsold)
+//     on first save → new_stock = N. Subsequent saves use the stored sold_count.
+//
+// In both modes we persist sold_count so the next refresh shows correct
+// left_to_sell.
 // ---------------------------------------------------------------------------
 promos.post('/ozon/actions/:actionId/stock', async (c) => {
   const actionId = Number(c.req.param('actionId'));
   if (!actionId || Number.isNaN(actionId)) return fail(c, 400, 'invalid action_id');
 
-  let body: { product_id?: number; stock?: number; action_price?: number };
+  let body: {
+    product_id?: number;
+    stock?: number;
+    left_to_sell?: number;
+    current_stock?: number;
+    current_left?: number;
+    action_price?: number;
+  };
   try {
     body = await c.req.json();
   } catch {
     return fail(c, 400, 'invalid JSON body');
   }
   const productId = Number(body.product_id);
-  const stock = Number(body.stock);
   if (!productId || Number.isNaN(productId)) return fail(c, 400, 'product_id required');
-  if (Number.isNaN(stock) || stock < 0) return fail(c, 400, 'stock must be a non-negative number');
 
-  const productPayload: Record<string, unknown> = { product_id: productId, stock };
+  // Compute target stock based on input mode
+  let targetStock: number;
+  let newSoldCount: number | null = null;
+
+  const stored = await getSoldCount(c.env, actionId, productId);
+
+  if (typeof body.left_to_sell === 'number') {
+    // Mode B — user edited "left to sell"
+    const newLeft = Number(body.left_to_sell);
+    if (Number.isNaN(newLeft) || newLeft < 0)
+      return fail(c, 400, 'left_to_sell must be a non-negative number');
+
+    // Determine sold_count: either from stored, or from provided current_stock & current_left
+    let soldCount: number;
+    if (
+      typeof body.current_stock === 'number' &&
+      typeof body.current_left === 'number'
+    ) {
+      soldCount = Math.max(0, body.current_stock - body.current_left);
+    } else if (stored != null) {
+      soldCount = stored;
+    } else {
+      // Unknown sold_count; assume 0 (first save establishes the baseline)
+      soldCount = 0;
+    }
+    targetStock = soldCount + newLeft;
+    newSoldCount = soldCount;
+  } else if (typeof body.stock === 'number') {
+    // Mode A — user edited "stock" (quantity in promo)
+    targetStock = Number(body.stock);
+    if (Number.isNaN(targetStock) || targetStock < 0)
+      return fail(c, 400, 'stock must be a non-negative number');
+    // sold_count stays unchanged (delta moves left_to_sell symmetrically)
+    newSoldCount = stored; // keep as-is, no change
+  } else {
+    return fail(c, 400, 'either stock or left_to_sell required');
+  }
+
+  const productPayload: Record<string, unknown> = {
+    product_id: productId,
+    stock: targetStock,
+  };
   if (typeof body.action_price === 'number' && body.action_price > 0) {
     productPayload.action_price = body.action_price;
   }
@@ -388,6 +504,17 @@ promos.post('/ozon/actions/:actionId/stock', async (c) => {
     const accepted = resp.result?.product_ids ?? [];
     const rejected = resp.result?.rejected ?? [];
 
+    if (rejected.length > 0) {
+      // Cache stays — nothing was changed at Ozon
+      const r = rejected[0];
+      return fail(c, 409, `Ozon rejected: ${r.reason}`);
+    }
+
+    // Persist sold_count (so left_to_sell can be computed on next refresh)
+    if (newSoldCount != null) {
+      await setSoldCount(c.env, actionId, productId, newSoldCount);
+    }
+
     // Invalidate cache so next GET pulls fresh data
     try {
       await c.env.CACHE.delete(CACHE_KEY);
@@ -395,14 +522,12 @@ promos.post('/ozon/actions/:actionId/stock', async (c) => {
       // ignore
     }
 
-    if (rejected.length > 0) {
-      const r = rejected[0];
-      return fail(c, 409, `Ozon rejected: ${r.reason}`);
-    }
     return ok(c, {
       action_id: actionId,
       product_id: productId,
-      new_stock: stock,
+      new_stock: targetStock,
+      sold_count: newSoldCount,
+      left_to_sell: newSoldCount != null ? Math.max(0, targetStock - newSoldCount) : null,
       accepted_count: accepted.length,
     });
   } catch (e) {

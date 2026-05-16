@@ -51,6 +51,7 @@ interface OzonProductInfo {
   id: number;
   offer_id: string;
   name: string;
+  sources?: Array<{ sku: number; source: string }>;
 }
 
 interface CachedActionsPayload {
@@ -177,6 +178,61 @@ async function setSoldCount(
   } catch {
     // best-effort
   }
+}
+
+// ---------------------------------------------------------------------------
+// Sales analytics — sum ordered_units per Ozon `sku` since a given date.
+// Used to compute sold_count for promo products when no manual override exists.
+//
+// Returns Map<sku_id, ordered_units>. The action's product_id maps to multiple
+// Ozon sku IDs (FBO + FBS variants). Caller sums across all variants of one
+// product.
+// ---------------------------------------------------------------------------
+interface AnalyticsRow {
+  dimensions: Array<{ id: string; name: string }>;
+  metrics: number[];
+}
+
+async function fetchSalesSince(
+  env: Env,
+  dateFrom: string,
+  dateTo: string,
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  const limit = 1000;
+  let offset = 0;
+  // Cap iterations defensively (Ozon paginates; 10 pages = 10k SKUs)
+  for (let i = 0; i < 10; i++) {
+    const resp = await ozonRequest<{
+      result?: { data?: AnalyticsRow[]; totals?: number[] };
+    }>(env, '/v1/analytics/data', 'POST', {
+      date_from: dateFrom,
+      date_to: dateTo,
+      metrics: ['ordered_units'],
+      dimension: ['sku'],
+      filters: [],
+      limit,
+      offset,
+    });
+    const rows = resp.result?.data ?? [];
+    for (const row of rows) {
+      const sku = row.dimensions?.[0]?.id;
+      const units = Number(row.metrics?.[0] ?? 0);
+      if (sku) result.set(sku, units);
+    }
+    if (rows.length < limit) break;
+    offset += rows.length;
+  }
+  return result;
+}
+
+function isoDate(d: Date | string): string {
+  const date = typeof d === 'string' ? new Date(d) : d;
+  // YYYY-MM-DD in UTC
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 
@@ -323,6 +379,31 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
   // 4. Apply auto-zero policy for STOCK_DISCOUNT actions (first-time-seen only)
   const autoZeroedMap = await autoZeroStockDiscount(env, actionsWithProducts);
 
+  // 4b. Fetch sales data once (covers the broadest action window)
+  //     We compute earliest action start across all participating actions and
+  //     pull ordered_units per Ozon sku from that date to today. For each
+  //     product in an action, sold_count = sum of ordered_units for that
+  //     product's sku variants within the action's window.
+  //     This is best-effort and may be off when an SKU sold at multiple
+  //     price tiers — manual override (via UI save) still takes precedence.
+  let salesBySku: Map<string, number> = new Map();
+  try {
+    const today = new Date();
+    let earliest: Date | null = null;
+    for (const aw of actionsWithProducts) {
+      if (!aw.raw.date_start) continue;
+      const d = new Date(aw.raw.date_start);
+      if (!earliest || d < earliest) earliest = d;
+    }
+    // Cap window at 90 days to keep payload sane
+    const ninetyDaysAgo = new Date(today.getTime() - 90 * 86400000);
+    if (!earliest || earliest < ninetyDaysAgo) earliest = ninetyDaysAgo;
+    salesBySku = await fetchSalesSince(env, isoDate(earliest), isoDate(today));
+  } catch {
+    // Analytics is non-fatal — fall back to null sold_count when unavailable
+    salesBySku = new Map();
+  }
+
   // 5. Build response
   const now = new Date().toISOString();
   const actions = await Promise.all(
@@ -332,7 +413,24 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
           const info = infoMap.get(p.id);
           const discountPct =
             p.price > 0 ? Math.round(((p.price - p.action_price) / p.price) * 100) : 0;
-          const soldCount = await getSoldCount(env, aw.raw.id, p.id);
+          // Sold count priority:
+          //   1. Manual override stored in KV (Aram typed in UI)
+          //   2. Computed from analytics: sum ordered_units across this product's
+          //      Ozon sku variants since the action started
+          const manualSold = await getSoldCount(env, aw.raw.id, p.id);
+          let soldCount: number | null = manualSold;
+          if (soldCount == null && info?.sources && info.sources.length > 0) {
+            let sum = 0;
+            let anyData = false;
+            for (const src of info.sources) {
+              const v = salesBySku.get(String(src.sku));
+              if (v != null) {
+                sum += v;
+                anyData = true;
+              }
+            }
+            if (anyData) soldCount = sum;
+          }
           const leftToSell = soldCount != null ? Math.max(0, p.stock - soldCount) : null;
           return {
             product_id: p.id,

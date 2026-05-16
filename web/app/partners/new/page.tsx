@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, ChevronRight, Check } from 'lucide-react';
 import { createPartner, updatePartner } from '@/lib/api';
+import { COUNTRIES } from '@/lib/countries';
 import Breadcrumb from '@/components/layout/breadcrumb';
 
 const inputStyle: React.CSSProperties = {
@@ -193,9 +194,12 @@ export default function NewPartnerPage() {
             </div>
             <div>
               <Label>Country</Label>
-              <input type="text" value={country} onChange={(e) => setCountry(e.target.value)}
-                placeholder="e.g. Germany"
-                style={inputStyle} />
+              <select value={country} onChange={(e) => setCountry(e.target.value)} style={inputStyle}>
+                <option value="">— Select country —</option>
+                {COUNTRIES.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
             </div>
             <div>
               <Label>Partner type *</Label>
@@ -423,3 +427,4 @@ function Label({ children }: { children: React.ReactNode }) {
     </label>
   );
 }
+

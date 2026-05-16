@@ -279,9 +279,17 @@ async function fetchOzonPortalProducts(
       const resp = await fetch(url, {
         headers: {
           accept: 'application/json, text/plain, */*',
-          'accept-language': 'ru',
+          'accept-language': 'ru,en;q=0.9',
+          'accept-encoding': 'gzip, deflate, br, zstd',
           cookie: cookies,
+          priority: 'u=1, i',
           referer: `https://seller.ozon.ru/app/highlights/${actionId}`,
+          'sec-ch-ua': '"Google Chrome";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
+          'sec-ch-ua-mobile': '?0',
+          'sec-ch-ua-platform': '"macOS"',
+          'sec-fetch-dest': 'empty',
+          'sec-fetch-mode': 'cors',
+          'sec-fetch-site': 'same-origin',
           'user-agent':
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
           'x-o3-company-id': '374116',
@@ -669,9 +677,17 @@ promos.get('/ozon/debug-portal/:actionId', async (c) => {
     const resp = await fetch(url, {
       headers: {
         accept: 'application/json, text/plain, */*',
-        'accept-language': 'ru',
+        'accept-language': 'ru,en;q=0.9',
+        'accept-encoding': 'gzip, deflate, br, zstd',
         cookie: cookies,
+        priority: 'u=1, i',
         referer: `https://seller.ozon.ru/app/highlights/${actionId}`,
+        'sec-ch-ua': '"Google Chrome";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"macOS"',
+        'sec-fetch-dest': 'empty',
+        'sec-fetch-mode': 'cors',
+        'sec-fetch-site': 'same-origin',
         'user-agent':
           'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
         'x-o3-company-id': '374116',

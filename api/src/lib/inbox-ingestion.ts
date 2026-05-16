@@ -356,7 +356,7 @@ ${text || '(empty — PDF text extraction failed, classify based on metadata onl
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'deepseek-chat',
+      model: 'deepseek-v4-pro',
       messages: [
         { role: 'system', content: DEEPSEEK_PROMPT },
         { role: 'user', content: userMsg },

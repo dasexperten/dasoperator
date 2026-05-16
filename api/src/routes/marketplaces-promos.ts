@@ -366,8 +366,22 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
     }),
   );
 
-  // Sort actions: by days_left asc (most urgent first), then by total_units desc
+  // Sort actions by priority bucket, then by days_left within each bucket:
+  //   bucket 1 — "Эластичный бустинг" (always first, no expiry pressure)
+  //   bucket 2 — "Максимальный бустинг" (and "Максимальный бустинг: усиление")
+  //   bucket 3 — any other promotion
+  //   bucket 4 — "Распродажа" actions (auto-zeroed clearance; least interesting day-to-day)
+  function bucket(title: string): number {
+    const t = title.toLowerCase();
+    if (t.includes('эластичный бустинг')) return 1;
+    if (t.includes('максимальный бустинг')) return 2;
+    if (t.includes('распродажа')) return 4;
+    return 3;
+  }
   actions.sort((a, b) => {
+    const ba = bucket(a.title);
+    const bb = bucket(b.title);
+    if (ba !== bb) return ba - bb;
     if (a.days_left !== b.days_left) return a.days_left - b.days_left;
     return b.total_units_left - a.total_units_left;
   });

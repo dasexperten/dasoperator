@@ -200,15 +200,15 @@ warehouses.get('/:id/bundling-suggestions', async (c) => {
   const params = [warehouseId, cutoff, ...Array.from(productsInFamilies)];
   const movements = await c.env.DB.prepare(`
     SELECT product_id,
-           DATE(occurred_at, 'unixepoch') AS day,
+           DATE(performed_at, 'unixepoch') AS day,
            SUM(quantity) AS day_delta,
-           MIN(occurred_at) AS first_ts,
-           MAX(occurred_at) AS last_ts,
+           MIN(performed_at) AS first_ts,
+           MAX(performed_at) AS last_ts,
            COUNT(*) AS mv_count,
            GROUP_CONCAT(DISTINCT source) AS sources
       FROM stock_movements
      WHERE warehouse_id = ?
-       AND occurred_at >= ?
+       AND performed_at >= ?
        AND product_id IN (${placeholders})
      GROUP BY product_id, day
   `).bind(...params).all<{

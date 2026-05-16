@@ -79,13 +79,17 @@ bundling.post('/', async (c) => {
   const batch: D1PreparedStatement[] = [];
 
   // 1. Create operation (no currency/amount — bundling is internal, no money)
+  // After migration 0043: 'bundling' is no longer a valid operation_type.
+  // Internal bundling (no external service provider) → 'transfer'.
+  // External bundling (e.g. F4 fasovka as a paid service) is recorded as a
+  // separate 'service' operation by the auto-matcher when the F4 invoice arrives.
   batch.push(
     c.env.DB.prepare(`
       INSERT INTO operations
         (id, operation_date, operation_type, our_company_id, warehouse_from_id,
          status, notes, reference, created_at, updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?)
-    `).bind(opId, opDate, 'bundling', our_company_id, warehouse_id,
+    `).bind(opId, opDate, 'transfer', our_company_id, warehouse_id,
             'delivered', notes ?? null, reference, now, now)
   );
 
@@ -207,7 +211,8 @@ bundling.get('/', async (c) => {
     FROM operations o
     LEFT JOIN companies co ON o.our_company_id = co.id
     LEFT JOIN warehouses w ON o.warehouse_from_id = w.id
-    WHERE o.operation_type = 'bundling' AND o.deleted_at IS NULL
+    WHERE EXISTS (SELECT 1 FROM bundling_items bi WHERE bi.operation_id = o.id)
+      AND o.deleted_at IS NULL
   `;
   const binds: unknown[] = [];
   if (warehouseId) { sql += ' AND o.warehouse_from_id = ?'; binds.push(warehouseId); }
@@ -232,7 +237,9 @@ bundling.get('/:id', async (c) => {
     FROM operations o
     LEFT JOIN companies co ON o.our_company_id = co.id
     LEFT JOIN warehouses w ON o.warehouse_from_id = w.id
-    WHERE o.id = ? AND o.operation_type = 'bundling' AND o.deleted_at IS NULL
+    WHERE o.id = ?
+      AND EXISTS (SELECT 1 FROM bundling_items bi WHERE bi.operation_id = o.id)
+      AND o.deleted_at IS NULL
   `).bind(opId).first();
 
   if (!op) return fail(c, 404, [{ code: 'not_found', message: `Bundling ${opId} not found` }]);

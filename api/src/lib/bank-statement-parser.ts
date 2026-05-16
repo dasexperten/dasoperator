@@ -101,14 +101,14 @@ export async function parseStatement(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'deepseek-chat',
+      model: 'deepseek-v4-pro',
       messages: [
         { role: 'system', content: EXTRACTION_PROMPT },
         { role: 'user', content: `Filename: ${filename}\n\nContents:\n${trimmed}` },
       ],
       temperature: 0,
       response_format: { type: 'json_object' },
-      max_tokens: 8000,
+      max_tokens: 100000,
     }),
   });
 

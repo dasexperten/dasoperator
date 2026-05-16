@@ -808,4 +808,18 @@ banksModulbank.post('/rematch-unassigned', async (c) => {
   }
 });
 
+// =============================================================================
+// POST /api/banks/retry-unmatched — manually run the auto-match retry sweep.
+// Same code path the hourly cron uses. Returns refs of newly resolved tx's.
+// =============================================================================
+banksModulbank.post('/retry-unmatched', async (c) => {
+  try {
+    const { retryUnmatchedTransactions } = await import('../lib/bank-auto-match');
+    const stats = await retryUnmatchedTransactions(c.env);
+    return ok(c, stats);
+  } catch (e) {
+    return fail(c, 500, [{ code: 'retry_failed', message: e instanceof Error ? e.message : String(e) }]);
+  }
+});
+
 export default banksModulbank;

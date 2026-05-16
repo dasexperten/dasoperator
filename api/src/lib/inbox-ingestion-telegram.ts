@@ -447,7 +447,7 @@ ${text || '(empty — non-PDF or unextractable; classify from filename + caption
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'deepseek-chat',
+      model: 'deepseek-v4-pro',
       messages: [
         { role: 'system', content: DEEPSEEK_PROMPT_TG },
         { role: 'user', content: userMsg },

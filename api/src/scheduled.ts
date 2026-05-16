@@ -482,11 +482,14 @@ export async function handleScheduled(
   }
 
     if (cron === '20 * * * *') {
-    console.log('[cron:bank-retry] starting auto-match retry sweep');
+    console.log('[cron:bank-retry] starting auto-match retry + rebalance');
     try {
-      const { retryUnmatchedTransactions } = await import('./lib/bank-auto-match');
-      const stats = await retryUnmatchedTransactions(env);
-      console.log(`[cron:bank-retry] complete: ${JSON.stringify(stats)}`);
+      const { retryUnmatchedTransactions, rebalanceMisattributedMatches } =
+        await import('./lib/bank-auto-match');
+      const retryStats = await retryUnmatchedTransactions(env);
+      console.log(`[cron:bank-retry] retry: ${JSON.stringify(retryStats)}`);
+      const rebalanceStats = await rebalanceMisattributedMatches(env);
+      console.log(`[cron:bank-retry] rebalance: ${JSON.stringify(rebalanceStats)}`);
     } catch (e) {
       console.error('[cron:bank-retry] failed:', e);
     }

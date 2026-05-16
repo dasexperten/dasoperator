@@ -48,6 +48,11 @@ export interface Env {
   OZON_API_KEY: string;
   OZON_PERF_CLIENT_ID: string;
   OZON_PERF_CLIENT_SECRET: string;
+
+  // Ozon Seller Portal session cookies — for scraping data not exposed in public API
+  // (notably "remainingActionStock" — accurate "Осталось продать" per SKU in promo).
+  // Must be refreshed manually when session expires. See marketplaces-promos.ts → fetchOzonPortalProducts.
+  OZON_PORTAL_COOKIES?: string;
   // Wildberries API (https://*-api.wildberries.ru) — bare token, no Bearer prefix
   WB_API_TOKEN: string;
 

@@ -1,11 +1,12 @@
 // =============================================================================
 // DeepSeek bridge — single entrypoint for all LLM calls in the ERP.
 //
-// Routing rule (Phase 5.x architecture decision):
-//   PRO   — document generation (NDA, MOU, LOI, contracts, annexes,
-//           legal redlines, marketing copy). Quality matters.
-//   FLASH — classification, parsing, validation, simple calculations,
-//           short summaries. Speed and price matter.
+// Routing rule (2026-05-16 architecture decision):
+//   ALL DeepSeek calls in this ERP use V4-Pro. Flash was deprecated for our
+//   workloads — accuracy on Russian bank statements, contract clauses, and
+//   document classification beats the latency/cost trade-off. callFlash()
+//   remains as an export so existing call sites keep compiling, but routes
+//   to the same V4-Pro model under the hood.
 //
 // All other files in api/src/ MUST import callPro() or callFlash() from here.
 // Direct fetch to api.deepseek.com from other files is forbidden — this gives
@@ -14,8 +15,12 @@
 
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1/chat/completions';
 
+// Architectural rule (2026-05-16):
+//   The ERP uses V4-Pro for ALL DeepSeek calls. Flash routes to Pro as well
+//   so any legacy callFlash() callers automatically get Pro behaviour.
+//   No code change required at call sites.
 const MODEL_PRO = 'deepseek-v4-pro';
-const MODEL_FLASH = 'deepseek-v4-flash';
+const MODEL_FLASH = 'deepseek-v4-pro';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -52,7 +57,7 @@ async function callDeepSeek(
   const body = {
     model,
     messages,
-    max_tokens: opts.maxTokens ?? (model === MODEL_PRO ? 8000 : 2000),
+    max_tokens: opts.maxTokens ?? 16000,
     temperature: opts.temperature ?? 0.3,
   };
 

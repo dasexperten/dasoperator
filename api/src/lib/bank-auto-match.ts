@@ -490,12 +490,21 @@ async function findPartnerByInn(env: Env, inn: string): Promise<PartnerRow | nul
 // =============================================================================
 export function extractContractNoFromNarration(narration: string): string | null {
   if (!narration) return null;
-  // Match "CONTRACT" or "ДОГОВОР" followed by optional NO/N/№/#, then number-ish token.
-  const re = /(?:CONTRACT|ДОГОВОР)\s*(?:N[O.]?|№|#)?\s*[:.]?\s*([0-9][0-9A-Za-z\/\-_]{2,30})/i;
-  const m = narration.match(re);
-  if (!m || !m[1]) return null;
-  // Strip trailing punctuation (e.g. "080824," → "080824")
-  return m[1].replace(/[.,;:]+$/, '').trim();
+  // Match "CONTRACT" or "ДОГОВОР" + optional NO/N/№/# + alphanumeric token.
+  // Token must (a) start with a digit OR letter, (b) be 3-31 chars, and
+  // (c) contain at least one digit somewhere (excludes "DD", "FROM", "ADV", etc.).
+  const re = /(?:CONTRACT|ДОГОВОР)\s*(?:N[O.]?|№|#)?\s*[:.]?\s*([0-9A-Za-z][0-9A-Za-z\/\-_]{2,30})/gi;
+  for (const m of narration.matchAll(re)) {
+    if (!m[1]) continue;
+    const candidate = m[1].replace(/[.,;:]+$/, '').trim();
+    // Must contain at least one digit — guards against
+    // "CONTRACT DD 01.04.2025" where "DD" would otherwise match.
+    if (!/\d/.test(candidate)) continue;
+    // Common false-positives that follow CONTRACT keyword.
+    if (/^(DD|FROM|ADV|GOODS|PMT|INVOICE|DATE)$/i.test(candidate)) continue;
+    return candidate;
+  }
+  return null;
 }
 
 async function findPartnerByContractInNarration(

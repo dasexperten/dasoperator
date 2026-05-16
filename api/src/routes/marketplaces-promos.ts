@@ -81,6 +81,7 @@ interface CachedActionsPayload {
       stock: number;
       min_stock: number;
       sold_count: number | null; // null = unknown, will be set after first manual save
+      sold_source: 'manual' | 'portal' | 'analytics' | null; // where sold_count came from
       left_to_sell: number | null; // = stock - sold_count when sold_count known
     }>;
   }>;
@@ -235,6 +236,117 @@ function isoDate(d: Date | string): string {
   return `${y}-${m}-${day}`;
 }
 
+// ---------------------------------------------------------------------------
+// Ozon Seller Portal scraper — fetches accurate "Осталось продать" values
+// that aren't exposed in the public API.
+//
+// Endpoint: /api/site/global-seller-products/v1/action/{id}/products/active
+// Auth: session cookies (Worker secret OZON_PORTAL_COOKIES).
+// Anti-bot: server returns 307 redirects with __rr=N appended that must be
+// followed while preserving updated __Secure-ETC cookie from Set-Cookie header.
+// Cloudflare Worker fetch() follows redirects but doesn't auto-rotate cookies
+// across them, so we follow manually up to 5 hops.
+//
+// Returns Map<product_id, { sold: number, isSoldOut: boolean }>
+// where sold = quantity - remainingActionStock for each product.
+// ---------------------------------------------------------------------------
+interface PortalProduct {
+  id: string;
+  offerId: string;
+  quantity: string;
+  remainingActionStock: string;
+  isActionStockSold: boolean;
+}
+
+async function fetchOzonPortalProducts(
+  env: Env,
+  actionId: number,
+): Promise<Map<number, { sold: number; isSoldOut: boolean }>> {
+  const result = new Map<number, { sold: number; isSoldOut: boolean }>();
+  if (!env.OZON_PORTAL_COOKIES) return result;
+
+  let cookies = env.OZON_PORTAL_COOKIES;
+  const baseUrl = `https://seller.ozon.ru/api/site/global-seller-products/v1/action/${actionId}/products/active`;
+  let limit = 100;
+  let offset = 0;
+
+  for (let page = 0; page < 5; page++) {
+    let url = `${baseUrl}?offset=${offset}&limit=${limit}`;
+    let body: string | null = null;
+
+    // Follow up to 5 redirects manually, carrying updated cookies
+    for (let hop = 0; hop < 6; hop++) {
+      const resp = await fetch(url, {
+        headers: {
+          accept: 'application/json, text/plain, */*',
+          'accept-language': 'ru',
+          cookie: cookies,
+          referer: `https://seller.ozon.ru/app/highlights/${actionId}`,
+          'user-agent':
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+          'x-o3-company-id': '374116',
+          'x-o3-language': 'ru',
+        },
+        redirect: 'manual',
+      });
+
+      // Pick up Set-Cookie updates (esp. __Secure-ETC rotates each hop)
+      const setCookie = resp.headers.get('set-cookie');
+      if (setCookie) {
+        // Set-Cookie may bundle multiple cookies separated by comma. Split conservatively.
+        const newCookies = setCookie
+          .split(/,(?=[^;]+=[^;]+)/) // split on comma followed by name=value pattern
+          .map((c) => c.split(';')[0].trim())
+          .filter(Boolean);
+        for (const nc of newCookies) {
+          const [name] = nc.split('=');
+          if (!name) continue;
+          // Replace existing or append
+          const re = new RegExp(`(^|;\\s*)${name}=[^;]*`);
+          if (re.test(cookies)) {
+            cookies = cookies.replace(re, (_, prefix) => `${prefix}${nc}`);
+          } else {
+            cookies = `${cookies}; ${nc}`;
+          }
+        }
+      }
+
+      if (resp.status === 200) {
+        body = await resp.text();
+        break;
+      }
+      if (resp.status === 307 || resp.status === 302 || resp.status === 301) {
+        const loc = resp.headers.get('location');
+        if (!loc) break;
+        url = loc.startsWith('http') ? loc : `https://seller.ozon.ru${loc}`;
+        continue;
+      }
+      // Auth failure or other — abort and return whatever we have
+      return result;
+    }
+    if (!body) break;
+
+    let parsed: { products?: PortalProduct[]; total?: string };
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      break;
+    }
+    const products = parsed.products ?? [];
+    for (const p of products) {
+      const pid = Number(p.id);
+      const qty = Number(p.quantity || '0');
+      const remaining = Number(p.remainingActionStock || '0');
+      const sold = Math.max(0, qty - remaining);
+      result.set(pid, { sold, isSoldOut: !!p.isActionStockSold });
+    }
+    if (products.length < limit) break;
+    offset += products.length;
+  }
+
+  return result;
+}
+
 
 // ---------------------------------------------------------------------------
 // AUTO-ZERO POLICY
@@ -379,13 +491,40 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
   // 4. Apply auto-zero policy for STOCK_DISCOUNT actions (first-time-seen only)
   const autoZeroedMap = await autoZeroStockDiscount(env, actionsWithProducts);
 
-  // 4b. Fetch sales data once (covers the broadest action window)
+  // 4b. Fetch portal data per action (PRIMARY source of accurate "Осталось продать")
+  //     Ozon Seller Portal endpoint returns remainingActionStock per product —
+  //     this is the same value shown in the seller's UI. We fetch one request
+  //     per action with the session cookies stored in Worker secret
+  //     OZON_PORTAL_COOKIES. If the secret is missing or session expired,
+  //     fall through to analytics (less accurate but always available).
+  const portalDataByAction = new Map<
+    number,
+    Map<number, { sold: number; isSoldOut: boolean }>
+  >();
+  try {
+    await Promise.all(
+      actionsWithProducts.map(async (aw) => {
+        const portalMap = await fetchOzonPortalProducts(env, aw.raw.id);
+        if (portalMap.size > 0) {
+          portalDataByAction.set(aw.raw.id, portalMap);
+        }
+      }),
+    );
+  } catch {
+    // Portal scraping is non-fatal — fall back to analytics
+  }
+
+  // 4c. Fetch analytics-based sales (FALLBACK when portal data missing)
   //     We compute earliest action start across all participating actions and
-  //     pull ordered_units per Ozon sku from that date to today. For each
-  //     product in an action, sold_count = sum of ordered_units for that
-  //     product's sku variants within the action's window.
-  //     This is best-effort and may be off when an SKU sold at multiple
-  //     price tiers — manual override (via UI save) still takes precedence.
+  //     pull ordered_units per Ozon sku from that date to today.
+  //
+  //     Cap window at 30 days max — long actions (e.g. "Эластичный бустинг.
+  //     Без ограничения срока действия") would otherwise sum all-time sales
+  //     and make left_to_sell unrealistically low. 30 days approximates the
+  //     current cycle since last stock adjustment.
+  //
+  //     Manual override (via UI save) takes precedence over both portal and
+  //     analytics — Aram's explicit input is always honored.
   let salesBySku: Map<string, number> = new Map();
   try {
     const today = new Date();
@@ -395,15 +534,10 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
       const d = new Date(aw.raw.date_start);
       if (!earliest || d < earliest) earliest = d;
     }
-    // Cap window at 30 days max — long actions (e.g. "Эластичный бустинг.
-    // Без ограничения срока действия") would otherwise sum all-time sales
-    // and make left_to_sell unrealistically low. 30 days approximates the
-    // current cycle since last stock adjustment.
     const thirtyDaysAgo = new Date(today.getTime() - 30 * 86400000);
     if (!earliest || earliest < thirtyDaysAgo) earliest = thirtyDaysAgo;
     salesBySku = await fetchSalesSince(env, isoDate(earliest), isoDate(today));
   } catch {
-    // Analytics is non-fatal — fall back to null sold_count when unavailable
     salesBySku = new Map();
   }
 
@@ -411,6 +545,7 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
   const now = new Date().toISOString();
   const actions = await Promise.all(
     actionsWithProducts.map(async (aw) => {
+      const portalMap = portalDataByAction.get(aw.raw.id);
       const productsOut = await Promise.all(
         aw.products.map(async (p) => {
           const info = infoMap.get(p.id);
@@ -418,10 +553,16 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
             p.price > 0 ? Math.round(((p.price - p.action_price) / p.price) * 100) : 0;
           // Sold count priority:
           //   1. Manual override stored in KV (Aram typed in UI)
-          //   2. Computed from analytics: sum ordered_units across this product's
-          //      Ozon sku variants since the action started
+          //   2. Ozon Seller Portal (accurate "Осталось продать" via session)
+          //   3. Analytics ordered_units (less accurate fallback)
           const manualSold = await getSoldCount(env, aw.raw.id, p.id);
           let soldCount: number | null = manualSold;
+          let soldSource: 'manual' | 'portal' | 'analytics' | null = manualSold != null ? 'manual' : null;
+          if (soldCount == null && portalMap && portalMap.has(p.id)) {
+            const pd = portalMap.get(p.id)!;
+            soldCount = pd.sold;
+            soldSource = 'portal';
+          }
           if (soldCount == null && info?.sources && info.sources.length > 0) {
             let sum = 0;
             let anyData = false;
@@ -432,7 +573,10 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
                 anyData = true;
               }
             }
-            if (anyData) soldCount = sum;
+            if (anyData) {
+              soldCount = sum;
+              soldSource = 'analytics';
+            }
           }
           const leftToSell = soldCount != null ? Math.max(0, p.stock - soldCount) : null;
           return {
@@ -445,6 +589,7 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
             stock: p.stock,
             min_stock: p.min_stock,
             sold_count: soldCount,
+            sold_source: soldSource,
             left_to_sell: leftToSell,
           };
         }),

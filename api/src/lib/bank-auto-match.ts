@@ -226,6 +226,7 @@ export async function autoMatchBankTransaction(
 
       // No open op found — create new one based on category default_operation_type
       if (decision.default_operation_type === 'purchase' && decision.partner_id) {
+        const parsedInv = parseInvoiceFromPurpose(tx.payment_purpose || '');
         const opId = await createServiceOperation(env, {
           partner_id: decision.partner_id,
           amount_major: tx.amount / 100,
@@ -233,6 +234,7 @@ export async function autoMatchBankTransaction(
           operation_date: tx.executed_at,
           purpose: tx.payment_purpose,
           contragent_name: tx.contragent_name,
+          invoice_no: parsedInv?.doc_number,
         });
         const attIds = await attachPaymentAndInvoice(env, { operation_id: opId, tx });
         await persistOutcome(env, txId, 'rule_matched' as MatchOutcome, opId);
@@ -312,6 +314,7 @@ export async function autoMatchBankTransaction(
         currency: tx.currency,
         kind: 'service_provider',
       });
+      const parsedInv315 = parseInvoiceFromPurpose(tx.payment_purpose || '');
       const opId = await createServiceOperation(env, {
         partner_id: newPartnerId,
         amount_major: txMajor,
@@ -319,6 +322,7 @@ export async function autoMatchBankTransaction(
         operation_date: tx.executed_at,
         purpose: tx.payment_purpose,
         contragent_name: tx.contragent_name,
+        invoice_no: parsedInv315?.doc_number,
       });
       const attIds = await attachPaymentAndInvoice(env, { operation_id: opId, tx });
       await persistOutcome(env, txId, 'partner_auto_created', opId);
@@ -347,6 +351,7 @@ export async function autoMatchBankTransaction(
 
   // STEP 2 — partner known
   if (tx.direction === 'outgoing' && SERVICE_KINDS.has(partner.kind || '')) {
+    const parsedInv350 = parseInvoiceFromPurpose(tx.payment_purpose || '');
     const opId = await createServiceOperation(env, {
       partner_id: partner.id,
       amount_major: txMajor,
@@ -354,6 +359,7 @@ export async function autoMatchBankTransaction(
       operation_date: tx.executed_at,
       purpose: tx.payment_purpose,
       contragent_name: tx.contragent_name,
+      invoice_no: parsedInv350?.doc_number,
     });
     const attIds = await attachPaymentAndInvoice(env, { operation_id: opId, tx });
     await persistOutcome(env, txId, 'auto_service_closed', opId);
@@ -386,6 +392,7 @@ export async function autoMatchBankTransaction(
   }
 
   if (candidates.length === 0) {
+    const parsedInv389 = parseInvoiceFromPurpose(tx.payment_purpose || '');
     const opId = await createDraftGoodsOperation(env, {
       partner_id: partner.id,
       amount_major: txMajor,
@@ -393,6 +400,7 @@ export async function autoMatchBankTransaction(
       operation_date: tx.executed_at,
       direction: tx.direction,
       notes: `[AUTO-DRAFT] from bank_tx ${txId}. payment_purpose: ${(tx.payment_purpose || '').slice(0, 300)}`,
+      invoice_no: parsedInv389?.doc_number,
     });
     const attIds = await attachPaymentAndInvoice(env, { operation_id: opId, tx });
     await persistOutcome(env, txId, 'auto_created_draft', opId);
@@ -679,12 +687,17 @@ async function createDraftGoodsOperation(
     operation_date: number;
     direction: string;
     notes: string;
+    invoice_no?: string | null;
   },
 ): Promise<string> {
   const opId = `op_${crypto.randomUUID()}`;
   const now = Math.floor(Date.now() / 1000);
-  const reference = await nextOperationReference(env, args.operation_date);
   const operationType = args.direction === 'incoming' ? 'sale' : 'purchase';
+  const reference = await nextOperationReference(env, args.operation_date, {
+    partner_id: args.partner_id,
+    operation_type: operationType,
+    invoice_no: args.invoice_no,
+  });
 
   await env.DB.prepare(`
     INSERT INTO operations (
@@ -701,9 +714,60 @@ async function createDraftGoodsOperation(
   return opId;
 }
 
-async function nextOperationReference(env: Env, opDate: number): Promise<string> {
-  const yy = new Date(opDate * 1000).getFullYear() % 100;
-  const prefix = `DEE-${String(yy).padStart(2, '0')}`;
+async function nextOperationReference(
+  env: Env,
+  opDate: number,
+  opts?: {
+    partner_id?: string;
+    operation_type?: 'sale' | 'purchase' | 'transfer' | 'service';
+    invoice_no?: string | null;
+  },
+): Promise<string> {
+  const dt = new Date(opDate * 1000);
+  const yy = String(dt.getUTCFullYear() % 100).padStart(2, '0');
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+
+  // For purchase from external vendors (service, shipper, 3pl, manufacturer)
+  // the reference is built from the partner's abbreviation, not DEE.
+  // Pattern: {ABBR}-{YYYYMMDD}-{INVNO}  if invoice_no is known,
+  // otherwise: {ABBR}-{YYYYMMDD}-{SEQ}  with daily seq fallback.
+  if (opts?.partner_id && opts?.operation_type === 'purchase') {
+    const partner = await env.DB.prepare(
+      `SELECT abbreviation, kind FROM partners WHERE id = ?`
+    ).bind(opts.partner_id).first<{ abbreviation: string; kind: string }>();
+
+    if (partner?.abbreviation) {
+      const datePart = `${dt.getUTCFullYear()}${mm}${dd}`;
+      const prefix = `${partner.abbreviation}-${datePart}`;
+      if (opts.invoice_no) {
+        // dedupe: if {ABBR}-{date}-{invno} already exists, return existing pattern with -A/-B suffix
+        const safeInvNo = String(opts.invoice_no).replace(/[^A-Za-z0-9_-]/g, '');
+        let ref = `${prefix}-${safeInvNo}`;
+        let suffix = '';
+        let i = 0;
+        while (true) {
+          const tryRef = ref + suffix;
+          const exists = await env.DB.prepare(
+            `SELECT 1 FROM operations WHERE reference = ? LIMIT 1`
+          ).bind(tryRef).first();
+          if (!exists) return tryRef;
+          suffix = '-' + String.fromCharCode(65 + i); // -A, -B, -C
+          i += 1;
+          if (i > 25) break;
+        }
+      }
+      // no invoice_no — daily sequence
+      const row = await env.DB.prepare(
+        `SELECT COUNT(*) AS cnt FROM operations WHERE reference LIKE ?`
+      ).bind(`${prefix}-%`).first<{ cnt: number }>();
+      const seq = ((row?.cnt ?? 0) + 1).toString().padStart(3, '0');
+      return `${prefix}-${seq}`;
+    }
+  }
+
+  // Default — our outgoing numbering (sales, drafts without partner abbreviation)
+  const prefix = `DEE-${yy}`;
   const row = await env.DB.prepare(`
     SELECT COUNT(*) AS cnt FROM operations WHERE reference LIKE ?
   `).bind(`${prefix}%`).first<{ cnt: number }>();

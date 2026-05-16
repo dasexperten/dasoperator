@@ -1045,6 +1045,88 @@ inboxBanking.post('/:tx_id/promote-draft', async (c) => {
 // Marks the row as manually handled outside the inbox (e.g. paid in cash,
 // known mistake, irrelevant). Removes it from Inbox queries.
 // =============================================================================
+// =============================================================================
+// POST /api/inbox/banking/backfill-narration
+//
+// One-off / admin: re-runs the auto-matcher on bank_transactions where
+// payment_purpose mentions a contract number ("CONTRACT 080824", "ДОГОВОР 080824")
+// but no partner has been resolved yet. Used after enabling narration-based
+// matching (2026-05-16). Safe to call multiple times — idempotent: only
+// touches unmatched rows.
+//
+// Returns the list of references created/linked for audit.
+// =============================================================================
+inboxBanking.post('/backfill-narration', async (c) => {
+  const { autoMatchBankTransaction } = await import('../lib/bank-auto-match');
+
+  const rows = await c.env.DB.prepare(`
+    SELECT id
+      FROM bank_transactions
+     WHERE matched_operation_id IS NULL
+       AND matched_payment_id IS NULL
+       AND (deleted_at IS NULL OR deleted_at = 0)
+       AND (
+         payment_purpose LIKE '%CONTRACT %'
+         OR payment_purpose LIKE '%CONTRACT.%'
+         OR payment_purpose LIKE '%CONTRACT:%'
+         OR payment_purpose LIKE '%CONTRACT/%'
+         OR payment_purpose LIKE '%ДОГОВОР %'
+         OR payment_purpose LIKE '%ДОГОВОР№%'
+       )
+       AND (
+         match_method IS NULL
+         OR match_method IN (
+           'bank_self_reference_skipped',
+           'partner_not_found',
+           'partner_not_found_service',
+           'ambiguous'
+         )
+       )
+     ORDER BY executed_at DESC
+     LIMIT 500
+  `).all<{ id: string }>();
+
+  const summary = {
+    checked: 0,
+    matched: 0,
+    auto_created: 0,
+    partner_found_no_op: 0,
+    still_unmatched: 0,
+    errors: 0,
+    details: [] as Array<{ tx_id: string; outcome: string; partner_id?: string | null; operation_id?: string | null }>,
+  };
+
+  for (const row of rows.results ?? []) {
+    summary.checked += 1;
+    try {
+      const result = await autoMatchBankTransaction(c.env, row.id);
+      summary.details.push({
+        tx_id: row.id,
+        outcome: result.outcome,
+        partner_id: result.partner_id ?? null,
+        operation_id: result.operation_id ?? null,
+      });
+      if (result.outcome === 'auto_matched' || result.outcome === 'rule_matched') {
+        summary.matched += 1;
+      } else if (result.outcome === 'partner_auto_created' || result.outcome === 'auto_created_draft') {
+        summary.auto_created += 1;
+      } else if (result.partner_id) {
+        summary.partner_found_no_op += 1;
+      } else {
+        summary.still_unmatched += 1;
+      }
+    } catch (e) {
+      summary.errors += 1;
+      summary.details.push({
+        tx_id: row.id,
+        outcome: 'error: ' + (e instanceof Error ? e.message : String(e)),
+      });
+    }
+  }
+
+  return ok(c, summary);
+});
+
 inboxBanking.post('/:tx_id/skip', async (c) => {
   const txId = c.req.param('tx_id');
   let body: { reason?: string } = {};

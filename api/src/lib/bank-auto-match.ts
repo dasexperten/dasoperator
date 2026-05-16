@@ -267,6 +267,19 @@ export async function autoMatchBankTransaction(
     }
   }
 
+  // STEP 1a2 — narration contract lookup. SWIFT MT103 payments routed through
+  // correspondent banks (VTB → Honghui etc.) hide the real partner inside
+  // payment_purpose as "CONTRACT NNNNNN". Resolve via contracts table.
+  // MUST run before bank-self-reference filter, otherwise these payments get
+  // silently discarded as "bank fees".
+  if (!partner && tx.payment_purpose) {
+    partner = await findPartnerByContractInNarration(env, tx.payment_purpose);
+    if (partner) {
+      console.log('[bank-auto-match] matched by contract narration:',
+        '→', partner.id);
+    }
+  }
+
   // STEP 1b — partner not found
   if (!partner) {
     // STEP 1b-pre — bank self-reference filter. If the bank webhook landed
@@ -447,6 +460,71 @@ async function findPartnerByInn(env: Env, inn: string): Promise<PartnerRow | nul
       AND (deleted_at IS NULL OR deleted_at = 0)
     LIMIT 1
   `).bind(inn, inn).first<PartnerRow>();
+  return row || null;
+}
+
+// =============================================================================
+// findPartnerByContractInNarration — resolve partner via contract_no in text.
+//
+// Why: SWIFT MT103 transactions routed through correspondent banks (VTB →
+// Honghui, e.g.) carry the bank's INN as contragent_inn and the bank's name
+// as contragent_name. The real beneficiary appears only inside payment_purpose
+// as "CONTRACT 080824 DD 09.04.2024 INVOICE: HA25110 ...". We parse the
+// contract number out of that narration, look it up in the contracts table,
+// and return the linked partner.
+//
+// Supported patterns (case-insensitive):
+//   CONTRACT 080824
+//   CONTRACT NO 080824
+//   CONTRACT № 080824
+//   CONTRACT N. 080824
+//   договор 080824
+//   ДОГОВОР № 080824
+// Contract numbers may contain digits, letters, slashes, dashes (080824/A1).
+// =============================================================================
+export function extractContractNoFromNarration(narration: string): string | null {
+  if (!narration) return null;
+  // Match "CONTRACT" or "ДОГОВОР" followed by optional NO/N/№/#, then number-ish token.
+  const re = /(?:CONTRACT|ДОГОВОР)\s*(?:N[O.]?|№|#)?\s*[:.]?\s*([0-9][0-9A-Za-z\/\-_]{2,30})/i;
+  const m = narration.match(re);
+  if (!m || !m[1]) return null;
+  // Strip trailing punctuation (e.g. "080824," → "080824")
+  return m[1].replace(/[.,;:]+$/, '').trim();
+}
+
+async function findPartnerByContractInNarration(
+  env: Env,
+  narration: string,
+): Promise<PartnerRow | null> {
+  const contractNo = extractContractNoFromNarration(narration);
+  if (!contractNo) return null;
+
+  // Try exact match first (e.g. "080824/A1")
+  let row = await env.DB.prepare(`
+    SELECT p.id, p.trade_name, p.legal_name, p.currency, p.kind, p.partner_type
+    FROM contracts c
+    JOIN partners p ON p.id = c.partner_id
+                    AND (p.deleted_at IS NULL OR p.deleted_at = 0)
+    WHERE c.contract_no = ?
+      AND (c.deleted_at IS NULL OR c.deleted_at = 0)
+    LIMIT 1
+  `).bind(contractNo).first<PartnerRow>();
+
+  // If exact didn't match and the contract has a suffix (e.g. "080824/A1"),
+  // fall back to the head segment "080824" — annexes share the partner.
+  if (!row && contractNo.includes('/')) {
+    const head = contractNo.split('/')[0];
+    row = await env.DB.prepare(`
+      SELECT p.id, p.trade_name, p.legal_name, p.currency, p.kind, p.partner_type
+      FROM contracts c
+      JOIN partners p ON p.id = c.partner_id
+                      AND (p.deleted_at IS NULL OR p.deleted_at = 0)
+      WHERE c.contract_no = ?
+        AND (c.deleted_at IS NULL OR c.deleted_at = 0)
+      LIMIT 1
+    `).bind(head).first<PartnerRow>();
+  }
+
   return row || null;
 }
 

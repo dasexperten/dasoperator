@@ -809,7 +809,7 @@ banksModulbank.post('/rematch-unassigned', async (c) => {
 });
 
 // =============================================================================
-// POST /api/banks/retry-unmatched — manually run the auto-match retry sweep.
+// POST /api/banks/modulbank/retry-unmatched — auto-match retry sweep.
 // Same code path the hourly cron uses. Returns refs of newly resolved tx's.
 // =============================================================================
 banksModulbank.post('/retry-unmatched', async (c) => {
@@ -819,6 +819,22 @@ banksModulbank.post('/retry-unmatched', async (c) => {
     return ok(c, stats);
   } catch (e) {
     return fail(c, 500, [{ code: 'retry_failed', message: e instanceof Error ? e.message : String(e) }]);
+  }
+});
+
+// =============================================================================
+// POST /api/banks/modulbank/rebalance — re-evaluate matched bank_txs and move
+// them to a closer-in-time operation when one exists. Catches the case where
+// auto-match originally picked an older invoice because the correct one hadn't
+// been created yet.
+// =============================================================================
+banksModulbank.post('/rebalance', async (c) => {
+  try {
+    const { rebalanceMisattributedMatches } = await import('../lib/bank-auto-match');
+    const stats = await rebalanceMisattributedMatches(c.env);
+    return ok(c, stats);
+  } catch (e) {
+    return fail(c, 500, [{ code: 'rebalance_failed', message: e instanceof Error ? e.message : String(e) }]);
   }
 });
 

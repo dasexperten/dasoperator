@@ -108,6 +108,7 @@ export async function parseStatement(
       ],
       temperature: 0,
       response_format: { type: 'json_object' },
+      max_tokens: 8000,
     }),
   });
 
@@ -124,7 +125,40 @@ export async function parseStatement(
     parsed.transactions = parsed.transactions ?? [];
     return parsed;
   } catch (e) {
-    throw new Error(`DeepSeek returned invalid JSON: ${content.slice(0, 200)}`);
+    // Salvage attempt: DeepSeek sometimes truncates output mid-transaction
+    // when output exceeds max_tokens. Try cutting at the last complete `}` in
+    // the `transactions` array, then closing the JSON cleanly.
+    try {
+      // Find the start of the transactions array
+      const arrStart = content.indexOf('"transactions"');
+      if (arrStart > 0) {
+        const bracketStart = content.indexOf('[', arrStart);
+        // Walk forward, tracking depth; collect complete top-level tx objects
+        let depth = 0;
+        let lastCompleteEnd = bracketStart;
+        for (let i = bracketStart + 1; i < content.length; i++) {
+          const ch = content[i];
+          if (ch === '{') depth++;
+          else if (ch === '}') {
+            depth--;
+            if (depth === 0) lastCompleteEnd = i;
+          }
+        }
+        if (lastCompleteEnd > bracketStart) {
+          const salvaged = content.slice(0, lastCompleteEnd + 1) + ']}';
+          const parsed = JSON.parse(salvaged) as ParsedStatement;
+          parsed.transactions = parsed.transactions ?? [];
+          // Log how many we salvaged for visibility
+          console.warn(`[bank-statement-parser] truncated response salvaged — recovered ${parsed.transactions.length} transactions`);
+          return parsed;
+        }
+      }
+    } catch {
+      // fall through to throw original
+    }
+    const preview = content.slice(0, 500);
+    const totalLen = content.length;
+    throw new Error(`DeepSeek returned invalid JSON (length=${totalLen}, preview): ${preview}`);
   }
 }
 

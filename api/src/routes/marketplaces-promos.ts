@@ -395,9 +395,12 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
       const d = new Date(aw.raw.date_start);
       if (!earliest || d < earliest) earliest = d;
     }
-    // Cap window at 90 days to keep payload sane
-    const ninetyDaysAgo = new Date(today.getTime() - 90 * 86400000);
-    if (!earliest || earliest < ninetyDaysAgo) earliest = ninetyDaysAgo;
+    // Cap window at 30 days max — long actions (e.g. "Эластичный бустинг.
+    // Без ограничения срока действия") would otherwise sum all-time sales
+    // and make left_to_sell unrealistically low. 30 days approximates the
+    // current cycle since last stock adjustment.
+    const thirtyDaysAgo = new Date(today.getTime() - 30 * 86400000);
+    if (!earliest || earliest < thirtyDaysAgo) earliest = thirtyDaysAgo;
     salesBySku = await fetchSalesSince(env, isoDate(earliest), isoDate(today));
   } catch {
     // Analytics is non-fatal — fall back to null sold_count when unavailable

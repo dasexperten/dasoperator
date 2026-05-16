@@ -14,8 +14,13 @@ const STATUS_LABELS: Record<string, { label: string; bg: string; fg: string; ico
   cancelled:     { label: 'Cancelled',     bg: 'rgba(229,32,44,0.10)',      fg: '#A82029',     icon: XCircle },
 };
 
-function formatAmount(amount: number, currency: string): string {
-  return amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + currency;
+function formatAmount(minor: number, currency: string): string {
+  const factor = ['VND', 'JPY', 'KRW'].includes(currency) ? 1 : 100;
+  const value = minor / factor;
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: factor === 1 ? 0 : 2,
+    maximumFractionDigits: factor === 1 ? 0 : 2,
+  }) + ' ' + currency;
 }
 
 function formatDate(unix: number): string {
@@ -138,7 +143,7 @@ export default function SettlementsListPage() {
                     </td>
                     <td className="px-4 py-3">
                       {s.variance_amount !== null && s.variance_amount !== undefined ? (
-                        <span className="font-bold text-xs" style={{ color: Math.abs(s.variance_amount) > 100 ? '#A82029' : 'var(--fg-3)' }}>
+                        <span className="font-bold text-xs" style={{ color: Math.abs(s.variance_amount) > 10000 ? '#A82029' : 'var(--fg-3)' }}>
                           {formatAmount(s.variance_amount, s.variance_currency ?? 'USD')}
                         </span>
                       ) : (

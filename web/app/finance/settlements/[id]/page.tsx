@@ -18,8 +18,13 @@ const STATUS_LABELS: Record<string, { label: string; bg: string; fg: string; ico
   cancelled:     { label: 'Cancelled',     bg: 'rgba(229,32,44,0.10)', fg: '#A82029',     icon: XCircle },
 };
 
-function formatAmount(amount: number, currency: string): string {
-  return amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + currency;
+function formatAmount(minor: number, currency: string): string {
+  const factor = ['VND', 'JPY', 'KRW'].includes(currency) ? 1 : 100;
+  const value = minor / factor;
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: factor === 1 ? 0 : 2,
+    maximumFractionDigits: factor === 1 ? 0 : 2,
+  }) + ' ' + currency;
 }
 
 function formatDate(unix: number | null | undefined): string {
@@ -168,7 +173,7 @@ export default function SettlementDetailPage() {
           <text x="350" y="178" textAnchor="middle" fontFamily="Manrope, sans-serif" fontSize="12" fill="var(--fg-3)">{debtor} → {creditor} debt</text>
           <text x="350" y="194" textAnchor="middle" fontFamily="Manrope, sans-serif" fontSize="12" fontWeight="700" fill={settlement.status === 'settled' ? '#2E7D4F' : '#7D481C'}>{settlement.status === 'settled' ? 'cleared' : 'pending'}</text>
           {settlement.variance_amount !== null && settlement.variance_amount !== undefined && (
-            <text x="350" y="216" textAnchor="middle" fontFamily="Manrope, sans-serif" fontSize="12" fill={Math.abs(settlement.variance_amount) > 100 ? '#A82029' : 'var(--fg-3)'}>
+            <text x="350" y="216" textAnchor="middle" fontFamily="Manrope, sans-serif" fontSize="12" fill={Math.abs(settlement.variance_amount) > 10000 ? '#A82029' : 'var(--fg-3)'}>
               variance {formatAmount(settlement.variance_amount, settlement.variance_currency ?? 'USD')}
             </text>
           )}

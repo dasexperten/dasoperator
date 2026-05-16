@@ -12,8 +12,13 @@ import {
   type AvailableAgentBankTx,
 } from '@/lib/api';
 
-function formatAmount(amount: number, currency: string): string {
-  return amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + currency;
+function formatAmount(minor: number, currency: string): string {
+  const factor = ['VND', 'JPY', 'KRW'].includes(currency) ? 1 : 100;
+  const value = minor / factor;
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: factor === 1 ? 0 : 2,
+    maximumFractionDigits: factor === 1 ? 0 : 2,
+  }) + ' ' + currency;
 }
 function formatDate(unix: number): string {
   return new Date(unix * 1000).toISOString().split('T')[0]!;
@@ -123,7 +128,10 @@ export default function NewSettlementPage() {
         inbound_currency: inCcy || 'USD',
         settlement_date: settlementDate,
         exchange_rate: exchangeRate ? parseFloat(exchangeRate) : null,
-        variance_amount: varianceAmount ? parseFloat(varianceAmount) : null,
+        // variance_amount stored in minor units like other money fields
+        variance_amount: varianceAmount
+          ? Math.round(parseFloat(varianceAmount) * (['VND','JPY','KRW'].includes(varianceCurrency) ? 1 : 100))
+          : null,
         variance_currency: varianceAmount ? varianceCurrency : null,
         clearance_operation_id: null, // user can wire later via PATCH
         notes: notes || null,

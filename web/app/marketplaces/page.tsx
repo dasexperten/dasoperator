@@ -778,7 +778,7 @@ function ClusterItem({
                     col === 'red'
                       ? 'var(--brand-rot)'
                       : col === 'green'
-                      ? 'var(--brand-gold)'
+                      ? '#8A6000'
                       : 'var(--fg-1)';
                   const agg = skuAgg[s.sku];
                   const aggK = agg && agg.sales > 0 ? (agg.stock / agg.sales).toFixed(2) : null;

@@ -122,6 +122,16 @@ function formatMoney(amount: number, currency: string): string {
   });
 }
 
+// Convert canonical partner kind to a human-readable label.
+const KIND_LABEL: Record<string, string> = {
+  buyer: 'Buyer (клиент)',
+  manufacturer: 'Manufacturer (фабрика)',
+  service_provider: 'Service Provider',
+  '3pl': '3PL (склад)',
+  shipper: 'Shipper (логистика)',
+  other: 'Other',
+};
+
 export default function PartnerDetailClient({ slug }: { slug: string }) {
   const [partner, setPartner] = useState<Partner | null>(null);
   const [bankAccounts, setBankAccounts] = useState<PartnerBankAccount[]>([]);
@@ -270,7 +280,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
 
   const generalFields = [
     { label: 'Country', value: partner.country },
-    { label: 'Type', value: partner.partner_type },
+    { label: 'Type', value: KIND_LABEL[partner.kind ?? ''] ?? partner.kind ?? partner.partner_type },
     { label: 'Tax ID', value: partner.tax_id },
     { label: 'Email', value: partner.email },
     { label: 'Contact person', value: partner.contact_person },
@@ -347,7 +357,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <SectionCard label="General" fields={generalFields}>
           <CopyableField label="Country" value={partner.country} />
-          <CopyableField label="Type" value={partner.partner_type} />
+          <CopyableField label="Type" value={KIND_LABEL[partner.kind ?? ""] ?? partner.kind ?? partner.partner_type} />
           <CopyableField label="Language" value={languageLabel(partner.partner_language)} />
           <CopyableField label="Document mode" value={docModeLabel(partner.preferred_invoice_language)} />
           <CopyableField label="National language" value={nationalLanguageLabel((partner as { partner_local_language?: string | null }).partner_local_language)} />

@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   Download,
   ShoppingCart,
+  Check,
 } from 'lucide-react';
 
 const OZON_BLUE = 'rgb(0, 91, 255)';
@@ -102,7 +103,7 @@ interface RunRow {
 }
 
 type FilterType = 'toship' | 'top5' | 'stockout' | 'overstock' | null;
-type Tab = 'ozon' | 'wb';
+type Tab = 'promos' | 'ozon' | 'wb';
 
 function fmt(n: number | null | undefined): string {
   if (n == null) return '—';
@@ -110,7 +111,7 @@ function fmt(n: number | null | undefined): string {
 }
 
 export default function MarketplacesPage() {
-  const [tab, setTab] = useState<Tab>('ozon');
+  const [tab, setTab] = useState<Tab>('promos');
 
   return (
     <div className="space-y-6 max-w-full">
@@ -130,11 +131,14 @@ export default function MarketplacesPage() {
         </p>
       </div>
 
-      {/* Ozon active promotions — main widget */}
-      <OzonPromotionsWidget />
-
       {/* Tabs */}
       <div className="flex gap-1" style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+        <TabButton
+          active={tab === 'promos'}
+          onClick={() => setTab('promos')}
+          label="Promotions"
+          accent={OZON_BLUE}
+        />
         <TabButton
           active={tab === 'ozon'}
           onClick={() => setTab('ozon')}
@@ -149,6 +153,7 @@ export default function MarketplacesPage() {
         />
       </div>
 
+      {tab === 'promos' && <OzonPromotionsWidget key="promos" />}
       {tab === 'ozon' && <FboDashboard config={OZON_CONFIG} key="ozon" />}
       {tab === 'wb' && <FboDashboard config={WB_CONFIG} key="wb" />}
     </div>
@@ -1154,7 +1159,7 @@ function OzonPromotionsWidget() {
           </div>
         )}
         {data.actions.map((a) => (
-          <PromoActionItem key={a.action_id} action={a} />
+          <PromoActionItem key={a.action_id} action={a} onSaved={() => load(true)} />
         ))}
       </div>
     </div>
@@ -1217,7 +1222,7 @@ function PromoMetric({
   );
 }
 
-function PromoActionItem({ action }: { action: PromoAction }) {
+function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: () => void }) {
   const [open, setOpen] = useState(false);
   const totalActive = action.products.filter((p) => p.stock > 0).length;
   const dateEndShort = action.date_end ? action.date_end.slice(0, 10) : '';
@@ -1340,91 +1345,225 @@ function PromoActionItem({ action }: { action: PromoAction }) {
                 <th style={{ ...thStyle, textAlign: 'right' }}>Price</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Promo</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>%</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Units left</th>
+                <th style={{ ...thStyle, textAlign: 'right', minWidth: 180 }}>Units left</th>
               </tr>
             </thead>
             <tbody>
-              {action.products.map((p) => {
-                const isOut = p.stock === 0;
-                const big = p.stock >= 500;
-                return (
-                  <tr
-                    key={p.product_id}
-                    style={{
-                      borderBottom: '1px solid var(--border-hairline)',
-                      backgroundColor: isOut ? 'rgba(0,0,0,0.02)' : 'transparent',
-                      opacity: isOut ? 0.55 : 1,
-                    }}
-                  >
-                    <td style={tdStyle}>
-                      <span style={{ fontWeight: 700, color: OZON_BLUE }}>
-                        {p.offer_id || '—'}
-                      </span>
-                    </td>
-                    <td
-                      style={{
-                        ...tdStyle,
-                        maxWidth: 360,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {p.name}
-                    </td>
-                    <td
-                      style={{
-                        ...tdStyle,
-                        textAlign: 'right',
-                        color: 'var(--fg-2)',
-                        textDecoration: 'line-through',
-                        fontWeight: 700,
-                      }}
-                    >
-                      {fmt(p.price)}₽
-                    </td>
-                    <td
-                      style={{
-                        ...tdStyle,
-                        textAlign: 'right',
-                        color: 'var(--fg-1)',
-                        fontWeight: 800,
-                      }}
-                    >
-                      {fmt(p.action_price)}₽
-                    </td>
-                    <td
-                      style={{
-                        ...tdStyle,
-                        textAlign: 'right',
-                        fontWeight: 700,
-                        color:
-                          p.discount_pct >= 30
-                            ? 'var(--brand-rot)'
-                            : p.discount_pct > 0
-                            ? '#8A6000'
-                            : 'var(--fg-muted)',
-                      }}
-                    >
-                      {p.discount_pct > 0 ? `−${p.discount_pct}%` : p.discount_pct < 0 ? `+${-p.discount_pct}%` : '0%'}
-                    </td>
-                    <td
-                      style={{
-                        ...tdStyle,
-                        textAlign: 'right',
-                        fontWeight: 800,
-                        color: big ? OZON_BLUE : 'var(--fg-1)',
-                      }}
-                    >
-                      {isOut ? <span style={{ color: 'var(--fg-muted)', fontWeight: 400 }}>—</span> : fmt(p.stock)}
-                    </td>
-                  </tr>
-                );
-              })}
+              {action.products.map((p) => (
+                <PromoProductRow
+                  key={p.product_id}
+                  product={p}
+                  actionId={action.action_id}
+                  onSaved={onSaved}
+                />
+              ))}
             </tbody>
           </table>
         </div>
       )}
     </div>
+  );
+}
+
+function PromoProductRow({
+  product,
+  actionId,
+  onSaved,
+}: {
+  product: PromoProduct;
+  actionId: number;
+  onSaved: () => void;
+}) {
+  const [draft, setDraft] = useState<string>(String(product.stock));
+  const [saving, setSaving] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Reset draft if upstream changes after refresh
+  useEffect(() => {
+    setDraft(String(product.stock));
+    setErr(null);
+  }, [product.stock]);
+
+  const draftNum = Number(draft);
+  const isValid = !Number.isNaN(draftNum) && draftNum >= 0 && Number.isFinite(draftNum);
+  const dirty = isValid && draftNum !== product.stock;
+  const isOut = product.stock === 0 && !dirty;
+  const big = product.stock >= 500;
+
+  async function save() {
+    if (!dirty || saving) return;
+    setSaving(true);
+    setErr(null);
+    try {
+      const apiBase =
+        (typeof window !== 'undefined' &&
+          (window as unknown as { __API_BASE?: string }).__API_BASE) ||
+        'https://dasoperator-api.dasexperten.workers.dev';
+      const r = await fetch(`${apiBase}/api/marketplaces/ozon/actions/${actionId}/stock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_id: product.product_id,
+          stock: draftNum,
+          action_price: product.action_price,
+        }),
+      });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.errors?.[0]?.message || 'Save failed');
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 1500);
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <tr
+      style={{
+        borderBottom: '1px solid var(--border-hairline)',
+        backgroundColor: isOut ? 'rgba(0,0,0,0.02)' : 'transparent',
+        opacity: isOut ? 0.55 : 1,
+      }}
+    >
+      <td style={tdStyle}>
+        <span style={{ fontWeight: 700, color: OZON_BLUE }}>{product.offer_id || '—'}</span>
+      </td>
+      <td
+        style={{
+          ...tdStyle,
+          maxWidth: 360,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {product.name}
+      </td>
+      <td
+        style={{
+          ...tdStyle,
+          textAlign: 'right',
+          color: 'var(--fg-2)',
+          textDecoration: 'line-through',
+          fontWeight: 700,
+        }}
+      >
+        {fmt(product.price)}₽
+      </td>
+      <td style={{ ...tdStyle, textAlign: 'right', color: 'var(--fg-1)', fontWeight: 800 }}>
+        {fmt(product.action_price)}₽
+      </td>
+      <td
+        style={{
+          ...tdStyle,
+          textAlign: 'right',
+          fontWeight: 700,
+          color:
+            product.discount_pct >= 30
+              ? 'var(--brand-rot)'
+              : product.discount_pct > 0
+              ? '#8A6000'
+              : 'var(--fg-muted)',
+        }}
+      >
+        {product.discount_pct > 0
+          ? `−${product.discount_pct}%`
+          : product.discount_pct < 0
+          ? `+${-product.discount_pct}%`
+          : '0%'}
+      </td>
+      <td style={{ ...tdStyle, textAlign: 'right' }}>
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            justifyContent: 'flex-end',
+          }}
+        >
+          <input
+            type="number"
+            min={0}
+            value={draft}
+            disabled={saving}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') save();
+              if (e.key === 'Escape') setDraft(String(product.stock));
+            }}
+            style={{
+              width: 90,
+              padding: '6px 10px',
+              fontFamily: 'var(--font-body)',
+              fontSize: '14px',
+              fontWeight: 800,
+              textAlign: 'right',
+              color: big ? OZON_BLUE : 'var(--fg-1)',
+              backgroundColor: dirty ? 'rgba(212,160,23,0.10)' : 'var(--paper-1)',
+              border: dirty
+                ? '1px solid #D4A017'
+                : err
+                ? '1px solid var(--brand-rot)'
+                : '1px solid var(--border-hairline)',
+              borderRadius: 'var(--radius-sm)',
+              outline: 'none',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          />
+          {dirty && (
+            <button
+              onClick={save}
+              disabled={saving || !isValid}
+              title="Save to Ozon"
+              style={{
+                width: 28,
+                height: 28,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 0,
+                backgroundColor: OZON_BLUE,
+                color: '#fff',
+                border: 'none',
+                borderRadius: 'var(--radius-sm)',
+                cursor: saving ? 'wait' : 'pointer',
+                opacity: saving ? 0.6 : 1,
+              }}
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            </button>
+          )}
+          {savedFlash && !dirty && (
+            <span
+              style={{
+                fontSize: '12px',
+                fontWeight: 700,
+                color: '#2E7D4F',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              saved ✓
+            </span>
+          )}
+        </div>
+        {err && (
+          <div
+            style={{
+              fontSize: '12px',
+              color: 'var(--brand-rot)',
+              marginTop: 4,
+              textAlign: 'right',
+              fontWeight: 600,
+            }}
+          >
+            {err.slice(0, 60)}
+          </div>
+        )}
+      </td>
+    </tr>
   );
 }

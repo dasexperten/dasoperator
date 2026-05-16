@@ -306,6 +306,15 @@ inboxBanking.get('/', async (c) => {
                              AND (p.deleted_at IS NULL OR p.deleted_at = 0)
       LEFT JOIN finance_categories fc ON fc.id = bt.suggested_category_id
       WHERE ${where}
+        -- Exclude internal self-transfers (DEE → DEE etc.). 2026-05-16.
+        AND (
+          bt.contragent_inn IS NULL
+          OR bt.contragent_inn NOT IN (
+            SELECT tax_id FROM companies
+            WHERE tax_id IS NOT NULL AND tax_id != ''
+              AND (deleted_at IS NULL OR deleted_at = 0)
+          )
+        )
       ORDER BY bt.executed_at DESC
       LIMIT ?
     `).bind(...params, limit).all();
@@ -332,8 +341,17 @@ inboxBanking.get('/counts', async (c) => {
       SELECT COALESCE(match_method, 'legacy_unmatched') AS bucket,
              COUNT(*) AS cnt
       FROM bank_transactions
-      WHERE match_method IS NULL
-         OR match_method IN ('partner_not_found','partner_auto_created','ambiguous','auto_created_draft')
+      WHERE (match_method IS NULL
+         OR match_method IN ('partner_not_found','partner_auto_created','ambiguous','auto_created_draft'))
+         -- Exclude internal self-transfers. 2026-05-16.
+         AND (
+           contragent_inn IS NULL
+           OR contragent_inn NOT IN (
+             SELECT tax_id FROM companies
+             WHERE tax_id IS NOT NULL AND tax_id != ''
+               AND (deleted_at IS NULL OR deleted_at = 0)
+           )
+         )
       GROUP BY bucket
     `).all<{ bucket: string; cnt: number }>();
 

@@ -457,6 +457,17 @@ banksModulbank.get('/transactions', async (c) => {
     JOIN company_bank_accounts cba ON bt.company_bank_account_id = cba.id
     JOIN companies co ON cba.company_id = co.id
     WHERE bt.deleted_at IS NULL
+      -- Exclude internal self-transfers (e.g. DEE → DEE in another bank).
+      -- A transaction is internal when contragent_inn matches one of OUR
+      -- companies' tax_id. See 2026-05-16 product decision.
+      AND (
+        bt.contragent_inn IS NULL
+        OR bt.contragent_inn NOT IN (
+          SELECT tax_id FROM companies
+          WHERE tax_id IS NOT NULL AND tax_id != ''
+            AND (deleted_at IS NULL OR deleted_at = 0)
+        )
+      )
   `;
   const binds: unknown[] = [];
 

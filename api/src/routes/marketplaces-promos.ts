@@ -505,13 +505,46 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
   //     per action with the session cookies stored in Worker secret
   //     OZON_PORTAL_COOKIES. If the secret is missing or session expired,
   //     fall through to analytics (less accurate but always available).
+  //
+  //     ADDITIONALLY: check KV for VPS-ingested portal data (key prefix
+  //     ozon:promo:portal:...). The VPS scraper bypasses Cloudflare's TLS
+  //     fingerprint problem and POSTs results to /ozon/portal-ingest.
   const portalDataByAction = new Map<
     number,
     Map<number, { sold: number; isSoldOut: boolean }>
   >();
   try {
+    // First try VPS-ingested data from KV
+    for (const aw of actionsWithProducts) {
+      const productMap = new Map<number, { sold: number; isSoldOut: boolean }>();
+      for (const p of aw.products) {
+        try {
+          const stored = await env.CACHE.get(
+            `ozon:promo:portal:${aw.raw.id}:${p.id}`,
+          );
+          if (stored) {
+            const parsed = JSON.parse(stored) as {
+              sold: number;
+              is_sold_out: boolean;
+            };
+            productMap.set(p.id, {
+              sold: parsed.sold,
+              isSoldOut: parsed.is_sold_out,
+            });
+          }
+        } catch {
+          // skip individual product on error
+        }
+      }
+      if (productMap.size > 0) {
+        portalDataByAction.set(aw.raw.id, productMap);
+      }
+    }
+
+    // Then try direct Worker-side scrape for any action not covered by VPS data
     await Promise.all(
       actionsWithProducts.map(async (aw) => {
+        if (portalDataByAction.has(aw.raw.id)) return; // VPS data already present
         const portalMap = await fetchOzonPortalProducts(env, aw.raw.id);
         if (portalMap.size > 0) {
           portalDataByAction.set(aw.raw.id, portalMap);
@@ -751,6 +784,83 @@ promos.get('/ozon/debug-portal/:actionId', async (c) => {
   }
 
   return ok(c, { success: false, log, error: 'max hops exceeded' });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/marketplaces/ozon/portal-ingest
+//
+// Receives portal scrape results from the VPS-side scraper. The VPS runs a
+// Python script every 30 min that fetches Ozon Seller Portal pages with
+// session cookies (which CF Workers cannot — TLS fingerprint blocked).
+//
+// Body: {
+//   secret: string,  // shared secret (env.OZON_PORTAL_INGEST_SECRET)
+//   data: [
+//     { action_id: number, products: [{ product_id, sold, is_sold_out }, ...] },
+//     ...
+//   ]
+// }
+//
+// We store each (action, product) sold count in KV under the same key used
+// by manual overrides (ozon:promo:sold:{action}:{product}) so buildPayload
+// picks them up automatically at the top priority slot.
+// ---------------------------------------------------------------------------
+promos.post('/ozon/portal-ingest', async (c) => {
+  let body: {
+    secret?: string;
+    data?: Array<{
+      action_id: number;
+      products: Array<{ product_id: number; sold: number; is_sold_out: boolean }>;
+    }>;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return fail(c, 400, 'invalid JSON');
+  }
+
+  const expectedSecret = c.env.OZON_PORTAL_INGEST_SECRET;
+  if (!expectedSecret || body.secret !== expectedSecret) {
+    return fail(c, 401, 'unauthorized');
+  }
+  if (!Array.isArray(body.data)) {
+    return fail(c, 400, 'data must be an array');
+  }
+
+  let totalProducts = 0;
+  let actionsCount = 0;
+  for (const action of body.data) {
+    if (!action.action_id || !Array.isArray(action.products)) continue;
+    actionsCount++;
+    for (const p of action.products) {
+      if (typeof p.product_id !== 'number' || typeof p.sold !== 'number') continue;
+      // Store sold count under "manual override" key — but with a different
+      // value scheme so we know it came from portal (vs typed by Aram).
+      // Actually we just store the number; sold_source will be 'portal' because
+      // buildPayload checks portal data first via fetchOzonPortalProducts.
+      // But VPS-ingested data won't hit that path. So store under a separate key
+      // namespace and have buildPayload check it.
+      await c.env.CACHE.put(
+        `ozon:promo:portal:${action.action_id}:${p.product_id}`,
+        JSON.stringify({ sold: p.sold, is_sold_out: p.is_sold_out, ts: Date.now() }),
+        { expirationTtl: 24 * 3600 }, // 24h — covers gap between scraper runs
+      );
+      totalProducts++;
+    }
+  }
+
+  // Invalidate the main actions cache so next GET returns fresh data
+  try {
+    await c.env.CACHE.delete(CACHE_KEY);
+  } catch {
+    // ignore
+  }
+
+  return ok(c, {
+    ingested: totalProducts,
+    actions: actionsCount,
+    received_at: new Date().toISOString(),
+  });
 });
 
 // ---------------------------------------------------------------------------

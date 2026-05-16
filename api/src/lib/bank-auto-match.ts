@@ -29,6 +29,21 @@ import { findExistingPartnerByName, isBankProviderName, generateReadablePartnerI
 import { recordRuleHit, findOperationForRule } from './bank-match-rules';
 import { classifyTransaction, decideAction, persistSuggestion } from './transaction-classifier';
 
+// Currency minor-unit conversion factor — how many minor units per 1 major.
+// RUB (Modulbank), USD/EUR/AED (Wio): stored × 100 — divide.
+// CNY (VTB MT103, MT202): stored as full juans, no subdivision — divide by 1.
+// VND, JPY, KRW: no subdivision in stored format — divide by 1.
+// Used everywhere we convert bank_transactions.amount → decimal major units.
+function getMinorFactor(currency: string): number {
+  const c = (currency || '').toUpperCase();
+  if (c === 'CNY' || c === 'VND' || c === 'JPY' || c === 'KRW') return 1;
+  return 100; // RUB, USD, EUR, AED, default
+}
+
+function toMajor(amount: number, currency: string): number {
+  return amount / getMinorFactor(currency);
+}
+
 const DATE_WINDOW_DAYS = 30;
 const FX_TOLERANCE_PCT = 0.01;
 
@@ -136,7 +151,9 @@ export function parseInvoiceFromPurpose(purpose: string): {
     return { doc_number: m2[1].trim(), doc_date: date };
   }
 
-  const re3 = /\b(?:invoice|inv\.?)\s*[№#]?\s*([A-Za-z0-9\-\/_.]+)/i;
+  // 'invoice' must be a full word; 'inv.' (with dot) is the short form.
+  // Plain 'inv' alone is too risky — matched 'INVOICE' as 'INV' then consumed 'OICE'.
+  const re3 = /\b(?:invoice|inv\.)\s*[№#:]?\s*([A-Za-z0-9][A-Za-z0-9\-\/_.]*)/i;
   const m3 = purpose.match(re3);
   if (m3 && m3[1]) {
     return { doc_number: m3[1].trim(), doc_date: null };
@@ -229,7 +246,7 @@ export async function autoMatchBankTransaction(
         const parsedInv = parseInvoiceFromPurpose(tx.payment_purpose || '');
         const opId = await createServiceOperation(env, {
           partner_id: decision.partner_id,
-          amount_major: tx.amount / 100,
+          amount_major: toMajor(tx.amount, tx.currency),
           currency: tx.currency,
           operation_date: tx.executed_at,
           purpose: tx.payment_purpose,
@@ -260,7 +277,7 @@ export async function autoMatchBankTransaction(
   // cents for USD/EUR/CNY). Divide by 100 to get decimal major units.
   // Previous '2026-05-16' note claiming amount is already decimal was WRONG —
   // caused mass-inflated AUTO-DRAFT operations (49M RUB Ozon sales etc).
-  const txMajor = tx.amount / 100;
+  const txMajor = toMajor(tx.amount, tx.currency);
   const isService = looksLikeService(tx.payment_purpose);
 
   // STEP 1
@@ -804,7 +821,7 @@ async function attachPaymentAndInvoice(
   `).bind(
     pmtId, args.operation_id, args.tx.direction,
     args.tx.external_doc_number || null, args.tx.executed_at,
-    args.tx.amount / 100, args.tx.currency,
+    args.toMajor(tx.amount, tx.currency), args.tx.currency,
     args.tx.contragent_name || 'Modulbank',
     args.tx.id,
     args.tx.payment_purpose ? args.tx.payment_purpose.slice(0, 500) : null,
@@ -825,7 +842,7 @@ async function attachPaymentAndInvoice(
     `).bind(
       invId, args.operation_id, invDirection,
       parsed.doc_number, parsed.doc_date,
-      args.tx.amount / 100, args.tx.currency,
+      args.toMajor(tx.amount, tx.currency), args.tx.currency,
       args.tx.contragent_name || null,
       args.tx.id,
       'parsed from payment_purpose',
@@ -862,7 +879,7 @@ async function createOrphanAttachment(
   `).bind(
     id, args.tx.direction,
     args.tx.external_doc_number || null, args.tx.executed_at,
-    args.tx.amount / 100, args.tx.currency,
+    args.toMajor(tx.amount, tx.currency), args.tx.currency,
     args.tx.contragent_name || 'Modulbank',
     args.tx.id,
     args.notes,
@@ -925,7 +942,7 @@ export async function rebalanceMisattributedMatches(
   const nowSec = Math.floor(Date.now() / 1000);
 
   for (const s of suspects.results ?? []) {
-    const txMajor = s.amount / 100;
+    const txMajor = toMajor(s.amount, s.currency);
     const better = await env.DB.prepare(`
       SELECT id, reference
         FROM operations

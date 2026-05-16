@@ -10,7 +10,7 @@ import {
   Triangle, Building2, ArrowUpRight, ArrowDownLeft,
 } from 'lucide-react';
 import { getAgentSettlement, cancelAgentSettlement, type AgentSettlementDetail } from '@/lib/api';
-import { formatMinor, toMinor } from '@/lib/money';
+import { formatMinor, toMinor, formatMoney } from '@/lib/money';
 
 const STATUS_LABELS: Record<string, { label: string; bg: string; fg: string; icon: typeof CheckCircle2 }> = {
   draft:         { label: 'Draft',         bg: 'var(--paper-sunk)',    fg: 'var(--fg-3)', icon: AlertCircle },
@@ -236,7 +236,7 @@ export default function SettlementDetailPage() {
                 </dd>
               </div>
               <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Counterparty:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{settlement.clearance_op_partner_name ?? '—'}</dd></div>
-              <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Op total:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{settlement.clearance_op_total ? formatMinor(settlement.clearance_op_total, settlement.clearance_op_currency ?? '') : '—'}</dd></div>
+              <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Op total:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{settlement.clearance_op_total ? formatMoney(settlement.clearance_op_total, settlement.clearance_op_currency ?? '') + ' ' + (settlement.clearance_op_currency ?? '') : '—'}</dd></div>
               <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Op status:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{settlement.clearance_op_status ?? '—'}</dd></div>
               <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Creditor:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{settlement.clearance_creditor_company ?? '—'}</dd></div>
               <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Debtor:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{settlement.clearance_debtor_company ?? '—'}</dd></div>

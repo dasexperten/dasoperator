@@ -730,6 +730,87 @@ async function persistOutcome(
 }
 
 // =============================================================================
+// rebalanceMisattributedMatches — find bank_txs matched to an operation that's
+// far in time, when another operation with the same partner + exact amount + currency
+// exists within ±14 days of the tx. Re-assigns to the closer match.
+//
+// Catches the case where bank_tx ran auto-match BEFORE the correct operation was
+// created (e.g. invoice uploaded after payment came in). System originally matched
+// to an older invoice with the same amount; we now have a better answer.
+//
+// Conservative: requires the existing match to be >30 days off AND the new candidate
+// to be within ±14 days. No other amount-fuzz allowed.
+// =============================================================================
+export async function rebalanceMisattributedMatches(
+  env: Env,
+): Promise<{ scanned: number; rebalanced: number; refs: { from: string; to: string }[] }> {
+  const out = { scanned: 0, rebalanced: 0, refs: [] as { from: string; to: string }[] };
+
+  // Suspects: matched_operation_id set, but operation is >30 days from tx date.
+  const suspects = await env.DB.prepare(`
+    SELECT bt.id as tx_id, bt.executed_at, bt.amount, bt.currency,
+           o.id as matched_op_id, o.reference as matched_ref, o.partner_id
+      FROM bank_transactions bt
+      JOIN operations o ON o.id = bt.matched_operation_id
+     WHERE bt.matched_operation_id IS NOT NULL
+       AND ABS(o.operation_date - bt.executed_at) > 30 * 86400
+       AND bt.executed_at > strftime('%s','now','-180 days')
+       AND (bt.deleted_at IS NULL OR bt.deleted_at = 0)
+     LIMIT 500
+  `).all<{
+    tx_id: string; executed_at: number; amount: number; currency: string;
+    matched_op_id: string; matched_ref: string; partner_id: string;
+  }>();
+
+  out.scanned = suspects.results?.length ?? 0;
+  const nowSec = Math.floor(Date.now() / 1000);
+
+  for (const s of suspects.results ?? []) {
+    const txMajor = s.amount / 100;
+    const better = await env.DB.prepare(`
+      SELECT id, reference
+        FROM operations
+       WHERE partner_id = ?
+         AND id != ?
+         AND status NOT IN ('cancelled','delivered')
+         AND (deleted_at IS NULL OR deleted_at = 0)
+         AND currency = ?
+         AND ABS(total_amount - ?) < 0.01
+         AND ABS(operation_date - ?) < 14 * 86400
+       ORDER BY ABS(operation_date - ?) ASC
+       LIMIT 1
+    `).bind(
+      s.partner_id, s.matched_op_id, s.currency, txMajor, s.executed_at, s.executed_at
+    ).first<{ id: string; reference: string }>();
+
+    if (!better) continue;
+
+    // Re-attach: update bank_tx + move operation_attachments
+    await env.DB.batch([
+      env.DB.prepare(`
+        UPDATE bank_transactions
+           SET matched_operation_id = ?,
+               match_method = 'auto_rebalanced',
+               matched_at = ?,
+               updated_at = ?
+         WHERE id = ?
+      `).bind(better.id, nowSec, nowSec, s.tx_id),
+      env.DB.prepare(`
+        UPDATE operation_attachments
+           SET operation_id = ?,
+               updated_at = ?
+         WHERE source_ref_id = ?
+      `).bind(better.id, nowSec, s.tx_id),
+    ]);
+
+    out.rebalanced += 1;
+    out.refs.push({ from: s.matched_ref, to: better.reference });
+  }
+
+  return out;
+}
+
+// =============================================================================
 // retryUnmatchedTransactions — re-run auto-match for bank_txs still in
 // 'ambiguous' or 'partner_not_found' state. Operations may have been created
 // after the original webhook (e.g. invoice uploaded later), so we re-evaluate.

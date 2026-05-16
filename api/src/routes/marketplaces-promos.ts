@@ -647,6 +647,97 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
 }
 
 // ---------------------------------------------------------------------------
+// GET /api/marketplaces/ozon/debug-portal/:actionId — diagnostic only
+// Returns raw portal scrape output to debug session issues.
+// Remove or restrict after troubleshooting.
+// ---------------------------------------------------------------------------
+promos.get('/ozon/debug-portal/:actionId', async (c) => {
+  const actionId = Number(c.req.param('actionId'));
+  if (!actionId) return fail(c, 400, 'bad action_id');
+
+  if (!c.env.OZON_PORTAL_COOKIES) {
+    return ok(c, { error: 'OZON_PORTAL_COOKIES secret not set' });
+  }
+
+  // Inline minimal version with verbose logging
+  let cookies = c.env.OZON_PORTAL_COOKIES;
+  const baseUrl = `https://seller.ozon.ru/api/site/global-seller-products/v1/action/${actionId}/products/active`;
+  const log: Array<{ hop: number; url: string; status: number; bodyPreview?: string }> = [];
+
+  let url = `${baseUrl}?offset=0&limit=20`;
+  for (let hop = 0; hop < 6; hop++) {
+    const resp = await fetch(url, {
+      headers: {
+        accept: 'application/json, text/plain, */*',
+        'accept-language': 'ru',
+        cookie: cookies,
+        referer: `https://seller.ozon.ru/app/highlights/${actionId}`,
+        'user-agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+        'x-o3-company-id': '374116',
+        'x-o3-language': 'ru',
+      },
+      redirect: 'manual',
+    });
+
+    const setCookie = resp.headers.get('set-cookie');
+    if (setCookie) {
+      const newCookies = setCookie
+        .split(/,(?=[^;]+=[^;]+)/)
+        .map((c) => c.split(';')[0].trim())
+        .filter(Boolean);
+      for (const nc of newCookies) {
+        const [name] = nc.split('=');
+        if (!name) continue;
+        const re = new RegExp(`(^|;\\s*)${name}=[^;]*`);
+        if (re.test(cookies)) {
+          cookies = cookies.replace(re, (_, prefix) => `${prefix}${nc}`);
+        } else {
+          cookies = `${cookies}; ${nc}`;
+        }
+      }
+    }
+
+    const entry: { hop: number; url: string; status: number; bodyPreview?: string; location?: string; setCookie?: string } = {
+      hop,
+      url,
+      status: resp.status,
+    };
+
+    if (resp.status === 200) {
+      const body = await resp.text();
+      entry.bodyPreview = body.substring(0, 200);
+      log.push(entry);
+      try {
+        const j = JSON.parse(body);
+        const sample = (j.products || []).slice(0, 5).map((p: PortalProduct) => ({
+          offerId: p.offerId,
+          quantity: p.quantity,
+          remaining: p.remainingActionStock,
+        }));
+        return ok(c, { success: true, log, total: j.total, sample });
+      } catch (e) {
+        return ok(c, { success: false, log, parseError: String(e) });
+      }
+    }
+    if (resp.status === 307 || resp.status === 302 || resp.status === 301) {
+      const loc = resp.headers.get('location');
+      entry.location = loc || undefined;
+      entry.setCookie = setCookie?.substring(0, 100) || undefined;
+      log.push(entry);
+      if (!loc) return ok(c, { success: false, log, error: 'no location' });
+      url = loc.startsWith('http') ? loc : `https://seller.ozon.ru${loc}`;
+      continue;
+    }
+    entry.bodyPreview = (await resp.text()).substring(0, 200);
+    log.push(entry);
+    return ok(c, { success: false, log, error: `unexpected status ${resp.status}` });
+  }
+
+  return ok(c, { success: false, log, error: 'max hops exceeded' });
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/marketplaces/ozon/actions
 // ---------------------------------------------------------------------------
 promos.get('/ozon/actions', async (c) => {

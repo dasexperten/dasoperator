@@ -253,6 +253,12 @@ export async function autoMatchBankTransaction(
     console.error('[bank-auto-match] classifier failed, falling through:', e);
   }
 
+  // Pre-compute shared values used across STEP 1b/2 branches.
+  // tx.amount is already stored as decimal major units (memory note —
+  // legacy *_minor naming is vestigial; values are decimal). 2026-05-16.
+  const txMajor = tx.amount;
+  const isService = looksLikeService(tx.payment_purpose);
+
   // STEP 1
   let partner = await findPartnerByInn(env, tx.contragent_inn);
 

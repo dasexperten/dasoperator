@@ -394,16 +394,16 @@ export async function autoMatchBankTransaction(
   if (tx.direction === 'outgoing' && SERVICE_KINDS.has(partner.kind || '')) {
     const parsedInv350 = parseInvoiceFromPurpose(tx.payment_purpose || '');
 
-    // SEARCH-BEFORE-CREATE: look for existing active service op with same
+    // SEARCH-BEFORE-CREATE: look for existing active service/tax op with same
     // (partner, amount, currency, calendar date). Without this, every bank
-    // statement re-import produces a fresh duplicate service operation.
+    // statement re-import produces a fresh duplicate operation.
     const dayStart = Math.floor(tx.executed_at / 86400) * 86400;
     const dayEnd   = dayStart + 86400;
     const existingServiceOp = await env.DB.prepare(`
       SELECT id, reference
         FROM operations
        WHERE partner_id = ?
-         AND operation_type = 'purchase'
+         AND operation_type IN ('service','tax','purchase')
          AND currency = ?
          AND total_amount = ?
          AND operation_date >= ?
@@ -724,17 +724,25 @@ async function createServiceOperation(
     operation_date: number;
     purpose: string;
     contragent_name: string;
+    invoice_no?: string | null;
   },
 ): Promise<string> {
   const opId = `op_${crypto.randomUUID()}`;
   const now = Math.floor(Date.now() / 1000);
+
+  // Tax authorities (ФНС, ФТС) get operation_type='tax' — they are obligations
+  // to the state, not service purchases. Everyone else with kind=service_provider
+  // gets operation_type='service'.
+  const isTaxAuthority = args.partner_id === 'fns' || args.partner_id === 'fts';
+  const opType: 'service' | 'tax' = isTaxAuthority ? 'tax' : 'service';
+
   const reference = await nextOperationReference(env, args.operation_date, {
     partner_id: args.partner_id,
-    operation_type: 'purchase',
+    operation_type: opType,
     invoice_no: args.invoice_no,
   });
   const desc = extractServiceDescription(args.purpose);
-  const notes = `[SERVICE EXPENSE — auto-closed] ${desc || args.contragent_name}`;
+  const notes = `[${opType.toUpperCase()} — auto-closed] ${desc || args.contragent_name}`;
 
   await env.DB.prepare(`
     INSERT INTO operations (
@@ -742,9 +750,9 @@ async function createServiceOperation(
       our_company_id, status, currency, total_amount,
       notes, reference, created_at, updated_at
     )
-    VALUES (?, ?, 'purchase', ?, 'dee', 'issued', ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, 'dee', 'issued', ?, ?, ?, ?, ?, ?)
   `).bind(
-    opId, args.operation_date, args.partner_id,
+    opId, args.operation_date, opType, args.partner_id,
     args.currency, args.amount_major,
     notes, reference, now, now,
   ).run();

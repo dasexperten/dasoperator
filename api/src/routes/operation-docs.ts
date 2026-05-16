@@ -803,7 +803,7 @@ operationDocs.post('/upload-document', async (c) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'deepseek-chat',
+        model: 'deepseek-v4-pro',
         messages: [
           { role: 'system', content: DOC_EXTRACTION_PROMPT },
           { role: 'user', content: `Filename: ${filename}\n\nContents:\n${trimmed}` },

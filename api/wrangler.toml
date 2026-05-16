@@ -94,6 +94,9 @@ service = "dasoperator-api"
 #                Phase 6.0b. WB is heavily rate-limited (~1 req/min), so we
 #                synchronize Ozon first, then WB after a short delay.
 #
+# 20 * * * *  — hourly bank-tx auto-match retry sweep (covers ambiguous + partner_not_found
+#                rows that may now be resolvable after operations were created post-webhook).
+#
 # */15 * * * * — every 15 min Telegram chat → invoice_inbox ingestion.
 #                Phase 9.x. Pulls invoices/acceptance from registered
 #                telegram_contact sources via telegramer-bridge.
@@ -101,7 +104,7 @@ service = "dasoperator-api"
 # Handler: src/scheduled.ts handleScheduled — dispatches by event.cron string.
 # -----------------------------------------------------------------------------
 [triggers]
-crons = ["0 12 * * *", "0 * * * *", "5 */6 * * *", "*/2 * * * *", "0 0 * * *", "15 * * * *", "30 */6 * * *", "*/15 * * * *"]
+crons = ["0 12 * * *", "0 * * * *", "5 */6 * * *", "*/2 * * * *", "0 0 * * *", "15 * * * *", "30 */6 * * *", "*/15 * * * *", "20 * * * *"]
 
 
 # -----------------------------------------------------------------------------

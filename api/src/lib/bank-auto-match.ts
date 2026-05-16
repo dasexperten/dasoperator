@@ -383,7 +383,36 @@ export async function autoMatchBankTransaction(
     };
   }
 
-  // 2+ candidates
+  // 2+ candidates — try to disambiguate by date proximity before giving up.
+  // Rule: if the closest candidate is within 14 days of the bank tx AND the next-closest
+  // is at least 21 days further than the closest, the answer is unambiguous: pick closest.
+  // Example: tx 28 Apr, candidate A on 24 Apr (Δ=4d), candidate B on 26 Feb (Δ=61d).
+  // 4d <= 14d && (61 - 4) >= 21 → pick A. This is the case Aram flagged.
+  const candidatesWithDelta = candidates
+    .map((op) => ({
+      op,
+      delta: Math.abs(op.operation_date - tx.executed_at),
+    }))
+    .sort((a, b) => a.delta - b.delta);
+
+  const closest = candidatesWithDelta[0]!;
+  const next = candidatesWithDelta[1]!;
+  const closestDays = closest.delta / 86400;
+  const nextDays = next.delta / 86400;
+
+  if (closestDays <= 14 && nextDays - closestDays >= 21) {
+    // Unambiguous winner — auto-attach.
+    const attIds = await attachPaymentAndInvoice(env, { operation_id: closest.op.id, tx });
+    await persistOutcome(env, txId, 'auto_matched', closest.op.id);
+    return {
+      outcome: 'auto_matched',
+      operation_id: closest.op.id,
+      partner_id: partner.id,
+      attachment_ids: attIds,
+    };
+  }
+
+  // Genuine ambiguity — fall back to manual review.
   const orphanId = await createOrphanAttachment(env, {
     tx,
     notes: `ambiguous: ${candidates.length} candidates: ${candidates.map((c) => c.reference).join(', ')}`,
@@ -698,6 +727,51 @@ async function persistOutcome(
         updated_at = ?
     WHERE id = ?
   `).bind(operationId, method, operationId ? now : null, now, txId).run();
+}
+
+// =============================================================================
+// retryUnmatchedTransactions — re-run auto-match for bank_txs still in
+// 'ambiguous' or 'partner_not_found' state. Operations may have been created
+// after the original webhook (e.g. invoice uploaded later), so we re-evaluate.
+//
+// Called by cron to give Aram a clean inbox without manual click-through.
+// =============================================================================
+export async function retryUnmatchedTransactions(
+  env: Env,
+): Promise<{ checked: number; resolved: number; refs: string[] }> {
+  const out = { checked: 0, resolved: 0, refs: [] as string[] };
+
+  const rows = await env.DB.prepare(`
+    SELECT id, match_method
+      FROM bank_transactions
+     WHERE matched_operation_id IS NULL
+       AND match_method IN ('ambiguous', 'partner_not_found', 'partner_not_found_service')
+       AND executed_at > strftime('%s','now','-180 days')
+       AND (deleted_at IS NULL OR deleted_at = 0)
+     ORDER BY executed_at DESC
+     LIMIT 500
+  `).all<{ id: string; match_method: string }>();
+
+  for (const row of rows.results ?? []) {
+    out.checked += 1;
+    try {
+      const result = await autoMatchBankTransaction(env, row.id);
+      if (result.outcome === 'auto_matched' || result.outcome === 'rule_matched') {
+        out.resolved += 1;
+        if (result.operation_id) {
+          const op = await env.DB.prepare(
+            `SELECT reference FROM operations WHERE id = ?`
+          ).bind(result.operation_id).first<{ reference: string }>();
+          if (op?.reference) out.refs.push(op.reference);
+        }
+      }
+    } catch (e) {
+      // best-effort sweep — log and continue
+      console.error(`[retryUnmatched] tx ${row.id}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  return out;
 }
 
 async function getFxRateToUsd(

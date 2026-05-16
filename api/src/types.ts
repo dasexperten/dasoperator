@@ -53,6 +53,10 @@ export interface Env {
   // (notably "remainingActionStock" — accurate "Осталось продать" per SKU in promo).
   // Must be refreshed manually when session expires. See marketplaces-promos.ts → fetchOzonPortalProducts.
   OZON_PORTAL_COOKIES?: string;
+
+  // Shared secret for VPS scraper to authenticate when POSTing portal data.
+  // Generated once at setup, stored in both Worker secrets and VPS .env.
+  OZON_PORTAL_INGEST_SECRET?: string;
   // Wildberries API (https://*-api.wildberries.ru) — bare token, no Bearer prefix
   WB_API_TOKEN: string;
 

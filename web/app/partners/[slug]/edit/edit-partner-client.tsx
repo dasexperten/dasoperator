@@ -14,7 +14,14 @@ import Breadcrumb from '@/components/layout/breadcrumb';
 // contract filenames in R2.
 // =============================================================================
 
-const PARTNER_TYPES = ['buyer', 'supplier', 'shipper', 'other'] as const;
+const PARTNER_KINDS = [
+  { value: 'buyer',            label: 'Buyer (клиент)' },
+  { value: 'manufacturer',     label: 'Manufacturer (фабрика)' },
+  { value: 'service_provider', label: 'Service Provider (услуги: банк, ФНС, ИП, etc)' },
+  { value: '3pl',              label: '3PL (склад / fulfillment)' },
+  { value: 'shipper',          label: 'Shipper (логистика)' },
+  { value: 'other',            label: 'Other' },
+] as const;
 const LANGS = ['EN', 'RU', 'EN-RU', 'EN-AR', 'EN-VI', 'EN-ZH'] as const;
 
 // Document render mode — three options aligned with the issuer-first model:
@@ -64,7 +71,7 @@ type FormState = {
   registered_address_local: string;
   country: string;
   email: string;
-  partner_type: typeof PARTNER_TYPES[number];
+  kind: typeof PARTNER_KINDS[number]['value'];
   partner_language: typeof LANGS[number];
   preferred_invoice_language: 'EN' | 'RU' | 'BILINGUAL' | '';
   partner_local_language: typeof PARTNER_LOCAL_LANGUAGES[number]['value'] | '';
@@ -90,7 +97,7 @@ function partnerToForm(p: Partner): FormState {
     registered_address_local: p.registered_address_local ?? '',
     country: p.country ?? '',
     email: p.email ?? '',
-    partner_type: p.partner_type ?? 'other',
+    kind: (p.kind as FormState['kind']) ?? 'other',
     partner_language: (p.partner_language as FormState['partner_language']) ?? 'EN',
     // For service_provider / 3pl / shipper / other partners, default to 'RU' (partner's national
     // language) since service documents are usually in the partner's language (банковские, ФНС, etc).
@@ -336,11 +343,11 @@ export default function EditPartnerClient({ slug }: { slug: string }) {
         </Field>
         <Field label="Partner Type">
           <select
-            value={form.partner_type}
-            onChange={(e) => update('partner_type', e.target.value as FormState['partner_type'])}
+            value={form.kind}
+            onChange={(e) => update('kind', e.target.value as FormState['kind'])}
             style={inputStyle}
           >
-            {PARTNER_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            {PARTNER_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
           </select>
         </Field>
         <Field label="Partner Language">

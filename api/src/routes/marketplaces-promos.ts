@@ -18,6 +18,8 @@ const promos = new Hono<{ Bindings: Env }>();
 
 const CACHE_KEY = 'ozon:actions:v1';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
+const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
+const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
 
 interface OzonActionRaw {
   id: number;
@@ -67,6 +69,7 @@ interface CachedActionsPayload {
     is_voucher_action: boolean;
     participating_products_count: number;
     total_units_left: number;
+    auto_zeroed_at: string | null;
     products: Array<{
       product_id: number;
       offer_id: string;
@@ -131,6 +134,87 @@ async function fetchAllProductInfo(
   return map;
 }
 
+// ---------------------------------------------------------------------------
+// AUTO-ZERO POLICY
+// For STOCK_DISCOUNT type actions: on first detection, automatically set
+// all products' stock to 0. Ozon enforces a per-SKU min_stock floor on these
+// actions, so the only "way out" without committing to that floor is stock=0.
+// Default policy: opt out. Aram raises individual SKUs manually when needed.
+// Flag stored in KV — once zeroed, never touched again so manual raises stick.
+// ---------------------------------------------------------------------------
+async function autoZeroStockDiscount(
+  env: Env,
+  actionsWithProducts: Array<{
+    raw: OzonActionRaw;
+    products: OzonActionProduct[];
+  }>,
+): Promise<Map<number, string>> {
+  const flagsByAction = new Map<number, string>();
+
+  for (const aw of actionsWithProducts) {
+    if (aw.raw.action_type !== 'STOCK_DISCOUNT') continue;
+
+    const flagKey = AUTO_ZERO_FLAG_PREFIX + aw.raw.id;
+    let existingFlag: string | null = null;
+    try {
+      existingFlag = await env.CACHE.get(flagKey);
+    } catch {
+      // ignore
+    }
+
+    if (existingFlag) {
+      flagsByAction.set(aw.raw.id, existingFlag);
+      continue;
+    }
+
+    // First time we see this STOCK_DISCOUNT action — zero out every product with stock > 0
+    const toZero = aw.products.filter((p) => p.stock > 0);
+    let zeroedAnything = false;
+
+    if (toZero.length > 0) {
+      // Ozon /v1/actions/products/activate accepts up to ~100 products per call
+      const batchSize = 100;
+      for (let i = 0; i < toZero.length; i += batchSize) {
+        const batch = toZero.slice(i, i + batchSize);
+        try {
+          await ozonRequest(env, '/v1/actions/products/activate', 'POST', {
+            action_id: aw.raw.id,
+            products: batch.map((p) => ({
+              product_id: p.id,
+              action_price: p.action_price,
+              stock: 0,
+            })),
+          });
+          zeroedAnything = true;
+        } catch (e) {
+          // Log but continue — partial failure shouldn't block the whole response
+          console.error(
+            `auto-zero batch failed for action ${aw.raw.id}:`,
+            e instanceof Error ? e.message : e,
+          );
+        }
+      }
+      // Reflect change in-memory so the response shows the new state
+      if (zeroedAnything) {
+        for (const p of aw.products) {
+          if (p.stock > 0) p.stock = 0;
+        }
+      }
+    }
+
+    const ts = new Date().toISOString();
+    try {
+      await env.CACHE.put(flagKey, ts, { expirationTtl: AUTO_ZERO_FLAG_TTL_SEC });
+    } catch {
+      // ignore — if KV write fails we'll just zero again next refresh,
+      // which is idempotent (already-zero products won't be re-touched)
+    }
+    flagsByAction.set(aw.raw.id, ts);
+  }
+
+  return flagsByAction;
+}
+
 async function buildPayload(env: Env): Promise<CachedActionsPayload> {
   // 1. Fetch all actions
   const actionsResp = await ozonRequest<{ result: OzonActionRaw[] }>(
@@ -175,7 +259,10 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
   }
   const infoMap = await fetchAllProductInfo(env, Array.from(uniqueIds));
 
-  // 4. Build response
+  // 4. Apply auto-zero policy for STOCK_DISCOUNT actions (first-time-seen only)
+  const autoZeroedMap = await autoZeroStockDiscount(env, actionsWithProducts);
+
+  // 5. Build response
   const now = new Date().toISOString();
   const actions = actionsWithProducts.map((aw) => {
     const productsOut = aw.products.map((p) => {
@@ -205,6 +292,7 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
       is_voucher_action: aw.raw.is_voucher_action,
       participating_products_count: aw.raw.participating_products_count,
       total_units_left: totalUnits,
+      auto_zeroed_at: autoZeroedMap.get(aw.raw.id) || null,
       products: productsOut,
     };
   });

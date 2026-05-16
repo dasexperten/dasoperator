@@ -741,16 +741,20 @@ export async function retryUnmatchedTransactions(
 ): Promise<{ checked: number; resolved: number; refs: string[] }> {
   const out = { checked: 0, resolved: 0, refs: [] as string[] };
 
+  // Pull txs in any unresolved state — never tried (NULL), explicitly ambiguous,
+  // or partner_not_found. Operations may have been created later (manual invoice upload),
+  // unlocking a single-candidate match now.
   const rows = await env.DB.prepare(`
     SELECT id, match_method
       FROM bank_transactions
      WHERE matched_operation_id IS NULL
-       AND match_method IN ('ambiguous', 'partner_not_found', 'partner_not_found_service')
+       AND (match_method IS NULL
+            OR match_method IN ('ambiguous', 'partner_not_found', 'partner_not_found_service'))
        AND executed_at > strftime('%s','now','-180 days')
        AND (deleted_at IS NULL OR deleted_at = 0)
      ORDER BY executed_at DESC
      LIMIT 500
-  `).all<{ id: string; match_method: string }>();
+  `).all<{ id: string; match_method: string | null }>();
 
   for (const row of rows.results ?? []) {
     out.checked += 1;

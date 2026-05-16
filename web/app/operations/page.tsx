@@ -1030,9 +1030,7 @@ export default function OperationsPage() {
                       <td className="px-4 py-3" style={{ color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>{formatDate(op.operation_date)}</td>
                       {/* v2 manufacturer fallback — deployed 2026-05-11 */}
                       <td className="px-4 py-3" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>
-                        {isBatchRow ? (
-                          <span style={{ color: 'var(--fg-muted)' }}>—</span>
-                        ) : (() => {
+                        {(() => {
                           const { label, partnerId } = resolvePartnerLabel(op);
                           return partnerId ? (
                             <Link href={`/partners/${partnerId}`} style={{ color: 'var(--fg-1)' }}>
@@ -1728,3 +1726,4 @@ function LegendDot({ color, label }: { color: string; label: string }) {
     </span>
   );
 }
+

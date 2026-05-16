@@ -213,8 +213,12 @@ agentSettlements.post('/', async (c) => {
     if (!body.inbound_company_id) errors.push({ code: 'missing', message: 'inbound_company_id required' });
     if (!body.outbound_agent_partner_id) errors.push({ code: 'missing', message: 'outbound_agent_partner_id required' });
     if (!body.inbound_agent_partner_id) errors.push({ code: 'missing', message: 'inbound_agent_partner_id required' });
-    if (!Number.isFinite(body.outbound_amount) || body.outbound_amount <= 0) errors.push({ code: 'invalid', message: 'outbound_amount must be positive' });
-    if (!Number.isFinite(body.inbound_amount) || body.inbound_amount <= 0) errors.push({ code: 'invalid', message: 'inbound_amount must be positive' });
+    // Amount is required > 0 only when the corresponding bank_tx leg is attached.
+    // A pending_match settlement may legitimately have outbound_amount = 0 while waiting for the other side.
+    if (body.outbound_bank_tx_id && (!Number.isFinite(body.outbound_amount) || body.outbound_amount <= 0))
+      errors.push({ code: 'invalid', message: 'outbound_amount must be positive when outbound_bank_tx_id is set' });
+    if (body.inbound_bank_tx_id && (!Number.isFinite(body.inbound_amount) || body.inbound_amount <= 0))
+      errors.push({ code: 'invalid', message: 'inbound_amount must be positive when inbound_bank_tx_id is set' });
     if (!body.outbound_currency) errors.push({ code: 'missing', message: 'outbound_currency required' });
     if (!body.inbound_currency) errors.push({ code: 'missing', message: 'inbound_currency required' });
     if (errors.length) return fail(c, 422, errors);

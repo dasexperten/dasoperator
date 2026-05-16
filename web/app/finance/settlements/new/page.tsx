@@ -11,14 +11,9 @@ import {
   getAvailableAgentBankTxs,
   type AvailableAgentBankTx,
 } from '@/lib/api';
+import { formatMinor, toMinor } from '@/lib/money';
 
-function formatAmount(minor: number, currency: string): string {
-  const factor = ['VND', 'JPY', 'KRW'].includes(currency) ? 1 : 100;
-  const value = minor / factor;
-  return value.toLocaleString('en-US', {
-    minimumFractionDigits: factor === 1 ? 0 : 2,
-    maximumFractionDigits: factor === 1 ? 0 : 2,
-  }) + ' ' + currency;
+) + ' ' + currency;
 }
 function formatDate(unix: number): string {
   return new Date(unix * 1000).toISOString().split('T')[0]!;
@@ -129,9 +124,7 @@ export default function NewSettlementPage() {
         settlement_date: settlementDate,
         exchange_rate: exchangeRate ? parseFloat(exchangeRate) : null,
         // variance_amount stored in minor units like other money fields
-        variance_amount: varianceAmount
-          ? Math.round(parseFloat(varianceAmount) * (['VND','JPY','KRW'].includes(varianceCurrency) ? 1 : 100))
-          : null,
+        variance_amount: varianceAmount ? toMinor(parseFloat(varianceAmount), varianceCurrency) : null,
         variance_currency: varianceAmount ? varianceCurrency : null,
         clearance_operation_id: null, // user can wire later via PATCH
         notes: notes || null,
@@ -193,7 +186,7 @@ export default function NewSettlementPage() {
                       }}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="font-bold" style={{ color: 'var(--fg-1)' }}>{formatAmount(t.amount, t.currency)}</span>
+                        <span className="font-bold" style={{ color: 'var(--fg-1)' }}>{formatMinor(t.amount, t.currency)}</span>
                         <span className="font-bold text-xs" style={{ color: 'var(--fg-3)' }}>{formatDate(t.executed_at)}</span>
                       </div>
                       <div className="text-xs" style={{ color: 'var(--fg-3)' }}>{t.company_abbr} → {t.contragent_name}</div>
@@ -248,7 +241,7 @@ export default function NewSettlementPage() {
                       }}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="font-bold" style={{ color: 'var(--fg-1)' }}>{formatAmount(t.amount, t.currency)}</span>
+                        <span className="font-bold" style={{ color: 'var(--fg-1)' }}>{formatMinor(t.amount, t.currency)}</span>
                         <span className="font-bold text-xs" style={{ color: 'var(--fg-3)' }}>{formatDate(t.executed_at)}</span>
                       </div>
                       <div className="text-xs" style={{ color: 'var(--fg-3)' }}>{t.contragent_name} → {t.company_abbr}</div>

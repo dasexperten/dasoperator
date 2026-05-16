@@ -10,6 +10,7 @@ import {
   Triangle, Building2, ArrowUpRight, ArrowDownLeft,
 } from 'lucide-react';
 import { getAgentSettlement, cancelAgentSettlement, type AgentSettlementDetail } from '@/lib/api';
+import { formatMinor, toMinor } from '@/lib/money';
 
 const STATUS_LABELS: Record<string, { label: string; bg: string; fg: string; icon: typeof CheckCircle2 }> = {
   draft:         { label: 'Draft',         bg: 'var(--paper-sunk)',    fg: 'var(--fg-3)', icon: AlertCircle },
@@ -18,13 +19,7 @@ const STATUS_LABELS: Record<string, { label: string; bg: string; fg: string; ico
   cancelled:     { label: 'Cancelled',     bg: 'rgba(229,32,44,0.10)', fg: '#A82029',     icon: XCircle },
 };
 
-function formatAmount(minor: number, currency: string): string {
-  const factor = ['VND', 'JPY', 'KRW'].includes(currency) ? 1 : 100;
-  const value = minor / factor;
-  return value.toLocaleString('en-US', {
-    minimumFractionDigits: factor === 1 ? 0 : 2,
-    maximumFractionDigits: factor === 1 ? 0 : 2,
-  }) + ' ' + currency;
+) + ' ' + currency;
 }
 
 function formatDate(unix: number | null | undefined): string {
@@ -156,12 +151,12 @@ export default function SettlementDetailPage() {
 
           {/* Arrow: Debtor → Outbound agent (DEE pays) */}
           <line x1="530" y1="112" x2="530" y2="238" stroke="#888780" strokeWidth="1.5" markerEnd="url(#arrow-detail)" />
-          <text x="544" y="170" textAnchor="start" fontFamily="Manrope, sans-serif" fontSize="12" fontWeight="700" fill="var(--fg-1)">{formatAmount(settlement.outbound_amount, settlement.outbound_currency)}</text>
+          <text x="544" y="170" textAnchor="start" fontFamily="Manrope, sans-serif" fontSize="12" fontWeight="700" fill="var(--fg-1)">{formatMinor(settlement.outbound_amount, settlement.outbound_currency)}</text>
           <text x="544" y="186" textAnchor="start" fontFamily="Manrope, sans-serif" fontSize="12" fill="var(--fg-3)">{formatDate(settlement.outbound_executed_at)}</text>
 
           {/* Arrow: Inbound agent → Creditor (Centuno pays DEI) */}
           <line x1="170" y1="238" x2="170" y2="112" stroke="#888780" strokeWidth="1.5" markerEnd="url(#arrow-detail)" />
-          <text x="156" y="170" textAnchor="end" fontFamily="Manrope, sans-serif" fontSize="12" fontWeight="700" fill="var(--fg-1)">{formatAmount(settlement.inbound_amount, settlement.inbound_currency)}</text>
+          <text x="156" y="170" textAnchor="end" fontFamily="Manrope, sans-serif" fontSize="12" fontWeight="700" fill="var(--fg-1)">{formatMinor(settlement.inbound_amount, settlement.inbound_currency)}</text>
           <text x="156" y="186" textAnchor="end" fontFamily="Manrope, sans-serif" fontSize="12" fill="var(--fg-3)">{formatDate(settlement.inbound_executed_at)}</text>
 
           {/* Bottom dashed link (agent pair) */}
@@ -174,7 +169,7 @@ export default function SettlementDetailPage() {
           <text x="350" y="194" textAnchor="middle" fontFamily="Manrope, sans-serif" fontSize="12" fontWeight="700" fill={settlement.status === 'settled' ? '#2E7D4F' : '#7D481C'}>{settlement.status === 'settled' ? 'cleared' : 'pending'}</text>
           {settlement.variance_amount !== null && settlement.variance_amount !== undefined && (
             <text x="350" y="216" textAnchor="middle" fontFamily="Manrope, sans-serif" fontSize="12" fill={Math.abs(settlement.variance_amount) > 10000 ? '#A82029' : 'var(--fg-3)'}>
-              variance {formatAmount(settlement.variance_amount, settlement.variance_currency ?? 'USD')}
+              variance {formatMinor(settlement.variance_amount, settlement.variance_currency ?? 'USD')}
             </text>
           )}
         </svg>
@@ -191,7 +186,7 @@ export default function SettlementDetailPage() {
           <dl className="space-y-2 text-sm">
             <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>From entity:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{settlement.outbound_company}</dd></div>
             <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>To agent:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{settlement.outbound_agent_name}</dd></div>
-            <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Amount:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{formatAmount(settlement.outbound_amount, settlement.outbound_currency)}</dd></div>
+            <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Amount:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{formatMinor(settlement.outbound_amount, settlement.outbound_currency)}</dd></div>
             <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Executed:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{formatDate(settlement.outbound_executed_at)}</dd></div>
             <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Bank tx:</dt><dd className="font-bold text-xs" style={{ color: 'var(--fg-1)' }}>{settlement.outbound_bank_tx_id ? settlement.outbound_bank_tx_id.slice(0, 14) + '…' : <span style={{ color: '#7D481C' }}>not linked</span>}</dd></div>
           </dl>
@@ -212,7 +207,7 @@ export default function SettlementDetailPage() {
           <dl className="space-y-2 text-sm">
             <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>From agent:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{settlement.inbound_agent_name}</dd></div>
             <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>To entity:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{settlement.inbound_company}</dd></div>
-            <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Amount:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{formatAmount(settlement.inbound_amount, settlement.inbound_currency)}</dd></div>
+            <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Amount:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{formatMinor(settlement.inbound_amount, settlement.inbound_currency)}</dd></div>
             <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Executed:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{formatDate(settlement.inbound_executed_at)}</dd></div>
             <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Bank tx:</dt><dd className="font-bold text-xs" style={{ color: 'var(--fg-1)' }}>{settlement.inbound_bank_tx_id ? settlement.inbound_bank_tx_id.slice(0, 14) + '…' : <span style={{ color: '#7D481C' }}>not linked</span>}</dd></div>
           </dl>
@@ -243,7 +238,7 @@ export default function SettlementDetailPage() {
                 </dd>
               </div>
               <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Counterparty:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{settlement.clearance_op_partner_name ?? '—'}</dd></div>
-              <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Op total:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{settlement.clearance_op_total ? formatAmount(settlement.clearance_op_total, settlement.clearance_op_currency ?? '') : '—'}</dd></div>
+              <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Op total:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{settlement.clearance_op_total ? formatMinor(settlement.clearance_op_total, settlement.clearance_op_currency ?? '') : '—'}</dd></div>
               <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Op status:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{settlement.clearance_op_status ?? '—'}</dd></div>
               <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Creditor:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{settlement.clearance_creditor_company ?? '—'}</dd></div>
               <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Debtor:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{settlement.clearance_debtor_company ?? '—'}</dd></div>
@@ -260,7 +255,7 @@ export default function SettlementDetailPage() {
           </div>
           <dl className="space-y-2 text-sm">
             <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Exchange rate:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{settlement.exchange_rate ?? '—'}</dd></div>
-            <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Variance:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{settlement.variance_amount !== null && settlement.variance_amount !== undefined ? formatAmount(settlement.variance_amount, settlement.variance_currency ?? 'USD') : '—'}</dd></div>
+            <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Variance:</dt><dd className="font-bold" style={{ color: 'var(--fg-1)' }}>{settlement.variance_amount !== null && settlement.variance_amount !== undefined ? formatMinor(settlement.variance_amount, settlement.variance_currency ?? 'USD') : '—'}</dd></div>
             <div className="flex justify-between"><dt style={{ color: 'var(--fg-3)' }}>Paper invoice:</dt><dd className="font-bold text-xs" style={{ color: 'var(--fg-1)' }}>{settlement.paper_invoice_document_id ?? '—'}</dd></div>
           </dl>
         </div>

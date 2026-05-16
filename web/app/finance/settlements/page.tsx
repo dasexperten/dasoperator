@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Loader2, Plus, AlertCircle, CheckCircle2, Clock, XCircle, Triangle } from 'lucide-react';
 import { getAgentSettlements, type AgentSettlement } from '@/lib/api';
+import { formatMinor, toMinor } from '@/lib/money';
 
 const STATUS_LABELS: Record<string, { label: string; bg: string; fg: string; icon: typeof CheckCircle2 }> = {
   draft:         { label: 'Draft',         bg: 'var(--paper-sunk)',         fg: 'var(--fg-3)', icon: AlertCircle },
@@ -14,13 +15,7 @@ const STATUS_LABELS: Record<string, { label: string; bg: string; fg: string; ico
   cancelled:     { label: 'Cancelled',     bg: 'rgba(229,32,44,0.10)',      fg: '#A82029',     icon: XCircle },
 };
 
-function formatAmount(minor: number, currency: string): string {
-  const factor = ['VND', 'JPY', 'KRW'].includes(currency) ? 1 : 100;
-  const value = minor / factor;
-  return value.toLocaleString('en-US', {
-    minimumFractionDigits: factor === 1 ? 0 : 2,
-    maximumFractionDigits: factor === 1 ? 0 : 2,
-  }) + ' ' + currency;
+) + ' ' + currency;
 }
 
 function formatDate(unix: number): string {
@@ -125,11 +120,11 @@ export default function SettlementsListPage() {
                     </td>
                     <td className="px-4 py-3 font-bold" style={{ color: 'var(--fg-1)' }}>{formatDate(s.settlement_date)}</td>
                     <td className="px-4 py-3">
-                      <div className="font-bold" style={{ color: 'var(--fg-1)' }}>{formatAmount(s.outbound_amount, s.outbound_currency)}</div>
+                      <div className="font-bold" style={{ color: 'var(--fg-1)' }}>{formatMinor(s.outbound_amount, s.outbound_currency)}</div>
                       <div className="text-xs" style={{ color: 'var(--fg-3)' }}>{s.outbound_company} → {s.outbound_agent_name}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="font-bold" style={{ color: 'var(--fg-1)' }}>{formatAmount(s.inbound_amount, s.inbound_currency)}</div>
+                      <div className="font-bold" style={{ color: 'var(--fg-1)' }}>{formatMinor(s.inbound_amount, s.inbound_currency)}</div>
                       <div className="text-xs" style={{ color: 'var(--fg-3)' }}>{s.inbound_agent_name} → {s.inbound_company}</div>
                     </td>
                     <td className="px-4 py-3">
@@ -144,7 +139,7 @@ export default function SettlementsListPage() {
                     <td className="px-4 py-3">
                       {s.variance_amount !== null && s.variance_amount !== undefined ? (
                         <span className="font-bold text-xs" style={{ color: Math.abs(s.variance_amount) > 10000 ? '#A82029' : 'var(--fg-3)' }}>
-                          {formatAmount(s.variance_amount, s.variance_currency ?? 'USD')}
+                          {formatMinor(s.variance_amount, s.variance_currency ?? 'USD')}
                         </span>
                       ) : (
                         <span className="text-xs" style={{ color: 'var(--fg-3)' }}>—</span>

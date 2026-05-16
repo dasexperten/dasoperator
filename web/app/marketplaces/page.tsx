@@ -126,9 +126,12 @@ export default function MarketplacesPage() {
           Marketplaces
         </h1>
         <p className="mt-2" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
-          FBO supply planning · Ozon and Wildberries
+          Ozon promotions · FBO supply planning · cross-channel insights
         </p>
       </div>
+
+      {/* Ozon active promotions — main widget */}
+      <OzonPromotionsWidget />
 
       {/* Tabs */}
       <div className="flex gap-1" style={{ borderBottom: '1px solid var(--border-hairline)' }}>
@@ -950,3 +953,478 @@ const tdStyle: React.CSSProperties = {
   padding: '12px 16px',
   color: 'var(--fg-1)',
 };
+
+/* ════════════════════════════════════════════════════════════════════════
+   OZON ACTIVE PROMOTIONS WIDGET
+   ════════════════════════════════════════════════════════════════════════ */
+
+interface PromoProduct {
+  product_id: number;
+  offer_id: string;
+  name: string;
+  price: number;
+  action_price: number;
+  discount_pct: number;
+  stock: number;
+  min_stock: number;
+}
+
+interface PromoAction {
+  action_id: number;
+  title: string;
+  action_type: string;
+  date_start: string;
+  date_end: string;
+  days_left: number;
+  is_voucher_action: boolean;
+  participating_products_count: number;
+  total_units_left: number;
+  products: PromoProduct[];
+}
+
+interface PromosPayload {
+  generated_at: string;
+  total_actions: number;
+  participating_count: number;
+  total_units_left: number;
+  total_skus_in_promos: number;
+  actions: PromoAction[];
+}
+
+function OzonPromotionsWidget() {
+  const [data, setData] = useState<PromosPayload | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async (force = false) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const apiBase =
+        (typeof window !== 'undefined' &&
+          (window as unknown as { __API_BASE?: string }).__API_BASE) ||
+        'https://dasoperator-api.dasexperten.workers.dev';
+      const url = `${apiBase}/api/marketplaces/ozon/actions${force ? '?refresh=1' : ''}`;
+      const r = await fetch(url);
+      const j = await r.json();
+      if (!j.success) throw new Error(j.errors?.[0]?.message || 'API error');
+      setData(j.result as PromosPayload);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Load failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  if (loading && !data) {
+    return (
+      <div
+        style={{
+          backgroundColor: 'var(--paper-1)',
+          border: '1px solid var(--border-hairline)',
+          borderRadius: 'var(--radius-md)',
+          padding: '32px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          color: 'var(--fg-muted)',
+        }}
+      >
+        <Loader2 className="h-5 w-5 animate-spin" />
+        <span style={{ fontSize: '14px' }}>Loading Ozon promotions…</span>
+      </div>
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <div
+        style={{
+          backgroundColor: 'rgba(229,32,44,0.05)',
+          border: '1px solid rgba(229,32,44,0.2)',
+          color: 'var(--brand-rot)',
+          padding: '16px',
+          borderRadius: 'var(--radius-sm)',
+          fontSize: '14px',
+        }}
+      >
+        Failed to load promotions: {error}
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const mostUrgent = data.actions.length > 0 ? data.actions[0] : null;
+
+  return (
+    <div
+      style={{
+        backgroundColor: 'var(--paper-1)',
+        border: '1px solid var(--border-hairline)',
+        borderRadius: 'var(--radius-md)',
+        overflow: 'hidden',
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          padding: '20px 24px',
+          borderBottom: '1px solid var(--border-hairline)',
+          display: 'flex',
+          alignItems: 'flex-end',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12,
+        }}
+      >
+        <div>
+          <div
+            style={{
+              fontSize: '12px',
+              fontWeight: 700,
+              color: OZON_BLUE,
+              marginBottom: 4,
+              letterSpacing: 0,
+            }}
+          >
+            OZON · ACTIVE PROMOTIONS
+          </div>
+          <div
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: '22px',
+              fontWeight: 900,
+              color: 'var(--fg-1)',
+              letterSpacing: 0,
+            }}
+          >
+            Sell-through tracker
+          </div>
+        </div>
+        <button
+          onClick={() => load(true)}
+          className="inline-flex items-center gap-2 px-3 py-1.5"
+          style={{
+            backgroundColor: 'var(--paper-sunk)',
+            border: '1px solid var(--border-hairline)',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: '14px',
+            color: 'var(--fg-1)',
+            cursor: 'pointer',
+          }}
+        >
+          <RefreshCw className="h-4 w-4" />
+          Refresh
+        </button>
+      </div>
+
+      {/* Metric strip */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, 1fr)',
+          borderBottom: '1px solid var(--border-hairline)',
+        }}
+      >
+        <PromoMetric label="Active promos" value={fmt(data.participating_count)} />
+        <PromoMetric label="SKUs in promos" value={fmt(data.total_skus_in_promos)} />
+        <PromoMetric
+          label="Units to sell"
+          value={fmt(data.total_units_left)}
+          highlight
+        />
+        <PromoMetric
+          label="Most urgent"
+          value={mostUrgent ? `${mostUrgent.days_left}d` : '—'}
+          subtitle={mostUrgent ? mostUrgent.title.slice(0, 22) : ''}
+          tone={mostUrgent && mostUrgent.days_left <= 7 ? 'danger' : 'default'}
+        />
+      </div>
+
+      {/* Actions list */}
+      <div>
+        {data.actions.length === 0 && (
+          <div style={{ padding: 24, color: 'var(--fg-muted)', fontSize: '14px' }}>
+            No active promotions
+          </div>
+        )}
+        {data.actions.map((a) => (
+          <PromoActionItem key={a.action_id} action={a} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PromoMetric({
+  label,
+  value,
+  subtitle,
+  highlight,
+  tone,
+}: {
+  label: string;
+  value: string;
+  subtitle?: string;
+  highlight?: boolean;
+  tone?: 'danger' | 'default';
+}) {
+  let color = 'var(--fg-1)';
+  if (highlight) color = OZON_BLUE;
+  if (tone === 'danger') color = 'var(--brand-rot)';
+  return (
+    <div
+      style={{
+        padding: '16px 20px',
+        borderRight: '1px solid var(--border-hairline)',
+      }}
+    >
+      <div
+        style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: '24px',
+          fontWeight: 900,
+          color,
+          lineHeight: 1,
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        {value}
+      </div>
+      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--fg-2)', marginTop: 4 }}>
+        {label}
+      </div>
+      {subtitle && (
+        <div
+          style={{
+            fontSize: '12px',
+            color: 'var(--fg-muted)',
+            marginTop: 2,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {subtitle}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PromoActionItem({ action }: { action: PromoAction }) {
+  const [open, setOpen] = useState(false);
+  const totalActive = action.products.filter((p) => p.stock > 0).length;
+  const dateEndShort = action.date_end ? action.date_end.slice(0, 10) : '';
+  const urgent = action.days_left <= 7;
+  const veryUrgent = action.days_left <= 3;
+
+  return (
+    <div style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+      <button
+        onClick={() => setOpen(!open)}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 16,
+          padding: '16px 24px',
+          backgroundColor: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          textAlign: 'left',
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: '15px',
+              fontWeight: 700,
+              color: 'var(--fg-1)',
+              marginBottom: 4,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {action.title}
+          </div>
+          <div
+            style={{
+              fontSize: '13px',
+              color: 'var(--fg-2)',
+              display: 'flex',
+              gap: 12,
+              flexWrap: 'wrap',
+            }}
+          >
+            <span>
+              <strong style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{totalActive}</strong> of{' '}
+              {action.participating_products_count} SKUs active
+            </span>
+            <span style={{ color: 'var(--fg-muted)' }}>·</span>
+            <span>
+              ends <strong style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{dateEndShort}</strong>
+            </span>
+          </div>
+        </div>
+        <div style={{ flexShrink: 0, textAlign: 'right' }}>
+          <div
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: '22px',
+              fontWeight: 900,
+              color: OZON_BLUE,
+              lineHeight: 1,
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {fmt(action.total_units_left)}
+          </div>
+          <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--fg-2)', marginTop: 2 }}>
+            units to sell
+          </div>
+        </div>
+        <div
+          style={{
+            flexShrink: 0,
+            minWidth: 80,
+            textAlign: 'right',
+            color: veryUrgent
+              ? 'var(--brand-rot)'
+              : urgent
+              ? '#8A6000'
+              : 'var(--fg-2)',
+          }}
+        >
+          <div
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: '22px',
+              fontWeight: 900,
+              lineHeight: 1,
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {action.days_left}d
+          </div>
+          <div style={{ fontSize: '12px', fontWeight: 600, marginTop: 2 }}>left</div>
+        </div>
+        <ChevronDown
+          className="h-5 w-5"
+          style={{
+            color: 'var(--fg-muted)',
+            transition: 'transform 200ms',
+            transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+          }}
+        />
+      </button>
+      {open && (
+        <div
+          style={{
+            backgroundColor: 'var(--paper-sunk)',
+            borderTop: '1px solid var(--border-hairline)',
+            overflowX: 'auto',
+          }}
+        >
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+            <thead>
+              <tr>
+                <th style={thStyle}>SKU</th>
+                <th style={thStyle}>Product</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Price</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Promo</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>%</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Units left</th>
+              </tr>
+            </thead>
+            <tbody>
+              {action.products.map((p) => {
+                const isOut = p.stock === 0;
+                const big = p.stock >= 500;
+                return (
+                  <tr
+                    key={p.product_id}
+                    style={{
+                      borderBottom: '1px solid var(--border-hairline)',
+                      backgroundColor: isOut ? 'rgba(0,0,0,0.02)' : 'transparent',
+                      opacity: isOut ? 0.55 : 1,
+                    }}
+                  >
+                    <td style={tdStyle}>
+                      <span style={{ fontWeight: 700, color: OZON_BLUE }}>
+                        {p.offer_id || '—'}
+                      </span>
+                    </td>
+                    <td
+                      style={{
+                        ...tdStyle,
+                        maxWidth: 360,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {p.name}
+                    </td>
+                    <td
+                      style={{
+                        ...tdStyle,
+                        textAlign: 'right',
+                        color: 'var(--fg-2)',
+                        textDecoration: 'line-through',
+                        fontWeight: 700,
+                      }}
+                    >
+                      {fmt(p.price)}₽
+                    </td>
+                    <td
+                      style={{
+                        ...tdStyle,
+                        textAlign: 'right',
+                        color: 'var(--fg-1)',
+                        fontWeight: 800,
+                      }}
+                    >
+                      {fmt(p.action_price)}₽
+                    </td>
+                    <td
+                      style={{
+                        ...tdStyle,
+                        textAlign: 'right',
+                        fontWeight: 700,
+                        color:
+                          p.discount_pct >= 30
+                            ? 'var(--brand-rot)'
+                            : p.discount_pct > 0
+                            ? '#8A6000'
+                            : 'var(--fg-muted)',
+                      }}
+                    >
+                      {p.discount_pct > 0 ? `−${p.discount_pct}%` : p.discount_pct < 0 ? `+${-p.discount_pct}%` : '0%'}
+                    </td>
+                    <td
+                      style={{
+                        ...tdStyle,
+                        textAlign: 'right',
+                        fontWeight: 800,
+                        color: big ? OZON_BLUE : 'var(--fg-1)',
+                      }}
+                    >
+                      {isOut ? <span style={{ color: 'var(--fg-muted)', fontWeight: 400 }}>—</span> : fmt(p.stock)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}

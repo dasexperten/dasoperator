@@ -1390,6 +1390,7 @@ function PromoProductRow({
   const dirty = isValid && draftNum !== product.stock;
   const isOut = product.stock === 0 && !dirty;
   const big = product.stock >= 500;
+  const atFloor = product.min_stock > 0 && product.stock === product.min_stock;
 
   async function save() {
     if (!dirty || saving) return;
@@ -1493,7 +1494,10 @@ function PromoProductRow({
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') save();
-              if (e.key === 'Escape') setDraft(String(product.stock));
+              if (e.key === 'Escape') {
+                setDraft(String(product.stock));
+                setErr(null);
+              }
             }}
             style={{
               width: 90,
@@ -1550,6 +1554,26 @@ function PromoProductRow({
             </span>
           )}
         </div>
+        {/* min_stock hint */}
+        {product.min_stock > 0 && !err && (
+          <div
+            style={{
+              fontSize: '11px',
+              color: atFloor ? 'var(--brand-rot)' : 'var(--fg-muted)',
+              marginTop: 4,
+              fontWeight: atFloor ? 700 : 500,
+              textAlign: 'right',
+              letterSpacing: 0,
+            }}
+            title={
+              atFloor
+                ? 'Minimum commitment reached — can only increase'
+                : `Minimum quota for this action: ${product.min_stock}`
+            }
+          >
+            {atFloor ? `at floor (min ${fmt(product.min_stock)})` : `min ${fmt(product.min_stock)}`}
+          </div>
+        )}
         {err && (
           <div
             style={{
@@ -1558,9 +1582,13 @@ function PromoProductRow({
               marginTop: 4,
               textAlign: 'right',
               fontWeight: 600,
+              maxWidth: 280,
+              marginLeft: 'auto',
+              whiteSpace: 'normal',
+              lineHeight: 1.35,
             }}
           >
-            {err.slice(0, 60)}
+            {err}
           </div>
         )}
       </td>

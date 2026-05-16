@@ -972,6 +972,8 @@ interface PromoProduct {
   discount_pct: number;
   stock: number;
   min_stock: number;
+  sold_count: number | null;
+  left_to_sell: number | null;
 }
 
 interface PromoAction {
@@ -1392,7 +1394,8 @@ function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: ()
                 <th style={{ ...thStyle, textAlign: 'right' }}>Price</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Promo</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>%</th>
-                <th style={{ ...thStyle, textAlign: 'right', minWidth: 180 }}>Units left</th>
+                <th style={{ ...thStyle, textAlign: 'right', minWidth: 160 }}>Units in promo</th>
+                <th style={{ ...thStyle, textAlign: 'right', minWidth: 160 }}>Left to sell</th>
               </tr>
             </thead>
             <tbody>
@@ -1421,51 +1424,70 @@ function PromoProductRow({
   actionId: number;
   onSaved: () => void;
 }) {
-  const [draft, setDraft] = useState<string>(String(product.stock));
-  const [saving, setSaving] = useState(false);
-  const [savedFlash, setSavedFlash] = useState(false);
+  const [stockDraft, setStockDraft] = useState<string>(String(product.stock));
+  const [leftDraft, setLeftDraft] = useState<string>(
+    product.left_to_sell != null ? String(product.left_to_sell) : '',
+  );
+  const [saving, setSaving] = useState<'stock' | 'left' | null>(null);
+  const [savedFlash, setSavedFlash] = useState<'stock' | 'left' | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  // Reset draft if upstream changes after refresh
+  // Reset drafts when upstream changes
   useEffect(() => {
-    setDraft(String(product.stock));
+    setStockDraft(String(product.stock));
+    setLeftDraft(product.left_to_sell != null ? String(product.left_to_sell) : '');
     setErr(null);
-  }, [product.stock]);
+  }, [product.stock, product.left_to_sell]);
 
-  const draftNum = Number(draft);
-  const isValid = !Number.isNaN(draftNum) && draftNum >= 0 && Number.isFinite(draftNum);
-  const dirty = isValid && draftNum !== product.stock;
-  const isOut = product.stock === 0 && !dirty;
-  const big = product.stock >= 500;
+  const stockNum = Number(stockDraft);
+  const leftNum = Number(leftDraft);
+  const stockValid = !Number.isNaN(stockNum) && stockNum >= 0 && Number.isFinite(stockNum);
+  const leftValid = leftDraft !== '' && !Number.isNaN(leftNum) && leftNum >= 0;
+  const stockDirty = stockValid && stockNum !== product.stock;
+  const leftDirty =
+    leftValid && (product.left_to_sell == null || leftNum !== product.left_to_sell);
+  const isOut = product.stock === 0 && !stockDirty && !leftDirty;
+  const bigStock = product.stock >= 500;
+  const bigLeft = (product.left_to_sell ?? 0) >= 500;
   const atFloor = product.min_stock > 0 && product.stock === product.min_stock;
+  const soldKnown = product.sold_count != null;
 
-  async function save() {
-    if (!dirty || saving) return;
-    setSaving(true);
+  async function save(mode: 'stock' | 'left') {
+    if (saving) return;
+    if (mode === 'stock' && !stockDirty) return;
+    if (mode === 'left' && !leftDirty) return;
+    setSaving(mode);
     setErr(null);
     try {
       const apiBase =
         (typeof window !== 'undefined' &&
           (window as unknown as { __API_BASE?: string }).__API_BASE) ||
         'https://dasoperator-api.dasexperten.workers.dev';
+      const payload: Record<string, unknown> = {
+        product_id: product.product_id,
+        action_price: product.action_price,
+        current_stock: product.stock,
+      };
+      if (mode === 'stock') {
+        payload.stock = stockNum;
+      } else {
+        payload.left_to_sell = leftNum;
+        if (product.left_to_sell != null) payload.current_left = product.left_to_sell;
+      }
       const r = await fetch(`${apiBase}/api/marketplaces/ozon/actions/${actionId}/stock`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          product_id: product.product_id,
-          stock: draftNum,
-          action_price: product.action_price,
-        }),
+        body: JSON.stringify(payload),
       });
       const j = await r.json();
-      if (!j.success) throw new Error(j.errors?.[0]?.message || 'Save failed');
-      setSavedFlash(true);
-      setTimeout(() => setSavedFlash(false), 1500);
+      if (!j.success) throw new Error(j.errors?.[0]?.message || j.errors || 'Save failed');
+      setSavedFlash(mode);
+      setTimeout(() => setSavedFlash(null), 1500);
       onSaved();
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Save failed');
     } finally {
-      setSaving(false);
+      setSaving(null);
     }
   }
 
@@ -1483,7 +1505,7 @@ function PromoProductRow({
       <td
         style={{
           ...tdStyle,
-          maxWidth: 360,
+          maxWidth: 320,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
@@ -1524,84 +1546,25 @@ function PromoProductRow({
           ? `+${-product.discount_pct}%`
           : '0%'}
       </td>
+
+      {/* Units in promo (stock) */}
       <td style={{ ...tdStyle, textAlign: 'right' }}>
-        <div
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            justifyContent: 'flex-end',
+        <EditableQuotaCell
+          value={stockDraft}
+          onChange={(v) => setStockDraft(v)}
+          onSave={() => save('stock')}
+          onCancel={() => {
+            setStockDraft(String(product.stock));
+            setErr(null);
           }}
-        >
-          <input
-            type="number"
-            min={0}
-            value={draft}
-            disabled={saving}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') save();
-              if (e.key === 'Escape') {
-                setDraft(String(product.stock));
-                setErr(null);
-              }
-            }}
-            style={{
-              width: 90,
-              padding: '6px 10px',
-              fontFamily: 'var(--font-body)',
-              fontSize: '14px',
-              fontWeight: 800,
-              textAlign: 'right',
-              color: big ? OZON_BLUE : 'var(--fg-1)',
-              backgroundColor: dirty ? 'rgba(212,160,23,0.10)' : 'var(--paper-1)',
-              border: dirty
-                ? '1px solid #D4A017'
-                : err
-                ? '1px solid var(--brand-rot)'
-                : '1px solid var(--border-hairline)',
-              borderRadius: 'var(--radius-sm)',
-              outline: 'none',
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          />
-          {dirty && (
-            <button
-              onClick={save}
-              disabled={saving || !isValid}
-              title="Save to Ozon"
-              style={{
-                width: 28,
-                height: 28,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: 0,
-                backgroundColor: OZON_BLUE,
-                color: '#fff',
-                border: 'none',
-                borderRadius: 'var(--radius-sm)',
-                cursor: saving ? 'wait' : 'pointer',
-                opacity: saving ? 0.6 : 1,
-              }}
-            >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-            </button>
-          )}
-          {savedFlash && !dirty && (
-            <span
-              style={{
-                fontSize: '12px',
-                fontWeight: 700,
-                color: '#2E7D4F',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              saved ✓
-            </span>
-          )}
-        </div>
-        {/* min_stock hint */}
+          dirty={stockDirty}
+          saving={saving === 'stock'}
+          disabled={saving !== null && saving !== 'stock'}
+          showSaved={savedFlash === 'stock'}
+          hasError={!!err && saving !== 'left'}
+          bigValue={bigStock}
+        />
+        {/* min_stock hint (only on stock column) */}
         {product.min_stock > 0 && !err && (
           <div
             style={{
@@ -1619,6 +1582,41 @@ function PromoProductRow({
             }
           >
             {atFloor ? `at floor (min ${fmt(product.min_stock)})` : `min ${fmt(product.min_stock)}`}
+          </div>
+        )}
+      </td>
+
+      {/* Left to sell — derived from stock - sold_count */}
+      <td style={{ ...tdStyle, textAlign: 'right' }}>
+        <EditableQuotaCell
+          value={leftDraft}
+          onChange={(v) => setLeftDraft(v)}
+          onSave={() => save('left')}
+          onCancel={() => {
+            setLeftDraft(product.left_to_sell != null ? String(product.left_to_sell) : '');
+            setErr(null);
+          }}
+          dirty={leftDirty}
+          saving={saving === 'left'}
+          disabled={saving !== null && saving !== 'left'}
+          showSaved={savedFlash === 'left'}
+          hasError={!!err && saving !== 'stock'}
+          bigValue={bigLeft}
+          placeholder={soldKnown ? '' : 'set'}
+        />
+        {!soldKnown && !err && (
+          <div
+            style={{
+              fontSize: '11px',
+              color: 'var(--fg-muted)',
+              marginTop: 4,
+              fontWeight: 500,
+              textAlign: 'right',
+              fontStyle: 'italic',
+            }}
+            title="First time — type the value shown in Ozon's 'Осталось продать' column. We'll remember it from now on."
+          >
+            unknown — set once
           </div>
         )}
         {err && (
@@ -1640,5 +1638,109 @@ function PromoProductRow({
         )}
       </td>
     </tr>
+  );
+}
+
+function EditableQuotaCell({
+  value,
+  onChange,
+  onSave,
+  onCancel,
+  dirty,
+  saving,
+  disabled,
+  showSaved,
+  hasError,
+  bigValue,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+  dirty: boolean;
+  saving: boolean;
+  disabled: boolean;
+  showSaved: boolean;
+  hasError: boolean;
+  bigValue: boolean;
+  placeholder?: string;
+}) {
+  return (
+    <div
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        justifyContent: 'flex-end',
+      }}
+    >
+      <input
+        type="number"
+        min={0}
+        value={value}
+        placeholder={placeholder}
+        disabled={saving || disabled}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') onSave();
+          if (e.key === 'Escape') onCancel();
+        }}
+        style={{
+          width: 90,
+          padding: '6px 10px',
+          fontFamily: 'var(--font-body)',
+          fontSize: '14px',
+          fontWeight: 800,
+          textAlign: 'right',
+          color: bigValue ? OZON_BLUE : 'var(--fg-1)',
+          backgroundColor: dirty ? 'rgba(212,160,23,0.10)' : 'var(--paper-1)',
+          border: dirty
+            ? '1px solid #D4A017'
+            : hasError
+            ? '1px solid var(--brand-rot)'
+            : '1px solid var(--border-hairline)',
+          borderRadius: 'var(--radius-sm)',
+          outline: 'none',
+          fontVariantNumeric: 'tabular-nums',
+          opacity: disabled && !saving ? 0.5 : 1,
+        }}
+      />
+      {dirty && (
+        <button
+          onClick={onSave}
+          disabled={saving || disabled}
+          title="Save to Ozon"
+          style={{
+            width: 28,
+            height: 28,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
+            backgroundColor: OZON_BLUE,
+            color: '#fff',
+            border: 'none',
+            borderRadius: 'var(--radius-sm)',
+            cursor: saving ? 'wait' : 'pointer',
+            opacity: saving ? 0.6 : 1,
+          }}
+        >
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+        </button>
+      )}
+      {showSaved && !dirty && (
+        <span
+          style={{
+            fontSize: '12px',
+            fontWeight: 700,
+            color: '#2E7D4F',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          saved ✓
+        </span>
+      )}
+    </div>
   );
 }

@@ -16,6 +16,7 @@
 
 import { Hono } from 'hono';
 import { findExistingPartnerByName, isBankProviderName, generateReadablePartnerId } from '../lib/partner-dedup';
+import { autoMatchBankTransaction } from '../lib/bank-auto-match';
 
 // =============================================================================
 // generateServiceReference — issuer-based naming for service-track operations.
@@ -1057,8 +1058,6 @@ inboxBanking.post('/:tx_id/promote-draft', async (c) => {
 // Returns the list of references created/linked for audit.
 // =============================================================================
 inboxBanking.post('/backfill-narration', async (c) => {
-  const { autoMatchBankTransaction } = await import('../lib/bank-auto-match');
-
   const rows = await c.env.DB.prepare(`
     SELECT id
       FROM bank_transactions

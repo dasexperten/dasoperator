@@ -264,4 +264,62 @@ promos.get('/ozon/actions', async (c) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/marketplaces/ozon/actions/:actionId/stock
+// Update remaining quota (and optionally action_price) for ONE product in an action.
+// Body: { product_id: number, stock: number, action_price?: number }
+// ---------------------------------------------------------------------------
+promos.post('/ozon/actions/:actionId/stock', async (c) => {
+  const actionId = Number(c.req.param('actionId'));
+  if (!actionId || Number.isNaN(actionId)) return fail(c, 400, 'invalid action_id');
+
+  let body: { product_id?: number; stock?: number; action_price?: number };
+  try {
+    body = await c.req.json();
+  } catch {
+    return fail(c, 400, 'invalid JSON body');
+  }
+  const productId = Number(body.product_id);
+  const stock = Number(body.stock);
+  if (!productId || Number.isNaN(productId)) return fail(c, 400, 'product_id required');
+  if (Number.isNaN(stock) || stock < 0) return fail(c, 400, 'stock must be a non-negative number');
+
+  const productPayload: Record<string, unknown> = { product_id: productId, stock };
+  if (typeof body.action_price === 'number' && body.action_price > 0) {
+    productPayload.action_price = body.action_price;
+  }
+
+  try {
+    const resp = await ozonRequest<{
+      result?: { product_ids?: number[]; rejected?: Array<{ product_id: number; reason: string }> };
+    }>(c.env, '/v1/actions/products/activate', 'POST', {
+      action_id: actionId,
+      products: [productPayload],
+    });
+
+    const accepted = resp.result?.product_ids ?? [];
+    const rejected = resp.result?.rejected ?? [];
+
+    // Invalidate cache so next GET pulls fresh data
+    try {
+      await c.env.CACHE.delete(CACHE_KEY);
+    } catch {
+      // ignore
+    }
+
+    if (rejected.length > 0) {
+      const r = rejected[0];
+      return fail(c, 409, `Ozon rejected: ${r.reason}`);
+    }
+    return ok(c, {
+      action_id: actionId,
+      product_id: productId,
+      new_stock: stock,
+      accepted_count: accepted.length,
+    });
+  } catch (e) {
+    return fail(c, 502, e instanceof Error ? e.message : 'Ozon API error');
+  }
+});
+
 export default promos;

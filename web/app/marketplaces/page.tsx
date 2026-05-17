@@ -1815,6 +1815,9 @@ function RefillRuleCell({
             save();
           }
           }}
+          onBlur={() => {
+            if (dirty) save();
+          }}
           style={inputStyle}
         />
       </div>
@@ -1835,31 +1838,12 @@ function RefillRuleCell({
             save();
           }
           }}
+          onBlur={() => {
+            if (dirty) save();
+          }}
           style={inputStyle}
         />
       </div>
-      {dirty && (
-        <button
-          onClick={save}
-          disabled={saving || (!bothEmpty && !bothValid)}
-          title={bothEmpty ? 'Clear rule' : 'Save rule'}
-          style={{
-            marginTop: 2,
-            padding: '4px 10px',
-            fontSize: '12px',
-            fontWeight: 700,
-            color: '#fff',
-            backgroundColor: bothEmpty ? 'var(--fg-2)' : OZON_BLUE,
-            border: 'none',
-            borderRadius: 'var(--radius-sm)',
-            cursor: saving ? 'wait' : 'pointer',
-            opacity: !bothEmpty && !bothValid ? 0.4 : saving ? 0.6 : 1,
-            letterSpacing: 0,
-          }}
-        >
-          {saving ? '…' : bothEmpty ? 'Clear' : 'Save'}
-        </button>
-      )}
       {savedFlash && !dirty && (
         <span
           style={{

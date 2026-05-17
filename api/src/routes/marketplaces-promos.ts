@@ -16,7 +16,7 @@ import { ok, fail } from '../lib/responses';
 
 const promos = new Hono<{ Bindings: Env }>();
 
-const CACHE_KEY = 'ozon:actions:v3';
+const CACHE_KEY = 'ozon:actions:v4';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
@@ -141,11 +141,11 @@ async function fetchAllProductInfo(
   return map;
 }
 
-// Fetch per-SKU current price + minimum price floor from Ozon.
-// Current price (price.price) lets us detect which active promo's action_price
-// matches the live displayed price — that's the "deciding" promo for the SKU.
-// Min price (price.min_price) is the seller-set floor below which Ozon blocks.
-// Uses /v5/product/info/prices with product_id filter; paginates via cursor.
+// Fetch per-SKU current displayed price + minimum price floor from Ozon.
+// We use `marketing_seller_price` (the post-auto-promo price buyers actually
+// see) rather than `price.price` (the seller's base price before active promos
+// are applied). Min price (price.min_price) is the seller-set floor below which
+// Ozon blocks. Uses /v5/product/info/prices with product_id filter; paginates.
 async function fetchAllProductPriceInfo(
   env: Env,
   productIds: number[],
@@ -164,6 +164,7 @@ async function fetchAllProductPriceInfo(
           price?: {
             price?: number | string;
             min_price?: number | string;
+            marketing_seller_price?: number | string;
           };
         }>;
         cursor?: string;
@@ -176,13 +177,19 @@ async function fetchAllProductPriceInfo(
       const items = resp.items || [];
       for (const it of items) {
         if (!it || typeof it.product_id !== 'number') continue;
-        const rawCur = it.price?.price;
+        const rawMkt = it.price?.marketing_seller_price;
+        const rawBase = it.price?.price;
         const rawMin = it.price?.min_price;
-        const cur = typeof rawCur === 'string' ? Number(rawCur) : rawCur;
+        const mkt = typeof rawMkt === 'string' ? Number(rawMkt) : rawMkt;
+        const base = typeof rawBase === 'string' ? Number(rawBase) : rawBase;
         const min = typeof rawMin === 'string' ? Number(rawMin) : rawMin;
         const minVal = typeof min === 'number' && Number.isFinite(min) && min > 0 ? min : null;
-        const curVal = typeof cur === 'number' && Number.isFinite(cur) ? cur : 0;
-        map.set(it.product_id, { current_price: curVal, min_price: minVal });
+        // Prefer marketing_seller_price (post-auto-promo). Fall back to base
+        // price if marketing is zero/missing (rare — usually for SKUs with no
+        // active promos at all).
+        const mktVal = typeof mkt === 'number' && Number.isFinite(mkt) && mkt > 0 ? mkt : 0;
+        const baseVal = typeof base === 'number' && Number.isFinite(base) ? base : 0;
+        map.set(it.product_id, { current_price: mktVal || baseVal, min_price: minVal });
       }
       if (!resp.cursor || resp.cursor === '' || items.length === 0) break;
       cursor = resp.cursor;

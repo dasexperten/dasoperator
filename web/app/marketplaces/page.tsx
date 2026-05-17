@@ -1447,7 +1447,7 @@ function PromoProductRow({
         backgroundColor: isOut
           ? 'rgba(0,0,0,0.02)'
           : product.is_deciding_price
-          ? 'rgba(0,0,0,0.045)'
+          ? '#FFFFFF'
           : 'transparent',
         opacity: isOut ? 0.55 : 1,
       }}

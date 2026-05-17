@@ -654,7 +654,7 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
   try {
     // First try VPS-ingested data from KV
     for (const aw of actionsWithProducts) {
-      const productMap = new Map<number, { sold: number; isSoldOut: boolean }>();
+      const productMap = new Map<number, { sold: number; isSoldOut: boolean; warehouseStock?: number | null }>();
       for (const p of aw.products) {
         try {
           const stored = await env.CACHE.get(
@@ -664,10 +664,12 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
             const parsed = JSON.parse(stored) as {
               sold: number;
               is_sold_out: boolean;
+              warehouse_stock?: number | null;
             };
             productMap.set(p.id, {
               sold: parsed.sold,
               isSoldOut: parsed.is_sold_out,
+              warehouseStock: typeof parsed.warehouse_stock === 'number' ? parsed.warehouse_stock : null,
             });
           }
         } catch {
@@ -757,7 +759,13 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
               soldSource = 'analytics';
             }
           }
-          const leftToSell = soldCount != null ? Math.max(0, p.stock - soldCount) : null;
+          // If Ozon Analytics gives 0 stock (boosting promos have no quota) but
+          // we have warehouse_stock from portal — use it as stock for visibility.
+          const portalEntry = portalMap?.get(p.id);
+          const effectiveStock = (p.stock === 0 && portalEntry?.warehouseStock != null && portalEntry.warehouseStock > 0)
+            ? portalEntry.warehouseStock
+            : p.stock;
+          const leftToSell = soldCount != null ? Math.max(0, effectiveStock - soldCount) : (effectiveStock > 0 ? effectiveStock : null);
           const priceInfo = priceInfoMap.get(p.id);
           const minPrice = priceInfo?.min_price ?? null;
           const currentPrice = priceInfo?.current_price ?? 0;
@@ -774,7 +782,7 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
             price: p.price,
             action_price: p.action_price,
             discount_pct: discountPct,
-            stock: p.stock,
+            stock: effectiveStock,
             min_stock: p.min_stock,
             min_price: minPrice,
             current_price: currentPrice,
@@ -971,7 +979,7 @@ promos.post('/ozon/portal-ingest', async (c) => {
     secret?: string;
     data?: Array<{
       action_id: number;
-      products: Array<{ product_id: number; sold: number; is_sold_out: boolean }>;
+      products: Array<{ product_id: number; sold: number; is_sold_out: boolean; warehouse_stock?: number }>;
     }>;
   };
   try {
@@ -1003,7 +1011,7 @@ promos.post('/ozon/portal-ingest', async (c) => {
       // namespace and have buildPayload check it.
       await c.env.CACHE.put(
         `ozon:promo:portal:${action.action_id}:${p.product_id}`,
-        JSON.stringify({ sold: p.sold, is_sold_out: p.is_sold_out, ts: Date.now() }),
+        JSON.stringify({ sold: p.sold, is_sold_out: p.is_sold_out, warehouse_stock: typeof p.warehouse_stock === 'number' ? p.warehouse_stock : null, ts: Date.now() }),
         { expirationTtl: 24 * 3600 }, // 24h — covers gap between scraper runs
       );
       totalProducts++;

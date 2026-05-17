@@ -973,6 +973,7 @@ interface PromoProduct {
   stock: number;
   min_stock: number;
   min_price: number | null;
+  is_deciding_price: boolean;
   sold_count: number | null;
   left_to_sell: number | null;
 }
@@ -987,6 +988,7 @@ interface PromoAction {
   is_voucher_action: boolean;
   participating_products_count: number;
   total_units_left: number;
+  deciding_count: number;
   auto_zeroed_at: string | null;
   products: PromoProduct[];
 }
@@ -1330,6 +1332,7 @@ function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: ()
         </div>
         <div style={{ flexShrink: 0, textAlign: 'right' }}>
           <div
+            title={`${action.deciding_count} of ${action.products.length} products in this promo currently show this promo's price as the active Ozon listing price (i.e. this promo is the winning offer for that SKU). The rest are in the promo but a different promo or base price is currently the deciding one.`}
             style={{
               fontFamily: 'var(--font-display)',
               fontSize: '22px',
@@ -1339,10 +1342,12 @@ function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: ()
               fontVariantNumeric: 'tabular-nums',
             }}
           >
-            {fmt(action.total_units_left)}
+            <span>{action.deciding_count}</span>
+            <span style={{ color: 'var(--fg-muted)', fontWeight: 700 }}> / </span>
+            <span style={{ color: 'var(--fg-1)' }}>{action.products.length}</span>
           </div>
           <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--fg-2)', marginTop: 2 }}>
-            units to sell
+            winning / in promo
           </div>
         </div>
         <div

@@ -16,7 +16,7 @@ import { ok, fail } from '../lib/responses';
 
 const promos = new Hono<{ Bindings: Env }>();
 
-const CACHE_KEY = 'ozon:actions:v2';
+const CACHE_KEY = 'ozon:actions:v3';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
@@ -71,6 +71,7 @@ interface CachedActionsPayload {
     participating_products_count: number;
     total_units_left: number;
     auto_zeroed_at: string | null;
+    deciding_count: number; // products in this promo whose current price = action_price
     products: Array<{
       product_id: number;
       offer_id: string;
@@ -81,6 +82,7 @@ interface CachedActionsPayload {
       stock: number;
       min_stock: number;
       min_price: number | null; // seller-set floor price (₽) — below this Ozon auto-blocks SKU
+      is_deciding_price: boolean; // this promo's action_price matches current displayed price
       sold_count: number | null; // null = unknown, will be set after first manual save
       sold_source: 'manual' | 'portal' | 'analytics' | null; // where sold_count came from
       left_to_sell: number | null; // = stock - sold_count when sold_count known
@@ -139,27 +141,30 @@ async function fetchAllProductInfo(
   return map;
 }
 
-// Fetch per-SKU minimum price (the seller-set floor below which Ozon auto-blocks
-// the SKU on stock-discount actions). Returns Map<product_id, min_price_in_rubles>.
-// Uses /v5/product/info/prices with product_id filter; paginates via cursor in
-// case Ozon caps response size below requested limit.
-async function fetchAllProductMinPrices(
+// Fetch per-SKU current price + minimum price floor from Ozon.
+// Current price (price.price) lets us detect which active promo's action_price
+// matches the live displayed price — that's the "deciding" promo for the SKU.
+// Min price (price.min_price) is the seller-set floor below which Ozon blocks.
+// Uses /v5/product/info/prices with product_id filter; paginates via cursor.
+async function fetchAllProductPriceInfo(
   env: Env,
   productIds: number[],
-): Promise<Map<number, number>> {
-  const map = new Map<number, number>();
+): Promise<Map<number, { current_price: number; min_price: number | null }>> {
+  const map = new Map<number, { current_price: number; min_price: number | null }>();
   if (productIds.length === 0) return map;
   const chunkSize = 1000;
   for (let i = 0; i < productIds.length; i += chunkSize) {
     const chunk = productIds.slice(i, i + chunkSize);
     let cursor = '';
-    // Hard cap pagination loop to 20 iterations to avoid runaway
     for (let page = 0; page < 20; page++) {
       const resp = await ozonRequest<{
         items?: Array<{
           product_id: number;
           offer_id?: string;
-          price?: { min_price?: number | string };
+          price?: {
+            price?: number | string;
+            min_price?: number | string;
+          };
         }>;
         cursor?: string;
         total?: number;
@@ -171,11 +176,13 @@ async function fetchAllProductMinPrices(
       const items = resp.items || [];
       for (const it of items) {
         if (!it || typeof it.product_id !== 'number') continue;
-        const raw = it.price?.min_price;
-        const n = typeof raw === 'string' ? Number(raw) : raw;
-        if (typeof n === 'number' && Number.isFinite(n) && n > 0) {
-          map.set(it.product_id, n);
-        }
+        const rawCur = it.price?.price;
+        const rawMin = it.price?.min_price;
+        const cur = typeof rawCur === 'string' ? Number(rawCur) : rawCur;
+        const min = typeof rawMin === 'string' ? Number(rawMin) : rawMin;
+        const minVal = typeof min === 'number' && Number.isFinite(min) && min > 0 ? min : null;
+        const curVal = typeof cur === 'number' && Number.isFinite(cur) ? cur : 0;
+        map.set(it.product_id, { current_price: curVal, min_price: minVal });
       }
       if (!resp.cursor || resp.cursor === '' || items.length === 0) break;
       cursor = resp.cursor;
@@ -541,9 +548,11 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
     for (const p of a.products) uniqueIds.add(p.id);
   }
   const idArr = Array.from(uniqueIds);
-  const [infoMap, minPriceMap] = await Promise.all([
+  const [infoMap, priceInfoMap] = await Promise.all([
     fetchAllProductInfo(env, idArr),
-    fetchAllProductMinPrices(env, idArr).catch(() => new Map<number, number>()),
+    fetchAllProductPriceInfo(env, idArr).catch(
+      () => new Map<number, { current_price: number; min_price: number | null }>(),
+    ),
   ]);
 
   // 4. Apply auto-zero policy for STOCK_DISCOUNT actions (first-time-seen only)
@@ -670,7 +679,15 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
             }
           }
           const leftToSell = soldCount != null ? Math.max(0, p.stock - soldCount) : null;
-          const minPrice = minPriceMap.get(p.id) ?? null;
+          const priceInfo = priceInfoMap.get(p.id);
+          const minPrice = priceInfo?.min_price ?? null;
+          const currentPrice = priceInfo?.current_price ?? 0;
+          // "Deciding" = this promo's action_price equals the current displayed
+          // Ozon price (within 0.5₽ rounding tolerance). Means: among all the
+          // promos this SKU participates in, this one is the winning offer that
+          // the buyer actually sees on the listing right now.
+          const isDeciding =
+            currentPrice > 0 && Math.abs(p.action_price - currentPrice) < 0.5;
           return {
             product_id: p.id,
             offer_id: info?.offer_id || '',
@@ -681,6 +698,7 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
             stock: p.stock,
             min_stock: p.min_stock,
             min_price: minPrice,
+            is_deciding_price: isDeciding,
             sold_count: soldCount,
             sold_source: soldSource,
             left_to_sell: leftToSell,
@@ -689,6 +707,10 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
       );
       productsOut.sort((a, b) => b.stock - a.stock);
       const totalUnits = productsOut.reduce((s, p) => s + p.stock, 0);
+      const decidingCount = productsOut.reduce(
+        (s, p) => s + (p.is_deciding_price ? 1 : 0),
+        0,
+      );
       return {
         action_id: aw.raw.id,
         title: aw.raw.title,
@@ -699,6 +721,7 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
         is_voucher_action: aw.raw.is_voucher_action,
         participating_products_count: aw.raw.participating_products_count,
         total_units_left: totalUnits,
+        deciding_count: decidingCount,
         auto_zeroed_at: autoZeroedMap.get(aw.raw.id) || null,
         products: productsOut,
       };

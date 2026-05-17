@@ -16,7 +16,7 @@ import { ok, fail } from '../lib/responses';
 
 const promos = new Hono<{ Bindings: Env }>();
 
-const CACHE_KEY = 'ozon:actions:v1';
+const CACHE_KEY = 'ozon:actions:v2';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
@@ -80,6 +80,7 @@ interface CachedActionsPayload {
       discount_pct: number;
       stock: number;
       min_stock: number;
+      min_price: number | null; // seller-set floor price (₽) — below this Ozon auto-blocks SKU
       sold_count: number | null; // null = unknown, will be set after first manual save
       sold_source: 'manual' | 'portal' | 'analytics' | null; // where sold_count came from
       left_to_sell: number | null; // = stock - sold_count when sold_count known
@@ -133,6 +134,51 @@ async function fetchAllProductInfo(
     const items = resp.items || resp.result?.items || [];
     for (const it of items) {
       if (it && it.id) map.set(it.id, it);
+    }
+  }
+  return map;
+}
+
+// Fetch per-SKU minimum price (the seller-set floor below which Ozon auto-blocks
+// the SKU on stock-discount actions). Returns Map<product_id, min_price_in_rubles>.
+// Uses /v5/product/info/prices with product_id filter; paginates via cursor in
+// case Ozon caps response size below requested limit.
+async function fetchAllProductMinPrices(
+  env: Env,
+  productIds: number[],
+): Promise<Map<number, number>> {
+  const map = new Map<number, number>();
+  if (productIds.length === 0) return map;
+  const chunkSize = 1000;
+  for (let i = 0; i < productIds.length; i += chunkSize) {
+    const chunk = productIds.slice(i, i + chunkSize);
+    let cursor = '';
+    // Hard cap pagination loop to 20 iterations to avoid runaway
+    for (let page = 0; page < 20; page++) {
+      const resp = await ozonRequest<{
+        items?: Array<{
+          product_id: number;
+          offer_id?: string;
+          price?: { min_price?: number | string };
+        }>;
+        cursor?: string;
+        total?: number;
+      }>(env, '/v5/product/info/prices', 'POST', {
+        filter: { product_id: chunk.map(String), visibility: 'ALL' },
+        limit: 1000,
+        cursor,
+      });
+      const items = resp.items || [];
+      for (const it of items) {
+        if (!it || typeof it.product_id !== 'number') continue;
+        const raw = it.price?.min_price;
+        const n = typeof raw === 'string' ? Number(raw) : raw;
+        if (typeof n === 'number' && Number.isFinite(n) && n > 0) {
+          map.set(it.product_id, n);
+        }
+      }
+      if (!resp.cursor || resp.cursor === '' || items.length === 0) break;
+      cursor = resp.cursor;
     }
   }
   return map;
@@ -489,12 +535,16 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
     actionsWithProducts.push({ raw: a, products: allProds });
   }
 
-  // 3. Collect all unique product_ids and fetch SKU info in one batch
+  // 3. Collect all unique product_ids and fetch SKU info + min_price in parallel
   const uniqueIds = new Set<number>();
   for (const a of actionsWithProducts) {
     for (const p of a.products) uniqueIds.add(p.id);
   }
-  const infoMap = await fetchAllProductInfo(env, Array.from(uniqueIds));
+  const idArr = Array.from(uniqueIds);
+  const [infoMap, minPriceMap] = await Promise.all([
+    fetchAllProductInfo(env, idArr),
+    fetchAllProductMinPrices(env, idArr).catch(() => new Map<number, number>()),
+  ]);
 
   // 4. Apply auto-zero policy for STOCK_DISCOUNT actions (first-time-seen only)
   const autoZeroedMap = await autoZeroStockDiscount(env, actionsWithProducts);
@@ -620,6 +670,7 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
             }
           }
           const leftToSell = soldCount != null ? Math.max(0, p.stock - soldCount) : null;
+          const minPrice = minPriceMap.get(p.id) ?? null;
           return {
             product_id: p.id,
             offer_id: info?.offer_id || '',
@@ -629,6 +680,7 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
             discount_pct: discountPct,
             stock: p.stock,
             min_stock: p.min_stock,
+            min_price: minPrice,
             sold_count: soldCount,
             sold_source: soldSource,
             left_to_sell: leftToSell,

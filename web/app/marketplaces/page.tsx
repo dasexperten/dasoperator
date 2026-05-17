@@ -972,6 +972,7 @@ interface PromoProduct {
   discount_pct: number;
   stock: number;
   min_stock: number;
+  min_price: number | null;
   sold_count: number | null;
   left_to_sell: number | null;
 }
@@ -1393,6 +1394,7 @@ function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: ()
                 <th style={thStyle}>Product</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Price</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Promo</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Min price</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>%</th>
                 <th style={{ ...thStyle, textAlign: 'right', minWidth: 160 }}>Units in promo</th>
                 <th style={{ ...thStyle, textAlign: 'right', minWidth: 160 }}>Left to sell</th>
@@ -1526,6 +1528,30 @@ function PromoProductRow({
       </td>
       <td style={{ ...tdStyle, textAlign: 'right', color: 'var(--fg-1)', fontWeight: 800 }}>
         {fmt(product.action_price)}₽
+      </td>
+      <td
+        style={{
+          ...tdStyle,
+          textAlign: 'right',
+          fontWeight: 700,
+          color:
+            product.min_price == null
+              ? 'var(--fg-muted)'
+              : product.action_price <= product.min_price
+              ? 'var(--brand-rot)'
+              : 'var(--fg-2)',
+        }}
+        title={
+          product.min_price == null
+            ? 'No minimum price set in Ozon'
+            : product.action_price <= product.min_price
+            ? 'Promo price is at or below the seller minimum — no further discount allowed'
+            : `Floor below which Ozon auto-blocks the SKU. Promo can still drop by ${fmt(
+                product.action_price - product.min_price,
+              )}₽`
+        }
+      >
+        {product.min_price != null ? `${fmt(product.min_price)}₽` : '—'}
       </td>
       <td
         style={{

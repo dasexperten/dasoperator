@@ -1441,7 +1441,14 @@ function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: ()
               </tr>
             </thead>
             <tbody>
-              {action.products.map((p) => (
+              {[...action.products]
+                .sort((a, b) =>
+                  (a.offer_id || '').localeCompare(b.offer_id || '', undefined, {
+                    numeric: true,
+                    sensitivity: 'base',
+                  }),
+                )
+                .map((p) => (
                 <PromoProductRow
                   key={p.product_id}
                   product={p}

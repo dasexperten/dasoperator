@@ -16,7 +16,7 @@ import { ok, fail } from '../lib/responses';
 
 const promos = new Hono<{ Bindings: Env }>();
 
-const CACHE_KEY = 'ozon:actions:v7';
+const CACHE_KEY = 'ozon:actions:v8';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
@@ -799,7 +799,15 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
           };
         }),
       );
-      productsOut.sort((a, b) => b.stock - a.stock);
+      // Sort by SKU (offer_id) alphabetically + numerically so the row order
+      // stays stable when stock or left_to_sell changes. Natural sort handles
+      // mixed letters/digits like DE101 vs DE112 vs DE205AA correctly.
+      productsOut.sort((a, b) =>
+        (a.offer_id || '').localeCompare(b.offer_id || '', undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        }),
+      );
       const totalUnits = productsOut.reduce((s, p) => s + p.stock, 0);
       const decidingCount = productsOut.reduce(
         (s, p) => s + (p.is_deciding_price ? 1 : 0),

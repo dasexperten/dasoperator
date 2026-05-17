@@ -16,7 +16,7 @@ import { ok, fail } from '../lib/responses';
 
 const promos = new Hono<{ Bindings: Env }>();
 
-const CACHE_KEY = 'ozon:actions:v5';
+const CACHE_KEY = 'ozon:actions:v6';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
@@ -81,12 +81,13 @@ interface CachedActionsPayload {
       discount_pct: number;
       stock: number;
       min_stock: number;
-      min_price: number | null; // seller-set floor (₽)
-      current_price: number; // actual displayed price (marketing_seller_price)
-      is_deciding_price: boolean; // current_price ≈ action_price → this promo wins
+      min_price: number | null;
+      current_price: number;
+      is_deciding_price: boolean;
       sold_count: number | null;
       sold_source: 'manual' | 'portal' | 'analytics' | null;
       left_to_sell: number | null;
+      refill_rule: { threshold: number; target: number } | null;
     }>;
   }>;
 }
@@ -237,6 +238,66 @@ async function setSoldCount(
     await env.CACHE.put(soldCountKey(actionId, productId), String(soldCount), {
       expirationTtl: SOLD_COUNT_TTL_SEC,
     });
+  } catch {
+    // best-effort
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Refill rules — per-product autopilot for promo "left to sell" quotas.
+//
+// Rule shape: { threshold: number, target: number }
+//   - threshold: if left_to_sell drops below this, refill is triggered
+//   - target:    cron pushes left_to_sell back up to this value
+// Both must be positive; target must be > threshold (otherwise refill would
+// re-trigger immediately). Stored durably in KV (no TTL). Deleting the key
+// = no rule.
+// ---------------------------------------------------------------------------
+function refillRuleKey(actionId: number, productId: number): string {
+  return `ozon:promo:refill:${actionId}:${productId}`;
+}
+
+interface RefillRule {
+  threshold: number;
+  target: number;
+}
+
+async function getRefillRule(
+  env: Env,
+  actionId: number,
+  productId: number,
+): Promise<RefillRule | null> {
+  try {
+    const v = await env.CACHE.get(refillRuleKey(actionId, productId));
+    if (!v) return null;
+    const parsed = JSON.parse(v) as Partial<RefillRule>;
+    if (
+      typeof parsed.threshold === 'number' &&
+      typeof parsed.target === 'number' &&
+      parsed.threshold >= 0 &&
+      parsed.target > parsed.threshold
+    ) {
+      return { threshold: parsed.threshold, target: parsed.target };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function setRefillRule(
+  env: Env,
+  actionId: number,
+  productId: number,
+  rule: RefillRule | null,
+): Promise<void> {
+  const key = refillRuleKey(actionId, productId);
+  try {
+    if (rule == null) {
+      await env.CACHE.delete(key);
+    } else {
+      await env.CACHE.put(key, JSON.stringify(rule));
+    }
   } catch {
     // best-effort
   }
@@ -690,12 +751,9 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
           const priceInfo = priceInfoMap.get(p.id);
           const minPrice = priceInfo?.min_price ?? null;
           const currentPrice = priceInfo?.current_price ?? 0;
-          // "Deciding" = this promo's action_price equals the current displayed
-          // Ozon price (within 0.5₽ rounding tolerance). Means: among all the
-          // promos this SKU participates in, this one is the winning offer that
-          // the buyer actually sees on the listing right now.
           const isDeciding =
             currentPrice > 0 && Math.abs(p.action_price - currentPrice) < 0.5;
+          const refillRule = await getRefillRule(env, aw.raw.id, p.id);
           return {
             product_id: p.id,
             offer_id: info?.offer_id || '',
@@ -711,6 +769,7 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
             sold_count: soldCount,
             sold_source: soldSource,
             left_to_sell: leftToSell,
+            refill_rule: refillRule,
           };
         }),
       );
@@ -1110,5 +1169,215 @@ promos.post('/ozon/actions/:actionId/stock', async (c) => {
     return fail(c, 502, e instanceof Error ? e.message : 'Ozon API error');
   }
 });
+
+// ---------------------------------------------------------------------------
+// POST /api/marketplaces/ozon/actions/:actionId/refill-rule
+//
+// Set or clear an autopilot rule for a single product. Body:
+//   { product_id, threshold: N, target: M }  → save rule (M must be > N >= 0)
+//   { product_id, clear: true }              → delete rule
+// ---------------------------------------------------------------------------
+promos.post('/ozon/actions/:actionId/refill-rule', async (c) => {
+  const actionId = Number(c.req.param('actionId'));
+  if (!actionId || Number.isNaN(actionId)) return fail(c, 400, 'invalid action_id');
+
+  let body: { product_id?: number; threshold?: number; target?: number; clear?: boolean };
+  try {
+    body = await c.req.json();
+  } catch {
+    return fail(c, 400, 'invalid JSON body');
+  }
+  const productId = Number(body.product_id);
+  if (!productId || Number.isNaN(productId)) return fail(c, 400, 'product_id required');
+
+  if (body.clear === true) {
+    await setRefillRule(c.env, actionId, productId, null);
+    try {
+      await c.env.CACHE.delete(CACHE_KEY);
+    } catch {
+      // ignore
+    }
+    return ok(c, { action_id: actionId, product_id: productId, cleared: true });
+  }
+
+  const threshold = Number(body.threshold);
+  const target = Number(body.target);
+  if (!Number.isFinite(threshold) || threshold < 0) {
+    return fail(c, 400, 'threshold must be >= 0');
+  }
+  if (!Number.isFinite(target) || target <= 0) {
+    return fail(c, 400, 'target must be > 0');
+  }
+  if (target <= threshold) {
+    return fail(c, 400, 'target must be greater than threshold');
+  }
+
+  await setRefillRule(c.env, actionId, productId, { threshold, target });
+  try {
+    await c.env.CACHE.delete(CACHE_KEY);
+  } catch {
+    // ignore
+  }
+  return ok(c, {
+    action_id: actionId,
+    product_id: productId,
+    refill_rule: { threshold, target },
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runPromoRefillSweep — called from the */15 cron handler.
+//
+// 1. List all rules in KV (prefix ozon:promo:refill:)
+// 2. Group by action_id
+// 3. For each action, fetch fresh product state from Ozon
+// 4. For each rule: if current left_to_sell < threshold, push stock up so
+//    new left_to_sell = target (= sold_count + target)
+// 5. Invalidate main cache if any refill happened
+// ---------------------------------------------------------------------------
+export async function runPromoRefillSweep(env: Env): Promise<{
+  rules_checked: number;
+  refills_triggered: number;
+  refills: Array<{ action_id: number; product_id: number; from: number; to: number }>;
+  errors: string[];
+}> {
+  const errors: string[] = [];
+  const refills: Array<{ action_id: number; product_id: number; from: number; to: number }> = [];
+
+  // 1. List all rule keys
+  let allKeys: string[] = [];
+  try {
+    let cursor: string | undefined = undefined;
+    for (let page = 0; page < 20; page++) {
+      const r: { keys: Array<{ name: string }>; list_complete: boolean; cursor?: string } =
+        await env.CACHE.list({ prefix: 'ozon:promo:refill:', cursor });
+      allKeys = allKeys.concat(r.keys.map((k) => k.name));
+      if (r.list_complete || !r.cursor) break;
+      cursor = r.cursor;
+    }
+  } catch (e) {
+    errors.push(`list rules: ${e instanceof Error ? e.message : String(e)}`);
+    return { rules_checked: 0, refills_triggered: 0, refills, errors };
+  }
+
+  // 2. Group rules by action_id
+  const rulesByAction = new Map<
+    number,
+    Array<{ productId: number; threshold: number; target: number }>
+  >();
+  for (const key of allKeys) {
+    const parts = key.split(':');
+    // ozon:promo:refill:{actionId}:{productId}
+    if (parts.length !== 5) continue;
+    const aid = Number(parts[3]);
+    const pid = Number(parts[4]);
+    if (!aid || !pid) continue;
+    const rule = await getRefillRule(env, aid, pid);
+    if (!rule) continue;
+    let arr = rulesByAction.get(aid);
+    if (!arr) {
+      arr = [];
+      rulesByAction.set(aid, arr);
+    }
+    arr.push({ productId: pid, threshold: rule.threshold, target: rule.target });
+  }
+  const rulesChecked = Array.from(rulesByAction.values()).reduce((s, a) => s + a.length, 0);
+  if (rulesChecked === 0) {
+    return { rules_checked: 0, refills_triggered: 0, refills, errors };
+  }
+
+  // 3 & 4. For each action with rules, fetch fresh state and evaluate
+  for (const [actionId, rules] of rulesByAction.entries()) {
+    try {
+      // Fetch action products (same pagination pattern as buildPayload)
+      let allProds: OzonActionProduct[] = [];
+      let offset = 0;
+      const limit = 1000;
+      while (true) {
+        const r = await ozonRequest<{
+          result: { products?: OzonActionProduct[]; total?: number };
+        }>(env, '/v1/actions/products', 'POST', {
+          action_id: actionId,
+          limit,
+          offset,
+        });
+        const prods = r.result?.products || [];
+        allProds = allProds.concat(prods);
+        if (prods.length < limit) break;
+        offset += prods.length;
+      }
+      const prodById = new Map(allProds.map((p) => [p.id, p]));
+
+      for (const rule of rules) {
+        const p = prodById.get(rule.productId);
+        if (!p) continue; // product no longer in action
+        const sold = await getSoldCount(env, actionId, rule.productId);
+        if (sold == null) {
+          // sold_count unknown — can't evaluate. Skip.
+          continue;
+        }
+        const left = Math.max(0, p.stock - sold);
+        if (left >= rule.threshold) continue; // above threshold, no refill
+
+        // Trigger refill: new_stock such that left_to_sell becomes target
+        const newStock = sold + rule.target;
+        try {
+          const resp = await ozonRequest<{
+            result?: {
+              product_ids?: number[];
+              rejected?: Array<{ product_id: number; reason: string }>;
+            };
+          }>(env, '/v1/actions/products/activate', 'POST', {
+            action_id: actionId,
+            products: [
+              {
+                product_id: rule.productId,
+                stock: newStock,
+                action_price: p.action_price,
+              },
+            ],
+          });
+          const rej = resp.result?.rejected ?? [];
+          if (rej.length > 0) {
+            errors.push(
+              `refill rejected action=${actionId} pid=${rule.productId}: ${rej[0].reason}`,
+            );
+            continue;
+          }
+          refills.push({
+            action_id: actionId,
+            product_id: rule.productId,
+            from: left,
+            to: rule.target,
+          });
+        } catch (e) {
+          errors.push(
+            `refill action=${actionId} pid=${rule.productId}: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        }
+      }
+    } catch (e) {
+      errors.push(
+        `fetch action=${actionId}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  // 5. Invalidate cache so next GET shows fresh stock numbers
+  if (refills.length > 0) {
+    try {
+      await env.CACHE.delete(CACHE_KEY);
+    } catch {
+      // ignore
+    }
+  }
+
+  return {
+    rules_checked: rulesChecked,
+    refills_triggered: refills.length,
+    refills,
+    errors,
+  };
+}
 
 export default promos;

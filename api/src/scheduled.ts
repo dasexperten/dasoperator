@@ -478,6 +478,15 @@ export async function handleScheduled(
     } catch (e) {
       console.error('[cron:tg-inbox] failed:', e);
     }
+
+    console.log('[cron:promo-refill] starting Ozon promo auto-refill sweep');
+    try {
+      const { runPromoRefillSweep } = await import('./routes/marketplaces-promos');
+      const stats = await runPromoRefillSweep(env);
+      console.log(`[cron:promo-refill] complete: ${JSON.stringify(stats)}`);
+    } catch (e) {
+      console.error('[cron:promo-refill] failed:', e);
+    }
     return;
   }
 

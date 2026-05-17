@@ -977,6 +977,7 @@ interface PromoProduct {
   is_deciding_price: boolean;
   sold_count: number | null;
   left_to_sell: number | null;
+  refill_rule: { threshold: number; target: number } | null;
 }
 
 interface PromoAction {
@@ -1403,6 +1404,7 @@ function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: ()
                 <th style={{ ...thStyle, textAlign: 'right' }}>Min price</th>
                 <th style={{ ...thStyle, textAlign: 'right', minWidth: 160 }}>Units in promo</th>
                 <th style={{ ...thStyle, textAlign: 'right', minWidth: 160 }}>Left to sell</th>
+                <th style={{ ...thStyle, textAlign: 'right', minWidth: 180 }}>Keep stock topped up</th>
               </tr>
             </thead>
             <tbody>
@@ -1670,6 +1672,37 @@ function PromoProductRow({
             {err}
           </div>
         )}
+        {/* Autopilot hint when refill rule is active */}
+        {product.refill_rule && !err && product.left_to_sell != null && (
+          <div
+            style={{
+              fontSize: '11px',
+              fontWeight: 600,
+              marginTop: 4,
+              textAlign: 'right',
+              letterSpacing: 0,
+              color:
+                product.left_to_sell < product.refill_rule.threshold
+                  ? 'var(--brand-rot)'
+                  : OZON_BLUE,
+            }}
+            title={`Auto refill: when Left to sell drops below ${product.refill_rule.threshold}, the cron tops it back up to ${product.refill_rule.target}.`}
+          >
+            {product.left_to_sell < product.refill_rule.threshold
+              ? 'topping up soon'
+              : 'on autopilot'}
+          </div>
+        )}
+      </td>
+
+      {/* Auto refill rule editor */}
+      <td style={{ ...tdStyle, textAlign: 'right' }}>
+        <RefillRuleCell
+          actionId={actionId}
+          productId={product.product_id}
+          currentRule={product.refill_rule}
+          onSaved={onSaved}
+        />
       </td>
     </tr>
   );
@@ -1773,6 +1806,202 @@ function EditableQuotaCell({
           }}
         >
           saved ✓
+        </span>
+      )}
+    </div>
+  );
+}
+
+function RefillRuleCell({
+  actionId,
+  productId,
+  currentRule,
+  onSaved,
+}: {
+  actionId: number;
+  productId: number;
+  currentRule: { threshold: number; target: number } | null;
+  onSaved: () => void;
+}) {
+  const [belowDraft, setBelowDraft] = useState<string>(
+    currentRule ? String(currentRule.threshold) : '',
+  );
+  const [targetDraft, setTargetDraft] = useState<string>(
+    currentRule ? String(currentRule.target) : '',
+  );
+  const [saving, setSaving] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setBelowDraft(currentRule ? String(currentRule.threshold) : '');
+    setTargetDraft(currentRule ? String(currentRule.target) : '');
+    setErr(null);
+  }, [currentRule]);
+
+  const belowNum = Number(belowDraft);
+  const targetNum = Number(targetDraft);
+  const bothEmpty = belowDraft.trim() === '' && targetDraft.trim() === '';
+  const bothValid =
+    !bothEmpty &&
+    Number.isFinite(belowNum) &&
+    Number.isFinite(targetNum) &&
+    belowNum >= 0 &&
+    targetNum > belowNum;
+  const currentMatchesDraft =
+    currentRule != null &&
+    Number(belowDraft) === currentRule.threshold &&
+    Number(targetDraft) === currentRule.target;
+  const dirty = bothEmpty ? currentRule != null : bothValid && !currentMatchesDraft;
+  const hasRule = currentRule != null;
+
+  async function save() {
+    if (saving) return;
+    if (!dirty) return;
+    setSaving(true);
+    setErr(null);
+    try {
+      const apiBase =
+        (typeof window !== 'undefined' &&
+          (window as unknown as { __API_BASE?: string }).__API_BASE) ||
+        'https://dasoperator-api.dasexperten.workers.dev';
+      const body: Record<string, unknown> = { product_id: productId };
+      if (bothEmpty) {
+        body.clear = true;
+      } else {
+        body.threshold = belowNum;
+        body.target = targetNum;
+      }
+      const r = await fetch(
+        `${apiBase}/api/marketplaces/ozon/actions/${actionId}/refill-rule`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      );
+      const j = await r.json();
+      if (!j.success) throw new Error(j.errors?.[0]?.message || j.errors || 'Save failed');
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 1500);
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: '13px',
+    letterSpacing: 0,
+    opacity: hasRule ? 1 : 0.45,
+  };
+  const inputStyle: React.CSSProperties = {
+    width: 64,
+    padding: '4px 8px',
+    fontFamily: 'var(--font-body)',
+    fontSize: '13px',
+    fontWeight: 700,
+    textAlign: 'right',
+    color: 'var(--fg-1)',
+    backgroundColor: dirty ? 'rgba(212,160,23,0.10)' : 'var(--paper-1)',
+    border: dirty
+      ? '1px solid #D4A017'
+      : err
+      ? '1px solid var(--brand-rot)'
+      : '1px solid var(--border-hairline)',
+    borderRadius: 'var(--radius-sm)',
+    outline: 'none',
+    fontVariantNumeric: 'tabular-nums',
+  };
+
+  return (
+    <div
+      style={{
+        display: 'inline-flex',
+        flexDirection: 'column',
+        alignItems: 'flex-end',
+        gap: 4,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ ...labelStyle, color: '#A32D2D' }}>Below</span>
+        <input
+          type="number"
+          min={0}
+          value={belowDraft}
+          placeholder="—"
+          disabled={saving}
+          onChange={(e) => setBelowDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') save();
+          }}
+          style={inputStyle}
+        />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ ...labelStyle, color: '#3B6D11', fontWeight: 700 }}>Refill to</span>
+        <input
+          type="number"
+          min={0}
+          value={targetDraft}
+          placeholder="—"
+          disabled={saving}
+          onChange={(e) => setTargetDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') save();
+          }}
+          style={inputStyle}
+        />
+      </div>
+      {dirty && (
+        <button
+          onClick={save}
+          disabled={saving || (!bothEmpty && !bothValid)}
+          title={bothEmpty ? 'Clear rule' : 'Save rule'}
+          style={{
+            marginTop: 2,
+            padding: '4px 10px',
+            fontSize: '12px',
+            fontWeight: 700,
+            color: '#fff',
+            backgroundColor: bothEmpty ? 'var(--fg-2)' : OZON_BLUE,
+            border: 'none',
+            borderRadius: 'var(--radius-sm)',
+            cursor: saving ? 'wait' : 'pointer',
+            opacity: !bothEmpty && !bothValid ? 0.4 : saving ? 0.6 : 1,
+            letterSpacing: 0,
+          }}
+        >
+          {saving ? '…' : bothEmpty ? 'Clear' : 'Save'}
+        </button>
+      )}
+      {savedFlash && !dirty && (
+        <span
+          style={{
+            fontSize: '11px',
+            fontWeight: 700,
+            color: '#2E7D4F',
+            marginTop: 2,
+          }}
+        >
+          saved ✓
+        </span>
+      )}
+      {err && (
+        <span
+          style={{
+            fontSize: '11px',
+            fontWeight: 600,
+            color: 'var(--brand-rot)',
+            marginTop: 2,
+            maxWidth: 160,
+            textAlign: 'right',
+            lineHeight: 1.3,
+          }}
+        >
+          {err}
         </span>
       )}
     </div>

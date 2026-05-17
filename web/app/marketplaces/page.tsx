@@ -1401,7 +1401,6 @@ function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: ()
                 <th style={{ ...thStyle, textAlign: 'right' }}>Current price</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Promo</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Min price</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>%</th>
                 <th style={{ ...thStyle, textAlign: 'right', minWidth: 160 }}>Units in promo</th>
                 <th style={{ ...thStyle, textAlign: 'right', minWidth: 160 }}>Left to sell</th>
               </tr>
@@ -1580,25 +1579,6 @@ function PromoProductRow({
         }
       >
         {product.min_price != null ? `${fmt(product.min_price)}₽` : '—'}
-      </td>
-      <td
-        style={{
-          ...tdStyle,
-          textAlign: 'right',
-          fontWeight: 700,
-          color:
-            product.discount_pct >= 30
-              ? 'var(--brand-rot)'
-              : product.discount_pct > 0
-              ? '#8A6000'
-              : 'var(--fg-muted)',
-        }}
-      >
-        {product.discount_pct > 0
-          ? `−${product.discount_pct}%`
-          : product.discount_pct < 0
-          ? `+${-product.discount_pct}%`
-          : '0%'}
       </td>
 
       {/* Units in promo (stock) */}

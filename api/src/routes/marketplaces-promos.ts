@@ -16,7 +16,7 @@ import { ok, fail } from '../lib/responses';
 
 const promos = new Hono<{ Bindings: Env }>();
 
-const CACHE_KEY = 'ozon:actions:v6';
+const CACHE_KEY = 'ozon:actions:v7';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
@@ -44,6 +44,10 @@ interface OzonActionProduct {
   stock: number; // remaining quota for this action
   min_stock: number;
   current_boost?: number;
+  min_boost?: number;
+  max_boost?: number;
+  price_min_elastic?: number; // price floor to qualify for min boost level
+  price_max_elastic?: number; // price floor to qualify for max boost level
   alert_max_action_price_failed?: boolean;
 }
 
@@ -71,7 +75,7 @@ interface CachedActionsPayload {
     participating_products_count: number;
     total_units_left: number;
     auto_zeroed_at: string | null;
-    deciding_count: number; // products in this promo whose current price = action_price
+    deciding_count: number;
     products: Array<{
       product_id: number;
       offer_id: string;
@@ -88,6 +92,12 @@ interface CachedActionsPayload {
       sold_source: 'manual' | 'portal' | 'analytics' | null;
       left_to_sell: number | null;
       refill_rule: { threshold: number; target: number } | null;
+      // Boost slider data (from Ozon /v1/actions/products)
+      price_min_elastic: number | null; // price floor for min boost (e.g. 742)
+      price_max_elastic: number | null; // price floor for max boost (e.g. 623)
+      current_boost: number | null;     // current boost % (0..max_boost)
+      min_boost: number | null;         // action's minimum boost % (e.g. 15)
+      max_boost: number | null;         // action's maximum boost % (e.g. 55)
     }>;
   }>;
 }
@@ -754,6 +764,9 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
           const isDeciding =
             currentPrice > 0 && Math.abs(p.action_price - currentPrice) < 0.5;
           const refillRule = await getRefillRule(env, aw.raw.id, p.id);
+          // Helper: number-or-null normalizer
+          const numOrNull = (v: unknown): number | null =>
+            typeof v === 'number' && Number.isFinite(v) ? v : null;
           return {
             product_id: p.id,
             offer_id: info?.offer_id || '',
@@ -770,6 +783,11 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
             sold_source: soldSource,
             left_to_sell: leftToSell,
             refill_rule: refillRule,
+            price_min_elastic: numOrNull(p.price_min_elastic),
+            price_max_elastic: numOrNull(p.price_max_elastic),
+            current_boost: numOrNull(p.current_boost),
+            min_boost: numOrNull(p.min_boost),
+            max_boost: numOrNull(p.max_boost),
           };
         }),
       );
@@ -1223,6 +1241,68 @@ promos.post('/ozon/actions/:actionId/refill-rule', async (c) => {
     product_id: productId,
     refill_rule: { threshold, target },
   });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/marketplaces/ozon/actions/:actionId/price
+//
+// Update the action_price for ONE product without touching stock. Used by the
+// boost slider in the UI. Body:
+//   { product_id, action_price, current_stock }
+// We re-send the existing stock so Ozon keeps the quota unchanged.
+// ---------------------------------------------------------------------------
+promos.post('/ozon/actions/:actionId/price', async (c) => {
+  const actionId = Number(c.req.param('actionId'));
+  if (!actionId || Number.isNaN(actionId)) return fail(c, 400, 'invalid action_id');
+
+  let body: { product_id?: number; action_price?: number; current_stock?: number };
+  try {
+    body = await c.req.json();
+  } catch {
+    return fail(c, 400, 'invalid JSON body');
+  }
+  const productId = Number(body.product_id);
+  const newPrice = Number(body.action_price);
+  const currentStock = Number(body.current_stock);
+  if (!productId || Number.isNaN(productId)) return fail(c, 400, 'product_id required');
+  if (!Number.isFinite(newPrice) || newPrice <= 0)
+    return fail(c, 400, 'action_price must be > 0');
+  if (!Number.isFinite(currentStock) || currentStock < 0)
+    return fail(c, 400, 'current_stock required');
+
+  try {
+    const resp = await ozonRequest<{
+      result?: {
+        product_ids?: number[];
+        rejected?: Array<{ product_id: number; reason: string }>;
+      };
+    }>(c.env, '/v1/actions/products/activate', 'POST', {
+      action_id: actionId,
+      products: [
+        {
+          product_id: productId,
+          stock: currentStock,
+          action_price: newPrice,
+        },
+      ],
+    });
+    const rejected = resp.result?.rejected ?? [];
+    if (rejected.length > 0) {
+      return fail(c, 409, `Ozon rejected: ${rejected[0].reason}`);
+    }
+    try {
+      await c.env.CACHE.delete(CACHE_KEY);
+    } catch {
+      // ignore
+    }
+    return ok(c, {
+      action_id: actionId,
+      product_id: productId,
+      action_price: newPrice,
+    });
+  } catch (e) {
+    return fail(c, 502, e instanceof Error ? e.message : 'Ozon API error');
+  }
 });
 
 // ---------------------------------------------------------------------------

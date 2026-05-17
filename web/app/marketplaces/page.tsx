@@ -978,6 +978,11 @@ interface PromoProduct {
   sold_count: number | null;
   left_to_sell: number | null;
   refill_rule: { threshold: number; target: number } | null;
+  price_min_elastic: number | null;
+  price_max_elastic: number | null;
+  current_boost: number | null;
+  min_boost: number | null;
+  max_boost: number | null;
 }
 
 interface PromoAction {
@@ -1401,9 +1406,8 @@ function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: ()
                 <th style={thStyle}>Product</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Current price</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Promo</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Min price</th>
-                <th style={{ ...thStyle, textAlign: 'right', minWidth: 160 }}>Units in promo</th>
-                <th style={{ ...thStyle, textAlign: 'right', minWidth: 160 }}>Left to sell</th>
+                <th style={{ ...thStyle, textAlign: 'center', minWidth: 240 }}>Boost level</th>
+                <th style={{ ...thStyle, textAlign: 'right', minWidth: 110 }}>Left to sell</th>
                 <th style={{ ...thStyle, textAlign: 'right', minWidth: 180 }}>Keep stock topped up</th>
               </tr>
             </thead>
@@ -1433,72 +1437,8 @@ function PromoProductRow({
   actionId: number;
   onSaved: () => void;
 }) {
-  const [stockDraft, setStockDraft] = useState<string>(String(product.stock));
-  const [leftDraft, setLeftDraft] = useState<string>(
-    product.left_to_sell != null ? String(product.left_to_sell) : '',
-  );
-  const [saving, setSaving] = useState<'stock' | 'left' | null>(null);
-  const [savedFlash, setSavedFlash] = useState<'stock' | 'left' | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const isOut = product.stock === 0;
 
-  // Reset drafts when upstream changes
-  useEffect(() => {
-    setStockDraft(String(product.stock));
-    setLeftDraft(product.left_to_sell != null ? String(product.left_to_sell) : '');
-    setErr(null);
-  }, [product.stock, product.left_to_sell]);
-
-  const stockNum = Number(stockDraft);
-  const leftNum = Number(leftDraft);
-  const stockValid = !Number.isNaN(stockNum) && stockNum >= 0 && Number.isFinite(stockNum);
-  const leftValid = leftDraft !== '' && !Number.isNaN(leftNum) && leftNum >= 0;
-  const stockDirty = stockValid && stockNum !== product.stock;
-  const leftDirty =
-    leftValid && (product.left_to_sell == null || leftNum !== product.left_to_sell);
-  const isOut = product.stock === 0 && !stockDirty && !leftDirty;
-  const bigStock = product.stock >= 500;
-  const bigLeft = (product.left_to_sell ?? 0) >= 500;
-  const atFloor = product.min_stock > 0 && product.stock === product.min_stock;
-  const soldKnown = product.sold_count != null;
-
-  async function save(mode: 'stock' | 'left') {
-    if (saving) return;
-    if (mode === 'stock' && !stockDirty) return;
-    if (mode === 'left' && !leftDirty) return;
-    setSaving(mode);
-    setErr(null);
-    try {
-      const apiBase =
-        (typeof window !== 'undefined' &&
-          (window as unknown as { __API_BASE?: string }).__API_BASE) ||
-        'https://dasoperator-api.dasexperten.workers.dev';
-      const payload: Record<string, unknown> = {
-        product_id: product.product_id,
-        action_price: product.action_price,
-        current_stock: product.stock,
-      };
-      if (mode === 'stock') {
-        payload.stock = stockNum;
-      } else {
-        payload.left_to_sell = leftNum;
-        if (product.left_to_sell != null) payload.current_left = product.left_to_sell;
-      }
-      const r = await fetch(`${apiBase}/api/marketplaces/ozon/actions/${actionId}/stock`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const j = await r.json();
-      if (!j.success) throw new Error(j.errors?.[0]?.message || j.errors || 'Save failed');
-      setSavedFlash(mode);
-      setTimeout(() => setSavedFlash(null), 1500);
-      onSaved();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Save failed');
-    } finally {
-      setSaving(null);
-    }
-  }
 
   return (
     <tr
@@ -1567,130 +1507,35 @@ function PromoProductRow({
       <td style={{ ...tdStyle, textAlign: 'right', color: 'var(--fg-1)', fontWeight: 800 }}>
         {fmt(product.action_price)}₽
       </td>
-      <td
-        style={{
-          ...tdStyle,
-          textAlign: 'right',
-          fontWeight: 700,
-          color: product.min_price == null ? 'var(--fg-muted)' : 'var(--fg-2)',
-        }}
-        title={
-          product.min_price == null
-            ? 'No minimum price set in Ozon'
-            : 'Minimum price for this product (seller-set floor)'
-        }
-      >
-        {product.min_price != null ? `${fmt(product.min_price)}₽` : '—'}
+
+      {/* Boost level slider */}
+      <td style={{ ...tdStyle, padding: '12px 10px' }}>
+        <BoostSliderCell
+          actionId={actionId}
+          product={product}
+          onSaved={onSaved}
+        />
       </td>
 
-      {/* Units in promo (stock) */}
+      {/* Left to sell — emphasized as the main number */}
       <td style={{ ...tdStyle, textAlign: 'right' }}>
-        <EditableQuotaCell
-          value={stockDraft}
-          onChange={(v) => setStockDraft(v)}
-          onSave={() => save('stock')}
-          onCancel={() => {
-            setStockDraft(String(product.stock));
-            setErr(null);
-          }}
-          dirty={stockDirty}
-          saving={saving === 'stock'}
-          disabled={saving !== null && saving !== 'stock'}
-          showSaved={savedFlash === 'stock'}
-          hasError={!!err && saving !== 'left'}
-          bigValue={bigStock}
-        />
-        {/* min_stock hint (only on stock column) */}
-        {product.min_stock > 0 && !err && (
+        {product.left_to_sell != null ? (
           <div
             style={{
-              fontSize: '11px',
-              color: atFloor ? 'var(--brand-rot)' : 'var(--fg-muted)',
-              marginTop: 4,
-              fontWeight: atFloor ? 700 : 500,
-              textAlign: 'right',
-              letterSpacing: 0,
+              fontSize: '18px',
+              fontWeight: 800,
+              color: 'var(--fg-1)',
+              fontVariantNumeric: 'tabular-nums',
             }}
-            title={
-              atFloor
-                ? 'Minimum commitment reached — can only increase'
-                : `Minimum quota for this action: ${product.min_stock}`
-            }
           >
-            {atFloor ? `at floor (min ${fmt(product.min_stock)})` : `min ${fmt(product.min_stock)}`}
+            {fmt(product.left_to_sell)}
           </div>
-        )}
-      </td>
-
-      {/* Left to sell — derived from stock - sold_count */}
-      <td style={{ ...tdStyle, textAlign: 'right' }}>
-        <EditableQuotaCell
-          value={leftDraft}
-          onChange={(v) => setLeftDraft(v)}
-          onSave={() => save('left')}
-          onCancel={() => {
-            setLeftDraft(product.left_to_sell != null ? String(product.left_to_sell) : '');
-            setErr(null);
-          }}
-          dirty={leftDirty}
-          saving={saving === 'left'}
-          disabled={saving !== null && saving !== 'left'}
-          showSaved={savedFlash === 'left'}
-          hasError={!!err && saving !== 'stock'}
-          bigValue={bigLeft}
-          placeholder={soldKnown ? '' : 'set'}
-        />
-        {!soldKnown && !err && (
+        ) : (
           <div
-            style={{
-              fontSize: '11px',
-              color: 'var(--fg-muted)',
-              marginTop: 4,
-              fontWeight: 500,
-              textAlign: 'right',
-              fontStyle: 'italic',
-            }}
-            title="First time — type the value shown in Ozon's 'Осталось продать' column. We'll remember it from now on."
+            style={{ fontSize: '14px', color: 'var(--fg-muted)', fontStyle: 'italic' }}
+            title="No sold_count baseline yet — value will appear after the next sale or after you set it once."
           >
-            unknown — set once
-          </div>
-        )}
-        {err && (
-          <div
-            style={{
-              fontSize: '12px',
-              color: 'var(--brand-rot)',
-              marginTop: 4,
-              textAlign: 'right',
-              fontWeight: 600,
-              maxWidth: 280,
-              marginLeft: 'auto',
-              whiteSpace: 'normal',
-              lineHeight: 1.35,
-            }}
-          >
-            {err}
-          </div>
-        )}
-        {/* Autopilot hint when refill rule is active */}
-        {product.refill_rule && !err && product.left_to_sell != null && (
-          <div
-            style={{
-              fontSize: '11px',
-              fontWeight: 600,
-              marginTop: 4,
-              textAlign: 'right',
-              letterSpacing: 0,
-              color:
-                product.left_to_sell < product.refill_rule.threshold
-                  ? 'var(--brand-rot)'
-                  : OZON_BLUE,
-            }}
-            title={`Auto refill: when Left to sell drops below ${product.refill_rule.threshold}, the cron tops it back up to ${product.refill_rule.target}.`}
-          >
-            {product.left_to_sell < product.refill_rule.threshold
-              ? 'topping up soon'
-              : 'on autopilot'}
+            unknown
           </div>
         )}
       </td>
@@ -2003,6 +1848,236 @@ function RefillRuleCell({
         >
           {err}
         </span>
+      )}
+    </div>
+  );
+}
+
+function BoostSliderCell({
+  actionId,
+  product,
+  onSaved,
+}: {
+  actionId: number;
+  product: PromoProduct;
+  onSaved: () => void;
+}) {
+  // Pull boost range values; nulls = Ozon didn't return them (rare)
+  const pMin = product.price_min_elastic;
+  const pMax = product.price_max_elastic;
+  const bMin = product.min_boost;
+  const bMax = product.max_boost;
+  const hasRange = pMin != null && pMax != null && bMin != null && bMax != null && pMin > pMax;
+
+  // Slider's internal "boost intensity" goes from 0% to 100% across the bar.
+  //   intensity = 0   → price = pMin (the higher price, +bMin boost)
+  //   intensity = 100 → price = pMax (the lower price, +bMax boost)
+  const priceForIntensity = (pct: number): number => {
+    if (!hasRange) return product.action_price;
+    return Math.round((pMin as number) - ((pMin as number) - (pMax as number)) * (pct / 100));
+  };
+  const intensityForPrice = (price: number): number => {
+    if (!hasRange) return 0;
+    const lo = pMax as number;
+    const hi = pMin as number;
+    const clamped = Math.min(hi, Math.max(lo, price));
+    return Math.round(((hi - clamped) / (hi - lo)) * 100);
+  };
+  const boostForIntensity = (pct: number): number => {
+    if (!hasRange) return product.current_boost ?? 0;
+    return Math.round(((bMin as number) + ((bMax as number) - (bMin as number)) * (pct / 100)) * 10) / 10;
+  };
+
+  const currentIntensity = intensityForPrice(product.action_price);
+  const currentBoost = product.current_boost ?? 0;
+  const aboveRange = hasRange && product.action_price > (pMin as number) + 0.5;
+
+  const [draftIntensity, setDraftIntensity] = useState<number>(currentIntensity);
+  const [saving, setSaving] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraftIntensity(currentIntensity);
+    setErr(null);
+  }, [currentIntensity]);
+
+  const draftPrice = priceForIntensity(draftIntensity);
+  const draftBoost = boostForIntensity(draftIntensity);
+  const dirty = hasRange && draftPrice !== product.action_price;
+
+  async function save() {
+    if (saving || !dirty || !hasRange) return;
+    setSaving(true);
+    setErr(null);
+    try {
+      const apiBase =
+        (typeof window !== 'undefined' &&
+          (window as unknown as { __API_BASE?: string }).__API_BASE) ||
+        'https://dasoperator-api.dasexperten.workers.dev';
+      const r = await fetch(
+        `${apiBase}/api/marketplaces/ozon/actions/${actionId}/price`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            product_id: product.product_id,
+            action_price: draftPrice,
+            current_stock: product.stock,
+          }),
+        },
+      );
+      const j = await r.json();
+      if (!j.success) throw new Error(j.errors?.[0]?.message || j.errors || 'Save failed');
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 1500);
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!hasRange) {
+    return (
+      <div style={{ fontSize: '12px', color: 'var(--fg-muted)', textAlign: 'center', fontStyle: 'italic' }}>
+        no boost data
+      </div>
+    );
+  }
+
+  const GREEN = '#2E7D4F';
+  const RED = '#A32D2D';
+  const trackColor = aboveRange ? RED : GREEN;
+  const middleLabel = aboveRange
+    ? 'no boost'
+    : dirty
+    ? `${draftPrice}₽ · ${draftBoost}%`
+    : draftIntensity >= 99
+    ? `max ${draftBoost}%`
+    : `${draftBoost}%`;
+
+  return (
+    <div style={{ width: '100%', minWidth: 220, padding: '4px 8px' }}>
+      <div style={{ position: 'relative', height: 6, margin: '4px 0' }}>
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'rgba(0,0,0,0.08)',
+            borderRadius: 3,
+          }}
+        />
+        {!aboveRange && (
+          <div
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: `${draftIntensity}%`,
+              background: trackColor,
+              borderRadius: 3,
+            }}
+          />
+        )}
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={1}
+          value={aboveRange ? 0 : draftIntensity}
+          disabled={saving}
+          onChange={(e) => setDraftIntensity(Number(e.target.value))}
+          onMouseUp={save}
+          onTouchEnd={save}
+          onKeyUp={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') save();
+          }}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            opacity: 0,
+            cursor: saving ? 'wait' : 'pointer',
+            margin: 0,
+            padding: 0,
+          }}
+          aria-label={`Boost level for ${product.offer_id}`}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            left: `${aboveRange ? -4 : draftIntensity}%`,
+            top: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: 14,
+            height: 14,
+            background: '#fff',
+            border: `2px solid ${trackColor}`,
+            borderRadius: '50%',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+            pointerEvents: 'none',
+          }}
+        />
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          marginTop: 6,
+          fontSize: '11px',
+          color: 'var(--fg-2)',
+          letterSpacing: 0,
+          gap: 4,
+        }}
+      >
+        <span>
+          <span style={{ fontWeight: 700 }}>{pMin}₽</span> +{bMin}%
+        </span>
+        <span style={{ fontWeight: 700, color: trackColor }}>{middleLabel}</span>
+        <span>
+          <span style={{ fontWeight: 700 }}>{pMax}₽</span> +{bMax}%
+        </span>
+      </div>
+      {savedFlash && (
+        <div
+          style={{
+            fontSize: '11px',
+            fontWeight: 700,
+            color: GREEN,
+            textAlign: 'center',
+            marginTop: 2,
+          }}
+        >
+          saved ✓
+        </div>
+      )}
+      {err && (
+        <div
+          style={{
+            fontSize: '11px',
+            fontWeight: 600,
+            color: 'var(--brand-rot)',
+            textAlign: 'center',
+            marginTop: 2,
+          }}
+        >
+          {err}
+        </div>
+      )}
+      {saving && (
+        <div
+          style={{
+            fontSize: '11px',
+            color: 'var(--fg-muted)',
+            textAlign: 'center',
+            marginTop: 2,
+          }}
+        >
+          saving…
+        </div>
       )}
     </div>
   );

@@ -1037,8 +1037,8 @@ function OzonPromotionsWidget() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = async (force = false) => {
-    setLoading(true);
+  const load = async (force = false, silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const apiBase =
@@ -1053,7 +1053,7 @@ function OzonPromotionsWidget() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Load failed');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -1210,7 +1210,7 @@ function OzonPromotionsWidget() {
           </div>
         )}
         {data.actions.map((a) => (
-          <PromoActionItem key={a.action_id} action={a} onSaved={() => load(true)} />
+          <PromoActionItem key={a.action_id} action={a} onSaved={() => load(false, true)} />
         ))}
       </div>
     </div>

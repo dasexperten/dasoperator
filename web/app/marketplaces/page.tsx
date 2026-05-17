@@ -1502,7 +1502,11 @@ function PromoProductRow({
     <tr
       style={{
         borderBottom: '1px solid var(--border-hairline)',
-        backgroundColor: isOut ? 'rgba(0,0,0,0.02)' : 'transparent',
+        backgroundColor: isOut
+          ? 'rgba(0,0,0,0.02)'
+          : product.is_deciding_price
+          ? 'rgba(0,0,0,0.045)'
+          : 'transparent',
         opacity: isOut ? 0.55 : 1,
       }}
     >

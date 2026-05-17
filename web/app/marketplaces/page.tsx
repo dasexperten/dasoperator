@@ -1432,6 +1432,7 @@ function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: ()
                 <th style={{ ...thStyle, textAlign: 'center', minWidth: 240 }}>Boost level</th>
                 <th style={{ ...thStyle, textAlign: 'right', minWidth: 110 }}>Left to sell</th>
                 <th style={{ ...thStyle, textAlign: 'right', minWidth: 180 }}>Keep stock topped up</th>
+                <th style={{ ...thStyle, width: 36, padding: '10px 6px' }}></th>
               </tr>
             </thead>
             <tbody>
@@ -1552,6 +1553,23 @@ function PromoProductRow({
           productId={product.product_id}
           currentRule={product.refill_rule}
           onSaved={onSaved}
+        />
+      </td>
+
+      {/* Remove from action ✕ */}
+      <td
+        style={{
+          ...tdStyle,
+          padding: '0 6px',
+          textAlign: 'center',
+          verticalAlign: 'middle',
+        }}
+      >
+        <RemoveFromActionButton
+          actionId={actionId}
+          productId={product.product_id}
+          offerId={product.offer_id}
+          onRemoved={onSaved}
         />
       </td>
     </tr>
@@ -2276,12 +2294,13 @@ function LeftToSellCell({
         'https://dasoperator-api.dasexperten.workers.dev';
       const payload: Record<string, unknown> = {
         product_id: product.product_id,
+        action_price: product.action_price,
         current_stock: product.stock,
         left_to_sell: num,
       };
-      // Intentionally omit action_price: Ozon re-validates the full row on
-      // /activate, and including a price that's already at the platform's
-      // minimum discount can cause a stale-rule rejection.
+      // action_price is required by Ozon /activate, so always echo the current
+      // value. If Ozon rejects on discount-percent grounds, the user sees the
+      // humanized error and the input snaps back.
       if (product.left_to_sell != null) {
         payload.current_left = product.left_to_sell;
       }
@@ -2365,6 +2384,107 @@ function LeftToSellCell({
           ✓
         </span>
       )}
+      {err && (
+        <div
+          onClick={() => setErr(null)}
+          title={err + ' (клик чтобы закрыть)'}
+          style={{
+            position: 'absolute',
+            zIndex: 50,
+            background: 'var(--brand-rot)',
+            color: '#fff',
+            fontSize: '12px',
+            fontWeight: 600,
+            padding: '6px 10px',
+            borderRadius: 4,
+            top: '100%',
+            right: 0,
+            marginTop: 4,
+            maxWidth: 280,
+            minWidth: 200,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
+            letterSpacing: 0,
+            whiteSpace: 'normal',
+            lineHeight: 1.35,
+            cursor: 'pointer',
+            textAlign: 'left',
+          }}
+        >
+          {err}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RemoveFromActionButton({
+  actionId,
+  productId,
+  offerId,
+  onRemoved,
+}: {
+  actionId: number;
+  productId: number;
+  offerId: string;
+  onRemoved: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [hovered, setHovered] = useState(false);
+
+  async function handleClick() {
+    if (busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const apiBase =
+        (typeof window !== 'undefined' &&
+          (window as unknown as { __API_BASE?: string }).__API_BASE) ||
+        'https://dasoperator-api.dasexperten.workers.dev';
+      const r = await fetch(
+        `${apiBase}/api/marketplaces/ozon/actions/${actionId}/products/${productId}`,
+        { method: 'DELETE' },
+      );
+      const j = await r.json();
+      if (!j.success) throw new Error(j.errors?.[0]?.message || j.errors || 'Remove failed');
+      onRemoved();
+    } catch (e) {
+      setErr(humanizeOzonError(e instanceof Error ? e.message : ''));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const color = err ? '#A32D2D' : hovered ? '#A32D2D' : 'rgba(0,0,0,0.35)';
+  const bg = hovered ? 'rgba(163,45,45,0.08)' : 'transparent';
+
+  return (
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        onClick={handleClick}
+        disabled={busy}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        title={`Снять ${offerId} с акции`}
+        aria-label={`Снять ${offerId} с акции`}
+        style={{
+          width: 24,
+          height: 24,
+          padding: 0,
+          background: bg,
+          border: 'none',
+          cursor: busy ? 'wait' : 'pointer',
+          color,
+          fontSize: '16px',
+          lineHeight: 1,
+          borderRadius: '50%',
+          transition: 'all 0.15s',
+          fontWeight: 600,
+          letterSpacing: 0,
+        }}
+      >
+        {busy ? '…' : '✕'}
+      </button>
       {err && (
         <div
           onClick={() => setErr(null)}

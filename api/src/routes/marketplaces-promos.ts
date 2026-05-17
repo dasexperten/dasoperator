@@ -1314,6 +1314,46 @@ promos.post('/ozon/actions/:actionId/price', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// DELETE /api/marketplaces/ozon/actions/:actionId/products/:productId
+//
+// Removes a single product from the action via Ozon /v1/actions/products/deactivate.
+// Also clears the refill rule (no point keeping a rule for a product no
+// longer in the action) and busts the cache so next GET reflects the change.
+// ---------------------------------------------------------------------------
+promos.delete('/ozon/actions/:actionId/products/:productId', async (c) => {
+  const actionId = Number(c.req.param('actionId'));
+  const productId = Number(c.req.param('productId'));
+  if (!actionId || Number.isNaN(actionId)) return fail(c, 400, 'invalid action_id');
+  if (!productId || Number.isNaN(productId)) return fail(c, 400, 'invalid product_id');
+
+  try {
+    const resp = await ozonRequest<{
+      result?: {
+        product_ids?: number[];
+        rejected?: Array<{ product_id: number; reason: string }>;
+      };
+    }>(c.env, '/v1/actions/products/deactivate', 'POST', {
+      action_id: actionId,
+      product_ids: [productId],
+    });
+    const rejected = resp.result?.rejected ?? [];
+    if (rejected.length > 0) {
+      return fail(c, 409, `Ozon rejected: ${rejected[0].reason}`);
+    }
+    // Clear any refill rule + bust cache
+    await setRefillRule(c.env, actionId, productId, null);
+    try {
+      await c.env.CACHE.delete(CACHE_KEY);
+    } catch {
+      // ignore
+    }
+    return ok(c, { action_id: actionId, product_id: productId, removed: true });
+  } catch (e) {
+    return fail(c, 502, e instanceof Error ? e.message : 'Ozon API error');
+  }
+});
+
+// ---------------------------------------------------------------------------
 // runPromoRefillSweep — called from the */15 cron handler.
 //
 // 1. List all rules in KV (prefix ozon:promo:refill:)

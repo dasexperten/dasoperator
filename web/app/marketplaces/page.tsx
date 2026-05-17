@@ -1279,6 +1279,9 @@ function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: ()
   const dateEndShort = action.date_end ? action.date_end.slice(0, 10) : '';
   const urgent = action.days_left <= 7;
   const veryUrgent = action.days_left <= 3;
+  // Boost-level column only makes sense for elastic boost actions; STOCK_DISCOUNT
+  // and similar promos have no min_boost / max_boost mechanics.
+  const hasElasticBoost = action.action_type === 'MARKETPLACE_MULTI_LEVEL_DISCOUNT_ON_AMOUNT';
 
   return (
     <div style={{ borderBottom: '1px solid var(--border-hairline)' }}>
@@ -1429,7 +1432,9 @@ function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: ()
                 <th style={thStyle}>Product</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Current price</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Promo</th>
-                <th style={{ ...thStyle, textAlign: 'center', minWidth: 240 }}>Boost level</th>
+                {hasElasticBoost && (
+                  <th style={{ ...thStyle, textAlign: 'center', minWidth: 240 }}>Boost level</th>
+                )}
                 <th style={{ ...thStyle, textAlign: 'right', minWidth: 110 }}>Left to sell</th>
                 <th style={{ ...thStyle, textAlign: 'right', minWidth: 180 }}>Keep stock topped up</th>
                 <th style={{ ...thStyle, width: 36, padding: '10px 6px' }}></th>
@@ -1441,6 +1446,7 @@ function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: ()
                   key={p.product_id}
                   product={p}
                   actionId={action.action_id}
+                  showBoost={hasElasticBoost}
                   onSaved={onSaved}
                 />
               ))}
@@ -1455,10 +1461,12 @@ function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: ()
 function PromoProductRow({
   product,
   actionId,
+  showBoost,
   onSaved,
 }: {
   product: PromoProduct;
   actionId: number;
+  showBoost: boolean;
   onSaved: () => void;
 }) {
   const isOut = product.stock === 0;
@@ -1532,14 +1540,16 @@ function PromoProductRow({
         <PromoPriceCell actionId={actionId} product={product} onSaved={onSaved} />
       </td>
 
-      {/* Boost level slider */}
-      <td style={{ ...tdStyle, padding: '12px 10px' }}>
-        <BoostSliderCell
-          actionId={actionId}
-          product={product}
-          onSaved={onSaved}
-        />
-      </td>
+      {/* Boost level slider — only for elastic boost actions */}
+      {showBoost && (
+        <td style={{ ...tdStyle, padding: '12px 10px' }}>
+          <BoostSliderCell
+            actionId={actionId}
+            product={product}
+            onSaved={onSaved}
+          />
+        </td>
+      )}
 
       {/* Left to sell — emphasized as the main number, click to edit */}
       <td style={{ ...tdStyle, textAlign: 'right' }}>

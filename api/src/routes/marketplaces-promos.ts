@@ -16,7 +16,7 @@ import { ok, fail } from '../lib/responses';
 
 const promos = new Hono<{ Bindings: Env }>();
 
-const CACHE_KEY = 'ozon:actions:v4';
+const CACHE_KEY = 'ozon:actions:v5';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
@@ -81,11 +81,12 @@ interface CachedActionsPayload {
       discount_pct: number;
       stock: number;
       min_stock: number;
-      min_price: number | null; // seller-set floor price (₽) — below this Ozon auto-blocks SKU
-      is_deciding_price: boolean; // this promo's action_price matches current displayed price
-      sold_count: number | null; // null = unknown, will be set after first manual save
-      sold_source: 'manual' | 'portal' | 'analytics' | null; // where sold_count came from
-      left_to_sell: number | null; // = stock - sold_count when sold_count known
+      min_price: number | null; // seller-set floor (₽)
+      current_price: number; // actual displayed price (marketing_seller_price)
+      is_deciding_price: boolean; // current_price ≈ action_price → this promo wins
+      sold_count: number | null;
+      sold_source: 'manual' | 'portal' | 'analytics' | null;
+      left_to_sell: number | null;
     }>;
   }>;
 }
@@ -705,6 +706,7 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
             stock: p.stock,
             min_stock: p.min_stock,
             min_price: minPrice,
+            current_price: currentPrice,
             is_deciding_price: isDeciding,
             sold_count: soldCount,
             sold_source: soldSource,

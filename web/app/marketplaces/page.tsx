@@ -973,6 +973,7 @@ interface PromoProduct {
   stock: number;
   min_stock: number;
   min_price: number | null;
+  current_price: number;
   is_deciding_price: boolean;
   sold_count: number | null;
   left_to_sell: number | null;
@@ -1399,6 +1400,7 @@ function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: ()
                 <th style={thStyle}>Product</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Price</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Promo</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Sale</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Min price</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>%</th>
                 <th style={{ ...thStyle, textAlign: 'right', minWidth: 160 }}>Units in promo</th>
@@ -1537,6 +1539,27 @@ function PromoProductRow({
       </td>
       <td style={{ ...tdStyle, textAlign: 'right', color: 'var(--fg-1)', fontWeight: 800 }}>
         {fmt(product.action_price)}₽
+      </td>
+      <td
+        style={{
+          ...tdStyle,
+          textAlign: 'right',
+          fontWeight: 800,
+          color: product.is_deciding_price ? OZON_BLUE : 'var(--fg-1)',
+        }}
+        title={
+          product.is_deciding_price
+            ? 'Current sale price matches this promo — this promo is the winning offer for this SKU'
+            : product.current_price < product.action_price
+            ? `Sale price ${fmt(product.current_price)}₽ is below this promo's ${fmt(
+                product.action_price,
+              )}₽ — another promo or the seller base price is winning`
+            : `Sale price ${fmt(product.current_price)}₽ is above this promo's ${fmt(
+                product.action_price,
+              )}₽ — this promo isn't currently being applied`
+        }
+      >
+        {product.current_price > 0 ? `${fmt(product.current_price)}₽` : '—'}
       </td>
       <td
         style={{

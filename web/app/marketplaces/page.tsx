@@ -1517,27 +1517,9 @@ function PromoProductRow({
         />
       </td>
 
-      {/* Left to sell — emphasized as the main number */}
+      {/* Left to sell — emphasized as the main number, click to edit */}
       <td style={{ ...tdStyle, textAlign: 'right' }}>
-        {product.left_to_sell != null ? (
-          <div
-            style={{
-              fontSize: '18px',
-              fontWeight: 800,
-              color: 'var(--fg-1)',
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          >
-            {fmt(product.left_to_sell)}
-          </div>
-        ) : (
-          <div
-            style={{ fontSize: '14px', color: 'var(--fg-muted)', fontStyle: 'italic' }}
-            title="No sold_count baseline yet — value will appear after the next sale or after you set it once."
-          >
-            unknown
-          </div>
-        )}
+        <LeftToSellCell actionId={actionId} product={product} onSaved={onSaved} />
       </td>
 
       {/* Auto refill rule editor */}
@@ -2204,6 +2186,143 @@ function PromoPriceCell({
             fontWeight: 600,
             color: 'var(--brand-rot)',
             marginTop: 36,
+          }}
+        >
+          {err}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function LeftToSellCell({
+  actionId,
+  product,
+  onSaved,
+}: {
+  actionId: number;
+  product: PromoProduct;
+  onSaved: () => void;
+}) {
+  const [draft, setDraft] = useState<string>(
+    product.left_to_sell != null ? String(product.left_to_sell) : '',
+  );
+  const [saving, setSaving] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(product.left_to_sell != null ? String(product.left_to_sell) : '');
+    setErr(null);
+  }, [product.left_to_sell]);
+
+  const num = Number(draft);
+  const valid = draft !== '' && Number.isFinite(num) && num >= 0;
+  const dirty = valid && num !== (product.left_to_sell ?? -1);
+
+  async function save() {
+    if (saving || !dirty || !valid) return;
+    setSaving(true);
+    setErr(null);
+    try {
+      const apiBase =
+        (typeof window !== 'undefined' &&
+          (window as unknown as { __API_BASE?: string }).__API_BASE) ||
+        'https://dasoperator-api.dasexperten.workers.dev';
+      const payload: Record<string, unknown> = {
+        product_id: product.product_id,
+        action_price: product.action_price,
+        current_stock: product.stock,
+        left_to_sell: num,
+      };
+      if (product.left_to_sell != null) {
+        payload.current_left = product.left_to_sell;
+      }
+      const r = await fetch(
+        `${apiBase}/api/marketplaces/ozon/actions/${actionId}/stock`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+      );
+      const j = await r.json();
+      if (!j.success) throw new Error(j.errors?.[0]?.message || j.errors || 'Save failed');
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 1500);
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        justifyContent: 'flex-end',
+      }}
+    >
+      <input
+        type="number"
+        min={0}
+        value={draft}
+        disabled={saving}
+        placeholder={product.left_to_sell == null ? 'set' : ''}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') save();
+          if (e.key === 'Escape') {
+            setDraft(product.left_to_sell != null ? String(product.left_to_sell) : '');
+            setErr(null);
+          }
+        }}
+        onBlur={() => {
+          if (dirty) save();
+        }}
+        style={{
+          width: 78,
+          padding: '4px 8px',
+          fontFamily: 'var(--font-body)',
+          fontSize: '18px',
+          fontWeight: 800,
+          textAlign: 'right',
+          color: 'var(--fg-1)',
+          backgroundColor: dirty ? 'rgba(212,160,23,0.10)' : 'transparent',
+          border: dirty
+            ? '1px solid #D4A017'
+            : err
+            ? '1px solid var(--brand-rot)'
+            : '1px solid transparent',
+          borderRadius: 'var(--radius-sm)',
+          outline: 'none',
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      />
+      {savedFlash && !dirty && (
+        <span
+          style={{
+            fontSize: '11px',
+            fontWeight: 700,
+            color: '#2E7D4F',
+            marginLeft: 2,
+          }}
+        >
+          ✓
+        </span>
+      )}
+      {err && (
+        <span
+          style={{
+            position: 'absolute',
+            fontSize: '11px',
+            fontWeight: 600,
+            color: 'var(--brand-rot)',
+            marginTop: 40,
           }}
         >
           {err}

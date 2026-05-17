@@ -1619,7 +1619,11 @@ function EditableQuotaCell({
         disabled={saving || disabled}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') onSave();
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            (e.target as HTMLInputElement).blur();
+            onSave();
+          }
           if (e.key === 'Escape') onCancel();
         }}
         style={{
@@ -1805,7 +1809,11 @@ function RefillRuleCell({
           disabled={saving}
           onChange={(e) => setBelowDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') save();
+            if (e.key === 'Enter') {
+            e.preventDefault();
+            (e.target as HTMLInputElement).blur();
+            save();
+          }
           }}
           style={inputStyle}
         />
@@ -1821,7 +1829,11 @@ function RefillRuleCell({
           disabled={saving}
           onChange={(e) => setTargetDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') save();
+            if (e.key === 'Enter') {
+            e.preventDefault();
+            (e.target as HTMLInputElement).blur();
+            save();
+          }
           }}
           style={inputStyle}
         />
@@ -2184,7 +2196,11 @@ function PromoPriceCell({
         disabled={saving}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') save();
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            (e.target as HTMLInputElement).blur();
+            save();
+          }
           if (e.key === 'Escape') {
             setDraft(String(product.action_price));
             setErr(null);
@@ -2344,7 +2360,11 @@ function LeftToSellCell({
         placeholder={product.left_to_sell == null ? 'set' : ''}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') save();
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            (e.target as HTMLInputElement).blur();
+            save();
+          }
           if (e.key === 'Escape') {
             setDraft(product.left_to_sell != null ? String(product.left_to_sell) : '');
             setErr(null);

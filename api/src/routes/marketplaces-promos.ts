@@ -21,6 +21,74 @@ const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
 
+// Patch a single product inside the cached payload in-place. Much faster than
+// invalidating the whole cache and triggering a 15s rebuild on the next GET.
+// Returns true if the patch was applied, false if the cache miss / wasn't found.
+async function patchCachedProduct(
+  env: Env,
+  actionId: number,
+  productId: number,
+  patch: Partial<CachedActionsPayload['actions'][number]['products'][number]>,
+): Promise<boolean> {
+  try {
+    const cached = await env.CACHE.get(CACHE_KEY);
+    if (!cached) return false;
+    const payload = JSON.parse(cached) as CachedActionsPayload;
+    let touched = false;
+    for (const a of payload.actions) {
+      if (a.action_id !== actionId) continue;
+      for (let i = 0; i < a.products.length; i++) {
+        if (a.products[i].product_id === productId) {
+          a.products[i] = { ...a.products[i], ...patch };
+          touched = true;
+          break;
+        }
+      }
+      if (touched) break;
+    }
+    if (!touched) return false;
+    await env.CACHE.put(CACHE_KEY, JSON.stringify(payload), {
+      expirationTtl: CACHE_TTL_SEC,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Remove a single product from the cached payload (when product is deactivated).
+async function removeCachedProduct(
+  env: Env,
+  actionId: number,
+  productId: number,
+): Promise<boolean> {
+  try {
+    const cached = await env.CACHE.get(CACHE_KEY);
+    if (!cached) return false;
+    const payload = JSON.parse(cached) as CachedActionsPayload;
+    let touched = false;
+    for (const a of payload.actions) {
+      if (a.action_id !== actionId) continue;
+      const before = a.products.length;
+      a.products = a.products.filter((p) => p.product_id !== productId);
+      if (a.products.length !== before) {
+        a.participating_products_count = a.products.length;
+        a.deciding_count = a.products.filter((p) => p.is_deciding_price).length;
+        a.total_units_left = a.products.reduce((s, p) => s + p.stock, 0);
+        touched = true;
+      }
+      break;
+    }
+    if (!touched) return false;
+    await env.CACHE.put(CACHE_KEY, JSON.stringify(payload), {
+      expirationTtl: CACHE_TTL_SEC,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 interface OzonActionRaw {
   id: number;
   title: string;
@@ -1184,12 +1252,18 @@ promos.post('/ozon/actions/:actionId/stock', async (c) => {
       await setSoldCount(c.env, actionId, productId, newSoldCount);
     }
 
-    // Invalidate cache so next GET pulls fresh data
-    try {
-      await c.env.CACHE.delete(CACHE_KEY);
-    } catch {
-      // ignore
+    // Patch cache in-place so next GET is instant (no full rebuild needed).
+    const leftToSell =
+      newSoldCount != null ? Math.max(0, targetStock - newSoldCount) : null;
+    const patch: Partial<CachedActionsPayload['actions'][number]['products'][number]> = {
+      stock: targetStock,
+    };
+    if (newSoldCount != null) patch.sold_count = newSoldCount;
+    if (leftToSell != null) patch.left_to_sell = leftToSell;
+    if (typeof body.action_price === 'number' && body.action_price > 0) {
+      patch.action_price = body.action_price;
     }
+    await patchCachedProduct(c.env, actionId, productId, patch);
 
     return ok(c, {
       action_id: actionId,
@@ -1226,11 +1300,7 @@ promos.post('/ozon/actions/:actionId/refill-rule', async (c) => {
 
   if (body.clear === true) {
     await setRefillRule(c.env, actionId, productId, null);
-    try {
-      await c.env.CACHE.delete(CACHE_KEY);
-    } catch {
-      // ignore
-    }
+    await patchCachedProduct(c.env, actionId, productId, { refill_rule: null });
     return ok(c, { action_id: actionId, product_id: productId, cleared: true });
   }
 
@@ -1247,11 +1317,9 @@ promos.post('/ozon/actions/:actionId/refill-rule', async (c) => {
   }
 
   await setRefillRule(c.env, actionId, productId, { threshold, target });
-  try {
-    await c.env.CACHE.delete(CACHE_KEY);
-  } catch {
-    // ignore
-  }
+  await patchCachedProduct(c.env, actionId, productId, {
+    refill_rule: { threshold, target },
+  });
   return ok(c, {
     action_id: actionId,
     product_id: productId,
@@ -1306,11 +1374,12 @@ promos.post('/ozon/actions/:actionId/price', async (c) => {
     if (rejected.length > 0) {
       return fail(c, 409, `Ozon rejected: ${rejected[0].reason}`);
     }
-    try {
-      await c.env.CACHE.delete(CACHE_KEY);
-    } catch {
-      // ignore
-    }
+    // Patch cache: update action_price + recompute is_deciding_price relative
+    // to current_price (which we keep unchanged — Ozon may take seconds to
+    // propagate it to the displayed price anyway).
+    await patchCachedProduct(c.env, actionId, productId, {
+      action_price: newPrice,
+    });
     return ok(c, {
       action_id: actionId,
       product_id: productId,
@@ -1348,13 +1417,9 @@ promos.delete('/ozon/actions/:actionId/products/:productId', async (c) => {
     if (rejected.length > 0) {
       return fail(c, 409, `Ozon rejected: ${rejected[0].reason}`);
     }
-    // Clear any refill rule + bust cache
+    // Clear refill rule + remove from cache (no full rebuild)
     await setRefillRule(c.env, actionId, productId, null);
-    try {
-      await c.env.CACHE.delete(CACHE_KEY);
-    } catch {
-      // ignore
-    }
+    await removeCachedProduct(c.env, actionId, productId);
     return ok(c, { action_id: actionId, product_id: productId, removed: true });
   } catch (e) {
     return fail(c, 502, e instanceof Error ? e.message : 'Ozon API error');

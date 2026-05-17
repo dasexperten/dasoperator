@@ -1570,7 +1570,8 @@ function EditableQuotaCell({
       }}
     >
       <input
-        type="number"
+        type="text"
+          inputMode="numeric"
         min={0}
         value={value}
         placeholder={placeholder}
@@ -1755,7 +1756,8 @@ function RefillRuleCell({
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ ...labelStyle, color: '#A32D2D' }}>Below</span>
         <input
-          type="number"
+          type="text"
+          inputMode="numeric"
           min={0}
           value={belowDraft}
           placeholder="—"
@@ -1770,7 +1772,8 @@ function RefillRuleCell({
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ ...labelStyle, color: '#3B6D11', fontWeight: 700 }}>Refill to</span>
         <input
-          type="number"
+          type="text"
+          inputMode="numeric"
           min={0}
           value={targetDraft}
           placeholder="—"
@@ -2131,7 +2134,8 @@ function PromoPriceCell({
       }}
     >
       <input
-        type="number"
+        type="text"
+          inputMode="numeric"
         min={1}
         value={draft}
         disabled={saving}
@@ -2268,7 +2272,8 @@ function LeftToSellCell({
       }}
     >
       <input
-        type="number"
+        type="text"
+          inputMode="numeric"
         min={0}
         value={draft}
         disabled={saving}

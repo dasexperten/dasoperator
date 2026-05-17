@@ -15,6 +15,29 @@ import {
 } from 'lucide-react';
 
 const OZON_BLUE = 'rgb(0, 91, 255)';
+
+// Превращает многословные сообщения Ozon в одну короткую человеко-читаемую
+// строку. Возвращает оригинал, если паттерн не распознан.
+function humanizeOzonError(raw: string): string {
+  if (!raw) return 'Не удалось сохранить';
+  // Discount-percent reject: "DiscountPercent must be greater or equal than X, but actual is Y"
+  const m = raw.match(/DiscountPercent must be greater or equal than ([\d.]+), but actual is ([\d.]+)/i);
+  if (m) {
+    const required = parseFloat(m[1]);
+    return `Ozon требует скидку минимум ${required.toFixed(1)}% — снизь цену сильнее`;
+  }
+  // Action stopped
+  if (/action.*stop|stop.*action/i.test(raw)) {
+    return 'Акция уже закрыта на стороне Озона';
+  }
+  // Product not in action
+  if (/not.*found.*action|not.*in.*action/i.test(raw)) {
+    return 'Товар больше не в этой акции';
+  }
+  // Trim "Ozon rejected: product ID NNN: " prefix
+  const trimmed = raw.replace(/^Ozon rejected:\s*product ID \d+:\s*/i, '');
+  return trimmed.length > 120 ? trimmed.slice(0, 117) + '…' : trimmed;
+}
 const WB_PINK = 'rgb(203, 17, 122)';
 
 const OZON_CONFIG = {
@@ -1714,7 +1737,7 @@ function RefillRuleCell({
       setTimeout(() => setSavedFlash(false), 1500);
       onSaved();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Save failed');
+      setErr(humanizeOzonError(e instanceof Error ? e.message : ''));
     } finally {
       setSaving(false);
     }
@@ -1918,7 +1941,7 @@ function BoostSliderCell({
       setTimeout(() => setSavedFlash(false), 1500);
       onSaved();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Save failed');
+      setErr(humanizeOzonError(e instanceof Error ? e.message : ''));
     } finally {
       setSaving(false);
     }
@@ -2118,7 +2141,7 @@ function PromoPriceCell({
       setTimeout(() => setSavedFlash(false), 1500);
       onSaved();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Save failed');
+      setErr(humanizeOzonError(e instanceof Error ? e.message : ''));
       setDraft(String(product.action_price));
     } finally {
       setSaving(false);
@@ -2128,6 +2151,7 @@ function PromoPriceCell({
   return (
     <div
       style={{
+        position: 'relative',
         display: 'inline-flex',
         alignItems: 'center',
         gap: 4,
@@ -2185,23 +2209,28 @@ function PromoPriceCell({
       )}
       {err && (
         <div
-          title={err}
+          onClick={() => setErr(null)}
+          title={err + ' (клик чтобы закрыть)'}
           style={{
-            position: 'fixed',
-            zIndex: 100,
+            position: 'absolute',
+            zIndex: 50,
             background: 'var(--brand-rot)',
             color: '#fff',
-            fontSize: '11px',
-            fontWeight: 700,
-            padding: '4px 8px',
+            fontSize: '12px',
+            fontWeight: 600,
+            padding: '6px 10px',
             borderRadius: 4,
-            marginTop: -2,
-            marginLeft: -240,
-            maxWidth: 300,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+            top: '100%',
+            right: 0,
+            marginTop: 4,
+            maxWidth: 280,
+            minWidth: 200,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
             letterSpacing: 0,
             whiteSpace: 'normal',
-            lineHeight: 1.3,
+            lineHeight: 1.35,
+            cursor: 'pointer',
+            textAlign: 'left',
           }}
         >
           {err}
@@ -2270,7 +2299,7 @@ function LeftToSellCell({
       setTimeout(() => setSavedFlash(false), 1500);
       onSaved();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Save failed');
+      setErr(humanizeOzonError(e instanceof Error ? e.message : ''));
       setDraft(product.left_to_sell != null ? String(product.left_to_sell) : '');
     } finally {
       setSaving(false);
@@ -2280,6 +2309,7 @@ function LeftToSellCell({
   return (
     <div
       style={{
+        position: 'relative',
         display: 'inline-flex',
         alignItems: 'center',
         gap: 4,
@@ -2337,23 +2367,28 @@ function LeftToSellCell({
       )}
       {err && (
         <div
-          title={err}
+          onClick={() => setErr(null)}
+          title={err + ' (клик чтобы закрыть)'}
           style={{
-            position: 'fixed',
-            zIndex: 100,
+            position: 'absolute',
+            zIndex: 50,
             background: 'var(--brand-rot)',
             color: '#fff',
-            fontSize: '11px',
-            fontWeight: 700,
-            padding: '4px 8px',
+            fontSize: '12px',
+            fontWeight: 600,
+            padding: '6px 10px',
             borderRadius: 4,
-            marginTop: -2,
-            marginLeft: -240,
-            maxWidth: 300,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+            top: '100%',
+            right: 0,
+            marginTop: 4,
+            maxWidth: 280,
+            minWidth: 200,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
             letterSpacing: 0,
             whiteSpace: 'normal',
-            lineHeight: 1.3,
+            lineHeight: 1.35,
+            cursor: 'pointer',
+            textAlign: 'left',
           }}
         >
           {err}

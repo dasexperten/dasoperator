@@ -1398,9 +1398,8 @@ function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: ()
               <tr>
                 <th style={thStyle}>SKU</th>
                 <th style={thStyle}>Product</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Price</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Current price</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Promo</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Sale</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Min price</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>%</th>
                 <th style={{ ...thStyle, textAlign: 'right', minWidth: 160 }}>Units in promo</th>
@@ -1526,20 +1525,7 @@ function PromoProductRow({
       >
         {product.name}
       </td>
-      <td
-        style={{
-          ...tdStyle,
-          textAlign: 'right',
-          color: 'var(--fg-2)',
-          textDecoration: 'line-through',
-          fontWeight: 700,
-        }}
-      >
-        {fmt(product.price)}₽
-      </td>
-      <td style={{ ...tdStyle, textAlign: 'right', color: 'var(--fg-1)', fontWeight: 800 }}>
-        {fmt(product.action_price)}₽
-      </td>
+      {/* Current price (was "Sale" / "Price" strikethrough — now the actual displayed price) */}
       <td
         style={{
           ...tdStyle,
@@ -1551,36 +1537,46 @@ function PromoProductRow({
           product.is_deciding_price
             ? 'Current sale price matches this promo — this promo is the winning offer for this SKU'
             : product.current_price < product.action_price
-            ? `Sale price ${fmt(product.current_price)}₽ is below this promo's ${fmt(
+            ? `Current price ${fmt(product.current_price)}₽ is below this promo's ${fmt(
                 product.action_price,
-              )}₽ — another promo or the seller base price is winning`
-            : `Sale price ${fmt(product.current_price)}₽ is above this promo's ${fmt(
+              )}₽ — another promo or seller base price is winning`
+            : `Current price ${fmt(product.current_price)}₽ is above this promo's ${fmt(
                 product.action_price,
-              )}₽ — this promo isn't currently being applied`
+              )}₽ — this promo isn't being applied right now`
         }
       >
         {product.current_price > 0 ? `${fmt(product.current_price)}₽` : '—'}
+        {product.min_price != null &&
+          product.current_price > 0 &&
+          Math.abs(product.current_price - product.min_price) < 0.5 && (
+            <div
+              style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                color: 'var(--fg-muted)',
+                marginTop: 2,
+                letterSpacing: 0,
+              }}
+              title="Current price equals the seller minimum for this SKU"
+            >
+              min
+            </div>
+          )}
+      </td>
+      <td style={{ ...tdStyle, textAlign: 'right', color: 'var(--fg-1)', fontWeight: 800 }}>
+        {fmt(product.action_price)}₽
       </td>
       <td
         style={{
           ...tdStyle,
           textAlign: 'right',
           fontWeight: 700,
-          color:
-            product.min_price == null
-              ? 'var(--fg-muted)'
-              : product.action_price <= product.min_price
-              ? 'var(--brand-rot)'
-              : 'var(--fg-2)',
+          color: product.min_price == null ? 'var(--fg-muted)' : 'var(--fg-2)',
         }}
         title={
           product.min_price == null
             ? 'No minimum price set in Ozon'
-            : product.action_price <= product.min_price
-            ? 'Promo price is at or below the seller minimum — no further discount allowed'
-            : `Floor below which Ozon auto-blocks the SKU. Promo can still drop by ${fmt(
-                product.action_price - product.min_price,
-              )}₽`
+            : 'Minimum price for this product (seller-set floor)'
         }
       >
         {product.min_price != null ? `${fmt(product.min_price)}₽` : '—'}

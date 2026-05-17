@@ -2119,6 +2119,7 @@ function PromoPriceCell({
       onSaved();
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Save failed');
+      setDraft(String(product.action_price));
     } finally {
       setSaving(false);
     }
@@ -2183,17 +2184,28 @@ function PromoPriceCell({
         </span>
       )}
       {err && (
-        <span
+        <div
+          title={err}
           style={{
-            position: 'absolute',
+            position: 'fixed',
+            zIndex: 100,
+            background: 'var(--brand-rot)',
+            color: '#fff',
             fontSize: '11px',
-            fontWeight: 600,
-            color: 'var(--brand-rot)',
-            marginTop: 36,
+            fontWeight: 700,
+            padding: '4px 8px',
+            borderRadius: 4,
+            marginTop: -2,
+            marginLeft: -240,
+            maxWidth: 300,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+            letterSpacing: 0,
+            whiteSpace: 'normal',
+            lineHeight: 1.3,
           }}
         >
           {err}
-        </span>
+        </div>
       )}
     </div>
   );
@@ -2235,10 +2247,12 @@ function LeftToSellCell({
         'https://dasoperator-api.dasexperten.workers.dev';
       const payload: Record<string, unknown> = {
         product_id: product.product_id,
-        action_price: product.action_price,
         current_stock: product.stock,
         left_to_sell: num,
       };
+      // Intentionally omit action_price: Ozon re-validates the full row on
+      // /activate, and including a price that's already at the platform's
+      // minimum discount can cause a stale-rule rejection.
       if (product.left_to_sell != null) {
         payload.current_left = product.left_to_sell;
       }
@@ -2257,6 +2271,7 @@ function LeftToSellCell({
       onSaved();
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Save failed');
+      setDraft(product.left_to_sell != null ? String(product.left_to_sell) : '');
     } finally {
       setSaving(false);
     }
@@ -2321,17 +2336,28 @@ function LeftToSellCell({
         </span>
       )}
       {err && (
-        <span
+        <div
+          title={err}
           style={{
-            position: 'absolute',
+            position: 'fixed',
+            zIndex: 100,
+            background: 'var(--brand-rot)',
+            color: '#fff',
             fontSize: '11px',
-            fontWeight: 600,
-            color: 'var(--brand-rot)',
-            marginTop: 40,
+            fontWeight: 700,
+            padding: '4px 8px',
+            borderRadius: 4,
+            marginTop: -2,
+            marginLeft: -240,
+            maxWidth: 300,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+            letterSpacing: 0,
+            whiteSpace: 'normal',
+            lineHeight: 1.3,
           }}
         >
           {err}
-        </span>
+        </div>
       )}
     </div>
   );

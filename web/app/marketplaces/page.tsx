@@ -16,6 +16,36 @@ import {
 
 const OZON_BLUE = 'rgb(0, 91, 255)';
 
+// Short display names for promo product rows. Keeps the table readable
+// without horizontal scroll. Falls back to product.name truncated.
+const SKU_SHORT_NAMES: Record<string, string> = {
+  DE101AA: 'ETALON',
+  DE105AAAA: 'SCHWARZ Brush',
+  DE106AAAA: 'SENSITIV 4in1',
+  DE107AAAA: 'MITTEL ergo',
+  DE111: 'Mint waxed floss',
+  DE112: 'Expanding floss',
+  DE114: 'ZUNGER scraper',
+  DE115: 'Bamboo black floss',
+  DE116AAAA: 'KRAFTBURST',
+  DE118AAAA: 'KINDER brush',
+  DE119AA: 'GROSSE 2pcs',
+  DE120AAAA: 'NANO MASSAGE',
+  DE123AAAA: 'BIO 4in1',
+  DE125: 'INTERDENTAL brushes',
+  DE130: 'INTENSIV soft',
+  DE201AA: 'SCHWARZ paste',
+  DE202AA: 'DETOX gel',
+  DE203AA: 'GINGER FORCE 2pcs',
+  DE205AA: 'BIO natural paste',
+  DE207AA: 'BECHER kids paste',
+  DE210: 'INNOWEISS multi-enzyme',
+};
+
+function shortName(offerId: string, fullName: string): string {
+  return SKU_SHORT_NAMES[offerId] || fullName || '—';
+}
+
 // Превращает многословные сообщения Ozon в одну короткую человеко-читаемую
 // строку. Возвращает оригинал, если паттерн не распознан.
 function humanizeOzonError(raw: string): string {
@@ -1461,15 +1491,15 @@ function PromoActionItem({
             <thead>
               <tr>
                 <th style={thStyle}>SKU</th>
-                <th style={thStyle}>Product</th>
+                <th style={{ ...thStyle, minWidth: 160 }}>Product</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Current price</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Promo</th>
                 {hasElasticBoost && (
-                  <th style={{ ...thStyle, textAlign: 'center', minWidth: 240 }}>Boost level</th>
+                  <th style={{ ...thStyle, textAlign: 'center', minWidth: 200 }}>Boost level</th>
                 )}
-                <th style={{ ...thStyle, textAlign: 'right', minWidth: 110 }}>Left to sell</th>
-                <th style={{ ...thStyle, textAlign: 'right', minWidth: 90 }}>FBO stock</th>
-                <th style={{ ...thStyle, textAlign: 'right', minWidth: 180 }}>Keep stock topped up</th>
+                <th style={{ ...thStyle, textAlign: 'right', minWidth: 90 }}>Left to sell</th>
+                <th style={{ ...thStyle, textAlign: 'right', minWidth: 80 }}>FBO stock</th>
+                <th style={{ ...thStyle, textAlign: 'right', minWidth: 150 }}>Keep stock topped up</th>
                 <th style={{ ...thStyle, width: 36, padding: '10px 6px' }}></th>
               </tr>
             </thead>
@@ -1585,13 +1615,19 @@ function PromoProductRow({
       <td
         style={{
           ...tdStyle,
-          maxWidth: 320,
+          maxWidth: 220,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
         }}
       >
-        {product.name}
+        <a
+          href={`/products/${product.offer_id.toLowerCase()}`}
+          style={{ color: 'var(--fg-1)', textDecoration: 'none' }}
+          title={product.name}
+        >
+          {shortName(product.offer_id, product.name)}
+        </a>
       </td>
       {/* Current price — three states:
           - 'this' (blue):   this promo wins → current_price = action_price

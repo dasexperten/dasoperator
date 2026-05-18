@@ -3028,7 +3028,6 @@ function ToggleActionButton({
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [hovered, setHovered] = useState(false);
 
   // We don't know per-product participation in the candidate list — for
   // CAND (action not participating) all rows are inactive, for PART all rows
@@ -3074,43 +3073,44 @@ function ToggleActionButton({
     }
   }
 
-  // Active: red ✕ on hover (remove). Inactive: green + on hover (add).
-  const baseColor = 'rgba(0,0,0,0.35)';
-  const activeColor = isActive ? '#A32D2D' : '#2E7D4F';
-  const color = err ? '#A32D2D' : hovered ? activeColor : baseColor;
-  const bg = hovered
-    ? isActive
-      ? 'rgba(163,45,45,0.08)'
-      : 'rgba(46,125,79,0.10)'
-    : 'transparent';
-
+  // Blue ON/OFF toggle (same visual language as action-level header toggle).
+  // ON (blue) = SKU active in action. OFF (gray) = not active. Click flips.
   return (
     <div style={{ position: 'relative', display: 'inline-block' }}>
-      <button
-        onClick={handleClick}
-        disabled={busy}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        title={isActive ? `Снять ${offerId} с акции` : `Включить ${offerId} в акцию`}
+      <span
+        role="switch"
+        aria-checked={isActive}
         aria-label={isActive ? `Снять ${offerId} с акции` : `Включить ${offerId} в акцию`}
+        title={isActive ? `Снять ${offerId} с акции` : `Включить ${offerId} в акцию`}
+        onClick={busy ? undefined : handleClick}
         style={{
-          width: 24,
-          height: 24,
-          padding: 0,
-          background: bg,
-          border: 'none',
+          display: 'inline-block',
+          width: 40,
+          height: 22,
+          borderRadius: 11,
+          backgroundColor: isActive ? OZON_BLUE : 'var(--paper-2)',
+          border: '0.5px solid var(--border-hairline)',
+          position: 'relative',
           cursor: busy ? 'wait' : 'pointer',
-          color,
-          fontSize: '16px',
-          lineHeight: 1,
-          borderRadius: '50%',
-          transition: 'all 0.15s',
-          fontWeight: 600,
-          letterSpacing: 0,
+          opacity: busy ? 0.6 : 1,
+          transition: 'background-color 0.15s, opacity 0.15s',
+          verticalAlign: 'middle',
         }}
       >
-        {busy ? '…' : isActive ? '✕' : '+'}
-      </button>
+        <span
+          style={{
+            position: 'absolute',
+            top: 2,
+            left: isActive ? 20 : 2,
+            width: 16,
+            height: 16,
+            borderRadius: '50%',
+            backgroundColor: '#fff',
+            border: '0.5px solid var(--border-hairline)',
+            transition: 'left 0.15s',
+          }}
+        />
+      </span>
       {err && (
         <div
           onClick={() => setErr(null)}

@@ -1295,7 +1295,21 @@ function OzonPromotionsWidget() {
 
   if (!data) return null;
 
-  const mostUrgent = data.actions.length > 0 ? data.actions[0] : null;
+  // Hide all Распродажа стока actions from UI per Aram's request. Backend still
+  // tracks them; this is purely a display filter.
+  const visibleActions = data.actions.filter(
+    (a) => !(a.title || '').toLowerCase().includes('распродажа'),
+  );
+  const visibleParticipating = visibleActions.filter((a) => a.is_participating).length;
+  const visibleSkuCount = visibleActions.reduce(
+    (s, a) => s + (a.participating_products_count || 0),
+    0,
+  );
+  const visibleUnitsLeft = visibleActions.reduce(
+    (s, a) => s + (a.total_units_left || 0),
+    0,
+  );
+  const mostUrgent = visibleActions.length > 0 ? visibleActions[0] : null;
 
   return (
     <div
@@ -1367,11 +1381,11 @@ function OzonPromotionsWidget() {
           borderBottom: '1px solid var(--border-hairline)',
         }}
       >
-        <PromoMetric label="Active promos" value={fmt(data.participating_count)} />
-        <PromoMetric label="SKUs in promos" value={fmt(data.total_skus_in_promos)} />
+        <PromoMetric label="Active promos" value={fmt(visibleParticipating)} />
+        <PromoMetric label="SKUs in promos" value={fmt(visibleSkuCount)} />
         <PromoMetric
           label="Units to sell"
-          value={fmt(data.total_units_left)}
+          value={fmt(visibleUnitsLeft)}
           highlight
         />
         <PromoMetric
@@ -1399,12 +1413,12 @@ function OzonPromotionsWidget() {
 
       {/* Actions list */}
       <div>
-        {data.actions.length === 0 && (
+        {visibleActions.length === 0 && (
           <div style={{ padding: 24, color: 'var(--fg-muted)', fontSize: '14px' }}>
             No active promotions
           </div>
         )}
-        {data.actions.map((a) => (
+        {visibleActions.map((a) => (
           <PromoActionItem
             key={a.action_id}
             action={a}

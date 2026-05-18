@@ -1491,13 +1491,24 @@ function PromoActionItem({
   // and similar promos have no min_boost / max_boost mechanics.
   const hasElasticBoost = action.action_type === 'MARKETPLACE_MULTI_LEVEL_DISCOUNT_ON_AMOUNT';
 
-  // Is this a regional Распродажа (clearance sale) we don't participate in?
-  // Those are OFF by default — render a compact one-row toggle. When ON,
-  // expand the full candidate table. Toggle persists in localStorage.
+  // Toggle classification:
+  //   - "Эластичный бустинг" (unlimited >90d): no toggle, just expand chevron
+  //   - All other actions (finite, ≤90d): action-level toggle.
+  //       ON = participating (we have ≥1 SKU active)
+  //       OFF = either not-joined OR previously left via /leave
+  //     Clicking ON→OFF calls /leave (deactivates every SKU + snapshots).
+  //     Clicking OFF→ON: if leave snapshot exists, calls /rejoin to restore
+  //     previous SKUs; otherwise opens the candidates list.
   const titleLower = (action.title || '').toLowerCase();
-  const isClearance = titleLower.includes('распродажа') && !action.is_participating;
+  const isUnlimitedBoost = (action.days_left ?? 0) > 90 || titleLower.includes('эластичный');
+  const showActionToggle = !isUnlimitedBoost;
+  // Backwards-compat names used downstream (rendering, expand-on-click logic).
+  // isClearance retained for the per-row "is_active_in_action" column
+  // (Распродажа shows candidates+actives merged; boost shows actives only).
+  const isClearance = titleLower.includes('распродажа');
   const toggleKey = `promo:clearance-on:${action.action_id}`;
   const [clearanceOn, setClearanceOn] = useState<boolean>(false);
+  const [toggleBusy, setToggleBusy] = useState<boolean>(false);
   useEffect(() => {
     if (!isClearance) return;
     try {
@@ -1522,6 +1533,50 @@ function PromoActionItem({
     setOpen(next);
   }
 
+  // Action-level join/leave for finite actions
+  async function handleActionToggle() {
+    if (toggleBusy) return;
+    const apiBase =
+      (typeof window !== 'undefined' &&
+        (window as unknown as { __API_BASE?: string }).__API_BASE) ||
+      'https://dasoperator-api.dasexperten.workers.dev';
+    setToggleBusy(true);
+    try {
+      if (action.is_participating) {
+        // ON → OFF: leave the action
+        const ok = window.confirm(
+          `Выйти из акции "${action.title}"?\n\nВсе SKU будут деактивированы. Возврат вернёт их с прежними ценами в течение 30 дней.`,
+        );
+        if (!ok) {
+          setToggleBusy(false);
+          return;
+        }
+        const r = await fetch(`${apiBase}/api/marketplaces/ozon/actions/${action.action_id}/leave`, {
+          method: 'POST',
+        });
+        const j = await r.json();
+        if (!j.success) throw new Error(j.errors?.[0]?.message || 'Leave failed');
+        window.location.reload();
+      } else {
+        // OFF → ON: try rejoin from snapshot; fallback to expanding candidates
+        const r = await fetch(`${apiBase}/api/marketplaces/ozon/actions/${action.action_id}/rejoin`, {
+          method: 'POST',
+        });
+        const j = await r.json();
+        if (j.success) {
+          window.location.reload();
+        } else {
+          // No snapshot — fall back to opening candidates list
+          toggleClearance();
+        }
+      }
+    } catch (e) {
+      window.alert('Ошибка: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setToggleBusy(false);
+    }
+  }
+
   // Auto-expand when a sibling row clicks our "winning" current-price
   useEffect(() => {
     function onOpenEvent(e: Event) {
@@ -1541,11 +1596,14 @@ function PromoActionItem({
     >
       <button
         onClick={() => {
-          if (isClearance) {
-            // Clicking the header just expands/collapses without toggling the
-            // action ON/OFF — that's a separate switch
-            if (clearanceOn) setOpen(!open);
-          } else {
+          // Header click behavior:
+          //  - Participating action: expand/collapse SKU table
+          //  - Not-joined Распродажа with clearanceOn: same
+          //  - Not-joined Распродажа closed: no-op (use the toggle to open)
+          //  - Эластичный бустинг (no toggle): expand/collapse
+          if (action.is_participating || !showActionToggle) {
+            setOpen(!open);
+          } else if (isClearance && clearanceOn) {
             setOpen(!open);
           }
         }}
@@ -1557,7 +1615,8 @@ function PromoActionItem({
           padding: '16px 24px',
           backgroundColor: 'transparent',
           border: 'none',
-          cursor: isClearance && !clearanceOn ? 'default' : 'pointer',
+          cursor: (action.is_participating || !showActionToggle || (isClearance && clearanceOn))
+            ? 'pointer' : 'default',
           textAlign: 'left',
         }}
       >
@@ -1670,70 +1729,33 @@ function PromoActionItem({
           </div>
           <div style={{ fontSize: '12px', fontWeight: 600, marginTop: 2 }}>left</div>
         </div>
-        {isClearance ? (
+        {showActionToggle ? (
           <span
             role="switch"
-            aria-checked={clearanceOn}
-            aria-label={`${clearanceOn ? 'Выключить' : 'Включить'} ${action.title}`}
+            aria-checked={action.is_participating}
+            aria-label={`${action.is_participating ? 'Выйти из акции' : 'Войти в акцию'} ${action.title}`}
             onClick={(e) => {
               e.stopPropagation();
-              toggleClearance();
+              handleActionToggle();
             }}
             style={{
               flexShrink: 0,
               width: 40,
               height: 22,
               borderRadius: 11,
-              backgroundColor: clearanceOn ? OZON_BLUE : 'var(--paper-2)',
+              backgroundColor: action.is_participating ? OZON_BLUE : 'var(--paper-2)',
               border: '0.5px solid var(--border-hairline)',
               position: 'relative',
-              cursor: 'pointer',
-              transition: 'background-color 0.15s',
+              cursor: toggleBusy ? 'wait' : 'pointer',
+              opacity: toggleBusy ? 0.6 : 1,
+              transition: 'background-color 0.15s, opacity 0.15s',
             }}
           >
             <span
               style={{
                 position: 'absolute',
                 top: 2,
-                left: clearanceOn ? 20 : 2,
-                width: 16,
-                height: 16,
-                borderRadius: '50%',
-                backgroundColor: '#fff',
-                border: '0.5px solid var(--border-hairline)',
-                transition: 'left 0.15s',
-              }}
-            />
-          </span>
-        ) : action.is_participating ? (
-          // Participating action: visual blue toggle ON. Click expands/collapses
-          // the SKU list (same UX as not-joined Распродажа). Per-SKU toggles
-          // inside the table activate/deactivate individual products.
-          <span
-            role="switch"
-            aria-checked={open}
-            aria-label={`${open ? 'Свернуть' : 'Развернуть'} ${action.title}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              setOpen(!open);
-            }}
-            style={{
-              flexShrink: 0,
-              width: 40,
-              height: 22,
-              borderRadius: 11,
-              backgroundColor: OZON_BLUE,
-              border: '0.5px solid var(--border-hairline)',
-              position: 'relative',
-              cursor: 'pointer',
-              transition: 'background-color 0.15s',
-            }}
-          >
-            <span
-              style={{
-                position: 'absolute',
-                top: 2,
-                left: 20,
+                left: action.is_participating ? 20 : 2,
                 width: 16,
                 height: 16,
                 borderRadius: '50%',
@@ -1754,7 +1776,7 @@ function PromoActionItem({
           />
         )}
       </button>
-      {open && (!isClearance || clearanceOn) && (
+      {open && (!isClearance || clearanceOn || action.is_participating) && (
         <div
           style={{
             backgroundColor: 'var(--paper-sunk)',

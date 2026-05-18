@@ -1006,6 +1006,8 @@ interface PromoProduct {
   current_boost: number | null;
   min_boost: number | null;
   max_boost: number | null;
+  fbo_present: number | null;
+  fbo_reserved: number | null;
 }
 
 interface PromoAction {
@@ -1436,6 +1438,7 @@ function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: ()
                   <th style={{ ...thStyle, textAlign: 'center', minWidth: 240 }}>Boost level</th>
                 )}
                 <th style={{ ...thStyle, textAlign: 'right', minWidth: 110 }}>Left to sell</th>
+                <th style={{ ...thStyle, textAlign: 'right', minWidth: 90 }}>FBO stock</th>
                 <th style={{ ...thStyle, textAlign: 'right', minWidth: 180 }}>Keep stock topped up</th>
                 <th style={{ ...thStyle, width: 36, padding: '10px 6px' }}></th>
               </tr>
@@ -1561,6 +1564,50 @@ function PromoProductRow({
       {/* Left to sell — emphasized as the main number, click to edit */}
       <td style={{ ...tdStyle, textAlign: 'right' }}>
         <LeftToSellCell actionId={actionId} product={product} onSaved={onSaved} />
+      </td>
+
+      {/* FBO warehouse stock — what's actually in Ozon fulfillment right now */}
+      <td style={{ ...tdStyle, textAlign: 'right' }}>
+        {product.fbo_present != null ? (
+          <div>
+            <div
+              style={{
+                fontSize: '15px',
+                fontWeight: 700,
+                color:
+                  product.fbo_present === 0
+                    ? 'var(--brand-rot)'
+                    : product.fbo_present < 50
+                    ? '#8A6000'
+                    : 'var(--fg-1)',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+              title={
+                product.fbo_reserved && product.fbo_reserved > 0
+                  ? `${product.fbo_present} доступно · ${product.fbo_reserved} в заказах`
+                  : `${product.fbo_present} доступно на складах Ozon`
+              }
+            >
+              {fmt(product.fbo_present)}
+            </div>
+            {product.fbo_reserved != null && product.fbo_reserved > 0 && (
+              <div
+                style={{
+                  fontSize: '11px',
+                  color: 'var(--fg-muted)',
+                  fontWeight: 600,
+                  letterSpacing: 0,
+                  marginTop: 2,
+                }}
+                title="Зарезервировано в текущих заказах"
+              >
+                +{fmt(product.fbo_reserved)} рез.
+              </div>
+            )}
+          </div>
+        ) : (
+          <span style={{ fontSize: '13px', color: 'var(--fg-muted)' }}>—</span>
+        )}
       </td>
 
       {/* Auto refill rule editor */}

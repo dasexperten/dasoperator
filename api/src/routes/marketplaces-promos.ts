@@ -16,7 +16,7 @@ import { ok, fail } from '../lib/responses';
 
 const promos = new Hono<{ Bindings: Env }>();
 
-const CACHE_KEY = 'ozon:actions:v8';
+const CACHE_KEY = 'ozon:actions:v9';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
@@ -166,6 +166,9 @@ interface CachedActionsPayload {
       current_boost: number | null;     // current boost % (0..max_boost)
       min_boost: number | null;         // action's minimum boost % (e.g. 15)
       max_boost: number | null;         // action's maximum boost % (e.g. 55)
+      // FBO warehouse stock (what's actually in Ozon fulfillment centers)
+      fbo_present: number | null;       // units available across FBO warehouses
+      fbo_reserved: number | null;      // units in pending orders
     }>;
   }>;
 }
@@ -270,6 +273,51 @@ async function fetchAllProductPriceInfo(
         const mktVal = typeof mkt === 'number' && Number.isFinite(mkt) && mkt > 0 ? mkt : 0;
         const baseVal = typeof base === 'number' && Number.isFinite(base) ? base : 0;
         map.set(it.product_id, { current_price: mktVal || baseVal, min_price: minVal });
+      }
+      if (!resp.cursor || resp.cursor === '' || items.length === 0) break;
+      cursor = resp.cursor;
+    }
+  }
+  return map;
+}
+
+// Fetch FBO warehouse stock per SKU. Returns total `present` units across all
+// warehouses (Ozon aggregates by type=fbo). Used to show "what's actually
+// available to fulfill orders" alongside the promo's Left-to-sell counter.
+async function fetchAllProductFboStock(
+  env: Env,
+  productIds: number[],
+): Promise<Map<number, { present: number; reserved: number }>> {
+  const map = new Map<number, { present: number; reserved: number }>();
+  if (productIds.length === 0) return map;
+  const chunkSize = 500;
+  for (let i = 0; i < productIds.length; i += chunkSize) {
+    const chunk = productIds.slice(i, i + chunkSize);
+    let cursor = '';
+    for (let page = 0; page < 20; page++) {
+      const resp = await ozonRequest<{
+        items?: Array<{
+          product_id: number;
+          stocks?: Array<{ type: string; present?: number; reserved?: number }>;
+        }>;
+        cursor?: string;
+      }>(env, '/v4/product/info/stocks', 'POST', {
+        filter: { product_id: chunk.map(String), visibility: 'ALL' },
+        last_id: cursor,
+        limit: 1000,
+      });
+      const items = resp.items || [];
+      for (const it of items) {
+        if (!it || typeof it.product_id !== 'number') continue;
+        let present = 0;
+        let reserved = 0;
+        for (const s of it.stocks || []) {
+          if (s.type === 'fbo') {
+            present += typeof s.present === 'number' ? s.present : 0;
+            reserved += typeof s.reserved === 'number' ? s.reserved : 0;
+          }
+        }
+        map.set(it.product_id, { present, reserved });
       }
       if (!resp.cursor || resp.cursor === '' || items.length === 0) break;
       cursor = resp.cursor;
@@ -695,10 +743,13 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
     for (const p of a.products) uniqueIds.add(p.id);
   }
   const idArr = Array.from(uniqueIds);
-  const [infoMap, priceInfoMap] = await Promise.all([
+  const [infoMap, priceInfoMap, fboStockMap] = await Promise.all([
     fetchAllProductInfo(env, idArr),
     fetchAllProductPriceInfo(env, idArr).catch(
       () => new Map<number, { current_price: number; min_price: number | null }>(),
+    ),
+    fetchAllProductFboStock(env, idArr).catch(
+      () => new Map<number, { present: number; reserved: number }>(),
     ),
   ]);
 
@@ -864,6 +915,8 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
             current_boost: numOrNull(p.current_boost),
             min_boost: numOrNull(p.min_boost),
             max_boost: numOrNull(p.max_boost),
+            fbo_present: fboStockMap.get(p.id)?.present ?? null,
+            fbo_reserved: fboStockMap.get(p.id)?.reserved ?? null,
           };
         }),
       );

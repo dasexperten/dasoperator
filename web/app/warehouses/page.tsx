@@ -332,6 +332,7 @@ export default function WarehousesPage() {
                   <SortableTh
                     key={w.id}
                     center
+                    withParens
                     bg={TINT_BY_GROUP[groupForWarehouse(w)]}
                     sortKey={w.id}
                     sort={sort}
@@ -352,6 +353,7 @@ export default function WarehousesPage() {
                 >OTW</SortableTh>
                 <SortableTh
                   center
+                  withParens
                   bg={MARKETPLACE_TINT.ozon}
                   sortKey="ozon"
                   sort={sort}
@@ -359,6 +361,7 @@ export default function WarehousesPage() {
                 >Ozon</SortableTh>
                 <SortableTh
                   center
+                  withParens
                   bg={MARKETPLACE_TINT.wb}
                   sortKey="wb"
                   sort={sort}
@@ -446,13 +449,18 @@ export default function WarehousesPage() {
                   <td className="px-3 py-2" style={{ fontSize: '14px', color: 'var(--fg-3)', backgroundColor: 'var(--paper-sunk)' }}>Total</td>
                   <td className="px-3 py-2" style={{ backgroundColor: 'var(--paper-sunk)' }}></td>
                   {sortedWarehouses.map((w) => (
-                    <td key={w.id} className="px-3 py-2 text-right" style={{
+                    <td key={w.id} className="px-3 py-2" style={{
                       fontSize: '14px',
                       fontWeight: 700,
                       color: 'var(--fg-1)',
                       backgroundColor: TINT_BY_GROUP[groupForWarehouse(w)],
                     }}>
-                      {(totalsByWarehouse.totals[w.code] ?? 0).toLocaleString('en-US')}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 56px', columnGap: '4px', alignItems: 'baseline' }}>
+                        <span style={{ textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                          {(totalsByWarehouse.totals[w.code] ?? 0).toLocaleString('en-US')}
+                        </span>
+                        <span />
+                      </div>
                     </td>
                   ))}
                   {/* OTW total */}
@@ -461,30 +469,42 @@ export default function WarehousesPage() {
                     fontWeight: 700,
                     color: totalsByWarehouse.otwTotal > 0 ? '#854F0B' : 'var(--fg-1)',
                     backgroundColor: 'rgba(250, 199, 117, 0.28)',
+                    fontVariantNumeric: 'tabular-nums',
                   }}>
                     {totalsByWarehouse.otwTotal.toLocaleString('en-US')}
                   </td>
-                  <td className="px-3 py-2 text-right" style={{
+                  <td className="px-3 py-2" style={{
                     fontSize: '14px',
                     fontWeight: 700,
                     color: 'var(--fg-1)',
                     backgroundColor: MARKETPLACE_TINT.ozon,
                   }}>
-                    {marketplaceTotals.ozon.toLocaleString('en-US')}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 56px', columnGap: '4px', alignItems: 'baseline' }}>
+                      <span style={{ textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                        {marketplaceTotals.ozon.toLocaleString('en-US')}
+                      </span>
+                      <span />
+                    </div>
                   </td>
-                  <td className="px-3 py-2 text-right" style={{
+                  <td className="px-3 py-2" style={{
                     fontSize: '14px',
                     fontWeight: 700,
                     color: 'var(--fg-1)',
                     backgroundColor: MARKETPLACE_TINT.wb,
                   }}>
-                    {marketplaceTotals.wb.toLocaleString('en-US')}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 56px', columnGap: '4px', alignItems: 'baseline' }}>
+                      <span style={{ textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                        {marketplaceTotals.wb.toLocaleString('en-US')}
+                      </span>
+                      <span />
+                    </div>
                   </td>
                   <td className="px-3 py-2 text-right" style={{
                     fontSize: '14px',
                     fontWeight: 700,
                     color: 'var(--fg-1)',
                     backgroundColor: 'var(--paper-sunk)',
+                    fontVariantNumeric: 'tabular-nums',
                   }}>
                     {grandTotal.toLocaleString('en-US')}
                   </td>
@@ -585,21 +605,34 @@ function StockCellTd({ value, inProduction = 0, externalAmount, href, tint }: { 
   }
 
   return (
-    <td className="px-3 py-2 text-right" style={{ backgroundColor: bg, fontSize: '14px', color }}>
-      <Link href={href} style={{ color: 'inherit' }}>
-        {!showPrimary && !showProd && !hasExternal && '—'}
-        {showPrimary && <span>{primary.toLocaleString('en-US')}</span>}
-        {!showPrimary && hasExternal && <span style={{ color: 'var(--fg-muted)' }}>0</span>}
-        {showProd && (
-          <span style={{ color: pendingColor, fontWeight: 600, marginLeft: showPrimary ? '4px' : 0 }}>
-            {pendingSign}{pendingAbs.toLocaleString('en-US')}
-          </span>
-        )}
-        {hasExternal && secondary !== undefined && (
-          <span style={{ color: parensColor, fontWeight: 400, fontSize: '12px', marginLeft: '4px' }}>
-            ({secondary.toLocaleString('en-US')})
-          </span>
-        )}
+    <td className="px-3 py-2" style={{ backgroundColor: bg, fontSize: '14px', color }}>
+      <Link
+        href={href}
+        style={{
+          color: 'inherit',
+          display: 'grid',
+          gridTemplateColumns: '1fr 56px',
+          columnGap: '4px',
+          alignItems: 'baseline',
+        }}
+      >
+        <span style={{ textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+          {!showPrimary && !showProd && !hasExternal && '—'}
+          {showPrimary && <span>{primary.toLocaleString('en-US')}</span>}
+          {!showPrimary && hasExternal && <span style={{ color: 'var(--fg-muted)' }}>0</span>}
+          {showProd && (
+            <span style={{ color: pendingColor, fontWeight: 600, marginLeft: showPrimary ? '4px' : 0 }}>
+              {pendingSign}{pendingAbs.toLocaleString('en-US')}
+            </span>
+          )}
+        </span>
+        <span style={{ textAlign: 'left', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+          {hasExternal && secondary !== undefined && (
+            <span style={{ color: parensColor, fontWeight: 400, fontSize: '12px' }}>
+              ({secondary.toLocaleString('en-US')})
+            </span>
+          )}
+        </span>
       </Link>
     </td>
   );
@@ -614,6 +647,7 @@ function OtwCellTd({ value }: { value: number }) {
       fontSize: '14px',
       color,
       fontWeight: value > 0 ? 600 : 400,
+      fontVariantNumeric: 'tabular-nums',
     }}>
       {value === 0 ? '—' : value.toLocaleString('en-US')}
     </td>
@@ -640,18 +674,30 @@ function MarketplaceCellTd({ value, ourValue = 0, tint }: { value: number; ourVa
   }
 
   return (
-    <td className="px-3 py-2 text-right" style={{ backgroundColor: tint, fontSize: '14px', color, fontWeight: value > 0 ? 600 : 400 }}>
-      {value === 0 && ourValue === 0
-        ? '—'
-        : (
-          <>
-            {value > 0 ? value.toLocaleString('en-US') : <span style={{ color: 'var(--fg-muted)' }}>0</span>}
-            <span style={{ color: parensColor, fontWeight: 400, fontSize: '12px', marginLeft: '4px' }}>
+    <td className="px-3 py-2" style={{ backgroundColor: tint, fontSize: '14px', color, fontWeight: value > 0 ? 600 : 400 }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 56px',
+          columnGap: '4px',
+          alignItems: 'baseline',
+        }}
+      >
+        <span style={{ textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+          {value === 0 && ourValue === 0
+            ? '—'
+            : value > 0
+              ? value.toLocaleString('en-US')
+              : <span style={{ color: 'var(--fg-muted)' }}>0</span>}
+        </span>
+        <span style={{ textAlign: 'left', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+          {!(value === 0 && ourValue === 0) && (
+            <span style={{ color: parensColor, fontWeight: 400, fontSize: '12px' }}>
               ({ourValue.toLocaleString('en-US')})
             </span>
-          </>
-        )
-      }
+          )}
+        </span>
+      </div>
     </td>
   );
 }
@@ -661,7 +707,7 @@ function MarketplaceCellTd({ value, ourValue = 0, tint }: { value: number; ourVa
 // =============================================================================
 function SortableTh({
   children, sortKey, sort, onClick,
-  sticky, sticky2, center, accent, bg,
+  sticky, sticky2, center, accent, bg, withParens,
 }: {
   children: React.ReactNode;
   sortKey: string;
@@ -672,14 +718,28 @@ function SortableTh({
   center?: boolean;
   accent?: boolean;
   bg?: string;
+  withParens?: boolean;
 }) {
   const isActive = sort?.key === sortKey;
   const dir = isActive ? sort!.dir : null;
 
+  // When withParens=true, the column's cells use a two-slot grid
+  // (1fr main number | 56px parens). The header mimics the same grid
+  // so that the label + sort arrow line up with the main numbers below,
+  // not with the right edge of the cell (which is the parens slot).
+  const labelBlock = (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', justifyContent: center ? 'flex-end' : 'flex-start' }}>
+      {children}
+      {dir === 'desc' && <ArrowDown className="h-3 w-3" style={{ color: 'var(--brand-rot)' }} />}
+      {dir === 'asc'  && <ArrowUp   className="h-3 w-3" style={{ color: 'var(--brand-rot)' }} />}
+      {!isActive && <ArrowDown className="h-3 w-3" style={{ color: 'var(--fg-3)', opacity: 0.35 }} />}
+    </span>
+  );
+
   return (
     <th
       onClick={() => onClick(sortKey)}
-      className={`px-3 py-3 ${center ? 'text-right' : 'text-left'}`}
+      className={`px-3 py-3 ${withParens ? '' : center ? 'text-right' : 'text-left'}`}
       style={{
         fontSize: '14px',
         color: isActive ? 'var(--fg-1)' : 'var(--fg-3)',
@@ -700,12 +760,19 @@ function SortableTh({
         if (!isActive) e.currentTarget.style.color = 'var(--fg-3)';
       }}
     >
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', justifyContent: center ? 'flex-end' : 'flex-start' }}>
-        {children}
-        {dir === 'desc' && <ArrowDown className="h-3 w-3" style={{ color: 'var(--brand-rot)' }} />}
-        {dir === 'asc'  && <ArrowUp   className="h-3 w-3" style={{ color: 'var(--brand-rot)' }} />}
-        {!isActive && <ArrowDown className="h-3 w-3" style={{ color: 'var(--fg-3)', opacity: 0.35 }} />}
-      </span>
+      {withParens ? (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 56px',
+            columnGap: '4px',
+            alignItems: 'baseline',
+          }}
+        >
+          <span style={{ textAlign: 'right' }}>{labelBlock}</span>
+          <span />
+        </div>
+      ) : labelBlock}
     </th>
   );
 }

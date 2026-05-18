@@ -17,34 +17,8 @@ import {
 const OZON_BLUE = 'rgb(0, 91, 255)';
 
 // Short display names for promo product rows. Keeps the table readable
-// without horizontal scroll. Falls back to product.name truncated.
-const SKU_SHORT_NAMES: Record<string, string> = {
-  DE101AA: 'ETALON',
-  DE105AAAA: 'SCHWARZ Brush',
-  DE106AAAA: 'SENSITIV 4in1',
-  DE107AAAA: 'MITTEL ergo',
-  DE111: 'Mint waxed floss',
-  DE112: 'Expanding floss',
-  DE114: 'ZUNGER scraper',
-  DE115: 'Bamboo black floss',
-  DE116AAAA: 'KRAFTBURST',
-  DE118AAAA: 'KINDER brush',
-  DE119AA: 'GROSSE 2pcs',
-  DE120AAAA: 'NANO MASSAGE',
-  DE123AAAA: 'BIO 4in1',
-  DE125: 'INTERDENTAL brushes',
-  DE130: 'INTENSIV soft',
-  DE201AA: 'SCHWARZ paste',
-  DE202AA: 'DETOX gel',
-  DE203AA: 'GINGER FORCE 2pcs',
-  DE205AA: 'BIO natural paste',
-  DE207AA: 'BECHER kids paste',
-  DE210: 'INNOWEISS multi-enzyme',
-};
-
-function shortName(offerId: string, fullName: string): string {
-  return SKU_SHORT_NAMES[offerId] || fullName || '—';
-}
+// Marketplace card uses product.name (from D1 products.product_name) as-is.
+// Short, canonical names live in the database — single source of truth.
 
 // Превращает многословные сообщения Ozon в одну короткую человеко-читаемую
 // строку. Возвращает оригинал, если паттерн не распознан.
@@ -1708,7 +1682,7 @@ function PromoProductRow({
           style={{ color: 'var(--fg-1)', textDecoration: 'none' }}
           title={product.name}
         >
-          {shortName(product.offer_id, product.name)}
+          {product.name || '—'}
         </a>
       </td>
       {/* Current price — three states:

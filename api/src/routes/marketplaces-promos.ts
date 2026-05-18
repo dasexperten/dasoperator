@@ -16,7 +16,7 @@ import { ok, fail } from '../lib/responses';
 
 const promos = new Hono<{ Bindings: Env }>();
 
-const CACHE_KEY = 'ozon:actions:v21';
+const CACHE_KEY = 'ozon:actions:v22';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
@@ -1884,6 +1884,48 @@ promos.post('/ozon/actions/:actionId/products/:productId/activate', async (c) =>
     }
     if (typeof body.stock === 'number' && body.stock >= 0) {
       product.stock = body.stock;
+    }
+    // If action_price was not supplied (or was zero/invalid), resolve it from
+    // Ozon's own candidate list. Ozon /v1/actions/candidates returns
+    // max_action_price — the highest price that still qualifies for the promo.
+    // Activating with that value gives the smallest acceptable discount.
+    if (product.action_price == null) {
+      try {
+        let candidateAp: number | null = null;
+        let offset = 0;
+        while (offset < 10000) {
+          const candResp = await ozonRequest<{
+            result?: {
+              products?: Array<{
+                id?: number;
+                max_action_price?: number;
+                action_price?: number;
+              }>;
+              total?: number;
+            };
+          }>(c.env, '/v1/actions/candidates', 'POST', {
+            action_id: actionId,
+            limit: 1000,
+            offset,
+          });
+          const list = candResp.result?.products ?? [];
+          const found = list.find((p) => p.id === productId);
+          if (found) {
+            candidateAp = found.max_action_price && found.max_action_price > 0
+              ? found.max_action_price
+              : (found.action_price && found.action_price > 0 ? found.action_price : null);
+            break;
+          }
+          if (list.length < 1000) break;
+          offset += 1000;
+        }
+        if (candidateAp != null && candidateAp > 0) {
+          product.action_price = candidateAp;
+        }
+      } catch {
+        // If candidate lookup fails, fall through — Ozon will reject with a
+        // clearer error than we'd produce here.
+      }
     }
     const resp = await ozonRequest<{
       result?: {

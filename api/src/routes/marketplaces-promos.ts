@@ -16,7 +16,7 @@ import { ok, fail } from '../lib/responses';
 
 const promos = new Hono<{ Bindings: Env }>();
 
-const CACHE_KEY = 'ozon:actions:v18';
+const CACHE_KEY = 'ozon:actions:v19';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
@@ -645,6 +645,14 @@ async function fetchOzonPortalProducts(
   actionId: number,
 ): Promise<Map<number, { sold: number; isSoldOut: boolean }>> {
   const result = new Map<number, { sold: number; isSoldOut: boolean }>();
+  // Feature flag — set Worker var OZON_PORTAL_SCRAPER_ENABLED='true' to re-enable.
+  // Disabled by default since 2026-05-18: cookies-based scraper produces stale
+  // data (sessions die within days, returns 0 or wrong values). Analytics-based
+  // sold_count is now the primary source for both finite and unlimited actions.
+  // The /ozon/portal-ingest endpoint and KV-stored VPS-ingested data still work
+  // — this only disables the in-Worker direct scrape, which never produced
+  // reliable results.
+  if (env.OZON_PORTAL_SCRAPER_ENABLED !== 'true') return result;
   if (!env.OZON_PORTAL_COOKIES) return result;
 
   let cookies = env.OZON_PORTAL_COOKIES;

@@ -648,34 +648,37 @@ async function autoZeroStockDiscount(
     }
 
     // ALWAYS check current state — Ozon may have added new products to the
-    // action after our initial zero-out, in which case those new SKUs would
-    // be sitting at non-zero stock under a Распродажа action. We want every
-    // Распродажа to stay at zero across the board, indefinitely.
-    const toZero = aw.products.filter((p) => p.stock > 0);
-    let zeroedAnything = false;
+    // action after our initial purge, in which case those new SKUs would
+    // still be participating. We want every Распродажа to stay EMPTY across
+    // the board, indefinitely.
+    // NOTE: For STOCK_DISCOUNT actions, /v1/actions/products/activate with
+    // stock=0 silently succeeds but doesn't actually change anything (Ozon
+    // returns empty product_ids). The only way to truly remove products is
+    // via /v1/actions/products/deactivate.
+    const toRemove = aw.products.filter((p) => p.stock > 0);
+    let removedAnything = false;
 
-    if (toZero.length > 0) {
+    if (toRemove.length > 0) {
       const batchSize = 100;
-      for (let i = 0; i < toZero.length; i += batchSize) {
-        const batch = toZero.slice(i, i + batchSize);
+      for (let i = 0; i < toRemove.length; i += batchSize) {
+        const batch = toRemove.slice(i, i + batchSize);
         try {
-          await ozonRequest(env, '/v1/actions/products/activate', 'POST', {
+          await ozonRequest(env, '/v1/actions/products/deactivate', 'POST', {
             action_id: aw.raw.id,
-            products: batch.map((p) => ({
-              product_id: p.id,
-              action_price: p.action_price,
-              stock: 0,
-            })),
+            product_ids: batch.map((p) => p.id),
           });
-          zeroedAnything = true;
+          removedAnything = true;
         } catch (e) {
           console.error(
-            `auto-zero batch failed for action ${aw.raw.id}:`,
+            `auto-zero (deactivate) batch failed for action ${aw.raw.id}:`,
             e instanceof Error ? e.message : e,
           );
         }
       }
-      if (zeroedAnything) {
+      if (removedAnything) {
+        // Reflect change in-memory: zero stock so UI shows them as "zeroed".
+        // They'll be gone from the products list on next refresh anyway, but
+        // setting stock=0 keeps the current response consistent.
         for (const p of aw.products) {
           if (p.stock > 0) p.stock = 0;
         }

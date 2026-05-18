@@ -16,7 +16,7 @@ import { ok, fail } from '../lib/responses';
 
 const promos = new Hono<{ Bindings: Env }>();
 
-const CACHE_KEY = 'ozon:actions:v11';
+const CACHE_KEY = 'ozon:actions:v14';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
@@ -1114,7 +1114,26 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
           const effectiveStock = (p.stock === 0 && portalEntry?.warehouseStock != null && portalEntry.warehouseStock > 0)
             ? portalEntry.warehouseStock
             : p.stock;
-          const leftToSell = soldCount != null ? Math.max(0, effectiveStock - soldCount) : (effectiveStock > 0 ? effectiveStock : null);
+          // Action duration classification for left_to_sell:
+          //   > 90 days: unlimited (Эластичный бустинг). Ozon `stock` is total
+          //              FBO inventory, NOT remaining quota — manual baseline
+          //              subtraction is the design (sold_count from KV).
+          //   ≤ 90 days: finite (Максимальный бустинг, Распродажа). Ozon `stock`
+          //              already represents remaining quota (auto-decremented
+          //              by Ozon as sales happen). Subtracting sold_count would
+          //              double-count. Show stock directly; sold_count stays
+          //              informational only.
+          const actionDurationMs =
+            aw.raw.date_start && aw.raw.date_end
+              ? new Date(aw.raw.date_end).getTime() - new Date(aw.raw.date_start).getTime()
+              : 0;
+          const isFiniteAction =
+            actionDurationMs > 0 && actionDurationMs <= 90 * 86400000;
+          const leftToSell = isFiniteAction
+            ? (effectiveStock > 0 ? effectiveStock : null)
+            : (soldCount != null
+                ? Math.max(0, effectiveStock - soldCount)
+                : (effectiveStock > 0 ? effectiveStock : null));
           const priceInfo = priceInfoMap.get(p.id);
           const minPrice = priceInfo?.min_price ?? null;
           const currentPrice = priceInfo?.current_price ?? 0;
@@ -1979,3 +1998,4 @@ export async function runPromoRefillSweep(env: Env): Promise<{
 }
 
 export default promos;
+

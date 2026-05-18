@@ -1498,6 +1498,7 @@ function PromoActionItem({
   const isClearance = titleLower.includes('распродажа') && !action.is_participating;
   const toggleKey = `promo:clearance-on:${action.action_id}`;
   const [clearanceOn, setClearanceOn] = useState<boolean>(false);
+  const [leaving, setLeaving] = useState<boolean>(false);
   useEffect(() => {
     if (!isClearance) return;
     try {
@@ -1696,6 +1697,70 @@ function PromoActionItem({
                 position: 'absolute',
                 top: 2,
                 left: clearanceOn ? 20 : 2,
+                width: 16,
+                height: 16,
+                borderRadius: '50%',
+                backgroundColor: '#fff',
+                border: '0.5px solid var(--border-hairline)',
+                transition: 'left 0.15s',
+              }}
+            />
+          </span>
+        ) : action.is_participating ? (
+          // Participating action: blue toggle ON. Click → confirm → bulk leave.
+          <span
+            role="switch"
+            aria-checked={true}
+            aria-label={`Выйти из акции ${action.title}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (leaving) return;
+              const ok = window.confirm(
+                `Выйти из акции "${action.title}"? Все ${action.participating_products_count} SKU будут отключены от акции.`,
+              );
+              if (!ok) return;
+              setLeaving(true);
+              const apiBase =
+                (typeof window !== 'undefined' &&
+                  (window as unknown as { __API_BASE?: string }).__API_BASE) ||
+                'https://dasoperator-api.dasexperten.workers.dev';
+              fetch(
+                `${apiBase}/api/marketplaces/ozon/actions/${action.action_id}/leave`,
+                { method: 'POST' },
+              )
+                .then((r) => r.json())
+                .then((j) => {
+                  if (!j.success) {
+                    alert('Ошибка: ' + (j.errors?.[0]?.message || 'unknown'));
+                    setLeaving(false);
+                    return;
+                  }
+                  // Force reload of promos data
+                  window.location.reload();
+                })
+                .catch((err) => {
+                  alert('Ошибка: ' + String(err));
+                  setLeaving(false);
+                });
+            }}
+            style={{
+              flexShrink: 0,
+              width: 40,
+              height: 22,
+              borderRadius: 11,
+              backgroundColor: leaving ? 'var(--paper-2)' : OZON_BLUE,
+              border: '0.5px solid var(--border-hairline)',
+              position: 'relative',
+              cursor: leaving ? 'wait' : 'pointer',
+              opacity: leaving ? 0.6 : 1,
+              transition: 'background-color 0.15s',
+            }}
+          >
+            <span
+              style={{
+                position: 'absolute',
+                top: 2,
+                left: 20,
                 width: 16,
                 height: 16,
                 borderRadius: '50%',

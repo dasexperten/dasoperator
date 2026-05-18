@@ -16,7 +16,7 @@ import { ok, fail } from '../lib/responses';
 
 const promos = new Hono<{ Bindings: Env }>();
 
-const CACHE_KEY = 'ozon:actions:v14';
+const CACHE_KEY = 'ozon:actions:v15';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
@@ -1084,14 +1084,20 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
           // Sold count priority:
           //   1. Manual override stored in KV (Aram typed in UI)
           //   2. Ozon Seller Portal (accurate "Осталось продать" via session)
-          //   3. Analytics ordered_units (less accurate fallback)
+          //      — but only when portal returns a non-zero value. A bare 0 from
+          //      stale-cookie portal scrape is indistinguishable from "no data"
+          //      and routinely masks real analytics counts. Fall through to
+          //      analytics in that case.
+          //   3. Analytics ordered_units (less accurate fallback, but reliable)
           const manualSold = await getSoldCount(env, aw.raw.id, p.id);
           let soldCount: number | null = manualSold;
           let soldSource: 'manual' | 'portal' | 'analytics' | null = manualSold != null ? 'manual' : null;
           if (soldCount == null && portalMap && portalMap.has(p.id)) {
             const pd = portalMap.get(p.id)!;
-            soldCount = pd.sold;
-            soldSource = 'portal';
+            if (pd.sold > 0) {
+              soldCount = pd.sold;
+              soldSource = 'portal';
+            }
           }
           if (soldCount == null && info?.sources && info.sources.length > 0) {
             let sum = 0;

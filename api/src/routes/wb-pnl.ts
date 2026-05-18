@@ -6,7 +6,7 @@
  *   - wb_pnl_realization_rows: raw rows from reportDetailByPeriod
  *   - wb_pnl_advert_nm: per-nmId per-day spend from /adv/v3/fullstats
  *
- * Cron */5 * * * * picks ONE pending task per tick (WB rate limits ~1 req/min),
+ * Cron every 5 minutes picks ONE pending task per tick (WB rate limits ~1 req/min),
  * does the HTTP call, writes results, marks task done.
  *
  * After all 85 tasks done, POST /api/wb-pnl/build-operations builds operations

@@ -16,7 +16,7 @@ import { ok, fail } from '../lib/responses';
 
 const promos = new Hono<{ Bindings: Env }>();
 
-const CACHE_KEY = 'ozon:actions:v17';
+const CACHE_KEY = 'ozon:actions:v18';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
@@ -1097,25 +1097,34 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
           }
           const discountPct =
             p.price > 0 ? Math.round(((p.price - p.action_price) / p.price) * 100) : 0;
+          // Action duration classification (also used later for left_to_sell):
+          //   > 90 days: unlimited (Эластичный бустинг). Stock = total FBO.
+          //   ≤ 90 days: finite. Stock = remaining quota (auto-decremented).
+          const actionDurationMs =
+            aw.raw.date_start && aw.raw.date_end
+              ? new Date(aw.raw.date_end).getTime() - new Date(aw.raw.date_start).getTime()
+              : 0;
+          const isFiniteAction =
+            actionDurationMs > 0 && actionDurationMs <= 90 * 86400000;
           // Sold count priority:
-          //   1. Manual override stored in KV (Aram typed in UI)
-          //   2. Ozon Seller Portal (accurate "Осталось продать" via session)
-          //      — but only when portal returns a non-zero value. A bare 0 from
-          //      stale-cookie portal scrape is indistinguishable from "no data"
-          //      and routinely masks real analytics counts. Fall through to
-          //      analytics in that case.
-          //   3. Analytics ordered_units (less accurate fallback, but reliable)
+          //   1. Manual override stored in KV (Aram typed in UI) — always wins.
+          //   For FINITE actions (≤90 days):
+          //     2. Analytics (date_start → today) — authoritative on order data.
+          //     3. Portal (only if non-zero) — fallback if analytics missing.
+          //   For UNLIMITED actions (>90 days):
+          //     2. Portal (only if non-zero) — best-effort scrape of "Осталось".
+          //     3. Analytics (last 30 days) — generic fallback.
+          //
+          // Rationale: for finite actions we know the exact date range and
+          // Ozon Analytics is reliable; for unlimited, "sold in promo" is
+          // ambiguous and portal is closer to seller's intuition.
           const manualSold = await getSoldCount(env, aw.raw.id, p.id);
           let soldCount: number | null = manualSold;
           let soldSource: 'manual' | 'portal' | 'analytics' | null = manualSold != null ? 'manual' : null;
-          if (soldCount == null && portalMap && portalMap.has(p.id)) {
-            const pd = portalMap.get(p.id)!;
-            if (pd.sold > 0) {
-              soldCount = pd.sold;
-              soldSource = 'portal';
-            }
-          }
-          if (soldCount == null && info?.sources && info.sources.length > 0) {
+
+          // Compute analytics sum for this product
+          let analyticsSum: number | null = null;
+          if (info?.sources && info.sources.length > 0) {
             let sum = 0;
             let anyData = false;
             const actionSales = salesByActionAndSku.get(aw.raw.id);
@@ -1128,9 +1137,32 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
                 }
               }
             }
-            if (anyData) {
-              soldCount = sum;
-              soldSource = 'analytics';
+            if (anyData) analyticsSum = sum;
+          }
+          // Compute portal value
+          const portalSold =
+            portalMap && portalMap.has(p.id) ? portalMap.get(p.id)!.sold : null;
+          const portalUsable = portalSold != null && portalSold > 0;
+
+          if (soldCount == null) {
+            if (isFiniteAction) {
+              // analytics > portal for finite
+              if (analyticsSum != null) {
+                soldCount = analyticsSum;
+                soldSource = 'analytics';
+              } else if (portalUsable) {
+                soldCount = portalSold;
+                soldSource = 'portal';
+              }
+            } else {
+              // portal > analytics for unlimited
+              if (portalUsable) {
+                soldCount = portalSold;
+                soldSource = 'portal';
+              } else if (analyticsSum != null) {
+                soldCount = analyticsSum;
+                soldSource = 'analytics';
+              }
             }
           }
           // If Ozon Analytics gives 0 stock (boosting promos have no quota) but
@@ -1139,21 +1171,11 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
           const effectiveStock = (p.stock === 0 && portalEntry?.warehouseStock != null && portalEntry.warehouseStock > 0)
             ? portalEntry.warehouseStock
             : p.stock;
-          // Action duration classification for left_to_sell:
-          //   > 90 days: unlimited (Эластичный бустинг). Ozon `stock` is total
-          //              FBO inventory, NOT remaining quota — manual baseline
-          //              subtraction is the design (sold_count from KV).
-          //   ≤ 90 days: finite (Максимальный бустинг, Распродажа). Ozon `stock`
-          //              already represents remaining quota (auto-decremented
-          //              by Ozon as sales happen). Subtracting sold_count would
-          //              double-count. Show stock directly; sold_count stays
-          //              informational only.
-          const actionDurationMs =
-            aw.raw.date_start && aw.raw.date_end
-              ? new Date(aw.raw.date_end).getTime() - new Date(aw.raw.date_start).getTime()
-              : 0;
-          const isFiniteAction =
-            actionDurationMs > 0 && actionDurationMs <= 90 * 86400000;
+          // left_to_sell semantics:
+          //   Unlimited (>90 days): Ozon stock = total FBO. Subtract manual
+          //     baseline sold_count.
+          //   Finite (≤90 days): Ozon stock = remaining quota (already
+          //     decremented). Show directly; sold is informational.
           const leftToSell = isFiniteAction
             ? (effectiveStock > 0 ? effectiveStock : null)
             : (soldCount != null

@@ -490,17 +490,21 @@ export async function handleScheduled(
     return;
   }
 
-    if (cron === '20 * * * *') {
-    console.log('[cron:bank-retry] starting auto-match retry + rebalance');
+  // Nightly rematch sweep — 2:00 UTC (6:00 Yerevan).
+  // Re-runs auto-match on all unmatched bank_transactions from last 180 days.
+  // Catches old transactions that became matchable after new partners,
+  // operations, or classifier rules were added during the day.
+  if (cron === '0 2 * * *') {
+    console.log('[cron:bank-rematch-nightly] starting nightly auto-match retry + rebalance');
     try {
       const { retryUnmatchedTransactions, rebalanceMisattributedMatches } =
         await import('./lib/bank-auto-match');
       const retryStats = await retryUnmatchedTransactions(env);
-      console.log(`[cron:bank-retry] retry: ${JSON.stringify(retryStats)}`);
+      console.log(`[cron:bank-rematch-nightly] retry: ${JSON.stringify(retryStats)}`);
       const rebalanceStats = await rebalanceMisattributedMatches(env);
-      console.log(`[cron:bank-retry] rebalance: ${JSON.stringify(rebalanceStats)}`);
+      console.log(`[cron:bank-rematch-nightly] rebalance: ${JSON.stringify(rebalanceStats)}`);
     } catch (e) {
-      console.error('[cron:bank-retry] failed:', e);
+      console.error('[cron:bank-rematch-nightly] failed:', e);
     }
     return;
   }

@@ -97,6 +97,11 @@ service = "dasoperator-api"
 # 20 * * * *  — hourly bank-tx auto-match retry sweep (covers ambiguous + partner_not_found
 #                rows that may now be resolvable after operations were created post-webhook).
 #
+# 0 2 * * *   — nightly bank-tx rematch sweep (2:00 UTC = 6:00 Yerevan).
+#                Re-runs auto-match on every unmatched bank_transaction within
+#                last 180 days. Catches old txns that became matchable after
+#                new partners/operations/rules were added during the day.
+#
 # */15 * * * * — every 15 min Telegram chat → invoice_inbox ingestion.
 #                Phase 9.x. Pulls invoices/acceptance from registered
 #                telegram_contact sources via telegramer-bridge.
@@ -104,7 +109,7 @@ service = "dasoperator-api"
 # Handler: src/scheduled.ts handleScheduled — dispatches by event.cron string.
 # -----------------------------------------------------------------------------
 [triggers]
-crons = ["0 12 * * *", "0 * * * *", "5 */6 * * *", "*/2 * * * *", "0 0 * * *", "15 * * * *", "30 */6 * * *", "*/15 * * * *"]
+crons = ["0 12 * * *", "0 * * * *", "5 */6 * * *", "*/2 * * * *", "0 0 * * *", "15 * * * *", "30 */6 * * *", "*/15 * * * *", "0 2 * * *"]
 
 
 # -----------------------------------------------------------------------------

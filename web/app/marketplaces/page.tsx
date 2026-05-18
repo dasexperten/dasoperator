@@ -1212,7 +1212,12 @@ function OzonPromotionsWidget() {
           </div>
         )}
         {data.actions.map((a) => (
-          <PromoActionItem key={a.action_id} action={a} onSaved={() => load(false, true)} />
+          <PromoActionItem
+            key={a.action_id}
+            action={a}
+            allActions={data.actions}
+            onSaved={() => load(false, true)}
+          />
         ))}
       </div>
     </div>
@@ -1275,7 +1280,15 @@ function PromoMetric({
   );
 }
 
-function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: () => void }) {
+function PromoActionItem({
+  action,
+  allActions,
+  onSaved,
+}: {
+  action: PromoAction;
+  allActions: PromoAction[];
+  onSaved: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const totalActive = action.products.filter((p) => p.stock > 0).length;
   const dateEndShort = action.date_end ? action.date_end.slice(0, 10) : '';
@@ -1285,8 +1298,23 @@ function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: ()
   // and similar promos have no min_boost / max_boost mechanics.
   const hasElasticBoost = action.action_type === 'MARKETPLACE_MULTI_LEVEL_DISCOUNT_ON_AMOUNT';
 
+  // Auto-expand when a sibling row clicks our "winning" current-price
+  useEffect(() => {
+    function onOpenEvent(e: Event) {
+      const detail = (e as CustomEvent).detail as { action_id: number };
+      if (detail.action_id === action.action_id) {
+        setOpen(true);
+      }
+    }
+    window.addEventListener('promo:open-action', onOpenEvent);
+    return () => window.removeEventListener('promo:open-action', onOpenEvent);
+  }, [action.action_id]);
+
   return (
-    <div style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+    <div
+      id={`promo-action-${action.action_id}`}
+      style={{ borderBottom: '1px solid var(--border-hairline)' }}
+    >
       <button
         onClick={() => setOpen(!open)}
         style={{
@@ -1456,6 +1484,7 @@ function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: ()
                   key={p.product_id}
                   product={p}
                   actionId={action.action_id}
+                  allActions={allActions}
                   showBoost={hasElasticBoost}
                   onSaved={onSaved}
                 />
@@ -1471,15 +1500,63 @@ function PromoActionItem({ action, onSaved }: { action: PromoAction; onSaved: ()
 function PromoProductRow({
   product,
   actionId,
+  allActions,
   showBoost,
   onSaved,
 }: {
   product: PromoProduct;
   actionId: number;
+  allActions: PromoAction[];
   showBoost: boolean;
   onSaved: () => void;
 }) {
   const isOut = product.stock === 0;
+
+  // Where does this SKU's current_price come from? If it matches this row's
+  // action_price → this promo wins (blue). If it's strictly lower → another
+  // promo or base price is winning (red, clickable to scroll there). If it's
+  // higher → no promo applies right now (black).
+  let priceState: 'this' | 'other' | 'higher' = 'higher';
+  let winningAction: PromoAction | null = null;
+  if (product.current_price > 0) {
+    if (Math.abs(product.current_price - product.action_price) < 0.5) {
+      priceState = 'this';
+    } else if (product.current_price < product.action_price) {
+      priceState = 'other';
+      // Find the promo whose action_price equals current_price for this SKU
+      for (const a of allActions) {
+        if (a.action_id === actionId) continue;
+        const match = a.products.find(
+          (p) =>
+            p.product_id === product.product_id &&
+            Math.abs(p.action_price - product.current_price) < 0.5,
+        );
+        if (match) {
+          winningAction = a;
+          break;
+        }
+      }
+    }
+  }
+
+  function scrollToAction(aid: number) {
+    // Dispatch event so the target PromoActionItem can auto-expand
+    window.dispatchEvent(
+      new CustomEvent('promo:open-action', { detail: { action_id: aid } }),
+    );
+    // Defer scroll a tick so the expand has time to render the table
+    setTimeout(() => {
+      const el = document.getElementById(`promo-action-${aid}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        el.style.transition = 'background-color 0.3s';
+        el.style.backgroundColor = 'rgba(212,160,23,0.18)';
+        setTimeout(() => {
+          el.style.backgroundColor = '';
+        }, 1400);
+      }
+    }, 50);
+  }
 
 
   return (
@@ -1508,24 +1585,39 @@ function PromoProductRow({
       >
         {product.name}
       </td>
-      {/* Current price (was "Sale" / "Price" strikethrough — now the actual displayed price) */}
+      {/* Current price — three states:
+          - 'this' (blue):   this promo wins → current_price = action_price
+          - 'other' (red):   another deeper promo is winning → click to jump
+          - 'higher' (black): no promo applies, current price above promo */}
       <td
         style={{
           ...tdStyle,
           textAlign: 'right',
           fontWeight: 800,
-          color: product.is_deciding_price ? OZON_BLUE : 'var(--fg-1)',
+          color:
+            priceState === 'this'
+              ? OZON_BLUE
+              : priceState === 'other'
+              ? 'var(--brand-rot)'
+              : 'var(--fg-1)',
+          cursor: priceState === 'other' && winningAction ? 'pointer' : 'default',
+          textDecoration:
+            priceState === 'other' && winningAction ? 'underline dotted' : 'none',
+          textUnderlineOffset: 3,
+        }}
+        onClick={() => {
+          if (priceState === 'other' && winningAction) {
+            scrollToAction(winningAction.action_id);
+          }
         }}
         title={
-          product.is_deciding_price
-            ? 'Current sale price matches this promo — this promo is the winning offer for this SKU'
-            : product.current_price < product.action_price
-            ? `Current price ${fmt(product.current_price)}₽ is below this promo's ${fmt(
-                product.action_price,
-              )}₽ — another promo or seller base price is winning`
-            : `Current price ${fmt(product.current_price)}₽ is above this promo's ${fmt(
-                product.action_price,
-              )}₽ — this promo isn't being applied right now`
+          priceState === 'this'
+            ? 'Эта акция определяет текущую цену'
+            : priceState === 'other' && winningAction
+            ? `Цену определяет «${winningAction.title}» — клик чтобы перейти`
+            : priceState === 'other'
+            ? 'Цена определяется другой акцией или базовой ценой'
+            : 'Эта акция не применяется — цена выше промо'
         }
       >
         {product.current_price > 0 ? `${fmt(product.current_price)}₽` : '—'}

@@ -16,7 +16,7 @@ import { ok, fail } from '../lib/responses';
 
 const promos = new Hono<{ Bindings: Env }>();
 
-const CACHE_KEY = 'ozon:actions:v9';
+const CACHE_KEY = 'ozon:actions:v10';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
@@ -140,7 +140,9 @@ interface CachedActionsPayload {
     date_end: string;
     days_left: number;
     is_voucher_action: boolean;
+    is_participating: boolean;
     participating_products_count: number;
+    potential_products_count: number;
     total_units_left: number;
     auto_zeroed_at: string | null;
     deciding_count: number;
@@ -707,23 +709,33 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
     'GET',
   );
   const allActions = actionsResp.result || [];
-  const participating = allActions.filter((a) => a.is_participating);
 
-  // 2. Fetch products for each participating action
+  // We render BOTH participating actions and actions where we have candidates
+  // (potential_products_count > 0). The user can toggle individual SKUs in
+  // or out via per-product activate/deactivate buttons.
+  const relevant = allActions.filter(
+    (a) => a.is_participating || (a.potential_products_count || 0) > 0,
+  );
+
+  // 2. Fetch products for each action — /products for participating,
+  //    /candidates for the rest. Both return the same shape.
   type ActionWithProducts = {
     raw: OzonActionRaw;
     products: OzonActionProduct[];
+    is_candidate_list: boolean; // true when we pulled from /candidates
   };
   const actionsWithProducts: ActionWithProducts[] = [];
-  for (const a of participating) {
+  for (const a of relevant) {
     let allProds: OzonActionProduct[] = [];
     let offset = 0;
     const limit = 1000;
-    // paginate
+    const endpoint = a.is_participating
+      ? '/v1/actions/products'
+      : '/v1/actions/candidates';
     while (true) {
       const r = await ozonRequest<{
         result: { products?: OzonActionProduct[]; total?: number };
-      }>(env, '/v1/actions/products', 'POST', {
+      }>(env, endpoint, 'POST', {
         action_id: a.id,
         limit,
         offset,
@@ -733,7 +745,11 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
       if (prods.length < limit) break;
       offset += prods.length;
     }
-    actionsWithProducts.push({ raw: a, products: allProds });
+    actionsWithProducts.push({
+      raw: a,
+      products: allProds,
+      is_candidate_list: !a.is_participating,
+    });
   }
 
   // 3. Collect all unique product_ids and fetch SKU info + min_price in parallel
@@ -752,8 +768,8 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
     ),
   ]);
 
-  // 4. Apply auto-zero policy for STOCK_DISCOUNT actions (first-time-seen only)
-  const autoZeroedMap = await autoZeroStockDiscount(env, actionsWithProducts);
+  // 4. (Removed: autoZeroStockDiscount — Распродажа actions are now shown as
+  //    candidate lists with per-SKU toggle, not auto-deactivated.)
 
   // 4b. Fetch portal data per action (PRIMARY source of accurate "Осталось продать")
   //     Ozon Seller Portal endpoint returns remainingActionStock per product —
@@ -941,10 +957,12 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
         date_end: aw.raw.date_end,
         days_left: daysBetween(now, aw.raw.date_end),
         is_voucher_action: aw.raw.is_voucher_action,
+        is_participating: aw.raw.is_participating,
         participating_products_count: aw.raw.participating_products_count,
+        potential_products_count: aw.raw.potential_products_count,
         total_units_left: totalUnits,
         deciding_count: decidingCount,
-        auto_zeroed_at: autoZeroedMap.get(aw.raw.id) || null,
+        auto_zeroed_at: null,
         products: productsOut,
       };
     }),
@@ -977,7 +995,7 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
   return {
     generated_at: now,
     total_actions: allActions.length,
-    participating_count: participating.length,
+    participating_count: allActions.filter((a) => a.is_participating).length,
     total_units_left: grandTotal,
     total_skus_in_promos: allSkus.size,
     actions,
@@ -1449,6 +1467,72 @@ promos.post('/ozon/actions/:actionId/price', async (c) => {
 // Also clears the refill rule (no point keeping a rule for a product no
 // longer in the action) and busts the cache so next GET reflects the change.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// POST /api/marketplaces/ozon/actions/:actionId/products/:productId/activate
+//
+// Adds a single product to the action (e.g. toggling a Распродажа candidate
+// into the active list). Optionally accepts {action_price, stock} in body to
+// override Ozon's suggested values. After success, force a partial cache
+// invalidation so next GET picks up the new participating state.
+// ---------------------------------------------------------------------------
+promos.post('/ozon/actions/:actionId/products/:productId/activate', async (c) => {
+  const actionId = Number(c.req.param('actionId'));
+  const productId = Number(c.req.param('productId'));
+  if (!actionId || Number.isNaN(actionId)) return fail(c, 400, 'invalid action_id');
+  if (!productId || Number.isNaN(productId)) return fail(c, 400, 'invalid product_id');
+
+  let body: { action_price?: number; stock?: number } = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    // body is optional
+  }
+
+  try {
+    const product: Record<string, number> = { product_id: productId };
+    if (typeof body.action_price === 'number' && body.action_price > 0) {
+      product.action_price = body.action_price;
+    }
+    if (typeof body.stock === 'number' && body.stock >= 0) {
+      product.stock = body.stock;
+    }
+    const resp = await ozonRequest<{
+      result?: {
+        product_ids?: number[];
+        rejected?: Array<{ product_id: number; reason: string }>;
+      };
+    }>(c.env, '/v1/actions/products/activate', 'POST', {
+      action_id: actionId,
+      products: [product],
+    });
+    const accepted = resp.result?.product_ids ?? [];
+    const rejected = resp.result?.rejected ?? [];
+    if (rejected.length > 0) {
+      return fail(c, 409, `Ozon rejected: ${rejected[0].reason}`);
+    }
+    if (accepted.length === 0) {
+      return fail(c, 409, 'Ozon silently rejected — товар не подходит для этой акции');
+    }
+    // Invalidate cache fully because we don't have the full product details
+    // in the response — next GET will pull fresh.
+    try {
+      await c.env.CACHE.delete(CACHE_KEY);
+    } catch {
+      // ignore
+    }
+    return ok(c, { action_id: actionId, product_id: productId, activated: true });
+  } catch (e) {
+    return fail(c, 502, e instanceof Error ? e.message : 'Ozon API error');
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/marketplaces/ozon/actions/:actionId/products/:productId
+//
+// Removes a single product from the action via Ozon /v1/actions/products/deactivate.
+// Also clears the refill rule (no point keeping a rule for a product no
+// longer in the action) and busts the cache so next GET reflects the change.
+// ---------------------------------------------------------------------------
 promos.delete('/ozon/actions/:actionId/products/:productId', async (c) => {
   const actionId = Number(c.req.param('actionId'));
   const productId = Number(c.req.param('productId'));
@@ -1469,9 +1553,14 @@ promos.delete('/ozon/actions/:actionId/products/:productId', async (c) => {
     if (rejected.length > 0) {
       return fail(c, 409, `Ozon rejected: ${rejected[0].reason}`);
     }
-    // Clear refill rule + remove from cache (no full rebuild)
+    // Clear refill rule + bust cache fully (next GET will refetch and the
+    // product may still appear in the candidates list, which is correct).
     await setRefillRule(c.env, actionId, productId, null);
-    await removeCachedProduct(c.env, actionId, productId);
+    try {
+      await c.env.CACHE.delete(CACHE_KEY);
+    } catch {
+      // ignore
+    }
     return ok(c, { action_id: actionId, product_id: productId, removed: true });
   } catch (e) {
     return fail(c, 502, e instanceof Error ? e.message : 'Ozon API error');

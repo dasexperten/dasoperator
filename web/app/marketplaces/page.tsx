@@ -1018,7 +1018,9 @@ interface PromoAction {
   date_end: string;
   days_left: number;
   is_voucher_action: boolean;
+  is_participating: boolean;
   participating_products_count: number;
+  potential_products_count: number;
   total_units_left: number;
   deciding_count: number;
   auto_zeroed_at: string | null;
@@ -1354,9 +1356,9 @@ function PromoActionItem({
             >
               {action.title}
             </span>
-            {action.auto_zeroed_at && (
+            {!action.is_participating && (
               <span
-                title={`Auto-zeroed by policy on ${action.auto_zeroed_at.slice(0, 10)} — raise manually to commit`}
+                title="Мы не участвуем в этой акции. Включи отдельные товары нажав + на строке."
                 style={{
                   flexShrink: 0,
                   display: 'inline-flex',
@@ -1364,13 +1366,13 @@ function PromoActionItem({
                   padding: '2px 8px',
                   fontSize: '11px',
                   fontWeight: 700,
-                  color: '#8A6000',
-                  backgroundColor: 'rgba(212,160,23,0.12)',
+                  color: 'var(--fg-2)',
+                  backgroundColor: 'rgba(0,0,0,0.06)',
                   borderRadius: 'var(--radius-pill)',
                   letterSpacing: 0,
                 }}
               >
-                auto-zeroed
+                not joined
               </span>
             )}
           </div>
@@ -1484,6 +1486,8 @@ function PromoActionItem({
                   key={p.product_id}
                   product={p}
                   actionId={action.action_id}
+                  actionPrice={p.action_price}
+                  isParticipating={action.is_participating}
                   allActions={allActions}
                   showBoost={hasElasticBoost}
                   onSaved={onSaved}
@@ -1500,12 +1504,16 @@ function PromoActionItem({
 function PromoProductRow({
   product,
   actionId,
+  actionPrice,
+  isParticipating,
   allActions,
   showBoost,
   onSaved,
 }: {
   product: PromoProduct;
   actionId: number;
+  actionPrice: number;
+  isParticipating: boolean;
   allActions: PromoAction[];
   showBoost: boolean;
   onSaved: () => void;
@@ -1718,11 +1726,13 @@ function PromoProductRow({
           verticalAlign: 'middle',
         }}
       >
-        <RemoveFromActionButton
+        <ToggleActionButton
           actionId={actionId}
           productId={product.product_id}
           offerId={product.offer_id}
-          onRemoved={onSaved}
+          actionPrice={actionPrice}
+          isParticipating={isParticipating}
+          onToggled={onSaved}
         />
       </td>
     </tr>
@@ -2574,20 +2584,29 @@ function LeftToSellCell({
   );
 }
 
-function RemoveFromActionButton({
+function ToggleActionButton({
   actionId,
   productId,
   offerId,
-  onRemoved,
+  actionPrice,
+  isParticipating,
+  onToggled,
 }: {
   actionId: number;
   productId: number;
   offerId: string;
-  onRemoved: () => void;
+  actionPrice: number;
+  isParticipating: boolean;
+  onToggled: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [hovered, setHovered] = useState(false);
+
+  // We don't know per-product participation in the candidate list — for
+  // CAND (action not participating) all rows are inactive, for PART all rows
+  // are active. So action-level flag works as a proxy for the row's state.
+  const isActive = isParticipating;
 
   async function handleClick() {
     if (busy) return;
@@ -2598,13 +2617,29 @@ function RemoveFromActionButton({
         (typeof window !== 'undefined' &&
           (window as unknown as { __API_BASE?: string }).__API_BASE) ||
         'https://dasoperator-api.dasexperten.workers.dev';
-      const r = await fetch(
-        `${apiBase}/api/marketplaces/ozon/actions/${actionId}/products/${productId}`,
-        { method: 'DELETE' },
-      );
-      const j = await r.json();
-      if (!j.success) throw new Error(j.errors?.[0]?.message || j.errors || 'Remove failed');
-      onRemoved();
+      if (isActive) {
+        // Remove
+        const r = await fetch(
+          `${apiBase}/api/marketplaces/ozon/actions/${actionId}/products/${productId}`,
+          { method: 'DELETE' },
+        );
+        const j = await r.json();
+        if (!j.success) throw new Error(j.errors?.[0]?.message || j.errors || 'Remove failed');
+      } else {
+        // Activate: send Ozon-suggested action_price so it picks an acceptable
+        // discount level automatically.
+        const r = await fetch(
+          `${apiBase}/api/marketplaces/ozon/actions/${actionId}/products/${productId}/activate`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action_price: actionPrice }),
+          },
+        );
+        const j = await r.json();
+        if (!j.success) throw new Error(j.errors?.[0]?.message || j.errors || 'Activate failed');
+      }
+      onToggled();
     } catch (e) {
       setErr(humanizeOzonError(e instanceof Error ? e.message : ''));
     } finally {
@@ -2612,8 +2647,15 @@ function RemoveFromActionButton({
     }
   }
 
-  const color = err ? '#A32D2D' : hovered ? '#A32D2D' : 'rgba(0,0,0,0.35)';
-  const bg = hovered ? 'rgba(163,45,45,0.08)' : 'transparent';
+  // Active: red ✕ on hover (remove). Inactive: green + on hover (add).
+  const baseColor = 'rgba(0,0,0,0.35)';
+  const activeColor = isActive ? '#A32D2D' : '#2E7D4F';
+  const color = err ? '#A32D2D' : hovered ? activeColor : baseColor;
+  const bg = hovered
+    ? isActive
+      ? 'rgba(163,45,45,0.08)'
+      : 'rgba(46,125,79,0.10)'
+    : 'transparent';
 
   return (
     <div style={{ position: 'relative', display: 'inline-block' }}>
@@ -2622,8 +2664,8 @@ function RemoveFromActionButton({
         disabled={busy}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        title={`Снять ${offerId} с акции`}
-        aria-label={`Снять ${offerId} с акции`}
+        title={isActive ? `Снять ${offerId} с акции` : `Включить ${offerId} в акцию`}
+        aria-label={isActive ? `Снять ${offerId} с акции` : `Включить ${offerId} в акцию`}
         style={{
           width: 24,
           height: 24,
@@ -2640,7 +2682,7 @@ function RemoveFromActionButton({
           letterSpacing: 0,
         }}
       >
-        {busy ? '…' : '✕'}
+        {busy ? '…' : isActive ? '✕' : '+'}
       </button>
       {err && (
         <div

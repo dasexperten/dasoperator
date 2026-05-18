@@ -915,6 +915,36 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
     fetchPerWarehouseSalesRate(env).catch(() => new Map<number, Map<string, number>>()),
   ]);
 
+  // Overlay name with our D1 products.product_name (single source of truth).
+  // Ozon's name is whatever the catalog card says, often legacy. Marketplace
+  // UI should reflect the renames we apply in ERP.
+  try {
+    const offerIds = Array.from(
+      new Set(
+        Array.from(infoMap.values())
+          .map((it) => (it.offer_id || '').toLowerCase())
+          .filter((s) => s.length > 0),
+      ),
+    );
+    if (offerIds.length > 0) {
+      const placeholders = offerIds.map(() => '?').join(',');
+      const rows = await env.DB.prepare(
+        `SELECT id, product_name FROM products WHERE deleted_at IS NULL AND id IN (${placeholders})`,
+      ).bind(...offerIds).all<{ id: string; product_name: string }>();
+      const dbNames = new Map<string, string>();
+      for (const r of rows.results ?? []) {
+        if (r.id && r.product_name) dbNames.set(r.id.toLowerCase(), r.product_name);
+      }
+      for (const [pid, info] of infoMap.entries()) {
+        const ours = dbNames.get((info.offer_id || '').toLowerCase());
+        if (ours) infoMap.set(pid, { ...info, name: ours });
+      }
+    }
+  } catch (e) {
+    // Best-effort overlay — never break the actions response if DB query fails.
+    console.error('[promos] product_name overlay failed:', e);
+  }
+
   // 4. (Removed: autoZeroStockDiscount — Распродажа actions are now shown as
   //    candidate lists with per-SKU toggle, not auto-deactivated.)
 

@@ -1647,7 +1647,16 @@ function PromoProductRow({
           )}
       </td>
       <td style={{ ...tdStyle, textAlign: 'right' }}>
-        <PromoPriceCell actionId={actionId} product={product} onSaved={onSaved} />
+        {isParticipating ? (
+          <PromoPriceCell actionId={actionId} product={product} onSaved={onSaved} />
+        ) : (
+          <span
+            style={{ color: 'var(--fg-muted)', fontSize: '14px', fontStyle: 'italic' }}
+            title="Включи товар в акцию (+) чтобы редактировать цену"
+          >
+            —
+          </span>
+        )}
       </td>
 
       {/* Boost level slider — only for elastic boost actions */}
@@ -1663,7 +1672,15 @@ function PromoProductRow({
 
       {/* Left to sell — emphasized as the main number, click to edit */}
       <td style={{ ...tdStyle, textAlign: 'right' }}>
-        <LeftToSellCell actionId={actionId} product={product} onSaved={onSaved} />
+        {isParticipating ? (
+          <LeftToSellCell actionId={actionId} product={product} onSaved={onSaved} />
+        ) : (
+          <span
+            style={{ color: 'var(--fg-muted)', fontSize: '14px', fontStyle: 'italic' }}
+          >
+            —
+          </span>
+        )}
       </td>
 
       {/* FBO warehouse stock — what's actually in Ozon fulfillment right now */}
@@ -1709,12 +1726,20 @@ function PromoProductRow({
 
       {/* Auto refill rule editor */}
       <td style={{ ...tdStyle, textAlign: 'right' }}>
-        <RefillRuleCell
-          actionId={actionId}
-          productId={product.product_id}
-          currentRule={product.refill_rule}
-          onSaved={onSaved}
-        />
+        {isParticipating ? (
+          <RefillRuleCell
+            actionId={actionId}
+            productId={product.product_id}
+            currentRule={product.refill_rule}
+            onSaved={onSaved}
+          />
+        ) : (
+          <span
+            style={{ color: 'var(--fg-muted)', fontSize: '14px', fontStyle: 'italic' }}
+          >
+            —
+          </span>
+        )}
       </td>
 
       {/* Remove from action ✕ */}

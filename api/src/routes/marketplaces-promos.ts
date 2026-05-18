@@ -713,9 +713,20 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
   // We render BOTH participating actions and actions where we have candidates
   // (potential_products_count > 0). The user can toggle individual SKUs in
   // or out via per-product activate/deactivate buttons.
-  const relevant = allActions.filter(
-    (a) => a.is_participating || (a.potential_products_count || 0) > 0,
-  );
+  // EXCEPT: the general "Распродажа стока. Май" (the country-wide stock clearance)
+  // — Aram never uses it, so hide it from the view entirely.
+  const relevant = allActions.filter((a) => {
+    const title = (a.title || '').toLowerCase();
+    // Hide non-regional Распродажа стока (regional ones have a city name, e.g.
+    // "Распродажа стока АЛМАТЫ_2_РФЦ"). The general one has just "Май" or "стока." period.
+    if (
+      title.includes('распродажа стока') &&
+      !title.match(/(алматы|астана|минск|краснояр|шушары|новороссийск|воронеж)/i)
+    ) {
+      return false;
+    }
+    return a.is_participating || (a.potential_products_count || 0) > 0;
+  });
 
   // 2. Fetch products for each action — /products for participating,
   //    /candidates for the rest. Both return the same shape.
@@ -981,6 +992,10 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
     return 3;
   }
   actions.sort((a, b) => {
+    // Participating actions ALWAYS appear before candidate-only ones
+    if (a.is_participating !== b.is_participating) {
+      return a.is_participating ? -1 : 1;
+    }
     const ba = bucket(a.title);
     const bb = bucket(b.title);
     if (ba !== bb) return ba - bb;

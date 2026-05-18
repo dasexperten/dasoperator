@@ -16,7 +16,7 @@ import { ok, fail } from '../lib/responses';
 
 const promos = new Hono<{ Bindings: Env }>();
 
-const CACHE_KEY = 'ozon:actions:v15';
+const CACHE_KEY = 'ozon:actions:v16';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
@@ -1017,20 +1017,35 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
   //
   //     Manual override (via UI save) takes precedence over both portal and
   //     analytics — Aram's explicit input is always honored.
-  let salesBySku: Map<string, number> = new Map();
-  try {
+  //
+  //     Per-action sales windows:
+  //       - Finite actions (≤90 days): from date_start to today
+  //         → analytics shows actual "sold in this promo"
+  //       - Unlimited actions (>90 days, e.g. Эластичный бустинг):
+  //         last 30 days only (avoids summing all-time sales as "promo sold")
+  //         — though for unlimited, manual baseline usually wins anyway.
+  const salesByActionAndSku: Map<number, Map<string, number>> = new Map();
+  {
     const today = new Date();
-    let earliest: Date | null = null;
-    for (const aw of actionsWithProducts) {
-      if (!aw.raw.date_start) continue;
-      const d = new Date(aw.raw.date_start);
-      if (!earliest || d < earliest) earliest = d;
-    }
-    const thirtyDaysAgo = new Date(today.getTime() - 30 * 86400000);
-    if (!earliest || earliest < thirtyDaysAgo) earliest = thirtyDaysAgo;
-    salesBySku = await fetchSalesSince(env, isoDate(earliest), isoDate(today));
-  } catch {
-    salesBySku = new Map();
+    const todayIso = isoDate(today);
+    await Promise.all(
+      actionsWithProducts.map(async (aw) => {
+        try {
+          const ds = aw.raw.date_start ? new Date(aw.raw.date_start) : null;
+          const de = aw.raw.date_end ? new Date(aw.raw.date_end) : null;
+          const durationMs = ds && de ? de.getTime() - ds.getTime() : 0;
+          const isFiniteWin = durationMs > 0 && durationMs <= 90 * 86400000;
+          const dateFrom =
+            isFiniteWin && ds
+              ? ds
+              : new Date(today.getTime() - 30 * 86400000);
+          const map = await fetchSalesSince(env, isoDate(dateFrom), todayIso);
+          salesByActionAndSku.set(aw.raw.id, map);
+        } catch {
+          salesByActionAndSku.set(aw.raw.id, new Map());
+        }
+      }),
+    );
   }
 
   // 5. Build response
@@ -1102,11 +1117,14 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
           if (soldCount == null && info?.sources && info.sources.length > 0) {
             let sum = 0;
             let anyData = false;
-            for (const src of info.sources) {
-              const v = salesBySku.get(String(src.sku));
-              if (v != null) {
-                sum += v;
-                anyData = true;
+            const actionSales = salesByActionAndSku.get(aw.raw.id);
+            if (actionSales) {
+              for (const src of info.sources) {
+                const v = actionSales.get(String(src.sku));
+                if (v != null) {
+                  sum += v;
+                  anyData = true;
+                }
               }
             }
             if (anyData) {

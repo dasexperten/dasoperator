@@ -16,7 +16,7 @@ import { ok, fail } from '../lib/responses';
 
 const promos = new Hono<{ Bindings: Env }>();
 
-const CACHE_KEY = 'ozon:actions:v10';
+const CACHE_KEY = 'ozon:actions:v11';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
@@ -171,6 +171,10 @@ interface CachedActionsPayload {
       // FBO warehouse stock (what's actually in Ozon fulfillment centers)
       fbo_present: number | null;       // units available across FBO warehouses
       fbo_reserved: number | null;      // units in pending orders
+      // Cluster FBO for regional Распродажа actions (single specific warehouse)
+      cluster_fbo_present: number | null;   // units at the action's region
+      cluster_fbo_days: number | null;      // days of cover at this region's pace
+      cluster_fbo_warehouse: string | null; // canonical warehouse name (e.g. АЛМАТЫ_2_РФЦ)
     }>;
   }>;
 }
@@ -286,6 +290,134 @@ async function fetchAllProductPriceInfo(
 // Fetch FBO warehouse stock per SKU. Returns total `present` units across all
 // warehouses (Ozon aggregates by type=fbo). Used to show "what's actually
 // available to fulfill orders" alongside the promo's Left-to-sell counter.
+// Per-warehouse FBO stock map. Returns:
+//   sku → warehouse_name → { present, reserved }
+// Uses Ozon /v2/analytics/stock_on_warehouses which gives stock per RFC.
+// SKU here is the marketplace SKU (numeric, different from product_id).
+async function fetchPerWarehouseStock(
+  env: Env,
+): Promise<Map<number, Map<string, { present: number; reserved: number }>>> {
+  const map = new Map<number, Map<string, { present: number; reserved: number }>>();
+  let offset = 0;
+  const limit = 1000;
+  for (let page = 0; page < 30; page++) {
+    let resp: {
+      result?: {
+        rows?: Array<{
+          sku: number;
+          warehouse_name: string;
+          free_to_sell_amount?: number;
+          reserved_amount?: number;
+        }>;
+      };
+    };
+    try {
+      resp = await ozonRequest<typeof resp>(
+        env,
+        '/v2/analytics/stock_on_warehouses',
+        'POST',
+        { limit, offset, warehouse_type: 'ALL' },
+      );
+    } catch {
+      break;
+    }
+    const rows = resp.result?.rows || [];
+    if (rows.length === 0) break;
+    for (const r of rows) {
+      if (!r.sku || !r.warehouse_name) continue;
+      let bySku = map.get(r.sku);
+      if (!bySku) {
+        bySku = new Map();
+        map.set(r.sku, bySku);
+      }
+      bySku.set(r.warehouse_name, {
+        present: r.free_to_sell_amount || 0,
+        reserved: r.reserved_amount || 0,
+      });
+    }
+    if (rows.length < limit) break;
+    offset += rows.length;
+  }
+  return map;
+}
+
+// Daily sales rate per SKU per warehouse, last 30 days.
+// Returns sku → warehouse_name → daily_avg_units.
+// Uses /v1/analytics/data with dimension by sku + warehouse_name.
+async function fetchPerWarehouseSalesRate(
+  env: Env,
+): Promise<Map<number, Map<string, number>>> {
+  const map = new Map<number, Map<string, number>>();
+  const dateTo = new Date().toISOString().slice(0, 10);
+  const dateFrom = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  let offset = 0;
+  const limit = 1000;
+  for (let page = 0; page < 30; page++) {
+    let resp: {
+      result?: {
+        data?: Array<{
+          dimensions: Array<{ id: string; name: string }>;
+          metrics: number[];
+        }>;
+      };
+    };
+    try {
+      resp = await ozonRequest<typeof resp>(env, '/v1/analytics/data', 'POST', {
+        date_from: dateFrom,
+        date_to: dateTo,
+        dimension: ['sku', 'warehouse_name'],
+        metrics: ['ordered_units'],
+        offset,
+        limit,
+      });
+    } catch {
+      break;
+    }
+    const data = resp.result?.data || [];
+    if (data.length === 0) break;
+    for (const row of data) {
+      const skuStr = row.dimensions?.[0]?.id;
+      const wh = row.dimensions?.[1]?.name;
+      const units = row.metrics?.[0];
+      if (!skuStr || !wh || typeof units !== 'number') continue;
+      const sku = Number(skuStr);
+      if (!sku) continue;
+      const perDay = units / 30;
+      let bySku = map.get(sku);
+      if (!bySku) {
+        bySku = new Map();
+        map.set(sku, bySku);
+      }
+      bySku.set(wh, perDay);
+    }
+    if (data.length < limit) break;
+    offset += data.length;
+  }
+  return map;
+}
+
+// Determine which warehouse this Распродажа is for, by parsing the title.
+// Returns the canonical warehouse_name as it appears in stock_on_warehouses.
+function extractRegionWarehouse(title: string): string | null {
+  if (!title) return null;
+  const t = title.toLowerCase();
+  if (!t.includes('распродажа')) return null;
+  // Map of region keywords → canonical warehouse_name in Ozon
+  const map: Array<{ key: string; wh: string }> = [
+    { key: 'алматы', wh: 'АЛМАТЫ_2_РФЦ' },
+    { key: 'астана', wh: 'АСТАНА_РФЦ' },
+    { key: 'минск', wh: 'МИНСК_МПСЦ' },
+    { key: 'красноярск', wh: 'КРАСНОЯРСК_МРФЦ' },
+    { key: 'новороссийск', wh: 'НОВОРОССИЙСК_РФЦ' },
+    { key: 'воронеж', wh: 'ВОРОНЕЖ_РФЦ' },
+    { key: 'шушары', wh: 'СПБ_ШУШАРЫ_РФЦ' },
+  ];
+  for (const { key, wh } of map) {
+    if (t.includes(key)) return wh;
+  }
+  return null;
+}
+
 async function fetchAllProductFboStock(
   env: Env,
   productIds: number[],
@@ -769,7 +901,7 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
     for (const p of a.products) uniqueIds.add(p.id);
   }
   const idArr = Array.from(uniqueIds);
-  const [infoMap, priceInfoMap, fboStockMap] = await Promise.all([
+  const [infoMap, priceInfoMap, fboStockMap, perWhStock, perWhSales] = await Promise.all([
     fetchAllProductInfo(env, idArr),
     fetchAllProductPriceInfo(env, idArr).catch(
       () => new Map<number, { current_price: number; min_price: number | null }>(),
@@ -777,6 +909,10 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
     fetchAllProductFboStock(env, idArr).catch(
       () => new Map<number, { present: number; reserved: number }>(),
     ),
+    fetchPerWarehouseStock(env).catch(
+      () => new Map<number, Map<string, { present: number; reserved: number }>>(),
+    ),
+    fetchPerWarehouseSalesRate(env).catch(() => new Map<number, Map<string, number>>()),
   ]);
 
   // 4. (Removed: autoZeroStockDiscount — Распродажа actions are now shown as
@@ -872,9 +1008,47 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
   const actions = await Promise.all(
     actionsWithProducts.map(async (aw) => {
       const portalMap = portalDataByAction.get(aw.raw.id);
+      // For regional Распродажа, look up cluster_fbo from the specific warehouse
+      // mentioned in the action title (e.g. АЛМАТЫ_2_РФЦ).
+      const regionWh = extractRegionWarehouse(aw.raw.title);
       const productsOut = await Promise.all(
         aw.products.map(async (p) => {
           const info = infoMap.get(p.id);
+          // Look up cluster FBO + turnover when this is a regional action
+          let cluster_fbo_present: number | null = null;
+          let cluster_fbo_days: number | null = null;
+          let cluster_fbo_warehouse: string | null = null;
+          if (regionWh && info) {
+            // Find the SKU number for this product. Ozon source types: 'sds'
+            // (Direct Sales = FBO), 'fbs' (sellers stock). FBO SKU is what
+            // stock_on_warehouses uses. Prefer GENERAL shipment_type SKU.
+            const sources = info.sources || [];
+            const fboSource =
+              sources.find(
+                (s) =>
+                  (s.source === 'sds' || s.source === 'fbo') &&
+                  (!('shipment_type' in s) ||
+                    (s as { shipment_type?: string }).shipment_type ===
+                      'SHIPMENT_TYPE_GENERAL'),
+              ) || sources.find((s) => s.source === 'sds' || s.source === 'fbo');
+            const sku = fboSource?.sku;
+            if (sku) {
+              const whStock = perWhStock.get(sku)?.get(regionWh);
+              const whSalesPerDay = perWhSales.get(sku)?.get(regionWh) || 0;
+              if (whStock) {
+                cluster_fbo_present = whStock.present;
+                cluster_fbo_warehouse = regionWh;
+                if (whSalesPerDay > 0 && whStock.present > 0) {
+                  cluster_fbo_days = Math.round(whStock.present / whSalesPerDay);
+                } else if (whStock.present === 0) {
+                  cluster_fbo_days = 0;
+                }
+              } else {
+                cluster_fbo_present = 0;
+                cluster_fbo_warehouse = regionWh;
+              }
+            }
+          }
           const discountPct =
             p.price > 0 ? Math.round(((p.price - p.action_price) / p.price) * 100) : 0;
           // Sold count priority:
@@ -943,6 +1117,9 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
             max_boost: numOrNull(p.max_boost),
             fbo_present: fboStockMap.get(p.id)?.present ?? null,
             fbo_reserved: fboStockMap.get(p.id)?.reserved ?? null,
+            cluster_fbo_present,
+            cluster_fbo_days,
+            cluster_fbo_warehouse,
           };
         }),
       );

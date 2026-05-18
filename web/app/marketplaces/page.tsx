@@ -1038,6 +1038,9 @@ interface PromoProduct {
   max_boost: number | null;
   fbo_present: number | null;
   fbo_reserved: number | null;
+  cluster_fbo_present: number | null;
+  cluster_fbo_days: number | null;
+  cluster_fbo_warehouse: string | null;
 }
 
 interface PromoAction {
@@ -1573,7 +1576,7 @@ function PromoActionItem({
                 {hasElasticBoost && (
                   <th style={{ ...thStyle, textAlign: 'center', minWidth: 200 }}>Boost level</th>
                 )}
-                <th style={{ ...thStyle, textAlign: 'right', minWidth: 90 }}>Left to sell</th>
+                <th style={{ ...thStyle, textAlign: 'right', minWidth: 110 }}>Left to sell</th>
                 <th style={{ ...thStyle, textAlign: 'right', minWidth: 80 }}>FBO stock</th>
                 <th style={{ ...thStyle, textAlign: 'right', minWidth: 150 }}>Keep stock topped up</th>
                 <th style={{ ...thStyle, width: 36, padding: '10px 6px' }}></th>
@@ -1594,6 +1597,7 @@ function PromoActionItem({
                   actionId={action.action_id}
                   actionPrice={p.action_price}
                   isParticipating={action.is_participating}
+                  isClearance={isClearance}
                   allActions={allActions}
                   showBoost={hasElasticBoost}
                   onSaved={onSaved}
@@ -1612,6 +1616,7 @@ function PromoProductRow({
   actionId,
   actionPrice,
   isParticipating,
+  isClearance,
   allActions,
   showBoost,
   onSaved,
@@ -1620,6 +1625,7 @@ function PromoProductRow({
   actionId: number;
   actionPrice: number;
   isParticipating: boolean;
+  isClearance: boolean;
   allActions: PromoAction[];
   showBoost: boolean;
   onSaved: () => void;
@@ -1758,16 +1764,21 @@ function PromoProductRow({
             </div>
           )}
       </td>
+      {/* Promo: editable for boost actions, read-only for Распродажа (Ozon sets it) */}
       <td style={{ ...tdStyle, textAlign: 'right' }}>
-        {isParticipating ? (
-          <PromoPriceCell actionId={actionId} product={product} onSaved={onSaved} />
-        ) : (
+        {!isParticipating ? (
           <span
             style={{ color: 'var(--fg-muted)', fontSize: '14px', fontStyle: 'italic' }}
-            title="Включи товар в акцию (+) чтобы редактировать цену"
+            title="Включи товар чтобы участвовать"
           >
             —
           </span>
+        ) : isClearance ? (
+          <span style={{ fontWeight: 700, fontSize: '14px' }}>
+            {fmt(product.action_price)}₽
+          </span>
+        ) : (
+          <PromoPriceCell actionId={actionId} product={product} onSaved={onSaved} />
         )}
       </td>
 
@@ -1782,7 +1793,7 @@ function PromoProductRow({
         </td>
       )}
 
-      {/* Left to sell — emphasized as the main number, click to edit */}
+      {/* Left to sell — wider field to fit 4-digit values */}
       <td style={{ ...tdStyle, textAlign: 'right' }}>
         {isParticipating ? (
           <LeftToSellCell actionId={actionId} product={product} onSaved={onSaved} />
@@ -1795,9 +1806,70 @@ function PromoProductRow({
         )}
       </td>
 
-      {/* FBO warehouse stock — what's actually in Ozon fulfillment right now */}
+      {/* FBO column: per-cluster (with days) for regional Распродажа,
+          overall FBO otherwise */}
       <td style={{ ...tdStyle, textAlign: 'right' }}>
-        {product.fbo_present != null ? (
+        {isClearance && product.cluster_fbo_present != null ? (
+          <div>
+            <div
+              style={{
+                fontSize: '15px',
+                fontWeight: 700,
+                color:
+                  product.cluster_fbo_present === 0
+                    ? 'var(--brand-rot)'
+                    : 'var(--fg-1)',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+              title={`Остаток на складе ${product.cluster_fbo_warehouse}`}
+            >
+              {fmt(product.cluster_fbo_present)}
+            </div>
+            {product.cluster_fbo_present === 0 ? (
+              <div
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 500,
+                  color: 'var(--brand-rot)',
+                  marginTop: 2,
+                  fontStyle: 'italic',
+                }}
+              >
+                пусто
+              </div>
+            ) : product.cluster_fbo_days != null ? (
+              <div
+                style={{
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  marginTop: 2,
+                  color:
+                    product.cluster_fbo_days > 120
+                      ? '#A32D2D'
+                      : product.cluster_fbo_days >= 60
+                      ? '#8A6000'
+                      : '#3B6D11',
+                }}
+                title="Дней хватит при текущей скорости продаж в этом регионе"
+              >
+                {fmt(product.cluster_fbo_days)} дн.
+              </div>
+            ) : (
+              <div
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 500,
+                  marginTop: 2,
+                  color: '#A32D2D',
+                  fontStyle: 'italic',
+                }}
+                title="Нет продаж этого SKU из этого склада за 30 дней — товар залежался"
+              >
+                нет продаж
+              </div>
+            )}
+          </div>
+        ) : product.fbo_present != null ? (
           <div>
             <div
               style={{
@@ -1836,7 +1908,7 @@ function PromoProductRow({
         )}
       </td>
 
-      {/* Auto refill rule editor */}
+      {/* Keep stock topped up (Below / Refill to) — after FBO */}
       <td style={{ ...tdStyle, textAlign: 'right' }}>
         {isParticipating ? (
           <RefillRuleCell
@@ -1854,7 +1926,7 @@ function PromoProductRow({
         )}
       </td>
 
-      {/* Remove from action ✕ */}
+      {/* Per-product toggle — present on every row, every action */}
       <td
         style={{
           ...tdStyle,
@@ -2658,7 +2730,7 @@ function LeftToSellCell({
           if (dirty) save();
         }}
         style={{
-          width: 78,
+          width: 90,
           padding: '4px 8px',
           fontFamily: 'var(--font-body)',
           fontSize: '18px',

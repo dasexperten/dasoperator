@@ -1406,12 +1406,46 @@ promos.post('/ozon/portal-ingest', async (c) => {
 promos.get('/ozon/actions', async (c) => {
   const force = c.req.query('refresh') === '1';
 
+  // Tell browser/CDN never to cache this response — it depends on D1
+  // product_name overlays that can change at any moment via product
+  // renames. The KV cache inside this Worker is the only cache layer.
+  c.header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+
   // Try cache
   if (!force) {
     try {
       const cached = await c.env.CACHE.get(CACHE_KEY);
       if (cached) {
         const parsed = JSON.parse(cached) as CachedActionsPayload;
+        // Re-apply D1 product_name overlay on cached data so renames take
+        // effect immediately without forcing a full Ozon refetch.
+        try {
+          const offerIds = Array.from(
+            new Set(
+              parsed.actions.flatMap((a) =>
+                a.products.map((p) => (p.offer_id || '').toLowerCase()).filter((s) => s),
+              ),
+            ),
+          );
+          if (offerIds.length > 0) {
+            const placeholders = offerIds.map(() => '?').join(',');
+            const rows = await c.env.DB.prepare(
+              `SELECT id, product_name FROM products WHERE deleted_at IS NULL AND id IN (${placeholders})`,
+            ).bind(...offerIds).all<{ id: string; product_name: string }>();
+            const dbNames = new Map<string, string>();
+            for (const r of rows.results ?? []) {
+              if (r.id && r.product_name) dbNames.set(r.id.toLowerCase(), r.product_name);
+            }
+            for (const a of parsed.actions) {
+              for (const p of a.products) {
+                const ours = dbNames.get((p.offer_id || '').toLowerCase());
+                if (ours) p.name = ours;
+              }
+            }
+          }
+        } catch (e) {
+          console.error('[promos] cached overlay failed:', e);
+        }
         return ok(c, { ...parsed, _cached: true });
       }
     } catch {

@@ -1864,6 +1864,84 @@ promos.post('/ozon/actions/:actionId/price', async (c) => {
 // override Ozon's suggested values. After success, force a partial cache
 // invalidation so next GET picks up the new participating state.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// GET /api/marketplaces/ozon/actions/:actionId/candidates
+//
+// Returns the list of products eligible to join this action but not yet in it.
+// Paginates Ozon /v1/actions/candidates, joins product names from D1
+// (products.product_name) when offer_id matches the SKU column.
+//
+// Response: { candidates: [{ product_id, offer_id, name, max_action_price,
+//                             price, stock }] }
+// ---------------------------------------------------------------------------
+promos.get('/ozon/actions/:actionId/candidates', async (c) => {
+  const actionId = Number(c.req.param('actionId'));
+  if (!actionId || Number.isNaN(actionId)) return fail(c, 400, 'invalid action_id');
+
+  try {
+    interface RawCand {
+      id?: number;
+      offer_id?: string;
+      max_action_price?: number;
+      price?: number;
+      stock?: number;
+    }
+    const all: RawCand[] = [];
+    let offset = 0;
+    const limit = 1000;
+    while (offset < 10000) {
+      const r = await ozonRequest<{
+        result?: { products?: RawCand[]; total?: number };
+      }>(c.env, '/v1/actions/candidates', 'POST', {
+        action_id: actionId,
+        limit,
+        offset,
+      });
+      const list = r.result?.products ?? [];
+      all.push(...list);
+      if (list.length < limit) break;
+      offset += limit;
+    }
+
+    // Enrich with product names from D1. The Ozon offer_id IS our SKU.
+    const offerIds = Array.from(new Set(all.map((p) => p.offer_id).filter(Boolean) as string[]));
+    const nameMap = new Map<string, string>();
+    if (offerIds.length > 0) {
+      try {
+        const placeholders = offerIds.map(() => '?').join(',');
+        const result = await c.env.DB.prepare(
+          `SELECT id, product_name FROM products WHERE id IN (${placeholders})`,
+        )
+          .bind(...offerIds.map((s) => s.toLowerCase()))
+          .all<{ id: string; product_name: string }>();
+        for (const row of result.results || []) {
+          nameMap.set((row.id || '').toUpperCase(), row.product_name || '');
+        }
+      } catch {
+        // best-effort enrichment
+      }
+    }
+
+    const candidates = all
+      .filter((p) => p.id != null)
+      .map((p) => ({
+        product_id: p.id!,
+        offer_id: p.offer_id || '',
+        name: nameMap.get((p.offer_id || '').toUpperCase()) || '',
+        max_action_price: p.max_action_price || 0,
+        price: p.price || 0,
+        stock: p.stock || 0,
+      }))
+      .sort((a, b) =>
+        a.offer_id.localeCompare(b.offer_id, undefined, { numeric: true, sensitivity: 'base' }),
+      );
+
+    return ok(c, { candidates, count: candidates.length });
+  } catch (e) {
+    return fail(c, 502, e instanceof Error ? e.message : 'Ozon API error');
+  }
+});
+
 promos.post('/ozon/actions/:actionId/products/:productId/activate', async (c) => {
   const actionId = Number(c.req.param('actionId'));
   const productId = Number(c.req.param('productId'));

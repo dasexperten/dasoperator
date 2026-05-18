@@ -332,7 +332,7 @@ export default function WarehousesPage() {
                   <SortableTh
                     key={w.id}
                     center
-                    withParens
+                    withParens={!!w.external_provider}
                     bg={TINT_BY_GROUP[groupForWarehouse(w)]}
                     sortKey={w.id}
                     sort={sort}
@@ -422,6 +422,7 @@ export default function WarehousesPage() {
                             value={v}
                             inProduction={prod}
                             externalAmount={ext?.amount}
+                            hasParensColumn={!!w.external_provider}
                             href={`/warehouses/${w.id}?sku=${skuLower}`}
                             tint={TINT_BY_GROUP[groupForWarehouse(w)]}
                           />
@@ -448,21 +449,39 @@ export default function WarehousesPage() {
                 <tr style={{ borderTop: '2px solid var(--border-hairline)' }}>
                   <td className="px-3 py-2" style={{ fontSize: '14px', color: 'var(--fg-3)', backgroundColor: 'var(--paper-sunk)' }}>Total</td>
                   <td className="px-3 py-2" style={{ backgroundColor: 'var(--paper-sunk)' }}></td>
-                  {sortedWarehouses.map((w) => (
-                    <td key={w.id} className="px-3 py-2" style={{
-                      fontSize: '14px',
-                      fontWeight: 700,
-                      color: 'var(--fg-1)',
-                      backgroundColor: TINT_BY_GROUP[groupForWarehouse(w)],
-                    }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 56px', columnGap: '4px', alignItems: 'baseline' }}>
-                        <span style={{ textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
-                          {(totalsByWarehouse.totals[w.code] ?? 0).toLocaleString('en-US')}
-                        </span>
-                        <span />
-                      </div>
-                    </td>
-                  ))}
+                  {sortedWarehouses.map((w) => {
+                    const tot = totalsByWarehouse.totals[w.code] ?? 0;
+                    const cellBg = TINT_BY_GROUP[groupForWarehouse(w)];
+                    if (w.external_provider) {
+                      return (
+                        <td key={w.id} className="px-3 py-2" style={{
+                          fontSize: '14px',
+                          fontWeight: 700,
+                          color: 'var(--fg-1)',
+                          backgroundColor: cellBg,
+                        }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 56px', columnGap: '4px', alignItems: 'baseline' }}>
+                            <span style={{ textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                              {tot.toLocaleString('en-US')}
+                            </span>
+                            <span />
+                          </div>
+                        </td>
+                      );
+                    }
+                    return (
+                      <td key={w.id} className="px-3 py-2 text-right" style={{
+                        fontSize: '14px',
+                        fontWeight: 700,
+                        color: 'var(--fg-1)',
+                        backgroundColor: cellBg,
+                        fontVariantNumeric: 'tabular-nums',
+                        whiteSpace: 'nowrap',
+                      }}>
+                        {tot.toLocaleString('en-US')}
+                      </td>
+                    );
+                  })}
                   {/* OTW total */}
                   <td className="px-3 py-2 text-right" style={{
                     fontSize: '14px',
@@ -556,7 +575,7 @@ const MARKETPLACE_TINT = {
   wb:   'rgba(203, 17, 122, 0.06)',
 };
 
-function StockCellTd({ value, inProduction = 0, externalAmount, href, tint }: { value: number; inProduction?: number; externalAmount?: number; href: string; tint?: string }) {
+function StockCellTd({ value, inProduction = 0, externalAmount, hasParensColumn = false, href, tint }: { value: number; inProduction?: number; externalAmount?: number; hasParensColumn?: boolean; href: string; tint?: string }) {
   const hasExternal = typeof externalAmount === 'number';
 
   // ────────────────────────────────────────────────────────────────────────
@@ -602,6 +621,24 @@ function StockCellTd({ value, inProduction = 0, externalAmount, href, tint }: { 
     else if (pct > 0.01) parensColor = '#854F0B';
   } else if (hasExternal && !showPrimary && (secondary ?? 0) > 0) {
     parensColor = '#854F0B';
+  }
+
+  if (!hasParensColumn) {
+    // No-API warehouse (FLP, SRN, SWH, DGN, GZH, YZH) — no parens ever,
+    // so keep the column compact with plain right-aligned content.
+    return (
+      <td className="px-3 py-2 text-right" style={{ backgroundColor: bg, fontSize: '14px', color, fontVariantNumeric: 'tabular-nums' }}>
+        <Link href={href} style={{ color: 'inherit', whiteSpace: 'nowrap' }}>
+          {!showPrimary && !showProd && '—'}
+          {showPrimary && <span>{primary.toLocaleString('en-US')}</span>}
+          {showProd && (
+            <span style={{ color: pendingColor, fontWeight: 600, marginLeft: showPrimary ? '4px' : 0 }}>
+              {pendingSign}{pendingAbs.toLocaleString('en-US')}
+            </span>
+          )}
+        </Link>
+      </td>
+    );
   }
 
   return (

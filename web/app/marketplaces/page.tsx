@@ -1665,13 +1665,9 @@ function PromoProductRow({
             <div
               style={{
                 fontSize: '15px',
-                fontWeight: 700,
-                color:
-                  product.fbo_present === 0
-                    ? 'var(--brand-rot)'
-                    : product.fbo_present < 50
-                    ? '#8A6000'
-                    : 'var(--fg-1)',
+                fontWeight: 400,
+                fontStyle: 'italic',
+                color: 'var(--fg-2)',
                 fontVariantNumeric: 'tabular-nums',
               }}
               title={
@@ -1687,7 +1683,8 @@ function PromoProductRow({
                 style={{
                   fontSize: '11px',
                   color: 'var(--fg-muted)',
-                  fontWeight: 600,
+                  fontWeight: 400,
+                  fontStyle: 'italic',
                   letterSpacing: 0,
                   marginTop: 2,
                 }}

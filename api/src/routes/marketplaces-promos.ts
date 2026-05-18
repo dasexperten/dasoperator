@@ -1903,8 +1903,27 @@ promos.get('/ozon/actions/:actionId/candidates', async (c) => {
       offset += limit;
     }
 
-    // Enrich with product names from D1. The Ozon offer_id IS our SKU.
-    const offerIds = Array.from(new Set(all.map((p) => p.offer_id).filter(Boolean) as string[]));
+    // Enrich with offer_id (Ozon /v1/actions/candidates omits it) + product
+    // names from D1. Batch the Ozon product/info/list call to get offer_id
+    // for everything in one shot.
+    const productIds = all.map((p) => p.id!).filter(Boolean);
+    const offerByPid = new Map<number, string>();
+    if (productIds.length > 0) {
+      try {
+        const infoResp = await ozonRequest<{
+          items?: Array<{ id?: number; offer_id?: string }>;
+          result?: { items?: Array<{ id?: number; offer_id?: string }> };
+        }>(c.env, '/v3/product/info/list', 'POST', { product_id: productIds });
+        const items = infoResp.items ?? infoResp.result?.items ?? [];
+        for (const it of items) {
+          if (it.id != null && it.offer_id) offerByPid.set(it.id, it.offer_id);
+        }
+      } catch {
+        // best-effort; offer_id may stay empty
+      }
+    }
+
+    const offerIds = Array.from(new Set(Array.from(offerByPid.values())));
     const nameMap = new Map<string, string>();
     if (offerIds.length > 0) {
       try {
@@ -1924,14 +1943,17 @@ promos.get('/ozon/actions/:actionId/candidates', async (c) => {
 
     const candidates = all
       .filter((p) => p.id != null)
-      .map((p) => ({
-        product_id: p.id!,
-        offer_id: p.offer_id || '',
-        name: nameMap.get((p.offer_id || '').toUpperCase()) || '',
-        max_action_price: p.max_action_price || 0,
-        price: p.price || 0,
-        stock: p.stock || 0,
-      }))
+      .map((p) => {
+        const offer = offerByPid.get(p.id!) || p.offer_id || '';
+        return {
+          product_id: p.id!,
+          offer_id: offer,
+          name: nameMap.get(offer.toUpperCase()) || '',
+          max_action_price: p.max_action_price || 0,
+          price: p.price || 0,
+          stock: p.stock || 0,
+        };
+      })
       .sort((a, b) =>
         a.offer_id.localeCompare(b.offer_id, undefined, { numeric: true, sensitivity: 'base' }),
       );

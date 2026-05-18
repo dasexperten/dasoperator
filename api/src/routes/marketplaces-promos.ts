@@ -1957,6 +1957,103 @@ promos.delete('/ozon/actions/:actionId/products/:productId', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/marketplaces/ozon/actions/:actionId/leave
+//
+// Bulk-deactivates ALL currently-active products in the action — equivalent
+// to clicking the master toggle OFF on an action card. Used by the
+// action-level on/off switch in the UI.
+//
+// Workflow:
+//   1. Fetch the action's currently-active products from Ozon (paginated).
+//   2. POST them all to /v1/actions/products/deactivate in one call
+//      (Ozon accepts up to 100 product_ids per call).
+//   3. Clear any refill rules for those products (they'd be stale).
+//   4. Bust the cache so next GET reflects the change.
+//
+// Response: { action_id, deactivated_count, rejected: [...] }
+// ---------------------------------------------------------------------------
+promos.post('/ozon/actions/:actionId/leave', async (c) => {
+  const actionId = Number(c.req.param('actionId'));
+  if (!actionId || Number.isNaN(actionId)) return fail(c, 400, 'invalid action_id');
+
+  try {
+    // 1. Fetch all currently-active products in the action
+    const activeIds: number[] = [];
+    let offset = 0;
+    const limit = 1000;
+    while (true) {
+      const r = await ozonRequest<{
+        result: { products?: OzonActionProduct[]; total?: number };
+      }>(c.env, '/v1/actions/products', 'POST', {
+        action_id: actionId,
+        limit,
+        offset,
+      });
+      const prods = r.result?.products ?? [];
+      for (const p of prods) {
+        if (p.id != null) activeIds.push(p.id);
+      }
+      if (prods.length < limit) break;
+      offset += limit;
+      if (offset > 10000) break; // safety
+    }
+
+    if (activeIds.length === 0) {
+      return ok(c, {
+        action_id: actionId,
+        deactivated_count: 0,
+        rejected: [],
+        note: 'no active products to deactivate',
+      });
+    }
+
+    // 2. Deactivate in batches of 100 (Ozon API limit)
+    const allRejected: Array<{ product_id: number; reason: string }> = [];
+    let successCount = 0;
+    for (let i = 0; i < activeIds.length; i += 100) {
+      const batch = activeIds.slice(i, i + 100);
+      const resp = await ozonRequest<{
+        result?: {
+          product_ids?: number[];
+          rejected?: Array<{ product_id: number; reason: string }>;
+        };
+      }>(c.env, '/v1/actions/products/deactivate', 'POST', {
+        action_id: actionId,
+        product_ids: batch,
+      });
+      const ok_ids = resp.result?.product_ids ?? [];
+      const rej = resp.result?.rejected ?? [];
+      successCount += ok_ids.length;
+      allRejected.push(...rej);
+    }
+
+    // 3. Clear refill rules for all activeIds (best-effort, don't fail on error)
+    for (const pid of activeIds) {
+      try {
+        await setRefillRule(c.env, actionId, pid, null);
+      } catch {
+        // ignore individual rule deletion failures
+      }
+    }
+
+    // 4. Bust cache
+    try {
+      await c.env.CACHE.delete(CACHE_KEY);
+    } catch {
+      // ignore
+    }
+
+    return ok(c, {
+      action_id: actionId,
+      deactivated_count: successCount,
+      rejected: allRejected,
+    });
+  } catch (e) {
+    return fail(c, 502, e instanceof Error ? e.message : 'Ozon API error');
+  }
+});
+
+// ---------------------------------------------------------------------------
 // runPromoRefillSweep — called from the */15 cron handler.
 //
 // 1. List all rules in KV (prefix ozon:promo:refill:)

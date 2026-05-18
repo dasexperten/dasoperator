@@ -1330,6 +1330,37 @@ function PromoActionItem({
   // and similar promos have no min_boost / max_boost mechanics.
   const hasElasticBoost = action.action_type === 'MARKETPLACE_MULTI_LEVEL_DISCOUNT_ON_AMOUNT';
 
+  // Is this a regional Распродажа (clearance sale) we don't participate in?
+  // Those are OFF by default — render a compact one-row toggle. When ON,
+  // expand the full candidate table. Toggle persists in localStorage.
+  const titleLower = (action.title || '').toLowerCase();
+  const isClearance = titleLower.includes('распродажа') && !action.is_participating;
+  const toggleKey = `promo:clearance-on:${action.action_id}`;
+  const [clearanceOn, setClearanceOn] = useState<boolean>(false);
+  useEffect(() => {
+    if (!isClearance) return;
+    try {
+      const v = localStorage.getItem(toggleKey);
+      if (v === '1') {
+        setClearanceOn(true);
+        setOpen(true);
+      }
+    } catch {
+      // ignore
+    }
+  }, [isClearance, toggleKey]);
+  function toggleClearance() {
+    const next = !clearanceOn;
+    setClearanceOn(next);
+    try {
+      if (next) localStorage.setItem(toggleKey, '1');
+      else localStorage.removeItem(toggleKey);
+    } catch {
+      // ignore
+    }
+    setOpen(next);
+  }
+
   // Auto-expand when a sibling row clicks our "winning" current-price
   useEffect(() => {
     function onOpenEvent(e: Event) {
@@ -1348,7 +1379,15 @@ function PromoActionItem({
       style={{ borderBottom: '1px solid var(--border-hairline)' }}
     >
       <button
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          if (isClearance) {
+            // Clicking the header just expands/collapses without toggling the
+            // action ON/OFF — that's a separate switch
+            if (clearanceOn) setOpen(!open);
+          } else {
+            setOpen(!open);
+          }
+        }}
         style={{
           width: '100%',
           display: 'flex',
@@ -1357,7 +1396,7 @@ function PromoActionItem({
           padding: '16px 24px',
           backgroundColor: 'transparent',
           border: 'none',
-          cursor: 'pointer',
+          cursor: isClearance && !clearanceOn ? 'default' : 'pointer',
           textAlign: 'left',
         }}
       >
@@ -1470,16 +1509,53 @@ function PromoActionItem({
           </div>
           <div style={{ fontSize: '12px', fontWeight: 600, marginTop: 2 }}>left</div>
         </div>
-        <ChevronDown
-          className="h-5 w-5"
-          style={{
-            color: 'var(--fg-muted)',
-            transition: 'transform 200ms',
-            transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
-          }}
-        />
+        {isClearance ? (
+          <span
+            role="switch"
+            aria-checked={clearanceOn}
+            aria-label={`${clearanceOn ? 'Выключить' : 'Включить'} ${action.title}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleClearance();
+            }}
+            style={{
+              flexShrink: 0,
+              width: 40,
+              height: 22,
+              borderRadius: 11,
+              backgroundColor: clearanceOn ? OZON_BLUE : 'var(--paper-2)',
+              border: '0.5px solid var(--border-hairline)',
+              position: 'relative',
+              cursor: 'pointer',
+              transition: 'background-color 0.15s',
+            }}
+          >
+            <span
+              style={{
+                position: 'absolute',
+                top: 2,
+                left: clearanceOn ? 20 : 2,
+                width: 16,
+                height: 16,
+                borderRadius: '50%',
+                backgroundColor: '#fff',
+                border: '0.5px solid var(--border-hairline)',
+                transition: 'left 0.15s',
+              }}
+            />
+          </span>
+        ) : (
+          <ChevronDown
+            className="h-5 w-5"
+            style={{
+              color: 'var(--fg-muted)',
+              transition: 'transform 200ms',
+              transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+            }}
+          />
+        )}
       </button>
-      {open && (
+      {open && (!isClearance || clearanceOn) && (
         <div
           style={{
             backgroundColor: 'var(--paper-sunk)',

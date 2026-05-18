@@ -57,6 +57,13 @@ export interface Env {
   // Shared secret for VPS scraper to authenticate when POSTing portal data.
   // Generated once at setup, stored in both Worker secrets and VPS .env.
   OZON_PORTAL_INGEST_SECRET?: string;
+
+  // Feature flag for the in-Worker cookie-based portal scraper. Set to 'true'
+  // to re-enable. Disabled by default since 2026-05-18 because TLS-fingerprint
+  // mismatch makes session cookies die within days. Analytics-based sold_count
+  // is the production source. VPS-ingested portal data (via /ozon/portal-ingest)
+  // continues to work regardless of this flag.
+  OZON_PORTAL_SCRAPER_ENABLED?: string;
   // Wildberries API (https://*-api.wildberries.ru) — bare token, no Bearer prefix
   WB_API_TOKEN: string;
 

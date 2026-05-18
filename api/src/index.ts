@@ -48,6 +48,7 @@ import metrikaRoutes from './routes/metrika';
 import inboxRoutes from './routes/inbox';
 import inboxBankingRoutes from './routes/inbox-banking';
 import freightRfqRoutes from './routes/freight-rfq';
+import wbPnlRoutes from './routes/wb-pnl';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
 
@@ -126,6 +127,7 @@ app.route('/api/metrika', metrikaRoutes);
 app.route('/api/inbox/banking', inboxBankingRoutes);
 app.route('/api/inbox', inboxRoutes);
 app.route('/api/freight-rfq', freightRfqRoutes);
+app.route('/api/wb-pnl', wbPnlRoutes);
 
 export default {
   fetch: app.fetch,

@@ -1557,7 +1557,7 @@ function PromoProductRow({
   let priceState: 'this' | 'other' | 'higher' = 'higher';
   let winningAction: PromoAction | null = null;
   if (product.current_price > 0) {
-    if (Math.abs(product.current_price - product.action_price) < 0.5) {
+    if (Math.abs(product.current_price - product.action_price) <= 1) {
       priceState = 'this';
     } else if (product.current_price < product.action_price) {
       priceState = 'other';
@@ -1567,7 +1567,7 @@ function PromoProductRow({
         const match = a.products.find(
           (p) =>
             p.product_id === product.product_id &&
-            Math.abs(p.action_price - product.current_price) < 0.5,
+            Math.abs(p.action_price - product.current_price) <= 1,
         );
         if (match) {
           winningAction = a;

@@ -1497,6 +1497,7 @@ function PromoActionItem({
   onSaved: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [showAddSku, setShowAddSku] = useState(false);
   const totalActive = action.products.filter((p) => p.stock > 0).length;
   const dateEndShort = action.date_end ? action.date_end.slice(0, 10) : '';
   const urgent = action.days_left <= 7;
@@ -1743,6 +1744,40 @@ function PromoActionItem({
           </div>
           <div style={{ fontSize: '12px', fontWeight: 600, marginTop: 2 }}>left</div>
         </div>
+        {showActionToggle && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowAddSku(true);
+            }}
+            title="Добавить SKU в акцию"
+            aria-label="Добавить SKU в акцию"
+            style={{
+              flexShrink: 0,
+              padding: '6px 12px',
+              fontSize: '13px',
+              fontWeight: 600,
+              color: OZON_BLUE,
+              backgroundColor: 'var(--paper-2)',
+              border: '0.5px solid var(--border-hairline)',
+              borderRadius: 'var(--radius-sm)',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              transition: 'background-color 0.15s',
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--paper-sunk)';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--paper-2)';
+            }}
+          >
+            <span style={{ fontSize: '16px', lineHeight: 1 }}>+</span>
+            <span>SKU</span>
+          </button>
+        )}
         {showActionToggle ? (
           <span
             role="switch"
@@ -1839,6 +1874,364 @@ function PromoActionItem({
           </table>
         </div>
       )}
+      {showAddSku && (
+        <AddSkuModal
+          actionId={action.action_id}
+          actionTitle={action.title}
+          onClose={() => setShowAddSku(false)}
+          onSuccess={() => {
+            setShowAddSku(false);
+            onSaved();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AddSkuModal({
+  actionId,
+  actionTitle,
+  onClose,
+  onSuccess,
+}: {
+  actionId: number;
+  actionTitle: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  interface CandidateRow {
+    product_id: number;
+    offer_id: string;
+    name: string;
+    max_action_price: number;
+    price: number;
+    stock: number;
+  }
+  const [candidates, setCandidates] = useState<CandidateRow[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [adding, setAdding] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      try {
+        const apiBase =
+          (typeof window !== 'undefined' &&
+            (window as unknown as { __API_BASE?: string }).__API_BASE) ||
+          'https://dasoperator-api.dasexperten.workers.dev';
+        const r = await fetch(
+          `${apiBase}/api/marketplaces/ozon/actions/${actionId}/candidates`,
+        );
+        const j = await r.json();
+        if (cancelled) return;
+        if (!j.success) {
+          setError(j.errors?.[0]?.message || 'Не удалось загрузить кандидатов');
+          return;
+        }
+        const items: CandidateRow[] = (j.result?.candidates || j.result?.items || []) as CandidateRow[];
+        setCandidates(items);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Ошибка загрузки');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [actionId]);
+
+  async function activate(c: CandidateRow) {
+    if (adding != null) return;
+    setAdding(c.product_id);
+    setError(null);
+    try {
+      const apiBase =
+        (typeof window !== 'undefined' &&
+          (window as unknown as { __API_BASE?: string }).__API_BASE) ||
+        'https://dasoperator-api.dasexperten.workers.dev';
+      const r = await fetch(
+        `${apiBase}/api/marketplaces/ozon/actions/${actionId}/products/${c.product_id}/activate`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        },
+      );
+      const j = await r.json();
+      if (!j.success) throw new Error(j.errors?.[0]?.message || j.errors || 'Не удалось добавить');
+      setDone((prev) => [...prev, c.offer_id]);
+    } catch (e) {
+      setError(humanizeOzonError(e instanceof Error ? e.message : ''));
+    } finally {
+      setAdding(null);
+    }
+  }
+
+  const filtered = (candidates || []).filter((c) => {
+    if (!search.trim()) return true;
+    const q = search.trim().toLowerCase();
+    return (
+      c.offer_id.toLowerCase().includes(q) ||
+      (c.name || '').toLowerCase().includes(q)
+    );
+  });
+
+  // Click-outside / Esc to close
+  return (
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          done.length > 0 ? onSuccess() : onClose();
+        }
+      }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        backgroundColor: 'rgba(0,0,0,0.45)',
+        zIndex: 100,
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'center',
+        padding: '60px 16px',
+        overflowY: 'auto',
+      }}
+    >
+      <div
+        style={{
+          backgroundColor: 'var(--paper-1)',
+          borderRadius: 'var(--radius-md)',
+          width: '100%',
+          maxWidth: 720,
+          maxHeight: '80vh',
+          display: 'flex',
+          flexDirection: 'column',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            padding: '16px 20px',
+            borderBottom: '1px solid var(--border-hairline)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--fg-1)' }}>
+              Добавить SKU в акцию
+            </div>
+            <div
+              style={{
+                fontSize: '13px',
+                color: 'var(--fg-muted)',
+                marginTop: 2,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {actionTitle}
+            </div>
+          </div>
+          <button
+            onClick={() => (done.length > 0 ? onSuccess() : onClose())}
+            aria-label="Закрыть"
+            style={{
+              width: 30,
+              height: 30,
+              backgroundColor: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '20px',
+              color: 'var(--fg-muted)',
+              lineHeight: 1,
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        {/* Search */}
+        <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border-hairline)' }}>
+          <input
+            type="text"
+            placeholder="Поиск по SKU или названию"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            autoFocus
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              fontSize: '14px',
+              border: '1px solid var(--border-hairline)',
+              borderRadius: 'var(--radius-sm)',
+              backgroundColor: 'var(--paper-2)',
+              color: 'var(--fg-1)',
+              outline: 'none',
+            }}
+          />
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div
+            onClick={() => setError(null)}
+            style={{
+              margin: '12px 20px 0',
+              padding: '10px 14px',
+              backgroundColor: 'rgba(229,32,44,0.08)',
+              border: '1px solid rgba(229,32,44,0.25)',
+              borderRadius: 'var(--radius-sm)',
+              color: 'var(--brand-rot)',
+              fontSize: '13px',
+              cursor: 'pointer',
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+          {loading ? (
+            <div
+              style={{
+                padding: 32,
+                textAlign: 'center',
+                color: 'var(--fg-muted)',
+                fontSize: '14px',
+              }}
+            >
+              Загружаем кандидатов из Ozon…
+            </div>
+          ) : filtered.length === 0 ? (
+            <div
+              style={{
+                padding: 32,
+                textAlign: 'center',
+                color: 'var(--fg-muted)',
+                fontSize: '14px',
+              }}
+            >
+              {(candidates?.length ?? 0) === 0
+                ? 'Нет доступных кандидатов для этой акции'
+                : 'Ничего не найдено по запросу'}
+            </div>
+          ) : (
+            filtered.map((c) => {
+              const alreadyDone = done.includes(c.offer_id);
+              const isAdding = adding === c.product_id;
+              return (
+                <div
+                  key={c.product_id}
+                  style={{
+                    padding: '12px 20px',
+                    borderBottom: '1px solid var(--border-hairline)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 16,
+                    opacity: alreadyDone ? 0.55 : 1,
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
+                      {c.offer_id}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '13px',
+                        color: 'var(--fg-2)',
+                        marginTop: 2,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {c.name || '—'}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right', fontSize: '13px', minWidth: 80 }}>
+                    <div style={{ color: 'var(--fg-muted)' }}>цена</div>
+                    <div style={{ fontWeight: 700, color: 'var(--fg-1)', fontVariantNumeric: 'tabular-nums' }}>
+                      {c.price > 0 ? `${c.price}₽` : '—'}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right', fontSize: '13px', minWidth: 80 }}>
+                    <div style={{ color: 'var(--fg-muted)' }}>максимум</div>
+                    <div
+                      style={{
+                        fontWeight: 700,
+                        color: OZON_BLUE,
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
+                      {c.max_action_price > 0 ? `${c.max_action_price}₽` : '—'}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => activate(c)}
+                    disabled={alreadyDone || isAdding}
+                    style={{
+                      padding: '6px 14px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      color: alreadyDone ? 'var(--fg-muted)' : '#fff',
+                      backgroundColor: alreadyDone ? 'var(--paper-2)' : OZON_BLUE,
+                      border: alreadyDone ? '0.5px solid var(--border-hairline)' : 'none',
+                      borderRadius: 'var(--radius-sm)',
+                      cursor: alreadyDone || isAdding ? 'default' : 'pointer',
+                      minWidth: 90,
+                    }}
+                  >
+                    {alreadyDone ? 'Добавлен' : isAdding ? '…' : 'Добавить'}
+                  </button>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Footer */}
+        {done.length > 0 && (
+          <div
+            style={{
+              padding: '12px 20px',
+              borderTop: '1px solid var(--border-hairline)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
+            <div style={{ fontSize: '13px', color: 'var(--fg-2)' }}>
+              Добавлено: {done.length}
+            </div>
+            <button
+              onClick={onSuccess}
+              style={{
+                padding: '8px 16px',
+                fontSize: '14px',
+                fontWeight: 600,
+                color: '#fff',
+                backgroundColor: OZON_BLUE,
+                border: 'none',
+                borderRadius: 'var(--radius-sm)',
+                cursor: 'pointer',
+              }}
+            >
+              Готово
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

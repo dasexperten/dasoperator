@@ -180,7 +180,12 @@ export default function MarketplacesPage() {
         />
       </div>
 
-      {tab === 'promos' && <OzonPromotionsWidget key="promos" />}
+      {tab === 'promos' && (
+        <>
+          <RefillHistoryBlock key="refills" />
+          <OzonPromotionsWidget key="promos" />
+        </>
+      )}
       {tab === 'ozon' && <FboDashboard config={OZON_CONFIG} key="ozon" />}
       {tab === 'wb' && <FboDashboard config={WB_CONFIG} key="wb" />}
     </div>
@@ -1041,6 +1046,185 @@ interface PromosPayload {
   total_units_left: number;
   total_skus_in_promos: number;
   actions: PromoAction[];
+}
+
+interface RefillEntry {
+  ts: string;
+  action_id: number;
+  product_id: number;
+  sku?: string;
+  status: 'refilled' | 'rejected' | 'error';
+  from?: number;
+  to?: number;
+  reason?: string;
+}
+
+function RefillHistoryBlock() {
+  const [entries, setEntries] = useState<RefillEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const apiBase =
+        (typeof window !== 'undefined' &&
+          (window as unknown as { __API_BASE?: string }).__API_BASE) ||
+        'https://dasoperator-api.dasexperten.workers.dev';
+      const r = await fetch(`${apiBase}/api/marketplaces/ozon/refill-history`);
+      const j = await r.json();
+      if (j.success && j.result?.entries) {
+        setEntries(j.result.entries as RefillEntry[]);
+      }
+    } catch {
+      // silent — history is informational
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    // refresh every 60s so a fresh cron run appears without manual reload
+    const id = setInterval(load, 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Hide entirely if cron hasn't run yet — no point showing an empty card
+  if (!loading && entries.length === 0) return null;
+
+  const stats = {
+    refilled: entries.filter((e) => e.status === 'refilled').length,
+    rejected: entries.filter((e) => e.status === 'rejected').length,
+    error: entries.filter((e) => e.status === 'error').length,
+  };
+
+  // Most recent timestamp
+  const lastTs = entries.length > 0 ? entries[0].ts : null;
+
+  const fmtTime = (iso: string) => {
+    try {
+      const d = new Date(iso);
+      const now = new Date();
+      const diffMs = now.getTime() - d.getTime();
+      const diffMin = Math.round(diffMs / 60_000);
+      if (diffMin < 1) return 'just now';
+      if (diffMin < 60) return `${diffMin}m ago`;
+      const diffHr = Math.round(diffMin / 60);
+      if (diffHr < 24) return `${diffHr}h ago`;
+      return d.toISOString().slice(5, 16).replace('T', ' ');
+    } catch {
+      return iso;
+    }
+  };
+
+  const statusColor = (s: RefillEntry['status']) => {
+    if (s === 'refilled') return '#16a34a'; // green
+    if (s === 'rejected') return '#d97706'; // amber
+    return 'var(--brand-rot)'; // red
+  };
+  const statusLabel = (s: RefillEntry['status']) => {
+    if (s === 'refilled') return 'Refilled';
+    if (s === 'rejected') return 'Rejected';
+    return 'Error';
+  };
+
+  return (
+    <div
+      style={{
+        backgroundColor: 'var(--paper-1)',
+        border: '1px solid var(--border-hairline)',
+        borderRadius: 'var(--radius-md)',
+        overflow: 'hidden',
+        marginBottom: 16,
+      }}
+    >
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        style={{
+          width: '100%',
+          padding: '14px 20px',
+          backgroundColor: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 16,
+          textAlign: 'left',
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--fg-1)' }}>
+            Auto-refill cron history
+          </div>
+          <div style={{ fontSize: '13px', color: 'var(--fg-muted)', marginTop: 2 }}>
+            {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
+            {lastTs && ` · last ${fmtTime(lastTs)}`}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 16, fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>
+          <span style={{ color: '#16a34a', fontWeight: 700 }}>{stats.refilled} ok</span>
+          {stats.rejected > 0 && <span style={{ color: '#d97706', fontWeight: 700 }}>{stats.rejected} rejected</span>}
+          {stats.error > 0 && <span style={{ color: 'var(--brand-rot)', fontWeight: 700 }}>{stats.error} error</span>}
+        </div>
+        <span style={{ color: 'var(--fg-muted)', fontSize: '18px' }}>
+          {collapsed ? '▸' : '▾'}
+        </span>
+      </button>
+      {!collapsed && entries.length > 0 && (
+        <div style={{ borderTop: '1px solid var(--border-hairline)', maxHeight: 360, overflowY: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+            <thead>
+              <tr style={{ backgroundColor: 'var(--paper-2)', borderBottom: '1px solid var(--border-hairline)' }}>
+                <th style={{ textAlign: 'left', padding: '8px 16px', fontWeight: 600, color: 'var(--fg-2)' }}>When</th>
+                <th style={{ textAlign: 'left', padding: '8px 16px', fontWeight: 600, color: 'var(--fg-2)' }}>SKU</th>
+                <th style={{ textAlign: 'left', padding: '8px 16px', fontWeight: 600, color: 'var(--fg-2)' }}>Action</th>
+                <th style={{ textAlign: 'left', padding: '8px 16px', fontWeight: 600, color: 'var(--fg-2)' }}>Status</th>
+                <th style={{ textAlign: 'right', padding: '8px 16px', fontWeight: 600, color: 'var(--fg-2)' }}>From → To</th>
+                <th style={{ textAlign: 'left', padding: '8px 16px', fontWeight: 600, color: 'var(--fg-2)' }}>Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e, i) => (
+                <tr
+                  key={i}
+                  style={{
+                    borderBottom: i < entries.length - 1 ? '1px solid var(--border-hairline)' : 'none',
+                  }}
+                >
+                  <td style={{ padding: '8px 16px', color: 'var(--fg-2)', fontVariantNumeric: 'tabular-nums' }}>
+                    {fmtTime(e.ts)}
+                  </td>
+                  <td style={{ padding: '8px 16px', fontWeight: 700, color: 'var(--fg-1)' }}>
+                    {e.sku || `pid ${e.product_id}`}
+                  </td>
+                  <td style={{ padding: '8px 16px', color: 'var(--fg-2)', fontVariantNumeric: 'tabular-nums' }}>
+                    {e.action_id}
+                  </td>
+                  <td style={{ padding: '8px 16px' }}>
+                    <span
+                      style={{
+                        color: statusColor(e.status),
+                        fontWeight: 700,
+                      }}
+                    >
+                      {statusLabel(e.status)}
+                    </span>
+                  </td>
+                  <td style={{ padding: '8px 16px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
+                    {e.from != null && e.to != null ? `${e.from} → ${e.to}` : '—'}
+                  </td>
+                  <td style={{ padding: '8px 16px', color: 'var(--fg-muted)', fontSize: '12px' }}>
+                    {e.reason || ''}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function OzonPromotionsWidget() {

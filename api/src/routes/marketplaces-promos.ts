@@ -16,7 +16,7 @@ import { ok, fail } from '../lib/responses';
 
 const promos = new Hono<{ Bindings: Env }>();
 
-const CACHE_KEY = 'ozon:actions:v19';
+const CACHE_KEY = 'ozon:actions:v20';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
@@ -515,6 +515,46 @@ async function setSoldCount(
 // ---------------------------------------------------------------------------
 function refillRuleKey(actionId: number, productId: number): string {
   return `ozon:promo:refill:${actionId}:${productId}`;
+}
+
+// ---------------------------------------------------------------------------
+// Refill history — last N entries stored as JSON array under one KV key.
+// Each entry records what cron did (or tried to do) for visibility on
+// /marketplaces page. Capped at HISTORY_MAX to bound KV value size.
+// ---------------------------------------------------------------------------
+const REFILL_HISTORY_KEY = 'ozon:promo:refill:history';
+const REFILL_HISTORY_MAX = 50;
+
+interface RefillHistoryEntry {
+  ts: string;           // ISO timestamp
+  action_id: number;
+  product_id: number;
+  sku?: string;          // offer_id from Ozon (best-effort, may be empty)
+  status: 'refilled' | 'rejected' | 'error';
+  from?: number;         // left_to_sell before refill
+  to?: number;           // target value
+  reason?: string;       // error message or rejection reason
+}
+
+async function appendRefillHistory(env: Env, entries: RefillHistoryEntry[]): Promise<void> {
+  if (entries.length === 0) return;
+  try {
+    const existing = await env.CACHE.get(REFILL_HISTORY_KEY);
+    let arr: RefillHistoryEntry[] = [];
+    if (existing) {
+      try {
+        arr = JSON.parse(existing) as RefillHistoryEntry[];
+        if (!Array.isArray(arr)) arr = [];
+      } catch {
+        arr = [];
+      }
+    }
+    // Prepend new entries (most recent first), then cap
+    arr = entries.concat(arr).slice(0, REFILL_HISTORY_MAX);
+    await env.CACHE.put(REFILL_HISTORY_KEY, JSON.stringify(arr));
+  } catch {
+    // history write is best-effort, never fail cron over it
+  }
 }
 
 interface RefillRule {
@@ -1728,6 +1768,25 @@ promos.post('/ozon/actions/:actionId/refill-rule', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/marketplaces/ozon/refill-history
+//
+// Returns the last N entries written by runPromoRefillSweep. Empty array
+// if cron has never run or KV key absent. Each entry has:
+//   { ts, action_id, product_id, sku?, status, from?, to?, reason? }
+//   status ∈ 'refilled' | 'rejected' | 'error'
+// ---------------------------------------------------------------------------
+promos.get('/ozon/refill-history', async (c) => {
+  try {
+    const raw = await c.env.CACHE.get(REFILL_HISTORY_KEY);
+    if (!raw) return ok(c, { entries: [], count: 0 });
+    const arr = JSON.parse(raw) as RefillHistoryEntry[];
+    return ok(c, { entries: Array.isArray(arr) ? arr : [], count: Array.isArray(arr) ? arr.length : 0 });
+  } catch (e) {
+    return fail(c, 500, e instanceof Error ? e.message : 'history read failed');
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/marketplaces/ozon/actions/:actionId/price
 //
 // Update the action_price for ONE product without touching stock. Used by the
@@ -1915,6 +1974,8 @@ export async function runPromoRefillSweep(env: Env): Promise<{
 }> {
   const errors: string[] = [];
   const refills: Array<{ action_id: number; product_id: number; from: number; to: number }> = [];
+  const historyEntries: RefillHistoryEntry[] = [];
+  const nowIso = new Date().toISOString();
 
   // 1. List all rule keys
   let allKeys: string[] = [];
@@ -2014,6 +2075,16 @@ export async function runPromoRefillSweep(env: Env): Promise<{
             errors.push(
               `refill rejected action=${actionId} pid=${rule.productId}: ${rej[0].reason}`,
             );
+            historyEntries.push({
+              ts: nowIso,
+              action_id: actionId,
+              product_id: rule.productId,
+              sku: p.offer_id || undefined,
+              status: 'rejected',
+              from: left,
+              to: rule.target,
+              reason: rej[0].reason,
+            });
             continue;
           }
           refills.push({
@@ -2022,20 +2093,49 @@ export async function runPromoRefillSweep(env: Env): Promise<{
             from: left,
             to: rule.target,
           });
+          historyEntries.push({
+            ts: nowIso,
+            action_id: actionId,
+            product_id: rule.productId,
+            sku: p.offer_id || undefined,
+            status: 'refilled',
+            from: left,
+            to: rule.target,
+          });
         } catch (e) {
+          const reason = e instanceof Error ? e.message : String(e);
           errors.push(
-            `refill action=${actionId} pid=${rule.productId}: ${e instanceof Error ? e.message : String(e)}`,
+            `refill action=${actionId} pid=${rule.productId}: ${reason}`,
           );
+          historyEntries.push({
+            ts: nowIso,
+            action_id: actionId,
+            product_id: rule.productId,
+            sku: p.offer_id || undefined,
+            status: 'error',
+            from: left,
+            to: rule.target,
+            reason,
+          });
         }
       }
     } catch (e) {
-      errors.push(
-        `fetch action=${actionId}: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      const reason = e instanceof Error ? e.message : String(e);
+      errors.push(`fetch action=${actionId}: ${reason}`);
+      historyEntries.push({
+        ts: nowIso,
+        action_id: actionId,
+        product_id: 0,
+        status: 'error',
+        reason: `fetch action: ${reason}`,
+      });
     }
   }
 
-  // 5. Invalidate cache so next GET shows fresh stock numbers
+  // 5a. Persist history (best-effort, never fails the sweep)
+  await appendRefillHistory(env, historyEntries);
+
+  // 5b. Invalidate cache so next GET shows fresh stock numbers
   if (refills.length > 0) {
     try {
       await env.CACHE.delete(CACHE_KEY);

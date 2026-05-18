@@ -16,7 +16,7 @@ import { ok, fail } from '../lib/responses';
 
 const promos = new Hono<{ Bindings: Env }>();
 
-const CACHE_KEY = 'ozon:actions:v16';
+const CACHE_KEY = 'ozon:actions:v17';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
@@ -1024,28 +1024,29 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
   //       - Unlimited actions (>90 days, e.g. Эластичный бустинг):
   //         last 30 days only (avoids summing all-time sales as "promo sold")
   //         — though for unlimited, manual baseline usually wins anyway.
+  //
+  //     Sequential execution to stay under Ozon Analytics rate limit
+  //     (Promise.all blasting 10× paginated calls hit empty-response 429s).
   const salesByActionAndSku: Map<number, Map<string, number>> = new Map();
   {
     const today = new Date();
     const todayIso = isoDate(today);
-    await Promise.all(
-      actionsWithProducts.map(async (aw) => {
-        try {
-          const ds = aw.raw.date_start ? new Date(aw.raw.date_start) : null;
-          const de = aw.raw.date_end ? new Date(aw.raw.date_end) : null;
-          const durationMs = ds && de ? de.getTime() - ds.getTime() : 0;
-          const isFiniteWin = durationMs > 0 && durationMs <= 90 * 86400000;
-          const dateFrom =
-            isFiniteWin && ds
-              ? ds
-              : new Date(today.getTime() - 30 * 86400000);
-          const map = await fetchSalesSince(env, isoDate(dateFrom), todayIso);
-          salesByActionAndSku.set(aw.raw.id, map);
-        } catch {
-          salesByActionAndSku.set(aw.raw.id, new Map());
-        }
-      }),
-    );
+    for (const aw of actionsWithProducts) {
+      try {
+        const ds = aw.raw.date_start ? new Date(aw.raw.date_start) : null;
+        const de = aw.raw.date_end ? new Date(aw.raw.date_end) : null;
+        const durationMs = ds && de ? de.getTime() - ds.getTime() : 0;
+        const isFiniteWin = durationMs > 0 && durationMs <= 90 * 86400000;
+        const dateFrom =
+          isFiniteWin && ds
+            ? ds
+            : new Date(today.getTime() - 30 * 86400000);
+        const map = await fetchSalesSince(env, isoDate(dateFrom), todayIso);
+        salesByActionAndSku.set(aw.raw.id, map);
+      } catch {
+        salesByActionAndSku.set(aw.raw.id, new Map());
+      }
+    }
   }
 
   // 5. Build response

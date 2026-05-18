@@ -679,7 +679,7 @@ function SortableTh({
   return (
     <th
       onClick={() => onClick(sortKey)}
-      className={`px-3 py-3 ${center ? 'text-center' : 'text-left'}`}
+      className={`px-3 py-3 ${center ? 'text-right' : 'text-left'}`}
       style={{
         fontSize: '14px',
         color: isActive ? 'var(--fg-1)' : 'var(--fg-3)',
@@ -700,7 +700,7 @@ function SortableTh({
         if (!isActive) e.currentTarget.style.color = 'var(--fg-3)';
       }}
     >
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', justifyContent: center ? 'center' : 'flex-start' }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', justifyContent: center ? 'flex-end' : 'flex-start' }}>
         {children}
         {dir === 'desc' && <ArrowDown className="h-3 w-3" style={{ color: 'var(--brand-rot)' }} />}
         {dir === 'asc'  && <ArrowUp   className="h-3 w-3" style={{ color: 'var(--brand-rot)' }} />}

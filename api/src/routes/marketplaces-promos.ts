@@ -647,17 +647,14 @@ async function autoZeroStockDiscount(
       // ignore
     }
 
-    if (existingFlag) {
-      flagsByAction.set(aw.raw.id, existingFlag);
-      continue;
-    }
-
-    // First time we see this STOCK_DISCOUNT action — zero out every product with stock > 0
+    // ALWAYS check current state — Ozon may have added new products to the
+    // action after our initial zero-out, in which case those new SKUs would
+    // be sitting at non-zero stock under a Распродажа action. We want every
+    // Распродажа to stay at zero across the board, indefinitely.
     const toZero = aw.products.filter((p) => p.stock > 0);
     let zeroedAnything = false;
 
     if (toZero.length > 0) {
-      // Ozon /v1/actions/products/activate accepts up to ~100 products per call
       const batchSize = 100;
       for (let i = 0; i < toZero.length; i += batchSize) {
         const batch = toZero.slice(i, i + batchSize);
@@ -672,14 +669,12 @@ async function autoZeroStockDiscount(
           });
           zeroedAnything = true;
         } catch (e) {
-          // Log but continue — partial failure shouldn't block the whole response
           console.error(
             `auto-zero batch failed for action ${aw.raw.id}:`,
             e instanceof Error ? e.message : e,
           );
         }
       }
-      // Reflect change in-memory so the response shows the new state
       if (zeroedAnything) {
         for (const p of aw.products) {
           if (p.stock > 0) p.stock = 0;
@@ -687,12 +682,13 @@ async function autoZeroStockDiscount(
       }
     }
 
-    const ts = new Date().toISOString();
-    try {
-      await env.CACHE.put(flagKey, ts, { expirationTtl: AUTO_ZERO_FLAG_TTL_SEC });
-    } catch {
-      // ignore — if KV write fails we'll just zero again next refresh,
-      // which is idempotent (already-zero products won't be re-touched)
+    const ts = existingFlag || new Date().toISOString();
+    if (!existingFlag) {
+      try {
+        await env.CACHE.put(flagKey, ts, { expirationTtl: AUTO_ZERO_FLAG_TTL_SEC });
+      } catch {
+        // ignore
+      }
     }
     flagsByAction.set(aw.raw.id, ts);
   }

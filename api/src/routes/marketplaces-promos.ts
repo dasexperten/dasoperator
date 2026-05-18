@@ -16,7 +16,7 @@ import { ok, fail } from '../lib/responses';
 
 const promos = new Hono<{ Bindings: Env }>();
 
-const CACHE_KEY = 'ozon:actions:v20';
+const CACHE_KEY = 'ozon:actions:v21';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
@@ -1979,6 +1979,7 @@ promos.post('/ozon/actions/:actionId/leave', async (c) => {
   try {
     // 1. Fetch all currently-active products in the action
     const activeIds: number[] = [];
+    const snapshot: Array<{ product_id: number; action_price: number; stock: number }> = [];
     let offset = 0;
     const limit = 1000;
     while (true) {
@@ -1991,7 +1992,14 @@ promos.post('/ozon/actions/:actionId/leave', async (c) => {
       });
       const prods = r.result?.products ?? [];
       for (const p of prods) {
-        if (p.id != null) activeIds.push(p.id);
+        if (p.id != null) {
+          activeIds.push(p.id);
+          snapshot.push({
+            product_id: p.id,
+            action_price: p.action_price ?? 0,
+            stock: p.stock ?? 0,
+          });
+        }
       }
       if (prods.length < limit) break;
       offset += limit;
@@ -2005,6 +2013,19 @@ promos.post('/ozon/actions/:actionId/leave', async (c) => {
         rejected: [],
         note: 'no active products to deactivate',
       });
+    }
+
+    // 1b. Snapshot the active list to KV so we can rejoin later. Stored with
+    // 30-day TTL — if Aram hasn't rejoined within a month, the snapshot is
+    // probably stale anyway (prices may have shifted, action may be ending).
+    try {
+      await c.env.CACHE.put(
+        `ozon:promo:leave-snapshot:${actionId}`,
+        JSON.stringify({ ts: new Date().toISOString(), items: snapshot }),
+        { expirationTtl: 30 * 24 * 3600 },
+      );
+    } catch {
+      // ignore snapshot save errors — leave still proceeds
     }
 
     // 2. Deactivate in batches of 100 (Ozon API limit)
@@ -2046,6 +2067,85 @@ promos.post('/ozon/actions/:actionId/leave', async (c) => {
     return ok(c, {
       action_id: actionId,
       deactivated_count: successCount,
+      rejected: allRejected,
+    });
+  } catch (e) {
+    return fail(c, 502, e instanceof Error ? e.message : 'Ozon API error');
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/marketplaces/ozon/actions/:actionId/rejoin
+//
+// Restores participation in an action that was previously exited via /leave.
+// Reads the snapshot saved by /leave (key ozon:promo:leave-snapshot:{id})
+// and re-activates each product with the same action_price and stock.
+//
+// If snapshot is missing/expired, returns 404 — user must add SKUs manually
+// via the candidate list.
+//
+// Response: { action_id, reactivated_count, rejected: [...] }
+// ---------------------------------------------------------------------------
+promos.post('/ozon/actions/:actionId/rejoin', async (c) => {
+  const actionId = Number(c.req.param('actionId'));
+  if (!actionId || Number.isNaN(actionId)) return fail(c, 400, 'invalid action_id');
+
+  try {
+    const raw = await c.env.CACHE.get(`ozon:promo:leave-snapshot:${actionId}`);
+    if (!raw) {
+      return fail(c, 404, 'No leave snapshot found — add SKUs manually from the candidate list.');
+    }
+    let snapshot: { ts: string; items: Array<{ product_id: number; action_price: number; stock: number }> };
+    try {
+      snapshot = JSON.parse(raw);
+    } catch {
+      return fail(c, 500, 'Snapshot corrupted');
+    }
+    if (!Array.isArray(snapshot.items) || snapshot.items.length === 0) {
+      return fail(c, 404, 'Snapshot is empty');
+    }
+
+    // Re-activate in batches of 100
+    const allRejected: Array<{ product_id: number; reason: string }> = [];
+    let successCount = 0;
+    for (let i = 0; i < snapshot.items.length; i += 100) {
+      const batch = snapshot.items.slice(i, i + 100);
+      const resp = await ozonRequest<{
+        result?: {
+          product_ids?: number[];
+          rejected?: Array<{ product_id: number; reason: string }>;
+        };
+      }>(c.env, '/v1/actions/products/activate', 'POST', {
+        action_id: actionId,
+        products: batch.map((it) => ({
+          product_id: it.product_id,
+          stock: it.stock,
+          action_price: it.action_price,
+        })),
+      });
+      const ok_ids = resp.result?.product_ids ?? [];
+      const rej = resp.result?.rejected ?? [];
+      successCount += ok_ids.length;
+      allRejected.push(...rej);
+    }
+
+    // On full success, delete snapshot so a future /leave creates a fresh one
+    if (allRejected.length === 0) {
+      try {
+        await c.env.CACHE.delete(`ozon:promo:leave-snapshot:${actionId}`);
+      } catch {
+        // ignore
+      }
+    }
+    try {
+      await c.env.CACHE.delete(CACHE_KEY);
+    } catch {
+      // ignore
+    }
+
+    return ok(c, {
+      action_id: actionId,
+      reactivated_count: successCount,
       rejected: allRejected,
     });
   } catch (e) {

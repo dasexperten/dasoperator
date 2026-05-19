@@ -108,8 +108,20 @@ service = "dasoperator-api"
 #
 # Handler: src/scheduled.ts handleScheduled — dispatches by event.cron string.
 # -----------------------------------------------------------------------------
+#
+# 0 3 * * 1   — WB weekly realization auto-pull schedule. Monday 03:00 UTC = 
+#                06:00 МСК, after WB publishes the prev-week report. Creates a 
+#                'pending' task in marketplace_pull_tasks. Phase 8.0.
+#
+# 0 3 5 * *   — Ozon monthly transaction auto-pull schedule. 5th of month 
+#                03:00 UTC = 06:00 МСК, gives Ozon time to finalize prev month. 
+#                Creates a 'pending' task. Phase 8.0.
+#
+# Note: */15 cron above ALSO ticks marketplace_pull_tasks (one task per tick) 
+# to advance fetch pagination and build operations from staging.
+#
 [triggers]
-crons = ["0 12 * * *", "0 * * * *", "5 */6 * * *", "*/2 * * * *", "0 0 * * *", "15 * * * *", "30 */6 * * *", "*/15 * * * *", "0 2 * * *"]
+crons = ["0 12 * * *", "0 * * * *", "5 */6 * * *", "*/2 * * * *", "0 0 * * *", "15 * * * *", "30 */6 * * *", "*/15 * * * *", "0 2 * * *", "0 3 * * 1", "0 3 5 * *"]
 
 
 # -----------------------------------------------------------------------------

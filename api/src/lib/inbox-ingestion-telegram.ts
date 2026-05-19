@@ -89,6 +89,7 @@ interface TelegramSource {
   address: string;
   company_id: string;
   notes: string | null;
+  default_partner_id: string | null;
 }
 
 interface TelegramMessage {
@@ -150,7 +151,7 @@ export async function runInboxIngestionTelegram(
 
   // Step 1: list active Telegram sources
   const sources = await env.DB.prepare(
-    `SELECT id, address, company_id, notes
+    `SELECT id, address, company_id, notes, default_partner_id
        FROM operation_document_sources
       WHERE source_type = 'telegram_contact'
         AND is_active = 1
@@ -499,8 +500,9 @@ async function insertTelegramInbox(
       extracted_vendor_email, extracted_vendor_country, extracted_vendor_address,
       extracted_bank_name, extracted_bank_account, extracted_iban, extracted_swift,
       extracted_service_category, extracted_buyer_entity,
+      matched_partner_id,
       status, notes, created_at, processed_at
-    ) VALUES (?, 'telegram',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ) VALUES (?, 'telegram',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(
     invId,
     src.address,
@@ -532,6 +534,7 @@ async function insertTelegramInbox(
     extracted?.swift || null,
     extracted?.service_category || null,
     extracted?.buyer_entity || null,
+    src.default_partner_id || null,
     status,
     notes,
     now,

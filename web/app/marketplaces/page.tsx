@@ -1286,143 +1286,292 @@ function PromoMatrix() {
     load();
   }, []);
 
+  // Apothecary-strict styles — scoped exclusively to .apo-promo container
+  const apoStyles = `
+    .apo-promo {
+      font-family: 'Manrope', 'Inter', sans-serif;
+      background: #FAF7F2;
+      border: 1px solid #1A1A1A;
+      position: relative;
+    }
+    .apo-promo-header {
+      border-bottom: 1px solid #1A1A1A;
+      padding: 22px 32px 26px;
+      position: relative;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+    }
+    .apo-promo-header-left { flex: 1; }
+    .apo-promo-eyebrow {
+      font-family: 'Plus Jakarta Sans', 'Manrope', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      color: #B8870C;
+      letter-spacing: 0;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+    }
+    .apo-promo-title {
+      font-family: 'Plus Jakarta Sans', 'Manrope', sans-serif;
+      font-size: 28px;
+      font-weight: 900;
+      color: #1A1A1A;
+      letter-spacing: 0;
+      margin: 0;
+      line-height: 1.05;
+    }
+    .apo-promo-corner {
+      font-family: 'Plus Jakarta Sans', 'Manrope', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      color: #1A1A1A;
+      text-align: right;
+      line-height: 1.6;
+    }
+    .apo-promo-corner .num { color: #C4302B; font-weight: 700; }
+    .apo-promo-refresh {
+      font-family: 'Plus Jakarta Sans', 'Manrope', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      color: #1A1A1A;
+      background: transparent;
+      border: 1px solid #1A1A1A;
+      padding: 7px 16px;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: background 0.15s;
+    }
+    .apo-promo-refresh:hover { background: #1A1A1A; color: #FAF7F2; }
+    .apo-promo-table-wrap { overflow-x: auto; }
+    .apo-promo-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      min-width: 720px;
+    }
+    .apo-promo-th-sku {
+      text-align: left;
+      padding: 16px 32px 14px;
+      font-family: 'Plus Jakarta Sans', 'Manrope', sans-serif;
+      font-size: 10px;
+      font-weight: 700;
+      color: #6B6962;
+      letter-spacing: 0;
+      border-bottom: 1px solid #1A1A1A;
+      background: #FAF7F2;
+      text-transform: uppercase;
+    }
+    .apo-promo-th-price {
+      text-align: right;
+      padding: 16px 20px 14px;
+      font-family: 'Plus Jakarta Sans', 'Manrope', sans-serif;
+      font-size: 10px;
+      font-weight: 700;
+      color: #6B6962;
+      letter-spacing: 0;
+      border-bottom: 1px solid #1A1A1A;
+      background: #FAF7F2;
+      text-transform: uppercase;
+    }
+    .apo-promo-th-action {
+      text-align: center;
+      padding: 14px 16px 12px;
+      border-left: 1px solid #1A1A1A;
+      border-bottom: 1px solid #1A1A1A;
+      background: #1A1A1A;
+      color: #FAF7F2;
+      min-width: 130px;
+    }
+    .apo-promo-th-action .label {
+      font-family: 'Plus Jakarta Sans', 'Manrope', sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      color: #D4A017;
+      letter-spacing: 0;
+      line-height: 1.3;
+    }
+    .apo-promo-th-action .sub {
+      font-size: 10px;
+      color: #888;
+      margin-top: 4px;
+      font-weight: 400;
+      letter-spacing: 0;
+    }
+    .apo-promo-row { border-bottom: 1px solid rgba(26, 26, 26, 0.08); }
+    .apo-promo-row:hover { background: rgba(212, 160, 23, 0.04); }
+    .apo-promo-td-sku { padding: 18px 32px; }
+    .apo-promo-td-sku .id {
+      font-family: 'Plus Jakarta Sans', 'Manrope', sans-serif;
+      font-weight: 700;
+      color: #1A1A1A;
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+    .apo-promo-td-sku .name {
+      font-size: 12px;
+      color: #6B6962;
+      margin-top: 3px;
+      font-weight: 400;
+    }
+    .apo-promo-td-price {
+      text-align: right;
+      padding: 18px 20px;
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+      color: #1A1A1A;
+      font-size: 14px;
+    }
+    .apo-promo-cell {
+      text-align: center;
+      padding: 18px 14px;
+      border-left: 1px solid rgba(26, 26, 26, 0.08);
+    }
+    .apo-promo-cell .ap {
+      font-variant-numeric: tabular-nums;
+      font-size: 15px;
+      font-weight: 700;
+      color: #185FA5;
+      letter-spacing: 0;
+    }
+    .apo-promo-cell .ap.high { color: #1A1A1A; }
+    .apo-promo-cell .ap.dash {
+      color: rgba(26, 26, 26, 0.2);
+      font-weight: 400;
+      font-size: 16px;
+    }
+    .apo-promo-input-wrap {
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      font-size: 11px;
+      color: #6B6962;
+      font-weight: 400;
+    }
+    .apo-promo-input {
+      width: 52px;
+      height: 26px;
+      font-family: 'Manrope', sans-serif;
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+      font-size: 13px;
+      text-align: center;
+      background: #FFFFFF;
+      border: 1px solid #1A1A1A;
+      border-radius: 0;
+      color: #1A1A1A;
+      padding: 0 4px;
+      outline: none;
+      -moz-appearance: textfield;
+      appearance: textfield;
+    }
+    .apo-promo-input::-webkit-outer-spin-button,
+    .apo-promo-input::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    .apo-promo-input:focus {
+      border-color: #D4A017;
+      background: #FFFCF3;
+      box-shadow: inset 0 0 0 1px #D4A017;
+    }
+    .apo-promo-input.busy { opacity: 0.5; }
+    .apo-promo-input.err { border-color: #C4302B; }
+    .apo-promo-footer {
+      border-top: 1px solid #1A1A1A;
+      padding: 14px 32px;
+      display: flex;
+      gap: 26px;
+      flex-wrap: wrap;
+      font-size: 11px;
+      color: #6B6962;
+      font-family: 'Plus Jakarta Sans', 'Manrope', sans-serif;
+      font-weight: 500;
+      background: #F4F0E8;
+    }
+    .apo-promo-legend { display: flex; align-items: center; gap: 7px; }
+    .apo-promo-swatch { width: 10px; height: 10px; display: inline-block; }
+    .apo-promo-empty {
+      padding: 60px 32px;
+      text-align: center;
+      font-family: 'Plus Jakarta Sans', 'Manrope', sans-serif;
+      color: #6B6962;
+      font-size: 13px;
+      letter-spacing: 0;
+    }
+    .apo-promo-err {
+      padding: 24px 32px;
+      color: #C4302B;
+      font-size: 13px;
+      font-family: 'Plus Jakarta Sans', 'Manrope', sans-serif;
+    }
+    .apo-promo-cell-err {
+      font-size: 10px;
+      color: #C4302B;
+      margin-top: 6px;
+      cursor: pointer;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+  `;
+
   if (loading && !data) {
     return (
-      <div
-        style={{
-          padding: 32,
-          textAlign: 'center',
-          color: 'var(--fg-muted)',
-          fontSize: '14px',
-        }}
-      >
-        Загружаем матрицу акций…
+      <div className="apo-promo">
+        <style dangerouslySetInnerHTML={{ __html: apoStyles }} />
+        <div className="apo-promo-empty">Загружаем матрицу акций…</div>
       </div>
     );
   }
 
   if (error && !data) {
     return (
-      <div style={{ padding: 24, color: 'var(--brand-rot)', fontSize: '14px' }}>
-        Ошибка: {error}
+      <div className="apo-promo">
+        <style dangerouslySetInnerHTML={{ __html: apoStyles }} />
+        <div className="apo-promo-err">Ошибка: {error}</div>
       </div>
     );
   }
 
   if (!data) return null;
 
+  const today = new Date();
+  const dateLabel = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
+
   return (
-    <div
-      style={{
-        backgroundColor: 'var(--paper-1)',
-        border: '1px solid var(--border-hairline)',
-        borderRadius: 'var(--radius-md)',
-        overflow: 'hidden',
-      }}
-    >
-      <div
-        style={{
-          padding: '16px 24px',
-          borderBottom: '1px solid var(--border-hairline)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}
-      >
-        <div>
-          <div
-            style={{
-              fontSize: '12px',
-              fontWeight: 700,
-              color: OZON_BLUE,
-              marginBottom: 4,
-            }}
-          >
-            OZON · PROMO MATRIX
-          </div>
-          <div
-            style={{
-              fontFamily: 'var(--font-display)',
-              fontSize: '22px',
-              fontWeight: 900,
-              color: 'var(--fg-1)',
-            }}
-          >
-            SKU × Акции
-          </div>
+    <div className="apo-promo">
+      <style dangerouslySetInnerHTML={{ __html: apoStyles }} />
+
+      <div className="apo-promo-header">
+        <div className="apo-promo-header-left">
+          <div className="apo-promo-eyebrow">Ozon · Promo Matrix</div>
+          <h2 className="apo-promo-title">SKU × Акции</h2>
         </div>
-        <button
-          onClick={load}
-          style={{
-            backgroundColor: 'var(--paper-sunk)',
-            border: '1px solid var(--border-hairline)',
-            borderRadius: 'var(--radius-sm)',
-            fontSize: '14px',
-            color: 'var(--fg-1)',
-            cursor: 'pointer',
-            padding: '6px 12px',
-          }}
-        >
-          Обновить
-        </button>
+        <div className="apo-promo-corner">
+          № {dateLabel}
+          <br />
+          <span className="num">{data.actions.length} активных акции</span>
+          <br />
+          <button onClick={load} className="apo-promo-refresh">Обновить</button>
+        </div>
       </div>
 
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', minWidth: 720 }}>
+      <div className="apo-promo-table-wrap">
+        <table className="apo-promo-table">
           <thead>
-            <tr style={{ borderBottom: '0.5px solid var(--border-hairline)' }}>
-              <th
-                style={{
-                  textAlign: 'left',
-                  padding: '12px 16px',
-                  fontWeight: 600,
-                  color: 'var(--fg-2)',
-                  width: '34%',
-                }}
-              >
-                SKU / Product
-              </th>
-              <th
-                style={{
-                  textAlign: 'right',
-                  padding: '12px 12px',
-                  fontWeight: 600,
-                  color: 'var(--fg-2)',
-                  width: '14%',
-                }}
-              >
-                Current price
-              </th>
+            <tr>
+              <th className="apo-promo-th-sku">SKU · Product</th>
+              <th className="apo-promo-th-price">Current price</th>
               {data.actions.map((a) => (
-                <th
-                  key={a.action_id}
-                  style={{
-                    textAlign: 'center',
-                    padding: '12px 10px',
-                    fontWeight: 600,
-                    color: 'var(--fg-2)',
-                    width: `${52 / data.actions.length}%`,
-                    borderLeft: '0.5px solid var(--border-hairline)',
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: '13px',
-                      color: OZON_BLUE,
-                      fontWeight: 700,
-                      lineHeight: 1.3,
-                    }}
-                  >
-                    {a.title.replace('. Без ограничения срока действия', '').replace(': усиление', ': усил.')}
+                <th key={a.action_id} className="apo-promo-th-action">
+                  <div className="label">
+                    {a.title
+                      .replace('. Без ограничения срока действия', '')
+                      .replace(': усиление', ': усил.')}
                   </div>
-                  <div
-                    style={{
-                      fontSize: '12px',
-                      color: 'var(--fg-muted)',
-                      fontWeight: 400,
-                      marginTop: 2,
-                    }}
-                  >
+                  <div className="sub">
                     {a.is_unlimited ? 'unlimited' : `${a.days_left}d left`}
                   </div>
                 </th>
@@ -1431,30 +1580,12 @@ function PromoMatrix() {
           </thead>
           <tbody>
             {data.skus.map((sku) => (
-              <tr key={sku.id} style={{ borderBottom: '0.5px solid var(--border-hairline)' }}>
-                <td style={{ padding: '14px 16px' }}>
-                  <div style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{sku.offer_id}</div>
-                  <div
-                    style={{
-                      fontSize: '13px',
-                      color: 'var(--fg-2)',
-                      marginTop: 2,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {sku.name || '—'}
-                  </div>
+              <tr key={sku.id} className="apo-promo-row">
+                <td className="apo-promo-td-sku">
+                  <div className="id">{sku.offer_id}</div>
+                  <div className="name">{sku.name || '—'}</div>
                 </td>
-                <td
-                  style={{
-                    textAlign: 'right',
-                    padding: '14px 12px',
-                    fontVariantNumeric: 'tabular-nums',
-                    fontWeight: 700,
-                  }}
-                >
+                <td className="apo-promo-td-price">
                   {sku.current_price > 0 ? `${sku.current_price} ₽` : '—'}
                 </td>
                 {data.actions.map((a) => {
@@ -1476,36 +1607,25 @@ function PromoMatrix() {
         </table>
       </div>
 
-      <div
-        style={{
-          padding: '12px 24px',
-          borderTop: '1px solid var(--border-hairline)',
-          display: 'flex',
-          gap: 24,
-          flexWrap: 'wrap',
-          fontSize: '12px',
-          color: 'var(--fg-2)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ width: 10, height: 10, background: OZON_BLUE, borderRadius: 2 }} />
+      <div className="apo-promo-footer">
+        <div className="apo-promo-legend">
+          <span className="apo-promo-swatch" style={{ background: '#185FA5' }} />
           цена действующая
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ width: 10, height: 10, background: 'var(--fg-1)', borderRadius: 2 }} />
+        <div className="apo-promo-legend">
+          <span className="apo-promo-swatch" style={{ background: '#1A1A1A' }} />
           цена выше текущей
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div className="apo-promo-legend">
           <span
-            style={{
-              width: 10,
-              height: 10,
-              background: 'var(--fg-muted)',
-              borderRadius: 2,
-              opacity: 0.5,
-            }}
+            className="apo-promo-swatch"
+            style={{ background: '#1A1A1A', opacity: 0.2 }}
           />
           SKU не в этой акции
+        </div>
+        <div className="apo-promo-legend">
+          <span className="apo-promo-swatch" style={{ background: '#D4A017' }} />
+          аптекарский акцент
         </div>
       </div>
     </div>
@@ -1528,33 +1648,29 @@ function MatrixCellComponent({
   // Display value priority: user-typed left_target (from KV) → fall back to
   // Ozon stock (the actual remaining quota). User edits operate on previousValue
   // — the diff goes to Ozon.
-  const displayInitial = cell?.left_target != null ? cell.left_target : (cell?.stock ?? 0);
+  const displayInitial =
+    cell?.left_target != null ? cell.left_target : (cell?.stock ?? 0);
   const [editVal, setEditVal] = useState<string>(String(displayInitial));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const previousValue = cell?.left_target ?? cell?.stock ?? 0;
 
   useEffect(() => {
-    const next = cell?.left_target != null ? cell.left_target : (cell?.stock ?? 0);
+    const next =
+      cell?.left_target != null ? cell.left_target : (cell?.stock ?? 0);
     setEditVal(String(next));
   }, [cell?.left_target, cell?.stock]);
-
-  const baseCellStyle: React.CSSProperties = {
-    textAlign: 'center',
-    padding: '14px 10px',
-    borderLeft: '0.5px solid var(--border-hairline)',
-  };
 
   // SKU not in this action at all
   if (!cell || (cell.action_price === 0 && !cell.is_active)) {
     return (
-      <td style={baseCellStyle}>
-        <div style={{ fontSize: '13px', color: 'var(--fg-muted)' }}>—</div>
+      <td className="apo-promo-cell">
+        <div className="ap dash">—</div>
       </td>
     );
   }
 
-  const priceColor = cell.below_current_price ? OZON_BLUE : 'var(--fg-1)';
+  const priceClass = cell.below_current_price ? 'ap' : 'ap high';
 
   async function commit() {
     const newVal = Number(editVal);
@@ -1586,28 +1702,11 @@ function MatrixCellComponent({
   }
 
   return (
-    <td style={baseCellStyle}>
-      <div
-        style={{
-          fontSize: '14px',
-          fontWeight: 700,
-          color: priceColor,
-          fontVariantNumeric: 'tabular-nums',
-        }}
-      >
+    <td className="apo-promo-cell">
+      <div className={priceClass}>
         {cell.action_price > 0 ? `${cell.action_price} ₽` : '—'}
       </div>
-      <div
-        style={{
-          fontSize: '12px',
-          color: 'var(--fg-2)',
-          marginTop: 6,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 6,
-        }}
-      >
+      <div className="apo-promo-input-wrap">
         <span>осталось</span>
         <input
           type="text"
@@ -1625,34 +1724,12 @@ function MatrixCellComponent({
           }}
           disabled={busy}
           placeholder="—"
-          style={{
-            width: 50,
-            height: 24,
-            padding: '0 6px',
-            fontSize: '13px',
-            fontWeight: 700,
-            textAlign: 'center',
-            background: 'var(--paper-1)',
-            border: err
-              ? '1px solid var(--brand-rot)'
-              : '0.5px solid var(--border-hairline)',
-            borderRadius: 4,
-            color: 'var(--fg-1)',
-            fontVariantNumeric: 'tabular-nums',
-            opacity: busy ? 0.5 : 1,
-            outline: 'none',
-            MozAppearance: 'textfield' as React.CSSProperties['MozAppearance'],
-          }}
+          className={`apo-promo-input${busy ? ' busy' : ''}${err ? ' err' : ''}`}
         />
       </div>
       {err && (
         <div
-          style={{
-            fontSize: '11px',
-            color: 'var(--brand-rot)',
-            marginTop: 4,
-            cursor: 'pointer',
-          }}
+          className="apo-promo-cell-err"
           onClick={() => setErr(null)}
           title={err}
         >

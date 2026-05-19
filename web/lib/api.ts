@@ -148,6 +148,11 @@ export interface ProductListItem {
   ctn_qty: number | null;
   country_of_origin: string | null;
   unit_net_weight_g: number | null;
+  // Phase 8.1 — marketplace sales coefficient (RU stock / 3mo avg sales)
+  monthly_sales: number;
+  russia_stock: number;
+  coef_dee: number | null;
+  signal: 'inactive' | 'dead' | 'out_of_stock' | 'critical' | 'warning' | 'healthy' | 'surplus' | 'severe_surplus';
 }
 
 export interface ProductsListPlainResponse {

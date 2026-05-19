@@ -307,16 +307,19 @@ export interface AutoReplyResult {
   details: { feedbackId: string; rating: number; productName: string; replyChars: number }[];
 }
 
+const THROTTLE_KEY = 'wb-reviews:throttled-until';
+const THROTTLE_MINUTES = 30; // pause auto-tick for 30 min after a 429
+
 export async function runWbAutoReply(
   env: Env,
-  opts: { maxReplies?: number; maxInspect?: number; pauseMsBetween?: number } = {},
-): Promise<AutoReplyResult> {
+  opts: { maxReplies?: number; maxInspect?: number; pauseMsBetween?: number; ignoreThrottle?: boolean } = {},
+): Promise<AutoReplyResult & { throttled?: boolean }> {
   const startedAt = Date.now();
   const maxReplies = Math.max(1, opts.maxReplies ?? 5);
   const maxInspect = Math.max(maxReplies, opts.maxInspect ?? 100);
   const pauseMs = opts.pauseMsBetween ?? 1200;
 
-  const result: AutoReplyResult = {
+  const result: AutoReplyResult & { throttled?: boolean } = {
     status: 'ok',
     maxReplies,
     countTotal: 0,
@@ -328,6 +331,18 @@ export async function runWbAutoReply(
     durationMs: 0,
     details: [],
   };
+
+  // Honor throttle flag set by previous 429s
+  if (!opts.ignoreThrottle && env.CACHE) {
+    const throttledUntil = await env.CACHE.get(THROTTLE_KEY);
+    if (throttledUntil && Number(throttledUntil) > Date.now()) {
+      const remainingMin = Math.round((Number(throttledUntil) - Date.now()) / 60000);
+      console.log(`[wb-auto-reply] throttled for ${remainingMin}min more, skipping tick`);
+      result.throttled = true;
+      result.durationMs = Date.now() - startedAt;
+      return result;
+    }
+  }
 
   // count is informational only — if WB rate-limits us here, push through to
   // list which uses a different sub-quota and is what actually matters
@@ -350,7 +365,14 @@ export async function runWbAutoReply(
     try {
       page = await fetchUnansweredList(env, pageSize, skip);
     } catch (e: any) {
-      result.errors.push({ stage: 'list', error: String(e?.message ?? e) });
+      const msg = String(e?.message ?? e);
+      result.errors.push({ stage: 'list', error: msg });
+      // On 429 — set throttle so the next cron ticks skip themselves and let WB cool
+      if (msg.includes('HTTP 429') && env.CACHE) {
+        const until = Date.now() + THROTTLE_MINUTES * 60_000;
+        await env.CACHE.put(THROTTLE_KEY, String(until), { expirationTtl: THROTTLE_MINUTES * 60 + 30 });
+        console.warn(`[wb-auto-reply] 429 hit, throttling for ${THROTTLE_MINUTES}min`);
+      }
       break;
     }
     if (page.length === 0) break;

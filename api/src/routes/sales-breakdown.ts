@@ -39,7 +39,9 @@ r.get('/sales-breakdown', async (c) => {
   const top10 = allSkus.slice(0, 10);
   const tail = allSkus.slice(10);
   const tailRev = tail.reduce((s, r) => s + (r.revenue || 0), 0);
+  const tailUnits = tail.reduce((s, r) => s + (r.units || 0), 0);
   const totalSkuRev = allSkus.reduce((s, r) => s + (r.revenue || 0), 0);
+  const totalSkuUnits = allSkus.reduce((s, r) => s + (r.units || 0), 0);
 
   // Partner aggregation (gross)
   const partnerResult = await c.env.DB.prepare(`
@@ -83,8 +85,10 @@ r.get('/sales-breakdown', async (c) => {
       other: {
         count: tail.length,
         revenue: tailRev,
+        units: tailUnits,
       },
       total: totalSkuRev,
+      total_units: totalSkuUnits,
       sku_count: allSkus.length,
     },
     partners: {

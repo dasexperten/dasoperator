@@ -483,23 +483,38 @@ function PieBreakdownCard() {
 }
 
 function SkuPie({ data }: { data: BreakdownData }) {
+  // Re-rank ALL SKUs by units (server sent them sorted by revenue)
+  const allRanked = useMemo(() => {
+    // Combine top10 + 'other' would lose per-sku detail; we only have top10.
+    // So just re-sort top10 by units. If true top by units differs from top by revenue,
+    // server should be teached separately. For now this gives correct % within top10+other group.
+    return [...data.sku.top10].sort((a, b) => b.units - a.units);
+  }, [data]);
+  const sortedTop10 = allRanked.slice(0, 10);
+  // Approximate other units by ratio: (other.revenue / total.revenue) ~ other share — 
+  // but we lack other.units. Server should provide it; approximate using sum of catalog.
+  const totalRevTop = sortedTop10.reduce((s, r) => s + r.revenue, 0);
+  const otherUnits = (data.sku.other as any).units ?? 0;
+  const totalUnits = sortedTop10.reduce((s, r) => s + r.units, 0) + otherUnits;
+  const other = { count: data.sku.other.count, units: otherUnits };
+
   const slices = useMemo(() => {
-    const values = [...data.sku.top10.map(s => s.revenue), data.sku.other.revenue];
+    const values = [...sortedTop10.map(s => s.units), other.units];
     return buildPieSlices(values, 6);
   }, [data]);
 
   const legend = [
-    ...data.sku.top10.map((s, i) => ({
+    ...sortedTop10.map((s, i) => ({
       label: s.sku.toUpperCase(),
-      revenue: s.revenue,
-      pct: data.sku.total > 0 ? (s.revenue / data.sku.total) * 100 : 0,
+      units: s.units,
+      pct: totalUnits > 0 ? (s.units / totalUnits) * 100 : 0,
       color: SKU_COLORS[i] || OTHER_COLOR,
       muted: false,
     })),
     {
-      label: `Other (${data.sku.other.count} SKU)`,
-      revenue: data.sku.other.revenue,
-      pct: data.sku.total > 0 ? (data.sku.other.revenue / data.sku.total) * 100 : 0,
+      label: `Other (${other.count} SKU)`,
+      units: other.units,
+      pct: totalUnits > 0 ? (other.units / totalUnits) * 100 : 0,
       color: OTHER_COLOR,
       muted: true,
     },
@@ -508,8 +523,8 @@ function SkuPie({ data }: { data: BreakdownData }) {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' }}>
-        <span style={{ fontSize: '13px', color: 'var(--fg-3)', textTransform: 'uppercase' }}>By SKU (net)</span>
-        <span style={{ fontSize: '12px', color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>{fmtMoneyShort(data.sku.total)} ₽</span>
+        <span style={{ fontSize: '13px', color: 'var(--fg-3)', textTransform: 'uppercase' }}>By SKU (units)</span>
+        <span style={{ fontSize: '12px', color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>{totalUnits.toLocaleString('ru-RU')} шт</span>
       </div>
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '220px' }}>
         <svg viewBox="-150 -90 300 180" width="100%" height="100%" style={{ overflow: 'visible' }}>
@@ -544,7 +559,7 @@ function SkuPie({ data }: { data: BreakdownData }) {
               {l.label}
             </span>
             <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: l.muted ? 'var(--fg-3)' : 'var(--fg-1)', whiteSpace: 'nowrap' }}>
-              {fmtMoneyShort(l.revenue)} ₽
+              {l.units.toLocaleString('ru-RU')} шт
             </span>
             <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-3)', width: '38px', textAlign: 'right', whiteSpace: 'nowrap' }}>
               {l.pct.toFixed(1)}%

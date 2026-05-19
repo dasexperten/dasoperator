@@ -756,9 +756,17 @@ operations.get('/', async (c) => {
   const decorated = (result.results as Array<Record<string, unknown>>).map((row) => {
     const total = Number(row.total_amount) || 0;
     const paid = Number(row.paid_amount) || 0;
+    // Marketplace commission: difference between gross sales (report total) and net
+    // cash received (sum of attached payouts). For Ozon/WB sale reports only.
+    // Negative if paid > gross (very rare — overpayment / refund-adjusted).
+    const isMarketplaceSale =
+      String(row.operation_type) === 'sale' &&
+      (row.partner_id === 'ozon' || row.partner_id === 'wb');
+    const marketplaceCommission = isMarketplaceSale ? Math.max(total - paid, 0) : null;
     return {
       ...row,
       payment_state: derivePaymentState(total, paid, String(row.status)),
+      marketplace_commission: marketplaceCommission,
     };
   });
 
@@ -939,11 +947,18 @@ operations.get('/:id', async (c) => {
   const hasAcceptance = Number(attachmentCounts?.acceptance_n ?? 0) > 0;
   const hasInvoice    = Number(attachmentCounts?.invoice_n ?? 0) > 0;
 
+  // Marketplace commission: gross sales − net cash for Ozon/WB sale reports.
+  const isMarketplaceSale =
+    String(op.operation_type) === 'sale' &&
+    (op.partner_id === 'ozon' || op.partner_id === 'wb');
+  const marketplaceCommission = isMarketplaceSale ? Math.max(total - paid, 0) : null;
+
   return ok(c, {
     operation: {
       ...op,
       paid_amount: paid,
       payment_state: derivePaymentState(total, paid, String(op.status)),
+      marketplace_commission: marketplaceCommission,
       // Service-track chip signals (read by ServiceStatusBar)
       has_acceptance_attachment: hasAcceptance,
       has_invoice_attachment: hasInvoice,

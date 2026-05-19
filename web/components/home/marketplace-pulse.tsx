@@ -144,7 +144,7 @@ export default function MarketplacePulse() {
       <div className="grid grid-cols-2 gap-4">
         <SalesTodayCard data={salesToday} loading={loading} />
         <TrendCard data={trend} loading={loading} />
-        <TopBottomCard data={spotlight} loading={loading} />
+        <PieBreakdownCard />
       </div>
     </section>
   );
@@ -394,7 +394,217 @@ function TrendCard({ data, loading }: { data: DailyTrend | null; loading: boolea
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Card 3 — Top & Bottom SKUs (toggle units/revenue, product names)
+// Card 3 — Sales Breakdown YTD (two pies: by SKU + by Partner)
+// ═══════════════════════════════════════════════════════════════════════════
+
+type BreakdownData = {
+  period: { from: string; to: string; label: string };
+  sku: {
+    top10: Array<{ sku: string; product_name: string | null; units: number; revenue: number }>;
+    other: { count: number; revenue: number };
+    total: number;
+    sku_count: number;
+  };
+  partners: {
+    items: Array<{ id: string; label: string; revenue: number; ops_count: number }>;
+    total: number;
+  };
+};
+
+const SKU_COLORS = ['#C4302B', '#D4A017', '#1D9E75', '#534AB7', '#D4537E', '#378ADD', '#639922', '#D85A30', '#993556', '#0F6E56'];
+const OTHER_COLOR = '#888780';
+const PARTNER_COLORS: Record<string, string> = {
+  ozon: '#378ADD',
+  wb: '#7F77DD',
+};
+const PARTNER_OTHER = '#888780';
+
+function buildPieSlices(values: number[], explode = 6, rx = 90, ry = 49.5) {
+  const total = values.reduce((s, v) => s + v, 0);
+  if (total <= 0) return [];
+  const slices = [];
+  let angle = 0;
+  for (const v of values) {
+    const sweep = (v / total) * 360;
+    const start = angle;
+    const end = angle + sweep;
+    const mid = (start + end) / 2;
+    const sx = rx * Math.cos((start * Math.PI) / 180);
+    const sy = -ry * Math.sin((start * Math.PI) / 180);
+    const ex = rx * Math.cos((end * Math.PI) / 180);
+    const ey = -ry * Math.sin((end * Math.PI) / 180);
+    const dx = explode * Math.cos((mid * Math.PI) / 180);
+    const dy = -explode * Math.sin((mid * Math.PI) / 180) * (ry / rx);
+    const largeArc = sweep > 180 ? 1 : 0;
+    slices.push({ sx, sy, ex, ey, dx, dy, largeArc, rx, ry, pct: (v / total) * 100 });
+    angle = end;
+  }
+  return slices;
+}
+
+function fmtMoneyShort(v: number): string {
+  if (Math.abs(v) >= 1_000_000) return (v / 1_000_000).toFixed(2) + 'M';
+  if (Math.abs(v) >= 1_000) return (v / 1_000).toFixed(0) + 'k';
+  return v.toFixed(0);
+}
+
+function PieBreakdownCard() {
+  const [data, setData] = useState<BreakdownData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://dasoperator-api.dasexperten.workers.dev';
+    fetch(`${apiBase}/api/dashboard/sales-breakdown`)
+      .then(r => r.json())
+      .then(j => { if (j?.success) setData(j.result); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <div className="bg-card p-5" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', gridColumn: 'span 2' }}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <Package className="h-4 w-4" style={{ color: 'var(--fg-2)' }} />
+          <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', textTransform: 'uppercase' }}>
+            Sales breakdown · {data?.period.label || 'YTD'}
+          </span>
+        </div>
+      </div>
+
+      {loading ? <CardLoading /> : !data ? <CardEmpty>No data.</CardEmpty> : (
+        <div className="grid grid-cols-2 gap-8">
+          <SkuPie data={data} />
+          <PartnerPie data={data} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SkuPie({ data }: { data: BreakdownData }) {
+  const slices = useMemo(() => {
+    const values = [...data.sku.top10.map(s => s.revenue), data.sku.other.revenue];
+    return buildPieSlices(values, 6);
+  }, [data]);
+
+  const legend = [
+    ...data.sku.top10.map((s, i) => ({
+      label: s.sku.toUpperCase(),
+      revenue: s.revenue,
+      pct: data.sku.total > 0 ? (s.revenue / data.sku.total) * 100 : 0,
+      color: SKU_COLORS[i] || OTHER_COLOR,
+      muted: false,
+    })),
+    {
+      label: `Other (${data.sku.other.count} SKU)`,
+      revenue: data.sku.other.revenue,
+      pct: data.sku.total > 0 ? (data.sku.other.revenue / data.sku.total) * 100 : 0,
+      color: OTHER_COLOR,
+      muted: true,
+    },
+  ];
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' }}>
+        <span style={{ fontSize: '13px', color: 'var(--fg-3)', textTransform: 'uppercase' }}>By SKU (net)</span>
+        <span style={{ fontSize: '12px', color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>{fmtMoneyShort(data.sku.total)} ₽</span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '220px' }}>
+        <svg viewBox="-150 -90 300 180" width="100%" height="100%" style={{ overflow: 'visible' }}>
+          {slices.map((s, i) => (
+            <g key={i} transform={`translate(${s.dx.toFixed(2)},${s.dy.toFixed(2)})`}>
+              <path
+                d={`M 0,0 L ${s.sx.toFixed(2)},${s.sy.toFixed(2)} A ${s.rx},${s.ry} 0 ${s.largeArc},0 ${s.ex.toFixed(2)},${s.ey.toFixed(2)} Z`}
+                fill={SKU_COLORS[i] || OTHER_COLOR}
+                stroke="white"
+                strokeWidth={1.5}
+              />
+            </g>
+          ))}
+        </svg>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '11px', marginTop: '14px' }}>
+        {legend.map((l, i) => (
+          <div
+            key={l.label}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '3px 0',
+              borderTop: l.muted && i > 0 ? '0.5px solid var(--border-hairline)' : 'none',
+              marginTop: l.muted ? '4px' : 0,
+              paddingTop: l.muted ? '6px' : '3px',
+            }}
+          >
+            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: l.color, flexShrink: 0 }} />
+            <span style={{ flex: 1, fontWeight: 700, color: l.muted ? 'var(--fg-3)' : 'var(--fg-1)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {l.label}
+            </span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: l.muted ? 'var(--fg-3)' : 'var(--fg-1)', whiteSpace: 'nowrap' }}>
+              {fmtMoneyShort(l.revenue)} ₽
+            </span>
+            <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-3)', width: '38px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+              {l.pct.toFixed(1)}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PartnerPie({ data }: { data: BreakdownData }) {
+  const slices = useMemo(() => {
+    return buildPieSlices(data.partners.items.map(p => p.revenue), 7);
+  }, [data]);
+
+  const colors = data.partners.items.map(p => PARTNER_COLORS[p.id] || PARTNER_OTHER);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' }}>
+        <span style={{ fontSize: '13px', color: 'var(--fg-3)', textTransform: 'uppercase' }}>By Partner (gross)</span>
+        <span style={{ fontSize: '12px', color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>{fmtMoneyShort(data.partners.total)} ₽</span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '220px' }}>
+        <svg viewBox="-150 -90 300 180" width="100%" height="100%" style={{ overflow: 'visible' }}>
+          {slices.map((s, i) => (
+            <g key={i} transform={`translate(${s.dx.toFixed(2)},${s.dy.toFixed(2)})`}>
+              <path
+                d={`M 0,0 L ${s.sx.toFixed(2)},${s.sy.toFixed(2)} A ${s.rx},${s.ry} 0 ${s.largeArc},0 ${s.ex.toFixed(2)},${s.ey.toFixed(2)} Z`}
+                fill={colors[i]}
+                stroke="white"
+                strokeWidth={2}
+              />
+            </g>
+          ))}
+        </svg>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '11px', marginTop: '14px' }}>
+        {data.partners.items.map((p, i) => (
+          <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '3px 0' }}>
+            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: colors[i], flexShrink: 0 }} />
+            <span style={{ flex: 1, fontWeight: 700, color: 'var(--fg-1)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {p.label}
+            </span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--fg-1)', whiteSpace: 'nowrap' }}>
+              {fmtMoneyShort(p.revenue)} ₽
+            </span>
+            <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-3)', width: '38px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+              {data.partners.total > 0 ? ((p.revenue / data.partners.total) * 100).toFixed(1) : '0.0'}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LEGACY — Top & Bottom SKUs (not currently used, kept for reference) (toggle units/revenue, product names)
 // ═══════════════════════════════════════════════════════════════════════════
 type SortMode = 'units' | 'revenue';
 

@@ -1,23 +1,17 @@
 // =============================================================================
-// Marketplace payout → sales-report matcher  (v2 — purpose-date parsing)
+// Marketplace payout → sales-report matcher  (v3 — Ozon period API + WB date)
 //
-// Ozon / Wildberries pay out CASH for a specific report period. The report
-// total is GROSS REVENUE (sales); the payout is NET CASH (sales − commission
-// − ads − returns − holdbacks). The two will never equal — but each payout
-// belongs to exactly one report period, identified by the date in the bank
-// payment_purpose field:
+// For OZON: bank purpose has invoice date "СЧ.№№:XXXXXXXX ОТ DD.MM.YY".
+// Ozon settles WEEKLY but splits at month boundaries (so each weekly period
+// lies fully within one calendar month). Invoice for a settlement period is
+// issued on the next business day after period.end (typically Mon→Sun cycle).
 //
-//   Ozon WBE/IR contract:
-//     'Оплата за тов. по дог. ИР-34138/22 от 12.02.2022 согл.сч.№№:39817264 от 20.04.26'
-//     Last "от DD.MM.YY" = invoice date → covers prior month's report.
+// Truth source: GET /v1/finance/cash-flow-statement/list returns each weekly
+// period with begin/end dates. We look up invoice_date − 1..4 days to find the
+// matching period.end, then attribute the payment to that period's month.
 //
-//   WB contract:
-//     'Оплата по договору б/н от 04.05.2026 за товар. Сумма ...'
-//     The "от DD.MM.YYYY" = registry date → covers the Sunday week-end ≤ that date.
-//
-// The rule for both: find the partner's most recent closed sale-report whose
-// operation_date ≤ purpose_date (within 60 days). If no purpose date can be
-// parsed, fall back to executed_at as the target date.
+// For WB: bank purpose has registry date "от DD.MM.YYYY" which IS the period
+// boundary (Monday after Sun-end week). Plain date-based lookup works.
 // =============================================================================
 
 import type { Env } from '../types';
@@ -37,12 +31,7 @@ export function isMarketplaceInn(inn: string | null | undefined): boolean {
   return inn in MARKETPLACE_CONFIG;
 }
 
-// =============================================================================
-// Parse the LAST "от DD.MM.YY(YY)?" occurrence from a payment_purpose string.
-// Both Ozon and WB include this; Ozon includes TWO (contract date + invoice
-// date) so we take the last one which is the invoice date.
-// Returns a unix timestamp (seconds, UTC) or null.
-// =============================================================================
+// Parse the LAST "от DD.MM.YY(YY)?" from payment_purpose. Returns unix sec UTC or null.
 export function extractPeriodDateFromPurpose(purpose: string | null | undefined): number | null {
   if (!purpose) return null;
   const matches = [...purpose.matchAll(/от\s+(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})/gi)];
@@ -57,6 +46,78 @@ export function extractPeriodDateFromPurpose(purpose: string | null | undefined)
   return Math.floor(Date.UTC(year, month - 1, day) / 1000);
 }
 
+interface OzonPeriod {
+  begin: string; // YYYY-MM-DD
+  end: string;   // YYYY-MM-DD
+  month: string; // YYYY-MM
+}
+
+// Fetch Ozon cash-flow periods, KV-cached for 24h. Covers a sliding 2-year
+// window starting Jan 2025 — wide enough for all historical bank txns we
+// might still be matching.
+async function getOzonPeriods(env: Env): Promise<OzonPeriod[]> {
+  const cacheKey = 'ozon:periods:2025-2026';
+  const cached = await env.CACHE.get(cacheKey);
+  if (cached) {
+    try { return JSON.parse(cached); } catch {}
+  }
+
+  const fromIso = '2025-01-01T00:00:00.000Z';
+  const toIso = '2027-12-31T23:59:59.000Z';
+  const all: OzonPeriod[] = [];
+
+  // Cash-flow endpoint paginates; pull up to 5 pages × 100 = enough for ~10 years
+  for (let page = 1; page <= 5; page++) {
+    const resp = await fetch('https://api-seller.ozon.ru/v1/finance/cash-flow-statement/list', {
+      method: 'POST',
+      headers: {
+        'Client-Id': env.OZON_CLIENT_ID,
+        'Api-Key': env.OZON_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        date: { from: fromIso, to: toIso },
+        page,
+        page_size: 100,
+      }),
+    });
+    if (!resp.ok) {
+      console.error(`[ozon cash-flow] page ${page} HTTP ${resp.status}`);
+      break;
+    }
+    const data = await resp.json() as { result: { cash_flows: Array<{ period: { begin: string; end: string } }>; page_count: number } };
+    const flows = data.result?.cash_flows ?? [];
+    for (const f of flows) {
+      const begin = f.period.begin.slice(0, 10);
+      const end = f.period.end.slice(0, 10);
+      all.push({ begin, end, month: end.slice(0, 7) });
+    }
+    if (page >= (data.result?.page_count ?? 1)) break;
+  }
+
+  // Sort by end date ascending
+  all.sort((a, b) => a.end.localeCompare(b.end));
+
+  // Cache for 6 hours (new period appears weekly, no need to refetch hourly)
+  await env.CACHE.put(cacheKey, JSON.stringify(all), { expirationTtl: 6 * 3600 });
+  return all;
+}
+
+// Given an Ozon invoice date (unix sec), find the settlement period whose end
+// matches invoice_date - 1..4 days. Returns the period's month "YYYY-MM" or null.
+async function getOzonMonthForInvoiceDate(env: Env, invoiceDateSec: number): Promise<string | null> {
+  const periods = await getOzonPeriods(env);
+  const invDate = new Date(invoiceDateSec * 1000);
+  for (let lag = 1; lag <= 5; lag++) {
+    const target = new Date(invDate);
+    target.setUTCDate(target.getUTCDate() - lag);
+    const targetStr = target.toISOString().slice(0, 10);
+    const hit = periods.find((p) => p.end === targetStr);
+    if (hit) return hit.month;
+  }
+  return null;
+}
+
 interface ReportRow {
   id: string;
   contract_id: string;
@@ -64,9 +125,32 @@ interface ReportRow {
   reference: string | null;
 }
 
-// Find the partner's most recent closed sale-report whose operation_date ≤ target.
-// Lookback is 60 days — enough for any Ozon monthly cycle (≤ 31 days) and any
-// WB weekly cycle with delayed payouts (≤ 14 days). Beyond that, we don't try.
+// Find the partner's monthly report whose operation_date is the last day of `monthStr` (YYYY-MM).
+async function findMonthlyReportByMonth(
+  env: Env,
+  partnerId: string,
+  monthStr: string
+): Promise<ReportRow | null> {
+  // Compute first and last day of the month
+  const [yy, mm] = monthStr.split('-').map((s) => parseInt(s, 10));
+  const firstSec = Math.floor(Date.UTC(yy, mm - 1, 1) / 1000);
+  const lastSec = Math.floor(Date.UTC(yy, mm, 0, 23, 59, 59) / 1000);
+  const row = await env.DB.prepare(`
+    SELECT id, contract_id, operation_date, reference
+    FROM operations
+    WHERE partner_id = ?
+      AND operation_type = 'sale'
+      AND status IN ('issued','delivered')
+      AND deleted_at IS NULL
+      AND operation_date >= ?
+      AND operation_date <= ?
+    ORDER BY operation_date DESC
+    LIMIT 1
+  `).bind(partnerId, firstSec, lastSec).first<ReportRow>();
+  return row ?? null;
+}
+
+// WB-style date fallback (purpose_date or executed_at): last report ≤ target.
 async function findReportByDate(
   env: Env,
   partnerId: string,
@@ -92,36 +176,31 @@ async function findReportByDate(
 export interface MatchTxResult {
   matched: boolean;
   reason:
-    | 'matched_by_purpose_date'
+    | 'matched_by_ozon_period'
+    | 'matched_by_wb_purpose_date'
     | 'matched_by_fallback_date'
     | 'no_report_in_window'
     | 'already_matched'
     | 'not_marketplace'
     | 'tx_not_found'
-    | 'wrong_direction';
+    | 'wrong_direction'
+    | 'ozon_period_lookup_failed';
   operation_id?: string;
   payment_id?: string;
   purpose_date?: number;
+  ozon_month?: string;
 }
 
-export async function tryMarketplaceMatchForTx(
-  env: Env,
-  txId: string
-): Promise<MatchTxResult> {
+export async function tryMarketplaceMatchForTx(env: Env, txId: string): Promise<MatchTxResult> {
   const tx = await env.DB.prepare(`
     SELECT id, amount, currency, executed_at, contragent_inn, direction,
            matched_operation_id, deleted_at, payment_purpose
     FROM bank_transactions
     WHERE id = ?
   `).bind(txId).first<{
-    id: string;
-    amount: number;
-    currency: string;
-    executed_at: number;
-    contragent_inn: string | null;
-    direction: string;
-    matched_operation_id: string | null;
-    deleted_at: number | null;
+    id: string; amount: number; currency: string; executed_at: number;
+    contragent_inn: string | null; direction: string;
+    matched_operation_id: string | null; deleted_at: number | null;
     payment_purpose: string | null;
   }>();
 
@@ -132,24 +211,45 @@ export async function tryMarketplaceMatchForTx(
   const cfg = tx.contragent_inn ? MARKETPLACE_CONFIG[tx.contragent_inn] : undefined;
   if (!cfg) return { matched: false, reason: 'not_marketplace' };
 
-  // Try purpose-date first; fall back to executed_at.
   const purposeDate = extractPeriodDateFromPurpose(tx.payment_purpose);
-  const targetDate = purposeDate ?? tx.executed_at;
 
-  const report = await findReportByDate(env, cfg.partnerId, targetDate);
+  let report: ReportRow | null = null;
+  let matchMethod: 'matched_by_ozon_period' | 'matched_by_wb_purpose_date' | 'matched_by_fallback_date' | null = null;
+  let ozonMonth: string | null = null;
+
+  if (cfg.partnerId === 'ozon' && purposeDate) {
+    // Ozon: API lookup → period → month → report
+    ozonMonth = await getOzonMonthForInvoiceDate(env, purposeDate);
+    if (!ozonMonth) {
+      return { matched: false, reason: 'ozon_period_lookup_failed', purpose_date: purposeDate };
+    }
+    report = await findMonthlyReportByMonth(env, 'ozon', ozonMonth);
+    matchMethod = 'matched_by_ozon_period';
+  } else if (cfg.partnerId === 'wb' && purposeDate) {
+    // WB: purpose_date directly identifies the week (registry Monday after Sun close)
+    report = await findReportByDate(env, 'wb', purposeDate);
+    matchMethod = 'matched_by_wb_purpose_date';
+  } else {
+    // No purpose date — fall back to executed_at window
+    report = await findReportByDate(env, cfg.partnerId, tx.executed_at);
+    matchMethod = 'matched_by_fallback_date';
+  }
+
   if (!report) return {
     matched: false,
     reason: 'no_report_in_window',
     purpose_date: purposeDate ?? undefined,
+    ozon_month: ozonMonth ?? undefined,
   };
 
   const now = Math.floor(Date.now() / 1000);
   const paymentId = `pay_${crypto.randomUUID()}`;
   const amountMajor = tx.currency.toUpperCase() === 'RUB' ? tx.amount / 100 : tx.amount;
-  const matchMethod = purposeDate ? 'matched_by_purpose_date' : 'matched_by_fallback_date';
 
-  const noteSrc = purposeDate
-    ? `purpose-date ${new Date(purposeDate * 1000).toISOString().slice(0, 10)}`
+  const noteSrc = matchMethod === 'matched_by_ozon_period'
+    ? `Ozon period (month=${ozonMonth})`
+    : matchMethod === 'matched_by_wb_purpose_date'
+    ? `WB purpose date ${new Date((purposeDate ?? 0) * 1000).toISOString().slice(0, 10)}`
     : `fallback executed_at`;
 
   await env.DB.batch([
@@ -160,7 +260,7 @@ export async function tryMarketplaceMatchForTx(
     `).bind(
       paymentId, cfg.partnerId, report.contract_id, report.id,
       amountMajor, tx.currency, tx.executed_at,
-      `[AUTO-MATCH marketplace v2 ${matchMethod}] bank_tx ${tx.id} → ${cfg.cadenceLabel} report ${report.reference ?? report.id} via ${noteSrc}`,
+      `[AUTO-MATCH marketplace v3 ${matchMethod}] bank_tx ${tx.id} → ${cfg.cadenceLabel} report ${report.reference ?? report.id} via ${noteSrc}`,
       now, now
     ),
     env.DB.prepare(`
@@ -177,15 +277,18 @@ export async function tryMarketplaceMatchForTx(
     operation_id: report.id,
     payment_id: paymentId,
     purpose_date: purposeDate ?? undefined,
+    ozon_month: ozonMonth ?? undefined,
   };
 }
 
 export interface RetroactiveScanResult {
   ran_at: number;
   scanned: number;
-  matched_by_purpose: number;
+  matched_by_ozon_period: number;
+  matched_by_wb_purpose_date: number;
   matched_by_fallback: number;
   no_report_in_window: number;
+  ozon_period_lookup_failed: number;
   errors: number;
   by_partner: Record<string, { matched: number; unmatched: number; errors: number }>;
 }
@@ -194,9 +297,11 @@ export async function scanAllUnmatchedMarketplace(env: Env): Promise<Retroactive
   const result: RetroactiveScanResult = {
     ran_at: Math.floor(Date.now() / 1000),
     scanned: 0,
-    matched_by_purpose: 0,
+    matched_by_ozon_period: 0,
+    matched_by_wb_purpose_date: 0,
     matched_by_fallback: 0,
     no_report_in_window: 0,
+    ozon_period_lookup_failed: 0,
     errors: 0,
     by_partner: {
       ozon: { matched: 0, unmatched: 0, errors: 0 },
@@ -207,12 +312,9 @@ export async function scanAllUnmatchedMarketplace(env: Env): Promise<Retroactive
   for (const inn of Object.keys(MARKETPLACE_CONFIG)) {
     const cfg = MARKETPLACE_CONFIG[inn];
     const txns = await env.DB.prepare(`
-      SELECT id
-      FROM bank_transactions
-      WHERE contragent_inn = ?
-        AND direction = 'incoming'
-        AND deleted_at IS NULL
-        AND matched_operation_id IS NULL
+      SELECT id FROM bank_transactions
+      WHERE contragent_inn = ? AND direction = 'incoming'
+        AND deleted_at IS NULL AND matched_operation_id IS NULL
       ORDER BY executed_at ASC
     `).bind(inn).all<{ id: string }>();
 
@@ -222,16 +324,20 @@ export async function scanAllUnmatchedMarketplace(env: Env): Promise<Retroactive
         const r = await tryMarketplaceMatchForTx(env, row.id);
         if (r.matched) {
           result.by_partner[cfg.partnerId].matched++;
-          if (r.reason === 'matched_by_purpose_date') result.matched_by_purpose++;
+          if (r.reason === 'matched_by_ozon_period') result.matched_by_ozon_period++;
+          else if (r.reason === 'matched_by_wb_purpose_date') result.matched_by_wb_purpose_date++;
           else if (r.reason === 'matched_by_fallback_date') result.matched_by_fallback++;
         } else if (r.reason === 'no_report_in_window') {
           result.no_report_in_window++;
+          result.by_partner[cfg.partnerId].unmatched++;
+        } else if (r.reason === 'ozon_period_lookup_failed') {
+          result.ozon_period_lookup_failed++;
           result.by_partner[cfg.partnerId].unmatched++;
         }
       } catch (e) {
         result.errors++;
         result.by_partner[cfg.partnerId].errors++;
-        console.error(`[marketplace-match v2] tx=${row.id} failed:`, e);
+        console.error(`[marketplace-match v3] tx=${row.id} failed:`, e);
       }
     }
   }

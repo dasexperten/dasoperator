@@ -71,8 +71,8 @@ export default function ProductsPage() {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [manufacturerFilter, setManufacturerFilter] = useState<string>('all');
-  const [sortKey, setSortKey] = useState<SortKey>('sku');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [sortKey, setSortKey] = useState<SortKey>('monthly');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [priceTypeId, setPriceTypeId] = useState<string>('distr_usd');
   const [priceMap, setPriceMap] = useState<Record<string, number>>({});
   const [priceCurrency, setPriceCurrency] = useState<string>('USD');

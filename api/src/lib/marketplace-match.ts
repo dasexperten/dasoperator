@@ -228,6 +228,7 @@ export interface MatchTxResult {
   matched: boolean;
   reason:
     | 'matched_by_ozon_period'
+    | 'matched_by_wb_registry_date'
     | 'matched_by_wb_purpose_date'
     | 'matched_by_fallback_date'
     | 'no_report_in_window'
@@ -277,9 +278,25 @@ export async function tryMarketplaceMatchForTx(env: Env, txId: string): Promise<
     report = await findMonthlyReportByMonth(env, 'ozon', ozonMonth);
     matchMethod = 'matched_by_ozon_period';
   } else if (cfg.partnerId === 'wb' && purposeDate) {
-    // WB: purpose_date directly identifies the week (registry Monday after Sun close)
-    report = await findReportByDate(env, 'wb', purposeDate);
-    matchMethod = 'matched_by_wb_purpose_date';
+    // WB convention: registry create_dt = operation_date + 1 day (Mon after Sun-end week).
+    // Bank purpose "от DD.MM.YYYY" IS the registry create_dt, so the matching
+    // operation has operation_date = purposeDate - 86400.
+    const expectedOpDate = purposeDate - 86400;
+    report = await env.DB.prepare(`
+      SELECT id, contract_id, operation_date, reference
+      FROM operations
+      WHERE partner_id = 'wb' AND operation_type = 'sale'
+        AND status IN ('issued','delivered') AND deleted_at IS NULL
+        AND operation_date = ?
+      LIMIT 1
+    `).bind(expectedOpDate).first<ReportRow>();
+    if (report) {
+      matchMethod = 'matched_by_wb_registry_date';
+    } else {
+      // Registry not in our DB (phantom week / missing report) — fall back to "last ≤"
+      report = await findReportByDate(env, 'wb', purposeDate);
+      matchMethod = report ? 'matched_by_wb_purpose_date' : null as any;
+    }
   } else {
     // No purpose date — fall back to executed_at window
     report = await findReportByDate(env, cfg.partnerId, tx.executed_at);
@@ -336,6 +353,7 @@ export interface RetroactiveScanResult {
   ran_at: number;
   scanned: number;
   matched_by_ozon_period: number;
+  matched_by_wb_registry_date: number;
   matched_by_wb_purpose_date: number;
   matched_by_fallback: number;
   no_report_in_window: number;
@@ -349,6 +367,7 @@ export async function scanAllUnmatchedMarketplace(env: Env): Promise<Retroactive
     ran_at: Math.floor(Date.now() / 1000),
     scanned: 0,
     matched_by_ozon_period: 0,
+    matched_by_wb_registry_date: 0,
     matched_by_wb_purpose_date: 0,
     matched_by_fallback: 0,
     no_report_in_window: 0,
@@ -376,6 +395,7 @@ export async function scanAllUnmatchedMarketplace(env: Env): Promise<Retroactive
         if (r.matched) {
           result.by_partner[cfg.partnerId].matched++;
           if (r.reason === 'matched_by_ozon_period') result.matched_by_ozon_period++;
+          else if (r.reason === 'matched_by_wb_registry_date') result.matched_by_wb_registry_date++;
           else if (r.reason === 'matched_by_wb_purpose_date') result.matched_by_wb_purpose_date++;
           else if (r.reason === 'matched_by_fallback_date') result.matched_by_fallback++;
         } else if (r.reason === 'no_report_in_window') {

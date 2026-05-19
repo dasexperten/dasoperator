@@ -193,7 +193,11 @@ async function sweepUnmatchedByInn(
   for (const tx of candidates.results) {
     try {
       const isService = tx.direction === 'outgoing' && SERVICE_KINDS.has(args.partnerKind);
-      const operationType = tx.direction === 'incoming' ? 'sale' : 'purchase';
+      const operationType: 'sale' | 'purchase' | 'service' = tx.direction === 'incoming'
+        ? 'sale'
+        : isService
+          ? 'service'
+          : 'purchase';
 
       // Generate reference — issuer-based for service, DEE-NNN for goods
       let reference: string;
@@ -883,7 +887,11 @@ inboxBanking.post('/:tx_id/assign-partner', async (c) => {
     // Decide path based on kind × direction.
     const SERVICE_KINDS = new Set(['service_provider', '3pl', 'shipper']);
     const isService = tx.direction === 'outgoing' && SERVICE_KINDS.has(partnerKind);
-    const operationType = tx.direction === 'incoming' ? 'sale' : 'purchase';
+    const operationType: 'sale' | 'purchase' | 'service' = tx.direction === 'incoming'
+      ? 'sale'
+      : isService
+        ? 'service'
+        : 'purchase';
 
     // Generate reference — issuer-based for service, DEE-NNN for goods
     let reference: string;

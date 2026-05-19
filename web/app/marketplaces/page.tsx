@@ -183,7 +183,7 @@ export default function MarketplacesPage() {
       {tab === 'promos' && (
         <>
           <RefillHistoryBlock key="refills" />
-          <OzonPromotionsWidget key="promos" />
+          <PromoMatrix key="matrix" />
         </>
       )}
       {tab === 'ozon' && <FboDashboard config={OZON_CONFIG} key="ozon" />}
@@ -1224,6 +1224,439 @@ function RefillHistoryBlock() {
         </div>
       )}
     </div>
+  );
+}
+
+interface MatrixCell {
+  action_price: number;
+  left_target: number | null;
+  is_active: boolean;
+  below_current_price: boolean;
+  stock: number;
+}
+
+interface MatrixAction {
+  action_id: number;
+  title: string;
+  days_left: number;
+  is_unlimited: boolean;
+  is_participating: boolean;
+}
+
+interface MatrixSku {
+  id: number;
+  offer_id: string;
+  name: string;
+  current_price: number;
+}
+
+interface MatrixPayload {
+  generated_at: string;
+  skus: MatrixSku[];
+  actions: MatrixAction[];
+  cells: Record<string, MatrixCell>;
+}
+
+function PromoMatrix() {
+  const [data, setData] = useState<MatrixPayload | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const apiBase =
+    (typeof window !== 'undefined' &&
+      (window as unknown as { __API_BASE?: string }).__API_BASE) ||
+    'https://dasoperator-api.dasexperten.workers.dev';
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await fetch(`${apiBase}/api/marketplaces/ozon/matrix`);
+      const j = await r.json();
+      if (!j.success) throw new Error(j.errors?.[0]?.message || 'load failed');
+      setData(j.result as MatrixPayload);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'load failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  if (loading && !data) {
+    return (
+      <div
+        style={{
+          padding: 32,
+          textAlign: 'center',
+          color: 'var(--fg-muted)',
+          fontSize: '14px',
+        }}
+      >
+        Загружаем матрицу акций…
+      </div>
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <div style={{ padding: 24, color: 'var(--brand-rot)', fontSize: '14px' }}>
+        Ошибка: {error}
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  return (
+    <div
+      style={{
+        backgroundColor: 'var(--paper-1)',
+        border: '1px solid var(--border-hairline)',
+        borderRadius: 'var(--radius-md)',
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{
+          padding: '16px 24px',
+          borderBottom: '1px solid var(--border-hairline)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}
+      >
+        <div>
+          <div
+            style={{
+              fontSize: '12px',
+              fontWeight: 700,
+              color: OZON_BLUE,
+              marginBottom: 4,
+            }}
+          >
+            OZON · PROMO MATRIX
+          </div>
+          <div
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: '22px',
+              fontWeight: 900,
+              color: 'var(--fg-1)',
+            }}
+          >
+            SKU × Акции
+          </div>
+        </div>
+        <button
+          onClick={load}
+          style={{
+            backgroundColor: 'var(--paper-sunk)',
+            border: '1px solid var(--border-hairline)',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: '14px',
+            color: 'var(--fg-1)',
+            cursor: 'pointer',
+            padding: '6px 12px',
+          }}
+        >
+          Обновить
+        </button>
+      </div>
+
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', minWidth: 720 }}>
+          <thead>
+            <tr style={{ borderBottom: '0.5px solid var(--border-hairline)' }}>
+              <th
+                style={{
+                  textAlign: 'left',
+                  padding: '12px 16px',
+                  fontWeight: 600,
+                  color: 'var(--fg-2)',
+                  width: '34%',
+                }}
+              >
+                SKU / Product
+              </th>
+              <th
+                style={{
+                  textAlign: 'right',
+                  padding: '12px 12px',
+                  fontWeight: 600,
+                  color: 'var(--fg-2)',
+                  width: '14%',
+                }}
+              >
+                Current price
+              </th>
+              {data.actions.map((a) => (
+                <th
+                  key={a.action_id}
+                  style={{
+                    textAlign: 'center',
+                    padding: '12px 10px',
+                    fontWeight: 600,
+                    color: 'var(--fg-2)',
+                    width: `${52 / data.actions.length}%`,
+                    borderLeft: '0.5px solid var(--border-hairline)',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: '13px',
+                      color: OZON_BLUE,
+                      fontWeight: 700,
+                      lineHeight: 1.3,
+                    }}
+                  >
+                    {a.title.replace('. Без ограничения срока действия', '').replace(': усиление', ': усил.')}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: '12px',
+                      color: 'var(--fg-muted)',
+                      fontWeight: 400,
+                      marginTop: 2,
+                    }}
+                  >
+                    {a.is_unlimited ? 'unlimited' : `${a.days_left}d left`}
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data.skus.map((sku) => (
+              <tr key={sku.id} style={{ borderBottom: '0.5px solid var(--border-hairline)' }}>
+                <td style={{ padding: '14px 16px' }}>
+                  <div style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{sku.offer_id}</div>
+                  <div
+                    style={{
+                      fontSize: '13px',
+                      color: 'var(--fg-2)',
+                      marginTop: 2,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {sku.name || '—'}
+                  </div>
+                </td>
+                <td
+                  style={{
+                    textAlign: 'right',
+                    padding: '14px 12px',
+                    fontVariantNumeric: 'tabular-nums',
+                    fontWeight: 700,
+                  }}
+                >
+                  {sku.current_price > 0 ? `${sku.current_price} ₽` : '—'}
+                </td>
+                {data.actions.map((a) => {
+                  const cell = data.cells[`${sku.id}:${a.action_id}`];
+                  return (
+                    <MatrixCellComponent
+                      key={a.action_id}
+                      sku={sku}
+                      action={a}
+                      cell={cell}
+                      apiBase={apiBase}
+                      onUpdated={load}
+                    />
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div
+        style={{
+          padding: '12px 24px',
+          borderTop: '1px solid var(--border-hairline)',
+          display: 'flex',
+          gap: 24,
+          flexWrap: 'wrap',
+          fontSize: '12px',
+          color: 'var(--fg-2)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 10, height: 10, background: OZON_BLUE, borderRadius: 2 }} />
+          цена действующая
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 10, height: 10, background: 'var(--fg-1)', borderRadius: 2 }} />
+          цена выше текущей
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span
+            style={{
+              width: 10,
+              height: 10,
+              background: 'var(--fg-muted)',
+              borderRadius: 2,
+              opacity: 0.5,
+            }}
+          />
+          SKU не в этой акции
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MatrixCellComponent({
+  sku,
+  action,
+  cell,
+  apiBase,
+  onUpdated,
+}: {
+  sku: MatrixSku;
+  action: MatrixAction;
+  cell: MatrixCell | undefined;
+  apiBase: string;
+  onUpdated: () => void;
+}) {
+  const [editVal, setEditVal] = useState<string>(
+    cell?.left_target != null ? String(cell.left_target) : '',
+  );
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const previousValue = cell?.left_target ?? 0;
+
+  useEffect(() => {
+    setEditVal(cell?.left_target != null ? String(cell.left_target) : '');
+  }, [cell?.left_target]);
+
+  const baseCellStyle: React.CSSProperties = {
+    textAlign: 'center',
+    padding: '14px 10px',
+    borderLeft: '0.5px solid var(--border-hairline)',
+  };
+
+  // SKU not in this action at all
+  if (!cell || (cell.action_price === 0 && !cell.is_active)) {
+    return (
+      <td style={baseCellStyle}>
+        <div style={{ fontSize: '13px', color: 'var(--fg-muted)' }}>—</div>
+      </td>
+    );
+  }
+
+  const priceColor = cell.below_current_price ? OZON_BLUE : 'var(--fg-1)';
+
+  async function commit() {
+    const newVal = Number(editVal);
+    if (!Number.isFinite(newVal) || newVal < 0) {
+      setEditVal(String(previousValue));
+      return;
+    }
+    if (newVal === previousValue) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await fetch(
+        `${apiBase}/api/marketplaces/ozon/actions/${action.action_id}/products/${sku.id}/left-target`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: newVal }),
+        },
+      );
+      const j = await r.json();
+      if (!j.success) throw new Error(j.errors?.[0]?.message || j.errors || 'save failed');
+      onUpdated();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'save failed');
+      setEditVal(String(previousValue));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <td style={baseCellStyle}>
+      <div
+        style={{
+          fontSize: '14px',
+          fontWeight: 700,
+          color: priceColor,
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        {cell.action_price > 0 ? `${cell.action_price} ₽` : '—'}
+      </div>
+      <div
+        style={{
+          fontSize: '12px',
+          color: 'var(--fg-2)',
+          marginTop: 6,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 6,
+        }}
+      >
+        <span>осталось</span>
+        <input
+          type="text"
+          inputMode="numeric"
+          value={editVal}
+          onChange={(e) => setEditVal(e.target.value.replace(/[^0-9]/g, ''))}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              (e.target as HTMLInputElement).blur();
+            } else if (e.key === 'Escape') {
+              setEditVal(String(previousValue));
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
+          disabled={busy}
+          placeholder="—"
+          style={{
+            width: 50,
+            height: 24,
+            padding: '0 6px',
+            fontSize: '13px',
+            fontWeight: 700,
+            textAlign: 'center',
+            background: 'var(--paper-2)',
+            border: err
+              ? '1px solid var(--brand-rot)'
+              : '0.5px solid var(--border-hairline)',
+            borderRadius: 4,
+            color: 'var(--fg-1)',
+            fontVariantNumeric: 'tabular-nums',
+            opacity: busy ? 0.5 : 1,
+            outline: 'none',
+            MozAppearance: 'textfield' as React.CSSProperties['MozAppearance'],
+          }}
+        />
+      </div>
+      {err && (
+        <div
+          style={{
+            fontSize: '11px',
+            color: 'var(--brand-rot)',
+            marginTop: 4,
+            cursor: 'pointer',
+          }}
+          onClick={() => setErr(null)}
+          title={err}
+        >
+          ошибка
+        </div>
+      )}
+    </td>
   );
 }
 

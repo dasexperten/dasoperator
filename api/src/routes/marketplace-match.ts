@@ -60,7 +60,7 @@ marketplaceMatch.get('/match/dry-run', async (c) => {
       SELECT id, amount, currency, executed_at
       FROM bank_transactions
       WHERE contragent_inn = ?
-        AND direction = 'in'
+        AND direction = 'incoming'
         AND deleted_at IS NULL
         AND matched_operation_id IS NULL
       ORDER BY executed_at ASC

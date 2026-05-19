@@ -344,9 +344,9 @@ export async function handleScheduled(
     return;
   }
 
-  // WB weekly realization schedule — Monday 03:00 UTC (06:00 МСК)
-  // WB publishes Mon-Sun reports for the previous week each Monday morning.
-  if (cron === '0 3 * * 1') {
+  // WB weekly realization schedule — Thursday 04:00 UTC (07:00 МСК)
+  // WB publishes Mon-Sun reports for the previous week on Thursdays.
+  if (cron === '0 4 * * 4') {
     console.log('[cron:mp-pull-schedule:wb] starting weekly WB realization schedule');
     try {
       const r = await scheduleWbWeekly(env);

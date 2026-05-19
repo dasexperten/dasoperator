@@ -50,6 +50,7 @@ import inboxBankingRoutes from './routes/inbox-banking';
 import marketplaceMatchRoutes from './routes/marketplace-match';
 import freightRfqRoutes from './routes/freight-rfq';
 import marketplacePullRoutes from './routes/marketplace-pull';
+import salesBreakdownRoutes from './routes/sales-breakdown';
 import reviewsRoutes from './routes/reviews';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
@@ -93,6 +94,7 @@ app.route('/api/operations', operationDocsRoutes);  // /upload-document — must
 app.route('/api/operations', operationsRoutes);
 app.route('/api/operations', operationsImportRoutes);  // adds /parse-excel
 app.route('/api/marketplace-pull', marketplacePullRoutes);
+app.route('/api/dashboard', salesBreakdownRoutes);
 app.route('/api/reviews', reviewsRoutes);
 
 // Manual trigger for the auto-delivery sweep (same code path as cron).

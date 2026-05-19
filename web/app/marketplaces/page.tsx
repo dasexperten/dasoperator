@@ -1525,16 +1525,19 @@ function MatrixCellComponent({
   apiBase: string;
   onUpdated: () => void;
 }) {
-  const [editVal, setEditVal] = useState<string>(
-    cell?.left_target != null ? String(cell.left_target) : '',
-  );
+  // Display value priority: user-typed left_target (from KV) → fall back to
+  // Ozon stock (the actual remaining quota). User edits operate on previousValue
+  // — the diff goes to Ozon.
+  const displayInitial = cell?.left_target != null ? cell.left_target : (cell?.stock ?? 0);
+  const [editVal, setEditVal] = useState<string>(String(displayInitial));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const previousValue = cell?.left_target ?? 0;
+  const previousValue = cell?.left_target ?? cell?.stock ?? 0;
 
   useEffect(() => {
-    setEditVal(cell?.left_target != null ? String(cell.left_target) : '');
-  }, [cell?.left_target]);
+    const next = cell?.left_target != null ? cell.left_target : (cell?.stock ?? 0);
+    setEditVal(String(next));
+  }, [cell?.left_target, cell?.stock]);
 
   const baseCellStyle: React.CSSProperties = {
     textAlign: 'center',
@@ -1629,7 +1632,7 @@ function MatrixCellComponent({
             fontSize: '13px',
             fontWeight: 700,
             textAlign: 'center',
-            background: 'var(--paper-2)',
+            background: 'var(--paper-1)',
             border: err
               ? '1px solid var(--brand-rot)'
               : '0.5px solid var(--border-hairline)',

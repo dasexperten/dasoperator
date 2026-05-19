@@ -279,17 +279,18 @@ export async function tryMarketplaceMatchForTx(env: Env, txId: string): Promise<
     matchMethod = 'matched_by_ozon_period';
   } else if (cfg.partnerId === 'wb' && purposeDate) {
     // WB convention: registry create_dt = operation_date + 1 day (Mon after Sun-end week).
-    // Bank purpose "от DD.MM.YYYY" IS the registry create_dt, so the matching
-    // operation has operation_date = purposeDate - 86400.
-    const expectedOpDate = purposeDate - 86400;
+    // Bank purpose "от DD.MM.YYYY" IS the registry create_dt — match by DATE
+    // (not exact second) since operations are stored at 23:59:59 of the Sunday.
+    const expectedDayStart = purposeDate - 86400;        // Sun 00:00:00
+    const expectedDayEnd = purposeDate - 1;              // Sun 23:59:59
     report = await env.DB.prepare(`
       SELECT id, contract_id, operation_date, reference
       FROM operations
       WHERE partner_id = 'wb' AND operation_type = 'sale'
         AND status IN ('issued','delivered') AND deleted_at IS NULL
-        AND operation_date = ?
+        AND operation_date >= ? AND operation_date <= ?
       LIMIT 1
-    `).bind(expectedOpDate).first<ReportRow>();
+    `).bind(expectedDayStart, expectedDayEnd).first<ReportRow>();
     if (report) {
       matchMethod = 'matched_by_wb_registry_date';
     } else {

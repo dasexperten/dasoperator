@@ -283,11 +283,7 @@ async function buildWeekOperation(
   dateFrom: string,
   dateTo: string
 ): Promise<any> {
-  // 1. Per-SKU rollup from realization (direct attribution per-row)
-  // Sum: payout, delivery, penalty, acceptance, additional_payment, rebill_logistic per sa_name + quantity for Продажа rows
-  // 2. Pool: storage_fee (no sa_name) + deduction (no sa_name) — distribute by payout share
-  // 3. Advert spend per nm_id from wb_pnl_advert_nm, mapped to sa_name via realization (nm_id, sa_name pairs)
-
+  // Per-SKU rollup from realization (direct attribution per-row)
   const perSku = await env.DB.prepare(`
     SELECT
       LOWER(sa_name) AS sku_lc,
@@ -305,7 +301,7 @@ async function buildWeekOperation(
     GROUP BY LOWER(sa_name)
   `).bind(weekNo).all<any>();
 
-  // Pool: rows with empty sa_name (account-wide deductions)
+  // Pool: rows with empty sa_name (account-wide deductions - includes "Удержание / WB Продвижение")
   const pool = await env.DB.prepare(`
     SELECT
       SUM(storage_fee) AS storage_pool,
@@ -315,33 +311,12 @@ async function buildWeekOperation(
     WHERE week_no=? AND (sa_name IS NULL OR sa_name = '')
   `).bind(weekNo).first<any>();
 
-  // nm_id → sa_name map  
-  const nmMap = new Map<number, string>();
-  for (const row of perSku.results) {
-    if (row.nm_id) nmMap.set(row.nm_id, row.sku_lc);
-  }
-
-  // Advert spend per sa_name
-  const advertBySku = new Map<string, number>();
-  const advRows = await env.DB.prepare(`
-    SELECT nm_id, SUM(spend) AS spend FROM wb_pnl_advert_nm WHERE week_no=? GROUP BY nm_id
-  `).bind(weekNo).all<{ nm_id: number; spend: number }>();
-  let unmappedAdvert = 0;
-  for (const a of advRows.results) {
-    const sku = nmMap.get(a.nm_id);
-    if (sku) {
-      advertBySku.set(sku, (advertBySku.get(sku) ?? 0) + (a.spend ?? 0));
-    } else {
-      unmappedAdvert += a.spend ?? 0;
-    }
-  }
-
   const totalPayout = perSku.results.reduce((s, r) => s + (r.payout ?? 0), 0);
   const storagePool = pool?.storage_pool ?? 0;
-  const deductionPool = pool?.deduction_pool ?? 0;
+  const deductionPool = pool?.deduction_pool ?? 0; // includes advert + Jam + other
   const penaltyPool = pool?.penalty_pool ?? 0;
 
-  // Compute NET per SKU
+  // Compute NET per SKU — deduction pool covers advert proportionally by payout
   const lineItems: any[] = [];
   for (const r of perSku.results) {
     const sku = r.sku_lc;
@@ -349,11 +324,11 @@ async function buildWeekOperation(
     if (qty <= 0) continue;
     const payout = r.payout ?? 0;
     const share = totalPayout > 0 ? payout / totalPayout : 0;
+    // Direct costs: logistics, penalty, acceptance minus refunds/compensations
     const direct = (r.delivery ?? 0) + (r.penalty ?? 0) + (r.acceptance ?? 0) - (r.add_payment ?? 0) - (r.rebill ?? 0);
+    // Pooled costs: storage + deduction (advert/Jam/etc) + pool penalty
     const pooled = (storagePool + deductionPool + penaltyPool) * share;
-    const advertSku = advertBySku.get(sku) ?? 0;
-    const advertPooled = unmappedAdvert * share;
-    const totalCosts = direct + pooled + advertSku + advertPooled;
+    const totalCosts = direct + pooled;
     const net = payout - totalCosts;
     const netPer = qty > 0 ? Math.round(net / qty) : 0;
     lineItems.push({
@@ -361,14 +336,12 @@ async function buildWeekOperation(
       qty,
       payout: Math.round(payout),
       delivery: Math.round(r.delivery ?? 0),
-      advert: Math.round(advertSku + advertPooled),
       pooled_cost: Math.round(pooled),
       net_total: Math.round(net),
       net_per: netPer,
     });
   }
 
-  // Filter to catalog SKUs
   const catalog = await env.DB.prepare(`SELECT id FROM products WHERE deleted_at IS NULL`).all<{ id: string }>();
   const catalogIds = new Set(catalog.results.map((r) => r.id));
   const filtered = lineItems.filter((li) => catalogIds.has(li.sku_lc));
@@ -379,10 +352,8 @@ async function buildWeekOperation(
     return { week_no: weekNo, status: 'skipped', reason: 'no_catalog_skus', dropped };
   }
 
-  // Compose operation. Reference: WB-2026-W##
   const year = dateTo.substring(0, 4);
   const reference = `WB-${year}-W${String(weekNo).padStart(2, '0')}`;
-  // Check for existing operation with this reference
   const existing = await env.DB.prepare(
     `SELECT id FROM operations WHERE reference=? AND deleted_at IS NULL`
   ).bind(reference).first<{ id: string }>();
@@ -390,12 +361,10 @@ async function buildWeekOperation(
     return { week_no: weekNo, status: 'exists', reference, op_id: existing.id };
   }
 
-  // Operation date: Sunday (date_to) at 23:59:59 UTC
   const opDateTs = Math.floor(new Date(`${dateTo}T23:59:59Z`).getTime() / 1000);
   const now = Math.floor(Date.now() / 1000);
   const opId = `op_wb_${year}_w${String(weekNo).padStart(2, '0')}_weekly`;
 
-  // Find WB contract for DEE
   const contractRow = await env.DB.prepare(
     `SELECT id FROM contracts WHERE partner_id='wb' AND deleted_at IS NULL ORDER BY id LIMIT 1`
   ).first<{ id: string }>();
@@ -418,12 +387,11 @@ async function buildWeekOperation(
   ).bind(
     opId, opDateTs,
     totalAmount, contractId,
-    `WB weekly realization PnL — ${dateFrom} → ${dateTo}. NET per-SKU income after commission, logistics, advertising, storage, deductions. Source: reportDetailByPeriod + /adv/v3/fullstats per-nm.`,
+    `WB weekly realization PnL — ${dateFrom} → ${dateTo}. NET per-SKU income after logistics, storage, advert (deduction pool distributed by payout share). Source: reportDetailByPeriod.`,
     now, now,
     reference
   ).run();
 
-  // Line items
   for (const li of filtered) {
     const lineAmount = li.qty * li.net_per;
     const lineId = `li_wb_${year}_w${String(weekNo).padStart(2, '0')}_${li.sku_lc}`;
@@ -450,7 +418,6 @@ async function buildWeekOperation(
     pool_storage: Math.round(storagePool),
     pool_deduction: Math.round(deductionPool),
     pool_penalty: Math.round(penaltyPool),
-    unmapped_advert: Math.round(unmappedAdvert),
   };
 }
 

@@ -901,7 +901,8 @@ export default function OperationsPage() {
             filtered.map((op) => {
               const sd = statusDot(op.status);
               const ps = op.payment_state ?? 'neutral';
-              const amountColor = AMOUNT_PAYMENT_COLOR[ps] ?? 'var(--fg-1)';
+              // Transfers don't have payment — neutral amount colour regardless of payment_state
+              const amountColor = op.operation_type === 'transfer' ? 'var(--fg-1)' : (AMOUNT_PAYMENT_COLOR[ps] ?? 'var(--fg-1)');
               const { label: partnerLabel } = resolvePartnerLabel(op);
               const isBatchRow = (op as { is_batch?: boolean }).is_batch === true;
               const clusterCount = (op as { cluster_count?: number }).cluster_count ?? null;
@@ -1086,17 +1087,32 @@ export default function OperationsPage() {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <div className="inline-flex items-center gap-2" style={{
-                          padding: '4px 10px',
-                          backgroundColor: po.bg,
-                          color: po.fg,
-                          borderRadius: 'var(--radius-sm)',
-                          fontSize: '14px',
-                          fontWeight: 500,
-                        }}>
-                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: po.dot, display: 'inline-block' }} />
-                          <span style={{ color: 'var(--fg-1)', fontWeight: 600 }}>{statusLabel(op.status)}</span>
-                        </div>
+                        {op.operation_type === 'transfer' ? (
+                          // Transfers don't have payment — show only movement status, no colour overlay
+                          <div className="inline-flex items-center gap-2" style={{
+                            padding: '4px 10px',
+                            backgroundColor: 'var(--paper-sunk)',
+                            color: 'var(--fg-2)',
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: '14px',
+                            fontWeight: 500,
+                          }}>
+                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--fg-3)', display: 'inline-block' }} />
+                            <span style={{ color: 'var(--fg-1)', fontWeight: 600 }}>{statusLabel(op.status)}</span>
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center gap-2" style={{
+                            padding: '4px 10px',
+                            backgroundColor: po.bg,
+                            color: po.fg,
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: '14px',
+                            fontWeight: 500,
+                          }}>
+                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: po.dot, display: 'inline-block' }} />
+                            <span style={{ color: 'var(--fg-1)', fontWeight: 600 }}>{statusLabel(op.status)}</span>
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="inline-flex items-center gap-2">

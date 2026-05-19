@@ -84,12 +84,41 @@ products.get('/', async (c) => {
   const manufacturerId = c.req.query('manufacturer_id');
   const search = c.req.query('search');
 
+  // Marketplace sales partners for Monthly Sales / Coef DEE calculation:
+  // wb (Wildberries), ozon (Ozon), site (Retail CRM dasexperten.ru)
+  // Russia stock: lbr (Lyubertsy) + flp (Flypost) + srn (Saransk) + wb + ozon FBO
   let sql = `
     SELECT
       p.id, p.product_name, p.invoice_label, p.category, p.manufacturer_id,
       p.weight_kg, p.barcode, p.pieces_per_case, p.hs_code, p.ctn_qty,
       p.country_of_origin, p.unit_net_weight_g,
-      m.name AS manufacturer_name
+      m.name AS manufacturer_name,
+      COALESCE((
+        SELECT SUM(li.qty)
+        FROM line_items li
+        JOIN operations o ON o.id = li.operation_id
+        WHERE li.product_id = p.id
+          AND o.deleted_at IS NULL
+          AND o.operation_type = 'sale'
+          AND o.partner_id IN ('wb', 'ozon', 'яндекс_пей_продажи_с_нашего_сайта')
+          AND o.operation_date >= (unixepoch() - 30 * 86400)
+      ), 0) AS monthly_sales,
+      COALESCE((
+        SELECT SUM(li.qty)
+        FROM line_items li
+        JOIN operations o ON o.id = li.operation_id
+        WHERE li.product_id = p.id
+          AND o.deleted_at IS NULL
+          AND o.operation_type = 'sale'
+          AND o.partner_id IN ('wb', 'ozon', 'яндекс_пей_продажи_с_нашего_сайта')
+          AND o.operation_date >= (unixepoch() - 90 * 86400)
+      ), 0) AS qty_90d,
+      COALESCE((
+        SELECT SUM(s.on_hand)
+        FROM stocks s
+        WHERE s.product_id = p.id
+          AND s.warehouse_id IN ('lbr', 'flp', 'srn', 'wb', 'ozon')
+      ), 0) AS russia_stock
     FROM products p
     LEFT JOIN manufacturers m ON m.id = p.manufacturer_id
     WHERE p.deleted_at IS NULL
@@ -109,9 +138,40 @@ products.get('/', async (c) => {
   const stmt = c.env.DB.prepare(sql);
   const result = binds.length > 0 ? await stmt.bind(...binds).all() : await stmt.all();
 
+  // Compute coef_dee and signal in JS — keep DB query clean
+  const products = (result.results as any[]).map((p) => {
+    const avg3mo = p.qty_90d > 0 ? p.qty_90d / 3 : 0;
+    const coef = avg3mo > 0 ? p.russia_stock / avg3mo : null;
+    
+    let signal: string;
+    if (coef === null) {
+      signal = p.russia_stock > 0 ? 'dead' : 'inactive';
+    } else if (coef === 0 && p.monthly_sales > 0) {
+      signal = 'out_of_stock';
+    } else if (coef < 2) {
+      signal = 'critical';
+    } else if (coef < 3) {
+      signal = 'warning';
+    } else if (coef < 6) {
+      signal = 'healthy';
+    } else if (coef < 12) {
+      signal = 'surplus';
+    } else {
+      signal = 'severe_surplus';
+    }
+    
+    // Drop qty_90d from response — only intermediate
+    const { qty_90d, ...rest } = p;
+    return {
+      ...rest,
+      coef_dee: coef !== null ? Math.round(coef * 100) / 100 : null,
+      signal,
+    };
+  });
+
   return ok(c, {
-    count: result.results.length,
-    products: result.results,
+    count: products.length,
+    products,
   });
 });
 

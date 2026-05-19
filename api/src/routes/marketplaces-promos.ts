@@ -2491,5 +2491,267 @@ export async function runPromoRefillSweep(env: Env): Promise<{
   };
 }
 
+// ===========================================================================
+// Matrix view — Aram's preferred layout (2026-05-19)
+// ===========================================================================
+// Single endpoint that returns ALL of our SKUs cross-joined with all visible
+// promo actions (Распродажи excluded). For each SKU×Action cell we report
+// the action_price, current "осталось продать" target (from KV left-target
+// store), and a flag whether this SKU is currently active in the action.
+//
+// "осталось" semantics (Aram's choice 2026-05-19):
+//   - The number is the user-perceived "stock remaining in the promo quota"
+//     they see on Ozon portal.
+//   - When user edits the field, we compute diff = new_value - previous_value
+//     and apply that delta to Ozon stock via /v1/actions/products/activate
+//     (stock = current_ozon_stock + diff). The number stored in KV is the
+//     new_value itself, so the UI always shows what the user last typed.
+//   - Previous values stored in ozon:promo:left-target:{action}:{pid}
+// ---------------------------------------------------------------------------
+
+const LEFT_TARGET_NS = 'ozon:promo:left-target';
+
+function leftTargetKey(actionId: number, productId: number): string {
+  return `${LEFT_TARGET_NS}:${actionId}:${productId}`;
+}
+
+async function getLeftTarget(env: Env, actionId: number, productId: number): Promise<number | null> {
+  try {
+    const v = await env.CACHE.get(leftTargetKey(actionId, productId));
+    if (v == null) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+async function setLeftTarget(env: Env, actionId: number, productId: number, value: number): Promise<void> {
+  await env.CACHE.put(leftTargetKey(actionId, productId), String(value));
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/marketplaces/ozon/actions/:actionId/products/:productId/left-target
+//
+// Body: { value: number }  — the new "осталось" number user typed.
+//
+// Logic:
+//   1. Read previous_value from KV (default 0 if absent).
+//   2. diff = value - previous_value
+//   3. If diff != 0, fetch current Ozon stock for this product (from /v1/actions/products),
+//      then push new_stock = current_stock + diff via /v1/actions/products/activate.
+//   4. Save new value to KV regardless of whether Ozon push succeeded
+//      (caller can retry; field shows user intent).
+//   5. Invalidate matrix + actions cache.
+// ---------------------------------------------------------------------------
+promos.post('/ozon/actions/:actionId/products/:productId/left-target', async (c) => {
+  const actionId = Number(c.req.param('actionId'));
+  const productId = Number(c.req.param('productId'));
+  if (!actionId || Number.isNaN(actionId)) return fail(c, 400, 'invalid action_id');
+  if (!productId || Number.isNaN(productId)) return fail(c, 400, 'invalid product_id');
+
+  let body: { value?: number };
+  try {
+    body = (await c.req.json()) as { value?: number };
+  } catch {
+    return fail(c, 400, 'invalid JSON body');
+  }
+  const newValue = Number(body.value);
+  if (!Number.isFinite(newValue) || newValue < 0) {
+    return fail(c, 400, 'value must be a non-negative number');
+  }
+
+  try {
+    const previousValue = (await getLeftTarget(c.env, actionId, productId)) ?? 0;
+    const diff = newValue - previousValue;
+
+    let ozonStockBefore: number | null = null;
+    let ozonStockAfter: number | null = null;
+    let actionPrice: number | null = null;
+
+    if (diff !== 0) {
+      // Fetch current product state from Ozon
+      let offset = 0;
+      while (offset < 10000) {
+        const r = await ozonRequest<{
+          result?: { products?: OzonActionProduct[] };
+        }>(c.env, '/v1/actions/products', 'POST', {
+          action_id: actionId,
+          limit: 1000,
+          offset,
+        });
+        const list = r.result?.products ?? [];
+        const found = list.find((p) => p.id === productId);
+        if (found) {
+          ozonStockBefore = found.stock ?? 0;
+          actionPrice = found.action_price ?? 0;
+          break;
+        }
+        if (list.length < 1000) break;
+        offset += 1000;
+      }
+
+      if (ozonStockBefore == null) {
+        // Product not currently active — fall back to candidates list for price
+        try {
+          let coffset = 0;
+          while (coffset < 10000) {
+            const r = await ozonRequest<{
+              result?: { products?: Array<{ id?: number; max_action_price?: number; price?: number; stock?: number }> };
+            }>(c.env, '/v1/actions/candidates', 'POST', {
+              action_id: actionId,
+              limit: 1000,
+              offset: coffset,
+            });
+            const list = r.result?.products ?? [];
+            const found = list.find((p) => p.id === productId);
+            if (found) {
+              ozonStockBefore = 0;
+              actionPrice = found.max_action_price ?? found.price ?? 0;
+              break;
+            }
+            if (list.length < 1000) break;
+            coffset += 1000;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      const newStock = Math.max(0, (ozonStockBefore ?? 0) + diff);
+      ozonStockAfter = newStock;
+
+      if (actionPrice && actionPrice > 0) {
+        await ozonRequest<{
+          result?: {
+            product_ids?: number[];
+            rejected?: Array<{ product_id: number; reason: string }>;
+          };
+        }>(c.env, '/v1/actions/products/activate', 'POST', {
+          action_id: actionId,
+          products: [{ product_id: productId, stock: newStock, action_price: actionPrice }],
+        });
+      }
+    }
+
+    // Save new target regardless
+    await setLeftTarget(c.env, actionId, productId, newValue);
+
+    // Invalidate caches
+    try {
+      await c.env.CACHE.delete(CACHE_KEY);
+    } catch {
+      // ignore
+    }
+
+    return ok(c, {
+      action_id: actionId,
+      product_id: productId,
+      previous_value: previousValue,
+      new_value: newValue,
+      diff,
+      ozon_stock_before: ozonStockBefore,
+      ozon_stock_after: ozonStockAfter,
+    });
+  } catch (e) {
+    return fail(c, 502, e instanceof Error ? e.message : 'Ozon API error');
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/marketplaces/ozon/matrix
+//
+// Returns: { skus: [{id, name, current_price}], actions: [{action_id, title,
+//             days_left, is_unlimited}], cells: { "{sku_id}:{action_id}":
+//             { action_price, left_target, is_active, max_action_price } } }
+//
+// Reuses buildPayload internally and projects to matrix shape.
+// ---------------------------------------------------------------------------
+promos.get('/ozon/matrix', async (c) => {
+  try {
+    // Cache hit?
+    const cached = await c.env.CACHE.get(CACHE_KEY);
+    let payload: PromosPayload;
+    if (cached) {
+      payload = JSON.parse(cached) as PromosPayload;
+    } else {
+      payload = await buildPayload(c.env);
+      try {
+        await c.env.CACHE.put(CACHE_KEY, JSON.stringify(payload), { expirationTtl: 300 });
+      } catch {
+        // ignore
+      }
+    }
+
+    // Hide Распродажи per Aram's choice
+    const visibleActions = payload.actions.filter(
+      (a) => !(a.title || '').toLowerCase().includes('распродажа'),
+    );
+
+    // Union of all products across visible actions
+    const skuMap = new Map<
+      number,
+      { id: number; offer_id: string; name: string; current_price: number }
+    >();
+    for (const a of visibleActions) {
+      for (const p of a.products) {
+        if (!skuMap.has(p.product_id)) {
+          skuMap.set(p.product_id, {
+            id: p.product_id,
+            offer_id: p.offer_id,
+            name: p.name,
+            current_price: p.current_price ?? p.price ?? 0,
+          });
+        }
+      }
+    }
+    const skus = Array.from(skuMap.values()).sort((a, b) =>
+      a.offer_id.localeCompare(b.offer_id, undefined, { numeric: true, sensitivity: 'base' }),
+    );
+
+    // Build cells with left_target overlay from KV
+    const cells: Record<
+      string,
+      {
+        action_price: number;
+        left_target: number | null;
+        is_active: boolean;
+        below_current_price: boolean;
+        stock: number;
+      }
+    > = {};
+    for (const a of visibleActions) {
+      for (const p of a.products) {
+        const cur = skuMap.get(p.product_id)?.current_price ?? 0;
+        const target = await getLeftTarget(c.env, a.action_id, p.product_id);
+        const key = `${p.product_id}:${a.action_id}`;
+        const ap = p.action_price ?? 0;
+        cells[key] = {
+          action_price: ap,
+          left_target: target,
+          is_active: (p.stock ?? 0) > 0,
+          below_current_price: ap > 0 && cur > 0 && ap < cur,
+          stock: p.stock ?? 0,
+        };
+      }
+    }
+
+    return ok(c, {
+      generated_at: payload.generated_at,
+      skus,
+      actions: visibleActions.map((a) => ({
+        action_id: a.action_id,
+        title: a.title,
+        days_left: a.days_left,
+        is_unlimited: (a.days_left ?? 0) > 90,
+        is_participating: a.is_participating,
+      })),
+      cells,
+    });
+  } catch (e) {
+    return fail(c, 502, e instanceof Error ? e.message : 'matrix build failed');
+  }
+});
+
 export default promos;
 

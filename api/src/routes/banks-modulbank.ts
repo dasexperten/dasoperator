@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { autoMatchBankTransaction } from '../lib/bank-auto-match';
+import { tryMarketplaceMatchForTx, isMarketplaceInn } from '../lib/marketplace-match';
 
 const banksModulbank = new Hono<{ Bindings: Env }>();
 
@@ -415,6 +416,19 @@ banksModulbank.post('/webhook', async (c) => {
     // Swallow — tx is already stored, webhook must return 200.
   }
 
+  // ---------- 5b. Marketplace report hook ----------
+  // If this tx is from Ozon / WB (known marketplace INNs) and it still has no
+  // matched_operation_id after the standard cascade, try to attach it to the
+  // most recent monthly/weekly sales report of the same partner.
+  // Idempotent — safe even if cascade above already matched something.
+  if (op.contragentInn && isMarketplaceInn(op.contragentInn)) {
+    try {
+      await tryMarketplaceMatchForTx(c.env, txId);
+    } catch (e) {
+      console.error(`[marketplace-match] tx=${txId} failed:`, e);
+    }
+  }
+
   return ok(c, {
     received: true,
     transaction_id: txId,
@@ -790,6 +804,17 @@ banksModulbank.post('/rematch-unassigned', async (c) => {
         const result = await autoMatchBankTransaction(c.env, txId);
         succeeded++;
         if (result && (result as any).operation_id) matched++;
+        // Marketplace report hook — best-effort, never fails the batch
+        try {
+          const innRow = await c.env.DB.prepare(
+            'SELECT contragent_inn FROM bank_transactions WHERE id = ?'
+          ).bind(txId).first<{ contragent_inn: string | null }>();
+          if (innRow && isMarketplaceInn(innRow.contragent_inn)) {
+            await tryMarketplaceMatchForTx(c.env, txId);
+          }
+        } catch (mpErr) {
+          console.error(`[marketplace-match pull-sync] tx=${txId} failed:`, mpErr);
+        }
       } catch (e) {
         failed++;
         errors.push({ tx_id: txId, message: e instanceof Error ? e.message : String(e) });

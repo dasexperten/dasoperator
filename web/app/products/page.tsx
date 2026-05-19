@@ -391,9 +391,42 @@ export default function ProductsPage() {
                           maxOnHand={maxOnHand}
                         />
                       </td>
-                      <td className="px-4 py-3 tabular-nums" style={{ color: 'var(--fg-3)' }}>
+                      <td className="px-2 py-3" style={{
+                        color: 'var(--fg-3)',
+                        whiteSpace: 'nowrap',
+                        fontFamily: 'ui-monospace, SFMono-Regular, "Roboto Mono", "DejaVu Sans Mono", monospace',
+                        fontStretch: 'condensed',
+                        fontSize: '11px',
+                        fontVariantNumeric: 'tabular-nums',
+                        letterSpacing: '0',
+                      }}>
                         {p.barcode ? (
-                          <CopyableValue value={p.barcode} style={{ color: 'var(--fg-3)' }} />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(p.barcode || '');
+                              const el = e.currentTarget;
+                              const prev = el.textContent;
+                              el.textContent = '✓ copied';
+                              setTimeout(() => { el.textContent = prev; }, 900);
+                            }}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              padding: 0,
+                              cursor: 'pointer',
+                              color: 'var(--fg-3)',
+                              fontFamily: 'inherit',
+                              fontSize: 'inherit',
+                              fontStretch: 'inherit',
+                              letterSpacing: 'inherit',
+                            }}
+                            title="Click to copy"
+                          >
+                            {p.barcode}
+                          </button>
                         ) : '—'}
                       </td>
                       <td className="px-4 py-3 tabular-nums" style={{

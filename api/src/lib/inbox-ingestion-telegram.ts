@@ -332,10 +332,16 @@ export async function runInboxIngestionTelegram(
           let cls = extracted.classification;
           if (cls === 'unclear') cls = 'pending';
 
+          // Auto-reject ONLY when truly uninteresting. If chat is bound to a
+          // known partner (default_partner_id set), keep the row — we'll group
+          // it with related акт/счёт/УПД later by (invoice_no, invoice_date).
+          // F4-like image-PDF invoices don't have amount extracted by DeepSeek
+          // but they're still legit and need to be paired with их акт.
+          const hasBoundPartner = !!src.default_partner_id;
           const isAutoReject =
             cls === 'not_invoice' ||
             cls === 'sale_payment' ||
-            (cls === 'service' && !extracted.amount_total && cls !== 'acceptance');
+            (cls === 'service' && !extracted.amount_total && !hasBoundPartner);
 
           const status = isAutoReject ? 'manual_rejected' : 'needs_partner_link';
           const notes = isAutoReject

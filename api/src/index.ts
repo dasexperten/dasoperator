@@ -49,6 +49,7 @@ import inboxRoutes from './routes/inbox';
 import inboxBankingRoutes from './routes/inbox-banking';
 import marketplaceMatchRoutes from './routes/marketplace-match';
 import freightRfqRoutes from './routes/freight-rfq';
+import marketplacePullRoutes from './routes/marketplace-pull';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
 
@@ -90,6 +91,7 @@ app.route('/api', attachmentFilesRoutes);  // /operations/:opId/files (POST) and
 app.route('/api/operations', operationDocsRoutes);  // /upload-document — must come BEFORE :id routes
 app.route('/api/operations', operationsRoutes);
 app.route('/api/operations', operationsImportRoutes);  // adds /parse-excel
+app.route('/api/marketplace-pull', marketplacePullRoutes);
 
 // Manual trigger for the auto-delivery sweep (same code path as cron).
 // Useful for ops: hit this when you've just imported stock and want to

@@ -509,18 +509,6 @@ export async function handleScheduled(
     return;
   }
 
-  if (cron === '*/5 * * * *') {
-    console.log('[cron:wb-pnl] processing one task');
-    try {
-      const { processNextWbPnlTask } = await import('./routes/wb-pnl');
-      const result = await processNextWbPnlTask(env);
-      console.log(`[cron:wb-pnl] result: ${JSON.stringify(result)}`);
-    } catch (e) {
-      console.error('[cron:wb-pnl] failed:', e);
-    }
-    return;
-  }
-
     console.warn(`[cron] no handler for cron expression: ${cron}`);
 
   // FX refresh — daily, internal libs, no self-fetch needed

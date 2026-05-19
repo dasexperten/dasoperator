@@ -544,6 +544,29 @@ export async function handleScheduled(
     return;
   }
 
+  // WB review auto-reply tick — every 10 minutes (Phase: Reviews v1).
+  // Replaces the old GitHub Actions cron in arams-db, which on free-tier
+  // fired only ~10×/24h instead of 144×. Cloudflare cron is reliable.
+  // Default 10 replies per tick × 144 ticks/day = up to 1440 replies/day,
+  // far above the ~17/day inflow, so backlog drains in 1–2 days.
+  if (cron === '*/10 * * * *') {
+    console.log('[cron:wb-auto-reply] tick start');
+    try {
+      const { runWbAutoReply } = await import('./lib/wb-reviews');
+      const result = await runWbAutoReply(env, { maxReplies: 10, maxInspect: 200, pauseMsBetween: 1200 });
+      console.log(`[cron:wb-auto-reply] ${JSON.stringify({
+        replied: result.replied,
+        skipped: result.ratingOnlySkipped,
+        errors: result.errors.length,
+        backlog: result.countTotal,
+        today: result.countToday,
+      })}`);
+    } catch (e) {
+      console.error('[cron:wb-auto-reply] failed:', e);
+    }
+    return;
+  }
+
     console.warn(`[cron] no handler for cron expression: ${cron}`);
 
   // FX refresh — daily, internal libs, no self-fetch needed

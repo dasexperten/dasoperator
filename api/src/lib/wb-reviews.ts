@@ -329,18 +329,18 @@ export async function runWbAutoReply(
     details: [],
   };
 
-  let counts: { total: number; today: number };
+  // count is informational only — if WB rate-limits us here, push through to
+  // list which uses a different sub-quota and is what actually matters
   try {
-    counts = await fetchUnansweredCount(env);
+    const counts = await fetchUnansweredCount(env);
     result.countTotal = counts.total;
     result.countToday = counts.today;
+    console.log(`[wb-auto-reply] start max=${maxReplies} backlog=${counts.total} today=${counts.today}`);
   } catch (e: any) {
-    result.errors.push({ stage: 'count', error: String(e?.message ?? e) });
-    result.status = 'error';
-    result.durationMs = Date.now() - startedAt;
-    return result;
+    const msg = String(e?.message ?? e);
+    console.warn(`[wb-auto-reply] count soft-fail: ${msg.slice(0, 200)}`);
+    // do not push to errors, do not return — keep going
   }
-  console.log(`[wb-auto-reply] start max=${maxReplies} backlog=${counts.total} today=${counts.today}`);
 
   let skip = 0;
   const pageSize = Math.min(100, maxInspect);

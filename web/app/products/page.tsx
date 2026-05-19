@@ -22,7 +22,41 @@ const PRICE_TYPES: Array<{ id: string; label: string; currency: string }> = [
   { id: 'purchase_cny', label: 'PURCHASE_CNY',     currency: 'CNY' },
 ];
 
-type SortKey = 'sku' | 'product' | 'total' | 'price';
+type SortKey = 'sku' | 'product' | 'total' | 'price' | 'monthly' | 'coef';
+
+function currencySymbol(c: string): string {
+  switch (c) {
+    case 'USD': return '$';
+    case 'RUB': return '₽';
+    case 'CNY': return '¥';
+    case 'EUR': return '€';
+    case 'GBP': return '£';
+    default: return c + ' ';
+  }
+}
+
+function signalLabel(s: string): { text: string; color: string } {
+  switch (s) {
+    case 'critical':       return { text: 'критично — заказать срочно', color: '#C4302B' };
+    case 'out_of_stock':   return { text: 'out of stock', color: '#C4302B' };
+    case 'severe_surplus': return { text: 'сильный затар — стоп', color: '#C4302B' };
+    case 'warning':        return { text: 'на грани — следить', color: '#D4A017' };
+    case 'surplus':        return { text: 'избыток — притормозить', color: '#D4A017' };
+    case 'healthy':        return { text: 'здоровый', color: 'var(--fg-3)' };
+    case 'dead':           return { text: 'мёртвый — продаж нет', color: 'var(--fg-muted)' };
+    case 'inactive':       return { text: 'неактивный', color: 'var(--fg-muted)' };
+    default:               return { text: '—', color: 'var(--fg-muted)' };
+  }
+}
+
+function coefColor(coef: number | null): string {
+  if (coef === null) return 'var(--fg-muted)';
+  if (coef < 2)  return '#C4302B';
+  if (coef < 3)  return '#D4A017';
+  if (coef < 6)  return 'var(--fg-1)';
+  if (coef < 12) return '#D4A017';
+  return '#C4302B';
+}
 type SortDir = 'asc' | 'desc';
 
 interface RowData extends ProductListItem {
@@ -155,6 +189,17 @@ export default function ProductsPage() {
           const pa = priceMap[a.id.toUpperCase()] ?? 0;
           const pb = priceMap[b.id.toUpperCase()] ?? 0;
           cmp = pa - pb;
+          break;
+        }
+        case 'monthly': cmp = (a.monthly_sales ?? 0) - (b.monthly_sales ?? 0); break;
+        case 'coef':    {
+          // null coef (no sales) sorts last
+          const ca = a.coef_dee;
+          const cb = b.coef_dee;
+          if (ca === null && cb === null) cmp = 0;
+          else if (ca === null) cmp = 1;
+          else if (cb === null) cmp = -1;
+          else cmp = ca - cb;
           break;
         }
       }
@@ -301,12 +346,15 @@ export default function ProductsPage() {
                 <ProductTh sortKey="price"    active={sortKey} dir={sortDir} onClick={clickHeader} defaultDir="desc">Price</ProductTh>
                 <ProductTh sortKey="total"    active={sortKey} dir={sortDir} onClick={clickHeader} defaultDir="desc">Total stock</ProductTh>
                 <ProductTh>Barcode</ProductTh>
+                <ProductTh sortKey="monthly"  active={sortKey} dir={sortDir} onClick={clickHeader} defaultDir="desc">Monthly Sales</ProductTh>
+                <ProductTh sortKey="coef"     active={sortKey} dir={sortDir} onClick={clickHeader} defaultDir="asc">Coef DEE</ProductTh>
+                <ProductTh>Signal</ProductTh>
               </tr>
             </thead>
             <tbody>
               {sorted.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-12" style={{ color: 'var(--fg-3)', fontSize: '14px' }}>
+                  <td colSpan={8} className="text-center py-12" style={{ color: 'var(--fg-3)', fontSize: '14px' }}>
                     No products match the filters
                   </td>
                 </tr>
@@ -333,7 +381,7 @@ export default function ProductsPage() {
                         fontVariantNumeric: 'tabular-nums',
                         color: price !== undefined ? 'var(--fg-1)' : 'var(--fg-muted)',
                       }}>
-                        {priceLoading ? '…' : price !== undefined ? `${formatPriceValue(price)} ${priceCurrency}` : '—'}
+                        {priceLoading ? '…' : price !== undefined ? `${currencySymbol(priceCurrency)}${formatPriceValue(price)}` : '—'}
                       </td>
                       <td className="px-4 py-3">
                         <StockCell
@@ -347,6 +395,29 @@ export default function ProductsPage() {
                         {p.barcode ? (
                           <CopyableValue value={p.barcode} style={{ color: 'var(--fg-3)' }} />
                         ) : '—'}
+                      </td>
+                      <td className="px-4 py-3 tabular-nums" style={{
+                        textAlign: 'right',
+                        whiteSpace: 'nowrap',
+                        fontWeight: 700,
+                        color: (p.monthly_sales ?? 0) > 0 ? 'var(--fg-1)' : 'var(--fg-muted)',
+                      }}>
+                        {(p.monthly_sales ?? 0).toLocaleString('ru-RU')}
+                      </td>
+                      <td className="px-4 py-3 tabular-nums" style={{
+                        textAlign: 'right',
+                        whiteSpace: 'nowrap',
+                        fontWeight: 700,
+                        color: coefColor(p.coef_dee ?? null),
+                      }}>
+                        {p.coef_dee === null || p.coef_dee === undefined ? '—' : p.coef_dee.toFixed(2)}
+                      </td>
+                      <td className="px-4 py-3" style={{
+                        whiteSpace: 'nowrap',
+                        color: signalLabel(p.signal ?? 'inactive').color,
+                        fontSize: '13px',
+                      }}>
+                        {signalLabel(p.signal ?? 'inactive').text}
                       </td>
                     </tr>
                   );

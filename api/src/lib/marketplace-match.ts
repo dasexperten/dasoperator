@@ -47,16 +47,77 @@ export function extractPeriodDateFromPurpose(purpose: string | null | undefined)
 }
 
 interface OzonPeriod {
-  begin: string; // YYYY-MM-DD
-  end: string;   // YYYY-MM-DD
-  month: string; // YYYY-MM
+  begin: string;            // YYYY-MM-DD
+  end: string;              // YYYY-MM-DD
+  month: string;            // period's own month (where end-date sits)
+  predominant_month: string; // logical Mon-Sun week's dominant month (handles boundary splits)
 }
 
-// Fetch Ozon cash-flow periods, KV-cached for 24h. Covers a sliding 2-year
-// window starting Jan 2025 — wide enough for all historical bank txns we
-// might still be matching.
+function daysBetween(aIso: string, bIso: string): number {
+  const a = new Date(aIso + 'T00:00:00Z').getTime();
+  const b = new Date(bIso + 'T00:00:00Z').getTime();
+  return Math.round((b - a) / 86400000);
+}
+
+function addDaysIso(iso: string, n: number): string {
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// Group consecutive periods into "logical weeks" (capped at 7 days) and
+// compute the predominant calendar month of each logical week. Handles
+// Ozon's habit of splitting boundary weeks into two periods.
+function annotatePeriodsWithPredominantMonth(periods: OzonPeriod[]): OzonPeriod[] {
+  if (periods.length === 0) return periods;
+  // Walk periods, accumulate into a logical week until 7 days or gap
+  type Group = { members: OzonPeriod[]; dayCount: Record<string, number> };
+  const groups: Group[] = [];
+  let cur: Group | null = null;
+  for (const p of periods) {
+    const periodDays = daysBetween(p.begin, p.end) + 1;
+    // Count days per month for this period
+    const localDays: Record<string, number> = {};
+    for (let i = 0; i < periodDays; i++) {
+      const day = addDaysIso(p.begin, i);
+      const m = day.slice(0, 7);
+      localDays[m] = (localDays[m] ?? 0) + 1;
+    }
+
+    if (!cur) {
+      cur = { members: [p], dayCount: { ...localDays } };
+      continue;
+    }
+    const last = cur.members[cur.members.length - 1];
+    const isContiguous = addDaysIso(last.end, 1) === p.begin;
+    const currentDays = Object.values(cur.dayCount).reduce((s, n) => s + n, 0);
+    if (isContiguous && currentDays + periodDays <= 7) {
+      cur.members.push(p);
+      for (const [m, n] of Object.entries(localDays)) {
+        cur.dayCount[m] = (cur.dayCount[m] ?? 0) + n;
+      }
+    } else {
+      groups.push(cur);
+      cur = { members: [p], dayCount: { ...localDays } };
+    }
+  }
+  if (cur) groups.push(cur);
+
+  // Assign predominant_month to every period in each group
+  const annotated: OzonPeriod[] = [];
+  for (const g of groups) {
+    const entries = Object.entries(g.dayCount).sort((a, b) => b[1] - a[1]);
+    const predominant = entries[0][0];
+    for (const m of g.members) {
+      annotated.push({ ...m, predominant_month: predominant });
+    }
+  }
+  return annotated;
+}
+
+// Fetch Ozon cash-flow periods (with KV cache 6h) and annotate with predominant_month.
 async function getOzonPeriods(env: Env): Promise<OzonPeriod[]> {
-  const cacheKey = 'ozon:periods:2025-2026';
+  const cacheKey = 'ozon:periods:logical:v2';
   const cached = await env.CACHE.get(cacheKey);
   if (cached) {
     try { return JSON.parse(cached); } catch {}
@@ -64,9 +125,8 @@ async function getOzonPeriods(env: Env): Promise<OzonPeriod[]> {
 
   const fromIso = '2025-01-01T00:00:00.000Z';
   const toIso = '2027-12-31T23:59:59.000Z';
-  const all: OzonPeriod[] = [];
+  const raw: OzonPeriod[] = [];
 
-  // Cash-flow endpoint paginates; pull up to 5 pages × 100 = enough for ~10 years
   for (let page = 1; page <= 5; page++) {
     const resp = await fetch('https://api-seller.ozon.ru/v1/finance/cash-flow-statement/list', {
       method: 'POST',
@@ -75,36 +135,27 @@ async function getOzonPeriods(env: Env): Promise<OzonPeriod[]> {
         'Api-Key': env.OZON_API_KEY,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        date: { from: fromIso, to: toIso },
-        page,
-        page_size: 100,
-      }),
+      body: JSON.stringify({ date: { from: fromIso, to: toIso }, page, page_size: 100 }),
     });
-    if (!resp.ok) {
-      console.error(`[ozon cash-flow] page ${page} HTTP ${resp.status}`);
-      break;
-    }
+    if (!resp.ok) { console.error(`[ozon cash-flow] page ${page} HTTP ${resp.status}`); break; }
     const data = await resp.json() as { result: { cash_flows: Array<{ period: { begin: string; end: string } }>; page_count: number } };
     const flows = data.result?.cash_flows ?? [];
     for (const f of flows) {
       const begin = f.period.begin.slice(0, 10);
       const end = f.period.end.slice(0, 10);
-      all.push({ begin, end, month: end.slice(0, 7) });
+      raw.push({ begin, end, month: end.slice(0, 7), predominant_month: end.slice(0, 7) });
     }
     if (page >= (data.result?.page_count ?? 1)) break;
   }
 
-  // Sort by end date ascending
-  all.sort((a, b) => a.end.localeCompare(b.end));
-
-  // Cache for 6 hours (new period appears weekly, no need to refetch hourly)
-  await env.CACHE.put(cacheKey, JSON.stringify(all), { expirationTtl: 6 * 3600 });
-  return all;
+  raw.sort((a, b) => a.end.localeCompare(b.end));
+  const annotated = annotatePeriodsWithPredominantMonth(raw);
+  await env.CACHE.put(cacheKey, JSON.stringify(annotated), { expirationTtl: 6 * 3600 });
+  return annotated;
 }
 
-// Given an Ozon invoice date (unix sec), find the settlement period whose end
-// matches invoice_date - 1..4 days. Returns the period's month "YYYY-MM" or null.
+// Find settlement period.end ≤ invoice_date − 1 within last 5 days, return its
+// PREDOMINANT month (which correctly handles boundary-week splits).
 async function getOzonMonthForInvoiceDate(env: Env, invoiceDateSec: number): Promise<string | null> {
   const periods = await getOzonPeriods(env);
   const invDate = new Date(invoiceDateSec * 1000);
@@ -113,7 +164,7 @@ async function getOzonMonthForInvoiceDate(env: Env, invoiceDateSec: number): Pro
     target.setUTCDate(target.getUTCDate() - lag);
     const targetStr = target.toISOString().slice(0, 10);
     const hit = periods.find((p) => p.end === targetStr);
-    if (hit) return hit.month;
+    if (hit) return hit.predominant_month;
   }
   return null;
 }

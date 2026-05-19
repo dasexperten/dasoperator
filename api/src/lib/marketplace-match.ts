@@ -96,7 +96,7 @@ export async function tryMarketplaceMatchForTx(
 
   if (!tx || tx.deleted_at) return { matched: false, reason: 'tx_not_found' };
   if (tx.matched_operation_id) return { matched: false, reason: 'already_matched' };
-  if (tx.direction !== 'in') return { matched: false, reason: 'wrong_direction' };
+  if (tx.direction !== 'incoming') return { matched: false, reason: 'wrong_direction' };
 
   const cfg = tx.contragent_inn ? MARKETPLACE_CONFIG[tx.contragent_inn] : undefined;
   if (!cfg) return { matched: false, reason: 'not_marketplace' };
@@ -168,7 +168,7 @@ export async function scanAllUnmatchedMarketplace(env: Env): Promise<Retroactive
       SELECT id
       FROM bank_transactions
       WHERE contragent_inn = ?
-        AND direction = 'in'
+        AND direction = 'incoming'
         AND deleted_at IS NULL
         AND matched_operation_id IS NULL
       ORDER BY executed_at ASC

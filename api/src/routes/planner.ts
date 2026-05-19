@@ -352,19 +352,27 @@ r.get('/summary', async (c) => {
 
     // urgency metrics
     const skusToOrder = rows.filter(r => r.suggested_order > 0).length;
-    const skusZero = rows.filter(r => r.available_stock === 0 && !r.is_new_launch).length;
-    const skusCritical = rows.filter(r => r.cover_days !== null && r.cover_days <= 30).length;
-    const dearthFlags = rows.filter(r => r.dearth_days > 0).length;
+    // "skus_zero" = SKU with zero available AND active velocity (not idle SKUs)
+    const skusZero = rows.filter(r =>
+      r.available_stock === 0 && r.velocity_per_day > 0 && !r.is_new_launch
+    ).length;
+    const skusCritical = rows.filter(r =>
+      r.cover_days !== null && r.cover_days <= 30 && r.velocity_per_day > 0
+    ).length;
+    const dearthFlags = rows.filter(r =>
+      r.dearth_days > 0 && r.velocity_per_day > 0
+    ).length;
+    // min_cover only across SKUs with real velocity (skip idle/zero-velocity ones)
     const validCovers = rows
-      .filter(r => r.cover_days !== null)
+      .filter(r => r.cover_days !== null && r.velocity_per_day > 0)
       .map(r => r.cover_days as number);
     const minCover = validCovers.length > 0 ? Math.min(...validCovers) : null;
 
-    // urgency level
+    // urgency level: based on real cover among selling SKUs
     let urgency: 'critical' | 'high' | 'calm';
-    if (skusZero >= 1 || (minCover !== null && minCover <= 10)) {
+    if (minCover !== null && minCover <= 10) {
       urgency = 'critical';
-    } else if (skusCritical >= 1 || (minCover !== null && minCover <= 60)) {
+    } else if (minCover !== null && minCover <= 60) {
       urgency = 'high';
     } else {
       urgency = 'calm';

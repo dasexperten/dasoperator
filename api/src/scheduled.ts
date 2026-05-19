@@ -13,6 +13,7 @@ import { todayUtcDate, refreshFxFromCbr } from './lib/fx-cbr';
 import { storeSnapshot } from './lib/fx-store';
 import { runInboxIngestion } from './lib/inbox-ingestion';
 import { runBankStatementIngestion } from './lib/bank-statement-ingestion';
+import { scheduleWbWeekly, scheduleOzonMonthly, tickMarketplacePull } from './lib/marketplace-pull';
 
 
 // =============================================================================
@@ -343,6 +344,33 @@ export async function handleScheduled(
     return;
   }
 
+  // WB weekly realization schedule — Monday 03:00 UTC (06:00 МСК)
+  // WB publishes Mon-Sun reports for the previous week each Monday morning.
+  if (cron === '0 3 * * 1') {
+    console.log('[cron:mp-pull-schedule:wb] starting weekly WB realization schedule');
+    try {
+      const r = await scheduleWbWeekly(env);
+      console.log(`[cron:mp-pull-schedule:wb] result: ${JSON.stringify(r)}`);
+    } catch (e) {
+      console.error('[cron:mp-pull-schedule:wb] failed:', e);
+    }
+    return;
+  }
+
+  // Ozon monthly transaction schedule — 5th of each month, 03:00 UTC (06:00 МСК)
+  // Schedules a pull task for the previous calendar month.
+  if (cron === '0 3 5 * *') {
+    console.log('[cron:mp-pull-schedule:ozon] starting monthly Ozon transaction schedule');
+    try {
+      const r = await scheduleOzonMonthly(env);
+      console.log(`[cron:mp-pull-schedule:ozon] result: ${JSON.stringify(r)}`);
+    } catch (e) {
+      console.error('[cron:mp-pull-schedule:ozon] failed:', e);
+    }
+    return;
+  }
+
+
   // Daily inbox ingestion at 00:00 UTC = 03:00 МСК
   if (cron === '0 0 * * *') {
     console.log('[cron:inbox] starting daily invoice ingestion');
@@ -486,6 +514,13 @@ export async function handleScheduled(
       console.log(`[cron:promo-refill] complete: ${JSON.stringify(stats)}`);
     } catch (e) {
       console.error('[cron:promo-refill] failed:', e);
+    }
+    // Also tick marketplace pull pipeline (process 1 pending task)
+    try {
+      const r = await tickMarketplacePull(env);
+      if (r) console.log(`[cron:mp-pull-tick] ${JSON.stringify(r)}`);
+    } catch (e) {
+      console.error('[cron:mp-pull-tick] failed:', e);
     }
     return;
   }

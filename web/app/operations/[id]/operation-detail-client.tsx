@@ -84,23 +84,24 @@ type Tab = 'items' | 'status' | 'stock' | 'documents' | 'payments';
 // User-defined abbreviations for attachment kinds (per Aram's table)
 const ATTACHMENT_KIND_LABEL: Record<string, string> = {
   act: 'Акт',
+  acceptance: 'Акт',
   upd: 'УПД',
-  invoice: 'INV',
-  invoice_in: 'INV',
-  invoice_out: 'INV',
-  payment: 'PMT',
+  invoice: 'Счёт',
+  invoice_in: 'Счёт',
+  invoice_out: 'Счёт',
+  payment: 'Платёж',
   ci: 'CI',
   pl: 'PL',
   bl: 'BL',
   awb: 'AWB',
   cmr: 'CMR',
   swift: 'SWIFT',
-  proforma: 'PI',
+  proforma: 'Проформа',
   customs_decl: 'ГТД',
-  contract: 'CNTC',
-  certificate: 'CERT',
-  photo: 'PHOTO',
-  other: 'OTHER',
+  contract: 'Договор',
+  certificate: 'Сертификат',
+  photo: 'Фото',
+  other: 'Другое',
 };
 const labelKind = (k: string) => ATTACHMENT_KIND_LABEL[k] ?? k.toUpperCase();
 

@@ -130,7 +130,7 @@ interface RunRow {
 }
 
 type FilterType = 'toship' | 'top5' | 'stockout' | 'overstock' | null;
-type Tab = 'promos' | 'ozon' | 'wb';
+type Tab = 'ozon' | 'wb';
 
 function fmt(n: number | null | undefined): string {
   if (n == null) return '—';
@@ -138,7 +138,7 @@ function fmt(n: number | null | undefined): string {
 }
 
 export default function MarketplacesPage() {
-  const [tab, setTab] = useState<Tab>('promos');
+  const [tab, setTab] = useState<Tab>('ozon');
 
   return (
     <div className="space-y-6 max-w-full">
@@ -154,18 +154,12 @@ export default function MarketplacesPage() {
           Marketplaces
         </h1>
         <p className="mt-2" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
-          Ozon promotions · FBO supply planning · cross-channel insights
+          FBO supply planning · cross-channel insights
         </p>
       </div>
 
       {/* Tabs */}
       <div className="flex gap-1" style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-        <TabButton
-          active={tab === 'promos'}
-          onClick={() => setTab('promos')}
-          label="Promotions"
-          accent={OZON_BLUE}
-        />
         <TabButton
           active={tab === 'ozon'}
           onClick={() => setTab('ozon')}
@@ -180,12 +174,6 @@ export default function MarketplacesPage() {
         />
       </div>
 
-      {tab === 'promos' && (
-        <>
-          <RefillHistoryBlock key="refills" />
-          <PromoMatrix key="matrix" />
-        </>
-      )}
       {tab === 'ozon' && <FboDashboard config={OZON_CONFIG} key="ozon" />}
       {tab === 'wb' && <FboDashboard config={WB_CONFIG} key="wb" />}
     </div>

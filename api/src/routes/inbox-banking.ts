@@ -199,7 +199,39 @@ async function sweepUnmatchedByInn(
           ? 'service'
           : 'purchase';
 
-      // Generate reference — issuer-based for service, DEE-NNN for goods
+      // Lookup partner.abbreviation for non-service prefix (DEE fallback only if unset).
+      const partnerRow = await db.prepare(
+        `SELECT abbreviation FROM partners WHERE id = ?`
+      ).bind(args.partnerId).first<{ abbreviation: string | null }>();
+      const partnerAbbr = (partnerRow?.abbreviation || 'DEE').toUpperCase();
+
+      // SHORT-CIRCUIT: incoming sale for monthly-consolidation partner (e.g. DASR/Yandex Pay).
+      // Append bank_tx to existing {ABBR}-YYYYMM bucket instead of creating a new op.
+      if (!isService && tx.direction === 'incoming' && partnerAbbr === 'DASR') {
+        const d = new Date(tx.executed_at * 1000);
+        const yyyymm = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+        const monthRef = `${partnerAbbr}-${yyyymm}`;
+        const monthlyOp = await db.prepare(
+          `SELECT id, total_amount FROM operations WHERE reference = ? AND deleted_at IS NULL LIMIT 1`
+        ).bind(monthRef).first<{ id: string; total_amount: number }>();
+        if (monthlyOp) {
+          const newTotal = monthlyOp.total_amount + tx.amount / 100;
+          await db.prepare(
+            `UPDATE operations SET total_amount = ?, updated_at = ? WHERE id = ?`
+          ).bind(newTotal, args.nowSec, monthlyOp.id).run();
+          await db.prepare(`
+            UPDATE bank_transactions
+            SET matched_operation_id = ?, match_method = 'auto_monthly_bucket',
+                matched_at = ?, updated_at = ?
+            WHERE id = ?
+          `).bind(monthlyOp.id, args.nowSec, args.nowSec, tx.id).run();
+          out.processed += 1;
+          out.refs.push(monthRef);
+          continue;
+        }
+      }
+
+      // Generate reference — issuer-based for service, {ABBR}-YYNNNN for goods/sale
       let reference: string;
       if (isService) {
         reference = await generateServiceReference(db, {
@@ -209,7 +241,7 @@ async function sweepUnmatchedByInn(
         });
       } else {
         const yy = new Date(tx.executed_at * 1000).getFullYear() % 100;
-        const prefix = `DEE-${String(yy).padStart(2, '0')}`;
+        const prefix = `${partnerAbbr}-${String(yy).padStart(2, '0')}`;
         const cntRow = await db.prepare(
           `SELECT COUNT(*) AS cnt FROM operations WHERE reference LIKE ?`
         ).bind(`${prefix}%`).first<{ cnt: number }>();
@@ -893,7 +925,13 @@ inboxBanking.post('/:tx_id/assign-partner', async (c) => {
         ? 'service'
         : 'purchase';
 
-    // Generate reference — issuer-based for service, DEE-NNN for goods
+    // Lookup partner.abbreviation for non-service prefix (DEE fallback only if unset).
+    const partnerRow2 = await c.env.DB.prepare(
+      `SELECT abbreviation FROM partners WHERE id = ?`
+    ).bind(partnerId).first<{ abbreviation: string | null }>();
+    const partnerAbbr2 = (partnerRow2?.abbreviation || 'DEE').toUpperCase();
+
+    // Generate reference — issuer-based for service, {ABBR}-YYNNNN for goods/sale
     let reference: string;
     if (isService) {
       reference = await generateServiceReference(c.env.DB, {
@@ -903,7 +941,7 @@ inboxBanking.post('/:tx_id/assign-partner', async (c) => {
       });
     } else {
       const yy = new Date(tx.executed_at * 1000).getFullYear() % 100;
-      const prefix = `DEE-${String(yy).padStart(2, '0')}`;
+      const prefix = `${partnerAbbr2}-${String(yy).padStart(2, '0')}`;
       const cntRow = await c.env.DB.prepare(
         `SELECT COUNT(*) AS cnt FROM operations WHERE reference LIKE ?`
       ).bind(`${prefix}%`).first<{ cnt: number }>();

@@ -36,12 +36,20 @@ const PALLET_MAX = 6;
 const FORTYFT_THRESHOLD = 1.2;         // 120% of 20ft → escalate to 40ft
 
 // MOQ by category
-function moqFor(category: string, subcategory: string | null): number {
-  if (category === 'Floss') return 5000;
-  if (category === 'Other' && subcategory === 'Interdental') return 5000;
-  if (category === 'Toothpaste') return 10800;  // 150 cartons × 72 units = 10,800 pastes
-  // toothbrushes, mouthwash, tongue cleaner → 14,400
-  return 14400;
+// MOQ in CARTONS — the factory minimum is naturally expressed in cartons.
+// Returns the minimum number of cartons for the given product category.
+function moqCartonsFor(category: string, subcategory: string | null): number {
+  if (category === 'Floss') return 18;                                  // ~5000 units / 288 ctn_qty
+  if (category === 'Other' && subcategory === 'Interdental') return 18; // same
+  if (category === 'Toothpaste') return 150;                            // 150 ctn × 72 = 10,800 pastes
+  return 50;                                                            // brushes, mouthwash, tongue cleaner — 50 cartons regardless of bundle_size
+}
+
+// Converts MOQ-in-cartons to MOQ-in-units for a specific row.
+function moqFor(category: string, subcategory: string | null, ctnQty: number | null): number {
+  const cartons = moqCartonsFor(category, subcategory);
+  const qty = (ctnQty && ctnQty > 0) ? ctnQty : 1;
+  return cartons * qty;
 }
 
 // =============================================================================
@@ -370,7 +378,7 @@ async function computeForGroup(
       ? Math.round(totalCoverPool / velocityPerDay)
       : null; // no sales → cover infinite
 
-    const moq = moqFor(b.category, b.subcategory);
+    const moq = moqFor(b.category, b.subcategory, b.ctn_qty);
     const isNewLaunch = b.lifecycle_status === 'new_launch';
 
     const ctnQty = b.ctn_qty && b.ctn_qty > 0 ? b.ctn_qty : 1;

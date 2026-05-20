@@ -277,26 +277,63 @@ export async function tryMarketplaceMatchForTx(env: Env, txId: string): Promise<
     }
     report = await findMonthlyReportByMonth(env, 'ozon', ozonMonth);
     matchMethod = 'matched_by_ozon_period';
-  } else if (cfg.partnerId === 'wb' && purposeDate) {
-    // WB convention: registry create_dt = operation_date + 1 day (Mon after Sun-end week).
-    // Bank purpose "от DD.MM.YYYY" IS the registry create_dt — match by DATE
-    // (not exact second) since operations are stored at 23:59:59 of the Sunday.
-    const expectedDayStart = purposeDate - 86400;        // Sun 00:00:00
-    const expectedDayEnd = purposeDate - 1;              // Sun 23:59:59
+  } else if (cfg.partnerId === 'wb') {
+    // WB payment lag windows (based on WB offer changes in 2026):
+    //   OLD     (until 22.03.2026): week-end is 4-14 days before payment
+    //   TRANSIT (23.03 — 05.04.2026): 4-21 days (mixed period)
+    //   NEW     (from 06.04.2026):   week-end is 14-30 days before payment
+    //
+    // FIFO selection: oldest unmatched WB-WEEKLY within window wins.
+    // We ignore the date in payment_purpose (it's the bank doc date, NOT the
+    // sales week end — that previous matching strategy produced wrong matches).
+    const payTs = tx.executed_at;
+    const payDate = new Date(payTs * 1000);
+    const payDay = payDate.getTime();
+    // Boundaries (UTC midnight)
+    const CUTOFF_NEW = Date.UTC(2026, 3, 6) / 1000;   // 06.04.2026
+    const CUTOFF_TR  = Date.UTC(2026, 2, 23) / 1000;  // 23.03.2026
+
+    let lookbackMin: number;   // earliest week-end date we consider (older limit)
+    let lookbackMax: number;   // latest week-end date we consider (recent limit)
+    if (payTs >= CUTOFF_NEW) {
+      // NEW rule
+      lookbackMax = payTs - 14 * 86400;
+      lookbackMin = payTs - 30 * 86400;
+    } else if (payTs >= CUTOFF_TR) {
+      // TRANSITION
+      lookbackMax = payTs - 4 * 86400;
+      lookbackMin = payTs - 21 * 86400;
+    } else {
+      // OLD rule
+      lookbackMax = payTs - 4 * 86400;
+      lookbackMin = payTs - 14 * 86400;
+    }
+
+    // FIFO: pick oldest unmatched WB-WEEKLY within [lookbackMin .. lookbackMax]
+    // "Unmatched" = no bank_tx currently linked to it (matched_operation_id refs it).
     report = await env.DB.prepare(`
-      SELECT id, contract_id, operation_date, reference
-      FROM operations
-      WHERE partner_id = 'wb' AND operation_type = 'sale'
-        AND status IN ('issued','delivered') AND deleted_at IS NULL
-        AND operation_date >= ? AND operation_date <= ?
+      SELECT o.id, o.contract_id, o.operation_date, o.reference
+      FROM operations o
+      WHERE o.partner_id = 'wb'
+        AND o.operation_type = 'sale'
+        AND o.reference LIKE 'WB-%-WEEKLY'
+        AND o.status IN ('issued','delivered')
+        AND o.deleted_at IS NULL
+        AND o.operation_date >= ?
+        AND o.operation_date <= ?
+        AND NOT EXISTS (
+          SELECT 1 FROM bank_transactions bt
+          WHERE bt.matched_operation_id = o.id
+            AND bt.deleted_at IS NULL
+        )
+      ORDER BY o.operation_date ASC
       LIMIT 1
-    `).bind(expectedDayStart, expectedDayEnd).first<ReportRow>();
+    `).bind(lookbackMin, lookbackMax).first<ReportRow>();
+
     if (report) {
       matchMethod = 'matched_by_wb_registry_date';
     } else {
-      // Registry not in our DB (phantom week / missing report) — fall back to "last ≤"
-      report = await findReportByDate(env, 'wb', purposeDate);
-      matchMethod = report ? 'matched_by_wb_purpose_date' : null as any;
+      matchMethod = null as any;
     }
   } else {
     // No purpose date — fall back to executed_at window

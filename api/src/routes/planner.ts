@@ -26,6 +26,12 @@ const r = new Hono<{ Bindings: Env }>();
 // Warehouses excluded from "available stock" (factory + virtual transit)
 const EXCLUDED_WH = ['gzh', 'yzh', 'dgn', 'otw'];
 
+const PALLET_VOLUME_M3 = 1.44;        // standard EUR pallet useful volume
+const CONTAINER_20FT_M3 = 28;          // 20ft cargo cubic capacity
+const CONTAINER_40FT_M3 = 56;          // 40ft cargo cubic capacity
+const PALLET_MAX = 6;
+const FORTYFT_THRESHOLD = 1.2;         // 120% of 20ft → escalate to 40ft
+
 // MOQ by category
 function moqFor(category: string, subcategory: string | null): number {
   if (category === 'Floss') return 5000;
@@ -44,6 +50,7 @@ type PlannerRow = {
   subcategory: string | null;
   manufacturer_id: string;
   lifecycle_status: string;
+  // carton spec
   ctn_qty: number | null;
   ctn_volume_m3: number | null;
   // metrics
@@ -57,8 +64,12 @@ type PlannerRow = {
   raw_need: number;
   moq: number;
   suggested_order: number;
+  // carton breakdown for this SKU's contribution to the shipment
+  cartons: number;            // ceil(suggested_order / ctn_qty), or 0
+  volume_m3: number;          // cartons * ctn_volume_m3
+  pallets: number;            // volume / PALLET_VOLUME_M3
   // flags
-  dearth_days: number;       // out-of-stock days in last 60
+  dearth_days: number;
   is_new_launch: boolean;
 };
 
@@ -214,26 +225,33 @@ async function computeForGroup(
     const moq = moqFor(b.category, b.subcategory);
     const isNewLaunch = b.lifecycle_status === 'new_launch';
 
+    const ctnQty = b.ctn_qty && b.ctn_qty > 0 ? b.ctn_qty : 1;
+    const ctnVol = b.ctn_volume_m3 || 0;
+
     let rawNeed = 0;
     let suggested = 0;
     if (isNewLaunch) {
-      // New launch: no velocity → suggest one MOQ to seed the market
+      // New launch: no velocity → seed with MOQ, rounded up to whole cartons
       rawNeed = moq;
-      suggested = moq;
+      suggested = Math.ceil(moq / ctnQty) * ctnQty;
     } else {
       // target stock pool after arrival = (lead_time + coverage) days of velocity
       const targetPool = velocityPerDay * (leadTimeDays + coverageDays);
       rawNeed = Math.max(0, Math.ceil(targetPool - totalCoverPool));
-      // round up to MOQ multiple (and respect MOQ minimum if any need exists)
       if (rawNeed === 0) {
         suggested = 0;
-      } else if (rawNeed <= moq) {
-        suggested = moq;
       } else {
-        // round up to nearest MOQ multiple
-        suggested = Math.ceil(rawNeed / moq) * moq;
+        // respect MOQ in units first
+        const withMoq = Math.max(rawNeed, moq);
+        // then round up to whole cartons
+        suggested = Math.ceil(withMoq / ctnQty) * ctnQty;
       }
     }
+
+    // carton breakdown
+    const cartons = suggested > 0 ? suggested / ctnQty : 0;
+    const volumeM3 = cartons * ctnVol;
+    const palletsForSku = volumeM3 / PALLET_VOLUME_M3;
 
     return {
       base_sku: b.base_sku,
@@ -253,6 +271,9 @@ async function computeForGroup(
       raw_need: rawNeed,
       moq,
       suggested_order: suggested,
+      cartons,
+      volume_m3: Math.round(volumeM3 * 1000) / 1000,
+      pallets: Math.round(palletsForSku * 100) / 100,
       dearth_days: dearthDays,
       is_new_launch: isNewLaunch,
     };
@@ -268,12 +289,6 @@ async function computeForGroup(
 //   6 ... 120% of 20ft → 20ft full (top up nearest SKUs to fill)
 //   > 120% of 20ft     → 40ft full
 // =============================================================================
-const PALLET_VOLUME_M3 = 1.44;        // standard EUR pallet useful volume
-const CONTAINER_20FT_M3 = 28;          // 20ft cargo cubic capacity
-const CONTAINER_40FT_M3 = 56;          // 40ft cargo cubic capacity
-const PALLET_MAX = 6;
-const FORTYFT_THRESHOLD = 1.2;         // 120% of 20ft → escalate to 40ft
-
 type Scenario = {
   mode: 'pallet' | '20ft' | '40ft';
   total_units: number;
@@ -284,16 +299,15 @@ type Scenario = {
 };
 
 function computeScenarios(rows: PlannerRow[]): Scenario[] {
-  // raw volume from suggested_order
+  // Sum what each SKU contributes (already computed in PlannerRow)
   let totalUnits = 0;
+  let totalCartons = 0;
   let totalVolume = 0;
   for (const r of rows) {
     if (r.suggested_order <= 0) continue;
-    const ctnQty = r.ctn_qty || 1;
-    const ctnVol = r.ctn_volume_m3 || 0;
-    const cartons = Math.ceil(r.suggested_order / ctnQty);
     totalUnits += r.suggested_order;
-    totalVolume += cartons * ctnVol;
+    totalCartons += r.cartons;
+    totalVolume += r.volume_m3;
   }
   const pallets = totalVolume / PALLET_VOLUME_M3;
 

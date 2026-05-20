@@ -82,8 +82,7 @@ function fmtMoney(amount: number | null, currency: 'cny' | 'usd'): string {
 
 const PALLET_VOLUME_M3 = 1.44;
 const C20_VOLUME_M3 = 28;
-const C40_VOLUME_M3 = 56;
-const DEFAULT_PALLETS = 6;
+const C40_VOLUME_M3 = 76;  // 40HQ High Cube interior volume
 
 type SizingMode = 'pallet' | '20ft' | '40ft';
 
@@ -190,7 +189,21 @@ export default function PlannerPage() {
   const [manualOverrides, setManualOverrides] = useState<Record<string, number>>({});
 
   const [mode, setMode] = useState<SizingMode>('pallet');
-  const [palletCount, setPalletCount] = useState<number>(DEFAULT_PALLETS);
+
+  // For pallet mode: overrides come from backend's r.cartons (natural reorder).
+  // For container modes: overrides come from autoFillCartons greedy with tier ladder.
+  function computeOverridesForMode(rows: PlannerRow[], m: SizingMode, manual: Record<string, number>): Record<string, number> {
+    if (m === 'pallet') {
+      const out: Record<string, number> = {};
+      for (const r of rows) {
+        if (Object.prototype.hasOwnProperty.call(manual, r.base_sku)) continue;
+        out[r.base_sku] = r.cartons; // backend's suggested baseline
+      }
+      return out;
+    }
+    const target = m === '20ft' ? C20_VOLUME_M3 : C40_VOLUME_M3;
+    return autoFillCartons(rows, target, m, manual);
+  }
 
   // Load summary on mount
   useEffect(() => {
@@ -228,8 +241,7 @@ export default function PlannerPage() {
           setDetail(res.result);
           // Reset all overrides on group/zone change — fresh plan
           setManualOverrides({});
-          const target = mode === '20ft' ? C20_VOLUME_M3 : mode === '40ft' ? C40_VOLUME_M3 : palletCount * PALLET_VOLUME_M3;
-          setAutoOverrides(autoFillCartons(res.result.rows, target, mode, {}));
+          setAutoOverrides(computeOverridesForMode(res.result.rows, mode, {}));
         } else {
           setError(res.errors[0]?.message ?? 'Failed to load suggestions');
         }
@@ -239,24 +251,17 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedGroup, stockZone, currency]);
 
-  function getTargetVolume(m: SizingMode, p: number): number {
+  function getTargetVolume(m: SizingMode): number {
     if (m === '20ft') return C20_VOLUME_M3;
     if (m === '40ft') return C40_VOLUME_M3;
-    return p * PALLET_VOLUME_M3;
+    return Infinity; // pallets mode — no volume target, baseline is what it is
   }
 
-  // Recompute auto when mode / pallet count changes
+  // Recompute auto when mode changes
   function handleModeChange(m: SizingMode) {
     setMode(m);
     if (detail) {
-      const target = getTargetVolume(m, palletCount);
-      setAutoOverrides(autoFillCartons(detail.rows, target, m, manualOverrides));
-    }
-  }
-  function handlePalletCountChange(n: number) {
-    setPalletCount(n);
-    if (detail && n > 0) {
-      setAutoOverrides(autoFillCartons(detail.rows, n * PALLET_VOLUME_M3, 'pallet', manualOverrides));
+      setAutoOverrides(computeOverridesForMode(detail.rows, m, manualOverrides));
     }
   }
 
@@ -265,8 +270,7 @@ export default function PlannerPage() {
     const newManual = { ...manualOverrides, [baseSku]: value };
     setManualOverrides(newManual);
     if (detail) {
-      const target = getTargetVolume(mode, palletCount);
-      setAutoOverrides(autoFillCartons(detail.rows, target, mode, newManual));
+      setAutoOverrides(computeOverridesForMode(detail.rows, mode, newManual));
     }
   }
 
@@ -276,8 +280,7 @@ export default function PlannerPage() {
     delete newManual[baseSku];
     setManualOverrides(newManual);
     if (detail) {
-      const target = getTargetVolume(mode, palletCount);
-      setAutoOverrides(autoFillCartons(detail.rows, target, mode, newManual));
+      setAutoOverrides(computeOverridesForMode(detail.rows, mode, newManual));
     }
   }
 
@@ -285,8 +288,7 @@ export default function PlannerPage() {
   function handleResetAll() {
     setManualOverrides({});
     if (detail) {
-      const target = getTargetVolume(mode, palletCount);
-      setAutoOverrides(autoFillCartons(detail.rows, target, mode, {}));
+      setAutoOverrides(computeOverridesForMode(detail.rows, mode, {}));
     }
   }
 
@@ -335,8 +337,8 @@ export default function PlannerPage() {
   totPallets = Math.round(totPallets * 100) / 100;
   totAmount = Math.round(totAmount * 100) / 100;
 
-  const targetVol = getTargetVolume(mode, palletCount);
-  const manualExceedsTarget = manualVolume > targetVol + 0.01;
+  const targetVol = getTargetVolume(mode);
+  const manualExceedsTarget = mode !== 'pallet' && manualVolume > targetVol + 0.01;
   const hasManualEntries = Object.keys(manualOverrides).length > 0;
 
   return (
@@ -392,7 +394,7 @@ export default function PlannerPage() {
           {manualExceedsTarget && (
             <div className="flex items-center gap-3 px-4 py-3 rounded" style={{ background: '#FCEBEB', border: '0.5px solid #F09595', fontSize: '13px', color: '#791F1F' }}>
               <span style={{ fontSize: 16 }}>⚠</span>
-              <span><b>Manual entries take {manualVolume.toFixed(2)} m³</b> — exceeds {mode === 'pallet' ? `${palletCount} pallets (${targetVol.toFixed(2)} m³)` : `${mode} (${targetVol} m³)`}. Raise target or unlock entries to rebalance.</span>
+              <span><b>Manual entries take {manualVolume.toFixed(2)} m³</b> — exceeds {mode === '20ft' ? '20ft' : '40HQ'} capacity ({targetVol} m³). Unlock entries to rebalance.</span>
             </div>
           )}
 
@@ -409,9 +411,8 @@ export default function PlannerPage() {
           {/* Sizing buttons */}
           <SizingButtons
             mode={mode}
-            palletCount={palletCount}
+            baselinePallets={totPallets}
             onModeChange={handleModeChange}
-            onPalletCountChange={handlePalletCountChange}
           />
 
           {/* Table */}
@@ -529,22 +530,19 @@ function ToggleGroup({ value, options, onChange, disabledIds }: { value: string;
 // SIZING BUTTONS
 // ============================================================
 function SizingButtons({
-  mode, palletCount, onModeChange, onPalletCountChange,
+  mode, baselinePallets, onModeChange,
 }: {
   mode: SizingMode;
-  palletCount: number;
+  baselinePallets: number;
   onModeChange: (mode: SizingMode) => void;
-  onPalletCountChange: (n: number) => void;
 }) {
   const palletSelected = mode === 'pallet';
   const c20Selected = mode === '20ft';
   const c40Selected = mode === '40ft';
 
-  const pSub = `${(palletCount * PALLET_VOLUME_M3).toFixed(2)} m³ · within max 6`;
-
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-      {/* PALLETS */}
+      {/* PALLETS — read-only display of natural reorder */}
       <button
         type="button"
         onClick={() => onModeChange('pallet')}
@@ -564,42 +562,20 @@ function SizingButtons({
         <div style={{ position: 'absolute', top: 8, right: 12, fontSize: 10, color: '#0C447C', fontWeight: 500, letterSpacing: '0.3px', display: palletSelected ? 'block' : 'none' }}>
           SELECTED ★
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <input
-            type="number"
-            min={1}
-            max={99}
-            value={palletCount}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => {
-              const v = parseInt(e.target.value, 10);
-              onPalletCountChange(isNaN(v) ? 0 : v);
-              onModeChange('pallet');
-            }}
-            style={{
-              width: 64,
-              height: 52,
-              fontSize: 36,
-              fontWeight: 500,
-              textAlign: 'center',
-              border: '0.5px solid ' + (palletSelected ? '#185FA5' : '#a8a29e'),
-              borderRadius: 6,
-              background: 'white',
-              color: palletSelected ? '#0C447C' : '#57534e',
-              padding: 0,
-              lineHeight: 1,
-            }}
-          />
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          <div style={{ fontSize: 36, fontWeight: 500, color: palletSelected ? '#0C447C' : '#57534e', lineHeight: 1 }}>
+            {baselinePallets.toFixed(1)}
+          </div>
           <div style={{ fontSize: 14, fontWeight: 500, color: palletSelected ? '#0C447C' : '#57534e', letterSpacing: '0.3px' }}>
             PALLETS
           </div>
         </div>
         <div style={{ fontSize: 11, color: palletSelected ? '#185FA5' : '#78716c', marginTop: 6 }}>
-          {pSub}
+          natural reorder · lead {65}d + cover 60d
         </div>
       </button>
 
-      {/* 20ft */}
+      {/* 20FT */}
       <button
         type="button"
         onClick={() => onModeChange('20ft')}
@@ -624,11 +600,11 @@ function SizingButtons({
           20FT CONTAINER
         </div>
         <div style={{ fontSize: 11, color: c20Selected ? '#185FA5' : '#78716c', marginTop: 8 }}>
-          28 m³ capacity
+          28 m³ — fill priority
         </div>
       </button>
 
-      {/* 40ft */}
+      {/* 40HQ */}
       <button
         type="button"
         onClick={() => onModeChange('40ft')}
@@ -650,10 +626,10 @@ function SizingButtons({
           SELECTED ★
         </div>
         <div style={{ fontSize: 14, fontWeight: 500, color: c40Selected ? '#0C447C' : '#57534e', letterSpacing: '0.3px' }}>
-          40FT CONTAINER
+          40HQ CONTAINER
         </div>
         <div style={{ fontSize: 11, color: c40Selected ? '#185FA5' : '#78716c', marginTop: 8 }}>
-          56 m³ capacity
+          76 m³ — fill priority
         </div>
       </button>
     </div>

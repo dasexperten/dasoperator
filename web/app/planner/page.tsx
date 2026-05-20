@@ -371,7 +371,19 @@ function ToggleGroup({ value, options, onChange }: { value: string; options: Arr
  * Returns map: base_sku → cartons.
  */
 function autoFillCartons(rows: PlannerRow[], targetVolumeM3: number): Record<string, number> {
-  // Step 1: start with MOQ baseline (each row's pre-computed cartons)
+  // Algorithm: two-phase greedy
+  //
+  // Phase A — MOQ entry for active SKUs:
+  //   Score = velocity^1.5 / cover_after_MOQ
+  //   Sort descending. Walk list; add MOQ to each that fits in free space.
+  //
+  // Phase B — Top up by +1 carton:
+  //   Score = velocity^2 / cover_after_plus_1
+  //   Pick highest-score SKU already in order, add 1 carton. Repeat while space allows.
+  //
+  // Baseline (suggested_order > 0) stays as starting point. Phase B may top up these
+  // baseline SKUs too if their +1 score wins.
+
   const overrides: Record<string, number> = {};
   for (const r of rows) overrides[r.base_sku] = r.cartons;
 
@@ -384,20 +396,18 @@ function autoFillCartons(rows: PlannerRow[], targetVolumeM3: number): Record<str
     return v;
   }
 
-  // helper: simulate cover days if we set cartons for a SKU
-  function simulatedCover(r: PlannerRow, cartons: number): number {
+  function coverAfter(r: PlannerRow, cartons: number): number {
     if (r.velocity_per_day <= 0) return Infinity;
     const newUnits = cartons * (r.ctn_qty ?? 0);
-    const totalUnits = r.available_stock + newUnits;
-    return totalUnits / r.velocity_per_day;
+    const total = r.available_stock + newUnits;
+    return total / r.velocity_per_day;
   }
 
   let freeVol = targetVolumeM3 - currentVolume();
   if (freeVol <= 0) return overrides;
 
   // ============================================================
-  // PHASE 1 — add new SKUs (not in order yet) that fit MOQ in free space
-  // Formula: score = velocity / (cover + 30) — descending
+  // PHASE A — MOQ entry, sorted by vel^1.5 / cover_after
   // ============================================================
   const eligibleNew = rows
     .filter((r) =>
@@ -405,14 +415,15 @@ function autoFillCartons(rows: PlannerRow[], targetVolumeM3: number): Record<str
       r.lifecycle_status === 'active' &&
       r.velocity_per_day > 0 &&
       (r.ctn_volume_m3 ?? 0) > 0 &&
-      r.suggested_order === 0 // not in baseline order
+      r.suggested_order === 0,
     )
-    .map((r) => ({
-      r,
-      moqVolume: Math.ceil(r.moq / (r.ctn_qty ?? 1)) * (r.ctn_volume_m3 ?? 0),
-      moqCartons: Math.ceil(r.moq / (r.ctn_qty ?? 1)),
-      score: r.velocity_per_day / ((r.cover_days ?? 0) + 30),
-    }))
+    .map((r) => {
+      const moqCartons = Math.ceil(r.moq / (r.ctn_qty ?? 1));
+      const moqVolume = moqCartons * (r.ctn_volume_m3 ?? 0);
+      const cov = Math.max(1, coverAfter(r, moqCartons));
+      const score = Math.pow(r.velocity_per_day, 1.5) / cov;
+      return { r, moqCartons, moqVolume, score };
+    })
     .sort((a, b) => b.score - a.score);
 
   for (const cand of eligibleNew) {
@@ -423,75 +434,32 @@ function autoFillCartons(rows: PlannerRow[], targetVolumeM3: number): Record<str
   }
 
   // ============================================================
-  // PHASE 2 — top up EXISTING SKUs in order (by +1 carton each),
-  // cap at 180-day coverage. Sort by smallest cover ascending.
+  // PHASE B — +1 carton top-up by vel² / cover_after_+1
   // ============================================================
-  const COVER_CAP_PHASE2 = 180;
-
-  function eligibleForPhase2() {
-    return rows
-      .filter((r) => {
-        const c = overrides[r.base_sku] ?? 0;
-        if (c === 0) return false; // not in order
-        if (r.velocity_per_day <= 0) return false;
-        if ((r.ctn_volume_m3 ?? 0) <= 0) return false;
-        const newCover = simulatedCover(r, c + 1);
-        return newCover <= COVER_CAP_PHASE2;
-      })
-      .sort((a, b) => {
-        const ca = simulatedCover(a, overrides[a.base_sku] ?? 0);
-        const cb = simulatedCover(b, overrides[b.base_sku] ?? 0);
-        return ca - cb;
-      });
-  }
-
   let safety = 0;
-  while (freeVol > 0 && safety < 100000) {
-    const cands = eligibleForPhase2();
-    if (cands.length === 0) break;
-    const top = cands[0];
-    const vol = top.ctn_volume_m3 ?? 0;
-    if (vol > freeVol) break;
-    overrides[top.base_sku] = (overrides[top.base_sku] ?? 0) + 1;
-    freeVol -= vol;
-    safety++;
-  }
-
-  // ============================================================
-  // PHASE 3 — for 20ft/40ft only (large containers with leftover space):
-  // raise coverage cap to 365 days, use velocity² / cover formula
-  // for priority. This phase activates when freeVol is still substantial
-  // (more than 1 pallet = 1.44 m³) — indicates a container, not a pallet load.
-  // ============================================================
-  if (freeVol >= 1.44) {
-    const COVER_CAP_PHASE3 = 365;
-    safety = 0;
-    while (freeVol > 0 && safety < 100000) {
-      // candidates: any SKU with active velocity, cover after +1 <= 365
-      const cands = rows
-        .filter((r) => {
-          const c = overrides[r.base_sku] ?? 0;
-          if (r.velocity_per_day <= 0) return false;
-          if ((r.ctn_volume_m3 ?? 0) <= 0) return false;
-          if (r.is_new_launch || r.lifecycle_status !== 'active') return false;
-          const newCover = simulatedCover(r, c + 1);
-          return newCover > COVER_CAP_PHASE2 && newCover <= COVER_CAP_PHASE3;
-        })
-        .map((r) => {
-          const c = overrides[r.base_sku] ?? 0;
-          const cover = Math.max(1, simulatedCover(r, c + 1));
-          return { r, score: (r.velocity_per_day * r.velocity_per_day) / cover };
-        })
-        .sort((a, b) => b.score - a.score);
-
-      if (cands.length === 0) break;
-      const top = cands[0];
-      const vol = top.r.ctn_volume_m3 ?? 0;
-      if (vol > freeVol) break;
-      overrides[top.r.base_sku] = (overrides[top.r.base_sku] ?? 0) + 1;
-      freeVol -= vol;
-      safety++;
+  while (freeVol > 0.001 && safety < 100000) {
+    let bestRow: PlannerRow | null = null;
+    let bestScore = -1;
+    for (const r of rows) {
+      const cur = overrides[r.base_sku] ?? 0;
+      if (cur === 0) continue;
+      if (r.velocity_per_day <= 0) continue;
+      if (r.is_new_launch) continue;
+      if (r.lifecycle_status !== 'active') continue;
+      const ctnVol = r.ctn_volume_m3 ?? 0;
+      if (ctnVol <= 0) continue;
+      if (ctnVol > freeVol) continue;
+      const cov = Math.max(1, coverAfter(r, cur + 1));
+      const score = (r.velocity_per_day * r.velocity_per_day) / cov;
+      if (score > bestScore) {
+        bestScore = score;
+        bestRow = r;
+      }
     }
+    if (bestRow === null) break;
+    overrides[bestRow.base_sku] = (overrides[bestRow.base_sku] ?? 0) + 1;
+    freeVol -= bestRow.ctn_volume_m3 ?? 0;
+    safety++;
   }
 
   return overrides;
@@ -508,6 +476,39 @@ function findUpsellCandidate(
   overrides: Record<string, number>,
   freeVolumeM3: number,
 ): { sku: PlannerRow; needPallets: number } | null {
+  // Find the highest-score active SKU NOT in order whose MOQ doesn't fit in current free space,
+  // but would fit if we added more pallets. Score uses Phase A formula: vel^1.5 / cover_after_MOQ.
+  function coverAfter(r: PlannerRow, cartons: number): number {
+    if (r.velocity_per_day <= 0) return Infinity;
+    const newUnits = cartons * (r.ctn_qty ?? 0);
+    const total = r.available_stock + newUnits;
+    return total / r.velocity_per_day;
+  }
+
+  const candidates = rows
+    .filter((r) =>
+      !r.is_new_launch &&
+      r.lifecycle_status === 'active' &&
+      r.velocity_per_day > 0 &&
+      (r.ctn_volume_m3 ?? 0) > 0 &&
+      (overrides[r.base_sku] ?? 0) === 0,
+    )
+    .map((r) => {
+      const moqCartons = Math.ceil(r.moq / (r.ctn_qty ?? 1));
+      const moqVolume = moqCartons * (r.ctn_volume_m3 ?? 0);
+      const cov = Math.max(1, coverAfter(r, moqCartons));
+      const score = Math.pow(r.velocity_per_day, 1.5) / cov;
+      return { r, moqVolume, score };
+    })
+    .filter((c) => c.moqVolume > freeVolumeM3)
+    .sort((a, b) => b.score - a.score);
+
+  if (candidates.length === 0) return null;
+  const top = candidates[0];
+  const extraVolNeeded = top.moqVolume - freeVolumeM3;
+  const extraPallets = Math.ceil(extraVolNeeded / PALLET_VOLUME_M3);
+  return { sku: top.r, needPallets: extraPallets };
+} | null {
   const candidates = rows
     .filter((r) =>
       !r.is_new_launch &&

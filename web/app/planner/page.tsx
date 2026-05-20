@@ -378,33 +378,22 @@ function ToggleGroup({ value, options, onChange, disabledIds }: { value: string;
  * Returns map: base_sku → cartons.
  */
 function autoFillCartons(rows: PlannerRow[], targetVolumeM3: number, mode: SizingMode = 'pallet'): Record<string, number> {
-  const PHASE_B_CAP = mode === 'pallet' ? 180 : mode === '20ft' ? 365 : 540;
-  // Algorithm: two-phase greedy
+  // Unified greedy: at EVERY step, every SKU competes for the next carton slot.
   //
-  // Phase A — MOQ entry for active SKUs:
-  //   Score = velocity^1.5 / cover_after_MOQ
-  //   Sort descending. Walk list; add MOQ to each that fits in free space.
+  // Move options:
+  //   - If SKU has 0 cartons → adding MOQ (one big jump)
+  //   - If SKU has > 0 cartons → adding +1 carton (small increment)
   //
-  // Phase B — Top up by +1 carton:
-  //   Score = velocity^2 / cover_after_plus_1
-  //   Pick highest-score SKU already in order, add 1 carton. Repeat while space allows.
-  //
-  // Baseline (suggested_order > 0) stays as starting point. Phase B may top up these
-  // baseline SKUs too if their +1 score wins.
+  // Both options are scored identically: velocity^1.5 / cover_after.
+  // Highest score wins; volume of that move is deducted; loop continues.
+  // Hard cap: any move pushing cover above PHASE_B_CAP is rejected (180/365/540d by mode).
+  // Result: the algorithm picks "add +1 ctn of DE110 (vel 158)" over "MOQ entry of DE126 (vel 10)"
+  // automatically — addition strategy unified with introduction strategy.
 
-  // Start from ZERO for all SKUs — Phase A re-picks based on score within the target volume budget.
-  // This lets the slider trim down when target shrinks (previously stuck at baseline minimum).
+  const CAP_DAYS = mode === 'pallet' ? 180 : mode === '20ft' ? 365 : 540;
+
   const overrides: Record<string, number> = {};
   for (const r of rows) overrides[r.base_sku] = 0;
-
-  function currentVolume(): number {
-    let v = 0;
-    for (const r of rows) {
-      const c = overrides[r.base_sku] ?? 0;
-      v += c * (r.ctn_volume_m3 ?? 0);
-    }
-    return v;
-  }
 
   function coverAfter(r: PlannerRow, cartons: number): number {
     if (r.velocity_per_day <= 0) return Infinity;
@@ -413,65 +402,50 @@ function autoFillCartons(rows: PlannerRow[], targetVolumeM3: number, mode: Sizin
     return total / r.velocity_per_day;
   }
 
-  let freeVol = targetVolumeM3 - currentVolume();
-  if (freeVol <= 0) return overrides;
-
-  // ============================================================
-  // PHASE A — MOQ entry, sorted by vel^1.5 / cover_after
-  // ============================================================
-  // All eligible SKUs compete for MOQ slots — sorting by score puts urgent (low cover, high velocity)
-  // ones first, so the budget naturally goes to highest-priority items.
-  const eligibleNew = rows
-    .filter((r) =>
-      !r.is_new_launch &&
-      r.lifecycle_status === 'active' &&
-      r.velocity_per_day > 0 &&
-      (r.ctn_volume_m3 ?? 0) > 0,
-    )
-    .map((r) => {
-      const moqCartons = Math.ceil(r.moq / (r.ctn_qty ?? 1));
-      const moqVolume = moqCartons * (r.ctn_volume_m3 ?? 0);
-      const cov = Math.max(1, coverAfter(r, moqCartons));
-      const score = Math.pow(r.velocity_per_day, 1.5) / cov;
-      return { r, moqCartons, moqVolume, score };
-    })
-    .sort((a, b) => b.score - a.score);
-
-  for (const cand of eligibleNew) {
-    if (cand.moqVolume <= freeVol) {
-      overrides[cand.r.base_sku] = cand.moqCartons;
-      freeVol -= cand.moqVolume;
-    }
-  }
-
-  // ============================================================
-  // PHASE B — +1 carton top-up by vel² / cover_after_+1
-  // ============================================================
+  let freeVol = targetVolumeM3;
   let safety = 0;
   while (freeVol > 0.001 && safety < 100000) {
     let bestRow: PlannerRow | null = null;
+    let bestAddCartons = 0;
+    let bestAddVol = 0;
     let bestScore = -1;
+
     for (const r of rows) {
-      const cur = overrides[r.base_sku] ?? 0;
-      if (cur === 0) continue;
       if (r.velocity_per_day <= 0) continue;
       if (r.is_new_launch) continue;
       if (r.lifecycle_status !== 'active') continue;
       const ctnVol = r.ctn_volume_m3 ?? 0;
       if (ctnVol <= 0) continue;
-      if (ctnVol > freeVol) continue;
-      const newCov = coverAfter(r, cur + 1);
-      if (newCov > PHASE_B_CAP) continue;
+
+      const cur = overrides[r.base_sku] ?? 0;
+
+      // Pick move type for this SKU
+      let addCartons: number;
+      if (cur === 0) {
+        addCartons = Math.ceil(r.moq / (r.ctn_qty ?? 1));
+      } else {
+        addCartons = 1;
+      }
+      const addVol = addCartons * ctnVol;
+      if (addVol > freeVol) continue;
+
+      const newCov = coverAfter(r, cur + addCartons);
+      if (newCov > CAP_DAYS) continue;
+
       const cov = Math.max(1, newCov);
       const score = Math.pow(r.velocity_per_day, 1.5) / cov;
+
       if (score > bestScore) {
         bestScore = score;
         bestRow = r;
+        bestAddCartons = addCartons;
+        bestAddVol = addVol;
       }
     }
+
     if (bestRow === null) break;
-    overrides[bestRow.base_sku] = (overrides[bestRow.base_sku] ?? 0) + 1;
-    freeVol -= bestRow.ctn_volume_m3 ?? 0;
+    overrides[bestRow.base_sku] = (overrides[bestRow.base_sku] ?? 0) + bestAddCartons;
+    freeVol -= bestAddVol;
     safety++;
   }
 

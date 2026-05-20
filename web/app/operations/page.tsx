@@ -1088,18 +1088,10 @@ export default function OperationsPage() {
                       </td>
                       <td className="px-4 py-3">
                         {op.operation_type === 'transfer' ? (
-                          // Transfers don't have payment — show only movement status, no colour overlay
-                          <div className="inline-flex items-center gap-2" style={{
-                            padding: '4px 10px',
-                            backgroundColor: 'var(--paper-sunk)',
-                            color: 'var(--fg-2)',
-                            borderRadius: 'var(--radius-sm)',
-                            fontSize: '14px',
-                            fontWeight: 500,
-                          }}>
-                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--fg-3)', display: 'inline-block' }} />
-                            <span style={{ color: 'var(--fg-1)', fontWeight: 600 }}>{statusLabel(op.status)}</span>
-                          </div>
+                          // Transfers don't have payment — plain status text, no background
+                          <span style={{ color: 'var(--fg-2)', fontSize: '14px', fontWeight: 600 }}>
+                            {statusLabel(op.status)}
+                          </span>
                         ) : (
                           <div className="inline-flex items-center gap-2" style={{
                             padding: '4px 10px',

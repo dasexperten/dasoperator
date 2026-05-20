@@ -331,7 +331,8 @@ export interface AutoReplyResult {
   countTotal: number;
   countToday: number;
   inspected: number;
-  replied: number;
+  replied: number;          // 5★ auto-posted to WB
+  drafted: number;          // 1-4★ saved to D1 as pending
   ratingOnlySkipped: number;
   errors: { feedbackId?: string; stage: string; error: string }[];
   durationMs: number;
@@ -339,7 +340,13 @@ export interface AutoReplyResult {
 }
 
 const THROTTLE_KEY = 'wb-reviews:throttled-until';
-const THROTTLE_MINUTES = 30; // pause auto-tick for 30 min after a 429
+const STREAK_KEY = 'wb-reviews:429-streak';
+const THROTTLE_MINUTES = 30; // fallback when we can't parse a 429
+const MAX_BACKOFF_HOURS = 6; // cap escalating backoff at 6 hours
+
+// Auto-reply rule: only 5★ with text gets posted automatically.
+// 1-4★ goes to drafts queue for human approval (UI shows pending list).
+const AUTO_REPLY_MIN_RATING = 5;
 
 export async function runWbAutoReply(
   env: Env,
@@ -357,6 +364,7 @@ export async function runWbAutoReply(
     countToday: 0,
     inspected: 0,
     replied: 0,
+    drafted: 0,
     ratingOnlySkipped: 0,
     errors: [],
     durationMs: 0,
@@ -391,19 +399,25 @@ export async function runWbAutoReply(
   let skip = 0;
   const pageSize = Math.min(100, maxInspect);
 
-  while (result.replied < maxReplies && result.inspected < maxInspect) {
+  while ((result.replied + result.drafted) < maxReplies && result.inspected < maxInspect) {
     let page: any[];
     try {
       page = await fetchUnansweredList(env, pageSize, skip);
     } catch (e: any) {
       const msg = String(e?.message ?? e);
       result.errors.push({ stage: 'list', error: msg });
-      // Honor WB-supplied retry-after instead of guessing
+      // Honor WB-supplied retry-after + escalate on consecutive 429s
       if (e instanceof WbRateLimitError && env.CACHE) {
-        const waitSec = e.retryAfterSec + 60; // 60s buffer above what WB asked
+        const streakRaw = await env.CACHE.get(STREAK_KEY);
+        const streak = (parseInt(streakRaw ?? '0', 10) || 0) + 1;
+        // Each consecutive 429 doubles the wait: 1x, 2x, 4x, 8x... capped at 6h
+        const baseSec = e.retryAfterSec + 60;
+        const multiplier = Math.min(Math.pow(2, streak - 1), Math.ceil((MAX_BACKOFF_HOURS * 3600) / baseSec));
+        const waitSec = Math.min(baseSec * multiplier, MAX_BACKOFF_HOURS * 3600);
         const until = Date.now() + waitSec * 1000;
         await env.CACHE.put(THROTTLE_KEY, String(until), { expirationTtl: waitSec + 30 });
-        console.warn(`[wb-auto-reply] 429 — throttling for ${Math.round(waitSec/60)}min as WB asked (retry=${e.retryAfterSec}s, limit=${e.limit})`);
+        await env.CACHE.put(STREAK_KEY, String(streak), { expirationTtl: MAX_BACKOFF_HOURS * 3600 });
+        console.warn(`[wb-auto-reply] 429 streak=${streak}, throttle ${Math.round(waitSec/60)}min (WB asked ${e.retryAfterSec}s, multiplier ${multiplier}x)`);
       } else if (msg.includes('HTTP 429') && env.CACHE) {
         // fallback for any 429 we couldn't parse — use original 30min throttle
         const until = Date.now() + THROTTLE_MINUTES * 60_000;
@@ -414,8 +428,13 @@ export async function runWbAutoReply(
     }
     if (page.length === 0) break;
 
+    // First successful LIST — clear 429 streak counter
+    if (env.CACHE && result.inspected === 0) {
+      await env.CACHE.delete(STREAK_KEY);
+    }
+
     for (const fb of page) {
-      if (result.replied >= maxReplies || result.inspected >= maxInspect) break;
+      if ((result.replied + result.drafted) >= maxReplies || result.inspected >= maxInspect) break;
       result.inspected++;
       const fid = fb.id ?? '';
       const text = (fb.text ?? '').trim();
@@ -429,7 +448,10 @@ export async function runWbAutoReply(
         continue;
       }
 
-      console.log(`  [${result.inspected}] ${fid}: ${stars} "${productName}" (${text.length} chars) — drafting...`);
+      // SPLIT: 5★ posts automatically; 1-4★ saved to D1 as pending draft
+      const isAutoReplyEligible = rating >= AUTO_REPLY_MIN_RATING;
+      console.log(`  [${result.inspected}] ${fid}: ${stars} "${productName}" (${text.length} chars) — ${isAutoReplyEligible ? 'AUTO' : 'DRAFT'}...`);
+
       let draft: Draft;
       try {
         draft = await draftReply(env, fb);
@@ -445,21 +467,71 @@ export async function runWbAutoReply(
       }
       console.log(`    draft ${draft.text.length} chars (in=${draft.inputTokens} out=${draft.outputTokens} cache_r=${draft.cacheReadTokens})`);
 
+      // Always save draft to D1 first (idempotent via UNIQUE constraint on channel+external_id)
+      try {
+        await env.DB.prepare(`
+          INSERT INTO review_drafts (id, channel, external_id, rating, customer_name, product_name, product_sku, review_text, pros, cons, draft_text, status, draft_tokens_in, draft_tokens_out, updated_at)
+          VALUES (?, 'wb', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          ON CONFLICT(channel, external_id) DO UPDATE SET
+            draft_text = excluded.draft_text,
+            updated_at = datetime('now')
+          WHERE review_drafts.status = 'pending'
+        `).bind(
+          `rd_${crypto.randomUUID()}`,
+          fid,
+          rating,
+          (fb.userName ?? '').trim() || null,
+          (fb.productDetails?.productName ?? '').slice(0, 200) || null,
+          (fb.productDetails?.supplierArticle ?? '').slice(0, 100) || null,
+          (fb.text ?? '').trim() || null,
+          (fb.pros ?? '').trim() || null,
+          (fb.cons ?? '').trim() || null,
+          draft.text,
+          isAutoReplyEligible ? 'pending' : 'pending',  // both start pending; auto path advances to auto_sent below
+          draft.inputTokens,
+          draft.outputTokens,
+        ).run();
+      } catch (e: any) {
+        console.error(`    D1 INSERT FAIL: ${e?.message}`);
+        // not fatal — continue to attempt post if it's a 5★
+      }
+
+      // 1-4★ stops here — waits for human approval via UI
+      if (!isAutoReplyEligible) {
+        console.log(`    ↑ saved as pending draft (1-4★ needs approval)`);
+        result.drafted++;
+        result.details.push({ feedbackId: fid, rating, productName, replyChars: draft.text.length });
+        continue;
+      }
+
+      // 5★ — auto-post to WB
       try {
         await postAnswer(env, fid, draft.text);
-        console.log(`    ✓ posted to WB`);
+        console.log(`    ✓ auto-posted to WB`);
         result.replied++;
         result.details.push({ feedbackId: fid, rating, productName, replyChars: draft.text.length });
+        // Mark as auto_sent in D1
+        try {
+          await env.DB.prepare(`
+            UPDATE review_drafts SET status = 'auto_sent', posted_to_wb_at = datetime('now'), updated_at = datetime('now')
+            WHERE channel = 'wb' AND external_id = ?
+          `).bind(fid).run();
+        } catch {}
       } catch (e: any) {
         const msg = String(e?.message ?? e);
         console.error(`    POST FAIL: ${msg}`);
         result.errors.push({ feedbackId: fid, stage: 'post', error: msg });
         // If WB rate-limited the POST — stop this tick, save quota for next */20
         if (e instanceof WbRateLimitError && env.CACHE) {
-          const waitSec = e.retryAfterSec + 60;
+          const streakRaw = await env.CACHE.get(STREAK_KEY);
+          const streak = (parseInt(streakRaw ?? '0', 10) || 0) + 1;
+          const baseSec = e.retryAfterSec + 60;
+          const multiplier = Math.min(Math.pow(2, streak - 1), Math.ceil((MAX_BACKOFF_HOURS * 3600) / baseSec));
+          const waitSec = Math.min(baseSec * multiplier, MAX_BACKOFF_HOURS * 3600);
           const until = Date.now() + waitSec * 1000;
           await env.CACHE.put(THROTTLE_KEY, String(until), { expirationTtl: waitSec + 30 });
-          console.warn(`[wb-auto-reply] POST hit 429 — bail out, throttle ${Math.round(waitSec/60)}min`);
+          await env.CACHE.put(STREAK_KEY, String(streak), { expirationTtl: MAX_BACKOFF_HOURS * 3600 });
+          console.warn(`[wb-auto-reply] POST 429 streak=${streak}, throttle ${Math.round(waitSec/60)}min`);
           result.durationMs = Date.now() - startedAt;
           return result;
         }
@@ -478,7 +550,7 @@ export async function runWbAutoReply(
 
   result.durationMs = Date.now() - startedAt;
   if (result.errors.length > 0 && result.replied === 0) result.status = 'error';
-  console.log(`[wb-auto-reply] done replied=${result.replied}/${maxReplies} skipped=${result.ratingOnlySkipped} errors=${result.errors.length} ${result.durationMs}ms`);
+  console.log(`[wb-auto-reply] done replied=${result.replied} drafted=${result.drafted} skipped=${result.ratingOnlySkipped} errors=${result.errors.length} of ${result.inspected} inspected in ${result.durationMs}ms`);
 
   // Persist a compact log entry to KV so Aram can inspect tick history
   // without making any WB calls (each WB call resets the rate-limit penalty).
@@ -490,6 +562,7 @@ export async function runWbAutoReply(
       history.unshift({
         ts: new Date().toISOString(),
         replied: result.replied,
+        drafted: result.drafted,
         skipped: result.ratingOnlySkipped,
         errors: result.errors.length,
         firstError: result.errors[0]?.error?.slice(0, 200) ?? null,

@@ -567,7 +567,7 @@ function SizingButtons({
           </div>
         </div>
         <div style={{ fontSize: 11, color: palletSelected ? '#185FA5' : '#78716c', marginTop: 6 }}>
-          natural reorder · lead {65}d + cover 60d
+          natural reorder
         </div>
       </button>
 

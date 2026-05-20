@@ -13,7 +13,7 @@ import { todayUtcDate, refreshFxFromCbr } from './lib/fx-cbr';
 import { storeSnapshot } from './lib/fx-store';
 import { runInboxIngestion } from './lib/inbox-ingestion';
 import { runBankStatementIngestion } from './lib/bank-statement-ingestion';
-import { scheduleWbWeekly, scheduleOzonMonthly, tickMarketplacePull } from './lib/marketplace-pull';
+import { scheduleWbWeekly, scheduleOzonMonthly, tickMarketplacePull, rebuildPriorMonthSite } from './lib/marketplace-pull';
 
 
 // =============================================================================
@@ -370,6 +370,20 @@ export async function handleScheduled(
     return;
   }
 
+
+
+  // First Wednesday of each month at 04:00 UTC (06:00 МСК) — rebuild Yandex Pay monthly settlement
+  // Runs on day 1-7 with weekday=Wed → guaranteed to fire exactly once per month, on first Wed
+  if (cron === '0 4 1-7 * 3') {
+    console.log('[cron:site-rebuild] starting Yandex Pay monthly rebuild for previous calendar month');
+    try {
+      const r = await rebuildPriorMonthSite(env);
+      console.log(`[cron:site-rebuild] complete: ${JSON.stringify(r)}`);
+    } catch (e) {
+      console.error('[cron:site-rebuild] failed:', e);
+    }
+    return;
+  }
 
   // Daily inbox ingestion at 00:00 UTC = 03:00 МСК
   if (cron === '0 0 * * *') {

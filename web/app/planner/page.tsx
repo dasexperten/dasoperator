@@ -392,8 +392,10 @@ function autoFillCartons(rows: PlannerRow[], targetVolumeM3: number, mode: Sizin
   // Baseline (suggested_order > 0) stays as starting point. Phase B may top up these
   // baseline SKUs too if their +1 score wins.
 
+  // Start from ZERO for all SKUs — Phase A re-picks based on score within the target volume budget.
+  // This lets the slider trim down when target shrinks (previously stuck at baseline minimum).
   const overrides: Record<string, number> = {};
-  for (const r of rows) overrides[r.base_sku] = r.cartons;
+  for (const r of rows) overrides[r.base_sku] = 0;
 
   function currentVolume(): number {
     let v = 0;
@@ -417,13 +419,14 @@ function autoFillCartons(rows: PlannerRow[], targetVolumeM3: number, mode: Sizin
   // ============================================================
   // PHASE A — MOQ entry, sorted by vel^1.5 / cover_after
   // ============================================================
+  // All eligible SKUs compete for MOQ slots — sorting by score puts urgent (low cover, high velocity)
+  // ones first, so the budget naturally goes to highest-priority items.
   const eligibleNew = rows
     .filter((r) =>
       !r.is_new_launch &&
       r.lifecycle_status === 'active' &&
       r.velocity_per_day > 0 &&
-      (r.ctn_volume_m3 ?? 0) > 0 &&
-      r.suggested_order === 0,
+      (r.ctn_volume_m3 ?? 0) > 0,
     )
     .map((r) => {
       const moqCartons = Math.ceil(r.moq / (r.ctn_qty ?? 1));

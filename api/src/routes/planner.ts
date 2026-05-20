@@ -97,8 +97,8 @@ async function computeForGroup(
   stockZone: 'russia' | 'worldwide' = 'russia',
   currency: 'cny' | 'usd' = 'cny',
   windowDays = 60,
-  coverageDays = 60,
-  leadTimeDays = 65
+  coverageDays = 90,
+  leadTimeDays = 70
 ): Promise<PlannerRow[]> {
   const db = env.DB;
   // Load purchasing price map (lower-cased SKU keys)
@@ -579,8 +579,8 @@ r.get('/summary', async (c) => {
   return ok(c, {
     rules: {
       window_days: 60,
-      coverage_days: 60,
-      lead_time_days: 65,
+      coverage_days: 90,
+      lead_time_days: 70,
       excluded_warehouses: EXCLUDED_WH,
     },
     groups: cards,
@@ -627,8 +627,8 @@ r.get('/suggestions', async (c) => {
     group: groupRow,
     rules: {
       window_days: 60,
-      coverage_days: 60,
-      lead_time_days: 65,
+      coverage_days: 90,
+      lead_time_days: 70,
       stock_zone: stockZone,
       currency,
     },

@@ -522,24 +522,6 @@ export async function handleScheduled(
     } catch (e) {
       console.error('[cron:mp-pull-tick] failed:', e);
     }
-    // WB review auto-reply (every 15 min, safely above WB ~11min rate-limit window).
-    // Replaces old GitHub Actions cron in arams-db which on free-tier fired only
-    // ~10×/24h instead of 144×. Worker reads x-ratelimit-retry from WB 429 response
-    // and self-throttles via KV; if WB rate-limit not yet expired, this is a no-op.
-    try {
-      const { runWbAutoReply } = await import('./lib/wb-reviews');
-      const result = await runWbAutoReply(env, { maxReplies: 10, maxInspect: 200, pauseMsBetween: 1200 });
-      console.log(`[cron:wb-auto-reply] ${JSON.stringify({
-        replied: result.replied,
-        skipped: result.ratingOnlySkipped,
-        errors: result.errors.length,
-        backlog: result.countTotal,
-        today: result.countToday,
-        throttled: (result as any).throttled ?? false,
-      })}`);
-    } catch (e) {
-      console.error('[cron:wb-auto-reply] failed:', e);
-    }
     return;
   }
 
@@ -558,6 +540,34 @@ export async function handleScheduled(
       console.log(`[cron:bank-rematch-nightly] rebalance: ${JSON.stringify(rebalanceStats)}`);
     } catch (e) {
       console.error('[cron:bank-rematch-nightly] failed:', e);
+    }
+    return;
+  }
+
+  // WB review auto-reply — every 20 minutes (Phase: Reviews v1).
+  // Why 20min:
+  //   - WB feedbacks-api in penalty mode = 1 request / 446–681s (~8–11min).
+  //   - 20min = 1200s gives >2x safety margin above any retry window WB asks.
+  //   - The further we stay above WB's required retry, the faster WB exits
+  //     the penalty mode and restores burst=10 / reset=29s normal limit.
+  //
+  // maxReplies=30: in normal mode this drains the backlog of 500+ in ~4 hours.
+  // In penalty mode we'll bail out at the second request and try again next tick.
+  if (cron === '*/20 * * * *') {
+    console.log('[cron:wb-auto-reply] tick start');
+    try {
+      const { runWbAutoReply } = await import('./lib/wb-reviews');
+      const result = await runWbAutoReply(env, { maxReplies: 30, maxInspect: 300, pauseMsBetween: 1500 });
+      console.log(`[cron:wb-auto-reply] ${JSON.stringify({
+        replied: result.replied,
+        skipped: result.ratingOnlySkipped,
+        errors: result.errors.length,
+        backlog: result.countTotal,
+        today: result.countToday,
+        throttled: (result as any).throttled ?? false,
+      })}`);
+    } catch (e) {
+      console.error('[cron:wb-auto-reply] failed:', e);
     }
     return;
   }

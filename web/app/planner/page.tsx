@@ -616,11 +616,9 @@ function SizingButtons({
           gap: 16,
         }}
       >
-        {palletSelected && (
-          <div style={{ position: 'absolute', top: 8, right: 10, fontSize: 11, color: '#1d4ed8', fontWeight: 500, textTransform: 'uppercase' }}>
-            Selected ★
-          </div>
-        )}
+        <div style={{ position: 'absolute', top: 8, right: 10, fontSize: 11, color: '#1d4ed8', fontWeight: 500, textTransform: 'uppercase', display: palletSelected ? 'block' : 'none' }}>
+          Selected ★
+        </div>
         <input
           type="number"
           min={1}
@@ -653,11 +651,9 @@ function SizingButtons({
           <div style={{ fontSize: 12, color: palletSelected ? '#1d4ed8' : '#78716c', opacity: palletSelected ? 0.75 : 1 }}>
             {pSub}
           </div>
-          {palletCount < minPalletsCeil && (
-            <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 500 }}>
-              below minimum ({minPalletsCeil})
-            </div>
-          )}
+          <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 500, display: palletCount < minPalletsCeil ? 'block' : 'none' }}>
+            below minimum ({minPalletsCeil})
+          </div>
         </div>
       </button>
 
@@ -679,11 +675,9 @@ function SizingButtons({
           position: 'relative',
         }}
       >
-        {c20Selected && (
-          <div style={{ position: 'absolute', top: 8, right: 10, fontSize: 11, color: '#1d4ed8', fontWeight: 500, textTransform: 'uppercase' }}>
-            Selected ★
-          </div>
-        )}
+        <div style={{ position: 'absolute', top: 8, right: 10, fontSize: 11, color: '#1d4ed8', fontWeight: 500, textTransform: 'uppercase', display: c20Selected ? 'block' : 'none' }}>
+          Selected ★
+        </div>
         <div style={{ fontSize: 18, fontWeight: 500, textTransform: 'uppercase', color: c20Selected ? '#1d4ed8' : '#57534e' }}>
           20ft container
         </div>
@@ -710,11 +704,9 @@ function SizingButtons({
           position: 'relative',
         }}
       >
-        {c40Selected && (
-          <div style={{ position: 'absolute', top: 8, right: 10, fontSize: 11, color: '#1d4ed8', fontWeight: 500, textTransform: 'uppercase' }}>
-            Selected ★
-          </div>
-        )}
+        <div style={{ position: 'absolute', top: 8, right: 10, fontSize: 11, color: '#1d4ed8', fontWeight: 500, textTransform: 'uppercase', display: c40Selected ? 'block' : 'none' }}>
+          Selected ★
+        </div>
         <div style={{ fontSize: 18, fontWeight: 500, textTransform: 'uppercase', color: c40Selected ? '#1d4ed8' : '#57534e' }}>
           40ft container
         </div>

@@ -136,6 +136,7 @@ async function computeForGroup(
     WHERE p.deleted_at IS NULL
       AND p.manufacturer_id IN (${manPlaceholders})
       AND p.lifecycle_status IN ('active','new_launch')
+      AND NOT (p.category = 'Toothpaste' AND COALESCE(p.bundle_size, 1) > 1)
     ORDER BY COALESCE(p.base_sku, p.id), COALESCE(p.bundle_size, 1)
   `;
   const baseProductsRes = await db.prepare(baseProductsSql)
@@ -159,18 +160,35 @@ async function computeForGroup(
 
   // 3. velocity: sales in last 60 days, rolled up to base via bundle_size
   //    Wrap in CTE to avoid D1 GROUP BY quirks with computed columns.
-  // Bundles (DE120AA, DE120AAAA) are separate rows — each has its own velocity in bundle units.
-  // No rollup: a sale of 100 bundles of DE120AAAA stays as 100 bundles (not 400 single brushes).
+  // Bundle rollup rule:
+  //  - Toothpaste bundles → rollup to base × bundle_size (factory ships one carton of 72 pastes;
+  //    consumer-pack split into 1-pack vs 2-pack is decided at packaging stage).
+  //  - Toothbrush / floss / other bundles → stay as separate rows (different factory SKU, different cartons).
   const velocitySql = `
-    SELECT li.product_id AS base_sku, SUM(li.qty) AS units_60d
-    FROM operations o
-    JOIN line_items li ON li.operation_id = o.id
-    WHERE o.operation_type = 'sale'
-      AND o.status != 'cancelled'
-      AND o.deleted_at IS NULL
-      AND o.operation_date >= unixepoch('now', '-' || ? || ' days')
-      AND li.product_id IN (${baseSkuPlaceholders})
-    GROUP BY li.product_id
+    WITH sales_per_row AS (
+      SELECT
+        CASE
+          WHEN p.category = 'Toothpaste' AND COALESCE(p.bundle_size, 1) > 1
+            THEN p.base_sku
+          ELSE p.id
+        END AS rollup_sku,
+        CASE
+          WHEN p.category = 'Toothpaste' AND COALESCE(p.bundle_size, 1) > 1
+            THEN li.qty * p.bundle_size
+          ELSE li.qty
+        END AS units
+      FROM operations o
+      JOIN line_items li ON li.operation_id = o.id
+      JOIN products p ON p.id = li.product_id
+      WHERE o.operation_type = 'sale'
+        AND o.status != 'cancelled'
+        AND o.deleted_at IS NULL
+        AND o.operation_date >= unixepoch('now', '-' || ? || ' days')
+    )
+    SELECT rollup_sku AS base_sku, SUM(units) AS units_60d
+    FROM sales_per_row
+    WHERE rollup_sku IN (${baseSkuPlaceholders})
+    GROUP BY rollup_sku
   `;
   const velocityRes = await db.prepare(velocitySql)
     .bind(windowDays, ...baseSkus).all<{ base_sku: string; units_60d: number }>();
@@ -193,13 +211,28 @@ async function computeForGroup(
   if (isRussia) {
     const ruPlaceholders = RUSSIA_WH.map(() => '?').join(',');
     stockSql = `
-      SELECT s.product_id AS base_sku, SUM(s.on_hand) AS available
-      FROM stocks s
-      WHERE s.stock_state = 'on_hand'
-        AND s.on_hand > 0
-        AND s.warehouse_id IN (${ruPlaceholders})
-        AND s.product_id IN (${baseSkuPlaceholders})
-      GROUP BY s.product_id
+      WITH stock_per_row AS (
+        SELECT
+          CASE
+            WHEN p.category = 'Toothpaste' AND COALESCE(p.bundle_size, 1) > 1
+              THEN p.base_sku
+            ELSE p.id
+          END AS rollup_sku,
+          CASE
+            WHEN p.category = 'Toothpaste' AND COALESCE(p.bundle_size, 1) > 1
+              THEN s.on_hand * p.bundle_size
+            ELSE s.on_hand
+          END AS units
+        FROM stocks s
+        JOIN products p ON p.id = s.product_id
+        WHERE s.stock_state = 'on_hand'
+          AND s.on_hand > 0
+          AND s.warehouse_id IN (${ruPlaceholders})
+      )
+      SELECT rollup_sku AS base_sku, SUM(units) AS available
+      FROM stock_per_row
+      WHERE rollup_sku IN (${baseSkuPlaceholders})
+      GROUP BY rollup_sku
     `;
     stockBinds = [...RUSSIA_WH, ...baseSkus];
   } else {
@@ -207,13 +240,28 @@ async function computeForGroup(
     const excludeForWorld = ['gzh', 'yzh', 'otw'];
     const exclPlaceholders = excludeForWorld.map(() => '?').join(',');
     stockSql = `
-      SELECT s.product_id AS base_sku, SUM(s.on_hand) AS available
-      FROM stocks s
-      WHERE s.stock_state = 'on_hand'
-        AND s.on_hand > 0
-        AND s.warehouse_id NOT IN (${exclPlaceholders})
-        AND s.product_id IN (${baseSkuPlaceholders})
-      GROUP BY s.product_id
+      WITH stock_per_row AS (
+        SELECT
+          CASE
+            WHEN p.category = 'Toothpaste' AND COALESCE(p.bundle_size, 1) > 1
+              THEN p.base_sku
+            ELSE p.id
+          END AS rollup_sku,
+          CASE
+            WHEN p.category = 'Toothpaste' AND COALESCE(p.bundle_size, 1) > 1
+              THEN s.on_hand * p.bundle_size
+            ELSE s.on_hand
+          END AS units
+        FROM stocks s
+        JOIN products p ON p.id = s.product_id
+        WHERE s.stock_state = 'on_hand'
+          AND s.on_hand > 0
+          AND s.warehouse_id NOT IN (${exclPlaceholders})
+      )
+      SELECT rollup_sku AS base_sku, SUM(units) AS available
+      FROM stock_per_row
+      WHERE rollup_sku IN (${baseSkuPlaceholders})
+      GROUP BY rollup_sku
     `;
     stockBinds = [...excludeForWorld, ...baseSkus];
   }
@@ -226,28 +274,58 @@ async function computeForGroup(
   let transitBinds: unknown[];
   if (isRussia) {
     transitSql = `
-      SELECT li.product_id AS base_sku, SUM(li.qty) AS units
-      FROM operations o
-      JOIN line_items li ON li.operation_id = o.id
-      JOIN warehouses w ON w.id = o.warehouse_to_id
-      WHERE o.operation_type = 'purchase'
-        AND o.status IN ('production','shipped')
-        AND o.deleted_at IS NULL
-        AND w.country = 'Russia'
-        AND li.product_id IN (${baseSkuPlaceholders})
-      GROUP BY li.product_id
+      WITH transit_per_row AS (
+        SELECT
+          CASE
+            WHEN p.category = 'Toothpaste' AND COALESCE(p.bundle_size, 1) > 1
+              THEN p.base_sku
+            ELSE p.id
+          END AS rollup_sku,
+          CASE
+            WHEN p.category = 'Toothpaste' AND COALESCE(p.bundle_size, 1) > 1
+              THEN li.qty * p.bundle_size
+            ELSE li.qty
+          END AS units
+        FROM operations o
+        JOIN line_items li ON li.operation_id = o.id
+        JOIN products p ON p.id = li.product_id
+        JOIN warehouses w ON w.id = o.warehouse_to_id
+        WHERE o.operation_type = 'purchase'
+          AND o.status IN ('production','shipped')
+          AND o.deleted_at IS NULL
+          AND w.country = 'Russia'
+      )
+      SELECT rollup_sku AS base_sku, SUM(units) AS units
+      FROM transit_per_row
+      WHERE rollup_sku IN (${baseSkuPlaceholders})
+      GROUP BY rollup_sku
     `;
     transitBinds = [...baseSkus];
   } else {
     transitSql = `
-      SELECT li.product_id AS base_sku, SUM(li.qty) AS units
-      FROM operations o
-      JOIN line_items li ON li.operation_id = o.id
-      WHERE o.operation_type = 'purchase'
-        AND o.status IN ('production','shipped')
-        AND o.deleted_at IS NULL
-        AND li.product_id IN (${baseSkuPlaceholders})
-      GROUP BY li.product_id
+      WITH transit_per_row AS (
+        SELECT
+          CASE
+            WHEN p.category = 'Toothpaste' AND COALESCE(p.bundle_size, 1) > 1
+              THEN p.base_sku
+            ELSE p.id
+          END AS rollup_sku,
+          CASE
+            WHEN p.category = 'Toothpaste' AND COALESCE(p.bundle_size, 1) > 1
+              THEN li.qty * p.bundle_size
+            ELSE li.qty
+          END AS units
+        FROM operations o
+        JOIN line_items li ON li.operation_id = o.id
+        JOIN products p ON p.id = li.product_id
+        WHERE o.operation_type = 'purchase'
+          AND o.status IN ('production','shipped')
+          AND o.deleted_at IS NULL
+      )
+      SELECT rollup_sku AS base_sku, SUM(units) AS units
+      FROM transit_per_row
+      WHERE rollup_sku IN (${baseSkuPlaceholders})
+      GROUP BY rollup_sku
     `;
     transitBinds = [...baseSkus];
   }

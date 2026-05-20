@@ -607,11 +607,12 @@ export async function rebuildPriorMonthSite(env: Env): Promise<RebuildSiteResult
     const paymentId = `pay_${crypto.randomUUID()}`;
     await env.DB.batch([
       env.DB.prepare(
-        `INSERT INTO payments (id, partner_id, operation_id, amount, currency,
+        `INSERT INTO payments (id, partner_id, contract_id, operation_id, amount, currency,
                                payment_date, type, direction, notes, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'partial', 'incoming', ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'partial', 'incoming', ?, ?, ?)`
       ).bind(
-        paymentId, SITE_PARTNER_ID, operationId, amtMajor, tx.currency, tx.executed_at,
+        paymentId, SITE_PARTNER_ID, 'placeholder_yandex_pay_rub', operationId,
+        amtMajor, tx.currency, tx.executed_at,
         `[AUTO-MATCH yandex-pay-monthly] bank_tx ${tx.id} → ${reference}`,
         nowTs, nowTs
       ),

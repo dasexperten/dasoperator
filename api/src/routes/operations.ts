@@ -24,9 +24,25 @@ const PAID_TOLERANCE = 0.95;
 
 type PaymentState = 'neutral' | 'unpaid' | 'partial' | 'paid';
 
-function derivePaymentState(total: number, paid: number, status: string): PaymentState {
+function derivePaymentState(
+  total: number,
+  paid: number,
+  status: string,
+  partnerId?: string | null,
+  reference?: string | null,
+): PaymentState {
   if (status === 'draft' || status === 'cancelled') return 'neutral';
   if (paid <= 0) return 'unpaid';
+
+  // Marketplace settlement reports (WB-WEEKLY, OZN-MONTHLY) — once a payment
+  // matches, the report is considered fully paid even if the bank amount
+  // differs from the NET (small reserves/returns adjustments are normal).
+  // No partial-paid (brown) state for these.
+  const isMarketplaceSettlement =
+    (partnerId === 'wb' || partnerId === 'ozon') &&
+    (reference?.includes('-WEEKLY') || reference?.includes('-MONTHLY'));
+  if (isMarketplaceSettlement) return 'paid';
+
   if (paid >= total * PAID_TOLERANCE) return 'paid';
   return 'partial';
 }
@@ -758,7 +774,7 @@ operations.get('/', async (c) => {
     const paid = Number(row.paid_amount) || 0;
     return {
       ...row,
-      payment_state: derivePaymentState(total, paid, String(row.status)),
+      payment_state: derivePaymentState(total, paid, String(row.status), row.partner_id as string | null, row.reference as string | null),
     };
   });
 
@@ -943,7 +959,7 @@ operations.get('/:id', async (c) => {
     operation: {
       ...op,
       paid_amount: paid,
-      payment_state: derivePaymentState(total, paid, String(op.status)),
+      payment_state: derivePaymentState(total, paid, String(op.status), op.partner_id as string | null, op.reference as string | null),
       // Service-track chip signals (read by ServiceStatusBar)
       has_acceptance_attachment: hasAcceptance,
       has_invoice_attachment: hasInvoice,

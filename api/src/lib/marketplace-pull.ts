@@ -496,3 +496,141 @@ async function buildOzonFromStaging(env: Env, task: any): Promise<{ taskId: stri
   ).bind('Ozon staging build not yet implemented — staging rows collected, manual aggregation needed', task.id).run();
   return { taskId: task.id, action: 'ozon_build_deferred', rows: 0 };
 }
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// rebuildPriorMonthSite — Yandex Pay monthly settlement rebuild
+// Scheduled for first Wednesday of every month at 04:00 UTC (06:00 МСК).
+// Aggregates all Yandex Pay bank_tx for the PREVIOUS calendar month into the
+// existing DASR-YYYYMM operation (creates one if missing), and matches each
+// bank_tx to that operation.
+// INN 9705212635 = ООО ФИНАНСОВЫЕ И ПЛАТЕЖНЫЕ ТЕХНОЛОГИИ (Yandex Pay processor).
+// INN 7736207543 = ООО ЯНДЕКС (occasionally used).
+// ═══════════════════════════════════════════════════════════════════════════
+
+const SITE_PARTNER_ID = 'яндекс_пей_продажи_с_нашего_сайта';
+const YANDEX_PAY_INNS = ['9705212635', '7736207543'];
+
+export interface RebuildSiteResult {
+  target_month: string;          // YYYY-MM
+  bank_tx_count: number;
+  total_amount: number;
+  operation_id: string;
+  operation_reference: string;
+  payments_created: number;
+}
+
+export async function rebuildPriorMonthSite(env: Env): Promise<RebuildSiteResult> {
+  // Target = calendar month BEFORE today (UTC)
+  const now = new Date();
+  const targetYear = now.getUTCMonth() === 0 ? now.getUTCFullYear() - 1 : now.getUTCFullYear();
+  const targetMonthIdx = now.getUTCMonth() === 0 ? 11 : now.getUTCMonth() - 1;
+  const targetMonth = String(targetMonthIdx + 1).padStart(2, '0');
+  const targetYM = `${targetYear}-${targetMonth}`;
+
+  // Range in unix seconds: [startOfMonth, startOfNextMonth)
+  const startTs = Math.floor(Date.UTC(targetYear, targetMonthIdx, 1) / 1000);
+  const endTs = Math.floor(Date.UTC(targetYear, targetMonthIdx + 1, 1) / 1000);
+
+  // Fetch all bank_tx in that month from Yandex Pay
+  const innList = YANDEX_PAY_INNS.map(() => '?').join(',');
+  const txnsResult = await env.DB.prepare(
+    `SELECT id, executed_at, amount, currency
+     FROM bank_transactions
+     WHERE contragent_inn IN (${innList})
+       AND direction = 'incoming'
+       AND deleted_at IS NULL
+       AND executed_at >= ?
+       AND executed_at < ?
+     ORDER BY executed_at`
+  ).bind(...YANDEX_PAY_INNS, startTs, endTs).all<{
+    id: string; executed_at: number; amount: number; currency: string;
+  }>();
+
+  const txns = txnsResult.results;
+  const totalMinor = txns.reduce((s, t) => s + (t.amount || 0), 0);
+  // RUB stored in kopecks → convert to major units
+  const totalAmount = Math.round(totalMinor) / 100;
+
+  // Reference DASR-YYYYMM
+  const reference = `DASR-${targetYear}${targetMonth}`;
+
+  // Upsert operation
+  const existing = await env.DB.prepare(
+    `SELECT id FROM operations WHERE reference = ? AND deleted_at IS NULL LIMIT 1`
+  ).bind(reference).first<{ id: string }>();
+
+  const nowTs = Math.floor(Date.now() / 1000);
+  let operationId: string;
+
+  if (existing) {
+    operationId = existing.id;
+    await env.DB.prepare(
+      `UPDATE operations
+       SET total_amount = ?, notes = ?, updated_at = ?
+       WHERE id = ?`
+    ).bind(
+      totalAmount,
+      `[CONSOLIDATED — Yandex Pay monthly] dasexperten.ru — ${targetYM} — ${txns.length} payments, total ${totalAmount.toFixed(2)} RUB (rebuilt on ${new Date().toISOString().slice(0, 10)})`,
+      nowTs,
+      operationId
+    ).run();
+  } else {
+    operationId = `op_${crypto.randomUUID()}`;
+    await env.DB.prepare(
+      `INSERT INTO operations (
+        id, operation_date, operation_type, partner_id, our_company_id,
+        status, currency, total_amount, notes,
+        reference, delivery_status, operation_track, created_at, updated_at
+      ) VALUES (?, ?, 'sale', ?, 'dee', 'issued', 'RUB', ?, ?, ?, 'delivered', 'goods', ?, ?)`
+    ).bind(
+      operationId, startTs, SITE_PARTNER_ID, totalAmount,
+      `[CONSOLIDATED — Yandex Pay monthly] dasexperten.ru — ${targetYM} — ${txns.length} payments, total ${totalAmount.toFixed(2)} RUB`,
+      reference, nowTs, nowTs
+    ).run();
+  }
+
+  // First unmatch and remove old payments for this operation (to rebuild clean)
+  await env.DB.prepare(
+    `UPDATE bank_transactions
+     SET matched_operation_id = NULL, matched_payment_id = NULL, matched_at = NULL, match_method = NULL
+     WHERE matched_operation_id = ?`
+  ).bind(operationId).run();
+  await env.DB.prepare(
+    `UPDATE payments SET deleted_at = ? WHERE operation_id = ? AND deleted_at IS NULL`
+  ).bind(nowTs, operationId).run();
+
+  // Create payments + link bank_tx
+  let paymentsCreated = 0;
+  for (const tx of txns) {
+    const amtMajor = tx.currency.toUpperCase() === 'RUB' ? tx.amount / 100 : tx.amount;
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO payments (id, partner_id, operation_id, amount, currency,
+                               payment_date, type, direction, notes, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'partial', 'incoming', ?, ?, ?)`
+      ).bind(
+        paymentId, SITE_PARTNER_ID, operationId, amtMajor, tx.currency, tx.executed_at,
+        `[AUTO-MATCH yandex-pay-monthly] bank_tx ${tx.id} → ${reference}`,
+        nowTs, nowTs
+      ),
+      env.DB.prepare(
+        `UPDATE bank_transactions
+         SET matched_operation_id = ?, matched_payment_id = ?, matched_at = ?,
+             match_method = 'matched_by_yandex_pay_monthly', matched_by = 'system_auto', updated_at = ?
+         WHERE id = ?`
+      ).bind(operationId, paymentId, nowTs, nowTs, tx.id),
+    ]);
+    paymentsCreated++;
+  }
+
+  return {
+    target_month: targetYM,
+    bank_tx_count: txns.length,
+    total_amount: totalAmount,
+    operation_id: operationId,
+    operation_reference: reference,
+    payments_created: paymentsCreated,
+  };
+}

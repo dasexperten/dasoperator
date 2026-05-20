@@ -254,6 +254,12 @@ export async function fetchUnansweredCount(env: Env): Promise<{ total: number; t
   const r = await fetch(`${WB_BASE}/api/v1/feedbacks/count-unanswered`, {
     headers: wbAuthHeaders(env),
   });
+  if (r.status === 429) {
+    const retry = parseInt(r.headers.get('x-ratelimit-retry') ?? '600', 10);
+    const reset = parseInt(r.headers.get('x-ratelimit-reset') ?? String(retry), 10);
+    const limit = parseInt(r.headers.get('x-ratelimit-limit') ?? '1', 10);
+    throw new WbRateLimitError(retry, reset, limit, await r.text());
+  }
   if (!r.ok) throw new Error(`WB count HTTP ${r.status}: ${await r.text()}`);
   const data = await r.json<any>();
   if (data.error) throw new Error(`WB error: ${data.errorText}`);
@@ -261,6 +267,19 @@ export async function fetchUnansweredCount(env: Env): Promise<{ total: number; t
     total: data.data?.countUnanswered ?? 0,
     today: data.data?.countUnansweredToday ?? 0,
   };
+}
+
+// Custom error class that preserves WB rate-limit headers
+export class WbRateLimitError extends Error {
+  retryAfterSec: number;
+  resetSec: number;
+  limit: number;
+  constructor(retryAfter: number, reset: number, limit: number, body: string) {
+    super(`WB rate limit hit: retry in ${retryAfter}s (limit=${limit}, reset=${reset}s) — body=${body.slice(0, 200)}`);
+    this.retryAfterSec = retryAfter;
+    this.resetSec = reset;
+    this.limit = limit;
+  }
 }
 
 export async function fetchUnansweredList(
@@ -272,6 +291,12 @@ export async function fetchUnansweredList(
   const yearAgo = now - 365 * 24 * 3600;
   const url = `${WB_BASE}/api/v1/feedbacks?isAnswered=false&take=${take}&skip=${skip}&order=dateDesc&dateFrom=${yearAgo}&dateTo=${now}`;
   const r = await fetch(url, { headers: wbAuthHeaders(env) });
+  if (r.status === 429) {
+    const retry = parseInt(r.headers.get('x-ratelimit-retry') ?? '600', 10);
+    const reset = parseInt(r.headers.get('x-ratelimit-reset') ?? String(retry), 10);
+    const limit = parseInt(r.headers.get('x-ratelimit-limit') ?? '1', 10);
+    throw new WbRateLimitError(retry, reset, limit, await r.text());
+  }
   if (!r.ok) throw new Error(`WB list HTTP ${r.status}: ${await r.text()}`);
   const data = await r.json<any>();
   if (data.error) throw new Error(`WB error: ${data.errorText}`);
@@ -367,11 +392,17 @@ export async function runWbAutoReply(
     } catch (e: any) {
       const msg = String(e?.message ?? e);
       result.errors.push({ stage: 'list', error: msg });
-      // On 429 — set throttle so the next cron ticks skip themselves and let WB cool
-      if (msg.includes('HTTP 429') && env.CACHE) {
+      // Honor WB-supplied retry-after instead of guessing
+      if (e instanceof WbRateLimitError && env.CACHE) {
+        const waitSec = e.retryAfterSec + 60; // 60s buffer above what WB asked
+        const until = Date.now() + waitSec * 1000;
+        await env.CACHE.put(THROTTLE_KEY, String(until), { expirationTtl: waitSec + 30 });
+        console.warn(`[wb-auto-reply] 429 — throttling for ${Math.round(waitSec/60)}min as WB asked (retry=${e.retryAfterSec}s, limit=${e.limit})`);
+      } else if (msg.includes('HTTP 429') && env.CACHE) {
+        // fallback for any 429 we couldn't parse — use original 30min throttle
         const until = Date.now() + THROTTLE_MINUTES * 60_000;
         await env.CACHE.put(THROTTLE_KEY, String(until), { expirationTtl: THROTTLE_MINUTES * 60 + 30 });
-        console.warn(`[wb-auto-reply] 429 hit, throttling for ${THROTTLE_MINUTES}min`);
+        console.warn(`[wb-auto-reply] 429 (unparsed) hit, throttling for ${THROTTLE_MINUTES}min`);
       }
       break;
     }

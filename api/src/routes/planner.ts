@@ -20,11 +20,14 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
+import { getPricelist } from '../lib/pricelist';
 
 const r = new Hono<{ Bindings: Env }>();
 
 // Warehouses excluded from "available stock" (factory + virtual transit)
 const EXCLUDED_WH = ['gzh', 'yzh', 'dgn', 'otw'];
+// Russian warehouses used when stock_zone=russia
+const RUSSIA_WH = ['lbr', 'srn', 'flp', 'ozon', 'wb'];
 
 const PALLET_VOLUME_M3 = 1.44;        // standard EUR pallet useful volume
 const CONTAINER_20FT_M3 = 28;          // 20ft cargo cubic capacity
@@ -68,18 +71,39 @@ type PlannerRow = {
   cartons: number;            // ceil(suggested_order / ctn_qty), or 0
   volume_m3: number;          // cartons * ctn_volume_m3
   pallets: number;            // volume / PALLET_VOLUME_M3
+  // money
+  unit_price: number | null;  // purchase price per unit, in selected currency
+  amount: number | null;      // suggested_order * unit_price
   // flags
   dearth_days: number;
   is_new_launch: boolean;
 };
 
 async function computeForGroup(
-  db: D1Database,
+  env: Env,
   groupId: string,
+  stockZone: 'russia' | 'worldwide' = 'russia',
+  currency: 'cny' | 'usd' = 'cny',
   windowDays = 60,
   coverageDays = 60,
   leadTimeDays = 65
 ): Promise<PlannerRow[]> {
+  const db = env.DB;
+  // Load purchasing price map (lower-cased SKU keys)
+  const priceTypeId = currency === 'cny' ? 'purchase_cny' : 'export_usd';
+  let priceMap: Record<string, number> = {};
+  try {
+    const pricelist = await getPricelist(env, priceTypeId);
+    if (pricelist) {
+      // pricelist.prices keys are uppercase (DE125, DE126AAAA, etc.)
+      priceMap = {};
+      for (const [k, v] of Object.entries(pricelist.prices)) {
+        priceMap[k.toLowerCase()] = v;
+      }
+    }
+  } catch (e) {
+    // fail soft — leave priceMap empty if pricelist unavailable
+  }
   // 1. find manufacturer_ids in this group
   const mans = await db.prepare(
     `SELECT id FROM manufacturers WHERE group_id = ? AND deleted_at IS NULL`
@@ -149,44 +173,103 @@ async function computeForGroup(
     .bind(windowDays, ...baseSkus).all<{ base_sku: string; units_60d: number }>();
   const velocityMap = new Map(velocityRes.results.map(v => [v.base_sku, v.units_60d || 0]));
 
-  // 4. available stock per base SKU (excluding factory + transit warehouses)
-  const stockSql = `
-    WITH stock_per_row AS (
-      SELECT
-        COALESCE(p.base_sku, p.id) AS base_sku,
-        s.on_hand * COALESCE(p.bundle_size, 1) AS units
-      FROM stocks s
-      JOIN products p ON p.id = s.product_id
-      WHERE s.stock_state = 'on_hand'
-        AND s.on_hand > 0
-        AND s.warehouse_id NOT IN (${whPlaceholders})
-        AND COALESCE(p.base_sku, p.id) IN (${baseSkuPlaceholders})
-    )
-    SELECT base_sku, SUM(units) AS available FROM stock_per_row GROUP BY base_sku
-  `;
+  // 4. available stock per base SKU — depends on stockZone
+  //    russia:    Russian warehouses (lbr/srn/flp/ozon/wb)
+  //               PLUS open purchases (production/shipped) whose warehouse_to_id is in Russia
+  //    worldwide: all warehouses (still excluding factory ownership warehouses since those
+  //               are raw material, but including everything else)
+  //               PLUS all open purchases (production/shipped)
+  //
+  //    For simplicity, we use a single union query: stocks (on_hand state, filtered by warehouse country)
+  //    + transit units (purchase operations production/shipped, filtered by destination country).
+  const isRussia = stockZone === 'russia';
+
+  // 4a. On-hand stock in matching warehouses
+  let stockSql: string;
+  let stockBinds: unknown[];
+  if (isRussia) {
+    const ruPlaceholders = RUSSIA_WH.map(() => '?').join(',');
+    stockSql = `
+      WITH stock_per_row AS (
+        SELECT
+          COALESCE(p.base_sku, p.id) AS base_sku,
+          s.on_hand * COALESCE(p.bundle_size, 1) AS units
+        FROM stocks s
+        JOIN products p ON p.id = s.product_id
+        WHERE s.stock_state = 'on_hand'
+          AND s.on_hand > 0
+          AND s.warehouse_id IN (${ruPlaceholders})
+          AND COALESCE(p.base_sku, p.id) IN (${baseSkuPlaceholders})
+      )
+      SELECT base_sku, SUM(units) AS available FROM stock_per_row GROUP BY base_sku
+    `;
+    stockBinds = [...RUSSIA_WH, ...baseSkus];
+  } else {
+    // worldwide: exclude factory raw warehouses (gzh/yzh) + virtual otw
+    const excludeForWorld = ['gzh', 'yzh', 'otw'];
+    const exclPlaceholders = excludeForWorld.map(() => '?').join(',');
+    stockSql = `
+      WITH stock_per_row AS (
+        SELECT
+          COALESCE(p.base_sku, p.id) AS base_sku,
+          s.on_hand * COALESCE(p.bundle_size, 1) AS units
+        FROM stocks s
+        JOIN products p ON p.id = s.product_id
+        WHERE s.stock_state = 'on_hand'
+          AND s.on_hand > 0
+          AND s.warehouse_id NOT IN (${exclPlaceholders})
+          AND COALESCE(p.base_sku, p.id) IN (${baseSkuPlaceholders})
+      )
+      SELECT base_sku, SUM(units) AS available FROM stock_per_row GROUP BY base_sku
+    `;
+    stockBinds = [...excludeForWorld, ...baseSkus];
+  }
   const stockRes = await db.prepare(stockSql)
-    .bind(...EXCLUDED_WH, ...baseSkus).all<{ base_sku: string; available: number }>();
+    .bind(...stockBinds).all<{ base_sku: string; available: number }>();
   const stockMap = new Map(stockRes.results.map(s => [s.base_sku, s.available || 0]));
 
-  // 5. in-transit: open purchase operations with status production OR shipped
-  //    For each such operation, sum line_items qty * bundle_size, rolled up to base.
-  const transitSql = `
-    WITH transit_per_row AS (
-      SELECT
-        COALESCE(p.base_sku, p.id) AS base_sku,
-        li.qty * COALESCE(p.bundle_size, 1) AS units
-      FROM operations o
-      JOIN line_items li ON li.operation_id = o.id
-      JOIN products p ON p.id = li.product_id
-      WHERE o.operation_type = 'purchase'
-        AND o.status IN ('production','shipped')
-        AND o.deleted_at IS NULL
-        AND COALESCE(p.base_sku, p.id) IN (${baseSkuPlaceholders})
-    )
-    SELECT base_sku, SUM(units) AS units FROM transit_per_row GROUP BY base_sku
-  `;
+  // 4b. In-transit: open purchases (production/shipped) — filter by destination country if russia mode
+  let transitSql: string;
+  let transitBinds: unknown[];
+  if (isRussia) {
+    transitSql = `
+      WITH transit_per_row AS (
+        SELECT
+          COALESCE(p.base_sku, p.id) AS base_sku,
+          li.qty * COALESCE(p.bundle_size, 1) AS units
+        FROM operations o
+        JOIN line_items li ON li.operation_id = o.id
+        JOIN products p ON p.id = li.product_id
+        JOIN warehouses w ON w.id = o.warehouse_to_id
+        WHERE o.operation_type = 'purchase'
+          AND o.status IN ('production','shipped')
+          AND o.deleted_at IS NULL
+          AND w.country = 'Russia'
+          AND COALESCE(p.base_sku, p.id) IN (${baseSkuPlaceholders})
+      )
+      SELECT base_sku, SUM(units) AS units FROM transit_per_row GROUP BY base_sku
+    `;
+    transitBinds = [...baseSkus];
+  } else {
+    transitSql = `
+      WITH transit_per_row AS (
+        SELECT
+          COALESCE(p.base_sku, p.id) AS base_sku,
+          li.qty * COALESCE(p.bundle_size, 1) AS units
+        FROM operations o
+        JOIN line_items li ON li.operation_id = o.id
+        JOIN products p ON p.id = li.product_id
+        WHERE o.operation_type = 'purchase'
+          AND o.status IN ('production','shipped')
+          AND o.deleted_at IS NULL
+          AND COALESCE(p.base_sku, p.id) IN (${baseSkuPlaceholders})
+      )
+      SELECT base_sku, SUM(units) AS units FROM transit_per_row GROUP BY base_sku
+    `;
+    transitBinds = [...baseSkus];
+  }
   const transitRes = await db.prepare(transitSql)
-    .bind(...baseSkus).all<{ base_sku: string; units: number }>();
+    .bind(...transitBinds).all<{ base_sku: string; units: number }>();
   const transitMap = new Map(transitRes.results.map(t => [t.base_sku, t.units || 0]));
 
   // 6. dearth (out-of-stock) days approximation:
@@ -215,9 +298,12 @@ async function computeForGroup(
     const daysWithStock = Math.max(1, windowDays - dearthDays); // never divide by 0
     const velocityPerDay = units60d / daysWithStock;
 
-    const available = stockMap.get(b.base_sku) ?? 0;
+    // available_stock already represents what's "in our hands or coming to selected zone"
+    const stockOnly = stockMap.get(b.base_sku) ?? 0;
     const inTransit = transitMap.get(b.base_sku) ?? 0;
-    const totalCoverPool = available + inTransit;
+    // Merged stock — this is what the UI shows in the "Stock" column
+    const available = stockOnly + inTransit;
+    const totalCoverPool = available;
     const coverDays = velocityPerDay > 0
       ? Math.round(totalCoverPool / velocityPerDay)
       : null; // no sales → cover infinite
@@ -274,6 +360,10 @@ async function computeForGroup(
       cartons,
       volume_m3: Math.round(volumeM3 * 1000) / 1000,
       pallets: Math.round(palletsForSku * 100) / 100,
+      unit_price: priceMap[b.base_sku] ?? null,
+      amount: priceMap[b.base_sku] != null && suggested > 0
+        ? Math.round(priceMap[b.base_sku]! * suggested * 100) / 100
+        : null,
       dearth_days: dearthDays,
       is_new_launch: isNewLaunch,
     };
@@ -362,7 +452,7 @@ r.get('/summary', async (c) => {
 
   const cards = [];
   for (const g of groupsRes.results) {
-    const rows = await computeForGroup(c.env.DB, g.id);
+    const rows = await computeForGroup(c.env, g.id);
 
     // urgency metrics
     const skusToOrder = rows.filter(r => r.suggested_order > 0).length;
@@ -436,7 +526,10 @@ r.get('/suggestions', async (c) => {
     ]);
   }
 
-  const rows = await computeForGroup(c.env.DB, groupId);
+  const stockZone = (c.req.query('stock_zone') === 'worldwide' ? 'worldwide' : 'russia') as 'russia' | 'worldwide';
+  const currency = (c.req.query('currency') === 'usd' ? 'usd' : 'cny') as 'cny' | 'usd';
+
+  const rows = await computeForGroup(c.env, groupId, stockZone, currency);
   const scenarios = computeScenarios(rows);
 
   const groupRow = await c.env.DB.prepare(
@@ -463,7 +556,8 @@ r.get('/suggestions', async (c) => {
       window_days: 60,
       coverage_days: 60,
       lead_time_days: 65,
-      excluded_warehouses: EXCLUDED_WH,
+      stock_zone: stockZone,
+      currency,
     },
     rows: sorted,
     scenarios,

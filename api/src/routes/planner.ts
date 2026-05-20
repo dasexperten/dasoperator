@@ -193,6 +193,7 @@ async function computeForGroup(
         AND o.status != 'cancelled'
         AND o.deleted_at IS NULL
         AND o.operation_date >= unixepoch('now', '-' || ? || ' days')
+        AND o.partner_id != 'dasex_group'  -- exclude intra-group transfers (DEE→DEI etc.); only real retail/marketplace sales count for velocity
     )
     SELECT rollup_sku AS base_sku, SUM(units) AS units_60d
     FROM sales_per_row

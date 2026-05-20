@@ -89,4 +89,16 @@ app.post('/auto-reply-tick', async (c) => {
   }
 });
 
+// -----------------------------------------------------------------------------
+// GET /api/reviews/tick-log — last 50 cron tick results from KV
+// Safe to call any number of times — does NOT hit WB API.
+// Use this to check if cron is working and what's happening per tick.
+// -----------------------------------------------------------------------------
+app.get('/tick-log', async (c) => {
+  if (!c.env.CACHE) return c.json({ ok: false, error: 'CACHE not bound' }, 500);
+  const raw = await c.env.CACHE.get('wb-reviews:tick-log', 'json');
+  const history = Array.isArray(raw) ? raw : [];
+  return c.json({ ok: true, count: history.length, ticks: history });
+});
+
 export default app;

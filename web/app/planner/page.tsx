@@ -594,21 +594,21 @@ function SizingButtons({
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-      {/* PALLET — editable */}
+      {/* PALLET — large editable number on the left, label on the right */}
       <button
         type="button"
         onClick={() => onModeChange('pallet')}
-        className="rounded-lg text-left transition relative"
+        className="rounded-lg transition relative"
         style={{
-          padding: '14px 14px 16px',
+          padding: '18px 20px',
           minHeight: 130,
           border: palletSelected ? '2px solid #3b82f6' : '0.5px solid #d6d3d1',
           background: palletSelected ? '#eff6ff' : 'white',
           cursor: 'pointer',
           display: 'flex',
-          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
+          gap: 16,
         }}
       >
         {palletSelected && (
@@ -619,6 +619,7 @@ function SizingButtons({
         <input
           type="number"
           min={1}
+          max={99}
           value={palletCount}
           onClick={(e) => e.stopPropagation()}
           onChange={(e) => {
@@ -627,28 +628,32 @@ function SizingButtons({
             onModeChange('pallet');
           }}
           style={{
-            width: 94,
+            width: 110,
             padding: '4px 8px',
             border: '0.5px solid ' + (palletSelected ? '#3b82f6' : '#a8a29e'),
             borderRadius: 4,
             fontWeight: 700,
-            fontSize: 34,
+            fontSize: 64,
+            lineHeight: 1,
             textAlign: 'center',
             background: 'white',
             color: palletSelected ? '#1d4ed8' : '#57534e',
+            flexShrink: 0,
           }}
         />
-        <div style={{ fontSize: 12, fontWeight: 500, textTransform: 'uppercase', marginTop: 8, color: palletSelected ? '#1d4ed8' : '#57534e' }}>
-          pallets
-        </div>
-        <div style={{ fontSize: 11.5, marginTop: 4, color: palletSelected ? '#1d4ed8' : '#78716c', opacity: palletSelected ? 0.75 : 1 }}>
-          {pSub}
-        </div>
-        {palletCount < minPalletsCeil && (
-          <div style={{ fontSize: 11, color: '#dc2626', marginTop: 4 }}>
-            below minimum ({minPalletsCeil})
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+          <div style={{ fontSize: 18, fontWeight: 700, textTransform: 'uppercase', color: palletSelected ? '#1d4ed8' : '#57534e' }}>
+            pallets
           </div>
-        )}
+          <div style={{ fontSize: 12, color: palletSelected ? '#1d4ed8' : '#78716c', opacity: palletSelected ? 0.75 : 1 }}>
+            {pSub}
+          </div>
+          {palletCount < minPalletsCeil && (
+            <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 500 }}>
+              below minimum ({minPalletsCeil})
+            </div>
+          )}
+        </div>
       </button>
 
       {/* 20ft container — label only */}

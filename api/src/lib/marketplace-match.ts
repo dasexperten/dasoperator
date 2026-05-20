@@ -22,8 +22,9 @@ export interface MarketplaceConfig {
 }
 
 export const MARKETPLACE_CONFIG: Record<string, MarketplaceConfig> = {
-  '7704217370': { partnerId: 'ozon', cadenceLabel: 'monthly' },
-  '9714053621': { partnerId: 'wb',   cadenceLabel: 'weekly'  },
+  '7704217370': { partnerId: 'ozon', cadenceLabel: 'monthly' },  // ООО ИНТЕРНЕТ РЕШЕНИЯ
+  '9703026898': { partnerId: 'ozon', cadenceLabel: 'monthly' },  // ООО МКК ОЗОН КРЕДИТ — pays on Ozon's behalf
+  '9714053621': { partnerId: 'wb',   cadenceLabel: 'weekly'  },  // ООО РВБ
 };
 
 export function isMarketplaceInn(inn: string | null | undefined): boolean {

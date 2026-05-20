@@ -89,7 +89,10 @@ type SizingMode = 'pallet' | '20ft' | '40ft';
 
 // ============================================================
 // AUTO FILL ALGORITHM
-// Unified greedy that RESPECTS manual locks — never modifies locked SKUs.
+// Greedy by score = vel^1.5 / cover_after, respecting manual locks.
+// For container modes: cap relaxes in tiers until container fills.
+// (Container fill is PRIORITY — cap is a soft preference, not a wall.)
+// Pallets mode: single strict cap 180d (user picks volume = picks demand).
 // ============================================================
 function autoFillCartons(
   rows: PlannerRow[],
@@ -97,12 +100,13 @@ function autoFillCartons(
   mode: SizingMode,
   manualOverrides: Record<string, number>,
 ): Record<string, number> {
-  const CAP_DAYS = mode === 'pallet' ? 180 : mode === '20ft' ? 365 : 540;
+  // Tier ladder per mode. Pallets = one strict tier. Containers = progressive relaxation.
+  const TIERS = mode === 'pallet' ? [180] : mode === '20ft' ? [365, 545, 730, 910, 1095] : [540, 730, 910, 1095, 1280];
 
   const overrides: Record<string, number> = {};
   for (const r of rows) overrides[r.base_sku] = 0;
 
-  // Subtract manual volume from target — manual entries reserve their slot.
+  // Manual entries reserve their volume up front.
   let manualVol = 0;
   for (const r of rows) {
     if (Object.prototype.hasOwnProperty.call(manualOverrides, r.base_sku)) {
@@ -118,46 +122,48 @@ function autoFillCartons(
   }
 
   let freeVol = targetVolumeM3 - manualVol;
-  let safety = 0;
-  while (freeVol > 0.001 && safety < 100000) {
-    let bestRow: PlannerRow | null = null;
-    let bestAddCartons = 0;
-    let bestAddVol = 0;
-    let bestScore = -1;
 
-    for (const r of rows) {
-      // Skip locked SKUs — algorithm never touches them.
-      if (Object.prototype.hasOwnProperty.call(manualOverrides, r.base_sku)) continue;
+  for (const cap of TIERS) {
+    let safety = 0;
+    while (freeVol > 0.001 && safety < 100000) {
+      let bestRow: PlannerRow | null = null;
+      let bestAddCartons = 0;
+      let bestAddVol = 0;
+      let bestScore = -1;
 
-      if (r.velocity_per_day <= 0) continue;
-      if (r.is_new_launch) continue;
-      if (r.lifecycle_status !== 'active') continue;
-      const ctnVol = r.ctn_volume_m3 ?? 0;
-      if (ctnVol <= 0) continue;
+      for (const r of rows) {
+        if (Object.prototype.hasOwnProperty.call(manualOverrides, r.base_sku)) continue;
+        if (r.velocity_per_day <= 0) continue;
+        if (r.is_new_launch) continue;
+        if (r.lifecycle_status !== 'active') continue;
+        const ctnVol = r.ctn_volume_m3 ?? 0;
+        if (ctnVol <= 0) continue;
 
-      const cur = overrides[r.base_sku] ?? 0;
-      const addCartons = cur === 0 ? Math.ceil(r.moq / (r.ctn_qty ?? 1)) : 1;
-      const addVol = addCartons * ctnVol;
-      if (addVol > freeVol) continue;
+        const cur = overrides[r.base_sku] ?? 0;
+        const addCartons = cur === 0 ? Math.ceil(r.moq / (r.ctn_qty ?? 1)) : 1;
+        const addVol = addCartons * ctnVol;
+        if (addVol > freeVol) continue;
 
-      const newCov = coverAfter(r, cur + addCartons);
-      if (newCov > CAP_DAYS) continue;
+        const newCov = coverAfter(r, cur + addCartons);
+        if (newCov > cap) continue;
 
-      const cov = Math.max(1, newCov);
-      const score = Math.pow(r.velocity_per_day, 1.5) / cov;
+        const cov = Math.max(1, newCov);
+        const score = Math.pow(r.velocity_per_day, 1.5) / cov;
 
-      if (score > bestScore) {
-        bestScore = score;
-        bestRow = r;
-        bestAddCartons = addCartons;
-        bestAddVol = addVol;
+        if (score > bestScore) {
+          bestScore = score;
+          bestRow = r;
+          bestAddCartons = addCartons;
+          bestAddVol = addVol;
+        }
       }
-    }
 
-    if (bestRow === null) break;
-    overrides[bestRow.base_sku] = (overrides[bestRow.base_sku] ?? 0) + bestAddCartons;
-    freeVol -= bestAddVol;
-    safety++;
+      if (bestRow === null) break;
+      overrides[bestRow.base_sku] = (overrides[bestRow.base_sku] ?? 0) + bestAddCartons;
+      freeVol -= bestAddVol;
+      safety++;
+    }
+    if (freeVol < 0.001) break;
   }
 
   return overrides;

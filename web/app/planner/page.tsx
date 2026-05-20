@@ -3,7 +3,7 @@
 export const runtime = 'edge';
 
 import { useEffect, useState, useMemo } from 'react';
-import { Loader2, Flame, AlertTriangle, Check, ArrowLeft, Flag, Package, Truck } from 'lucide-react';
+import { Loader2, Flame, AlertTriangle, Check, Flag, Lock } from 'lucide-react';
 import { apiGet } from '@/lib/api';
 
 interface SummaryGroup {
@@ -83,11 +83,89 @@ function fmtMoney(amount: number | null, currency: 'cny' | 'usd'): string {
 const PALLET_VOLUME_M3 = 1.44;
 const C20_VOLUME_M3 = 28;
 const C40_VOLUME_M3 = 56;
+const DEFAULT_PALLETS = 6;
 
 type SizingMode = 'pallet' | '20ft' | '40ft';
 
+// ============================================================
+// AUTO FILL ALGORITHM
+// Unified greedy that RESPECTS manual locks — never modifies locked SKUs.
+// ============================================================
+function autoFillCartons(
+  rows: PlannerRow[],
+  targetVolumeM3: number,
+  mode: SizingMode,
+  manualOverrides: Record<string, number>,
+): Record<string, number> {
+  const CAP_DAYS = mode === 'pallet' ? 180 : mode === '20ft' ? 365 : 540;
 
+  const overrides: Record<string, number> = {};
+  for (const r of rows) overrides[r.base_sku] = 0;
 
+  // Subtract manual volume from target — manual entries reserve their slot.
+  let manualVol = 0;
+  for (const r of rows) {
+    if (Object.prototype.hasOwnProperty.call(manualOverrides, r.base_sku)) {
+      manualVol += (manualOverrides[r.base_sku] ?? 0) * (r.ctn_volume_m3 ?? 0);
+    }
+  }
+
+  function coverAfter(r: PlannerRow, cartons: number): number {
+    if (r.velocity_per_day <= 0) return Infinity;
+    const newUnits = cartons * (r.ctn_qty ?? 0);
+    const total = r.available_stock + newUnits;
+    return total / r.velocity_per_day;
+  }
+
+  let freeVol = targetVolumeM3 - manualVol;
+  let safety = 0;
+  while (freeVol > 0.001 && safety < 100000) {
+    let bestRow: PlannerRow | null = null;
+    let bestAddCartons = 0;
+    let bestAddVol = 0;
+    let bestScore = -1;
+
+    for (const r of rows) {
+      // Skip locked SKUs — algorithm never touches them.
+      if (Object.prototype.hasOwnProperty.call(manualOverrides, r.base_sku)) continue;
+
+      if (r.velocity_per_day <= 0) continue;
+      if (r.is_new_launch) continue;
+      if (r.lifecycle_status !== 'active') continue;
+      const ctnVol = r.ctn_volume_m3 ?? 0;
+      if (ctnVol <= 0) continue;
+
+      const cur = overrides[r.base_sku] ?? 0;
+      const addCartons = cur === 0 ? Math.ceil(r.moq / (r.ctn_qty ?? 1)) : 1;
+      const addVol = addCartons * ctnVol;
+      if (addVol > freeVol) continue;
+
+      const newCov = coverAfter(r, cur + addCartons);
+      if (newCov > CAP_DAYS) continue;
+
+      const cov = Math.max(1, newCov);
+      const score = Math.pow(r.velocity_per_day, 1.5) / cov;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestRow = r;
+        bestAddCartons = addCartons;
+        bestAddVol = addVol;
+      }
+    }
+
+    if (bestRow === null) break;
+    overrides[bestRow.base_sku] = (overrides[bestRow.base_sku] ?? 0) + bestAddCartons;
+    freeVol -= bestAddVol;
+    safety++;
+  }
+
+  return overrides;
+}
+
+// ============================================================
+// MAIN PAGE — single screen, manufacturer pills + plan inline
+// ============================================================
 export default function PlannerPage() {
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -100,22 +178,39 @@ export default function PlannerPage() {
   const [detail, setDetail] = useState<SuggestionsResponse | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  const [cartonOverrides, setCartonOverrides] = useState<Record<string, number>>({});
+  // Auto cartons (algorithm output) — only for unlocked SKUs
+  const [autoOverrides, setAutoOverrides] = useState<Record<string, number>>({});
+  // Manual cartons (user-typed, locked) — algorithm never touches these
+  const [manualOverrides, setManualOverrides] = useState<Record<string, number>>({});
 
+  const [mode, setMode] = useState<SizingMode>('pallet');
+  const [palletCount, setPalletCount] = useState<number>(DEFAULT_PALLETS);
+
+  // Load summary on mount
   useEffect(() => {
     apiGet<SummaryResponse>('/api/planner/summary')
       .then((res) => {
-        if (res.success && res.result) setSummary(res.result);
-        else setError(res.errors[0]?.message ?? 'Failed to load planner summary');
+        if (res.success && res.result) {
+          setSummary(res.result);
+          // Auto-select first (most urgent) group
+          if (res.result.groups.length > 0 && !selectedGroup) {
+            setSelectedGroup(res.result.groups[0].group_id);
+          }
+        } else {
+          setError(res.errors[0]?.message ?? 'Failed to load planner summary');
+        }
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Network error'))
       .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Load detail when group / stockZone / currency changes
   useEffect(() => {
     if (!selectedGroup) {
       setDetail(null);
-      setCartonOverrides({});
+      setAutoOverrides({});
+      setManualOverrides({});
       return;
     }
     setDetailLoading(true);
@@ -125,219 +220,275 @@ export default function PlannerPage() {
       .then((res) => {
         if (res.success && res.result) {
           setDetail(res.result);
-          setCartonOverrides({});
+          // Reset all overrides on group/zone change — fresh plan
+          setManualOverrides({});
+          const target = mode === '20ft' ? C20_VOLUME_M3 : mode === '40ft' ? C40_VOLUME_M3 : palletCount * PALLET_VOLUME_M3;
+          setAutoOverrides(autoFillCartons(res.result.rows, target, mode, {}));
         } else {
           setError(res.errors[0]?.message ?? 'Failed to load suggestions');
         }
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Network error'))
       .finally(() => setDetailLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedGroup, stockZone, currency]);
+
+  function getTargetVolume(m: SizingMode, p: number): number {
+    if (m === '20ft') return C20_VOLUME_M3;
+    if (m === '40ft') return C40_VOLUME_M3;
+    return p * PALLET_VOLUME_M3;
+  }
+
+  // Recompute auto when mode / pallet count changes
+  function handleModeChange(m: SizingMode) {
+    setMode(m);
+    if (detail) {
+      const target = getTargetVolume(m, palletCount);
+      setAutoOverrides(autoFillCartons(detail.rows, target, m, manualOverrides));
+    }
+  }
+  function handlePalletCountChange(n: number) {
+    setPalletCount(n);
+    if (detail && n > 0) {
+      setAutoOverrides(autoFillCartons(detail.rows, n * PALLET_VOLUME_M3, 'pallet', manualOverrides));
+    }
+  }
+
+  // User types in a Cartons cell → lock that SKU
+  function handleManualEdit(baseSku: string, value: number) {
+    const newManual = { ...manualOverrides, [baseSku]: value };
+    setManualOverrides(newManual);
+    if (detail) {
+      const target = getTargetVolume(mode, palletCount);
+      setAutoOverrides(autoFillCartons(detail.rows, target, mode, newManual));
+    }
+  }
+
+  // Unlock a specific SKU — algorithm takes back over
+  function handleUnlock(baseSku: string) {
+    const newManual = { ...manualOverrides };
+    delete newManual[baseSku];
+    setManualOverrides(newManual);
+    if (detail) {
+      const target = getTargetVolume(mode, palletCount);
+      setAutoOverrides(autoFillCartons(detail.rows, target, mode, newManual));
+    }
+  }
+
+  // Reset all manual locks
+  function handleResetAll() {
+    setManualOverrides({});
+    if (detail) {
+      const target = getTargetVolume(mode, palletCount);
+      setAutoOverrides(autoFillCartons(detail.rows, target, mode, {}));
+    }
+  }
 
   if (loading) {
     return <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-stone-400" /></div>;
   }
-
   if (error) {
     return <div className="p-6"><div className="px-4 py-3 rounded border border-red-200 bg-red-50 text-red-700" style={{ fontSize: '14px' }}>{error}</div></div>;
   }
 
-  if (selectedGroup && detail) {
-    return (
-      <PlannerDetail
-        detail={detail}
-        loading={detailLoading}
-        stockZone={stockZone}
-        currency={currency}
-        cartonOverrides={cartonOverrides}
-        setCartonOverrides={setCartonOverrides}
-        onBack={() => setSelectedGroup(null)}
-        onStockZone={setStockZone}
-        onCurrency={setCurrency}
-      />
-    );
-  }
-
-  return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 style={{ fontSize: '22px', fontWeight: 500 }}>Procurement Planner</h1>
-        <p className="text-stone-500" style={{ fontSize: '14px', marginTop: '4px' }}>
-          Sorted by urgency · one manufacturer per cycle · window {summary?.rules.window_days}d · coverage {summary?.rules.coverage_days}d · lead {summary?.rules.lead_time_days}d
-        </p>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {summary?.groups.map((g) => <ManufacturerCard key={g.group_id} group={g} onClick={() => setSelectedGroup(g.group_id)} />)}
-      </div>
-      <div className="text-stone-500 text-center py-8 border border-dashed border-stone-200 rounded" style={{ fontSize: '14px' }}>
-        Click a manufacturer above to see its plan.<br />
-        <span className="text-stone-400" style={{ fontSize: '13px' }}>Red is suggested by urgency — final call is yours.</span>
-      </div>
-    </div>
-  );
-}
-
-function ManufacturerCard({ group, onClick }: { group: SummaryGroup; onClick: () => void }) {
-  const isCritical = group.urgency === 'critical';
-  const isHigh = group.urgency === 'high';
-  const borderClass = isCritical ? 'border-red-500 border-2 bg-red-50' : isHigh ? 'border-amber-400 border' : 'border-stone-200 border opacity-90';
-  const badgeColor = isCritical ? 'text-red-700' : isHigh ? 'text-amber-700' : 'text-green-700';
-  const BadgeIcon = isCritical ? Flame : isHigh ? AlertTriangle : Check;
-  const badgeLabel = isCritical ? 'Most urgent' : isHigh ? 'High' : 'Calm';
-
-  return (
-    <button onClick={onClick} className={`text-left rounded-lg p-5 transition hover:shadow-md ${borderClass}`} style={{ background: isCritical ? undefined : 'white' }}>
-      <div className={`flex items-center gap-2 ${badgeColor}`} style={{ fontSize: '12px', fontWeight: 500, textTransform: 'uppercase' }}>
-        <BadgeIcon className="w-3.5 h-3.5" />{badgeLabel}
-      </div>
-      <div style={{ fontSize: '17px', fontWeight: 500, marginTop: '6px' }}>{group.group_name}</div>
-      <div className="text-stone-500" style={{ fontSize: '13px', marginTop: '2px' }}>{group.categories.join(' · ')}</div>
-      <div className="mt-4 pt-4 border-t border-current border-opacity-15 grid grid-cols-3 gap-3" style={{ fontSize: '13px' }}>
-        <div><div className="text-stone-500">SKUs to order</div><div style={{ fontSize: '18px', fontWeight: 700, marginTop: '2px' }}>{group.skus_to_order}</div></div>
-        <div><div className="text-stone-500">Min cover</div><div style={{ fontSize: '18px', fontWeight: 700, marginTop: '2px' }}>{group.min_cover_days === null ? '—' : `${group.min_cover_days}d`}</div></div>
-        <div><div className="text-stone-500">Dearth flags</div><div style={{ fontSize: '18px', fontWeight: 700, marginTop: '2px' }}>{group.dearth_flags}</div></div>
-      </div>
-    </button>
-  );
-}
-
-function PlannerDetail({
-  detail, loading, stockZone, currency, cartonOverrides, setCartonOverrides, onBack, onStockZone, onCurrency,
-}: {
-  detail: SuggestionsResponse; loading: boolean;
-  stockZone: 'russia' | 'worldwide'; currency: 'cny' | 'usd';
-  cartonOverrides: Record<string, number>;
-  setCartonOverrides: (next: Record<string, number>) => void;
-  onBack: () => void;
-  onStockZone: (z: 'russia' | 'worldwide') => void;
-  onCurrency: (c: 'cny' | 'usd') => void;
-}) {
+  // Compute totals using final values (manual overrides take precedence)
   function finalCartons(r: PlannerRow): number {
-    if (Object.prototype.hasOwnProperty.call(cartonOverrides, r.base_sku)) return Math.max(0, cartonOverrides[r.base_sku] ?? 0);
-    return r.cartons;
+    if (Object.prototype.hasOwnProperty.call(manualOverrides, r.base_sku)) {
+      return Math.max(0, manualOverrides[r.base_sku] ?? 0);
+    }
+    if (Object.prototype.hasOwnProperty.call(autoOverrides, r.base_sku)) {
+      return Math.max(0, autoOverrides[r.base_sku] ?? 0);
+    }
+    return 0;
   }
   function finalUnits(r: PlannerRow): number { return finalCartons(r) * (r.ctn_qty ?? 0); }
   function finalVolume(r: PlannerRow): number { return finalCartons(r) * (r.ctn_volume_m3 ?? 0); }
-  function finalPallets(r: PlannerRow): number { return finalVolume(r) / 1.44; }
+  function finalPallets(r: PlannerRow): number { return finalVolume(r) / PALLET_VOLUME_M3; }
   function finalAmount(r: PlannerRow): number | null {
     const u = finalUnits(r);
     if (u === 0 || r.unit_price === null) return null;
     return Math.round(r.unit_price * u * 100) / 100;
   }
 
-  // Sizing controls state — default to 6 pallets (max pallet mode)
-  const baselineMinVolume = detail.rows.reduce((s, r) => s + (r.suggested_order > 0 ? r.volume_m3 : 0), 0);
-  const baselineMinPallets = Math.max(1, Math.ceil(baselineMinVolume / PALLET_VOLUME_M3));
-  const DEFAULT_PALLETS = 6;
-
-  const [mode, setMode] = useState<SizingMode>('pallet');
-  const [palletCount, setPalletCount] = useState<number>(DEFAULT_PALLETS);
-
-  // Apply default sizing on first load (and when mode/zone changes back)
-  useEffect(() => {
-    if (Object.keys(cartonOverrides).length === 0) {
-      let targetVol = DEFAULT_PALLETS * PALLET_VOLUME_M3;
-      if (mode === '20ft') targetVol = C20_VOLUME_M3;
-      else if (mode === '40ft') targetVol = C40_VOLUME_M3;
-      else targetVol = palletCount * PALLET_VOLUME_M3;
-      setCartonOverrides(autoFillCartons(detail.rows, targetVol, mode));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detail.rows, mode]);
-
   let totUnits = 0, totCartons = 0, totVolume = 0, totPallets = 0, totAmount = 0;
   let anyAmount = false;
-  for (const r of detail.rows) {
-    const c = finalCartons(r);
-    if (c <= 0) continue;
-    totCartons += c; totUnits += finalUnits(r); totVolume += finalVolume(r); totPallets += finalPallets(r);
-    const amt = finalAmount(r);
-    if (amt !== null) { totAmount += amt; anyAmount = true; }
+  let manualVolume = 0;
+  if (detail) {
+    for (const r of detail.rows) {
+      const c = finalCartons(r);
+      if (c <= 0) continue;
+      totCartons += c; totUnits += finalUnits(r); totVolume += finalVolume(r); totPallets += finalPallets(r);
+      const amt = finalAmount(r);
+      if (amt !== null) { totAmount += amt; anyAmount = true; }
+      if (Object.prototype.hasOwnProperty.call(manualOverrides, r.base_sku)) {
+        manualVolume += finalVolume(r);
+      }
+    }
   }
   totVolume = Math.round(totVolume * 100) / 100;
   totPallets = Math.round(totPallets * 100) / 100;
   totAmount = Math.round(totAmount * 100) / 100;
 
+  const targetVol = getTargetVolume(mode, palletCount);
+  const manualExceedsTarget = manualVolume > targetVol + 0.01;
+  const hasManualEntries = Object.keys(manualOverrides).length > 0;
+
   return (
     <div className="p-6 space-y-5">
+      {/* HEADER */}
       <div>
-        <button onClick={onBack} className="flex items-center gap-2 text-stone-600 hover:text-stone-900" style={{ fontSize: '14px' }}>
-          <ArrowLeft className="w-4 h-4" /> Back to manufacturers
-        </button>
-        <h1 className="mt-3" style={{ fontSize: '22px', fontWeight: 500 }}>{detail.group.name}</h1>
+        <h1 style={{ fontSize: '22px', fontWeight: 500 }}>Procurement Planner</h1>
         <p className="text-stone-500" style={{ fontSize: '14px', marginTop: '4px' }}>
-          {totCartons} cartons · {totUnits.toLocaleString()} units · {totVolume.toFixed(2)} m³ · {totPallets.toFixed(1)} pallets
+          Sorted by urgency · one manufacturer per cycle · window {summary?.rules.window_days}d · coverage {summary?.rules.coverage_days}d · lead {summary?.rules.lead_time_days}d
         </p>
       </div>
 
-      <div className="flex items-center gap-5 flex-wrap" style={{ fontSize: '13px' }}>
-        <div className="flex items-center gap-2">
-          <span className="text-stone-500">Stock:</span>
-          <ToggleGroup value={stockZone} options={[{ id: 'russia', label: 'Russia' }, { id: 'worldwide', label: 'Worldwide' }]} onChange={(v) => onStockZone(v as 'russia' | 'worldwide')} />
+      {/* MANUFACTURER PILLS */}
+      <div className="flex gap-2 flex-wrap">
+        {summary?.groups.map((g) => (
+          <ManufacturerPill
+            key={g.group_id}
+            group={g}
+            selected={g.group_id === selectedGroup}
+            onClick={() => setSelectedGroup(g.group_id)}
+          />
+        ))}
+      </div>
+
+      {/* DETAIL CONTENT */}
+      {selectedGroup && detail ? (
+        <>
+          {/* Info strip — totals + toggles */}
+          <div className="flex items-center justify-between flex-wrap gap-3" style={{ background: '#FAFAF7', padding: '12px 16px', borderRadius: 8 }}>
+            <div style={{ fontSize: '14px' }}>
+              <span style={{ fontWeight: 700 }}>{totCartons} cartons</span>
+              <span className="text-stone-400 mx-2">·</span>
+              <span className="text-stone-600">{totUnits.toLocaleString()} units</span>
+              <span className="text-stone-400 mx-2">·</span>
+              <span className="text-stone-600">{totVolume.toFixed(2)} m³</span>
+              <span className="text-stone-400 mx-2">·</span>
+              <span className="text-stone-600">{totPallets.toFixed(1)} pallets</span>
+            </div>
+            <div className="flex items-center gap-4" style={{ fontSize: '13px' }}>
+              <div className="flex items-center gap-2">
+                <span className="text-stone-500">Stock:</span>
+                <ToggleGroup value={stockZone} options={[{ id: 'russia', label: 'Russia' }, { id: 'worldwide', label: 'Worldwide' }]} onChange={(v) => setStockZone(v as 'russia' | 'worldwide')} />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-stone-500">Price:</span>
+                <ToggleGroup value={currency} options={[{ id: 'cny', label: 'CNY' }, { id: 'usd', label: 'USD' }]} onChange={(v) => setCurrency(v as 'cny' | 'usd')} disabledIds={['usd']} />
+              </div>
+              {detailLoading && <Loader2 className="w-4 h-4 animate-spin text-stone-400" />}
+            </div>
+          </div>
+
+          {/* Manual override warning bar */}
+          {manualExceedsTarget && (
+            <div className="flex items-center gap-3 px-4 py-3 rounded" style={{ background: '#FCEBEB', border: '0.5px solid #F09595', fontSize: '13px', color: '#791F1F' }}>
+              <span style={{ fontSize: 16 }}>⚠</span>
+              <span><b>Manual entries take {manualVolume.toFixed(2)} m³</b> — exceeds {mode === 'pallet' ? `${palletCount} pallets (${targetVol.toFixed(2)} m³)` : `${mode} (${targetVol} m³)`}. Raise target or unlock entries to rebalance.</span>
+            </div>
+          )}
+
+          {/* Manual locks banner with reset button */}
+          {hasManualEntries && !manualExceedsTarget && (
+            <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded" style={{ background: '#FAEEDA', fontSize: '13px', color: '#854F0B' }}>
+              <span><b>{Object.keys(manualOverrides).length} manual {Object.keys(manualOverrides).length === 1 ? 'entry' : 'entries'} locked.</b> Algorithm rebalances unlocked SKUs.</span>
+              <button onClick={handleResetAll} style={{ fontSize: 12, padding: '4px 10px', background: 'white', border: '0.5px solid #BA7517', borderRadius: 4, color: '#854F0B', fontWeight: 500, cursor: 'pointer' }}>
+                Reset all to auto
+              </button>
+            </div>
+          )}
+
+          {/* Sizing buttons */}
+          <SizingButtons
+            mode={mode}
+            palletCount={palletCount}
+            onModeChange={handleModeChange}
+            onPalletCountChange={handlePalletCountChange}
+          />
+
+          {/* Table */}
+          <SkuTable
+            rows={detail.rows}
+            currency={currency}
+            manualOverrides={manualOverrides}
+            onManualEdit={handleManualEdit}
+            onUnlock={handleUnlock}
+            finalCartons={finalCartons}
+            finalUnits={finalUnits}
+            finalVolume={finalVolume}
+            finalPallets={finalPallets}
+            finalAmount={finalAmount}
+            totals={{ cartons: totCartons, units: totUnits, volume: totVolume, pallets: totPallets, amount: anyAmount ? totAmount : null }}
+          />
+
+          {/* Create Draft Purchase */}
+          <div className="flex justify-end pt-4 border-t border-stone-200">
+            <button
+              disabled={totCartons === 0}
+              className="px-5 py-2.5 rounded bg-stone-900 text-white disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{ fontSize: '14px', fontWeight: 500 }}
+              onClick={() => {
+                alert(`Will create draft Purchase for ${detail.group.name}\nTotal: ${totCartons} cartons · ${totUnits.toLocaleString()} units · ${fmtMoney(totAmount, currency)}\n\n(Actual draft creation lands next phase)`);
+              }}
+            >
+              Create Draft Purchase
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="text-stone-500 text-center py-12 border border-dashed border-stone-200 rounded" style={{ fontSize: '14px' }}>
+          Click a manufacturer above to see its plan.
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-stone-500">Price:</span>
-          <ToggleGroup value={currency} options={[{ id: 'cny', label: 'CNY' }, { id: 'usd', label: 'USD' }]} onChange={(v) => onCurrency(v as 'cny' | 'usd')} disabledIds={['usd']} />
-        </div>
-        {loading && <Loader2 className="w-4 h-4 animate-spin text-stone-400" />}
-      </div>
-
-      <div style={{ display: mode === 'pallet' ? 'block' : 'none' }}>
-        <SmartHint
-          rows={detail.rows}
-          overrides={cartonOverrides}
-          targetVolume={palletCount * PALLET_VOLUME_M3}
-          onAddPallet={(extra) => {
-            const newCount = palletCount + extra;
-            setPalletCount(newCount);
-            setCartonOverrides(autoFillCartons(detail.rows, newCount * PALLET_VOLUME_M3, 'pallet'));
-          }}
-        />
-      </div>
-
-      <SizingButtons
-        rows={detail.rows}
-        mode={mode}
-        palletCount={palletCount}
-        onModeChange={(m) => {
-          setMode(m);
-          let targetVol = palletCount * PALLET_VOLUME_M3;
-          if (m === '20ft') targetVol = C20_VOLUME_M3;
-          else if (m === '40ft') targetVol = C40_VOLUME_M3;
-          else targetVol = palletCount * PALLET_VOLUME_M3;
-          setCartonOverrides(autoFillCartons(detail.rows, targetVol, m));
-        }}
-        onPalletCountChange={(n) => {
-          setPalletCount(n);
-          if (n > 0) {
-            setCartonOverrides(autoFillCartons(detail.rows, n * PALLET_VOLUME_M3, 'pallet'));
-          }
-        }}
-      />
-
-      <SkuTable
-        rows={detail.rows} currency={currency}
-        cartonOverrides={cartonOverrides} setCartonOverrides={setCartonOverrides}
-        finalCartons={finalCartons} finalUnits={finalUnits} finalVolume={finalVolume} finalPallets={finalPallets} finalAmount={finalAmount}
-        totals={{ cartons: totCartons, units: totUnits, volume: totVolume, pallets: totPallets, amount: anyAmount ? totAmount : null }}
-      />
-
-      <div className="flex justify-end pt-4 border-t border-stone-200">
-        <button
-          disabled={totCartons === 0}
-          className="px-5 py-2.5 rounded bg-stone-900 text-white disabled:opacity-40 disabled:cursor-not-allowed"
-          style={{ fontSize: '14px', fontWeight: 500 }}
-          onClick={() => {
-            alert(`Will create draft Purchase for ${detail.group.name}\nTotal: ${totCartons} cartons · ${totUnits.toLocaleString()} units · ${fmtMoney(totAmount, currency)}\n\n(Actual draft creation lands next phase)`);
-          }}
-        >
-          Create Draft Purchase
-        </button>
-      </div>
+      )}
     </div>
   );
 }
 
+// ============================================================
+// MANUFACTURER PILL
+// ============================================================
+function ManufacturerPill({ group, selected, onClick }: { group: SummaryGroup; selected: boolean; onClick: () => void }) {
+  const isCritical = group.urgency === 'critical';
+  const isHigh = group.urgency === 'high';
+  const dotColor = isCritical ? '#A32D2D' : isHigh ? '#BA7517' : '#639922';
+  const badgeBg = isCritical ? '#FCEBEB' : isHigh ? '#FAEEDA' : '#EAF3DE';
+  const badgeColor = isCritical ? '#791F1F' : isHigh ? '#854F0B' : '#27500A';
+  const badgeLabel = isCritical ? 'MOST URGENT' : isHigh ? 'HIGH' : 'CALM';
+
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding: '10px 16px',
+        border: selected ? '2px solid #185FA5' : '0.5px solid #d6d3d1',
+        background: selected ? '#E6F1FB' : 'white',
+        borderRadius: 8,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        cursor: 'pointer',
+        textAlign: 'left',
+      }}
+    >
+      <div style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 500, color: selected ? '#0C447C' : '#1c1c1c' }}>{group.group_name}</div>
+        <div style={{ fontSize: 11, color: selected ? '#185FA5' : '#78716c', marginTop: 2 }}>
+          {group.skus_to_order} to order · min cover {group.min_cover_days === null ? '—' : `${group.min_cover_days}d`} · {group.dearth_flags} dearth
+        </div>
+      </div>
+      <div style={{ fontSize: 10, color: badgeColor, background: badgeBg, padding: '2px 8px', borderRadius: 4, fontWeight: 500, marginLeft: 4, letterSpacing: '0.3px' }}>
+        {badgeLabel}
+      </div>
+    </button>
+  );
+}
+
+// ============================================================
+// TOGGLE GROUP
+// ============================================================
 function ToggleGroup({ value, options, onChange, disabledIds }: { value: string; options: Array<{ id: string; label: string }>; onChange: (v: string) => void; disabledIds?: string[] }) {
   return (
     <div className="inline-flex border border-stone-300 rounded-md overflow-hidden">
@@ -368,211 +519,22 @@ function ToggleGroup({ value, options, onChange, disabledIds }: { value: string;
   );
 }
 
-/**
- * Apply sizing target to base recommendations:
- *   - For each row, start with `cartons` = MOQ baseline (r.cartons).
- *   - Compute current total volume.
- *   - If target volume > current, scale up: distribute extra cartons to SKUs sorted by velocity DESC.
- *   - If target volume < current (only possible when user types small N pallets), reduce by trimming
- *     the lowest-velocity ordered SKU's cartons in carton-multiples.
- * Returns map: base_sku → cartons.
- */
-function autoFillCartons(rows: PlannerRow[], targetVolumeM3: number, mode: SizingMode = 'pallet'): Record<string, number> {
-  // Unified greedy: at EVERY step, every SKU competes for the next carton slot.
-  //
-  // Move options:
-  //   - If SKU has 0 cartons → adding MOQ (one big jump)
-  //   - If SKU has > 0 cartons → adding +1 carton (small increment)
-  //
-  // Both options are scored identically: velocity^1.5 / cover_after.
-  // Highest score wins; volume of that move is deducted; loop continues.
-  // Hard cap: any move pushing cover above PHASE_B_CAP is rejected (180/365/540d by mode).
-  // Result: the algorithm picks "add +1 ctn of DE110 (vel 158)" over "MOQ entry of DE126 (vel 10)"
-  // automatically — addition strategy unified with introduction strategy.
-
-  const CAP_DAYS = mode === 'pallet' ? 180 : mode === '20ft' ? 365 : 540;
-
-  const overrides: Record<string, number> = {};
-  for (const r of rows) overrides[r.base_sku] = 0;
-
-  function coverAfter(r: PlannerRow, cartons: number): number {
-    if (r.velocity_per_day <= 0) return Infinity;
-    const newUnits = cartons * (r.ctn_qty ?? 0);
-    const total = r.available_stock + newUnits;
-    return total / r.velocity_per_day;
-  }
-
-  let freeVol = targetVolumeM3;
-  let safety = 0;
-  while (freeVol > 0.001 && safety < 100000) {
-    let bestRow: PlannerRow | null = null;
-    let bestAddCartons = 0;
-    let bestAddVol = 0;
-    let bestScore = -1;
-
-    for (const r of rows) {
-      if (r.velocity_per_day <= 0) continue;
-      if (r.is_new_launch) continue;
-      if (r.lifecycle_status !== 'active') continue;
-      const ctnVol = r.ctn_volume_m3 ?? 0;
-      if (ctnVol <= 0) continue;
-
-      const cur = overrides[r.base_sku] ?? 0;
-
-      // Pick move type for this SKU
-      let addCartons: number;
-      if (cur === 0) {
-        addCartons = Math.ceil(r.moq / (r.ctn_qty ?? 1));
-      } else {
-        addCartons = 1;
-      }
-      const addVol = addCartons * ctnVol;
-      if (addVol > freeVol) continue;
-
-      const newCov = coverAfter(r, cur + addCartons);
-      if (newCov > CAP_DAYS) continue;
-
-      const cov = Math.max(1, newCov);
-      const score = Math.pow(r.velocity_per_day, 1.5) / cov;
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestRow = r;
-        bestAddCartons = addCartons;
-        bestAddVol = addVol;
-      }
-    }
-
-    if (bestRow === null) break;
-    overrides[bestRow.base_sku] = (overrides[bestRow.base_sku] ?? 0) + bestAddCartons;
-    freeVol -= bestAddVol;
-    safety++;
-  }
-
-  return overrides;
-}
-
-
-/**
- * Given current overrides + targetVolume, find the highest-score SKU
- * that does NOT fit in the current free space but WOULD fit if we added 1 more pallet.
- * Used for the "upsell hint" under the buttons.
- */
-function findUpsellCandidate(
-  rows: PlannerRow[],
-  overrides: Record<string, number>,
-  freeVolumeM3: number,
-): { sku: PlannerRow; needPallets: number } | null {
-  const candidates = rows
-    .filter((r) =>
-      !r.is_new_launch &&
-      r.lifecycle_status === 'active' &&
-      r.velocity_per_day > 0 &&
-      (r.ctn_volume_m3 ?? 0) > 0 &&
-      (overrides[r.base_sku] ?? 0) === 0,
-    )
-    .map((r) => {
-      const moqCartons = Math.ceil(r.moq / (r.ctn_qty ?? 1));
-      const moqVolume = moqCartons * (r.ctn_volume_m3 ?? 0);
-      return {
-        r,
-        moqVolume,
-        score: r.velocity_per_day / ((r.cover_days ?? 0) + 30),
-      };
-    })
-    .filter((c) => c.moqVolume > freeVolumeM3)
-    .sort((a, b) => b.score - a.score);
-
-  if (candidates.length === 0) return null;
-  const top = candidates[0];
-  const extraVolNeeded = top.moqVolume - freeVolumeM3;
-  const extraPallets = Math.ceil(extraVolNeeded / PALLET_VOLUME_M3);
-  return { sku: top.r, needPallets: extraPallets };
-}
-
-function SmartHint({
-  rows,
-  overrides,
-  targetVolume,
-  onAddPallet,
-}: {
-  rows: PlannerRow[];
-  overrides: Record<string, number>;
-  targetVolume: number;
-  onAddPallet: (n: number) => void;
-}) {
-  // current used volume
-  let used = 0;
-  for (const r of rows) {
-    const c = overrides[r.base_sku] ?? 0;
-    used += c * (r.ctn_volume_m3 ?? 0);
-  }
-  const free = targetVolume - used;
-  if (free <= 0.05) return null; // basically full
-
-  const hint = findUpsellCandidate(rows, overrides, free);
-  if (!hint) return null;
-
-  return (
-    <div
-      className="flex items-center gap-3 px-4 py-3 rounded"
-      style={{
-        background: 'rgba(0, 87, 184, 0.06)',
-        border: '1px dashed rgba(0, 87, 184, 0.35)',
-        fontSize: '13px',
-      }}
-    >
-      <div style={{ flex: 1, color: '#1e40af' }}>
-        Add <b>{hint.needPallets}</b> more pallet{hint.needPallets > 1 ? 's' : ''} to fit{' '}
-        <b>{hint.sku.base_sku.toUpperCase()} {hint.sku.product_name}</b>
-        <span style={{ color: '#64748b', marginLeft: 6 }}>
-          (velocity {hint.sku.velocity_per_day.toFixed(1)}/d, ends in {hint.sku.cover_days ?? '—'}d)
-        </span>
-      </div>
-      <button
-        onClick={() => onAddPallet(hint.needPallets)}
-        style={{
-          padding: '5px 12px',
-          background: '#1d4ed8',
-          color: 'white',
-          fontSize: '12px',
-          fontWeight: 500,
-          borderRadius: 6,
-          border: 'none',
-          cursor: 'pointer',
-        }}
-      >
-        +{hint.needPallets} pallet → add {hint.sku.base_sku.toUpperCase()}
-      </button>
-    </div>
-  );
-}
-
+// ============================================================
+// SIZING BUTTONS
+// ============================================================
 function SizingButtons({
-  rows, mode, palletCount, onModeChange, onPalletCountChange,
+  mode, palletCount, onModeChange, onPalletCountChange,
 }: {
-  rows: PlannerRow[];
   mode: SizingMode;
-  palletCount: number; // current value for the editable pallet input
+  palletCount: number;
   onModeChange: (mode: SizingMode) => void;
   onPalletCountChange: (n: number) => void;
 }) {
-  // Compute minimum pallets from MOQ baseline (for placeholder/sub-text)
-  let minVolume = 0;
-  for (const r of rows) {
-    if (r.suggested_order > 0) minVolume += r.volume_m3;
-  }
-  const minPallets = minVolume / PALLET_VOLUME_M3;
-  const minPalletsCeil = Math.max(1, Math.ceil(minPallets));
-
   const palletSelected = mode === 'pallet';
   const c20Selected = mode === '20ft';
   const c40Selected = mode === '40ft';
 
-  // Subtext for pallet button
-  const pSub = palletCount <= 6
-    ? `${(palletCount * 1.44).toFixed(2)} m³ · within max 6`
-    : `${(palletCount * 1.44).toFixed(2)} m³ · over max — consider 20ft`;
+  const pSub = `${(palletCount * PALLET_VOLUME_M3).toFixed(2)} m³ · within max 6`;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -629,12 +591,9 @@ function SizingButtons({
         <div style={{ fontSize: 11, color: palletSelected ? '#185FA5' : '#78716c', marginTop: 6 }}>
           {pSub}
         </div>
-        <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 500, display: palletCount < minPalletsCeil ? 'block' : 'none' }}>
-          below minimum ({minPalletsCeil})
-        </div>
       </button>
 
-      {/* 20ft container */}
+      {/* 20ft */}
       <button
         type="button"
         onClick={() => onModeChange('20ft')}
@@ -663,7 +622,7 @@ function SizingButtons({
         </div>
       </button>
 
-      {/* 40ft container */}
+      {/* 40ft */}
       <button
         type="button"
         onClick={() => onModeChange('40ft')}
@@ -695,13 +654,17 @@ function SizingButtons({
   );
 }
 
+// ============================================================
+// SKU TABLE
+// ============================================================
 function SkuTable({
-  rows, currency, cartonOverrides, setCartonOverrides,
+  rows, currency, manualOverrides, onManualEdit, onUnlock,
   finalCartons, finalUnits, finalVolume, finalPallets, finalAmount, totals,
 }: {
   rows: PlannerRow[]; currency: 'cny' | 'usd';
-  cartonOverrides: Record<string, number>;
-  setCartonOverrides: (next: Record<string, number>) => void;
+  manualOverrides: Record<string, number>;
+  onManualEdit: (sku: string, value: number) => void;
+  onUnlock: (sku: string) => void;
   finalCartons: (r: PlannerRow) => number;
   finalUnits: (r: PlannerRow) => number;
   finalVolume: (r: PlannerRow) => number;
@@ -711,8 +674,6 @@ function SkuTable({
 }) {
   type SortKey = 'sku' | 'sales' | 'ends' | 'cartons';
   type SortDir = 'asc' | 'desc';
-  // Default sort direction per column per Aram's spec:
-  // SKU asc, Sales/day desc, Ends in asc, Cartons desc
   const defaultDirs: Record<SortKey, SortDir> = { sku: 'asc', sales: 'desc', ends: 'asc', cartons: 'desc' };
   const [sortKey, setSortKey] = useState<SortKey>('cartons');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -733,7 +694,6 @@ function SkuTable({
       if (sortKey === 'sku') { av = a.base_sku; bv = b.base_sku; }
       else if (sortKey === 'sales') { av = a.velocity_per_day; bv = b.velocity_per_day; }
       else if (sortKey === 'ends') {
-        // null cover = put at end regardless of direction
         const ac = a.cover_days; const bc = b.cover_days;
         if (ac === null && bc === null) return 0;
         if (ac === null) return 1;
@@ -778,7 +738,7 @@ function SkuTable({
             <th className="text-right px-3 py-2 cursor-pointer select-none" onClick={() => clickHeader('ends')}>
               Ends in<SortArrow k="ends" />
             </th>
-            <th className="text-right px-3 py-2 cursor-pointer select-none" onClick={() => clickHeader('cartons')} style={{ color: 'inherit', fontWeight: 500 }}>
+            <th className="text-right px-3 py-2 cursor-pointer select-none" onClick={() => clickHeader('cartons')}>
               Cartons<SortArrow k="cartons" />
             </th>
             <th className="text-right px-3 py-2">Units</th>
@@ -788,17 +748,20 @@ function SkuTable({
           </tr>
         </thead>
         <tbody>
-          {sortedRows.map((r) => {
-            const isStockout = r.available_stock === 0 && !r.is_new_launch && r.velocity_per_day > 0;
-            const coverColor = r.cover_days === null ? 'text-stone-400' : r.cover_days <= 30 ? 'text-red-600' : r.cover_days <= 90 ? 'text-amber-600' : 'text-green-600';
+          {sortedRows.map((r, idx) => {
             const cartons = finalCartons(r);
-            const ordered = cartons > 0;
             const units = finalUnits(r);
             const volume = finalVolume(r);
             const pallets = finalPallets(r);
             const amount = finalAmount(r);
+            const isStockout = r.available_stock === 0 && !r.is_new_launch && r.velocity_per_day > 0;
+            const coverColor = r.cover_days === null ? 'text-stone-400' : r.cover_days <= 30 ? 'text-red-600' : r.cover_days <= 90 ? 'text-amber-600' : 'text-green-600';
+            const isLocked = Object.prototype.hasOwnProperty.call(manualOverrides, r.base_sku);
+            const rowStripe = idx % 2 === 0 ? '#FFFEF9' : 'white';
+            const rowBg = isLocked ? '#FAEEDA' : rowStripe;
+
             return (
-              <tr key={r.base_sku} className="border-b border-stone-100 last:border-0" style={{ background: ordered ? '#FFFBEB' : undefined }}>
+              <tr key={r.base_sku} style={{ background: rowBg }}>
                 <td className="px-3 py-2.5" style={{ fontWeight: 700 }}>{r.base_sku.toUpperCase()}</td>
                 <td className="px-3 py-2.5">
                   <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -810,35 +773,53 @@ function SkuTable({
                       <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 4, background: '#dcfce7', color: '#166534', fontWeight: 500 }}>4×</span>
                     )}
                   </div>
-                  {(r.is_new_launch || (r.dearth_days > 0 && r.velocity_per_day > 0) || isStockout) && (
-                    <div className="flex flex-wrap items-center gap-2 mt-0.5" style={{ fontSize: '11px' }}>
-                      {r.is_new_launch && <span className="text-blue-600">new launch · manual qty</span>}
-                      {r.dearth_days > 0 && r.velocity_per_day > 0 && (
-                        <span className="text-red-600 flex items-center gap-1">
-                          <Flag className="w-3 h-3" /> {r.dearth_days}d zero
-                        </span>
-                      )}
-                      {isStockout && <span className="text-red-600">⚠ stockout</span>}
-                    </div>
-                  )}
+                  <div style={{ display: (r.is_new_launch || (r.dearth_days > 0 && r.velocity_per_day > 0) || isStockout) ? 'flex' : 'none', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 2, fontSize: '11px' }}>
+                    {r.is_new_launch && <span className="text-blue-600">new launch · manual qty</span>}
+                    {r.dearth_days > 0 && r.velocity_per_day > 0 && (
+                      <span className="text-red-600 flex items-center gap-1">
+                        <Flag className="w-3 h-3" /> {r.dearth_days}d zero
+                      </span>
+                    )}
+                    {isStockout && <span className="text-red-600">⚠ stockout</span>}
+                  </div>
                 </td>
                 <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{r.is_new_launch ? '—' : r.velocity_per_day.toFixed(1)}</td>
                 <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{r.available_stock.toLocaleString()}</td>
                 <td className={`px-3 py-2.5 text-right ${coverColor}`} style={{ fontWeight: 700 }}>{r.cover_days === null ? '—' : r.cover_days + 'd'}</td>
                 <td className="px-3 py-2.5 text-right">
-                  <input
-                    type="number" min={0} value={cartons}
-                    onChange={(e) => {
-                      const v = parseInt(e.target.value, 10);
-                      setCartonOverrides({ ...cartonOverrides, [r.base_sku]: isNaN(v) ? 0 : v });
-                    }}
-                    style={{
-                      width: 60, textAlign: 'right', padding: '3px 6px',
-                      border: '0.5px solid #a8a29e', borderRadius: 4,
-                      fontWeight: 700, fontSize: 14, background: 'white',
-                      color: cartons > 0 ? undefined : '#a8a29e',
-                    }}
-                  />
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {isLocked ? (
+                      <button
+                        title="Unlock — algorithm takes over"
+                        onClick={() => onUnlock(r.base_sku)}
+                        style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, color: '#854F0B', fontSize: 14, lineHeight: 1, width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <Lock className="w-3.5 h-3.5" />
+                      </button>
+                    ) : (
+                      <span style={{ width: 16, visibility: 'hidden' }}>·</span>
+                    )}
+                    <input
+                      type="number"
+                      min={0}
+                      value={cartons}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10);
+                        onManualEdit(r.base_sku, isNaN(v) ? 0 : v);
+                      }}
+                      style={{
+                        width: 60,
+                        textAlign: 'right',
+                        padding: '3px 6px',
+                        border: isLocked ? '1.5px solid #BA7517' : '0.5px solid #a8a29e',
+                        borderRadius: 4,
+                        fontWeight: 700,
+                        fontSize: 14,
+                        background: 'white',
+                        color: cartons > 0 ? undefined : '#a8a29e',
+                      }}
+                    />
+                  </div>
                 </td>
                 <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{units > 0 ? units.toLocaleString() : '—'}</td>
                 <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{volume > 0 ? volume.toFixed(2) : '—'}</td>
@@ -847,7 +828,7 @@ function SkuTable({
               </tr>
             );
           })}
-          {/* TOTALS row */}
+          {/* TOTALS */}
           <tr className="border-t-2 border-stone-300 bg-stone-50">
             <td className="px-3 py-2.5" style={{ fontWeight: 700 }} colSpan={5}>TOTAL</td>
             <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{totals.cartons || '—'}</td>

@@ -2,7 +2,7 @@
 
 export const runtime = 'edge';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Loader2, Flame, AlertTriangle, Check, ArrowLeft, Flag, Package, Truck } from 'lucide-react';
 import { apiGet } from '@/lib/api';
 
@@ -275,10 +275,23 @@ function PlannerDetail({
         </div>
         <div className="flex items-center gap-2">
           <span className="text-stone-500">Price:</span>
-          <ToggleGroup value={currency} options={[{ id: 'cny', label: 'CNY' }, { id: 'usd', label: 'USD' }]} onChange={(v) => onCurrency(v as 'cny' | 'usd')} />
+          <ToggleGroup value={currency} options={[{ id: 'cny', label: 'CNY' }, { id: 'usd', label: 'USD' }]} onChange={(v) => onCurrency(v as 'cny' | 'usd')} disabledIds={['usd']} />
         </div>
         {loading && <Loader2 className="w-4 h-4 animate-spin text-stone-400" />}
       </div>
+
+      {mode === 'pallet' && (
+        <SmartHint
+          rows={detail.rows}
+          overrides={cartonOverrides}
+          targetVolume={palletCount * PALLET_VOLUME_M3}
+          onAddPallet={(extra) => {
+            const newCount = palletCount + extra;
+            setPalletCount(newCount);
+            setCartonOverrides(autoFillCartons(detail.rows, newCount * PALLET_VOLUME_M3));
+          }}
+        />
+      )}
 
       <SizingButtons
         rows={detail.rows}
@@ -299,19 +312,6 @@ function PlannerDetail({
           }
         }}
       />
-
-      {mode === 'pallet' && (
-        <SmartHint
-          rows={detail.rows}
-          overrides={cartonOverrides}
-          targetVolume={palletCount * PALLET_VOLUME_M3}
-          onAddPallet={(extra) => {
-            const newCount = palletCount + extra;
-            setPalletCount(newCount);
-            setCartonOverrides(autoFillCartons(detail.rows, newCount * PALLET_VOLUME_M3));
-          }}
-        />
-      )}
 
       <SkuTable
         rows={detail.rows} currency={currency}
@@ -336,21 +336,26 @@ function PlannerDetail({
   );
 }
 
-function ToggleGroup({ value, options, onChange }: { value: string; options: Array<{ id: string; label: string }>; onChange: (v: string) => void }) {
+function ToggleGroup({ value, options, onChange, disabledIds }: { value: string; options: Array<{ id: string; label: string }>; onChange: (v: string) => void; disabledIds?: string[] }) {
   return (
     <div className="inline-flex border border-stone-300 rounded-md overflow-hidden">
       {options.map((opt, i) => {
         const active = opt.id === value;
+        const disabled = disabledIds?.includes(opt.id);
         return (
           <button
             key={opt.id}
-            onClick={() => onChange(opt.id)}
+            onClick={() => { if (!disabled) onChange(opt.id); }}
+            disabled={disabled}
+            title={disabled ? 'Not available yet — purchase price list not loaded' : undefined}
             className={active ? 'bg-stone-900 text-white' : 'bg-transparent text-stone-600'}
             style={{
               padding: '5px 12px',
               fontSize: '13px',
               fontWeight: active ? 500 : 400,
               borderLeft: i > 0 ? '0.5px solid #d6d3d1' : undefined,
+              cursor: disabled ? 'not-allowed' : 'pointer',
+              opacity: disabled ? 0.4 : 1,
             }}
           >
             {opt.label}
@@ -725,12 +730,57 @@ function SkuTable({
   finalAmount: (r: PlannerRow) => number | null;
   totals: { cartons: number; units: number; volume: number; pallets: number; amount: number | null };
 }) {
-  if (rows.length === 0) {
-    return <div className="text-stone-500 text-center py-8 border border-dashed border-stone-200 rounded" style={{ fontSize: '14px' }}>No SKUs in this manufacturer group.</div>;
+  type SortKey = 'sku' | 'sales' | 'ends' | 'cartons';
+  type SortDir = 'asc' | 'desc';
+  // Default sort direction per column per Aram's spec:
+  // SKU asc, Sales/day desc, Ends in asc, Cartons desc
+  const defaultDirs: Record<SortKey, SortDir> = { sku: 'asc', sales: 'desc', ends: 'asc', cartons: 'desc' };
+  const [sortKey, setSortKey] = useState<SortKey>('sku');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+  function clickHeader(k: SortKey) {
+    if (sortKey === k) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(k);
+      setSortDir(defaultDirs[k]);
+    }
   }
 
-  function setCartons(sku: string, value: number) {
-    setCartonOverrides({ ...cartonOverrides, [sku]: value });
+  const sortedRows = useMemo(() => {
+    const out = [...rows];
+    out.sort((a, b) => {
+      let av: number | string = 0, bv: number | string = 0;
+      if (sortKey === 'sku') { av = a.base_sku; bv = b.base_sku; }
+      else if (sortKey === 'sales') { av = a.velocity_per_day; bv = b.velocity_per_day; }
+      else if (sortKey === 'ends') {
+        // null cover = put at end regardless of direction
+        const ac = a.cover_days; const bc = b.cover_days;
+        if (ac === null && bc === null) return 0;
+        if (ac === null) return 1;
+        if (bc === null) return -1;
+        av = ac; bv = bc;
+      }
+      else if (sortKey === 'cartons') { av = finalCartons(a); bv = finalCartons(b); }
+      if (typeof av === 'string' && typeof bv === 'string') {
+        return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+      }
+      return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
+    });
+    return out;
+  }, [rows, sortKey, sortDir, finalCartons]);
+
+  function SortArrow({ k }: { k: SortKey }) {
+    if (sortKey !== k) return <span style={{ color: '#cbd5e1', marginLeft: 4 }}>↕</span>;
+    return <span style={{ marginLeft: 4 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>;
+  }
+
+  if (rows.length === 0) {
+    return (
+      <div className="text-stone-500 text-center py-8 border border-dashed border-stone-200 rounded" style={{ fontSize: '14px' }}>
+        No SKUs in this manufacturer group.
+      </div>
+    );
   }
 
   return (
@@ -738,12 +788,20 @@ function SkuTable({
       <table className="w-full" style={{ fontSize: '13.5px' }}>
         <thead>
           <tr className="border-b border-stone-200 bg-stone-50 text-stone-500" style={{ fontSize: '11.5px' }}>
-            <th className="text-left px-3 py-2">SKU</th>
+            <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={() => clickHeader('sku')}>
+              SKU<SortArrow k="sku" />
+            </th>
             <th className="text-left px-3 py-2">Product</th>
-            <th className="text-right px-3 py-2">Sales/day</th>
+            <th className="text-right px-3 py-2 cursor-pointer select-none" onClick={() => clickHeader('sales')}>
+              Sales/day<SortArrow k="sales" />
+            </th>
             <th className="text-right px-3 py-2">Stock</th>
-            <th className="text-right px-3 py-2">Ends in</th>
-            <th className="text-right px-3 py-2" style={{ color: 'inherit', fontWeight: 500 }}>Cartons</th>
+            <th className="text-right px-3 py-2 cursor-pointer select-none" onClick={() => clickHeader('ends')}>
+              Ends in<SortArrow k="ends" />
+            </th>
+            <th className="text-right px-3 py-2 cursor-pointer select-none" onClick={() => clickHeader('cartons')} style={{ color: 'inherit', fontWeight: 500 }}>
+              Cartons<SortArrow k="cartons" />
+            </th>
             <th className="text-right px-3 py-2">Units</th>
             <th className="text-right px-3 py-2">Volume</th>
             <th className="text-right px-3 py-2">Pallets</th>
@@ -751,38 +809,41 @@ function SkuTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => {
-            const isZero = r.available_stock === 0 && !r.is_new_launch && r.velocity_per_day > 0;
+          {sortedRows.map((r) => {
+            const isStockout = r.available_stock === 0 && !r.is_new_launch && r.velocity_per_day > 0;
             const coverColor = r.cover_days === null ? 'text-stone-400' : r.cover_days <= 30 ? 'text-red-600' : r.cover_days <= 90 ? 'text-amber-600' : 'text-green-600';
             const cartons = finalCartons(r);
-            const isOrdered = cartons > 0;
+            const ordered = cartons > 0;
             const units = finalUnits(r);
-            const vol = finalVolume(r);
-            const pal = finalPallets(r);
-            const amt = finalAmount(r);
-
+            const volume = finalVolume(r);
+            const pallets = finalPallets(r);
+            const amount = finalAmount(r);
             return (
-              <tr key={r.base_sku} className="border-b border-stone-100 last:border-0" style={{ background: isOrdered ? '#FFFBEB' : undefined }}>
+              <tr key={r.base_sku} className="border-b border-stone-100 last:border-0" style={{ background: ordered ? '#FFFBEB' : undefined }}>
                 <td className="px-3 py-2.5" style={{ fontWeight: 700 }}>{r.base_sku.toUpperCase()}</td>
                 <td className="px-3 py-2.5">
                   <div style={{ fontWeight: 700 }}>{r.product_name}</div>
-                  {(r.is_new_launch || (r.dearth_days > 0 && r.velocity_per_day > 0) || isZero) && (
+                  {(r.is_new_launch || (r.dearth_days > 0 && r.velocity_per_day > 0) || isStockout) && (
                     <div className="flex flex-wrap items-center gap-2 mt-0.5" style={{ fontSize: '11px' }}>
                       {r.is_new_launch && <span className="text-blue-600">new launch · manual qty</span>}
-                      {r.dearth_days > 0 && r.velocity_per_day > 0 && <span className="text-red-600 flex items-center gap-1"><Flag className="w-3 h-3" /> {r.dearth_days}d zero</span>}
-                      {isZero && <span className="text-red-600">⚠ stockout</span>}
+                      {r.dearth_days > 0 && r.velocity_per_day > 0 && (
+                        <span className="text-red-600 flex items-center gap-1">
+                          <Flag className="w-3 h-3" /> {r.dearth_days}d zero
+                        </span>
+                      )}
+                      {isStockout && <span className="text-red-600">⚠ stockout</span>}
                     </div>
                   )}
                 </td>
                 <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{r.is_new_launch ? '—' : r.velocity_per_day.toFixed(1)}</td>
                 <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{r.available_stock.toLocaleString()}</td>
-                <td className={`px-3 py-2.5 text-right ${coverColor}`} style={{ fontWeight: 700 }}>{r.cover_days === null ? '—' : `${r.cover_days}d`}</td>
+                <td className={`px-3 py-2.5 text-right ${coverColor}`} style={{ fontWeight: 700 }}>{r.cover_days === null ? '—' : r.cover_days + 'd'}</td>
                 <td className="px-3 py-2.5 text-right">
                   <input
                     type="number" min={0} value={cartons}
                     onChange={(e) => {
                       const v = parseInt(e.target.value, 10);
-                      setCartons(r.base_sku, isNaN(v) ? 0 : v);
+                      setCartonOverrides({ ...cartonOverrides, [r.base_sku]: isNaN(v) ? 0 : v });
                     }}
                     style={{
                       width: 60, textAlign: 'right', padding: '3px 6px',
@@ -792,17 +853,16 @@ function SkuTable({
                     }}
                   />
                 </td>
-                <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{isOrdered ? units.toLocaleString() : <span className="text-stone-400">—</span>}</td>
-                <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{isOrdered ? vol.toFixed(2) : <span className="text-stone-400">—</span>}</td>
-                <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{isOrdered ? pal.toFixed(2) : <span className="text-stone-400">—</span>}</td>
-                <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{isOrdered ? fmtMoney(amt, currency) : <span className="text-stone-400">—</span>}</td>
+                <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{units > 0 ? units.toLocaleString() : '—'}</td>
+                <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{volume > 0 ? volume.toFixed(2) : '—'}</td>
+                <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{pallets > 0 ? pallets.toFixed(2) : '—'}</td>
+                <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{amount !== null ? fmtMoney(amount, currency) : '—'}</td>
               </tr>
             );
           })}
-          <tr className="bg-stone-50 border-t border-stone-200">
-            <td className="px-3 py-2.5"></td>
-            <td className="px-3 py-2.5 text-stone-500" style={{ fontSize: '11.5px', textTransform: 'uppercase', fontWeight: 500 }}>Total</td>
-            <td></td><td></td><td></td>
+          {/* TOTALS row */}
+          <tr className="border-t-2 border-stone-300 bg-stone-50">
+            <td className="px-3 py-2.5" style={{ fontWeight: 700 }} colSpan={5}>TOTAL</td>
             <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{totals.cartons || '—'}</td>
             <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{totals.units > 0 ? totals.units.toLocaleString() : '—'}</td>
             <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{totals.volume.toFixed(2)}</td>

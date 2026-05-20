@@ -223,12 +223,25 @@ function PlannerDetail({
     return Math.round(r.unit_price * u * 100) / 100;
   }
 
-  // Sizing controls state — initialized from baseline MOQ totals
+  // Sizing controls state — default to 6 pallets (max pallet mode)
   const baselineMinVolume = detail.rows.reduce((s, r) => s + (r.suggested_order > 0 ? r.volume_m3 : 0), 0);
   const baselineMinPallets = Math.max(1, Math.ceil(baselineMinVolume / PALLET_VOLUME_M3));
+  const DEFAULT_PALLETS = 6;
 
   const [mode, setMode] = useState<SizingMode>('pallet');
-  const [palletCount, setPalletCount] = useState<number>(baselineMinPallets);
+  const [palletCount, setPalletCount] = useState<number>(DEFAULT_PALLETS);
+
+  // Apply default sizing on first load (and when mode/zone changes back)
+  useEffect(() => {
+    if (Object.keys(cartonOverrides).length === 0) {
+      let targetVol = DEFAULT_PALLETS * PALLET_VOLUME_M3;
+      if (mode === '20ft') targetVol = C20_VOLUME_M3;
+      else if (mode === '40ft') targetVol = C40_VOLUME_M3;
+      else targetVol = palletCount * PALLET_VOLUME_M3;
+      setCartonOverrides(autoFillCartons(detail.rows, targetVol));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail.rows, mode]);
 
   let totUnits = 0, totCartons = 0, totVolume = 0, totPallets = 0, totAmount = 0;
   let anyAmount = false;
@@ -273,7 +286,6 @@ function PlannerDetail({
         palletCount={palletCount}
         onModeChange={(m) => {
           setMode(m);
-          // Recompute target volume on mode change
           let targetVol = palletCount * PALLET_VOLUME_M3;
           if (m === '20ft') targetVol = C20_VOLUME_M3;
           else if (m === '40ft') targetVol = C40_VOLUME_M3;
@@ -287,6 +299,19 @@ function PlannerDetail({
           }
         }}
       />
+
+      {mode === 'pallet' && (
+        <SmartHint
+          rows={detail.rows}
+          overrides={cartonOverrides}
+          targetVolume={palletCount * PALLET_VOLUME_M3}
+          onAddPallet={(extra) => {
+            const newCount = palletCount + extra;
+            setPalletCount(newCount);
+            setCartonOverrides(autoFillCartons(detail.rows, newCount * PALLET_VOLUME_M3));
+          }}
+        />
+      )}
 
       <SkuTable
         rows={detail.rows} currency={currency}
@@ -346,8 +371,8 @@ function ToggleGroup({ value, options, onChange }: { value: string; options: Arr
  * Returns map: base_sku → cartons.
  */
 function autoFillCartons(rows: PlannerRow[], targetVolumeM3: number): Record<string, number> {
+  // Step 1: start with MOQ baseline (each row's pre-computed cartons)
   const overrides: Record<string, number> = {};
-  // Start: copy each row's base cartons (MOQ-respecting)
   for (const r of rows) overrides[r.base_sku] = r.cartons;
 
   function currentVolume(): number {
@@ -359,34 +384,213 @@ function autoFillCartons(rows: PlannerRow[], targetVolumeM3: number): Record<str
     return v;
   }
 
-  let vol = currentVolume();
-
-  if (vol >= targetVolumeM3) {
-    // Already at or above target — leave as-is.
-    return overrides;
+  // helper: simulate cover days if we set cartons for a SKU
+  function simulatedCover(r: PlannerRow, cartons: number): number {
+    if (r.velocity_per_day <= 0) return Infinity;
+    const newUnits = cartons * (r.ctn_qty ?? 0);
+    const totalUnits = r.available_stock + newUnits;
+    return totalUnits / r.velocity_per_day;
   }
 
-  // Need to add. Sort candidates by velocity DESC.
-  // Skip new_launch (their MOQ is the only signal). Skip SKUs with ctn_volume_m3 = 0 (would loop forever).
-  const candidates = rows
-    .filter((r) => !r.is_new_launch && (r.ctn_volume_m3 ?? 0) > 0)
-    .sort((a, b) => b.velocity_per_day - a.velocity_per_day);
+  let freeVol = targetVolumeM3 - currentVolume();
+  if (freeVol <= 0) return overrides;
 
-  if (candidates.length === 0) return overrides;
+  // ============================================================
+  // PHASE 1 — add new SKUs (not in order yet) that fit MOQ in free space
+  // Formula: score = velocity / (cover + 30) — descending
+  // ============================================================
+  const eligibleNew = rows
+    .filter((r) =>
+      !r.is_new_launch &&
+      r.lifecycle_status === 'active' &&
+      r.velocity_per_day > 0 &&
+      (r.ctn_volume_m3 ?? 0) > 0 &&
+      r.suggested_order === 0 // not in baseline order
+    )
+    .map((r) => ({
+      r,
+      moqVolume: Math.ceil(r.moq / (r.ctn_qty ?? 1)) * (r.ctn_volume_m3 ?? 0),
+      moqCartons: Math.ceil(r.moq / (r.ctn_qty ?? 1)),
+      score: r.velocity_per_day / ((r.cover_days ?? 0) + 30),
+    }))
+    .sort((a, b) => b.score - a.score);
 
-  // Greedy round-robin: add 1 carton at a time to top SKU, then next, until target reached.
-  // Cap iterations to avoid infinite loop on degenerate input.
-  let iter = 0;
-  const MAX_ITER = 100000;
-  let idx = 0;
-  while (vol < targetVolumeM3 && iter < MAX_ITER) {
-    const r = candidates[idx % candidates.length];
-    overrides[r.base_sku] = (overrides[r.base_sku] ?? 0) + 1;
-    vol += r.ctn_volume_m3 ?? 0;
-    idx++;
-    iter++;
+  for (const cand of eligibleNew) {
+    if (cand.moqVolume <= freeVol) {
+      overrides[cand.r.base_sku] = cand.moqCartons;
+      freeVol -= cand.moqVolume;
+    }
   }
+
+  // ============================================================
+  // PHASE 2 — top up EXISTING SKUs in order (by +1 carton each),
+  // cap at 180-day coverage. Sort by smallest cover ascending.
+  // ============================================================
+  const COVER_CAP_PHASE2 = 180;
+
+  function eligibleForPhase2() {
+    return rows
+      .filter((r) => {
+        const c = overrides[r.base_sku] ?? 0;
+        if (c === 0) return false; // not in order
+        if (r.velocity_per_day <= 0) return false;
+        if ((r.ctn_volume_m3 ?? 0) <= 0) return false;
+        const newCover = simulatedCover(r, c + 1);
+        return newCover <= COVER_CAP_PHASE2;
+      })
+      .sort((a, b) => {
+        const ca = simulatedCover(a, overrides[a.base_sku] ?? 0);
+        const cb = simulatedCover(b, overrides[b.base_sku] ?? 0);
+        return ca - cb;
+      });
+  }
+
+  let safety = 0;
+  while (freeVol > 0 && safety < 100000) {
+    const cands = eligibleForPhase2();
+    if (cands.length === 0) break;
+    const top = cands[0];
+    const vol = top.ctn_volume_m3 ?? 0;
+    if (vol > freeVol) break;
+    overrides[top.base_sku] = (overrides[top.base_sku] ?? 0) + 1;
+    freeVol -= vol;
+    safety++;
+  }
+
+  // ============================================================
+  // PHASE 3 — for 20ft/40ft only (large containers with leftover space):
+  // raise coverage cap to 365 days, use velocity² / cover formula
+  // for priority. This phase activates when freeVol is still substantial
+  // (more than 1 pallet = 1.44 m³) — indicates a container, not a pallet load.
+  // ============================================================
+  if (freeVol >= 1.44) {
+    const COVER_CAP_PHASE3 = 365;
+    safety = 0;
+    while (freeVol > 0 && safety < 100000) {
+      // candidates: any SKU with active velocity, cover after +1 <= 365
+      const cands = rows
+        .filter((r) => {
+          const c = overrides[r.base_sku] ?? 0;
+          if (r.velocity_per_day <= 0) return false;
+          if ((r.ctn_volume_m3 ?? 0) <= 0) return false;
+          if (r.is_new_launch || r.lifecycle_status !== 'active') return false;
+          const newCover = simulatedCover(r, c + 1);
+          return newCover > COVER_CAP_PHASE2 && newCover <= COVER_CAP_PHASE3;
+        })
+        .map((r) => {
+          const c = overrides[r.base_sku] ?? 0;
+          const cover = Math.max(1, simulatedCover(r, c + 1));
+          return { r, score: (r.velocity_per_day * r.velocity_per_day) / cover };
+        })
+        .sort((a, b) => b.score - a.score);
+
+      if (cands.length === 0) break;
+      const top = cands[0];
+      const vol = top.r.ctn_volume_m3 ?? 0;
+      if (vol > freeVol) break;
+      overrides[top.r.base_sku] = (overrides[top.r.base_sku] ?? 0) + 1;
+      freeVol -= vol;
+      safety++;
+    }
+  }
+
   return overrides;
+}
+
+
+/**
+ * Given current overrides + targetVolume, find the highest-score SKU
+ * that does NOT fit in the current free space but WOULD fit if we added 1 more pallet.
+ * Used for the "upsell hint" under the buttons.
+ */
+function findUpsellCandidate(
+  rows: PlannerRow[],
+  overrides: Record<string, number>,
+  freeVolumeM3: number,
+): { sku: PlannerRow; needPallets: number } | null {
+  const candidates = rows
+    .filter((r) =>
+      !r.is_new_launch &&
+      r.lifecycle_status === 'active' &&
+      r.velocity_per_day > 0 &&
+      (r.ctn_volume_m3 ?? 0) > 0 &&
+      (overrides[r.base_sku] ?? 0) === 0,
+    )
+    .map((r) => {
+      const moqCartons = Math.ceil(r.moq / (r.ctn_qty ?? 1));
+      const moqVolume = moqCartons * (r.ctn_volume_m3 ?? 0);
+      return {
+        r,
+        moqVolume,
+        score: r.velocity_per_day / ((r.cover_days ?? 0) + 30),
+      };
+    })
+    .filter((c) => c.moqVolume > freeVolumeM3)
+    .sort((a, b) => b.score - a.score);
+
+  if (candidates.length === 0) return null;
+  const top = candidates[0];
+  const extraVolNeeded = top.moqVolume - freeVolumeM3;
+  const extraPallets = Math.ceil(extraVolNeeded / PALLET_VOLUME_M3);
+  return { sku: top.r, needPallets: extraPallets };
+}
+
+function SmartHint({
+  rows,
+  overrides,
+  targetVolume,
+  onAddPallet,
+}: {
+  rows: PlannerRow[];
+  overrides: Record<string, number>;
+  targetVolume: number;
+  onAddPallet: (n: number) => void;
+}) {
+  // current used volume
+  let used = 0;
+  for (const r of rows) {
+    const c = overrides[r.base_sku] ?? 0;
+    used += c * (r.ctn_volume_m3 ?? 0);
+  }
+  const free = targetVolume - used;
+  if (free <= 0.05) return null; // basically full
+
+  const hint = findUpsellCandidate(rows, overrides, free);
+  if (!hint) return null;
+
+  return (
+    <div
+      className="flex items-center gap-3 px-4 py-3 rounded"
+      style={{
+        background: 'rgba(0, 87, 184, 0.06)',
+        border: '1px dashed rgba(0, 87, 184, 0.35)',
+        fontSize: '13px',
+      }}
+    >
+      <div style={{ flex: 1, color: '#1e40af' }}>
+        Add <b>{hint.needPallets}</b> more pallet{hint.needPallets > 1 ? 's' : ''} to fit{' '}
+        <b>{hint.sku.base_sku.toUpperCase()} {hint.sku.product_name}</b>
+        <span style={{ color: '#64748b', marginLeft: 6 }}>
+          (velocity {hint.sku.velocity_per_day.toFixed(1)}/d, ends in {hint.sku.cover_days ?? '—'}d)
+        </span>
+      </div>
+      <button
+        onClick={() => onAddPallet(hint.needPallets)}
+        style={{
+          padding: '5px 12px',
+          background: '#1d4ed8',
+          color: 'white',
+          fontSize: '12px',
+          fontWeight: 500,
+          borderRadius: 6,
+          border: 'none',
+          cursor: 'pointer',
+        }}
+      >
+        +{hint.needPallets} pallet → add {hint.sku.base_sku.toUpperCase()}
+      </button>
+    </div>
+  );
 }
 
 function SizingButtons({

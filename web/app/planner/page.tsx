@@ -247,18 +247,12 @@ function PlannerDetail({
 
   let totUnits = 0, totCartons = 0, totVolume = 0, totPallets = 0, totAmount = 0;
   let anyAmount = false;
-  try {
-    for (const r of detail.rows) {
-      const c = finalCartons(r);
-      if (c <= 0) continue;
-      totCartons += c; totUnits += finalUnits(r); totVolume += finalVolume(r); totPallets += finalPallets(r);
-      const amt = finalAmount(r);
-      if (amt !== null) { totAmount += amt; anyAmount = true; }
-    }
-  } catch (err) {
-    console.error('[Planner] totals loop FAILED', err);
-    console.error('[Planner] cartonOverrides at failure:', JSON.stringify(cartonOverrides));
-    throw err;
+  for (const r of detail.rows) {
+    const c = finalCartons(r);
+    if (c <= 0) continue;
+    totCartons += c; totUnits += finalUnits(r); totVolume += finalVolume(r); totPallets += finalPallets(r);
+    const amt = finalAmount(r);
+    if (amt !== null) { totAmount += amt; anyAmount = true; }
   }
   totVolume = Math.round(totVolume * 100) / 100;
   totPallets = Math.round(totPallets * 100) / 100;
@@ -288,7 +282,7 @@ function PlannerDetail({
         {loading && <Loader2 className="w-4 h-4 animate-spin text-stone-400" />}
       </div>
 
-      {mode === 'pallet' && (
+      <div style={{ display: mode === 'pallet' ? 'block' : 'none' }}>
         <SmartHint
           rows={detail.rows}
           overrides={cartonOverrides}
@@ -299,7 +293,7 @@ function PlannerDetail({
             setCartonOverrides(autoFillCartons(detail.rows, newCount * PALLET_VOLUME_M3, 'pallet'));
           }}
         />
-      )}
+      </div>
 
       <SizingButtons
         rows={detail.rows}
@@ -311,14 +305,7 @@ function PlannerDetail({
           if (m === '20ft') targetVol = C20_VOLUME_M3;
           else if (m === '40ft') targetVol = C40_VOLUME_M3;
           else targetVol = palletCount * PALLET_VOLUME_M3;
-          try {
-            setCartonOverrides(autoFillCartons(detail.rows, targetVol, m));
-          } catch (err) {
-            console.error('[Planner] autoFillCartons FAILED on mode change to', m, err);
-            console.error('[Planner] rows sample:', JSON.stringify(detail.rows.slice(0, 3)));
-            console.error('[Planner] targetVol:', targetVol);
-            throw err;
-          }
+          setCartonOverrides(autoFillCartons(detail.rows, targetVol, m));
         }}
         onPalletCountChange={(n) => {
           setPalletCount(n);
@@ -546,14 +533,7 @@ function SmartHint({
   const free = targetVolume - used;
   if (free <= 0.05) return null; // basically full
 
-  let hint = null;
-  try {
-    hint = findUpsellCandidate(rows, overrides, free);
-  } catch (err) {
-    console.error('[SmartHint] findUpsellCandidate FAILED', err);
-    console.error('[SmartHint] rows count:', rows.length, 'overrides keys:', Object.keys(overrides).length, 'free:', free);
-    return null;
-  }
+  const hint = findUpsellCandidate(rows, overrides, free);
   if (!hint) return null;
 
   return (

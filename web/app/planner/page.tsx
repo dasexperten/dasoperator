@@ -247,12 +247,18 @@ function PlannerDetail({
 
   let totUnits = 0, totCartons = 0, totVolume = 0, totPallets = 0, totAmount = 0;
   let anyAmount = false;
-  for (const r of detail.rows) {
-    const c = finalCartons(r);
-    if (c <= 0) continue;
-    totCartons += c; totUnits += finalUnits(r); totVolume += finalVolume(r); totPallets += finalPallets(r);
-    const amt = finalAmount(r);
-    if (amt !== null) { totAmount += amt; anyAmount = true; }
+  try {
+    for (const r of detail.rows) {
+      const c = finalCartons(r);
+      if (c <= 0) continue;
+      totCartons += c; totUnits += finalUnits(r); totVolume += finalVolume(r); totPallets += finalPallets(r);
+      const amt = finalAmount(r);
+      if (amt !== null) { totAmount += amt; anyAmount = true; }
+    }
+  } catch (err) {
+    console.error('[Planner] totals loop FAILED', err);
+    console.error('[Planner] cartonOverrides at failure:', JSON.stringify(cartonOverrides));
+    throw err;
   }
   totVolume = Math.round(totVolume * 100) / 100;
   totPallets = Math.round(totPallets * 100) / 100;
@@ -305,7 +311,14 @@ function PlannerDetail({
           if (m === '20ft') targetVol = C20_VOLUME_M3;
           else if (m === '40ft') targetVol = C40_VOLUME_M3;
           else targetVol = palletCount * PALLET_VOLUME_M3;
-          setCartonOverrides(autoFillCartons(detail.rows, targetVol, m));
+          try {
+            setCartonOverrides(autoFillCartons(detail.rows, targetVol, m));
+          } catch (err) {
+            console.error('[Planner] autoFillCartons FAILED on mode change to', m, err);
+            console.error('[Planner] rows sample:', JSON.stringify(detail.rows.slice(0, 3)));
+            console.error('[Planner] targetVol:', targetVol);
+            throw err;
+          }
         }}
         onPalletCountChange={(n) => {
           setPalletCount(n);
@@ -533,7 +546,14 @@ function SmartHint({
   const free = targetVolume - used;
   if (free <= 0.05) return null; // basically full
 
-  const hint = findUpsellCandidate(rows, overrides, free);
+  let hint = null;
+  try {
+    hint = findUpsellCandidate(rows, overrides, free);
+  } catch (err) {
+    console.error('[SmartHint] findUpsellCandidate FAILED', err);
+    console.error('[SmartHint] rows count:', rows.length, 'overrides keys:', Object.keys(overrides).length, 'free:', free);
+    return null;
+  }
   if (!hint) return null;
 
   return (
@@ -598,15 +618,15 @@ function SizingButtons({
     : `${(palletCount * 1.44).toFixed(2)} m³ · over max — consider 20ft`;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-      {/* PALLET — compact button, only the digit is huge */}
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+      {/* PALLET — large button, only the digit is huge */}
       <button
         type="button"
         onClick={() => onModeChange('pallet')}
-        className="rounded-lg transition relative"
+        className="rounded-lg transition relative md:col-span-2"
         style={{
-          padding: '14px 16px',
-          minHeight: 150,
+          padding: '24px 28px',
+          minHeight: 200,
           border: palletSelected ? '2px solid #3b82f6' : '0.5px solid #d6d3d1',
           background: palletSelected ? '#eff6ff' : 'white',
           cursor: 'pointer',
@@ -633,12 +653,12 @@ function SizingButtons({
             onModeChange('pallet');
           }}
           style={{
-            width: 100,
-            padding: '4px 6px',
+            width: 140,
+            padding: '8px 12px',
             border: '0.5px solid ' + (palletSelected ? '#3b82f6' : '#a8a29e'),
-            borderRadius: 4,
+            borderRadius: 6,
             fontWeight: 700,
-            fontSize: 80,
+            fontSize: 96,
             lineHeight: 1,
             textAlign: 'center',
             background: 'white',
@@ -647,7 +667,7 @@ function SizingButtons({
           }}
         />
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, textTransform: 'uppercase', color: palletSelected ? '#1d4ed8' : '#57534e' }}>
+          <div style={{ fontSize: 18, fontWeight: 700, textTransform: 'uppercase', color: palletSelected ? '#1d4ed8' : '#57534e' }}>
             pallets
           </div>
           <div style={{ fontSize: 12, color: palletSelected ? '#1d4ed8' : '#78716c', opacity: palletSelected ? 0.75 : 1 }}>

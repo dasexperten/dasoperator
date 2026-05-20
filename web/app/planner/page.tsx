@@ -476,39 +476,6 @@ function findUpsellCandidate(
   overrides: Record<string, number>,
   freeVolumeM3: number,
 ): { sku: PlannerRow; needPallets: number } | null {
-  // Find the highest-score active SKU NOT in order whose MOQ doesn't fit in current free space,
-  // but would fit if we added more pallets. Score uses Phase A formula: vel^1.5 / cover_after_MOQ.
-  function coverAfter(r: PlannerRow, cartons: number): number {
-    if (r.velocity_per_day <= 0) return Infinity;
-    const newUnits = cartons * (r.ctn_qty ?? 0);
-    const total = r.available_stock + newUnits;
-    return total / r.velocity_per_day;
-  }
-
-  const candidates = rows
-    .filter((r) =>
-      !r.is_new_launch &&
-      r.lifecycle_status === 'active' &&
-      r.velocity_per_day > 0 &&
-      (r.ctn_volume_m3 ?? 0) > 0 &&
-      (overrides[r.base_sku] ?? 0) === 0,
-    )
-    .map((r) => {
-      const moqCartons = Math.ceil(r.moq / (r.ctn_qty ?? 1));
-      const moqVolume = moqCartons * (r.ctn_volume_m3 ?? 0);
-      const cov = Math.max(1, coverAfter(r, moqCartons));
-      const score = Math.pow(r.velocity_per_day, 1.5) / cov;
-      return { r, moqVolume, score };
-    })
-    .filter((c) => c.moqVolume > freeVolumeM3)
-    .sort((a, b) => b.score - a.score);
-
-  if (candidates.length === 0) return null;
-  const top = candidates[0];
-  const extraVolNeeded = top.moqVolume - freeVolumeM3;
-  const extraPallets = Math.ceil(extraVolNeeded / PALLET_VOLUME_M3);
-  return { sku: top.r, needPallets: extraPallets };
-} | null {
   const candidates = rows
     .filter((r) =>
       !r.is_new_launch &&

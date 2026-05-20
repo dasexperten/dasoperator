@@ -32,6 +32,8 @@ interface PlannerRow {
   subcategory: string | null;
   manufacturer_id: string;
   lifecycle_status: string;
+  bundle_size: number;
+  base_sku_link: string | null;
   ctn_qty: number | null;
   ctn_volume_m3: number | null;
   units_60d: number;
@@ -238,7 +240,7 @@ function PlannerDetail({
       if (mode === '20ft') targetVol = C20_VOLUME_M3;
       else if (mode === '40ft') targetVol = C40_VOLUME_M3;
       else targetVol = palletCount * PALLET_VOLUME_M3;
-      setCartonOverrides(autoFillCartons(detail.rows, targetVol));
+      setCartonOverrides(autoFillCartons(detail.rows, targetVol, mode));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail.rows, mode]);
@@ -288,7 +290,7 @@ function PlannerDetail({
           onAddPallet={(extra) => {
             const newCount = palletCount + extra;
             setPalletCount(newCount);
-            setCartonOverrides(autoFillCartons(detail.rows, newCount * PALLET_VOLUME_M3));
+            setCartonOverrides(autoFillCartons(detail.rows, newCount * PALLET_VOLUME_M3, 'pallet'));
           }}
         />
       )}
@@ -303,12 +305,12 @@ function PlannerDetail({
           if (m === '20ft') targetVol = C20_VOLUME_M3;
           else if (m === '40ft') targetVol = C40_VOLUME_M3;
           else targetVol = palletCount * PALLET_VOLUME_M3;
-          setCartonOverrides(autoFillCartons(detail.rows, targetVol));
+          setCartonOverrides(autoFillCartons(detail.rows, targetVol, m));
         }}
         onPalletCountChange={(n) => {
           setPalletCount(n);
           if (n > 0) {
-            setCartonOverrides(autoFillCartons(detail.rows, n * PALLET_VOLUME_M3));
+            setCartonOverrides(autoFillCartons(detail.rows, n * PALLET_VOLUME_M3, 'pallet'));
           }
         }}
       />
@@ -375,7 +377,8 @@ function ToggleGroup({ value, options, onChange, disabledIds }: { value: string;
  *     the lowest-velocity ordered SKU's cartons in carton-multiples.
  * Returns map: base_sku → cartons.
  */
-function autoFillCartons(rows: PlannerRow[], targetVolumeM3: number): Record<string, number> {
+function autoFillCartons(rows: PlannerRow[], targetVolumeM3: number, mode: SizingMode = 'pallet'): Record<string, number> {
+  const PHASE_B_CAP = mode === 'pallet' ? 180 : mode === '20ft' ? 365 : 540;
   // Algorithm: two-phase greedy
   //
   // Phase A — MOQ entry for active SKUs:
@@ -454,8 +457,10 @@ function autoFillCartons(rows: PlannerRow[], targetVolumeM3: number): Record<str
       const ctnVol = r.ctn_volume_m3 ?? 0;
       if (ctnVol <= 0) continue;
       if (ctnVol > freeVol) continue;
-      const cov = Math.max(1, coverAfter(r, cur + 1));
-      const score = (r.velocity_per_day * r.velocity_per_day) / cov;
+      const newCov = coverAfter(r, cur + 1);
+      if (newCov > PHASE_B_CAP) continue;
+      const cov = Math.max(1, newCov);
+      const score = Math.pow(r.velocity_per_day, 1.5) / cov;
       if (score > bestScore) {
         bestScore = score;
         bestRow = r;
@@ -594,13 +599,13 @@ function SizingButtons({
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-      {/* PALLET — large editable number on the left, label on the right */}
+      {/* PALLET — compact button, only the digit is large */}
       <button
         type="button"
         onClick={() => onModeChange('pallet')}
         className="rounded-lg transition relative"
         style={{
-          padding: '18px 20px',
+          padding: '14px 16px',
           minHeight: 130,
           border: palletSelected ? '2px solid #3b82f6' : '0.5px solid #d6d3d1',
           background: palletSelected ? '#eff6ff' : 'white',
@@ -628,12 +633,12 @@ function SizingButtons({
             onModeChange('pallet');
           }}
           style={{
-            width: 110,
+            width: 90,
             padding: '4px 8px',
             border: '0.5px solid ' + (palletSelected ? '#3b82f6' : '#a8a29e'),
             borderRadius: 4,
             fontWeight: 700,
-            fontSize: 64,
+            fontSize: 56,
             lineHeight: 1,
             textAlign: 'center',
             background: 'white',
@@ -642,7 +647,7 @@ function SizingButtons({
           }}
         />
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
-          <div style={{ fontSize: 18, fontWeight: 700, textTransform: 'uppercase', color: palletSelected ? '#1d4ed8' : '#57534e' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, textTransform: 'uppercase', color: palletSelected ? '#1d4ed8' : '#57534e' }}>
             pallets
           </div>
           <div style={{ fontSize: 12, color: palletSelected ? '#1d4ed8' : '#78716c', opacity: palletSelected ? 0.75 : 1 }}>
@@ -740,8 +745,8 @@ function SkuTable({
   // Default sort direction per column per Aram's spec:
   // SKU asc, Sales/day desc, Ends in asc, Cartons desc
   const defaultDirs: Record<SortKey, SortDir> = { sku: 'asc', sales: 'desc', ends: 'asc', cartons: 'desc' };
-  const [sortKey, setSortKey] = useState<SortKey>('sku');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [sortKey, setSortKey] = useState<SortKey>('cartons');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   function clickHeader(k: SortKey) {
     if (sortKey === k) {
@@ -827,7 +832,15 @@ function SkuTable({
               <tr key={r.base_sku} className="border-b border-stone-100 last:border-0" style={{ background: ordered ? '#FFFBEB' : undefined }}>
                 <td className="px-3 py-2.5" style={{ fontWeight: 700 }}>{r.base_sku.toUpperCase()}</td>
                 <td className="px-3 py-2.5">
-                  <div style={{ fontWeight: 700 }}>{r.product_name}</div>
+                  <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {r.product_name}
+                    {r.bundle_size === 2 && (
+                      <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 4, background: '#dbeafe', color: '#1e40af', fontWeight: 500 }}>2×</span>
+                    )}
+                    {r.bundle_size === 4 && (
+                      <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 4, background: '#dcfce7', color: '#166534', fontWeight: 500 }}>4×</span>
+                    )}
+                  </div>
                   {(r.is_new_launch || (r.dearth_days > 0 && r.velocity_per_day > 0) || isStockout) && (
                     <div className="flex flex-wrap items-center gap-2 mt-0.5" style={{ fontSize: '11px' }}>
                       {r.is_new_launch && <span className="text-blue-600">new launch · manual qty</span>}

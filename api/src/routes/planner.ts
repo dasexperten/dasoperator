@@ -39,7 +39,8 @@ const FORTYFT_THRESHOLD = 1.2;         // 120% of 20ft → escalate to 40ft
 function moqFor(category: string, subcategory: string | null): number {
   if (category === 'Floss') return 5000;
   if (category === 'Other' && subcategory === 'Interdental') return 5000;
-  // toothpastes, toothbrushes, mouthwash, tongue cleaner → 14,400
+  if (category === 'Toothpaste') return 10800;  // 150 cartons × 72 units = 10,800 pastes
+  // toothbrushes, mouthwash, tongue cleaner → 14,400
   return 14400;
 }
 

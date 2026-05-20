@@ -348,7 +348,7 @@ function SkuTable({ rows }: { rows: PlannerRow[] }) {
           <tr className="border-b border-stone-200 bg-stone-50 text-stone-500" style={{ fontSize: '12px' }}>
             <th className="text-left px-3 py-2.5">SKU</th>
             <th className="text-left px-3 py-2.5">Product</th>
-            <th className="text-right px-3 py-2.5">Vel/d</th>
+            <th className="text-right px-3 py-2.5">Sales/day</th>
             <th className="text-right px-3 py-2.5">Stock</th>
             <th className="text-right px-3 py-2.5">In transit</th>
             <th className="text-right px-3 py-2.5">Cover</th>

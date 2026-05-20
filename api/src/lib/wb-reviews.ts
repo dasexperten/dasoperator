@@ -479,5 +479,32 @@ export async function runWbAutoReply(
   result.durationMs = Date.now() - startedAt;
   if (result.errors.length > 0 && result.replied === 0) result.status = 'error';
   console.log(`[wb-auto-reply] done replied=${result.replied}/${maxReplies} skipped=${result.ratingOnlySkipped} errors=${result.errors.length} ${result.durationMs}ms`);
+
+  // Persist a compact log entry to KV so Aram can inspect tick history
+  // without making any WB calls (each WB call resets the rate-limit penalty).
+  if (env.CACHE) {
+    try {
+      const LOG_KEY = 'wb-reviews:tick-log';
+      const raw = await env.CACHE.get(LOG_KEY, 'json');
+      const history: any[] = Array.isArray(raw) ? raw : [];
+      history.unshift({
+        ts: new Date().toISOString(),
+        replied: result.replied,
+        skipped: result.ratingOnlySkipped,
+        errors: result.errors.length,
+        firstError: result.errors[0]?.error?.slice(0, 200) ?? null,
+        backlog: result.countTotal,
+        today: result.countToday,
+        throttled: (result as any).throttled ?? false,
+        durationMs: result.durationMs,
+      });
+      // Keep last 50 ticks
+      const trimmed = history.slice(0, 50);
+      await env.CACHE.put(LOG_KEY, JSON.stringify(trimmed));
+    } catch (e) {
+      console.error('[wb-auto-reply] tick log write failed:', e);
+    }
+  }
+
   return result;
 }

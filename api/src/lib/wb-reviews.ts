@@ -310,6 +310,12 @@ export async function postAnswer(env: Env, feedbackId: string, text: string): Pr
     body: JSON.stringify({ id: feedbackId, text }),
   });
   if (r.status === 204) return;
+  if (r.status === 429) {
+    const retry = parseInt(r.headers.get('x-ratelimit-retry') ?? '600', 10);
+    const reset = parseInt(r.headers.get('x-ratelimit-reset') ?? String(retry), 10);
+    const limit = parseInt(r.headers.get('x-ratelimit-limit') ?? '1', 10);
+    throw new WbRateLimitError(retry, reset, limit, await r.text());
+  }
   if (!r.ok) {
     const body = await r.text();
     throw new Error(`WB answer HTTP ${r.status}: ${body.slice(0, 300)}`);
@@ -448,6 +454,15 @@ export async function runWbAutoReply(
         const msg = String(e?.message ?? e);
         console.error(`    POST FAIL: ${msg}`);
         result.errors.push({ feedbackId: fid, stage: 'post', error: msg });
+        // If WB rate-limited the POST — stop this tick, save quota for next */20
+        if (e instanceof WbRateLimitError && env.CACHE) {
+          const waitSec = e.retryAfterSec + 60;
+          const until = Date.now() + waitSec * 1000;
+          await env.CACHE.put(THROTTLE_KEY, String(until), { expirationTtl: waitSec + 30 });
+          console.warn(`[wb-auto-reply] POST hit 429 — bail out, throttle ${Math.round(waitSec/60)}min`);
+          result.durationMs = Date.now() - startedAt;
+          return result;
+        }
         continue;
       }
 

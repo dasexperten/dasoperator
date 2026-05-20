@@ -15,13 +15,34 @@ import {
 const app = new Hono<{ Bindings: Env }>();
 
 // -----------------------------------------------------------------------------
-// GET /api/reviews/stats — live counts from WB
+// GET /api/reviews/stats — live counts from WB, cached in KV for 60s
+// Why cache: this endpoint is called repeatedly (by UI polling, by Aram
+// curling for status), and each call eats a precious WB request from a tight
+// rate-limit budget. Cache lets us peek without paying the WB cost.
 // -----------------------------------------------------------------------------
 app.get('/stats', async (c) => {
+  const CACHE_KEY = 'wb-reviews:stats-cache';
+  // Try cache first
+  if (c.env.CACHE) {
+    const cached = await c.env.CACHE.get(CACHE_KEY, 'json');
+    if (cached) {
+      return c.json({ ok: true, ...(cached as object), cached: true });
+    }
+  }
   try {
     const counts = await fetchUnansweredCount(c.env);
-    return c.json({ ok: true, ...counts });
+    if (c.env.CACHE) {
+      await c.env.CACHE.put(CACHE_KEY, JSON.stringify(counts), { expirationTtl: 60 });
+    }
+    return c.json({ ok: true, ...counts, cached: false });
   } catch (e: any) {
+    // If we have a stale cache from earlier, prefer it over an error
+    if (c.env.CACHE) {
+      const cached = await c.env.CACHE.get('wb-reviews:stats-last-success', 'json');
+      if (cached) {
+        return c.json({ ok: true, ...(cached as object), cached: true, stale: true });
+      }
+    }
     return c.json({ ok: false, error: String(e?.message ?? e) }, 502);
   }
 });

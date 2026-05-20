@@ -598,119 +598,119 @@ function SizingButtons({
     : `${(palletCount * 1.44).toFixed(2)} m³ · over max — consider 20ft`;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-      {/* PALLET — large button, only the digit is huge */}
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      {/* PALLETS */}
       <button
         type="button"
         onClick={() => onModeChange('pallet')}
-        className="rounded-lg transition relative md:col-span-2"
+        className="rounded-lg transition text-left"
         style={{
-          padding: '24px 28px',
-          minHeight: 200,
-          border: palletSelected ? '2px solid #3b82f6' : '0.5px solid #d6d3d1',
-          background: palletSelected ? '#eff6ff' : 'white',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 16,
-        }}
-      >
-        <div style={{ position: 'absolute', top: 8, right: 10, fontSize: 11, color: '#1d4ed8', fontWeight: 500, textTransform: 'uppercase', display: palletSelected ? 'block' : 'none' }}>
-          Selected ★
-        </div>
-        <input
-          type="number"
-          min={1}
-          max={99}
-          value={palletCount}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => {
-            const v = parseInt(e.target.value, 10);
-            onPalletCountChange(isNaN(v) ? 0 : v);
-            onModeChange('pallet');
-          }}
-          style={{
-            width: 140,
-            padding: '8px 12px',
-            border: '0.5px solid ' + (palletSelected ? '#3b82f6' : '#a8a29e'),
-            borderRadius: 6,
-            fontWeight: 700,
-            fontSize: 96,
-            lineHeight: 1,
-            textAlign: 'center',
-            background: 'white',
-            color: palletSelected ? '#1d4ed8' : '#57534e',
-            flexShrink: 0,
-          }}
-        />
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
-          <div style={{ fontSize: 18, fontWeight: 700, textTransform: 'uppercase', color: palletSelected ? '#1d4ed8' : '#57534e' }}>
-            pallets
-          </div>
-          <div style={{ fontSize: 12, color: palletSelected ? '#1d4ed8' : '#78716c', opacity: palletSelected ? 0.75 : 1 }}>
-            {pSub}
-          </div>
-          <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 500, display: palletCount < minPalletsCeil ? 'block' : 'none' }}>
-            below minimum ({minPalletsCeil})
-          </div>
-        </div>
-      </button>
-
-      {/* 20ft container — label only */}
-      <button
-        type="button"
-        onClick={() => onModeChange('20ft')}
-        className="rounded-lg text-left transition"
-        style={{
-          padding: '14px 12px 16px',
-          minHeight: 130,
-          border: c20Selected ? '2px solid #3b82f6' : '0.5px solid #d6d3d1',
-          background: c20Selected ? '#eff6ff' : 'white',
+          padding: '14px 16px',
+          minHeight: 110,
+          border: palletSelected ? '2px solid #185FA5' : '0.5px solid #d6d3d1',
+          background: palletSelected ? '#E6F1FB' : 'white',
           cursor: 'pointer',
           display: 'flex',
           flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
+          justifyContent: 'space-between',
           position: 'relative',
         }}
       >
-        <div style={{ position: 'absolute', top: 8, right: 10, fontSize: 11, color: '#1d4ed8', fontWeight: 500, textTransform: 'uppercase', display: c20Selected ? 'block' : 'none' }}>
-          Selected ★
+        <div style={{ position: 'absolute', top: 8, right: 12, fontSize: 10, color: '#0C447C', fontWeight: 500, letterSpacing: '0.3px', display: palletSelected ? 'block' : 'none' }}>
+          SELECTED ★
         </div>
-        <div style={{ fontSize: 18, fontWeight: 500, textTransform: 'uppercase', color: c20Selected ? '#1d4ed8' : '#57534e' }}>
-          20ft container
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <input
+            type="number"
+            min={1}
+            max={99}
+            value={palletCount}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              const v = parseInt(e.target.value, 10);
+              onPalletCountChange(isNaN(v) ? 0 : v);
+              onModeChange('pallet');
+            }}
+            style={{
+              width: 64,
+              height: 52,
+              fontSize: 36,
+              fontWeight: 500,
+              textAlign: 'center',
+              border: '0.5px solid ' + (palletSelected ? '#185FA5' : '#a8a29e'),
+              borderRadius: 6,
+              background: 'white',
+              color: palletSelected ? '#0C447C' : '#57534e',
+              padding: 0,
+              lineHeight: 1,
+            }}
+          />
+          <div style={{ fontSize: 14, fontWeight: 500, color: palletSelected ? '#0C447C' : '#57534e', letterSpacing: '0.3px' }}>
+            PALLETS
+          </div>
         </div>
-        <div style={{ fontSize: 11.5, marginTop: 10, color: c20Selected ? '#1d4ed8' : '#78716c' }}>
+        <div style={{ fontSize: 11, color: palletSelected ? '#185FA5' : '#78716c', marginTop: 6 }}>
+          {pSub}
+        </div>
+        <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 500, display: palletCount < minPalletsCeil ? 'block' : 'none' }}>
+          below minimum ({minPalletsCeil})
+        </div>
+      </button>
+
+      {/* 20ft container */}
+      <button
+        type="button"
+        onClick={() => onModeChange('20ft')}
+        className="rounded-lg transition"
+        style={{
+          padding: '14px 16px',
+          minHeight: 110,
+          border: c20Selected ? '2px solid #185FA5' : '0.5px solid #d6d3d1',
+          background: c20Selected ? '#E6F1FB' : 'white',
+          cursor: 'pointer',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          alignItems: 'center',
+          position: 'relative',
+        }}
+      >
+        <div style={{ position: 'absolute', top: 8, right: 12, fontSize: 10, color: '#0C447C', fontWeight: 500, letterSpacing: '0.3px', display: c20Selected ? 'block' : 'none' }}>
+          SELECTED ★
+        </div>
+        <div style={{ fontSize: 14, fontWeight: 500, color: c20Selected ? '#0C447C' : '#57534e', letterSpacing: '0.3px' }}>
+          20FT CONTAINER
+        </div>
+        <div style={{ fontSize: 11, color: c20Selected ? '#185FA5' : '#78716c', marginTop: 8 }}>
           28 m³ capacity
         </div>
       </button>
 
-      {/* 40ft container — label only */}
+      {/* 40ft container */}
       <button
         type="button"
         onClick={() => onModeChange('40ft')}
-        className="rounded-lg text-left transition"
+        className="rounded-lg transition"
         style={{
-          padding: '14px 12px 16px',
-          minHeight: 130,
-          border: c40Selected ? '2px solid #3b82f6' : '0.5px solid #d6d3d1',
-          background: c40Selected ? '#eff6ff' : 'white',
+          padding: '14px 16px',
+          minHeight: 110,
+          border: c40Selected ? '2px solid #185FA5' : '0.5px solid #d6d3d1',
+          background: c40Selected ? '#E6F1FB' : 'white',
           cursor: 'pointer',
           display: 'flex',
           flexDirection: 'column',
-          alignItems: 'center',
           justifyContent: 'center',
+          alignItems: 'center',
           position: 'relative',
         }}
       >
-        <div style={{ position: 'absolute', top: 8, right: 10, fontSize: 11, color: '#1d4ed8', fontWeight: 500, textTransform: 'uppercase', display: c40Selected ? 'block' : 'none' }}>
-          Selected ★
+        <div style={{ position: 'absolute', top: 8, right: 12, fontSize: 10, color: '#0C447C', fontWeight: 500, letterSpacing: '0.3px', display: c40Selected ? 'block' : 'none' }}>
+          SELECTED ★
         </div>
-        <div style={{ fontSize: 18, fontWeight: 500, textTransform: 'uppercase', color: c40Selected ? '#1d4ed8' : '#57534e' }}>
-          40ft container
+        <div style={{ fontSize: 14, fontWeight: 500, color: c40Selected ? '#0C447C' : '#57534e', letterSpacing: '0.3px' }}>
+          40FT CONTAINER
         </div>
-        <div style={{ fontSize: 11.5, marginTop: 10, color: c40Selected ? '#1d4ed8' : '#78716c' }}>
+        <div style={{ fontSize: 11, color: c40Selected ? '#185FA5' : '#78716c', marginTop: 8 }}>
           56 m³ capacity
         </div>
       </button>

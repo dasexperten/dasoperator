@@ -47,12 +47,15 @@ function moqFor(category: string, subcategory: string | null): number {
 // Core calculation: returns per-base-SKU rows for a given manufacturer group
 // =============================================================================
 type PlannerRow = {
-  base_sku: string;
+  base_sku: string;             // actual product_id ('de120', 'de120aa', 'de120aaaa')
   product_name: string;
   category: string;
   subcategory: string | null;
   manufacturer_id: string;
   lifecycle_status: string;
+  // pack info — distinguishes 1-pack / 2-pack / 4-pack rows
+  bundle_size: number;          // 1, 2, or 4
+  base_sku_link: string | null; // parent base for bundle rows; null for true base
   // carton spec
   ctn_qty: number | null;
   ctn_volume_m3: number | null;
@@ -126,13 +129,14 @@ async function computeForGroup(
       p.manufacturer_id,
       p.lifecycle_status,
       p.ctn_qty,
-      p.ctn_volume_m3
+      p.ctn_volume_m3,
+      COALESCE(p.bundle_size, 1) AS bundle_size,
+      p.base_sku AS base_sku_link
     FROM products p
     WHERE p.deleted_at IS NULL
       AND p.manufacturer_id IN (${manPlaceholders})
-      AND p.base_sku IS NULL
       AND p.lifecycle_status IN ('active','new_launch')
-    ORDER BY p.id
+    ORDER BY COALESCE(p.base_sku, p.id), COALESCE(p.bundle_size, 1)
   `;
   const baseProductsRes = await db.prepare(baseProductsSql)
     .bind(...manufacturerIds).all<{
@@ -144,6 +148,8 @@ async function computeForGroup(
       lifecycle_status: string;
       ctn_qty: number | null;
       ctn_volume_m3: number | null;
+      bundle_size: number;
+      base_sku_link: string | null;
     }>();
   const baseProducts = baseProductsRes.results;
   if (baseProducts.length === 0) return [];
@@ -153,21 +159,18 @@ async function computeForGroup(
 
   // 3. velocity: sales in last 60 days, rolled up to base via bundle_size
   //    Wrap in CTE to avoid D1 GROUP BY quirks with computed columns.
+  // Bundles (DE120AA, DE120AAAA) are separate rows — each has its own velocity in bundle units.
+  // No rollup: a sale of 100 bundles of DE120AAAA stays as 100 bundles (not 400 single brushes).
   const velocitySql = `
-    WITH sales_per_row AS (
-      SELECT
-        COALESCE(p.base_sku, p.id) AS base_sku,
-        li.qty * COALESCE(p.bundle_size, 1) AS units
-      FROM operations o
-      JOIN line_items li ON li.operation_id = o.id
-      JOIN products p ON p.id = li.product_id
-      WHERE o.operation_type = 'sale'
-        AND o.status != 'cancelled'
-        AND o.deleted_at IS NULL
-        AND o.operation_date >= unixepoch('now', '-' || ? || ' days')
-        AND COALESCE(p.base_sku, p.id) IN (${baseSkuPlaceholders})
-    )
-    SELECT base_sku, SUM(units) AS units_60d FROM sales_per_row GROUP BY base_sku
+    SELECT li.product_id AS base_sku, SUM(li.qty) AS units_60d
+    FROM operations o
+    JOIN line_items li ON li.operation_id = o.id
+    WHERE o.operation_type = 'sale'
+      AND o.status != 'cancelled'
+      AND o.deleted_at IS NULL
+      AND o.operation_date >= unixepoch('now', '-' || ? || ' days')
+      AND li.product_id IN (${baseSkuPlaceholders})
+    GROUP BY li.product_id
   `;
   const velocityRes = await db.prepare(velocitySql)
     .bind(windowDays, ...baseSkus).all<{ base_sku: string; units_60d: number }>();
@@ -190,18 +193,13 @@ async function computeForGroup(
   if (isRussia) {
     const ruPlaceholders = RUSSIA_WH.map(() => '?').join(',');
     stockSql = `
-      WITH stock_per_row AS (
-        SELECT
-          COALESCE(p.base_sku, p.id) AS base_sku,
-          s.on_hand * COALESCE(p.bundle_size, 1) AS units
-        FROM stocks s
-        JOIN products p ON p.id = s.product_id
-        WHERE s.stock_state = 'on_hand'
-          AND s.on_hand > 0
-          AND s.warehouse_id IN (${ruPlaceholders})
-          AND COALESCE(p.base_sku, p.id) IN (${baseSkuPlaceholders})
-      )
-      SELECT base_sku, SUM(units) AS available FROM stock_per_row GROUP BY base_sku
+      SELECT s.product_id AS base_sku, SUM(s.on_hand) AS available
+      FROM stocks s
+      WHERE s.stock_state = 'on_hand'
+        AND s.on_hand > 0
+        AND s.warehouse_id IN (${ruPlaceholders})
+        AND s.product_id IN (${baseSkuPlaceholders})
+      GROUP BY s.product_id
     `;
     stockBinds = [...RUSSIA_WH, ...baseSkus];
   } else {
@@ -209,18 +207,13 @@ async function computeForGroup(
     const excludeForWorld = ['gzh', 'yzh', 'otw'];
     const exclPlaceholders = excludeForWorld.map(() => '?').join(',');
     stockSql = `
-      WITH stock_per_row AS (
-        SELECT
-          COALESCE(p.base_sku, p.id) AS base_sku,
-          s.on_hand * COALESCE(p.bundle_size, 1) AS units
-        FROM stocks s
-        JOIN products p ON p.id = s.product_id
-        WHERE s.stock_state = 'on_hand'
-          AND s.on_hand > 0
-          AND s.warehouse_id NOT IN (${exclPlaceholders})
-          AND COALESCE(p.base_sku, p.id) IN (${baseSkuPlaceholders})
-      )
-      SELECT base_sku, SUM(units) AS available FROM stock_per_row GROUP BY base_sku
+      SELECT s.product_id AS base_sku, SUM(s.on_hand) AS available
+      FROM stocks s
+      WHERE s.stock_state = 'on_hand'
+        AND s.on_hand > 0
+        AND s.warehouse_id NOT IN (${exclPlaceholders})
+        AND s.product_id IN (${baseSkuPlaceholders})
+      GROUP BY s.product_id
     `;
     stockBinds = [...excludeForWorld, ...baseSkus];
   }
@@ -233,38 +226,28 @@ async function computeForGroup(
   let transitBinds: unknown[];
   if (isRussia) {
     transitSql = `
-      WITH transit_per_row AS (
-        SELECT
-          COALESCE(p.base_sku, p.id) AS base_sku,
-          li.qty * COALESCE(p.bundle_size, 1) AS units
-        FROM operations o
-        JOIN line_items li ON li.operation_id = o.id
-        JOIN products p ON p.id = li.product_id
-        JOIN warehouses w ON w.id = o.warehouse_to_id
-        WHERE o.operation_type = 'purchase'
-          AND o.status IN ('production','shipped')
-          AND o.deleted_at IS NULL
-          AND w.country = 'Russia'
-          AND COALESCE(p.base_sku, p.id) IN (${baseSkuPlaceholders})
-      )
-      SELECT base_sku, SUM(units) AS units FROM transit_per_row GROUP BY base_sku
+      SELECT li.product_id AS base_sku, SUM(li.qty) AS units
+      FROM operations o
+      JOIN line_items li ON li.operation_id = o.id
+      JOIN warehouses w ON w.id = o.warehouse_to_id
+      WHERE o.operation_type = 'purchase'
+        AND o.status IN ('production','shipped')
+        AND o.deleted_at IS NULL
+        AND w.country = 'Russia'
+        AND li.product_id IN (${baseSkuPlaceholders})
+      GROUP BY li.product_id
     `;
     transitBinds = [...baseSkus];
   } else {
     transitSql = `
-      WITH transit_per_row AS (
-        SELECT
-          COALESCE(p.base_sku, p.id) AS base_sku,
-          li.qty * COALESCE(p.bundle_size, 1) AS units
-        FROM operations o
-        JOIN line_items li ON li.operation_id = o.id
-        JOIN products p ON p.id = li.product_id
-        WHERE o.operation_type = 'purchase'
-          AND o.status IN ('production','shipped')
-          AND o.deleted_at IS NULL
-          AND COALESCE(p.base_sku, p.id) IN (${baseSkuPlaceholders})
-      )
-      SELECT base_sku, SUM(units) AS units FROM transit_per_row GROUP BY base_sku
+      SELECT li.product_id AS base_sku, SUM(li.qty) AS units
+      FROM operations o
+      JOIN line_items li ON li.operation_id = o.id
+      WHERE o.operation_type = 'purchase'
+        AND o.status IN ('production','shipped')
+        AND o.deleted_at IS NULL
+        AND li.product_id IN (${baseSkuPlaceholders})
+      GROUP BY li.product_id
     `;
     transitBinds = [...baseSkus];
   }
@@ -346,6 +329,8 @@ async function computeForGroup(
       subcategory: b.subcategory,
       manufacturer_id: b.manufacturer_id,
       lifecycle_status: b.lifecycle_status,
+      bundle_size: b.bundle_size,
+      base_sku_link: b.base_sku_link,
       ctn_qty: b.ctn_qty,
       ctn_volume_m3: b.ctn_volume_m3,
       units_60d: units60d,

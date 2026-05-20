@@ -51,6 +51,9 @@ interface PlannerRow {
   raw_need: number;
   moq: number;
   suggested_order: number;
+  cartons: number;
+  volume_m3: number;
+  pallets: number;
   dearth_days: number;
   is_new_launch: boolean;
 }
@@ -370,8 +373,8 @@ function SkuTable({ rows }: { rows: PlannerRow[] }) {
                 className="border-b border-stone-100 last:border-0"
                 style={{ background: r.suggested_order > 0 ? '#FFFBEB' : undefined }}
               >
-                <td className="px-3 py-2.5" style={{ fontWeight: 700 }}>{r.base_sku.toUpperCase()}</td>
-                <td className="px-3 py-2.5">
+                <td className="px-3 py-2.5 align-top" style={{ fontWeight: 700 }}>{r.base_sku.toUpperCase()}</td>
+                <td className="px-3 py-2.5 align-top">
                   <div style={{ fontWeight: 700 }}>{r.product_name}</div>
                   <div className="flex flex-wrap items-center gap-2 mt-0.5" style={{ fontSize: '11px' }}>
                     {r.is_new_launch && (
@@ -386,21 +389,41 @@ function SkuTable({ rows }: { rows: PlannerRow[] }) {
                       <span className="text-red-600">⚠ stockout</span>
                     )}
                   </div>
+                  <div className="mt-1.5 text-stone-500" style={{ fontSize: '11.5px', lineHeight: 1.5 }}>
+                    {!r.is_new_launch && (
+                      <>60d sales: <b className="text-stone-700">{r.units_60d.toLocaleString()}</b>
+                      {r.dearth_days > 0 && <> ({r.days_with_stock}d w/ stock)</>} · </>
+                    )}
+                    MOQ <b className="text-stone-700">{r.moq.toLocaleString()}</b>
+                    {!r.is_new_launch && <> · raw need <b className="text-stone-700">{r.raw_need.toLocaleString()}</b></>}
+                    {r.ctn_qty && r.ctn_qty > 0 && (
+                      <> · ctn <b className="text-stone-700">{r.ctn_qty}</b> ({(r.ctn_volume_m3 ?? 0).toFixed(3)} m³)</>
+                    )}
+                  </div>
                 </td>
-                <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>
+                <td className="px-3 py-2.5 text-right align-top" style={{ fontWeight: 700 }}>
                   {r.is_new_launch ? '—' : r.velocity_per_day.toFixed(1)}
                 </td>
-                <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>
+                <td className="px-3 py-2.5 text-right align-top" style={{ fontWeight: 700 }}>
                   {r.available_stock.toLocaleString()}
                 </td>
-                <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>
+                <td className="px-3 py-2.5 text-right align-top" style={{ fontWeight: 700 }}>
                   {r.in_transit > 0 ? r.in_transit.toLocaleString() : '—'}
                 </td>
-                <td className={`px-3 py-2.5 text-right ${coverColor}`} style={{ fontWeight: 700 }}>
+                <td className={`px-3 py-2.5 text-right align-top ${coverColor}`} style={{ fontWeight: 700 }}>
                   {r.cover_days === null ? '—' : `${r.cover_days}d`}
                 </td>
-                <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>
-                  {r.suggested_order > 0 ? r.suggested_order.toLocaleString() : '—'}
+                <td className="px-3 py-2.5 text-right align-top">
+                  {r.suggested_order > 0 ? (
+                    <>
+                      <div style={{ fontWeight: 700 }}>{r.suggested_order.toLocaleString()}</div>
+                      <div className="text-stone-500" style={{ fontSize: '11.5px', marginTop: '2px' }}>
+                        {r.cartons} ctn · {r.volume_m3.toFixed(2)} m³ · {r.pallets} pal
+                      </div>
+                    </>
+                  ) : (
+                    <span style={{ fontWeight: 700 }}>—</span>
+                  )}
                 </td>
               </tr>
             );

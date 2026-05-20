@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
-import { scheduleWbWeekly, scheduleOzonMonthly, tickMarketplacePull } from '../lib/marketplace-pull';
+import { scheduleWbWeekly, scheduleOzonMonthly, tickMarketplacePull, rebuildPriorMonthSite } from '../lib/marketplace-pull';
 import { ok, fail } from '../lib/responses';
 
 const r = new Hono<{ Bindings: Env }>();
@@ -56,6 +56,18 @@ r.delete('/tasks/:id', async (c) => {
   const id = c.req.param('id');
   await c.env.DB.prepare('DELETE FROM marketplace_pull_tasks WHERE id=?').bind(id).run();
   return ok(c, { deleted: id });
+});
+
+
+// Manual trigger: rebuild Yandex Pay monthly settlement for the previous calendar month.
+// Same as the cron 0 4 1-7 * 3 — useful for manual triggering.
+r.post('/rebuild-site', async (c) => {
+  try {
+    const result = await rebuildPriorMonthSite(c.env);
+    return ok(c, result);
+  } catch (e) {
+    return c.json({ success: false, error: String(e) }, 500);
+  }
 });
 
 export default r;

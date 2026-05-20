@@ -391,22 +391,18 @@ export default function PlannerPage() {
           </div>
 
           {/* Manual override warning bar */}
-          {manualExceedsTarget && (
-            <div className="flex items-center gap-3 px-4 py-3 rounded" style={{ background: '#FCEBEB', border: '0.5px solid #F09595', fontSize: '13px', color: '#791F1F' }}>
-              <span style={{ fontSize: 16 }}>⚠</span>
-              <span><b>Manual entries take {manualVolume.toFixed(2)} m³</b> — exceeds {mode === '20ft' ? '20ft' : '40HQ'} capacity ({targetVol} m³). Unlock entries to rebalance.</span>
-            </div>
-          )}
+          <div className="flex items-center gap-3 px-4 py-3 rounded" style={{ display: manualExceedsTarget ? 'flex' : 'none', background: '#FCEBEB', border: '0.5px solid #F09595', fontSize: '13px', color: '#791F1F' }}>
+            <span style={{ fontSize: 16 }}>⚠</span>
+            <span><b>Manual entries take {manualVolume.toFixed(2)} m³</b> — exceeds {mode === '20ft' ? '20ft' : '40HQ'} capacity ({targetVol} m³). Unlock entries to rebalance.</span>
+          </div>
 
           {/* Manual locks banner with reset button */}
-          {hasManualEntries && !manualExceedsTarget && (
-            <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded" style={{ background: '#FAEEDA', fontSize: '13px', color: '#854F0B' }}>
-              <span><b>{Object.keys(manualOverrides).length} manual {Object.keys(manualOverrides).length === 1 ? 'entry' : 'entries'} locked.</b> Algorithm rebalances unlocked SKUs.</span>
-              <button onClick={handleResetAll} style={{ fontSize: 12, padding: '4px 10px', background: 'white', border: '0.5px solid #BA7517', borderRadius: 4, color: '#854F0B', fontWeight: 500, cursor: 'pointer' }}>
-                Reset all to auto
-              </button>
-            </div>
-          )}
+          <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded" style={{ display: (hasManualEntries && !manualExceedsTarget) ? 'flex' : 'none', background: '#FAEEDA', fontSize: '13px', color: '#854F0B' }}>
+            <span><b>{Object.keys(manualOverrides).length} manual {Object.keys(manualOverrides).length === 1 ? 'entry' : 'entries'} locked.</b> Algorithm rebalances unlocked SKUs.</span>
+            <button onClick={handleResetAll} style={{ fontSize: 12, padding: '4px 10px', background: 'white', border: '0.5px solid #BA7517', borderRadius: 4, color: '#854F0B', fontWeight: 500, cursor: 'pointer' }}>
+              Reset all to auto
+            </button>
+          </div>
 
           {/* Sizing buttons */}
           <SizingButtons
@@ -770,17 +766,14 @@ function SkuTable({
                 <td className={`px-3 py-2.5 text-right ${coverColor}`} style={{ fontWeight: 700 }}>{r.cover_days === null ? '—' : r.cover_days + 'd'}</td>
                 <td className="px-3 py-2.5 text-right">
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    {isLocked ? (
-                      <button
-                        title="Unlock — algorithm takes over"
-                        onClick={() => onUnlock(r.base_sku)}
-                        style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, color: '#854F0B', fontSize: 14, lineHeight: 1, width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                      >
-                        <Lock className="w-3.5 h-3.5" />
-                      </button>
-                    ) : (
-                      <span style={{ width: 16, visibility: 'hidden' }}>·</span>
-                    )}
+                    <button
+                      title="Unlock — algorithm takes over"
+                      onClick={() => onUnlock(r.base_sku)}
+                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, color: '#854F0B', fontSize: 14, lineHeight: 1, width: 16, height: 16, display: isLocked ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <Lock className="w-3.5 h-3.5" />
+                    </button>
+                    <span style={{ width: 16, visibility: 'hidden', display: isLocked ? 'none' : 'inline-block' }}>·</span>
                     <input
                       type="number"
                       min={0}

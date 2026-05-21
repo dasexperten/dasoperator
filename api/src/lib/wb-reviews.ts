@@ -578,12 +578,6 @@ export async function runWbAutoReply(
       const productName = (fb.productDetails?.productName ?? '').slice(0, 60);
       const stars = '★'.repeat(rating);
 
-      if (!text) {
-        result.ratingOnlySkipped++;
-        console.log(`  [${result.inspected}] skip ${fid}: rating-only (${stars})`);
-        continue;
-      }
-
       // ALL reviews get auto-answered. text → full prompt. rating-only → short prompt.
       // 1-2★ also goes through safety_check before publication; on UNSAFE → status='held'.
       const hasText = text.length > 0;

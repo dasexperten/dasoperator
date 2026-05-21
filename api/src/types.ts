@@ -14,6 +14,12 @@ export interface Env {
   // Source of truth for product prices. Read by /api/products/:id/price endpoint.
   PRICELISTS: R2Bucket;
 
+  // R2 Bucket — das-skills (Reviews v5 — review-master pipeline)
+  // Stores all 6 skills (review-master, product-skill, technolog, marketolog,
+  // benefit-gate, legalizer) with their references. Cached via KV CACHE.
+  // Source of truth for the review-master 6-gate pipeline.
+  SKILLS_BUCKET: R2Bucket;
+
   // KV Namespaces (Phase 1.3)
   COUNTERS: KVNamespace;  // sequences cache (DEE-001, CI-202605-0001 etc)
   FX: KVNamespace;        // daily FX rates snapshot

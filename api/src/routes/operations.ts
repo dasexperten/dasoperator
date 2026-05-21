@@ -2453,6 +2453,14 @@ operations.post('/_sweep-awaiting-bank-tx', async (c) => {
   });
 });
 
+// Debug endpoint: run allocator on a single op with verbose output
+operations.get('/_alloc-debug/:opId', async (c) => {
+  const { allocateAwaitingTxToOperation } = await import('../lib/bank-tx-allocator');
+  const opId = c.req.param('opId');
+  const r = await allocateAwaitingTxToOperation(c.env, opId, true);
+  return ok(c, r);
+});
+
 
 export default operations;
 

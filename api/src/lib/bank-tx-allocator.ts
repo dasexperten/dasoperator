@@ -41,6 +41,7 @@ interface BankTxRow {
 interface AllocatorResult {
   attached_tx_ids: string[];
   attached_count: number;
+  debug?: any;
 }
 
 const DATE_WINDOW_SECONDS = 90 * 86400; // ±90 days
@@ -49,6 +50,7 @@ const AMOUNT_TOLERANCE_PCT = 0.01; // ±1%
 export async function allocateAwaitingTxToOperation(
   env: Env,
   operationId: string,
+  debug: boolean = false,
 ): Promise<AllocatorResult> {
   const op = await env.DB.prepare(
     `SELECT o.id, o.total_amount, o.currency, o.operation_date, o.partner_id,
@@ -70,7 +72,7 @@ export async function allocateAwaitingTxToOperation(
   }>();
 
   if (!op || !op.partner_id) {
-    return { attached_tx_ids: [], attached_count: 0 };
+    return { attached_tx_ids: [], attached_count: 0, debug: debug ? { reason: 'no_op_or_no_partner', op } : undefined };
   }
 
   // Skip ops with zero/null total (image-scan invoices where amount is set
@@ -102,7 +104,7 @@ export async function allocateAwaitingTxToOperation(
     'outgoing';
 
   if (!expectedDirection) {
-    return { attached_tx_ids: [], attached_count: 0 };
+    return { attached_tx_ids: [], attached_count: 0, debug: debug ? { reason: 'no_direction', op_type: op.operation_type } : undefined };
   }
 
   // Build the WHERE clause dynamically
@@ -130,21 +132,26 @@ export async function allocateAwaitingTxToOperation(
     params.push(`%${name}%`, `%${name}%`);
   } else {
     // No way to match partner → don't allocate
-    return { attached_tx_ids: [], attached_count: 0 };
+    return { attached_tx_ids: [], attached_count: 0, debug: debug ? { reason: 'no_partner_inn_or_name' } : undefined };
   }
 
-  const candidatesRes = await env.DB.prepare(
-    `SELECT id, amount, currency, contragent_inn, contragent_name,
+  const sql = `SELECT id, amount, currency, contragent_inn, contragent_name,
             executed_at, payment_purpose, direction, external_doc_number
        FROM bank_transactions
       WHERE ${whereClauses.join(' AND ')}
       ORDER BY ABS(executed_at - ?) ASC
-      LIMIT 10`,
-  ).bind(...params, op.operation_date).all<BankTxRow>();
+      LIMIT 10`;
+  const allParams = [...params, op.operation_date];
+
+  const candidatesRes = await env.DB.prepare(sql).bind(...allParams).all<BankTxRow>();
 
   const candidates = candidatesRes.results || [];
   if (candidates.length === 0) {
-    return { attached_tx_ids: [], attached_count: 0 };
+    return {
+      attached_tx_ids: [],
+      attached_count: 0,
+      debug: debug ? { reason: 'no_candidates', sql, params: allParams, op } : undefined,
+    };
   }
 
   // Attach each candidate. If multiple match, attach all (split payment).

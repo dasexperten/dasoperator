@@ -751,27 +751,39 @@ r.post('/create-draft', async (c) => {
     }]);
   }
 
-  // Generate reference
+  // Generate reference — matches existing pattern: {MfrAbbrev}-YYMMDD{seq}
+  // Examples in DB: JINX-26031701, HHUI-26041603
+  // seq = 2-digit counter for that (manufacturer × day) bucket, 01-99.
   const opDate = body.operation_date ?? Math.floor(Date.now() / 1000);
   const d = new Date(opDate * 1000);
-  const yyyy = d.getUTCFullYear();
-  const yy = String(yyyy).slice(2);
+  const yy = String(d.getUTCFullYear()).slice(2);
   const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
   const dd = String(d.getUTCDate()).padStart(2, '0');
-  const mfrAbbr = (mfrPartner.abbreviation || mfrPartner.id).toUpperCase();
-  const entAbbr = (company.abbreviation || company.id).toUpperCase();
-  let reference = `${yyyy}${mfrAbbr}-${entAbbr}-${yy}${mm}${dd}`;
 
-  // Disambiguate if reference taken (e.g. same day, same group, second draft)
-  let suffix = 0;
-  while (true) {
-    const probeRef = suffix === 0 ? reference : `${reference}-${suffix}`;
+  // Manufacturer abbreviation map — falls back to partner.abbreviation if not listed.
+  // JINX, HHUI, WDAA, MZHN are the canonical short codes used throughout the operations history.
+  const mfrCodeMap: Record<string, string> = {
+    jinxia: 'JINX',
+    honghui: 'HHUI',
+    wdaa: 'WDAA',
+    meizhiyuan: 'MZHN',
+  };
+  const mfrCode = mfrCodeMap[mfrPartner.id]
+    || (mfrPartner.abbreviation || mfrPartner.id).toUpperCase();
+
+  const dayPrefix = `${mfrCode}-${yy}${mm}${dd}`;
+
+  // Find the next free counter (01..99) for this (manufacturer × day) bucket.
+  let reference = '';
+  for (let seq = 1; seq <= 99; seq++) {
+    const probeRef = `${dayPrefix}${String(seq).padStart(2, '0')}`;
     const exists = await c.env.DB.prepare(
       'SELECT 1 FROM operations WHERE reference = ?'
     ).bind(probeRef).first();
     if (!exists) { reference = probeRef; break; }
-    suffix++;
-    if (suffix > 99) return fail(c, 500, [{ code: 'reference_collision', message: 'too many drafts today' }]);
+  }
+  if (!reference) {
+    return fail(c, 500, [{ code: 'reference_collision', message: 'too many drafts today for this manufacturer' }]);
   }
 
   // Verify all products exist

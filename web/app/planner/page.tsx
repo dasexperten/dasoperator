@@ -1385,21 +1385,23 @@ function CreateDraftModal({
     setWarehouseToId(dest.id);
   }, [warehouseToOptions, warehouseFromId, warehouseToId]);
 
-  // Computed reference preview
+  // Computed reference preview — matches backend: {MfrCode}-YYMMDD{seq}
+  // Seq is unknown until POST, so we show "?" placeholder.
   const referencePreview = useMemo(() => {
     if (!opts) return '—';
-    const company = opts.companies.find(c => c.id === entityId);
     const mfr = opts.manufacturers.find(m => m.partner_id === manufacturerPartnerId);
-    if (!company || !mfr) return '—';
+    if (!mfr) return '—';
     const d = new Date();
-    const yyyy = d.getUTCFullYear();
-    const yy = String(yyyy).slice(2);
+    const yy = String(d.getUTCFullYear()).slice(2);
     const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
     const dd = String(d.getUTCDate()).padStart(2, '0');
-    const mfrAbbr = (mfr.abbreviation || mfr.partner_id || mfr.manufacturer_id).toUpperCase();
-    const entAbbr = (company.abbreviation || company.id).toUpperCase();
-    return `${yyyy}${mfrAbbr}-${entAbbr}-${yy}${mm}${dd}`;
-  }, [opts, entityId, manufacturerPartnerId]);
+    const mfrCodeMap: Record<string, string> = {
+      jinxia: 'JINX', honghui: 'HHUI', wdaa: 'WDAA', meizhiyuan: 'MZHN',
+    };
+    const mfrCode = mfrCodeMap[mfr.partner_id || mfr.manufacturer_id]
+      || (mfr.abbreviation || mfr.partner_id || mfr.manufacturer_id).toUpperCase();
+    return `${mfrCode}-${yy}${mm}${dd}XX`;
+  }, [opts, manufacturerPartnerId]);
 
   // Line items snapshot from planner final values
   const lineItemsToSend = useMemo(() => {

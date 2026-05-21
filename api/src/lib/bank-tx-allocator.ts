@@ -44,7 +44,7 @@ interface AllocatorResult {
   debug?: any;
 }
 
-const DATE_WINDOW_SECONDS = 90 * 86400; // ±90 days
+const DATE_WINDOW_SECONDS = 30 * 86400; // ±30 days
 const AMOUNT_TOLERANCE_PCT = 0.01; // ±1%
 
 export async function allocateAwaitingTxToOperation(

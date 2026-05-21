@@ -701,8 +701,8 @@ export default function PlannerPage() {
       mfrLocation = 'Guangzhou, China';
     }
 
-    // A4 landscape: 297 × 210 mm
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    // A4 portrait: 210 × 297 mm
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const pageW = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();
     const margin = 12;
@@ -860,11 +860,11 @@ export default function PlannerPage() {
         0: { halign: 'left', fontStyle: 'bold', cellWidth: 22 },
         1: { halign: 'left', cellWidth: 'auto' },
         2: { halign: 'center', cellWidth: 14, textColor: [136, 136, 136] },
-        3: { halign: 'right', fontStyle: 'bold', cellWidth: 12 },
-        4: { halign: 'right', cellWidth: 16 },
-        5: { halign: 'right', fontStyle: 'bold', cellWidth: 22 },
-        6: { halign: 'right', cellWidth: 22 },
-        7: { halign: 'right', fontStyle: 'bold', cellWidth: 26 },
+        3: { halign: 'right', fontStyle: 'bold', cellWidth: 11 },
+        4: { halign: 'right', cellWidth: 13 },
+        5: { halign: 'right', fontStyle: 'bold', cellWidth: 18 },
+        6: { halign: 'right', cellWidth: 16 },
+        7: { halign: 'right', fontStyle: 'bold', cellWidth: 22 },
         8: { halign: 'right', cellWidth: 14, textColor: [102, 102, 102] },
       },
       didParseCell: (data) => {

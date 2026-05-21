@@ -568,6 +568,16 @@ export async function handleScheduled(
   // maxReplies=30: in normal mode this drains the backlog of 500+ in ~4 hours.
   // In penalty mode we'll bail out at the second request and try again next tick.
   if (cron === '*/20 * * * *') {
+    // KV-flag emergency stop: when WB account is in a deep penalty mode that
+    // doesn't recover, set 'wb-reviews:cron-paused' = '1' to halt all cron
+    // ticks completely. Removing the flag re-enables ticks.
+    if (env.CACHE) {
+      const paused = await env.CACHE.get('wb-reviews:cron-paused');
+      if (paused === '1') {
+        console.log('[cron:wb-auto-reply] paused via KV flag — skipping');
+        return;
+      }
+    }
     console.log('[cron:wb-auto-reply] tick start');
     try {
       const { runWbAutoReply } = await import('./lib/wb-reviews');

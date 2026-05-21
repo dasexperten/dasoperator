@@ -22,6 +22,8 @@ type Bucket =
   | 'partner_auto_created'
   | 'ambiguous'
   | 'auto_created_draft'
+  | 'awaiting_invoice'
+  | 'awaiting_marketplace_settlement'
   | 'legacy_unmatched';
 
 interface InboxItem {
@@ -96,6 +98,16 @@ const BUCKET_META: Record<Bucket, { label: string; description: string; dot: str
     description: 'No candidate operation matched. A draft was created — confirm or merge.',
     dot: '#0D199E',
   },
+  awaiting_invoice: {
+    label: 'Awaiting invoice',
+    description: 'Bank tx parked — no operation yet. Will auto-attach when invoice/act arrives via inbox. Or allocate manually to existing op.',
+    dot: '#185FA5',
+  },
+  awaiting_marketplace_settlement: {
+    label: 'Awaiting marketplace',
+    description: 'Marketplace payout — no candidate sale operation yet. Allocate to existing report-derived sale op.',
+    dot: '#854F0B',
+  },
   legacy_unmatched: {
     label: 'Legacy',
     description: 'Pre-cascade transactions never auto-processed.',
@@ -109,6 +121,8 @@ const BUCKET_ORDER: Bucket[] = [
   'partner_auto_created',
   'ambiguous',
   'auto_created_draft',
+  'awaiting_invoice',
+  'awaiting_marketplace_settlement',
   'legacy_unmatched',
 ];
 

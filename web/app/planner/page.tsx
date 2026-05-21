@@ -809,7 +809,7 @@ export default function PlannerPage() {
           r.totalQty.toLocaleString('en-US'),
           r.unitPrice.toFixed(2),
           r.lineAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-          r.volume.toFixed(3),
+          r.volume.toFixed(2),
         ]),
       ],
       foot: [[
@@ -817,11 +817,14 @@ export default function PlannerPage() {
         dlCartons.toString(),
         '',
         dlUnits.toLocaleString('en-US'),
-        '',
-        dlAnyAmount
-          ? sym + (Math.round(dlAmount * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-          : '',
-        (Math.round(dlVolume * 1000) / 1000).toFixed(3),
+        {
+          content: dlAnyAmount
+            ? sym + (Math.round(dlAmount * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            : '',
+          colSpan: 2,
+          styles: { halign: 'right' },
+        },
+        (Math.round(dlVolume * 100) / 100).toFixed(2),
       ]],
       theme: 'plain',
       styles: {
@@ -860,14 +863,14 @@ export default function PlannerPage() {
         2: { halign: 'center', cellWidth: 14, textColor: [136, 136, 136] },
         3: { halign: 'right', fontStyle: 'bold', cellWidth: 12 },
         4: { halign: 'right', cellWidth: 16 },
-        5: { halign: 'right', fontStyle: 'bold', cellWidth: 20 },
-        6: { halign: 'right', cellWidth: 18 },
-        7: { halign: 'right', fontStyle: 'bold', cellWidth: 34 },
-        8: { halign: 'right', cellWidth: 18, textColor: [102, 102, 102] },
+        5: { halign: 'right', fontStyle: 'bold', cellWidth: 22 },
+        6: { halign: 'right', cellWidth: 22 },
+        7: { halign: 'right', fontStyle: 'bold', cellWidth: 26 },
+        8: { halign: 'right', cellWidth: 14, textColor: [102, 102, 102] },
       },
       didParseCell: (data) => {
-        // Gold-tint the grand total amount cell (footer col 7)
-        if (data.section === 'foot' && data.column.index === 7) {
+        // Gold-tint the grand total amount cell (footer, merged across Unit+Line cols = index 6)
+        if (data.section === 'foot' && data.column.index === 6) {
           data.cell.styles.textColor = [212, 160, 23];
         }
       },

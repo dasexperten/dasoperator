@@ -12,7 +12,7 @@
 // =============================================================================
 import type { Env } from '../types';
 import { callPro } from './deepseek';
-import { runReviewMasterPipeline, type PipelineInput } from './review-master-pipeline';
+import { runReviewMasterPipeline, runRatingOnlyPipeline, type PipelineInput } from './review-master-pipeline';
 import { PRODUCT_KNOWLEDGE_BASE } from './wb-reviews-knowledge';
 
 const WB_BASE = 'https://feedbacks-api.wildberries.ru';
@@ -553,7 +553,9 @@ export async function runWbAutoReply(
           pros: (fb.pros ?? '').trim() || null,
           cons: (fb.cons ?? '').trim() || null,
         };
-        const pipelineResult = await runReviewMasterPipeline(env, pipelineInput);
+        const pipelineResult = hasText
+          ? await runReviewMasterPipeline(env, pipelineInput)
+          : await runRatingOnlyPipeline(env, pipelineInput);
         draft = {
           text: pipelineResult.reply,
           inputTokens: pipelineResult.totalTokensIn,

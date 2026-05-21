@@ -110,7 +110,7 @@ app.get('/tick-log', async (c) => {
 // GET /api/reviews/drafts?status=auto_sent,held,failed&limit=50&channel=wb&rating=5&search=...
 // Default — all answered (auto_sent + approved_sent + held + failed), newest first
 app.get('/drafts', async (c) => {
-  const status = c.req.query('status') ?? 'auto_sent,approved_sent,held,failed';
+  const status = c.req.query('status') ?? 'pending,auto_sent,approved_sent,failed';
   const channel = c.req.query('channel') ?? 'wb';
   const limit = Math.min(200, Math.max(1, parseInt(c.req.query('limit') ?? '50', 10) || 50));
   const offset = Math.max(0, parseInt(c.req.query('offset') ?? '0', 10) || 0);
@@ -130,6 +130,11 @@ app.get('/drafts', async (c) => {
     whereExtra.push('(review_text LIKE ? OR draft_text LIKE ? OR product_name LIKE ?)');
     const pat = `%${search}%`;
     bindExtra.push(pat, pat, pat);
+  }
+  const sku = c.req.query('sku'); // canonical base SKU; matches whole product family (DE206, DE206AA, DE206AAAA)
+  if (sku) {
+    whereExtra.push('LOWER(product_sku) LIKE ?');
+    bindExtra.push(`${sku.toLowerCase()}%`);
   }
   const extraWhere = whereExtra.length ? ' AND ' + whereExtra.join(' AND ') : '';
 
@@ -335,5 +340,141 @@ app.post('/drafts/:id/edit', async (c) => {
   if ((r.meta?.changes ?? 0) === 0) return c.json({ ok: false, error: 'not found' }, 404);
   return c.json({ ok: true });
 });
+
+// -----------------------------------------------------------------------------
+// GET /api/reviews/products
+// Canonical product list grouped by base_sku. Each item shows pretty name +
+// total review count across the whole product family (all pack sizes).
+//
+// SQL strategy: strip trailing 'a' chars from product_sku to derive base.
+// Join to products table to get the canonical brand name (e.g. "SYMBIOS").
+// -----------------------------------------------------------------------------
+app.get('/products', async (c) => {
+  const channel = c.req.query('channel') ?? 'wb';
+
+  // 1) Group reviews by base_sku (strip trailing AAAA suffix from product_sku)
+  // SQLite: use REPLACE/RTRIM-like trick. We trim trailing 'a' chars from lower(sku).
+  // Simplest portable approach: use LIKE join in app code.
+  const reviewBuckets = await c.env.DB.prepare(`
+    SELECT product_sku, COUNT(*) as cnt
+    FROM review_drafts
+    WHERE channel = ? AND product_sku IS NOT NULL AND product_sku != ''
+    GROUP BY product_sku
+  `).bind(channel).all();
+
+  // Aggregate by base_sku in JS (strip trailing 'a' from lowercase id)
+  const baseMap: Record<string, { count: number; samples: string[] }> = {};
+  for (const row of (reviewBuckets.results ?? []) as Array<{ product_sku: string; cnt: number }>) {
+    const raw = String(row.product_sku || '').toLowerCase();
+    const base = raw.replace(/a+$/, '');
+    if (!base) continue;
+    if (!baseMap[base]) baseMap[base] = { count: 0, samples: [] };
+    baseMap[base].count += row.cnt;
+    baseMap[base].samples.push(raw);
+  }
+
+  if (Object.keys(baseMap).length === 0) {
+    return c.json({ ok: true, products: [] });
+  }
+
+  // 2) Lookup canonical brand names from products table
+  const baseSkus = Object.keys(baseMap);
+  const placeholders = baseSkus.map(() => '?').join(',');
+  const productRows = await c.env.DB.prepare(`
+    SELECT id, product_name FROM products WHERE id IN (${placeholders})
+  `).bind(...baseSkus).all();
+  const nameByBase: Record<string, string> = {};
+  for (const r of (productRows.results ?? []) as Array<{ id: string; product_name: string }>) {
+    nameByBase[r.id.toLowerCase()] = r.product_name;
+  }
+
+  // 3) Build response, sorted by count desc
+  const products = baseSkus
+    .map((base) => ({
+      baseSku: base.toUpperCase(),
+      name: nameByBase[base] ?? base.toUpperCase(),
+      count: baseMap[base].count,
+    }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
+  return c.json({ ok: true, products });
+});
+
+// -----------------------------------------------------------------------------
+// POST /api/reviews/reply-all
+// Publish ALL pending drafts to Wildberries in one batch.
+// Iterates pending → calls postAnswer per item with delay → updates status.
+// Returns counters: sent, failed, errors[].
+//
+// Body: { sku?: string, maxBatch?: number, pauseMs?: number }
+//   sku — optional, restrict to one product family
+//   maxBatch — safety cap, default 100
+//   pauseMs — delay between WB calls, default 1200ms
+// -----------------------------------------------------------------------------
+app.post('/reply-all', async (c) => {
+  let body: any = {};
+  try { body = await c.req.json(); } catch {}
+
+  const maxBatch = Math.min(500, Math.max(1, parseInt(body.maxBatch ?? '100', 10) || 100));
+  const pauseMs = Math.max(500, parseInt(body.pauseMs ?? '1200', 10) || 1200);
+  const sku = (body.sku ?? '').toString().trim().toLowerCase();
+
+  // Fetch pending drafts
+  let sql = `
+    SELECT id, external_id, draft_text, rating
+    FROM review_drafts
+    WHERE channel = 'wb' AND status = 'pending'
+      AND draft_text IS NOT NULL AND LENGTH(draft_text) > 0
+  `;
+  const binds: any[] = [];
+  if (sku) {
+    sql += ` AND LOWER(product_sku) LIKE ?`;
+    binds.push(`${sku}%`);
+  }
+  sql += ` ORDER BY created_at ASC LIMIT ?`;
+  binds.push(maxBatch);
+  const result = await c.env.DB.prepare(sql).bind(...binds).all();
+  const drafts = (result.results ?? []) as Array<{ id: string; external_id: string; draft_text: string; rating: number }>;
+
+  if (drafts.length === 0) {
+    return c.json({ ok: true, total: 0, sent: 0, failed: 0, errors: [] });
+  }
+
+  let sent = 0;
+  let failed = 0;
+  const errors: Array<{ id: string; error: string }> = [];
+
+  for (const d of drafts) {
+    try {
+      await postAnswer(c.env, d.external_id, d.draft_text);
+      await c.env.DB.prepare(`
+        UPDATE review_drafts
+        SET status = 'auto_sent', posted_to_wb_at = datetime('now'), updated_at = datetime('now')
+        WHERE id = ?
+      `).bind(d.id).run();
+      sent++;
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      failed++;
+      errors.push({ id: d.id, error: msg.slice(0, 200) });
+      try {
+        await c.env.DB.prepare(`
+          UPDATE review_drafts
+          SET status = 'failed', rejection_reason = ?, updated_at = datetime('now')
+          WHERE id = ?
+        `).bind(`reply-all: ${msg.slice(0, 200)}`, d.id).run();
+      } catch {}
+      // Stop the batch if WB hits us with 429 — don't burn the rest
+      if (msg.includes('429') || msg.toLowerCase().includes('rate limit')) {
+        break;
+      }
+    }
+    // Pause between WB calls
+    await new Promise((r) => setTimeout(r, pauseMs));
+  }
+
+  return c.json({ ok: true, total: drafts.length, sent, failed, errors });
+});
+
 
 export default app;

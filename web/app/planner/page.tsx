@@ -852,6 +852,7 @@ export default function PlannerPage() {
         fontSize: cellFont + 0.5,
         cellPadding: { top: 2.5, bottom: 2.5, left: 2, right: 2 },
         lineWidth: 0,
+        overflow: 'visible',
       },
       columnStyles: {
         0: { halign: 'left', fontStyle: 'bold', cellWidth: 22 },
@@ -859,10 +860,10 @@ export default function PlannerPage() {
         2: { halign: 'center', cellWidth: 14, textColor: [136, 136, 136] },
         3: { halign: 'right', fontStyle: 'bold', cellWidth: 12 },
         4: { halign: 'right', cellWidth: 16 },
-        5: { halign: 'right', fontStyle: 'bold', cellWidth: 22 },
+        5: { halign: 'right', fontStyle: 'bold', cellWidth: 20 },
         6: { halign: 'right', cellWidth: 18 },
-        7: { halign: 'right', fontStyle: 'bold', cellWidth: 26 },
-        8: { halign: 'right', cellWidth: 14, textColor: [102, 102, 102] },
+        7: { halign: 'right', fontStyle: 'bold', cellWidth: 34 },
+        8: { halign: 'right', cellWidth: 18, textColor: [102, 102, 102] },
       },
       didParseCell: (data) => {
         // Gold-tint the grand total amount cell (footer col 7)

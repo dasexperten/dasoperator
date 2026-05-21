@@ -655,7 +655,6 @@ export default function PlannerPage() {
   function handleDownloadPDF() {
     if (!detail) return;
     const cur = currency.toUpperCase();
-    const sym = cur === 'CNY' ? 'RMB ' : '$';
 
     // Re-compute totals
     let dlCartons = 0, dlUnits = 0, dlVolume = 0, dlAmount = 0;
@@ -797,8 +796,8 @@ export default function PlannerPage() {
       head: [[
         'SKU', 'Product', 'Bundle',
         'Ctn', 'Qty/ctn', 'Total qty',
-        `Unit ${cur === 'CNY' ? 'RMB' : '$'}`,
-        `Line ${cur === 'CNY' ? 'RMB' : '$'}`,
+        `Unit ${cur === 'CNY' ? '¥' : '$'}`,
+        `Line ${cur === 'CNY' ? '¥' : '$'}`,
         'm³',
       ]],
       body: [
@@ -819,7 +818,7 @@ export default function PlannerPage() {
         dlUnits.toLocaleString('en-US'),
         {
           content: dlAnyAmount
-            ? sym + (Math.round(dlAmount * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            ? (Math.round(dlAmount * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + (cur === 'CNY' ? '¥' : '$')
             : '',
           colSpan: 2,
           styles: { halign: 'right' },

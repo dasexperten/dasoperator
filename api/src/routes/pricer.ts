@@ -153,30 +153,46 @@ pricer.post('/refresh-cache', async (c) => {
 // =============================================================================
 pricer.get('/list/:priceTypeId', async (c) => {
   const priceTypeId = c.req.param('priceTypeId');
-  const filename = PRICE_TYPE_TO_FILE[priceTypeId];
-  if (!filename) {
+
+  // SINGLE SOURCE OF TRUTH: D1 product_prices.
+  // Returns SKU -> price map for all currently-active prices of this type.
+  // Used by /products list to show price column in selected currency.
+  const pt = await c.env.DB.prepare(
+    'SELECT id, code, currency FROM price_types WHERE id = ?'
+  ).bind(priceTypeId).first<{ id: string; code: string; currency: string }>();
+
+  if (!pt) {
     return fail(c, 400, [{
       code: 'unknown_price_type',
       message: `Unknown price_type_id: ${priceTypeId}`,
     }]);
   }
 
-  try {
-    const pricelist = await getPricelist(c.env, priceTypeId);
-    return ok(c, {
-      price_type_id: priceTypeId,
-      filename: pricelist.filename,
-      currency: pricelist.currency,
-      last_updated: pricelist.lastUpdated,
-      prices: pricelist.prices,
-      count: Object.keys(pricelist.prices).length,
-    });
-  } catch (err) {
-    return fail(c, 500, [{
-      code: 'pricelist_read_failed',
-      message: err instanceof Error ? err.message : String(err),
-    }]);
+  const now = Math.floor(Date.now() / 1000);
+  const rows = await c.env.DB.prepare(`
+    SELECT product_id, sell_price
+    FROM product_prices
+    WHERE price_type_id = ?
+      AND effective_from <= ?
+      AND (effective_until IS NULL OR effective_until > ?)
+  `).bind(priceTypeId, now, now).all<{ product_id: string; sell_price: number }>();
+
+  // Build SKU -> price map. SKUs in DB are lowercase (de125); the consumer
+  // (products page) uppercases via id.toUpperCase() lookup. Provide both keys
+  // so lookups work regardless of caller convention.
+  const prices: Record<string, number> = {};
+  for (const r of rows.results) {
+    prices[r.product_id.toUpperCase()] = r.sell_price;
   }
+
+  return ok(c, {
+    price_type_id: priceTypeId,
+    filename: null,
+    currency: pt.currency,
+    last_updated: new Date().toISOString(),
+    prices,
+    count: Object.keys(prices).length,
+  });
 });
 
 export default pricer;

@@ -4,6 +4,7 @@ import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { runInboxIngestion } from '../lib/inbox-ingestion';
 import { findMatchingOperation, thresholdFor } from '../lib/inbox-auto-match';
+import { allocateAwaitingTxToOperation } from '../lib/bank-tx-allocator';
 
 const inbox = new Hono<{ Bindings: Env }>();
 
@@ -310,6 +311,16 @@ inbox.post('/:id/confirm', async (c) => {
        WHERE id = ?`
     ).bind(partnerId, operationId, now, id).run();
 
+    // Auto-allocate any awaiting bank_tx that match this new operation
+    // (forward trigger: invoice arrived → attach parked payments)
+    let allocatedCount = 0;
+    try {
+      const alloc = await allocateAwaitingTxToOperation(c.env, operationId);
+      allocatedCount = alloc.attached_count;
+    } catch (e) {
+      console.error('[inbox] allocator failed (non-fatal):', e);
+    }
+
     return ok(c, {
       id,
       partner_id: partnerId,
@@ -318,6 +329,7 @@ inbox.post('/:id/confirm', async (c) => {
       reference,
       amount,
       currency,
+      auto_allocated_bank_tx: allocatedCount,
     });
   } catch (e) {
     return fail(c, 500, [{ code: 'inbox_confirm_error', message: e instanceof Error ? e.message : String(e) }]);

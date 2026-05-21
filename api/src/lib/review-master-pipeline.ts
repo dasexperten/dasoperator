@@ -143,7 +143,7 @@ Q-CERT — про сертификаты/ГОСТ/ISO
 Q-DELIV — про доставку/логистику
 Q-USE — как использовать
 ОТВЕТЬ ровно одной строкой: код категории. Ничего больше.`;
-  const classifyResult = await callDeepSeek(env, classifySystem, formatInput(input), 20, 0.0);
+  const classifyResult = await callDeepSeek(env, classifySystem, formatInput(input), 200, 0.0);
   const classifyText = classifyResult.text.toUpperCase().replace(/[^A-Z-]/g, '');
   const validTypes: ReviewType[] = ['POS','NEG','MIX','Q-PROD','Q-SCI','Q-CERT','Q-DELIV','Q-USE'];
   let reviewType: ReviewType = 'POS';
@@ -214,7 +214,7 @@ ${technologMd}
 === PRODUCT KNOWLEDGE ===
 ${skuKnowledge}`;
   const technologInput = `Черновик ответа для проверки:\n\n${currentReply}\n\nОтзыв клиента (контекст):\n${formatInput(input)}`;
-  const technologResult = await callDeepSeek(env, technologSystem, technologInput, 300, 0.1);
+  const technologResult = await callDeepSeek(env, technologSystem, technologInput, 500, 0.1);
   totalIn += technologResult.tokensIn; totalOut += technologResult.tokensOut;
   const technologText = technologResult.text.toUpperCase();
   let technologStatus: 'pass' | 'weak' | 'fail' = 'pass';
@@ -282,7 +282,7 @@ ${benefitMd}`;
 
 === SPEC ===
 ${segmentMd || '(spec not loaded, use common sense)'}`;
-  const segmentResult = await callDeepSeek(env, segmentSystem, `Текст для теста:\n\n${currentReply}`, 200, 0.1);
+  const segmentResult = await callDeepSeek(env, segmentSystem, `Текст для теста:\n\n${currentReply}`, 400, 0.1);
   totalIn += segmentResult.tokensIn; totalOut += segmentResult.tokensOut;
   const segmentText = segmentResult.text.toUpperCase();
   let segmentStatus: 'pass' | 'weak' | 'fail' = 'pass';

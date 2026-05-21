@@ -101,21 +101,48 @@ async function computeForGroup(
   leadTimeDays = 70
 ): Promise<PlannerRow[]> {
   const db = env.DB;
-  // Load purchasing price map (lower-cased SKU keys)
+  // Load purchasing price map (lower-cased SKU keys).
+  // Source of truth: D1 product_prices (most recent active row per product × price_type).
+  // Fallback: R2 markdown pricelist for SKUs not yet in D1.
   const priceTypeId = currency === 'cny' ? 'purchase_cny' : 'export_usd';
   let priceMap: Record<string, number> = {};
+
+  // R2 fallback first — overwritten by D1 below where rows exist
   try {
     const pricelist = await getPricelist(env, priceTypeId);
     if (pricelist) {
-      // pricelist.prices keys are uppercase (DE125, DE126AAAA, etc.)
-      priceMap = {};
       for (const [k, v] of Object.entries(pricelist.prices)) {
         priceMap[k.toLowerCase()] = v;
       }
     }
   } catch (e) {
-    // fail soft — leave priceMap empty if pricelist unavailable
+    // fail soft
   }
+
+  // D1 product_prices — wins over R2. Picks the most recently effective row
+  // per product_id where effective_until is NULL or in the future.
+  try {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const pp = await db.prepare(`
+      SELECT product_id, sell_price
+      FROM product_prices
+      WHERE price_type_id = ?
+        AND currency = ?
+        AND (effective_until IS NULL OR effective_until > ?)
+      ORDER BY product_id, effective_from DESC
+    `).bind(priceTypeId, priceTypeId === 'purchase_cny' ? 'CNY' : 'USD', nowSec)
+      .all<{ product_id: string; sell_price: number }>();
+    // Keep first row per product_id (latest by effective_from)
+    const seen = new Set<string>();
+    for (const row of pp.results) {
+      if (seen.has(row.product_id)) continue;
+      seen.add(row.product_id);
+      priceMap[row.product_id.toLowerCase()] = row.sell_price;
+    }
+  } catch (e) {
+    // fail soft — keep R2 prices
+  }
+
   // 1. find manufacturer_ids in this group
   const mans = await db.prepare(
     `SELECT id FROM manufacturers WHERE group_id = ? AND deleted_at IS NULL`

@@ -642,4 +642,236 @@ r.get('/suggestions', async (c) => {
   });
 });
 
+// =============================================================================
+// GET /api/planner/options?group=<manufacturer_group_id>
+// Returns dropdown options for the Create Draft modal:
+//   - manufacturers in the group (with abbreviation)
+//   - companies (DEE/DEI/DEASEAN/DEC) with abbreviation
+//   - warehouses (factory side filtered by group, destination filtered later by entity)
+// =============================================================================
+r.get('/options', async (c) => {
+  const groupId = c.req.query('group');
+  if (!groupId) return fail(c, 400, [{ code: 'missing_param', message: 'group required' }]);
+
+  // Manufacturers in this group + their partner row for abbreviation
+  // Many factories share a partner row (Honghui factory → partners.id='honghui').
+  const mfrRes = await c.env.DB.prepare(`
+    SELECT m.id as manufacturer_id, m.name as manufacturer_name,
+           p.id as partner_id, p.trade_name, p.abbreviation, p.country
+    FROM manufacturers m
+    LEFT JOIN partners p ON p.id = m.id
+    WHERE m.group_id = ?
+    ORDER BY m.name
+  `).bind(groupId).all<{
+    manufacturer_id: string; manufacturer_name: string;
+    partner_id: string | null; trade_name: string | null;
+    abbreviation: string | null; country: string | null;
+  }>();
+
+  // Companies (our entities)
+  const compRes = await c.env.DB.prepare(`
+    SELECT id, abbreviation, trade_name, jurisdiction, base_currency
+    FROM companies
+    WHERE deleted_at IS NULL
+    ORDER BY id
+  `).all<{
+    id: string; abbreviation: string | null; trade_name: string;
+    jurisdiction: string | null; base_currency: string | null;
+  }>();
+
+  // Warehouses — all, UI filters by entity
+  const whRes = await c.env.DB.prepare(`
+    SELECT id, name, country FROM warehouses ORDER BY country, id
+  `).all<{ id: string; name: string; country: string | null }>();
+
+  // Active contracts (CNY/USD) — UI matches (entity × partner × currency)
+  const contractRes = await c.env.DB.prepare(`
+    SELECT id, contract_no, partner_id, our_company_id, currency, signed_date, expiry_date
+    FROM contracts
+    WHERE status = 'active' AND deleted_at IS NULL
+      AND currency IN ('CNY', 'USD')
+  `).all<{
+    id: string; contract_no: string; partner_id: string;
+    our_company_id: string; currency: string;
+    signed_date: number | null; expiry_date: number | null;
+  }>();
+
+  return ok(c, {
+    manufacturers: mfrRes.results,
+    companies: compRes.results,
+    warehouses: whRes.results,
+    contracts: contractRes.results,
+  });
+});
+
+// =============================================================================
+// POST /api/planner/create-draft
+// Creates a draft purchase operation + line items atomically.
+// Reference format: YYYY{ManufAbbrev}-{EntityAbbrev}-YYMMDD
+//   e.g. 2026YGZH-DEE-260521
+// =============================================================================
+r.post('/create-draft', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); }
+  catch { return fail(c, 400, [{ code: 'bad_json', message: 'invalid JSON body' }]); }
+
+  // Validate required fields
+  const required = ['our_company_id', 'manufacturer_partner_id', 'contract_id',
+                    'warehouse_from_id', 'warehouse_to_id', 'currency', 'line_items'];
+  for (const k of required) {
+    if (!body[k]) return fail(c, 400, [{ code: 'missing_field', message: `${k} required` }]);
+  }
+  if (!Array.isArray(body.line_items) || body.line_items.length === 0) {
+    return fail(c, 400, [{ code: 'no_line_items', message: 'at least one line_item required' }]);
+  }
+
+  // Fetch entity abbreviation
+  const company = await c.env.DB.prepare(
+    'SELECT id, abbreviation FROM companies WHERE id = ?'
+  ).bind(body.our_company_id).first<{ id: string; abbreviation: string | null }>();
+  if (!company) return fail(c, 404, [{ code: 'company_not_found', message: body.our_company_id }]);
+
+  // Fetch manufacturer partner abbreviation
+  const mfrPartner = await c.env.DB.prepare(
+    'SELECT id, abbreviation FROM partners WHERE id = ?'
+  ).bind(body.manufacturer_partner_id).first<{ id: string; abbreviation: string | null }>();
+  if (!mfrPartner) return fail(c, 404, [{ code: 'manufacturer_not_found', message: body.manufacturer_partner_id }]);
+
+  // Verify contract belongs to (entity, partner, currency)
+  const contract = await c.env.DB.prepare(
+    'SELECT id, partner_id, our_company_id, currency FROM contracts WHERE id = ? AND status = \'active\''
+  ).bind(body.contract_id).first<{ id: string; partner_id: string; our_company_id: string; currency: string }>();
+  if (!contract) return fail(c, 404, [{ code: 'contract_not_found', message: body.contract_id }]);
+  if (contract.our_company_id !== body.our_company_id ||
+      contract.partner_id !== body.manufacturer_partner_id ||
+      contract.currency !== body.currency) {
+    return fail(c, 400, [{
+      code: 'contract_mismatch',
+      message: `Contract does not match (entity=${body.our_company_id}, partner=${body.manufacturer_partner_id}, currency=${body.currency})`,
+    }]);
+  }
+
+  // Generate reference
+  const opDate = body.operation_date ?? Math.floor(Date.now() / 1000);
+  const d = new Date(opDate * 1000);
+  const yyyy = d.getUTCFullYear();
+  const yy = String(yyyy).slice(2);
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const mfrAbbr = (mfrPartner.abbreviation || mfrPartner.id).toUpperCase();
+  const entAbbr = (company.abbreviation || company.id).toUpperCase();
+  let reference = `${yyyy}${mfrAbbr}-${entAbbr}-${yy}${mm}${dd}`;
+
+  // Disambiguate if reference taken (e.g. same day, same group, second draft)
+  let suffix = 0;
+  while (true) {
+    const probeRef = suffix === 0 ? reference : `${reference}-${suffix}`;
+    const exists = await c.env.DB.prepare(
+      'SELECT 1 FROM operations WHERE reference = ?'
+    ).bind(probeRef).first();
+    if (!exists) { reference = probeRef; break; }
+    suffix++;
+    if (suffix > 99) return fail(c, 500, [{ code: 'reference_collision', message: 'too many drafts today' }]);
+  }
+
+  // Verify all products exist
+  const productIds = body.line_items.map((li: any) => li.product_id);
+  const productPlaceholders = productIds.map(() => '?').join(',');
+  const productRes = await c.env.DB.prepare(
+    `SELECT id, invoice_label FROM products WHERE id IN (${productPlaceholders})`
+  ).bind(...productIds).all<{ id: string; invoice_label: string | null }>();
+  const productMap = new Map(productRes.results.map(p => [p.id, p]));
+  for (const li of body.line_items) {
+    if (!productMap.has(li.product_id)) {
+      return fail(c, 404, [{ code: 'product_not_found', message: li.product_id }]);
+    }
+  }
+
+  // Compute line items & total
+  const opId = 'op_' + crypto.randomUUID();
+  const now = Math.floor(Date.now() / 1000);
+  let totalAmount = 0;
+
+  const lineRows = body.line_items.map((li: any) => {
+    const product = productMap.get(li.product_id)!;
+    const qty = Number(li.qty) || 0;
+    const cartons = Number(li.cartons) || 0;
+    const unitPrice = Number(li.unit_price) || 0;
+    const lineAmount = Math.round(qty * unitPrice * 100) / 100;
+    totalAmount += lineAmount;
+    return {
+      id: 'li_' + crypto.randomUUID(),
+      operation_id: opId,
+      product_id: li.product_id,
+      item_description: li.item_description ?? product.invoice_label ?? '',
+      qty,
+      cartons,
+      inner_boxes: 0,
+      unit_price: unitPrice,
+      discount_pct: 0,
+      unit_price_after_disc: unitPrice,
+      line_amount: lineAmount,
+      currency: body.currency,
+      line_usd_equiv: null,
+      created_at: now,
+      updated_at: now,
+    };
+  });
+
+  // Atomic batch insert: operation + line_items
+  const stmts: D1PreparedStatement[] = [
+    c.env.DB.prepare(`
+      INSERT INTO operations (
+        id, reference, operation_date, operation_type, status,
+        our_company_id, manufacturer_id, partner_id,
+        warehouse_from_id, warehouse_to_id,
+        contract_id, currency, total_amount,
+        vat_rate, dei_layer, via_dei,
+        delivery_status, operation_track,
+        notes, created_at, updated_at
+      ) VALUES (
+        ?, ?, ?, 'purchase', 'draft',
+        ?, ?, ?,
+        ?, ?,
+        ?, ?, ?,
+        0, 0, 0,
+        'pending', 'goods',
+        ?, ?, ?
+      )
+    `).bind(
+      opId, reference, opDate,
+      body.our_company_id, body.manufacturer_partner_id, body.manufacturer_partner_id,
+      body.warehouse_from_id, body.warehouse_to_id,
+      body.contract_id, body.currency, Math.round(totalAmount * 100) / 100,
+      body.notes ?? `Created from planner — ${body.line_items.length} SKUs`,
+      now, now
+    ),
+    ...lineRows.map((l: any) => c.env.DB.prepare(`
+      INSERT INTO line_items (
+        id, operation_id, product_id, item_description,
+        qty, cartons, inner_boxes,
+        unit_price, discount_pct, unit_price_after_disc, line_amount,
+        currency, line_usd_equiv,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      l.id, l.operation_id, l.product_id, l.item_description,
+      l.qty, l.cartons, l.inner_boxes,
+      l.unit_price, l.discount_pct, l.unit_price_after_disc, l.line_amount,
+      l.currency, l.line_usd_equiv,
+      l.created_at, l.updated_at
+    )),
+  ];
+  await c.env.DB.batch(stmts);
+
+  return ok(c, {
+    operation_id: opId,
+    reference,
+    total_amount: Math.round(totalAmount * 100) / 100,
+    currency: body.currency,
+    line_items_count: lineRows.length,
+    total_units: lineRows.reduce((s: number, l: any) => s + l.qty, 0),
+  });
+});
+
 export default r;

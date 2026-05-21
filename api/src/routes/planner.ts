@@ -20,7 +20,6 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
-import { getPricelist } from '../lib/pricelist';
 
 const r = new Hono<{ Bindings: Env }>();
 
@@ -101,26 +100,14 @@ async function computeForGroup(
   leadTimeDays = 70
 ): Promise<PlannerRow[]> {
   const db = env.DB;
-  // Load purchasing price map (lower-cased SKU keys).
-  // Source of truth: D1 product_prices (most recent active row per product × price_type).
-  // Fallback: R2 markdown pricelist for SKUs not yet in D1.
+  // Load purchasing price map (lower-cased product_id keys).
+  // SINGLE SOURCE OF TRUTH: D1 product_prices.
+  // R2 markdown pricelists kept as archival backup only; no code reads them.
+  // To bulk-update prices: edit via UI or insert directly into product_prices.
   const priceTypeId = currency === 'cny' ? 'purchase_cny' : 'export_usd';
+  const priceMapCurrency = priceTypeId === 'purchase_cny' ? 'CNY' : 'USD';
   let priceMap: Record<string, number> = {};
 
-  // R2 fallback first — overwritten by D1 below where rows exist
-  try {
-    const pricelist = await getPricelist(env, priceTypeId);
-    if (pricelist) {
-      for (const [k, v] of Object.entries(pricelist.prices)) {
-        priceMap[k.toLowerCase()] = v;
-      }
-    }
-  } catch (e) {
-    // fail soft
-  }
-
-  // D1 product_prices — wins over R2. Picks the most recently effective row
-  // per product_id where effective_until is NULL or in the future.
   try {
     const nowSec = Math.floor(Date.now() / 1000);
     const pp = await db.prepare(`
@@ -130,9 +117,9 @@ async function computeForGroup(
         AND currency = ?
         AND (effective_until IS NULL OR effective_until > ?)
       ORDER BY product_id, effective_from DESC
-    `).bind(priceTypeId, priceTypeId === 'purchase_cny' ? 'CNY' : 'USD', nowSec)
+    `).bind(priceTypeId, priceMapCurrency, nowSec)
       .all<{ product_id: string; sell_price: number }>();
-    // Keep first row per product_id (latest by effective_from)
+    // Keep latest row per product_id (results are sorted by effective_from DESC within each)
     const seen = new Set<string>();
     for (const row of pp.results) {
       if (seen.has(row.product_id)) continue;
@@ -140,7 +127,7 @@ async function computeForGroup(
       priceMap[row.product_id.toLowerCase()] = row.sell_price;
     }
   } catch (e) {
-    // fail soft — keep R2 prices
+    // fail soft — leave priceMap empty; UI will show — for unit_price
   }
 
   // 1. find manufacturer_ids in this group

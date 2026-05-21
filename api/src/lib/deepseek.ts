@@ -82,7 +82,10 @@ async function callDeepSeek(
 
   const text = data.choices?.[0]?.message?.content;
   if (!text) {
-    throw new Error(`DeepSeek ${model} returned empty response`);
+    const finishReason = data.choices?.[0]?.finish_reason ?? 'unknown';
+    const reasoning = data.choices?.[0]?.message?.reasoning_content ?? '';
+    const tokensInfo = JSON.stringify(data.usage ?? {});
+    throw new Error(`DeepSeek ${model} returned empty content (finish=${finishReason}, usage=${tokensInfo}, reasoning_len=${reasoning.length})`);
   }
 
   return {

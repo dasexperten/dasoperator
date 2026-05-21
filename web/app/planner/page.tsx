@@ -4,7 +4,7 @@ export const runtime = 'edge';
 
 import { useEffect, useState, useMemo } from 'react';
 import { Loader2, Flame, AlertTriangle, Check, Flag, Lock, X, CheckCircle2, Download, FilePlus } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import { apiGet, apiPost } from '@/lib/api';
 
 interface SummaryGroup {
@@ -297,15 +297,20 @@ export default function PlannerPage() {
     }
   }
 
-  // Download current plan as .xlsx — no DB write, just file to disk.
+  // Download current plan as styled .xlsx — branded layout, no DB write.
   function handleDownloadExcel() {
     if (!detail) return;
     const cur = currency.toUpperCase();
 
-    // Re-compute totals inside (state values are defined inside render body)
+    // Re-compute totals inside
     let dlCartons = 0, dlUnits = 0, dlVolume = 0, dlAmount = 0;
     let dlAnyAmount = false;
-    const rowsForExport = detail.rows
+    type ExportRow = {
+      sku: string; product: string; bundle: string; cartons: number;
+      qtyPerCarton: number; totalQty: number; unitPrice: number;
+      lineAmount: number; volume: number;
+    };
+    const exportRows: ExportRow[] = detail.rows
       .filter(r => finalCartons(r) > 0)
       .map(r => {
         const c = finalCartons(r);
@@ -315,52 +320,331 @@ export default function PlannerPage() {
         dlCartons += c; dlUnits += u; dlVolume += v;
         if (a !== null) { dlAmount += a; dlAnyAmount = true; }
         return {
-          'SKU': r.base_sku.toUpperCase(),
-          'Product': r.product_name,
-          'Bundle': r.bundle_size > 1 ? `${r.bundle_size}-pack` : 'single',
-          'Cartons': c,
-          'Qty per carton': r.ctn_qty ?? 0,
-          'Total qty (units)': u,
-          [`Unit price (${cur})`]: r.unit_price ?? 0,
-          [`Line total (${cur})`]: a ?? 0,
-          'Volume (m³)': Math.round(v * 1000) / 1000,
+          sku: r.base_sku.toUpperCase(),
+          product: r.product_name,
+          bundle: r.bundle_size > 1 ? `${r.bundle_size}-pack` : 'single',
+          cartons: c,
+          qtyPerCarton: r.ctn_qty ?? 0,
+          totalQty: u,
+          unitPrice: r.unit_price ?? 0,
+          lineAmount: a ?? 0,
+          volume: Math.round(v * 1000) / 1000,
         };
       });
 
-    if (rowsForExport.length === 0) return;
+    if (exportRows.length === 0) return;
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const yymmdd = today.toISOString().slice(2, 10).replace(/-/g, '');
+    const docNo = `${today.toISOString().slice(0, 10)}-${detail.group.id.replace(/[^a-z0-9]+/gi, '').slice(0, 4).toUpperCase()}`;
+
+    // ========================================
+    // Brand colors (hex without #)
+    // ========================================
+    const BLACK = '1A1A1A';
+    const GOLD = 'D4A017';
+    const RED = 'C4302B';
+    const STRIPE = 'FAFAF7';
+    const BORDER = 'D6D3D1';
+    const TEXT_DARK = '1A1A1A';
+    const TEXT_MUTED = '888888';
+    const TEXT_SUBTLE = '555555';
+
+    // ========================================
+    // Style presets
+    // ========================================
+    const border = {
+      top: { style: 'thin', color: { rgb: BORDER } },
+      bottom: { style: 'thin', color: { rgb: BORDER } },
+      left: { style: 'thin', color: { rgb: BORDER } },
+      right: { style: 'thin', color: { rgb: BORDER } },
+    };
+
+    const styleBrandTitle = {
+      font: { name: 'Calibri', sz: 22, bold: true, color: { rgb: 'FFFFFF' } },
+      fill: { fgColor: { rgb: BLACK } },
+      alignment: { vertical: 'center', horizontal: 'left' },
+    };
+    const styleBrandTagline = {
+      font: { name: 'Calibri', sz: 10, bold: true, color: { rgb: GOLD } },
+      fill: { fgColor: { rgb: BLACK } },
+      alignment: { vertical: 'center', horizontal: 'left' },
+    };
+    const styleBrandRight = {
+      font: { name: 'Calibri', sz: 11, color: { rgb: 'AAAAAA' } },
+      fill: { fgColor: { rgb: BLACK } },
+      alignment: { vertical: 'center', horizontal: 'right' },
+    };
+    const styleBrandDocNo = {
+      font: { name: 'Calibri', sz: 13, bold: true, color: { rgb: 'FFFFFF' } },
+      fill: { fgColor: { rgb: BLACK } },
+      alignment: { vertical: 'center', horizontal: 'right' },
+    };
+    const styleGoldStripe = {
+      fill: { fgColor: { rgb: GOLD } },
+    };
+    const styleDocTitle = {
+      font: { name: 'Calibri', sz: 16, bold: true, color: { rgb: TEXT_DARK } },
+      alignment: { vertical: 'center', horizontal: 'left' },
+    };
+    const styleMeta = {
+      font: { name: 'Calibri', sz: 10, color: { rgb: TEXT_MUTED } },
+      alignment: { vertical: 'center', horizontal: 'left' },
+    };
+    const styleBlockHeader = {
+      font: { name: 'Calibri', sz: 9, bold: true, color: { rgb: TEXT_MUTED } },
+      alignment: { vertical: 'center', horizontal: 'left' },
+    };
+    const styleBlockTitle = {
+      font: { name: 'Calibri', sz: 12, bold: true, color: { rgb: TEXT_DARK } },
+      alignment: { vertical: 'center', horizontal: 'left', wrapText: false },
+      border,
+    };
+    const styleBlockBody = {
+      font: { name: 'Calibri', sz: 10, color: { rgb: TEXT_SUBTLE } },
+      alignment: { vertical: 'top', horizontal: 'left', wrapText: true },
+      border,
+    };
+    const styleTableHeader = {
+      font: { name: 'Calibri', sz: 10, bold: true, color: { rgb: 'FFFFFF' } },
+      fill: { fgColor: { rgb: BLACK } },
+      alignment: { vertical: 'center', horizontal: 'center', wrapText: false, shrinkToFit: true },
+      border,
+    };
+    const styleTableCell = (stripe: boolean, align: 'left' | 'right' | 'center', bold = false) => ({
+      font: { name: 'Calibri', sz: 11, bold, color: { rgb: TEXT_DARK }, shrinkToFit: true },
+      fill: stripe ? { fgColor: { rgb: STRIPE } } : { fgColor: { rgb: 'FFFFFF' } },
+      alignment: { vertical: 'center', horizontal: align, wrapText: false, shrinkToFit: true },
+      border,
+    });
+    const styleTableCellMuted = (stripe: boolean, align: 'left' | 'right' | 'center') => ({
+      font: { name: 'Calibri', sz: 11, color: { rgb: TEXT_MUTED }, shrinkToFit: true },
+      fill: stripe ? { fgColor: { rgb: STRIPE } } : { fgColor: { rgb: 'FFFFFF' } },
+      alignment: { vertical: 'center', horizontal: align, wrapText: false, shrinkToFit: true },
+      border,
+    });
+    const styleTotalCell = (align: 'left' | 'right' | 'center', goldText = false) => ({
+      font: {
+        name: 'Calibri', sz: 11, bold: true,
+        color: { rgb: goldText ? GOLD : 'FFFFFF' },
+      },
+      fill: { fgColor: { rgb: BLACK } },
+      alignment: { vertical: 'center', horizontal: align, wrapText: false },
+      border,
+    });
+    const styleFooter = {
+      font: { name: 'Calibri', sz: 9, italic: true, color: { rgb: TEXT_MUTED } },
+      alignment: { vertical: 'center', horizontal: 'left' },
+    };
+
+    // ========================================
+    // Build sheet
+    // ========================================
+    const ws: any = {};
+    const setCell = (addr: string, value: any, style?: any, type: 's' | 'n' = 's', fmt?: string) => {
+      ws[addr] = { v: value, t: type, s: style };
+      if (fmt) ws[addr].z = fmt;
+    };
+
+    // Row 1: brand band (height ~30)
+    setCell('A1', 'DAS EXPERTEN', styleBrandTitle);
+    setCell('B1', '', styleBrandTitle);
+    setCell('C1', '', styleBrandTitle);
+    setCell('D1', '', styleBrandTitle);
+    setCell('E1', '', styleBrandRight);
+    setCell('F1', '', styleBrandRight);
+    setCell('G1', 'PURCHASE PLAN', styleBrandRight);
+    setCell('H1', '', styleBrandDocNo);
+    setCell('I1', '', styleBrandDocNo);
+
+    // Row 2: tagline + doc no
+    setCell('A2', 'INNOVATIV UND PRAKTISCH', styleBrandTagline);
+    setCell('B2', '', styleBrandTagline);
+    setCell('C2', '', styleBrandTagline);
+    setCell('D2', '', styleBrandTagline);
+    setCell('E2', '', styleBrandDocNo);
+    setCell('F2', '', styleBrandDocNo);
+    setCell('G2', '', styleBrandDocNo);
+    setCell('H2', 'No. ' + docNo, styleBrandDocNo);
+    setCell('I2', '', styleBrandDocNo);
+
+    // Row 3: gold stripe (height ~4)
+    for (const col of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']) {
+      setCell(col + '3', '', styleGoldStripe);
+    }
+
+    // Row 4: spacer
+    // Row 5: doc title
+    setCell('A5', 'Purchase Plan — ' + detail.group.name, styleDocTitle);
+
+    // Row 6: meta
     const ld = summary?.rules.lead_time_days ?? 0;
     const cv = summary?.rules.coverage_days ?? 0;
-    const meta: any[][] = [
-      [`Purchase Plan — ${detail.group.name}`],
-      [`Date: ${today}`],
-      [`Currency: ${cur}`],
-      [`Stock zone: ${stockZone}`],
-      [`Rules: lead ${ld}d + cover ${cv}d (target ${ld + cv}d)`],
-      [],
+    setCell('A6', `Date: ${today.toISOString().slice(0, 10)}    ·    Currency: ${cur}    ·    Stock zone: ${stockZone}    ·    Rules: lead ${ld}d + cover ${cv}d (target ${ld + cv}d)`, styleMeta);
+
+    // Row 7: spacer
+    // Row 8: block headers
+    setCell('A8', 'BUYER', styleBlockHeader);
+    setCell('E8', 'MANUFACTURER', styleBlockHeader);
+
+    // Row 9: block titles
+    setCell('A9', 'DAS EXPERTEN EURASIA LLC', styleBlockTitle);
+    setCell('B9', '', styleBlockTitle);
+    setCell('C9', '', styleBlockTitle);
+    setCell('D9', '', styleBlockTitle);
+    setCell('E9', (() => {
+      // Group name → manufacturer name
+      if (detail.group.id === 'jinxia_group') return 'YANGZHOU JINXIA';
+      if (detail.group.id === 'honghui_group') return 'HONGHUI / WDAA / MEIZHIYUAN';
+      return detail.group.name.toUpperCase();
+    })(), styleBlockTitle);
+    setCell('F9', '', styleBlockTitle);
+    setCell('G9', '', styleBlockTitle);
+    setCell('H9', '', styleBlockTitle);
+    setCell('I9', '', styleBlockTitle);
+
+    // Row 10: block body line 1
+    setCell('A10', 'Saransk, Russia', styleBlockBody);
+    setCell('B10', '', styleBlockBody);
+    setCell('C10', '', styleBlockBody);
+    setCell('D10', '', styleBlockBody);
+    setCell('E10', detail.group.id === 'jinxia_group' ? 'Yangzhou, China' : 'Guangzhou, China', styleBlockBody);
+    setCell('F10', '', styleBlockBody);
+    setCell('G10', '', styleBlockBody);
+    setCell('H10', '', styleBlockBody);
+    setCell('I10', '', styleBlockBody);
+
+    // Row 11: block body line 2
+    setCell('A11', 'INN 9704117379 · VTB Bank, Moscow', styleBlockBody);
+    setCell('B11', '', styleBlockBody);
+    setCell('C11', '', styleBlockBody);
+    setCell('D11', '', styleBlockBody);
+    setCell('E11', `Lead ${ld}d · Coverage ${cv}d`, styleBlockBody);
+    setCell('F11', '', styleBlockBody);
+    setCell('G11', '', styleBlockBody);
+    setCell('H11', '', styleBlockBody);
+    setCell('I11', '', styleBlockBody);
+
+    // Row 12: spacer
+    // Row 13: ITEMS header label
+    setCell('A13', 'ITEMS', styleBlockHeader);
+
+    // Row 14: table header
+    const headerRow = 14;
+    const headers = ['SKU', 'Product', 'Bundle', 'Cartons', 'Qty / ctn', 'Total qty', `Unit ${cur === 'CNY' ? '¥' : '$'}`, `Line ${cur === 'CNY' ? '¥' : '$'}`, 'm³'];
+    headers.forEach((h, i) => {
+      const col = String.fromCharCode(65 + i);
+      setCell(col + headerRow, h, styleTableHeader);
+    });
+
+    // Table rows
+    let r = headerRow + 1;
+    exportRows.forEach((row, idx) => {
+      const stripe = idx % 2 === 0;
+      setCell(`A${r}`, row.sku, styleTableCell(stripe, 'left', true));
+      setCell(`B${r}`, row.product, styleTableCell(stripe, 'left'));
+      setCell(`C${r}`, row.bundle, styleTableCellMuted(stripe, 'center'));
+      setCell(`D${r}`, row.cartons, styleTableCell(stripe, 'right', true), 'n');
+      setCell(`E${r}`, row.qtyPerCarton, styleTableCell(stripe, 'right'), 'n');
+      setCell(`F${r}`, row.totalQty, styleTableCell(stripe, 'right', true), 'n', '#,##0');
+      setCell(`G${r}`, row.unitPrice, styleTableCell(stripe, 'right'), 'n', '0.00');
+      setCell(`H${r}`, row.lineAmount, styleTableCell(stripe, 'right', true), 'n', '#,##0.00');
+      setCell(`I${r}`, row.volume, styleTableCellMuted(stripe, 'right'), 'n', '0.000');
+      r++;
+    });
+
+    // Total row
+    setCell(`A${r}`, 'TOTAL', styleTotalCell('left'));
+    setCell(`B${r}`, '', styleTotalCell('left'));
+    setCell(`C${r}`, '', styleTotalCell('center'));
+    setCell(`D${r}`, dlCartons, styleTotalCell('right'), 'n');
+    setCell(`E${r}`, '', styleTotalCell('right'));
+    setCell(`F${r}`, dlUnits, styleTotalCell('right'), 'n', '#,##0');
+    setCell(`G${r}`, '', styleTotalCell('right'));
+    setCell(`H${r}`, dlAnyAmount ? Math.round(dlAmount * 100) / 100 : 0, styleTotalCell('right', true), 'n', '#,##0.00');
+    setCell(`I${r}`, Math.round(dlVolume * 1000) / 1000, styleTotalCell('right'), 'n', '0.000');
+    const totalRow = r;
+    r++;
+
+    // Footer
+    r++;
+    setCell(`A${r}`, `Generated by Das Operator ERP · planner module · page 1 of 1`, styleFooter);
+
+    // ========================================
+    // Sheet metadata: merges, column widths, row heights
+    // ========================================
+    ws['!ref'] = `A1:I${r}`;
+    ws['!merges'] = [
+      // Brand band
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },  // DAS EXPERTEN row 1 A-D
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 3 } },  // tagline row 2 A-D
+      { s: { r: 0, c: 4 }, e: { r: 0, c: 8 } },  // PURCHASE PLAN row 1 E-I
+      { s: { r: 1, c: 4 }, e: { r: 1, c: 8 } },  // doc no row 2 E-I
+      // Gold stripe row 3 — full width
+      { s: { r: 2, c: 0 }, e: { r: 2, c: 8 } },
+      // Title row 5
+      { s: { r: 4, c: 0 }, e: { r: 4, c: 8 } },
+      // Meta row 6
+      { s: { r: 5, c: 0 }, e: { r: 5, c: 8 } },
+      // Block headers row 8
+      { s: { r: 7, c: 0 }, e: { r: 7, c: 3 } },
+      { s: { r: 7, c: 4 }, e: { r: 7, c: 8 } },
+      // Block titles/bodies rows 9-11
+      { s: { r: 8, c: 0 }, e: { r: 8, c: 3 } },
+      { s: { r: 8, c: 4 }, e: { r: 8, c: 8 } },
+      { s: { r: 9, c: 0 }, e: { r: 9, c: 3 } },
+      { s: { r: 9, c: 4 }, e: { r: 9, c: 8 } },
+      { s: { r: 10, c: 0 }, e: { r: 10, c: 3 } },
+      { s: { r: 10, c: 4 }, e: { r: 10, c: 8 } },
+      // ITEMS label row 13
+      { s: { r: 12, c: 0 }, e: { r: 12, c: 8 } },
+      // Footer
+      { s: { r: r - 1, c: 0 }, e: { r: r - 1, c: 8 } },
     ];
 
-    const ws = XLSX.utils.aoa_to_sheet(meta);
-    XLSX.utils.sheet_add_json(ws, rowsForExport, { origin: 'A7' });
-
-    const totalsRow = 7 + rowsForExport.length + 1;
-    XLSX.utils.sheet_add_aoa(
-      ws,
-      [['TOTAL', '', '', dlCartons, '', dlUnits, '', dlAnyAmount ? Math.round(dlAmount * 100) / 100 : '', Math.round(dlVolume * 1000) / 1000]],
-      { origin: `A${totalsRow}` }
-    );
-
+    // Wider columns to avoid wrapping
     ws['!cols'] = [
-      { wch: 14 }, { wch: 32 }, { wch: 10 }, { wch: 9 }, { wch: 14 }, { wch: 16 },
-      { wch: 16 }, { wch: 16 }, { wch: 13 },
+      { wch: 13 },  // A — SKU (DE120AAAA fits)
+      { wch: 30 },  // B — Product (NANO MASSAGE 4in1 fits)
+      { wch: 10 },  // C — Bundle (4-pack fits)
+      { wch: 10 },  // D — Cartons
+      { wch: 11 },  // E — Qty/ctn
+      { wch: 13 },  // F — Total qty
+      { wch: 11 },  // G — Unit price
+      { wch: 15 },  // H — Line total
+      { wch: 10 },  // I — m³
     ];
+
+    // Row heights
+    ws['!rows'] = [];
+    ws['!rows'][0] = { hpt: 30 };  // brand band title
+    ws['!rows'][1] = { hpt: 18 };  // tagline
+    ws['!rows'][2] = { hpt: 5 };   // gold stripe
+    ws['!rows'][3] = { hpt: 12 };  // spacer
+    ws['!rows'][4] = { hpt: 24 };  // doc title
+    ws['!rows'][5] = { hpt: 18 };  // meta
+    ws['!rows'][6] = { hpt: 12 };  // spacer
+    ws['!rows'][7] = { hpt: 14 };  // block headers (small caps)
+    ws['!rows'][8] = { hpt: 22 };  // block titles
+    ws['!rows'][9] = { hpt: 16 };  // block body 1
+    ws['!rows'][10] = { hpt: 16 }; // block body 2
+    ws['!rows'][11] = { hpt: 14 }; // spacer
+    ws['!rows'][12] = { hpt: 14 }; // ITEMS label
+    ws['!rows'][13] = { hpt: 24 }; // table header
+    for (let i = 14; i <= totalRow; i++) ws['!rows'][i] = { hpt: 20 };
+    ws['!rows'][totalRow] = { hpt: 26 }; // total row taller
+    ws['!rows'][r - 1] = { hpt: 16 }; // footer
+
+    // Page setup
+    ws['!margins'] = { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 };
+    ws['!pageSetup'] = { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Purchase Plan');
 
     const groupSlug = detail.group.id.replace(/[^a-z0-9]+/gi, '_');
-    const fname = `Purchase-Plan-${groupSlug}-${today.replace(/-/g, '')}.xlsx`;
+    const fname = `Purchase-Plan-${groupSlug}-${yyyy}${yymmdd.slice(2)}.xlsx`;
     XLSX.writeFile(wb, fname);
   }
 

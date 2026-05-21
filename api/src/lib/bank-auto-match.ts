@@ -88,7 +88,8 @@ export type MatchOutcome =
   | 'ambiguous'
   | 'partner_not_found'
   | 'no_candidate' | 'rule_matched' | 'rule_matched_no_op'
-  | 'bank_self_reference_skipped';
+  | 'bank_self_reference_skipped'
+  | 'awaiting_marketplace_settlement';
 
 export interface AutoMatchResult {
   outcome: MatchOutcome;
@@ -460,6 +461,28 @@ export async function autoMatchBankTransaction(
     };
   }
 
+  // GUARD (Aram 2026-05-21): Marketplace settlements from Ozon / WB /
+  // dasexperten.ru (Yandex Pay) must NOT auto-create sale drafts. They are
+  // bulk payouts that need to be allocated against existing sale operations
+  // imported from the marketplace reports. If no candidate matches yet
+  // (report hasn't arrived), park the bank_tx for manual / future allocation.
+  const MARKETPLACE_SETTLEMENT_PARTNERS = new Set([
+    'ozon', 'wb',
+    'яндекс_пей_продажи_с_нашего_сайта', // dasexperten.ru via Yandex Pay
+  ]);
+  if (
+    candidates.length === 0 &&
+    tx.direction === 'incoming' &&
+    MARKETPLACE_SETTLEMENT_PARTNERS.has(partner.id)
+  ) {
+    await persistOutcome(env, txId, 'awaiting_marketplace_settlement', null);
+    return {
+      outcome: 'awaiting_marketplace_settlement',
+      partner_id: partner.id,
+      attachment_ids: [],
+    };
+  }
+
   if (candidates.length === 0) {
     const parsedInv389 = parseInvoiceFromPurpose(tx.payment_purpose || '');
     const opId = await createDraftGoodsOperation(env, {
@@ -800,7 +823,7 @@ async function nextOperationReference(
   opDate: number,
   opts?: {
     partner_id?: string;
-    operation_type?: 'sale' | 'purchase' | 'transfer' | 'service';
+    operation_type?: 'sale' | 'purchase' | 'transfer' | 'service' | 'tax';
     invoice_no?: string | null;
   },
 ): Promise<string> {
@@ -809,20 +832,20 @@ async function nextOperationReference(
   const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
   const dd = String(dt.getUTCDate()).padStart(2, '0');
 
-  // For purchase from external vendors (service, shipper, 3pl, manufacturer)
-  // the reference is built from the partner's abbreviation, not DEE.
-  // Pattern: {ABBR}-{YYYYMMDD}-{INVNO}  if invoice_no is known,
-  // otherwise: {ABBR}-{YYYYMMDD}-{SEQ}  with daily seq fallback.
-  if (opts?.partner_id && opts?.operation_type === 'purchase') {
+  // RULE (Aram, 2026-05-21): when an operation involves a known counterpart
+  // partner, the reference uses the PARTNER's abbreviation, not our own DEE/DEI.
+  // Applies to ALL operation types: purchase, sale, service, tax, transfer.
+  // DEE/DEI fallback is reserved for operations without a partner counterpart.
+  if (opts?.partner_id) {
     const partner = await env.DB.prepare(
-      `SELECT abbreviation, kind FROM partners WHERE id = ?`
-    ).bind(opts.partner_id).first<{ abbreviation: string; kind: string }>();
+      `SELECT abbreviation FROM partners WHERE id = ?`
+    ).bind(opts.partner_id).first<{ abbreviation: string | null }>();
 
     if (partner?.abbreviation) {
       const datePart = `${dt.getUTCFullYear()}${mm}${dd}`;
       const prefix = `${partner.abbreviation}-${datePart}`;
+      // With known invoice number — embed it for stable refs
       if (opts.invoice_no) {
-        // dedupe: if {ABBR}-{date}-{invno} already exists, return existing pattern with -A/-B suffix
         const safeInvNo = String(opts.invoice_no).replace(/[^A-Za-z0-9_-]/g, '');
         let ref = `${prefix}-${safeInvNo}`;
         let suffix = '';
@@ -833,12 +856,12 @@ async function nextOperationReference(
             `SELECT 1 FROM operations WHERE reference = ? LIMIT 1`
           ).bind(tryRef).first();
           if (!exists) return tryRef;
-          suffix = '-' + String.fromCharCode(65 + i); // -A, -B, -C
+          suffix = '-' + String.fromCharCode(65 + i);
           i += 1;
           if (i > 25) break;
         }
       }
-      // no invoice_no — daily sequence
+      // No invoice — use daily counter
       const row = await env.DB.prepare(
         `SELECT COUNT(*) AS cnt FROM operations WHERE reference LIKE ?`
       ).bind(`${prefix}-%`).first<{ cnt: number }>();
@@ -847,7 +870,7 @@ async function nextOperationReference(
     }
   }
 
-  // Default — our outgoing numbering (sales, drafts without partner abbreviation)
+  // Fallback only when there's truly no counterpart partner.
   const prefix = `DEE-${yy}`;
   const row = await env.DB.prepare(`
     SELECT COUNT(*) AS cnt FROM operations WHERE reference LIKE ?

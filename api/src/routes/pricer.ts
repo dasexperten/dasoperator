@@ -58,45 +58,8 @@ pricer.post('/quote', async (c) => {
   const productId = sku.replace(/^prd_/, '').toLowerCase();
   const priceTypeId = price_type.startsWith('pt_') ? price_type : `pt_${price_type.toLowerCase()}`;
 
-  // STEP 1: try R2 pricelist (source of truth)
-  try {
-    const r2Price = await getProductPrice(c.env, productId, priceTypeId);
-    if (r2Price) {
-      const unitPrice = r2Price.price;
-      const unitPriceAfterDisc = Math.round(unitPrice * (100 - discount_pct)) / 100;
-      const lineAmount = Math.round(unitPriceAfterDisc * qty * 100) / 100;
-
-      // Fetch product display name from D1 for the response
-      const productMeta = await queryFirst<{ product_name: string; invoice_label: string }>(
-        c.env.DB,
-        'SELECT product_name, invoice_label FROM products WHERE id = ? AND deleted_at IS NULL',
-        productId
-      );
-
-      return ok(c, {
-        quote: {
-          sku: productId,
-          product_name: productMeta?.product_name ?? sku,
-          invoice_label: productMeta?.invoice_label ?? sku,
-          price_type: priceTypeId,
-          qty,
-          currency: r2Price.currency,
-          unit_price: unitPrice,
-          discount_pct,
-          unit_price_after_discount: unitPriceAfterDisc,
-          line_amount: lineAmount,
-        },
-        metadata: {
-          source: 'pricer_r2',
-          source_file: r2Price.source,
-        },
-      });
-    }
-  } catch (err) {
-    console.warn(`R2 quote read failed for ${productId}/${priceTypeId}: ${err instanceof Error ? err.message : String(err)}`);
-  }
-
-  // STEP 2: fallback to D1 product_prices
+  // SINGLE SOURCE OF TRUTH: D1 product_prices.
+  // R2 .md pricelists kept as archive only; no code reads them anymore.
   const now = Math.floor(Date.now() / 1000);
   const priceRow = await queryFirst<PriceRow>(
     c.env.DB,
@@ -130,7 +93,7 @@ pricer.post('/quote', async (c) => {
   if (!priceRow) {
     return fail(c, 404, [{
       code: 'price_not_found',
-      message: `No active price for product ${productId} with price_type ${priceTypeId} (R2 and D1 both empty)`,
+      message: `No active price for product ${productId} with price_type ${priceTypeId} (no D1 row)`,
     }]);
   }
 

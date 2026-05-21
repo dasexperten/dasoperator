@@ -641,6 +641,14 @@ operations.post('/', async (c) => {
     }]);
   }
 
+  // Auto-allocate any awaiting bank_tx that match this new operation
+  try {
+    const { allocateAwaitingTxToOperation } = await import('../lib/bank-tx-allocator');
+    await allocateAwaitingTxToOperation(c.env, operationId);
+  } catch (e) {
+    console.error('[operations] allocator failed (non-fatal):', e);
+  }
+
   return ok(c, {
     operation: {
       id: operationId,
@@ -2388,6 +2396,60 @@ operations.get('/batch/:id', async (c) => {
       children: childrenRes.results,
       cluster_count: childrenRes.results.length,
     },
+  });
+});
+
+
+// =============================================================================
+// POST /operations/_sweep-awaiting-bank-tx
+//
+// Admin/backfill: scan all bank_transactions in 'awaiting_invoice' state and
+// try to auto-allocate them against existing operations. Useful after bulk
+// document ingestion or after fixing op data manually.
+//
+// Strategy: pick recent issued ops (last 180 days), for each call allocator.
+// Idempotent — already-matched txs are skipped.
+// =============================================================================
+operations.post('/_sweep-awaiting-bank-tx', async (c) => {
+  const { allocateAwaitingTxToOperation } = await import('../lib/bank-tx-allocator');
+  const since = Math.floor(Date.now() / 1000) - 180 * 86400;
+
+  // Find ops that have a non-zero total and a partner — these are
+  // candidates for allocation.
+  const opsRes = await c.env.DB.prepare(
+    `SELECT id, reference, partner_id, total_amount, currency, operation_date
+       FROM operations
+      WHERE deleted_at IS NULL
+        AND partner_id IS NOT NULL
+        AND operation_date >= ?
+        AND status IN ('issued','shipped','delivered','draft')
+      ORDER BY operation_date DESC
+      LIMIT 1000`,
+  ).bind(since).all<any>();
+
+  const results: any[] = [];
+  let totalAttached = 0;
+  for (const op of (opsRes.results || [])) {
+    try {
+      const r = await allocateAwaitingTxToOperation(c.env, op.id);
+      if (r.attached_count > 0) {
+        results.push({
+          operation_id: op.id,
+          reference: op.reference,
+          attached_count: r.attached_count,
+          attached_tx_ids: r.attached_tx_ids,
+        });
+        totalAttached += r.attached_count;
+      }
+    } catch (e) {
+      console.error(`[sweep] op ${op.id} failed:`, e);
+    }
+  }
+
+  return ok(c, {
+    ops_scanned: (opsRes.results || []).length,
+    total_attached: totalAttached,
+    matches: results,
   });
 });
 

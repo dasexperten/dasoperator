@@ -107,28 +107,42 @@ app.get('/tick-log', async (c) => {
 // DRAFTS QUEUE — for 1-4 star reviews requiring human approval
 // -----------------------------------------------------------------------------
 
-// GET /api/reviews/drafts?status=pending&limit=50&channel=wb
+// GET /api/reviews/drafts?status=auto_sent,held,failed&limit=50&channel=wb&rating=5&search=...
+// Default — all answered (auto_sent + approved_sent + held + failed), newest first
 app.get('/drafts', async (c) => {
-  const status = c.req.query('status') ?? 'pending';
+  const status = c.req.query('status') ?? 'auto_sent,approved_sent,held,failed';
   const channel = c.req.query('channel') ?? 'wb';
   const limit = Math.min(200, Math.max(1, parseInt(c.req.query('limit') ?? '50', 10) || 50));
   const offset = Math.max(0, parseInt(c.req.query('offset') ?? '0', 10) || 0);
+  const rating = c.req.query('rating'); // optional, exact match
+  const search = c.req.query('search'); // searches review_text + draft_text
 
-  // status can be comma-separated for multi-filter
   const statuses = status.split(',').map(s => s.trim()).filter(Boolean);
   const placeholders = statuses.map(() => '?').join(',');
+
+  const whereExtra: string[] = [];
+  const bindExtra: any[] = [];
+  if (rating && /^\d+$/.test(rating)) {
+    whereExtra.push('rating = ?');
+    bindExtra.push(parseInt(rating, 10));
+  }
+  if (search) {
+    whereExtra.push('(review_text LIKE ? OR draft_text LIKE ? OR product_name LIKE ?)');
+    const pat = `%${search}%`;
+    bindExtra.push(pat, pat, pat);
+  }
+  const extraWhere = whereExtra.length ? ' AND ' + whereExtra.join(' AND ') : '';
 
   const result = await c.env.DB.prepare(`
     SELECT id, channel, external_id, rating, customer_name, product_name, product_sku,
            review_text, pros, cons, draft_text, status, approved_by, posted_to_wb_at,
            rejection_reason, created_at, updated_at
     FROM review_drafts
-    WHERE channel = ? AND status IN (${placeholders})
-    ORDER BY rating ASC, created_at DESC
+    WHERE channel = ? AND status IN (${placeholders})${extraWhere}
+    ORDER BY created_at DESC
     LIMIT ? OFFSET ?
-  `).bind(channel, ...statuses, limit, offset).all();
+  `).bind(channel, ...statuses, ...bindExtra, limit, offset).all();
 
-  // Counts per status for UI badges
   const counts = await c.env.DB.prepare(`
     SELECT status, COUNT(*) as n FROM review_drafts WHERE channel = ? GROUP BY status
   `).bind(channel).all();
@@ -229,8 +243,86 @@ app.post('/drafts/:id/regenerate', async (c) => {
   }
 });
 
-// POST /api/reviews/drafts/:id/edit — save edited text without sending
+// POST /api/reviews/drafts/:id/save-text — save edited text WITHOUT publishing
+// Used by autosave (debounced 800ms on text change). Does NOT touch WB.
 // Body: { text: string }
+app.post('/drafts/:id/save-text', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json<any>();
+  const text = (body.text ?? '').trim();
+  if (!text) return c.json({ ok: false, error: 'text required' }, 400);
+  const r = await c.env.DB.prepare(`
+    UPDATE review_drafts SET draft_text = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `).bind(text, id).run();
+  if ((r.meta?.changes ?? 0) === 0) return c.json({ ok: false, error: 'not found' }, 404);
+  return c.json({ ok: true });
+});
+
+// POST /api/reviews/drafts/:id/publish — publish (or republish) reply to WB
+// Used when user presses Ctrl+Enter after editing. WB overwrites the previous answer.
+// Body: { text?: string } — if provided, save then publish; otherwise publish current draft_text.
+app.post('/drafts/:id/publish', async (c) => {
+  const id = c.req.param('id');
+  let body: any = {};
+  try { body = await c.req.json(); } catch {}
+
+  const draft = await c.env.DB.prepare(
+    `SELECT * FROM review_drafts WHERE id = ?`
+  ).bind(id).first<any>();
+  if (!draft) return c.json({ ok: false, error: 'not found' }, 404);
+
+  const textToSend = (body.text ?? '').toString().trim() || draft.draft_text;
+  if (!textToSend) return c.json({ ok: false, error: 'no text to publish' }, 400);
+
+  try {
+    await postAnswer(c.env, draft.external_id, textToSend);
+    await c.env.DB.prepare(`
+      UPDATE review_drafts
+      SET status = 'approved_sent',
+          approved_by = ?,
+          draft_text = ?,
+          posted_to_wb_at = datetime('now'),
+          updated_at = datetime('now'),
+          rejection_reason = NULL
+      WHERE id = ?
+    `).bind('aram', textToSend, id).run();
+    return c.json({ ok: true, status: 'approved_sent' });
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    await c.env.DB.prepare(`
+      UPDATE review_drafts SET status = 'failed', rejection_reason = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).bind(`publish failed: ${msg.slice(0, 200)}`, id).run();
+    return c.json({ ok: false, error: msg }, 502);
+  }
+});
+
+// POST /api/reviews/drafts/:id/release — release a HELD draft (publish to WB)
+// Used for 1-2★ replies that were safety-held; user reviewed and approves.
+app.post('/drafts/:id/release', async (c) => {
+  const id = c.req.param('id');
+  const draft = await c.env.DB.prepare(
+    `SELECT * FROM review_drafts WHERE id = ? AND status = 'held'`
+  ).bind(id).first<any>();
+  if (!draft) return c.json({ ok: false, error: 'not found or not held' }, 404);
+  if (!draft.draft_text) return c.json({ ok: false, error: 'no text' }, 400);
+
+  try {
+    await postAnswer(c.env, draft.external_id, draft.draft_text);
+    await c.env.DB.prepare(`
+      UPDATE review_drafts
+      SET status = 'approved_sent', approved_by = 'aram', posted_to_wb_at = datetime('now'),
+          rejection_reason = NULL, updated_at = datetime('now')
+      WHERE id = ?
+    `).bind(id).run();
+    return c.json({ ok: true });
+  } catch (e: any) {
+    return c.json({ ok: false, error: String(e?.message ?? e) }, 502);
+  }
+});
+
+// POST /api/reviews/drafts/:id/edit (legacy alias) — for existing UI; same as save-text
 app.post('/drafts/:id/edit', async (c) => {
   const id = c.req.param('id');
   const body = await c.req.json<any>();
@@ -238,9 +330,9 @@ app.post('/drafts/:id/edit', async (c) => {
   if (!text) return c.json({ ok: false, error: 'text required' }, 400);
   const r = await c.env.DB.prepare(`
     UPDATE review_drafts SET draft_text = ?, updated_at = datetime('now')
-    WHERE id = ? AND status = 'pending'
+    WHERE id = ?
   `).bind(text, id).run();
-  if ((r.meta?.changes ?? 0) === 0) return c.json({ ok: false, error: 'not found or not pending' }, 404);
+  if ((r.meta?.changes ?? 0) === 0) return c.json({ ok: false, error: 'not found' }, 404);
   return c.json({ ok: true });
 });
 

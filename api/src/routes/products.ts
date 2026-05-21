@@ -347,7 +347,10 @@ products.get('/:id/prices', async (c) => {
     return fail(c, 404, [{ code: 'product_not_found', message: id }]);
   }
 
-  // Reference price types from D1 (for code/description/used_by metadata)
+  // SINGLE SOURCE OF TRUTH: D1 product_prices.
+  // R2 .md pricelists kept as archive only; no code reads them anymore.
+  const now = Math.floor(Date.now() / 1000);
+
   const priceTypes = await c.env.DB.prepare(`
     SELECT id, code, description, currency, used_by_entity
     FROM price_types
@@ -360,37 +363,9 @@ products.get('/:id/prices', async (c) => {
     used_by_entity: string | null;
   }>();
 
-  const now = Math.floor(Date.now() / 1000);
-
-  // For each price_type: R2 first, D1 fallback
+  // For each price_type: latest D1 row (active or most recent closed).
   const enriched = await Promise.all(
     priceTypes.results.map(async (pt) => {
-      // Try R2
-      try {
-        const r2 = await getProductPrice(c.env, id, pt.id);
-        if (r2) {
-          return {
-            id: `r2_${pt.id}_${id}`,
-            price_type_id: pt.id,
-            price_type_code: pt.code,
-            price_type_description: pt.description,
-            price_type_currency: pt.currency,
-            used_by_entity: pt.used_by_entity,
-            sell_price: r2.price,
-            currency: r2.currency,
-            effective_from: null,
-            effective_until: null,
-            notes: null,
-            is_active: 1,
-            source: 'pricer_r2',
-            source_file: r2.source,
-          };
-        }
-      } catch {
-        // fall through to D1
-      }
-
-      // D1 fallback
       const dbRow = await c.env.DB.prepare(`
         SELECT
           pp.id, pp.price_type_id, pp.sell_price, pp.currency,
@@ -402,9 +377,10 @@ products.get('/:id/prices', async (c) => {
           END AS is_active
         FROM product_prices pp
         WHERE pp.product_id = ? AND pp.price_type_id = ?
+          AND (pp.effective_until IS NULL OR pp.effective_until > ?)
         ORDER BY pp.effective_from DESC
         LIMIT 1
-      `).bind(now, id, pt.id).first<{
+      `).bind(now, id, pt.id, now).first<{
         id: string;
         price_type_id: string;
         sell_price: number;
@@ -429,16 +405,15 @@ products.get('/:id/prices', async (c) => {
           effective_until: dbRow.effective_until,
           notes: dbRow.notes,
           is_active: dbRow.is_active,
-          source: 'd1_fallback',
+          source: 'd1',
           source_file: null,
         };
       }
-
       return null;
     })
   );
 
-  const prices = enriched.filter((x): x is NonNullable<typeof x> => x !== null);
+  const prices = enriched.filter((r): r is NonNullable<typeof r> => r !== null);
   return ok(c, { count: prices.length, prices });
 });
 

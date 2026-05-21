@@ -89,7 +89,8 @@ export type MatchOutcome =
   | 'partner_not_found'
   | 'no_candidate' | 'rule_matched' | 'rule_matched_no_op'
   | 'bank_self_reference_skipped'
-  | 'awaiting_marketplace_settlement';
+  | 'awaiting_marketplace_settlement'
+  | 'awaiting_invoice';
 
 export interface AutoMatchResult {
   outcome: MatchOutcome;
@@ -266,27 +267,18 @@ export async function autoMatchBankTransaction(
         };
       }
 
-      // No open op found — create new one based on category default_operation_type
+      // No open op found — DO NOT auto-create. Operations are created from
+      // invoices/acts (via inbox-ingestion), never from bank tx. Park as
+      // awaiting_invoice; allocate to the inbox-derived op when it arrives.
       if (decision.default_operation_type === 'purchase' && decision.partner_id) {
-        const parsedInv = parseInvoiceFromPurpose(tx.payment_purpose || '');
-        const opId = await createServiceOperation(env, {
-          partner_id: decision.partner_id,
-          amount_major: toMajor(tx.amount, tx.currency),
-          currency: tx.currency,
-          operation_date: tx.executed_at,
-          purpose: tx.payment_purpose,
-          contragent_name: tx.contragent_name,
-          invoice_no: parsedInv?.doc_number,
-        });
-        const attIds = await attachPaymentAndInvoice(env, { operation_id: opId, tx });
-        await persistOutcome(env, txId, 'rule_matched' as MatchOutcome, opId);
+        await persistOutcome(env, txId, 'awaiting_invoice', null);
         if (decision.matched_rule_id) await recordRuleHit(env, decision.matched_rule_id);
         return {
-          outcome: 'rule_matched' as MatchOutcome,
-          operation_id: opId,
+          outcome: 'awaiting_invoice',
+          operation_id: null,
           partner_id: decision.partner_id,
-          attachment_ids: attIds,
-          reason: `Auto-classified & created new op: ${decision.reason}`,
+          attachment_ids: [],
+          reason: `Auto-classified (${decision.reason}) — awaiting invoice/act for allocation`,
         };
       }
     }
@@ -349,6 +341,8 @@ export async function autoMatchBankTransaction(
     }
 
     if (isService && tx.direction === 'outgoing' && tx.contragent_name) {
+      // Create draft partner record (we need an entity to reconcile against)
+      // but DO NOT auto-create an operation. Operations come from invoices/acts.
       const newPartnerId = await createDraftPartner(env, {
         trade_name: tx.contragent_name,
         legal_name: tx.contragent_name,
@@ -356,24 +350,13 @@ export async function autoMatchBankTransaction(
         currency: tx.currency,
         kind: 'service_provider',
       });
-      const parsedInv315 = parseInvoiceFromPurpose(tx.payment_purpose || '');
-      const opId = await createServiceOperation(env, {
-        partner_id: newPartnerId,
-        amount_major: txMajor,
-        currency: tx.currency,
-        operation_date: tx.executed_at,
-        purpose: tx.payment_purpose,
-        contragent_name: tx.contragent_name,
-        invoice_no: parsedInv315?.doc_number,
-      });
-      const attIds = await attachPaymentAndInvoice(env, { operation_id: opId, tx });
-      await persistOutcome(env, txId, 'partner_auto_created', opId);
+      await persistOutcome(env, txId, 'awaiting_invoice', null);
       return {
-        outcome: 'partner_auto_created',
-        operation_id: opId,
+        outcome: 'awaiting_invoice',
+        operation_id: null,
         partner_id: newPartnerId,
-        attachment_ids: attIds,
-        reason: 'partner created from tx.contragent_name; verify in Inbox',
+        attachment_ids: [],
+        reason: 'partner draft created from tx.contragent_name; awaiting invoice/act for allocation',
       };
     }
 
@@ -416,28 +399,28 @@ export async function autoMatchBankTransaction(
       partner.id, tx.currency, txMajor, dayStart, dayEnd,
     ).first<{ id: string; reference: string }>();
 
-    let opId: string;
     if (existingServiceOp?.id) {
-      opId = existingServiceOp.id;
-    } else {
-      opId = await createServiceOperation(env, {
+      const opId = existingServiceOp.id;
+      const attIds = await attachPaymentAndInvoice(env, { operation_id: opId, tx });
+      await persistOutcome(env, txId, 'auto_service_closed', opId);
+      return {
+        outcome: 'auto_service_closed',
+        operation_id: opId,
         partner_id: partner.id,
-        amount_major: txMajor,
-        currency: tx.currency,
-        operation_date: tx.executed_at,
-        purpose: tx.payment_purpose,
-        contragent_name: tx.contragent_name,
-        invoice_no: parsedInv350?.doc_number,
-      });
+        attachment_ids: attIds,
+        reason: `linked to existing ${existingServiceOp.reference}`,
+      };
     }
-    const attIds = await attachPaymentAndInvoice(env, { operation_id: opId, tx });
-    await persistOutcome(env, txId, 'auto_service_closed', opId);
+
+    // No existing service op found — DO NOT create one from this bank tx.
+    // Park as awaiting_invoice; the op will arrive via invoice/act inbox.
+    await persistOutcome(env, txId, 'awaiting_invoice', null);
     return {
-      outcome: 'auto_service_closed',
-      operation_id: opId,
+      outcome: 'awaiting_invoice',
+      operation_id: null,
       partner_id: partner.id,
-      attachment_ids: attIds,
-      reason: existingServiceOp ? `linked to existing ${existingServiceOp.reference}` : undefined,
+      attachment_ids: [],
+      reason: `service tx for ${partner.id} — awaiting invoice/act for allocation`,
     };
   }
 
@@ -462,45 +445,32 @@ export async function autoMatchBankTransaction(
   }
 
   // GUARD (Aram 2026-05-21): Marketplace settlements from Ozon / WB /
-  // dasexperten.ru (Yandex Pay) must NOT auto-create sale drafts. They are
-  // bulk payouts that need to be allocated against existing sale operations
-  // imported from the marketplace reports. If no candidate matches yet
-  // (report hasn't arrived), park the bank_tx for manual / future allocation.
-  const MARKETPLACE_SETTLEMENT_PARTNERS = new Set([
-    'ozon', 'wb',
-    'яндекс_пей_продажи_с_нашего_сайта', // dasexperten.ru via Yandex Pay
-  ]);
-  if (
-    candidates.length === 0 &&
-    tx.direction === 'incoming' &&
-    MARKETPLACE_SETTLEMENT_PARTNERS.has(partner.id)
-  ) {
-    await persistOutcome(env, txId, 'awaiting_marketplace_settlement', null);
+  // No candidate operation found — DO NOT auto-create one from this bank tx.
+  // Universal rule: operations are created from invoices/acts (via inbox-ingestion
+  // or marketplace report sync), never from bank tx. Park as awaiting_invoice
+  // for later allocation when the corresponding op arrives.
+  if (candidates.length === 0) {
+    // Marketplace settlements get their own outcome label for filtering in the UI;
+    // semantically identical to awaiting_invoice (both wait for an op to arrive).
+    const MARKETPLACE_SETTLEMENT_PARTNERS = new Set([
+      'ozon', 'wb',
+      'яндекс_пей_продажи_с_нашего_сайта', // dasexperten.ru via Yandex Pay
+    ]);
+    const isMarketplace =
+      tx.direction === 'incoming' &&
+      MARKETPLACE_SETTLEMENT_PARTNERS.has(partner.id);
+    const outcome: MatchOutcome = isMarketplace
+      ? 'awaiting_marketplace_settlement'
+      : 'awaiting_invoice';
+    await persistOutcome(env, txId, outcome, null);
     return {
-      outcome: 'awaiting_marketplace_settlement',
+      outcome,
+      operation_id: null,
       partner_id: partner.id,
       attachment_ids: [],
-    };
-  }
-
-  if (candidates.length === 0) {
-    const parsedInv389 = parseInvoiceFromPurpose(tx.payment_purpose || '');
-    const opId = await createDraftGoodsOperation(env, {
-      partner_id: partner.id,
-      amount_major: txMajor,
-      currency: tx.currency,
-      operation_date: tx.executed_at,
-      direction: tx.direction,
-      notes: `[AUTO-DRAFT] from bank_tx ${txId}. payment_purpose: ${(tx.payment_purpose || '').slice(0, 300)}`,
-      invoice_no: parsedInv389?.doc_number,
-    });
-    const attIds = await attachPaymentAndInvoice(env, { operation_id: opId, tx });
-    await persistOutcome(env, txId, 'auto_created_draft', opId);
-    return {
-      outcome: 'auto_created_draft',
-      operation_id: opId,
-      partner_id: partner.id,
-      attachment_ids: attIds,
+      reason: isMarketplace
+        ? 'awaiting marketplace report sync'
+        : 'awaiting invoice/act for allocation',
     };
   }
 

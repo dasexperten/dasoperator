@@ -1157,6 +1157,14 @@ operationDocs.post('/create-from-document', async (c) => {
     }]);
   }
 
+  // Auto-allocate any awaiting bank_tx that match this new operation
+  try {
+    const { allocateAwaitingTxToOperation } = await import('../lib/bank-tx-allocator');
+    await allocateAwaitingTxToOperation(c.env, operationId);
+  } catch (e) {
+    console.error('[operation-docs] allocator failed (non-fatal):', e);
+  }
+
   // Compose warnings based on what landed
   const warnings: string[] = [];
   if (lineItemsReport.total === 0) {

@@ -13,7 +13,6 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
-import { getProductPrice } from '../lib/pricelist';
 
 const productsPricing = new Hono<{ Bindings: Env }>();
 
@@ -75,23 +74,8 @@ productsPricing.get('/:productId/price', async (c) => {
     }]);
   }
 
-  // STEP 1: try R2 pricelist (source of truth)
-  try {
-    const r2Price = await getProductPrice(c.env, productId, priceTypeId);
-    if (r2Price) {
-      return ok(c, {
-        price: r2Price.price,
-        currency: r2Price.currency,
-        source: 'pricer_r2',
-        source_file: r2Price.source,
-        price_type_id: priceTypeId,
-      });
-    }
-  } catch (err) {
-    console.warn(`R2 pricelist read failed for ${productId}/${priceTypeId}: ${err instanceof Error ? err.message : String(err)}`);
-  }
-
-  // STEP 2: fallback to D1 product_prices
+  // SINGLE SOURCE OF TRUTH: D1 product_prices.
+  // R2 .md pricelists kept as archive only; no code reads them anymore.
   const now = Math.floor(Date.now() / 1000);
   const priceRow = await c.env.DB.prepare(`
     SELECT sell_price, currency, effective_from, effective_until
@@ -110,13 +94,13 @@ productsPricing.get('/:productId/price', async (c) => {
       currency: contractCurrency,
       source: 'not_found',
       price_type_id: priceTypeId,
-    }, [`No price for product ${productId} in price_type ${priceTypeId} (R2 and D1 both empty)`]);
+    }, [`No price for product ${productId} in price_type ${priceTypeId} (no D1 row)`]);
   }
 
   return ok(c, {
     price: priceRow.sell_price,
     currency: priceRow.currency,
-    source: 'd1_fallback',
+    source: 'd1',
     price_type_id: priceTypeId,
     effective_from: priceRow.effective_from,
     effective_until: priceRow.effective_until,
@@ -196,6 +180,101 @@ productsPricing.post('/:productId/prices', async (c) => {
   `).bind(id).first();
 
   return ok(c, created);
+});
+
+
+// =============================================================================
+// PATCH /api/products/:productId/prices/:priceId — update an existing price
+// Body: { sell_price?, effective_from?, effective_until?, notes? }
+// Used by UI inline edit. Does NOT create history rows — modifies the row in
+// place. For history-preserving change, use POST (which closes prev + opens new).
+// =============================================================================
+const patchPriceSchema = z.object({
+  sell_price: z.number().min(0).optional(),
+  effective_from: z.number().int().optional(),
+  effective_until: z.number().int().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+
+productsPricing.patch('/:productId/prices/:priceId', async (c) => {
+  const productId = c.req.param('productId').toLowerCase();
+  const priceId = c.req.param('priceId');
+  const body = await c.req.json().catch(() => null);
+  if (!body) return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]);
+
+  const parsed = patchPriceSchema.safeParse(body);
+  if (!parsed.success) {
+    return fail(c, 400, [{ code: 'invalid_body', message: 'Validation failed', details: { issues: parsed.error.issues } }]);
+  }
+  const data = parsed.data;
+
+  const row = await c.env.DB.prepare(
+    'SELECT id FROM product_prices WHERE id = ? AND product_id = ?'
+  ).bind(priceId, productId).first();
+  if (!row) {
+    return fail(c, 404, [{ code: 'price_not_found', message: `Price ${priceId} for product ${productId} not found` }]);
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const updates: string[] = [];
+  const params: unknown[] = [];
+
+  if (data.sell_price !== undefined) { updates.push('sell_price = ?'); params.push(data.sell_price); }
+  if (data.effective_from !== undefined) { updates.push('effective_from = ?'); params.push(data.effective_from); }
+  if (data.effective_until !== undefined) { updates.push('effective_until = ?'); params.push(data.effective_until); }
+  if (data.notes !== undefined) { updates.push('notes = ?'); params.push(data.notes); }
+
+  if (updates.length === 0) {
+    return fail(c, 400, [{ code: 'no_changes', message: 'No fields to update' }]);
+  }
+
+  updates.push('updated_at = ?');
+  params.push(now);
+  params.push(priceId);
+
+  await c.env.DB.prepare(
+    `UPDATE product_prices SET ${updates.join(', ')} WHERE id = ?`
+  ).bind(...params).run();
+
+  const updated = await c.env.DB.prepare(`
+    SELECT pp.*, pt.code AS price_type_code, pt.description AS price_type_description, pt.used_by_entity
+    FROM product_prices pp
+    JOIN price_types pt ON pp.price_type_id = pt.id
+    WHERE pp.id = ?
+  `).bind(priceId).first();
+
+  return ok(c, updated);
+});
+
+// =============================================================================
+// GET /api/products/:productId/prices/:priceTypeId/history — full timeline
+// Returns all D1 rows for this product+price_type, newest first.
+// =============================================================================
+productsPricing.get('/:productId/prices/:priceTypeId/history', async (c) => {
+  const productId = c.req.param('productId').toLowerCase();
+  const priceTypeId = c.req.param('priceTypeId');
+  const now = Math.floor(Date.now() / 1000);
+
+  const rows = await c.env.DB.prepare(`
+    SELECT
+      pp.id, pp.price_type_id, pp.sell_price, pp.currency,
+      pp.effective_from, pp.effective_until, pp.notes,
+      pp.created_at, pp.updated_at,
+      CASE
+        WHEN pp.effective_until IS NULL THEN 1
+        WHEN pp.effective_until > ? THEN 1
+        ELSE 0
+      END AS is_active,
+      CASE
+        WHEN pp.effective_from > ? THEN 1
+        ELSE 0
+      END AS is_scheduled
+    FROM product_prices pp
+    WHERE pp.product_id = ? AND pp.price_type_id = ?
+    ORDER BY pp.effective_from DESC, pp.created_at DESC
+  `).bind(now, now, productId, priceTypeId).all();
+
+  return ok(c, { count: rows.results.length, history: rows.results });
 });
 
 // =============================================================================

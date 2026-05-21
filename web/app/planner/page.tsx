@@ -3,8 +3,8 @@
 export const runtime = 'edge';
 
 import { useEffect, useState, useMemo } from 'react';
-import { Loader2, Flame, AlertTriangle, Check, Flag, Lock } from 'lucide-react';
-import { apiGet } from '@/lib/api';
+import { Loader2, Flame, AlertTriangle, Check, Flag, Lock, X, CheckCircle2 } from 'lucide-react';
+import { apiGet, apiPost } from '@/lib/api';
 
 interface SummaryGroup {
   group_id: string;
@@ -189,6 +189,10 @@ export default function PlannerPage() {
   const [manualOverrides, setManualOverrides] = useState<Record<string, number>>({});
 
   const [mode, setMode] = useState<SizingMode>('pallet');
+
+  // Create Draft modal state
+  const [draftModalOpen, setDraftModalOpen] = useState(false);
+  const [draftSuccess, setDraftSuccess] = useState<{ reference: string; operation_id: string; line_items_count: number; total_units: number; total_amount: number; currency: string } | null>(null);
 
   // For pallet mode: overrides come from backend's r.cartons (natural reorder).
   // For container modes: overrides come from autoFillCartons greedy with tier ladder.
@@ -426,19 +430,66 @@ export default function PlannerPage() {
             totals={{ cartons: totCartons, units: totUnits, volume: totVolume, pallets: totPallets, amount: anyAmount ? totAmount : null }}
           />
 
+          {/* Success banner — shown after a draft is created */}
+          <div style={{ display: draftSuccess ? 'flex' : 'none', background: '#EAF3DE', border: '0.5px solid #B6D58F', borderRadius: 8, padding: '14px 18px', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <CheckCircle2 className="w-5 h-5" style={{ color: '#27500A' }} />
+              <div>
+                <div style={{ fontWeight: 700, color: '#27500A', fontSize: 14 }}>
+                  Draft {draftSuccess?.reference} created
+                </div>
+                <div style={{ fontSize: 12, color: '#3F6E1D', marginTop: 2 }}>
+                  {draftSuccess?.line_items_count} SKUs · {(draftSuccess?.total_units ?? 0).toLocaleString()} units · {fmtMoney(draftSuccess?.total_amount ?? 0, (draftSuccess?.currency ?? 'cny').toLowerCase() as 'cny' | 'usd')} · status: <b>draft</b>
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <a
+                href={`/operations/${draftSuccess?.operation_id}`}
+                style={{ background: 'white', border: '0.5px solid #B6D58F', color: '#27500A', padding: '6px 12px', borderRadius: 4, fontSize: 12, fontWeight: 500, textDecoration: 'none' }}
+              >
+                Open operation →
+              </a>
+              <button
+                onClick={() => setDraftSuccess(null)}
+                style={{ background: 'transparent', border: 'none', color: '#27500A', cursor: 'pointer', padding: '6px 8px' }}
+                aria-label="dismiss"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
           {/* Create Draft Purchase */}
           <div className="flex justify-end pt-4 border-t border-stone-200">
             <button
               disabled={totCartons === 0}
               className="px-5 py-2.5 rounded bg-stone-900 text-white disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ fontSize: '14px', fontWeight: 500 }}
-              onClick={() => {
-                alert(`Will create draft Purchase for ${detail.group.name}\nTotal: ${totCartons} cartons · ${totUnits.toLocaleString()} units · ${fmtMoney(totAmount, currency)}\n\n(Actual draft creation lands next phase)`);
-              }}
+              onClick={() => setDraftModalOpen(true)}
             >
               Create Draft Purchase
             </button>
           </div>
+
+          {/* Create Draft Purchase Modal */}
+          <CreateDraftModal
+            open={draftModalOpen}
+            onClose={() => setDraftModalOpen(false)}
+            groupId={selectedGroup!}
+            groupName={detail.group.name}
+            rows={detail.rows}
+            finalCartons={finalCartons}
+            finalUnits={finalUnits}
+            finalAmount={finalAmount}
+            totals={{ cartons: totCartons, units: totUnits, amount: anyAmount ? totAmount : 0 }}
+            currency={currency}
+            onCreated={(res) => {
+              setDraftModalOpen(false);
+              setDraftSuccess(res);
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
         </>
       ) : (
         <div className="text-stone-500 text-center py-12 border border-dashed border-stone-200 rounded" style={{ fontSize: '14px' }}>
@@ -814,6 +865,396 @@ function SkuTable({
           </tr>
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ============================================================
+// CREATE DRAFT PURCHASE MODAL
+// ============================================================
+interface OptionsResponse {
+  manufacturers: Array<{
+    manufacturer_id: string;
+    manufacturer_name: string;
+    partner_id: string | null;
+    trade_name: string | null;
+    abbreviation: string | null;
+    country: string | null;
+  }>;
+  companies: Array<{
+    id: string;
+    abbreviation: string | null;
+    trade_name: string;
+    jurisdiction: string | null;
+    base_currency: string | null;
+  }>;
+  warehouses: Array<{ id: string; name: string; country: string | null }>;
+  contracts: Array<{
+    id: string;
+    contract_no: string;
+    partner_id: string;
+    our_company_id: string;
+    currency: string;
+  }>;
+}
+
+interface CreateDraftResult {
+  operation_id: string;
+  reference: string;
+  total_amount: number;
+  currency: string;
+  line_items_count: number;
+  total_units: number;
+}
+
+function CreateDraftModal({
+  open, onClose, groupId, groupName, rows, finalCartons, finalUnits, finalAmount, totals, currency, onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  groupId: string;
+  groupName: string;
+  rows: PlannerRow[];
+  finalCartons: (r: PlannerRow) => number;
+  finalUnits: (r: PlannerRow) => number;
+  finalAmount: (r: PlannerRow) => number | null;
+  totals: { cartons: number; units: number; amount: number };
+  currency: 'cny' | 'usd';
+  onCreated: (res: CreateDraftResult) => void;
+}) {
+  const [opts, setOpts] = useState<OptionsResponse | null>(null);
+  const [loadingOpts, setLoadingOpts] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // Form state
+  const [entityId, setEntityId] = useState<string>('dee');
+  const [manufacturerPartnerId, setManufacturerPartnerId] = useState<string>('');
+  const [contractId, setContractId] = useState<string>('');
+  const [warehouseFromId, setWarehouseFromId] = useState<string>('');
+  const [warehouseToId, setWarehouseToId] = useState<string>('');
+
+  // Load options on open
+  useEffect(() => {
+    if (!open || opts) return;
+    setLoadingOpts(true);
+    apiGet<OptionsResponse>(`/api/planner/options?group=${groupId}`)
+      .then((res) => {
+        if (res.success && res.result) {
+          setOpts(res.result);
+          // Default manufacturer = first one
+          const firstMfr = res.result.manufacturers[0];
+          if (firstMfr?.partner_id) {
+            setManufacturerPartnerId(firstMfr.partner_id);
+          }
+        } else {
+          setSubmitError(res.errors[0]?.message ?? 'Failed to load options');
+        }
+      })
+      .finally(() => setLoadingOpts(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, groupId]);
+
+  // Currency derived from price toggle (CNY for direct, USD for DEI)
+  const opCurrency = useMemo(() => currency.toUpperCase(), [currency]);
+
+  // Auto-pick contract whenever (entity × partner × currency) changes
+  useEffect(() => {
+    if (!opts || !entityId || !manufacturerPartnerId) return;
+    const matching = opts.contracts.filter(
+      c => c.our_company_id === entityId
+        && c.partner_id === manufacturerPartnerId
+        && c.currency === opCurrency
+    );
+    if (matching.length > 0) {
+      // Prefer one without /A suffix (main, not addendum)
+      const main = matching.find(c => !/\/[Aa]/.test(c.contract_no)) ?? matching[0];
+      setContractId(main.id);
+    } else {
+      setContractId('');
+    }
+  }, [opts, entityId, manufacturerPartnerId, opCurrency]);
+
+  // Auto-pick warehouse_from based on manufacturer (YZH for Jinxia, GZH for paste factories)
+  useEffect(() => {
+    if (!manufacturerPartnerId) return;
+    if (manufacturerPartnerId === 'jinxia') setWarehouseFromId('yzh');
+    else setWarehouseFromId('gzh'); // honghui / wdaa / meizhiyuan
+  }, [manufacturerPartnerId]);
+
+  // Warehouse_to options filtered by entity
+  const warehouseToOptions = useMemo(() => {
+    if (!opts) return [];
+    // Country mapping by entity
+    const entityCountry: Record<string, string[]> = {
+      dee: ['Russia'],
+      dei: ['UAE'],
+      dasean: ['Vietnam'],
+      dec: [],
+    };
+    const allowed = entityCountry[entityId] ?? [];
+    const factoryWh = warehouseFromId; // collection at source always allowed
+    return opts.warehouses.filter(w => {
+      if (w.id === factoryWh) return true;
+      if (w.country && allowed.includes(w.country)) return true;
+      return false;
+    });
+  }, [opts, entityId, warehouseFromId]);
+
+  // Default warehouse_to when entity / mfr changes
+  useEffect(() => {
+    if (warehouseToOptions.length === 0) return;
+    // Don't change if current selection is still valid
+    if (warehouseToOptions.some(w => w.id === warehouseToId)) return;
+    // Pick first non-factory destination
+    const dest = warehouseToOptions.find(w => w.id !== warehouseFromId) ?? warehouseToOptions[0];
+    setWarehouseToId(dest.id);
+  }, [warehouseToOptions, warehouseFromId, warehouseToId]);
+
+  // Computed reference preview
+  const referencePreview = useMemo(() => {
+    if (!opts) return '—';
+    const company = opts.companies.find(c => c.id === entityId);
+    const mfr = opts.manufacturers.find(m => m.partner_id === manufacturerPartnerId);
+    if (!company || !mfr) return '—';
+    const d = new Date();
+    const yyyy = d.getUTCFullYear();
+    const yy = String(yyyy).slice(2);
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    const mfrAbbr = (mfr.abbreviation || mfr.partner_id || mfr.manufacturer_id).toUpperCase();
+    const entAbbr = (company.abbreviation || company.id).toUpperCase();
+    return `${yyyy}${mfrAbbr}-${entAbbr}-${yy}${mm}${dd}`;
+  }, [opts, entityId, manufacturerPartnerId]);
+
+  // Line items snapshot from planner final values
+  const lineItemsToSend = useMemo(() => {
+    return rows
+      .filter(r => finalCartons(r) > 0)
+      .map(r => ({
+        product_id: r.base_sku,
+        qty: finalUnits(r),
+        cartons: finalCartons(r),
+        unit_price: r.unit_price ?? 0,
+      }));
+  }, [rows, finalCartons, finalUnits]);
+
+  async function handleSubmit() {
+    if (!opts) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const res = await apiPost<CreateDraftResult>('/api/planner/create-draft', {
+        our_company_id: entityId,
+        manufacturer_partner_id: manufacturerPartnerId,
+        contract_id: contractId,
+        warehouse_from_id: warehouseFromId,
+        warehouse_to_id: warehouseToId,
+        currency: opCurrency,
+        operation_date: Math.floor(Date.now() / 1000),
+        line_items: lineItemsToSend,
+      });
+      if (res.success && res.result) {
+        onCreated(res.result);
+      } else {
+        setSubmitError(res.errors[0]?.message ?? 'Failed to create draft');
+      }
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (!open) return null;
+
+  const contractMatchFound = contractId !== '';
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50,
+        padding: 16,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: 'white', borderRadius: 12, maxWidth: 720, width: '100%',
+          maxHeight: '90vh', overflow: 'auto', padding: 24, boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <div style={{ fontSize: 18, fontWeight: 500 }}>Create Draft Purchase</div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#a8a29e' }}>
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div style={{ fontSize: 13, color: '#78716c', marginBottom: 20 }}>
+          <b>{groupName}</b> · {lineItemsToSend.length} SKUs · {totals.units.toLocaleString()} units · {fmtMoney(totals.amount, currency)}
+        </div>
+
+        {loadingOpts ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
+            <Loader2 className="w-6 h-6 animate-spin" style={{ color: '#a8a29e' }} />
+          </div>
+        ) : !opts ? (
+          <div style={{ color: '#791F1F', padding: 12, fontSize: 13 }}>Failed to load options.</div>
+        ) : (
+          <>
+            {/* Entity */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11.5, color: '#78716c', marginBottom: 6, letterSpacing: 0.3 }}>OUR ENTITY (BUYER)</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {opts.companies.map(c => {
+                  const sel = c.id === entityId;
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => setEntityId(c.id)}
+                      style={{
+                        flex: 1,
+                        padding: 10,
+                        border: sel ? '2px solid #185FA5' : '0.5px solid #d6d3d1',
+                        background: sel ? '#E6F1FB' : 'white',
+                        borderRadius: 6,
+                        fontWeight: 500,
+                        fontSize: 13.5,
+                        color: sel ? '#0C447C' : '#57534e',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <div>{(c.abbreviation || c.id).toUpperCase()}</div>
+                      <div style={{ fontSize: 11, fontWeight: 400, color: sel ? '#185FA5' : '#78716c', marginTop: 2 }}>
+                        {c.jurisdiction || '—'} · {c.base_currency || '—'}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Manufacturer */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11.5, color: '#78716c', marginBottom: 6, letterSpacing: 0.3 }}>MANUFACTURER (SELLER)</div>
+              <select
+                value={manufacturerPartnerId}
+                onChange={(e) => setManufacturerPartnerId(e.target.value)}
+                style={{ width: '100%', padding: '9px 12px', border: '0.5px solid #a8a29e', borderRadius: 6, fontWeight: 700, fontSize: 13.5, background: 'white' }}
+              >
+                {opts.manufacturers.map(m => (
+                  <option key={m.manufacturer_id} value={m.partner_id ?? m.manufacturer_id}>
+                    {(m.trade_name || m.manufacturer_name)} — {m.abbreviation || m.manufacturer_id.toUpperCase()} ({m.country || ''})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Contract */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11.5, color: '#78716c', marginBottom: 6, letterSpacing: 0.3 }}>CONTRACT</div>
+              <select
+                value={contractId}
+                onChange={(e) => setContractId(e.target.value)}
+                style={{ width: '100%', padding: '9px 12px', border: '0.5px solid ' + (contractMatchFound ? '#a8a29e' : '#F09595'), borderRadius: 6, fontWeight: 700, fontSize: 13.5, background: 'white' }}
+              >
+                {!contractMatchFound && <option value="">— no matching contract —</option>}
+                {opts.contracts
+                  .filter(c => c.our_company_id === entityId && c.partner_id === manufacturerPartnerId && c.currency === opCurrency)
+                  .map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.contract_no} · {c.currency}
+                    </option>
+                  ))
+                }
+              </select>
+              {contractMatchFound ? (
+                <div style={{ fontSize: 11, color: '#639922', marginTop: 4 }}>
+                  ✓ auto-picked by ({entityId.toUpperCase()} × {manufacturerPartnerId} × {opCurrency})
+                </div>
+              ) : (
+                <div style={{ fontSize: 11, color: '#791F1F', marginTop: 4 }}>
+                  ✗ no active contract for this combination. Create one in /partners first.
+                </div>
+              )}
+            </div>
+
+            {/* Warehouse From / To */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 11.5, color: '#78716c', marginBottom: 6, letterSpacing: 0.3 }}>WAREHOUSE FROM</div>
+                <select
+                  value={warehouseFromId}
+                  onChange={(e) => setWarehouseFromId(e.target.value)}
+                  style={{ width: '100%', padding: '9px 12px', border: '0.5px solid #a8a29e', borderRadius: 6, fontWeight: 700, fontSize: 13.5, background: 'white' }}
+                >
+                  {opts.warehouses.filter(w => ['gzh', 'yzh'].includes(w.id)).map(w => (
+                    <option key={w.id} value={w.id}>{w.id.toUpperCase()} — {w.name}</option>
+                  ))}
+                </select>
+                <div style={{ fontSize: 11, color: '#78716c', marginTop: 4 }}>factory warehouse</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11.5, color: '#78716c', marginBottom: 6, letterSpacing: 0.3 }}>WAREHOUSE TO</div>
+                <select
+                  value={warehouseToId}
+                  onChange={(e) => setWarehouseToId(e.target.value)}
+                  style={{ width: '100%', padding: '9px 12px', border: '0.5px solid #a8a29e', borderRadius: 6, fontWeight: 700, fontSize: 13.5, background: 'white' }}
+                >
+                  {warehouseToOptions.map(w => (
+                    <option key={w.id} value={w.id}>
+                      {w.id.toUpperCase()} — {w.name} ({w.country})
+                    </option>
+                  ))}
+                </select>
+                <div style={{ fontSize: 11, color: '#78716c', marginTop: 4 }}>destination filtered by entity</div>
+              </div>
+            </div>
+
+            {/* Reference preview */}
+            <div style={{ background: '#FAFAF7', borderRadius: 6, padding: '12px 14px', marginBottom: 20 }}>
+              <div style={{ fontSize: 11.5, color: '#78716c', letterSpacing: 0.3 }}>REFERENCE (AUTO)</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#1c1c1c', marginTop: 2 }}>
+                {referencePreview}
+              </div>
+            </div>
+
+            {/* Submit error */}
+            <div style={{ display: submitError ? 'block' : 'none', background: '#FCEBEB', border: '0.5px solid #F09595', borderRadius: 6, padding: '10px 14px', fontSize: 13, color: '#791F1F', marginBottom: 16 }}>
+              ⚠ {submitError}
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingTop: 16, borderTop: '0.5px solid #e7e5e4' }}>
+              <button
+                onClick={onClose}
+                disabled={submitting}
+                style={{ background: 'transparent', border: 'none', color: '#57534e', fontSize: 13, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                disabled={!contractMatchFound || submitting || lineItemsToSend.length === 0}
+                onClick={handleSubmit}
+                style={{
+                  background: '#1c1917', color: 'white', padding: '10px 20px',
+                  border: 'none', borderRadius: 6, fontWeight: 500, fontSize: 13.5,
+                  cursor: (contractMatchFound && !submitting) ? 'pointer' : 'not-allowed',
+                  opacity: (contractMatchFound && !submitting && lineItemsToSend.length > 0) ? 1 : 0.4,
+                  display: 'flex', alignItems: 'center', gap: 8,
+                }}
+              >
+                {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                Create Draft {referencePreview} →
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

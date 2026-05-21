@@ -12,6 +12,7 @@
 // =============================================================================
 import type { Env } from '../types';
 import { callPro } from './deepseek';
+import { runReviewMasterPipeline, type PipelineInput } from './review-master-pipeline';
 import { PRODUCT_KNOWLEDGE_BASE } from './wb-reviews-knowledge';
 
 const WB_BASE = 'https://feedbacks-api.wildberries.ru';
@@ -541,7 +542,28 @@ export async function runWbAutoReply(
 
       let draft: Draft;
       try {
-        draft = hasText ? await draftReply(env, fb) : await draftReplyDeepSeek(env, fb);
+        // Use full 6-gate review-master pipeline (loads skills from R2 bucket das-skills)
+        const pipelineInput: PipelineInput = {
+          feedbackId: fid,
+          rating,
+          customerName: (fb.userName ?? '').trim() || null,
+          productName: (fb.productDetails?.productName ?? '').slice(0, 200) || null,
+          productSku: (fb.productDetails?.supplierArticle ?? '').slice(0, 100) || null,
+          reviewText: (fb.text ?? '').trim() || null,
+          pros: (fb.pros ?? '').trim() || null,
+          cons: (fb.cons ?? '').trim() || null,
+        };
+        const pipelineResult = await runReviewMasterPipeline(env, pipelineInput);
+        draft = {
+          text: pipelineResult.reply,
+          inputTokens: pipelineResult.totalTokensIn,
+          outputTokens: pipelineResult.totalTokensOut,
+          cacheReadTokens: 0,
+          cacheCreationTokens: 0,
+          stopReason: null,
+          model: `pipeline:${pipelineResult.reviewType}`,
+        };
+        console.log(`    pipeline=${pipelineResult.totalDurationMs}ms type=${pipelineResult.reviewType} gates=${pipelineResult.gates.map(g => g.gate + ':' + g.status).join(',')}`);
       } catch (e: any) {
         const msg = String(e?.message ?? e);
         console.error(`    DRAFT FAIL: ${msg}`);

@@ -4,22 +4,12 @@ export const runtime = 'edge';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Loader2,
-  RefreshCw,
-  Send,
-  Sparkles,
-  Check,
-  X,
-  AlertTriangle,
-  Edit3,
-  Inbox,
-  ShoppingCart,
-  MessageSquare,
+  Loader2, RefreshCw, Send, Check, X, AlertTriangle, Edit3, Inbox, MessageSquare,
 } from 'lucide-react';
 
 const API_BASE = 'https://dasoperator-api.dasexperten.workers.dev';
 
-type DraftStatus = 'auto_sent' | 'approved_sent' | 'held' | 'failed' | 'pending' | 'rejected';
+type DraftStatus = 'pending' | 'auto_sent' | 'approved_sent' | 'failed' | 'held' | 'rejected';
 
 interface ReviewDraft {
   id: string;
@@ -41,27 +31,19 @@ interface ReviewDraft {
   updated_at: string;
 }
 
-interface DraftsResponse {
-  ok: boolean;
-  drafts: ReviewDraft[];
-  counts: Record<DraftStatus, number>;
-}
-
+interface ProductOption { baseSku: string; name: string; count: number; }
+interface DraftsResponse { ok: boolean; drafts: ReviewDraft[]; counts: Record<DraftStatus, number>; }
 interface Stats { ok: boolean; total: number; today: number; cached: boolean; }
 interface TickEntry { ts: string; replied: number; drafted?: number; errors: number; backlog: number; today: number; throttled: boolean; }
 
-// =============================================================================
-// Helpers
-// =============================================================================
-function ratingColor(r: number): string {
+function ratingColor(r: number) {
   if (r >= 5) return '#0F6E56';
   if (r >= 4) return '#1D9E75';
   if (r >= 3) return '#BA7517';
   return '#A32D2D';
 }
-function stars(r: number): string { return '★'.repeat(r) + '☆'.repeat(5 - r); }
-
-function relativeDate(iso: string | null | undefined): string {
+function stars(r: number) { return '★'.repeat(r) + '☆'.repeat(5 - r); }
+function relativeDate(iso: string | null | undefined) {
   if (!iso) return '';
   const dt = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z');
   const diffMs = Date.now() - dt.getTime();
@@ -75,72 +57,95 @@ function relativeDate(iso: string | null | undefined): string {
   return dt.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' });
 }
 
-// =============================================================================
-// Main page
-// =============================================================================
 export default function ReviewsPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [tickLog, setTickLog] = useState<TickEntry[]>([]);
   const [drafts, setDrafts] = useState<ReviewDraft[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
+  const [products, setProducts] = useState<ProductOption[]>([]);
+  const [statusView, setStatusView] = useState<'pending' | 'sent' | 'all'>('pending');
   const [ratingFilter, setRatingFilter] = useState<number | 'all'>('all');
-  const [search, setSearch] = useState('');
+  const [skuFilter, setSkuFilter] = useState<string>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [replyAllBusy, setReplyAllBusy] = useState(false);
+  const [replyAllResult, setReplyAllResult] = useState<{ sent: number; failed: number } | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams();
-      params.set('status', 'auto_sent,approved_sent,held,failed');
-      params.set('limit', '200');
+      const statusArg = statusView === 'pending' ? 'pending'
+        : statusView === 'sent' ? 'auto_sent,approved_sent'
+        : 'pending,auto_sent,approved_sent,failed,held';
+      params.set('status', statusArg);
+      params.set('limit', '300');
       if (ratingFilter !== 'all') params.set('rating', String(ratingFilter));
-      if (search.trim()) params.set('search', search.trim());
+      if (skuFilter !== 'all') params.set('sku', skuFilter);
 
-      const [statsR, draftsR, tickR] = await Promise.all([
+      const [statsR, draftsR, tickR, prodR] = await Promise.all([
         fetch(`${API_BASE}/api/reviews/stats`).then((r) => r.json()),
         fetch(`${API_BASE}/api/reviews/drafts?${params}`).then((r) => r.json() as Promise<DraftsResponse>),
         fetch(`${API_BASE}/api/reviews/tick-log`).then((r) => r.json()),
+        fetch(`${API_BASE}/api/reviews/products`).then((r) => r.json() as Promise<{ ok: boolean; products: ProductOption[] }>),
       ]);
       setStats(statsR);
       setDrafts(draftsR.drafts ?? []);
       setCounts(draftsR.counts ?? {});
       setTickLog(tickR.ticks ?? []);
+      setProducts(prodR.products ?? []);
     } catch (e: any) {
       setError(String(e?.message ?? e));
     } finally {
       setLoading(false);
     }
-  }, [ratingFilter, search]);
+  }, [statusView, ratingFilter, skuFilter]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
-
-  // Auto-refresh каждые 60 секунд
   useEffect(() => {
     const t = setInterval(loadAll, 60_000);
     return () => clearInterval(t);
   }, [loadAll]);
 
-  const heldCount = counts.held ?? 0;
+  const pendingCount = counts.pending ?? 0;
+  const sentCount = (counts.auto_sent ?? 0) + (counts.approved_sent ?? 0);
   const failedCount = counts.failed ?? 0;
   const lastTick = tickLog[0];
   const cronHealthy = lastTick && Date.now() - new Date(lastTick.ts).getTime() < 30 * 60_000;
 
-  // Counts: ANSWERED today (auto_sent + approved_sent), edited count
-  const totalAnswered = (counts.auto_sent ?? 0) + (counts.approved_sent ?? 0);
-  const editedCount = counts.approved_sent ?? 0;
+  async function doReplyAll() {
+    setReplyAllBusy(true);
+    setReplyAllResult(null);
+    setError(null);
+    try {
+      const body: any = { maxBatch: 200, pauseMs: 1200 };
+      if (skuFilter !== 'all') body.sku = skuFilter;
+      const r = await fetch(`${API_BASE}/api/reviews/reply-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then((r) => r.json());
+      if (!r.ok) { setError(r.error ?? 'reply-all failed'); return; }
+      setReplyAllResult({ sent: r.sent, failed: r.failed });
+      await loadAll();
+    } catch (e: any) {
+      setError(String(e?.message ?? e));
+    } finally {
+      setReplyAllBusy(false);
+      setConfirming(false);
+    }
+  }
 
   return (
     <div style={{ padding: '24px', maxWidth: 1280, margin: '0 auto' }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, gap: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 16 }}>
         <div>
-          <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--fg-1)', margin: 0, letterSpacing: 0 }}>
-            Reviews
-          </h1>
+          <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--fg-1)', margin: 0 }}>Reviews</h1>
           <p style={{ fontSize: 14, color: 'var(--fg-3)', margin: '4px 0 0' }}>
-            Wildberries — лента всех отзывов и наших ответов
+            Wildberries — черновики ответов готовятся ботом, ты одобряешь и отправляешь
           </p>
         </div>
         <button
@@ -159,11 +164,99 @@ export default function ReviewsPage() {
         </button>
       </div>
 
-      {/* KPI row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard label="Отвечено всего" value={totalAnswered} icon={<MessageSquare className="h-4 w-4" />} />
+      {/* REPLY ALL BAR — top sticky */}
+      <div style={{
+        background: 'var(--paper)',
+        border: '1px solid var(--border-hairline)',
+        borderRadius: 'var(--radius-md)',
+        padding: '18px 22px',
+        marginBottom: 16,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 16,
+      }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
+            {pendingCount > 0
+              ? `${pendingCount} ${pendingCount === 1 ? 'ответ готов' : pendingCount < 5 ? 'ответа готовы' : 'ответов готовы'} к отправке`
+              : 'Нет ответов на отправку'}
+          </p>
+          <p style={{ margin: '4px 0 0', fontSize: 14, color: 'var(--fg-3)' }}>
+            {pendingCount > 0
+              ? 'Просмотри ленту ниже, при необходимости отредактируй, потом отправь всё разом'
+              : 'Cron заполнит очередь при следующем тике'}
+          </p>
+        </div>
+
+        {replyAllResult && (
+          <div style={{
+            fontSize: 14, fontWeight: 700,
+            color: replyAllResult.failed > 0 ? '#A32D2D' : '#1D9E75',
+            padding: '8px 14px', borderRadius: 'var(--radius-sm)',
+            background: replyAllResult.failed > 0 ? 'rgba(229,32,44,0.08)' : 'rgba(46,125,79,0.08)',
+          }}>
+            Отправлено: {replyAllResult.sent}
+            {replyAllResult.failed > 0 && <> · ошибок: {replyAllResult.failed}</>}
+          </div>
+        )}
+
+        {!confirming ? (
+          <button
+            onClick={() => setConfirming(true)}
+            disabled={pendingCount === 0 || replyAllBusy}
+            style={{
+              background: pendingCount > 0 ? '#1D9E75' : 'var(--paper-sunk)',
+              color: pendingCount > 0 ? 'white' : 'var(--fg-3)',
+              border: `1px solid ${pendingCount > 0 ? '#1D9E75' : 'var(--border-hairline)'}`,
+              fontWeight: 700, fontSize: 16, padding: '16px 28px',
+              display: 'flex', alignItems: 'center', gap: 10,
+              flexShrink: 0,
+              borderRadius: 'var(--radius-sm)',
+              cursor: pendingCount > 0 ? 'pointer' : 'not-allowed',
+              opacity: pendingCount > 0 ? 1 : 0.6,
+            }}
+          >
+            <Send className="h-5 w-5" />
+            Reply All{pendingCount > 0 && ` — отправить ${pendingCount}`}
+          </button>
+        ) : (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => setConfirming(false)}
+              disabled={replyAllBusy}
+              style={{
+                background: 'var(--paper)', color: 'var(--fg-1)',
+                border: '1px solid var(--border-hairline)',
+                padding: '14px 20px', borderRadius: 'var(--radius-sm)',
+                fontWeight: 700, fontSize: 14, cursor: 'pointer',
+              }}
+            >
+              Отмена
+            </button>
+            <button
+              onClick={doReplyAll}
+              disabled={replyAllBusy}
+              style={{
+                background: '#A32D2D', color: 'white',
+                border: '1px solid #A32D2D',
+                padding: '14px 24px', borderRadius: 'var(--radius-sm)',
+                fontWeight: 700, fontSize: 16,
+                display: 'flex', alignItems: 'center', gap: 10,
+                cursor: replyAllBusy ? 'wait' : 'pointer',
+              }}
+            >
+              {replyAllBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+              Подтвердить — отправить {pendingCount}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* KPI */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
         <KpiCard label="Без ответа на WB" value={stats?.total ?? '—'} icon={<Inbox className="h-4 w-4" />} hint={stats?.cached ? 'кеш 60с' : 'live'} />
-        <KpiCard label="Переписано вручную" value={editedCount} valueColor="#BA7517" icon={<Edit3 className="h-4 w-4" />} />
+        <KpiCard label="Готовы к отправке" value={pendingCount} valueColor="#1D9E75" />
+        <KpiCard label="Отправлено всего" value={sentCount} icon={<Check className="h-4 w-4" />} />
         <KpiCard
           label="Cron tick"
           value={lastTick ? relativeDate(lastTick.ts) : '—'}
@@ -172,37 +265,38 @@ export default function ReviewsPage() {
         />
       </div>
 
-      {/* Held / Failed banner if any */}
-      {(heldCount > 0 || failedCount > 0) && (
+      {/* Failed banner */}
+      {failedCount > 0 && (
         <div style={{
-          padding: '12px 16px', background: 'rgba(199,122,0,0.08)',
-          border: '1px solid rgba(199,122,0,0.3)', borderRadius: 'var(--radius-sm)',
-          marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12, fontSize: 14, fontWeight: 700,
+          padding: '12px 16px', background: 'rgba(229,32,44,0.08)',
+          border: '1px solid rgba(229,32,44,0.3)', borderRadius: 'var(--radius-sm)',
+          marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12,
+          fontSize: 14, fontWeight: 700, color: '#A32D2D',
         }}>
-          <AlertTriangle className="h-5 w-5" style={{ color: '#BA7517', flexShrink: 0 }} />
-          <span style={{ color: '#854F0B' }}>
-            {heldCount > 0 && <>{heldCount} {heldCount === 1 ? 'ответ отложен' : 'ответа отложены'} safety-проверкой</>}
-            {heldCount > 0 && failedCount > 0 && ' · '}
-            {failedCount > 0 && <>{failedCount} {failedCount === 1 ? 'не доставлен' : 'не доставлено'}</>}
-            {'  '}— проверь карточки ниже
-          </span>
+          <AlertTriangle className="h-5 w-5" />
+          {failedCount} {failedCount === 1 ? 'ответ не отправлен' : 'ответов не отправлено'} — посмотри во вкладке Все
         </div>
       )}
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-        <input
-          type="search"
-          placeholder="Поиск по тексту..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{
-            flex: 1, minWidth: 220, padding: '8px 14px',
-            background: 'var(--paper)', border: '1px solid var(--border-hairline)',
-            borderRadius: 'var(--radius-sm)', fontSize: 14, fontWeight: 700,
-            color: 'var(--fg-1)',
-          }}
-        />
+        {(['pending', 'sent', 'all'] as const).map((s) => (
+          <button
+            key={s}
+            onClick={() => setStatusView(s)}
+            style={{
+              padding: '8px 16px',
+              background: statusView === s ? 'var(--fg-1)' : 'var(--paper)',
+              color: statusView === s ? 'var(--paper)' : 'var(--fg-1)',
+              border: `1px solid ${statusView === s ? 'var(--fg-1)' : 'var(--border-hairline)'}`,
+              borderRadius: 'var(--radius-sm)',
+              fontSize: 14, fontWeight: 700, cursor: 'pointer',
+            }}
+          >
+            {s === 'pending' ? `Готовы (${pendingCount})` : s === 'sent' ? `Отправлено (${sentCount})` : 'Все'}
+          </button>
+        ))}
+        <div style={{ flex: 1 }} />
         <select
           value={String(ratingFilter)}
           onChange={(e) => setRatingFilter(e.target.value === 'all' ? 'all' : parseInt(e.target.value, 10))}
@@ -219,6 +313,23 @@ export default function ReviewsPage() {
           <option value="2">★★</option>
           <option value="1">★</option>
         </select>
+        <select
+          value={skuFilter}
+          onChange={(e) => setSkuFilter(e.target.value)}
+          style={{
+            padding: '8px 14px', background: 'var(--paper)',
+            border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)',
+            fontSize: 14, fontWeight: 700, color: 'var(--fg-1)',
+            minWidth: 180,
+          }}
+        >
+          <option value="all">Все товары</option>
+          {products.map((p) => (
+            <option key={p.baseSku} value={p.baseSku.toLowerCase()}>
+              {p.name} ({p.count})
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Hint */}
@@ -227,17 +338,16 @@ export default function ReviewsPage() {
         padding: '8px 14px', background: 'var(--paper-sunk)',
         borderRadius: 'var(--radius-sm)',
       }}>
-        💡 Клик по ответу — редактировать.{' '}
-        <strong style={{ fontWeight: 700, color: 'var(--fg-1)' }}>Ctrl+Enter</strong> — перезаписать в Wildberries.
-        Esc — отмена.
+        Клик по ответу — редактировать.{' '}
+        <strong style={{ fontWeight: 700, color: 'var(--fg-1)' }}>Ctrl+Enter</strong> — сохранить.
+        Esc — отмена. Все готовые ответы отправятся одной волной по кнопке Reply All.
       </div>
 
-      {/* Error */}
       {error && (
         <div style={{
           padding: '12px 16px', background: 'rgba(229,32,44,0.08)',
           border: '1px solid rgba(229,32,44,0.3)', borderRadius: 'var(--radius-sm)',
-          color: 'var(--brand-rot)', fontSize: 14, fontWeight: 700, marginBottom: 16,
+          color: '#A32D2D', fontSize: 14, fontWeight: 700, marginBottom: 16,
         }}>
           {error}
         </div>
@@ -254,18 +364,20 @@ export default function ReviewsPage() {
           background: 'var(--paper-sunk)', borderRadius: 'var(--radius-md)',
         }}>
           <MessageSquare className="h-8 w-8 inline-block" style={{ marginBottom: 12 }} />
-          <div style={{ fontSize: 16, fontWeight: 700 }}>Лента пуста</div>
-          <div style={{ marginTop: 4, fontSize: 14 }}>Cron заполнит её при следующем тике.</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>
+            {statusView === 'pending' ? 'Нет готовых ответов' : 'Лента пуста'}
+          </div>
+          <div style={{ marginTop: 4, fontSize: 14 }}>
+            {statusView === 'pending' ? 'Cron подготовит черновики при следующем тике' : 'Запусти cron для наполнения'}
+          </div>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {drafts.map((d) => (
-            <ReviewCard key={d.id} draft={d} onChange={loadAll} />
-          ))}
+          {drafts.map((d) => <ReviewCard key={d.id} draft={d} onChange={loadAll} />)}
         </div>
       )}
 
-      {/* Tick log footer */}
+      {/* Tick log */}
       <details style={{
         marginTop: 32, padding: 16, background: 'var(--paper-sunk)',
         borderRadius: 'var(--radius-sm)', fontSize: 14,
@@ -289,9 +401,6 @@ export default function ReviewsPage() {
   );
 }
 
-// =============================================================================
-// KPI Card
-// =============================================================================
 function KpiCard({ label, value, hint, valueColor, icon }: {
   label: string; value: number | string; hint?: string; valueColor?: string; icon?: React.ReactNode;
 }) {
@@ -313,20 +422,17 @@ function KpiCard({ label, value, hint, valueColor, icon }: {
   );
 }
 
-// =============================================================================
-// Review card — review on top, answer below (editable, Ctrl+Enter to publish)
-// =============================================================================
+// Card: header → review text → ANSWER (no label "Ответ отправлен ботом" — color says it)
 function ReviewCard({ draft, onChange }: { draft: ReviewDraft; onChange: () => void }) {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(draft.draft_text ?? '');
-  const [busy, setBusy] = useState<'save' | 'publish' | 'release' | null>(null);
-  const [localError, setLocalError] = useState<string | null>(null);
   const [savedText, setSavedText] = useState(draft.draft_text ?? '');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [busy, setBusy] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Sync if parent reloads with newer text
   useEffect(() => {
     if (!editing) {
       setEditText(draft.draft_text ?? '');
@@ -334,123 +440,59 @@ function ReviewCard({ draft, onChange }: { draft: ReviewDraft; onChange: () => v
     }
   }, [draft.draft_text, editing]);
 
-  // Debounced autosave (800ms)
   useEffect(() => {
     if (!editing) return;
-    if (editText === savedText) {
-      setSaveStatus('idle');
-      return;
-    }
+    if (editText === savedText) { setSaveStatus('idle'); return; }
     setSaveStatus('saving');
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
       try {
         const r = await fetch(`${API_BASE}/api/reviews/drafts/${draft.id}/save-text`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: editText }),
         }).then((r) => r.json());
-        if (r.ok) {
-          setSavedText(editText);
-          setSaveStatus('saved');
-        }
+        if (r.ok) { setSavedText(editText); setSaveStatus('saved'); }
       } catch {}
     }, 800);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
   }, [editText, editing, savedText, draft.id]);
 
   function startEditing() {
+    if (busy) return;
     setEditing(true);
-    setEditText(draft.draft_text ?? '');
-    setSavedText(draft.draft_text ?? '');
     setLocalError(null);
-    // Focus on next tick to ensure render
     setTimeout(() => textareaRef.current?.focus(), 0);
   }
-
-  function cancelEditing() {
-    setEditText(savedText);
-    setEditing(false);
-    setLocalError(null);
-  }
-
-  async function publish() {
-    setBusy('publish');
-    setLocalError(null);
+  function cancelEditing() { setEditText(savedText); setEditing(false); setLocalError(null); }
+  async function saveAndClose() {
+    if (editText === savedText) { setEditing(false); return; }
+    setBusy(true);
     try {
-      const r = await fetch(`${API_BASE}/api/reviews/drafts/${draft.id}/publish`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      await fetch(`${API_BASE}/api/reviews/drafts/${draft.id}/save-text`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: editText }),
-      }).then((r) => r.json());
-      if (!r.ok) { setLocalError(r.error ?? 'publish failed'); return; }
+      });
+      setSavedText(editText);
       setEditing(false);
       onChange();
-    } catch (e: any) {
-      setLocalError(String(e?.message ?? e));
-    } finally {
-      setBusy(null);
-    }
+    } catch (e: any) { setLocalError(String(e?.message ?? e)); }
+    finally { setBusy(false); }
   }
-
-  async function releaseHeld() {
-    setBusy('release');
-    setLocalError(null);
-    try {
-      const r = await fetch(`${API_BASE}/api/reviews/drafts/${draft.id}/release`, {
-        method: 'POST',
-      }).then((r) => r.json());
-      if (!r.ok) { setLocalError(r.error ?? 'release failed'); return; }
-      onChange();
-    } catch (e: any) {
-      setLocalError(String(e?.message ?? e));
-    } finally {
-      setBusy(null);
-    }
-  }
-
   function handleKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault();
-      publish();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      cancelEditing();
-    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); saveAndClose(); }
+    else if (e.key === 'Escape') { e.preventDefault(); cancelEditing(); }
   }
 
-  const isHeld = draft.status === 'held';
-  const isFailed = draft.status === 'failed';
+  const isPending = draft.status === 'pending';
   const isSent = draft.status === 'auto_sent' || draft.status === 'approved_sent';
+  const isFailed = draft.status === 'failed';
 
-  // Visual states for answer block
-  let answerBg = '#E1F5EE';
+  // Color of answer block by state
+  let answerBg = '#E1F5EE';     // sent — green
   let answerBorder = 'rgba(15,110,86,0.3)';
-  let answerLabelColor = '#0F6E56';
-  let answerLabel = 'Ответ отправлен ботом';
-  let answerIcon = <Check className="h-3.5 w-3.5" />;
-
-  if (editing) {
-    answerBg = '#FAEEDA';
-    answerBorder = '#BA7517';
-    answerLabelColor = '#854F0B';
-    answerLabel = 'Редактирую — Ctrl+Enter сохранить, Esc отмена';
-    answerIcon = <Edit3 className="h-3.5 w-3.5" />;
-  } else if (isHeld) {
-    answerBg = 'rgba(199,122,0,0.08)';
-    answerBorder = 'rgba(199,122,0,0.3)';
-    answerLabelColor = '#854F0B';
-    answerLabel = `Отложено safety-проверкой${draft.rejection_reason ? ': ' + draft.rejection_reason : ''}`;
-    answerIcon = <AlertTriangle className="h-3.5 w-3.5" />;
-  } else if (isFailed) {
-    answerBg = 'rgba(229,32,44,0.08)';
-    answerBorder = 'rgba(229,32,44,0.3)';
-    answerLabelColor = '#A32D2D';
-    answerLabel = `Не отправлено: ${draft.rejection_reason ?? 'неизвестная ошибка'}`;
-    answerIcon = <X className="h-3.5 w-3.5" />;
-  } else if (draft.status === 'approved_sent') {
-    answerLabel = `Переписано вручную${draft.posted_to_wb_at ? ' · ' + relativeDate(draft.posted_to_wb_at) : ''}`;
-  }
+  if (editing) { answerBg = '#FAEEDA'; answerBorder = '#BA7517'; }
+  else if (isPending) { answerBg = '#E6F1FB'; answerBorder = 'rgba(24,95,165,0.3)'; }
+  else if (isFailed) { answerBg = 'rgba(229,32,44,0.08)'; answerBorder = 'rgba(229,32,44,0.3)'; }
 
   return (
     <div style={{
@@ -460,46 +502,31 @@ function ReviewCard({ draft, onChange }: { draft: ReviewDraft; onChange: () => v
       padding: '16px 20px',
     }}>
       {/* Header */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        marginBottom: 10, flexWrap: 'wrap',
-      }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
         <span style={{
           padding: '2px 8px', background: 'var(--paper-sunk)',
           borderRadius: 'var(--radius-sm)', fontSize: 14,
           fontWeight: 700, color: 'var(--fg-2)', textTransform: 'uppercase',
-        }}>
-          {draft.channel}
-        </span>
-        <span style={{ color: ratingColor(draft.rating), fontSize: 16, fontWeight: 700 }}>
-          {stars(draft.rating)}
-        </span>
+        }}>{draft.channel}</span>
+        <span style={{ color: ratingColor(draft.rating), fontSize: 16, fontWeight: 700 }}>{stars(draft.rating)}</span>
         {draft.customer_name && (
-          <span style={{ fontSize: 14, color: 'var(--fg-2)', fontWeight: 700 }}>
-            {draft.customer_name}
-          </span>
+          <span style={{ fontSize: 14, color: 'var(--fg-2)', fontWeight: 700 }}>{draft.customer_name}</span>
         )}
-        <span style={{ fontSize: 14, color: 'var(--fg-3)' }}>
-          {draft.product_name ?? draft.product_sku ?? '—'}
-        </span>
+        <span style={{ fontSize: 14, color: 'var(--fg-3)' }}>{draft.product_name ?? draft.product_sku ?? '—'}</span>
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 14, color: 'var(--fg-3)' }}>
           {relativeDate(draft.created_at)}
-          {draft.posted_to_wb_at && draft.posted_to_wb_at !== draft.created_at && (
-            <> · ответ {relativeDate(draft.posted_to_wb_at)}</>
-          )}
+          {draft.posted_to_wb_at && <> · отправлено {relativeDate(draft.posted_to_wb_at)}</>}
         </span>
       </div>
 
-      {/* Review text or rating-only marker */}
+      {/* Review text or rating-only */}
       {draft.review_text ? (
         <div style={{
           background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)',
           padding: '12px 14px', fontSize: 14, lineHeight: 1.55,
           marginBottom: 10, whiteSpace: 'pre-wrap',
-        }}>
-          {draft.review_text}
-        </div>
+        }}>{draft.review_text}</div>
       ) : (
         <div style={{
           background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)',
@@ -510,7 +537,6 @@ function ReviewCard({ draft, onChange }: { draft: ReviewDraft; onChange: () => v
         </div>
       )}
 
-      {/* Pros / Cons */}
       {(draft.pros || draft.cons) && (
         <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
           {draft.pros && (
@@ -528,153 +554,70 @@ function ReviewCard({ draft, onChange }: { draft: ReviewDraft; onChange: () => v
         </div>
       )}
 
-      {/* Local error */}
       {localError && (
         <div style={{
           padding: '8px 12px', background: 'rgba(229,32,44,0.08)',
           color: '#A32D2D', border: '1px solid rgba(229,32,44,0.3)',
           borderRadius: 'var(--radius-sm)', fontSize: 14, marginBottom: 8, fontWeight: 700,
+        }}>{localError}</div>
+      )}
+
+      {/* Failed reason */}
+      {isFailed && draft.rejection_reason && (
+        <div style={{
+          padding: '6px 12px', background: 'rgba(229,32,44,0.08)',
+          color: '#A32D2D', border: '1px solid rgba(229,32,44,0.3)',
+          borderRadius: 'var(--radius-sm)', fontSize: 13, marginBottom: 8, fontWeight: 700,
         }}>
-          {localError}
+          {draft.rejection_reason}
         </div>
       )}
 
-      {/* Answer block — click to edit (if not held/failed actions needed first) */}
+      {/* Answer block — NO label header, color alone shows state */}
       <div
-        onClick={() => { if (!editing && !busy && isSent) startEditing(); }}
+        onClick={() => { if (!editing && (isPending || isSent || isFailed)) startEditing(); }}
         style={{
           background: answerBg,
           border: `1px solid ${answerBorder}`,
           borderRadius: 'var(--radius-sm)',
           padding: '12px 14px',
-          cursor: editing || busy ? 'default' : (isSent ? 'text' : 'default'),
+          cursor: editing ? 'default' : 'text',
         }}
       >
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          marginBottom: 6,
-        }}>
-          <div style={{
-            fontSize: 14, color: answerLabelColor, fontWeight: 700,
-            display: 'flex', alignItems: 'center', gap: 6,
-          }}>
-            {answerIcon}
-            {answerLabel}
-          </div>
-          {editing && saveStatus === 'saving' && (
-            <span style={{ fontSize: 14, color: 'var(--fg-3)' }}>сохраняю...</span>
-          )}
-          {editing && saveStatus === 'saved' && editText !== savedText && (
-            <span style={{ fontSize: 14, color: 'var(--fg-3)' }}>несохранено</span>
-          )}
-          {editing && saveStatus === 'saved' && editText === savedText && (
-            <span style={{ fontSize: 14, color: '#0F6E56' }}>сохранено</span>
-          )}
-        </div>
-
         {editing ? (
-          <textarea
-            ref={textareaRef}
-            value={editText}
-            onChange={(e) => setEditText(e.target.value)}
-            onKeyDown={handleKey}
-            rows={Math.max(3, Math.ceil(editText.length / 90))}
-            style={{
-              width: '100%', border: 'none', background: 'transparent',
-              resize: 'vertical', padding: 0, fontFamily: 'inherit',
-              fontSize: 14, lineHeight: 1.55, outline: 'none',
-              color: 'var(--fg-1)', minHeight: 80,
-            }}
-          />
+          <>
+            <textarea
+              ref={textareaRef}
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              onKeyDown={handleKey}
+              rows={Math.max(3, Math.ceil(editText.length / 90))}
+              style={{
+                width: '100%', border: 'none', background: 'transparent',
+                resize: 'vertical', padding: 0, fontFamily: 'inherit',
+                fontSize: 14, lineHeight: 1.55, outline: 'none',
+                color: 'var(--fg-1)', minHeight: 80,
+              }}
+            />
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(199,122,0,0.2)',
+              fontSize: 13, color: '#854F0B',
+            }}>
+              <span>Ctrl+Enter — сохранить, Esc — отмена</span>
+              <span>
+                {saveStatus === 'saving' && 'сохраняю...'}
+                {saveStatus === 'saved' && editText === savedText && 'сохранено'}
+                {editText !== savedText && saveStatus !== 'saving' && 'несохранено'}
+              </span>
+            </div>
+          </>
         ) : (
-          <div style={{
-            fontSize: 14, lineHeight: 1.55, color: 'var(--fg-1)',
-            whiteSpace: 'pre-wrap',
-          }}>
-            {draft.draft_text}
+          <div style={{ fontSize: 14, lineHeight: 1.55, color: 'var(--fg-1)', whiteSpace: 'pre-wrap' }}>
+            {draft.draft_text || <span style={{ color: 'var(--fg-3)', fontStyle: 'italic' }}>(пусто)</span>}
           </div>
         )}
       </div>
-
-      {/* Editing action row */}
-      {editing && (
-        <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
-          <button
-            onClick={cancelEditing}
-            style={{
-              padding: '8px 14px', background: 'var(--paper)',
-              border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)',
-              fontSize: 14, fontWeight: 700, color: 'var(--fg-1)', cursor: 'pointer',
-            }}
-          >
-            Отмена (Esc)
-          </button>
-          <button
-            onClick={publish}
-            disabled={busy === 'publish'}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '8px 16px', background: '#1D9E75',
-              border: '1px solid #1D9E75', color: 'white',
-              borderRadius: 'var(--radius-sm)', fontSize: 14, fontWeight: 700,
-              cursor: busy === 'publish' ? 'wait' : 'pointer',
-            }}
-          >
-            {busy === 'publish' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            Перезаписать в WB (Ctrl+Enter)
-          </button>
-        </div>
-      )}
-
-      {/* HELD — release button */}
-      {isHeld && !editing && (
-        <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
-          <button
-            onClick={startEditing}
-            style={{
-              padding: '8px 14px', background: 'var(--paper)',
-              border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)',
-              fontSize: 14, fontWeight: 700, color: 'var(--fg-1)', cursor: 'pointer',
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-            }}
-          >
-            <Edit3 className="h-4 w-4" />
-            Редактировать
-          </button>
-          <button
-            onClick={releaseHeld}
-            disabled={busy === 'release'}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '8px 16px', background: '#1D9E75',
-              border: '1px solid #1D9E75', color: 'white',
-              borderRadius: 'var(--radius-sm)', fontSize: 14, fontWeight: 700,
-              cursor: busy === 'release' ? 'wait' : 'pointer',
-            }}
-          >
-            {busy === 'release' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            Одобрить и опубликовать
-          </button>
-        </div>
-      )}
-
-      {/* FAILED — retry */}
-      {isFailed && !editing && (
-        <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
-          <button
-            onClick={startEditing}
-            style={{
-              padding: '8px 14px', background: 'var(--paper)',
-              border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)',
-              fontSize: 14, fontWeight: 700, color: 'var(--fg-1)', cursor: 'pointer',
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-            }}
-          >
-            <Edit3 className="h-4 w-4" />
-            Редактировать и опубликовать
-          </button>
-        </div>
-      )}
     </div>
   );
 }

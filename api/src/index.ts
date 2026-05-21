@@ -52,6 +52,7 @@ import freightRfqRoutes from './routes/freight-rfq';
 import marketplacePullRoutes from './routes/marketplace-pull';
 import salesBreakdownRoutes from './routes/sales-breakdown';
 import reviewsRoutes from './routes/reviews';
+import skillsRoutes from './routes/skills';
 import plannerRoutes from './routes/planner';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
@@ -97,6 +98,7 @@ app.route('/api/operations', operationsImportRoutes);  // adds /parse-excel
 app.route('/api/marketplace-pull', marketplacePullRoutes);
 app.route('/api/dashboard', salesBreakdownRoutes);
 app.route('/api/reviews', reviewsRoutes);
+app.route('/api/skills', skillsRoutes);
 app.route('/api/planner', plannerRoutes);
 
 // Manual trigger for the auto-delivery sweep (same code path as cron).

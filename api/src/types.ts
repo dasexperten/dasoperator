@@ -41,6 +41,9 @@ export interface Env {
   // Set via Cloudflare Workers secrets, never committed to repo.
   DEEPSEEK_API_KEY: string;
 
+  // Gemini API for rating-only review replies (hybrid pipeline)
+  GEMINI_API_KEY: string;
+
   // Claude API key — used for analytical tasks (rule extraction, complex parsing)
   ANTHROPIC_API_KEY?: string;
 

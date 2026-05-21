@@ -76,6 +76,8 @@ const UNRESOLVED_METHODS = [
   'partner_auto_created',
   'ambiguous',
   'auto_created_draft',
+  'awaiting_invoice',
+  'awaiting_marketplace_settlement',
 ] as const;
 
 // =============================================================================
@@ -379,7 +381,7 @@ inboxBanking.get('/counts', async (c) => {
              COUNT(*) AS cnt
       FROM bank_transactions
       WHERE (match_method IS NULL
-         OR match_method IN ('partner_not_found','partner_auto_created','ambiguous','auto_created_draft'))
+         OR match_method IN ('partner_not_found','partner_auto_created','ambiguous','auto_created_draft','awaiting_invoice','awaiting_marketplace_settlement'))
          -- Exclude internal self-transfers. 2026-05-16.
          AND (
            contragent_inn IS NULL
@@ -397,6 +399,8 @@ inboxBanking.get('/counts', async (c) => {
       partner_auto_created: 0,
       ambiguous: 0,
       auto_created_draft: 0,
+      awaiting_invoice: 0,
+      awaiting_marketplace_settlement: 0,
       legacy_unmatched: 0,
     };
     (rows.results || []).forEach((r) => { result[r.bucket] = r.cnt; });

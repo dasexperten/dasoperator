@@ -71,7 +71,7 @@ const ISSUER_ABBR: Record<string, string> = {
   wdaa: 'WDAA',
   honghui: 'HHUI',
   meizhiyuan: 'MZHN',
-  jinxia: 'YGZH',
+  jinxia: 'JINX',
 };
 
 function issuerAbbr(sellerKind: 'company' | 'manufacturer', sellerId: string): string {
@@ -103,9 +103,15 @@ interface BuildRefInput {
 }
 
 function buildDocumentReference(input: BuildRefInput): string {
-  const yy = String(new Date(input.issuedAtSec * 1000).getUTCFullYear() % 100).padStart(2, '0');
   const issuer = issuerAbbr(input.sellerKind, input.sellerId);
   const tail = operationNumericTail(input.operationReference);
+  // New operation reference format: {MfrCode}-YYMMDDXX (8-digit tail with date+seq).
+  // Old legacy format: {Entity}-NNNN (4-digit tail, no date). For old refs we
+  // prepend YY so docs still encode the year; new refs already carry it.
+  if (tail.length >= 6) {
+    return `${input.type}-${issuer}-${tail}`;
+  }
+  const yy = String(new Date(input.issuedAtSec * 1000).getUTCFullYear() % 100).padStart(2, '0');
   return `${input.type}-${issuer}-${yy}${tail}`;
 }
 

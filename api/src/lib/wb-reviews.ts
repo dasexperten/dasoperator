@@ -21,6 +21,7 @@ const REPLY_MAX_CHARS = 900;
 // =============================================================================
 // System prompt — full text from arams-db/wb_seller/replier.py (verbatim)
 // =============================================================================
+// Long prompt for reviews WITH meaningful text (1-5 stars).
 const SYSTEM_PROMPT = `Ты — отвечающий от имени бренда Das Experten на Wildberries.
 Цель — написать ответ, который прочитают не только автор отзыва, но и следующие ~1000 потенциальных покупателей.
 Пиши так, чтобы читатель-сомневающийся после ответа захотел купить.
@@ -118,6 +119,26 @@ Das Experten — немецкая философия, клинически то�
 
 ФОРМАТ ВЫХОДА
 Только готовый к публикации текст ответа на русском, без комментариев, без префиксов «Ответ:», без кавычек вокруг. Максимум ${REPLY_MAX_CHARS} символов. Если ответ выходит длиннее — сокращай.`;
+
+
+// =============================================================================
+// Short prompt for RATING-ONLY reviews (no text from customer)
+// =============================================================================
+const SHORT_PROMPT = `Ты — отвечающий от имени бренда Das Experten на Wildberries.
+Покупатель оставил ТОЛЬКО оценку, без текста. Это очень короткий формат.
+
+ПРАВИЛА:
+- Максимум 300 символов
+- Без обращения по имени (даже если есть — это формат «спасибо»)
+- Одна короткая благодарность + одна фраза о SKU или его пользе
+- Без 💡, без длинных объяснений механизмов
+- Без извинений за работу продукта
+- На 5★ — теплое спасибо + позитивная фраза о товаре
+- На 4★ — спасибо + лёгкая фраза что улучшаем дальше
+- На 3★ — нейтральная благодарность + предложение написать что улучшить
+- На 1-2★ — короткое сожаление + просьба написать в саппорт чтобы разобраться
+
+ФОРМАТ ВЫХОДА: только готовый текст ответа, без префиксов и кавычек.`;
 
 // =============================================================================
 // SKU normalization — DE###AAAA → (DE###, 4)
@@ -240,6 +261,109 @@ export async function draftReply(env: Env, fb: any, model = DEFAULT_MODEL): Prom
     stopReason: data.stop_reason ?? null,
     model: data.model ?? model,
   };
+}
+
+// =============================================================================
+// Short reply for RATING-ONLY reviews (no text from customer)
+// =============================================================================
+export async function shortDraftReply(env: Env, fb: any, model = DEFAULT_MODEL): Promise<Draft> {
+  if (!env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not configured');
+  const prod = fb.productDetails ?? {};
+  const rating = fb.productValuation;
+  const productName = prod.productName ?? '';
+  const supplierArticle = prod.supplierArticle ?? '';
+  const { baseSku, packSize } = normalizeWbSku(supplierArticle);
+
+  const userBody = [
+    `Рейтинг: ${rating}/5`,
+    `Товар: ${productName}`,
+    baseSku ? `Базовый SKU: ${baseSku}, упаковка: ${packSize} шт` : '',
+    '',
+    'Покупатель оставил только оценку, без текста. Напиши короткий ответ по формату.',
+  ].filter(Boolean).join('\n');
+
+  const resp = await fetch(ANTHROPIC_API, {
+    method: 'POST',
+    headers: {
+      'x-api-key': env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 400,
+      system: [{ type: 'text', text: SHORT_PROMPT, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: userBody }],
+    }),
+  });
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(`Anthropic HTTP ${resp.status}: ${body.slice(0, 500)}`);
+  }
+  const data = await resp.json<any>();
+  const chunks = (data.content ?? []).filter((b: any) => b.type === 'text').map((b: any) => b.text);
+  const text = chunks.join('\n').trim();
+  const usage = data.usage ?? {};
+  return {
+    text,
+    inputTokens: usage.input_tokens ?? 0,
+    outputTokens: usage.output_tokens ?? 0,
+    cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+    cacheCreationTokens: usage.cache_creation_input_tokens ?? 0,
+    stopReason: data.stop_reason ?? null,
+    model: data.model ?? model,
+  };
+}
+
+// =============================================================================
+// Safety check — only fires for 1-2★ replies before publication.
+// Returns true if reply is safe, false (with reason) if it should be held.
+// =============================================================================
+export async function safetyCheck(env: Env, draft: string, fb: any): Promise<{ safe: boolean; reason?: string }> {
+  if (!env.ANTHROPIC_API_KEY) return { safe: true };
+
+  const checkPrompt = `Проверь готовый ответ Das Experten на негативный отзыв перед публикацией.
+
+ОТЗЫВ (${fb.productValuation}/5): ${(fb.text ?? '').slice(0, 300)}
+ОТВЕТ: ${draft.slice(0, 800)}
+
+Найди критические проблемы:
+1. Извинения за работу продукта ("к сожалению", "приносим извинения", "понимаем разочарование")
+2. Обещание возврата/компенсации/скидки в публичном тексте
+3. Фабрикация фактов (выдуманные цифры, ингредиенты которых нет в составе)
+4. Отрицание существования купленного SKU
+5. Прямое упоминание брендов конкурентов
+6. Любые внутренние пометки или служебный текст
+
+Если проблем НЕТ — ответь ровно: SAFE
+Если есть — ответь: UNSAFE: <одно предложение что не так>`;
+
+  try {
+    const resp = await fetch(ANTHROPIC_API, {
+      method: 'POST',
+      headers: {
+        'x-api-key': env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: DEFAULT_MODEL,
+        max_tokens: 100,
+        messages: [{ role: 'user', content: checkPrompt }],
+      }),
+    });
+    if (!resp.ok) return { safe: true }; // fail-open on errors
+    const data = await resp.json<any>();
+    const text = (data.content?.[0]?.text ?? '').trim().toUpperCase();
+    if (text.startsWith('SAFE')) return { safe: true };
+    if (text.startsWith('UNSAFE')) {
+      const reason = (data.content?.[0]?.text ?? '').replace(/^UNSAFE:?\s*/i, '').trim();
+      return { safe: false, reason };
+    }
+    return { safe: true }; // unknown answer — fail-open
+  } catch {
+    return { safe: true };
+  }
 }
 
 // =============================================================================
@@ -460,13 +584,15 @@ export async function runWbAutoReply(
         continue;
       }
 
-      // SPLIT: 5★ posts automatically; 1-4★ saved to D1 as pending draft
-      const isAutoReplyEligible = rating >= AUTO_REPLY_MIN_RATING;
-      console.log(`  [${result.inspected}] ${fid}: ${stars} "${productName}" (${text.length} chars) — ${isAutoReplyEligible ? 'AUTO' : 'DRAFT'}...`);
+      // ALL reviews get auto-answered. text → full prompt. rating-only → short prompt.
+      // 1-2★ also goes through safety_check before publication; on UNSAFE → status='held'.
+      const hasText = text.length > 0;
+      const replyKind = hasText ? 'full' : 'short';
+      console.log(`  [${result.inspected}] ${fid}: ${stars} "${productName}" (${replyKind}, ${text.length} chars)`);
 
       let draft: Draft;
       try {
-        draft = await draftReply(env, fb);
+        draft = hasText ? await draftReply(env, fb) : await shortDraftReply(env, fb);
       } catch (e: any) {
         const msg = String(e?.message ?? e);
         console.error(`    DRAFT FAIL: ${msg}`);
@@ -479,15 +605,30 @@ export async function runWbAutoReply(
       }
       console.log(`    draft ${draft.text.length} chars (in=${draft.inputTokens} out=${draft.outputTokens} cache_r=${draft.cacheReadTokens})`);
 
-      // Always save draft to D1 first (idempotent via UNIQUE constraint on channel+external_id)
+      // Safety check for negative reviews (1-2★)
+      let heldReason: string | null = null;
+      if (rating <= 2) {
+        try {
+          const check = await safetyCheck(env, draft.text, fb);
+          if (!check.safe) {
+            heldReason = check.reason ?? 'safety check failed';
+            console.warn(`    ⚠ HELD by safety check: ${heldReason}`);
+          }
+        } catch (e: any) {
+          console.warn(`    safety check error (fail-open): ${e?.message}`);
+        }
+      }
+
+      // Save draft to D1 (idempotent via UNIQUE on channel+external_id)
+      const draftStatus = heldReason ? 'held' : 'auto_sent';
       try {
         await env.DB.prepare(`
-          INSERT INTO review_drafts (id, channel, external_id, rating, customer_name, product_name, product_sku, review_text, pros, cons, draft_text, status, draft_tokens_in, draft_tokens_out, updated_at)
-          VALUES (?, 'wb', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          INSERT INTO review_drafts (id, channel, external_id, rating, customer_name, product_name, product_sku, review_text, pros, cons, draft_text, status, rejection_reason, draft_tokens_in, draft_tokens_out, updated_at)
+          VALUES (?, 'wb', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
           ON CONFLICT(channel, external_id) DO UPDATE SET
             draft_text = excluded.draft_text,
             updated_at = datetime('now')
-          WHERE review_drafts.status = 'pending'
+          WHERE review_drafts.status IN ('pending', 'held')
         `).bind(
           `rd_${crypto.randomUUID()}`,
           fid,
@@ -499,30 +640,29 @@ export async function runWbAutoReply(
           (fb.pros ?? '').trim() || null,
           (fb.cons ?? '').trim() || null,
           draft.text,
-          isAutoReplyEligible ? 'pending' : 'pending',  // both start pending; auto path advances to auto_sent below
+          draftStatus,
+          heldReason,
           draft.inputTokens,
           draft.outputTokens,
         ).run();
       } catch (e: any) {
         console.error(`    D1 INSERT FAIL: ${e?.message}`);
-        // not fatal — continue to attempt post if it's a 5★
+        // not fatal — continue to attempt post (unless held)
       }
 
-      // 1-4★ stops here — waits for human approval via UI
-      if (!isAutoReplyEligible) {
-        console.log(`    ↑ saved as pending draft (1-4★ needs approval)`);
+      // Held by safety — do NOT post to WB
+      if (heldReason) {
         result.drafted++;
         result.details.push({ feedbackId: fid, rating, productName, replyChars: draft.text.length });
         continue;
       }
 
-      // 5★ — auto-post to WB
+      // Post to WB
       try {
         await postAnswer(env, fid, draft.text);
-        console.log(`    ✓ auto-posted to WB`);
+        console.log(`    ✓ posted to WB (${replyKind})`);
         result.replied++;
         result.details.push({ feedbackId: fid, rating, productName, replyChars: draft.text.length });
-        // Mark as auto_sent in D1
         try {
           await env.DB.prepare(`
             UPDATE review_drafts SET status = 'auto_sent', posted_to_wb_at = datetime('now'), updated_at = datetime('now')
@@ -533,6 +673,13 @@ export async function runWbAutoReply(
         const msg = String(e?.message ?? e);
         console.error(`    POST FAIL: ${msg}`);
         result.errors.push({ feedbackId: fid, stage: 'post', error: msg });
+        // Mark this draft as failed (UI shows error + retry button)
+        try {
+          await env.DB.prepare(`
+            UPDATE review_drafts SET status = 'failed', rejection_reason = ?, updated_at = datetime('now')
+            WHERE channel = 'wb' AND external_id = ?
+          `).bind(`post failed: ${msg.slice(0, 200)}`, fid).run();
+        } catch {}
         // If WB rate-limited the POST — stop this tick, save quota for next */20
         if (e instanceof WbRateLimitError && env.CACHE) {
           const streakRaw = await env.CACHE.get(STREAK_KEY);

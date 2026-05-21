@@ -3,8 +3,10 @@
 export const runtime = 'edge';
 
 import { useEffect, useState, useMemo } from 'react';
-import { Loader2, Flame, AlertTriangle, Check, Flag, Lock, X, CheckCircle2, Download, FilePlus } from 'lucide-react';
+import { Loader2, Flame, AlertTriangle, Check, Flag, Lock, X, CheckCircle2, Download, FilePlus, FileText } from 'lucide-react';
 import * as XLSX from 'xlsx-js-style';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { apiGet, apiPost } from '@/lib/api';
 
 interface SummaryGroup {
@@ -648,6 +650,244 @@ export default function PlannerPage() {
     XLSX.writeFile(wb, fname);
   }
 
+  // Download current plan as styled PDF — single page, landscape A4.
+  // Brand band on top, buyer/manufacturer boxes, items table auto-fit, footer.
+  function handleDownloadPDF() {
+    if (!detail) return;
+    const cur = currency.toUpperCase();
+    const sym = cur === 'CNY' ? 'RMB ' : '$';
+
+    // Re-compute totals
+    let dlCartons = 0, dlUnits = 0, dlVolume = 0, dlAmount = 0;
+    let dlAnyAmount = false;
+    type Row = { sku: string; product: string; bundle: string; cartons: number; qtyPerCarton: number; totalQty: number; unitPrice: number; lineAmount: number; volume: number };
+    const exportRows: Row[] = detail.rows
+      .filter(r => finalCartons(r) > 0)
+      .map(r => {
+        const c = finalCartons(r);
+        const u = finalUnits(r);
+        const v = finalVolume(r);
+        const a = finalAmount(r);
+        dlCartons += c; dlUnits += u; dlVolume += v;
+        if (a !== null) { dlAmount += a; dlAnyAmount = true; }
+        return {
+          sku: r.base_sku.toUpperCase(),
+          product: r.product_name,
+          bundle: r.bundle_size > 1 ? `${r.bundle_size}-pack` : 'single',
+          cartons: c,
+          qtyPerCarton: r.ctn_qty ?? 0,
+          totalQty: u,
+          unitPrice: r.unit_price ?? 0,
+          lineAmount: a ?? 0,
+          volume: Math.round(v * 1000) / 1000,
+        };
+      });
+    if (exportRows.length === 0) return;
+
+    const today = new Date();
+    const dateStr = today.toISOString().slice(0, 10);
+    const groupSlug = detail.group.id.replace(/[^a-z0-9]+/gi, '_').toUpperCase().slice(0, 4);
+    const docNo = `${dateStr}-${groupSlug}`;
+    const ld = summary?.rules.lead_time_days ?? 0;
+    const cv = summary?.rules.coverage_days ?? 0;
+
+    // Resolve manufacturer name shown on the PDF
+    let mfrName = detail.group.name.toUpperCase();
+    let mfrLocation = 'China';
+    if (detail.group.id === 'jinxia_group') {
+      mfrName = 'YANGZHOU JINXIA';
+      mfrLocation = 'Yangzhou, China';
+    } else if (detail.group.id === 'honghui_group') {
+      mfrName = 'HONGHUI / WDAA / MEIZHIYUAN';
+      mfrLocation = 'Guangzhou, China';
+    }
+
+    // A4 landscape: 297 × 210 mm
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const margin = 12;
+
+    // ===== Brand band =====
+    const bandH = 16;
+    doc.setFillColor(26, 26, 26); // #1A1A1A
+    doc.rect(0, 0, pageW, bandH, 'F');
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.text('DAS EXPERTEN', margin, 9);
+
+    doc.setTextColor(212, 160, 23); // #D4A017 gold
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.text('INNOVATIV UND PRAKTISCH', margin, 13.5);
+
+    // Right side of band
+    doc.setTextColor(140, 140, 140);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.text('PURCHASE PLAN', pageW - margin, 8, { align: 'right' });
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text(docNo, pageW - margin, 13, { align: 'right' });
+
+    // Gold stripe
+    doc.setFillColor(212, 160, 23);
+    doc.rect(0, bandH, pageW, 1.2, 'F');
+
+    // ===== Title + meta =====
+    let y = bandH + 6;
+    doc.setTextColor(26, 26, 26);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.text(`Purchase Plan — ${detail.group.name}`, margin, y);
+
+    y += 5;
+    doc.setTextColor(120, 113, 108);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.text(
+      `Date: ${dateStr}   ·   Currency: ${cur}   ·   Stock zone: ${stockZone}   ·   Rules: lead ${ld}d + cover ${cv}d (target ${ld + cv}d)`,
+      margin, y
+    );
+
+    // ===== Buyer / Manufacturer blocks =====
+    y += 4;
+    const blockW = (pageW - margin * 2 - 6) / 2;
+    const blockH = 16;
+    const drawBlock = (x: number, header: string, title: string, body: string) => {
+      doc.setDrawColor(214, 211, 209);
+      doc.setLineWidth(0.2);
+      doc.rect(x, y, blockW, blockH);
+      doc.setTextColor(136, 136, 136);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      doc.text(header, x + 3, y + 3.5);
+      doc.setTextColor(26, 26, 26);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.text(title, x + 3, y + 8);
+      doc.setTextColor(85, 85, 85);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text(body, x + 3, y + 12.5);
+    };
+    drawBlock(margin, 'BUYER', 'DAS EXPERTEN EURASIA LLC', 'Saransk, Russia · INN 9704117379');
+    drawBlock(margin + blockW + 6, 'MANUFACTURER', mfrName, `${mfrLocation} · Lead ${ld}d · Coverage ${cv}d`);
+
+    y += blockH + 6;
+
+    // ===== Items table — auto-fit, single page =====
+    // Estimate available height
+    const footerH = 10;
+    const availH = pageH - y - footerH - margin;
+    const headerRowH = 7;
+    const totalRowH = 8;
+    // Pick row height so all rows fit
+    const dataRowH = Math.min(7, Math.max(4, (availH - headerRowH - totalRowH) / exportRows.length));
+    // Font size scales with row height
+    const cellFont = dataRowH >= 6 ? 9 : dataRowH >= 5 ? 8 : 7;
+    const headerFont = Math.max(7, cellFont - 0.5);
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: margin, right: margin },
+      head: [[
+        'SKU', 'Product', 'Bundle',
+        'Ctn', 'Qty/ctn', 'Total qty',
+        `Unit ${cur === 'CNY' ? 'RMB' : '$'}`,
+        `Line ${cur === 'CNY' ? 'RMB' : '$'}`,
+        'm³',
+      ]],
+      body: [
+        ...exportRows.map(r => [
+          r.sku, r.product, r.bundle,
+          r.cartons.toString(),
+          r.qtyPerCarton.toString(),
+          r.totalQty.toLocaleString('en-US'),
+          r.unitPrice.toFixed(2),
+          r.lineAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+          r.volume.toFixed(3),
+        ]),
+      ],
+      foot: [[
+        { content: 'TOTAL', colSpan: 3, styles: { halign: 'left' } },
+        dlCartons.toString(),
+        '',
+        dlUnits.toLocaleString('en-US'),
+        '',
+        dlAnyAmount
+          ? sym + (Math.round(dlAmount * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+          : '',
+        (Math.round(dlVolume * 1000) / 1000).toFixed(3),
+      ]],
+      theme: 'plain',
+      styles: {
+        font: 'helvetica',
+        fontSize: cellFont,
+        cellPadding: { top: dataRowH / 3, bottom: dataRowH / 3, left: 2, right: 2 },
+        lineColor: [230, 228, 224],
+        lineWidth: 0.1,
+        textColor: [26, 26, 26],
+        overflow: 'ellipsize',
+      },
+      headStyles: {
+        fillColor: [26, 26, 26],
+        textColor: [255, 255, 255],
+        fontSize: headerFont,
+        fontStyle: 'bold',
+        cellPadding: { top: 2.4, bottom: 2.4, left: 2, right: 2 },
+        halign: 'center',
+        valign: 'middle',
+        lineWidth: 0,
+      },
+      bodyStyles: { valign: 'middle' },
+      alternateRowStyles: { fillColor: [250, 250, 247] },
+      footStyles: {
+        fillColor: [26, 26, 26],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        fontSize: cellFont + 0.5,
+        cellPadding: { top: 2.5, bottom: 2.5, left: 2, right: 2 },
+        lineWidth: 0,
+      },
+      columnStyles: {
+        0: { halign: 'left', fontStyle: 'bold', cellWidth: 22 },
+        1: { halign: 'left', cellWidth: 'auto' },
+        2: { halign: 'center', cellWidth: 14, textColor: [136, 136, 136] },
+        3: { halign: 'right', fontStyle: 'bold', cellWidth: 12 },
+        4: { halign: 'right', cellWidth: 16 },
+        5: { halign: 'right', fontStyle: 'bold', cellWidth: 22 },
+        6: { halign: 'right', cellWidth: 18 },
+        7: { halign: 'right', fontStyle: 'bold', cellWidth: 26 },
+        8: { halign: 'right', cellWidth: 14, textColor: [102, 102, 102] },
+      },
+      didParseCell: (data) => {
+        // Gold-tint the grand total amount cell (footer col 7)
+        if (data.section === 'foot' && data.column.index === 7) {
+          data.cell.styles.textColor = [212, 160, 23];
+        }
+      },
+      didDrawPage: () => {
+        // Footer
+        const fy = pageH - 6;
+        doc.setTextColor(136, 136, 136);
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(7);
+        doc.text(
+          `Generated by Das Operator ERP · planner module · ${today.toISOString().slice(0, 16).replace('T', ' ')} UTC`,
+          margin, fy
+        );
+        doc.text('Page 1 of 1', pageW - margin, fy, { align: 'right' });
+      },
+    });
+
+    const fname = `Purchase-Plan-${detail.group.id.replace(/[^a-z0-9]+/gi, '_')}-${dateStr.replace(/-/g, '')}.pdf`;
+    doc.save(fname);
+  }
+
   if (loading) {
     return <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-stone-400" /></div>;
   }
@@ -834,6 +1074,27 @@ export default function PlannerPage() {
             >
               <Download className="w-4 h-4" />
               Download as Excel
+            </button>
+            <button
+              disabled={totCartons === 0}
+              onClick={() => handleDownloadPDF()}
+              style={{
+                fontSize: '14px',
+                fontWeight: 500,
+                padding: '10px 18px',
+                background: 'white',
+                color: '#1c1917',
+                border: '0.5px solid #a8a29e',
+                borderRadius: 6,
+                cursor: totCartons === 0 ? 'not-allowed' : 'pointer',
+                opacity: totCartons === 0 ? 0.4 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <FileText className="w-4 h-4" />
+              Download as PDF
             </button>
             <button
               disabled={totCartons === 0}

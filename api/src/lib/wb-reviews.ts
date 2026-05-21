@@ -120,26 +120,6 @@ Das Experten — немецкая философия, клинически то�
 ФОРМАТ ВЫХОДА
 Только готовый к публикации текст ответа на русском, без комментариев, без префиксов «Ответ:», без кавычек вокруг. Максимум ${REPLY_MAX_CHARS} символов. Если ответ выходит длиннее — сокращай.`;
 
-
-// =============================================================================
-// Short prompt for RATING-ONLY reviews (no text from customer)
-// =============================================================================
-const SHORT_PROMPT = `Ты — отвечающий от имени бренда Das Experten на Wildberries.
-Покупатель оставил ТОЛЬКО оценку, без текста. Это очень короткий формат.
-
-ПРАВИЛА:
-- Максимум 300 символов
-- Без обращения по имени (даже если есть — это формат «спасибо»)
-- Одна короткая благодарность + одна фраза о SKU или его пользе
-- Без 💡, без длинных объяснений механизмов
-- Без извинений за работу продукта
-- На 5★ — теплое спасибо + позитивная фраза о товаре
-- На 4★ — спасибо + лёгкая фраза что улучшаем дальше
-- На 3★ — нейтральная благодарность + предложение написать что улучшить
-- На 1-2★ — короткое сожаление + просьба написать в саппорт чтобы разобраться
-
-ФОРМАТ ВЫХОДА: только готовый текст ответа, без префиксов и кавычек.`;
-
 // =============================================================================
 // SKU normalization — DE###AAAA → (DE###, 4)
 // =============================================================================
@@ -250,58 +230,6 @@ export async function draftReply(env: Env, fb: any, model = DEFAULT_MODEL): Prom
   const chunks = (data.content ?? [])
     .filter((b: any) => b.type === 'text')
     .map((b: any) => b.text);
-  const text = chunks.join('\n').trim();
-  const usage = data.usage ?? {};
-  return {
-    text,
-    inputTokens: usage.input_tokens ?? 0,
-    outputTokens: usage.output_tokens ?? 0,
-    cacheReadTokens: usage.cache_read_input_tokens ?? 0,
-    cacheCreationTokens: usage.cache_creation_input_tokens ?? 0,
-    stopReason: data.stop_reason ?? null,
-    model: data.model ?? model,
-  };
-}
-
-// =============================================================================
-// Short reply for RATING-ONLY reviews (no text from customer)
-// =============================================================================
-export async function shortDraftReply(env: Env, fb: any, model = DEFAULT_MODEL): Promise<Draft> {
-  if (!env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not configured');
-  const prod = fb.productDetails ?? {};
-  const rating = fb.productValuation;
-  const productName = prod.productName ?? '';
-  const supplierArticle = prod.supplierArticle ?? '';
-  const { baseSku, packSize } = normalizeWbSku(supplierArticle);
-
-  const userBody = [
-    `Рейтинг: ${rating}/5`,
-    `Товар: ${productName}`,
-    baseSku ? `Базовый SKU: ${baseSku}, упаковка: ${packSize} шт` : '',
-    '',
-    'Покупатель оставил только оценку, без текста. Напиши короткий ответ по формату.',
-  ].filter(Boolean).join('\n');
-
-  const resp = await fetch(ANTHROPIC_API, {
-    method: 'POST',
-    headers: {
-      'x-api-key': env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 400,
-      system: [{ type: 'text', text: SHORT_PROMPT, cache_control: { type: 'ephemeral' } }],
-      messages: [{ role: 'user', content: userBody }],
-    }),
-  });
-  if (!resp.ok) {
-    const body = await resp.text();
-    throw new Error(`Anthropic HTTP ${resp.status}: ${body.slice(0, 500)}`);
-  }
-  const data = await resp.json<any>();
-  const chunks = (data.content ?? []).filter((b: any) => b.type === 'text').map((b: any) => b.text);
   const text = chunks.join('\n').trim();
   const usage = data.usage ?? {};
   return {
@@ -586,7 +514,7 @@ export async function runWbAutoReply(
 
       let draft: Draft;
       try {
-        draft = hasText ? await draftReply(env, fb) : await shortDraftReply(env, fb);
+        draft = await draftReply(env, fb);
       } catch (e: any) {
         const msg = String(e?.message ?? e);
         console.error(`    DRAFT FAIL: ${msg}`);

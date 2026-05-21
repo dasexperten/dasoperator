@@ -3,7 +3,8 @@
 export const runtime = 'edge';
 
 import { useEffect, useState, useMemo } from 'react';
-import { Loader2, Flame, AlertTriangle, Check, Flag, Lock, X, CheckCircle2 } from 'lucide-react';
+import { Loader2, Flame, AlertTriangle, Check, Flag, Lock, X, CheckCircle2, Download, FilePlus } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { apiGet, apiPost } from '@/lib/api';
 
 interface SummaryGroup {
@@ -296,6 +297,73 @@ export default function PlannerPage() {
     }
   }
 
+  // Download current plan as .xlsx — no DB write, just file to disk.
+  function handleDownloadExcel() {
+    if (!detail) return;
+    const cur = currency.toUpperCase();
+
+    // Re-compute totals inside (state values are defined inside render body)
+    let dlCartons = 0, dlUnits = 0, dlVolume = 0, dlAmount = 0;
+    let dlAnyAmount = false;
+    const rowsForExport = detail.rows
+      .filter(r => finalCartons(r) > 0)
+      .map(r => {
+        const c = finalCartons(r);
+        const u = finalUnits(r);
+        const v = finalVolume(r);
+        const a = finalAmount(r);
+        dlCartons += c; dlUnits += u; dlVolume += v;
+        if (a !== null) { dlAmount += a; dlAnyAmount = true; }
+        return {
+          'SKU': r.base_sku.toUpperCase(),
+          'Product': r.product_name,
+          'Bundle': r.bundle_size > 1 ? `${r.bundle_size}-pack` : 'single',
+          'Cartons': c,
+          'Qty per carton': r.ctn_qty ?? 0,
+          'Total qty (units)': u,
+          [`Unit price (${cur})`]: r.unit_price ?? 0,
+          [`Line total (${cur})`]: a ?? 0,
+          'Volume (m³)': Math.round(v * 1000) / 1000,
+        };
+      });
+
+    if (rowsForExport.length === 0) return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const ld = summary?.rules.lead_time_days ?? 0;
+    const cv = summary?.rules.coverage_days ?? 0;
+    const meta: any[][] = [
+      [`Purchase Plan — ${detail.group.name}`],
+      [`Date: ${today}`],
+      [`Currency: ${cur}`],
+      [`Stock zone: ${stockZone}`],
+      [`Rules: lead ${ld}d + cover ${cv}d (target ${ld + cv}d)`],
+      [],
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(meta);
+    XLSX.utils.sheet_add_json(ws, rowsForExport, { origin: 'A7' });
+
+    const totalsRow = 7 + rowsForExport.length + 1;
+    XLSX.utils.sheet_add_aoa(
+      ws,
+      [['TOTAL', '', '', dlCartons, '', dlUnits, '', dlAnyAmount ? Math.round(dlAmount * 100) / 100 : '', Math.round(dlVolume * 1000) / 1000]],
+      { origin: `A${totalsRow}` }
+    );
+
+    ws['!cols'] = [
+      { wch: 14 }, { wch: 32 }, { wch: 10 }, { wch: 9 }, { wch: 14 }, { wch: 16 },
+      { wch: 16 }, { wch: 16 }, { wch: 13 },
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Purchase Plan');
+
+    const groupSlug = detail.group.id.replace(/[^a-z0-9]+/gi, '_');
+    const fname = `Purchase-Plan-${groupSlug}-${today.replace(/-/g, '')}.xlsx`;
+    XLSX.writeFile(wb, fname);
+  }
+
   if (loading) {
     return <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-stone-400" /></div>;
   }
@@ -460,15 +528,37 @@ export default function PlannerPage() {
             </div>
           </div>
 
-          {/* Create Draft Purchase */}
-          <div className="flex justify-end pt-4 border-t border-stone-200">
+          {/* Two actions: Download Excel + Create Draft */}
+          <div className="flex justify-end gap-3 pt-4 border-t border-stone-200">
+            <button
+              disabled={totCartons === 0}
+              onClick={() => handleDownloadExcel()}
+              style={{
+                fontSize: '14px',
+                fontWeight: 500,
+                padding: '10px 18px',
+                background: 'white',
+                color: '#1c1917',
+                border: '0.5px solid #a8a29e',
+                borderRadius: 6,
+                cursor: totCartons === 0 ? 'not-allowed' : 'pointer',
+                opacity: totCartons === 0 ? 0.4 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <Download className="w-4 h-4" />
+              Download as Excel
+            </button>
             <button
               disabled={totCartons === 0}
               className="px-5 py-2.5 rounded bg-stone-900 text-white disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ fontSize: '14px', fontWeight: 500 }}
+              style={{ fontSize: '14px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8 }}
               onClick={() => setDraftModalOpen(true)}
             >
-              Create Draft Purchase
+              <FilePlus className="w-4 h-4" />
+              Create Draft Operation
             </button>
           </div>
 

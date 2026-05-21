@@ -410,6 +410,16 @@ async function commitOperationCreate(
   }
 
   await env.DB.batch(stmts);
+
+  // Auto-allocate any awaiting bank_tx that match this new operation
+  // (forward trigger: invoice arrived → attach parked payments)
+  try {
+    const { allocateAwaitingTxToOperation } = await import('../lib/bank-tx-allocator');
+    await allocateAwaitingTxToOperation(env, operationId);
+  } catch (e) {
+    console.error('[document-extractions] allocator failed (non-fatal):', e);
+  }
+
   return { target_id: operationId, reference: refResult.reference };
 }
 

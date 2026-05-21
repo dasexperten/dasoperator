@@ -18,6 +18,7 @@
 
 import type { Env } from '../types';
 import { callPro } from './deepseek';
+import { callGeminiFlash } from './gemini';
 import { loadSkillMd, loadSkuKnowledge, loadSegmentCheck } from './skill-loader';
 
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
@@ -102,6 +103,21 @@ async function callDeepSeek(env: Env, system: string, user: string, maxTokens: n
     text: r.text.trim(),
     tokensIn: r.usage.prompt_tokens ?? 0,
     tokensOut: r.usage.completion_tokens ?? 0,
+  };
+}
+
+
+async function callGemini(env: Env, system: string, user: string, maxTokens: number, temp = 0.5): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
+  if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
+  const r = await callGeminiFlash(system, user, {
+    apiKey: env.GEMINI_API_KEY,
+    maxTokens,
+    temperature: temp,
+  });
+  return {
+    text: r.text,
+    tokensIn: r.usage.prompt_tokens,
+    tokensOut: r.usage.completion_tokens,
   };
 }
 
@@ -299,6 +315,109 @@ ${segmentMd || '(spec not loaded, use common sense)'}`;
     );
     if (rewriteResult.text.length > 50) currentReply = rewriteResult.text;
     totalIn += rewriteResult.tokensIn; totalOut += rewriteResult.tokensOut;
+  }
+
+  return {
+    ok: true,
+    reply: currentReply,
+    reviewType,
+    gates,
+    totalDurationMs: Date.now() - startedAt,
+    totalTokensIn: totalIn,
+    totalTokensOut: totalOut,
+  };
+}
+
+// =============================================================================
+// RATING-ONLY PIPELINE — used for 5★/4★ reviews without text.
+// Uses Gemini 2.5 Flash for drafting (10x cheaper than Claude).
+// Skips marketolog sharpen gate — rating-only doesn't need brand voice as much.
+// Skipped also: segment-check (these are 200-char answers, always readable).
+//
+// Gates:
+//   1. classify (DeepSeek)  — always returns POS/MIX/NEG
+//   2. product-knowledge (rule) — load SKU card
+//   3. draft (Gemini Flash) — write concise reply
+//   4. technolog (DeepSeek) — verify clinical claims
+//      (rewrite via Gemini if FAIL)
+// =============================================================================
+export async function runRatingOnlyPipeline(env: Env, input: PipelineInput): Promise<PipelineResult> {
+  const startedAt = Date.now();
+  const gates: GateResult[] = [];
+  let totalIn = 0, totalOut = 0;
+
+  // GATE 1: classify
+  const t1 = Date.now();
+  const classifySystem = `Классификатор отзывов. Категории:
+POS — позитивный (3-5★)
+NEG — негативный (1-2★)
+MIX — нейтральный (3★ неоднозначный)
+Ответь ровно одной строкой: POS / NEG / MIX. Ничего больше.`;
+  const r1 = await callDeepSeek(env, classifySystem, formatInput(input), 8000, 0.0);
+  totalIn += r1.tokensIn; totalOut += r1.tokensOut;
+  let reviewType: ReviewType = input.rating >= 4 ? 'POS' : input.rating <= 2 ? 'NEG' : 'MIX';
+  if (r1.text.toUpperCase().startsWith('POS')) reviewType = 'POS';
+  else if (r1.text.toUpperCase().startsWith('NEG')) reviewType = 'NEG';
+  else if (r1.text.toUpperCase().startsWith('MIX')) reviewType = 'MIX';
+  gates.push({ gate: 'classify', status: 'pass', provider: 'deepseek', reason: reviewType, tokensIn: r1.tokensIn, tokensOut: r1.tokensOut, durationMs: Date.now() - t1 });
+
+  // GATE 2: SKU knowledge
+  const t2 = Date.now();
+  const skuKnowledge = await loadSkuKnowledge(env, input.productSku ?? '').catch(() => '');
+  gates.push({ gate: 'product-knowledge', status: skuKnowledge.length > 100 ? 'pass' : 'weak', provider: 'rule', reason: `${skuKnowledge.length} bytes`, tokensIn: 0, tokensOut: 0, durationMs: Date.now() - t2 });
+
+  // GATE 3: draft via GEMINI — short, focused system prompt
+  const t3 = Date.now();
+  const draftSystem = `Ты — официальный голос Das Experten на Wildberries. Отвечаешь на отзыв без текста (только звёзды).
+
+ПРАВИЛА:
+- Обращение по имени, если есть
+- 150-300 символов
+- Без emoji (можно 💡 в очень редких случаях)
+- Без шаблонов «Спасибо за пятёрку», «Рады, что понравилось»
+- На POS: дай ОДИН конкретный факт о товаре, цифру, особенность — то о чём покупатель может не знать
+- На NEG: не извиняйся, не благодари за оценку. Дай нейтральный ответ, предложи альтернативу из линейки или контакт поддержки
+- На MIX: расшифруй "немой диалог" — почему 3★ может быть, что может сработать лучше
+- ВЫХОД: только текст ответа. БЕЗ "PLATFORM:", "GATES:", "Original:", "Sharpened:" и подобных префиксов. Чистый текст.
+
+ИНФОРМАЦИЯ О ПРОДУКТЕ:
+${skuKnowledge.slice(0, 5000)}`;
+
+  const r3 = await callGemini(env, draftSystem, formatInput(input), 800, 0.5);
+  let currentReply = r3.text;
+  totalIn += r3.tokensIn; totalOut += r3.tokensOut;
+  gates.push({ gate: 'draft', status: currentReply.length > 50 ? 'pass' : 'fail', provider: 'deepseek' as any, reason: `${currentReply.length} chars (Gemini)`, tokensIn: r3.tokensIn, tokensOut: r3.tokensOut, durationMs: Date.now() - t3 });
+
+  if (currentReply.length < 50) {
+    return { ok: false, reply: '', reviewType, gates, totalDurationMs: Date.now() - startedAt, totalTokensIn: totalIn, totalTokensOut: totalOut, warning: 'Gemini draft too short' };
+  }
+
+  // GATE 4: technolog
+  const t4 = Date.now();
+  const technologSystem = `Ты — technolog gate. Проверь черновик ответа на клиническую достоверность.
+- Всё чисто → "CLEARED"
+- Неточности → "IMPRECISE: что"
+- Ложь → "FALSE: что неправда"
+
+PRODUCT KNOWLEDGE:
+${skuKnowledge.slice(0, 5000)}`;
+  const r4 = await callDeepSeek(env, technologSystem, `Черновик:
+${currentReply}`, 8000, 0.1);
+  totalIn += r4.tokensIn; totalOut += r4.tokensOut;
+  let tStatus: 'pass' | 'weak' | 'fail' = 'pass';
+  const u = r4.text.toUpperCase();
+  if (u.startsWith('FALSE')) tStatus = 'fail';
+  else if (u.startsWith('IMPRECISE')) tStatus = 'weak';
+  gates.push({ gate: 'technolog', status: tStatus, provider: 'deepseek', reason: r4.text.slice(0, 150), tokensIn: r4.tokensIn, tokensOut: r4.tokensOut, durationMs: Date.now() - t4 });
+
+  // Rewrite via Gemini if needed
+  if (tStatus !== 'pass') {
+    const fix = await callGemini(env, draftSystem + `
+
+ИСПРАВЬ ПРОБЛЕМУ: ${r4.text}`, `Перепиши ответ, устранив проблему:
+${currentReply}`, 800, 0.5);
+    if (fix.text.length > 50) currentReply = fix.text;
+    totalIn += fix.tokensIn; totalOut += fix.tokensOut;
   }
 
   return {

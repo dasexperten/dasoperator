@@ -179,7 +179,7 @@ export async function allocateAwaitingTxToOperation(
          doc_number, doc_date, amount, currency, issuer,
          parsed_from, source_ref_id, notes,
          created_at, updated_at
-       ) VALUES (?, ?, ?, 'payment', ?, ?, ?, ?, ?, 'bank_tx_allocator', ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, 'payment', ?, ?, ?, ?, ?, 'bank_tx', ?, ?, ?, ?)`,
     ).bind(
       attId, operationId, tx.direction,
       tx.external_doc_number || null,

@@ -11,6 +11,7 @@
 // replies per tick.
 // =============================================================================
 import type { Env } from '../types';
+import { callPro } from './deepseek';
 import { PRODUCT_KNOWLEDGE_BASE } from './wb-reviews-knowledge';
 
 const WB_BASE = 'https://feedbacks-api.wildberries.ru';
@@ -240,6 +241,32 @@ export async function draftReply(env: Env, fb: any, model = DEFAULT_MODEL): Prom
     cacheCreationTokens: usage.cache_creation_input_tokens ?? 0,
     stopReason: data.stop_reason ?? null,
     model: data.model ?? model,
+  };
+}
+
+
+// =============================================================================
+// DeepSeek variant — used for rating-only reviews.
+// Same SYSTEM_PROMPT (with full KB), same userBody, different provider.
+// =============================================================================
+export async function draftReplyDeepSeek(env: Env, fb: any): Promise<Draft> {
+  if (!env.DEEPSEEK_API_KEY) throw new Error('DEEPSEEK_API_KEY not configured');
+  const userBody = formatFeedback(fb);
+  const r = await callPro(
+    [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: userBody },
+    ],
+    { apiKey: env.DEEPSEEK_API_KEY, maxTokens: 1500, temperature: 0.5 },
+  );
+  return {
+    text: r.text.trim(),
+    inputTokens: r.usage.prompt_tokens || 0,
+    outputTokens: r.usage.completion_tokens || 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    stopReason: null,
+    model: r.model,
   };
 }
 
@@ -514,7 +541,7 @@ export async function runWbAutoReply(
 
       let draft: Draft;
       try {
-        draft = await draftReply(env, fb);
+        draft = hasText ? await draftReply(env, fb) : await draftReplyDeepSeek(env, fb);
       } catch (e: any) {
         const msg = String(e?.message ?? e);
         console.error(`    DRAFT FAIL: ${msg}`);
@@ -527,22 +554,10 @@ export async function runWbAutoReply(
       }
       console.log(`    draft ${draft.text.length} chars (in=${draft.inputTokens} out=${draft.outputTokens} cache_r=${draft.cacheReadTokens})`);
 
-      // Safety check for negative reviews (1-2★)
-      let heldReason: string | null = null;
-      if (rating <= 2) {
-        try {
-          const check = await safetyCheck(env, draft.text, fb);
-          if (!check.safe) {
-            heldReason = check.reason ?? 'safety check failed';
-            console.warn(`    ⚠ HELD by safety check: ${heldReason}`);
-          }
-        } catch (e: any) {
-          console.warn(`    safety check error (fail-open): ${e?.message}`);
-        }
-      }
-
-      // Save draft to D1 (idempotent via UNIQUE on channel+external_id)
-      const draftStatus = heldReason ? 'held' : 'auto_sent';
+      // Reply-All model: cron only PREPARES drafts. User reviews them on /reviews
+      // page and presses Reply All to publish in one batch.
+      const draftStatus = 'pending';
+      const heldReason: string | null = null;
       try {
         await env.DB.prepare(`
           INSERT INTO review_drafts (id, channel, external_id, rating, customer_name, product_name, product_sku, review_text, pros, cons, draft_text, status, rejection_reason, draft_tokens_in, draft_tokens_out, updated_at)
@@ -572,52 +587,9 @@ export async function runWbAutoReply(
         // not fatal — continue to attempt post (unless held)
       }
 
-      // Held by safety — do NOT post to WB
-      if (heldReason) {
-        result.drafted++;
-        result.details.push({ feedbackId: fid, rating, productName, replyChars: draft.text.length });
-        continue;
-      }
-
-      // Post to WB
-      try {
-        await postAnswer(env, fid, draft.text);
-        console.log(`    ✓ posted to WB (${replyKind})`);
-        result.replied++;
-        result.details.push({ feedbackId: fid, rating, productName, replyChars: draft.text.length });
-        try {
-          await env.DB.prepare(`
-            UPDATE review_drafts SET status = 'auto_sent', posted_to_wb_at = datetime('now'), updated_at = datetime('now')
-            WHERE channel = 'wb' AND external_id = ?
-          `).bind(fid).run();
-        } catch {}
-      } catch (e: any) {
-        const msg = String(e?.message ?? e);
-        console.error(`    POST FAIL: ${msg}`);
-        result.errors.push({ feedbackId: fid, stage: 'post', error: msg });
-        // Mark this draft as failed (UI shows error + retry button)
-        try {
-          await env.DB.prepare(`
-            UPDATE review_drafts SET status = 'failed', rejection_reason = ?, updated_at = datetime('now')
-            WHERE channel = 'wb' AND external_id = ?
-          `).bind(`post failed: ${msg.slice(0, 200)}`, fid).run();
-        } catch {}
-        // If WB rate-limited the POST — stop this tick, save quota for next */20
-        if (e instanceof WbRateLimitError && env.CACHE) {
-          const streakRaw = await env.CACHE.get(STREAK_KEY);
-          const streak = (parseInt(streakRaw ?? '0', 10) || 0) + 1;
-          const baseSec = e.retryAfterSec + 60;
-          const multiplier = Math.min(Math.pow(2, streak - 1), Math.ceil((MAX_BACKOFF_HOURS * 3600) / baseSec));
-          const waitSec = Math.min(baseSec * multiplier, MAX_BACKOFF_HOURS * 3600);
-          const until = Date.now() + waitSec * 1000;
-          await env.CACHE.put(THROTTLE_KEY, String(until), { expirationTtl: waitSec + 30 });
-          await env.CACHE.put(STREAK_KEY, String(streak), { expirationTtl: MAX_BACKOFF_HOURS * 3600 });
-          console.warn(`[wb-auto-reply] POST 429 streak=${streak}, throttle ${Math.round(waitSec/60)}min`);
-          result.durationMs = Date.now() - startedAt;
-          return result;
-        }
-        continue;
-      }
+      // Cron stops here — draft saved as 'pending'. User publishes via Reply All.
+      result.drafted++;
+      result.details.push({ feedbackId: fid, rating, productName, replyChars: draft.text.length });
 
       // Pause between WB calls to respect rate limit
       if (result.replied < maxReplies) {

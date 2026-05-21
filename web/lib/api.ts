@@ -261,6 +261,43 @@ export async function deleteProductPrice(productId: string, priceId: string) {
   return res.json() as Promise<ApiResponse<{ id: string; closed_at: number }>>;
 }
 
+export interface UpdateProductPriceBody {
+  sell_price?: number;
+  effective_from?: number;
+  effective_until?: number | null;
+  notes?: string | null;
+}
+
+export async function updateProductPrice(productId: string, priceId: string, body: UpdateProductPriceBody) {
+  const res = await fetch(`${API_BASE}/api/products/${productId}/prices/${priceId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.json() as Promise<ApiResponse<ProductPriceRow>>;
+}
+
+export interface ProductPriceHistoryRow {
+  id: string;
+  price_type_id: string;
+  sell_price: number;
+  currency: string;
+  effective_from: number;
+  effective_until: number | null;
+  notes: string | null;
+  created_at: number;
+  updated_at: number;
+  is_active: number;
+  is_scheduled: number;
+}
+
+export async function getProductPriceHistory(productId: string, priceTypeId: string) {
+  return apiGet<{ count: number; history: ProductPriceHistoryRow[] }>(
+    `/api/products/${productId}/prices/${priceTypeId}/history`
+  );
+}
+
+
 // Bulk pricelist — full SKU→price map for one price type
 export interface PricelistResponse {
   price_type_id: string;

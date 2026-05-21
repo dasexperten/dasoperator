@@ -29,6 +29,10 @@ database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
 binding = "DOCS"
 bucket_name = "das-erp-docs-dev"
 
+[[r2_buckets]]
+binding = "SKILLS_BUCKET"
+bucket_name = "das-skills"
+
 # -----------------------------------------------------------------------------
 # R2 Bucket — Pricer skill price lists (.md files)
 # Stores: PL-DASEX-USD, PL-DISTR_RF, PL-INT_USD, PL-PRCH_CNY, PL-PRCH_USD, PL-RSP_RF

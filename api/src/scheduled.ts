@@ -354,6 +354,14 @@ export async function handleScheduled(
     } catch (e) {
       console.error('[cron:mp-pull-schedule:wb] failed:', e);
     }
+    // After WB sale ops are created, attach parked bank_tx via FIFO
+    try {
+      const { runMarketplaceFifoForPartner } = await import('./lib/marketplace-fifo-allocator');
+      const fifoResult = await runMarketplaceFifoForPartner(env, 'wb');
+      console.log(`[cron:mp-fifo:wb] result: ${JSON.stringify(fifoResult)}`);
+    } catch (e) {
+      console.error('[cron:mp-fifo:wb] failed:', e);
+    }
     return;
   }
 
@@ -366,6 +374,14 @@ export async function handleScheduled(
       console.log(`[cron:mp-pull-schedule:ozon] result: ${JSON.stringify(r)}`);
     } catch (e) {
       console.error('[cron:mp-pull-schedule:ozon] failed:', e);
+    }
+    // After Ozon monthly sale op is created, attach parked bank_tx via FIFO
+    try {
+      const { runMarketplaceFifoForPartner } = await import('./lib/marketplace-fifo-allocator');
+      const fifoResult = await runMarketplaceFifoForPartner(env, 'ozon');
+      console.log(`[cron:mp-fifo:ozon] result: ${JSON.stringify(fifoResult)}`);
+    } catch (e) {
+      console.error('[cron:mp-fifo:ozon] failed:', e);
     }
     return;
   }
@@ -381,6 +397,14 @@ export async function handleScheduled(
       console.log(`[cron:site-rebuild] complete: ${JSON.stringify(r)}`);
     } catch (e) {
       console.error('[cron:site-rebuild] failed:', e);
+    }
+    // After Yandex Pay monthly sale op is rebuilt, attach parked bank_tx via FIFO
+    try {
+      const { runMarketplaceFifoForPartner } = await import('./lib/marketplace-fifo-allocator');
+      const fifoResult = await runMarketplaceFifoForPartner(env, 'яндекс_пей_продажи_с_нашего_сайта');
+      console.log(`[cron:mp-fifo:yandex] result: ${JSON.stringify(fifoResult)}`);
+    } catch (e) {
+      console.error('[cron:mp-fifo:yandex] failed:', e);
     }
     return;
   }
@@ -402,6 +426,17 @@ export async function handleScheduled(
       console.log(`[cron:bank-statements] complete: ${JSON.stringify(bankStats)}`);
     } catch (e) {
       console.error('[cron:bank-statements] failed:', e);
+    }
+
+    // After fresh bank tx are pulled, run FIFO allocator across all marketplace partners
+    console.log('[cron:mp-fifo] starting daily marketplace FIFO allocator');
+    try {
+      const { runMarketplaceFifoAll } = await import('./lib/marketplace-fifo-allocator');
+      const fifoResults = await runMarketplaceFifoAll(env);
+      const summary = fifoResults.map(r => `${r.partner_id}: ${r.payments_processed} pmts → ${r.allocations_created} allocs (${r.ops_fully_closed.length} closed)`).join('; ');
+      console.log(`[cron:mp-fifo] complete: ${summary}`);
+    } catch (e) {
+      console.error('[cron:mp-fifo] failed:', e);
     }
     return;
   }

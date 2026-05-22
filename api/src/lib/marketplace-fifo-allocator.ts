@@ -39,6 +39,8 @@ const PARTNER_ALIASES: Record<string, string> = {
   // 9714053621 → wb already maps via partners.tax_id directly
   // 9705212635 → яндекс_пей_продажи_с_нашего_сайта already maps directly
   '9703026898': 'ozon', // OZON MKK Credit pays for Ozon sales
+  '7802754982': 'ozon', // Sberbank Factoring — pays for ИНН 7704217370 (Ozon) via factoring
+  '7702045051': 'ozon', // MTS-Bank — pays for contract ИР-34138/22 (Ozon factoring)
 };
 
 // Currency minor factor: RUB/USD/CNY = 100, VND/JPY/KRW = 1
@@ -75,7 +77,19 @@ export interface MarketplaceAllocatorResult {
   leftover_amount_major: number; // RUB amount that couldn't be allocated (no more ops)
 }
 
-const SUPPORTED_PARTNERS = ['ozon', 'wb', 'яндекс_пей_продажи_с_нашего_сайта'];
+// Name-based aliases: when bank tx has NULL INN but recognizable contragent_name,
+// route to a canonical partner_id. Used for foreign payment processors that
+// route payments through their own legal entity name without an INN.
+const PARTNER_NAME_ALIASES: Record<string, string> = {
+  'NETWORK INTERNATIONAL LLC': 'dasexperten_com', // Stripe via Wio → dasexperten.com online sales
+};
+
+const SUPPORTED_PARTNERS = [
+  'ozon',
+  'wb',
+  'яндекс_пей_продажи_с_нашего_сайта',
+  'dasexperten_com',
+];
 
 /**
  * Run FIFO allocator for a single partner.
@@ -100,11 +114,14 @@ export async function runMarketplaceFifoForPartner(
     };
   }
 
-  // Collect INNs that should route here
+  // Collect INNs and names that should route here
   const aliasInns = Object.entries(PARTNER_ALIASES)
     .filter(([, target]) => target === partnerId)
     .map(([inn]) => inn);
   const allInns = [partner.tax_id, ...aliasInns];
+  const aliasNames = Object.entries(PARTNER_NAME_ALIASES)
+    .filter(([, target]) => target === partnerId)
+    .map(([name]) => name);
 
   // Default currency for ops (assume same as partner's primary)
   // We allocate per-currency; for now RUB is the only marketplace currency,
@@ -113,18 +130,28 @@ export async function runMarketplaceFifoForPartner(
   const minorFactor = NO_SUBDIVISION.has(currency) ? 1 : 100;
 
   // Pull parked bank_txs (oldest first)
+  // Match by INN OR by recognized contragent_name (for INN-less payment processors)
   const innList = allInns.map(() => '?').join(',');
+  let nameClause = '';
+  const params: any[] = [...allInns];
+  if (aliasNames.length > 0) {
+    const nameList = aliasNames.map(() => '?').join(',');
+    nameClause = `OR (contragent_inn IS NULL AND contragent_name IN (${nameList}))`;
+    params.push(...aliasNames);
+  }
+  params.push(currency);
+
   const txRes = await env.DB.prepare(
     `SELECT id, amount, currency, executed_at, direction, payment_purpose,
             contragent_name, external_doc_number, match_method
        FROM bank_transactions
       WHERE matched_operation_id IS NULL
-        AND match_method IN ('awaiting_marketplace_settlement', 'awaiting_invoice')
+        AND match_method IN ('awaiting_marketplace_settlement', 'awaiting_invoice', 'awaiting_site_sales_settlement')
         AND direction = 'incoming'
-        AND contragent_inn IN (${innList})
+        AND (contragent_inn IN (${innList}) ${nameClause})
         AND currency = ?
       ORDER BY executed_at ASC`,
-  ).bind(...allInns, currency).all<ParkedTx>();
+  ).bind(...params).all<ParkedTx>();
 
   const parkedTxs = txRes.results || [];
   if (parkedTxs.length === 0) {

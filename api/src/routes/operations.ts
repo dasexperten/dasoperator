@@ -2462,5 +2462,23 @@ operations.get('/_alloc-debug/:opId', async (c) => {
 });
 
 
+// =============================================================================
+// POST /operations/_sweep-marketplace-allocator
+//
+// FIFO allocator: walks all parked marketplace bank_tx (incoming, ozon/wb/yandex)
+// and attaches them chronologically to the oldest unpaid sale operations of
+// the corresponding partner. One bank_tx can be split across multiple ops
+// (large monthly payment covers multiple weeklies) or partially paid (small
+// payment covers part of one op, remainder stays unallocated).
+//
+// Idempotent — already-attached payments are not re-counted.
+// =============================================================================
+operations.post('/_sweep-marketplace-allocator', async (c) => {
+  const { runMarketplaceFifoAll } = await import('../lib/marketplace-fifo-allocator');
+  const results = await runMarketplaceFifoAll(c.env);
+  return ok(c, { results });
+});
+
+
 export default operations;
 

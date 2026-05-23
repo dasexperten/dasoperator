@@ -13,7 +13,7 @@ import { todayUtcDate, refreshFxFromCbr } from './lib/fx-cbr';
 import { storeSnapshot } from './lib/fx-store';
 import { runInboxIngestion } from './lib/inbox-ingestion';
 import { runBankStatementIngestion } from './lib/bank-statement-ingestion';
-import { scheduleWbWeekly, scheduleOzonMonthly, tickMarketplacePull, rebuildPriorMonthSite } from './lib/marketplace-pull';
+import { scheduleWbWeekly, scheduleOzonMonthly, tickMarketplacePull, rebuildPriorMonthSite, rebuildPriorMonthDasexpertenCom } from './lib/marketplace-pull';
 
 
 // =============================================================================
@@ -397,6 +397,13 @@ export async function handleScheduled(
       console.log(`[cron:site-rebuild] complete: ${JSON.stringify(r)}`);
     } catch (e) {
       console.error('[cron:site-rebuild] failed:', e);
+    }
+    // Also rebuild dasexperten.com (Stripe via Wio Bank) for the same prior month
+    try {
+      const r = await rebuildPriorMonthDasexpertenCom(env);
+      console.log(`[cron:dascom-rebuild] complete: ${JSON.stringify(r)}`);
+    } catch (e) {
+      console.error('[cron:dascom-rebuild] failed:', e);
     }
     // After Yandex Pay monthly sale op is rebuilt, attach parked bank_tx via FIFO
     try {

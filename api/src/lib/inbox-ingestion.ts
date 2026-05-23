@@ -77,11 +77,18 @@ For logistics/freight services (Inter-Freight, Inter-Vostok, Панченко) a
   - service_subtype: one of "freight" (international transport, EXW->RU), "customs" (Таможенное оформление, ГТД), "storage" (Хранение), "handling" (ПРР, погрузо-разгрузка), "demurrage" (Простой), "delivery_local" (last-mile within RU, e.g. Москва-Люберцы), "insurance", "other". Pick by line item description.
 
 CRITICAL — distinguish invoices from supporting documents:
-  - ГТД / Таможенная декларация / Customs declaration (Декларация на товары): classification = "not_invoice". Customs value (декларационная стоимость, e.g. 84 million CNY or $1.29M USD) is NOT an amount to pay. Set amount_total = null. Still extract shipment_ref if mentioned.
-  - Коносамент / B/L / Bill of Lading: classification = "not_invoice". Set amount_total = null.
-  - Договор страхования: classification = "service" with service_subtype = "insurance" ONLY if it contains an amount payable. If it's just the policy contract without invoice — "not_invoice".
-  - ТД / Транзитная декларация (transit declaration): classification = "not_invoice", amount = null.
-  - УПД / Счёт-фактура / Acta of services: these ARE invoices. Use the total payable amount from "Итого к оплате" or "Всего к оплате".
+  - ГТД / Таможенная декларация / Customs declaration / Декларация на товары / Decl. на товары: classification = "not_invoice". ALWAYS set amount_total = null AND line_items = []. The "общая таможенная стоимость" (e.g. 1290227.87) is the declared value in RUB (after the FX rate in field 23), NOT a payable amount. Even if you see "USD" or "CNY" labels, the only payable items in ГТД are tiny customs fees (e.g. 13541 RUB sbor + ~6.5% duty), and these are paid via tax authorities, not the forwarder — so still not_invoice for our pipeline.
+  - Коносамент / B/L / Bill of Lading / Морская накладная (RZZU*, MAEU*, etc.): classification = "not_invoice", amount_total = null, line_items = []. These are scanned/multi-page transport documents; any numbers you see are container weights, ports, dates — never invoice amounts.
+  - Договор страхования / Insurance policy / Полис: classification = "service" with subtype="insurance" ONLY if it explicitly contains a payable премия figure. The policy contract itself without a separate invoice is "not_invoice".
+  - ТД / Транзитная декларация (transit declaration): classification = "not_invoice", amount_total = null. The "общая сумма по счету" field references the underlying invoice — DO NOT extract it as amount_total.
+  - СМР / CMR / Накладная на перевозку: classification = "not_invoice".
+  - УПД / Счёт-фактура / Счет на оплату: these ARE invoices. Use the total payable amount from "Итого к оплате" / "Всего к оплате" / "К ОПЛАТЕ". Ignore "Таможенная стоимость" if present in a freight invoice.
+  - INVOICE-SPECIFICATION (вендорский счёт-спецификация от Honghui/Jinxia с перечнем SKU): classification = "purchase", currency = the one in column header (typically CNY). Use the row totaling sum, not customs value.
+
+SANITY RULES for amount_total:
+  - If amount_total > 10,000,000 in any currency, double-check — service invoices rarely exceed this. If unsure, set amount_total = null and add to notes: "Amount sanity check failed: extracted figure XX appears to be ledger total or customs value, not invoice amount".
+  - If line description mentions "таможенная стоимость", "статистическая стоимость", "общая стоимость партии", "declared value", "customs value" — that number is NOT the invoice amount. Look elsewhere.
+  - Numbers next to the words "оплате", "к оплате", "amount due", "total payable", "итого" are the real amount.
 
 Output ONLY valid JSON:
 {

@@ -326,8 +326,8 @@ export async function safetyCheck(env: Env, draft: string, fb: any): Promise<{ s
 // WB API helpers
 // =============================================================================
 function wbAuthHeaders(env: Env): Record<string, string> {
-  if (!env.WB_API_TOKEN) throw new Error('WB_API_TOKEN not configured');
-  return { Authorization: env.WB_API_TOKEN, 'Content-Type': 'application/json' };
+  if (!env.WB_API_TOKEN_REVIEWS) throw new Error('WB_API_TOKEN not configured');
+  return { Authorization: env.WB_API_TOKEN_REVIEWS, 'Content-Type': 'application/json' };
 }
 
 export async function fetchUnansweredCount(env: Env): Promise<{ total: number; today: number }> {

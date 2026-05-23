@@ -25,6 +25,7 @@ import stockMovementsRoutes from './routes/stock-movements';
 import inventorySessionsRoutes from './routes/inventory-sessions';
 import warehousesRoutes from './routes/warehouses';
 import productsPhotosRoutes from './routes/products-photos';
+import productsLandedCostRoutes from './routes/products-landed-cost';
 import adminMigrationsRoutes from './routes/admin-migrations';
 import marketplacesRoutes from './routes/marketplaces';
 import marketplacesExtrasRoutes from './routes/marketplaces-extras';
@@ -82,6 +83,7 @@ app.route('/api/products', productsRoutes);
 app.route('/api/products', productsPricingRoutes);  // adds :productId/price
 app.route('/api/products', productStock);           // adds :id/stock
 app.route('/api/products', productsPhotosRoutes);   // adds :id/images endpoints
+app.route('/api/products', productsLandedCostRoutes); // adds :id/landed-cost
 app.route('/api/contacts', contactsRoutes);
 app.route('/api', directoriesRoutes);  // companies + manufacturers list
 app.route('/api/partners', partnersRoutes);

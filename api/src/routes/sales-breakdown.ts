@@ -37,6 +37,15 @@ r.get('/sales-breakdown', async (c) => {
   const fxSnapshot = latestDate ? await readSnapshot(c.env.FX, latestDate) : null;
 
   // ---- SKU aggregation (units) ----------------------------------------------
+  // RETAIL ONLY — exclude B2B distributors. The pie shows end-consumer demand mix,
+  // so wholesale shipments (Dasex Group, TORI-GEORGIA, Torwey, Natusana, etc.)
+  // would distort the picture. Retail channels:
+  //   wb / ozon          — marketplaces
+  //   dasexperten_com    — our DTC site (AED via Stripe)
+  //   яндекс_пей_продажи_с_нашего_сайта — our DTC site (RUB via Yandex Pay)
+  const RETAIL_PARTNER_IDS = ['wb', 'ozon', 'dasexperten_com', 'яндекс_пей_продажи_с_нашего_сайта'];
+  const retailPlaceholders = RETAIL_PARTNER_IDS.map(() => '?').join(',');
+
   // Technical partners excluded. Mixed-currency revenue is fine here since the
   // UI sorts by units; revenue is kept only as a tie-breaker.
   const skuResult = await c.env.DB.prepare(`
@@ -51,10 +60,11 @@ r.get('/sales-breakdown', async (c) => {
     WHERE o.deleted_at IS NULL
       AND o.operation_type = 'sale'
       AND COALESCE(pa.is_technical, 0) = 0
+      AND o.partner_id IN (${retailPlaceholders})
       AND o.operation_date >= ?
     GROUP BY li.product_id
     ORDER BY units DESC
-  `).bind(ytdStart).all<{ sku: string; units: number; revenue: number; product_name: string | null }>();
+  `).bind(...RETAIL_PARTNER_IDS, ytdStart).all<{ sku: string; units: number; revenue: number; product_name: string | null }>();
 
   const allSkus = skuResult.results;
   const top10 = allSkus.slice(0, 10);

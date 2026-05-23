@@ -34,6 +34,31 @@ inbox.get('/_diag', async (c) => {
 
 // =============================================================================
 // POST /api/inbox/run-ingestion — manually trigger the daily cron ingestion
+
+// =============================================================================
+// POST /api/inbox/find-debug  — diagnostic: raw Gmail search via emailer-bridge
+// Body: { query: string, max_results?: number }
+// Returns whatever emailer-bridge returns. No DB writes, no DeepSeek calls.
+// Used to debug "is this email even reaching dasexperten@gmail.com?"
+// =============================================================================
+inbox.post('/find-debug', async (c) => {
+  try {
+    const body = await c.req.json<{ query: string; max_results?: number }>();
+    if (!body?.query) return fail(c, 400, [{ code: 'bad_request', message: 'query required' }]);
+    const r = await (c.env as any).EMAILER.fetch('https://emailer/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'find', query: body.query, max_results: body.max_results ?? 20 }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    const text = await r.text();
+    let parsed: any; try { parsed = JSON.parse(text); } catch { parsed = { raw: text }; }
+    return ok(c, { http_status: r.status, query: body.query, response: parsed });
+  } catch (e) {
+    return fail(c, 500, [{ code: 'find_debug_error', message: e instanceof Error ? e.message : String(e) }]);
+  }
+});
+
 // =============================================================================
 // Same code path the cron uses (03:00 МСК daily). Useful for:
 //   - Testing pipeline changes without waiting for next cron tick
@@ -495,3 +520,4 @@ inbox.post('/:id/attach-to-operation', async (c) => {
 });
 
 export default inbox;
+

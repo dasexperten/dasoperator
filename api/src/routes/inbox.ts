@@ -92,9 +92,11 @@ inbox.post('/ingest-one', async (c) => {
     }
     const trace: any = { steps: [] };
 
-    // Step 1: download_attachment via bridge
-    trace.steps.push('1: calling bridge download_attachment');
-    const dlResp = await fetch('https://emailer-bridge.dasexperten.workers.dev/', {
+    // Step 1: download_attachment via EMAILER service binding (direct fetch to
+    // worker URL fails with Cloudflare error 1042 — same-account Worker hops
+    // must use service bindings, not public URLs)
+    trace.steps.push('1: calling bridge download_attachment via EMAILER binding');
+    const dlResp = await c.env.EMAILER.fetch('https://emailer/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'download_attachment', message_id: body.message_id, attachment_name: body.attachment_name }),

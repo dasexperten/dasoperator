@@ -310,8 +310,19 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
         text = new TextDecoder('utf-8', { fatal: false }).decode(buf).slice(0, 50000);
       }
 
-      // Classify with DeepSeek
-      const extracted = await deepseekClassify(env, text, c);
+      // Classify: for PDFs use Claude vision first (reads tabular invoice
+      // amounts natively); on failure fall back to DeepSeek with extracted text.
+      let extracted: any = null;
+      if (c.mime_type === 'application/pdf') {
+        try {
+          extracted = await classifyViaClaude(env, buf, c);
+        } catch (claudeErr) {
+          console.error(`[inbox-cron] Claude classify threw for ${c.filename}:`, claudeErr);
+        }
+      }
+      if (!extracted) {
+        extracted = await deepseekClassify(env, text, c);
+      }
       if (!extracted) {
         stats.errors++;
         continue;
@@ -533,6 +544,83 @@ ${text || '(empty — PDF text extraction failed, classify based on metadata onl
   try {
     return JSON.parse(data.choices[0].message.content);
   } catch {
+    return null;
+  }
+}
+
+// =============================================================================
+// classifyViaClaude — sends the raw PDF binary to Anthropic's Claude API as a
+// `document` content block. Claude reads PDFs natively (text + tabular layout),
+// so it succeeds at amount extraction where regex-based PDF text stripping
+// fails. Used for watchlist invoices first; falls back to DeepSeek on any
+// error (HTTP failure, parse failure, quota).
+// =============================================================================
+async function classifyViaClaude(env: Env, pdfBuf: ArrayBuffer, c: any): Promise<any> {
+  const apiKey = env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.log('[inbox-cron:claude] ANTHROPIC_API_KEY not set, skipping');
+    return null;
+  }
+  // Base64-encode PDF
+  const bytes = new Uint8Array(pdfBuf);
+  let bin = '';
+  for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
+  const b64 = btoa(bin);
+
+  const sizeMb = bytes.byteLength / (1024 * 1024);
+  if (sizeMb > 28) {
+    console.log(`[inbox-cron:claude] PDF too large (${sizeMb.toFixed(1)} MB), skipping Claude path`);
+    return null;
+  }
+
+  const userMsg = `Email metadata:
+- from: ${c.from}
+- subject: ${c.subject}
+- filename: ${c.filename}
+- snippet: ${(c.snippet || '').slice(0, 300)}
+
+The attached PDF is an invoice/УПД/счёт. Extract all fields per the schema.`;
+
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2500,
+      system: DEEPSEEK_PROMPT,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } },
+            { type: 'text', text: userMsg },
+          ],
+        },
+      ],
+    }),
+    signal: AbortSignal.timeout(90_000),
+  });
+
+  if (!r.ok) {
+    const errBody = await r.text();
+    console.error(`[inbox-cron:claude] HTTP ${r.status}: ${errBody.slice(0, 200)}`);
+    return null;
+  }
+  const data: any = await r.json();
+  // Anthropic returns content array; find the text block
+  try {
+    const textBlock = (data.content || []).find((b: any) => b.type === 'text');
+    if (!textBlock) return null;
+    // Claude may wrap JSON in code fences; strip them
+    let raw = String(textBlock.text || '').trim();
+    raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error('[inbox-cron:claude] parse error:', e);
     return null;
   }
 }

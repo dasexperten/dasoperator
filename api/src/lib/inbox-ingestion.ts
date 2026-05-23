@@ -42,6 +42,14 @@ const SEARCH_QUERIES = [
 const WATCHLIST_SENDERS = ['253@bkmsk.ru', 'zukonar@mail.ru', 'buh2@inter-freight.ru', 'sales5@inter-vostok.ru', 'iampanchenko@mail.ru'];
 const WATCHLIST_WINDOW_DAYS = 30;
 
+// Hard cap on how many PDFs Step 3 processes per ingestion run. Each Claude
+// vision call takes 7-15s, and Workers have CPU/wall-clock budgets even when
+// using waitUntil. With 8 candidates × 12s avg = 96s — within budget. Beyond
+// that, leave remaining candidates for the next cron tick.
+const MAX_PROCESS_PER_RUN = 8;
+const SOFT_BUDGET_MS = 90_000; // bail out if processing exceeds this wall time
+
+
 // Known watchlist vendor INNs → existing partner_id + buyer entity.
 // For these vendors, the invoice IS the operation — no act expected.
 // Cron auto-creates a service-purchase operation immediately upon ingestion.
@@ -288,10 +296,20 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
     }
   }
 
-  console.log(`[inbox-cron] ${candidates.length} PDF candidates`);
+  console.log(`[inbox-cron] ${candidates.length} PDF candidates (max ${MAX_PROCESS_PER_RUN} per run)`);
 
-  // Step 3: Process each
+  // Step 3: Process each — bounded by MAX_PROCESS_PER_RUN and SOFT_BUDGET_MS
+  const startMs = Date.now();
+  let processedThisRun = 0;
   for (const c of candidates) {
+    if (processedThisRun >= MAX_PROCESS_PER_RUN) {
+      console.log(`[inbox-cron] hit MAX_PROCESS_PER_RUN=${MAX_PROCESS_PER_RUN}; deferring rest to next run`);
+      break;
+    }
+    if (Date.now() - startMs > SOFT_BUDGET_MS) {
+      console.log(`[inbox-cron] hit SOFT_BUDGET_MS=${SOFT_BUDGET_MS}ms after ${processedThisRun} PDFs; deferring`);
+      break;
+    }
     try {
       // Dedup: skip if filename + thread already in DB
       const exists = await env.DB.prepare(
@@ -302,6 +320,7 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
         stats.duplicates++;
         continue;
       }
+      processedThisRun++;
 
       stats.pdfs_processed++;
 

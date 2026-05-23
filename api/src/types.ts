@@ -75,6 +75,7 @@ export interface Env {
   OZON_PORTAL_SCRAPER_ENABLED?: string;
   // Wildberries API (https://*-api.wildberries.ru) — bare token, no Bearer prefix
   WB_API_TOKEN: string;
+  WB_API_TOKEN_REVIEWS: string;
 
   // Modulbank API (https://api.modulbank.ru/v1) — LK-issued token, Bearer prefix.
   // One token per company; token's first 10 chars also seed webhook signature

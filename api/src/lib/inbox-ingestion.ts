@@ -46,8 +46,8 @@ const WATCHLIST_WINDOW_DAYS = 30;
 // vision call takes 7-15s, and Workers have CPU/wall-clock budgets even when
 // using waitUntil. With 8 candidates × 12s avg = 96s — within budget. Beyond
 // that, leave remaining candidates for the next cron tick.
-const MAX_PROCESS_PER_RUN = 8;
-const SOFT_BUDGET_MS = 90_000; // bail out if processing exceeds this wall time
+const MAX_PROCESS_PER_RUN = 4;
+const SOFT_BUDGET_MS = 55_000; // bail out if processing exceeds this wall time (safe for waitUntil)
 
 
 // Known watchlist vendor INNs → existing partner_id + buyer entity.

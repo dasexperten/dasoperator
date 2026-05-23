@@ -65,12 +65,16 @@ inbox.post('/find-debug', async (c) => {
 //   - Forcing a fresh check after a known invoice arrived in Gmail
 //   - End-to-end smoke test from /inbox UI "Refresh from Gmail" button
 inbox.post('/run-ingestion', async (c) => {
-  try {
-    const stats = await runInboxIngestion(c.env);
-    return ok(c, stats);
-  } catch (e) {
-    return fail(c, 500, [{ code: 'ingestion_error', message: e instanceof Error ? e.message : String(e) }]);
-  }
+  // Run in background via waitUntil — long Claude vision calls per PDF
+  // exceed the synchronous HTTP response budget. Caller gets immediate ack;
+  // results land in invoice_inbox table for polling.
+  c.executionCtx.waitUntil(
+    runInboxIngestion(c.env).then(
+      (stats) => console.log('[inbox-cron:async] done:', JSON.stringify(stats)),
+      (e) => console.error('[inbox-cron:async] failed:', e),
+    ),
+  );
+  return ok(c, { started: true, message: 'Ingestion running in background — poll invoice_inbox table for results' });
 });
 
 // =============================================================================

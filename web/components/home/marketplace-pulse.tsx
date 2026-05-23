@@ -527,7 +527,7 @@ function SkuPie({ data }: { data: BreakdownData }) {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' }}>
-        <span style={{ fontSize: '13px', color: 'var(--fg-3)', textTransform: 'uppercase' }}>By SKU (units)</span>
+        <span style={{ fontSize: '13px', color: 'var(--fg-3)', textTransform: 'uppercase' }}>By SKU · retail only (units)</span>
         <span style={{ fontSize: '12px', color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>{totalUnits.toLocaleString('ru-RU')} шт</span>
       </div>
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '220px' }}>

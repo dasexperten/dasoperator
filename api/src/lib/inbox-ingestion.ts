@@ -42,6 +42,16 @@ const SEARCH_QUERIES = [
 const WATCHLIST_SENDERS = ['253@bkmsk.ru', 'zukonar@mail.ru', 'buh2@inter-freight.ru', 'sales5@inter-vostok.ru', 'iampanchenko@mail.ru'];
 const WATCHLIST_WINDOW_DAYS = 30;
 
+// Known watchlist vendor INNs → existing partner_id + buyer entity.
+// For these vendors, the invoice IS the operation — no act expected.
+// Cron auto-creates a service-purchase operation immediately upon ingestion.
+// To enable auto-create for a new vendor: insert their INN here AFTER
+// confirming partner row exists with the matching id.
+const WATCHLIST_VENDOR_MAP: Record<string, { partnerId: string; buyer: string }> = {
+  '7707838921': { partnerId: 'alfa_klass', buyer: 'dee' }, // ООО АЛЬФА КЛАСС — bkmsk accountants
+  '1300012746': { partnerId: 'priz',       buyer: 'dee' }, // ООО ПРИЗ — zukonar landlord
+};
+
 const DEEPSEEK_PROMPT = `You are an invoice classifier for Das Experten (multi-entity company).
 Entities: DEE (Russia), DEI (UAE), DEASEAN (Vietnam), DEC (Seychelles).
 
@@ -292,6 +302,31 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
       };
 
       // -------------------------------------------------------------------
+      // Watchlist auto-operation: for 253@bkmsk.ru (ALFA KLASS) and
+      // zukonar@mail.ru (PRIZ) the invoice IS the operation — they don't
+      // issue acts. If we can identify a known partner from vendor INN,
+      // spawn a service-purchase operation right now. Pass-through invoices
+      // (НДС/взносы/dividends from third parties) won't match the INN map
+      // and stay as needs_review for manual handling.
+      // -------------------------------------------------------------------
+      if (c.is_watchlist) {
+        try {
+          const autoOp = await tryAutoCreateWatchlistOperation(env, invId, extracted, text);
+          if (autoOp) {
+            item.auto_attached_to = autoOp.reference;
+            item.amount = autoOp.amount;
+            item.currency = autoOp.currency;
+            console.log(`[inbox-cron] watchlist auto-created op ${autoOp.operationId} (#${autoOp.reference}, ${autoOp.amount} ${autoOp.currency}) for ${invId}`);
+            stats.auto_attached++;
+            stats.invoices_added.push(item);
+            continue; // skip generic auto-match — operation already wired
+          }
+        } catch (autoErr) {
+          console.error(`[inbox-cron] watchlist auto-create failed for ${invId}:`, autoErr);
+        }
+      }
+
+      // -------------------------------------------------------------------
       // Auto-match step. Try to find a matching operation. If confidence
       // is high enough for this classification, auto-attach right now.
       // Otherwise store the suggestion so the UI can show a 1-click button.
@@ -537,4 +572,102 @@ async function sendDailySummary(env: Env, stats: IngestionStats) {
     subject: `Inbox: ${stats.inserted} new (${stats.auto_attached} auto-attached, ${stats.suggested} suggested) · ${new Date().toISOString().slice(0, 10)}`,
     body: lines.join('\n'),
   });
+}
+
+// =============================================================================
+// Watchlist auto-create: spawn a service-purchase operation directly from an
+// invoice_inbox row when the vendor is a known watchlist counterparty whose
+// invoices are not followed by separate acts (bkmsk accountants, zukonar
+// landlord). Returns null when we can't safely auto-create — caller then
+// leaves the row as needs_review for manual confirm.
+// =============================================================================
+async function tryAutoCreateWatchlistOperation(
+  env: Env,
+  invId: string,
+  extracted: any,
+  pdfText: string,
+): Promise<{ operationId: string; reference: string; amount: number; currency: string } | null> {
+  // 1. Resolve partner by extracted vendor INN.
+  const inn = String(extracted?.vendor_tax_id || '').replace(/[^0-9]/g, '');
+  const mapped = WATCHLIST_VENDOR_MAP[inn];
+  if (!mapped) {
+    console.log(`[inbox-cron] watchlist auto-create skipped: unknown vendor_inn="${inn}" for ${invId}`);
+    return null;
+  }
+
+  // 2. Need amount. Use DeepSeek-extracted first; fall back to regex from PDF text.
+  let amount: number | null = null;
+  if (typeof extracted.amount_total === 'number' && extracted.amount_total > 0) {
+    amount = extracted.amount_total;
+  } else if (pdfText) {
+    // Look for "Всего к оплате:  29 100,00" / "Итого:  5 830,00" style totals.
+    const m = pdfText.match(/(?:Всего к оплате|Итого)[^0-9\-]{0,12}([\d\u00A0 .,]+)/i);
+    if (m) {
+      const cleaned = m[1].replace(/[\u00A0\s]/g, '').replace(',', '.');
+      const num = parseFloat(cleaned);
+      if (Number.isFinite(num) && num > 0) amount = num;
+    }
+  }
+  if (amount === null) {
+    console.log(`[inbox-cron] watchlist auto-create skipped: no amount extractable for ${invId}`);
+    return null;
+  }
+
+  // 3. Invoice number — DeepSeek first, then regex fallback.
+  let invoiceNo: string | null = extracted?.invoice_no ? String(extracted.invoice_no) : null;
+  if (!invoiceNo && pdfText) {
+    const m = pdfText.match(/Сч[её]т\s+на\s+оплату\s*№\s*([\w\-\/.]+)/i);
+    if (m) invoiceNo = m[1].slice(0, 50);
+  }
+  const reference = (invoiceNo || `INBOX-${invId.slice(-8)}`).slice(0, 80);
+
+  // 4. Currency, defaulting to RUB for these RU vendors.
+  const currency = String(extracted?.currency || 'RUB').toUpperCase().slice(0, 3);
+
+  // 5. Invoice date → operation_date.
+  const now = Math.floor(Date.now() / 1000);
+  let opDate = now;
+  if (extracted?.invoice_date) {
+    const t = new Date(String(extracted.invoice_date)).getTime();
+    if (Number.isFinite(t) && t > 0) opDate = Math.floor(t / 1000);
+  }
+
+  // 6. Discover operations columns dynamically — schema may have evolved.
+  const operationId = `op_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const cols = await env.DB.prepare(
+    "SELECT name FROM pragma_table_info('operations')"
+  ).all<{ name: string }>();
+  const colSet = new Set((cols.results ?? []).map((r) => r.name));
+
+  const fields: string[] = ['id', 'partner_id', 'operation_type', 'our_company_id',
+    'operation_date', 'status', 'currency', 'total_amount', 'created_at', 'updated_at'];
+  const values: any[] = [operationId, mapped.partnerId, 'purchase', mapped.buyer,
+    opDate, 'issued', currency, amount, now, now];
+
+  if (colSet.has('reference')) { fields.push('reference'); values.push(reference); }
+  if (colSet.has('notes')) {
+    fields.push('notes');
+    values.push(`[WATCHLIST AUTO] Service invoice — inbox ${invId}`.slice(0, 500));
+  }
+
+  const placeholders = fields.map(() => '?').join(',');
+  await env.DB.prepare(
+    `INSERT INTO operations (${fields.join(',')}) VALUES (${placeholders})`
+  ).bind(...values).run();
+
+  // 7. Update inbox row: mark as auto_created, attach partner + operation,
+  // fill in any extracted_* gaps we resolved via regex.
+  await env.DB.prepare(
+    `UPDATE invoice_inbox SET
+       status = 'auto_created',
+       matched_partner_id = ?,
+       created_operation_id = ?,
+       extracted_amount = COALESCE(extracted_amount, ?),
+       extracted_invoice_no = COALESCE(extracted_invoice_no, ?),
+       extracted_currency = COALESCE(extracted_currency, ?),
+       resolved_at = ?
+     WHERE id = ?`
+  ).bind(mapped.partnerId, operationId, amount, invoiceNo, currency, now, invId).run();
+
+  return { operationId, reference, amount, currency };
 }

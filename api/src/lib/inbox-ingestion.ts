@@ -470,7 +470,7 @@ async function callEmailer(env: Env, body: any): Promise<any> {
   return r.json();
 }
 
-async function fetchPdf(url: string): Promise<ArrayBuffer | null> {
+export async function fetchPdf(url: string): Promise<ArrayBuffer | null> {
   try {
     const r = await fetch(url, { signal: AbortSignal.timeout(30_000) });
     if (!r.ok) return null;
@@ -511,7 +511,7 @@ async function extractPdfText(buf: ArrayBuffer): Promise<string> {
   return matches.join(' ').slice(0, 8000);
 }
 
-async function deepseekClassify(env: Env, text: string, c: any): Promise<any> {
+export async function deepseekClassify(env: Env, text: string, c: any): Promise<any> {
   const userMsg = `Email metadata:
 - from: ${c.from}
 - subject: ${c.subject}
@@ -555,7 +555,7 @@ ${text || '(empty — PDF text extraction failed, classify based on metadata onl
 // fails. Used for watchlist invoices first; falls back to DeepSeek on any
 // error (HTTP failure, parse failure, quota).
 // =============================================================================
-async function classifyViaClaude(env: Env, pdfBuf: ArrayBuffer, c: any): Promise<any> {
+export async function classifyViaClaude(env: Env, pdfBuf: ArrayBuffer, c: any): Promise<any> {
   const apiKey = env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     console.log('[inbox-cron:claude] ANTHROPIC_API_KEY not set, skipping');

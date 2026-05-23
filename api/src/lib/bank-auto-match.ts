@@ -529,8 +529,35 @@ interface PartnerRow {
   partner_type: string;
 }
 
+// INN aliases: factoring banks / payment processors that pay on behalf of
+// a marketplace. When tx arrives with one of these INNs, route to the
+// canonical marketplace partner so it gets parked as awaiting_marketplace_settlement
+// (not partner_not_found) and FIFO allocator can pick it up later.
+//
+// Mirror of marketplace-fifo-allocator.PARTNER_ALIASES — keep these two in sync.
+const INN_TO_PARTNER_ALIAS: Record<string, string> = {
+  '9703026898': 'ozon', // OZON МКК Credit — pays for Ozon sales
+  '7802754982': 'ozon', // Сбербанк Факторинг — pays for Ozon contract ИНН 7704217370
+  '7702045051': 'ozon', // МТС-Банк — pays for Ozon contract ИР-34138/22
+};
+
 async function findPartnerByInn(env: Env, inn: string): Promise<PartnerRow | null> {
   if (!inn || inn.length < 9) return null;
+
+  // Alias check first: if this INN is a known factoring/processor, return the
+  // canonical marketplace partner (typically 'ozon').
+  const aliasId = INN_TO_PARTNER_ALIAS[inn];
+  if (aliasId) {
+    const aliasRow = await env.DB.prepare(`
+      SELECT id, trade_name, legal_name, currency, kind, partner_type
+      FROM partners
+      WHERE id = ?
+        AND (deleted_at IS NULL OR deleted_at = 0)
+      LIMIT 1
+    `).bind(aliasId).first<PartnerRow>();
+    if (aliasRow) return aliasRow;
+  }
+
   const row = await env.DB.prepare(`
     SELECT id, trade_name, legal_name, currency, kind, partner_type
     FROM partners

@@ -1053,6 +1053,7 @@ interface OpFull {
   operation_type: string;
   warehouse_from_id: string | null;
   warehouse_to_id: string | null;
+  arrival_received_qtys: string | null;
 }
 
 interface StockRow {
@@ -1368,7 +1369,8 @@ operations.patch('/:id/status', async (c) => {
 
   // Load full operation row
   const op = await c.env.DB.prepare(
-    `SELECT id, status, operation_type, warehouse_from_id, warehouse_to_id
+    `SELECT id, status, operation_type, warehouse_from_id, warehouse_to_id,
+            arrival_received_qtys
      FROM operations WHERE id = ? AND deleted_at IS NULL`
   ).bind(opId).first<OpFull>();
 
@@ -1546,10 +1548,17 @@ operations.patch('/:id/status', async (c) => {
     }
 
   } else if (targetStatus === 'delivered') {
-    // transfer or purchase: goods leave OTW, arrive at warehouse_to as on_hand
+    // transfer or purchase: goods leave OTW, arrive at warehouse_to as on_hand.
+    //
+    // Virtual bundling: the factory ships singles (line_items hold base SKUs
+    // like de202), but the destination warehouse can accept those goods as
+    // pre-bundled pairs (DE202AA = 2 × DE202). When arrival_received_qtys is
+    // present on the operation, treat it as the authoritative shape of what
+    // physically arrived — destination movements use those SKUs and qtys,
+    // while OTW outflow still mirrors line_items (which is what we put in).
     if ((opType === 'transfer' || opType === 'purchase') && op.warehouse_to_id) {
+      // 1) OTW outflow — always by line_items (matches what shipped wrote in).
       for (const li of lineItems) {
-        // Remove from OTW
         movementSpecs.push({
           warehouseId: OTW_WAREHOUSE_ID,
           productId: li.product_id,
@@ -1558,12 +1567,37 @@ operations.patch('/:id/status', async (c) => {
           reason: opType === 'transfer' ? 'transfer_delivered' : 'purchase_delivered',
           stockState: 'in_transit',
         });
-        // Land on destination warehouse as on_hand
+      }
+
+      // 2) Destination inflow — by arrival_received_qtys if set, else line_items.
+      let arrivalMap: Record<string, number> | null = null;
+      if (op.arrival_received_qtys) {
+        try {
+          const parsed = JSON.parse(op.arrival_received_qtys);
+          if (parsed && typeof parsed === 'object') {
+            arrivalMap = {};
+            for (const [k, v] of Object.entries(parsed)) {
+              const n = Number(v);
+              if (Number.isFinite(n) && n > 0) arrivalMap[k] = n;
+            }
+            if (Object.keys(arrivalMap).length === 0) arrivalMap = null;
+          }
+        } catch {
+          warnings.push('arrival_received_qtys is not valid JSON; falling back to line_items');
+          arrivalMap = null;
+        }
+      }
+
+      const destEntries: Array<{ product_id: string; qty: number }> = arrivalMap
+        ? Object.entries(arrivalMap).map(([product_id, qty]) => ({ product_id, qty }))
+        : lineItems.map((li) => ({ product_id: li.product_id, qty: li.qty }));
+
+      for (const e of destEntries) {
         movementSpecs.push({
           warehouseId: op.warehouse_to_id,
-          productId: li.product_id,
+          productId: e.product_id,
           movementType: opType === 'transfer' ? 'transfer_in' : 'arrival',
-          qty: +li.qty,
+          qty: +e.qty,
           reason: opType === 'transfer' ? 'transfer_arrived' : 'purchase_received',
           stockState: 'on_hand',
         });

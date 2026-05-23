@@ -73,6 +73,8 @@ interface InboxRow {
   extracted_buyer_entity: string | null;
   attachment_text_extracted: string | null;
   matched_partner_id: string | null;
+  extracted_shipment_ref: string | null;
+  extracted_service_subtype: string | null;
 }
 
 interface OpCandidate {
@@ -439,6 +441,44 @@ export async function applyMatchToInbox(
     now,
     now,
   ).run();
+
+  // Propagate shipment context to the matched operation: forwarder_ref +
+  // service_subtype + related_purchase_id. Only fill empty fields — never
+  // overwrite values that already exist (could be from manual entry).
+  if (row.extracted_shipment_ref || row.extracted_service_subtype) {
+    try {
+      // Look up the purchase op whose forwarder_ref matches the inbox shipment_ref
+      let relatedPurchaseId: string | null = null;
+      if (row.extracted_shipment_ref) {
+        const purchase = await env.DB.prepare(
+          `SELECT id FROM operations
+            WHERE forwarder_ref = ? AND operation_type='purchase'
+              AND deleted_at IS NULL
+            ORDER BY operation_date DESC LIMIT 1`
+        ).bind(row.extracted_shipment_ref).first<{ id: string }>();
+        relatedPurchaseId = purchase?.id ?? null;
+      }
+
+      // Conditional UPDATE — only fill columns that are currently NULL.
+      await env.DB.prepare(
+        `UPDATE operations
+            SET forwarder_ref      = COALESCE(forwarder_ref, ?),
+                service_subtype    = COALESCE(service_subtype, ?),
+                related_purchase_id = COALESCE(related_purchase_id, ?),
+                updated_at         = ?
+          WHERE id = ?`
+      ).bind(
+        row.extracted_shipment_ref,
+        row.extracted_service_subtype,
+        relatedPurchaseId,
+        now,
+        match.operation_id,
+      ).run();
+    } catch (propErr) {
+      console.error('[inbox-auto-match] field propagation failed:', propErr);
+      // Non-fatal — attach already succeeded.
+    }
+  }
 
   // Flip inbox status.
   await env.DB.prepare(

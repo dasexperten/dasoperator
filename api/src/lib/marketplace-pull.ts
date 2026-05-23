@@ -602,44 +602,59 @@ async function buildOzonRealization(env: Env, task: any): Promise<{ taskId: stri
 async function buildWbFromStaging(env: Env, task: any): Promise<{ taskId: string; action: string; rows: number }> {
   await env.DB.prepare("UPDATE marketplace_pull_tasks SET status='building' WHERE id=?").bind(task.id).run();
 
-  // Aggregate per SKU (only rows with sa_name; pool rows have empty sa_name)
-  const stagingRows = await env.DB.prepare(
-    'SELECT * FROM wb_realization_staging WHERE task_id=?'
-  ).bind(task.id).all<any>();
+  // ── Aggregate entirely in SQL — never load 20k+ staging rows into JS.
+  // GROUP BY sa_name (SKU). Empty sa_name = pool rows (storage/penalty).
+  const aggRows = await env.DB.prepare(`
+    SELECT
+      TRIM(sa_name) AS sa,
+      SUM(CASE WHEN op_name='Продажа' THEN qty ELSE 0 END)         AS qty,
+      SUM(CASE WHEN op_name='Продажа' THEN retail ELSE 0 END)      AS retail,
+      SUM(CASE WHEN op_name='Продажа' THEN wb_realiz ELSE 0 END)   AS gross,
+      SUM(wb_fee)     AS commission,
+      SUM(payout)     AS payout,
+      SUM(delivery)   AS delivery,
+      SUM(penalty)    AS penalty,
+      SUM(acceptance) AS acceptance,
+      SUM(rebill)     AS rebill
+    FROM wb_realization_staging
+    WHERE task_id = ? AND TRIM(sa_name) <> ''
+    GROUP BY TRIM(sa_name)
+  `).bind(task.id).all<{
+    sa: string; qty: number; retail: number; gross: number; commission: number;
+    payout: number; delivery: number; penalty: number; acceptance: number; rebill: number;
+  }>();
 
-  const perSku: Map<string, any> = new Map();
-  const pool = { storage: 0, deduction: 0, penalty: 0 };
+  const poolRow = await env.DB.prepare(`
+    SELECT
+      COALESCE(SUM(storage), 0)   AS storage,
+      COALESCE(SUM(deduction), 0) AS deduction,
+      COALESCE(SUM(penalty), 0)   AS penalty
+    FROM wb_realization_staging
+    WHERE task_id = ? AND TRIM(sa_name) = ''
+  `).bind(task.id).first<{ storage: number; deduction: number; penalty: number }>();
 
-  for (const r of stagingRows.results) {
-    const sa = (r.sa_name || '').trim();
-    const op = r.op_name || '';
-    if (sa) {
-      const cur = perSku.get(sa) || {
-        qty: 0, retail: 0, gross: 0, commission: 0, payout: 0,
-        delivery: 0, penalty: 0, acceptance: 0, rebill: 0,
-      };
-      cur.payout += r.payout || 0;
-      cur.delivery += r.delivery || 0;
-      cur.penalty += r.penalty || 0;
-      cur.acceptance += r.acceptance || 0;
-      cur.rebill += r.rebill || 0;
-      cur.commission += r.wb_fee || 0;
-      if (op === 'Продажа') {
-        cur.qty += r.qty || 0;
-        cur.retail += r.retail || 0;
-        cur.gross += r.wb_realiz || 0;
-      }
-      perSku.set(sa, cur);
-    } else {
-      pool.storage += r.storage || 0;
-      pool.deduction += r.deduction || 0;
-      pool.penalty += r.penalty || 0;
-    }
-  }
+  const pool = {
+    storage: Number(poolRow?.storage || 0),
+    deduction: Number(poolRow?.deduction || 0),
+    penalty: Number(poolRow?.penalty || 0),
+  };
 
-  // Compute totals + NET per SKU
+  // perSku is small — typically ≤50 distinct SKUs.
+  const perSku = (aggRows.results || []).map((r) => ({
+    sku: r.sa,
+    qty: Number(r.qty || 0),
+    retail: Number(r.retail || 0),
+    gross: Number(r.gross || 0),
+    commission: Number(r.commission || 0),
+    payout: Number(r.payout || 0),
+    delivery: Number(r.delivery || 0),
+    penalty: Number(r.penalty || 0),
+    acceptance: Number(r.acceptance || 0),
+    rebill: Number(r.rebill || 0),
+  }));
+
   let totalPayout = 0;
-  for (const [, d] of perSku) totalPayout += d.payout;
+  for (const d of perSku) totalPayout += d.payout;
 
   // Get catalog
   const catalogRows = await env.DB.prepare('SELECT id FROM products WHERE deleted_at IS NULL').all<{ id: string }>();
@@ -648,9 +663,9 @@ async function buildWbFromStaging(env: Env, task: any): Promise<{ taskId: string
   // Build lines (filtered to catalog)
   const lines: any[] = [];
   let opTotal = 0;
-  for (const [sku, d] of perSku) {
+  for (const d of perSku) {
     if (d.qty <= 0) continue;
-    if (!catalog.has(sku)) continue;
+    if (!catalog.has(d.sku)) continue;
     const share = totalPayout > 0 ? d.payout / totalPayout : 0;
     const storageShare = pool.storage * share;
     const advertShare = pool.deduction * share;
@@ -660,7 +675,7 @@ async function buildWbFromStaging(env: Env, task: any): Promise<{ taskId: string
     const netPer = Math.round(netTotal / d.qty);
     opTotal += d.qty * netPer;
     lines.push({
-      sku, qty: d.qty, retail: d.retail, gross: d.gross, commission: d.commission, payout: d.payout,
+      sku: d.sku, qty: d.qty, retail: d.retail, gross: d.gross, commission: d.commission, payout: d.payout,
       logistics: d.delivery, penalty: d.penalty, acceptance: d.acceptance, rebill: d.rebill,
       storage_share: storageShare, advert_share: advertShare, net_total: netTotal, net_per: netPer,
     });
@@ -738,96 +753,70 @@ async function buildWbFromStaging(env: Env, task: any): Promise<{ taskId: string
 async function buildOzonFromStaging(env: Env, task: any): Promise<{ taskId: string; action: string; rows: number }> {
   await env.DB.prepare("UPDATE marketplace_pull_tasks SET status='building' WHERE id=?").bind(task.id).run();
 
-  // Load all staging rows for this task.
-  const stagingRows = await env.DB.prepare(
-    'SELECT op_type, sku, amount, accruals_for_sale, raw_json FROM ozon_transaction_staging WHERE task_id=?'
-  ).bind(task.id).all<{
-    op_type: string; sku: string; amount: number; accruals_for_sale: number; raw_json: string;
+  // ── Aggregate in SQL, joined directly on marketplace_ozon_sku_map.
+  // We extract tx 'type' from raw_json with json_extract.
+  // Rows with no SKU mapping land in the pool query below.
+  const aggRows = await env.DB.prepare(`
+    SELECT
+      m.base_sku AS sku,
+      SUM(CASE WHEN json_extract(s.raw_json,'$.type')='orders'  THEN 1 ELSE 0 END)
+        - SUM(CASE WHEN json_extract(s.raw_json,'$.type')='returns' THEN 1 ELSE 0 END) AS qty,
+      SUM(CASE WHEN json_extract(s.raw_json,'$.type')='orders'  THEN s.amount ELSE 0 END) AS payout,
+      SUM(CASE WHEN json_extract(s.raw_json,'$.type')='returns' THEN s.amount ELSE 0 END) AS returns_amt,
+      SUM(CASE WHEN json_extract(s.raw_json,'$.type')='services'
+             AND (s.op_type LIKE '%Logistic%' OR s.op_type LIKE '%Crossdock%' OR s.op_type LIKE '%Доставк%')
+        THEN ABS(s.amount) ELSE 0 END) AS logistics,
+      SUM(CASE WHEN json_extract(s.raw_json,'$.type')='services'
+             AND NOT (s.op_type LIKE '%Logistic%' OR s.op_type LIKE '%Crossdock%' OR s.op_type LIKE '%Доставк%')
+        THEN s.amount ELSE 0 END) AS svc_other,
+      SUM(CASE WHEN json_extract(s.raw_json,'$.type')='other' THEN s.amount ELSE 0 END) AS other_amt
+    FROM ozon_transaction_staging s
+    JOIN marketplace_ozon_sku_map m ON CAST(s.sku AS INTEGER) = m.ozon_sku
+    WHERE s.task_id = ?
+    GROUP BY m.base_sku
+  `).bind(task.id).all<{
+    sku: string; qty: number; payout: number; returns_amt: number;
+    logistics: number; svc_other: number; other_amt: number;
   }>();
 
-  if ((stagingRows.results?.length || 0) === 0) {
+  // Pool: rows with no SKU mapping (storage and advertising)
+  const poolRows = await env.DB.prepare(`
+    SELECT
+      SUM(CASE WHEN s.op_type LIKE '%Storage%' OR s.op_type LIKE '%Хранен%' THEN ABS(s.amount) ELSE 0 END) AS storage,
+      SUM(CASE WHEN s.op_type LIKE '%Advert%' OR s.op_type LIKE '%Marketing%'
+                OR s.op_type LIKE '%Premium%' OR s.op_type LIKE '%Cashback%' OR s.op_type LIKE '%Promo%'
+        THEN ABS(s.amount) ELSE 0 END) AS advert
+    FROM ozon_transaction_staging s
+    LEFT JOIN marketplace_ozon_sku_map m ON CAST(s.sku AS INTEGER) = m.ozon_sku
+    WHERE s.task_id = ? AND m.base_sku IS NULL
+  `).bind(task.id).first<{ storage: number; advert: number }>();
+
+  if ((aggRows.results?.length || 0) === 0) {
     await env.DB.prepare(
       "UPDATE marketplace_pull_tasks SET status='error', last_error=? WHERE id=?"
-    ).bind('no staging rows', task.id).run();
+    ).bind('no SKU-mapped staging rows; check marketplace_ozon_sku_map', task.id).run();
     return { taskId: task.id, action: 'no_data', rows: 0 };
   }
 
-  // Load Ozon SKU map: ozon_sku (int) → product_id (our base_sku, lowercase)
-  const mapRows = await env.DB.prepare(
-    'SELECT ozon_sku, base_sku FROM marketplace_ozon_sku_map'
-  ).all<{ ozon_sku: number; base_sku: string }>();
-  const skuMap = new Map<string, string>();
-  for (const m of mapRows.results || []) {
-    skuMap.set(String(m.ozon_sku), m.base_sku);
-  }
-
-  // Per-SKU aggregator. Pool: services that don't have a SKU (storage, ads).
-  type SkuBucket = {
-    qty: number;       // pieces from order rows (type='orders')
-    payout: number;    // sum amount where type='orders' (after Ozon commission already baked in)
-    logistics: number; // logistics services (positive number = cost; stored as |amount| of negatives)
-    returns: number;   // refunds/returns (type='returns', amount<0)
-    other: number;     // sku-attributed services (commissions/cashback handled here, sign preserved)
+  const pool = {
+    storage: Number(poolRows?.storage || 0),
+    advert: Number(poolRows?.advert || 0),
   };
-  const perSku = new Map<string, SkuBucket>();
-  const pool = { storage: 0, advert: 0, no_sku_other: 0 };
 
-  // op_type → category. We classify by op_type string substrings + transaction type field.
-  // Note: we already have transaction type baked into staging (op_type col is operation_type;
-  // we ALSO have raw_json which contains type). Parse where needed.
-  for (const r of stagingRows.results || []) {
-    const ozonSku = String(r.sku || '').trim();
-    const ourSku = ozonSku ? (skuMap.get(ozonSku) || null) : null;
-    const amount = Number(r.amount || 0);
-    let txType = '';
-    try {
-      const j = JSON.parse(r.raw_json);
-      txType = j.type || '';
-    } catch { /* ignore */ }
+  // perSku list — already aggregated, small (≤80 SKUs)
+  const perSku = (aggRows.results || []).map((r) => ({
+    sku: r.sku,
+    qty: Number(r.qty || 0),
+    payout: Number(r.payout || 0),
+    returns: Number(r.returns_amt || 0),
+    logistics: Number(r.logistics || 0),
+    other: Number(r.svc_other || 0) + Number(r.other_amt || 0),
+  }));
 
-    // Classify
-    if (!ourSku) {
-      // No SKU attribution — service pool
-      const ot = r.op_type || '';
-      if (/Storage|Хранение/i.test(ot)) pool.storage += Math.abs(amount);
-      else if (/Advert|Marketing|Premium|Cashback|Promo/i.test(ot)) pool.advert += Math.abs(amount);
-      else pool.no_sku_other += amount;
-      continue;
-    }
-
-    if (!perSku.has(ourSku)) {
-      perSku.set(ourSku, { qty: 0, payout: 0, logistics: 0, returns: 0, other: 0 });
-    }
-    const b = perSku.get(ourSku)!;
-
-    if (txType === 'orders') {
-      b.qty += 1; // each order row = 1 unit (Ozon transaction row = 1 item delivered)
-      b.payout += amount;
-    } else if (txType === 'returns') {
-      b.returns += amount; // typically negative
-      b.qty -= 1;          // unit comes back
-    } else if (txType === 'services') {
-      // Logistics vs other services
-      const ot = r.op_type || '';
-      if (/Logistic|Crossdocking|Доставк/i.test(ot)) {
-        b.logistics += Math.abs(amount);
-      } else if (/Storage|Хранение/i.test(ot)) {
-        // Per-SKU storage — rare but possible
-        b.logistics += Math.abs(amount);
-      } else {
-        b.other += amount; // BrandCommission, etc — keep sign
-      }
-    } else {
-      // type='other' (e.g. Acquiring redistribution) — usually negative tweaks
-      b.other += amount;
-    }
-  }
-
-  // Total payout across all SKUs (positive sales side)
   let totalPayout = 0;
-  for (const [, b] of perSku) totalPayout += Math.max(0, b.payout);
+  for (const b of perSku) totalPayout += Math.max(0, b.payout);
 
-  // Catalog filter — only SKUs that exist in products
+  // Catalog filter
   const catalogRows = await env.DB.prepare('SELECT id FROM products WHERE deleted_at IS NULL').all<{ id: string }>();
   const catalog = new Set(catalogRows.results.map(r => r.id));
 
@@ -838,18 +827,18 @@ async function buildOzonFromStaging(env: Env, task: any): Promise<{ taskId: stri
     net_total: number; net_per: number;
   }> = [];
   let opTotal = 0;
-  for (const [sku, b] of perSku) {
-    if (!catalog.has(sku)) continue;
+  for (const b of perSku) {
+    if (!catalog.has(b.sku)) continue;
     if (b.qty <= 0) continue;
     const share = totalPayout > 0 ? b.payout / totalPayout : 0;
     const storageShare = pool.storage * share;
     const advertShare = pool.advert * share;
     const netTotal = b.payout + b.returns + b.other - b.logistics - storageShare - advertShare;
     const netPer = Math.round(netTotal / b.qty);
-    if (netPer <= 0) continue; // skip SKUs that net out to zero or negative — these are noise rows
+    if (netPer <= 0) continue;
     opTotal += b.qty * netPer;
     lines.push({
-      sku, qty: b.qty, payout: b.payout, logistics: b.logistics,
+      sku: b.sku, qty: b.qty, payout: b.payout, logistics: b.logistics,
       advert_share: advertShare, storage_share: storageShare,
       other: b.other,
       net_total: netTotal, net_per: netPer,

@@ -2514,5 +2514,27 @@ operations.post('/_sweep-marketplace-allocator', async (c) => {
 });
 
 
+// =============================================================================
+// POST /operations/_backfill-dasexperten-com-monthly?from=YYYY-MM&to=YYYY-MM
+//
+// Backfill DASCOM-YYYYMM monthly settlement ops for all Stripe-via-Wio
+// payments parked under awaiting_site_sales_settlement. Iterates from `from`
+// month to `to` month (inclusive). Each iteration aggregates payments for
+// that month into one operation. Idempotent.
+//
+// Example: POST /operations/_backfill-dasexperten-com-monthly?from=2025-10&to=2026-04
+// =============================================================================
+operations.post('/_backfill-dasexperten-com-monthly', async (c) => {
+  const fromStr = c.req.query('from') || '';
+  const toStr = c.req.query('to') || '';
+  if (!fromStr.match(/^\d{4}-\d{2}$/) || !toStr.match(/^\d{4}-\d{2}$/)) {
+    return fail(c, 400, [{ code: 'invalid_range', message: 'expected from=YYYY-MM&to=YYYY-MM' }]);
+  }
+  const { rebuildPriorMonthDasexpertenComForRange } = await import('../lib/marketplace-pull-helpers');
+  const results = await rebuildPriorMonthDasexpertenComForRange(c.env, fromStr, toStr);
+  return ok(c, { range: { from: fromStr, to: toStr }, months: results });
+});
+
+
 export default operations;
 

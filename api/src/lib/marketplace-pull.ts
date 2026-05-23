@@ -231,7 +231,8 @@ async function tickWbRealization(env: Env, task: any): Promise<{ taskId: string;
   const pages_done = (task.pages_done || 0) + 1;
   const rows_collected = (task.rows_collected || 0) + rows.length;
 
-  if (rows.length === 0 || rows.length < 100000) {
+  const WB_PAGE_LIMIT = 10000;
+  if (rows.length === 0 || rows.length < WB_PAGE_LIMIT) {
     // Done fetching
     await env.DB.prepare(
       `UPDATE marketplace_pull_tasks 

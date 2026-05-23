@@ -156,7 +156,7 @@ async function tickWbRealization(env: Env, task: any): Promise<{ taskId: string;
   const url = new URL(WB_REALIZATION_URL);
   url.searchParams.set('dateFrom', task.period_from);
   url.searchParams.set('dateTo', task.period_to);
-  url.searchParams.set('limit', '100000'); // WB max
+  url.searchParams.set('limit', '10000'); // Bigger pages exceed Worker CPU on parse+insert
   if (task.pagination_token) {
     url.searchParams.set('rrdid', task.pagination_token);
   }

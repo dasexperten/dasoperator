@@ -736,18 +736,192 @@ async function buildWbFromStaging(env: Env, task: any): Promise<{ taskId: string
 }
 
 async function buildOzonFromStaging(env: Env, task: any): Promise<{ taskId: string; action: string; rows: number }> {
-  // Ozon transaction/list aggregation is more complex (categorize op_types, link to SKU via items).
-  // For now mark as built but defer the actual per-SKU aggregation — this requires the full
-  // operation_type → category mapping established yesterday. Will fully implement in next iteration.
   await env.DB.prepare("UPDATE marketplace_pull_tasks SET status='building' WHERE id=?").bind(task.id).run();
-  
-  // TODO: Implement Ozon aggregation using the OP_LOGISTICS / OP_ADVERTISING / OP_RETURNS / OP_ORDERS
-  // mapping from yesterday's pipeline. For now mark as 'error' with a note so we know it ran but
-  // didn't produce an operation.
+
+  // Load all staging rows for this task.
+  const stagingRows = await env.DB.prepare(
+    'SELECT op_type, sku, amount, accruals_for_sale, raw_json FROM ozon_transaction_staging WHERE task_id=?'
+  ).bind(task.id).all<{
+    op_type: string; sku: string; amount: number; accruals_for_sale: number; raw_json: string;
+  }>();
+
+  if ((stagingRows.results?.length || 0) === 0) {
+    await env.DB.prepare(
+      "UPDATE marketplace_pull_tasks SET status='error', last_error=? WHERE id=?"
+    ).bind('no staging rows', task.id).run();
+    return { taskId: task.id, action: 'no_data', rows: 0 };
+  }
+
+  // Load Ozon SKU map: ozon_sku (int) → product_id (our base_sku, lowercase)
+  const mapRows = await env.DB.prepare(
+    'SELECT ozon_sku, base_sku FROM marketplace_ozon_sku_map'
+  ).all<{ ozon_sku: number; base_sku: string }>();
+  const skuMap = new Map<string, string>();
+  for (const m of mapRows.results || []) {
+    skuMap.set(String(m.ozon_sku), m.base_sku);
+  }
+
+  // Per-SKU aggregator. Pool: services that don't have a SKU (storage, ads).
+  type SkuBucket = {
+    qty: number;       // pieces from order rows (type='orders')
+    payout: number;    // sum amount where type='orders' (after Ozon commission already baked in)
+    logistics: number; // logistics services (positive number = cost; stored as |amount| of negatives)
+    returns: number;   // refunds/returns (type='returns', amount<0)
+    other: number;     // sku-attributed services (commissions/cashback handled here, sign preserved)
+  };
+  const perSku = new Map<string, SkuBucket>();
+  const pool = { storage: 0, advert: 0, no_sku_other: 0 };
+
+  // op_type → category. We classify by op_type string substrings + transaction type field.
+  // Note: we already have transaction type baked into staging (op_type col is operation_type;
+  // we ALSO have raw_json which contains type). Parse where needed.
+  for (const r of stagingRows.results || []) {
+    const ozonSku = String(r.sku || '').trim();
+    const ourSku = ozonSku ? (skuMap.get(ozonSku) || null) : null;
+    const amount = Number(r.amount || 0);
+    let txType = '';
+    try {
+      const j = JSON.parse(r.raw_json);
+      txType = j.type || '';
+    } catch { /* ignore */ }
+
+    // Classify
+    if (!ourSku) {
+      // No SKU attribution — service pool
+      const ot = r.op_type || '';
+      if (/Storage|Хранение/i.test(ot)) pool.storage += Math.abs(amount);
+      else if (/Advert|Marketing|Premium|Cashback|Promo/i.test(ot)) pool.advert += Math.abs(amount);
+      else pool.no_sku_other += amount;
+      continue;
+    }
+
+    if (!perSku.has(ourSku)) {
+      perSku.set(ourSku, { qty: 0, payout: 0, logistics: 0, returns: 0, other: 0 });
+    }
+    const b = perSku.get(ourSku)!;
+
+    if (txType === 'orders') {
+      b.qty += 1; // each order row = 1 unit (Ozon transaction row = 1 item delivered)
+      b.payout += amount;
+    } else if (txType === 'returns') {
+      b.returns += amount; // typically negative
+      b.qty -= 1;          // unit comes back
+    } else if (txType === 'services') {
+      // Logistics vs other services
+      const ot = r.op_type || '';
+      if (/Logistic|Crossdocking|Доставк/i.test(ot)) {
+        b.logistics += Math.abs(amount);
+      } else if (/Storage|Хранение/i.test(ot)) {
+        // Per-SKU storage — rare but possible
+        b.logistics += Math.abs(amount);
+      } else {
+        b.other += amount; // BrandCommission, etc — keep sign
+      }
+    } else {
+      // type='other' (e.g. Acquiring redistribution) — usually negative tweaks
+      b.other += amount;
+    }
+  }
+
+  // Total payout across all SKUs (positive sales side)
+  let totalPayout = 0;
+  for (const [, b] of perSku) totalPayout += Math.max(0, b.payout);
+
+  // Catalog filter — only SKUs that exist in products
+  const catalogRows = await env.DB.prepare('SELECT id FROM products WHERE deleted_at IS NULL').all<{ id: string }>();
+  const catalog = new Set(catalogRows.results.map(r => r.id));
+
+  // Build PnL lines
+  const lines: Array<{
+    sku: string; qty: number; payout: number; logistics: number;
+    advert_share: number; storage_share: number; other: number;
+    net_total: number; net_per: number;
+  }> = [];
+  let opTotal = 0;
+  for (const [sku, b] of perSku) {
+    if (!catalog.has(sku)) continue;
+    if (b.qty <= 0) continue;
+    const share = totalPayout > 0 ? b.payout / totalPayout : 0;
+    const storageShare = pool.storage * share;
+    const advertShare = pool.advert * share;
+    const netTotal = b.payout + b.returns + b.other - b.logistics - storageShare - advertShare;
+    const netPer = Math.round(netTotal / b.qty);
+    if (netPer <= 0) continue; // skip SKUs that net out to zero or negative — these are noise rows
+    opTotal += b.qty * netPer;
+    lines.push({
+      sku, qty: b.qty, payout: b.payout, logistics: b.logistics,
+      advert_share: advertShare, storage_share: storageShare,
+      other: b.other,
+      net_total: netTotal, net_per: netPer,
+    });
+  }
+
+  // Create operation
+  const periodToParts = task.period_to.split('-');
+  const refDate = periodToParts[0].slice(2) + periodToParts[1] + periodToParts[2];
+  const opId = `op_ozn_${refDate}_monthly`;
+  const reference = `OZN-${refDate}-MONTHLY`;
+  const opDate = Math.floor(new Date(task.period_to + 'T23:59:59Z').getTime() / 1000);
+  const now_ts = Math.floor(Date.now() / 1000);
+
+  // Replace if exists
+  const existing = await env.DB.prepare('SELECT id FROM operations WHERE id=?').bind(opId).first();
+  if (existing) {
+    await env.DB.prepare('DELETE FROM marketplace_pnl_lines WHERE operation_id=?').bind(opId).run();
+    await env.DB.prepare('DELETE FROM line_items WHERE operation_id=?').bind(opId).run();
+    await env.DB.prepare('DELETE FROM operations WHERE id=?').bind(opId).run();
+  }
+
   await env.DB.prepare(
-    "UPDATE marketplace_pull_tasks SET status='error', last_error=? WHERE id=?"
-  ).bind('Ozon staging build not yet implemented — staging rows collected, manual aggregation needed', task.id).run();
-  return { taskId: task.id, action: 'ozon_build_deferred', rows: 0 };
+    `INSERT INTO operations (
+       id, operation_date, operation_type, partner_id, our_company_id,
+       warehouse_from_id, warehouse_to_id, status, currency,
+       total_amount, contract_id, notes,
+       created_at, updated_at, reference, vat_rate, delivery_status, operation_track, default_document_language
+     ) VALUES (?, ?, 'sale', 'ozon', 'dee', 'ozon', NULL, 'delivered', 'RUB', ?, 'placeholder_ozon_rub', ?, ?, ?, ?, 0, 'delivered', 'goods', 'RU')`
+  ).bind(
+    opId, opDate, opTotal,
+    `Ozon monthly realization PnL — ${task.period_from} to ${task.period_to}. NET per-SKU income after Ozon commission, logistics, storage, advertising. Auto-pull task ${task.id}.`,
+    now_ts, now_ts, reference
+  ).run();
+
+  // Batched insert — Cloudflare Workers limit prepared-stmt batch to ~50 ops
+  const liStmts: any[] = [];
+  const pnlStmts: any[] = [];
+  for (const l of lines) {
+    const lineAmount = l.qty * l.net_per;
+    liStmts.push(env.DB.prepare(
+      `INSERT INTO line_items (id, operation_id, product_id, item_description, qty, cartons, inner_boxes,
+       unit_price, discount_pct, unit_price_after_disc, line_amount, currency, line_usd_equiv, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 0, 0, ?, 0, ?, ?, 'RUB', NULL, ?, ?)`
+    ).bind(`li_ozn_${refDate}_${l.sku}`, opId, l.sku, l.sku, l.qty, l.net_per, l.net_per, lineAmount, now_ts, now_ts));
+
+    pnlStmts.push(env.DB.prepare(
+      `INSERT INTO marketplace_pnl_lines (id, operation_id, marketplace, product_id, qty, retail_amount,
+       gross_amount, commission, payout, logistics, penalty, acceptance, rebill_logistic, additional_payment,
+       storage_share, advert_share, net_total, net_per, period_from, period_to, created_at)
+       VALUES (?, ?, 'ozon', ?, ?, 0, 0, 0, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      `mp_ozn_${refDate}_${l.sku}`, opId, l.sku, l.qty,
+      l.payout, l.logistics, l.other,
+      l.storage_share, l.advert_share, l.net_total, l.net_per,
+      task.period_from, task.period_to, now_ts
+    ));
+  }
+  // Run in chunks of 50 to stay under CPU budget
+  for (let i = 0; i < liStmts.length; i += 50) {
+    await env.DB.batch(liStmts.slice(i, i + 50));
+  }
+  for (let i = 0; i < pnlStmts.length; i += 50) {
+    await env.DB.batch(pnlStmts.slice(i, i + 50));
+  }
+
+  await env.DB.prepare(
+    `UPDATE marketplace_pull_tasks SET status='done', operation_id=?, completed_at=? WHERE id=?`
+  ).bind(opId, now_ts, task.id).run();
+
+  console.log(`[mp-pull:build-ozon] ${reference} created with ${lines.length} SKU, total=${opTotal} RUB`);
+  return { taskId: task.id, action: 'built', rows: lines.length };
 }
 
 

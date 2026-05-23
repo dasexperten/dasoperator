@@ -129,7 +129,10 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
 
   console.log('[inbox-cron] starting daily invoice ingestion');
 
-  // Step 1: Collect candidates from emailer-bridge
+  // Step 1: Collect candidates from emailer-bridge (keyword queries).
+  // skip_attachments=true means we get only metadata — actual PDF downloads happen
+  // per-attachment in Step 2 below, after dedup. Avoids the 100s bridge timeout
+  // when keyword queries match threads with many embedded inline images.
   const allThreads = new Map<string, any>();
   for (const queryTerm of SEARCH_QUERIES) {
     try {
@@ -137,10 +140,18 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
         action: 'find',
         query: `has:attachment newer_than:2d (${queryTerm})`,
         max_results: 4,
+        skip_attachments: true,
       });
       const threads = findResult?.threads || [];
       for (const t of threads) {
-        if (t.thread_id) allThreads.set(t.thread_id, t);
+        if (!t.thread_id) continue;
+        // Treat keyword-matched threads the same way as watchlist threads:
+        // store metadata for per-PDF download in Step 2 (uniform code path).
+        allThreads.set(t.thread_id, {
+          ...t,
+          is_watchlist: false,
+          attachments_meta: t.attachments_meta || [],
+        });
       }
     } catch (e) {
       console.error(`[inbox-cron] find failed for query "${queryTerm}":`, e);

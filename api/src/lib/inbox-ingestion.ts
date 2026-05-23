@@ -40,7 +40,7 @@ const SEARCH_QUERIES = [
 //   - Auto-reject rules are bypassed; everything lands as needs_review.
 //   - Notes prefixed with [WATCHLIST: <sender>].
 const WATCHLIST_SENDERS = ['253@bkmsk.ru', 'zukonar@mail.ru'];
-const WATCHLIST_WINDOW_DAYS = 14;
+const WATCHLIST_WINDOW_DAYS = 30;
 
 const DEEPSEEK_PROMPT = `You are an invoice classifier for Das Experten (multi-entity company).
 Entities: DEE (Russia), DEI (UAE), DEASEAN (Vietnam), DEC (Seychelles).

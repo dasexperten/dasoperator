@@ -408,16 +408,26 @@ type BreakdownData = {
   partners: {
     items: Array<{ id: string; label: string; revenue: number; ops_count: number }>;
     total: number;
+    currency: 'USD';
+    fx_date: string | null;
   };
 };
 
 const SKU_COLORS = ['#C4302B', '#D4A017', '#1D9E75', '#534AB7', '#D4537E', '#378ADD', '#639922', '#D85A30', '#993556', '#0F6E56'];
 const OTHER_COLOR = '#888780';
 const PARTNER_COLORS: Record<string, string> = {
-  ozon: '#378ADD',
-  wb: '#7F77DD',
+  ozon:                                                '#378ADD',
+  wb:                                                  '#7F77DD',
+  dasex_group:                                         '#888780',
+  tori_georgia:                                        '#1D9E75',
+  torwey:                                              '#D85A30',
+  'яндекс_пей_продажи_с_нашего_сайта':                 '#D4A017',
+  dm:                                                  '#97C459',
+  letoile:                                             '#D4537E',
+  dasexperten_com:                                     '#534AB7',
 };
-const PARTNER_OTHER = '#888780';
+const PARTNER_PALETTE = ['#888780', '#1D9E75', '#D85A30', '#D4A017', '#97C459', '#D4537E', '#534AB7'];
+const PARTNER_OTHER = '#5F5E5A';
 
 function buildPieSlices(values: number[], explode = 6, rx = 90, ry = 49.5) {
   const total = values.reduce((s, v) => s + v, 0);
@@ -484,18 +494,12 @@ function PieBreakdownCard() {
 
 function SkuPie({ data }: { data: BreakdownData }) {
   // Re-rank ALL SKUs by units (server sent them sorted by revenue)
-  const allRanked = useMemo(() => {
-    // Combine top10 + 'other' would lose per-sku detail; we only have top10.
-    // So just re-sort top10 by units. If true top by units differs from top by revenue,
-    // server should be teached separately. For now this gives correct % within top10+other group.
-    return [...data.sku.top10].sort((a, b) => b.units - a.units);
-  }, [data]);
-  const sortedTop10 = allRanked.slice(0, 10);
-  // Approximate other units by ratio: (other.revenue / total.revenue) ~ other share — 
-  // but we lack other.units. Server should provide it; approximate using sum of catalog.
-  const totalRevTop = sortedTop10.reduce((s, r) => s + r.revenue, 0);
+  // Server now returns top10 already sorted by units; just trust it.
+  const sortedTop10 = data.sku.top10;
   const otherUnits = (data.sku.other as any).units ?? 0;
-  const totalUnits = sortedTop10.reduce((s, r) => s + r.units, 0) + otherUnits;
+  // Prefer real total from server; fall back to summing what we have if absent.
+  const totalUnits = (data.sku as any).total_units
+    ?? (sortedTop10.reduce((s, r) => s + r.units, 0) + otherUnits);
   const other = { count: data.sku.other.count, units: otherUnits };
 
   const slices = useMemo(() => {
@@ -571,18 +575,33 @@ function SkuPie({ data }: { data: BreakdownData }) {
   );
 }
 
+function fmtUsdShort(v: number): string {
+  if (Math.abs(v) >= 1_000_000) return '$' + (v / 1_000_000).toFixed(2) + 'M';
+  if (Math.abs(v) >= 1_000)     return '$' + (v / 1_000).toFixed(1) + 'k';
+  return '$' + v.toFixed(0);
+}
+
 function PartnerPie({ data }: { data: BreakdownData }) {
   const slices = useMemo(() => {
     return buildPieSlices(data.partners.items.map(p => p.revenue), 7);
   }, [data]);
 
-  const colors = data.partners.items.map(p => PARTNER_COLORS[p.id] || PARTNER_OTHER);
+  // Colors: explicit map for known partners; for the rest, walk PARTNER_PALETTE
+  // in order so we never collapse into one gray block.
+  let paletteIdx = 0;
+  const colors = data.partners.items.map((p) => {
+    if (p.id === '_other') return PARTNER_OTHER;
+    if (PARTNER_COLORS[p.id]) return PARTNER_COLORS[p.id];
+    const c = PARTNER_PALETTE[paletteIdx % PARTNER_PALETTE.length];
+    paletteIdx++;
+    return c;
+  });
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' }}>
-        <span style={{ fontSize: '13px', color: 'var(--fg-3)', textTransform: 'uppercase' }}>By Partner (gross)</span>
-        <span style={{ fontSize: '12px', color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>{fmtMoneyShort(data.partners.total)} ₽</span>
+        <span style={{ fontSize: '13px', color: 'var(--fg-3)', textTransform: 'uppercase' }}>By Partner (USD)</span>
+        <span style={{ fontSize: '12px', color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>{fmtUsdShort(data.partners.total)}</span>
       </div>
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '220px' }}>
         <svg viewBox="-150 -90 300 180" width="100%" height="100%" style={{ overflow: 'visible' }}>
@@ -599,20 +618,28 @@ function PartnerPie({ data }: { data: BreakdownData }) {
         </svg>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '11px', marginTop: '14px' }}>
-        {data.partners.items.map((p, i) => (
-          <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '3px 0' }}>
+        {data.partners.items.map((p, i) => {
+          const muted = p.id === '_other';
+          return (
+          <div key={p.id} style={{
+            display: 'flex', alignItems: 'center', gap: '8px', padding: '3px 0',
+            borderTop: muted ? '0.5px solid var(--border-hairline)' : 'none',
+            marginTop:   muted ? '4px' : 0,
+            paddingTop:  muted ? '6px' : '3px',
+          }}>
             <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: colors[i], flexShrink: 0 }} />
             <span style={{ flex: 1, fontWeight: 700, color: 'var(--fg-1)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {p.label}
             </span>
             <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--fg-1)', whiteSpace: 'nowrap' }}>
-              {fmtMoneyShort(p.revenue)} ₽
+              {fmtUsdShort(p.revenue)}
             </span>
             <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-3)', width: '38px', textAlign: 'right', whiteSpace: 'nowrap' }}>
               {data.partners.total > 0 ? ((p.revenue / data.partners.total) * 100).toFixed(1) : '0.0'}%
             </span>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

@@ -151,22 +151,31 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
   stats.threads_found = allThreads.size;
   console.log(`[inbox-cron] ${allThreads.size} unique threads collected from keyword queries`);
 
-  // Step 1b: WATCHLIST scan — senders we always want, regardless of subject.
-  // Wider window (14 days) so a single failed cron run doesn't lose anything.
+  // Step 1b: WATCHLIST scan — metadata-only find then per-attachment download.
+  // skip_attachments=true makes find return in ~5s instead of timing out on
+  // bridge after 100s when many threads/files match. Pass 2 (in Step 2 below)
+  // downloads each fresh attachment individually via the `download_attachment`
+  // action. Dedup check happens before download to avoid re-uploading R2 keys.
   for (const sender of WATCHLIST_SENDERS) {
     try {
       const findResult = await callEmailer(env, {
         action: 'find',
         query: `from:${sender} has:attachment newer_than:${WATCHLIST_WINDOW_DAYS}d`,
-        max_results: 5,
+        max_results: 20,
+        skip_attachments: true,
       });
       const threads = findResult?.threads || [];
       for (const t of threads) {
         if (!t.thread_id) continue;
         const existing = allThreads.get(t.thread_id);
-        // Merge into map and mark is_watchlist (existing thread from keyword
-        // queries may also be a watchlist sender — still elevate it).
-        allThreads.set(t.thread_id, { ...(existing || t), is_watchlist: true, watchlist_sender: sender });
+        // attachments_meta (from skip_attachments mode) replaces attachments_resolved.
+        // Downstream code below normalizes this in Step 2.
+        allThreads.set(t.thread_id, {
+          ...(existing || t),
+          is_watchlist: true,
+          watchlist_sender: sender,
+          attachments_meta: t.attachments_meta || [],
+        });
       }
     } catch (e) {
       console.error(`[inbox-cron] watchlist find failed for ${sender}:`, e);
@@ -193,11 +202,12 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
 
   for (const t of allThreads.values()) {
     const isWatchlistThread = !!t.is_watchlist;
+
+    // Pre-resolved attachments (non-watchlist keyword path) come through `attachments_resolved`.
     for (const a of t.attachments_resolved || []) {
       if (!a.r2_url) continue;
       const isPdf = a.mime_type === 'application/pdf';
       const isTxt = a.mime_type === 'text/plain';
-      // PDF accepted always; TXT only for watchlist (bkmsk sends НДС/взносы as .txt).
       const accept = isPdf || (isWatchlistThread && isTxt);
       if (!accept) continue;
       const r2Key = a.r2_url.includes('.r2.dev/') ? a.r2_url.split('.r2.dev/')[1] : a.r2_url;
@@ -210,6 +220,57 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
         r2_url: a.r2_url,
         r2_key: r2Key,
         mime_type: a.mime_type || 'application/octet-stream',
+        is_watchlist: isWatchlistThread,
+        watchlist_sender: t.watchlist_sender,
+      });
+    }
+
+    // Metadata-only attachments (watchlist path with skip_attachments) — download each
+    // fresh PDF/TXT individually. Skip if attachment_filename + thread_id already in DB.
+    for (const meta of t.attachments_meta || []) {
+      const isPdf = (meta.mime_type || '').startsWith('application/pdf');
+      const isTxt = meta.mime_type === 'text/plain';
+      const accept = isPdf || (isWatchlistThread && isTxt);
+      if (!accept) continue;
+
+      // Skip if the (filename, thread_id) pair is already in invoice_inbox — dedup
+      // before hitting Apps Script. Massively reduces wasted download_attachment calls.
+      const exists = await env.DB.prepare(
+        'SELECT 1 FROM invoice_inbox WHERE attachment_filename = ? AND gmail_thread_id = ? LIMIT 1'
+      ).bind(meta.filename, t.thread_id).first<any>();
+      if (exists) {
+        stats.duplicates++;
+        continue;
+      }
+
+      // Resolve via download_attachment — this uploads to R2 and returns the URL.
+      let dl: any = null;
+      try {
+        dl = await callEmailer(env, {
+          action: 'download_attachment',
+          message_id: meta.message_id,
+          attachment_name: meta.filename,
+        });
+      } catch (e) {
+        console.error(`[inbox-cron] download failed for ${meta.filename}:`, e);
+        stats.errors++;
+        continue;
+      }
+      if (!dl || !dl.success || !dl.r2_url) {
+        console.error(`[inbox-cron] download skipped/failed for ${meta.filename}: ${dl?.skipped_reason || dl?.error || 'unknown'}`);
+        stats.errors++;
+        continue;
+      }
+      const r2Key = dl.r2_url.includes('.r2.dev/') ? dl.r2_url.split('.r2.dev/')[1] : dl.r2_url;
+      candidates.push({
+        thread_id: t.thread_id,
+        subject: t.subject || '',
+        from: meta.message_from || t.last_message_from || '',
+        snippet: (t.last_message_snippet || '').slice(0, 500),
+        filename: meta.filename,
+        r2_url: dl.r2_url,
+        r2_key: r2Key,
+        mime_type: meta.mime_type || 'application/octet-stream',
         is_watchlist: isWatchlistThread,
         watchlist_sender: t.watchlist_sender,
       });

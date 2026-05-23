@@ -303,6 +303,7 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
                   extracted_vendor_email, extracted_invoice_no, extracted_invoice_date,
                   extracted_our_invoice_ref, extracted_currency, extracted_amount,
                   extracted_buyer_entity, attachment_text_extracted, matched_partner_id,
+                  extracted_shipment_ref, extracted_service_subtype,
                   attachment_r2_key, attachment_filename, email_subject, email_from
              FROM invoice_inbox WHERE id = ?`
         ).bind(invId).first<any>();

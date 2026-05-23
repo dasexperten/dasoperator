@@ -173,25 +173,23 @@ inbox.post('/ingest-one', async (c) => {
         const now = Math.floor(Date.now() / 1000);
         await c.env.DB.prepare(`
           INSERT INTO invoice_inbox (
-            id, gmail_message_id, gmail_thread_id, email_subject, email_from, email_date,
-            attachment_filename, attachment_r2_key, attachment_r2_url, attachment_size_bytes,
-            attachment_sha256, attachment_text_extracted,
+            id, source_type, gmail_message_id, gmail_thread_id, email_subject, email_from, email_received_at,
+            attachment_filename, attachment_r2_key, attachment_content_type, attachment_text_extracted,
             classification, classification_confidence, status,
-            extracted_vendor_name, extracted_vendor_tax_id, extracted_vendor_country, extracted_vendor_address,
+            extracted_vendor_name, extracted_vendor_inn, extracted_vendor_country, extracted_vendor_address,
             extracted_invoice_no, extracted_invoice_date,
-            extracted_amount, extracted_currency, extracted_amount_excl_vat, extracted_vat_amount,
+            extracted_amount, extracted_currency,
             extracted_buyer_entity, extracted_service_category, extracted_service_subtype, extracted_shipment_ref,
             notes, created_at, deleted_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
         `).bind(
-          id, body.message_id, dl.sha256 || body.message_id, '', 'buh2@inter-freight.ru', now,
-          body.attachment_name, r2Key, dl.r2_url, dl.size_bytes,
-          dl.sha256, '',
+          id, 'gmail', body.message_id, dl.sha256 || body.message_id, '', 'buh2@inter-freight.ru', now,
+          body.attachment_name, r2Key, 'application/pdf', '',
           (extracted.classification === 'unclear' ? 'pending' : extracted.classification) || 'pending',
           extracted.confidence || null, 'needs_review',
           extracted.vendor_name || null, extracted.vendor_tax_id || null, extracted.vendor_country || null, extracted.vendor_address || null,
           extracted.invoice_no || null, extracted.invoice_date || null,
-          extracted.amount_total || null, extracted.currency || null, extracted.amount_excl_vat || null, extracted.vat_amount || null,
+          extracted.amount_total || null, extracted.currency || null,
           extracted.buyer_entity || null, extracted.service_category || null, extracted.service_subtype || null, extracted.shipment_ref || null,
           `[WATCHLIST: buh2@inter-freight.ru] ${extracted.notes || ''}`.slice(0, 1000),
           now,

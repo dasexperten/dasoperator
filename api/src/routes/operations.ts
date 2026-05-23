@@ -2536,5 +2536,29 @@ operations.post('/_backfill-dasexperten-com-monthly', async (c) => {
 });
 
 
+// =============================================================================
+// POST /operations/_tick-marketplace-pull?times=N
+//
+// Manual driver for marketplace pull queue. Calls tickMarketplacePull N times
+// (default 1, max 20). Each tick advances one task: WB fetch one page, Ozon
+// fetch one page, or build operations from staging. Cron */15 does the same
+// automatically, but manual tick lets us drain a backfill queue faster.
+//
+// Tasks are spaced by their `next_attempt_at` — early calls in a burst may
+// return null while WB rate-limit window cools down.
+// =============================================================================
+operations.post('/_tick-marketplace-pull', async (c) => {
+  const times = Math.min(Math.max(parseInt(c.req.query('times') || '1', 10) || 1, 1), 20);
+  const { tickMarketplacePull } = await import('../lib/marketplace-pull');
+  const results: Array<unknown> = [];
+  for (let i = 0; i < times; i++) {
+    const r = await tickMarketplacePull(c.env);
+    results.push(r);
+    if (!r) break;
+  }
+  return ok(c, { count: results.length, results });
+});
+
+
 export default operations;
 

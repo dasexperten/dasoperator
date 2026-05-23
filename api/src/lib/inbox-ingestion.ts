@@ -76,6 +76,13 @@ For logistics/freight services (Inter-Freight, Inter-Vostok, Панченко) a
   - shipment_ref: forwarder reference like "INF50363", "INF51023", "TR5093". Look in subject AND body. Pattern: INF\\d{4,6} or TR\\d{3,5}. Null if absent.
   - service_subtype: one of "freight" (international transport, EXW->RU), "customs" (Таможенное оформление, ГТД), "storage" (Хранение), "handling" (ПРР, погрузо-разгрузка), "demurrage" (Простой), "delivery_local" (last-mile within RU, e.g. Москва-Люберцы), "insurance", "other". Pick by line item description.
 
+CRITICAL — distinguish invoices from supporting documents:
+  - ГТД / Таможенная декларация / Customs declaration (Декларация на товары): classification = "not_invoice". Customs value (декларационная стоимость, e.g. 84 million CNY or $1.29M USD) is NOT an amount to pay. Set amount_total = null. Still extract shipment_ref if mentioned.
+  - Коносамент / B/L / Bill of Lading: classification = "not_invoice". Set amount_total = null.
+  - Договор страхования: classification = "service" with service_subtype = "insurance" ONLY if it contains an amount payable. If it's just the policy contract without invoice — "not_invoice".
+  - ТД / Транзитная декларация (transit declaration): classification = "not_invoice", amount = null.
+  - УПД / Счёт-фактура / Acta of services: these ARE invoices. Use the total payable amount from "Итого к оплате" or "Всего к оплате".
+
 Output ONLY valid JSON:
 {
   "classification": "service" | "purchase" | "sale_payment" | "not_invoice" | "unclear",

@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { findExistingPartnerByName, isBankProviderName, generateReadablePartnerId } from '../lib/partner-dedup';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
-import { runInboxIngestion } from '../lib/inbox-ingestion';
+import { runInboxIngestion, classifyViaClaude, deepseekClassify, fetchPdf } from '../lib/inbox-ingestion';
 import { findMatchingOperation, thresholdFor } from '../lib/inbox-auto-match';
 import { allocateAwaitingTxToOperation } from '../lib/bank-tx-allocator';
 
@@ -75,6 +75,80 @@ inbox.post('/run-ingestion', async (c) => {
     ),
   );
   return ok(c, { started: true, message: 'Ingestion running in background — poll invoice_inbox table for results' });
+});
+
+// =============================================================================
+// POST /api/inbox/ingest-one — diagnostic: synchronously process ONE PDF.
+// Body: { message_id: string, attachment_name: string }
+// Pipeline: download_attachment via bridge → fetchPdf from R2 → classifyViaClaude
+// (with deepseek fallback). Returns FULL trace inline — no DB writes. Useful
+// for pinpointing whether Claude vision is extracting amounts correctly.
+// =============================================================================
+inbox.post('/ingest-one', async (c) => {
+  try {
+    const body = await c.req.json<{ message_id: string; attachment_name: string }>();
+    if (!body?.message_id || !body?.attachment_name) {
+      return fail(c, 400, [{ code: 'bad_request', message: 'message_id + attachment_name required' }]);
+    }
+    const trace: any = { steps: [] };
+
+    // Step 1: download_attachment via bridge
+    trace.steps.push('1: calling bridge download_attachment');
+    const dlResp = await fetch('https://emailer-bridge.dasexperten.workers.dev/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'download_attachment', message_id: body.message_id, attachment_name: body.attachment_name }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!dlResp.ok) {
+      const txt = await dlResp.text();
+      trace.bridge_error = { http: dlResp.status, body: txt.slice(0, 500) };
+      return ok(c, trace);
+    }
+    const dl: any = await dlResp.json();
+    trace.bridge_result = { success: dl.success, r2_url: dl.r2_url, sha256: dl.sha256, size: dl.size_bytes };
+    if (!dl.r2_url) return ok(c, trace);
+
+    // Step 2: fetch the PDF from R2
+    trace.steps.push('2: fetching PDF buffer from R2');
+    const buf = await fetchPdf(dl.r2_url);
+    if (!buf) {
+      trace.r2_fetch_failed = true;
+      return ok(c, trace);
+    }
+    trace.pdf_size_bytes = buf.byteLength;
+
+    // Step 3: classifyViaClaude
+    const ctx = { from: '', subject: '', filename: body.attachment_name, snippet: '' };
+    trace.steps.push('3: calling classifyViaClaude');
+    const t0 = Date.now();
+    let claudeOut: any = null;
+    let claudeErr: string | null = null;
+    try {
+      claudeOut = await classifyViaClaude(c.env, buf, ctx);
+    } catch (e) {
+      claudeErr = e instanceof Error ? e.message : String(e);
+    }
+    trace.claude = { duration_ms: Date.now() - t0, result: claudeOut, error: claudeErr };
+
+    // Step 4: also try DeepSeek for comparison (with empty text since we can't extract)
+    if (!claudeOut) {
+      trace.steps.push('4: falling back to deepseek (no text extraction)');
+      const t1 = Date.now();
+      let dsOut: any = null;
+      let dsErr: string | null = null;
+      try {
+        dsOut = await deepseekClassify(c.env, '(no extraction, classify by filename)', ctx);
+      } catch (e) {
+        dsErr = e instanceof Error ? e.message : String(e);
+      }
+      trace.deepseek = { duration_ms: Date.now() - t1, result: dsOut, error: dsErr };
+    }
+
+    return ok(c, trace);
+  } catch (e) {
+    return fail(c, 500, [{ code: 'ingest_one_error', message: e instanceof Error ? e.message : String(e) }]);
+  }
 });
 
 // =============================================================================

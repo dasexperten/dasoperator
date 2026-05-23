@@ -25,6 +25,7 @@ export interface MovementInput {
   notes?: string | null;
   performed_by?: string | null;
   performed_at?: number;       // unix; defaults to now
+  stock_state?: 'on_hand' | 'in_production' | 'in_transit';
 }
 
 export interface MovementResult {
@@ -80,16 +81,20 @@ export async function applyMovement(
   const stockId = `stk_${crypto.randomUUID()}`;
 
   // Step 1: UPSERT stocks, RETURNING the new on_hand (atomic per statement)
+  // stocks UNIQUE constraint covers (warehouse_id, product_id, stock_state),
+  // so ON CONFLICT must include all three; otherwise SQLite rejects with
+  // 'ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint'.
+  const stockState = input.stock_state ?? 'on_hand';
   const upsertResult = await db.prepare(`
-    INSERT INTO stocks (id, warehouse_id, product_id, on_hand, last_movement_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT (warehouse_id, product_id) DO UPDATE
+    INSERT INTO stocks (id, warehouse_id, product_id, stock_state, on_hand, last_movement_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (warehouse_id, product_id, stock_state) DO UPDATE
     SET on_hand = stocks.on_hand + excluded.on_hand,
         last_movement_at = excluded.last_movement_at,
         updated_at = excluded.updated_at
     RETURNING on_hand
   `).bind(
-    stockId, input.warehouse_id, input.product_id,
+    stockId, input.warehouse_id, input.product_id, stockState,
     input.quantity, now, now
   ).first<{ on_hand: number }>();
 
@@ -104,14 +109,14 @@ export async function applyMovement(
     INSERT INTO stock_movements (
       id, warehouse_id, product_id, movement_type, quantity, source,
       source_ref_type, source_ref_id, reason, notes,
-      performed_by, performed_at, balance_after, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      performed_by, performed_at, balance_after, stock_state, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     movementId, input.warehouse_id, input.product_id,
     input.movement_type, input.quantity, input.source,
     input.source_ref_type ?? null, input.source_ref_id ?? null,
     input.reason ?? null, input.notes ?? null,
-    input.performed_by ?? null, now, balanceAfter, now
+    input.performed_by ?? null, now, balanceAfter, stockState, now
   ).run();
 
   return {

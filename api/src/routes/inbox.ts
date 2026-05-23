@@ -77,6 +77,18 @@ inbox.post('/run-ingestion', async (c) => {
   return ok(c, { started: true, message: 'Ingestion running in background — poll invoice_inbox table for results' });
 });
 
+// Sync diagnostic: runs the full ingestion inline + returns stats. Caps at the
+// regular SOFT_BUDGET_MS so it can return within HTTP response window.
+inbox.post('/run-ingestion-sync', async (c) => {
+  try {
+    const t0 = Date.now();
+    const stats = await runInboxIngestion(c.env);
+    return ok(c, { duration_ms: Date.now() - t0, stats });
+  } catch (e) {
+    return fail(c, 500, [{ code: 'ingestion_error', message: e instanceof Error ? e.message : String(e), stack: (e as any)?.stack?.slice(0,500) }]);
+  }
+});
+
 // =============================================================================
 // POST /api/inbox/ingest-one — diagnostic: synchronously process ONE PDF.
 // Body: { message_id: string, attachment_name: string }

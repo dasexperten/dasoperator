@@ -107,7 +107,7 @@ inventorySessions.post('/', async (c) => {
   if (!wh) return fail(c, 404, [{ code: 'warehouse_not_found', message: data.warehouse_id }]);
 
   // Issue reference INV-YYYYMM-NNNN
-  const seq = await issueNextSequence(c.env.DB, 'seq_inv');
+  const seq = await issueNextSequence(c.env.DB, 'inv');
   if (!seq) {
     return fail(c, 500, [{ code: 'sequence_failed', message: 'Failed to issue seq_inv' }]);
   }

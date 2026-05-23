@@ -390,17 +390,30 @@ externalRequests.post('/sync', async (c) => {
         };
         byRequest.set(row.request_id, entry);
       }
-      // Bundle expansion at collection time: DE202AA × 16 560 becomes de202 × 33 120.
-      // This unifies the qty map directly into base-SKU units, so candidate
-      // matching and arrival_received_qtys both speak the same language as
-      // the purchase line_items.
-      const exp = expandToBase(row.product_id);
-      entry.qtys.set(exp.base, (entry.qtys.get(exp.base) ?? 0) + row.accepted_amount * exp.multiplier);
+      // Keep qtys keyed by the SKU as physically received (e.g. de202aa for
+      // a 2-pack). The factory ships singles → OTW holds singles; the
+      // warehouse accepts bundled pairs → LBR will hold AA. arrival_received_qtys
+      // must record what physically arrived (AA), so the delivery transition
+      // can apply the bundle conversion on the destination side.
+      entry.qtys.set(
+        row.product_id,
+        (entry.qtys.get(row.product_id) ?? 0) + row.accepted_amount
+      );
     }
 
     for (const [requestId, entry] of byRequest) {
-      const matchSkus = Array.from(entry.qtys.keys());
-      if (matchSkus.length === 0) continue;
+      const acceptedSkus = Array.from(entry.qtys.keys());
+      if (acceptedSkus.length === 0) continue;
+
+      // For candidate matching, expand AA → base so an acceptance with de202aa
+      // can still match a purchase whose line_items hold de202 (the factory
+      // shipping form). The qtys map itself stays in AA form.
+      const matchSkuSet = new Set<string>(acceptedSkus);
+      for (const sku of acceptedSkus) {
+        const exp = expandToBase(sku);
+        if (exp.base !== sku) matchSkuSet.add(exp.base);
+      }
+      const matchSkus = Array.from(matchSkuSet);
 
       // Look up acceptance date for this request (text 'YYYY-MM-DD'). Used as
       // a sanity guard so we never match a recent acceptance to a long-stale

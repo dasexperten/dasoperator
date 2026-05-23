@@ -24,6 +24,7 @@
 import type { Env } from '../types';
 import { callPro } from './deepseek';
 import { callGeminiFlash } from './gemini';
+import { sanitizeReply } from './sanitize';
 import { loadSkillMd, loadSkuKnowledge, loadSegmentCheck } from './skill-loader';
 
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
@@ -375,7 +376,7 @@ ${segmentMd}`;
 
   return {
     ok: true,
-    reply: currentReply,
+    reply: sanitizeReply(currentReply),
     reviewType,
     gates,
     totalDurationMs: Date.now() - startedAt,
@@ -493,7 +494,7 @@ ${skuKnowledge.slice(0, 5000)}`;
 
   return {
     ok: true,
-    reply: currentReply,
+    reply: sanitizeReply(currentReply),
     reviewType,
     gates,
     totalDurationMs: Date.now() - startedAt,

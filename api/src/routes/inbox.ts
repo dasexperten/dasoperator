@@ -147,6 +147,61 @@ inbox.post('/ingest-one', async (c) => {
       trace.deepseek = { duration_ms: Date.now() - t1, result: dsOut, error: dsErr };
     }
 
+    // Step 5 (if dryRun !== true): actually insert into invoice_inbox to test
+    // the full write path. Defaults to true so casual calls don't pollute DB.
+    const dryRun = body.dryRun !== false;
+    trace.dry_run = dryRun;
+    const extracted = claudeOut || trace.deepseek?.result;
+    if (!dryRun && extracted) {
+      trace.steps.push('5: inserting into invoice_inbox');
+      const r2Key = dl.r2_url.includes('.r2.dev/') ? dl.r2_url.split('.r2.dev/')[1] : dl.r2_url;
+      const candidate = {
+        thread_id: dl.sha256 || body.message_id,  // placeholder so dedup doesn't kill it
+        subject: '',
+        from: 'buh2@inter-freight.ru',
+        snippet: '',
+        filename: body.attachment_name,
+        r2_url: dl.r2_url,
+        r2_key: r2Key,
+        mime_type: 'application/pdf',
+        is_watchlist: true,
+        watchlist_sender: 'buh2@inter-freight.ru',
+      };
+      try {
+        // Inline insert via raw SQL to avoid pulling in private insertInbox
+        const id = `iib_${Math.random().toString(36).slice(2, 14)}`;
+        const now = Math.floor(Date.now() / 1000);
+        await c.env.DB.prepare(`
+          INSERT INTO invoice_inbox (
+            id, gmail_message_id, gmail_thread_id, email_subject, email_from, email_date,
+            attachment_filename, attachment_r2_key, attachment_r2_url, attachment_size_bytes,
+            attachment_sha256, attachment_text_extracted,
+            classification, classification_confidence, status,
+            extracted_vendor_name, extracted_vendor_tax_id, extracted_vendor_country, extracted_vendor_address,
+            extracted_invoice_no, extracted_invoice_date,
+            extracted_amount, extracted_currency, extracted_amount_excl_vat, extracted_vat_amount,
+            extracted_buyer_entity, extracted_service_category, extracted_service_subtype, extracted_shipment_ref,
+            notes, created_at, deleted_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+        `).bind(
+          id, body.message_id, dl.sha256 || body.message_id, '', 'buh2@inter-freight.ru', now,
+          body.attachment_name, r2Key, dl.r2_url, dl.size_bytes,
+          dl.sha256, '',
+          (extracted.classification === 'unclear' ? 'pending' : extracted.classification) || 'pending',
+          extracted.confidence || null, 'needs_review',
+          extracted.vendor_name || null, extracted.vendor_tax_id || null, extracted.vendor_country || null, extracted.vendor_address || null,
+          extracted.invoice_no || null, extracted.invoice_date || null,
+          extracted.amount_total || null, extracted.currency || null, extracted.amount_excl_vat || null, extracted.vat_amount || null,
+          extracted.buyer_entity || null, extracted.service_category || null, extracted.service_subtype || null, extracted.shipment_ref || null,
+          `[WATCHLIST: buh2@inter-freight.ru] ${extracted.notes || ''}`.slice(0, 1000),
+          now,
+        ).run();
+        trace.inserted_id = id;
+      } catch (insErr) {
+        trace.insert_error = insErr instanceof Error ? insErr.message : String(insErr);
+      }
+    }
+
     return ok(c, trace);
   } catch (e) {
     return fail(c, 500, [{ code: 'ingest_one_error', message: e instanceof Error ? e.message : String(e) }]);

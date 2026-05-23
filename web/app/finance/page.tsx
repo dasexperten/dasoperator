@@ -5,7 +5,7 @@ export const runtime = 'edge';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  Loader2, ArrowDownLeft, ArrowUpRight, CheckCircle2, AlertCircle, Search, BookOpen,
+  Loader2, ArrowDownLeft, ArrowUpRight, CheckCircle2, AlertCircle, Search,
   Upload, Plus, X, Mail, Building2, Trash2,
 } from 'lucide-react';
 import {
@@ -752,55 +752,6 @@ export default function FinanceTransactionsPage() {
             <Upload className="h-4 w-4" />
             Upload Bank Statement
           </button>
-
-          <Link
-            href="/inbox/banking"
-            className="inline-flex items-center gap-2 px-4 py-2"
-            style={{
-              border: '1px solid var(--line-1)',
-              borderRadius: 'var(--radius-sm)',
-              backgroundColor: 'var(--paper)',
-              color: 'var(--fg-1)',
-              fontSize: '14px',
-              fontWeight: 700,
-              textDecoration: 'none',
-            }}
-          >
-            <AlertCircle className="h-4 w-4" />
-            Triage
-          </Link>
-
-          <Link
-            href="/finance/accounts"
-            className="inline-flex items-center gap-2 px-4 py-2"
-            style={{
-              border: '1px solid var(--line-1)',
-              borderRadius: 'var(--radius-sm)',
-              backgroundColor: 'var(--paper)',
-              color: 'var(--fg-1)',
-              fontSize: '14px',
-              fontWeight: 700,
-            }}
-          >
-            <BookOpen className="h-4 w-4" />
-            Bank Reference
-          </Link>
-
-          <Link
-            href="/finance/settlements"
-            className="inline-flex items-center gap-2 px-4 py-2"
-            style={{
-              border: '1px solid var(--line-1)',
-              borderRadius: 'var(--radius-sm)',
-              backgroundColor: 'var(--paper)',
-              color: 'var(--fg-1)',
-              fontSize: '14px',
-              fontWeight: 700,
-            }}
-          >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2L22 20H2L12 2z"/></svg>
-            Agent Settlements
-          </Link>
         </div>
       </div>
 
@@ -866,25 +817,65 @@ export default function FinanceTransactionsPage() {
           ))}
         </select>
 
-        <select value={directionFilter} onChange={(e) => setDirectionFilter(e.target.value as 'all' | 'incoming' | 'outgoing')} style={{
-          border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
-          backgroundColor: 'var(--paper)', padding: '8px 12px',
-          fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)',
-        }}>
-          <option value="all">All directions</option>
-          <option value="incoming">Incoming only</option>
-          <option value="outgoing">Outgoing only</option>
-        </select>
-
-        <select value={matchedFilter} onChange={(e) => setMatchedFilter(e.target.value as 'all' | 'matched' | 'unmatched')} style={{
-          border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
-          backgroundColor: 'var(--paper)', padding: '8px 12px',
-          fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)',
-        }}>
-          <option value="all">All matches</option>
-          <option value="matched">Matched only</option>
-          <option value="unmatched">Unmatched only</option>
-        </select>
+        {/* Chip filter — replaces direction + matched selects. Single source of truth: chipFilter. */}
+        {(() => {
+          // Map chip → (direction, matched) — set both via existing state setters
+          const chips: Array<{ id: 'all' | 'incoming' | 'outgoing' | 'unmatched'; label: string }> = [
+            { id: 'all',        label: 'All' },
+            { id: 'incoming',   label: 'Incoming' },
+            { id: 'outgoing',   label: 'Outgoing' },
+            { id: 'unmatched',  label: 'Unmatched' },
+          ];
+          // Derive current chip from existing filter state
+          let activeChip: typeof chips[number]['id'] = 'all';
+          if (matchedFilter === 'unmatched') activeChip = 'unmatched';
+          else if (directionFilter === 'incoming') activeChip = 'incoming';
+          else if (directionFilter === 'outgoing') activeChip = 'outgoing';
+          const setChip = (id: typeof chips[number]['id']) => {
+            if (id === 'unmatched') {
+              setDirectionFilter('all');
+              setMatchedFilter('unmatched');
+            } else {
+              setDirectionFilter(id as 'all' | 'incoming' | 'outgoing');
+              setMatchedFilter('all');
+            }
+          };
+          return chips.map((chip) => {
+            const isActive = activeChip === chip.id;
+            return (
+              <button
+                key={chip.id}
+                type="button"
+                onClick={() => setChip(chip.id)}
+                style={{
+                  border: '1px solid var(--line-1)',
+                  borderRadius: 'var(--radius-sm)',
+                  backgroundColor: isActive ? 'var(--fg-1)' : 'var(--paper)',
+                  color: isActive ? 'var(--paper)' : 'var(--fg-1)',
+                  padding: '8px 14px',
+                  fontSize: '14px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                {chip.label}
+                {chip.id === 'unmatched' && (
+                  <span style={{
+                    marginLeft: '6px',
+                    backgroundColor: isActive ? 'var(--paper)' : 'var(--paper-sunk)',
+                    color: isActive ? 'var(--fg-1)' : 'var(--fg-2)',
+                    padding: '1px 7px',
+                    borderRadius: '999px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                  }}>
+                    {transactions.filter((t) => !t.matched_payment_id && !t.matched_operation_id).length}
+                  </span>
+                )}
+              </button>
+            );
+          });
+        })()}
 
         <div style={{ fontSize: '14px', color: 'var(--fg-2)', marginLeft: 'auto' }}>
           {filtered.length} of {transactions.length}

@@ -145,11 +145,32 @@ function Card({ children, style }: { children: React.ReactNode; style?: React.CS
 // Main client component
 // =============================================================================
 
+interface LandedCostResp {
+  product_id: string;
+  has_landed_cost: boolean;
+  source?: {
+    purchase_id: string;
+    purchase_date: number;
+    forwarder_ref: string | null;
+    supplier_id: string;
+    qty: number;
+    total_purchase_qty: number;
+    sku_share_pct: number;
+  };
+  fx?: { date: string | null; rub_per_usd: number };
+  factory?: { currency_paid: string; amount_paid: number; usd_total: number; usd_per_unit: number };
+  allocated_services?: Array<{ subtype: string; rub: number; usd: number; ops_count: number }>;
+  marking?: { rub: number; usd: number; rate_per_unit_rub: number } | null;
+  landed?: { usd_total: number; usd_per_unit: number; freight_markup_pct: number };
+  reason?: string;
+}
+
 export default function ProductDetailClient({ sku }: { sku: string }) {
   const id = sku.toLowerCase();
 
   const [product, setProduct] = useState<ProductFull | null>(null);
   const [stock, setStock] = useState<ProductStockResponse | null>(null);
+  const [landed, setLanded] = useState<LandedCostResp | null>(null);
   const [prices, setPrices] = useState<ProductPriceRow[]>([]);
   const [activity, setActivity] = useState<ProductActivityRow[]>([]);
   const [images, setImages] = useState<ProductImage[]>([]);
@@ -190,6 +211,11 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
           getProductImages(id),
           getWarehouses(),
         ]);
+        // Fire landed cost separately (non-blocking, OK if it 404s for SKUs without history)
+        fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'https://dasoperator-api.dasexperten.workers.dev'}/api/products/${id}/landed-cost`)
+          .then(r => r.json())
+          .then(j => { if (j && j.success && j.result) setLanded(j.result); })
+          .catch(() => {});
         if (!pRes.success || !pRes.result) {
           setError(pRes.errors?.[0]?.message ?? 'Product not found');
           setLoading(false);
@@ -926,6 +952,66 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
           </div>
         )}
       </Card>
+
+      {/* SECTION 5c — Landed cost (auto-computed from last delivered purchase + linked service ops) */}
+      {landed && landed.has_landed_cost && landed.factory && landed.landed && landed.source && (
+        <Card>
+          <SectionEyebrow label="Landed cost" role="supply" />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '16px' }}>
+            <Kpi label="Factory" value={`$${landed.factory.usd_per_unit.toFixed(4)}`} sub={`$${landed.factory.usd_total.toFixed(2)} for ${landed.source.qty.toLocaleString('en-US')} pcs`} />
+            <Kpi label="Freight + services" value={`$${(landed.landed.usd_per_unit - landed.factory.usd_per_unit - (landed.marking ? landed.marking.usd / landed.source.qty : 0)).toFixed(4)}`} sub={`${landed.allocated_services?.length ?? 0} cost lines`} />
+            <Kpi label="Marking" value={landed.marking ? `$${(landed.marking.usd / landed.source.qty).toFixed(4)}` : '—'} sub={landed.marking ? `${landed.marking.rate_per_unit_rub} ₽/pc paste` : 'non-paste'} />
+            <Kpi label="Landed total" value={`$${landed.landed.usd_per_unit.toFixed(4)}`} sub={`+${landed.landed.freight_markup_pct.toFixed(1)}% over factory`} highlight />
+          </div>
+          <div style={{ borderTop: '0.5px solid #E0DCD7', paddingTop: '12px' }}>
+            <div style={{ fontSize: '13px', color: '#6B6B6B', marginBottom: '8px' }}>
+              From <span style={{ fontWeight: 600, color: INK }}>{landed.source.purchase_id}</span>
+              {landed.source.forwarder_ref ? <> · forwarder ref <span style={{ fontWeight: 600, color: INK }}>{landed.source.forwarder_ref}</span></> : null}
+              {' · '}{formatDate(landed.source.purchase_date)}
+              {' · SKU share '}<span style={{ fontWeight: 600, color: INK }}>{landed.source.sku_share_pct}%</span>
+            </div>
+            <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '0.5px solid #E0DCD7', color: '#6B6B6B' }}>
+                  <th style={{ textAlign: 'left', padding: '6px 4px', fontWeight: 400 }}>Cost line</th>
+                  <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 400 }}>Allocated ₽</th>
+                  <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 400 }}>USD</th>
+                  <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 400 }}>$/pc</th>
+                </tr>
+              </thead>
+              <tbody>
+                {landed.allocated_services?.map((s) => (
+                  <tr key={s.subtype} style={{ borderBottom: '0.5px solid #F0EEE9' }}>
+                    <td style={{ padding: '6px 4px', textTransform: 'capitalize' }}>{s.subtype.replace(/_/g, ' ')}</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right', fontWeight: 600 }}>{Math.round(s.rub).toLocaleString('ru-RU')}</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right', fontWeight: 600 }}>${s.usd.toFixed(2)}</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right', fontWeight: 600 }}>${(s.usd / landed.source!.qty).toFixed(4)}</td>
+                  </tr>
+                ))}
+                {landed.marking && (
+                  <tr style={{ borderBottom: '0.5px solid #F0EEE9' }}>
+                    <td style={{ padding: '6px 4px' }}>Marking (Честный знак)</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right', fontWeight: 600 }}>{Math.round(landed.marking.rub).toLocaleString('ru-RU')}</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right', fontWeight: 600 }}>${landed.marking.usd.toFixed(2)}</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right', fontWeight: 600 }}>${(landed.marking.usd / landed.source!.qty).toFixed(4)}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            <div style={{ marginTop: '10px', fontSize: '12px', color: '#6B6B6B', fontStyle: 'italic' }}>
+              Note: cost lines allocated by qty share. Volume- or weight-based allocation will follow as a refinement.
+            </div>
+          </div>
+        </Card>
+      )}
+      {landed && !landed.has_landed_cost && (
+        <Card>
+          <SectionEyebrow label="Landed cost" role="supply" />
+          <div style={{ fontSize: '14px', color: '#6B6B6B', padding: '8px 0' }}>
+            No delivered purchase found for this SKU yet — landed cost unavailable.
+          </div>
+        </Card>
+      )}
 
       {/* SECTION 6 — Photos */}
       <Card>

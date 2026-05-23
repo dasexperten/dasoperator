@@ -72,6 +72,27 @@ function vendorCodeToProductId(vendorCode: string): string {
   return vendorCode.toLowerCase().trim();
 }
 
+/** Resolve a (possibly bundled) product_id to its base SKU + multiplier.
+ *  Handles the 'paste 2-pack' case where Honghui ships single SKUs but the
+ *  warehouse accepts them as pre-bundled pairs (DE202AA = 2 × DE202).
+ *  Examples:
+ *    de202aaaa → { base: 'de202', multiplier: 4 }
+ *    de202aa   → { base: 'de202', multiplier: 2 }
+ *    de202     → { base: 'de202', multiplier: 1 }
+ */
+function expandToBase(productId: string): { base: string; multiplier: number } {
+  const pid = productId.toLowerCase().trim();
+  if (pid.endsWith('aaaa')) {
+    const base = pid.slice(0, -4);
+    if (base.length > 2) return { base, multiplier: 4 };
+  }
+  if (pid.endsWith('aa')) {
+    const base = pid.slice(0, -2);
+    if (base.length > 2) return { base, multiplier: 2 };
+  }
+  return { base: pid, multiplier: 1 };
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/external-requests
 // Optional ?warehouse_id, ?type_norm, ?completed=0|1, ?archived=0|1
@@ -369,25 +390,27 @@ externalRequests.post('/sync', async (c) => {
         };
         byRequest.set(row.request_id, entry);
       }
-      entry.qtys.set(row.product_id, (entry.qtys.get(row.product_id) ?? 0) + row.accepted_amount);
+      // Bundle expansion at collection time: DE202AA × 16 560 becomes de202 × 33 120.
+      // This unifies the qty map directly into base-SKU units, so candidate
+      // matching and arrival_received_qtys both speak the same language as
+      // the purchase line_items.
+      const exp = expandToBase(row.product_id);
+      entry.qtys.set(exp.base, (entry.qtys.get(exp.base) ?? 0) + row.accepted_amount * exp.multiplier);
     }
 
     for (const [requestId, entry] of byRequest) {
-      const acceptedSkus = Array.from(entry.qtys.keys());
-      if (acceptedSkus.length === 0) continue;
+      const matchSkus = Array.from(entry.qtys.keys());
+      if (matchSkus.length === 0) continue;
 
-      // Pre-bundle expansion: for each accepted SKU that ends in 'aa', also
-      // consider the base SKU (without suffix) when matching to purchase ops.
-      // Reason: factory ships singles, F4 LBR accepts as 2in1 pairs (paste
-      // pre-bundle case). Our purchase line items hold the single SKU.
-      const expandedSkus = new Set<string>(acceptedSkus);
-      for (const sku of acceptedSkus) {
-        if (sku.endsWith('aa')) {
-          const base = sku.replace(/aa$/, '').replace(/aaaa$/, '');
-          if (base.length > 2) expandedSkus.add(base);
-        }
-      }
-      const matchSkus = Array.from(expandedSkus);
+      // Look up acceptance date for this request (text 'YYYY-MM-DD'). Used as
+      // a sanity guard so we never match a recent acceptance to a long-stale
+      // shipment (e.g. an October 2025 acceptance accidentally hitting an
+      // April 2026 purchase). Window: operation must be on/before acceptance
+      // date AND no older than 180 days before it.
+      const reqMeta = await c.env.DB.prepare(
+        'SELECT created_at_external FROM external_requests WHERE id = ?'
+      ).bind(requestId).first<{ created_at_external: string | null }>();
+      const acceptanceDate = reqMeta?.created_at_external || '';
 
       const skuPlaceholders = matchSkus.map(() => '?').join(',');
       const candidateRows = await c.env.DB.prepare(`
@@ -404,10 +427,18 @@ externalRequests.post('/sync', async (c) => {
           AND (o.arrival_rejected_at IS NULL OR o.arrival_source_request_id != ?)
           AND (o.warehouse_to_id = ? OR o.warehouse_to_id IS NULL)
           AND li.product_id IN (${skuPlaceholders})
+          AND (? = '' OR date(o.operation_date, 'unixepoch') <= ?)
+          AND (? = '' OR date(o.operation_date, 'unixepoch') >= date(?, '-180 days'))
         GROUP BY o.id
         ORDER BY sku_overlap DESC, o.updated_at DESC
         LIMIT 5
-      `).bind(requestId, entry.warehouse_id, ...matchSkus).all<{
+      `).bind(
+        requestId,
+        entry.warehouse_id,
+        ...matchSkus,
+        acceptanceDate, acceptanceDate,
+        acceptanceDate, acceptanceDate
+      ).all<{
         id: string;
         reference: string;
         warehouse_to_id: string | null;

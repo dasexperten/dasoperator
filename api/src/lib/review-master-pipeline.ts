@@ -1,19 +1,24 @@
 // =============================================================================
-// Review-Master Pipeline — full 6-gate implementation backed by R2 skills.
+// Review-Master Pipeline v6 — Brief-driven architecture
 //
-// Hybrid model B (per Aram's decision 2026-05-21):
-//   - Gates 1, 2, 4, 6 → DeepSeek v4-pro  (cheap, fast, analytical)
-//   - Gate 3 (draft) + Gate 5 (sharpening) → Claude Sonnet (brand voice)
+// Architecture decision 2026-05-21 (Aram):
+//   - DeepSeek reads ALL skills, analyzes, prepares compact brief
+//   - Claude ONLY writes text (gets brief, not skills) — minimal token use
+//   - All analytical work (classify, brief, technolog, sharpen, segment) → DeepSeek
+//   - Claude touches input ONLY in step 3 (write) and step 6 (rewrite if needed)
 //
-// Pipeline (every review):
-//   1. classify           DeepSeek      → POS/NEG/MIX/Q-PROD/Q-SCI/Q-CERT/Q-DELIV/Q-USE
-//   2. product-knowledge  DeepSeek      → load SKU card + ingredients + clinical
-//   3. draft              Claude Sonnet → write the reply (brand voice)
-//   4. technolog          DeepSeek      → verify clinical claims (CLEARED/IMPRECISE/FALSE)
-//   5. marketolog + benefit  Claude Sonnet → sharpen, conversion check, regenerate if FAIL
-//   6. segment-check      DeepSeek      → readability (8 grandmothers test)
+// Pipeline:
+//   1. classify           DeepSeek       → POS/NEG/MIX/Q-PROD/Q-SCI/Q-CERT/Q-DELIV/Q-USE
+//   2. brief building     DeepSeek+R2    → reads SKU+review-master+product-skill, outputs ~500-token brief
+//   3. write              CLAUDE         → ONLY brief + review → writes response (~700 tokens in, ~500 out)
+//   4. technolog          DeepSeek       → verify clinical claims
+//   5. conversion         DeepSeek       → marketolog+benefit-gate sharpen → returns either OK or notes
+//   6. rewrite (cond.)    CLAUDE         → if technolog/conversion failed: brief + notes → rewrite
+//   7. segment-check      DeepSeek       → readability for 8 personas
 //
-// Each gate result is appended to the audit trail returned with the final reply.
+// Rating-only path (no text from buyer):
+//   - skips conversion gate (no need for sharpening on 200-char POS)
+//   - skips segment-check (always readable)
 // =============================================================================
 
 import type { Env } from '../types';
@@ -40,7 +45,7 @@ export interface PipelineInput {
 export interface GateResult {
   gate: string;
   status: 'pass' | 'weak' | 'fail' | 'skip';
-  provider: 'claude' | 'deepseek' | 'rule';
+  provider: 'claude' | 'deepseek' | 'gemini' | 'rule';
   reason?: string;
   tokensIn: number;
   tokensOut: number;
@@ -106,23 +111,8 @@ async function callDeepSeek(env: Env, system: string, user: string, maxTokens: n
   };
 }
 
-
-async function callGemini(env: Env, system: string, user: string, maxTokens: number, temp = 0.5): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
-  if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
-  const r = await callGeminiFlash(system, user, {
-    apiKey: env.GEMINI_API_KEY,
-    maxTokens,
-    temperature: temp,
-  });
-  return {
-    text: r.text,
-    tokensIn: r.usage.prompt_tokens,
-    tokensOut: r.usage.completion_tokens,
-  };
-}
-
 // =============================================================================
-// Pipeline helper — formats input for prompts
+// Pipeline helpers
 // =============================================================================
 function formatInput(input: PipelineInput): string {
   const lines = [
@@ -139,15 +129,31 @@ function formatInput(input: PipelineInput): string {
   return lines.join('\n');
 }
 
+function extractJson(text: string): any | null {
+  // DeepSeek may wrap JSON in ```json ... ``` or just output it; also reasoning may leak
+  const codeBlock = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+  if (codeBlock) {
+    try { return JSON.parse(codeBlock[1]); } catch {}
+  }
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    try { return JSON.parse(text.slice(start, end + 1)); } catch {}
+  }
+  return null;
+}
+
 // =============================================================================
-// MAIN ENTRY
+// MAIN PIPELINE — used for text reviews (buyer wrote something)
 // =============================================================================
 export async function runReviewMasterPipeline(env: Env, input: PipelineInput): Promise<PipelineResult> {
   const startedAt = Date.now();
   const gates: GateResult[] = [];
   let totalIn = 0, totalOut = 0;
 
-  // ---------------- GATE 1: classify ----------------
+  // ===========================================================================
+  // GATE 1 — classify (DeepSeek)
+  // ===========================================================================
   const t1 = Date.now();
   const classifySystem = `Ты классификатор отзывов. Категории:
 POS — позитивный (3-5★, доволен)
@@ -156,165 +162,208 @@ MIX — нейтральный (3★, неоднозначный)
 Q-PROD — вопрос про продукт/ингредиент
 Q-SCI — научный вопрос
 Q-CERT — про сертификаты/ГОСТ/ISO
-Q-DELIV — про доставку/логистику
+Q-DELIV — про доставку
 Q-USE — как использовать
-ОТВЕТЬ ровно одной строкой: код категории. Ничего больше.`;
-  const classifyResult = await callDeepSeek(env, classifySystem, formatInput(input), 8000, 0.0);
-  const classifyText = classifyResult.text.toUpperCase().replace(/[^A-Z-]/g, '');
+Ответь ровно одной строкой: код категории.`;
+  const r1 = await callDeepSeek(env, classifySystem, formatInput(input), 8000, 0.0);
+  totalIn += r1.tokensIn; totalOut += r1.tokensOut;
   const validTypes: ReviewType[] = ['POS','NEG','MIX','Q-PROD','Q-SCI','Q-CERT','Q-DELIV','Q-USE'];
   let reviewType: ReviewType = 'POS';
-  for (const t of validTypes) if (classifyText.startsWith(t)) { reviewType = t; break; }
-  // Fallback: rating-based
-  if (!validTypes.some(t => classifyText.startsWith(t))) {
+  for (const t of validTypes) if (r1.text.toUpperCase().startsWith(t)) { reviewType = t; break; }
+  if (!validTypes.some(t => r1.text.toUpperCase().startsWith(t))) {
     reviewType = input.rating >= 4 ? 'POS' : input.rating <= 2 ? 'NEG' : 'MIX';
   }
-  totalIn += classifyResult.tokensIn; totalOut += classifyResult.tokensOut;
-  gates.push({ gate: 'classify', status: 'pass', provider: 'deepseek', reason: reviewType, tokensIn: classifyResult.tokensIn, tokensOut: classifyResult.tokensOut, durationMs: Date.now() - t1 });
+  gates.push({ gate: 'classify', status: 'pass', provider: 'deepseek', reason: reviewType, tokensIn: r1.tokensIn, tokensOut: r1.tokensOut, durationMs: Date.now() - t1 });
 
-  // ---------------- GATE 2: product-knowledge ----------------
+  // ===========================================================================
+  // GATE 2 — brief building (DeepSeek reads ALL skills, outputs compact JSON brief)
+  // ===========================================================================
   const t2 = Date.now();
-  let skuKnowledge = '';
-  try {
-    skuKnowledge = await loadSkuKnowledge(env, input.productSku ?? '');
-  } catch (e: any) {
-    skuKnowledge = `[knowledge load failed: ${e?.message}]`;
+  const skuKnowledge = await loadSkuKnowledge(env, input.productSku ?? '').catch(() => '');
+  const reviewMaster = await loadSkillMd(env, 'review-master').catch(() => '');
+  const productSkill = await loadSkillMd(env, 'product-skill').catch(() => '');
+
+  const briefSystem = `Ты — brief-builder. Читаешь полные skill инструкции и SKU знание, составляешь КОМПАКТНОЕ задание для копирайтера на ~400 токенов.
+
+ТЫ НЕ ПИШЕШЬ ОТВЕТ. Ты пишешь BRIEF в формате JSON.
+
+JSON содержит:
+{
+  "type": "POS" | "NEG" | "MIX" | "Q-PROD" | "Q-SCI" | "Q-CERT" | "Q-DELIV" | "Q-USE",
+  "customer_name": "имя или null",
+  "product": "короткое название бренда (SCHWARZ, SYMBIOS и т.д.)",
+  "key_fact": "ОДИН самый подходящий факт из SKU card — конкретный, с цифрой если есть",
+  "tone": "уверенный/тёплый/нейтральный/направляющий",
+  "length_chars": 200-600,
+  "must_include": ["обращение по имени", "ключевой факт", ...],
+  "must_avoid": ["спасибо за пятёрку", "к сожалению", ...],
+  "voice_doctrine": "1-2 предложения из review-master skill — самые важные правила для этого типа",
+  "neg_strategy": "только для NEG: do not apologize / redirect / recommend alternative" 
+}
+
+ЗАДАЧА: прочитай skills, выбери только то что нужно ИМЕННО для этого отзыва, составь brief.
+ВЫХОД: только JSON, без префиксов.
+
+=== REVIEW-MASTER SKILL ===
+${reviewMaster}
+
+=== PRODUCT-SKILL ===
+${productSkill}
+
+=== SKU KNOWLEDGE ===
+${skuKnowledge}`;
+
+  const r2 = await callDeepSeek(env, briefSystem, formatInput(input), 8000, 0.2);
+  totalIn += r2.tokensIn; totalOut += r2.tokensOut;
+  let brief = extractJson(r2.text);
+  if (!brief) {
+    brief = {
+      type: reviewType,
+      customer_name: input.customerName ?? null,
+      product: input.productName ?? '',
+      key_fact: '(no brief extracted)',
+      tone: 'уверенный',
+      length_chars: 300,
+      must_include: ['обращение по имени', 'конкретный факт'],
+      must_avoid: ['спасибо за пятёрку'],
+      voice_doctrine: 'без шаблонов, без извинений, конкретно',
+    };
   }
-  gates.push({ gate: 'product-knowledge', status: skuKnowledge.length > 100 ? 'pass' : 'weak', provider: 'rule', reason: `${skuKnowledge.length} bytes loaded`, tokensIn: 0, tokensOut: 0, durationMs: Date.now() - t2 });
+  gates.push({ gate: 'brief', status: 'pass', provider: 'deepseek', reason: `keyFact: ${(brief.key_fact || '').slice(0,80)}`, tokensIn: r2.tokensIn, tokensOut: r2.tokensOut, durationMs: Date.now() - t2 });
 
-  // ---------------- GATE 3: DRAFT (Claude Sonnet) ----------------
+  // ===========================================================================
+  // GATE 3 — write (CLAUDE, minimal input)
+  // ===========================================================================
   const t3 = Date.now();
-  const reviewMasterMd = await loadSkillMd(env, 'review-master');
-  const productSkillMd = await loadSkillMd(env, 'product-skill');
+  const writeSystem = `Ты — копирайтер Das Experten. Пишешь ответы покупателям на маркетплейсах.
 
-  const draftSystem = `Ты — review-master, единый голос для Das Experten. Следуй полной инструкции skill'а ниже.
-Конкретная задача СЕЙЧАС: написать ответ покупателю на Wildberries на отзыв категории ${reviewType}.
+Ты получаешь BRIEF в JSON-формате и сам отзыв. По brief'у пишешь финальный текст ответа.
 
 ВАЖНО:
-- Без emoji (только 💡, ⚡, 🦷 если уместно)
-- Обращение по имени, если есть
-- Никаких шаблонов «Спасибо за пятёрку» и подобных
-- На NEG — следуй doctrine: not apologize, redirect, recommend alternative
-- Финальный текст без префиксов и метаданных — только сам ответ
+- Никаких преамбул, JSON, метаданных в выходе
+- ТОЛЬКО сам текст ответа
+- Соблюдай длину из brief.length_chars (±50)
+- Используй brief.must_include, избегай brief.must_avoid
+- Brief.key_fact — главная конкретика, встрой
+- Никогда не благодари за оценку, никогда не извиняйся, никогда не пиши "Спасибо за пятёрку"`;
 
-=== INSTRUCTION (review-master) ===
-${reviewMasterMd}
-
-=== PRODUCT KNOWLEDGE FOR ${input.productSku ?? '(no sku)'} ===
-${skuKnowledge}
-
-=== PRODUCT-SKILL DOCTRINE ===
-${productSkillMd}`;
-  const draftResult = await callClaude(env, draftSystem, formatInput(input), 1500);
-  let currentReply = draftResult.text;
-  totalIn += draftResult.tokensIn; totalOut += draftResult.tokensOut;
-  gates.push({ gate: 'draft', status: currentReply.length > 50 ? 'pass' : 'fail', provider: 'claude', reason: `${currentReply.length} chars`, tokensIn: draftResult.tokensIn, tokensOut: draftResult.tokensOut, durationMs: Date.now() - t3 });
+  const writeUser = `BRIEF:\n${JSON.stringify(brief, null, 2)}\n\nОТЗЫВ:\n${formatInput(input)}\n\nНапиши ответ.`;
+  const r3 = await callClaude(env, writeSystem, writeUser, 1000);
+  let currentReply = r3.text;
+  totalIn += r3.tokensIn; totalOut += r3.tokensOut;
+  gates.push({ gate: 'write', status: currentReply.length > 50 ? 'pass' : 'fail', provider: 'claude', reason: `${currentReply.length} chars`, tokensIn: r3.tokensIn, tokensOut: r3.tokensOut, durationMs: Date.now() - t3 });
 
   if (currentReply.length < 50) {
-    return { ok: false, reply: '', reviewType, gates, totalDurationMs: Date.now() - startedAt, totalTokensIn: totalIn, totalTokensOut: totalOut, warning: 'Draft empty or too short' };
+    return { ok: false, reply: '', reviewType, gates, totalDurationMs: Date.now() - startedAt, totalTokensIn: totalIn, totalTokensOut: totalOut, warning: 'Claude write empty' };
   }
 
-  // ---------------- GATE 4: technolog ----------------
+  // ===========================================================================
+  // GATE 4 — technolog (DeepSeek)
+  // ===========================================================================
   const t4 = Date.now();
-  const technologMd = await loadSkillMd(env, 'technolog');
-  const technologSystem = `Ты — technolog gate из system Das Experten. Проверь черновик ответа на клиническую достоверность.
+  const technologMd = await loadSkillMd(env, 'technolog').catch(() => '');
+  const technologSystem = `Ты — technolog gate. Проверь черновик на клиническую достоверность.
+- Всё чисто → "CLEARED"
+- Неточности → "IMPRECISE: что именно, как исправить"
+- Ложь → "FALSE: что неправда, как заменить"
 
-ВАЖНО:
-- Выискивай ложные/преувеличенные клинические утверждения, выдуманные проценты, несуществующие ингредиенты
-- Если всё чисто — ответь "CLEARED"
-- Если есть неточности — ответь "IMPRECISE: <короткая правка>"
-- Если ложь — ответь "FALSE: <что неправда + как исправить>"
-
-=== INSTRUCTION ===
 ${technologMd}
 
-=== PRODUCT KNOWLEDGE ===
-${skuKnowledge}`;
-  const technologInput = `Черновик ответа для проверки:\n\n${currentReply}\n\nОтзыв клиента (контекст):\n${formatInput(input)}`;
-  const technologResult = await callDeepSeek(env, technologSystem, technologInput, 8000, 0.1);
-  totalIn += technologResult.tokensIn; totalOut += technologResult.tokensOut;
-  const technologText = technologResult.text.toUpperCase();
-  let technologStatus: 'pass' | 'weak' | 'fail' = 'pass';
-  let technologReason = '';
-  if (technologText.startsWith('FALSE')) { technologStatus = 'fail'; technologReason = technologResult.text; }
-  else if (technologText.startsWith('IMPRECISE')) { technologStatus = 'weak'; technologReason = technologResult.text; }
-  gates.push({ gate: 'technolog', status: technologStatus, provider: 'deepseek', reason: technologReason, tokensIn: technologResult.tokensIn, tokensOut: technologResult.tokensOut, durationMs: Date.now() - t4 });
+SKU KNOWLEDGE:
+${skuKnowledge.slice(0, 5000)}`;
 
-  // If technolog FAIL — regenerate via Claude with correction instruction
-  if (technologStatus === 'fail' || technologStatus === 'weak') {
-    const fixSystem = draftSystem + `\n\n=== TECHNOLOG FOUND ISSUE — FIX IT ===\n${technologReason}`;
-    const fixResult = await callClaude(env, fixSystem, `Перепиши ответ, устранив указанную клиническую проблему. Сам ответ:\n\n${currentReply}`, 1500);
-    currentReply = fixResult.text;
-    totalIn += fixResult.tokensIn; totalOut += fixResult.tokensOut;
-  }
+  const r4 = await callDeepSeek(env, technologSystem, `Черновик:\n${currentReply}\n\nОтзыв:\n${formatInput(input)}`, 8000, 0.1);
+  totalIn += r4.tokensIn; totalOut += r4.tokensOut;
+  let tStatus: 'pass'|'weak'|'fail' = 'pass';
+  const u = r4.text.toUpperCase();
+  if (u.startsWith('FALSE')) tStatus = 'fail';
+  else if (u.startsWith('IMPRECISE')) tStatus = 'weak';
+  gates.push({ gate: 'technolog', status: tStatus, provider: 'deepseek', reason: r4.text.slice(0, 200), tokensIn: r4.tokensIn, tokensOut: r4.tokensOut, durationMs: Date.now() - t4 });
 
-  // ---------------- GATE 5: marketolog + benefit-gate (Claude) ----------------
+  // ===========================================================================
+  // GATE 5 — conversion (DeepSeek reads marketolog + benefit-gate, returns notes only)
+  // ===========================================================================
   const t5 = Date.now();
-  const marketologMd = await loadSkillMd(env, 'marketolog');
-  const benefitMd = await loadSkillMd(env, 'benefit-gate');
-  const sharpSystem = `Ты — sharpen gate (marketolog + benefit-gate conversion check) Das Experten.
+  const marketologMd = await loadSkillMd(env, 'marketolog').catch(() => '');
+  const benefitMd = await loadSkillMd(env, 'benefit-gate').catch(() => '');
+  const conversionSystem = `Ты — conversion gate (marketolog + benefit-gate). Анализируешь ответ.
 
-Дано: черновик ответа покупателю. Твоя задача — улучшить если слабо, иначе оставить.
+Ответь одной из категорий:
+- "PASS" — ответ хорош как есть
+- "SHARPEN: <конкретные замечания>" — нужно подкрутить voice/conversion
 
 КРИТЕРИИ:
-- audience: реальный читатель — не сам покупатель, а следующие 1000 человек которые увидят этот ответ под товаром
-- conversion levers: intrigue, social proof, superiority frame, alternative CTA, specificity
-- voice: confident, sharp, без оправдательных интонаций
-- никаких "к сожалению", "приносим извинения", "просим прощения"
+- audience: следующие 1000 человек которые увидят
+- intrigue, social proof, superiority frame
+- voice: confident, sharp, без извинений и оправданий
 
-ВЫХОД: только финальный текст ответа. Без префиксов, без метаданных, без "Вот финальная версия:".
-Если черновик уже отличный — верни его как есть, не порти.
-
-=== MARKETOLOG INSTRUCTION ===
 ${marketologMd}
 
-=== BENEFIT-GATE CONVERSION RULES ===
 ${benefitMd}`;
-  const sharpResult = await callClaude(env, sharpSystem, `Черновик к улучшению:\n\n${currentReply}\n\nОтзыв клиента:\n${formatInput(input)}\n\nТип отзыва: ${reviewType}`, 1500);
-  if (sharpResult.text.length > 50) currentReply = sharpResult.text;
-  totalIn += sharpResult.tokensIn; totalOut += sharpResult.tokensOut;
-  gates.push({ gate: 'sharpen', status: 'pass', provider: 'claude', reason: `${sharpResult.text.length} chars`, tokensIn: sharpResult.tokensIn, tokensOut: sharpResult.tokensOut, durationMs: Date.now() - t5 });
+  const r5 = await callDeepSeek(env, conversionSystem, `Ответ:\n${currentReply}\n\nОтзыв:\n${formatInput(input)}\n\nТип: ${reviewType}`, 8000, 0.2);
+  totalIn += r5.tokensIn; totalOut += r5.tokensOut;
+  let cStatus: 'pass'|'weak'|'fail' = 'pass';
+  const cu = r5.text.toUpperCase();
+  if (cu.startsWith('FAIL')) cStatus = 'fail';
+  else if (cu.startsWith('SHARPEN')) cStatus = 'weak';
+  gates.push({ gate: 'conversion', status: cStatus, provider: 'deepseek', reason: r5.text.slice(0, 200), tokensIn: r5.tokensIn, tokensOut: r5.tokensOut, durationMs: Date.now() - t5 });
 
-  // ---------------- GATE 6: segment-check (readability) ----------------
-  const t6 = Date.now();
+  // ===========================================================================
+  // GATE 6 — rewrite (CLAUDE, only if technolog or conversion flagged issues)
+  // ===========================================================================
+  if (tStatus !== 'pass' || cStatus !== 'pass') {
+    const t6 = Date.now();
+    const notes: string[] = [];
+    if (tStatus !== 'pass') notes.push(`TECHNOLOG: ${r4.text}`);
+    if (cStatus !== 'pass') notes.push(`CONVERSION: ${r5.text}`);
+    const rewriteSystem = writeSystem;
+    const rewriteUser = `BRIEF:\n${JSON.stringify(brief, null, 2)}\n\nОТЗЫВ:\n${formatInput(input)}\n\nЧЕРНОВИК (нужно переписать):\n${currentReply}\n\nЗАМЕЧАНИЯ:\n${notes.join('\n\n')}\n\nПерепиши ответ устранив замечания. Только текст.`;
+    const r6 = await callClaude(env, rewriteSystem, rewriteUser, 1000);
+    totalIn += r6.tokensIn; totalOut += r6.tokensOut;
+    if (r6.text.length > 50) currentReply = r6.text;
+    gates.push({ gate: 'rewrite', status: 'pass', provider: 'claude', reason: `${r6.text.length} chars`, tokensIn: r6.tokensIn, tokensOut: r6.tokensOut, durationMs: Date.now() - t6 });
+  }
+
+  // ===========================================================================
+  // GATE 7 — segment-check (DeepSeek)
+  // ===========================================================================
+  const t7 = Date.now();
   let segmentMd = '';
   try { segmentMd = await loadSegmentCheck(env); } catch {}
-  const segmentSystem = `Ты — segment-check gate. Проверь читаемость ответа для 8 разных персонажей.
-
-8 PERSONAS (тест понимания с первого чтения):
-1. Тамара, 64, пенсионерка, читает медленно
-2. Володя, 31, водитель, читает по диагонали
-3. Анна, 28, врач-стоматолог
+  const segmentSystem = `Ты — segment-check. Проверь читаемость для 8 разных читателей:
+1. Тамара, 64, пенсионерка
+2. Володя, 31, водитель
+3. Анна, 28, врач
 4. Дмитрий, 45, инженер
 5. Светлана, 52, бухгалтер
 6. Артём, 19, студент
 7. Мария, 38, мама в декрете
 8. Виктор, 71, ветеран
 
-ВЫХОД:
-- "PASS 8/8" если все понимают с первого раза
-- "PASS 7/8" если один не понимает (укажи имя)
-- "REWORK X/8" если 4-5 не понимают (укажи имена + что заменить)
-- "FAIL X/8" если ≤3 понимают
+Выход:
+- "PASS 8/8" — все понимают с первого раза
+- "REWORK X/8 — <замечания>" — нужно упростить
+- "FAIL X/8" — переписать с нуля
 
-=== SPEC ===
-${segmentMd || '(spec not loaded, use common sense)'}`;
-  const segmentResult = await callDeepSeek(env, segmentSystem, `Текст для теста:\n\n${currentReply}`, 8000, 0.1);
-  totalIn += segmentResult.tokensIn; totalOut += segmentResult.tokensOut;
-  const segmentText = segmentResult.text.toUpperCase();
-  let segmentStatus: 'pass' | 'weak' | 'fail' = 'pass';
-  if (segmentText.includes('FAIL')) segmentStatus = 'fail';
-  else if (segmentText.includes('REWORK')) segmentStatus = 'weak';
-  gates.push({ gate: 'segment-check', status: segmentStatus, provider: 'deepseek', reason: segmentResult.text.slice(0, 200), tokensIn: segmentResult.tokensIn, tokensOut: segmentResult.tokensOut, durationMs: Date.now() - t6 });
+${segmentMd}`;
+  const r7 = await callDeepSeek(env, segmentSystem, `Текст:\n${currentReply}`, 8000, 0.1);
+  totalIn += r7.tokensIn; totalOut += r7.tokensOut;
+  let sStatus: 'pass'|'weak'|'fail' = 'pass';
+  if (r7.text.toUpperCase().includes('FAIL')) sStatus = 'fail';
+  else if (r7.text.toUpperCase().includes('REWORK')) sStatus = 'weak';
+  gates.push({ gate: 'segment-check', status: sStatus, provider: 'deepseek', reason: r7.text.slice(0, 200), tokensIn: r7.tokensIn, tokensOut: r7.tokensOut, durationMs: Date.now() - t7 });
 
-  // If segment-check FAIL — one rewrite attempt via Claude
-  if (segmentStatus === 'fail' || segmentStatus === 'weak') {
-    const rewriteResult = await callClaude(env,
-      `Перепиши ответ так, чтобы его понимал любой читатель (от пенсионерки 64 до студента 19). Сохрани клиническую точность и брендовый голос. Без терминологического балласта.`,
-      `Текст:\n\n${currentReply}\n\nЗамечания segment-check:\n${segmentResult.text}`,
-      1500
+  // Optional final rewrite if segment-check failed
+  if (sStatus !== 'pass') {
+    const t8 = Date.now();
+    const r8 = await callClaude(env,
+      writeSystem,
+      `BRIEF:\n${JSON.stringify(brief, null, 2)}\n\nЧерновик:\n${currentReply}\n\nЗамечания segment-check:\n${r7.text}\n\nПерепиши проще, чтобы понимал любой читатель.`,
+      1000
     );
-    if (rewriteResult.text.length > 50) currentReply = rewriteResult.text;
-    totalIn += rewriteResult.tokensIn; totalOut += rewriteResult.tokensOut;
+    totalIn += r8.tokensIn; totalOut += r8.tokensOut;
+    if (r8.text.length > 50) currentReply = r8.text;
+    gates.push({ gate: 'rewrite-final', status: 'pass', provider: 'claude', reason: `${r8.text.length} chars`, tokensIn: r8.tokensIn, tokensOut: r8.tokensOut, durationMs: Date.now() - t8 });
   }
 
   return {
@@ -329,95 +378,110 @@ ${segmentMd || '(spec not loaded, use common sense)'}`;
 }
 
 // =============================================================================
-// RATING-ONLY PIPELINE — used for 5★/4★ reviews without text.
-// Uses Gemini 2.5 Flash for drafting (10x cheaper than Claude).
-// Skips marketolog sharpen gate — rating-only doesn't need brand voice as much.
-// Skipped also: segment-check (these are 200-char answers, always readable).
-//
-// Gates:
-//   1. classify (DeepSeek)  — always returns POS/MIX/NEG
-//   2. product-knowledge (rule) — load SKU card
-//   3. draft (Gemini Flash) — write concise reply
-//   4. technolog (DeepSeek) — verify clinical claims
-//      (rewrite via Gemini if FAIL)
+// RATING-ONLY PIPELINE — used for reviews without text body
+// Skips conversion gate (no body to convert from) and segment-check (always readable on 200 chars)
 // =============================================================================
 export async function runRatingOnlyPipeline(env: Env, input: PipelineInput): Promise<PipelineResult> {
   const startedAt = Date.now();
   const gates: GateResult[] = [];
   let totalIn = 0, totalOut = 0;
 
-  // GATE 1: classify
-  const t1 = Date.now();
-  const classifySystem = `Классификатор отзывов. Категории:
-POS — позитивный (3-5★)
-NEG — негативный (1-2★)
-MIX — нейтральный (3★ неоднозначный)
-Ответь ровно одной строкой: POS / NEG / MIX. Ничего больше.`;
-  const r1 = await callDeepSeek(env, classifySystem, formatInput(input), 8000, 0.0);
-  totalIn += r1.tokensIn; totalOut += r1.tokensOut;
-  let reviewType: ReviewType = input.rating >= 4 ? 'POS' : input.rating <= 2 ? 'NEG' : 'MIX';
-  if (r1.text.toUpperCase().startsWith('POS')) reviewType = 'POS';
-  else if (r1.text.toUpperCase().startsWith('NEG')) reviewType = 'NEG';
-  else if (r1.text.toUpperCase().startsWith('MIX')) reviewType = 'MIX';
-  gates.push({ gate: 'classify', status: 'pass', provider: 'deepseek', reason: reviewType, tokensIn: r1.tokensIn, tokensOut: r1.tokensOut, durationMs: Date.now() - t1 });
+  // GATE 1: classify — rule-based (rating decides)
+  const reviewType: ReviewType = input.rating >= 4 ? 'POS' : input.rating <= 2 ? 'NEG' : 'MIX';
+  gates.push({ gate: 'classify', status: 'pass', provider: 'rule', reason: reviewType, tokensIn: 0, tokensOut: 0, durationMs: 0 });
 
-  // GATE 2: SKU knowledge
+  // GATE 2: brief building (DeepSeek reads skills + SKU, outputs compact brief)
   const t2 = Date.now();
   const skuKnowledge = await loadSkuKnowledge(env, input.productSku ?? '').catch(() => '');
-  gates.push({ gate: 'product-knowledge', status: skuKnowledge.length > 100 ? 'pass' : 'weak', provider: 'rule', reason: `${skuKnowledge.length} bytes`, tokensIn: 0, tokensOut: 0, durationMs: Date.now() - t2 });
+  const productSkill = await loadSkillMd(env, 'product-skill').catch(() => '');
 
-  // GATE 3: draft via GEMINI — short, focused system prompt
+  const briefSystem = `Ты — brief-builder для rating-only отзыва (без текста, только звёзды).
+
+Составь компактный brief в JSON для копирайтера. Ответ должен быть коротким (150-300 символов), с ОДНИМ конкретным фактом из SKU.
+
+JSON:
+{
+  "customer_name": "имя или null",
+  "product": "короткое название бренда",
+  "key_fact": "ОДИН факт из SKU card — конкретный, с цифрой если есть",
+  "type": "POS" | "NEG" | "MIX",
+  "must_avoid": ["спасибо за пятёрку", "к сожалению", "извините"],
+  "neg_strategy": "только для NEG: redirect to alternative product or support"
+}
+
+ТОЛЬКО JSON. Без префиксов.
+
+=== PRODUCT-SKILL ===
+${productSkill}
+
+=== SKU KNOWLEDGE ===
+${skuKnowledge}`;
+
+  const r2 = await callDeepSeek(env, briefSystem, formatInput(input), 8000, 0.2);
+  totalIn += r2.tokensIn; totalOut += r2.tokensOut;
+  let brief = extractJson(r2.text);
+  if (!brief) {
+    brief = {
+      customer_name: input.customerName ?? null,
+      product: input.productName ?? '',
+      key_fact: '(no brief)',
+      type: reviewType,
+      must_avoid: ['спасибо за пятёрку'],
+    };
+  }
+  gates.push({ gate: 'brief', status: 'pass', provider: 'deepseek', reason: `${(brief.key_fact || '').slice(0,80)}`, tokensIn: r2.tokensIn, tokensOut: r2.tokensOut, durationMs: Date.now() - t2 });
+
+  // GATE 3: write — Claude with minimal input
   const t3 = Date.now();
-  const draftSystem = `Ты — официальный голос Das Experten на Wildberries. Отвечаешь на отзыв без текста (только звёзды).
+  const writeSystem = `Ты — копирайтер Das Experten. Пишешь короткий ответ на отзыв без текста (только звёзды).
+
+Получаешь brief в JSON. Пишешь 150-300 символов.
 
 ПРАВИЛА:
-- Обращение по имени, если есть
-- 150-300 символов
-- Без emoji (можно 💡 в очень редких случаях)
-- Без шаблонов «Спасибо за пятёрку», «Рады, что понравилось»
-- На POS: дай ОДИН конкретный факт о товаре, цифру, особенность — то о чём покупатель может не знать
-- На NEG: не извиняйся, не благодари за оценку. Дай нейтральный ответ, предложи альтернативу из линейки или контакт поддержки
-- На MIX: расшифруй "немой диалог" — почему 3★ может быть, что может сработать лучше
-- ВЫХОД: только текст ответа. БЕЗ "PLATFORM:", "GATES:", "Original:", "Sharpened:" и подобных префиксов. Чистый текст.
-
-ИНФОРМАЦИЯ О ПРОДУКТЕ:
-${skuKnowledge.slice(0, 5000)}`;
-
-  const r3 = await callGemini(env, draftSystem, formatInput(input), 800, 0.5);
+- ТОЛЬКО текст ответа, без преамбул
+- Обращение по имени из brief.customer_name
+- Встрой brief.key_fact
+- Не пиши "спасибо за пятёрку", "к сожалению", "извините"
+- Без эмодзи (можно 💡 редко)`;
+  const r3 = await callClaude(env, writeSystem,
+    `BRIEF:\n${JSON.stringify(brief, null, 2)}\n\nОТЗЫВ:\n${formatInput(input)}\n\nНапиши ответ.`,
+    600);
   let currentReply = r3.text;
   totalIn += r3.tokensIn; totalOut += r3.tokensOut;
-  gates.push({ gate: 'draft', status: currentReply.length > 50 ? 'pass' : 'fail', provider: 'deepseek' as any, reason: `${currentReply.length} chars (Gemini)`, tokensIn: r3.tokensIn, tokensOut: r3.tokensOut, durationMs: Date.now() - t3 });
+  gates.push({ gate: 'write', status: currentReply.length > 50 ? 'pass' : 'fail', provider: 'claude', reason: `${currentReply.length} chars`, tokensIn: r3.tokensIn, tokensOut: r3.tokensOut, durationMs: Date.now() - t3 });
 
   if (currentReply.length < 50) {
-    return { ok: false, reply: '', reviewType, gates, totalDurationMs: Date.now() - startedAt, totalTokensIn: totalIn, totalTokensOut: totalOut, warning: 'Gemini draft too short' };
+    return { ok: false, reply: '', reviewType, gates, totalDurationMs: Date.now() - startedAt, totalTokensIn: totalIn, totalTokensOut: totalOut, warning: 'write empty' };
   }
 
-  // GATE 4: technolog
-  const t4 = Date.now();
-  const technologSystem = `Ты — technolog gate. Проверь черновик ответа на клиническую достоверность.
-- Всё чисто → "CLEARED"
-- Неточности → "IMPRECISE: что"
-- Ложь → "FALSE: что неправда"
+  // GATE 4: technolog (DeepSeek) — skip for POS rating-only with very short reply
+  // Only run for NEG or longer replies
+  if (reviewType === 'NEG' || currentReply.length > 250) {
+    const t4 = Date.now();
+    const technologSystem = `Проверь черновик на клиническую достоверность.
+- CLEARED — всё чисто
+- IMPRECISE: <что> — неточности
+- FALSE: <что> — ложь
 
-PRODUCT KNOWLEDGE:
+SKU:
 ${skuKnowledge.slice(0, 5000)}`;
-  const r4 = await callDeepSeek(env, technologSystem, `Черновик:
-${currentReply}`, 8000, 0.1);
-  totalIn += r4.tokensIn; totalOut += r4.tokensOut;
-  let tStatus: 'pass' | 'weak' | 'fail' = 'pass';
-  const u = r4.text.toUpperCase();
-  if (u.startsWith('FALSE')) tStatus = 'fail';
-  else if (u.startsWith('IMPRECISE')) tStatus = 'weak';
-  gates.push({ gate: 'technolog', status: tStatus, provider: 'deepseek', reason: r4.text.slice(0, 150), tokensIn: r4.tokensIn, tokensOut: r4.tokensOut, durationMs: Date.now() - t4 });
+    const r4 = await callDeepSeek(env, technologSystem, `Черновик:\n${currentReply}`, 8000, 0.1);
+    totalIn += r4.tokensIn; totalOut += r4.tokensOut;
+    let tStatus: 'pass'|'weak'|'fail' = 'pass';
+    const u = r4.text.toUpperCase();
+    if (u.startsWith('FALSE')) tStatus = 'fail';
+    else if (u.startsWith('IMPRECISE')) tStatus = 'weak';
+    gates.push({ gate: 'technolog', status: tStatus, provider: 'deepseek', reason: r4.text.slice(0, 150), tokensIn: r4.tokensIn, tokensOut: r4.tokensOut, durationMs: Date.now() - t4 });
 
-  // Rewrite via Gemini if needed
-  if (tStatus !== 'pass') {
-    const fix = await callGemini(env, draftSystem + `
-
-ИСПРАВЬ ПРОБЛЕМУ: ${r4.text}`, `Перепиши ответ, устранив проблему:
-${currentReply}`, 800, 0.5);
-    if (fix.text.length > 50) currentReply = fix.text;
-    totalIn += fix.tokensIn; totalOut += fix.tokensOut;
+    if (tStatus !== 'pass') {
+      const t4b = Date.now();
+      const fix = await callClaude(env, writeSystem,
+        `BRIEF:\n${JSON.stringify(brief, null, 2)}\n\nЧерновик:\n${currentReply}\n\nЗамечание technolog:\n${r4.text}\n\nПерепиши устранив проблему.`,
+        600);
+      totalIn += fix.tokensIn; totalOut += fix.tokensOut;
+      if (fix.text.length > 50) currentReply = fix.text;
+      gates.push({ gate: 'rewrite', status: 'pass', provider: 'claude', reason: `${fix.text.length} chars`, tokensIn: fix.tokensIn, tokensOut: fix.tokensOut, durationMs: Date.now() - t4b });
+    }
   }
 
   return {

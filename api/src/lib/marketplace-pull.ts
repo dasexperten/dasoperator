@@ -69,9 +69,12 @@ export async function scheduleOzonMonthly(env: Env, asOf?: Date): Promise<{ task
   const lastDay = new Date(Date.UTC(prevYear, prevMonth + 1, 0)).getUTCDate();
   const periodTo = `${prevYear}-${String(prevMonth + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
+  // task_type = 'realization' (v2/finance/realization endpoint, NOT v3/transaction/list).
+  // Realization gives signed monthly act with per-SKU breakdown — the actual reportable
+  // settlement. Transaction list is for granular daily flows (used elsewhere).
   const existing = await env.DB.prepare(
     'SELECT id FROM marketplace_pull_tasks WHERE marketplace=? AND task_type=? AND period_to=? AND status NOT IN (?, ?)'
-  ).bind('ozon', 'transaction', periodTo, 'error', 'done').first();
+  ).bind('ozon', 'realization', periodTo, 'error', 'done').first();
   if (existing) {
     console.log(`[mp-pull:schedule:ozon] task already exists for ${periodTo}`);
     return null;
@@ -83,7 +86,7 @@ export async function scheduleOzonMonthly(env: Env, asOf?: Date): Promise<{ task
     `INSERT INTO marketplace_pull_tasks (
        id, marketplace, task_type, period_from, period_to,
        status, next_attempt_at, created_at
-     ) VALUES (?, 'ozon', 'transaction', ?, ?, 'pending', ?, ?)`
+     ) VALUES (?, 'ozon', 'realization', ?, ?, 'pending', ?, ?)`
   ).bind(taskId, periodFrom, periodTo, now_ts, now_ts).run();
 
   console.log(`[mp-pull:schedule:ozon] task created: ${taskId} for ${periodFrom}..${periodTo}`);
@@ -117,6 +120,10 @@ export async function tickMarketplacePull(env: Env): Promise<{ taskId?: string; 
     if (task.marketplace === 'wb' && task.task_type === 'realization') {
       return await tickWbRealization(env, task);
     }
+    if (task.marketplace === 'ozon' && task.task_type === 'realization') {
+      return await tickOzonRealization(env, task);
+    }
+    // Legacy: old tx-based Ozon tasks
     if (task.marketplace === 'ozon' && task.task_type === 'transaction') {
       return await tickOzonTransaction(env, task);
     }
@@ -346,10 +353,250 @@ async function buildFromStaging(env: Env, task: any): Promise<{ taskId: string; 
   if (task.marketplace === 'wb') {
     return await buildWbFromStaging(env, task);
   }
-  if (task.marketplace === 'ozon') {
+  if (task.marketplace === 'ozon' && task.task_type === 'realization') {
+    return await buildOzonRealization(env, task);
+  }
+  if (task.marketplace === 'ozon' && task.task_type === 'transaction') {
     return await buildOzonFromStaging(env, task);
   }
   return { taskId: task.id, action: 'unsupported', rows: 0 };
+}
+
+// =============================================================================
+// tickOzonRealization — fetch monthly realization report
+// =============================================================================
+// POST https://api-seller.ozon.ru/v2/finance/realization {month, year}
+// Single call returns full report — non-paginated. Save all rows to
+// ozon_realization_staging. CPU per tick ~= 100ms-2s depending on row count.
+// Build phase aggregates per-SKU separately to stay within Worker CPU budget.
+async function tickOzonRealization(env: Env, task: any): Promise<{ taskId: string; action: string; rows: number }> {
+  const clientId = env.OZON_CLIENT_ID;
+  const apiKey = env.OZON_API_KEY;
+  if (!clientId || !apiKey) throw new Error('Ozon credentials not configured');
+
+  // Derive month + year from period_to (YYYY-MM-DD)
+  const [y, mm] = task.period_to.split('-');
+  const month = parseInt(mm, 10);
+  const year = parseInt(y, 10);
+
+  const resp = await fetch('https://api-seller.ozon.ru/v2/finance/realization', {
+    method: 'POST',
+    headers: {
+      'Client-Id': clientId,
+      'Api-Key': apiKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ month, year }),
+  });
+
+  if (!resp.ok) {
+    const errBody = await resp.text();
+    const retryCount = (task.retry_count || 0) + 1;
+    if (retryCount > 5) {
+      await env.DB.prepare(
+        'UPDATE marketplace_pull_tasks SET status=?, last_error=?, retry_count=? WHERE id=?'
+      ).bind('error', `HTTP ${resp.status}: ${errBody.slice(0, 300)}`, retryCount, task.id).run();
+      return { taskId: task.id, action: 'failed', rows: 0 };
+    }
+    const next_ts = Math.floor(Date.now() / 1000) + 120 * retryCount;
+    await env.DB.prepare(
+      'UPDATE marketplace_pull_tasks SET next_attempt_at=?, last_error=?, retry_count=? WHERE id=?'
+    ).bind(next_ts, `HTTP ${resp.status}`, retryCount, task.id).run();
+    return { taskId: task.id, action: 'http_error', rows: 0 };
+  }
+
+  const data = await resp.json() as any;
+  const rows = data?.result?.rows || [];
+  console.log(`[mp-pull:ozon-realization] fetched ${rows.length} rows for ${task.id}`);
+
+  // Save to staging in batches of 100 to stay within CPU budget
+  if (rows.length > 0) {
+    const stmts: any[] = [];
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const item = r.item || {};
+      const dc = r.delivery_commission || {};
+      const rc = r.return_commission || {};
+      const id = `${task.id}_${r.rowNumber || i}`;
+      const skuRaw = String(item.offer_id || item.sku || '').toLowerCase();
+      stmts.push(env.DB.prepare(
+        `INSERT OR REPLACE INTO ozon_realization_staging
+         (id, task_id, offer_id, ozon_sku, qty,
+          seller_price_per_instance, dc_amount, dc_compensation, dc_commission, dc_bonus,
+          dc_standard_fee, dc_total, dc_stars, dc_bank_coinvestment, dc_pickup_coinvestment,
+          rc_amount, rc_commission, commission_ratio,
+          raw_json, created_at)
+         VALUES (?, ?, ?, ?, ?,
+                 ?, ?, ?, ?, ?,
+                 ?, ?, ?, ?, ?,
+                 ?, ?, ?, ?, ?)`
+      ).bind(
+        id, task.id, skuRaw, item.sku || 0, dc.quantity || 0,
+        r.seller_price_per_instance || 0,
+        dc.amount || 0, dc.compensation || 0, dc.commission || 0, dc.bonus || 0,
+        dc.standard_fee || 0, dc.total || 0, dc.stars || 0,
+        dc.bank_coinvestment || 0, dc.pick_up_point_coinvestment || 0,
+        rc.amount || 0, rc.commission || 0, r.commission_ratio || 0,
+        JSON.stringify(r), Math.floor(Date.now() / 1000)
+      ));
+    }
+    for (let i = 0; i < stmts.length; i += 100) {
+      await env.DB.batch(stmts.slice(i, i + 100));
+    }
+  }
+
+  // Mark fetched — single API call covers the whole month, no pagination
+  const now_ts = Math.floor(Date.now() / 1000);
+  await env.DB.prepare(
+    `UPDATE marketplace_pull_tasks
+     SET status='fetched', rows_collected=?, next_attempt_at=?
+     WHERE id=?`
+  ).bind(rows.length, now_ts, task.id).run();
+  return { taskId: task.id, action: 'fetch_complete', rows: rows.length };
+}
+
+// =============================================================================
+// buildOzonRealization — staging rows → OZN-YYYYMM-MONTHLY operation
+// =============================================================================
+// Aggregates per-SKU NET payout from realization report.
+//   payout (gross seller receives) = dc.total
+//   logistics share (cost we bear) = dc.standard_fee — NO, this is INCLUDED in payout!
+//   Actually: dc.total is what Ozon pays us. dc.standard_fee is base fee already netted.
+// We use:
+//   gross_amount    = qty * seller_price_per_instance
+//   commission      = gross - dc.amount  (the cut Ozon takes upfront)
+//   payout          = sum(dc.total)
+//   logistics       = 0 (already netted in dc.total)
+//   net_per         = payout / qty
+// This mirrors the structure used by the manual scripts that built the 4 existing
+// OZN-MONTHLY ops (Jan–Apr 2026).
+async function buildOzonRealization(env: Env, task: any): Promise<{ taskId: string; action: string; rows: number }> {
+  await env.DB.prepare("UPDATE marketplace_pull_tasks SET status='building' WHERE id=?").bind(task.id).run();
+
+  // Aggregate per offer_id (lowercase). One pass over staging.
+  const stagingRows = await env.DB.prepare(
+    `SELECT offer_id, qty, seller_price_per_instance, dc_amount, dc_total
+     FROM ozon_realization_staging WHERE task_id=?`
+  ).bind(task.id).all<any>();
+
+  const perSku = new Map<string, {
+    qty: number;
+    retail: number;
+    gross: number;
+    payout: number;
+  }>();
+  for (const r of stagingRows.results) {
+    const sku = (r.offer_id || '').trim();
+    if (!sku) continue;
+    const cur = perSku.get(sku) || { qty: 0, retail: 0, gross: 0, payout: 0 };
+    const qty = r.qty || 0;
+    cur.qty += qty;
+    cur.retail += qty * (r.seller_price_per_instance || 0);
+    cur.gross += r.dc_amount || 0;
+    cur.payout += r.dc_total || 0;
+    perSku.set(sku, cur);
+  }
+
+  // Get product catalog
+  const catalogRows = await env.DB.prepare('SELECT id FROM products WHERE deleted_at IS NULL').all<{ id: string }>();
+  const catalog = new Set(catalogRows.results.map(r => r.id));
+
+  // Filter to catalog-known SKUs and build lines
+  const lines: Array<{
+    sku: string; qty: number; retail: number; gross: number; payout: number; net_per: number;
+  }> = [];
+  let opTotal = 0;
+  let skippedSku = 0;
+  for (const [sku, d] of perSku) {
+    if (d.qty <= 0) continue;
+    if (!catalog.has(sku)) {
+      skippedSku++;
+      continue;
+    }
+    const netPer = Math.round(d.payout / d.qty);
+    const lineAmt = d.qty * netPer;
+    opTotal += lineAmt;
+    lines.push({
+      sku, qty: d.qty, retail: d.retail, gross: d.gross, payout: d.payout, net_per: netPer,
+    });
+  }
+
+  if (skippedSku > 0) {
+    console.log(`[mp-pull:build-ozon] ${task.id} skipped ${skippedSku} SKU not in catalog`);
+  }
+
+  // Build operation reference and id
+  const refDate = task.period_to.replace(/-/g, '').slice(2); // YYMMDD
+  const opId = `op_ozn_${refDate}_monthly`;
+  const reference = `OZN-${refDate}-MONTHLY`;
+  const opDate = Math.floor(new Date(task.period_to + 'T23:59:59Z').getTime() / 1000);
+  const now_ts = Math.floor(Date.now() / 1000);
+
+  // Upsert: if exists, replace clean (matches WB build behaviour)
+  const existing = await env.DB.prepare('SELECT id FROM operations WHERE id=?').bind(opId).first();
+  if (existing) {
+    await env.DB.prepare('DELETE FROM marketplace_pnl_lines WHERE operation_id=?').bind(opId).run();
+    await env.DB.prepare('DELETE FROM line_items WHERE operation_id=?').bind(opId).run();
+    await env.DB.prepare('DELETE FROM operations WHERE id=?').bind(opId).run();
+  }
+
+  // Insert operation
+  await env.DB.prepare(
+    `INSERT INTO operations (
+       id, operation_date, operation_type, partner_id, our_company_id,
+       warehouse_from_id, warehouse_to_id, status, currency,
+       total_amount, contract_id, notes,
+       created_at, updated_at, reference, vat_rate, delivery_status, operation_track, default_document_language
+     ) VALUES (?, ?, 'sale', 'ozon', 'dee', 'ozon', NULL, 'delivered', 'RUB', ?, NULL, ?, ?, ?, ?, 0, 'delivered', 'goods', 'RU')`
+  ).bind(
+    opId, opDate, opTotal,
+    `Ozon monthly realization PnL — ${task.period_from} → ${task.period_to}. NET payout per SKU from /v2/finance/realization. Auto-pull via task ${task.id}.`,
+    now_ts, now_ts, reference
+  ).run();
+
+  // line_items + marketplace_pnl_lines in batches (CPU safety)
+  const liStmts: any[] = [];
+  const pnlStmts: any[] = [];
+  for (const l of lines) {
+    const lineAmt = l.qty * l.net_per;
+    liStmts.push(env.DB.prepare(
+      `INSERT INTO line_items (id, operation_id, product_id, item_description, qty, cartons, inner_boxes,
+       unit_price, discount_pct, unit_price_after_disc, line_amount, currency, line_usd_equiv, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 0, 0, ?, 0, ?, ?, 'RUB', NULL, ?, ?)`
+    ).bind(`li_ozn_${refDate}_${l.sku}`, opId, l.sku, l.sku, l.qty, l.net_per, l.net_per, lineAmt, now_ts, now_ts));
+
+    pnlStmts.push(env.DB.prepare(
+      `INSERT INTO marketplace_pnl_lines (id, operation_id, marketplace, product_id, qty, retail_amount,
+       gross_amount, commission, payout, logistics, penalty, acceptance, rebill_logistic, additional_payment,
+       storage_share, advert_share, net_total, net_per, period_from, period_to, created_at)
+       VALUES (?, ?, 'ozon', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      `mp_ozn_${refDate}_${l.sku}`, opId, l.sku, l.qty,
+      0, // retail_amount — set 0; gross/payout/net is what matters
+      0, // gross_amount
+      0, // commission (already netted in payout via dc.total)
+      l.payout, // payout
+      0, 0, 0, 0, // logistics/penalty/acceptance/rebill (all netted)
+      0, 0, // storage_share, advert_share
+      lineAmt, // net_total
+      l.net_per,
+      task.period_from, task.period_to, now_ts
+    ));
+  }
+  // Batches of 50 stmts to stay well under CPU limit
+  for (let i = 0; i < liStmts.length; i += 50) {
+    await env.DB.batch(liStmts.slice(i, i + 50));
+  }
+  for (let i = 0; i < pnlStmts.length; i += 50) {
+    await env.DB.batch(pnlStmts.slice(i, i + 50));
+  }
+
+  await env.DB.prepare(
+    `UPDATE marketplace_pull_tasks SET status='done', operation_id=?, completed_at=? WHERE id=?`
+  ).bind(opId, now_ts, task.id).run();
+
+  console.log(`[mp-pull:build-ozon] ${reference} created with ${lines.length} SKU, total=${opTotal} RUB`);
+  return { taskId: task.id, action: 'built', rows: lines.length };
 }
 
 async function buildWbFromStaging(env: Env, task: any): Promise<{ taskId: string; action: string; rows: number }> {
@@ -470,8 +717,14 @@ async function buildWbFromStaging(env: Env, task: any): Promise<{ taskId: string
       task.period_from, task.period_to, now_ts
     ));
   }
-  if (liStmts.length > 0) await env.DB.batch(liStmts);
-  if (pnlStmts.length > 0) await env.DB.batch(pnlStmts);
+  // Batched in chunks of 50 to keep each env.DB.batch() within Worker CPU budget.
+  // Previous code did one giant batch which OOM'd on large weeks (700+ SKUs).
+  for (let i = 0; i < liStmts.length; i += 50) {
+    await env.DB.batch(liStmts.slice(i, i + 50));
+  }
+  for (let i = 0; i < pnlStmts.length; i += 50) {
+    await env.DB.batch(pnlStmts.slice(i, i + 50));
+  }
 
   // Mark task done
   await env.DB.prepare(

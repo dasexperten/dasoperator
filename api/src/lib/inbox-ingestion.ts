@@ -31,6 +31,17 @@ const SEARCH_QUERIES = [
   'tax OR VAT',
 ];
 
+// WATCHLIST: critical senders whose every message must enter the inbox,
+// regardless of subject keywords or DeepSeek classifier verdict. Added
+// 2026-05-23 per Aram's direct instruction. Extend this list as Aram names
+// more senders. Behavior for watchlist:
+//   - Search window widened to 14 days (vs 2 days for keyword queries).
+//   - Both PDF and TXT attachments accepted (bkmsk often sends .txt outputs).
+//   - Auto-reject rules are bypassed; everything lands as needs_review.
+//   - Notes prefixed with [WATCHLIST: <sender>].
+const WATCHLIST_SENDERS = ['253@bkmsk.ru', 'zukonar@mail.ru'];
+const WATCHLIST_WINDOW_DAYS = 14;
+
 const DEEPSEEK_PROMPT = `You are an invoice classifier for Das Experten (multi-entity company).
 Entities: DEE (Russia), DEI (UAE), DEASEAN (Vietnam), DEC (Seychelles).
 
@@ -122,7 +133,33 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
   }
 
   stats.threads_found = allThreads.size;
-  console.log(`[inbox-cron] ${allThreads.size} unique threads collected`);
+  console.log(`[inbox-cron] ${allThreads.size} unique threads collected from keyword queries`);
+
+  // Step 1b: WATCHLIST scan — senders we always want, regardless of subject.
+  // Wider window (14 days) so a single failed cron run doesn't lose anything.
+  for (const sender of WATCHLIST_SENDERS) {
+    try {
+      const findResult = await callEmailer(env, {
+        action: 'find',
+        query: `from:${sender} has:attachment newer_than:${WATCHLIST_WINDOW_DAYS}d`,
+        max_results: 30,
+      });
+      const threads = findResult?.threads || [];
+      for (const t of threads) {
+        if (!t.thread_id) continue;
+        const existing = allThreads.get(t.thread_id);
+        // Merge into map and mark is_watchlist (existing thread from keyword
+        // queries may also be a watchlist sender — still elevate it).
+        allThreads.set(t.thread_id, { ...(existing || t), is_watchlist: true, watchlist_sender: sender });
+      }
+    } catch (e) {
+      console.error(`[inbox-cron] watchlist find failed for ${sender}:`, e);
+      stats.errors++;
+    }
+  }
+
+  const watchlistCount = Array.from(allThreads.values()).filter((t: any) => t.is_watchlist).length;
+  console.log(`[inbox-cron] total ${allThreads.size} threads (${watchlistCount} from watchlist)`);
 
   // Step 2: Build PDF candidate list
   const candidates: Array<{
@@ -133,22 +170,33 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
     filename: string;
     r2_url: string;
     r2_key: string;
+    mime_type: string;
+    is_watchlist: boolean;
+    watchlist_sender?: string;
   }> = [];
 
   for (const t of allThreads.values()) {
+    const isWatchlistThread = !!t.is_watchlist;
     for (const a of t.attachments_resolved || []) {
-      if (a.r2_url && a.mime_type === 'application/pdf') {
-        const r2Key = a.r2_url.includes('.r2.dev/') ? a.r2_url.split('.r2.dev/')[1] : a.r2_url;
-        candidates.push({
-          thread_id: t.thread_id,
-          subject: t.subject || '',
-          from: t.last_message_from || '',
-          snippet: (t.last_message_snippet || '').slice(0, 500),
-          filename: a.filename,
-          r2_url: a.r2_url,
-          r2_key: r2Key,
-        });
-      }
+      if (!a.r2_url) continue;
+      const isPdf = a.mime_type === 'application/pdf';
+      const isTxt = a.mime_type === 'text/plain';
+      // PDF accepted always; TXT only for watchlist (bkmsk sends НДС/взносы as .txt).
+      const accept = isPdf || (isWatchlistThread && isTxt);
+      if (!accept) continue;
+      const r2Key = a.r2_url.includes('.r2.dev/') ? a.r2_url.split('.r2.dev/')[1] : a.r2_url;
+      candidates.push({
+        thread_id: t.thread_id,
+        subject: t.subject || '',
+        from: t.last_message_from || '',
+        snippet: (t.last_message_snippet || '').slice(0, 500),
+        filename: a.filename,
+        r2_url: a.r2_url,
+        r2_key: r2Key,
+        mime_type: a.mime_type || 'application/octet-stream',
+        is_watchlist: isWatchlistThread,
+        watchlist_sender: t.watchlist_sender,
+      });
     }
   }
 
@@ -169,22 +217,21 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
 
       stats.pdfs_processed++;
 
-      // Download PDF from R2
-      const pdfBuf = await fetchPdf(c.r2_url);
-      if (!pdfBuf) {
+      // Download attachment from R2
+      const buf = await fetchPdf(c.r2_url);
+      if (!buf) {
         console.error(`[inbox-cron] failed to download ${c.filename}`);
         stats.errors++;
         continue;
       }
 
-      // Extract text — note: Workers can't run pdftotext. We'll send the
-      // first 30KB of base64 to DeepSeek along with email metadata, and let
-      // it work from snippet + filename + subject. Crude but works for
-      // text-bearing PDFs since DeepSeek-chat handles long strings.
-      // Better approach: a side-Worker that runs unpdf or pdf-parse.
-      // For now: rely on email subject + snippet + filename for classification,
-      // and fall back to text extraction via a simple regex strip.
-      const text = await extractPdfText(pdfBuf);
+      // Extract text: pdf via regex strip, txt via UTF-8 decode.
+      let text = '';
+      if (c.mime_type === 'application/pdf') {
+        text = await extractPdfText(buf);
+      } else if (c.mime_type === 'text/plain') {
+        text = new TextDecoder('utf-8', { fatal: false }).decode(buf).slice(0, 50000);
+      }
 
       // Classify with DeepSeek
       const extracted = await deepseekClassify(env, text, c);
@@ -193,18 +240,29 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
         continue;
       }
 
-      // Apply auto-reject rules
-      const isAutoReject =
-        extracted.classification === 'sale_payment' ||
-        extracted.classification === 'not_invoice' ||
-        (extracted.classification === 'service' &&
-          extracted.service_category === 'Government / Tax' &&
-          !extracted.amount_total);
+      // Watchlist bypass: critical senders never auto-reject; everything lands
+      // as needs_review for Aram to triage manually.
+      const isAutoReject = c.is_watchlist
+        ? false
+        : (
+          extracted.classification === 'sale_payment' ||
+          extracted.classification === 'not_invoice' ||
+          (extracted.classification === 'service' &&
+            extracted.service_category === 'Government / Tax' &&
+            !extracted.amount_total)
+        );
 
-      const status = isAutoReject ? 'manual_rejected' : 'needs_partner_link';
-      const notes = isAutoReject
+      const status = c.is_watchlist
+        ? 'needs_review'
+        : (isAutoReject ? 'manual_rejected' : 'needs_partner_link');
+
+      let notes = isAutoReject
         ? `Auto-rejected by cron: ${extracted.classification} (${extracted.notes || 'no amount or sale_payment'})`
-        : extracted.notes || '';
+        : (extracted.notes || '');
+
+      if (c.is_watchlist) {
+        notes = `[WATCHLIST: ${c.watchlist_sender || c.from}] ${notes}`.slice(0, 1000);
+      }
 
       // Map LLM classification to schema CHECK values
       let cls = extracted.classification;
@@ -399,7 +457,7 @@ async function insertInbox(env: Env, c: any, e: any, text: string, cls: string, 
   ).bind(
     invId, msgId, c.thread_id, c.from.slice(0, 255), (c.subject || '').slice(0, 255),
     now, c.snippet.slice(0, 500),
-    c.filename.slice(0, 255), c.r2_key.slice(0, 500), 'application/pdf', text.slice(0, 50000),
+    c.filename.slice(0, 255), c.r2_key.slice(0, 500), c.mime_type || 'application/pdf', text.slice(0, 50000),
     cls, e.confidence ?? null,
     e.vendor_name || null, e.vendor_tax_id || null,
     e.invoice_no || null, e.invoice_date || null, e.period || null,

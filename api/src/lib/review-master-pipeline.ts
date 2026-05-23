@@ -95,6 +95,13 @@ async function callClaude(env: Env, system: string, user: string, maxTokens: num
   };
 }
 
+
+async function callGemini(env: Env, system: string, user: string, maxTokens: number, temp = 0.5): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
+  if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
+  const r = await callGeminiFlash(system, user, { apiKey: env.GEMINI_API_KEY, maxTokens, temperature: temp });
+  return { text: r.text, tokensIn: r.usage.prompt_tokens, tokensOut: r.usage.completion_tokens };
+}
+
 async function callDeepSeek(env: Env, system: string, user: string, maxTokens: number, temp = 0.3): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
   if (!env.DEEPSEEK_API_KEY) throw new Error('DEEPSEEK_API_KEY not configured');
   const r = await callPro(
@@ -443,12 +450,12 @@ ${skuKnowledge}`;
 - Встрой brief.key_fact
 - Не пиши "спасибо за пятёрку", "к сожалению", "извините"
 - Без эмодзи (можно 💡 редко)`;
-  const r3 = await callClaude(env, writeSystem,
+  const r3 = await callGemini(env, writeSystem,
     `BRIEF:\n${JSON.stringify(brief, null, 2)}\n\nОТЗЫВ:\n${formatInput(input)}\n\nНапиши ответ.`,
-    600);
+    600, 0.5);
   let currentReply = r3.text;
   totalIn += r3.tokensIn; totalOut += r3.tokensOut;
-  gates.push({ gate: 'write', status: currentReply.length > 50 ? 'pass' : 'fail', provider: 'claude', reason: `${currentReply.length} chars`, tokensIn: r3.tokensIn, tokensOut: r3.tokensOut, durationMs: Date.now() - t3 });
+  gates.push({ gate: 'write', status: currentReply.length > 50 ? 'pass' : 'fail', provider: 'gemini', reason: `${currentReply.length} chars`, tokensIn: r3.tokensIn, tokensOut: r3.tokensOut, durationMs: Date.now() - t3 });
 
   if (currentReply.length < 50) {
     return { ok: false, reply: '', reviewType, gates, totalDurationMs: Date.now() - startedAt, totalTokensIn: totalIn, totalTokensOut: totalOut, warning: 'write empty' };
@@ -475,12 +482,12 @@ ${skuKnowledge.slice(0, 5000)}`;
 
     if (tStatus !== 'pass') {
       const t4b = Date.now();
-      const fix = await callClaude(env, writeSystem,
+      const fix = await callGemini(env, writeSystem,
         `BRIEF:\n${JSON.stringify(brief, null, 2)}\n\nЧерновик:\n${currentReply}\n\nЗамечание technolog:\n${r4.text}\n\nПерепиши устранив проблему.`,
-        600);
+        600, 0.5);
       totalIn += fix.tokensIn; totalOut += fix.tokensOut;
       if (fix.text.length > 50) currentReply = fix.text;
-      gates.push({ gate: 'rewrite', status: 'pass', provider: 'claude', reason: `${fix.text.length} chars`, tokensIn: fix.tokensIn, tokensOut: fix.tokensOut, durationMs: Date.now() - t4b });
+      gates.push({ gate: 'rewrite', status: 'pass', provider: 'gemini', reason: `${fix.text.length} chars`, tokensIn: fix.tokensIn, tokensOut: fix.tokensOut, durationMs: Date.now() - t4b });
     }
   }
 

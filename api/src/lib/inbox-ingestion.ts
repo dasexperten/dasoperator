@@ -158,7 +158,7 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
       const findResult = await callEmailer(env, {
         action: 'find',
         query: `from:${sender} has:attachment newer_than:${WATCHLIST_WINDOW_DAYS}d`,
-        max_results: 30,
+        max_results: 5,
       });
       const threads = findResult?.threads || [];
       for (const t of threads) {

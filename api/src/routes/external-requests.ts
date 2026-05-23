@@ -578,6 +578,15 @@ externalRequests.post('/mp-delivery-backfill', async (c) => {
     const collectionDateStr = getField('collection_date');
     const stagesSeen = new Set(stageLogs.map((s) => s.stage));
 
+    // Current stage code/name from F4 — single source of truth.
+    // stagesSeen contains historical stages including ones the request
+    // was rolled back from, so it cannot be used to determine current state.
+    // Example failure mode: a delivery that briefly reached "Забор груза"
+    // but was rolled back to "Согласование перечня работ" still has
+    // stagesSeen.has('Забор груза') === true. Use the live stage instead.
+    const currentStageCode = (parsed.stage?.code || '').toLowerCase();
+    const currentStageName = (parsed.stage?.name || '').trim();
+
     // Marketplace dictates destination warehouse, NOT partner.
     // mp_delivery is an internal stock movement LBR → marketplace_warehouse
     // (ozon or wb). partner_id stays NULL.
@@ -592,17 +601,23 @@ externalRequests.post('/mp-delivery-backfill', async (c) => {
     let opStatus: 'delivered' | 'shipped' | null = null;
     let warehouseTo: 'ozon' | 'wb' | 'otw' | null = null;
     const isCompleted = req.is_completed === 1;
-    const reachedCompletion = stagesSeen.has('Завершение');
-    const reachedPickup = stagesSeen.has('Забор груза');
 
-    if (reachedCompletion && isCompleted) {
+    // Decision is based on CURRENT stage, not historical stages.
+    //   completion + isCompleted → goods physically at marketplace warehouse
+    //   pickup (active, not rolled back)   → goods in transit (OTW)
+    //   anything earlier (works_coordination, etc.) → skip; goods not yet moved.
+    const isAtCompletion = currentStageCode === 'completion' || currentStageName === 'Завершение';
+    const isAtPickup     = currentStageCode === 'pickup'      || currentStageName === 'Забор груза';
+
+    if (isAtCompletion && isCompleted) {
       opStatus = 'delivered';
       warehouseTo = warehouseDest;
-    } else if (reachedPickup || reachedCompletion) {
+    } else if (isAtPickup) {
       opStatus = 'shipped';
       warehouseTo = 'otw';
     } else {
-      results.push({ request: req.delivery_number, op: null, reason: 'pre_pickup' });
+      // works_coordination, manager_review, anything else — no stock movement yet.
+      results.push({ request: req.delivery_number, op: null, reason: `pre_pickup_current_stage_${currentStageCode || 'unknown'}` });
       continue;
     }
 

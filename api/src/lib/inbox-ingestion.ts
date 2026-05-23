@@ -39,7 +39,7 @@ const SEARCH_QUERIES = [
 //   - Both PDF and TXT attachments accepted (bkmsk often sends .txt outputs).
 //   - Auto-reject rules are bypassed; everything lands as needs_review.
 //   - Notes prefixed with [WATCHLIST: <sender>].
-const WATCHLIST_SENDERS = ['253@bkmsk.ru', 'zukonar@mail.ru'];
+const WATCHLIST_SENDERS = ['253@bkmsk.ru', 'zukonar@mail.ru', 'buh2@inter-freight.ru', 'sales5@inter-vostok.ru', 'iampanchenko@mail.ru'];
 const WATCHLIST_WINDOW_DAYS = 30;
 
 const DEEPSEEK_PROMPT = `You are an invoice classifier for Das Experten (multi-entity company).
@@ -54,6 +54,10 @@ Classify into one of:
 
 Service category (if service): "Accounting & Bookkeeping" / "Legal & Compliance" / "Hosting & Cloud" / "Software / SaaS" / "Banking & Financial Services" / "Advertising & Marketing" / "Logistics / Customs" / "Telecommunications" / "Office / Utilities" / "Government / Tax" / "Certification" / "Other"
 
+For logistics/freight services (Inter-Freight, Inter-Vostok, Панченко) also extract:
+  - shipment_ref: forwarder reference like "INF50363", "INF51023", "TR5093". Look in subject AND body. Pattern: INF\\d{4,6} or TR\\d{3,5}. Null if absent.
+  - service_subtype: one of "freight" (international transport, EXW->RU), "customs" (Таможенное оформление, ГТД), "storage" (Хранение), "handling" (ПРР, погрузо-разгрузка), "demurrage" (Простой), "delivery_local" (last-mile within RU, e.g. Москва-Люберцы), "insurance", "other". Pick by line item description.
+
 Output ONLY valid JSON:
 {
   "classification": "service" | "purchase" | "sale_payment" | "not_invoice" | "unclear",
@@ -65,6 +69,8 @@ Output ONLY valid JSON:
   "vendor_address": string | null,
   "vendor_email": string | null,
   "service_category": string | null,
+  "shipment_ref": string | null,
+  "service_subtype": string | null,
   "invoice_no": string | null,
   "invoice_date": "YYYY-MM-DD" | null,
   "period": string | null,
@@ -451,9 +457,9 @@ async function insertInbox(env: Env, c: any, e: any, text: string, cls: string, 
       extracted_currency, extracted_amount, extracted_line_items_json,
       extracted_vendor_email, extracted_vendor_country, extracted_vendor_address,
       extracted_bank_name, extracted_bank_account, extracted_iban, extracted_swift,
-      extracted_service_category, extracted_buyer_entity,
+      extracted_service_category, extracted_buyer_entity, extracted_shipment_ref, extracted_service_subtype,
       status, notes, created_at, processed_at
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(
     invId, msgId, c.thread_id, c.from.slice(0, 255), (c.subject || '').slice(0, 255),
     now, c.snippet.slice(0, 500),
@@ -464,7 +470,7 @@ async function insertInbox(env: Env, c: any, e: any, text: string, cls: string, 
     e.currency || null, e.amount_total ?? null, lineItemsJson,
     e.vendor_email || null, e.vendor_country || null, e.vendor_address || null,
     e.bank_name || null, e.bank_account || null, e.iban || null, e.swift || null,
-    e.service_category || null, e.buyer_entity || null,
+    e.service_category || null, e.buyer_entity || null, e.shipment_ref || null, e.service_subtype || null,
     status, notes, now, now,
   ).run();
 

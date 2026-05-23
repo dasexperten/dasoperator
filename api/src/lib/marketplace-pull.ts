@@ -100,14 +100,27 @@ export async function scheduleOzonMonthly(env: Env, asOf?: Date): Promise<{ task
 export async function tickMarketplacePull(env: Env): Promise<{ taskId?: string; action?: string; rows?: number } | null> {
   const now_ts = Math.floor(Date.now() / 1000);
 
-  // Pick oldest due task that isn't terminal
-  const task = await env.DB.prepare(
+  // Prioritize building over fetching: a 'fetched' task only needs SQL aggregation,
+  // while 'pending'/'fetching' requires hitting WB/Ozon APIs which are rate-limited
+  // and can eat 50s+ of wall time. Drain ready-to-build tasks first.
+  let task = await env.DB.prepare(
     `SELECT * FROM marketplace_pull_tasks 
-     WHERE status IN ('pending', 'fetching', 'fetched')
+     WHERE status = 'fetched'
        AND next_attempt_at <= ?
      ORDER BY next_attempt_at ASC
      LIMIT 1`
   ).bind(now_ts).first<any>();
+
+  // No build-ready task? Fall through to oldest due pending/fetching.
+  if (!task) {
+    task = await env.DB.prepare(
+      `SELECT * FROM marketplace_pull_tasks 
+       WHERE status IN ('pending', 'fetching')
+         AND next_attempt_at <= ?
+       ORDER BY next_attempt_at ASC
+       LIMIT 1`
+    ).bind(now_ts).first<any>();
+  }
 
   if (!task) {
     return null;

@@ -790,7 +790,7 @@ async function tryAutoCreateWatchlistOperation(
 
   const fields: string[] = ['id', 'partner_id', 'operation_type', 'our_company_id',
     'operation_date', 'status', 'currency', 'total_amount', 'created_at', 'updated_at'];
-  const values: any[] = [operationId, mapped.partnerId, 'purchase', mapped.buyer,
+  const values: any[] = [operationId, mapped.partnerId, 'service', mapped.buyer,
     opDate, 'issued', currency, amount, now, now];
 
   if (colSet.has('reference')) { fields.push('reference'); values.push(reference); }

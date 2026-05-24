@@ -10,11 +10,13 @@
 // =============================================================================
 
 export type Role = 'admin' | 'manager' | 'support';
+export type Access = 'full' | 'rw' | 'read' | 'none';
 
 export interface AuthUser {
   id: string;
   name: string;
   role: Role;
+  permissions: Record<string, Access>;
 }
 
 const TOKEN_KEY = 'dx_auth_token';
@@ -57,7 +59,16 @@ export function getUser(): AuthUser | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed.id === 'string' && typeof parsed.name === 'string' && typeof parsed.role === 'string') {
+    if (
+      parsed &&
+      typeof parsed.id === 'string' &&
+      typeof parsed.name === 'string' &&
+      typeof parsed.role === 'string'
+    ) {
+      // Permissions added in v2 — older sessions without it default to {}
+      if (!parsed.permissions || typeof parsed.permissions !== 'object') {
+        parsed.permissions = {};
+      }
       return parsed as AuthUser;
     }
   } catch { /* ignore */ }
@@ -88,31 +99,32 @@ export function clearAuth(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Role → routes map. Mirrors api/src/lib/auth.ts.
+// All known modules — canonical set, must match api/src/lib/auth.ts.
 // ---------------------------------------------------------------------------
 
-export const ROLE_ROUTES: Record<Role, string[]> = {
-  admin: [
-    '/', '/partners', '/operations', '/planner', '/products', '/warehouses',
-    '/marketplaces', '/reviews', '/crm', '/finance', '/analytics', '/settings',
-  ],
-  manager: [
-    '/', '/partners', '/operations', '/planner', '/products', '/warehouses',
-    '/marketplaces', '/reviews', '/crm', '/analytics',
-  ],
-  support: [
-    '/', '/partners', '/products', '/warehouses', '/marketplaces', '/reviews',
-  ],
-};
+export const ALL_MODULES = [
+  '/', '/partners', '/operations', '/planner', '/products', '/warehouses',
+  '/marketplaces', '/reviews', '/crm', '/finance', '/analytics', '/settings',
+] as const;
 
-export function canAccessRoute(role: Role, route: string): boolean {
-  const allowed = ROLE_ROUTES[role] ?? [];
-  if (route === '/') return allowed.includes('/');
-  for (const r of allowed) {
-    if (r === '/') continue;
-    if (route === r || route.startsWith(r + '/')) return true;
+// Whether the user has any access at all to a route — drives sidebar visibility.
+export function hasModuleAccess(user: AuthUser, route: string): boolean {
+  const perms = user.permissions ?? {};
+  if (route === '/') return (perms['/'] ?? 'none') !== 'none';
+  for (const m of ALL_MODULES) {
+    if (m === '/') continue;
+    if (route === m || route.startsWith(m + '/')) {
+      return (perms[m] ?? 'none') !== 'none';
+    }
   }
   return false;
+}
+
+// Backwards-compat shim so older imports of canAccessRoute still work.
+export function canAccessRoute(_role: Role, route: string): boolean {
+  const u = getUser();
+  if (!u) return false;
+  return hasModuleAccess(u, route);
 }
 
 // Human-friendly label for the role badge.

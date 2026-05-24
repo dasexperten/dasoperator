@@ -16,6 +16,9 @@ import {
   createSession,
   validateSession,
   destroySession,
+  parsePermissions,
+  ALL_MODULES,
+  type ModuleKey,
 } from '../lib/auth';
 
 const auth = new Hono<{ Bindings: Env }>();
@@ -81,7 +84,12 @@ auth.post('/login', async (c) => {
   return ok(c, {
     token,
     expires_at,
-    user: { id: user.id, name: user.name, role: user.role },
+    user: {
+      id: user.id,
+      name: user.name,
+      role: user.role,
+      permissions: parsePermissions(user.permissions),
+    },
   });
 });
 
@@ -112,7 +120,7 @@ auth.post('/logout', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/auth/users — list of users (admin only)
+// GET /api/auth/users — list of users with permissions (admin only)
 // ---------------------------------------------------------------------------
 auth.get('/users', async (c) => {
   const token = bearer(c);
@@ -128,12 +136,93 @@ auth.get('/users', async (c) => {
   }
 
   const rows = await c.env.DB
-    .prepare(`SELECT id, name, role, active, created_at, last_login_at FROM users ORDER BY
+    .prepare(`SELECT id, name, role, active, permissions, created_at, last_login_at FROM users ORDER BY
               CASE role WHEN 'admin' THEN 1 WHEN 'manager' THEN 2 WHEN 'support' THEN 3 ELSE 4 END,
               name`)
-    .all<{ id: string; name: string; role: string; active: number; created_at: number; last_login_at: number | null }>();
+    .all<{ id: string; name: string; role: string; active: number; permissions: string; created_at: number; last_login_at: number | null }>();
 
-  return ok(c, { users: rows.results ?? [] });
+  const users = (rows.results ?? []).map((u) => ({
+    id: u.id,
+    name: u.name,
+    role: u.role,
+    active: u.active,
+    permissions: parsePermissions(u.permissions),
+    created_at: u.created_at,
+    last_login_at: u.last_login_at,
+  }));
+
+  return ok(c, { users });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/auth/users/:id/permissions — change one module's access level
+// Body: { module: string, access: 'full' | 'rw' | 'read' | 'none' }
+// Admin-only. Refuses to edit admin users (keeps admins admin).
+// ---------------------------------------------------------------------------
+const VALID_MODULES = new Set(ALL_MODULES);
+const VALID_ACCESS = new Set(['full', 'rw', 'read', 'none']);
+
+auth.patch('/users/:id/permissions', async (c) => {
+  const token = bearer(c);
+  if (!token) {
+    return fail(c, 401, [{ code: 'no_token', message: 'missing bearer token' }]);
+  }
+  const me = await validateSession(c.env.DB, token);
+  if (!me) {
+    return fail(c, 401, [{ code: 'invalid_session', message: 'session not found or expired' }]);
+  }
+  if (me.role !== 'admin') {
+    return fail(c, 403, [{ code: 'forbidden', message: 'admin role required' }]);
+  }
+
+  const targetId = c.req.param('id');
+  if (!targetId) {
+    return fail(c, 400, [{ code: 'bad_id', message: 'user id required' }]);
+  }
+
+  let body: { module?: unknown; access?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return fail(c, 400, [{ code: 'bad_json', message: 'invalid JSON body' }]);
+  }
+
+  const mod = typeof body?.module === 'string' ? body.module : '';
+  const access = typeof body?.access === 'string' ? body.access : '';
+
+  if (!VALID_MODULES.has(mod as ModuleKey)) {
+    return fail(c, 400, [{ code: 'bad_module', message: `unknown module: ${mod}` }]);
+  }
+  if (!VALID_ACCESS.has(access)) {
+    return fail(c, 400, [{ code: 'bad_access', message: `access must be one of full/rw/read/none` }]);
+  }
+
+  // Fetch target user
+  const target = await c.env.DB
+    .prepare(`SELECT id, role, permissions FROM users WHERE id = ?1 LIMIT 1`)
+    .bind(targetId)
+    .first<{ id: string; role: string; permissions: string }>();
+
+  if (!target) {
+    return fail(c, 404, [{ code: 'user_not_found', message: 'user not found' }]);
+  }
+
+  // Admin users are locked — their permissions stay 'full' everywhere.
+  if (target.role === 'admin') {
+    return fail(c, 409, [{ code: 'admin_locked', message: 'admin users cannot be edited from the matrix' }]);
+  }
+
+  // Merge change into existing JSON
+  const perms = parsePermissions(target.permissions);
+  perms[mod] = access as 'full' | 'rw' | 'read' | 'none';
+  const newJson = JSON.stringify(perms);
+
+  await c.env.DB
+    .prepare(`UPDATE users SET permissions = ?1 WHERE id = ?2`)
+    .bind(newJson, targetId)
+    .run();
+
+  return ok(c, { id: targetId, permissions: perms });
 });
 
 export default auth;

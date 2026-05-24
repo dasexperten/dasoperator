@@ -8,7 +8,7 @@ import {
   Headphones, BarChart3, Wallet, Settings, Calculator, MessageSquare,
   LogOut,
 } from 'lucide-react';
-import { getUser, logout, canAccessRoute, ROLE_LABEL, type Role, type AuthUser } from '@/lib/auth';
+import { getUser, logout, hasModuleAccess, ROLE_LABEL, type Role, type AuthUser } from '@/lib/auth';
 
 interface NavItem {
   name: string;
@@ -57,8 +57,7 @@ export default function Sidebar({ mobileOpen = false }: { mobileOpen?: boolean }
 
   const visibleItems = useMemo(() => {
     if (!user) return [];
-    const role = user.role as Role;
-    return NAV_ITEMS.filter((it) => canAccessRoute(role, it.href));
+    return NAV_ITEMS.filter((it) => hasModuleAccess(user, it.href));
   }, [user]);
 
   function isActive(href: string): boolean {

@@ -7,7 +7,7 @@ import { Home, Users, FileText, Package, BarChart3, ShoppingCart, MessageSquare 
 import Sidebar from './sidebar';
 import Header from './header';
 import AuthGate from './auth-gate';
-import { getUser, canAccessRoute, type Role } from '@/lib/auth';
+import { getUser, hasModuleAccess } from '@/lib/auth';
 
 /**
  * MobileShell — top-level layout orchestrator.
@@ -96,9 +96,8 @@ function BottomNav({ pathname }: { pathname: string }) {
   const items = useMemo(() => {
     const u = getUser();
     if (!u) return [];
-    const role = u.role as Role;
     return BOTTOM_NAV_CANDIDATES
-      .filter((it) => canAccessRoute(role, it.href))
+      .filter((it) => hasModuleAccess(u, it.href))
       .slice(0, 5);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick, pathname]);

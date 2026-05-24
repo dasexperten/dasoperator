@@ -13,6 +13,7 @@ const PBKDF2_ITERATIONS = 100_000;
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 
 export type Role = 'admin' | 'manager' | 'support';
+export type Access = 'full' | 'rw' | 'read' | 'none';
 
 export interface UserRow {
   id: string;
@@ -21,6 +22,7 @@ export interface UserRow {
   pin_salt: string;
   role: Role;
   active: number;
+  permissions: string; // raw JSON column
   created_at: number;
   last_login_at: number | null;
 }
@@ -38,6 +40,7 @@ export interface AuthUser {
   id: string;
   name: string;
   role: Role;
+  permissions: Record<string, Access>;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,7 +102,7 @@ export async function verifyPin(db: D1Database, pin: string): Promise<UserRow | 
   if (!/^\d{4}$/.test(pin)) return null;
 
   const users = await db
-    .prepare(`SELECT id, name, pin_hash, pin_salt, role, active, created_at, last_login_at
+    .prepare(`SELECT id, name, pin_hash, pin_salt, role, active, permissions, created_at, last_login_at
               FROM users WHERE active = 1`)
     .all<UserRow>();
 
@@ -108,6 +111,16 @@ export async function verifyPin(db: D1Database, pin: string): Promise<UserRow | 
     if (constantTimeEqual(computed, u.pin_hash)) return u;
   }
   return null;
+}
+
+// Safe parse of permissions JSON column; returns {} on bad data.
+export function parsePermissions(raw: string | null | undefined): Record<string, Access> {
+  if (!raw) return {};
+  try {
+    const obj = JSON.parse(raw);
+    if (obj && typeof obj === 'object') return obj as Record<string, Access>;
+  } catch { /* ignore */ }
+  return {};
 }
 
 // ---------------------------------------------------------------------------
@@ -149,14 +162,14 @@ export async function validateSession(
 
   const row = await db
     .prepare(
-      `SELECT s.token, s.expires_at, u.id, u.name, u.role, u.active
+      `SELECT s.token, s.expires_at, u.id, u.name, u.role, u.active, u.permissions
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token = ?1
        LIMIT 1`
     )
     .bind(token)
-    .first<{ token: string; expires_at: number; id: string; name: string; role: Role; active: number }>();
+    .first<{ token: string; expires_at: number; id: string; name: string; role: Role; active: number; permissions: string }>();
 
   if (!row) return null;
   if (row.active !== 1) return null;
@@ -167,7 +180,12 @@ export async function validateSession(
     return null;
   }
 
-  return { id: row.id, name: row.name, role: row.role };
+  return {
+    id: row.id,
+    name: row.name,
+    role: row.role,
+    permissions: parsePermissions(row.permissions),
+  };
 }
 
 export async function destroySession(db: D1Database, token: string): Promise<void> {
@@ -175,31 +193,28 @@ export async function destroySession(db: D1Database, token: string): Promise<voi
 }
 
 // ---------------------------------------------------------------------------
-// Role permission map — used by frontend (copy in web/lib/auth.ts) and any
-// server-side gating we add later. Keep in sync.
+// All known modules — used as canonical set of permission keys.
 // ---------------------------------------------------------------------------
 
-export const ROLE_ROUTES: Record<Role, string[]> = {
-  admin: [
-    '/', '/partners', '/operations', '/planner', '/products', '/warehouses',
-    '/marketplaces', '/reviews', '/crm', '/finance', '/analytics', '/settings',
-  ],
-  manager: [
-    '/', '/partners', '/operations', '/planner', '/products', '/warehouses',
-    '/marketplaces', '/reviews', '/crm', '/analytics',
-  ],
-  support: [
-    '/', '/partners', '/products', '/warehouses', '/marketplaces', '/reviews',
-  ],
-};
+export const ALL_MODULES = [
+  '/', '/partners', '/operations', '/planner', '/products', '/warehouses',
+  '/marketplaces', '/reviews', '/crm', '/finance', '/analytics', '/settings',
+] as const;
 
-export function canAccessRoute(role: Role, route: string): boolean {
-  // Exact-match for home; prefix-match for everything else.
-  const allowed = ROLE_ROUTES[role] ?? [];
-  if (route === '/') return allowed.includes('/');
-  for (const r of allowed) {
-    if (r === '/') continue;
-    if (route === r || route.startsWith(r + '/')) return true;
+export type ModuleKey = typeof ALL_MODULES[number];
+
+// Whether the user has any access at all to a route — used for sidebar
+// visibility and any future server-side gating.
+export function hasModuleAccess(user: AuthUser, route: string): boolean {
+  const perms = user.permissions ?? {};
+  // Exact-match for home
+  if (route === '/') return (perms['/'] ?? 'none') !== 'none';
+  // Prefix-match for everything else
+  for (const m of ALL_MODULES) {
+    if (m === '/') continue;
+    if (route === m || route.startsWith(m + '/')) {
+      return (perms[m] ?? 'none') !== 'none';
+    }
   }
   return false;
 }

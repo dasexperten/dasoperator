@@ -4,20 +4,20 @@ export const runtime = 'edge';
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Users as UsersIcon, ShieldCheck } from 'lucide-react';
-import { apiGet } from '@/lib/api';
-import { ROLE_LABEL, type Role } from '@/lib/auth';
+import { ArrowLeft, Users as UsersIcon, ShieldCheck, Loader2, Check } from 'lucide-react';
+import { apiGet, apiPatch } from '@/lib/api';
+import { ROLE_LABEL, getUser, setAuth, type Role, type Access } from '@/lib/auth';
 
 interface UserRow {
   id: string;
   name: string;
   role: Role;
   active: number;
+  permissions: Record<string, Access>;
   created_at: number;
   last_login_at: number | null;
 }
 
-// Module rows — must match the sidebar. Order matters.
 const MODULES: { key: string; label: string }[] = [
   { key: '/',             label: 'Home' },
   { key: '/partners',     label: 'Partners' },
@@ -33,30 +33,13 @@ const MODULES: { key: string; label: string }[] = [
   { key: '/settings',     label: 'Settings' },
 ];
 
-// Access level shown in each cell of the matrix.
-type Access = 'full' | 'rw' | 'read' | 'none';
-
-// Per-role per-module access — same logic that drives the sidebar +
-// future server-side enforcement. Keep in sync with api/src/lib/auth.ts.
-const ACCESS: Record<Role, Record<string, Access>> = {
-  admin: {
-    '/': 'full', '/partners': 'full', '/operations': 'full', '/planner': 'full',
-    '/products': 'full', '/warehouses': 'full', '/marketplaces': 'full',
-    '/reviews': 'full', '/crm': 'full', '/finance': 'full', '/analytics': 'full',
-    '/settings': 'full',
-  },
-  manager: {
-    '/': 'rw', '/partners': 'rw', '/operations': 'rw', '/planner': 'rw',
-    '/products': 'rw', '/warehouses': 'rw', '/marketplaces': 'read',
-    '/reviews': 'read', '/crm': 'rw', '/finance': 'none', '/analytics': 'read',
-    '/settings': 'none',
-  },
-  support: {
-    '/': 'read', '/partners': 'read', '/operations': 'none', '/planner': 'none',
-    '/products': 'read', '/warehouses': 'read', '/marketplaces': 'rw',
-    '/reviews': 'rw', '/crm': 'none', '/finance': 'none', '/analytics': 'none',
-    '/settings': 'none',
-  },
+// Click cycle for non-admin users: none -> read -> rw -> none
+// 'full' is admin-only, not in the cycle.
+const CYCLE: Record<Access, Access> = {
+  none: 'read',
+  read: 'rw',
+  rw:   'none',
+  full: 'full',
 };
 
 function formatDate(ms: number | null): string {
@@ -68,7 +51,19 @@ function formatDate(ms: number | null): string {
   });
 }
 
-function AccessPill({ level }: { level: Access }) {
+function AccessPill({
+  level,
+  clickable = false,
+  onClick,
+  busy = false,
+  justSaved = false,
+}: {
+  level: Access;
+  clickable?: boolean;
+  onClick?: () => void;
+  busy?: boolean;
+  justSaved?: boolean;
+}) {
   const styles: Record<Access, { bg: string; fg: string; label: string }> = {
     full: { bg: '#EAF3DE', fg: '#27500A', label: 'full' },
     rw:   { bg: '#E6F1FB', fg: '#0C447C', label: 'read/write' },
@@ -76,21 +71,49 @@ function AccessPill({ level }: { level: Access }) {
     none: { bg: 'transparent', fg: 'var(--fg-muted)', label: '—' },
   };
   const s = styles[level];
+
+  const base = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    fontSize: '13px',
+    fontWeight: 700,
+    padding: level === 'none' ? '4px 10px' : '4px 12px',
+    borderRadius: 'var(--radius-sm)',
+    backgroundColor: s.bg,
+    color: s.fg,
+    letterSpacing: 0,
+    border: level === 'none' ? '1px dashed var(--border-hairline)' : '1px solid transparent',
+    transition: 'transform 80ms ease-out, box-shadow 120ms ease-out',
+    minWidth: '102px',
+    justifyContent: 'center',
+  } as const;
+
+  if (!clickable) {
+    return <span style={{ ...base, opacity: 0.85 }}>{s.label}</span>;
+  }
+
   return (
-    <span
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      title="Click to cycle: none -> read -> read/write -> none"
       style={{
-        display: 'inline-block',
-        fontSize: '13px',
-        fontWeight: 700,
-        padding: level === 'none' ? '3px 6px' : '3px 10px',
-        borderRadius: 'var(--radius-sm)',
-        backgroundColor: s.bg,
-        color: s.fg,
-        letterSpacing: 0,
+        ...base,
+        cursor: busy ? 'progress' : 'pointer',
+        boxShadow: justSaved ? '0 0 0 2px rgba(39,80,10,0.4)' : 'none',
+      }}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-1px)';
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(0)';
       }}
     >
+      {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : justSaved ? <Check className="h-3 w-3" /> : null}
       {s.label}
-    </span>
+    </button>
   );
 }
 
@@ -122,6 +145,9 @@ function RoleBadge({ role }: { role: Role }) {
 export default function UsersSettingsPage() {
   const [users, setUsers] = useState<UserRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busyCells, setBusyCells] = useState<Set<string>>(new Set());
+  const [justSavedCells, setJustSavedCells] = useState<Set<string>>(new Set());
+  const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
     apiGet<{ users: UserRow[] }>('/api/auth/users').then((res) => {
@@ -134,9 +160,66 @@ export default function UsersSettingsPage() {
     });
   }, []);
 
+  async function cycleCell(userId: string, role: Role, moduleKey: string, current: Access) {
+    if (role === 'admin') return;
+    const cellKey = `${userId}:${moduleKey}`;
+    const next = CYCLE[current];
+
+    setUsers((prev) => prev?.map((u) => u.id === userId
+      ? { ...u, permissions: { ...u.permissions, [moduleKey]: next } }
+      : u
+    ) ?? null);
+
+    setBusyCells((s) => new Set(s).add(cellKey));
+
+    const res = await apiPatch<{ id: string; permissions: Record<string, Access> }>(
+      `/api/auth/users/${userId}/permissions`,
+      { module: moduleKey, access: next }
+    );
+
+    setBusyCells((s) => {
+      const n = new Set(s);
+      n.delete(cellKey);
+      return n;
+    });
+
+    if (!res.success || !res.result) {
+      const err = res.errors?.[0];
+      setToast(err?.message ?? 'Failed to update -- reverted');
+      setTimeout(() => setToast(null), 3000);
+      setUsers((prev) => prev?.map((u) => u.id === userId
+        ? { ...u, permissions: { ...u.permissions, [moduleKey]: current } }
+        : u
+      ) ?? null);
+      return;
+    }
+
+    setUsers((prev) => prev?.map((u) => u.id === userId
+      ? { ...u, permissions: res.result!.permissions }
+      : u
+    ) ?? null);
+
+    const me = getUser();
+    if (me && me.id === userId) {
+      const updated = { ...me, permissions: res.result.permissions };
+      const expiresStr = (typeof window !== 'undefined') ? window.localStorage.getItem('dx_auth_expires') : null;
+      const token = (typeof window !== 'undefined') ? window.localStorage.getItem('dx_auth_token') : null;
+      const expires = expiresStr ? parseInt(expiresStr, 10) : Date.now() + 12 * 60 * 60 * 1000;
+      if (token) setAuth(token, updated, expires);
+    }
+
+    setJustSavedCells((s) => new Set(s).add(cellKey));
+    setTimeout(() => {
+      setJustSavedCells((s) => {
+        const n = new Set(s);
+        n.delete(cellKey);
+        return n;
+      });
+    }, 1200);
+  }
+
   return (
     <div className="px-8 py-6 max-w-screen-2xl">
-      {/* Breadcrumb */}
       <div className="mb-4">
         <Link
           href="/settings"
@@ -147,7 +230,6 @@ export default function UsersSettingsPage() {
         </Link>
       </div>
 
-      {/* Header */}
       <div className="flex items-center gap-3 mb-2">
         <UsersIcon className="h-7 w-7" style={{ color: 'var(--fg-1)' }} />
         <h1 style={{
@@ -158,8 +240,9 @@ export default function UsersSettingsPage() {
         </h1>
       </div>
       <p style={{ fontSize: '14px', color: 'var(--fg-2)', marginBottom: '24px', maxWidth: '780px' }}>
-        Each user signs in with a 4-digit PIN. Their role determines which modules they see in the sidebar.
-        Sessions last 12 hours. Roles can be changed by editing the seed (migration 0045) — UI-based role editing is planned.
+        Each user signs in with a 4-digit PIN. Click any cell in the matrix to cycle
+        access: <strong style={{ fontWeight: 700 }}>none -&gt; read -&gt; read/write -&gt; none</strong>.
+        Changes save instantly. Admin users are locked at <strong style={{ fontWeight: 700 }}>full</strong> across all modules.
       </p>
 
       {error && (
@@ -180,12 +263,11 @@ export default function UsersSettingsPage() {
       )}
 
       {!users && !error && (
-        <div style={{ fontSize: '14px', color: 'var(--fg-muted)' }}>Loading…</div>
+        <div style={{ fontSize: '14px', color: 'var(--fg-muted)' }}>Loading...</div>
       )}
 
       {users && users.length > 0 && (
         <>
-          {/* User cards row */}
           <div
             className="grid gap-4 mb-8"
             style={{ gridTemplateColumns: `repeat(${users.length}, minmax(220px, 1fr))`, maxWidth: '1100px' }}
@@ -219,7 +301,6 @@ export default function UsersSettingsPage() {
             ))}
           </div>
 
-          {/* Access matrix */}
           <div
             style={{
               padding: '20px',
@@ -242,7 +323,7 @@ export default function UsersSettingsPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--line-1)' }}>
-                  <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: '13px', color: 'var(--fg-muted)', fontWeight: 700, width: '30%' }}>Module</th>
+                  <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: '13px', color: 'var(--fg-muted)', fontWeight: 700, width: '28%' }}>Module</th>
                   {users.map((u) => (
                     <th key={u.id} style={{ textAlign: 'center', padding: '8px 12px', fontSize: '13px', color: 'var(--fg-muted)', fontWeight: 700 }}>
                       {u.name}
@@ -256,20 +337,29 @@ export default function UsersSettingsPage() {
                     <td style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--fg-1)' }}>
                       {m.label}
                     </td>
-                    {users.map((u) => (
-                      <td key={u.id} style={{ textAlign: 'center', padding: '10px 12px' }}>
-                        <AccessPill level={ACCESS[u.role][m.key] ?? 'none'} />
-                      </td>
-                    ))}
+                    {users.map((u) => {
+                      const cellKey = `${u.id}:${m.key}`;
+                      const level = u.permissions[m.key] ?? 'none';
+                      return (
+                        <td key={u.id} style={{ textAlign: 'center', padding: '10px 12px' }}>
+                          <AccessPill
+                            level={level}
+                            clickable={u.role !== 'admin'}
+                            busy={busyCells.has(cellKey)}
+                            justSaved={justSavedCells.has(cellKey)}
+                            onClick={() => cycleCell(u.id, u.role, m.key, level)}
+                          />
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>
             </table>
 
-            {/* Legend */}
             <div className="flex flex-wrap gap-x-5 gap-y-2 mt-4 pt-4" style={{ borderTop: '1px solid var(--line-1)', fontSize: '13px', color: 'var(--fg-2)' }}>
               <span className="inline-flex items-center gap-2">
-                <AccessPill level="full" /> admin, can manage users
+                <AccessPill level="full" /> admin, locked
               </span>
               <span className="inline-flex items-center gap-2">
                 <AccessPill level="rw" /> can create / edit
@@ -283,12 +373,32 @@ export default function UsersSettingsPage() {
             </div>
 
             <p style={{ fontSize: '13px', color: 'var(--fg-muted)', marginTop: '16px', maxWidth: '720px' }}>
-              <strong style={{ fontWeight: 700 }}>Today:</strong> sidebar items are filtered by role; API requires a valid session
-              but does not yet enforce read-only per module. <strong style={{ fontWeight: 700 }}>Planned:</strong> server-side gating
-              per endpoint + Settings UI to add users, change PINs, and toggle roles.
+              Click cycles <strong style={{ fontWeight: 700 }}>none -&gt; read -&gt; read/write -&gt; none</strong>.
+              Sidebar visibility updates immediately for the affected user;
+              server-side per-endpoint enforcement is planned next.
             </p>
           </div>
         </>
+      )}
+
+      {toast && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: '24px',
+            right: '24px',
+            padding: '14px 20px',
+            backgroundColor: '#791F1F',
+            color: 'var(--paper)',
+            borderRadius: 'var(--radius-md)',
+            fontSize: '14px',
+            fontWeight: 700,
+            boxShadow: '0 12px 32px rgba(0,0,0,0.25)',
+            zIndex: 50,
+          }}
+        >
+          {toast}
+        </div>
       )}
     </div>
   );

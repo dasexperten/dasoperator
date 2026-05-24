@@ -546,27 +546,35 @@ async function buildOzonRealization(env: Env, task: any): Promise<{ taskId: stri
   const opDate = Math.floor(new Date(task.period_to + 'T23:59:59Z').getTime() / 1000);
   const now_ts = Math.floor(Date.now() / 1000);
 
-  // Upsert: if exists, replace clean (matches WB build behaviour)
+  // Upsert: if exists, refresh in place (cannot DELETE operations row when
+  // bank-matched payments reference it via FK ON DELETE RESTRICT).
   const existing = await env.DB.prepare('SELECT id FROM operations WHERE id=?').bind(opId).first();
   if (existing) {
     await env.DB.prepare('DELETE FROM marketplace_pnl_lines WHERE operation_id=?').bind(opId).run();
     await env.DB.prepare('DELETE FROM line_items WHERE operation_id=?').bind(opId).run();
-    await env.DB.prepare('DELETE FROM operations WHERE id=?').bind(opId).run();
+    await env.DB.prepare(
+      `UPDATE operations
+         SET operation_date = ?, total_amount = ?, notes = ?, updated_at = ?
+       WHERE id = ?`
+    ).bind(
+      opDate, opTotal,
+      `Ozon monthly realization PnL — ${task.period_from} → ${task.period_to}. NET payout per SKU from /v2/finance/realization. Auto-pull via task ${task.id}.`,
+      now_ts, opId
+    ).run();
+  } else {
+    await env.DB.prepare(
+      `INSERT INTO operations (
+         id, operation_date, operation_type, partner_id, our_company_id,
+         warehouse_from_id, warehouse_to_id, status, currency,
+         total_amount, contract_id, notes,
+         created_at, updated_at, reference, vat_rate, delivery_status, operation_track, default_document_language
+       ) VALUES (?, ?, 'sale', 'ozon', 'dee', 'ozon', NULL, 'delivered', 'RUB', ?, NULL, ?, ?, ?, ?, 0, 'delivered', 'goods', 'RU')`
+    ).bind(
+      opId, opDate, opTotal,
+      `Ozon monthly realization PnL — ${task.period_from} → ${task.period_to}. NET payout per SKU from /v2/finance/realization. Auto-pull via task ${task.id}.`,
+      now_ts, now_ts, reference
+    ).run();
   }
-
-  // Insert operation
-  await env.DB.prepare(
-    `INSERT INTO operations (
-       id, operation_date, operation_type, partner_id, our_company_id,
-       warehouse_from_id, warehouse_to_id, status, currency,
-       total_amount, contract_id, notes,
-       created_at, updated_at, reference, vat_rate, delivery_status, operation_track, default_document_language
-     ) VALUES (?, ?, 'sale', 'ozon', 'dee', 'ozon', NULL, 'delivered', 'RUB', ?, NULL, ?, ?, ?, ?, 0, 'delivered', 'goods', 'RU')`
-  ).bind(
-    opId, opDate, opTotal,
-    `Ozon monthly realization PnL — ${task.period_from} → ${task.period_to}. NET payout per SKU from /v2/finance/realization. Auto-pull via task ${task.id}.`,
-    now_ts, now_ts, reference
-  ).run();
 
   // line_items + marketplace_pnl_lines in batches (CPU safety)
   const liStmts: any[] = [];
@@ -608,6 +616,9 @@ async function buildOzonRealization(env: Env, task: any): Promise<{ taskId: stri
   await env.DB.prepare(
     `UPDATE marketplace_pull_tasks SET status='done', operation_id=?, completed_at=? WHERE id=?`
   ).bind(opId, now_ts, task.id).run();
+
+  // Free staging — data is fully aggregated into operations/line_items/marketplace_pnl_lines.
+  await env.DB.prepare('DELETE FROM ozon_realization_staging WHERE task_id=?').bind(task.id).run();
 
   console.log(`[mp-pull:build-ozon] ${reference} created with ${lines.length} SKU, total=${opTotal} RUB`);
   return { taskId: task.id, action: 'built', rows: lines.length };
@@ -702,26 +713,35 @@ async function buildWbFromStaging(env: Env, task: any): Promise<{ taskId: string
   const opDate = Math.floor(new Date(task.period_to + 'T23:59:59Z').getTime() / 1000);
   const now_ts = Math.floor(Date.now() / 1000);
 
-  // Check if operation already exists — replace if so
+  // Upsert: if exists, refresh in place (cannot DELETE operations row when
+  // bank-matched payments reference it via FK ON DELETE RESTRICT).
   const existing = await env.DB.prepare('SELECT id FROM operations WHERE id=?').bind(opId).first();
   if (existing) {
     await env.DB.prepare('DELETE FROM marketplace_pnl_lines WHERE operation_id=?').bind(opId).run();
     await env.DB.prepare('DELETE FROM line_items WHERE operation_id=?').bind(opId).run();
-    await env.DB.prepare('DELETE FROM operations WHERE id=?').bind(opId).run();
+    await env.DB.prepare(
+      `UPDATE operations
+         SET operation_date = ?, total_amount = ?, notes = ?, updated_at = ?
+       WHERE id = ?`
+    ).bind(
+      opDate, opTotal,
+      `WB weekly realization PnL — ${task.period_from} → ${task.period_to}. Auto-pull via task ${task.id}.`,
+      now_ts, opId
+    ).run();
+  } else {
+    await env.DB.prepare(
+      `INSERT INTO operations (
+         id, operation_date, operation_type, partner_id, our_company_id,
+         warehouse_from_id, warehouse_to_id, status, currency,
+         total_amount, contract_id, notes,
+         created_at, updated_at, reference, vat_rate, delivery_status, operation_track, default_document_language
+       ) VALUES (?, ?, 'sale', 'wb', 'dee', 'wb', NULL, 'delivered', 'RUB', ?, 'placeholder_wb_rub', ?, ?, ?, ?, 0, 'delivered', 'goods', 'RU')`
+    ).bind(
+      opId, opDate, opTotal,
+      `WB weekly realization PnL — ${task.period_from} → ${task.period_to}. Auto-pull via task ${task.id}.`,
+      now_ts, now_ts, reference
+    ).run();
   }
-
-  await env.DB.prepare(
-    `INSERT INTO operations (
-       id, operation_date, operation_type, partner_id, our_company_id,
-       warehouse_from_id, warehouse_to_id, status, currency,
-       total_amount, contract_id, notes,
-       created_at, updated_at, reference, vat_rate, delivery_status, operation_track, default_document_language
-     ) VALUES (?, ?, 'sale', 'wb', 'dee', 'wb', NULL, 'delivered', 'RUB', ?, 'placeholder_wb_rub', ?, ?, ?, ?, 0, 'delivered', 'goods', 'RU')`
-  ).bind(
-    opId, opDate, opTotal,
-    `WB weekly realization PnL — ${task.period_from} → ${task.period_to}. Auto-pull via task ${task.id}.`,
-    now_ts, now_ts, reference
-  ).run();
 
   // line_items + marketplace_pnl_lines
   const liStmts: any[] = [];
@@ -759,6 +779,9 @@ async function buildWbFromStaging(env: Env, task: any): Promise<{ taskId: string
   await env.DB.prepare(
     `UPDATE marketplace_pull_tasks SET status='done', operation_id=?, completed_at=? WHERE id=?`
   ).bind(opId, now_ts, task.id).run();
+
+  // Free staging — data is fully aggregated into operations/line_items/marketplace_pnl_lines.
+  await env.DB.prepare('DELETE FROM wb_realization_staging WHERE task_id=?').bind(task.id).run();
 
   console.log(`[mp-pull:build-wb] ${reference} created with ${lines.length} SKU, total=${opTotal} RUB`);
   return { taskId: task.id, action: 'built', rows: lines.length };
@@ -867,26 +890,35 @@ async function buildOzonFromStaging(env: Env, task: any): Promise<{ taskId: stri
   const opDate = Math.floor(new Date(task.period_to + 'T23:59:59Z').getTime() / 1000);
   const now_ts = Math.floor(Date.now() / 1000);
 
-  // Replace if exists
+  // Upsert: if exists, refresh in place (cannot DELETE operations row when
+  // bank-matched payments reference it via FK ON DELETE RESTRICT).
   const existing = await env.DB.prepare('SELECT id FROM operations WHERE id=?').bind(opId).first();
   if (existing) {
     await env.DB.prepare('DELETE FROM marketplace_pnl_lines WHERE operation_id=?').bind(opId).run();
     await env.DB.prepare('DELETE FROM line_items WHERE operation_id=?').bind(opId).run();
-    await env.DB.prepare('DELETE FROM operations WHERE id=?').bind(opId).run();
+    await env.DB.prepare(
+      `UPDATE operations
+         SET operation_date = ?, total_amount = ?, notes = ?, updated_at = ?
+       WHERE id = ?`
+    ).bind(
+      opDate, opTotal,
+      `Ozon monthly realization PnL — ${task.period_from} to ${task.period_to}. NET per-SKU income after Ozon commission, logistics, storage, advertising. Auto-pull task ${task.id}.`,
+      now_ts, opId
+    ).run();
+  } else {
+    await env.DB.prepare(
+      `INSERT INTO operations (
+         id, operation_date, operation_type, partner_id, our_company_id,
+         warehouse_from_id, warehouse_to_id, status, currency,
+         total_amount, contract_id, notes,
+         created_at, updated_at, reference, vat_rate, delivery_status, operation_track, default_document_language
+       ) VALUES (?, ?, 'sale', 'ozon', 'dee', 'ozon', NULL, 'delivered', 'RUB', ?, 'placeholder_ozon_rub', ?, ?, ?, ?, 0, 'delivered', 'goods', 'RU')`
+    ).bind(
+      opId, opDate, opTotal,
+      `Ozon monthly realization PnL — ${task.period_from} to ${task.period_to}. NET per-SKU income after Ozon commission, logistics, storage, advertising. Auto-pull task ${task.id}.`,
+      now_ts, now_ts, reference
+    ).run();
   }
-
-  await env.DB.prepare(
-    `INSERT INTO operations (
-       id, operation_date, operation_type, partner_id, our_company_id,
-       warehouse_from_id, warehouse_to_id, status, currency,
-       total_amount, contract_id, notes,
-       created_at, updated_at, reference, vat_rate, delivery_status, operation_track, default_document_language
-     ) VALUES (?, ?, 'sale', 'ozon', 'dee', 'ozon', NULL, 'delivered', 'RUB', ?, 'placeholder_ozon_rub', ?, ?, ?, ?, 0, 'delivered', 'goods', 'RU')`
-  ).bind(
-    opId, opDate, opTotal,
-    `Ozon monthly realization PnL — ${task.period_from} to ${task.period_to}. NET per-SKU income after Ozon commission, logistics, storage, advertising. Auto-pull task ${task.id}.`,
-    now_ts, now_ts, reference
-  ).run();
 
   // Batched insert — Cloudflare Workers limit prepared-stmt batch to ~50 ops
   const liStmts: any[] = [];
@@ -922,6 +954,9 @@ async function buildOzonFromStaging(env: Env, task: any): Promise<{ taskId: stri
   await env.DB.prepare(
     `UPDATE marketplace_pull_tasks SET status='done', operation_id=?, completed_at=? WHERE id=?`
   ).bind(opId, now_ts, task.id).run();
+
+  // Free staging — data is fully aggregated into operations/line_items/marketplace_pnl_lines.
+  await env.DB.prepare('DELETE FROM ozon_transaction_staging WHERE task_id=?').bind(task.id).run();
 
   console.log(`[mp-pull:build-ozon] ${reference} created with ${lines.length} SKU, total=${opTotal} RUB`);
   return { taskId: task.id, action: 'built', rows: lines.length };

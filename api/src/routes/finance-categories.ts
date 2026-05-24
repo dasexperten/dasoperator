@@ -33,20 +33,34 @@ financeCategories.get('/', async (c) => {
     const sql = includeDeleted
       ? `SELECT * FROM finance_categories ORDER BY sort_order ASC, label ASC`
       : `SELECT * FROM finance_categories WHERE deleted_at IS NULL ORDER BY sort_order ASC, label ASC`;
-    const rows = await c.env.DB.prepare(sql).all();
 
-    // Add rule_count and tx_count for each category (helpful for UI)
-    const cats = (rows.results ?? []) as Array<{ id: string; [key: string]: any }>;
+    // Fetch all 3 datasets in parallel (instead of N+1 loop with 2 queries per category).
+    // For 18 categories this drops 37 sequential queries → 3 parallel queries.
+    const [catsResp, rulesResp, txResp] = await Promise.all([
+      c.env.DB.prepare(sql).all(),
+      c.env.DB.prepare(
+        `SELECT category_id, COUNT(*) AS n
+           FROM bank_match_rules
+          WHERE deleted_at IS NULL AND category_id IS NOT NULL
+          GROUP BY category_id`
+      ).all<{ category_id: string; n: number }>(),
+      c.env.DB.prepare(
+        `SELECT suggested_category_id AS category_id, COUNT(*) AS n
+           FROM bank_transactions
+          WHERE deleted_at IS NULL AND suggested_category_id IS NOT NULL
+          GROUP BY suggested_category_id`
+      ).all<{ category_id: string; n: number }>(),
+    ]);
+
+    const ruleMap = new Map<string, number>();
+    for (const r of rulesResp.results ?? []) ruleMap.set(r.category_id, r.n);
+    const txMap = new Map<string, number>();
+    for (const r of txResp.results ?? []) txMap.set(r.category_id, r.n);
+
+    const cats = (catsResp.results ?? []) as Array<{ id: string; [key: string]: any }>;
     for (const cat of cats) {
-      const ruleCount = await c.env.DB.prepare(
-        `SELECT COUNT(*) AS n FROM bank_match_rules WHERE category_id = ? AND deleted_at IS NULL`
-      ).bind(cat.id).first<{ n: number }>();
-      cat.rule_count = ruleCount?.n ?? 0;
-
-      const txCount = await c.env.DB.prepare(
-        `SELECT COUNT(*) AS n FROM bank_transactions WHERE suggested_category_id = ? AND deleted_at IS NULL`
-      ).bind(cat.id).first<{ n: number }>();
-      cat.tx_count = txCount?.n ?? 0;
+      cat.rule_count = ruleMap.get(cat.id) ?? 0;
+      cat.tx_count = txMap.get(cat.id) ?? 0;
     }
 
     return ok(c, { categories: cats });

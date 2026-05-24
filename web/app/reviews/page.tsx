@@ -27,6 +27,8 @@ interface ReviewDraft {
   approved_by: string | null;
   posted_to_wb_at: string | null;
   rejection_reason: string | null;
+  short_error: 'wb_rate_limit' | 'wb_error' | null;
+  next_attempt_at: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -43,6 +45,16 @@ function ratingColor(r: number) {
   return '#A32D2D';
 }
 function stars(r: number) { return '★'.repeat(r) + '☆'.repeat(5 - r); }
+function formatRetryIn(epochSec: number): string {
+  const diffSec = epochSec - Math.floor(Date.now() / 1000);
+  if (diffSec <= 0) return 'скоро';
+  if (diffSec < 60) return `${diffSec} сек`;
+  const m = Math.floor(diffSec / 60);
+  if (m < 60) return `${m} мин`;
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return mm > 0 ? `${h} ч ${mm} мин` : `${h} ч`;
+}
 function relativeDate(iso: string | null | undefined) {
   if (!iso) return '';
   const dt = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z');
@@ -562,14 +574,26 @@ function ReviewCard({ draft, onChange }: { draft: ReviewDraft; onChange: () => v
         }}>{localError}</div>
       )}
 
-      {/* Failed reason */}
-      {isFailed && draft.rejection_reason && (
+      {/* Failed reason — friendly message, hide raw WB body */}
+      {isFailed && (draft.short_error || draft.rejection_reason) && (
         <div style={{
-          padding: '6px 12px', background: 'rgba(229,32,44,0.08)',
+          padding: '8px 12px', background: 'rgba(229,32,44,0.08)',
           color: '#A32D2D', border: '1px solid rgba(229,32,44,0.3)',
-          borderRadius: 'var(--radius-sm)', fontSize: 13, marginBottom: 8, fontWeight: 700,
+          borderRadius: 'var(--radius-sm)', fontSize: 14, marginBottom: 8, fontWeight: 700,
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
         }}>
-          {draft.rejection_reason}
+          {draft.short_error === 'wb_rate_limit' ? (
+            <>
+              <span>Wildberries временно ограничивает отправку</span>
+              {draft.next_attempt_at && (
+                <span style={{ fontWeight: 400, color: 'var(--fg-3)' }}>
+                  · повтор через {formatRetryIn(draft.next_attempt_at)}
+                </span>
+              )}
+            </>
+          ) : (
+            <span>Не удалось отправить — будет повторная попытка</span>
+          )}
         </div>
       )}
 

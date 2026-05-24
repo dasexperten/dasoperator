@@ -474,6 +474,18 @@ export async function handleScheduled(
     } catch (e) {
       console.error('[cron:auto-delivery] failed:', e);
     }
+    // Retry WB review replies that previously hit rate limit and whose
+    // next_attempt_at has now elapsed. Idempotent — calls own endpoint.
+    try {
+      const r = await env.SELF.fetch(new Request(
+        'https://internal/api/reviews/sweep-retries',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' } }
+      ));
+      const out = await r.json() as { ok?: boolean; reset?: number; sent?: number; failed?: number };
+      console.log(`[cron:reviews-sweep] reset=${out.reset ?? 0} sent=${out.sent ?? 0} failed=${out.failed ?? 0}`);
+    } catch (e) {
+      console.error('[cron:reviews-sweep] failed:', e);
+    }
     return;
   }
 

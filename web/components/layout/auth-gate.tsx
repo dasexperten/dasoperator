@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { getToken, getUser, type AuthUser } from '@/lib/auth';
+import { getToken, getUser, refreshMe, setAuth, type AuthUser } from '@/lib/auth';
 
 /**
  * AuthGate — wraps the app, ensures user is authenticated before rendering
@@ -11,6 +11,8 @@ import { getToken, getUser, type AuthUser } from '@/lib/auth';
  * Behaviour:
  *  - On /login → render children directly (no gate)
  *  - Elsewhere → if no token, push to /login. Else render children.
+ *  - On mount also calls /api/auth/me silently to keep permissions fresh
+ *    after server-side changes (self-heals stale localStorage).
  *  - Listens to 'dx-auth-change' so logout in another tab kicks user out.
  */
 export default function AuthGate({ children }: { children: React.ReactNode }) {
@@ -19,7 +21,6 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
 
-  // On mount + on storage events: check token, gate or pass.
   useEffect(() => {
     function check() {
       const token = getToken();
@@ -38,18 +39,31 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     }
     check();
     window.addEventListener('dx-auth-change', check);
-    window.addEventListener('storage', check); // cross-tab
+    window.addEventListener('storage', check);
     return () => {
       window.removeEventListener('dx-auth-change', check);
       window.removeEventListener('storage', check);
     };
   }, [pathname, router]);
 
-  // On /login page: render straight away.
+  // Background self-heal: pull a fresh user from the server on each mount,
+  // merge new permissions into localStorage. Quietly noops if logged out.
+  useEffect(() => {
+    if (pathname === '/login') return;
+    const token = getToken();
+    if (!token) return;
+    let cancelled = false;
+    refreshMe().then((fresh) => {
+      if (cancelled || !fresh) return;
+      const expiresStr = window.localStorage.getItem('dx_auth_expires');
+      const expires = expiresStr ? parseInt(expiresStr, 10) : Date.now() + 12 * 60 * 60 * 1000;
+      setAuth(token, fresh, expires);
+    });
+    return () => { cancelled = true; };
+  }, [pathname]);
+
   if (pathname === '/login') return <>{children}</>;
 
-  // Before the first effect runs we don't know auth state — render nothing
-  // (prevents flashing protected UI to unauthenticated users).
   if (!ready) {
     return (
       <div
@@ -68,9 +82,6 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Authenticated — render the shell + page.
-  // We attach user to a data attribute on document.body so non-React code
-  // (or stray components without context wiring) can read it via DOM.
   if (typeof document !== 'undefined' && user) {
     document.body.dataset.role = user.role;
     document.body.dataset.username = user.name;

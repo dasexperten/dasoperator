@@ -108,7 +108,10 @@ export const ALL_MODULES = [
 ] as const;
 
 // Whether the user has any access at all to a route — drives sidebar visibility.
+// Admins always pass (safety net so a corrupted/empty permissions object can
+// never lock out the admin who must un-lock themselves).
 export function hasModuleAccess(user: AuthUser, route: string): boolean {
+  if (user.role === 'admin') return true;
   const perms = user.permissions ?? {};
   if (route === '/') return (perms['/'] ?? 'none') !== 'none';
   for (const m of ALL_MODULES) {

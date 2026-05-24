@@ -204,8 +204,9 @@ export const ALL_MODULES = [
 export type ModuleKey = typeof ALL_MODULES[number];
 
 // Whether the user has any access at all to a route — used for sidebar
-// visibility and any future server-side gating.
+// visibility and any future server-side gating. Admins always pass.
 export function hasModuleAccess(user: AuthUser, route: string): boolean {
+  if (user.role === 'admin') return true;
   const perms = user.permissions ?? {};
   // Exact-match for home
   if (route === '/') return (perms['/'] ?? 'none') !== 'none';

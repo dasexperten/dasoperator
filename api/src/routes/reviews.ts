@@ -12,6 +12,7 @@ import {
   fetchUnansweredList,
   postAnswer,
   draftReply,
+  WbRateLimitError,
 } from '../lib/wb-reviews';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -141,7 +142,7 @@ app.get('/drafts', async (c) => {
   const result = await c.env.DB.prepare(`
     SELECT id, channel, external_id, rating, customer_name, product_name, product_sku,
            review_text, pros, cons, draft_text, status, approved_by, posted_to_wb_at,
-           rejection_reason, created_at, updated_at
+           rejection_reason, short_error, next_attempt_at, created_at, updated_at
     FROM review_drafts
     WHERE channel = ? AND status IN (${placeholders})${extraWhere}
     ORDER BY created_at DESC
@@ -449,31 +450,176 @@ app.post('/reply-all', async (c) => {
       await postAnswer(c.env, d.external_id, d.draft_text);
       await c.env.DB.prepare(`
         UPDATE review_drafts
-        SET status = 'auto_sent', posted_to_wb_at = datetime('now'), updated_at = datetime('now')
+        SET status = 'auto_sent',
+            posted_to_wb_at = datetime('now'),
+            updated_at = datetime('now'),
+            short_error = NULL,
+            next_attempt_at = NULL
         WHERE id = ?
       `).bind(d.id).run();
       sent++;
     } catch (e: any) {
       const msg = String(e?.message ?? e);
       failed++;
+      // Rate-limit is a soft failure — store retry timestamp so cron can pick it up.
+      if (e instanceof WbRateLimitError || msg.includes('429') || msg.toLowerCase().includes('rate limit')) {
+        const retryAfterSec = e instanceof WbRateLimitError ? e.retryAfterSec : 3600;
+        const nextAttempt = Math.floor(Date.now() / 1000) + retryAfterSec;
+        errors.push({ id: d.id, error: `rate_limit: retry in ${retryAfterSec}s` });
+        try {
+          await c.env.DB.prepare(`
+            UPDATE review_drafts
+            SET status = 'failed',
+                short_error = ?,
+                rejection_reason = ?,
+                next_attempt_at = ?,
+                updated_at = datetime('now')
+            WHERE id = ?
+          `).bind(
+            'wb_rate_limit',
+            msg.slice(0, 500),
+            nextAttempt,
+            d.id,
+          ).run();
+        } catch {}
+        // Stop the batch — WB asked us to wait. Cron will retry.
+        break;
+      }
+      // Hard failure (not rate-limit) — terminal, no auto-retry.
       errors.push({ id: d.id, error: msg.slice(0, 200) });
       try {
         await c.env.DB.prepare(`
           UPDATE review_drafts
-          SET status = 'failed', rejection_reason = ?, updated_at = datetime('now')
+          SET status = 'failed',
+              short_error = ?,
+              rejection_reason = ?,
+              next_attempt_at = NULL,
+              updated_at = datetime('now')
           WHERE id = ?
-        `).bind(`reply-all: ${msg.slice(0, 200)}`, d.id).run();
+        `).bind(
+          'wb_error',
+          `reply-all: ${msg.slice(0, 500)}`,
+          d.id,
+        ).run();
       } catch {}
-      // Stop the batch if WB hits us with 429 — don't burn the rest
-      if (msg.includes('429') || msg.toLowerCase().includes('rate limit')) {
-        break;
-      }
     }
     // Pause between WB calls
     await new Promise((r) => setTimeout(r, pauseMs));
   }
 
   return c.json({ ok: true, total: drafts.length, sent, failed, errors });
+});
+
+
+// -----------------------------------------------------------------------------
+// POST /api/reviews/sweep-retries
+// Cron-friendly. Two-step:
+//   1. Find review_drafts in status='failed' whose next_attempt_at <= now and
+//      short_error='wb_rate_limit' → reset them to 'pending'.
+//   2. If anything was reset (or pending already exists), kick off reply-all
+//      to drain whatever's ready. WB rate-limit will stop the batch again
+//      mid-way — that's fine, next cron tick picks up where this one left off.
+//
+// Triggered by cron `0 * * * *` (hourly). Safe to call manually.
+// -----------------------------------------------------------------------------
+app.post('/sweep-retries', async (c) => {
+  const now_ts = Math.floor(Date.now() / 1000);
+
+  // Step 1: reset expired rate-limited failures back to pending
+  const resetResult = await c.env.DB.prepare(`
+    UPDATE review_drafts
+    SET status = 'pending',
+        next_attempt_at = NULL,
+        short_error = NULL,
+        rejection_reason = NULL,
+        updated_at = datetime('now')
+    WHERE channel = 'wb'
+      AND status = 'failed'
+      AND short_error = 'wb_rate_limit'
+      AND next_attempt_at IS NOT NULL
+      AND next_attempt_at <= ?
+  `).bind(now_ts).run();
+
+  const reset = resetResult.meta?.changes ?? 0;
+
+  // Step 2: count current pending — if zero, nothing to do
+  const pendingRow = await c.env.DB.prepare(`
+    SELECT COUNT(*) AS n FROM review_drafts
+    WHERE channel = 'wb' AND status = 'pending'
+      AND draft_text IS NOT NULL AND LENGTH(draft_text) > 0
+  `).first<{ n: number }>();
+  const pendingCount = pendingRow?.n ?? 0;
+
+  if (pendingCount === 0) {
+    return c.json({ ok: true, reset, pending: 0, sent: 0, failed: 0, note: 'nothing to retry' });
+  }
+
+  // Step 3: drain up to 50 in this tick. The reply-all loop already handles
+  // 429 by breaking + writing next_attempt_at, so we just call its inner logic.
+  const drafts = await c.env.DB.prepare(`
+    SELECT id, external_id, draft_text, rating
+    FROM review_drafts
+    WHERE channel = 'wb' AND status = 'pending'
+      AND draft_text IS NOT NULL AND LENGTH(draft_text) > 0
+    ORDER BY created_at ASC
+    LIMIT 50
+  `).all<{ id: string; external_id: string; draft_text: string; rating: number }>();
+
+  let sent = 0;
+  let failed = 0;
+  const errors: Array<{ id: string; error: string }> = [];
+  const pauseMs = 1200;
+
+  for (const d of drafts.results ?? []) {
+    try {
+      await postAnswer(c.env, d.external_id, d.draft_text);
+      await c.env.DB.prepare(`
+        UPDATE review_drafts
+        SET status = 'auto_sent',
+            posted_to_wb_at = datetime('now'),
+            updated_at = datetime('now'),
+            short_error = NULL,
+            next_attempt_at = NULL
+        WHERE id = ?
+      `).bind(d.id).run();
+      sent++;
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      failed++;
+      if (e instanceof WbRateLimitError || msg.includes('429') || msg.toLowerCase().includes('rate limit')) {
+        const retryAfterSec = e instanceof WbRateLimitError ? e.retryAfterSec : 3600;
+        const nextAttempt = Math.floor(Date.now() / 1000) + retryAfterSec;
+        errors.push({ id: d.id, error: `rate_limit: retry in ${retryAfterSec}s` });
+        try {
+          await c.env.DB.prepare(`
+            UPDATE review_drafts
+            SET status = 'failed',
+                short_error = ?,
+                rejection_reason = ?,
+                next_attempt_at = ?,
+                updated_at = datetime('now')
+            WHERE id = ?
+          `).bind('wb_rate_limit', msg.slice(0, 500), nextAttempt, d.id).run();
+        } catch {}
+        break;
+      }
+      errors.push({ id: d.id, error: msg.slice(0, 200) });
+      try {
+        await c.env.DB.prepare(`
+          UPDATE review_drafts
+          SET status = 'failed',
+              short_error = ?,
+              rejection_reason = ?,
+              next_attempt_at = NULL,
+              updated_at = datetime('now')
+          WHERE id = ?
+        `).bind('wb_error', `sweep: ${msg.slice(0, 500)}`, d.id).run();
+      } catch {}
+    }
+    await new Promise((r) => setTimeout(r, pauseMs));
+  }
+
+  return c.json({ ok: true, reset, pending: pendingCount, sent, failed, errors });
 });
 
 

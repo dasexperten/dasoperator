@@ -3,9 +3,15 @@
 export const runtime = 'edge';
 
 import Link from 'next/link';
-import { Tag, FileSliders, Settings as SettingsIcon, ArrowRight } from 'lucide-react';
+import { Tag, FileSliders, Settings as SettingsIcon, ArrowRight, Users } from 'lucide-react';
 
 const SECTIONS = [
+  {
+    href: '/settings/users',
+    title: 'Users & Access',
+    description: '4-digit PIN sign-in, per-role module visibility. Admins manage who sees what.',
+    icon: Users,
+  },
   {
     href: '/settings/finance-categories',
     title: 'Finance Categories',

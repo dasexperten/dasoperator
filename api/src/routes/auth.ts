@@ -111,4 +111,29 @@ auth.post('/logout', async (c) => {
   return ok(c, { ok: true });
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/auth/users — list of users (admin only)
+// ---------------------------------------------------------------------------
+auth.get('/users', async (c) => {
+  const token = bearer(c);
+  if (!token) {
+    return fail(c, 401, [{ code: 'no_token', message: 'missing bearer token' }]);
+  }
+  const user = await validateSession(c.env.DB, token);
+  if (!user) {
+    return fail(c, 401, [{ code: 'invalid_session', message: 'session not found or expired' }]);
+  }
+  if (user.role !== 'admin') {
+    return fail(c, 403, [{ code: 'forbidden', message: 'admin role required' }]);
+  }
+
+  const rows = await c.env.DB
+    .prepare(`SELECT id, name, role, active, created_at, last_login_at FROM users ORDER BY
+              CASE role WHEN 'admin' THEN 1 WHEN 'manager' THEN 2 WHEN 'support' THEN 3 ELSE 4 END,
+              name`)
+    .all<{ id: string; name: string; role: string; active: number; created_at: number; last_login_at: number | null }>();
+
+  return ok(c, { users: rows.results ?? [] });
+});
+
 export default auth;

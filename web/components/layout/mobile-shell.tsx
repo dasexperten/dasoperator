@@ -1,72 +1,70 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { Home, Users, FileText, Package, BarChart3 } from 'lucide-react';
+import { Home, Users, FileText, Package, BarChart3, ShoppingCart, MessageSquare } from 'lucide-react';
 import Sidebar from './sidebar';
 import Header from './header';
+import AuthGate from './auth-gate';
+import { getUser, canAccessRoute, type Role } from '@/lib/auth';
 
 /**
  * MobileShell — top-level layout orchestrator.
  *
- * Renders:
- *  - Sidebar (in-flow on md+, off-canvas drawer on mobile)
- *  - Header (with hamburger on mobile)
- *  - main content
- *  - Bottom navigation bar (mobile only, 5 most-used routes)
+ * Wraps everything in AuthGate. On /login, renders only the children
+ * (no sidebar/header) so the login screen is full-bleed.
  *
- * Manages the open/close state of the mobile drawer and the backdrop
- * that dims content when the drawer is open.
- *
- * Auto-closes the drawer on route change so navigation feels natural
- * (tap a link → drawer slides away → you're on the new page).
+ * Sidebar + Header + BottomNav are filtered by role.
  */
 export default function MobileShell({ children }: { children: React.ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const pathname = usePathname();
 
-  // Close drawer whenever route changes
   useEffect(() => {
     setDrawerOpen(false);
   }, [pathname]);
 
-  // Prevent body scroll while drawer is open (mobile UX)
   useEffect(() => {
     if (drawerOpen) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
     }
-    return () => {
-      document.body.style.overflow = '';
-    };
+    return () => { document.body.style.overflow = ''; };
   }, [drawerOpen]);
 
+  // /login renders standalone (no shell)
+  if (pathname === '/login') {
+    return <AuthGate>{children}</AuthGate>;
+  }
+
   return (
-    <div className="flex h-screen">
-      <Sidebar mobileOpen={drawerOpen} />
-      {drawerOpen && (
-        <div
-          className="dx-sidebar-backdrop"
-          onClick={() => setDrawerOpen(false)}
-          aria-hidden="true"
-        />
-      )}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <Header onHamburgerClick={() => setDrawerOpen(true)} />
-        <main className="flex-1 overflow-auto">
-          <div className="px-8 py-8">{children}</div>
-        </main>
+    <AuthGate>
+      <div className="flex h-screen">
+        <Sidebar mobileOpen={drawerOpen} />
+        {drawerOpen && (
+          <div
+            className="dx-sidebar-backdrop"
+            onClick={() => setDrawerOpen(false)}
+            aria-hidden="true"
+          />
+        )}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <Header onHamburgerClick={() => setDrawerOpen(true)} />
+          <main className="flex-1 overflow-auto">
+            <div className="px-8 py-8">{children}</div>
+          </main>
+        </div>
+        <BottomNav pathname={pathname} />
       </div>
-      <BottomNav pathname={pathname} />
-    </div>
+    </AuthGate>
   );
 }
 
 // ----------------------------------------------------------------------------
-// BottomNav — 5 most important routes for phone-on-the-go work.
-// Renders fixed at the bottom of the viewport, only visible on mobile (<768px).
+// BottomNav — up to 5 most important routes for phone-on-the-go work.
+// Filtered by user role.
 // ----------------------------------------------------------------------------
 
 interface BottomNavItem {
@@ -75,23 +73,46 @@ interface BottomNavItem {
   href: string;
 }
 
-const BOTTOM_NAV_ITEMS: BottomNavItem[] = [
-  { name: 'Home',       icon: Home,       href: '/' },
-  { name: 'Partners',   icon: Users,      href: '/partners' },
-  { name: 'Ops',        icon: FileText,   href: '/operations' },
-  { name: 'Products',   icon: Package,    href: '/products' },
-  { name: 'Analytics',  icon: BarChart3,  href: '/analytics' },
+// Candidate items, ordered by priority. We pick the first 5 the role can see.
+const BOTTOM_NAV_CANDIDATES: BottomNavItem[] = [
+  { name: 'Home',         icon: Home,          href: '/' },
+  { name: 'Partners',     icon: Users,         href: '/partners' },
+  { name: 'Ops',          icon: FileText,      href: '/operations' },
+  { name: 'Products',     icon: Package,       href: '/products' },
+  { name: 'Reviews',      icon: MessageSquare, href: '/reviews' },
+  { name: 'Markets',      icon: ShoppingCart,  href: '/marketplaces' },
+  { name: 'Analytics',    icon: BarChart3,     href: '/analytics' },
 ];
 
 function BottomNav({ pathname }: { pathname: string }) {
+  // Re-evaluate items when user changes (login/logout in another tab).
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    function bump() { setTick((t) => t + 1); }
+    window.addEventListener('dx-auth-change', bump);
+    return () => window.removeEventListener('dx-auth-change', bump);
+  }, []);
+
+  const items = useMemo(() => {
+    const u = getUser();
+    if (!u) return [];
+    const role = u.role as Role;
+    return BOTTOM_NAV_CANDIDATES
+      .filter((it) => canAccessRoute(role, it.href))
+      .slice(0, 5);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick, pathname]);
+
   function isActive(href: string): boolean {
     if (href === '/') return pathname === '/';
     return pathname.startsWith(href);
   }
 
+  if (items.length === 0) return null;
+
   return (
     <nav className="dx-bottom-nav" aria-label="Primary mobile navigation">
-      {BOTTOM_NAV_ITEMS.map((item) => {
+      {items.map((item) => {
         const Icon = item.icon;
         const active = isActive(item.href);
         return (

@@ -1,11 +1,14 @@
 'use client';
 
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   Home, Users, FileText, Package, Warehouse, ShoppingCart,
   Headphones, BarChart3, Wallet, Settings, Calculator, MessageSquare,
+  LogOut,
 } from 'lucide-react';
+import { getUser, logout, canAccessRoute, ROLE_LABEL, type Role, type AuthUser } from '@/lib/auth';
 
 interface NavItem {
   name: string;
@@ -29,18 +32,55 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 /**
- * Sidebar — vertical navigation.
- * Flat list, no expandable groups. Finance is a single page covering
- * everything (balances + transactions + filters inline).
+ * Sidebar — vertical navigation, filtered by current user's role.
+ * Items the user cannot access are hidden entirely.
+ * Footer shows user name + role + logout button.
  */
 export default function Sidebar({ mobileOpen = false }: { mobileOpen?: boolean }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [user, setUser] = useState<AuthUser | null>(null);
+
+  // Read user on mount + on auth-change events (login/logout in another tab).
+  useEffect(() => {
+    function read() {
+      setUser(getUser());
+    }
+    read();
+    window.addEventListener('dx-auth-change', read);
+    window.addEventListener('storage', read);
+    return () => {
+      window.removeEventListener('dx-auth-change', read);
+      window.removeEventListener('storage', read);
+    };
+  }, []);
+
+  const visibleItems = useMemo(() => {
+    if (!user) return [];
+    const role = user.role as Role;
+    return NAV_ITEMS.filter((it) => canAccessRoute(role, it.href));
+  }, [user]);
 
   function isActive(href: string): boolean {
     if (href === '/') return pathname === '/';
     if (href === '/finance') return pathname.startsWith('/finance');
     return pathname.startsWith(href);
   }
+
+  async function onLogout() {
+    await logout();
+    router.replace('/login');
+  }
+
+  // Initials for the avatar circle
+  const initials = user
+    ? user.name
+        .split(/\s+/)
+        .map((p) => p[0])
+        .join('')
+        .slice(0, 2)
+        .toUpperCase()
+    : '';
 
   return (
     <aside
@@ -70,7 +110,7 @@ export default function Sidebar({ mobileOpen = false }: { mobileOpen?: boolean }
 
       <nav className="flex-1 overflow-y-auto px-3 py-3">
         <div className="space-y-0.5">
-          {NAV_ITEMS.map((item) => {
+          {visibleItems.map((item) => {
             const Icon = item.icon;
             const active = isActive(item.href);
             return (
@@ -94,17 +134,56 @@ export default function Sidebar({ mobileOpen = false }: { mobileOpen?: boolean }
         </div>
       </nav>
 
-      <div className="px-5 py-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-        <div className="dx-ribbon-rule mb-3" />
-        <div className="flex items-center justify-between">
-          <div style={{ color: 'var(--stone-400)', fontSize: '14px' }}>
-            Das Operator
-          </div>
-          <div style={{ color: 'var(--stone-400)', fontSize: '14px' }}>
-            v1.3
+      {/* User block + logout */}
+      {user && (
+        <div className="px-5 py-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+          <div className="flex items-center gap-3">
+            <div
+              style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '50%',
+                backgroundColor: 'var(--brand-rot)',
+                color: 'var(--paper)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '14px',
+                fontWeight: 700,
+                flexShrink: 0,
+              }}
+            >
+              {initials}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div style={{ color: 'var(--paper)', fontSize: '15px', fontWeight: 700, lineHeight: 1.2 }}>
+                {user.name}
+              </div>
+              <div style={{ color: 'var(--stone-400)', fontSize: '13px', marginTop: '2px' }}>
+                {ROLE_LABEL[user.role as Role] ?? user.role}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onLogout}
+              title="Sign out"
+              aria-label="Sign out"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--stone-300)',
+                cursor: 'pointer',
+                padding: '6px',
+                borderRadius: 'var(--radius-sm)',
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--paper)'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--stone-300)'; }}
+            >
+              <LogOut className="h-5 w-5" />
+            </button>
           </div>
         </div>
-      </div>
+      )}
     </aside>
   );
 }

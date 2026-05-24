@@ -11,11 +11,42 @@ export interface ApiResponse<T = unknown> {
   messages: string[];
 }
 
+// ---------------------------------------------------------------------------
+// Auth header injection — reads token from localStorage on every call so
+// login/logout in a sibling tab is reflected immediately. On 401, clears the
+// stored token and bounces to /login (browser-only; SSR is a no-op).
+// ---------------------------------------------------------------------------
+
+function authHeaders(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const token = window.localStorage.getItem('dx_auth_token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  } catch {
+    return {};
+  }
+}
+
+function handleAuthFailure(status: number): void {
+  if (status !== 401) return;
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem('dx_auth_token');
+    window.localStorage.removeItem('dx_auth_user');
+    window.localStorage.removeItem('dx_auth_expires');
+    // Skip redirect if we're already on the login page
+    if (window.location.pathname !== '/login') {
+      window.location.href = '/login';
+    }
+  } catch { /* ignore */ }
+}
+
 export async function apiGet<T = unknown>(path: string): Promise<ApiResponse<T>> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
   });
+  handleAuthFailure(res.status);
   return res.json();
 }
 
@@ -25,9 +56,10 @@ export async function apiPost<T = unknown>(
 ): Promise<ApiResponse<T>> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   });
+  handleAuthFailure(res.status);
   return res.json();
 }
 
@@ -37,9 +69,10 @@ export async function apiPatch<T = unknown>(
 ): Promise<ApiResponse<T>> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   });
+  handleAuthFailure(res.status);
   return res.json();
 }
 
@@ -49,9 +82,10 @@ export async function apiPut<T = unknown>(
 ): Promise<ApiResponse<T>> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   });
+  handleAuthFailure(res.status);
   return res.json();
 }
 
@@ -60,8 +94,9 @@ export async function apiDelete<T = unknown>(
 ): Promise<ApiResponse<T>> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
   });
+  handleAuthFailure(res.status);
   return res.json();
 }
 

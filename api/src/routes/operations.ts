@@ -947,14 +947,15 @@ operations.get('/:id', async (c) => {
   const paid = Number(paidRow?.paid_amount) || 0;
 
   // Service-track signal: which inbound documents are attached.
-  // operation_attachments.kind values are free-text — the canonical pair we
-  // look for is 'acceptance' (ACP, акт выполненных работ) and 'invoice'
-  // (INV, счёт на оплату). Used by ServiceStatusBar to light up the three
-  // status chips (Service provided / Documents issued / Payment).
+  // operation_attachments.kind values are free-text — invoice variants from
+  // inbox ingestion include 'invoice' (generic), 'service_invoice' (rent/
+  // accounting/hosting), 'freight_invoice' (forwarder bills). All three
+  // count as "invoice attached". Acceptance variants: 'acceptance' (canonical)
+  // and 'act' (used by Telegram inbox ingestion for акт выполненных работ).
   const attachmentCounts = await c.env.DB.prepare(`
     SELECT
-      SUM(CASE WHEN kind = 'acceptance' THEN 1 ELSE 0 END) AS acceptance_n,
-      SUM(CASE WHEN kind = 'invoice'    THEN 1 ELSE 0 END) AS invoice_n
+      SUM(CASE WHEN kind IN ('acceptance','act')                                THEN 1 ELSE 0 END) AS acceptance_n,
+      SUM(CASE WHEN kind IN ('invoice','service_invoice','freight_invoice')      THEN 1 ELSE 0 END) AS invoice_n
     FROM operation_attachments
     WHERE operation_id = ?
       AND deleted_at IS NULL

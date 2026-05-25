@@ -246,7 +246,15 @@ export default function OperationDetailClient({
   const discount = subtotal - totalAfterDiscount;
   const discountPct = subtotal > 0 ? Math.round((discount / subtotal) * 1000) / 10 : 0;
   const vatAmount = Math.round(totalAfterDiscount * operation.vat_rate) / 100;
-  const grandTotal = Math.round((totalAfterDiscount + vatAmount) * 100) / 100;
+  // grandTotal: compute from line_items when present, else fall back to
+  // operation.total_amount. Service/vendor-invoice operations created from
+  // invoice_inbox have no line_items but carry a total_amount from the
+  // extracted invoice header (e.g. accounting subscriptions, rent, hosting).
+  // Without this fallback, header amount renders as 0.00 for those rows.
+  const computedTotal = Math.round((totalAfterDiscount + vatAmount) * 100) / 100;
+  const grandTotal = lineItems.length === 0 && (operation as { total_amount?: number | null }).total_amount
+    ? Number((operation as { total_amount?: number | null }).total_amount)
+    : computedTotal;
   const showVat = operation.vat_rate > 0;
 
   // Payments aggregation — incoming reduces outstanding, outgoing increases it.

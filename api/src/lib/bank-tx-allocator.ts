@@ -107,10 +107,21 @@ export async function allocateAwaitingTxToOperation(
     return { attached_tx_ids: [], attached_count: 0, debug: debug ? { reason: 'no_direction', op_type: op.operation_type } : undefined };
   }
 
-  // Build the WHERE clause dynamically
+  // Build the WHERE clause dynamically.
+  //
+  // match_method whitelist — these are the states a transaction can be in
+  // and still be eligible for forward-allocation when an invoice arrives:
+  //   • awaiting_invoice / awaiting_marketplace_settlement — explicitly parked
+  //   • manual — operator touched it but didn't link an op (orphaned by
+  //     historical migrations; matched_operation_id IS NULL guard prevents
+  //     us from stealing a legitimate manual link)
+  //   • unmatched — pull-sync default before any heuristic fires
+  //   • NULL — older rows from before match_method existed
+  // The matched_operation_id IS NULL guard means we never overwrite an
+  // existing link, so widening this set is safe.
   const whereClauses: string[] = [
     'matched_operation_id IS NULL',
-    "match_method IN ('awaiting_invoice','awaiting_marketplace_settlement')",
+    "(match_method IN ('awaiting_invoice','awaiting_marketplace_settlement','manual','unmatched') OR match_method IS NULL)",
     'currency = ?',
     'direction = ?',
     'executed_at BETWEEN ? AND ?',

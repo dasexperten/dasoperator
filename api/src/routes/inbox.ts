@@ -471,6 +471,47 @@ inbox.post('/:id/confirm', async (c) => {
       `INSERT INTO operations (${fields.join(',')}) VALUES (${placeholders})`
     ).bind(...values).run();
 
+    // Create operation_attachment for the invoice PDF (so chips light up).
+    // Without this row, has_invoice_attachment = false and the Service /
+    // Documents chips stay grey even though the PDF lives in R2.
+    // For partners with partner_acceptance_required=0 (subscription model:
+    // accounting, rent, hosting, banking), this single attachment also
+    // satisfies the Service-provided chip — see service-status-bar.tsx.
+    const R2_PUBLIC_BASE = 'https://pub-0e2fb2d28ea9408bbaa1bdd64b3bf256.r2.dev/';
+    const fileUrl = row.attachment_r2_key ? `${R2_PUBLIC_BASE}${row.attachment_r2_key}` : null;
+    const docDate = row.extracted_invoice_date
+      ? Math.floor(new Date(row.extracted_invoice_date).getTime() / 1000)
+      : null;
+    const attachmentId = `att_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    try {
+      await c.env.DB.prepare(
+        `INSERT INTO operation_attachments (
+           id, operation_id, direction, kind,
+           doc_number, doc_date, amount, currency, issuer,
+           file_url, parsed_from, source_ref_id, notes,
+           created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        attachmentId,
+        operationId,
+        'incoming',
+        'invoice',
+        row.extracted_invoice_no || null,
+        docDate,
+        row.extracted_amount || null,
+        row.extracted_currency || null,
+        row.extracted_vendor_name || null,
+        fileUrl,
+        'email_ingestion_auto_op',
+        id,
+        `Auto-attached on operation create from inbox ${id}`,
+        now,
+        now,
+      ).run();
+    } catch (e) {
+      console.error('[inbox] attachment insert failed (non-fatal):', e);
+    }
+
     // Update invoice_inbox row → manual_confirmed
     await c.env.DB.prepare(
       `UPDATE invoice_inbox
@@ -499,6 +540,7 @@ inbox.post('/:id/confirm', async (c) => {
       reference,
       amount,
       currency,
+      attachment_id: attachmentId,
       auto_allocated_bank_tx: allocatedCount,
     });
   } catch (e) {

@@ -14,6 +14,7 @@ import { storeSnapshot } from './lib/fx-store';
 import { runInboxIngestion } from './lib/inbox-ingestion';
 import { runBankStatementIngestion } from './lib/bank-statement-ingestion';
 import { scheduleWbWeekly, scheduleOzonMonthly, tickMarketplacePull, rebuildPriorMonthSite, rebuildPriorMonthDasexpertenCom } from './lib/marketplace-pull';
+import { reportCronFailure } from './lib/auto-healer';
 
 
 // =============================================================================
@@ -559,8 +560,30 @@ export async function handleScheduled(
       ));
       const text = await r.text();
       console.log(`[cron:modulbank-pull] HTTP ${r.status} body=${text.slice(0, 300)}`);
+
+      // Surface per-account errors hidden inside a 200 response body to auto-healer
+      if (r.ok) {
+        try {
+          const parsed = JSON.parse(text) as { result?: { summary?: Array<{ account_id?: string; error?: string }> } };
+          const errored = parsed?.result?.summary?.filter((s) => s?.error) ?? [];
+          for (const item of errored) {
+            await reportCronFailure(
+              env,
+              `modulbank_sync:${item.account_id ?? 'unknown'}`,
+              new Error(item.error ?? 'unknown error'),
+              { cron: '15 * * * *', payload: item },
+            );
+          }
+        } catch (parseErr) {
+          // Non-JSON body — likely 5xx from worker itself
+          await reportCronFailure(env, 'modulbank_sync', new Error(`sync-history HTTP ${r.status}: ${text.slice(0, 300)}`), { cron: '15 * * * *' });
+        }
+      } else {
+        await reportCronFailure(env, 'modulbank_sync', new Error(`sync-history HTTP ${r.status}: ${text.slice(0, 300)}`), { cron: '15 * * * *' });
+      }
     } catch (e) {
       console.error('[cron:modulbank-pull] failed:', e);
+      await reportCronFailure(env, 'modulbank_sync', e, { cron: '15 * * * *' });
     }
     return;
   }

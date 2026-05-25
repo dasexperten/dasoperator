@@ -649,6 +649,18 @@ operations.post('/', async (c) => {
     console.error('[operations] allocator failed (non-fatal):', e);
   }
 
+  // Reverse-link: scan invoice_inbox for orphan PDFs (счёт/акт/УПД that
+  // arrived before this operation existed) and attach them. Handles the
+  // common F4-Lubertsy pattern: Telegram channel sends PDFs day N, operation
+  // gets created day N+3 manually or from bank-tx — without this hook, the
+  // already-uploaded acts/invoices stay forever unmatched.
+  try {
+    const { attachRelatedInboxPdfsToOperation } = await import('../lib/inbox-auto-match');
+    await attachRelatedInboxPdfsToOperation(c.env, operationId);
+  } catch (e) {
+    console.error('[operations] reverse-link inbox failed (non-fatal):', e);
+  }
+
   return ok(c, {
     operation: {
       id: operationId,

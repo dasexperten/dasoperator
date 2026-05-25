@@ -581,6 +581,18 @@ inbox.post('/:id/confirm', async (c) => {
       console.error('[inbox] allocator failed (non-fatal):', e);
     }
 
+    // Reverse-link sibling PDFs from inbox (e.g. сёт/акт/УПД bundles).
+    // Same invoice number often appears as 3 separate PDFs in F4 chat.
+    // This pulls the missing siblings in one go.
+    let siblingCount = 0;
+    try {
+      const { attachRelatedInboxPdfsToOperation } = await import('../lib/inbox-auto-match');
+      const r = await attachRelatedInboxPdfsToOperation(c.env, operationId);
+      siblingCount = r.attached_count;
+    } catch (e) {
+      console.error('[inbox] reverse-link siblings failed (non-fatal):', e);
+    }
+
     return ok(c, {
       id,
       partner_id: partnerId,
@@ -591,6 +603,7 @@ inbox.post('/:id/confirm', async (c) => {
       currency,
       attachment_id: attachmentId,
       auto_allocated_bank_tx: allocatedCount,
+      auto_attached_sibling_pdfs: siblingCount,
     });
   } catch (e) {
     return fail(c, 500, [{ code: 'inbox_confirm_error', message: e instanceof Error ? e.message : String(e) }]);

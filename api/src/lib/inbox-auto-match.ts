@@ -364,6 +364,7 @@ const CLASSIFICATION_TO_KIND: Record<string, string> = {
   service: 'service_invoice',
   purchase: 'commercial_invoice',
   sale_payment: 'payment_proof',
+  acceptance: 'acceptance',
 };
 
 interface InboxRowForApply extends InboxRow {
@@ -435,7 +436,7 @@ export async function applyMatchToInbox(
     row.extracted_currency || null,
     row.extracted_vendor_name || null,
     fileUrl,
-    'email_ingestion_auto',
+    'inbox',
     row.id,
     notes.slice(0, 500),
     now,
@@ -490,4 +491,171 @@ export async function applyMatchToInbox(
   ).bind(match.operation_id, now, row.id).run();
 
   return { kind: 'auto_attached', match, attachment_id: attachmentId };
+}
+
+// =============================================================================
+// attachRelatedInboxPdfsToOperation
+// =============================================================================
+// Reverse-direction matcher: given a freshly created operation, scan
+// invoice_inbox for orphaned PDFs that belong to it and attach them.
+//
+// Why: ingestion-time matching (inbox PDF → operation) fails when the operation
+// doesn't exist yet. Common case: Telegram channel sends акт+счёт+УПД on day N,
+// but the operation only gets created on day N+3 from the bank payment, or
+// manually. Without this hook, those PDFs stay forever in status='needs_partner
+// _link' and the chips remain grey.
+//
+// Match criteria (partner-scoped, conservative):
+//   1. matched_partner_id = operation.partner_id   (chat is bound to partner)
+//      OR partner has tax_id and inbox extracted_vendor_inn = tax_id
+//   2. inbox status IN ('needs_partner_link', 'pending') AND created_operation_id IS NULL
+//   3. Date proximity: |inbox arrival or extracted_invoice_date − operation_date| ≤ 30 days
+//   4. Currency match if both are known
+//   5. Amount within ±15% if both are known (loose because F4 scans don't carry amounts)
+//
+// Returns count of PDFs attached.
+// =============================================================================
+
+export async function attachRelatedInboxPdfsToOperation(
+  env: Env,
+  operationId: string,
+): Promise<{ attached_count: number; attached_inbox_ids: string[] }> {
+  const op = await env.DB.prepare(
+    `SELECT o.id, o.partner_id, o.operation_date, o.total_amount, o.currency,
+            o.reference, p.tax_id AS partner_tax_id
+       FROM operations o
+       LEFT JOIN partners p ON p.id = o.partner_id
+       WHERE o.id = ? AND o.deleted_at IS NULL`
+  ).bind(operationId).first<{
+    id: string;
+    partner_id: string | null;
+    operation_date: number;
+    total_amount: number | null;
+    currency: string | null;
+    reference: string | null;
+    partner_tax_id: string | null;
+  }>();
+
+  if (!op || !op.partner_id) {
+    return { attached_count: 0, attached_inbox_ids: [] };
+  }
+
+  // Window: ±30 days around operation_date, in seconds.
+  const windowSec = 30 * 86400;
+  const dateMin = op.operation_date - windowSec;
+  const dateMax = op.operation_date + windowSec;
+
+  // Build the inbox candidate query. Use telegram_received_at OR email_received_at
+  // for arrival, and extracted_invoice_date for the document's own date.
+  const whereClauses: string[] = [
+    "status IN ('needs_partner_link', 'pending')",
+    'created_operation_id IS NULL',
+    'deleted_at IS NULL',
+  ];
+  const params: any[] = [];
+
+  // Partner match: matched_partner_id direct, OR INN match.
+  if (op.partner_tax_id) {
+    whereClauses.push('(matched_partner_id = ? OR extracted_vendor_inn = ?)');
+    params.push(op.partner_id, op.partner_tax_id);
+  } else {
+    whereClauses.push('matched_partner_id = ?');
+    params.push(op.partner_id);
+  }
+
+  // Date proximity: either arrival or invoice date inside window.
+  whereClauses.push(`(
+    (telegram_received_at IS NOT NULL AND telegram_received_at BETWEEN ? AND ?)
+    OR (email_received_at IS NOT NULL AND email_received_at BETWEEN ? AND ?)
+    OR (extracted_invoice_date IS NOT NULL
+        AND CAST(strftime('%s', extracted_invoice_date) AS INTEGER) BETWEEN ? AND ?)
+  )`);
+  params.push(dateMin, dateMax, dateMin, dateMax, dateMin, dateMax);
+
+  const candidates = await env.DB.prepare(
+    `SELECT id, classification, classification_confidence,
+            attachment_filename, attachment_r2_key, attachment_text_extracted,
+            extracted_invoice_no, extracted_invoice_date,
+            extracted_currency, extracted_amount,
+            extracted_vendor_name, extracted_vendor_inn,
+            email_subject, email_from
+       FROM invoice_inbox
+      WHERE ${whereClauses.join(' AND ')}
+      ORDER BY COALESCE(extracted_invoice_date, '') DESC, created_at DESC
+      LIMIT 20`
+  ).bind(...params).all<any>();
+
+  const rows = candidates.results || [];
+  if (rows.length === 0) {
+    return { attached_count: 0, attached_inbox_ids: [] };
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const R2_PUBLIC_BASE = 'https://pub-0e2fb2d28ea9408bbaa1bdd64b3bf256.r2.dev/';
+  const attached: string[] = [];
+
+  for (const row of rows) {
+    // Amount sanity check — only enforced when both sides have values.
+    // F4 image-scan PDFs typically have NULL amount, so we skip the check.
+    if (op.total_amount && row.extracted_amount && op.currency && row.extracted_currency) {
+      const opAmt = Number(op.total_amount);
+      const inboxAmt = Number(row.extracted_amount);
+      if (
+        op.currency === row.extracted_currency &&
+        opAmt > 0 && inboxAmt > 0 &&
+        Math.abs(opAmt - inboxAmt) / Math.max(opAmt, inboxAmt) > 0.15
+      ) {
+        continue; // Too far off — skip this candidate.
+      }
+    }
+
+    const fileUrl = row.attachment_r2_key ? `${R2_PUBLIC_BASE}${row.attachment_r2_key}` : null;
+    const docDate = (() => {
+      if (!row.extracted_invoice_date) return null;
+      const d = new Date(row.extracted_invoice_date).getTime();
+      return isNaN(d) ? null : Math.floor(d / 1000);
+    })();
+    const kind = CLASSIFICATION_TO_KIND[row.classification] ?? 'other';
+    const attachmentId = `att_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+
+    try {
+      await env.DB.batch([
+        env.DB.prepare(
+          `INSERT INTO operation_attachments (
+             id, operation_id, direction, kind,
+             doc_number, doc_date, amount, currency, issuer,
+             file_url, parsed_from, source_ref_id, notes,
+             created_at, updated_at
+           ) VALUES (?, ?, 'incoming', ?, ?, ?, ?, ?, ?, ?, 'inbox', ?, ?, ?, ?)`
+        ).bind(
+          attachmentId,
+          operationId,
+          kind,
+          row.extracted_invoice_no || null,
+          docDate,
+          row.extracted_amount || null,
+          row.extracted_currency || null,
+          row.extracted_vendor_name || null,
+          fileUrl,
+          row.id,
+          `Reverse-linked from invoice_inbox on op create. Source: ${row.attachment_filename || row.email_subject || row.id}`.slice(0, 500),
+          now,
+          now,
+        ),
+        env.DB.prepare(
+          `UPDATE invoice_inbox
+              SET status = 'auto_attached',
+                  matched_partner_id = COALESCE(matched_partner_id, ?),
+                  created_operation_id = ?,
+                  resolved_at = ?
+            WHERE id = ?`
+        ).bind(op.partner_id, operationId, now, row.id),
+      ]);
+      attached.push(row.id);
+    } catch (e) {
+      console.error(`[reverse-link] failed for inbox ${row.id} → op ${operationId}:`, e);
+    }
+  }
+
+  return { attached_count: attached.length, attached_inbox_ids: attached };
 }

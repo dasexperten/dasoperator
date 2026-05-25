@@ -169,6 +169,15 @@ export async function allocateAwaitingTxToOperation(
   const now = Math.floor(Date.now() / 1000);
   const attachedIds: string[] = [];
 
+  // Look up operation's contract_id once — payments has NOT NULL on it.
+  // Operations without a contract_id can't have a payment row in the canonical
+  // table (e.g. manufacturer-direct draft purchases); we still attach the
+  // bank_tx and operation_attachment, just skip the payments INSERT for those.
+  const opCtx = await env.DB.prepare(
+    'SELECT contract_id FROM operations WHERE id = ?'
+  ).bind(operationId).first<{ contract_id: string | null }>();
+  const contractId = opCtx?.contract_id ?? null;
+
   for (const tx of candidates) {
     const stmts: any[] = [];
 
@@ -203,8 +212,41 @@ export async function allocateAwaitingTxToOperation(
       now, now,
     ));
 
+    // Insert into payments table so the Payment chip lights up.
+    // payments.amount is MAJOR per project convention (consistent with
+    // operations.total_amount). Direction inverted: bank_tx outgoing →
+    // payment outgoing from our side; bank_tx incoming → payment incoming
+    // from buyer. The contract_id is required (NOT NULL) — skip if absent.
+    if (contractId && op.partner_id) {
+      const payId = `pay_btx_${tx.id.replace(/^btx_/, '').slice(0, 20)}`;
+      stmts.push(env.DB.prepare(
+        `INSERT INTO payments (
+           id, partner_id, contract_id, operation_id,
+           amount, currency, payment_date, type, direction,
+           notes, inbox_origin, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'final', ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO NOTHING`,
+      ).bind(
+        payId, op.partner_id, contractId, operationId,
+        txAmountMajor, tx.currency, tx.executed_at, tx.direction,
+        `Auto-created from bank_tx ${tx.id} on op-create allocation`,
+        tx.id, now, now,
+      ));
+    }
+
     await env.DB.batch(stmts);
     attachedIds.push(tx.id);
+  }
+
+  // Reverse-link: after attaching payments, scan invoice_inbox for related
+  // PDFs (счёт, акт, УПД from Telegram or email) that arrived BEFORE this
+  // operation existed, and attach them. Without this, F4-style ops created
+  // from bank-tx leave their инбокс-PDFs stranded.
+  try {
+    const { attachRelatedInboxPdfsToOperation } = await import('./inbox-auto-match');
+    await attachRelatedInboxPdfsToOperation(env, operationId);
+  } catch (e) {
+    console.error(`[allocator] reverse-link failed for op ${operationId}:`, e);
   }
 
   return { attached_tx_ids: attachedIds, attached_count: attachedIds.length };

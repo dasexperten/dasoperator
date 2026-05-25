@@ -440,7 +440,6 @@ inbox.post('/:id/confirm', async (c) => {
     const opDate = row.extracted_invoice_date
       ? Math.floor(new Date(row.extracted_invoice_date).getTime() / 1000)
       : now;
-    const reference = row.extracted_invoice_no || `INBOX-${id.slice(-8)}`;
 
     // Discover operations columns dynamically — schema may have evolved
     const cols = await c.env.DB.prepare(
@@ -458,6 +457,19 @@ inbox.post('/:id/confirm', async (c) => {
     // Service vendor invoices are recorded as 'purchase' (we're purchasing a service).
     // The vendor's partner.kind='service' distinguishes them from goods purchases.
     const opType = 'purchase';
+
+    // Reference format per ERP spec: ENTITY-YYMMDDXX (e.g. DEE-26052101).
+    // The invoice number from the vendor PDF is stored separately as
+    // operation_attachments.doc_number — never as the operation reference,
+    // because operation references are our system's identifiers and must be
+    // unique, predictable, and follow the entity-date-counter convention.
+    const { issueOperationReference } = await import('../lib/operation-reference');
+    const refResult = await issueOperationReference(c.env.DB, {
+      operationType: 'service',
+      ourCompanyId,
+      operationDateUnix: opDate,
+    });
+    const reference = refResult?.reference || `INBOX-${id.slice(-8)}`;
 
     // Build minimal valid INSERT — only columns we know exist
     const fields: string[] = ['id', 'partner_id', 'operation_type', 'our_company_id', 'operation_date', 'status', 'currency', 'total_amount', 'created_at', 'updated_at'];

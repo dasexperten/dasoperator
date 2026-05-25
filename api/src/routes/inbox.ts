@@ -458,18 +458,55 @@ inbox.post('/:id/confirm', async (c) => {
     // The vendor's partner.kind='service' distinguishes them from goods purchases.
     const opType = 'purchase';
 
-    // Reference format per ERP spec: ENTITY-YYMMDDXX (e.g. DEE-26052101).
-    // The invoice number from the vendor PDF is stored separately as
-    // operation_attachments.doc_number — never as the operation reference,
-    // because operation references are our system's identifiers and must be
-    // unique, predictable, and follow the entity-date-counter convention.
-    const { issueOperationReference } = await import('../lib/operation-reference');
-    const refResult = await issueOperationReference(c.env.DB, {
-      operationType: 'service',
-      ourCompanyId,
-      operationDateUnix: opDate,
-    });
-    const reference = refResult?.reference || `INBOX-${id.slice(-8)}`;
+    // Reference format for service operations from inbox:
+    //   {PARTNER_ABBR}-{YYYYMMDD}-{INVOICE_NO}
+    // Example: AK-20260521-986 (Alfa Klass, 21 May 2026, invoice 986).
+    // This makes a service operation self-describing — who issued the bill,
+    // when, and which paper. PARTNER_ABBR comes from partners.abbreviation.
+    // The standard ENTITY-YYMMDDXX format (DEE-26052101) is for our outbound
+    // sales/transfers, not for inbound vendor service invoices.
+    //
+    // Fallback chain:
+    //   1. Partner.abbreviation + invoice date + invoice no — preferred
+    //   2. Partner.abbreviation + invoice date + sequential counter — no inv #
+    //   3. PARTNER_ID-YYYYMMDD-N — partner has no abbreviation
+    //   4. INBOX-{8 chars} — final safety net
+    let reference: string;
+    const partnerRow = await c.env.DB.prepare(
+      'SELECT abbreviation FROM partners WHERE id = ?'
+    ).bind(partnerId).first<{ abbreviation: string | null }>();
+    const partnerAbbr = (partnerRow?.abbreviation || partnerId).toUpperCase();
+    const yyyymmdd = (() => {
+      const d = new Date(opDate * 1000);
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(d.getUTCDate()).padStart(2, '0');
+      return `${y}${m}${dd}`;
+    })();
+    const invoiceNo = (row.extracted_invoice_no || '').toString().trim();
+    if (invoiceNo) {
+      const candidate = `${partnerAbbr}-${yyyymmdd}-${invoiceNo}`;
+      // Avoid collision: append -A/-B/-C... if reference is taken.
+      const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      const existingHit = await c.env.DB.prepare(
+        'SELECT reference FROM operations WHERE reference = ? AND deleted_at IS NULL'
+      ).bind(candidate).first();
+      if (!existingHit) {
+        reference = candidate;
+      } else {
+        let suffixIdx = 0;
+        let probe = `${candidate}-${ALPHABET[suffixIdx]}`;
+        while (await c.env.DB.prepare(
+          'SELECT reference FROM operations WHERE reference = ? AND deleted_at IS NULL'
+        ).bind(probe).first() && suffixIdx < 25) {
+          suffixIdx += 1;
+          probe = `${candidate}-${ALPHABET[suffixIdx]}`;
+        }
+        reference = probe;
+      }
+    } else {
+      reference = `${partnerAbbr}-${yyyymmdd}-${id.slice(-6)}`;
+    }
 
     // Build minimal valid INSERT — only columns we know exist
     const fields: string[] = ['id', 'partner_id', 'operation_type', 'our_company_id', 'operation_date', 'status', 'currency', 'total_amount', 'created_at', 'updated_at'];

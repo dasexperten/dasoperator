@@ -449,8 +449,31 @@ inbox.post('/:id/confirm', async (c) => {
     const colSet = new Set((cols.results ?? []).map((c) => c.name));
 
     // Determine which entity (DEE/DEI/DEASEAN/DEC) is the buyer.
-    // Priority: explicit body override > extracted_buyer_entity from LLM > 'dei' default.
-    const buyerHint = (body.our_company_id ?? row.extracted_buyer_entity ?? 'DEI').toString().toLowerCase();
+    //
+    // RAIL 4 (2026-05-27) priority chain:
+    //   1. operation_document_sources.buyer_entity_id — source-bound override.
+    //      The chat itself knows its entity (F4 Lyubertsy chat → DEE).
+    //   2. body.our_company_id — explicit caller override.
+    //   3. row.extracted_buyer_entity — LLM-extracted hint.
+    //   4. 'dei' — final fallback.
+    //
+    // Previously priority started at (2), which meant every confirm of a
+    // source-bound chat had to pass our_company_id by hand or risk landing
+    // the operation in the wrong entity.
+    let sourceEntity: string | null = null;
+    const sourceRefId = row.telegram_source_ref_id || row.gmail_thread_id;
+    if (row.telegram_source_ref_id) {
+      const src = await c.env.DB.prepare(
+        `SELECT buyer_entity_id FROM operation_document_sources WHERE id = ?`
+      ).bind(row.telegram_source_ref_id).first<{ buyer_entity_id: string | null }>();
+      if (src?.buyer_entity_id) sourceEntity = src.buyer_entity_id;
+    }
+    const buyerHint = (
+      sourceEntity ??
+      body.our_company_id ??
+      row.extracted_buyer_entity ??
+      'DEI'
+    ).toString().toLowerCase();
     const validEntities = ['dee', 'dei', 'dasean', 'dec'];
     const ourCompanyId = validEntities.includes(buyerHint) ? buyerHint : 'dei';
 

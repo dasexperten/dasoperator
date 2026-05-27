@@ -5,6 +5,7 @@ import { ok, fail } from '../lib/responses';
 import { runInboxIngestion, classifyViaClaude, deepseekClassify, fetchPdf } from '../lib/inbox-ingestion';
 import { findMatchingOperation, thresholdFor } from '../lib/inbox-auto-match';
 import { allocateAwaitingTxToOperation } from '../lib/bank-tx-allocator';
+import { reconcileInboxRowAgainstBankTx } from '../lib/invoice-amount-reconcile';
 
 const inbox = new Hono<{ Bindings: Env }>();
 
@@ -872,6 +873,16 @@ inbox.post('/:id/reclassify', async (c) => {
       id,
     ).run();
 
+    // RAIL 2 (2026-05-27): now that we've refreshed extracted_amount via Claude
+    // Vision, see if a bank tx already exists for this invoice_no — if its
+    // amount disagrees, bank wins, we overwrite extracted_amount silently.
+    let reconciled: any = null;
+    try {
+      reconciled = await reconcileInboxRowAgainstBankTx(c.env, id);
+    } catch (e) {
+      console.error('[reclassify] rail2 reconcile failed (non-fatal):', e);
+    }
+
     return ok(c, {
       id,
       classification: cls,
@@ -881,8 +892,9 @@ inbox.post('/:id/reclassify', async (c) => {
         invoice_no: extracted.invoice_no ?? null,
         invoice_date: extracted.invoice_date ?? null,
         currency: extracted.currency ?? null,
-        amount_total: extracted.amount_total ?? null,
+        amount_total: reconciled ? reconciled.new : (extracted.amount_total ?? null),
       },
+      reconciled_with_bank_tx: reconciled,
     });
   } catch (e) {
     return fail(c, 500, [{

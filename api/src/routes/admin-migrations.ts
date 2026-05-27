@@ -280,6 +280,47 @@ admin.post('/migrate/telegram-inbox-dedup', async (c) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// POST /admin/migrate/source-buyer-entity — RAIL 4 (2026-05-27)
+// Adds operation_document_sources.buyer_entity_id — a per-source override
+// that pins which Das Experten entity (DEE/DEI/DEASEAN/DEC) is the buyer
+// for any operation auto-created from documents arriving in that source.
+//
+// Why: /api/inbox/:id/confirm previously defaulted to 'dei' when no entity
+// was passed in the body and the LLM didn't extract one. For chats bound
+// to a specific entity (e.g. F4 Lyubertsy ↔ DEE for Russia 3PL ops),
+// this could ship the operation to the wrong entity entirely — manual
+// override was required every single time. The override now lives on the
+// source row and takes precedence over body and extracted hints.
+//
+// Idempotent — checks if column exists before adding.
+// ---------------------------------------------------------------------------
+admin.post('/migrate/source-buyer-entity', async (c) => {
+  const cols = await c.env.DB.prepare(
+    `SELECT name FROM pragma_table_info('operation_document_sources')`
+  ).all<{ name: string }>();
+  const hasColumn = (cols.results || []).some((r) => r.name === 'buyer_entity_id');
+
+  if (!hasColumn) {
+    await c.env.DB.prepare(
+      `ALTER TABLE operation_document_sources ADD COLUMN buyer_entity_id TEXT`
+    ).run();
+  }
+
+  // Backfill: F4 Lyubertsy 3PL → DEE (Russia entity).
+  const f4Update = await c.env.DB.prepare(
+    `UPDATE operation_document_sources
+        SET buyer_entity_id = 'dee'
+      WHERE address = '-1002848395508'
+        AND (buyer_entity_id IS NULL OR buyer_entity_id = '')`
+  ).run();
+
+  return ok(c, {
+    column_added: !hasColumn,
+    f4_lubertsy_backfill_rows: f4Update.meta?.changes ?? 0,
+  });
+});
+
 export default admin;
 
 

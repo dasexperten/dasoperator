@@ -1,11 +1,19 @@
 // =============================================================================
-// Anthropic OAuth bridge — Claude Max 20x subscription quota.
+// Anthropic bridge — Claude Max 20x subscription quota (primary) with
+// pay-as-you-go API key as silent fallback.
 //
 // AUTH MODEL (2026-05-27):
-//   This file uses sk-ant-oat01-* OAuth tokens generated via `claude setup-token`
-//   on Aram's Windows laptop. The token is tied to the Max 20x subscription
-//   (a.v.badalyan@gmail.com) and every request against this bridge counts
-//   against subscription quota — NOT pay-as-you-go API credits.
+//   This file accepts BOTH credential types and picks the right transport
+//   per Anthropic's documented rules:
+//     - OAuth token (sk-ant-oat01-*) → Authorization: Bearer header
+//       + Claude Code identity preamble + claude-code-* / oauth-* beta
+//       headers + user-agent: claude-cli/* + x-app: cli.
+//     - Pay-as-you-go API key (sk-ant-api03-*) → x-api-key header,
+//       NO identity preamble, NO Claude Code beta headers.
+//
+//   Tokens are tied to the Max 20x subscription (a.v.badalyan@gmail.com).
+//   Every OAuth request counts against subscription quota — NOT
+//   pay-as-you-go API credits.
 //
 // HARD CONSTRAINTS imposed by Anthropic's API for OAuth-authenticated requests:
 //   1. system prompt MUST start with the exact Claude Code identifier string
@@ -42,6 +50,45 @@ const MODEL_FLASH = 'claude-haiku-4-5';
 // pi-mono #2751). Without the full set, requests fail silently with HTTP 400.
 const OAUTH_BETA_HEADER = 'claude-code-20250219,oauth-2025-04-20';
 const CLAUDE_CLI_VERSION = '1.0.0';
+
+/**
+ * Detect Anthropic credential type from the token prefix.
+ *   - sk-ant-oat01-* → OAuth access token (subscription quota)
+ *   - sk-ant-api03-* (or anything else starting with sk-ant-api) →
+ *     pay-as-you-go API key
+ */
+function isOAuthToken(token: string): boolean {
+  return token.startsWith('sk-ant-oat');
+}
+
+/**
+ * Build the headers and identity-preamble policy for a given token. Centralised
+ * here so every call site stays auth-method-agnostic.
+ */
+function buildAuthHeaders(token: string): { headers: Record<string, string>; injectIdentity: boolean } {
+  if (isOAuthToken(token)) {
+    return {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': OAUTH_BETA_HEADER,
+        'user-agent': `claude-cli/${CLAUDE_CLI_VERSION}`,
+        'x-app': 'cli',
+      },
+      injectIdentity: true,
+    };
+  }
+  // Pay-as-you-go API key — classic x-api-key transport, no identity preamble.
+  return {
+    headers: {
+      'x-api-key': token,
+      'Content-Type': 'application/json',
+      'anthropic-version': '2023-06-01',
+    },
+    injectIdentity: false,
+  };
+}
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -95,15 +142,16 @@ interface AnthropicResponse {
  *     (each becomes its own text block in the array).
  *   - All other messages stay in the `messages` array.
  *
- * For non-Haiku models the Claude Code identity string is prepended to the
- * `system` array as the first block. Haiku skips this — it's exempt from the
- * identity validation per the GitHub issue trail.
+ * For OAuth + non-Haiku model the Claude Code identity string is prepended to
+ * the `system` array as the first block (required by API). For pay-as-you-go
+ * API key or Haiku model, no preamble is added.
  */
 function buildAnthropicBody(
   model: string,
   messages: ChatMessage[],
   maxTokens: number,
   temperature: number,
+  injectIdentity: boolean,
 ): {
   system?: AnthropicMessageBlock[];
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
@@ -124,8 +172,9 @@ function buildAnthropicBody(
     }
   }
 
-  // Identity preamble — mandatory for non-Haiku, harmless for Haiku.
-  if (!isHaiku) {
+  // Identity preamble — mandatory for OAuth + non-Haiku, harmless for Haiku
+  // but never injected for pay-as-you-go API key (would just add tokens).
+  if (injectIdentity && !isHaiku) {
     systemBlocks.unshift({ type: 'text', text: CLAUDE_CODE_IDENTITY });
   }
 
@@ -143,23 +192,19 @@ async function callAnthropic(
   messages: ChatMessage[],
   opts: OAuthCallOptions,
 ): Promise<LlmResult> {
+  const { headers, injectIdentity } = buildAuthHeaders(opts.oauthToken);
+
   const body = buildAnthropicBody(
     model,
     messages,
     opts.maxTokens ?? 8000,
     opts.temperature ?? 0.3,
+    injectIdentity,
   );
 
   const res = await fetch(ANTHROPIC_MESSAGES_URL, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${opts.oauthToken}`,
-      'Content-Type': 'application/json',
-      'anthropic-version': '2023-06-01',
-      'anthropic-beta': OAUTH_BETA_HEADER,
-      'user-agent': `claude-cli/${CLAUDE_CLI_VERSION}`,
-      'x-app': 'cli',
-    },
+    headers,
     body: JSON.stringify(body),
   });
 
@@ -220,8 +265,11 @@ export async function callFlash(
 
 // =============================================================================
 // Low-level escape hatch for direct callers (claude-analyzer, bank-match-rules
-// etc) that already build raw Anthropic Messages API requests. Same auth path,
-// same identity-wrapping rules, but caller controls model + body shape.
+// etc) that already build raw Anthropic Messages API requests. Same auth
+// detection as callPro/callFlash — pass either an OAuth token or a
+// pay-as-you-go API key in `oauthToken`; the bridge picks the right transport.
+// Caller controls model + body shape and may include `cache_control`,
+// `document` blocks, etc. Returns the raw Anthropic response.
 // =============================================================================
 export async function callAnthropicRaw(
   opts: OAuthCallOptions & {
@@ -230,16 +278,18 @@ export async function callAnthropicRaw(
     messages: Array<{ role: 'user' | 'assistant'; content: any }>;
   },
 ): Promise<AnthropicResponse> {
+  const { headers, injectIdentity } = buildAuthHeaders(opts.oauthToken);
   const isHaiku = opts.model.toLowerCase().includes('haiku');
 
-  // Normalise system → array of text blocks, prepend identity if non-Haiku.
+  // Normalise system → array of text blocks (or string passthrough), prepend
+  // identity if OAuth + non-Haiku.
   let systemBlocks: AnthropicMessageBlock[] = [];
   if (typeof opts.system === 'string' && opts.system.length > 0) {
     systemBlocks = [{ type: 'text', text: opts.system }];
   } else if (Array.isArray(opts.system)) {
     systemBlocks = opts.system;
   }
-  if (!isHaiku) {
+  if (injectIdentity && !isHaiku) {
     systemBlocks = [{ type: 'text', text: CLAUDE_CODE_IDENTITY }, ...systemBlocks];
   }
 
@@ -253,14 +303,7 @@ export async function callAnthropicRaw(
 
   const res = await fetch(ANTHROPIC_MESSAGES_URL, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${opts.oauthToken}`,
-      'Content-Type': 'application/json',
-      'anthropic-version': '2023-06-01',
-      'anthropic-beta': OAUTH_BETA_HEADER,
-      'user-agent': `claude-cli/${CLAUDE_CLI_VERSION}`,
-      'x-app': 'cli',
-    },
+    headers,
     body: JSON.stringify(body),
   });
 

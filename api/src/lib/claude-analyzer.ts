@@ -14,8 +14,10 @@
 // =============================================================================
 
 import type { Env } from '../types';
+import { callAnthropicRaw } from './anthropic';
 
-const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
+// Model — Sonnet 4.6 (dateless pinned snapshot, released 2026-02-17).
+const ANALYZER_MODEL = 'claude-sonnet-4-6';
 
 export interface ClaudeAnalyzerInput {
   filename: string;
@@ -292,37 +294,27 @@ export async function analyzeDocumentWithClaude(
   env: Env,
   input: ClaudeAnalyzerInput
 ): Promise<ClaudeAnalysisResult> {
-  if (!env.ANTHROPIC_API_KEY) {
-    throw new Error('ANTHROPIC_API_KEY not configured on Worker — required for document analysis');
+  if (!env.CLAUDE_CODE_OAUTH_TOKEN && !env.ANTHROPIC_API_KEY) {
+    throw new Error('Neither CLAUDE_CODE_OAUTH_TOKEN nor ANTHROPIC_API_KEY configured — required for document analysis');
   }
 
   const dir = await loadDirectoryContext(env);
   const system = buildSystemPrompt();
   const user = buildUserMessage(input, dir);
 
-  const resp = await fetch(ANTHROPIC_API, {
-    method: 'POST',
-    headers: {
-      'x-api-key': env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
-      temperature: 0,
-      system,
-      messages: [{ role: 'user', content: user }],
-    }),
+  // Prefer OAuth (subscription quota). callAnthropicRaw handles the identity
+  // preamble + required headers internally; falls back to pay-as-you-go API
+  // key path only if OAuth token is missing.
+  const data = await callAnthropicRaw({
+    oauthToken: env.CLAUDE_CODE_OAUTH_TOKEN ?? env.ANTHROPIC_API_KEY ?? '',
+    model: ANALYZER_MODEL,
+    maxTokens: 4096,
+    temperature: 0,
+    system,
+    messages: [{ role: 'user', content: user }],
   });
 
-  if (!resp.ok) {
-    const errBody = await resp.text();
-    throw new Error(`Claude API HTTP ${resp.status}: ${errBody.slice(0, 500)}`);
-  }
-
-  const data = await resp.json<{ content: Array<{ type: string; text?: string }> }>();
-  const textBlock = data.content?.find((b) => b.type === 'text')?.text || '';
+  const textBlock = data.content?.find((b: any) => b.type === 'text')?.text || '';
 
   // Claude sometimes wraps JSON in code fences despite instructions — strip them.
   let jsonText = textBlock.trim();

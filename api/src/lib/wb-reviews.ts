@@ -12,11 +12,13 @@
 // =============================================================================
 import type { Env } from '../types';
 import { callPro } from './llm';
+import { callAnthropicRaw } from './anthropic';
 import { runReviewMasterPipeline, runRatingOnlyPipeline, type PipelineInput } from './review-master-pipeline';
 import { PRODUCT_KNOWLEDGE_BASE } from './wb-reviews-knowledge';
 
 const WB_BASE = 'https://feedbacks-api.wildberries.ru';
-const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
+// ANTHROPIC_API constant removed — all calls now go through callAnthropicRaw
+// (api/src/lib/anthropic.ts) which picks the right URL + auth transport.
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
 const REPLY_MAX_CHARS = 900;
 
@@ -202,46 +204,35 @@ export interface Draft {
 }
 
 export async function draftReply(env: Env, fb: any, model = DEFAULT_MODEL): Promise<Draft> {
-  if (!env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not configured');
+  const token = env.CLAUDE_CODE_OAUTH_TOKEN ?? env.ANTHROPIC_API_KEY;
+  if (!token) throw new Error('No Anthropic credential configured (need CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)');
   const userBody = formatFeedback(fb);
-  const resp = await fetch(ANTHROPIC_API, {
-    method: 'POST',
-    headers: {
-      'x-api-key': env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 1024,
-      system: [
-        {
-          type: 'text',
-          text: SYSTEM_PROMPT,
-          cache_control: { type: 'ephemeral' },
-        },
-      ],
-      messages: [{ role: 'user', content: userBody }],
-    }),
+  const data = await callAnthropicRaw({
+    oauthToken: token,
+    model,
+    maxTokens: 1024,
+    system: [
+      {
+        type: 'text',
+        text: SYSTEM_PROMPT,
+        cache_control: { type: 'ephemeral' },
+      } as any,
+    ],
+    messages: [{ role: 'user', content: userBody }],
   });
-  if (!resp.ok) {
-    const body = await resp.text();
-    throw new Error(`Anthropic HTTP ${resp.status}: ${body.slice(0, 500)}`);
-  }
-  const data = await resp.json<any>();
   const chunks = (data.content ?? [])
     .filter((b: any) => b.type === 'text')
     .map((b: any) => b.text);
   const text = chunks.join('\n').trim();
-  const usage = data.usage ?? {};
+  const usage: any = (data as any).usage ?? {};
   return {
     text,
     inputTokens: usage.input_tokens ?? 0,
     outputTokens: usage.output_tokens ?? 0,
     cacheReadTokens: usage.cache_read_input_tokens ?? 0,
     cacheCreationTokens: usage.cache_creation_input_tokens ?? 0,
-    stopReason: data.stop_reason ?? null,
-    model: data.model ?? model,
+    stopReason: (data as any).stop_reason ?? null,
+    model: (data as any).model ?? model,
   };
 }
 
@@ -279,7 +270,8 @@ export async function draftReplyDeepSeek(env: Env, fb: any): Promise<Draft> {
 // Returns true if reply is safe, false (with reason) if it should be held.
 // =============================================================================
 export async function safetyCheck(env: Env, draft: string, fb: any): Promise<{ safe: boolean; reason?: string }> {
-  if (!env.ANTHROPIC_API_KEY) return { safe: true };
+  const token = env.CLAUDE_CODE_OAUTH_TOKEN ?? env.ANTHROPIC_API_KEY;
+  if (!token) return { safe: true };
 
   const checkPrompt = `Проверь готовый ответ Das Experten на негативный отзыв перед публикацией.
 
@@ -298,21 +290,12 @@ export async function safetyCheck(env: Env, draft: string, fb: any): Promise<{ s
 Если есть — ответь: UNSAFE: <одно предложение что не так>`;
 
   try {
-    const resp = await fetch(ANTHROPIC_API, {
-      method: 'POST',
-      headers: {
-        'x-api-key': env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: DEFAULT_MODEL,
-        max_tokens: 100,
-        messages: [{ role: 'user', content: checkPrompt }],
-      }),
+    const data: any = await callAnthropicRaw({
+      oauthToken: token,
+      model: DEFAULT_MODEL,
+      maxTokens: 100,
+      messages: [{ role: 'user', content: checkPrompt }],
     });
-    if (!resp.ok) return { safe: true }; // fail-open on errors
-    const data = await resp.json<any>();
     const text = (data.content?.[0]?.text ?? '').trim().toUpperCase();
     if (text.startsWith('SAFE')) return { safe: true };
     if (text.startsWith('UNSAFE')) {

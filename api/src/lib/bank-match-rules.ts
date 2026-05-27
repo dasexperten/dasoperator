@@ -15,6 +15,7 @@
 // =============================================================================
 
 import type { Env } from '../types';
+import { callAnthropicRaw } from './anthropic';
 
 export interface BankMatchRule {
   id: string;
@@ -146,7 +147,7 @@ export async function suggestRuleFromAssignment(
     } | null;
   }
 ): Promise<RuleSuggestion | null> {
-  if (!env.ANTHROPIC_API_KEY) {
+  if (!env.CLAUDE_CODE_OAUTH_TOKEN && !env.ANTHROPIC_API_KEY) {
     // Fallback: deterministic rule without LLM
     return fallbackSuggestion(context);
   }
@@ -185,27 +186,15 @@ Rules for pattern selection:
 - Return ONLY JSON, no markdown fences.`;
 
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 400,
-        messages: [{ role: 'user', content: prompt }],
-      }),
+    const data = await callAnthropicRaw({
+      oauthToken: env.CLAUDE_CODE_OAUTH_TOKEN ?? env.ANTHROPIC_API_KEY ?? '',
+      model: 'claude-sonnet-4-6',
+      maxTokens: 400,
+      temperature: 0.3,
+      messages: [{ role: 'user', content: prompt }],
     });
 
-    if (!resp.ok) {
-      console.error('[rule-suggest] Claude HTTP', resp.status);
-      return fallbackSuggestion(context);
-    }
-
-    const data = await resp.json<{ content: Array<{ type: string; text?: string }> }>();
-    const text = data.content?.filter((b) => b.type === 'text').map((b) => b.text).join('') || '';
+    const text = (data.content ?? []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('') || '';
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return fallbackSuggestion(context);
 

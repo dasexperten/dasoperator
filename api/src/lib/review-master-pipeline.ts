@@ -23,11 +23,13 @@
 
 import type { Env } from '../types';
 import { callPro } from './llm';
+import { callAnthropicRaw } from './anthropic';
 import { callGeminiFlash } from './gemini';
 import { sanitizeReply } from './sanitize';
 import { loadSkillMd, loadSkuKnowledge, loadSegmentCheck } from './skill-loader';
 
-const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
+// ANTHROPIC_API constant removed — all calls go through callAnthropicRaw
+// (api/src/lib/anthropic.ts) which picks the right URL + auth transport.
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
 
 export type ReviewType = 'POS' | 'NEG' | 'MIX' | 'Q-PROD' | 'Q-SCI' | 'Q-CERT' | 'Q-DELIV' | 'Q-USE';
@@ -68,31 +70,27 @@ export interface PipelineResult {
 // Provider wrappers
 // =============================================================================
 async function callClaude(env: Env, system: string, user: string, maxTokens: number): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
-  if (!env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not configured');
-  const resp = await fetch(ANTHROPIC_API, {
-    method: 'POST',
-    headers: {
-      'x-api-key': env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: CLAUDE_MODEL,
-      max_tokens: maxTokens,
-      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
-      messages: [{ role: 'user', content: user }],
-    }),
+  const token = env.CLAUDE_CODE_OAUTH_TOKEN ?? env.ANTHROPIC_API_KEY;
+  if (!token) throw new Error('No Anthropic credential configured (need CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)');
+  const data = await callAnthropicRaw({
+    oauthToken: token,
+    model: CLAUDE_MODEL,
+    maxTokens,
+    system: [
+      {
+        type: 'text',
+        text: system,
+        cache_control: { type: 'ephemeral' },
+      } as any,
+    ],
+    messages: [{ role: 'user', content: user }],
   });
-  if (!resp.ok) {
-    const t = await resp.text();
-    throw new Error(`Claude HTTP ${resp.status}: ${t.slice(0, 400)}`);
-  }
-  const data = await resp.json<any>();
   const text = (data.content ?? []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n').trim();
+  const usage: any = (data as any).usage ?? {};
   return {
     text,
-    tokensIn: (data.usage?.input_tokens ?? 0) + (data.usage?.cache_read_input_tokens ?? 0),
-    tokensOut: data.usage?.output_tokens ?? 0,
+    tokensIn: (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0),
+    tokensOut: usage.output_tokens ?? 0,
   };
 }
 

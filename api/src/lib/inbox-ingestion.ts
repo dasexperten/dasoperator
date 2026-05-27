@@ -16,6 +16,7 @@
 
 import type { Env } from '../types';
 import { findMatchingOperation, applyMatchToInbox } from './inbox-auto-match';
+import { callAnthropicRaw } from './anthropic';
 
 const EMAILER_BRIDGE = 'https://emailer-bridge.dasexperten.workers.dev/';
 const DEEPSEEK_API = 'https://api.deepseek.com/v1/chat/completions';
@@ -600,9 +601,9 @@ ${text || '(empty — PDF text extraction failed, classify based on metadata onl
 // error (HTTP failure, parse failure, quota).
 // =============================================================================
 export async function classifyViaClaude(env: Env, pdfBuf: ArrayBuffer, c: any): Promise<any> {
-  const apiKey = env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    console.log('[inbox-cron:claude] ANTHROPIC_API_KEY not set, skipping');
+  const token = env.CLAUDE_CODE_OAUTH_TOKEN ?? env.ANTHROPIC_API_KEY;
+  if (!token) {
+    console.log('[inbox-cron:claude] no Anthropic credential set, skipping');
     return null;
   }
   // Base64-encode PDF
@@ -625,16 +626,11 @@ export async function classifyViaClaude(env: Env, pdfBuf: ArrayBuffer, c: any): 
 
 The attached PDF is an invoice/УПД/счёт. Extract all fields per the schema.`;
 
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 2500,
+  try {
+    const data: any = await callAnthropicRaw({
+      oauthToken: token,
+      model: 'claude-sonnet-4-6',
+      maxTokens: 2500,
       system: DEEPSEEK_PROMPT,
       messages: [
         {
@@ -645,18 +641,8 @@ The attached PDF is an invoice/УПД/счёт. Extract all fields per the schem
           ],
         },
       ],
-    }),
-    signal: AbortSignal.timeout(90_000),
-  });
-
-  if (!r.ok) {
-    const errBody = await r.text();
-    console.error(`[inbox-cron:claude] HTTP ${r.status}: ${errBody.slice(0, 200)}`);
-    return null;
-  }
-  const data: any = await r.json();
-  // Anthropic returns content array; find the text block
-  try {
+    });
+    // Anthropic returns content array; find the text block
     const textBlock = (data.content || []).find((b: any) => b.type === 'text');
     if (!textBlock) return null;
     // Claude may wrap JSON in code fences; strip them
@@ -664,7 +650,7 @@ The attached PDF is an invoice/УПД/счёт. Extract all fields per the schem
     raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
     return JSON.parse(raw);
   } catch (e) {
-    console.error('[inbox-cron:claude] parse error:', e);
+    console.error('[inbox-cron:claude] error:', e);
     return null;
   }
 }

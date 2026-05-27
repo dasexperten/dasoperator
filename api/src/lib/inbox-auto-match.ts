@@ -540,6 +540,39 @@ export async function attachRelatedInboxPdfsToOperation(
     return { attached_count: 0, attached_inbox_ids: [] };
   }
 
+  // RAIL 1 (2026-05-27): reverse-link is ANCHORED on invoice_no.
+  //
+  // Why: previously this function pulled every inbox row in the partner's
+  // ±30d window. When extracted_amount was NULL (common for image-PDF F4
+  // invoices in the pre-Claude-Vision era), the amount-sanity check turned
+  // into a no-op and unrelated invoice bundles (1217, 1241, 1209, random
+  // zip files) got cross-attached. We had to surgically undo 35 attachments
+  // by hand. Never again.
+  //
+  // The anchor is the primary invoice attachment that was just created on
+  // this operation — its doc_number IS the invoice number we're matching
+  // siblings to. Inbox rows MUST share that exact invoice_no.
+  //
+  // If the operation has no primary invoice doc_number (e.g. created by
+  // bundling, manual transfer, marketplace settlement), reverse-link does
+  // nothing — it's not applicable.
+  const primary = await env.DB.prepare(
+    `SELECT doc_number
+       FROM operation_attachments
+      WHERE operation_id = ?
+        AND parsed_from = 'inbox'
+        AND kind IN ('invoice','service_invoice','commercial_invoice','freight_invoice')
+        AND doc_number IS NOT NULL
+        AND deleted_at IS NULL
+      ORDER BY created_at ASC
+      LIMIT 1`
+  ).bind(operationId).first<{ doc_number: string }>();
+
+  if (!primary?.doc_number) {
+    return { attached_count: 0, attached_inbox_ids: [] };
+  }
+  const targetInvoiceNo = primary.doc_number;
+
   // Window: ±30 days around operation_date, in seconds.
   const windowSec = 30 * 86400;
   const dateMin = op.operation_date - windowSec;
@@ -551,8 +584,9 @@ export async function attachRelatedInboxPdfsToOperation(
     "status IN ('needs_partner_link', 'pending')",
     'created_operation_id IS NULL',
     'deleted_at IS NULL',
+    'extracted_invoice_no = ?', // RAIL 1: strict anchor
   ];
-  const params: any[] = [];
+  const params: any[] = [targetInvoiceNo];
 
   // Partner match: matched_partner_id direct, OR INN match.
   if (op.partner_tax_id) {
@@ -595,17 +629,28 @@ export async function attachRelatedInboxPdfsToOperation(
   const attached: string[] = [];
 
   for (const row of rows) {
-    // Amount sanity check — only enforced when both sides have values.
-    // F4 image-scan PDFs typically have NULL amount, so we skip the check.
+    // RAIL 1 hardening (2026-05-27): amount-tolerance tightened from 15% to 1%.
+    // Claude Vision reads scan-PDFs with full numeric precision, so the loose
+    // 15% window from the OCR era is no longer needed. A 1% gap is the only
+    // legitimate tolerance — kopeck-level rounding when operations.total_amount
+    // stores integer major units. Anything larger means the same invoice_no
+    // points to a re-issued document with a different total (e.g. F4 invoice
+    // 1218 went 756 RUB → 49896 RUB) and the older version is superseded —
+    // skip it, do not attach.
     if (op.total_amount && row.extracted_amount && op.currency && row.extracted_currency) {
       const opAmt = Number(op.total_amount);
       const inboxAmt = Number(row.extracted_amount);
+      const diff = Math.abs(opAmt - inboxAmt) / Math.max(opAmt, inboxAmt);
       if (
         op.currency === row.extracted_currency &&
         opAmt > 0 && inboxAmt > 0 &&
-        Math.abs(opAmt - inboxAmt) / Math.max(opAmt, inboxAmt) > 0.15
+        diff > 0.01
       ) {
-        continue; // Too far off — skip this candidate.
+        console.log(
+          `[reverse-link] skip ${row.id}: invoice_no ${targetInvoiceNo} matches but ` +
+          `amount diff ${(diff * 100).toFixed(1)}% (op=${opAmt}, inbox=${inboxAmt}) — likely superseded`
+        );
+        continue;
       }
     }
 
@@ -659,3 +704,4 @@ export async function attachRelatedInboxPdfsToOperation(
 
   return { attached_count: attached.length, attached_inbox_ids: attached };
 }
+

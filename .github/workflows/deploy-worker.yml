@@ -1,0 +1,59 @@
+name: Deploy Worker
+
+# RAIL 5 (2026-05-27): worker deploy MUST go through CI.
+#
+# Why: parallel Claude chats running local `wrangler deploy` from their own
+# working copies would overwrite each other's changes (a push of one chat's
+# code followed by another chat's local deploy from stale source = silent
+# regression). Routing every deploy through `push to main` makes main the
+# single source of truth — no deploy can ship code that isn't in the repo.
+#
+# Policy for all chats: NEVER run `wrangler deploy` locally. To ship a Worker
+# change, push the file to main; this workflow picks it up automatically.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'api/**'
+      - '.github/workflows/deploy-worker.yml'
+  workflow_dispatch:  # manual trigger fallback
+
+# Serialize deploys — never run two at once, never cancel a running one.
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: api/package-lock.json
+
+      - name: Install dependencies
+        working-directory: api
+        run: npm ci --no-audit --no-fund
+
+      - name: Deploy Worker via Wrangler
+        working-directory: api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 081ddb85cb399ad62a70210328d744fc
+        run: npx wrangler deploy
+
+      - name: Smoke test
+        run: |
+          sleep 5
+          curl -sfS "https://dasoperator-api.dasexperten.workers.dev/api/inbox/_diag" \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('success'), d"
+          echo "smoke test passed"

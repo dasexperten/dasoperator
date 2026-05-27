@@ -14,10 +14,7 @@
 // =============================================================================
 
 import type { Env } from '../types';
-import { callAnthropicRaw } from './anthropic';
-
-// Model — Sonnet 4.6 (dateless pinned snapshot, released 2026-02-17).
-const ANALYZER_MODEL = 'claude-sonnet-4-6';
+import { callPro } from './llm';
 
 export interface ClaudeAnalyzerInput {
   filename: string;
@@ -294,30 +291,27 @@ export async function analyzeDocumentWithClaude(
   env: Env,
   input: ClaudeAnalyzerInput
 ): Promise<ClaudeAnalysisResult> {
-  if (!env.CLAUDE_CODE_OAUTH_TOKEN && !env.ANTHROPIC_API_KEY) {
-    throw new Error('Neither CLAUDE_CODE_OAUTH_TOKEN nor ANTHROPIC_API_KEY configured — required for document analysis');
+  if (!env.CLAUDE_CODE_OAUTH_TOKEN && !env.DEEPSEEK_API_KEY) {
+    throw new Error('No LLM provider configured (need CLAUDE_CODE_OAUTH_TOKEN or DEEPSEEK_API_KEY) — required for document analysis');
   }
 
   const dir = await loadDirectoryContext(env);
   const system = buildSystemPrompt();
   const user = buildUserMessage(input, dir);
 
-  // Prefer OAuth (subscription quota). callAnthropicRaw handles the identity
-  // preamble + required headers internally; falls back to pay-as-you-go API
-  // key path only if OAuth token is missing.
-  const data = await callAnthropicRaw({
-    oauthToken: env.CLAUDE_CODE_OAUTH_TOKEN ?? env.ANTHROPIC_API_KEY ?? '',
-    model: ANALYZER_MODEL,
-    maxTokens: 4096,
-    temperature: 0,
-    system,
-    messages: [{ role: 'user', content: user }],
-  });
+  // Primary: Anthropic Sonnet 4.6 via OAuth (subscription quota).
+  // Automatic fallback: DeepSeek V4-Pro if Anthropic returns 429/5xx or
+  // OAuth token is missing. Handled internally by api/src/lib/llm.ts.
+  const result = await callPro(
+    [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
+    { env, maxTokens: 4096, temperature: 0 },
+  );
 
-  const textBlock = data.content?.find((b: any) => b.type === 'text')?.text || '';
-
-  // Claude sometimes wraps JSON in code fences despite instructions — strip them.
-  let jsonText = textBlock.trim();
+  // Strip code fences if the model wrapped JSON despite instructions.
+  let jsonText = result.text.trim();
   if (jsonText.startsWith('```')) {
     jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
   }
@@ -325,6 +319,6 @@ export async function analyzeDocumentWithClaude(
   try {
     return JSON.parse(jsonText) as ClaudeAnalysisResult;
   } catch (e) {
-    throw new Error(`Claude returned non-JSON response: ${jsonText.slice(0, 400)}`);
+    throw new Error(`${result.provider}/${result.model} returned non-JSON response: ${jsonText.slice(0, 400)}`);
   }
 }

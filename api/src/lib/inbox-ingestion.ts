@@ -601,9 +601,11 @@ ${text || '(empty — PDF text extraction failed, classify based on metadata onl
 // error (HTTP failure, parse failure, quota).
 // =============================================================================
 export async function classifyViaClaude(env: Env, pdfBuf: ArrayBuffer, c: any): Promise<any> {
-  const token = env.CLAUDE_CODE_OAUTH_TOKEN ?? env.ANTHROPIC_API_KEY;
+  const token = env.CLAUDE_CODE_OAUTH_TOKEN;
   if (!token) {
-    console.log('[inbox-cron:claude] no Anthropic credential set, skipping');
+    // No OAuth — caller falls back to DeepSeek text classifier automatically.
+    // We never use pay-as-you-go Anthropic as a fallback.
+    console.log('[inbox-cron:claude] CLAUDE_CODE_OAUTH_TOKEN not set, skipping');
     return null;
   }
   // Base64-encode PDF

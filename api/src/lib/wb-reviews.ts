@@ -12,13 +12,13 @@
 // =============================================================================
 import type { Env } from '../types';
 import { callPro } from './llm';
-import { callAnthropicRaw } from './anthropic';
 import { runReviewMasterPipeline, runRatingOnlyPipeline, type PipelineInput } from './review-master-pipeline';
 import { PRODUCT_KNOWLEDGE_BASE } from './wb-reviews-knowledge';
 
 const WB_BASE = 'https://feedbacks-api.wildberries.ru';
-// ANTHROPIC_API constant removed — all calls now go through callAnthropicRaw
-// (api/src/lib/anthropic.ts) which picks the right URL + auth transport.
+// All LLM calls in this file now route through api/src/lib/llm.ts (Anthropic
+// OAuth subscription → DeepSeek V4-Pro fallback). Pay-as-you-go Anthropic
+// is intentionally NOT a fallback — see ARCHITECTURE_DECISION_2026-05-28.
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
 const REPLY_MAX_CHARS = 900;
 
@@ -203,36 +203,31 @@ export interface Draft {
   model: string;
 }
 
-export async function draftReply(env: Env, fb: any, model = DEFAULT_MODEL): Promise<Draft> {
-  const token = env.CLAUDE_CODE_OAUTH_TOKEN ?? env.ANTHROPIC_API_KEY;
-  if (!token) throw new Error('No Anthropic credential configured (need CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)');
+export async function draftReply(env: Env, fb: any, _model = DEFAULT_MODEL): Promise<Draft> {
+  if (!env.CLAUDE_CODE_OAUTH_TOKEN && !env.DEEPSEEK_API_KEY) {
+    throw new Error('No LLM provider configured (need CLAUDE_CODE_OAUTH_TOKEN or DEEPSEEK_API_KEY)');
+  }
   const userBody = formatFeedback(fb);
-  const data = await callAnthropicRaw({
-    oauthToken: token,
-    model,
-    maxTokens: 1024,
-    system: [
-      {
-        type: 'text',
-        text: SYSTEM_PROMPT,
-        cache_control: { type: 'ephemeral' },
-      } as any,
+  // Primary: Anthropic Sonnet 4.6 via OAuth (subscription quota).
+  // Automatic fallback: DeepSeek V4-Pro if Anthropic returns 429/5xx.
+  // Handled internally by api/src/lib/llm.ts. Prompt caching dropped here —
+  // on OAuth subscription, all tokens count equally, so caching only saved
+  // latency, not cost. Trade for unified fallback policy.
+  const r = await callPro(
+    [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: userBody },
     ],
-    messages: [{ role: 'user', content: userBody }],
-  });
-  const chunks = (data.content ?? [])
-    .filter((b: any) => b.type === 'text')
-    .map((b: any) => b.text);
-  const text = chunks.join('\n').trim();
-  const usage: any = (data as any).usage ?? {};
+    { env, maxTokens: 1024, temperature: 0.5 },
+  );
   return {
-    text,
-    inputTokens: usage.input_tokens ?? 0,
-    outputTokens: usage.output_tokens ?? 0,
-    cacheReadTokens: usage.cache_read_input_tokens ?? 0,
-    cacheCreationTokens: usage.cache_creation_input_tokens ?? 0,
-    stopReason: (data as any).stop_reason ?? null,
-    model: (data as any).model ?? model,
+    text: r.text.trim(),
+    inputTokens: r.usage.prompt_tokens ?? 0,
+    outputTokens: r.usage.completion_tokens ?? 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    stopReason: null,
+    model: r.model,
   };
 }
 
@@ -270,8 +265,7 @@ export async function draftReplyDeepSeek(env: Env, fb: any): Promise<Draft> {
 // Returns true if reply is safe, false (with reason) if it should be held.
 // =============================================================================
 export async function safetyCheck(env: Env, draft: string, fb: any): Promise<{ safe: boolean; reason?: string }> {
-  const token = env.CLAUDE_CODE_OAUTH_TOKEN ?? env.ANTHROPIC_API_KEY;
-  if (!token) return { safe: true };
+  if (!env.CLAUDE_CODE_OAUTH_TOKEN && !env.DEEPSEEK_API_KEY) return { safe: true };
 
   const checkPrompt = `Проверь готовый ответ Das Experten на негативный отзыв перед публикацией.
 
@@ -290,16 +284,14 @@ export async function safetyCheck(env: Env, draft: string, fb: any): Promise<{ s
 Если есть — ответь: UNSAFE: <одно предложение что не так>`;
 
   try {
-    const data: any = await callAnthropicRaw({
-      oauthToken: token,
-      model: DEFAULT_MODEL,
-      maxTokens: 100,
-      messages: [{ role: 'user', content: checkPrompt }],
-    });
-    const text = (data.content?.[0]?.text ?? '').trim().toUpperCase();
-    if (text.startsWith('SAFE')) return { safe: true };
-    if (text.startsWith('UNSAFE')) {
-      const reason = (data.content?.[0]?.text ?? '').replace(/^UNSAFE:?\s*/i, '').trim();
+    const r = await callPro(
+      [{ role: 'user', content: checkPrompt }],
+      { env, maxTokens: 100, temperature: 0.3 },
+    );
+    const upper = r.text.trim().toUpperCase();
+    if (upper.startsWith('SAFE')) return { safe: true };
+    if (upper.startsWith('UNSAFE')) {
+      const reason = r.text.replace(/^UNSAFE:?\s*/i, '').trim();
       return { safe: false, reason };
     }
     return { safe: true }; // unknown answer — fail-open

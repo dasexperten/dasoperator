@@ -15,7 +15,7 @@
 // =============================================================================
 
 import type { Env } from '../types';
-import { callAnthropicRaw } from './anthropic';
+import { callPro } from './llm';
 
 export interface BankMatchRule {
   id: string;
@@ -147,7 +147,7 @@ export async function suggestRuleFromAssignment(
     } | null;
   }
 ): Promise<RuleSuggestion | null> {
-  if (!env.CLAUDE_CODE_OAUTH_TOKEN && !env.ANTHROPIC_API_KEY) {
+  if (!env.CLAUDE_CODE_OAUTH_TOKEN && !env.DEEPSEEK_API_KEY) {
     // Fallback: deterministic rule without LLM
     return fallbackSuggestion(context);
   }
@@ -186,16 +186,12 @@ Rules for pattern selection:
 - Return ONLY JSON, no markdown fences.`;
 
   try {
-    const data = await callAnthropicRaw({
-      oauthToken: env.CLAUDE_CODE_OAUTH_TOKEN ?? env.ANTHROPIC_API_KEY ?? '',
-      model: 'claude-sonnet-4-6',
-      maxTokens: 400,
-      temperature: 0.3,
-      messages: [{ role: 'user', content: prompt }],
-    });
+    const result = await callPro(
+      [{ role: 'user', content: prompt }],
+      { env, maxTokens: 400, temperature: 0.3 },
+    );
 
-    const text = (data.content ?? []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('') || '';
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const jsonMatch = result.text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return fallbackSuggestion(context);
 
     const parsed = JSON.parse(jsonMatch[0]) as {

@@ -23,14 +23,14 @@
 
 import type { Env } from '../types';
 import { callPro } from './llm';
-import { callAnthropicRaw } from './anthropic';
 import { callGeminiFlash } from './gemini';
 import { sanitizeReply } from './sanitize';
 import { loadSkillMd, loadSkuKnowledge, loadSegmentCheck } from './skill-loader';
 
-// ANTHROPIC_API constant removed — all calls go through callAnthropicRaw
-// (api/src/lib/anthropic.ts) which picks the right URL + auth transport.
-const CLAUDE_MODEL = 'claude-sonnet-4-6';
+// All Anthropic calls in this file now route through api/src/lib/llm.ts
+// (Anthropic OAuth subscription → DeepSeek V4-Pro fallback). Pay-as-you-go
+// Anthropic is intentionally NOT a fallback.
+
 
 export type ReviewType = 'POS' | 'NEG' | 'MIX' | 'Q-PROD' | 'Q-SCI' | 'Q-CERT' | 'Q-DELIV' | 'Q-USE';
 
@@ -70,27 +70,24 @@ export interface PipelineResult {
 // Provider wrappers
 // =============================================================================
 async function callClaude(env: Env, system: string, user: string, maxTokens: number): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
-  const token = env.CLAUDE_CODE_OAUTH_TOKEN ?? env.ANTHROPIC_API_KEY;
-  if (!token) throw new Error('No Anthropic credential configured (need CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)');
-  const data = await callAnthropicRaw({
-    oauthToken: token,
-    model: CLAUDE_MODEL,
-    maxTokens,
-    system: [
-      {
-        type: 'text',
-        text: system,
-        cache_control: { type: 'ephemeral' },
-      } as any,
+  if (!env.CLAUDE_CODE_OAUTH_TOKEN && !env.DEEPSEEK_API_KEY) {
+    throw new Error('No LLM provider configured (need CLAUDE_CODE_OAUTH_TOKEN or DEEPSEEK_API_KEY)');
+  }
+  // Primary: Anthropic Sonnet 4.6 via OAuth (subscription quota).
+  // Automatic fallback: DeepSeek V4-Pro if Anthropic returns 429/5xx.
+  // Pay-as-you-go Anthropic is intentionally NOT a fallback.
+  // Prompt caching dropped — on OAuth subscription, all tokens count equally.
+  const r = await callPro(
+    [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
     ],
-    messages: [{ role: 'user', content: user }],
-  });
-  const text = (data.content ?? []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n').trim();
-  const usage: any = (data as any).usage ?? {};
+    { env, maxTokens, temperature: 0.3 },
+  );
   return {
-    text,
-    tokensIn: (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0),
-    tokensOut: usage.output_tokens ?? 0,
+    text: r.text.trim(),
+    tokensIn: r.usage.prompt_tokens ?? 0,
+    tokensOut: r.usage.completion_tokens ?? 0,
   };
 }
 

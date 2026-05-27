@@ -44,13 +44,16 @@ export interface Env {
   // Gemini API for rating-only review replies (hybrid pipeline)
   GEMINI_API_KEY: string;
 
-  // Claude API key — pay-as-you-go fallback for analytical tasks.
-  // Most LLM traffic now routes through CLAUDE_CODE_OAUTH_TOKEN (subscription
-  // quota) via api/src/lib/llm.ts. This key remains for the few direct callers
-  // that still call api.anthropic.com without going through the router.
+  // ⚠️ DEPRECATED (2026-05-28): no code path reads this anymore.
+  // The ERP's only Anthropic transport is OAuth (CLAUDE_CODE_OAUTH_TOKEN).
+  // Pay-as-you-go Anthropic is intentionally NOT a fallback — DeepSeek V4-Pro
+  // is the sole fallback, routed via api/src/lib/llm.ts. This field is kept
+  // in the interface so that the Worker secret binding remains valid and
+  // can be removed via Cloudflare dashboard at Aram's discretion.
   ANTHROPIC_API_KEY?: string;
 
   // Claude Code OAuth token (sk-ant-oat01-*) — Max 20x subscription quota.
+  // PRIMARY (and only) Anthropic credential used by the ERP.
   // Used by api/src/lib/anthropic.ts. Generated via `claude setup-token`,
   // expires 1 year after issue (current token 2026-05-27 → 2027-05-27).
   // ROTATION: re-run `claude setup-token` locally → put via

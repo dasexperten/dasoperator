@@ -8,7 +8,6 @@ import productsRoutes from './routes/products';
 import contactsRoutes from './routes/contacts';
 import directoriesRoutes from './routes/directories';
 import pricerRoutes from './routes/pricer';
-import priceTypesRoutes from './routes/price-types';
 import emailRoutes from './routes/email';
 import partnersRoutes from './routes/partners';
 import sequencesRoutes from './routes/sequences';
@@ -81,6 +80,50 @@ app.notFound((c) => {
 });
 
 app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.8.0', phase: '7.0-bank-integration' }));
+
+// =============================================================================
+// LLM diagnostic — verifies which provider actually serves traffic.
+// GET /api/_llm-diag?model=pro|flash (default: pro)
+// Returns { provider, model, ok, latency_ms, sample_text }.
+// Non-destructive: tiny ping prompt, no D1/R2 writes.
+// =============================================================================
+app.get('/api/_llm-diag', async (c) => {
+  const { callPro, callFlash } = await import('./lib/llm');
+  const model = c.req.query('model') === 'flash' ? 'flash' : 'pro';
+  const t0 = Date.now();
+  try {
+    const fn = model === 'flash' ? callFlash : callPro;
+    const r = await fn(
+      [{ role: 'user', content: 'Reply with exactly: pong' }],
+      { env: c.env, maxTokens: 20, temperature: 0 },
+    );
+    return ok(c, {
+      ok: true,
+      requested: model,
+      provider: r.provider,
+      model: r.model,
+      latency_ms: Date.now() - t0,
+      sample_text: r.text.slice(0, 60),
+      tokens: r.usage,
+      providers_configured: {
+        anthropic_oauth: !!c.env.CLAUDE_CODE_OAUTH_TOKEN,
+        deepseek: !!c.env.DEEPSEEK_API_KEY,
+      },
+    });
+  } catch (e: any) {
+    return c.json({
+      ok: false,
+      requested: model,
+      error: String(e?.message ?? e),
+      latency_ms: Date.now() - t0,
+      providers_configured: {
+        anthropic_oauth: !!c.env.CLAUDE_CODE_OAUTH_TOKEN,
+        deepseek: !!c.env.DEEPSEEK_API_KEY,
+      },
+    }, 500);
+  }
+});
+
 app.route('/health', healthRoutes);
 app.route('/api/products', productsRoutes);
 app.route('/api/products', productsPricingRoutes);  // adds :productId/price
@@ -94,7 +137,6 @@ app.route('/api/partners', netBalancePerPartner);   // adds :slug/net-balance
 app.route('/api/net-balance', netBalanceBulk);
 app.route('/api/contracts', contractsRoutes);
 app.route('/api/pricer', pricerRoutes);
-app.route('/api/price-types', priceTypesRoutes);
 app.route('/api/email', emailRoutes);
 app.route('/api/sequences', sequencesRoutes);
 app.route('/', attachmentsRoutes);

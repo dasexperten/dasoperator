@@ -28,6 +28,7 @@ import type { Env } from '../types';
 import { findExistingPartnerByName, isBankProviderName, generateReadablePartnerId } from './partner-dedup';
 import { recordRuleHit, findOperationForRule } from './bank-match-rules';
 import { classifyTransaction, decideAction, persistSuggestion } from './transaction-classifier';
+import { reconcileBankTxAmountIntoInbox } from './invoice-amount-reconcile';
 
 // Currency minor-unit conversion factor — how many minor units per 1 major.
 // RUB (Modulbank), USD/EUR/AED (Wio): stored × 100 — divide.
@@ -190,6 +191,20 @@ export async function autoMatchBankTransaction(
 
   if (!tx) {
     return { outcome: 'no_candidate', operation_id: null, attachment_ids: [], reason: 'tx not found' };
+  }
+
+  // RAIL 2 (2026-05-27): bank tx amount is the source of truth for invoice
+  // reconciliation. If this tx's purpose names an invoice that already has
+  // an inbox row with a different extracted_amount (vision LLM mis-read),
+  // overwrite the inbox amount before matching proceeds. Side-effect only —
+  // never fails the matcher.
+  try {
+    const reconciled = await reconcileBankTxAmountIntoInbox(env, txId);
+    if (reconciled.length > 0) {
+      console.log(`[bank-auto-match] rail2 reconciled ${reconciled.length} inbox row(s) for tx ${txId}`);
+    }
+  } catch (reconcileErr) {
+    console.error('[bank-auto-match] rail2 reconcile failed (non-fatal):', reconcileErr);
   }
 
   // =========================================================================
@@ -1145,3 +1160,4 @@ async function getFxRateToUsd(
   }
   return null;
 }
+

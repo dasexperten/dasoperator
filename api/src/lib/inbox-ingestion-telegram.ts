@@ -29,6 +29,7 @@
 
 import type { Env } from '../types';
 import { findMatchingOperation, applyMatchToInbox } from './inbox-auto-match';
+import { classifyViaClaude } from './inbox-ingestion';
 
 const TELEGRAMER_BRIDGE = 'https://telegramer-bridge.dasexperten.workers.dev';
 // Direct VPS endpoints (Worker→VPS via sslip.io DNS).
@@ -313,13 +314,31 @@ export async function runInboxIngestionTelegram(
             },
           });
 
-          // Step D — extract text (PDF text shaft is best-effort)
+          // Step D — extract text (PDF text strip is best-effort, only works for text-layer PDFs)
           const isPdf = (fileResp.mime_type || '').includes('pdf') ||
                          filename.toLowerCase().endsWith('.pdf');
           const text = isPdf ? await extractPdfText(fileBuf) : '';
 
-          // Step E — DeepSeek classify
-          const extracted = await deepseekClassifyTelegram(env, text, msg, filename);
+          // Step E — classify. For PDFs try Claude Vision first (reads scanned
+          // PDFs natively — F4 invoices are scan-only, no text layer, so the
+          // regex extractor returns empty and DeepSeek would only see filename).
+          // Fall back to DeepSeek with extracted text on failure or non-PDFs.
+          let extracted: any = null;
+          if (isPdf) {
+            try {
+              extracted = await classifyViaClaude(env, fileBuf, {
+                from: msg.sender_username || '',
+                subject: msg.text || '',
+                filename,
+                snippet: '',
+              });
+            } catch (claudeErr) {
+              console.error(`[tg-inbox] Claude classify threw for ${filename}:`, claudeErr);
+            }
+          }
+          if (!extracted) {
+            extracted = await deepseekClassifyTelegram(env, text, msg, filename);
+          }
           if (!extracted) {
             stats.errors++;
             await insertTelegramInbox(env, src, msg, r2Key, 'error',
@@ -549,3 +568,4 @@ async function insertTelegramInbox(
 
   return invId;
 }
+

@@ -8,7 +8,6 @@ import productsRoutes from './routes/products';
 import contactsRoutes from './routes/contacts';
 import directoriesRoutes from './routes/directories';
 import pricerRoutes from './routes/pricer';
-import priceTypesRoutes from './routes/price-types';
 import emailRoutes from './routes/email';
 import partnersRoutes from './routes/partners';
 import sequencesRoutes from './routes/sequences';
@@ -84,23 +83,29 @@ app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.8.0', phase: '7
 
 // =============================================================================
 // LLM diagnostic — verifies which provider actually serves traffic.
-// GET /api/_llm-diag?model=pro|flash (default: pro)
+// GET /api/_llm-diag?model=pro|flash&prefer=auto|anthropic|deepseek
+//   model:  pro=Sonnet 4.6 (default) | flash=Haiku 4.5
+//   prefer: auto=Anthropic→DeepSeek fallback (default)
+//           anthropic=pin Anthropic, no fallback
+//           deepseek=skip Anthropic, force DeepSeek
 // Returns { provider, model, ok, latency_ms, sample_text }.
 // Non-destructive: tiny ping prompt, no D1/R2 writes.
 // =============================================================================
 app.get('/api/_llm-diag', async (c) => {
   const { callPro, callFlash } = await import('./lib/llm');
   const model = c.req.query('model') === 'flash' ? 'flash' : 'pro';
+  const preferRaw = c.req.query('prefer');
+  const prefer = (preferRaw === 'anthropic' || preferRaw === 'deepseek') ? preferRaw : 'auto';
   const t0 = Date.now();
   try {
     const fn = model === 'flash' ? callFlash : callPro;
     const r = await fn(
       [{ role: 'user', content: 'Reply with exactly: pong' }],
-      { env: c.env, maxTokens: 20, temperature: 0 },
+      { env: c.env, maxTokens: 20, temperature: 0, prefer },
     );
     return ok(c, {
       ok: true,
-      requested: model,
+      requested: { model, prefer },
       provider: r.provider,
       model: r.model,
       latency_ms: Date.now() - t0,
@@ -114,7 +119,7 @@ app.get('/api/_llm-diag', async (c) => {
   } catch (e: any) {
     return c.json({
       ok: false,
-      requested: model,
+      requested: { model, prefer },
       error: String(e?.message ?? e),
       latency_ms: Date.now() - t0,
       providers_configured: {
@@ -138,7 +143,6 @@ app.route('/api/partners', netBalancePerPartner);   // adds :slug/net-balance
 app.route('/api/net-balance', netBalanceBulk);
 app.route('/api/contracts', contractsRoutes);
 app.route('/api/pricer', pricerRoutes);
-app.route('/api/price-types', priceTypesRoutes);
 app.route('/api/email', emailRoutes);
 app.route('/api/sequences', sequencesRoutes);
 app.route('/', attachmentsRoutes);

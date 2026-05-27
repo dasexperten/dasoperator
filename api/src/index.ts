@@ -8,6 +8,8 @@ import productsRoutes from './routes/products';
 import contactsRoutes from './routes/contacts';
 import directoriesRoutes from './routes/directories';
 import pricerRoutes from './routes/pricer';
+// !! KEEP — registered route for /api/price-types — DO NOT REMOVE on parallel edits
+import priceTypesRoutes from './routes/price-types';
 import emailRoutes from './routes/email';
 import partnersRoutes from './routes/partners';
 import sequencesRoutes from './routes/sequences';
@@ -143,6 +145,8 @@ app.route('/api/partners', netBalancePerPartner);   // adds :slug/net-balance
 app.route('/api/net-balance', netBalanceBulk);
 app.route('/api/contracts', contractsRoutes);
 app.route('/api/pricer', pricerRoutes);
+// !! KEEP — /api/price-types CRUD (GET, POST, PATCH) — see api/src/routes/price-types.ts
+app.route('/api/price-types', priceTypesRoutes);
 app.route('/api/email', emailRoutes);
 app.route('/api/sequences', sequencesRoutes);
 app.route('/', attachmentsRoutes);

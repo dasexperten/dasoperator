@@ -768,5 +768,130 @@ inbox.post('/:id/attach-to-operation', async (c) => {
   }
 });
 
+// =============================================================================
+// POST /api/inbox/:id/reclassify — re-run Claude Vision on R2 attachment to
+// refresh extracted_* fields. Use when initial classification ran with empty
+// text (image-only PDFs that returned nothing from regex stripper, leaving
+// vendor_inn/amount NULL and the row stuck in needs_partner_link).
+// =============================================================================
+inbox.post('/:id/reclassify', async (c) => {
+  const id = c.req.param('id');
+  const now = Math.floor(Date.now() / 1000);
+
+  try {
+    const row = await c.env.DB.prepare(
+      `SELECT id, source_type, status, attachment_filename, attachment_r2_key, attachment_content_type,
+              telegram_sender_username, email_from, email_subject, email_snippet
+         FROM invoice_inbox
+        WHERE id = ? AND deleted_at IS NULL`
+    ).bind(id).first<any>();
+
+    if (!row) return fail(c, 404, [{ code: 'inbox_not_found', message: 'Inbox row not found' }]);
+    if (!row.attachment_r2_key) {
+      return fail(c, 400, [{ code: 'no_attachment', message: 'No R2 attachment to reclassify' }]);
+    }
+
+    // Fetch PDF from R2
+    const obj = await c.env.DOCS.get(row.attachment_r2_key);
+    if (!obj) {
+      return fail(c, 404, [{ code: 'r2_object_missing', message: `R2 key not found: ${row.attachment_r2_key}` }]);
+    }
+    const buf = await obj.arrayBuffer();
+
+    const isPdf = (row.attachment_content_type || '').includes('pdf') ||
+                  (row.attachment_filename || '').toLowerCase().endsWith('.pdf');
+    if (!isPdf) {
+      return fail(c, 400, [{ code: 'not_pdf', message: 'Reclassify only supports PDFs' }]);
+    }
+
+    const extracted = await classifyViaClaude(c.env, buf, {
+      from: row.telegram_sender_username || row.email_from || '',
+      subject: row.email_subject || '',
+      filename: row.attachment_filename || '',
+      snippet: row.email_snippet || '',
+    });
+
+    if (!extracted) {
+      return fail(c, 502, [{ code: 'claude_failed', message: 'Claude Vision returned null' }]);
+    }
+
+    let cls = extracted.classification;
+    if (cls === 'unclear') cls = 'pending';
+
+    const lineItemsJson = extracted.line_items ? JSON.stringify(extracted.line_items) : null;
+    const reclassifyNote = extracted.notes
+      ? `[reclassified ${new Date().toISOString().slice(0, 10)}] ${extracted.notes}`
+      : `[reclassified ${new Date().toISOString().slice(0, 10)}]`;
+
+    await c.env.DB.prepare(
+      `UPDATE invoice_inbox
+          SET classification = ?,
+              classification_confidence = ?,
+              extracted_vendor_name      = COALESCE(?, extracted_vendor_name),
+              extracted_vendor_inn       = COALESCE(?, extracted_vendor_inn),
+              extracted_invoice_no       = COALESCE(?, extracted_invoice_no),
+              extracted_invoice_date     = COALESCE(?, extracted_invoice_date),
+              extracted_period           = COALESCE(?, extracted_period),
+              extracted_currency         = COALESCE(?, extracted_currency),
+              extracted_amount           = COALESCE(?, extracted_amount),
+              extracted_line_items_json  = COALESCE(?, extracted_line_items_json),
+              extracted_vendor_email     = COALESCE(?, extracted_vendor_email),
+              extracted_vendor_country   = COALESCE(?, extracted_vendor_country),
+              extracted_vendor_address   = COALESCE(?, extracted_vendor_address),
+              extracted_bank_name        = COALESCE(?, extracted_bank_name),
+              extracted_bank_account     = COALESCE(?, extracted_bank_account),
+              extracted_iban             = COALESCE(?, extracted_iban),
+              extracted_swift            = COALESCE(?, extracted_swift),
+              extracted_service_category = COALESCE(?, extracted_service_category),
+              extracted_buyer_entity     = COALESCE(?, extracted_buyer_entity),
+              notes = ?,
+              processed_at = ?
+       WHERE id = ?`
+    ).bind(
+      cls,
+      extracted.confidence ?? null,
+      extracted.vendor_name || null,
+      extracted.vendor_tax_id || null,
+      extracted.invoice_no || null,
+      extracted.invoice_date || null,
+      extracted.period || null,
+      extracted.currency || null,
+      extracted.amount_total ?? null,
+      lineItemsJson,
+      extracted.vendor_email || null,
+      extracted.vendor_country || null,
+      extracted.vendor_address || null,
+      extracted.bank_name || null,
+      extracted.bank_account || null,
+      extracted.iban || null,
+      extracted.swift || null,
+      extracted.service_category || null,
+      extracted.buyer_entity || null,
+      reclassifyNote,
+      now,
+      id,
+    ).run();
+
+    return ok(c, {
+      id,
+      classification: cls,
+      extracted: {
+        vendor_name: extracted.vendor_name ?? null,
+        vendor_tax_id: extracted.vendor_tax_id ?? null,
+        invoice_no: extracted.invoice_no ?? null,
+        invoice_date: extracted.invoice_date ?? null,
+        currency: extracted.currency ?? null,
+        amount_total: extracted.amount_total ?? null,
+      },
+    });
+  } catch (e) {
+    return fail(c, 500, [{
+      code: 'reclassify_error',
+      message: e instanceof Error ? e.message : String(e),
+    }]);
+  }
+});
+
 export default inbox;
+
 

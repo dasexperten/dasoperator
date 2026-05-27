@@ -220,4 +220,66 @@ admin.post('/run-perf-create', async (c) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// POST /admin/migrate/telegram-inbox-dedup — RAIL 3 (2026-05-27)
+// Adds a UNIQUE partial index on invoice_inbox (telegram_chat_id, attachment_filename)
+// to prevent the same Telegram message file from being ingested twice when F4
+// re-forwards the same attachment within minutes.
+//
+// Step 1: soft-delete duplicates, keeping the oldest occurrence per
+//         (telegram_chat_id, attachment_filename) for source_type='telegram'.
+// Step 2: create the UNIQUE partial index.
+//
+// Idempotent — checks if the index exists before creating.
+// ---------------------------------------------------------------------------
+admin.post('/migrate/telegram-inbox-dedup', async (c) => {
+  const existing = await c.env.DB.prepare(
+    `SELECT name FROM sqlite_master
+      WHERE type = 'index' AND name = 'idx_invoice_inbox_telegram_dedup'`
+  ).first<{ name: string }>();
+  if (existing) {
+    return ok(c, { skipped: true, reason: 'index already exists' });
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+
+  // Step 1: soft-delete duplicates. "Oldest survives" = MIN(created_at).
+  const dupResult = await c.env.DB.prepare(
+    `UPDATE invoice_inbox
+        SET deleted_at = ?,
+            notes = COALESCE(notes || char(10), '')
+                    || '[rail3 dedup] soft-deleted as duplicate of (telegram_chat_id, attachment_filename); kept oldest by created_at'
+      WHERE source_type = 'telegram'
+        AND deleted_at IS NULL
+        AND id NOT IN (
+          SELECT id FROM invoice_inbox i1
+           WHERE source_type = 'telegram'
+             AND deleted_at IS NULL
+             AND created_at = (
+               SELECT MIN(created_at) FROM invoice_inbox i2
+                WHERE i2.source_type = 'telegram'
+                  AND i2.deleted_at IS NULL
+                  AND i2.telegram_chat_id = i1.telegram_chat_id
+                  AND i2.attachment_filename = i1.attachment_filename
+             )
+        )`
+  ).bind(now).run();
+
+  // Step 2: create UNIQUE partial index. SQLite supports partial indexes
+  // via the WHERE clause; D1 supports them too.
+  await c.env.DB.prepare(
+    `CREATE UNIQUE INDEX idx_invoice_inbox_telegram_dedup
+       ON invoice_inbox (telegram_chat_id, attachment_filename)
+     WHERE source_type = 'telegram' AND deleted_at IS NULL`
+  ).run();
+
+  return ok(c, {
+    applied: true,
+    soft_deleted_duplicates: dupResult.meta?.changes ?? 0,
+    index_created: 'idx_invoice_inbox_telegram_dedup',
+  });
+});
+
 export default admin;
+
+

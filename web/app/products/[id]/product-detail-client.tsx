@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Loader2, Star, Trash2, Upload, Pencil, Save as SaveIcon, X, History } from 'lucide-react';
 import {
@@ -196,6 +196,30 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
     sell_price: '',
     notes: '',
   });
+
+  // Price-types catalog — loaded from /api/price-types. Falls back to the hardcoded
+  // reference list on first paint and on network failure, so the UI is never empty.
+  const [priceTypes, setPriceTypes] = useState(PRICE_TYPES_REFERENCE);
+  const [createPtOpen, setCreatePtOpen] = useState(false);
+
+  const refetchPriceTypes = useCallback(async () => {
+    try {
+      const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'https://dasoperator-api.dasexperten.workers.dev';
+      const r = await fetch(`${apiBase}/api/price-types`);
+      const j = await r.json();
+      if (j?.success && Array.isArray(j?.result?.price_types) && j.result.price_types.length > 0) {
+        setPriceTypes(j.result.price_types.map((pt: { id: string; code: string; currency: string; used_by_entity: string | null; description: string | null }) => ({
+          id: pt.id,
+          code: pt.code,
+          currency: pt.currency,
+          used_by_entity: pt.used_by_entity ?? '',
+          description: pt.description ?? '',
+        })));
+      }
+    } catch { /* keep fallback list */ }
+  }, []);
+
+  useEffect(() => { refetchPriceTypes(); }, [refetchPriceTypes]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -640,7 +664,7 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
           right={
             <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
               <span style={{ fontSize: '13px', color: '#6B6B6B' }}>
-                {prices.filter((p) => p.is_active).length} of {PRICE_TYPES_REFERENCE.length} set
+                {prices.filter((p) => p.is_active).length} of {priceTypes.length} set
               </span>
               {!addingPrice && (
                 <button
@@ -665,6 +689,8 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
             saving={priceSaving}
             error={priceError}
             existingTypes={prices.filter((p) => p.is_active).map((p) => p.price_type_id)}
+            allTypes={priceTypes}
+            onCreateRequest={() => setCreatePtOpen(true)}
             draft={priceDraft}
             onChange={setPriceDraft}
             onCancel={handleAddPriceCancel}
@@ -673,7 +699,7 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
         )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: addingPrice ? '12px' : 0 }}>
-          {PRICE_TYPES_REFERENCE.map((pt) => {
+          {priceTypes.map((pt) => {
             const row = prices.find((p) => p.price_type_id === pt.id);
             return (
               <PriceRow
@@ -1150,6 +1176,17 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
           </table>
         )}
       </Card>
+
+      {createPtOpen && (
+        <NewPriceTypeModal
+          onClose={() => setCreatePtOpen(false)}
+          onCreated={async (newType) => {
+            await refetchPriceTypes();
+            setPriceDraft((d) => ({ ...d, price_type_id: newType.id }));
+            setCreatePtOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1589,19 +1626,21 @@ function PriceRow({
 // PriceEditCard — the "+ Add price" form (kept for new type selection)
 // =============================================================================
 function PriceEditCard({
-  mode, saving, error, existingTypes, draft, onChange, onCancel, onSave,
+  mode, saving, error, existingTypes, allTypes, onCreateRequest, draft, onChange, onCancel, onSave,
 }: {
   mode: 'add';
   saving: boolean;
   error: string | null;
   existingTypes: string[];
+  allTypes: typeof PRICE_TYPES_REFERENCE;
+  onCreateRequest: () => void;
   draft: { price_type_id: string; sell_price: string; notes: string };
   onChange: (d: { price_type_id: string; sell_price: string; notes: string }) => void;
   onCancel: () => void;
   onSave: () => void;
 }) {
   // Filter to types that don't have an active price yet — guides user to use Edit on existing
-  const available = PRICE_TYPES_REFERENCE.filter((pt) => !existingTypes.includes(pt.id));
+  const available = allTypes.filter((pt) => !existingTypes.includes(pt.id));
   const todayIso = new Date().toISOString().slice(0, 10);
   const [effDate, setEffDate] = useState(todayIso);
 
@@ -1613,17 +1652,25 @@ function PriceEditCard({
           <div style={{ fontSize: '12px', fontWeight: 500, color: '#6B6B6B', marginBottom: '4px' }}>Price type</div>
           <select
             value={draft.price_type_id}
-            onChange={(e) => onChange({ ...draft, price_type_id: e.target.value })}
-            disabled={saving || available.length === 0}
+            onChange={(e) => {
+              if (e.target.value === '__create_new__') {
+                onCreateRequest();
+                return;
+              }
+              onChange({ ...draft, price_type_id: e.target.value });
+            }}
+            disabled={saving}
             style={{ width: '100%', padding: '8px 12px', fontSize: '14px', border: '0.5px solid #C9C5BF', borderRadius: '6px', backgroundColor: '#FFFFFF', color: INK }}
           >
             {available.length === 0 ? (
-              <option>All types set — use Edit on existing rows</option>
+              <option disabled>All types set — use Edit on existing rows</option>
             ) : (
               available.map((pt) => (
                 <option key={pt.id} value={pt.id}>{pt.code} ({pt.currency})</option>
               ))
             )}
+            <option disabled>──────────</option>
+            <option value="__create_new__" style={{ color: '#C8102E', fontWeight: 600 }}>+ Create new price type…</option>
           </select>
         </div>
         <div>
@@ -1691,3 +1738,182 @@ function PriceEditCard({
   );
 }
 
+// =============================================================================
+// NewPriceTypeModal — modal for creating a new global price type (option B flow).
+// Triggered from the "+ Create new price type…" item at the bottom of the
+// Add-a-price dropdown. On success the parent refetches the catalog and auto-
+// selects the freshly created type.
+// =============================================================================
+function NewPriceTypeModal({
+  onClose, onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (newType: { id: string; code: string; currency: string; used_by_entity: string; description: string }) => void;
+}) {
+  const ENTITIES = ['DEE', 'DEI', 'DEASEAN', 'DEC'];
+  const CURRENCIES = ['USD', 'EUR', 'RUB', 'CNY', 'VND', 'AMD', 'AED', 'KZT'];
+
+  const [code, setCode] = useState('');
+  const [description, setDescription] = useState('');
+  const [currency, setCurrency] = useState('USD');
+  const [scope, setScope] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  function toggleEntity(e: string) {
+    setScope((prev) => prev.includes(e) ? prev.filter((x) => x !== e) : [...prev, e]);
+  }
+
+  async function handleSave() {
+    setErr(null);
+    if (!code.trim()) { setErr('Code is required'); return; }
+    setSaving(true);
+    try {
+      const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'https://dasoperator-api.dasexperten.workers.dev';
+      const r = await fetch(`${apiBase}/api/price-types`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: code.trim(),
+          description: description.trim() || null,
+          currency,
+          used_by_entity: scope.length > 0 ? scope.join(' / ') : null,
+        }),
+      });
+      const j = await r.json();
+      if (!j?.success) {
+        setErr(j?.errors?.[0]?.message ?? 'Failed to create price type');
+        setSaving(false);
+        return;
+      }
+      onCreated({
+        id: j.result.id,
+        code: j.result.code,
+        currency: j.result.currency,
+        used_by_entity: j.result.used_by_entity ?? '',
+        description: j.result.description ?? '',
+      });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Network error');
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 1000, padding: '24px',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          backgroundColor: '#FFFFFF', borderRadius: '12px', padding: '22px 24px',
+          width: '100%', maxWidth: '480px', boxShadow: '0 20px 50px rgba(0,0,0,0.25)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '18px', paddingBottom: '14px', borderBottom: '0.5px solid #E0DCD7' }}>
+          <div>
+            <div style={{ fontSize: '16px', fontWeight: 600, color: INK }}>New price type</div>
+            <div style={{ fontSize: '12px', color: '#6B6B6B', marginTop: '2px' }}>Будет доступен для всех товаров</div>
+          </div>
+          <button onClick={onClose} disabled={saving} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4 }}>
+            <X size={18} color="#6B6B6B" />
+          </button>
+        </div>
+
+        <div style={{ marginBottom: '12px' }}>
+          <div style={{ fontSize: '12px', fontWeight: 500, color: '#6B6B6B', marginBottom: '4px' }}>Name / Code</div>
+          <input
+            type="text"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="e.g. Distributor VND"
+            disabled={saving}
+            style={{ width: '100%', padding: '8px 12px', fontSize: '14px', border: '0.5px solid #C9C5BF', borderRadius: '6px', color: INK }}
+          />
+        </div>
+
+        <div style={{ marginBottom: '12px' }}>
+          <div style={{ fontSize: '12px', fontWeight: 500, color: '#6B6B6B', marginBottom: '4px' }}>Description</div>
+          <input
+            type="text"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Optional — what this price represents"
+            disabled={saving}
+            style={{ width: '100%', padding: '8px 12px', fontSize: '14px', border: '0.5px solid #C9C5BF', borderRadius: '6px', color: INK }}
+          />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: '12px', marginBottom: '18px' }}>
+          <div>
+            <div style={{ fontSize: '12px', fontWeight: 500, color: '#6B6B6B', marginBottom: '4px' }}>Currency</div>
+            <select
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
+              disabled={saving}
+              style={{ width: '100%', padding: '8px 12px', fontSize: '14px', border: '0.5px solid #C9C5BF', borderRadius: '6px', backgroundColor: '#FFFFFF', color: INK }}
+            >
+              {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize: '12px', fontWeight: 500, color: '#6B6B6B', marginBottom: '4px' }}>Entity scope</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', padding: '6px 8px', border: '0.5px solid #C9C5BF', borderRadius: '6px', minHeight: '34px' }}>
+              {ENTITIES.map((e) => {
+                const on = scope.includes(e);
+                return (
+                  <button
+                    key={e}
+                    type="button"
+                    onClick={() => toggleEntity(e)}
+                    disabled={saving}
+                    style={{
+                      fontSize: '11px', fontWeight: 600, padding: '4px 10px', borderRadius: '4px',
+                      border: 'none', cursor: 'pointer',
+                      backgroundColor: on ? '#FAEEDA' : '#F4F1ED',
+                      color: on ? '#854F0B' : '#9A9690',
+                    }}
+                  >{e}{on ? ' ×' : ''}</button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {err && (
+          <div style={{ marginBottom: '14px', padding: '8px 12px', backgroundColor: '#FBE9E9', border: '0.5px solid #E5B3B3', borderRadius: '6px', color: '#A32D2D', fontSize: '13px' }}>
+            {err}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+          <button
+            onClick={onClose}
+            disabled={saving}
+            style={{ fontSize: '14px', color: '#6B6B6B', backgroundColor: 'transparent', border: '0.5px solid #E0DCD7', borderRadius: '6px', padding: '8px 16px', cursor: 'pointer' }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            style={{
+              fontSize: '14px', fontWeight: 600, color: '#FFFFFF',
+              backgroundColor: 'var(--brand-rot, #C8102E)', border: 'none', borderRadius: '6px',
+              padding: '8px 18px', display: 'inline-flex', alignItems: 'center', gap: '6px',
+              cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1,
+            }}
+          >
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Create &amp; select
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

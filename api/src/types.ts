@@ -44,8 +44,19 @@ export interface Env {
   // Gemini API for rating-only review replies (hybrid pipeline)
   GEMINI_API_KEY: string;
 
-  // Claude API key — used for analytical tasks (rule extraction, complex parsing)
+  // Claude API key — pay-as-you-go fallback for analytical tasks.
+  // Most LLM traffic now routes through CLAUDE_CODE_OAUTH_TOKEN (subscription
+  // quota) via api/src/lib/llm.ts. This key remains for the few direct callers
+  // that still call api.anthropic.com without going through the router.
   ANTHROPIC_API_KEY?: string;
+
+  // Claude Code OAuth token (sk-ant-oat01-*) — Max 20x subscription quota.
+  // Used by api/src/lib/anthropic.ts. Generated via `claude setup-token`,
+  // expires 1 year after issue (current token 2026-05-27 → 2027-05-27).
+  // ROTATION: re-run `claude setup-token` locally → put via
+  //   wrangler secret put CLAUDE_CODE_OAUTH_TOKEN
+  // → update /mnt/project/anthropic.md.
+  CLAUDE_CODE_OAUTH_TOKEN?: string;
 
   // CloudConvert — docx → PDF conversion (Phase PDF)
   // Optional — if missing, PDF endpoint returns 503.

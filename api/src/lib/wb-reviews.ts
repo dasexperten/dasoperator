@@ -11,7 +11,7 @@
 // replies per tick.
 // =============================================================================
 import type { Env } from '../types';
-import { callPro } from './deepseek';
+import { callPro } from './llm';
 import { runReviewMasterPipeline, runRatingOnlyPipeline, type PipelineInput } from './review-master-pipeline';
 import { PRODUCT_KNOWLEDGE_BASE } from './wb-reviews-knowledge';
 
@@ -247,18 +247,21 @@ export async function draftReply(env: Env, fb: any, model = DEFAULT_MODEL): Prom
 
 
 // =============================================================================
-// DeepSeek variant — used for rating-only reviews.
-// Same SYSTEM_PROMPT (with full KB), same userBody, different provider.
+// Sonnet-backed variant — used for rating-only reviews. The name keeps the
+// historical "DeepSeek" suffix for backward compatibility with callers; the
+// llm router actually serves Sonnet 4.6 with DeepSeek as fallback.
 // =============================================================================
 export async function draftReplyDeepSeek(env: Env, fb: any): Promise<Draft> {
-  if (!env.DEEPSEEK_API_KEY) throw new Error('DEEPSEEK_API_KEY not configured');
+  if (!env.CLAUDE_CODE_OAUTH_TOKEN && !env.DEEPSEEK_API_KEY) {
+    throw new Error('No LLM provider configured (need CLAUDE_CODE_OAUTH_TOKEN or DEEPSEEK_API_KEY)');
+  }
   const userBody = formatFeedback(fb);
   const r = await callPro(
     [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: userBody },
     ],
-    { apiKey: env.DEEPSEEK_API_KEY, maxTokens: 1500, temperature: 0.5 },
+    { env, maxTokens: 1500, temperature: 0.5 },
   );
   return {
     text: r.text.trim(),

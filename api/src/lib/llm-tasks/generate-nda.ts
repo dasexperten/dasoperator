@@ -7,7 +7,8 @@
 // pure: data in, markdown out.
 // =============================================================================
 
-import { callPro, type ChatMessage } from '../deepseek';
+import { callPro, type ChatMessage } from '../llm';
+import type { Env } from '../../types';
 
 export interface PartnerForNda {
   id: string;
@@ -33,7 +34,12 @@ export interface GenerateNdaInput {
   designCanon: string;        // contents of templates/das-design-canon.md (R2)
   skillExtract: string;       // contents of templates/nda-skill-extract.md (R2)
   template: string;           // contents of selected nda template (R2)
-  apiKey: string;
+  /**
+   * Cloudflare Worker env binding — gives the LLM router access to both
+   * CLAUDE_CODE_OAUTH_TOKEN (primary, subscription quota) and
+   * DEEPSEEK_API_KEY (fallback).
+   */
+  env: Env;
 }
 
 export interface GenerateNdaResult {
@@ -83,7 +89,7 @@ Generate the final NDA in markdown. Replace all {{variables}} with the data abov
   ];
 
   const result = await callPro(messages, {
-    apiKey: input.apiKey,
+    env: input.env,
     temperature: 0.2,
     maxTokens: 8000,
   });

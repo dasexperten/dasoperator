@@ -22,7 +22,7 @@
 // =============================================================================
 
 import type { Env } from '../types';
-import { callPro } from './deepseek';
+import { callPro } from './llm';
 import { callGeminiFlash } from './gemini';
 import { sanitizeReply } from './sanitize';
 import { loadSkillMd, loadSkuKnowledge, loadSegmentCheck } from './skill-loader';
@@ -104,13 +104,15 @@ async function callGemini(env: Env, system: string, user: string, maxTokens: num
 }
 
 async function callDeepSeek(env: Env, system: string, user: string, maxTokens: number, temp = 0.3): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
-  if (!env.DEEPSEEK_API_KEY) throw new Error('DEEPSEEK_API_KEY not configured');
+  if (!env.CLAUDE_CODE_OAUTH_TOKEN && !env.DEEPSEEK_API_KEY) {
+    throw new Error('No LLM provider configured (need CLAUDE_CODE_OAUTH_TOKEN or DEEPSEEK_API_KEY)');
+  }
   const r = await callPro(
     [
       { role: 'system', content: system },
       { role: 'user', content: user },
     ],
-    { apiKey: env.DEEPSEEK_API_KEY, maxTokens, temperature: temp },
+    { env, maxTokens, temperature: temp },
   );
   return {
     text: r.text.trim(),

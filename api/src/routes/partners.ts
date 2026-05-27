@@ -906,14 +906,14 @@ partners.post('/:slug/agreements/generate-nda', async (c) => {
       designCanon,
       skillExtract,
       template,
-      apiKey: c.env.DEEPSEEK_API_KEY,
+      env: c.env,
     });
     ndaMarkdown = result.markdown;
     tokensUsed = result.tokensUsed;
   } catch (err) {
     return fail(c, 500, [{
       code: 'llm_failed',
-      message: 'DeepSeek call failed',
+      message: 'LLM call failed',
       details: { error: err instanceof Error ? err.message : String(err) },
     }]);
   }

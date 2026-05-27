@@ -251,6 +251,29 @@ export async function runInboxIngestionTelegram(
             console.log(`[tg-inbox] msg ${msg.tg_msg_id}: no media, skip`);
             continue;
           }
+
+          // RAIL 3 (2026-05-27): dedup pre-check on (telegram_chat_id, filename).
+          // F4 sometimes re-forwards the same files within minutes; without this
+          // check we burn VPS bandwidth + Claude Vision tokens on every duplicate
+          // and the resulting rows pile up cross-attached in invoice_inbox. The
+          // DB-level UNIQUE index is the hard guard; this is the cheap soft one.
+          const filenameForDedup = (msg.media?.filename || '').slice(0, 255);
+          if (filenameForDedup) {
+            const dup = await env.DB.prepare(
+              `SELECT id FROM invoice_inbox
+                WHERE source_type = 'telegram'
+                  AND telegram_chat_id = ?
+                  AND attachment_filename = ?
+                  AND deleted_at IS NULL
+                LIMIT 1`
+            ).bind(src.address, filenameForDedup).first<{ id: string }>();
+            if (dup) {
+              console.log(`[tg-inbox] dedup-skip msg ${msg.tg_msg_id}: filename "${filenameForDedup}" already ingested as ${dup.id}`);
+              stats.duplicates++;
+              continue;
+            }
+          }
+
           // chat_id is negative for groups, must be int
           const chatId = parseInt(src.address, 10);
           if (Number.isNaN(chatId)) {

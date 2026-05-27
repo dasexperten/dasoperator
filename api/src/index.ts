@@ -101,7 +101,7 @@ app.get('/api/_llm-diag', async (c) => {
     const fn = model === 'flash' ? callFlash : callPro;
     const r = await fn(
       [{ role: 'user', content: 'Reply with exactly: pong' }],
-      { env: c.env, maxTokens: 20, temperature: 0, prefer },
+      { env: c.env, maxTokens: 500, temperature: 0, prefer },
     );
     return ok(c, {
       ok: true,

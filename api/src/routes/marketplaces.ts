@@ -600,6 +600,51 @@ marketplaces.get('/pulse/sales-today', async (c) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/marketplaces/pulse/refresh
+// Manual on-demand refresh of the three sales feeds. Fires Ozon sales + Site
+// (no rate limit) together, then WB sales once (WB may 429 — that's fine, the
+// stamp goes amber, never an error). No long inter-call sleeps: this is a
+// single user-triggered pull, not the cron's stocks+sales chain. Returns the
+// fresh freshness object so the UI can update the stamp immediately.
+// ---------------------------------------------------------------------------
+marketplaces.post('/pulse/refresh', async (c) => {
+  const selfPost = (path: string) =>
+    c.env.SELF.fetch(new Request(`https://internal${path}`, { method: 'POST' }))
+      .then((r) => r.status)
+      .catch(() => 0);
+
+  // Ozon sales + Site run in parallel (neither is rate-limited).
+  const [ozonStatus, siteStatus] = await Promise.all([
+    selfPost('/api/marketplaces/sync/sales/ozon'),
+    c.env.SELF.fetch(new Request('https://internal/api/crm/sync-site-sales', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })).then((r) => r.status).catch(() => 0),
+  ]);
+
+  // WB sales last, on its own (strict 1 req/min limit). A 429 here is expected
+  // and non-fatal — the UI reflects it as "WB busy, retrying".
+  const wbStatus = await selfPost('/api/marketplaces/sync/sales/wb');
+
+  const freshRow = await c.env.DB.prepare(`
+    SELECT MAX(finished_at) AS last_ok
+    FROM marketplace_sync_log
+    WHERE marketplace IN ('ozon-sales','wb-sales') AND status = 'ok'
+  `).first<{ last_ok: number | null }>();
+
+  const wbThrottled = wbStatus === 429 || wbStatus === 0;
+
+  return ok(c, {
+    triggered: { ozon: ozonStatus, wb: wbStatus, site: siteStatus },
+    freshness: {
+      last_success_at: freshRow?.last_ok ?? null,
+      throttled: wbThrottled,
+    },
+  });
+});
+
 // ════════════════════════════════════════════════════════════════════════════
 // POST /api/marketplaces/backfill-sales
 //

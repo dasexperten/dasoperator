@@ -122,6 +122,19 @@ export default function MarketplacePulse() {
   const [spotlight, setSpotlight] = useState<Spotlight | null>(null);
   const [trend, setTrend] = useState<DailyTrend | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function handleRefresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await fetch(`${API_BASE}/api/marketplaces/pulse/refresh`, { method: 'POST' });
+    } catch { /* throttled / network — fall through to re-fetch */ }
+    const fresh = await fetchJson<SalesToday>('/api/marketplaces/pulse/sales-today');
+    if (fresh) setSalesToday(fresh);
+    setRefreshing(false);
+  }
+
 
   useEffect(() => {
     Promise.all([
@@ -280,17 +293,30 @@ function SalesTodayCard({ data, loading }: { data: SalesToday | null; loading: b
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px',
                   fontSize: '14px',
-                  color: data.freshness.throttled ? '#854F0B' : 'var(--fg-muted)',
+                  color: refreshing ? 'var(--fg-muted)' : (data.freshness.throttled ? '#854F0B' : 'var(--fg-muted)'),
                 }}>
                   <span style={{
                     width: '7px', height: '7px', borderRadius: '50%',
-                    background: data.freshness.throttled ? '#BA7517' : '#3B6D11',
+                    background: refreshing ? 'var(--fg-3)' : (data.freshness.throttled ? '#BA7517' : '#3B6D11'),
                     flexShrink: 0,
                   }} />
                   <span>
-                    {fmtUpdatedAgo(data.freshness.last_success_at)}
-                    {data.freshness.throttled ? ' · WB busy, retrying' : ''}
+                    {refreshing
+                      ? 'Refreshing… showing last saved'
+                      : fmtUpdatedAgo(data.freshness.last_success_at) + (data.freshness.throttled ? ' · WB busy, retrying' : '')}
                   </span>
+                  {!refreshing && (
+                    <button
+                      onClick={handleRefresh}
+                      style={{
+                        background: 'none', border: 'none', padding: 0, marginLeft: '2px',
+                        font: 'inherit', fontSize: '14px', color: 'var(--accent, #C4302B)',
+                        cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '2px',
+                      }}
+                    >
+                      refresh
+                    </button>
+                  )}
                 </div>
               )}
             </div>

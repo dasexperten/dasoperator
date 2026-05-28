@@ -684,6 +684,12 @@ export async function handleScheduled(
     return;
   }
 
+  // Daily marketplace SALES pull — 05:00 UTC (08:00 МСК), after yesterday settles.
+  if (cron === '0 5 * * *') {
+    await runMarketplaceSalesSync(env);
+    return;
+  }
+
     console.warn(`[cron] no handler for cron expression: ${cron}`);
 
   // FX refresh — daily, internal libs, no self-fetch needed
@@ -750,14 +756,22 @@ async function runMarketplaceSync(env: Env): Promise<void> {
     console.log(`[cron] skipping WB stocks (hour=${hourForWb}, runs at 0/4/8/12/16/20 UTC due to WB rate limit)`);
   }
 
-  // Sales — every hour. WB statistics-api has a 1 req/min rate limit;
-  // we make exactly one WB sales call per cron tick, with a 90-second pause
-  // after Ozon sales, which keeps us well under the limit. Ozon sales and
-  // Site sales (Retail CRM) have no rate limit and can run hourly without
-  // friction. WB stocks alone is gated to every 4 hours (above) because
-  // its own endpoint has a ~1 req per 3-4 hour budget.
+  // Sales moved OUT of the hourly cron (2026-05-28). Sales now pull once daily
+  // at 05:00 UTC (08:00 МСК) via runMarketplaceSalesSync, plus the manual
+  // "refresh" button on the dashboard. This removes 24×/day rate-limit churn —
+  // sales feeds hit WB/Ozon analytics once a day when yesterday is fully settled.
+  console.log('[cron] marketplace STOCKS sync done (sales run on daily 05:00 cron)');
+}
 
-  await new Promise((r) => setTimeout(r, 5000));
+// =============================================================================
+// Marketplace SALES sync — daily at 05:00 UTC (08:00 МСК).
+// Pulls Ozon sales, WB sales, Site sales once per day. Generous spacing since
+// there is no hourly pressure; WB's 1 req/min limit is trivially satisfied.
+// =============================================================================
+async function runMarketplaceSalesSync(env: Env): Promise<void> {
+  console.log('[cron] marketplace SALES sync starting (daily 05:00 UTC)');
+  const selfFetch = (path: string) =>
+    env.SELF.fetch(new Request(`https://internal${path}`, { method: 'POST' }));
 
   try {
     const r = await selfFetch('/api/marketplaces/sync/sales/ozon');
@@ -766,8 +780,7 @@ async function runMarketplaceSync(env: Env): Promise<void> {
     console.error('[cron] ozon sales threw:', e);
   }
 
-  // Big gap before WB sales — both stocks and sales hit statistics-api which
-  // has the strict 1 req/min limit. Wait at least 90 seconds.
+  // Wait well past WB's 1 req/min window before the WB sales call.
   await new Promise((r) => setTimeout(r, 90_000));
 
   try {
@@ -777,21 +790,18 @@ async function runMarketplaceSync(env: Env): Promise<void> {
     console.error('[cron] wb sales threw:', e);
   }
 
-  // Site sales — Retail CRM API isn't rate-limited like WB statistics-api,
-  // so no extra sleep needed before this call.
   try {
-    const req = new Request('https://internal/api/crm/sync-site-sales', {
+    const r = await env.SELF.fetch(new Request('https://internal/api/crm/sync-site-sales', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),  // defaults to last 2 days
-    });
-    const r = await env.SELF.fetch(req);
+      body: JSON.stringify({}),
+    }));
     console.log(`[cron] site sales HTTP ${r.status}`);
   } catch (e) {
     console.error('[cron] site sales threw:', e);
   }
 
-  console.log('[cron] marketplace sync done');
+  console.log('[cron] marketplace SALES sync done');
 }
 
 

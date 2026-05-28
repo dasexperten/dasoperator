@@ -41,3 +41,45 @@ Pulls operation + line items from D1, picks seller profile, renders to single-pa
 
 ## Dependencies
 reportlab, pypdf, num2words, Pillow, wqy-zenhei font (CJK), pdf2image (verification only)
+
+
+---
+
+# Russian Invoice-Specification (LOCKED 2026-05-28)
+
+Standard form for ALL purchase operations (toothbrushes, dental floss, toothpaste),
+regardless of who the Shipper or Seller is. Portrait A4. Generator:
+`build_invoice_specification_ru.py`. Approved by Aram.
+
+## Structure (top to bottom)
+1. Title **INVOICE-SPECIFICATION / Счёт-Спецификация** — LEFT aligned
+2. Contract line: Договор № | № | Date / Дата
+3. Station consignee band (Получатель по ст.) — fixed: STS-Logistics, Selyatino; RU dark blue
+4. Three roles:
+   - **Отправитель / Shipper** = factory (Jinxia / Honghui)
+   - **Продавец / Seller** = factory OR DAS EXPERTEN INTERNATIONAL (DEI)
+   - **Покупатель / Buyer** = DAS EXPERTEN EURASIA (DEE)
+   Each: EN black bold top, RU dark blue (#3a4a78) below
+5. Terms band: Terms of delivery (FOB) | Destination (РФ) | Container | Station (Selyatino)
+6. Line-items table, FULL PAGE WIDTH (cols sum to 1.0), grouped by HS code:
+   No | HS Code | Origin (China/Китай, Китай dark blue, one line) | Description (EN + RU dark blue)
+   | Qty pcs | Pkgs | Net wt kg | Gross wt kg | Price | Amount
+   - weight/qty/pkg cells non-bold compact (6pt) to avoid wrapping; price/amount bold
+7. Signature block — RIGHT aligned: signatory title + name, signature image + seller stamp
+
+## Signature/stamp rule
+- Seller = factory → factory stamp + factory signatory (Jinxia: Lois Guan / Honghui: Ellen Wei)
+- Seller = DEI → DEI stamp + Aram Badalyan, General Manager (assets pending: dei_stamp.png, aram_badalyan_signature.png)
+
+## FOB by factory
+Jinxia → FOB Shanghai. Honghui/WDAA (toothpaste) → FOB Guangzhou.
+
+## Currency
+Follows the operation's currency. Factory-direct purchase = CNY. Via DEI = USD.
+
+## HS codes
+Toothbrushes 9603210000. Interdental brushes 9603300000. Dental floss 3306200000.
+
+## Distinct from export CI/PL/IS
+The export form (build_invoices.py) is EN+CN, 2 roles (seller/buyer), for international shipping docs.
+This Russian Invoice-Specification is EN+RU, 3 roles (shipper/seller/buyer), for RF customs clearance.

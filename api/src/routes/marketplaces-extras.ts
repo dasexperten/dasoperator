@@ -394,8 +394,10 @@ marketplacesExtras.post('/sync/sales/wb', async (c) => {
       const article = (r.supplierArticle as string || '').trim();
       if (!article) continue;
       const skuLc = article.toLowerCase();
-      const finishedPrice = (r.finishedPrice || 0) as number;
-      const revKopecks = Math.round(finishedPrice * 100);
+      // priceWithDisc = price the buyer pays (matches WB cabinet 'Выкупы').
+      // finishedPrice excludes the WB-wallet discount layer and reads ~30% low.
+      const priceWithDisc = (r.priceWithDisc || 0) as number;
+      const revKopecks = Math.round(priceWithDisc * 100);
 
       const e = perSku.get(skuLc) || { units: 0, revenue: 0, listings: new Set() };
       e.units += 1;

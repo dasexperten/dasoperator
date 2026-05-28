@@ -169,7 +169,7 @@ export default function MarketplacePulse() {
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <SalesTodayCard data={salesToday} loading={loading} />
+        <SalesTodayCard data={salesToday} loading={loading} refreshing={refreshing} onRefresh={handleRefresh} />
         <TrendCard data={trend} loading={loading} />
         <PieBreakdownCard />
       </div>
@@ -195,7 +195,7 @@ function SectionLegend() {
 // ═══════════════════════════════════════════════════════════════════════════
 // Card 1 — Sales today (hero number + sparkline + WB/Ozon split)
 // ═══════════════════════════════════════════════════════════════════════════
-function SalesTodayCard({ data, loading }: { data: SalesToday | null; loading: boolean }) {
+function SalesTodayCard({ data, loading, refreshing, onRefresh }: { data: SalesToday | null; loading: boolean; refreshing: boolean; onRefresh: () => void }) {
   // Build last-7-days chart with 3 series:
   //   combined (green) — main line with area fill (revenue_rub)
   //   ozon     (blue)  — secondary line (ozon_revenue_rub)
@@ -307,7 +307,7 @@ function SalesTodayCard({ data, loading }: { data: SalesToday | null; loading: b
                   </span>
                   {!refreshing && (
                     <button
-                      onClick={handleRefresh}
+                      onClick={onRefresh}
                       style={{
                         background: 'none', border: 'none', padding: 0, marginLeft: '2px',
                         font: 'inherit', fontSize: '14px', color: 'var(--accent, #C4302B)',

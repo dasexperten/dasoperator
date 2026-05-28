@@ -82,6 +82,19 @@ export async function runWatchdog(env: Env): Promise<WatchdogResult> {
     }
   }
 
+  // 2.5) One-shot WB price-field probe: keep trying until we capture a clean
+  // WB window, cache the reconciliation, then never run again.
+  if (env.CACHE) {
+    const done = await env.CACHE.get('diag:wb-fields');
+    if (!done) {
+      try {
+        const r = await env.SELF.fetch(new Request('https://internal/api/marketplaces/diag/wb-day/2026-05-27', { method: 'GET' }));
+        const j = await r.json() as { success?: boolean; cached?: boolean };
+        if (j.success && j.cached === false) actions.push('captured WB field reconciliation');
+      } catch { /* throttled — try next tick */ }
+    }
+  }
+
   // 3) RECORD scan heartbeat
   await logScan(env, 'watchdog', 'scan', 'success', {
     overall: report.overall,

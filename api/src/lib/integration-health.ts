@@ -1,14 +1,12 @@
 // =============================================================================
 // Integration health detector — proactive watchdog, Layer 1 ("detect").
 //
-// Reads the heartbeats that already exist in D1 and classifies every
-// integration as:
 //   healthy   — reported success within its SLA
-//   degraded  — late or rate-limited (429), but self-recovering; no human
+//   degraded  — late / rate-limited (429) but self-recovering; no human, no action
 //   broken    — silent past SLA, or an unhealed failure; needs a human
 //
-// Read-only. It never acts. The "act" side (recipes, TG alerts) lives in
-// auto-healer.ts and is driven separately by the watchdog cron.
+// Read-only. SLAs match each API's REAL cadence (WB stocks sync ~every 4h by
+// design due to its rate limit — a 1h SLA would false-alarm constantly).
 // =============================================================================
 
 import type { Env } from '../types';
@@ -47,9 +45,9 @@ interface MpRule {
 
 const MP_RULES: MpRule[] = [
   { key: 'ozon_stocks', label: 'Ozon \u00b7 stocks', log_name: 'ozon',       expects: 'every 1h',          degraded_after_h: 2, broken_after_h: 4 },
-  { key: 'ozon_sales',  label: 'Ozon \u00b7 sales',  log_name: 'ozon-sales', expects: 'every 1h (429 ok)', degraded_after_h: 3, broken_after_h: 12 },
-  { key: 'wb_stocks',   label: 'WB \u00b7 stocks',   log_name: 'wb',         expects: 'every 1h',          degraded_after_h: 2, broken_after_h: 4 },
-  { key: 'wb_sales',    label: 'WB \u00b7 sales',    log_name: 'wb-sales',   expects: 'every 1h (429 ok)', degraded_after_h: 3, broken_after_h: 24 },
+  { key: 'ozon_sales',  label: 'Ozon \u00b7 sales',  log_name: 'ozon-sales', expects: 'every 1h (429 ok)', degraded_after_h: 4, broken_after_h: 12 },
+  { key: 'wb_stocks',   label: 'WB \u00b7 stocks',   log_name: 'wb',         expects: 'every ~4h (WB limit)', degraded_after_h: 6, broken_after_h: 10 },
+  { key: 'wb_sales',    label: 'WB \u00b7 sales',    log_name: 'wb-sales',   expects: 'every 1h (429 ok)', degraded_after_h: 6, broken_after_h: 24 },
 ];
 
 function classifyAge(ageH: number | null, degradedAfterH: number, brokenAfterH: number): HealthStatus {
@@ -111,29 +109,39 @@ async function checkMarketplace(env: Env, now: number, r: MpRule): Promise<Integ
   return { key: r.key, label: r.label, status, last_success_at: lastOkAt, age_minutes: ageMin, detail, expects: r.expects, ok_24h: ok24, err_24h: err24 };
 }
 
+// A backfill task that still advances pages under WB's rate limit is HEALTHY,
+// just slow. Only a task that became ELIGIBLE (next_attempt_at <= now) more
+// than 6h ago yet was never picked up by the tick is genuinely frozen.
 async function checkWbBackfill(env: Env, now: number): Promise<IntegrationHealth> {
-  const rows = await env.DB.prepare(
-    `SELECT status, COUNT(*) AS c, MIN(created_at) AS oldest FROM marketplace_pull_tasks WHERE marketplace = 'wb' GROUP BY status`
-  ).all<{ status: string; c: number; oldest: number | null }>();
+  const frozenCutoff = now - 6 * HOUR;
+  const [counts, frozen] = await Promise.all([
+    env.DB.prepare(
+      `SELECT status, COUNT(*) AS c FROM marketplace_pull_tasks WHERE marketplace = 'wb' GROUP BY status`
+    ).all<{ status: string; c: number }>(),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM marketplace_pull_tasks WHERE marketplace = 'wb' AND status = 'fetching' AND next_attempt_at <= ?`
+    ).bind(frozenCutoff).first<{ c: number }>(),
+  ]);
 
   let fetching = 0;
   let done = 0;
-  let oldestFetching: number | null = null;
-  for (const row of rows?.results ?? []) {
-    if (row.status === 'fetching') { fetching = row.c; oldestFetching = row.oldest; }
+  for (const row of counts?.results ?? []) {
+    if (row.status === 'fetching') fetching = row.c;
     if (row.status === 'done') done = row.c;
   }
+  const frozenN = frozen?.c ?? 0;
 
   let status: HealthStatus = 'healthy';
   let detail: string;
-  if (fetching === 0) {
-    detail = `all ${done} tasks done`;
+  if (frozenN > 0) {
+    status = 'degraded';
+    detail = `${frozenN} task(s) frozen >6h \u2014 will nudge`;
+  } else if (fetching > 0) {
+    detail = `${fetching} draining (rate-limited, progressing)`;
   } else {
-    const stuckH = oldestFetching ? (now - oldestFetching) / HOUR : 0;
-    if (stuckH > 24) { status = 'degraded'; detail = `${fetching} task(s) stuck >24h \u2014 will re-queue`; }
-    else { detail = `${fetching} left \u00b7 draining every 15 min`; }
+    detail = `all ${done} tasks done`;
   }
-  return { key: 'wb_backfill', label: 'WB \u00b7 backfill tasks', status, last_success_at: null, age_minutes: null, detail, expects: 'drains every 15 min', ok_24h: done, err_24h: fetching };
+  return { key: 'wb_backfill', label: 'WB \u00b7 backfill tasks', status, last_success_at: null, age_minutes: null, detail, expects: 'drains every 15 min', ok_24h: done, err_24h: frozenN };
 }
 
 async function checkModulbank(env: Env, now: number): Promise<IntegrationHealth> {

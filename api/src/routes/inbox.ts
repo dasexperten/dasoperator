@@ -477,10 +477,16 @@ inbox.post('/:id/confirm', async (c) => {
     const validEntities = ['dee', 'dei', 'dasean', 'dec'];
     const ourCompanyId = validEntities.includes(buyerHint) ? buyerHint : 'dei';
 
-    // operation_type: existing CHECK only allows sale/purchase/transfer/bundling.
-    // Service vendor invoices are recorded as 'purchase' (we're purchasing a service).
-    // The vendor's partner.kind='service' distinguishes them from goods purchases.
-    const opType = 'purchase';
+    // operation_type: this inbox path only ever creates SERVICE vendor invoices
+    // (the partner is created/matched as a service provider, and the note below
+    // is hardcoded "Service vendor invoice"). The schema CHECK now allows
+    // 'service' (operations.operation_type IN sale/purchase/transfer/service/tax),
+    // so we record these as 'service' — not 'purchase'. A DB trigger
+    // (trg_operations_track_sync_*) then auto-sets operation_track='service'.
+    // Earlier this was hardcoded 'purchase' only because the old CHECK lacked
+    // 'service'; that misclassified non-'service_provider' kinds such as 3PL
+    // logistics partners (e.g. F4 Lyubertsy) as goods purchases.
+    const opType = 'service';
 
     // Reference format for service operations from inbox:
     //   {PARTNER_ABBR}-{YYYYMMDD}-{INVOICE_NO}

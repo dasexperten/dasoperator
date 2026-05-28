@@ -29,6 +29,7 @@ type SalesToday = {
   site: { revenue_rub: number; units: number; delta_pct: number | null; last_date: string | null };
   combined: { revenue_rub: number; units: number };
   spark: Array<{ date: string; revenue_rub: number; ozon_revenue_rub?: number; wb_revenue_rub?: number; site_revenue_rub?: number; units?: number }>;
+  freshness?: { last_success_at: number | null; throttled: boolean };
 };
 
 type Spotlight = {
@@ -83,6 +84,19 @@ function fmtRubCompact(n: number): string {
 
 function fmtRubFull(n: number): string {
   return new Intl.NumberFormat('ru-RU').format(Math.round(n)) + ' ₽';
+}
+
+// Relative "updated" label. English, ERP UI language. Minutes/hours/days.
+function fmtUpdatedAgo(unixSec: number | null): string {
+  if (!unixSec) return 'never updated';
+  const diff = Math.max(0, Math.floor(Date.now() / 1000) - unixSec);
+  if (diff < 90) return 'Updated just now';
+  const mins = Math.round(diff / 60);
+  if (mins < 60) return `Updated ${mins} minute${mins === 1 ? '' : 's'} ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 48) return `Updated ${hrs} hour${hrs === 1 ? '' : 's'} ago`;
+  const days = Math.round(hrs / 24);
+  return `Updated ${days} day${days === 1 ? '' : 's'} ago`;
 }
 
 function fmtPct(p: number | null): { text: string; tone: 'up' | 'down' | 'flat' | 'na' } {
@@ -262,6 +276,23 @@ function SalesTodayCard({ data, loading }: { data: SalesToday | null; loading: b
               <div style={{ fontSize: '14px', color: COLOR_OZON, marginTop: '2px' }}>
                 {data.combined.units} ед · combined WB + Ozon + Site · <span style={{ opacity: 0.7 }}>{data.ozon.last_date ?? ''}</span>
               </div>
+              {data.freshness && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px',
+                  fontSize: '14px',
+                  color: data.freshness.throttled ? '#854F0B' : 'var(--fg-muted)',
+                }}>
+                  <span style={{
+                    width: '7px', height: '7px', borderRadius: '50%',
+                    background: data.freshness.throttled ? '#BA7517' : '#3B6D11',
+                    flexShrink: 0,
+                  }} />
+                  <span>
+                    {fmtUpdatedAgo(data.freshness.last_success_at)}
+                    {data.freshness.throttled ? ' · WB busy, retrying' : ''}
+                  </span>
+                </div>
+              )}
             </div>
 
             {displayDay && (

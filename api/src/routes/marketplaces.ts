@@ -560,6 +560,30 @@ marketplaces.get('/pulse/sales-today', async (c) => {
     LIMIT 60
   `).all<{ date: string; revenue_rub: number; ozon_revenue_rub: number; wb_revenue_rub: number; site_revenue_rub: number; units: number }>();
 
+  // Freshness: latest successful sales sync (whichever feed) + whether the most
+  // recent attempt of any sales feed was a rate-limit (429). Powers the
+  // "Updated X ago" stamp; amber when the last attempt was throttled.
+  const freshRow = await c.env.DB.prepare(`
+    SELECT MAX(finished_at) AS last_ok
+    FROM marketplace_sync_log
+    WHERE marketplace IN ('ozon-sales','wb-sales') AND status = 'ok'
+  `).first<{ last_ok: number | null }>();
+
+  const lastAttempts = await c.env.DB.prepare(`
+    SELECT marketplace, status, error_message
+    FROM marketplace_sync_log
+    WHERE marketplace IN ('ozon-sales','wb-sales')
+      AND started_at = (
+        SELECT MAX(started_at) FROM marketplace_sync_log AS s
+        WHERE s.marketplace = marketplace_sync_log.marketplace
+      )
+    GROUP BY marketplace
+  `).all<{ marketplace: string; status: string; error_message: string | null }>();
+
+  const throttled = (lastAttempts.results || []).some(
+    (r) => r.status !== 'ok' && /429|rate limit/i.test(r.error_message || '')
+  );
+
   return ok(c, {
     ozon,
     wb,
@@ -569,6 +593,10 @@ marketplaces.get('/pulse/sales-today', async (c) => {
       units: ozon.units + wb.units + site.units,
     },
     spark: spark.results,
+    freshness: {
+      last_success_at: freshRow?.last_ok ?? null,
+      throttled,
+    },
   });
 });
 

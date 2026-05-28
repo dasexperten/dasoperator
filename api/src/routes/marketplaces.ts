@@ -609,26 +609,35 @@ marketplaces.get('/pulse/sales-today', async (c) => {
 // fresh freshness object so the UI can update the stamp immediately.
 // ---------------------------------------------------------------------------
 // TEMP DIAG — reconcile WB price fields for a single day vs cabinet. Remove after.
+// Result is cached to KV (das-cache: 'diag:wb-fields') so a single successful WB
+// window is enough — read it back any time, no need to re-hit the throttled API.
 marketplaces.get('/diag/wb-day/:date', async (c) => {
   const date = c.req.param('date'); // YYYY-MM-DD
+  // If we already captured it, return the cached reconciliation.
+  if (c.env.CACHE) {
+    const cached = await c.env.CACHE.get('diag:wb-fields');
+    if (cached && !c.req.query('force')) return c.json({ success: true, cached: true, result: JSON.parse(cached) });
+  }
   const wbToken = c.env.WB_API_TOKEN;
   if (!wbToken) return c.json({ success: false, error: 'no token' });
   const url = `https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=${date}T00:00:00`;
   const resp = await fetch(url, { headers: { Authorization: wbToken } });
-  if (!resp.ok) return c.json({ success: false, http: resp.status, body: (await resp.text()).slice(0, 200) });
+  if (!resp.ok) return c.json({ success: false, http: resp.status, body: (await resp.text()).slice(0, 120) });
   const rows = await resp.json() as any[];
   const d = rows.filter((r) => String(r.date || '').slice(0, 10) === date);
   const sum = (f: string) => Math.round(d.reduce((a, r) => a + (Number(r[f]) || 0), 0) * 100) / 100;
-  const sample = d[0] ? Object.keys(d[0]) : [];
-  return c.json({ success: true, result: {
-    date, rows_total: rows.length, rows_day: d.length, fields: sample,
+  const result = {
+    date, rows_total: rows.length, rows_day: d.length,
+    fields: d[0] ? Object.keys(d[0]) : [],
     sums: {
       totalPrice: sum('totalPrice'),
       priceWithDisc: sum('priceWithDisc'),
       finishedPrice: sum('finishedPrice'),
       forPay: sum('forPay'),
     },
-  }});
+  };
+  if (c.env.CACHE) await c.env.CACHE.put('diag:wb-fields', JSON.stringify(result), { expirationTtl: 604800 });
+  return c.json({ success: true, cached: false, result });
 });
 
 marketplaces.post('/pulse/refresh', async (c) => {

@@ -673,6 +673,17 @@ export async function handleScheduled(
     return;
   }
 
+  if (cron === '*/10 * * * *') {
+    try {
+      const { runWatchdog } = await import('./lib/watchdog');
+      const r = await runWatchdog(env);
+      console.log(`[cron:watchdog] ${JSON.stringify(r)}`);
+    } catch (e) {
+      console.error('[cron:watchdog] failed:', e);
+    }
+    return;
+  }
+
     console.warn(`[cron] no handler for cron expression: ${cron}`);
 
   // FX refresh — daily, internal libs, no self-fetch needed

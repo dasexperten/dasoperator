@@ -68,6 +68,25 @@ documentExtractions.get('/counts', async (c) => {
 // =============================================================================
 // GET /:id — full extraction with diff-view data
 // =============================================================================
+documentExtractions.get('/:id/file', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const row = await c.env.DB.prepare(
+      `SELECT r2_key, filename, file_mime FROM document_extractions WHERE id = ? AND deleted_at IS NULL`
+    ).bind(id).first<{ r2_key: string; filename: string; file_mime: string }>();
+    if (!row || !row.r2_key) return fail(c, 404, [{ code: 'not_found', message: `No file for extraction ${id}` }]);
+    const obj = await c.env.DOCS.get(row.r2_key);
+    if (!obj) return fail(c, 404, [{ code: 'file_gone', message: `File missing in storage for ${id}` }]);
+    const headers = new Headers();
+    headers.set('Content-Type', row.file_mime || 'application/pdf');
+    headers.set('Content-Disposition', `inline; filename="${(row.filename || 'document').replace(/[^\w\d.\-]/g, '_')}"`);
+    headers.set('Cache-Control', 'private, max-age=300');
+    return new Response(obj.body, { headers });
+  } catch (err) {
+    return fail(c, 500, [fromError(err)]);
+  }
+});
+
 documentExtractions.get('/:id', async (c) => {
   try {
     const id = c.req.param('id');

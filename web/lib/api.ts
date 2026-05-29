@@ -2542,3 +2542,88 @@ export interface AvailableAgentBankTx {
 export async function getAvailableAgentBankTxs(direction: 'incoming' | 'outgoing') {
   return apiGet<{ transactions: AvailableAgentBankTx[] }>(`/api/agent-settlements/available-bank-txs?direction=${direction}`);
 }
+
+// =============================================================================
+// Document extraction review queue (/api/document-extractions)
+// =============================================================================
+
+export interface ExtractionFieldRef {
+  value: string | number | null;
+  raw: string | null;
+  confidence: number;
+  source: string | null;
+  alternatives: Array<{ value: string; label?: string; confidence?: number; why?: string }>;
+  needs_review: boolean;
+}
+
+export interface ExtractionLineItem {
+  description: string;
+  qty: number;
+  unit_price: number;
+  line_amount: number;
+  cartons: number | null;
+  hs_code: string | null;
+  product_id: string | null;
+  product_id_source?: string;
+  product_id_confidence?: number;
+  product_id_alternatives?: Array<{ value: string; label?: string; confidence?: number; why?: string }>;
+  needs_review?: boolean;
+}
+
+export interface ExtractionValidationCheck {
+  code: string;
+  label: string;
+  passed: boolean;
+  severity: 'info' | 'warning' | 'error';
+  details?: string;
+}
+
+export interface DocumentExtraction {
+  id: string;
+  filename: string;
+  document_kind: string;
+  status: string;
+  overall_confidence: number;
+  target_table: string;
+  target_action: string;
+  target_id: string | null;
+  created_at: number;
+  header_fields: Record<string, ExtractionFieldRef>;
+  line_items: ExtractionLineItem[];
+  validation: {
+    checks: ExtractionValidationCheck[];
+    passed_count: number;
+    failed_count: number;
+    warnings_count: number;
+    errors_count: number;
+    ready_for_auto_commit: boolean;
+  } | null;
+}
+
+export async function getExtraction(id: string) {
+  return apiGet<{ extraction: DocumentExtraction }>(`/api/document-extractions/${id}`);
+}
+
+export async function listExtractions(status = 'pending_review') {
+  return apiGet<{ extractions: DocumentExtraction[]; count: number }>(`/api/document-extractions?status=${encodeURIComponent(status)}`);
+}
+
+export async function patchExtractionHeader(id: string, field: string, value: unknown) {
+  return apiPatch<{ field: string; value: unknown }>(`/api/document-extractions/${id}/header`, { field, value });
+}
+
+export async function patchExtractionLine(id: string, idx: number, field: string, value: unknown) {
+  return apiPatch<{ idx: number; field: string; value: unknown }>(`/api/document-extractions/${id}/line-item/${idx}`, { field, value });
+}
+
+export async function approveExtraction(id: string) {
+  return apiPost<{ id: string; status: string; target_id: string; reference?: string }>(`/api/document-extractions/${id}/approve`, {});
+}
+
+export async function rejectExtraction(id: string, reason?: string) {
+  return apiPost<{ id: string; status: string }>(`/api/document-extractions/${id}/reject`, { reason: reason ?? null });
+}
+
+export function extractionFileUrl(id: string): string {
+  return `${API_BASE}/api/document-extractions/${id}/file`;
+}

@@ -362,7 +362,7 @@ def build(op_id, output_path, seller_override=None):
 
     combo = "assets/dei_stamp_signature.png"
     if seller_id == "dei" and os.path.exists(combo):
-        visual = fit_image(combo, 64, 52)
+        visual = fit_image(combo, 72.0, 51.9)
     else:
         stamp_img = fit_image(stamp_path, stamp_box[0], stamp_box[1]) if os.path.exists(stamp_path) else Paragraph("", S_SIG_T)
         sig_img = fit_image(sig_path, 42, 14) if os.path.exists(sig_path) else Paragraph("", S_SIG_T)

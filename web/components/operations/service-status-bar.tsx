@@ -156,14 +156,14 @@ export default function ServiceStatusBar({
         icon={<FileText className="h-5 w-5" />}
         label="Documents issued"
         active={documentsIssued}
-        color="red"
+        color="green"
         sublabel={docsSub}
       />
       <Chip
         icon={<Coins className="h-5 w-5" />}
         label="Payment"
         active={paid}
-        color="blue"
+        color="green"
         sublabel={paySub}
       />
     </div>

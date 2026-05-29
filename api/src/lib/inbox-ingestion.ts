@@ -17,6 +17,7 @@
 import type { Env } from '../types';
 import { findMatchingOperation, applyMatchToInbox } from './inbox-auto-match';
 import { callAnthropicRaw } from './anthropic';
+import { createDailySaleFromYandexCsv } from './yandex-pay-sale';
 
 const EMAILER_BRIDGE = 'https://emailer-bridge.dasexperten.workers.dev/';
 const DEEPSEEK_API = 'https://api.deepseek.com/v1/chat/completions';
@@ -445,6 +446,28 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
       // (НДС/взносы/dividends from third parties) won't match the INN map
       // and stay as needs_review for manual handling.
       // -------------------------------------------------------------------
+      // Yandex Pay site sales: the CSV report IS a daily Sale operation.
+      // finance@pay.yandex.ru → DASR-DAY-YYYYMMDD (Option A, one op per file/day).
+      const fromAddr = String(c.from || '').toLowerCase();
+      const isYandexPay = fromAddr.includes('finance@pay.yandex.ru')
+        || (c.watchlist_sender || '').toLowerCase() === 'finance@pay.yandex.ru';
+      if (isYandexPay && text) {
+        try {
+          const saleOp = await createDailySaleFromYandexCsv(env, invId, text, c.filename);
+          if (saleOp) {
+            item.auto_attached_to = saleOp.reference;
+            item.amount = saleOp.grossRevenue;
+            item.currency = saleOp.currency;
+            console.log(`[inbox-cron] yandex daily sale ${saleOp.reference} (${saleOp.orderCount} orders, ${saleOp.grossRevenue} RUB) for ${invId}`);
+            stats.auto_attached++;
+            stats.invoices_added.push(item);
+            continue;
+          }
+        } catch (ySaleErr) {
+          console.error(`[inbox-cron] yandex daily-sale failed for ${invId}:`, ySaleErr);
+        }
+      }
+
       if (c.is_watchlist) {
         try {
           const autoOp = await tryAutoCreateWatchlistOperation(env, invId, extracted, text);

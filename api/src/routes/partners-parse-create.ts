@@ -15,7 +15,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
-import { ok, fail } from '../lib/response';
+import { ok, fail } from '../lib/responses';
 import { callPro } from '../lib/deepseek';
 import { generateReadablePartnerId } from '../lib/partner-dedup';
 
@@ -171,7 +171,7 @@ route.post('/parse-and-create', async (c) => {
       const cleaned = res.text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
       parsed = JSON.parse(cleaned);
     } catch {
-      return fail(c, 502, [{ code: 'bad_llm_json', message: 'parser returned non-JSON' }]);
+      return fail(c, 500, [{ code: 'bad_llm_json', message: 'parser returned non-JSON' }]);
     }
 
     return ok(c, { parsed });

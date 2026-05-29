@@ -69,7 +69,7 @@ regardless of who the Shipper or Seller is. Portrait A4. Generator:
 
 ## Signature/stamp rule
 - Seller = factory → factory stamp + factory signatory (Jinxia: Lois Guan / Honghui: Ellen Wei)
-- Seller = DEI → DEI stamp + Aram Badalyan, General Manager (assets pending: dei_stamp.png, aram_badalyan_signature.png)
+- Seller = DEI → DEI stamp (dei_stamp_pure.png) + Aram Badalyan, General Manager (aram_badalyan_signature.png)
 
 ## FOB by factory
 Jinxia → FOB Shanghai. Honghui/WDAA (toothpaste) → FOB Guangzhou.

@@ -1421,33 +1421,38 @@ function DocumentsTab({
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {att.parsed_from === 'invoicer' ? (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const label = labelKind(att.kind);
+                        const num = att.doc_number ?? '';
+                        if (!confirm(`Detach this ${label} ${num} from the operation?\n\nThe file stays in storage and the inbox row stays available — only the link to this operation is removed.`)) return;
+                        try {
+                          // Invoicer-generated docs use the documents endpoint;
+                          // inbox/manual/external docs use the attachments endpoint.
+                          if (att.parsed_from === 'invoicer') {
                             await deleteDocument(att.id);
-                            await refetchAttachments();
-                          } catch (e) {
-                            alert('Delete failed: ' + (e instanceof Error ? e.message : String(e)));
+                          } else {
+                            await deleteAttachment(att.id);
                           }
-                        }}
-                        title="Delete (regenerable)"
-                        style={{
-                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                          width: 28, height: 28, padding: 0,
-                          border: '1px solid var(--border-hairline)',
-                          borderRadius: 'var(--radius-sm)',
-                          backgroundColor: 'var(--paper)',
-                          color: 'var(--brand-rot)',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <X size={14} />
-                      </button>
-                    ) : (
-                      <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>—</span>
-                    )}
+                          await refetchAttachments();
+                        } catch (e) {
+                          alert('Delete failed: ' + (e instanceof Error ? e.message : String(e)));
+                        }
+                      }}
+                      title={att.parsed_from === 'invoicer' ? 'Delete (regenerable)' : 'Detach from this operation'}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        width: 28, height: 28, padding: 0,
+                        border: '1px solid var(--border-hairline)',
+                        borderRadius: 'var(--radius-sm)',
+                        backgroundColor: 'var(--paper)',
+                        color: 'var(--brand-rot)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <X size={14} />
+                    </button>
                   </td>
                 </tr>
               );

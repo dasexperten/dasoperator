@@ -1181,6 +1181,9 @@ function DocumentsTab({
     amount: number | null; currency: string | null;
     issuer: string | null; file_url: string | null;
     parsed_from: string | null; notes: string | null;
+    sent_at: number | null;
+    locked: boolean;
+    lock_reason: 'sent' | 'op_shipped' | null;
   }>;
   onAttachmentsChange: (next: any[]) => void;
 }) {

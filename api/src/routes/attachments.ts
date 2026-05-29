@@ -19,6 +19,13 @@ const attachments = new Hono<{ Bindings: Env }>();
 attachments.get('/api/operations/:id/attachments', async (c) => {
   const operationId = c.req.param('id');
 
+  // Read the operation's status once — used as the "shipment-locked" signal
+  // for all attachments below.
+  const opRow = await c.env.DB.prepare(
+    `SELECT status FROM operations WHERE id = ? AND deleted_at IS NULL`
+  ).bind(operationId).first<{ status: string }>();
+  const opLocked = opRow && (opRow.status === 'shipped' || opRow.status === 'delivered');
+
   // Outgoing: documents we generated (parallel chat territory — read only)
   const outgoing = await c.env.DB.prepare(
     `SELECT
@@ -33,7 +40,8 @@ attachments.get('/api/operations/:id/attachments', async (c) => {
        pdf_r2_url      AS file_url,
        'invoicer'      AS parsed_from,
        NULL            AS notes,
-       created_at
+       created_at,
+       CASE WHEN status IN ('sent','final') THEN created_at ELSE NULL END AS sent_at
      FROM documents
      WHERE operation_id = ? AND deleted_at IS NULL
      ORDER BY document_date DESC, created_at DESC`
@@ -43,7 +51,7 @@ attachments.get('/api/operations/:id/attachments', async (c) => {
   const incoming = await c.env.DB.prepare(
     `SELECT
        id, direction, kind, doc_number, doc_date,
-       amount, currency, issuer, file_url, parsed_from, notes, created_at
+       amount, currency, issuer, file_url, parsed_from, notes, created_at, sent_at
      FROM operation_attachments
      WHERE operation_id = ? AND deleted_at IS NULL
      ORDER BY doc_date DESC, created_at DESC`
@@ -56,6 +64,14 @@ attachments.get('/api/operations/:id/attachments', async (c) => {
     const ad = a.doc_date || a.created_at || 0;
     const bd = b.doc_date || b.created_at || 0;
     return bd - ad;
+  }).map((row: any) => {
+    // Lock signals: own sent_at OR the parent operation has shipped/delivered.
+    const lockedBySent = row.sent_at != null;
+    const locked = lockedBySent || !!opLocked;
+    const lock_reason = !locked ? null
+      : lockedBySent ? 'sent'
+      : 'op_shipped';
+    return { ...row, locked, lock_reason };
   });
 
   return ok(c, { attachments: merged });
@@ -169,13 +185,26 @@ attachments.patch('/api/attachments/:id', async (c) => {
 });
 
 // ─── DELETE /api/attachments/:id ──────────────────────────────────────────
+// Server-side lock enforcement: refuse to detach an attachment that:
+//   1. has its own sent_at set (already sent outbound), OR
+//   2. belongs to an operation in status shipped or delivered.
+// Mirrors the UI grey-X rule (cemented 2026-05-29).
 attachments.delete('/api/attachments/:id', async (c) => {
   const id = c.req.param('id');
   const existing = await c.env.DB.prepare(
-    'SELECT id FROM operation_attachments WHERE id = ? AND deleted_at IS NULL'
-  ).bind(id).first();
+    `SELECT a.id, a.sent_at, o.status AS op_status
+       FROM operation_attachments a
+       LEFT JOIN operations o ON o.id = a.operation_id
+      WHERE a.id = ? AND a.deleted_at IS NULL`
+  ).bind(id).first<{ id: string; sent_at: number | null; op_status: string | null }>();
   if (!existing) {
     return fail(c, 404, [{ code: 'not_found', message: 'Attachment not found' }]);
+  }
+  if (existing.sent_at) {
+    return fail(c, 409, [{ code: 'attachment_locked', message: 'Document was sent outbound and cannot be detached.' }]);
+  }
+  if (existing.op_status === 'shipped' || existing.op_status === 'delivered') {
+    return fail(c, 409, [{ code: 'attachment_locked', message: 'Operation has shipped/been delivered — documents are locked.' }]);
   }
   await c.env.DB.prepare(
     'UPDATE operation_attachments SET deleted_at = unixepoch() WHERE id = ?'

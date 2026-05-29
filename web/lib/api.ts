@@ -1949,6 +1949,7 @@ export interface BankTransaction {
   payment_purpose: string | null;
   matched_payment_id: string | null;
   matched_operation_id?: string | null;
+  match_status?: 'matched' | 'pending' | 'assign' | null;
   match_method: string | null;
   matched_at: number | null;
   account_number: string;

@@ -333,12 +333,16 @@ const emailFieldSchema = z.string().nullable().optional().refine(
 
 const createPartnerSchema = z.object({
   trade_name: z.string().min(1).max(200),
-  partner_type: z.enum(['buyer', 'supplier', 'shipper', 'other']),
+  // Canonical type (Phase 8.0). Legacy partner_type is derived from kind.
+  kind: z.enum(['buyer', 'manufacturer', 'service_provider', 'shipper', '3pl', 'other']).optional(),
+  partner_type: z.enum(['buyer', 'supplier', 'shipper', 'other']).optional(),
   country: z.string().max(60).nullable().optional(),
   legal_name: z.string().max(200).nullable().optional(),
   email: emailFieldSchema,
   partner_language: z.enum(['EN', 'RU', 'EN-RU', 'EN-AR', 'EN-VI', 'EN-ZH']).optional(),
   notes: z.string().max(2000).nullable().optional(),
+}).refine((d) => d.kind !== undefined || d.partner_type !== undefined, {
+  message: 'kind or partner_type is required',
 });
 
 partners.post('/', async (c) => {
@@ -359,6 +363,24 @@ partners.post('/', async (c) => {
   }
 
   const data = parsed.data;
+
+  // Keep canonical kind and legacy partner_type consistent in both directions.
+  let kind: 'buyer' | 'manufacturer' | 'service_provider' | 'shipper' | '3pl' | 'other';
+  let partnerType: 'buyer' | 'supplier' | 'shipper' | 'other';
+  if (data.kind) {
+    kind = data.kind;
+    if (kind === 'buyer') partnerType = 'buyer';
+    else if (kind === 'manufacturer') partnerType = 'supplier';
+    else if (kind === '3pl' || kind === 'shipper') partnerType = 'shipper';
+    else partnerType = 'other';
+  } else {
+    partnerType = data.partner_type!;
+    if (partnerType === 'buyer') kind = 'buyer';
+    else if (partnerType === 'supplier') kind = 'manufacturer';
+    else if (partnerType === 'shipper') kind = 'shipper';
+    else kind = 'other';
+  }
+
   const baseSlug = slugify(data.trade_name);
   const slug = await resolveUniqueSlug(c.env.DB, baseSlug);
   const now = Math.floor(Date.now() / 1000);
@@ -370,16 +392,17 @@ partners.post('/', async (c) => {
     await c.env.DB.prepare(`
       INSERT INTO partners (
         id, trade_name, legal_name, country, email,
-        status, crm_status, partner_type, partner_language, notes,
+        status, crm_status, partner_type, kind, partner_language, notes,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'pending', 'lead', ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, 'pending', 'lead', ?, ?, ?, ?, ?, ?)
     `).bind(
       slug,
       data.trade_name,
       data.legal_name ?? null,
       data.country ?? null,
       data.email ?? null,
-      data.partner_type,
+      partnerType,
+      kind,
       data.partner_language ?? 'EN',
       data.notes ?? null,
       now,
@@ -397,7 +420,8 @@ partners.post('/', async (c) => {
     id: slug,
     trade_name: data.trade_name,
     crm_status: 'lead',
-    partner_type: data.partner_type,
+    partner_type: partnerType,
+    kind,
     partner_language: data.partner_language ?? 'EN',
     country: data.country ?? null,
     legal_name: data.legal_name ?? null,

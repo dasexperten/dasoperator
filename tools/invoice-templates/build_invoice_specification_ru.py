@@ -360,19 +360,16 @@ def build(op_id, output_path, seller_override=None):
         ("TOPPADDING",(0,0),(-1,-1),0),("BOTTOMPADDING",(0,0),(-1,-1),1),
         ("ALIGN",(0,0),(-1,-1),"RIGHT")]))
 
-    if os.path.exists(stamp_path):
-        stamp_img = fit_image(stamp_path, stamp_box[0], stamp_box[1])
+    combo = "assets/dei_stamp_signature.png"
+    if seller_id == "dei" and os.path.exists(combo):
+        visual = fit_image(combo, 64, 52)
     else:
-        stamp_img = Paragraph("", S_SIG_T)
-    if os.path.exists(sig_path):
-        sig_img = fit_image(sig_path, 42, 14)
-    else:
-        sig_img = Paragraph("", S_SIG_T)
-
-    visual = Table([[sig_img, stamp_img]], colWidths=[46*mm, (stamp_box[0]+6)*mm])
-    visual.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"MIDDLE"),
-        ("ALIGN",(0,0),(0,0),"CENTER"),("ALIGN",(1,0),(1,0),"CENTER"),
-        ("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),0)]))
+        stamp_img = fit_image(stamp_path, stamp_box[0], stamp_box[1]) if os.path.exists(stamp_path) else Paragraph("", S_SIG_T)
+        sig_img = fit_image(sig_path, 42, 14) if os.path.exists(sig_path) else Paragraph("", S_SIG_T)
+        visual = Table([[sig_img, stamp_img]], colWidths=[46*mm, (stamp_box[0]+6)*mm])
+        visual.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+            ("ALIGN",(0,0),(0,0),"CENTER"),("ALIGN",(1,0),(1,0),"CENTER"),
+            ("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),0)]))
 
     # Right-align the whole signature block: place it in the right cell of a 2-col table
     sig_inner = Table([[sig_title], [visual]], colWidths=[PAGE_W*0.5])

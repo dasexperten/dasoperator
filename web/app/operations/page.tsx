@@ -98,7 +98,15 @@ const AMOUNT_PAYMENT_COLOR: Record<string, string> = {
   neutral: 'var(--fg-1)',     // black — no payment overlay (draft / cancelled)
 };
 
-function statusLabel(status: string): string {
+// statusLabel — show 'issued' from the perspective of who owes whom.
+// For service/purchase (our expenses, money out): "To pay".
+// For sale (our revenue, money in): "Awaiting payment".
+// Other statuses are direction-neutral, mapped via STATUS_LABELS as before.
+function statusLabel(status: string, opType?: string): string {
+  if (status === 'issued') {
+    if (opType === 'service' || opType === 'purchase') return 'To pay';
+    if (opType === 'sale') return 'Awaiting payment';
+  }
   return STATUS_LABELS[status] ?? status;
 }
 
@@ -826,7 +834,7 @@ export default function OperationsPage() {
             style={{ fontSize: '14px', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)' }}>
             <option value="all">All statuses</option>
             <option value="draft">Draft</option>
-            <option value="issued">Issued</option>
+            <option value="issued">Issued / To pay</option>
             <option value="order_fulfilment">Boxing</option>
             <option value="production">Production</option>
             <option value="stocked">Stocked</option>
@@ -942,7 +950,7 @@ export default function OperationsPage() {
                       }}
                     >
                       <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: sd.fg, display: 'inline-block' }} />
-                      {statusLabel(op.status)}
+                      {statusLabel(op.status, op.operation_type)}
                     </span>
                   </div>
 
@@ -1090,7 +1098,7 @@ export default function OperationsPage() {
                         {op.operation_type === 'transfer' ? (
                           // Transfers don't have payment — plain status text, no background
                           <span style={{ color: 'var(--fg-2)', fontSize: '14px', fontWeight: 600 }}>
-                            {statusLabel(op.status)}
+                            {statusLabel(op.status, op.operation_type)}
                           </span>
                         ) : (
                           <div className="inline-flex items-center gap-2" style={{
@@ -1102,7 +1110,7 @@ export default function OperationsPage() {
                             fontWeight: 500,
                           }}>
                             <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: po.dot, display: 'inline-block' }} />
-                            <span style={{ color: 'var(--fg-1)', fontWeight: 600 }}>{statusLabel(op.status)}</span>
+                            <span style={{ color: 'var(--fg-1)', fontWeight: 600 }}>{statusLabel(op.status, op.operation_type)}</span>
                           </div>
                         )}
                       </td>

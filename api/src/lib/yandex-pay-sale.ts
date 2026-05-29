@@ -291,3 +291,100 @@ export async function createDailySaleFromYandexCsv(
 }
 
 export { fetchCsvText };
+
+
+// =============================================================================
+// Backfill — pull ALL finance@pay.yandex.ru reports from Gmail and build an
+// operation (+ payment match) per report. Synchronous, self-contained, narrow:
+// it does not touch the keyword inbox flow at all. Idempotent — re-runnable.
+// =============================================================================
+const EMAILER_BRIDGE_YP = 'https://emailer-bridge.dasexperten.workers.dev/';
+
+async function callEmailerYP(env: Env, body: any): Promise<any> {
+  const r = await (env as any).EMAILER.fetch('https://emailer/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60_000),
+  });
+  return r.json();
+}
+
+export interface YandexBackfillResult {
+  reports_found: number;
+  ops_built: number;
+  payments_matched: number;
+  details: Array<{ reference: string; gross: number; paymentMatched: boolean; replaced: boolean }>;
+}
+
+export async function backfillYandexReports(env: Env, days: number = 60): Promise<YandexBackfillResult> {
+  const find = await callEmailerYP(env, {
+    action: 'find',
+    query: `from:finance@pay.yandex.ru has:attachment newer_than:${days}d`,
+    max_results: 50,
+    skip_attachments: true,
+  });
+  const threads: any[] = find?.threads || [];
+
+  const result: YandexBackfillResult = {
+    reports_found: 0, ops_built: 0, payments_matched: 0, details: [],
+  };
+
+  for (const t of threads) {
+    const metas: any[] = t.attachments_meta || [];
+    for (const meta of metas) {
+      const fn = String(meta.filename || '');
+      const isCsv = (meta.mime_type || '').toLowerCase().includes('csv') || fn.toLowerCase().endsWith('.csv');
+      if (!isCsv) continue;
+      result.reports_found++;
+
+      // download attachment → R2 → fetch text
+      let dl: any = null;
+      try {
+        dl = await callEmailerYP(env, {
+          action: 'download_attachment',
+          message_id: meta.message_id,
+          attachment_name: fn,
+        });
+      } catch { continue; }
+      if (!dl || !dl.success || !dl.r2_url) continue;
+
+      const r2Key = dl.r2_url.includes('.r2.dev/') ? dl.r2_url.split('.r2.dev/')[1] : dl.r2_url;
+      const csvText = await fetchCsvText(env, r2Key);
+      if (!csvText) continue;
+
+      // synthesize a lightweight inbox row id so the op note has a trace
+      const invId = `ypbackfill_${meta.message_id}`;
+      // ensure an inbox row exists (so created_operation_id link has a home)
+      try {
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO invoice_inbox
+             (id, source_type, gmail_message_id, gmail_thread_id, email_from, email_subject,
+              attachment_filename, attachment_r2_key, attachment_content_type,
+              classification, status, created_at)
+           VALUES (?, 'gmail', ?, ?, 'finance@pay.yandex.ru', 'Payment Report',
+              ?, ?, 'text/csv', 'sale_payment', 'queued', ?)`
+        ).bind(invId, meta.message_id, t.thread_id || meta.message_id, fn, r2Key,
+               Math.floor(Date.now() / 1000)).run();
+      } catch { /* row may exist */ }
+
+      const sale = await createDailySaleFromYandexCsv(env, invId, csvText, fn);
+      if (!sale) continue;
+      result.ops_built++;
+      if (sale.replaced) { /* already counted as op */ }
+
+      // did a payment attach? check
+      const pay = await env.DB.prepare(
+        `SELECT COUNT(*) n FROM payments WHERE operation_id = ? AND deleted_at IS NULL`
+      ).bind(sale.operationId).first<{ n: number }>();
+      const paymentMatched = !!(pay && pay.n > 0);
+      if (paymentMatched) result.payments_matched++;
+
+      result.details.push({
+        reference: sale.reference, gross: sale.grossRevenue, paymentMatched, replaced: sale.replaced,
+      });
+    }
+  }
+
+  return result;
+}

@@ -23,6 +23,8 @@ const SITE_PARTNER_ID = 'яндекс_пей_продажи_с_нашего_са
 const SITE_OUR_COMPANY = 'dee';
 const SITE_CONTRACT_ID = 'yandex_kit_dasexperten_ru';
 const SITE_CURRENCY = 'RUB';
+const YANDEX_PAY_INN = '9705212635';
+const PAYMENT_MATCH_TOLERANCE = 0.02; // ±2% — amount is the key, inflows are unique
 
 export interface YandexDailySaleResult {
   operationId: string;
@@ -128,6 +130,62 @@ async function fetchCsvText(env: Env, r2Key: string): Promise<string | null> {
   return null;
 }
 
+// Attach the matching Yandex inflow to this report's operation, BY AMOUNT.
+// Yandex inflow amounts are unique, so amount (±2%) is a safe key. Bank stores
+// RUB in minor cents; operations/payments store RUB major. The bank transfer is
+// gross (== report gross), so we match against grossRevenue, not net.
+async function attachYandexPayment(
+  env: Env,
+  operationId: string,
+  grossRevenue: number,
+): Promise<{ matched: boolean; bankTxId?: string; amount?: number }> {
+  const grossCents = Math.round(grossRevenue * 100);
+  const lo = Math.floor(grossCents * (1 - PAYMENT_MATCH_TOLERANCE));
+  const hi = Math.ceil(grossCents * (1 + PAYMENT_MATCH_TOLERANCE));
+
+  // Find an unmatched Yandex inflow whose amount is within tolerance.
+  // Prefer the closest amount to the report gross.
+  const tx = await env.DB.prepare(
+    `SELECT id, amount, currency, executed_at
+       FROM bank_transactions
+      WHERE contragent_inn = ? AND direction = 'incoming'
+        AND deleted_at IS NULL
+        AND matched_operation_id IS NULL
+        AND amount BETWEEN ? AND ?
+      ORDER BY ABS(amount - ?) ASC
+      LIMIT 1`
+  ).bind(YANDEX_PAY_INN, lo, hi, grossCents).first<{
+    id: string; amount: number; currency: string; executed_at: number;
+  }>();
+
+  if (!tx) return { matched: false };
+
+  const now = Math.floor(Date.now() / 1000);
+  const amtMajor = tx.currency.toUpperCase() === 'RUB' ? tx.amount / 100 : tx.amount;
+  const paymentId = `pay_${crypto.randomUUID()}`;
+
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO payments (id, partner_id, contract_id, operation_id, amount, currency,
+                             payment_date, type, direction, notes, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'partial', 'incoming', ?, ?, ?)`
+    ).bind(
+      paymentId, SITE_PARTNER_ID, SITE_CONTRACT_ID, operationId,
+      amtMajor, tx.currency, tx.executed_at,
+      `[AUTO-MATCH yandex-pay-report by amount] bank_tx ${tx.id}`,
+      now, now
+    ),
+    env.DB.prepare(
+      `UPDATE bank_transactions
+         SET matched_operation_id = ?, matched_payment_id = ?, matched_at = ?,
+             match_method = 'matched_by_yandex_pay_report', matched_by = 'system_auto', updated_at = ?
+       WHERE id = ?`
+    ).bind(operationId, paymentId, now, now, tx.id),
+  ]);
+
+  return { matched: true, bankTxId: tx.id, amount: amtMajor };
+}
+
 // Main entry: given an inbox row id + the already-extracted CSV text, build the
 // daily DASR-DAY sale operation. Idempotent — re-running for the same day
 // updates the existing operation instead of duplicating revenue.
@@ -190,6 +248,18 @@ export async function createDailySaleFromYandexCsv(
     await env.DB.prepare(
       `INSERT INTO operations (${fields.join(',')}) VALUES (${placeholders})`
     ).bind(...values).run();
+  }
+
+  // Attach the matching bank inflow (by amount) so the operation shows paid.
+  let paymentMatched = false;
+  try {
+    const pm = await attachYandexPayment(env, operationId, parsed.grossRevenue);
+    paymentMatched = pm.matched;
+    if (pm.matched) {
+      console.log(`[yandex-sale] payment matched: bank_tx ${pm.bankTxId} (${pm.amount} RUB) → ${reference}`);
+    }
+  } catch (payErr) {
+    console.error(`[yandex-sale] payment match failed for ${reference}:`, payErr);
   }
 
   // Mark the inbox row resolved and link the operation.

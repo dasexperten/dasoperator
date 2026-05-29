@@ -26,10 +26,10 @@ import type { Env } from '../types';
 import { ok, fail, fromError } from '../lib/responses';
 import { extractTextFromFile } from '../lib/bank-statement-parser';
 import { issueOperationReference } from '../lib/operation-reference';
+import { callPro } from '../lib/llm';
 
 const operationDocs = new Hono<{ Bindings: Env }>();
 
-const DEEPSEEK_API = 'https://api.deepseek.com/v1/chat/completions';
 
 const DOC_EXTRACTION_PROMPT = `You are a document classifier and table extractor for Das Experten ERP.
 Documents reference operations by ID: DEE-N / DEI-N / DEASEAN-N / DEC-N (e.g. DEE-007, DEI-012).
@@ -398,8 +398,8 @@ operationDocs.post('/upload-to-pipeline', async (c) => {
     return fail(c, 422, [{ code: 'unreadable', message: 'Could not read text from file' }]);
   }
 
-  if (!c.env.ANTHROPIC_API_KEY) {
-    return fail(c, 500, [{ code: 'no_llm', message: 'ANTHROPIC_API_KEY not configured' }]);
+  if (!c.env.CLAUDE_CODE_OAUTH_TOKEN && !c.env.DEEPSEEK_API_KEY) {
+    return fail(c, 500, [{ code: 'no_llm', message: 'No LLM provider configured (need CLAUDE_CODE_OAUTH_TOKEN or DEEPSEEK_API_KEY)' }]);
   }
 
   // Claude analyzes the document with full Das Experten directory context.
@@ -796,32 +796,21 @@ operationDocs.post('/upload-document', async (c) => {
 
     const trimmed = text.length > 60_000 ? text.slice(0, 60_000) : text;
 
-    const dsResp = await fetch(DEEPSEEK_API, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${c.env.DEEPSEEK_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'deepseek-v4-pro',
-        messages: [
+    let dsContent: string;
+    try {
+      const res = await callPro(
+        [
           { role: 'system', content: DOC_EXTRACTION_PROMPT },
           { role: 'user', content: `Filename: ${filename}\n\nContents:\n${trimmed}` },
         ],
-        temperature: 0,
-        response_format: { type: 'json_object' },
-      }),
-    });
-
-    if (!dsResp.ok) {
-      const errText = await dsResp.text();
+        { env: c.env, temperature: 0 },
+      );
+      dsContent = res.text || '{}';
+    } catch (e) {
       return fail(c, 500, [
-        { code: 'llm_error', message: `DeepSeek HTTP ${dsResp.status}`, details: errText.slice(0, 300) },
+        { code: 'llm_error', message: e instanceof Error ? e.message : 'LLM call failed' },
       ]);
     }
-
-    const dsData = await dsResp.json<{ choices: Array<{ message: { content: string } }> }>();
-    const dsContent = dsData.choices?.[0]?.message?.content ?? '{}';
     let extracted: ExtractedDoc;
     try {
       extracted = JSON.parse(dsContent);

@@ -14,6 +14,7 @@ import { Hono } from 'hono';
 import * as XLSX from 'xlsx';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
+import { callPro } from '../lib/llm';
 
 const operationsImport = new Hono<{ Bindings: Env }>();
 
@@ -109,33 +110,19 @@ OUTPUT SHAPE:
 
   const userPrompt = `Spreadsheet rows:\n\n${rowsText.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n\nReturn ONLY the JSON object.`;
 
-  // Call DeepSeek
+  // Call LLM via router — Anthropic Sonnet 4.6 (Max 20x quota), DeepSeek fallback
   let aiText: string;
   try {
-    const dsRes = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${c.env.DEEPSEEK_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'deepseek-v4-pro',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: 0,
-        max_tokens: 4000,
-      }),
-    });
-    if (!dsRes.ok) {
-      const errBody = await dsRes.text();
-      return fail(c, 500, [{ code: 'ai_failed', message: `AI provider returned ${dsRes.status}: ${errBody.slice(0, 200)}` }]);
-    }
-    const dsJson = await dsRes.json() as { choices?: Array<{ message?: { content?: string } }> };
-    aiText = dsJson.choices?.[0]?.message?.content ?? '';
+    const res = await callPro(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      { env: c.env, temperature: 0, maxTokens: 4000 },
+    );
+    aiText = res.text;
   } catch (e) {
-    return fail(c, 500, [{ code: 'ai_network', message: `Could not reach AI: ${e instanceof Error ? e.message : 'unknown'}` }]);
+    return fail(c, 500, [{ code: 'ai_failed', message: e instanceof Error ? e.message : 'unknown' }]);
   }
 
   // Parse JSON, with one retry strategy if AI wrapped it in prose

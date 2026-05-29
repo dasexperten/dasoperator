@@ -161,10 +161,24 @@ async function checkModulbank(env: Env, now: number): Promise<IntegrationHealth>
   const lastTxAt = lastTx?.t ?? null;
   const txAgeMin = lastTxAt ? Math.round((now - lastTxAt) / 60) : null;
 
+  // Recovery signal: ANY of these clears the broken state —
+  //   1. healer logged a successful repair after the failure, OR
+  //   2. a bank transaction was created (any source) after the failure.
+  // The 2nd condition matters because Modulbank outages self-heal: their 404
+  // window passes, the next cron pull works fine, and the system is healthy
+  // again — even though no healer ran. Without this clause, a long-past
+  // 404 keeps the chip red forever.
+  const recoveredByHealer = Boolean(
+    lastHeal && lastHeal.result === 'success' && lastFail && lastHeal.occurred_at >= lastFail.occurred_at
+  );
+  const recoveredByFreshData = Boolean(
+    lastFail && lastTxAt && lastTxAt >= lastFail.occurred_at
+  );
   const unhealedRecentFailure = Boolean(
     lastFail &&
     lastFail.occurred_at >= since &&
-    !(lastHeal && lastHeal.result === 'success' && lastHeal.occurred_at >= lastFail.occurred_at)
+    !recoveredByHealer &&
+    !recoveredByFreshData
   );
 
   let status: HealthStatus = 'healthy';

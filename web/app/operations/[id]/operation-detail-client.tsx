@@ -122,6 +122,9 @@ export default function OperationDetailClient({
     amount: number | null; currency: string | null;
     issuer: string | null; file_url: string | null;
     parsed_from: string | null; notes: string | null;
+    sent_at: number | null;
+    locked: boolean;
+    lock_reason: 'sent' | 'op_shipped' | null;
   }>>([]);
   /** id → code map for warehouses, used to detect factory warehouses
    * (GZH/YZH) so the Shipped button can disable itself. */
@@ -1421,38 +1424,66 @@ function DocumentsTab({
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const label = labelKind(att.kind);
-                        const num = att.doc_number ?? '';
-                        if (!confirm(`Detach this ${label} ${num} from the operation?\n\nThe file stays in storage and the inbox row stays available — only the link to this operation is removed.`)) return;
-                        try {
-                          // Invoicer-generated docs use the documents endpoint;
-                          // inbox/manual/external docs use the attachments endpoint.
-                          if (att.parsed_from === 'invoicer') {
-                            await deleteDocument(att.id);
-                          } else {
-                            await deleteAttachment(att.id);
-                          }
-                          await refetchAttachments();
-                        } catch (e) {
-                          alert('Delete failed: ' + (e instanceof Error ? e.message : String(e)));
-                        }
-                      }}
-                      title={att.parsed_from === 'invoicer' ? 'Delete (regenerable)' : 'Detach from this operation'}
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        width: 28, height: 28, padding: 0,
-                        border: '1px solid var(--border-hairline)',
-                        borderRadius: 'var(--radius-sm)',
-                        backgroundColor: 'var(--paper)',
-                        color: 'var(--brand-rot)',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <X size={14} />
-                    </button>
+                    {(() => {
+                      // Locked rows: greyed-out non-interactive X with a hint.
+                      const lockMsg = att.lock_reason === 'sent'
+                        ? 'Already sent outbound — locked'
+                        : att.lock_reason === 'op_shipped'
+                        ? 'Operation has shipped — documents locked'
+                        : null;
+                      if (att.locked) {
+                        return (
+                          <span
+                            title={lockMsg ?? 'Locked'}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              width: 28, height: 28,
+                              border: '1px solid var(--border-hairline)',
+                              borderRadius: 'var(--radius-sm)',
+                              backgroundColor: 'transparent',
+                              color: 'var(--fg-3)',
+                              cursor: 'not-allowed',
+                              opacity: 0.5,
+                            }}
+                            aria-disabled="true"
+                          >
+                            <X size={14} />
+                          </span>
+                        );
+                      }
+                      return (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const label = labelKind(att.kind);
+                            const num = att.doc_number ?? '';
+                            if (!confirm(`Detach this ${label} ${num} from the operation?\n\nThe file stays in storage and the inbox row stays available — only the link to this operation is removed.`)) return;
+                            try {
+                              if (att.parsed_from === 'invoicer') {
+                                await deleteDocument(att.id);
+                              } else {
+                                await deleteAttachment(att.id);
+                              }
+                              await refetchAttachments();
+                            } catch (e) {
+                              alert('Delete failed: ' + (e instanceof Error ? e.message : String(e)));
+                            }
+                          }}
+                          title={att.parsed_from === 'invoicer' ? 'Delete (regenerable)' : 'Detach from this operation'}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            width: 28, height: 28, padding: 0,
+                            border: '1px solid var(--border-hairline)',
+                            borderRadius: 'var(--radius-sm)',
+                            backgroundColor: 'var(--paper)',
+                            color: 'var(--brand-rot)',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <X size={14} />
+                        </button>
+                      );
+                    })()}
                   </td>
                 </tr>
               );

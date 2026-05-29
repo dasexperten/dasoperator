@@ -7,7 +7,20 @@ import { findMatchingOperation, thresholdFor } from '../lib/inbox-auto-match';
 import { allocateAwaitingTxToOperation } from '../lib/bank-tx-allocator';
 import { reconcileInboxRowAgainstBankTx } from '../lib/invoice-amount-reconcile';
 
+import { backfillYandexReports } from '../lib/yandex-pay-sale';
+
 const inbox = new Hono<{ Bindings: Env }>();
+
+// POST /api/inbox/backfill-yandex — build a sale op per Yandex Pay report.
+inbox.post('/backfill-yandex', async (c) => {
+  try {
+    const body = await c.req.json<{ days?: number }>().catch(() => ({}));
+    const res = await backfillYandexReports(c.env, body?.days ?? 60);
+    return ok(c, res);
+  } catch (e) {
+    return fail(c, 500, [{ code: 'backfill_error', message: e instanceof Error ? e.message : String(e) }]);
+  }
+});
 
 // =============================================================================
 // GET /api/inbox/_diag — diagnostic: test if Worker can reach emailer-bridge

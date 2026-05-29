@@ -988,24 +988,7 @@ export default function FinanceTransactionsPage() {
                         >
                           Assign
                         </button>
-                      )} />
-                        : (
-                          <button
-                            type="button"
-                            onClick={() => setAssignTx(tx)}
-                            title="Assign to operation"
-                            style={{
-                              display: 'inline-flex', alignItems: 'center', gap: '4px',
-                              padding: '4px 8px', borderRadius: 'var(--radius-sm)',
-                              border: '1px solid var(--line-1)',
-                              fontSize: '14px', fontWeight: 700,
-                              color: 'var(--fg-1)', background: 'transparent', cursor: 'pointer',
-                            }}
-                          >
-                            <AlertCircle className="h-3 w-3" style={{ color: '#A82029' }} />
-                            Assign
-                          </button>
-                        )}
+                      )}
                     </td>
                   </tr>
                 );

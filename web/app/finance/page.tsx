@@ -660,8 +660,11 @@ export default function FinanceTransactionsPage() {
     return transactions.filter((tx) => {
       if (accountFilter !== 'all' && tx.company_bank_account_id !== accountFilter) return false;
       if (directionFilter !== 'all' && tx.direction !== directionFilter) return false;
-      if (matchedFilter === 'matched' && !tx.matched_payment_id && !tx.matched_operation_id) return false;
-      if (matchedFilter === 'unmatched' && (tx.matched_payment_id || tx.matched_operation_id)) return false;
+      // 3-state rule (CEMENTED 2026-05-28): match_status comes from v_bank_tx_status.
+      // 'matched' = attached to op. 'pending' = INN has history of matches, this row waits.
+      // 'assign' = no history → human action. Filter chip 'unmatched' = Assign only.
+      if (matchedFilter === 'matched' && tx.match_status !== 'matched') return false;
+      if (matchedFilter === 'unmatched' && tx.match_status !== 'assign') return false;
       if (search) {
         const q = search.toLowerCase();
         const haystack = [
@@ -869,7 +872,7 @@ export default function FinanceTransactionsPage() {
                     fontSize: '12px',
                     fontWeight: 700,
                   }}>
-                    {transactions.filter((t) => !t.matched_payment_id && !t.matched_operation_id).length}
+                    {transactions.filter((t) => t.match_status === 'assign').length}
                   </span>
                 )}
               </button>
@@ -950,8 +953,42 @@ export default function FinanceTransactionsPage() {
                       </span>
                     </td>
                     <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                      {(tx.matched_payment_id || tx.matched_operation_id)
-                        ? <CheckCircle2 className="h-4 w-4 inline" style={{ color: 'var(--status-success)' }} />
+                      {tx.match_status === 'matched' ? (
+                        <CheckCircle2 size={16} style={{ color: '#3B6D11' }} />
+                      ) : tx.match_status === 'pending' ? (
+                        <span
+                          title="INN has history of matches; this payment waits for its operation (e.g. monthly report/act)"
+                          style={{
+                            fontSize: '12px',
+                            fontWeight: 500,
+                            color: '#854F0B',
+                            background: 'rgba(186,117,23,0.14)',
+                            padding: '3px 10px',
+                            borderRadius: 'var(--radius-md, 6px)',
+                            cursor: 'help',
+                          }}
+                        >
+                          Pending
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setAssignTx(tx)}
+                          title="Assign to operation"
+                          style={{
+                            fontSize: '12px',
+                            fontWeight: 500,
+                            color: '#A32D2D',
+                            background: 'rgba(163,45,45,0.14)',
+                            padding: '3px 10px',
+                            borderRadius: 'var(--radius-md, 6px)',
+                            border: 'none',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Assign
+                        </button>
+                      )} />
                         : (
                           <button
                             type="button"

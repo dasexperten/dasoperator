@@ -680,10 +680,6 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
       setError('Choose a factory.');
       return;
     }
-    if (opType === 'purchase' && !gtdNumber.trim()) {
-      setError('GTD number is required for goods purchases.');
-      return;
-    }
     if (opType === 'transfer' && !receivingCompanyId) {
       setError('Choose the receiving entity.');
       return;
@@ -1634,7 +1630,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
       </Section>
 
       {opType === 'purchase' && (
-        <Section label="GTD (Customs Declaration) *" disabled={!isReadyForDetails}>
+        <Section label="GTD (Customs Declaration)" disabled={!isReadyForDetails}>
           <input
             type="text"
             value={gtdNumber}
@@ -1645,7 +1641,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
             style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)', color: 'var(--fg-1)', fontWeight: 700 }}
           />
           <p style={{ fontSize: '12px', color: 'var(--fg-3)', marginTop: '6px' }}>
-            ГТД number is mandatory for all goods purchases. PDF can be attached on the operation page after creation.
+            Optional. A GTD number only exists after the goods clear Russian customs — add it (and the PDF) on the operation page once you have it.
           </p>
         </Section>
       )}

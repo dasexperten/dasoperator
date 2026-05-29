@@ -465,11 +465,13 @@ banksModulbank.get('/transactions', async (c) => {
       bt.contragent_bank_name, bt.contragent_bank_bic,
       bt.payment_purpose,
       bt.matched_payment_id, bt.matched_operation_id, bt.match_method, bt.matched_at,
+      vbs.match_status,
       cba.account_number, cba.account_purpose,
       co.abbreviation as company_abbreviation, co.legal_name as company_legal_name
     FROM bank_transactions bt
     JOIN company_bank_accounts cba ON bt.company_bank_account_id = cba.id
     JOIN companies co ON cba.company_id = co.id
+    LEFT JOIN v_bank_tx_status vbs ON vbs.id = bt.id
     WHERE bt.deleted_at IS NULL
       -- Exclude internal self-transfers (e.g. DEE → DEE in another bank).
       -- A transaction is internal when contragent_inn matches one of OUR

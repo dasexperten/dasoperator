@@ -91,7 +91,8 @@ export type MatchOutcome =
   | 'no_candidate' | 'rule_matched' | 'rule_matched_no_op'
   | 'bank_self_reference_skipped'
   | 'awaiting_marketplace_settlement'
-  | 'awaiting_invoice';
+  | 'awaiting_invoice'
+  | 'auto_invno_pair';
 
 export interface AutoMatchResult {
   outcome: MatchOutcome;
@@ -229,6 +230,66 @@ export async function autoMatchBankTransaction(
       attachment_ids: [],
       reason: `already matched to ${alreadyMatched.reference} via ${alreadyMatched.match_method ?? 'unknown'} — idempotent skip`,
     };
+  }
+
+  // =========================================================================
+  // INVOICE-NUMBER MATCH — single most reliable signal for service vendors.
+  //
+  // Bank purposes like "Оплата по счёту № 1241 от 25.05.2026 …" carry the
+  // invoice number that operations are referenced by (LBR-20260525-1241,
+  // INV-1241 etc.). When INN + invoice number + amount all line up to ONE
+  // open operation, attach immediately. This is the cleanest match path —
+  // try it before the classifier cascade so service payments with explicit
+  // invoice numbers never fall through to awaiting_invoice unfairly.
+  // =========================================================================
+  if (tx.payment_purpose && tx.contragent_inn) {
+    const m = tx.payment_purpose.match(/(?:по\s+сч[её]т[ау])\s*[№NnIi]\s*([0-9]{1,6})/i);
+    if (m && m[1]) {
+      const invno = m[1];
+      // Find operation: same partner (by INN), reference ends with the invoice
+      // number, same currency, open status, amount matches within 1%.
+      // Skip ops that already have a bank attached.
+      const candidate = await env.DB.prepare(`
+        SELECT o.id, o.reference, o.total_amount
+        FROM operations o
+        JOIN partners p ON p.id = o.partner_id
+        WHERE p.inn = ?
+          AND o.currency = ?
+          AND (o.deleted_at IS NULL OR o.deleted_at = 0)
+          AND o.status IN ('draft','issued','order_fulfilment','production','stocked','shipped','delivered')
+          AND (o.reference = ? OR o.reference LIKE ? OR o.reference LIKE ?)
+          AND NOT EXISTS (
+            SELECT 1 FROM bank_transactions b2
+            WHERE b2.matched_operation_id = o.id AND b2.deleted_at IS NULL
+          )
+        ORDER BY o.operation_date DESC
+        LIMIT 1
+      `).bind(
+        tx.contragent_inn,
+        tx.currency,
+        invno,
+        `%-${invno}`,
+        `%-${invno}-%`,
+      ).first<{ id: string; reference: string; total_amount: number }>();
+
+      if (candidate) {
+        const txMajor = toMajor(tx.amount, tx.currency);
+        const opMajor = candidate.total_amount;
+        const diffPct = opMajor > 0 ? Math.abs(txMajor - opMajor) / opMajor : 1;
+        if (diffPct <= 0.01) {
+          const attIds = await attachPaymentAndInvoice(env, {
+            operation_id: candidate.id, tx,
+          });
+          await persistOutcome(env, txId, 'auto_invno_pair', candidate.id);
+          return {
+            outcome: 'auto_invno_pair',
+            operation_id: candidate.id,
+            attachment_ids: attIds,
+            reason: `Invoice № ${invno} → ${candidate.reference} (amount match)`,
+          };
+        }
+      }
+    }
   }
 
   // =========================================================================

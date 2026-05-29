@@ -119,13 +119,26 @@ export function parseYandexPayCsv(text: string, filename: string): ParsedCsv {
   };
 }
 
-// Download CSV bytes from R2 by key (key stored in invoice_inbox.attachment_r2_key).
-async function fetchCsvText(env: Env, r2Key: string): Promise<string | null> {
+// Download CSV text. Inbox attachments live behind a public r2.dev URL (a
+// different bucket than DOCS), so fetch by URL first; fall back to DOCS.get
+// for the off-chance the key is in the docs bucket.
+async function fetchCsvText(env: Env, r2KeyOrUrl: string): Promise<string | null> {
+  // URL path (preferred — matches how the keyword inbox reads attachments).
+  if (r2KeyOrUrl.startsWith('http')) {
+    try {
+      const r = await fetch(r2KeyOrUrl, { signal: AbortSignal.timeout(30_000) });
+      if (r.ok) return await r.text();
+    } catch (e) {
+      console.error(`[yandex-sale] URL fetch failed for ${r2KeyOrUrl}:`, e);
+    }
+    return null;
+  }
+  // Key path fallback.
   try {
-    const obj = await env.DOCS.get(r2Key);
+    const obj = await env.DOCS.get(r2KeyOrUrl);
     if (obj) return await obj.text();
   } catch (e) {
-    console.error(`[yandex-sale] R2 get failed for key ${r2Key}:`, e);
+    console.error(`[yandex-sale] R2 get failed for key ${r2KeyOrUrl}:`, e);
   }
   return null;
 }
@@ -350,7 +363,7 @@ export async function backfillYandexReports(env: Env, days: number = 60): Promis
       if (!dl || !dl.success || !dl.r2_url) continue;
 
       const r2Key = dl.r2_url.includes('.r2.dev/') ? dl.r2_url.split('.r2.dev/')[1] : dl.r2_url;
-      const csvText = await fetchCsvText(env, r2Key);
+      const csvText = await fetchCsvText(env, dl.r2_url);
       if (!csvText) continue;
 
       // synthesize a lightweight inbox row id so the op note has a trace

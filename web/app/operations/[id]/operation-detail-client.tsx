@@ -1349,7 +1349,31 @@ function DocumentsTab({
                     {isCancelled ? (
                       <span style={{ fontSize: '12px', color: 'var(--brand-rot)', fontWeight: 600 }}>Cancelled</span>
                     ) : (
-                      <span style={{ fontSize: '12px', color: 'var(--fg-3)' }}></span>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!confirm(`Delete ${doc.document_number}?\n\nDocument will be removed from the list. The file is kept and can be re-issued anytime with "Issue documents".\n\nProceed?`)) return;
+                          try {
+                            await deleteDocument(doc.id);
+                            await fetchDocs();
+                            await refetchAttachments();
+                          } catch (e) {
+                            alert('Delete failed: ' + (e instanceof Error ? e.message : String(e)));
+                          }
+                        }}
+                        title="Delete (re-issuable)"
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          width: 28, height: 28, padding: 0,
+                          border: '1px solid var(--border-hairline)',
+                          borderRadius: 'var(--radius-sm)',
+                          backgroundColor: 'var(--paper)',
+                          color: 'var(--brand-rot)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <X size={14} />
+                      </button>
                     )}
                   </td>
                 </tr>

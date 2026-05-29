@@ -358,11 +358,15 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
         continue;
       }
 
-      // Extract text: pdf via regex strip, txt via UTF-8 decode.
+      // Extract text: pdf via regex strip; txt / csv / plain reports via UTF-8 decode.
+      // Yandex Pay & RetailCRM sales/payment reports arrive as .csv — they are
+      // just delimited text, so we read them straight and hand to DeepSeek.
+      const mt = (c.mime_type || '').toLowerCase();
+      const isCsvLike = mt === 'text/csv' || mt === 'application/csv' || (c.filename || '').toLowerCase().endsWith('.csv');
       let text = '';
-      if (c.mime_type === 'application/pdf') {
+      if (mt === 'application/pdf') {
         text = await extractPdfText(buf);
-      } else if (c.mime_type === 'text/plain') {
+      } else if (mt === 'text/plain' || isCsvLike) {
         text = new TextDecoder('utf-8', { fatal: false }).decode(buf).slice(0, 50000);
       }
 

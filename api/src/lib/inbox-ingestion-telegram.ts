@@ -372,6 +372,20 @@ export async function runInboxIngestionTelegram(
 
           // Map LLM classification to schema CHECK values
           let cls = extracted.classification;
+          // Filename override — Russian vendors send акт/УПД in the same shape
+          // as the счёт (identical totals, same invoice number on a different
+          // PDF), and the LLM regularly mislabels them as 'service'. The
+          // filename is the strongest signal: if it announces an act, treat
+          // it as acceptance regardless of model verdict. Mirrors the
+          // operator's mental model ("акт = acceptance, всегда").
+          const fnLower = (filename || '').toLowerCase();
+          if (/(^|[^a-z])(акт|act|упд|upd)([^a-z]|$)/i.test(fnLower)) {
+            if (cls !== 'acceptance') {
+              console.log(`[tg-inbox] filename override: ${filename} -> acceptance (was ${cls})`);
+              cls = 'acceptance';
+              extracted.classification = 'acceptance';
+            }
+          }
           if (cls === 'unclear') cls = 'pending';
 
           // Auto-reject ONLY when truly uninteresting. If chat is bound to a

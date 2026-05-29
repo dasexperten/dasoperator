@@ -508,6 +508,23 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
     [subtotal, overallDiscountPct]
   );
 
+  // Lines that have a quantity but no price. These would silently fall out of
+  // the subtotal, so we surface them and block submission until resolved.
+  const missingPriceLines = useMemo(() => {
+    const out: { id: string; name: string }[] = [];
+    for (const [pid, e] of Object.entries(entries)) {
+      if (e.pieces > 0 && e.unit_price <= 0) {
+        const name =
+          products.find((p) => p.id === pid)?.product_name ??
+          purchaseProducts.find((p) => p.id === pid)?.product_name ??
+          '';
+        out.push({ id: pid.toUpperCase(), name });
+      }
+    }
+    return out;
+  }, [entries, products, purchaseProducts]);
+  const hasMissingPrice = missingPriceLines.length > 0;
+
   // Patch a single SKU entry. If pieces and unit_price both fall to 0, drop the
   // entry entirely so empty rows don't pile up in state.
   function updateEntry(productId: string, patch: Partial<LineEntry>) {
@@ -714,6 +731,14 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
       return;
     }
 
+    const unpriced = Object.entries(entries).filter(([_, e]) => e.pieces > 0 && e.unit_price <= 0);
+    if (unpriced.length > 0) {
+      const labels = unpriced.map(([pid]) => pid.toUpperCase()).join(', ');
+      setError(`Set a price for: ${labels}. A line with quantity but no price would be left out of the total.`);
+      setSubmitting(false);
+      return;
+    }
+
     // Build body per operation type:
     // SALE     — contract_id carries partner + company + currency (backend reads contract).
     // PURCHASE — manufacturer_id + our_company_id + currency provided directly.
@@ -773,7 +798,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
   // • service — partner with subtype picked, amount > 0, description filled
   const canSubmit = isServiceMode
     ? (serviceAmount > 0 && serviceDescription.trim().length > 0)
-    : (isReadyForDetails && Object.values(entries).some((e) => e.pieces > 0));
+    : (isReadyForDetails && Object.values(entries).some((e) => e.pieces > 0) && !hasMissingPrice);
 
   if (loadingRef) {
     return <div className="flex items-center justify-center py-16"><Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--fg-muted)' }} /></div>;
@@ -1498,9 +1523,10 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                               ? Math.round(e.pieces * e.unit_price * 100) / 100
                               : 0;
                             const noPrice = e.unit_price <= 0;
+                            const rowMissingPrice = e.pieces > 0 && e.unit_price <= 0;
 
                             return (
-                              <tr key={p.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                              <tr key={p.id} style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: rowMissingPrice ? 'rgba(226,75,74,0.10)' : undefined }}>
                                 <td className="px-3 py-2" style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)' }}>
                                   {p.id.toUpperCase()}
                                 </td>
@@ -1584,18 +1610,20 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                                     placeholder={noPrice ? 'no price set' : '0.00'}
                                     className="w-28 px-2 py-1 text-sm focus:outline-none text-right"
                                     style={{
-                                      backgroundColor: 'var(--paper-sunk)',
-                                      border: '1px solid var(--border-hairline)',
+                                      backgroundColor: rowMissingPrice ? 'rgba(226,75,74,0.08)' : 'var(--paper-sunk)',
+                                      border: rowMissingPrice ? '1px solid var(--brand-rot)' : '1px solid var(--border-hairline)',
                                       borderRadius: 'var(--radius-xs)',
-                                      color: noPrice ? 'var(--fg-3)' : 'var(--fg-1)',
+                                      color: rowMissingPrice ? 'var(--brand-rot)' : (noPrice ? 'var(--fg-3)' : 'var(--fg-1)'),
                                       fontWeight: 700,
                                     }}
                                   />
                                 </td>
-                                <td className="px-3 py-2 text-right" style={{ fontSize: '14px', color: lineTotal > 0 ? 'var(--fg-1)' : 'var(--fg-3)', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
-                                  {lineTotal > 0
-                                    ? `${formatMoney(lineTotal, effectiveCurrency)} ${effectiveCurrency}`
-                                    : '0.00'}
+                                <td className="px-3 py-2 text-right" style={{ fontSize: '14px', color: rowMissingPrice ? 'var(--brand-rot)' : (lineTotal > 0 ? 'var(--fg-1)' : 'var(--fg-3)'), fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
+                                  {rowMissingPrice
+                                    ? '⚠ excluded'
+                                    : (lineTotal > 0
+                                      ? `${formatMoney(lineTotal, effectiveCurrency)} ${effectiveCurrency}`
+                                      : '0.00')}
                                 </td>
                               </tr>
                             );
@@ -1610,6 +1638,17 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
           );
         })()}
 
+        {hasMissingPrice && (
+          <div className="mt-4" style={{ padding: '10px 14px', backgroundColor: 'rgba(226,75,74,0.10)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--brand-rot)' }}>
+            <div style={{ fontSize: '13px', color: 'var(--brand-rot)', fontWeight: 700 }}>
+              {missingPriceLines.length === 1 ? '1 line has quantity but no price' : `${missingPriceLines.length} lines have quantity but no price`} — excluded from the total.
+            </div>
+            <div style={{ fontSize: '13px', color: 'var(--brand-rot)', marginTop: '2px' }}>
+              {missingPriceLines.map((l) => `${l.id}${l.name ? ' ' + l.name : ''}`).join(', ')}. Set a price or remove the line.
+            </div>
+          </div>
+        )}
+
         {/* Discount + Total */}
         <div className="mt-6 pt-4" style={{ borderTop: '1px solid var(--border-hairline)' }}>
           <div className="flex items-center justify-between gap-4">
@@ -1620,7 +1659,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                 style={{ backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)' }} />
             </div>
             <div className="text-right">
-              <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--fg-3)' }}>Subtotal: {formatMoney(subtotal, effectiveCurrency)} {effectiveCurrency}</div>
+              <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--fg-3)' }}>Subtotal: {formatMoney(subtotal, effectiveCurrency)} {effectiveCurrency}{hasMissingPrice && (<span style={{ color: 'var(--brand-rot)' }}> ({missingPriceLines.length} line{missingPriceLines.length === 1 ? '' : 's'} excluded)</span>)}</div>
               <div className="mt-1" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--fg-1)' }}>
                 {formatMoney(grandTotal, effectiveCurrency)} {effectiveCurrency}
               </div>

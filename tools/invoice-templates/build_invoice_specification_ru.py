@@ -149,7 +149,7 @@ def build(op_id, output_path, seller_override=None):
 
     # signature/stamp belong to Seller
     if seller_id == "dei":
-        stamp_path = "assets/dei_stamp.png"     # awaiting upload
+        stamp_path = "assets/dei_stamp_pure.png"
         sig_path = "assets/aram_badalyan_signature.png"  # awaiting upload
         signatory = "Aram Badalyan"
         signatory_title = "General Manager / Генеральный директор"

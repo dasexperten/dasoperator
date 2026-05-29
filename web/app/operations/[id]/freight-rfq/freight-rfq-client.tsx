@@ -1,5 +1,8 @@
 'use client';
 
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, FileText, CheckCircle, Truck, Mail, Download } from 'lucide-react';
@@ -98,6 +101,7 @@ Das Experten`;
 export default function FreightRfqClient({ operationId }: { operationId: string }) {
   const router = useRouter();
 
+  const searchParams = useSearchParams();
   const [operation, setOperation] = useState<Operation | null>(null);
   const [lineItems, setLineItems] = useState<OperationLineItem[]>([]);
   const [shippers, setShippers] = useState<Shipper[]>([]);
@@ -139,7 +143,11 @@ export default function FreightRfqClient({ operationId }: { operationId: string 
 
         if (shipRes.success && shipRes.result) {
           setShippers(shipRes.result.shippers);
-          if (shipRes.result.shippers.length > 0) {
+          const preselected = searchParams?.get('shipper');
+          const exists = preselected && shipRes.result.shippers.some(s => s.id === preselected);
+          if (exists) {
+            setShipperId(preselected!);
+          } else if (shipRes.result.shippers.length > 0) {
             setShipperId(shipRes.result.shippers[0]!.id);
           }
         } else {
@@ -416,7 +424,21 @@ export default function FreightRfqClient({ operationId }: { operationId: string 
       <div style={{ maxWidth: '720px', display: 'grid', gap: '20px' }}>
 
         <div>
-          <label style={labelStyle}>Shipper</label>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <label style={{ ...labelStyle, marginBottom: 0 }}>Shipper</label>
+            <Link
+              href={`/operations/${operationId}/freight-rfq/add-shipper`}
+              style={{
+                fontSize: '13px', fontWeight: 600, padding: '6px 12px',
+                background: 'var(--paper-raised, #fff)', color: 'var(--fg-1)',
+                border: '1px solid var(--border-hairline)',
+                borderRadius: 'var(--radius-md, 6px)', textDecoration: 'none',
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+              }}
+            >
+              + Add shipper
+            </Link>
+          </div>
           <div style={{ display: 'grid', gap: '8px' }}>
             {shippers.length === 0 && (
               <p style={{ fontSize: '14px', color: 'var(--fg-3)' }}>No shippers configured.</p>

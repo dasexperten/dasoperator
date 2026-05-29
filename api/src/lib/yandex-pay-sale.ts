@@ -8,7 +8,7 @@
 //
 // Business rule (Option A, locked by Aram 2026-05-29):
 //   Each CSV file => ONE daily Sale operation.
-//   reference   = DASR-DAY-YYYYMMDD (one per calendar day / per file)
+//   reference   = DASR-YYYYMMDD (one per calendar day / per file; 8 digits)
 //   total_amount= sum of "Сумма транзакции" (gross buyer-paid revenue, RUB)
 //   commissions = sum of "Комиссия за сервис" + "Комиссия за обслуживание"
 //   net payout  = total + commissions (commissions are negative in the file)
@@ -144,7 +144,7 @@ export async function createDailySaleFromYandexCsv(
   }
 
   const ymd = parsed.saleDate.replace(/-/g, '');           // YYYYMMDD
-  const reference = `DASR-DAY-${ymd}`;
+  const reference = `DASR-${ymd}`;  // DASR-YYYYMMDD (daily; 8 digits, distinct from old 6-digit monthly)
   const opDateTs = Math.floor(new Date(parsed.saleDate + 'T00:00:00Z').getTime() / 1000);
   const now = Math.floor(Date.now() / 1000);
 

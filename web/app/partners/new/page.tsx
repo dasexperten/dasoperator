@@ -31,7 +31,7 @@ export default function NewPartnerPage() {
   const [tradeName, setTradeName] = useState('');
   const [legalName, setLegalName] = useState('');
   const [country, setCountry] = useState('');
-  const [partnerType, setPartnerType] = useState<'buyer' | 'supplier' | 'shipper' | 'other'>('buyer');
+  const [partnerKind, setPartnerKind] = useState<'buyer' | 'manufacturer' | 'service_provider' | 'shipper' | '3pl' | 'other'>('buyer');
   const [partnerLanguage, setPartnerLanguage] = useState<'EN' | 'RU' | 'EN-RU' | 'EN-AR' | 'EN-VI' | 'EN-ZH'>('EN');
   const [email, setEmail] = useState('');
   const [notes, setNotes] = useState('');
@@ -63,7 +63,7 @@ export default function NewPartnerPage() {
     try {
       const res = await createPartner({
         trade_name: tradeName.trim(),
-        partner_type: partnerType,
+        kind: partnerKind,
         partner_language: partnerLanguage,
         legal_name: legalName.trim() || null,
         country: country.trim() || null,
@@ -203,10 +203,12 @@ export default function NewPartnerPage() {
             </div>
             <div>
               <Label>Partner type *</Label>
-              <select value={partnerType} onChange={(e) => setPartnerType(e.target.value as typeof partnerType)} style={inputStyle}>
-                <option value="buyer">Buyer</option>
-                <option value="supplier">Supplier</option>
-                <option value="shipper">Shipper</option>
+              <select value={partnerKind} onChange={(e) => setPartnerKind(e.target.value as typeof partnerKind)} style={inputStyle}>
+                <option value="buyer">Buyer — client / distributor</option>
+                <option value="manufacturer">Manufacturer — factory</option>
+                <option value="service_provider">Service provider — accounting, rent, etc.</option>
+                <option value="shipper">Shipper / Forwarder</option>
+                <option value="3pl">3PL / Warehouse</option>
                 <option value="other">Other</option>
               </select>
             </div>

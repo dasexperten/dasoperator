@@ -32,6 +32,15 @@ const SEARCH_QUERIES = [
   'tax OR VAT',
 ];
 
+// Spreadsheet MIME types Yandex Pay / RetailCRM use for sales & payment reports.
+const SHEET_MIMES = new Set([
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+  'application/vnd.ms-excel',                                          // .xls
+  'text/csv',                                                          // .csv
+  'application/csv',
+]);
+const isSheetMime = (m: string | undefined) => SHEET_MIMES.has((m || '').toLowerCase());
+
 // WATCHLIST: critical senders whose every message must enter the inbox,
 // regardless of subject keywords or DeepSeek classifier verdict. Added
 // 2026-05-23 per Aram's direct instruction. Extend this list as Aram names
@@ -40,7 +49,7 @@ const SEARCH_QUERIES = [
 //   - Both PDF and TXT attachments accepted (bkmsk often sends .txt outputs).
 //   - Auto-reject rules are bypassed; everything lands as needs_review.
 //   - Notes prefixed with [WATCHLIST: <sender>].
-const WATCHLIST_SENDERS = ['253@bkmsk.ru', 'zukonar@mail.ru', 'buh2@inter-freight.ru', 'sales5@inter-vostok.ru', 'iampanchenko@mail.ru'];
+const WATCHLIST_SENDERS = ['253@bkmsk.ru', 'zukonar@mail.ru', 'buh2@inter-freight.ru', 'sales5@inter-vostok.ru', 'iampanchenko@mail.ru', 'finance@pay.yandex.ru'];
 const WATCHLIST_WINDOW_DAYS = 30;
 
 // Hard cap on how many PDFs Step 3 processes per ingestion run. Each Claude
@@ -242,7 +251,8 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
       if (!a.r2_url) continue;
       const isPdf = a.mime_type === 'application/pdf';
       const isTxt = a.mime_type === 'text/plain';
-      const accept = isPdf || (isWatchlistThread && isTxt);
+      const isSheet = isSheetMime(a.mime_type);
+      const accept = isPdf || (isWatchlistThread && (isTxt || isSheet));
       if (!accept) continue;
       const r2Key = a.r2_url.includes('.r2.dev/') ? a.r2_url.split('.r2.dev/')[1] : a.r2_url;
       candidates.push({
@@ -264,7 +274,8 @@ export async function runInboxIngestion(env: Env): Promise<IngestionStats> {
     for (const meta of t.attachments_meta || []) {
       const isPdf = (meta.mime_type || '').startsWith('application/pdf');
       const isTxt = meta.mime_type === 'text/plain';
-      const accept = isPdf || (isWatchlistThread && isTxt);
+      const isSheet = isSheetMime(meta.mime_type);
+      const accept = isPdf || (isWatchlistThread && (isTxt || isSheet));
       if (!accept) continue;
 
       // Skip if the (filename, thread_id) pair is already in invoice_inbox — dedup

@@ -747,14 +747,10 @@ operations.get('/', async (c) => {
   let sql = `
     SELECT
       ${columns},
-      COALESCE((
-        SELECT SUM(pay.amount)
-        FROM payments pay
-        WHERE pay.operation_id = o.id
-          AND pay.currency = o.currency
-          AND pay.deleted_at IS NULL
-      ), 0) AS paid_amount
+      COALESCE(vps.paid_total, 0) AS paid_amount,
+      vps.payment_status
     ${fromJoin}
+    LEFT JOIN v_operation_payment_status vps ON vps.operation_id = o.id
     WHERE o.deleted_at IS NULL
       AND (o.batch_id IS NULL)
   `;

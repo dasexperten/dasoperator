@@ -30,13 +30,13 @@
 import type { Env } from '../types';
 import { findMatchingOperation, applyMatchToInbox } from './inbox-auto-match';
 import { classifyViaClaude } from './inbox-ingestion';
+import { callPro } from './llm';
 
 const TELEGRAMER_BRIDGE = 'https://telegramer-bridge.dasexperten.workers.dev';
 // Direct VPS endpoints (Worker→VPS via sslip.io DNS).
 // Bridge proxies basic ops (/chat/{contact}/history) but not /chat/media-history or /get-file,
 // so we hit the VPS directly using the same Bearer secret.
 const VPS_BASE_URL = 'http://178-105-129-200.sslip.io:8000';
-const DEEPSEEK_API = 'https://api.deepseek.com/v1/chat/completions';
 
 // Reuse Gmail prompt, but add 'acceptance' as a possible classification.
 const DEEPSEEK_PROMPT_TG = `You are a document classifier for Das Experten (multi-entity company).
@@ -503,32 +503,17 @@ async function deepseekClassifyTelegram(
 PDF text (extracted, may be empty for image-only docs):
 ${text || '(empty — non-PDF or unextractable; classify from filename + caption)'}`;
 
-  const r = await fetch(DEEPSEEK_API, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${env.DEEPSEEK_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'deepseek-v4-pro',
-      messages: [
+  try {
+    const res = await callPro(
+      [
         { role: 'system', content: DEEPSEEK_PROMPT_TG },
         { role: 'user', content: userMsg },
       ],
-      temperature: 0,
-      response_format: { type: 'json_object' },
-    }),
-    signal: AbortSignal.timeout(60_000),
-  });
-
-  if (!r.ok) {
-    console.error(`[tg-inbox] DeepSeek HTTP ${r.status}`);
-    return null;
-  }
-  const data: any = await r.json();
-  try {
-    return JSON.parse(data.choices[0].message.content);
-  } catch {
+      { env, temperature: 0 },
+    );
+    return JSON.parse(res.text);
+  } catch (e) {
+    console.error(`[tg-inbox] LLM call failed: ${e instanceof Error ? e.message : 'unknown'}`);
     return null;
   }
 }

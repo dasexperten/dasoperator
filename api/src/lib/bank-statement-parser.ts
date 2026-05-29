@@ -16,8 +16,8 @@
 
 import type { Env } from '../types';
 import { autoMatchBankTransaction } from './bank-auto-match';
+import { callFlash } from './llm';
 
-const DEEPSEEK_API = 'https://api.deepseek.com/v1/chat/completions';
 
 const EXTRACTION_PROMPT = `You are a bank statement parser. Extract every transaction into JSON.
 Source may be a multi-line statement OR a single payment confirmation (e.g. Wio Transfer copy, Swift copy, payment advice) — in that case the result has exactly one transaction.
@@ -96,31 +96,19 @@ export async function parseStatement(
   // Trim very long inputs to ~80KB (DeepSeek-v3 context fits comfortably)
   const trimmed = fileText.length > 80_000 ? fileText.slice(0, 80_000) : fileText;
 
-  const resp = await fetch(DEEPSEEK_API, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'deepseek-v4-flash',
-      messages: [
+  let content: string;
+  try {
+    const res = await callFlash(
+      [
         { role: 'system', content: EXTRACTION_PROMPT },
         { role: 'user', content: `Filename: ${filename}\n\nContents:\n${trimmed}` },
       ],
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      max_tokens: 16000,
-    }),
-  });
-
-  if (!resp.ok) {
-    const errText = await resp.text();
-    throw new Error(`DeepSeek HTTP ${resp.status}: ${errText.slice(0, 300)}`);
+      { env, temperature: 0, maxTokens: 16000 },
+    );
+    content = res.text || '{}';
+  } catch (e) {
+    throw new Error(`LLM call failed: ${e instanceof Error ? e.message : 'unknown'}`);
   }
-
-  const data = await resp.json<{ choices: Array<{ message: { content: string } }> }>();
-  const content = data.choices?.[0]?.message?.content ?? '{}';
 
   try {
     const parsed = JSON.parse(content) as ParsedStatement;

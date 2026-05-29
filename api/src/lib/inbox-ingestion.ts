@@ -17,10 +17,10 @@
 import type { Env } from '../types';
 import { findMatchingOperation, applyMatchToInbox } from './inbox-auto-match';
 import { callAnthropicRaw } from './anthropic';
+import { callPro } from './llm';
 import { createDailySaleFromYandexCsv } from './yandex-pay-sale';
 
 const EMAILER_BRIDGE = 'https://emailer-bridge.dasexperten.workers.dev/';
-const DEEPSEEK_API = 'https://api.deepseek.com/v1/chat/completions';
 const R2_PUBLIC_BASE = 'https://pub-0e2fb2d28ea9408bbaa1bdd64b3bf256.r2.dev/';
 
 // Search queries — multiple narrow batches beat one broad query (Apps Script
@@ -608,28 +608,15 @@ export async function deepseekClassify(env: Env, text: string, c: any): Promise<
 PDF text (extracted):
 ${text || '(empty — PDF text extraction failed, classify based on metadata only)'}`;
 
-  const r = await fetch(DEEPSEEK_API, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'deepseek-v4-pro',
-      messages: [
+  try {
+    const res = await callPro(
+      [
         { role: 'system', content: DEEPSEEK_PROMPT },
         { role: 'user', content: userMsg },
       ],
-      temperature: 0,
-      response_format: { type: 'json_object' },
-    }),
-    signal: AbortSignal.timeout(60_000),
-  });
-
-  if (!r.ok) return null;
-  const data: any = await r.json();
-  try {
-    return JSON.parse(data.choices[0].message.content);
+      { env, temperature: 0 },
+    );
+    return JSON.parse(res.text);
   } catch {
     return null;
   }

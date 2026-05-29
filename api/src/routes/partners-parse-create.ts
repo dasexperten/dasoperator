@@ -16,7 +16,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
-import { callPro } from '../lib/deepseek';
+import { callPro } from '../lib/llm';
 import { generateReadablePartnerId } from '../lib/partner-dedup';
 
 const route = new Hono<{ Bindings: Env }>();
@@ -163,7 +163,7 @@ route.post('/parse-and-create', async (c) => {
         { role: 'system', content: PARSE_PROMPT },
         { role: 'user', content: input.slice(0, 18000) },
       ],
-      { apiKey: c.env.DEEPSEEK_API_KEY, temperature: 0.1, maxTokens: 1500 },
+      { env: c.env, temperature: 0.1, maxTokens: 1500 },
     );
 
     let parsed: Record<string, string | null>;

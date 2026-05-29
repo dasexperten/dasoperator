@@ -392,28 +392,20 @@ export async function handleScheduled(
   // First Wednesday of each month at 04:00 UTC (06:00 МСК) — rebuild Yandex Pay monthly settlement
   // Runs on day 1-7 with weekday=Wed → guaranteed to fire exactly once per month, on first Wed
   if (cron === '0 4 1-7 * 3') {
-    console.log('[cron:site-rebuild] starting Yandex Pay monthly rebuild for previous calendar month');
-    try {
-      const r = await rebuildPriorMonthSite(env);
-      console.log(`[cron:site-rebuild] complete: ${JSON.stringify(r)}`);
-    } catch (e) {
-      console.error('[cron:site-rebuild] failed:', e);
-    }
-    // Also rebuild dasexperten.com (Stripe via Wio Bank) for the same prior month
+    // [DISABLED 2026-05-29] Yandex Pay monthly aggregator removed — site sales
+    // now come from the daily email-to-sale path (DASR-DAY-YYYYMMDD, built in
+    // yandex-pay-sale.ts on each finance@pay.yandex.ru CSV). Re-enabling this
+    // would double-count revenue. See cemented rule.
+    // try { await rebuildPriorMonthSite(env); } catch (e) { console.error('[cron:site-rebuild] disabled-but-threw:', e); }
+
+    // dasexperten.com (Stripe via Wio Bank) monthly settlement — still active.
     try {
       const r = await rebuildPriorMonthDasexpertenCom(env);
       console.log(`[cron:dascom-rebuild] complete: ${JSON.stringify(r)}`);
     } catch (e) {
       console.error('[cron:dascom-rebuild] failed:', e);
     }
-    // After Yandex Pay monthly sale op is rebuilt, attach parked bank_tx via FIFO
-    try {
-      const { runMarketplaceFifoForPartner } = await import('./lib/marketplace-fifo-allocator');
-      const fifoResult = await runMarketplaceFifoForPartner(env, 'яндекс_пей_продажи_с_нашего_сайта');
-      console.log(`[cron:mp-fifo:yandex] result: ${JSON.stringify(fifoResult)}`);
-    } catch (e) {
-      console.error('[cron:mp-fifo:yandex] failed:', e);
-    }
+    // [DISABLED 2026-05-29] Yandex FIFO re-attach removed with the monthly aggregator.
     return;
   }
 

@@ -604,7 +604,8 @@ export async function getPartnersWithBalances() {
 // =============================================================================
 export interface CreatePartnerBody {
   trade_name: string;
-  partner_type: 'buyer' | 'supplier' | 'shipper' | 'other';
+  kind?: 'buyer' | 'manufacturer' | 'service_provider' | 'shipper' | '3pl' | 'other';
+  partner_type?: 'buyer' | 'supplier' | 'shipper' | 'other';
   partner_language?: 'EN' | 'RU' | 'EN-RU' | 'EN-AR' | 'EN-VI' | 'EN-ZH';
   country?: string | null;
   legal_name?: string | null;

@@ -4,7 +4,8 @@
 //
 // Prefix rule:
 //   - PURCHASE  → manufacturer.abbreviation (e.g. HHUI, MEIZ, YZJX, WDAA)
-//   - SALE      → companies.id uppercase   (e.g. DEE, DEI, DASEAN, DEC)
+//   - SALE      → partner.abbreviation     (e.g. DSXG, DASR, DASCOM);
+//                 fallback to companies.id uppercase if partner has none
 //   - TRANSFER  → companies.id uppercase   (our_company is sender)
 //   - SERVICE   → companies.id uppercase
 //   - PRODUCTION→ companies.id uppercase
@@ -44,6 +45,7 @@ export interface ReferenceInput {
   operationDateUnix: number;
   ourCompanyId: string;
   manufacturerId?: string | null; // for purchases — overrides prefix with manufacturer.abbreviation
+  partnerId?: string | null;      // for sales — overrides prefix with partner.abbreviation
 }
 
 /**
@@ -62,7 +64,14 @@ async function resolvePrefix(
     // Fallback: if manufacturer has no abbreviation, derive from id
     return input.manufacturerId.toUpperCase().slice(0, 6);
   }
-  // Sale / transfer / service / production — use our_company entity
+  if (input.operationType === 'sale' && input.partnerId) {
+    const row = await db.prepare(
+      'SELECT abbreviation FROM partners WHERE id = ?'
+    ).bind(input.partnerId).first<{ abbreviation: string | null }>();
+    if (row?.abbreviation) return row.abbreviation.toUpperCase();
+    // Fallback: partner has no abbreviation — use our_company entity
+  }
+  // Transfer / service / production (and fallbacks) — use our_company entity
   return entityForCompany(input.ourCompanyId);
 }
 

@@ -420,11 +420,13 @@ operations.post('/', async (c) => {
   // Step 6: Issue operation reference (format: ENTITY-YYMMDDXX)
   // XX is the daily counter within (entity, operation_date) bucket.
   // ---------------------------------------------------------------------------
-  const refResult = await issueOperationReference(
-    c.env.DB,
-    resolvedCompanyId,
-    data.operation_date
-  );
+  const refResult = await issueOperationReference(c.env.DB, {
+    operationType: data.operation_type,
+    ourCompanyId: resolvedCompanyId,
+    manufacturerId: resolvedManufacturerId ?? null,
+    partnerId: resolvedPartnerId ?? null,
+    operationDateUnix: data.operation_date,
+  });
   if (!refResult) {
     return fail(c, 500, [{
       code: 'reference_failed',

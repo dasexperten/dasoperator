@@ -335,6 +335,7 @@ async function commitOperationCreate(
     operationType,
     ourCompanyId,
     manufacturerId: manufacturerId || null,
+    partnerId: partnerId || null,
     operationDateUnix: operationDate,
   });
   if (!refResult) throw new Error(`No reference mapping for ${operationType} (company=${ourCompanyId}, mfr=${manufacturerId})`);

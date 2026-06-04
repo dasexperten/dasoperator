@@ -1003,11 +1003,13 @@ operationDocs.post('/create-from-document', async (c) => {
   }
 
   // Issue reference
-  const refResult = await issueOperationReference(
-    c.env.DB,
-    body.our_company_id,
-    body.operation_date
-  );
+  const refResult = await issueOperationReference(c.env.DB, {
+    operationType: body.operation_type,
+    ourCompanyId: body.our_company_id,
+    manufacturerId: body.manufacturer_id || null,
+    partnerId: body.partner_id || null,
+    operationDateUnix: body.operation_date,
+  });
   if (!refResult) {
     return fail(c, 500, [{ code: 'reference_failed', message: `No entity mapping for company ${body.our_company_id}` }]);
   }

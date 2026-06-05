@@ -1,0 +1,43 @@
+# =============================================================================
+# Build the Next.js web app for Cloudflare Pages on Linux and publish the
+# static output as an artifact. Deploy is done out-of-band via `wrangler pages
+# deploy` (direct upload) so no Cloudflare token is stored in this repo.
+# =============================================================================
+name: Build Pages
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - analytics-dashboard
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install web deps
+        working-directory: web
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Build (next-on-pages)
+        working-directory: web
+        run: npx @cloudflare/next-on-pages
+
+      - name: Upload static output
+        uses: actions/upload-artifact@v4
+        with:
+          name: pages-static
+          path: web/.vercel/output/static
+          include-hidden-files: true
+          if-no-files-found: error

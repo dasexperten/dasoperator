@@ -1,10 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   PERIOD, UPDATED, PLATFORMS, OZON_CAMPAIGNS, WB_SKUS,
   BLEEDERS, WINNERS, ACTIONS,
 } from './data';
+
+// Live data published daily by scripts/analytics-etl.mjs to the analytics-data branch.
+const LIVE_URL = 'https://raw.githubusercontent.com/dasexperten/dasoperator/analytics-data/analytics.json';
 
 // ---- helpers ----------------------------------------------------------------
 const RED = '#E5202C';
@@ -17,11 +20,37 @@ const FAINT = 'var(--fg-3)';
 const rub = (n: number) => Math.round(n).toLocaleString('ru-RU');
 const k = (n: number) => (n >= 1000 ? (n / 1000).toFixed(n >= 100000 ? 0 : 1) + 'k' : String(n));
 
-function drrColor(d: number) {
+function drrColor(d: number | null) {
+  if (d == null) return FAINT;
   if (d <= 8) return GREEN;
   if (d <= 15) return AMBER;
   return RED;
 }
+
+// ---- data model (static fallback shaped like the live JSON) ------------------
+const FALLBACK = {
+  period: PERIOD,
+  updated: UPDATED,
+  platforms: PLATFORMS,
+  ozonCampaigns: OZON_CAMPAIGNS,
+  wbSkus: WB_SKUS,
+  ozonDonut: [
+    { label: 'Щётки (трафареты)', value: 92956, color: RED },
+    { label: 'Четвёрки ТОП', value: 64808, color: AMBER },
+    { label: 'Пасты', value: 199620, color: GREEN },
+    { label: 'Нити / прочее', value: 34383, color: '#0B7BC4' },
+  ],
+  wbDonut: [
+    { label: 'Щётки', value: 161403, color: RED },
+    { label: 'Пасты', value: 131177, color: GREEN },
+    { label: 'Нити / ёршики', value: 49321, color: '#0B7BC4' },
+    { label: 'Прочее', value: 29840, color: AMBER },
+  ],
+  bleeders: BLEEDERS,
+  winners: WINNERS,
+  live: false,
+};
+type Model = typeof FALLBACK;
 
 // ---- generic card -----------------------------------------------------------
 function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
@@ -50,7 +79,7 @@ function Kpi({ label, value, sub, color }: { label: string; value: string; sub?:
 
 // ---- donut (SVG) ------------------------------------------------------------
 function Donut({ slices, center, sub }: { slices: { label: string; value: number; color: string }[]; center: string; sub: string }) {
-  const total = slices.reduce((s, x) => s + x.value, 0);
+  const total = slices.reduce((s, x) => s + x.value, 0) || 1;
   const R = 64, C = 2 * Math.PI * R;
   let acc = 0;
   return (
@@ -58,8 +87,7 @@ function Donut({ slices, center, sub }: { slices: { label: string; value: number
       <svg width={160} height={160} viewBox="0 0 160 160" style={{ flexShrink: 0 }}>
         <g transform="rotate(-90 80 80)">
           {slices.map((s, i) => {
-            const frac = s.value / total;
-            const dash = frac * C;
+            const dash = (s.value / total) * C;
             const el = (
               <circle key={i} cx={80} cy={80} r={R} fill="none" stroke={s.color}
                 strokeWidth={20} strokeDasharray={`${dash} ${C - dash}`} strokeDashoffset={-acc} />
@@ -85,7 +113,7 @@ function Donut({ slices, center, sub }: { slices: { label: string; value: number
 }
 
 // ---- horizontal bar row (spend) with ДРР badge ------------------------------
-function BarRow({ name, spend, drr, max, orders }: { name: string; spend: number; drr: number; max: number; orders?: number }) {
+function BarRow({ name, spend, drr, max }: { name: string; spend: number; drr: number | null; max: number }) {
   const w = Math.max(2, (spend / max) * 100);
   const col = drrColor(drr);
   return (
@@ -94,7 +122,7 @@ function BarRow({ name, spend, drr, max, orders }: { name: string; spend: number
         <span style={{ font: '600 13.5px var(--font-sans)', color: INK, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '64%' }}>{name}</span>
         <span style={{ display: 'flex', gap: 10, alignItems: 'baseline', fontFeatureSettings: "'tnum' 1" }}>
           <span style={{ font: '600 13px var(--font-mono)', color: MUTED }}>{rub(spend)} ₽</span>
-          <span style={{ font: '700 12px var(--font-mono)', color: col, background: col + '18', padding: '2px 7px', borderRadius: 6, minWidth: 46, textAlign: 'center' }}>{drr}%</span>
+          <span style={{ font: '700 12px var(--font-mono)', color: col, background: col + '18', padding: '2px 7px', borderRadius: 6, minWidth: 46, textAlign: 'center' }}>{drr == null ? '—' : `${drr}%`}</span>
         </span>
       </div>
       <div style={{ height: 9, background: 'var(--bg-sunk)', borderRadius: 6, overflow: 'hidden' }}>
@@ -105,7 +133,8 @@ function BarRow({ name, spend, drr, max, orders }: { name: string; spend: number
 }
 
 // ---- insight table ----------------------------------------------------------
-function InsightList({ items, tone }: { items: typeof BLEEDERS; tone: 'bad' | 'good' }) {
+type Ins = { sku?: string; name?: string; plat: string; spend: number; drr: number | null; cr: number; note: string };
+function InsightList({ items, tone }: { items: Ins[]; tone: 'bad' | 'good' }) {
   const col = tone === 'bad' ? RED : GREEN;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -114,7 +143,7 @@ function InsightList({ items, tone }: { items: typeof BLEEDERS; tone: 'bad' | 'g
           <div style={{ width: 4, borderRadius: 3, background: col, flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-              <span style={{ font: '700 14px var(--font-sans)', color: INK }}>{it.sku}</span>
+              <span style={{ font: '700 14px var(--font-sans)', color: INK }}>{it.sku ?? it.name}</span>
               <span style={{ font: '700 13px var(--font-mono)', color: col, flexShrink: 0, fontFeatureSettings: "'tnum' 1" }}>ДРР {it.drr}%</span>
             </div>
             <div style={{ display: 'flex', gap: 10, margin: '4px 0 5px', flexWrap: 'wrap' }}>
@@ -135,23 +164,23 @@ function Tag({ children }: { children: React.ReactNode }) {
 }
 
 // ---- platform comparison hero card ------------------------------------------
-function PlatformCard({ p }: { p: typeof PLATFORMS.ozon }) {
-  const col = drrColor(p.drr);
+function PlatformCard({ name, accent, spend, revenue, drr, orders }: { name: string; accent: string; spend: number; revenue: number; drr: number; orders: number }) {
+  const col = drrColor(drr);
   return (
     <Card style={{ padding: 22, position: 'relative', overflow: 'hidden' }}>
-      <div style={{ position: 'absolute', top: 0, left: 0, width: 4, height: '100%', background: p.accent }} />
+      <div style={{ position: 'absolute', top: 0, left: 0, width: 4, height: '100%', background: accent }} />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <span style={{ font: '800 19px var(--font-display)', color: INK }}>{p.name}</span>
-        <span style={{ font: '600 12px var(--font-mono)', color: p.accent, background: p.accent + '14', padding: '4px 10px', borderRadius: 20 }}>реклама · 30 дней</span>
+        <span style={{ font: '800 19px var(--font-display)', color: INK }}>{name}</span>
+        <span style={{ font: '600 12px var(--font-mono)', color: accent, background: accent + '14', padding: '4px 10px', borderRadius: 20 }}>реклама · 30 дней</span>
       </div>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, marginBottom: 4 }}>
-        <span style={{ font: '900 46px/0.9 var(--font-display)', color: col, fontFeatureSettings: "'tnum' 1" }}>{p.drr}%</span>
+        <span style={{ font: '900 46px/0.9 var(--font-display)', color: col, fontFeatureSettings: "'tnum' 1" }}>{drr}%</span>
         <span style={{ font: '600 14px var(--font-sans)', color: MUTED, marginBottom: 7 }}>ДРР</span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginTop: 16 }}>
-        <Mini label="Расход" value={`${rub(p.spend)} ₽`} />
-        <Mini label="Выручка" value={`${(p.revenue / 1e6).toFixed(2)} млн`} />
-        <Mini label="Заказы" value={rub(p.orders)} />
+        <Mini label="Расход" value={`${rub(spend)} ₽`} />
+        <Mini label="Выручка" value={`${(revenue / 1e6).toFixed(2)} млн`} />
+        <Mini label="Заказы" value={rub(orders)} />
       </div>
     </Card>
   );
@@ -188,14 +217,42 @@ function ActionCard({ a }: { a: typeof ACTIONS[number] }) {
 // ============================================================================
 export default function AnalyticsDashboard() {
   const [tab, setTab] = useState<'ozon' | 'wb'>('ozon');
-  const ozon = PLATFORMS.ozon, wb = PLATFORMS.wb;
+  const [d, setD] = useState<Model>(FALLBACK);
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`${LIVE_URL}?t=${Date.now()}`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('no live data'))))
+      .then((j) => {
+        if (!alive || !j?.platforms) return;
+        setD({
+          period: j.period ?? FALLBACK.period,
+          updated: j.updated ?? FALLBACK.updated,
+          platforms: {
+            ozon: { ...PLATFORMS.ozon, ...j.platforms.ozon },
+            wb: { ...PLATFORMS.wb, ...j.platforms.wb },
+          },
+          ozonCampaigns: j.ozonCampaigns?.length ? j.ozonCampaigns : FALLBACK.ozonCampaigns,
+          wbSkus: j.wbSkus?.length ? j.wbSkus : FALLBACK.wbSkus,
+          ozonDonut: j.ozonDonut?.length ? j.ozonDonut : FALLBACK.ozonDonut,
+          wbDonut: j.wbDonut?.length ? j.wbDonut : FALLBACK.wbDonut,
+          bleeders: (j.bleeders?.length ? j.bleeders : FALLBACK.bleeders).map((b: any) => ({ sku: b.sku ?? b.name, plat: b.plat, spend: b.spend, drr: b.drr, cr: b.cr, note: b.note })),
+          winners: (j.winners?.length ? j.winners : FALLBACK.winners).map((b: any) => ({ sku: b.sku ?? b.name, plat: b.plat, spend: b.spend, drr: b.drr, cr: b.cr, note: b.note })),
+          live: true,
+        });
+      })
+      .catch(() => { /* keep static fallback */ });
+    return () => { alive = false; };
+  }, []);
+
+  const ozon = d.platforms.ozon, wb = d.platforms.wb;
   const totalSpend = ozon.spend + wb.spend;
   const totalRev = ozon.revenue + wb.revenue;
-  const blendedDrr = (totalSpend / totalRev) * 100;
+  const blendedDrr = totalRev ? (totalSpend / totalRev) * 100 : 0;
 
-  const ozonMax = Math.max(...OZON_CAMPAIGNS.map(c => c.spend));
-  const wbTop = WB_SKUS.slice(0, 12);
-  const wbMax = Math.max(...wbTop.map(s => s.spend));
+  const ozonMax = Math.max(...d.ozonCampaigns.map((c) => c.spend), 1);
+  const wbTop = d.wbSkus.slice(0, 12);
+  const wbMax = Math.max(...wbTop.map((s) => s.spend), 1);
 
   return (
     <div style={{ maxWidth: 1180, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 26 }}>
@@ -203,15 +260,23 @@ export default function AnalyticsDashboard() {
       <div>
         <div className="dx-eyebrow dx-eyebrow-rot" style={{ marginBottom: 6 }}>Маркетинговая аналитика</div>
         <h1 style={{ font: '900 var(--fs-display-md)/1 var(--font-display)', color: INK, margin: 0 }}>Реклама маркетплейсов</h1>
-        <p style={{ font: '500 15px var(--font-sans)', color: MUTED, marginTop: 8 }}>
-          Ozon Performance + WB Advert · период {PERIOD} · обновлено {UPDATED}
+        <p style={{ font: '500 15px var(--font-sans)', color: MUTED, marginTop: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span>Ozon Performance + WB Advert · период {d.period} · обновлено {d.updated}</span>
+          <span style={{
+            font: '600 11px var(--font-mono)', color: d.live ? GREEN : FAINT,
+            background: (d.live ? GREEN : FAINT) + '18', padding: '2px 9px', borderRadius: 20,
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+          }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: d.live ? GREEN : FAINT }} />
+            {d.live ? 'live · обновляется ежедневно' : 'снимок'}
+          </span>
         </p>
       </div>
 
       {/* platform comparison + blended */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-        <PlatformCard p={ozon} />
-        <PlatformCard p={wb} />
+        <PlatformCard name="Ozon" accent={PLATFORMS.ozon.accent} spend={ozon.spend} revenue={ozon.revenue} drr={ozon.drr} orders={ozon.orders} />
+        <PlatformCard name="Wildberries" accent={PLATFORMS.wb.accent} spend={wb.spend} revenue={wb.revenue} drr={wb.drr} orders={wb.orders} />
         <Card style={{ padding: 22, background: 'var(--bg-inverse)' }}>
           <div style={{ font: '600 12px var(--font-mono)', color: 'rgba(255,255,255,.55)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Суммарно · 2 площадки</div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, margin: '10px 0 2px' }}>
@@ -237,7 +302,7 @@ export default function AnalyticsDashboard() {
         <div style={{ font: '500 14.5px/1.55 var(--font-sans)', color: INK }}>
           <b>Бюджет перевёрнут.</b> Пасты и нити конвертят на 12–54% при ДРР 4–13%, а часть щёток — на 0,4–10% при ДРР 20–141%.
           При этом самые дорогие кампании — именно щётки. Платим больше всего за то, что продаётся хуже всего.
-          WB-реклама (ДРР 15%) почти вдвое дороже Ozon (8,6%).
+          WB-реклама (ДРР {wb.drr}%) почти вдвое дороже Ozon ({ozon.drr}%).
         </div>
       </Card>
 
@@ -262,24 +327,18 @@ export default function AnalyticsDashboard() {
             <Kpi label="Расход" value={`${rub(ozon.spend)} ₽`} />
             <Kpi label="Выручка с рекламы" value={`${(ozon.revenue / 1e6).toFixed(2)} млн ₽`} />
             <Kpi label="ДРР" value={`${ozon.drr}%`} color={drrColor(ozon.drr)} sub="здоровый уровень" />
-            <Kpi label="Заказы" value={rub(ozon.orders)} sub="8 активных кампаний из 178" />
+            <Kpi label="Заказы" value={rub(ozon.orders)} sub={`${d.ozonCampaigns.length} активных кампаний`} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.55fr) minmax(0,1fr)', gap: 16 }}>
             <Card>
               <Eyebrow>Расход и ДРР по кампаниям</Eyebrow>
-              {OZON_CAMPAIGNS.map((c, i) => <BarRow key={i} name={c.name} spend={c.spend} drr={c.drr} max={ozonMax} />)}
+              {d.ozonCampaigns.map((c, i) => <BarRow key={i} name={c.name} spend={c.spend} drr={c.drr} max={ozonMax} />)}
             </Card>
             <Card>
               <Eyebrow>Распределение расхода</Eyebrow>
-              <Donut center={`${k(ozon.spend)}`} sub="₽ / 30 дн"
-                slices={[
-                  { label: 'Щётки (трафареты)', value: 92956, color: RED },
-                  { label: 'Четвёрки ТОП', value: 64808, color: AMBER },
-                  { label: 'Пасты', value: 199620, color: GREEN },
-                  { label: 'Нити / прочее', value: 34383, color: '#0B7BC4' },
-                ]} />
+              <Donut center={`${k(ozon.spend)}`} sub="₽ / 30 дн" slices={d.ozonDonut} />
               <p style={{ font: '400 13px/1.5 var(--font-sans)', color: MUTED, marginTop: 16 }}>
-                «Трафареты Щётки» — самая дорогая кампания (24% расхода) и худший ДРР 15,5%. Пасты в сумме дают вдвое больше выручки при ДРР 6–7%.
+                «Трафареты Щётки» — самая дорогая кампания и худший ДРР. Пасты в сумме дают вдвое больше выручки при ДРР 6–7%.
               </p>
             </Card>
           </div>
@@ -299,15 +358,9 @@ export default function AnalyticsDashboard() {
             </Card>
             <Card>
               <Eyebrow>Расход: щётки vs пасты/нити</Eyebrow>
-              <Donut center={`${k(wb.spend)}`} sub="₽ / 30 дн"
-                slices={[
-                  { label: 'Щётки', value: 161403, color: RED },
-                  { label: 'Пасты', value: 131177, color: GREEN },
-                  { label: 'Нити / ёршики', value: 49321, color: '#0B7BC4' },
-                  { label: 'Прочее', value: 29840, color: AMBER },
-                ]} />
+              <Donut center={`${k(wb.spend)}`} sub="₽ / 30 дн" slices={d.wbDonut} />
               <p style={{ font: '400 13px/1.5 var(--font-sans)', color: MUTED, marginTop: 16 }}>
-                Щётки — 43% бюджета WB и почти все аутсайдеры по ДРР (AKTIV 141%, KINDER 60%, MITTEL 21%). Пасты и нити держат ДРР 5–13%.
+                Щётки — почти половина бюджета WB и почти все аутсайдеры по ДРР (AKTIV, KINDER, MITTEL). Пасты и нити держат ДРР 5–13%.
               </p>
             </Card>
           </div>
@@ -321,21 +374,21 @@ export default function AnalyticsDashboard() {
             <span style={{ width: 9, height: 9, borderRadius: '50%', background: RED }} />
             <span style={{ font: '800 16px var(--font-display)', color: INK }}>Где горит — резать</span>
           </div>
-          <InsightList items={BLEEDERS} tone="bad" />
+          <InsightList items={d.bleeders as Ins[]} tone="bad" />
         </Card>
         <Card>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <span style={{ width: 9, height: 9, borderRadius: '50%', background: GREEN }} />
             <span style={{ font: '800 16px var(--font-display)', color: INK }}>Где недоливаем — масштабировать</span>
           </div>
-          <InsightList items={WINNERS} tone="good" />
+          <InsightList items={d.winners as Ins[]} tone="good" />
         </Card>
       </div>
 
       {/* action plan */}
       <div>
         <h2 style={{ font: '900 var(--fs-h2)/1 var(--font-display)', color: INK, margin: '0 0 4px' }}>План действий</h2>
-        <p style={{ font: '500 14px var(--font-sans)', color: MUTED, margin: '0 0 16px' }}>Порядок = по отдаче. Цель: ДРР Ozon 8,6→~7%, WB 15→~11%, выручка растёт.</p>
+        <p style={{ font: '500 14px var(--font-sans)', color: MUTED, margin: '0 0 16px' }}>Порядок = по отдаче. Цель: ДРР Ozon ~7%, WB ~11%, выручка растёт.</p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px,1fr))', gap: 14 }}>
           {ACTIONS.map((a, i) => <ActionCard key={i} a={a} />)}
         </div>

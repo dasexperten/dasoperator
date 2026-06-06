@@ -189,8 +189,27 @@ const winNote = (r) => `ДРР ${r.drr}%, CR ${r.cr}% — есть запас, �
     wbDonut: donutFromSpend(w.wbSkus, (s) => s.name, (s) => s.spend),
     bleeders, winners,
   };
-  fs.writeFileSync(OUT, JSON.stringify(out, null, 2));
+  const json = JSON.stringify(out, null, 2);
+  fs.writeFileSync(OUT, json);
   console.log('Wrote', OUT, '| period', out.period,
     '| Ozon ДРР', out.platforms.ozon.drr, '| WB ДРР', out.platforms.wb.drr,
     '| bleeders', bleeders.length, '| winners', winners.length);
+
+  // Optional publish to GitHub (analytics-data branch) via Contents API.
+  const tok = process.env.GH_PUSH_TOKEN;
+  if (tok) {
+    const repo = process.env.GH_REPO || 'dasexperten/dasoperator';
+    const branch = process.env.GH_BRANCH || 'analytics-data';
+    const path = process.env.GH_PATH || 'analytics.json';
+    const api = `https://api.github.com/repos/${repo}/contents/${path}`;
+    const H = { Authorization: 'Bearer ' + tok, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json', 'User-Agent': 'analytics-etl' };
+    let sha;
+    const cur = await fetch(`${api}?ref=${branch}`, { headers: H });
+    if (cur.status === 200) sha = (await cur.json()).sha;
+    const put = await fetch(api, { method: 'PUT', headers: H, body: JSON.stringify({ message: `chore(analytics): refresh ${out.updated}`, content: Buffer.from(json).toString('base64'), branch, ...(sha ? { sha } : {}) }) });
+    if (put.status >= 300) throw new Error('publish failed ' + put.status + ' ' + (await put.text()).slice(0, 200));
+    console.log('Published to', repo, branch, '/', path);
+  } else {
+    console.log('GH_PUSH_TOKEN not set — wrote local file only.');
+  }
 })().catch((e) => { console.error('ETL FAILED:', e.message); process.exit(1); });

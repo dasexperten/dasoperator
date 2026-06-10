@@ -1,7 +1,13 @@
 // =============================================================================
 // LLM router — single entrypoint for ERP business logic that needs reasoning.
 //
-// ROUTING POLICY (2026-05-27):
+// ROUTING POLICY (2026-06-10, per Aram): DEFAULT is now DeepSeek V4-Pro for
+//   ALL ERP business logic. Sonnet removed from the default path. Reviews
+//   ride this default (DeepSeek) on an interim basis until the dedicated
+//   Qwen review-provider lands. Anthropic remains callable only via an
+//   explicit prefer:'anthropic' (no current callers).
+//
+// ROUTING POLICY (2026-05-27, superseded):
 //   1. PRIMARY: Anthropic Sonnet 4.6 (PRO) / Haiku 4.5 (FLASH) via OAuth token
 //      from env.CLAUDE_CODE_OAUTH_TOKEN — counts against Max 20x subscription
 //      quota, not pay-as-you-go API credits.
@@ -56,7 +62,7 @@ async function route(
   opts: LlmCallOptions,
   variant: 'pro' | 'flash',
 ): Promise<LlmResult> {
-  const { env, maxTokens, temperature, prefer = 'auto' } = opts;
+  const { env, maxTokens, temperature, prefer = 'deepseek' } = opts;
 
   const anthropicAvailable = !!env.CLAUDE_CODE_OAUTH_TOKEN;
   const deepseekAvailable = !!env.DEEPSEEK_API_KEY;

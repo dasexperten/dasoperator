@@ -7,7 +7,7 @@
 // Thinking budget disabled (thinkingConfig.thinkingBudget=0) for speed.
 // =============================================================================
 
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent';
 
 export interface GeminiUsage {
   prompt_tokens: number;
@@ -68,7 +68,7 @@ export async function callGeminiFlash(
       prompt_tokens: usage.promptTokenCount ?? 0,
       completion_tokens: usage.candidatesTokenCount ?? 0,
     },
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.5-flash',
   };
 }
 

@@ -29,6 +29,7 @@
 import type { Env } from '../types';
 import { callPro as anthropicPro, callFlash as anthropicFlash } from './anthropic';
 import { callPro as deepseekPro, callFlash as deepseekFlash } from './deepseek';
+import { callPro as qwenPro, callFlash as qwenFlash } from './qwen';
 
 // Re-export the shared message + result types so call sites import everything
 // from a single module.
@@ -47,7 +48,7 @@ export interface LlmCallOptions {
    * fallback). Set 'deepseek' to skip Anthropic entirely — useful for the
    * occasional caller that wants the cheaper provider regardless.
    */
-  prefer?: 'auto' | 'anthropic' | 'deepseek';
+  prefer?: 'auto' | 'anthropic' | 'deepseek' | 'qwen';
 }
 
 function shouldFallbackOn(err: unknown): boolean {
@@ -83,6 +84,34 @@ async function route(
     ...(maxTokens !== undefined ? { maxTokens } : {}),
     ...(temperature !== undefined ? { temperature } : {}),
   };
+
+  // Caller asked for Qwen (rating-only review answers) — qwen-max primary,
+  // DeepSeek V4-Pro fallback on hard failure. Sonnet is never used here.
+  if (prefer === 'qwen') {
+    const qwenAvailable = !!env.DASHSCOPE_API_KEY;
+    if (!qwenAvailable) {
+      if (!deepseekAvailable) {
+        throw new Error('LLM router: Qwen requested but DASHSCOPE_API_KEY and DEEPSEEK_API_KEY are both missing');
+      }
+      const r = variant === 'pro' ? await deepseekPro(messages, dsOpts) : await deepseekFlash(messages, dsOpts);
+      return { ...r, provider: 'deepseek' };
+    }
+    const qwOpts = {
+      apiKey: env.DASHSCOPE_API_KEY as string,
+      ...(maxTokens !== undefined ? { maxTokens } : {}),
+      ...(temperature !== undefined ? { temperature } : {}),
+    };
+    try {
+      const r = variant === 'pro' ? await qwenPro(messages, qwOpts) : await qwenFlash(messages, qwOpts);
+      return { ...r, provider: 'qwen' };
+    } catch (err) {
+      if (!deepseekAvailable || !shouldFallbackOn(err)) throw err;
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.warn(`[llm-router] Qwen ${variant} failed, falling back to DeepSeek: ${errMsg.slice(0, 200)}`);
+      const r = variant === 'pro' ? await deepseekPro(messages, dsOpts) : await deepseekFlash(messages, dsOpts);
+      return { ...r, provider: 'deepseek' };
+    }
+  }
 
   // Caller explicitly asked for DeepSeek — skip Anthropic.
   if (prefer === 'deepseek' || !anthropicAvailable) {

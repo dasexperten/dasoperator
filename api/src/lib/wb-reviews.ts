@@ -218,7 +218,7 @@ export async function draftReply(env: Env, fb: any, _model = DEFAULT_MODEL): Pro
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: userBody },
     ],
-    { env, maxTokens: 1024, temperature: 0.5 },
+    { env, maxTokens: 1024, temperature: 0.5, prefer: 'auto' },
   );
   return {
     text: r.text.trim(),
@@ -247,7 +247,7 @@ export async function draftReplyDeepSeek(env: Env, fb: any): Promise<Draft> {
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: userBody },
     ],
-    { env, maxTokens: 1500, temperature: 0.5 },
+    { env, maxTokens: 1500, temperature: 0.5, prefer: 'qwen' },
   );
   return {
     text: r.text.trim(),

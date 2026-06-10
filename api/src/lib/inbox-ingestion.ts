@@ -17,6 +17,7 @@
 import type { Env } from '../types';
 import { findMatchingOperation, applyMatchToInbox } from './inbox-auto-match';
 import { callAnthropicRaw } from './anthropic';
+import { callGeminiPdf } from './gemini';
 import { callPro } from './llm';
 import { createDailySaleFromYandexCsv } from './yandex-pay-sale';
 
@@ -630,14 +631,7 @@ ${text || '(empty — PDF text extraction failed, classify based on metadata onl
 // error (HTTP failure, parse failure, quota).
 // =============================================================================
 export async function classifyViaClaude(env: Env, pdfBuf: ArrayBuffer, c: any): Promise<any> {
-  const token = env.CLAUDE_CODE_OAUTH_TOKEN;
-  if (!token) {
-    // No OAuth — caller falls back to DeepSeek text classifier automatically.
-    // We never use pay-as-you-go Anthropic as a fallback.
-    console.log('[inbox-cron:claude] CLAUDE_CODE_OAUTH_TOKEN not set, skipping');
-    return null;
-  }
-  // Base64-encode PDF
+  // Base64-encode PDF (shared by Gemini + Claude paths)
   const bytes = new Uint8Array(pdfBuf);
   let bin = '';
   for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
@@ -645,7 +639,7 @@ export async function classifyViaClaude(env: Env, pdfBuf: ArrayBuffer, c: any): 
 
   const sizeMb = bytes.byteLength / (1024 * 1024);
   if (sizeMb > 28) {
-    console.log(`[inbox-cron:claude] PDF too large (${sizeMb.toFixed(1)} MB), skipping Claude path`);
+    console.log(`[inbox-cron] PDF too large (${sizeMb.toFixed(1)} MB), skipping`);
     return null;
   }
 
@@ -657,6 +651,29 @@ export async function classifyViaClaude(env: Env, pdfBuf: ArrayBuffer, c: any): 
 
 The attached PDF is an invoice/УПД/счёт. Extract all fields per the schema.`;
 
+  const stripFences = (t: string): string =>
+    t.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+
+  // PRIMARY: Gemini 3.5 Flash multimodal — email/inbox task model (per Aram 2026-06-10).
+  if (env.GEMINI_API_KEY) {
+    try {
+      const g = await callGeminiPdf(DEEPSEEK_PROMPT, userMsg, b64, {
+        apiKey: env.GEMINI_API_KEY,
+        maxTokens: 2500,
+        temperature: 0.2,
+      });
+      return JSON.parse(stripFences(g.text));
+    } catch (ge) {
+      console.warn('[inbox-cron:gemini] failed, falling back to Claude:', ge);
+    }
+  }
+
+  // FALLBACK: Claude Sonnet (OAuth) multimodal — only if Gemini unavailable/failed.
+  const token = env.CLAUDE_CODE_OAUTH_TOKEN;
+  if (!token) {
+    console.log('[inbox-cron] no Gemini result and CLAUDE_CODE_OAUTH_TOKEN not set; skipping');
+    return null;
+  }
   try {
     const data: any = await callAnthropicRaw({
       oauthToken: token,
@@ -673,13 +690,9 @@ The attached PDF is an invoice/УПД/счёт. Extract all fields per the schem
         },
       ],
     });
-    // Anthropic returns content array; find the text block
     const textBlock = (data.content || []).find((b: any) => b.type === 'text');
     if (!textBlock) return null;
-    // Claude may wrap JSON in code fences; strip them
-    let raw = String(textBlock.text || '').trim();
-    raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
-    return JSON.parse(raw);
+    return JSON.parse(stripFences(String(textBlock.text || '').trim()));
   } catch (e) {
     console.error('[inbox-cron:claude] error:', e);
     return null;

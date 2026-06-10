@@ -23,7 +23,6 @@
 
 import type { Env } from '../types';
 import { callPro } from './llm';
-import { callGeminiFlash } from './gemini';
 import { sanitizeReply } from './sanitize';
 import { loadSkillMd, loadSkuKnowledge, loadSegmentCheck } from './skill-loader';
 
@@ -48,7 +47,7 @@ export interface PipelineInput {
 export interface GateResult {
   gate: string;
   status: 'pass' | 'weak' | 'fail' | 'skip';
-  provider: 'claude' | 'deepseek' | 'gemini' | 'rule';
+  provider: 'claude' | 'deepseek' | 'gemini' | 'qwen' | 'rule';
   reason?: string;
   tokensIn: number;
   tokensOut: number;
@@ -82,7 +81,7 @@ async function callClaude(env: Env, system: string, user: string, maxTokens: num
       { role: 'system', content: system },
       { role: 'user', content: user },
     ],
-    { env, maxTokens, temperature: 0.3 },
+    { env, maxTokens, temperature: 0.3, prefer: 'auto' },
   );
   return {
     text: r.text.trim(),
@@ -92,10 +91,20 @@ async function callClaude(env: Env, system: string, user: string, maxTokens: num
 }
 
 
-async function callGemini(env: Env, system: string, user: string, maxTokens: number, temp = 0.5): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
-  if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
-  const r = await callGeminiFlash(system, user, { apiKey: env.GEMINI_API_KEY, maxTokens, temperature: temp });
-  return { text: r.text, tokensIn: r.usage.prompt_tokens, tokensOut: r.usage.completion_tokens };
+async function callQwen(env: Env, system: string, user: string, maxTokens: number, temp = 0.4): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
+  // Rating-only review answers. Qwen-max primary, DeepSeek fallback (handled in llm router).
+  const r = await callPro(
+    [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
+    { env, maxTokens, temperature: temp, prefer: 'qwen' },
+  );
+  return {
+    text: r.text.trim(),
+    tokensIn: r.usage.prompt_tokens ?? 0,
+    tokensOut: r.usage.completion_tokens ?? 0,
+  };
 }
 
 async function callDeepSeek(env: Env, system: string, user: string, maxTokens: number, temp = 0.3): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
@@ -107,7 +116,7 @@ async function callDeepSeek(env: Env, system: string, user: string, maxTokens: n
       { role: 'system', content: system },
       { role: 'user', content: user },
     ],
-    { env, maxTokens, temperature: temp },
+    { env, maxTokens, temperature: temp, prefer: 'deepseek' },
   );
   return {
     text: r.text.trim(),
@@ -181,7 +190,7 @@ Q-USE — как использовать
   gates.push({ gate: 'classify', status: 'pass', provider: 'deepseek', reason: reviewType, tokensIn: r1.tokensIn, tokensOut: r1.tokensOut, durationMs: Date.now() - t1 });
 
   // ===========================================================================
-  // GATE 2 — brief building (DeepSeek reads ALL skills, outputs compact JSON brief)
+  // GATE 2 — brief building (DeepSeek reads review-master + product-skill + SKU)
   // ===========================================================================
   const t2 = Date.now();
   const skuKnowledge = await loadSkuKnowledge(env, input.productSku ?? '').catch(() => '');
@@ -200,10 +209,10 @@ JSON содержит:
   "key_fact": "ОДИН самый подходящий факт из SKU card — конкретный, с цифрой если есть",
   "tone": "уверенный/тёплый/нейтральный/направляющий",
   "length_chars": 200-600,
-  "must_include": ["обращение по имени", "ключевой факт", ...],
-  "must_avoid": ["спасибо за пятёрку", "к сожалению", ...],
+  "must_include": ["обращение по имени", "ключевой факт"],
+  "must_avoid": ["спасибо за пятёрку", "к сожалению"],
   "voice_doctrine": "1-2 предложения из review-master skill — самые важные правила для этого типа",
-  "neg_strategy": "только для NEG: do not apologize / redirect / recommend alternative" 
+  "neg_strategy": "только для NEG: do not apologize / redirect / recommend alternative"
 }
 
 ЗАДАЧА: прочитай skills, выбери только то что нужно ИМЕННО для этого отзыва, составь brief.
@@ -237,102 +246,95 @@ ${skuKnowledge}`;
   gates.push({ gate: 'brief', status: 'pass', provider: 'deepseek', reason: `keyFact: ${(brief.key_fact || '').slice(0,80)}`, tokensIn: r2.tokensIn, tokensOut: r2.tokensOut, durationMs: Date.now() - t2 });
 
   // ===========================================================================
-  // GATE 3 — write (CLAUDE, minimal input)
+  // GATE 3 — technolog PRE-FLIGHT (DeepSeek + technolog skill) — ALWAYS RUNS
+  // Validates which clinical facts may be used BEFORE Claude writes anything.
   // ===========================================================================
   const t3 = Date.now();
+  const technologMd = await loadSkillMd(env, 'technolog').catch(() => '');
+  const technologSystem = `Ты — technolog gate (предполётная проверка фактов). Ты НЕ пишешь ответ.
+На основе SKU-знания и отзыва определи, какие клинические/составные факты копирайтер МОЖЕТ использовать, и какие формулировки ЗАПРЕЩЕНЫ.
+
+ВЫХОД строго:
+CLEARED_FACTS:
+- <конкретный проверенный факт с цифрой/механизмом, который можно использовать>
+FORBIDDEN:
+- <чего нельзя утверждать для этого SKU>
+
+${technologMd}
+
+SKU KNOWLEDGE:
+${skuKnowledge.slice(0, 6000)}`;
+  const r3t = await callDeepSeek(env, technologSystem, `BRIEF key_fact: ${brief.key_fact}\n\nОтзыв:\n${formatInput(input)}`, 8000, 0.1);
+  totalIn += r3t.tokensIn; totalOut += r3t.tokensOut;
+  const clearedFacts = r3t.text.trim();
+  gates.push({ gate: 'technolog', status: 'pass', provider: 'deepseek', reason: clearedFacts.slice(0, 200), tokensIn: r3t.tokensIn, tokensOut: r3t.tokensOut, durationMs: Date.now() - t3 });
+
+  // ===========================================================================
+  // GATE 4 — marketolog PRE-FLIGHT (DeepSeek + marketolog + benefit-gate) — ALWAYS
+  // Produces voice/conversion directive for the brief BEFORE Claude writes.
+  // ===========================================================================
+  const t4 = Date.now();
+  const marketologMd = await loadSkillMd(env, 'marketolog').catch(() => '');
+  const benefitMd = await loadSkillMd(env, 'benefit-gate').catch(() => '');
+  const marketologSystem = `Ты — marketolog + benefit-gate (предполётная директива). Ты НЕ пишешь ответ.
+Дай копирайтеру чёткую директиву, как написать ответ, который продаст следующим ~1000 читателям.
+
+ВЫХОД строго:
+ANGLE: <главный угол подачи>
+HOOK: <как зацепить с первой строки>
+SOCIAL_PROOF: <как усилить доверие, если уместно>
+VOICE: <тон: уверенный, острый, без извинений>
+SHARPEN: <2-3 конкретных приёма усиления для этого отзыва>
+
+${marketologMd}
+
+${benefitMd}`;
+  const r4m = await callDeepSeek(env, marketologSystem, `BRIEF:\n${JSON.stringify(brief, null, 2)}\n\nОтзыв:\n${formatInput(input)}\n\nТип: ${reviewType}`, 8000, 0.2);
+  totalIn += r4m.tokensIn; totalOut += r4m.tokensOut;
+  const voiceDirective = r4m.text.trim();
+  gates.push({ gate: 'marketolog', status: 'pass', provider: 'deepseek', reason: voiceDirective.slice(0, 200), tokensIn: r4m.tokensIn, tokensOut: r4m.tokensOut, durationMs: Date.now() - t4 });
+
+  // ===========================================================================
+  // Assemble ENRICHED brief — product brief + technolog-cleared facts +
+  // marketolog voice directive. Claude (Sonnet) writes ONLY from this.
+  // ===========================================================================
+  const enrichedBrief = {
+    ...brief,
+    cleared_facts: clearedFacts,
+    voice_directive: voiceDirective,
+  };
+
+  // ===========================================================================
+  // GATE 5 — write (CLAUDE Sonnet) — single pass from the enriched brief
+  // ===========================================================================
+  const t5 = Date.now();
   const writeSystem = `Ты — копирайтер Das Experten. Пишешь ответы покупателям на маркетплейсах.
 
-Ты получаешь BRIEF в JSON-формате и сам отзыв. По brief'у пишешь финальный текст ответа.
+Ты получаешь ENRICHED BRIEF (JSON) и сам отзыв. Brief уже содержит:
+- cleared_facts — проверенные technolog'ом факты. Клинические утверждения бери ТОЛЬКО отсюда.
+- voice_directive — директива marketolog. Следуй её ANGLE/HOOK/VOICE/SHARPEN.
 
 ВАЖНО:
-- Никаких преамбул, JSON, метаданных в выходе
-- ТОЛЬКО сам текст ответа
-- Соблюдай длину из brief.length_chars (±50)
-- Используй brief.must_include, избегай brief.must_avoid
-- Brief.key_fact — главная конкретика, встрой
-- Никогда не благодари за оценку, никогда не извиняйся, никогда не пиши "Спасибо за пятёрку"`;
+- Никаких преамбул, JSON, метаданных. ТОЛЬКО текст ответа.
+- Соблюдай длину из brief.length_chars (±50).
+- Используй brief.must_include, избегай brief.must_avoid.
+- Ничего не выдумывай сверх cleared_facts.
+- Никогда не благодари за оценку, не извиняйся, не пиши "Спасибо за пятёрку".`;
 
-  const writeUser = `BRIEF:\n${JSON.stringify(brief, null, 2)}\n\nОТЗЫВ:\n${formatInput(input)}\n\nНапиши ответ.`;
-  const r3 = await callClaude(env, writeSystem, writeUser, 1000);
-  let currentReply = r3.text;
-  totalIn += r3.tokensIn; totalOut += r3.tokensOut;
-  gates.push({ gate: 'write', status: currentReply.length > 50 ? 'pass' : 'fail', provider: 'claude', reason: `${currentReply.length} chars`, tokensIn: r3.tokensIn, tokensOut: r3.tokensOut, durationMs: Date.now() - t3 });
+  const writeUser = `ENRICHED BRIEF:\n${JSON.stringify(enrichedBrief, null, 2)}\n\nОТЗЫВ:\n${formatInput(input)}\n\nНапиши финальный ответ.`;
+  const r5 = await callClaude(env, writeSystem, writeUser, 1000);
+  let currentReply = r5.text;
+  totalIn += r5.tokensIn; totalOut += r5.tokensOut;
+  gates.push({ gate: 'write', status: currentReply.length > 50 ? 'pass' : 'fail', provider: 'claude', reason: `${currentReply.length} chars`, tokensIn: r5.tokensIn, tokensOut: r5.tokensOut, durationMs: Date.now() - t5 });
 
   if (currentReply.length < 50) {
     return { ok: false, reply: '', reviewType, gates, totalDurationMs: Date.now() - startedAt, totalTokensIn: totalIn, totalTokensOut: totalOut, warning: 'Claude write empty' };
   }
 
   // ===========================================================================
-  // GATE 4 — technolog (DeepSeek)
+  // GATE 6 — segment-check (DeepSeek) — readability for 8 personas
   // ===========================================================================
-  const t4 = Date.now();
-  const technologMd = await loadSkillMd(env, 'technolog').catch(() => '');
-  const technologSystem = `Ты — technolog gate. Проверь черновик на клиническую достоверность.
-- Всё чисто → "CLEARED"
-- Неточности → "IMPRECISE: что именно, как исправить"
-- Ложь → "FALSE: что неправда, как заменить"
-
-${technologMd}
-
-SKU KNOWLEDGE:
-${skuKnowledge.slice(0, 5000)}`;
-
-  const r4 = await callDeepSeek(env, technologSystem, `Черновик:\n${currentReply}\n\nОтзыв:\n${formatInput(input)}`, 8000, 0.1);
-  totalIn += r4.tokensIn; totalOut += r4.tokensOut;
-  let tStatus: 'pass'|'weak'|'fail' = 'pass';
-  const u = r4.text.toUpperCase();
-  if (u.startsWith('FALSE')) tStatus = 'fail';
-  else if (u.startsWith('IMPRECISE')) tStatus = 'weak';
-  gates.push({ gate: 'technolog', status: tStatus, provider: 'deepseek', reason: r4.text.slice(0, 200), tokensIn: r4.tokensIn, tokensOut: r4.tokensOut, durationMs: Date.now() - t4 });
-
-  // ===========================================================================
-  // GATE 5 — conversion (DeepSeek reads marketolog + benefit-gate, returns notes only)
-  // ===========================================================================
-  const t5 = Date.now();
-  const marketologMd = await loadSkillMd(env, 'marketolog').catch(() => '');
-  const benefitMd = await loadSkillMd(env, 'benefit-gate').catch(() => '');
-  const conversionSystem = `Ты — conversion gate (marketolog + benefit-gate). Анализируешь ответ.
-
-Ответь одной из категорий:
-- "PASS" — ответ хорош как есть
-- "SHARPEN: <конкретные замечания>" — нужно подкрутить voice/conversion
-
-КРИТЕРИИ:
-- audience: следующие 1000 человек которые увидят
-- intrigue, social proof, superiority frame
-- voice: confident, sharp, без извинений и оправданий
-
-${marketologMd}
-
-${benefitMd}`;
-  const r5 = await callDeepSeek(env, conversionSystem, `Ответ:\n${currentReply}\n\nОтзыв:\n${formatInput(input)}\n\nТип: ${reviewType}`, 8000, 0.2);
-  totalIn += r5.tokensIn; totalOut += r5.tokensOut;
-  let cStatus: 'pass'|'weak'|'fail' = 'pass';
-  const cu = r5.text.toUpperCase();
-  if (cu.startsWith('FAIL')) cStatus = 'fail';
-  else if (cu.startsWith('SHARPEN')) cStatus = 'weak';
-  gates.push({ gate: 'conversion', status: cStatus, provider: 'deepseek', reason: r5.text.slice(0, 200), tokensIn: r5.tokensIn, tokensOut: r5.tokensOut, durationMs: Date.now() - t5 });
-
-  // ===========================================================================
-  // GATE 6 — rewrite (CLAUDE, only if technolog or conversion flagged issues)
-  // ===========================================================================
-  if (tStatus !== 'pass' || cStatus !== 'pass') {
-    const t6 = Date.now();
-    const notes: string[] = [];
-    if (tStatus !== 'pass') notes.push(`TECHNOLOG: ${r4.text}`);
-    if (cStatus !== 'pass') notes.push(`CONVERSION: ${r5.text}`);
-    const rewriteSystem = writeSystem;
-    const rewriteUser = `BRIEF:\n${JSON.stringify(brief, null, 2)}\n\nОТЗЫВ:\n${formatInput(input)}\n\nЧЕРНОВИК (нужно переписать):\n${currentReply}\n\nЗАМЕЧАНИЯ:\n${notes.join('\n\n')}\n\nПерепиши ответ устранив замечания. Только текст.`;
-    const r6 = await callClaude(env, rewriteSystem, rewriteUser, 1000);
-    totalIn += r6.tokensIn; totalOut += r6.tokensOut;
-    if (r6.text.length > 50) currentReply = r6.text;
-    gates.push({ gate: 'rewrite', status: 'pass', provider: 'claude', reason: `${r6.text.length} chars`, tokensIn: r6.tokensIn, tokensOut: r6.tokensOut, durationMs: Date.now() - t6 });
-  }
-
-  // ===========================================================================
-  // GATE 7 — segment-check (DeepSeek)
-  // ===========================================================================
-  const t7 = Date.now();
+  const t6 = Date.now();
   let segmentMd = '';
   try { segmentMd = await loadSegmentCheck(env); } catch {}
   const segmentSystem = `Ты — segment-check. Проверь читаемость для 8 разных читателей:
@@ -351,24 +353,26 @@ ${benefitMd}`;
 - "FAIL X/8" — переписать с нуля
 
 ${segmentMd}`;
-  const r7 = await callDeepSeek(env, segmentSystem, `Текст:\n${currentReply}`, 8000, 0.1);
-  totalIn += r7.tokensIn; totalOut += r7.tokensOut;
+  const r6 = await callDeepSeek(env, segmentSystem, `Текст:\n${currentReply}`, 8000, 0.1);
+  totalIn += r6.tokensIn; totalOut += r6.tokensOut;
   let sStatus: 'pass'|'weak'|'fail' = 'pass';
-  if (r7.text.toUpperCase().includes('FAIL')) sStatus = 'fail';
-  else if (r7.text.toUpperCase().includes('REWORK')) sStatus = 'weak';
-  gates.push({ gate: 'segment-check', status: sStatus, provider: 'deepseek', reason: r7.text.slice(0, 200), tokensIn: r7.tokensIn, tokensOut: r7.tokensOut, durationMs: Date.now() - t7 });
+  if (r6.text.toUpperCase().includes('FAIL')) sStatus = 'fail';
+  else if (r6.text.toUpperCase().includes('REWORK')) sStatus = 'weak';
+  gates.push({ gate: 'segment-check', status: sStatus, provider: 'deepseek', reason: r6.text.slice(0, 200), tokensIn: r6.tokensIn, tokensOut: r6.tokensOut, durationMs: Date.now() - t6 });
 
-  // Optional final rewrite if segment-check failed
+  // ===========================================================================
+  // GATE 7 — final polish (CLAUDE Sonnet) — only if segment-check flagged issues
+  // ===========================================================================
   if (sStatus !== 'pass') {
-    const t8 = Date.now();
-    const r8 = await callClaude(env,
+    const t7 = Date.now();
+    const r7 = await callClaude(env,
       writeSystem,
-      `BRIEF:\n${JSON.stringify(brief, null, 2)}\n\nЧерновик:\n${currentReply}\n\nЗамечания segment-check:\n${r7.text}\n\nПерепиши проще, чтобы понимал любой читатель.`,
+      `ENRICHED BRIEF:\n${JSON.stringify(enrichedBrief, null, 2)}\n\nЧерновик:\n${currentReply}\n\nЗамечания segment-check:\n${r6.text}\n\nПерепиши проще, чтобы понимал любой читатель. Только текст.`,
       1000
     );
-    totalIn += r8.tokensIn; totalOut += r8.tokensOut;
-    if (r8.text.length > 50) currentReply = r8.text;
-    gates.push({ gate: 'rewrite-final', status: 'pass', provider: 'claude', reason: `${r8.text.length} chars`, tokensIn: r8.tokensIn, tokensOut: r8.tokensOut, durationMs: Date.now() - t8 });
+    totalIn += r7.tokensIn; totalOut += r7.tokensOut;
+    if (r7.text.length > 50) currentReply = r7.text;
+    gates.push({ gate: 'rewrite-final', status: 'pass', provider: 'claude', reason: `${r7.text.length} chars`, tokensIn: r7.tokensIn, tokensOut: r7.tokensOut, durationMs: Date.now() - t7 });
   }
 
   return {
@@ -448,12 +452,12 @@ ${skuKnowledge}`;
 - Встрой brief.key_fact
 - Не пиши "спасибо за пятёрку", "к сожалению", "извините"
 - Без эмодзи (можно 💡 редко)`;
-  const r3 = await callGemini(env, writeSystem,
+  const r3 = await callQwen(env, writeSystem,
     `BRIEF:\n${JSON.stringify(brief, null, 2)}\n\nОТЗЫВ:\n${formatInput(input)}\n\nНапиши ответ.`,
     600, 0.5);
   let currentReply = r3.text;
   totalIn += r3.tokensIn; totalOut += r3.tokensOut;
-  gates.push({ gate: 'write', status: currentReply.length > 50 ? 'pass' : 'fail', provider: 'gemini', reason: `${currentReply.length} chars`, tokensIn: r3.tokensIn, tokensOut: r3.tokensOut, durationMs: Date.now() - t3 });
+  gates.push({ gate: 'write', status: currentReply.length > 50 ? 'pass' : 'fail', provider: 'qwen', reason: `${currentReply.length} chars`, tokensIn: r3.tokensIn, tokensOut: r3.tokensOut, durationMs: Date.now() - t3 });
 
   if (currentReply.length < 50) {
     return { ok: false, reply: '', reviewType, gates, totalDurationMs: Date.now() - startedAt, totalTokensIn: totalIn, totalTokensOut: totalOut, warning: 'write empty' };
@@ -480,12 +484,12 @@ ${skuKnowledge.slice(0, 5000)}`;
 
     if (tStatus !== 'pass') {
       const t4b = Date.now();
-      const fix = await callGemini(env, writeSystem,
+      const fix = await callQwen(env, writeSystem,
         `BRIEF:\n${JSON.stringify(brief, null, 2)}\n\nЧерновик:\n${currentReply}\n\nЗамечание technolog:\n${r4.text}\n\nПерепиши устранив проблему.`,
         600, 0.5);
       totalIn += fix.tokensIn; totalOut += fix.tokensOut;
       if (fix.text.length > 50) currentReply = fix.text;
-      gates.push({ gate: 'rewrite', status: 'pass', provider: 'gemini', reason: `${fix.text.length} chars`, tokensIn: fix.tokensIn, tokensOut: fix.tokensOut, durationMs: Date.now() - t4b });
+      gates.push({ gate: 'rewrite', status: 'pass', provider: 'qwen', reason: `${fix.text.length} chars`, tokensIn: fix.tokensIn, tokensOut: fix.tokensOut, durationMs: Date.now() - t4b });
     }
   }
 

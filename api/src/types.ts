@@ -44,6 +44,10 @@ export interface Env {
   // Gemini API for rating-only review replies (hybrid pipeline)
   GEMINI_API_KEY: string;
 
+  // Qwen (Alibaba DashScope, intl) — rating-only review answers (qwen-max).
+  // Set via: wrangler secret put DASHSCOPE_API_KEY
+  DASHSCOPE_API_KEY?: string;
+
   // ⚠️ DEPRECATED (2026-05-28): no code path reads this anymore.
   // The ERP's only Anthropic transport is OAuth (CLAUDE_CODE_OAUTH_TOKEN).
   // Pay-as-you-go Anthropic is intentionally NOT a fallback — DeepSeek V4-Pro

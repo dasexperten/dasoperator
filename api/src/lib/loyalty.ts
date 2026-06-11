@@ -65,6 +65,18 @@ export async function kitGet<T = any>(env: Env, path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+export async function kitPost<T = any>(env: Env, path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${KIT_API_BASE}${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.YANDEX_KIT_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`KIT API ${res.status} on POST ${path}: ${(await res.text()).slice(0, 300)}`);
+  }
+  return (await res.json()) as T;
+}
+
 interface KitOrder {
   id: string;
   order_number: number;
@@ -216,6 +228,127 @@ export async function recomputeTier(env: Env, accountId: string): Promise<void> 
       .bind(t.key, Math.floor(Date.now() / 1000), accountId)
       .run();
   }
+}
+
+// -----------------------------------------------------------------------------
+// Redemption: списание баллов → персональный одноразовый промокод KIT.
+// Правило «до 50% заказа» обеспечивается minimum_order_amount = 2×amount.
+// Код живёт REDEEM_TTL_HOURS; неиспользованный истёкший → возврат баллов.
+// -----------------------------------------------------------------------------
+export const REDEEM_TTL_HOURS = 48;
+export const REDEEM_MIN_POINTS = 50;
+
+function genCode(): string {
+  const abc = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const pick = (n: number) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => abc[b % abc.length]).join('');
+  return `DAS-${pick(4)}-${pick(2)}`;
+}
+
+export async function createRedemption(
+  env: Env,
+  phone: string,
+  amount: number
+): Promise<
+  | { ok: true; code: string; amount: number; expires_at: number; email: string | null }
+  | { ok: false; error: string }
+> {
+  const now = Math.floor(Date.now() / 1000);
+  const acc = await env.DB.prepare(
+    'SELECT id, balance, email FROM loyalty_accounts WHERE phone = ? AND status = ?'
+  )
+    .bind(phone, 'active')
+    .first<{ id: string; balance: number; email: string | null }>();
+  if (!acc) return { ok: false, error: 'account_not_found' };
+  if (!Number.isInteger(amount) || amount < REDEEM_MIN_POINTS) return { ok: false, error: 'amount_too_small' };
+  if (amount > acc.balance) return { ok: false, error: 'insufficient_balance' };
+
+  const open = await env.DB.prepare(
+    `SELECT COUNT(*) AS c FROM loyalty_redemptions WHERE account_id = ? AND status = 'issued' AND expires_at > ?`
+  )
+    .bind(acc.id, now)
+    .first<{ c: number }>();
+  if ((open?.c ?? 0) > 0) return { ok: false, error: 'active_code_exists' };
+
+  const code = genCode();
+  const expiresAt = now + REDEEM_TTL_HOURS * 3600;
+  const promo = await kitPost<{ id: string }>(env, '/promocodes', {
+    code,
+    title: `Списание баллов Клуба Экспертов (${amount} ₽)`,
+    discount_value: { type: 'VALUE', value: String(amount) },
+    promocode_dates: {
+      start_date: new Date(now * 1000).toISOString(),
+      end_date: new Date(expiresAt * 1000).toISOString(),
+    },
+    type: 'ORDER',
+    minimum_order_amount: String(amount * 2),
+    max_usage: 1,
+    one_time_use: true,
+    first_order_only: false,
+  });
+
+  const txId = 'lt_' + crypto.randomUUID();
+  const redId = 'lr_' + crypto.randomUUID();
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO loyalty_transactions
+         (id, account_id, type, points, status, kit_order_id, kit_order_number, order_amount,
+          cashback_percent, hold_until, note, created_at, updated_at)
+       VALUES (?, ?, 'redemption', ?, 'active', NULL, NULL, NULL, NULL, NULL, ?, ?, ?)`
+    ).bind(txId, acc.id, -amount, `Списание · код ${code}`, now, now),
+    env.DB.prepare(
+      `INSERT INTO loyalty_redemptions
+         (id, account_id, tx_id, code, kit_promocode_id, amount, status, delivery, expires_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'issued', ?, ?, ?, ?)`
+    ).bind(redId, acc.id, txId, code, promo.id ?? null, amount, acc.email, expiresAt, now, now),
+    env.DB.prepare(
+      `UPDATE loyalty_accounts SET balance = balance - ?, last_activity_at = ?, updated_at = ? WHERE id = ?`
+    ).bind(amount, now, now, acc.id),
+  ]);
+
+  return { ok: true, code, amount, expires_at: expiresAt, email: acc.email };
+}
+
+// Истёкшие неиспользованные коды → возврат баллов; использованные → пометить.
+export async function reconcileRedemptions(env: Env): Promise<{ used: number; refunded: number }> {
+  const now = Math.floor(Date.now() / 1000);
+  const rows = await env.DB.prepare(
+    `SELECT id, account_id, tx_id, kit_promocode_id, amount FROM loyalty_redemptions
+     WHERE status = 'issued' AND expires_at <= ? LIMIT 25`
+  )
+    .bind(now)
+    .all<{ id: string; account_id: string; tx_id: string; kit_promocode_id: string | null; amount: number }>();
+
+  let used = 0;
+  let refunded = 0;
+  for (const r of rows.results ?? []) {
+    let usageCount = 0;
+    if (r.kit_promocode_id) {
+      try {
+        const promo = await kitGet<{ usage_count?: number }>(env, `/promocodes/${r.kit_promocode_id}`);
+        usageCount = promo.usage_count ?? 0;
+      } catch {
+        continue; // KIT недоступен — попробуем в следующий проход
+      }
+    }
+    if (usageCount > 0) {
+      await env.DB.prepare(`UPDATE loyalty_redemptions SET status = 'used', updated_at = ? WHERE id = ?`).bind(now, r.id).run();
+      used++;
+    } else {
+      await env.DB.batch([
+        env.DB.prepare(`UPDATE loyalty_redemptions SET status = 'refunded', updated_at = ? WHERE id = ?`).bind(now, r.id),
+        env.DB.prepare(`UPDATE loyalty_transactions SET status = 'cancelled', updated_at = ? WHERE id = ?`).bind(now, r.tx_id),
+        env.DB.prepare(
+          `INSERT INTO loyalty_transactions
+             (id, account_id, type, points, status, kit_order_id, kit_order_number, order_amount,
+              cashback_percent, hold_until, note, created_at, updated_at)
+           VALUES (?, ?, 'adjust', ?, 'active', NULL, NULL, NULL, NULL, NULL, ?, ?, ?)`
+        ).bind('lt_' + crypto.randomUUID(), r.account_id, r.amount, 'Возврат баллов: код истёк неиспользованным', now, now),
+        env.DB.prepare(`UPDATE loyalty_accounts SET balance = balance + ?, updated_at = ? WHERE id = ?`).bind(r.amount, now, r.account_id),
+      ]);
+      refunded++;
+    }
+  }
+  return { used, refunded };
 }
 
 // -----------------------------------------------------------------------------

@@ -20,6 +20,9 @@ import {
   normalizePhone,
   tierFor,
   TIERS,
+  createRedemption,
+  reconcileRedemptions,
+  REDEEM_MIN_POINTS,
 } from '../lib/loyalty';
 
 const loyalty = new Hono<{ Bindings: Env }>();
@@ -108,6 +111,9 @@ loyalty.post('/webhook/kit', async (c) => {
 // Balance lookup
 // -----------------------------------------------------------------------------
 loyalty.get('/accounts/:phone', async (c) => {
+  if (c.req.header('Authorization') !== `Bearer ${ADMIN_SECRET}`) {
+    return fail(c, 403, [{ code: 'forbidden', message: 'admin secret required' }]);
+  }
   const phone = normalizePhone(c.req.param('phone'));
   if (!phone) return fail(c, 400, [{ code: 'bad_phone', message: 'cannot normalize phone' }]);
 
@@ -132,6 +138,9 @@ loyalty.get('/accounts/:phone', async (c) => {
 });
 
 loyalty.get('/accounts/:phone/transactions', async (c) => {
+  if (c.req.header('Authorization') !== `Bearer ${ADMIN_SECRET}`) {
+    return fail(c, 403, [{ code: 'forbidden', message: 'admin secret required' }]);
+  }
   const phone = normalizePhone(c.req.param('phone'));
   if (!phone) return fail(c, 400, [{ code: 'bad_phone', message: 'cannot normalize phone' }]);
   const acc = await c.env.DB.prepare('SELECT id FROM loyalty_accounts WHERE phone = ?').bind(phone).first<{ id: string }>();
@@ -145,6 +154,111 @@ loyalty.get('/accounts/:phone/transactions', async (c) => {
     .bind(acc.id)
     .all();
   return ok(c, { transactions: txs.results ?? [] });
+});
+
+// -----------------------------------------------------------------------------
+// Public cabinet API (bonus.dasexperten.ru) — маскированные данные
+// -----------------------------------------------------------------------------
+function maskEmail(e: string | null): string | null {
+  if (!e) return null;
+  const [u, d] = e.split('@');
+  if (!d) return null;
+  return u.slice(0, 2) + '***@' + d;
+}
+
+loyalty.get('/lookup/:phone', async (c) => {
+  const phone = normalizePhone(c.req.param('phone'));
+  if (!phone) return fail(c, 400, [{ code: 'bad_phone', message: 'cannot normalize phone' }]);
+
+  try {
+    await reconcileRedemptions(c.env);
+  } catch {
+    // не блокируем кабинет
+  }
+
+  const acc = await c.env.DB.prepare(
+    `SELECT id, name, email, balance, pending_balance, lifetime_spent, tier
+     FROM loyalty_accounts WHERE phone = ? AND status = 'active'`
+  )
+    .bind(phone)
+    .first<{ id: string; name: string | null; email: string | null; balance: number; pending_balance: number; lifetime_spent: number; tier: string }>();
+  if (!acc) return fail(c, 404, [{ code: 'not_found', message: 'no loyalty account for this phone' }]);
+
+  const current = tierFor(acc.lifetime_spent);
+  const next = [...TIERS].reverse().find((t) => t.threshold > acc.lifetime_spent) ?? null;
+  const txs = await c.env.DB.prepare(
+    `SELECT type, points, status, note, hold_until, created_at FROM loyalty_transactions
+     WHERE account_id = ? AND status IN ('pending','active') ORDER BY created_at DESC LIMIT 10`
+  )
+    .bind(acc.id)
+    .all();
+  const openCode = await c.env.DB.prepare(
+    `SELECT amount, expires_at FROM loyalty_redemptions
+     WHERE account_id = ? AND status = 'issued' AND expires_at > unixepoch()`
+  )
+    .bind(acc.id)
+    .first();
+
+  return ok(c, {
+    first_name: (acc.name ?? '').split(' ')[0] || null,
+    email_masked: maskEmail(acc.email),
+    has_email: !!acc.email,
+    balance: acc.balance,
+    pending_balance: acc.pending_balance,
+    lifetime_spent: acc.lifetime_spent,
+    tier: acc.tier,
+    cashback_percent: current.percent,
+    next_tier: next ? { key: next.key, threshold: next.threshold, remaining: next.threshold - acc.lifetime_spent } : null,
+    open_redemption: openCode ?? null,
+    redeem_min: REDEEM_MIN_POINTS,
+    transactions: txs.results ?? [],
+  });
+});
+
+loyalty.post('/redeem', async (c) => {
+  const body = await c.req.json<{ phone?: string; amount?: number }>().catch(() => ({} as any));
+  const phone = normalizePhone(body.phone);
+  const amount = Math.floor(Number(body.amount));
+  if (!phone || !amount) return fail(c, 400, [{ code: 'bad_request', message: 'phone and amount required' }]);
+
+  try {
+    await reconcileRedemptions(c.env);
+  } catch {
+    // continue
+  }
+
+  const r = await createRedemption(c.env, phone, amount);
+  if (!r.ok) return fail(c, 422, [{ code: r.error, message: r.error }]);
+
+  // Код уходит на email владельца счёта (анти-угон: чужой телефон ввести можно,
+  // но код получит только владелец почты). Без email — показываем на экране.
+  if (r.email) {
+    try {
+      await c.env.EMAILER.fetch(
+        new Request('https://emailer/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'send',
+            recipient: r.email,
+            subject: `Ваш код на ${r.amount} ₽ скидки — Клуб Экспертов`,
+            body_plain:
+              `Здравствуйте!\n\nВаш персональный код: ${r.code}\n` +
+              `Скидка: ${r.amount} ₽ (списано ${r.amount} баллов)\n` +
+              `Действует 48 часов, на заказ от ${r.amount * 2} ₽.\n\n` +
+              `Вставьте код в поле «Промокод» при оформлении заказа на dasexperten.ru.\n\n` +
+              `Das Experten · Клуб Экспертов`,
+          }),
+          signal: AbortSignal.timeout(30_000),
+        })
+      );
+      return ok(c, { delivery: 'email', email_masked: maskEmail(r.email), amount: r.amount, expires_at: r.expires_at });
+    } catch {
+      // email не ушёл — отдаём код на экран, чтобы клиент не потерял баллы
+      return ok(c, { delivery: 'screen', code: r.code, amount: r.amount, expires_at: r.expires_at });
+    }
+  }
+  return ok(c, { delivery: 'screen', code: r.code, amount: r.amount, expires_at: r.expires_at });
 });
 
 // -----------------------------------------------------------------------------
@@ -181,7 +295,8 @@ loyalty.use('/admin/*', async (c, next) => {
 
 loyalty.post('/admin/activate-holds', async (c) => {
   const r = await activateExpiredHolds(c.env);
-  return ok(c, r);
+  const rec = await reconcileRedemptions(c.env);
+  return ok(c, { ...r, ...rec });
 });
 
 loyalty.post('/admin/reprocess-order', async (c) => {

@@ -146,10 +146,6 @@ crm.get('/orders', async (c) => {
   const limit = [20, 50, 100].includes(rawLimit) ? rawLimit : 50;
   const search = (c.req.query('search') ?? '').trim();
 
-  const KIT_PAGE = 25; // KIT отдаёт максимум 25 заказов за страницу
-  const chunks = Math.ceil(limit / KIT_PAGE);
-  const firstKitPage = (page - 1) * chunks + 1;
-
   const TIER_RU: Record<string, string> = {
     svoy: 'Свой', tsenitel: 'Ценитель', expert: 'Эксперт', ambassador: 'Амбассадор',
   };
@@ -161,11 +157,12 @@ crm.get('/orders', async (c) => {
       cacheKey('crm:orders-kit', { page, limit, search }),
       120,
       async () => {
-        const fetchKitPage = async (p: number) => {
+        // KIT: per_page до 100; search/status в API заказов не фильтруют —
+        // поиск делаем сами ограниченным сканом последних страниц.
+        const fetchKitPage = async (p: number, perPage: number) => {
           const url = new URL('https://api.kit.yandex.net/v1/orders');
           url.searchParams.set('page', String(p));
-          url.searchParams.set('page_size', String(KIT_PAGE));
-          if (search) url.searchParams.set('search', search);
+          url.searchParams.set('per_page', String(perPage));
           const res = await fetch(url.toString(), {
             headers: { Authorization: `Bearer ${c.env.YANDEX_KIT_TOKEN}` },
           });
@@ -173,11 +170,31 @@ crm.get('/orders', async (c) => {
           return (await res.json()) as { total_count?: number; orders?: any[] };
         };
 
-        const pages = await Promise.all(
-          Array.from({ length: chunks }, (_, i) => fetchKitPage(firstKitPage + i))
-        );
-        const kitOrders = pages.flatMap((p) => p.orders ?? []).slice(0, limit);
-        const totalCount = pages[0]?.total_count ?? 0;
+        let kitOrders: any[] = [];
+        let totalCount = 0;
+        if (search) {
+          // скан до 8 страниц по 100 (последние ~800 заказов), фильтр у нас
+          const q = search.toLowerCase();
+          for (let p = 1; p <= 8; p++) {
+            const resp = await fetchKitPage(p, 100);
+            totalCount = resp.total_count ?? totalCount;
+            const batch = resp.orders ?? [];
+            for (const o of batch) {
+              const hay = [
+                String(o.order_number ?? ''),
+                o.client?.first_name, o.client?.last_name, o.client?.email, o.client?.phone,
+              ].filter(Boolean).join(' ').toLowerCase();
+              if (hay.includes(q)) kitOrders.push(o);
+            }
+            if (kitOrders.length >= limit || batch.length < 100) break;
+          }
+          totalCount = kitOrders.length;
+          kitOrders = kitOrders.slice((page - 1) * limit, page * limit);
+        } else {
+          const resp = await fetchKitPage(page, limit);
+          kitOrders = (resp.orders ?? []).slice(0, limit);
+          totalCount = resp.total_count ?? 0;
+        }
 
         // --- D1 enrich: балансы/уровни по телефонам + начисления по заказам ---
         const phones = Array.from(

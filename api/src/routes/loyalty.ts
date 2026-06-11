@@ -43,6 +43,22 @@ loyalty.post('/webhook/kit', async (c) => {
     payload = null;
   }
 
+  // Валидация вебхука: KIT шлёт {"event":"WEBHOOK_VALIDATE"}, ждёт 2xx с телом
+  // {"message":"validated_store_{store_id}"} → вебхук переходит в ACTIVE.
+  if (payload?.event === 'WEBHOOK_VALIDATE' || payload?.event_type === 'WEBHOOK_VALIDATE') {
+    const store = await (async () => {
+      try {
+        const res = await fetch('https://api.kit.yandex.net/v1/store', {
+          headers: { Authorization: `Bearer ${c.env.YANDEX_KIT_TOKEN}` },
+        });
+        return (await res.json()) as { id?: string };
+      } catch {
+        return {} as { id?: string };
+      }
+    })();
+    return c.json({ message: `validated_store_${store.id ?? ''}` });
+  }
+
   // KIT payload shape is not strictly documented — extract order id defensively.
   const orderId: string | undefined =
     payload?.order_id ?? payload?.orderId ?? payload?.order?.id ?? payload?.id ?? payload?.data?.order_id;

@@ -8,6 +8,7 @@ import type { MiddlewareHandler } from 'hono';
 
 const ALLOWED_ORIGINS = [
   'https://dasoperator.pages.dev',
+  'https://erp.dasexperten.de',
   'https://bonus.dasexperten.ru',
   'https://das-bonus.pages.dev',
   'http://localhost:3000',

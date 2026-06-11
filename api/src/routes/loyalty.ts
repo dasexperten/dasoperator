@@ -104,6 +104,49 @@ loyalty.post('/webhook/kit', async (c) => {
     // не валим вебхук из-за активации
   }
 
+  // Письмо о начислении: клиент видит баллы после каждой покупки.
+  // Шлём только при реальном начислении (идемпотентность начисления = одно письмо на заказ).
+  if (result === 'accrued' && details) {
+    try {
+      const d = details as { phone: string; points: number; percent: number; order_number: number; instant: boolean };
+      const acc = await c.env.DB.prepare(
+        'SELECT email, name, balance, pending_balance FROM loyalty_accounts WHERE phone = ?'
+      )
+        .bind(d.phone)
+        .first<{ email: string | null; name: string | null; balance: number; pending_balance: number }>();
+      if (acc?.email) {
+        const firstName = (acc.name ?? '').split(' ')[0];
+        const holdLine = d.instant
+          ? `Баллы уже активны — можно тратить.`
+          : `Баллы активируются через 7 дней (защита периода возврата).`;
+        await c.env.EMAILER.fetch(
+          new Request('https://emailer/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'send',
+              recipient: acc.email,
+              subject: `+${d.points} баллов за заказ №${d.order_number} — Клуб Экспертов`,
+              body_plain:
+                `Здравствуйте${firstName ? ', ' + firstName : ''}!\n\n` +
+                `За заказ №${d.order_number} начислено +${d.points} баллов (кешбэк ${d.percent}%).\n` +
+                `${holdLine}\n\n` +
+                `Ваш баланс: ${acc.balance} баллов` +
+                (acc.pending_balance > 0 ? ` (+${acc.pending_balance} на активации)` : '') +
+                `\n1 балл = 1 рубль. Списать можно до 50% любого заказа.\n\n` +
+                `Посмотреть баланс и получить код на скидку:\nhttps://bonus.dasexperten.ru\n\n` +
+                `Das Experten · Клуб Экспертов\n` +
+                `Баллы живут 12 месяцев с последней покупки — любой заказ продлевает их все.`,
+            }),
+            signal: AbortSignal.timeout(30_000),
+          })
+        );
+      }
+    } catch {
+      // письмо не критично — начисление уже в базе
+    }
+  }
+
   return ok(c, { processed: true, action: result, details: details ?? null });
 });
 

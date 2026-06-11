@@ -60,6 +60,7 @@ import reviewsRoutes from './routes/reviews';
 import wbHealthRoutes from './routes/wb-health';
 import skillsRoutes from './routes/skills';
 import integrationsRoutes from './routes/integrations';
+import loyaltyRoutes from './routes/loyalty';
 import plannerRoutes from './routes/planner';
 import authRoutes from './routes/auth';
 import { ok } from './lib/responses';
@@ -204,6 +205,7 @@ app.route('/api/inbox/banking', inboxBankingRoutes);
 app.route('/api/inbox', inboxRoutes);
 app.route('/api/freight-rfq', freightRfqRoutes);
 app.route('/api/integrations', integrationsRoutes);
+app.route('/api/loyalty', loyaltyRoutes);
 
 export default {
   fetch: app.fetch,

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { withKvCache, cacheKey } from '../lib/kv-cache';
+import { normalizePhone, tierFor } from '../lib/loyalty';
 
 const crm = new Hono<{ Bindings: Env }>();
 
@@ -131,10 +132,13 @@ crm.get('/stats', async (c) => {
 });
 
 crm.get('/orders', async (c) => {
-  const domain = c.env.RETAIL_CRM_DOMAIN;
-  const token = c.env.RETAIL_CRM_TOKEN;
-  if (!domain || !token) {
-    return fail(c, 503, [{ code: 'crm_not_configured', message: 'Retail CRM not configured.' }]);
+  // ===========================================================================
+  // Phase 10.x: orders feed = Yandex KIT (source of truth) + наш D1 loyalty
+  // ledger. RetailCRM здесь больше не используется. Форма ответа сохранена —
+  // фронт web/app/crm/page.tsx работает без изменений.
+  // ===========================================================================
+  if (!c.env.YANDEX_KIT_TOKEN) {
+    return fail(c, 503, [{ code: 'kit_not_configured', message: 'YANDEX_KIT_TOKEN missing.' }]);
   }
 
   const page = Math.max(1, Number(c.req.query('page') ?? 1));
@@ -142,76 +146,107 @@ crm.get('/orders', async (c) => {
   const limit = [20, 50, 100].includes(rawLimit) ? rawLimit : 50;
   const search = (c.req.query('search') ?? '').trim();
 
-  const params: Record<string, string | number | undefined> = {
-    'page': page,
-    'limit': limit,
-  };
+  const KIT_PAGE = 25; // KIT отдаёт максимум 25 заказов за страницу
+  const chunks = Math.ceil(limit / KIT_PAGE);
+  const firstKitPage = (page - 1) * chunks + 1;
 
-  if (search) {
-    if (/^\d+$/.test(search)) {
-      params['filter[numbers][]'] = search;
-    } else {
-      params['filter[customer]'] = search;
-    }
-  }
+  const TIER_RU: Record<string, string> = {
+    svoy: 'Свой', tsenitel: 'Ценитель', expert: 'Эксперт', ambassador: 'Амбассадор',
+  };
+  const STATUS_KEBAB = (st: string) => st.toLowerCase().replace(/_/g, '-');
 
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('crm:orders', { domain, page, limit, search }),
+      cacheKey('crm:orders-kit', { page, limit, search }),
       120,
       async () => {
-        // Parallel — orders feed + loyalty lookup table fetched simultaneously
-        const [ordersResp, loyaltyResp] = await Promise.all([
-          retailGet<{
-            pagination?: { totalCount?: number; currentPage?: number; totalPageCount?: number };
-            orders?: RetailOrder[];
-          }>(domain, token, '/orders', params),
-          retailGet<{
-            loyaltyAccounts?: RetailLoyaltyAccount[];
-          }>(domain, token, '/loyalty/accounts', { 'page': 1, 'limit': 100 }),
-        ]);
+        const fetchKitPage = async (p: number) => {
+          const url = new URL('https://api.kit.yandex.net/v1/orders');
+          url.searchParams.set('page', String(p));
+          url.searchParams.set('page_size', String(KIT_PAGE));
+          if (search) url.searchParams.set('search', search);
+          const res = await fetch(url.toString(), {
+            headers: { Authorization: `Bearer ${c.env.YANDEX_KIT_TOKEN}` },
+          });
+          if (!res.ok) throw new Error(`KIT API ${res.status}: ${(await res.text()).slice(0, 200)}`);
+          return (await res.json()) as { total_count?: number; orders?: any[] };
+        };
 
-        const ordersOnPage = ordersResp.orders ?? [];
+        const pages = await Promise.all(
+          Array.from({ length: chunks }, (_, i) => fetchKitPage(firstKitPage + i))
+        );
+        const kitOrders = pages.flatMap((p) => p.orders ?? []).slice(0, limit);
+        const totalCount = pages[0]?.total_count ?? 0;
 
-        const loyaltyByCustomer = new Map<number, RetailLoyaltyAccount>();
-        for (const a of loyaltyResp.loyaltyAccounts ?? []) {
-          if (a.customer?.id !== undefined) {
-            loyaltyByCustomer.set(a.customer.id, a);
-          }
+        // --- D1 enrich: балансы/уровни по телефонам + начисления по заказам ---
+        const phones = Array.from(
+          new Set(kitOrders.map((o) => normalizePhone(o?.client?.phone)).filter(Boolean))
+        ) as string[];
+        const orderIds = kitOrders.map((o) => o.id).filter(Boolean) as string[];
+
+        const accByPhone = new Map<string, { balance: number; pending_balance: number; tier: string; lifetime_spent: number }>();
+        if (phones.length) {
+          const ph = phones.map(() => '?').join(',');
+          const rows = await c.env.DB.prepare(
+            `SELECT phone, balance, pending_balance, tier, lifetime_spent FROM loyalty_accounts WHERE phone IN (${ph})`
+          ).bind(...phones).all<any>();
+          for (const r of rows.results ?? []) accByPhone.set(r.phone, r);
         }
 
-        const orders = ordersOnPage.map((o) => {
-          const acc = o.customer?.id !== undefined
-            ? loyaltyByCustomer.get(o.customer.id)
-            : undefined;
+        const accrualByOrder = new Map<string, { points: number; status: string }>();
+        if (orderIds.length) {
+          const ph = orderIds.map(() => '?').join(',');
+          const rows = await c.env.DB.prepare(
+            `SELECT kit_order_id, points, status FROM loyalty_transactions
+             WHERE type = 'accrual' AND kit_order_id IN (${ph})`
+          ).bind(...orderIds).all<any>();
+          for (const r of rows.results ?? []) accrualByOrder.set(r.kit_order_id, r);
+        }
+
+        const orders = kitOrders.map((o) => {
+          const phone = normalizePhone(o?.client?.phone);
+          const acc = phone ? accByPhone.get(phone) : undefined;
+          const accrual = accrualByOrder.get(o.id);
+
+          // списанное по заказу: промокод + лояльность + подарочная карта по позициям
+          let charged = 0;
+          for (const chunk of o.delivery_chunks ?? []) {
+            for (const it of chunk.items ?? []) {
+              charged +=
+                Math.round(parseFloat(it.promocode_discount ?? '0')) +
+                Math.round(parseFloat(it.loyalty_discount ?? '0')) +
+                Math.round(parseFloat(it.gift_card_discount ?? '0'));
+            }
+          }
+
+          const tierInfo = acc ? tierFor(acc.lifetime_spent) : null;
           return {
-            id: o.id,
-            number: o.number ?? String(o.id),
+            id: o.order_number,
+            number: String(o.order_number ?? ''),
             customer_name:
-              [o.customer?.firstName, o.customer?.lastName].filter(Boolean).join(' ') ||
-              o.customer?.email ||
-              '—',
-            total: typeof o.totalSumm === 'number' ? o.totalSumm : 0,
-            status: o.status ?? '—',
-            created_at: o.createdAt ?? '—',
-            bonus_credited: typeof o.bonusesCreditTotal === 'number' ? o.bonusesCreditTotal : 0,
-            bonus_charged: typeof o.bonusesChargeTotal === 'number' ? o.bonusesChargeTotal : 0,
-            loyalty_balance: typeof acc?.amount === 'number' ? acc.amount : null,
-            loyalty_level: o.loyaltyLevel?.name || acc?.level?.name || null,
-            loyalty_privilege_pct: typeof acc?.level?.privilegeSize === 'number'
-              ? acc.level.privilegeSize
-              : null,
+              [o.client?.first_name, o.client?.last_name].filter(Boolean).join(' ') ||
+              o.client?.email || '—',
+            total: Math.round(parseFloat(o.total_final_price ?? o.purchased_price ?? '0')),
+            status: STATUS_KEBAB(o.status ?? '—'),
+            created_at: o.created_at ?? '—',
+            bonus_credited: accrual ? accrual.points : 0,
+            bonus_credited_status: accrual ? accrual.status : null,
+            bonus_charged: charged,
+            loyalty_balance: acc ? acc.balance : null,
+            loyalty_pending: acc ? acc.pending_balance : null,
+            loyalty_level: acc ? (TIER_RU[acc.tier] ?? acc.tier) : null,
+            loyalty_privilege_pct: tierInfo ? tierInfo.percent : null,
           };
         });
 
         return {
-          source: `${domain}.retailcrm.ru`,
+          source: 'kit:dasexperten.ru + d1:loyalty',
           pagination: {
             page,
             limit,
-            total_count: ordersResp.pagination?.totalCount ?? 0,
-            total_pages: ordersResp.pagination?.totalPageCount ?? 1,
+            total_count: totalCount,
+            total_pages: Math.max(1, Math.ceil(totalCount / limit)),
           },
           search,
           orders,
@@ -222,12 +257,10 @@ crm.get('/orders', async (c) => {
     return ok(c, payload);
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
-    return fail(c, 502, [{ code: 'crm_upstream_error', message: msg }]);
+    return fail(c, 502, [{ code: 'kit_upstream_error', message: msg }]);
   }
 });
 
-// =============================================================================
-// GET /api/crm/customers — paginated, searchable customers feed with loyalty
 // =============================================================================
 // Query params:
 //   page    — 1-based page number (default 1)

@@ -63,6 +63,7 @@ import integrationsRoutes from './routes/integrations';
 import loyaltyRoutes from './routes/loyalty';
 import plannerRoutes from './routes/planner';
 import authRoutes from './routes/auth';
+import activityRoutes from './routes/activity';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
 
@@ -165,6 +166,7 @@ app.route('/api/wb/health', wbHealthRoutes);
 app.route('/api/skills', skillsRoutes);
 app.route('/api/planner', plannerRoutes);
 app.route('/api/auth', authRoutes);
+app.route('/api/activity', activityRoutes);
 
 // Manual trigger for the auto-delivery sweep (same code path as cron).
 // Useful for ops: hit this when you've just imported stock and want to

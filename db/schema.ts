@@ -439,3 +439,20 @@ export const fxRates = sqliteTable("fx_rates", {
   dateIdx: index("idx_fx_rates_date").on(t.rateDate),
   pairIdx: index("idx_fx_rates_pair").on(t.fromCurrency, t.toCurrency),
 }));
+
+// =============================================================================
+// USER_ACTIVITY — per-user login/heartbeat log feeding the team-activity
+// dashboard. Append-only; see db/migrations/0052_user_activity.sql.
+// =============================================================================
+export const userActivity = sqliteTable("user_activity", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  sessionToken: text("session_token"),
+  ts: integer("ts").notNull(),
+  kind: text("kind", { enum: ["login", "heartbeat", "logout"] }).notNull(),
+  active: integer("active").notNull().default(0),  // 1 = mouse/keyboard moved in interval
+  path: text("path"),
+}, (t) => ({
+  userTsIdx: index("idx_user_activity_user_ts").on(t.userId, t.ts),
+  tsIdx: index("idx_user_activity_ts").on(t.ts),
+}));

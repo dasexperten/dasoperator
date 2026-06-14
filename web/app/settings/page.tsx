@@ -3,7 +3,7 @@
 export const runtime = 'edge';
 
 import Link from 'next/link';
-import { Tag, FileSliders, Settings as SettingsIcon, ArrowRight, Users } from 'lucide-react';
+import { Tag, FileSliders, Settings as SettingsIcon, ArrowRight, Users, Activity } from 'lucide-react';
 
 const SECTIONS = [
   {
@@ -11,6 +11,12 @@ const SECTIONS = [
     title: 'Users & Access',
     description: '4-digit PIN sign-in, per-role module visibility. Admins manage who sees what.',
     icon: Users,
+  },
+  {
+    href: '/settings/activity',
+    title: 'Team Activity',
+    description: 'Logins, time in system and activity % per employee. Working window 10:00-18:00, weekdays. Admin only.',
+    icon: Activity,
   },
   {
     href: '/settings/finance-categories',

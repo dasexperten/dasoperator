@@ -2627,3 +2627,90 @@ export async function rejectExtraction(id: string, reason?: string) {
 export function extractionFileUrl(id: string): string {
   return `${API_BASE}/api/document-extractions/${id}/file`;
 }
+
+
+// =============================================================================
+// Emailer (/api/email)
+// =============================================================================
+
+export interface EmailThread {
+  thread_id: string;
+  subject: string;
+  snippet: string;
+  from: string;
+  to: string;
+  date: string;
+  has_attachments: boolean;
+  labels: string[];
+}
+
+export interface EmailHistoryResponse {
+  threads: EmailThread[];
+  total: number;
+  query: string;
+}
+
+export async function getEmailHistory(query = 'newer_than:30d') {
+  return apiGet<EmailHistoryResponse>(`/api/email/history?query=${encodeURIComponent(query)}`);
+}
+
+export interface EmailRule {
+  id: string;
+  rule_type: 'forward' | 'auto_delete' | 'archive';
+  pattern: string;
+  action: string | null;
+  target: string | null;
+  enabled: boolean;
+  created_at: number;
+}
+
+export async function getEmailRules() {
+  return apiGet<{ rules: EmailRule[] }>('/api/email/rules');
+}
+
+export async function createEmailRule(data: {
+  rule_type: 'forward' | 'auto_delete' | 'archive';
+  pattern: string;
+  action?: string;
+  target?: string;
+  enabled?: boolean;
+}) {
+  return apiPost<EmailRule>('/api/email/rules', data);
+}
+
+export async function deleteEmailRule(id: string) {
+  return apiDelete<{ deleted: boolean }>(`/api/email/rules/${id}`);
+}
+
+export interface SendEmailParams {
+  action?: 'send' | 'reply' | 'reply_all';
+  recipient?: string;
+  thread_id?: string;
+  subject?: string;
+  body_plain?: string;
+  body_html?: string;
+  attachments?: string[];
+  context?: string;
+  draft_only?: boolean;
+}
+
+export async function sendEmail(params: SendEmailParams) {
+  return apiPost<{
+    success: boolean;
+    message_id?: string;
+    thread_id?: string;
+    draft_id?: string;
+    draft_link?: string;
+    error?: string;
+  }>('/api/email/send', params);
+}
+
+export async function getEmailHealth() {
+  return apiGet<{
+    bridge_binding: string;
+    bridge_status: number;
+    bridge_ok: boolean;
+    probe_method: string;
+    latency_ms: number;
+  }>('/api/email/health');
+}

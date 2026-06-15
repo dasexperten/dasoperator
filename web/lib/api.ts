@@ -2685,6 +2685,7 @@ export async function deleteEmailRule(id: string) {
 export interface SendEmailParams {
   action?: 'send' | 'reply' | 'reply_all';
   recipient?: string;
+  from?: string;
   thread_id?: string;
   subject?: string;
   body_plain?: string;

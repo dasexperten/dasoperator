@@ -74,13 +74,20 @@ activity.get('/dashboard', async (c) => {
   if (!me) return fail(c, 401, [{ code: 'invalid_session', message: 'session not found or expired' }]);
   if (me.role !== 'admin') return fail(c, 403, [{ code: 'forbidden', message: 'admin role required' }]);
 
+  // week=0 current calendar week, -1 previous, etc. Future weeks clamp to 0.
+  const weekRaw = parseInt(c.req.query('week') ?? '0', 10);
+  const weekOffset = Number.isFinite(weekRaw) ? Math.min(0, weekRaw) : 0;
+
   const now = Date.now();
   const todayIdx = Math.floor((now + TZ_OFFSET_MS) / DAY_MS);
-  const startIdx = todayIdx - 6;                       // last 7 local days, inclusive
-  const sinceTs = startIdx * DAY_MS - TZ_OFFSET_MS;
+  const todayWeekday = new Date(todayIdx * DAY_MS).getUTCDay();   // 0=Sun..6=Sat
+  const daysSinceMonday = (todayWeekday + 6) % 7;                 // Mon=0
+  const mondayIdx = todayIdx - daysSinceMonday + weekOffset * 7;  // Monday of the selected week
 
   const dayIdxList: number[] = [];
-  for (let i = startIdx; i <= todayIdx; i++) dayIdxList.push(i);
+  for (let i = 0; i < 7; i++) dayIdxList.push(mondayIdx + i);     // Mon..Sun
+  const sinceTs = mondayIdx * DAY_MS - TZ_OFFSET_MS;
+  const untilTs = (mondayIdx + 7) * DAY_MS - TZ_OFFSET_MS;
 
   const dayMeta = dayIdxList.map((idx) => {
     const d = new Date(idx * DAY_MS);
@@ -102,9 +109,9 @@ activity.get('/dashboard', async (c) => {
                      SUM(active) AS active_beats,
                      MIN(ts) AS first_ts
               FROM user_activity
-              WHERE kind IN ('login', 'heartbeat') AND ts >= ?3
+              WHERE kind IN ('login', 'heartbeat') AND ts >= ?3 AND ts < ?4
               GROUP BY user_id, day_idx`)
-    .bind(TZ_OFFSET_MS, DAY_MS, sinceTs)
+    .bind(TZ_OFFSET_MS, DAY_MS, sinceTs, untilTs)
     .all<{ user_id: string; day_idx: number; beats: number; active_beats: number; first_ts: number }>();
 
   const byUser = new Map<string, Map<number, { beats: number; active_beats: number; first_ts: number }>>();
@@ -160,6 +167,10 @@ activity.get('/dashboard', async (c) => {
     tz: 'UTC+3',
     work_window: { start_hour: WORK_START_H, end_hour: WORK_END_H, days: 'Mon-Fri' },
     heartbeat_sec: HEARTBEAT_SEC,
+    week_offset: weekOffset,
+    week_start: dayMeta[0].date,
+    week_end: dayMeta[6].date,
+    is_current_week: weekOffset === 0,
     days: dayMeta,
     users: usersOut,
   });

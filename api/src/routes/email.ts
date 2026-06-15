@@ -85,6 +85,169 @@ email.post('/send', async (c) => {
 });
 
 // =============================================================================
+// GET /api/email/history
+// Fetch sent emails via Apps Script find action.
+// Query param: query (Gmail search syntax, default: newer_than:30d)
+// =============================================================================
+email.get('/history', async (c) => {
+  const query = c.req.query('query') || 'newer_than:30d';
+
+  try {
+    const bridgeResponse = await c.env.EMAILER.fetch(new Request('https://emailer/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'find',
+        query,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    }));
+
+    let bridgePayload: unknown;
+    try {
+      bridgePayload = await bridgeResponse.json();
+    } catch {
+      return fail(c, 502, [{
+        code: 'bridge_invalid_response',
+        message: `emailer-bridge returned non-JSON (HTTP ${bridgeResponse.status})`,
+      }]);
+    }
+
+    if (!bridgeResponse.ok) {
+      return fail(c, 502, [{
+        code: 'bridge_error',
+        message: `emailer-bridge returned HTTP ${bridgeResponse.status}`,
+        details: { bridge_response: bridgePayload },
+      }]);
+    }
+
+    return ok(c, bridgePayload, ['Email history fetched']);
+  } catch (err) {
+    return fail(c, 502, [{
+      code: 'bridge_unreachable',
+      message: err instanceof Error ? err.message : String(err),
+    }]);
+  }
+});
+
+// =============================================================================
+// GET /api/email/rules
+// List all email forwarding/deletion rules for the current user.
+// =============================================================================
+email.get('/rules', async (c) => {
+  try {
+    const user = c.get('user') as { id: string } | undefined;
+    const userId = user?.id || 'default';
+
+    const { results } = await c.env.DB.prepare(
+      'SELECT id, rule_type, pattern, action, target, enabled, created_at FROM email_rules WHERE user_id = ? ORDER BY created_at DESC'
+    ).bind(userId).all();
+
+    return ok(c, { rules: results }, ['Email rules fetched']);
+  } catch (err) {
+    return fail(c, 500, [{
+      code: 'db_error',
+      message: err instanceof Error ? err.message : String(err),
+    }]);
+  }
+});
+
+// =============================================================================
+// POST /api/email/rules
+// Create a new email rule.
+// =============================================================================
+const ruleSchema = z.object({
+  rule_type: z.enum(['forward', 'auto_delete', 'archive']),
+  pattern: z.string().min(1),
+  action: z.string().optional(),
+  target: z.string().optional(),
+  enabled: z.boolean().default(true),
+}).refine(
+  (data) => {
+    if (data.rule_type === 'forward') return !!data.target;
+    return true;
+  },
+  { message: 'forward rules require a target email address' }
+);
+
+email.post('/rules', async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return fail(c, 400, [{ code: 'invalid_json', message: 'Request body must be valid JSON' }]);
+  }
+
+  const parsed = ruleSchema.safeParse(body);
+  if (!parsed.success) {
+    return fail(c, 422, [{
+      code: 'invalid_body',
+      message: 'Request body validation failed',
+      details: { issues: parsed.error.issues },
+    }]);
+  }
+
+  try {
+    const user = c.get('user') as { id: string } | undefined;
+    const userId = user?.id || 'default';
+
+    const id = crypto.randomUUID();
+    const now = Math.floor(Date.now() / 1000);
+
+    await c.env.DB.prepare(
+      'INSERT INTO email_rules (id, user_id, rule_type, pattern, action, target, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).bind(
+      id,
+      userId,
+      parsed.data.rule_type,
+      parsed.data.pattern,
+      parsed.data.action || null,
+      parsed.data.target || null,
+      parsed.data.enabled ? 1 : 0,
+      now
+    ).run();
+
+    return ok(c, { id, ...parsed.data }, ['Email rule created']);
+  } catch (err) {
+    return fail(c, 500, [{
+      code: 'db_error',
+      message: err instanceof Error ? err.message : String(err),
+    }]);
+  }
+});
+
+// =============================================================================
+// DELETE /api/email/rules/:id
+// Delete an email rule.
+// =============================================================================
+email.delete('/rules/:id', async (c) => {
+  const id = c.req.param('id');
+
+  try {
+    const user = c.get('user') as { id: string } | undefined;
+    const userId = user?.id || 'default';
+
+    const { success } = await c.env.DB.prepare(
+      'DELETE FROM email_rules WHERE id = ? AND user_id = ?'
+    ).bind(id, userId).run();
+
+    if (!success) {
+      return fail(c, 404, [{
+        code: 'not_found',
+        message: 'Email rule not found',
+      }]);
+    }
+
+    return ok(c, { deleted: true }, ['Email rule deleted']);
+  } catch (err) {
+    return fail(c, 500, [{
+      code: 'db_error',
+      message: err instanceof Error ? err.message : String(err),
+    }]);
+  }
+});
+
+// =============================================================================
 // GET /api/email/health
 // Probes emailer-bridge reachability via dry-run POST.
 //

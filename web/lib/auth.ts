@@ -104,7 +104,7 @@ export function clearAuth(): void {
 
 export const ALL_MODULES = [
   '/', '/partners', '/operations', '/planner', '/products', '/warehouses',
-  '/marketplaces', '/reviews', '/crm', '/finance', '/analytics', '/settings',
+  '/marketplaces', '/reviews', '/crm', '/emailer', '/finance', '/analytics', '/settings',
 ] as const;
 
 // Whether the user has any access at all to a route — drives sidebar visibility.
@@ -193,3 +193,4 @@ export async function refreshMe(): Promise<AuthUser | null> {
     return null;
   }
 }
+

@@ -40,7 +40,7 @@ export default function ReplyModal({ thread, onClose, onSent }: ReplyModalProps)
           onSent();
         }, 1500);
       } else {
-        setError(result.error || 'Failed to send reply');
+        setError(result.errors?.[0]?.message || 'Failed to send reply');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');

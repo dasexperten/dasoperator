@@ -102,7 +102,7 @@ export default function ComposeEmail() {
         setBody('');
         setAttachments([]);
       } else {
-        setError(result.error || 'Failed to send email');
+        setError(result.errors?.[0]?.message || 'Failed to send email');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');

@@ -99,7 +99,7 @@ export default function ActivityPage() {
       {Header}
       <p style={{ fontSize: '14px', color: 'var(--fg-2)', marginBottom: '20px', maxWidth: '720px' }}>
         Last 7 days. Working window 10:00–18:00, Mon–Fri (weekends don&apos;t affect the average day or activity %).
-        Activity is the share of the working window with mouse/keyboard movement.
+        Activity is the share of the working window with mouse/keyboard movement. Each bar is scaled to a full 8-hour day.
       </p>
 
       {isAdmin === false && (
@@ -132,7 +132,6 @@ export default function ActivityPage() {
             {data.users.map((u, i) => {
               const open = openId === u.id;
               const sel = selDay[u.id] ?? null;
-              const maxH = Math.max(1, ...u.daily.map((d) => d.in_system_h));
               const noData = u.week_hours <= 0;
               return (
                 <div key={u.id} style={{ borderTop: i === 0 ? 'none' : '1px solid var(--line-1)' }}>
@@ -177,9 +176,11 @@ export default function ActivityPage() {
                         <>
                           <div className="flex items-end gap-2" style={{ height: 170 }}>
                             {u.daily.map((d, di) => {
+                              const FULL_H = 8; // full bar height = an 8-hour working day
                               const h = 150;
-                              const totalH = Math.round((d.in_system_h / maxH) * h);
-                              const activeH = Math.round((d.active_h / maxH) * h);
+                              const px = (v: number) => Math.min(h, Math.round((v / FULL_H) * h));
+                              const totalH = px(d.in_system_h);
+                              const activeH = px(d.active_h);
                               const passiveH = Math.max(0, totalH - activeH);
                               const isSel = sel === di;
                               return (
@@ -188,9 +189,9 @@ export default function ActivityPage() {
                                   onClick={() => setSelDay((s) => ({ ...s, [u.id]: isSel ? null : di }))}
                                   style={{ all: 'unset', cursor: 'pointer', flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}
                                 >
-                                  <span style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', width: '70%', height: h, opacity: isSel || sel === null ? 1 : 0.5 }}>
-                                    <span style={{ height: passiveH, background: '#B4B2A9', borderRadius: '3px 3px 0 0' }} />
-                                    <span style={{ height: activeH, background: '#1D9E75', borderRadius: passiveH === 0 ? '3px 3px 0 0' : 0 }} />
+                                  <span style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', width: '70%', height: h, background: 'var(--paper-sunk)', borderRadius: 4, overflow: 'hidden', opacity: isSel || sel === null ? 1 : 0.5 }}>
+                                    <span style={{ height: passiveH, background: '#B4B2A9' }} />
+                                    <span style={{ height: activeH, background: '#1D9E75' }} />
                                   </span>
                                   <span style={{ fontSize: '11px', color: d.is_weekday ? 'var(--fg-2)' : 'var(--fg-3)', fontWeight: isSel ? 700 : 400 }}>{WEEKDAY[d.weekday]}</span>
                                 </button>

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   Home, Users, FileText, Package, Warehouse, ShoppingCart,
-  Headphones, BarChart3, Wallet, Settings, Calculator, MessageSquare,
+  Headphones, BarChart3, Wallet, Settings, Calculator, MessageSquare, Mail,
   LogOut,
 } from 'lucide-react';
 import { getUser, logout, hasModuleAccess, ROLE_LABEL, type Role, type AuthUser } from '@/lib/auth';
@@ -26,6 +26,7 @@ const NAV_ITEMS: NavItem[] = [
   { name: 'Marketplaces', icon: ShoppingCart,  href: '/marketplaces' },
   { name: 'Reviews',      icon: MessageSquare, href: '/reviews' },
   { name: 'CRM',          icon: Headphones,    href: '/crm' },
+  { name: 'Emailer',      icon: Mail,          href: '/emailer' },
   { name: 'Finance',      icon: Wallet,        href: '/finance' },
   { name: 'Analytics',    icon: BarChart3,     href: '/analytics' },
   { name: 'Settings',     icon: Settings,      href: '/settings' },
@@ -186,3 +187,4 @@ export default function Sidebar({ mobileOpen = false }: { mobileOpen?: boolean }
     </aside>
   );
 }
+

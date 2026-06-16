@@ -339,6 +339,24 @@ export async function handleScheduled(
   const cron = event.cron;
   console.log(`[cron] tick: ${cron}`);
 
+  // Email scenario tick — every 3h at :23 UTC ("Pochtalon Pechkin").
+  // Marks run timestamps for enabled scenarios and is the hook where the
+  // worker/hermes drafting pipeline plugs in (reads inbox -> playbook ->
+  // drafts -> queues for Safety Gate). Drafting itself is wired separately.
+  if (cron === '23 */3 * * *') {
+    try {
+      const n = Math.floor(Date.now() / 1000);
+      const next = n + 3 * 3600;
+      const res = await env.DB.prepare(
+        'UPDATE email_scenarios SET last_run_at = ?, next_run_at = ?, updated_at = ? WHERE enabled = 1'
+      ).bind(n, next, n).run();
+      console.log(`[cron:email-scenarios] ticked ${res.meta.changes ?? 0} enabled scenarios`);
+    } catch (e) {
+      console.error('[cron:email-scenarios] failed:', e);
+    }
+    return;
+  }
+
   if (cron === '0 12 * * *') {
     await runFxRefresh();
     await runPartnerStatusRecalc(env);

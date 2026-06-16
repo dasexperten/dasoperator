@@ -91,14 +91,14 @@ export default function LearningView() {
               <div className="text-[11px] font-medium uppercase text-indigo-600 tracking-wide">Proposed lesson</div>
               <div className="font-medium text-foreground mb-3">{l.proposed}</div>
               {(l.diff_before || l.diff_after) && (
-                <div className="rounded-md border border-border overflow-hidden mb-3 text-sm">
+                <div className="rounded-md border border-border overflow-hidden mb-3 text-base">
                   <div className="px-3 py-2 bg-red-50">
                     <div className="text-[11px] font-medium uppercase text-red-600">Hermes wrote</div>
-                    <span className="line-through text-red-800/80">{l.diff_before}</span>
+                    <span className="block mt-1 line-through text-red-800/80 font-medium leading-relaxed">{l.diff_before}</span>
                   </div>
                   <div className="px-3 py-2 bg-emerald-50 border-t border-border">
                     <div className="text-[11px] font-medium uppercase text-emerald-600">You sent</div>
-                    <span className="text-emerald-800 font-medium">{l.diff_after}</span>
+                    <span className="block mt-1 text-emerald-800 font-medium leading-relaxed">{l.diff_after}</span>
                   </div>
                 </div>
               )}

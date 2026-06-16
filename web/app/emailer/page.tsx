@@ -3,54 +3,48 @@
 export const runtime = 'edge';
 
 import { useState } from 'react';
-import { Mail, History, Shield, Loader2, AlertCircle } from 'lucide-react';
+import { ListChecks, Workflow, GraduationCap, Mail, History } from 'lucide-react';
+import TasksView from '@/components/emailer/tasks-view';
+import ScenariosView from '@/components/emailer/scenarios-view';
+import LearningView from '@/components/emailer/learning-view';
 import ComposeEmail from '@/components/emailer/compose-email';
 import EmailHistory from '@/components/emailer/email-history';
-import EmailRules from '@/components/emailer/email-rules';
 
-type Tab = 'compose' | 'history' | 'rules';
+type Tab = 'tasks' | 'scenarios' | 'learning' | 'compose' | 'history';
 
 export default function EmailerPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('compose');
+  const [activeTab, setActiveTab] = useState<Tab>('tasks');
 
   const tabs: { id: Tab; label: string; icon: typeof Mail }[] = [
+    { id: 'tasks', label: 'Tasks', icon: ListChecks },
+    { id: 'scenarios', label: 'Scenarios', icon: Workflow },
+    { id: 'learning', label: 'Learning', icon: GraduationCap },
     { id: 'compose', label: 'Compose', icon: Mail },
     { id: 'history', label: 'History', icon: History },
-    { id: 'rules', label: 'Rules', icon: Shield },
   ];
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <div className="border-b border-border px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Emailer</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Compose, send, and manage emails
-            </p>
-          </div>
-        </div>
+        <h1 className="text-2xl font-bold text-foreground">Emailer</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Task conveyor — agents read, reason, draft. You approve. The system learns.
+        </p>
       </div>
 
-      {/* Tabs */}
       <div className="border-b border-border px-6">
-        <nav className="flex space-x-8" aria-label="Tabs">
+        <nav className="flex gap-6 overflow-x-auto" aria-label="Tabs">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             return (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`
-                  flex items-center gap-2 py-3 px-1 border-b-2 font-medium text-sm
-                  transition-colors duration-200
-                  ${
-                    activeTab === tab.id
-                      ? 'border-primary text-primary'
-                      : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
-                  }
-                `}
+                className={`flex items-center gap-2 py-3 px-1 border-b-2 font-medium text-sm whitespace-nowrap transition-colors ${
+                  activeTab === tab.id
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+                }`}
               >
                 <Icon className="h-4 w-4" />
                 {tab.label}
@@ -60,11 +54,12 @@ export default function EmailerPage() {
         </nav>
       </div>
 
-      {/* Content */}
       <div className="px-6 py-6">
+        {activeTab === 'tasks' && <TasksView />}
+        {activeTab === 'scenarios' && <ScenariosView />}
+        {activeTab === 'learning' && <LearningView />}
         {activeTab === 'compose' && <ComposeEmail />}
         {activeTab === 'history' && <EmailHistory />}
-        {activeTab === 'rules' && <EmailRules />}
       </div>
     </div>
   );

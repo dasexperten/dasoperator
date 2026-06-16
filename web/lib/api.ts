@@ -2650,8 +2650,8 @@ export interface EmailHistoryResponse {
   query: string;
 }
 
-export async function getEmailHistory(query = 'newer_than:30d') {
-  return apiGet<EmailHistoryResponse>(`/api/email/history?query=${encodeURIComponent(query)}`);
+export async function getEmailHistory(query = 'newer_than:30d', limit = 50) {
+  return apiGet<EmailHistoryResponse>(`/api/email/history?query=${encodeURIComponent(query)}&limit=${limit}`);
 }
 
 export interface EmailRule {

@@ -3,23 +3,23 @@
 export const runtime = 'edge';
 
 import { useState } from 'react';
-import { ListChecks, Workflow, GraduationCap, Mail, History } from 'lucide-react';
+import { ListChecks, Workflow, GraduationCap, Inbox, History } from 'lucide-react';
 import TasksView from '@/components/emailer/tasks-view';
 import ScenariosView from '@/components/emailer/scenarios-view';
 import LearningView from '@/components/emailer/learning-view';
-import ComposeEmail from '@/components/emailer/compose-email';
+import InboxView from '@/components/emailer/inbox-view';
 import EmailHistory from '@/components/emailer/email-history';
 
-type Tab = 'tasks' | 'scenarios' | 'learning' | 'compose' | 'history';
+type Tab = 'tasks' | 'inbox' | 'scenarios' | 'learning' | 'history';
 
 export default function EmailerPage() {
   const [activeTab, setActiveTab] = useState<Tab>('tasks');
 
   const tabs: { id: Tab; label: string; icon: typeof Mail }[] = [
     { id: 'tasks', label: 'Tasks', icon: ListChecks },
+    { id: 'inbox', label: 'Inbox', icon: Inbox },
     { id: 'scenarios', label: 'Scenarios', icon: Workflow },
     { id: 'learning', label: 'Learning', icon: GraduationCap },
-    { id: 'compose', label: 'Compose', icon: Mail },
     { id: 'history', label: 'History', icon: History },
   ];
 
@@ -58,7 +58,7 @@ export default function EmailerPage() {
         {activeTab === 'tasks' && <TasksView />}
         {activeTab === 'scenarios' && <ScenariosView />}
         {activeTab === 'learning' && <LearningView />}
-        {activeTab === 'compose' && <ComposeEmail />}
+        {activeTab === 'inbox' && <InboxView />}
         {activeTab === 'history' && <EmailHistory />}
       </div>
     </div>

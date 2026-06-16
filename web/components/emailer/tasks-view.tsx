@@ -146,7 +146,6 @@ export default function TasksView() {
                     </div>
                     <div className="flex flex-wrap gap-2 mt-4">
                       <CtrlBtn busy={isBusy} onClick={() => patch(s.id, { enabled: !s.enabled })}>{s.enabled ? 'Pause' : 'Resume'}</CtrlBtn>
-                      <CtrlBtn busy={isBusy} onClick={() => patch(s.id, { auto_learning: !s.auto_learning })}>Auto-learning: {s.auto_learning ? 'on' : 'off'}</CtrlBtn>
                       <CtrlBtn busy={isBusy} onClick={() => patch(s.id, { executor: s.executor === 'hermes' ? 'worker' : 'hermes' })}>Switch to {s.executor === 'hermes' ? 'Cloudflare' : 'Hermes'}</CtrlBtn>
                       <CtrlBtn disabled>Run now</CtrlBtn>
                       <CtrlBtn disabled>Edit trigger</CtrlBtn>

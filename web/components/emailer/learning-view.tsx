@@ -89,7 +89,7 @@ export default function LearningView() {
                 <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">Hermes</span>
               </div>
               <div className="text-[11px] font-medium uppercase text-indigo-600 tracking-wide">Proposed lesson</div>
-              <div className="font-medium text-foreground mb-3">{l.proposed}</div>
+              <div className="text-lg font-medium text-foreground mb-3 leading-snug">{l.proposed}</div>
               {(l.diff_before || l.diff_after) && (
                 <div className="rounded-md border border-border overflow-hidden mb-3 text-base">
                   <div className="px-3 py-2 bg-red-50">

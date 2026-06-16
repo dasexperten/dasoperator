@@ -207,14 +207,18 @@ r.post('/seed', async (c) => {
   const t = now();
   const scenarios: Array<[string, string, string, string, string, string, number, number, number]> = [
     // id, name, executor, inbox, persona, trigger, enabled, sent_clean, edited
-    ['ozon-complaint', 'Ozon complaint auto-reply', 'worker', 'dasexperten@gmail.com',
-      'gender-mirror · Viktor Orlov (f) / Olga Lebedeva (m)', 'keywords: недопоставка · newer_than:3h · skip system addresses', 1, 44, 6],
-    ['sales-distributor', 'Distributor reply (sales)', 'hermes', 'sales@dasexperten.de',
-      '4-staff router · gender-mirror · cold-lock (never Aram first)', 'B2B inbound to sales@', 1, 22, 9],
-    ['support-returns', 'Support — returns & replacements', 'hermes', 'support@dasexperten.de',
-      '5 staff · never signed by Aram', 'returns / replacements / retention', 1, 17, 10],
-    ['ugc-followup', 'Blogger / UGC follow-up', 'hermes', 'marketing@dasexperten.de',
-      'UGC override — always female persona', 'needs Telegram MTProto session', 0, 8, 2],
+    ['pechkin-s1-ozon-complaints', 'S1 · Ozon lost-order complaints', 'hermes', 'support@dasexperten.de',
+      'Viktor Orlov (signs to women) / Olga Lebedeva (signs to men) · blame Ozon logistics · auto-refund on cancel · never ask for card',
+      'keywords: где заказ / не пришёл / трек / ПВЗ … · newer_than:12h · skip marketplace@seller.ozon.ru · skip if support@/gmail already in thread', 1, 44, 6],
+    ['pechkin-s2-ozon-returns', 'S2 · Auto-delete Ozon return notices', 'worker', 'marketplace@seller.ozon.ru',
+      'no send — trash matching system threads only (subject filter, never whole sender)',
+      'from:marketplace@seller.ozon.ru subject:(возврат OR "точка выдачи" OR заберите) · newer_than:12h', 1, 31, 0],
+    ['pechkin-s3-zukonar-forward', 'S3 · Forward ЦУКОН invoices → Maria Kosareva', 'worker', 'eurasia@dasexperten.de',
+      'forward only → kosarevam491@gmail.com · skip if already in participants[]',
+      'from:zukonar@mail.ru · newer_than:12h', 1, 12, 1],
+    ['pechkin-s4-inbox-triage', 'S4 · Inbox triage', 'hermes', 'eurasia@dasexperten.de',
+      'classify + route, no auto-send · 5-inbox router (eurasia/emea/marketing/sales/support)',
+      'in:anywhere newer_than:24h · exclude own dasexperten.de senders', 1, 18, 7],
   ];
   const stmts = scenarios.map(([id, name, executor, inbox, persona, trig, enabled, clean, edited]) =>
     c.env.DB.prepare(
@@ -230,13 +234,14 @@ r.post('/seed', async (c) => {
   const haveLessons = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM email_lessons").first<{ n: number }>();
   if ((haveLessons?.n ?? 0) === 0) {
     const lessons: Array<[string, string, string, string, number]> = [
-      ['ozon-complaint', 'Offer the promo code in the first reply — not after the fix.',
+      ['pechkin-s1-ozon-complaints', 'Offer the promo code in the first reply — not after the fix.',
         '…после устранения проблемы вышлем вам промокод.',
         '…прикладываю промокод −25% прямо сейчас. Извинения за логистику Ozon.', 4],
-      ['support-returns', 'Give a 5–7 day range for replacement — never a fixed date.',
-        'Замена придёт 18 июня.', 'Замену отправим в течение 5–7 рабочих дней.', 2],
-      ['sales-distributor', 'Qualify volume before sending any price list.',
-        'Прайс во вложении.', 'Подскажите ориентир по объёму — подберу условия.', 1],
+      ['pechkin-s1-ozon-complaints', 'Open with the order number — no greeting, no self-justification.',
+        'Здравствуйте! Прочитал ваше письмо, некрасиво с нашей стороны…',
+        'Заказ 0312-… — уже разбираемся, отвечаю по сути.', 2],
+      ['pechkin-s4-inbox-triage', 'Route distributor pricing asks to sales@, not eurasia@.',
+        'routed to eurasia@', 'routed to sales@', 1],
     ];
     await c.env.DB.batch(lessons.map(([sc, prop, before, after, seen]) =>
       c.env.DB.prepare(
@@ -248,9 +253,10 @@ r.post('/seed', async (c) => {
   const haveCanon = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM email_playbook").first<{ n: number }>();
   if ((haveCanon?.n ?? 0) === 0) {
     const canon: Array<[string, string]> = [
-      ['ozon-complaint', 'Ozon underdelivery → blame Ozon logistics, auto-refund on cancel.'],
+      ['pechkin-s1-ozon-complaints', 'Ozon underdelivery → blame Ozon logistics, auto-refund on cancel, never ask for card.'],
       ['global', 'Never mention German origin in the body.'],
       ['global', 'Cold first email is never signed by Aram.'],
+      ['global', 'Cron sends always go from dasexperten@gmail.com (SPF).'],
     ];
     await c.env.DB.batch(canon.map(([sc, lesson]) =>
       c.env.DB.prepare(

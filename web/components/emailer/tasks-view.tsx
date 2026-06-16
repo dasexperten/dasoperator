@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, Cpu, Server } from 'lucide-react';
-import { apiGet } from '@/lib/api';
+import { Loader2, Cpu, Server, ChevronRight } from 'lucide-react';
+import { apiGet, apiPatch } from '@/lib/api';
 
 interface Summary {
   in_queue: number; awaiting_ok: number; sent_today: number;
@@ -10,7 +10,8 @@ interface Summary {
 }
 interface Scenario {
   id: string; name: string; executor: string; inbox: string; from_address: string;
-  schedule_cron: string; persona_rule: string | null; enabled: number;
+  schedule_cron: string; persona_rule: string | null; trigger_spec: string | null;
+  enabled: number; auto_learning: number;
   sent_clean: number; edited: number; last_run_at: number | null;
   next_run_at: number | null; accuracy: number | null;
 }
@@ -40,12 +41,16 @@ function ago(ts: number | null): string {
 function hhmm(ts: number | null): string {
   return ts ? new Date(ts * 1000).toISOString().slice(11, 16) : '—';
 }
+const exLabel = (ex: string) => (ex === 'hermes' ? 'Hermes' : 'Cloudflare');
+const exNature = (ex: string) => (ex === 'hermes' ? 'reasons + learns (VPS)' : 'deterministic, just runs (Cloudflare)');
 
 export default function TasksView() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -58,6 +63,15 @@ export default function TasksView() {
       if (t.success) setTasks(t.result ?? []);
     }).finally(() => setLoading(false));
   }, []);
+
+  async function patch(id: string, body: Record<string, unknown>) {
+    setBusy(id);
+    const r = await apiPatch<Scenario>(`/api/email-tasks/scenarios/${id}`, body);
+    if (r.success && r.result) {
+      setScenarios((prev) => prev.map((s) => (s.id === id ? { ...s, ...r.result } : s)));
+    }
+    setBusy(null);
+  }
 
   if (loading) {
     return <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>;
@@ -84,44 +98,62 @@ export default function TasksView() {
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-base font-semibold text-foreground">Active scenarios</h2>
-          <span className="text-xs text-muted-foreground">cron · every 3h @ :23 UTC</span>
+          <span className="text-xs text-muted-foreground">cron · every 3h @ :23 UTC · tap a row to expand</span>
         </div>
         <div className="space-y-2">
           {scenarios.map((s) => {
             const total = s.sent_clean + s.edited;
             const hit = total > 0 ? Math.round((s.sent_clean / total) * 100) : 0;
+            const open = openId === s.id;
+            const isBusy = busy === s.id;
             return (
-              <div key={s.id} className="rounded-lg border border-border bg-card px-4 py-3 flex flex-col md:flex-row md:items-center gap-3 md:gap-5">
-                {/* name + meta */}
-                <div className="min-w-0 md:flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-foreground truncate">{s.name}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${s.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-muted text-muted-foreground'}`}>{s.enabled ? 'Live' : 'Paused'}</span>
+              <div key={s.id} className="rounded-lg border border-border bg-card overflow-hidden">
+                {/* header row */}
+                <button onClick={() => setOpenId(open ? null : s.id)} className="w-full text-left px-4 py-3 flex items-center gap-4">
+                  <ChevronRight className={`h-4 w-4 text-muted-foreground shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-foreground truncate">{s.name}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${s.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-muted text-muted-foreground'}`}>{s.enabled ? 'Live' : 'Paused'}</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1 truncate">✉ {s.inbox} · 23 */3 * * *</div>
                   </div>
-                  <div className="text-xs text-muted-foreground mt-1 truncate">✉ {s.from_address} · {s.inbox} · {s.schedule_cron}</div>
-                </div>
-
-                {/* accuracy bar */}
-                <div className="w-full md:w-44 shrink-0">
-                  <div className="h-1.5 rounded-full bg-muted overflow-hidden flex">
-                    <div className="bg-emerald-500 h-full" style={{ width: `${hit}%` }} />
-                    <div className="bg-red-500 h-full" style={{ width: `${100 - hit}%` }} />
+                  <div className="hidden sm:block w-36 shrink-0">
+                    <div className="h-1.5 rounded-full bg-muted overflow-hidden flex">
+                      <div className="bg-emerald-500 h-full" style={{ width: `${hit}%` }} />
+                      <div className="bg-red-500 h-full" style={{ width: `${100 - hit}%` }} />
+                    </div>
+                    <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                      <span>clean {s.sent_clean}</span><span>edited {s.edited}</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                    <span>clean {s.sent_clean}</span><span>edited {s.edited}</span>
+                  <span className={`text-xs font-medium px-2.5 py-1 rounded-full inline-flex items-center gap-1 shrink-0 ${s.executor === 'hermes' ? 'bg-amber-50 text-amber-700' : 'bg-indigo-50 text-indigo-700'}`}>
+                    {s.executor === 'hermes' ? <Server className="h-3 w-3" /> : <Cpu className="h-3 w-3" />}
+                    {exLabel(s.executor)}
+                  </span>
+                </button>
+
+                {/* expanded detail */}
+                {open && (
+                  <div className="px-4 pb-4 pl-12 border-t border-border">
+                    <div className="grid sm:grid-cols-2 gap-x-8 gap-y-3 pt-4">
+                      <Field label="Trigger" value={s.trigger_spec ?? '—'} mono />
+                      <Field label="Persona / rule" value={s.persona_rule ?? '—'} />
+                      <Field label="From" value={s.from_address} />
+                      <Field label="Schedule" value="23 */3 * * * — every 3h @ :23 UTC" />
+                      <Field label="Executor" value={`${exLabel(s.executor)} — ${exNature(s.executor)}`} />
+                      <Field label="Accuracy" value={`${hit}% · sent clean ${s.sent_clean} · you edited ${s.edited}`} />
+                    </div>
+                    <div className="flex flex-wrap gap-2 mt-4">
+                      <CtrlBtn busy={isBusy} onClick={() => patch(s.id, { enabled: !s.enabled })}>{s.enabled ? 'Pause' : 'Resume'}</CtrlBtn>
+                      <CtrlBtn busy={isBusy} onClick={() => patch(s.id, { auto_learning: !s.auto_learning })}>Auto-learning: {s.auto_learning ? 'on' : 'off'}</CtrlBtn>
+                      <CtrlBtn busy={isBusy} onClick={() => patch(s.id, { executor: s.executor === 'hermes' ? 'worker' : 'hermes' })}>Switch to {s.executor === 'hermes' ? 'Cloudflare' : 'Hermes'}</CtrlBtn>
+                      <CtrlBtn disabled>Run now</CtrlBtn>
+                      <CtrlBtn disabled>Edit trigger</CtrlBtn>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-3">last run {ago(s.last_run_at)} · next {hhmm(s.next_run_at)} · Run now / Edit trigger activate when the drafting engine is wired.</div>
                   </div>
-                </div>
-
-                {/* run times */}
-                <div className="text-xs text-muted-foreground md:w-36 shrink-0 md:text-right">
-                  last run {ago(s.last_run_at)}<span className="hidden md:inline"><br /></span><span className="md:hidden"> · </span>next {hhmm(s.next_run_at)}
-                </div>
-
-                {/* executor */}
-                <span className={`text-xs font-medium px-2.5 py-1 rounded-full inline-flex items-center gap-1 shrink-0 self-start md:self-center ${s.executor === 'hermes' ? 'bg-amber-50 text-amber-700' : 'bg-indigo-50 text-indigo-700'}`}>
-                  {s.executor === 'hermes' ? <Server className="h-3 w-3" /> : <Cpu className="h-3 w-3" />}
-                  {s.executor === 'hermes' ? 'Hermes' : 'Worker'}
-                </span>
+                )}
               </div>
             );
           })}
@@ -164,5 +196,27 @@ export default function TasksView() {
         <p className="text-xs text-muted-foreground mt-3">Hard rules wired in: from = dasexperten@gmail.com on cron sends (SPF) · participants dedup · no fabricated identifiers · Germany-silence in body.</p>
       </div>
     </div>
+  );
+}
+
+function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div>
+      <div className="text-[11px] uppercase text-muted-foreground mb-1">{label}</div>
+      <div className={`text-sm text-foreground ${mono ? 'font-mono leading-relaxed break-words' : ''}`}>{value}</div>
+    </div>
+  );
+}
+
+function CtrlBtn({ children, onClick, busy, disabled }: { children: React.ReactNode; onClick?: () => void; busy?: boolean; disabled?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled || busy}
+      title={disabled ? 'Activates when the drafting engine is wired' : undefined}
+      className={`text-xs px-3 py-1.5 rounded-md border ${disabled ? 'border-border text-muted-foreground/60 cursor-not-allowed' : 'border-border text-foreground hover:bg-muted'} disabled:opacity-60`}
+    >
+      {children}
+    </button>
   );
 }

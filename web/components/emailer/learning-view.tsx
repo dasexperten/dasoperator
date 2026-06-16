@@ -100,8 +100,8 @@ export default function LearningView() {
                 </div>
               )}
               <div className="flex gap-2">
-                <button onClick={() => decide(l.id, 'approve')} disabled={busy === l.id} className="flex-1 py-2.5 rounded-md bg-emerald-600 text-white font-medium text-sm disabled:opacity-50">Approve</button>
-                <button onClick={() => decide(l.id, 'reject')} disabled={busy === l.id} className="flex-1 py-2.5 rounded-md border border-red-300 text-red-600 font-medium text-sm disabled:opacity-50">Reject</button>
+                <button onClick={() => decide(l.id, 'approve')} disabled={busy === l.id} className="flex-1 py-3.5 rounded-md bg-emerald-600 text-white font-semibold text-lg disabled:opacity-50">Approve</button>
+                <button onClick={() => decide(l.id, 'reject')} disabled={busy === l.id} className="flex-1 py-3.5 rounded-md border-2 border-red-300 text-red-600 font-semibold text-lg disabled:opacity-50">Reject</button>
               </div>
             </div>
           ))}

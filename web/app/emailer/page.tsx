@@ -15,7 +15,7 @@ type Tab = 'tasks' | 'inbox' | 'scenarios' | 'learning' | 'history';
 export default function EmailerPage() {
   const [activeTab, setActiveTab] = useState<Tab>('tasks');
 
-  const tabs: { id: Tab; label: string; icon: typeof Mail }[] = [
+  const tabs: { id: Tab; label: string; icon: typeof ListChecks }[] = [
     { id: 'tasks', label: 'Tasks', icon: ListChecks },
     { id: 'inbox', label: 'Inbox', icon: Inbox },
     { id: 'scenarios', label: 'Scenarios', icon: Workflow },

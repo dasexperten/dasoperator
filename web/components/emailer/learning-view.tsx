@@ -57,21 +57,18 @@ export default function LearningView() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/40 px-4 py-3">
-        <div>
-          <div className="font-semibold text-foreground flex items-center gap-2">
-            Auto-learning
-            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${autoLearning ? 'bg-emerald-50 text-emerald-700' : 'bg-muted text-muted-foreground'}`}>{autoLearning ? 'ON' : 'OFF'}</span>
-          </div>
-          <p className="text-xs text-muted-foreground mt-1 max-w-md">
-            {autoLearning
-              ? 'High-confidence lessons (seen ≥3×) apply on their own. You review only the uncertain ones.'
-              : 'Every lesson waits for your click. Nothing enters the canon without you.'}
-          </p>
+      <div className="rounded-lg bg-muted/40 px-4 py-3">
+        <div className="flex items-center gap-3">
+          <button onClick={toggleAuto} role="switch" aria-checked={autoLearning} aria-label="Toggle auto-learning" className={`relative inline-block w-14 h-8 rounded-full transition-colors shrink-0 ${autoLearning ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`}>
+            <span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-all ${autoLearning ? 'left-[28px]' : 'left-1'}`} />
+          </button>
+          <div className="text-base font-semibold text-foreground">Auto-learning — {autoLearning ? 'ON' : 'OFF'}</div>
         </div>
-        <button onClick={toggleAuto} aria-label="Toggle auto-learning" className={`relative inline-block w-12 h-7 rounded-full transition-colors shrink-0 ${autoLearning ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`}>
-          <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white transition-all ${autoLearning ? 'left-[22px]' : 'left-0.5'}`} />
-        </button>
+        <p className="text-sm text-muted-foreground mt-2">
+          {autoLearning
+            ? 'ON — repeated, confident lessons (seen ≥3×) apply on their own. The system stops asking you; you can still revert any from the playbook.'
+            : 'OFF — every lesson waits for your click. Nothing enters the canon without you.'}
+        </p>
       </div>
 
       <div>

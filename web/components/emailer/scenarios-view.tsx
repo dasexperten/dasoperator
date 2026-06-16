@@ -58,8 +58,7 @@ export default function ScenariosView() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-5 mt-4 pt-3 border-t border-border">
-            <Toggle label="Live" on={!!s.enabled} disabled={busy === s.id} onClick={() => patch(s.id, { enabled: !s.enabled })} />
-            <Toggle label="Auto-learning" on={!!s.auto_learning} disabled={busy === s.id} onClick={() => patch(s.id, { auto_learning: !s.auto_learning })} />
+            <Toggle label={s.enabled ? 'Live' : 'Paused'} on={!!s.enabled} disabled={busy === s.id} onClick={() => patch(s.id, { enabled: !s.enabled })} />
           </div>
         </div>
       ))}

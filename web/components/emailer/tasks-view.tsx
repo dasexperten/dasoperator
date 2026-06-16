@@ -37,6 +37,9 @@ function ago(ts: number | null): string {
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   return `${Math.floor(s / 86400)}d ago`;
 }
+function hhmm(ts: number | null): string {
+  return ts ? new Date(ts * 1000).toISOString().slice(11, 16) : '—';
+}
 
 export default function TasksView() {
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -83,34 +86,42 @@ export default function TasksView() {
           <h2 className="text-base font-semibold text-foreground">Active scenarios</h2>
           <span className="text-xs text-muted-foreground">cron · every 3h @ :23 UTC</span>
         </div>
-        <div className="grid md:grid-cols-2 gap-3">
+        <div className="space-y-2">
           {scenarios.map((s) => {
             const total = s.sent_clean + s.edited;
             const hit = total > 0 ? Math.round((s.sent_clean / total) * 100) : 0;
             return (
-              <div key={s.id} className="rounded-lg border border-border bg-card p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="font-semibold text-foreground">{s.name}</div>
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${s.executor === 'hermes' ? 'bg-amber-50 text-amber-700' : 'bg-indigo-50 text-indigo-700'}`}>
-                    {s.executor === 'hermes' ? <Server className="h-3 w-3" /> : <Cpu className="h-3 w-3" />}
-                    {s.executor === 'hermes' ? 'Hermes' : 'Worker'}
-                  </span>
+              <div key={s.id} className="rounded-lg border border-border bg-card px-4 py-3 flex flex-col md:flex-row md:items-center gap-3 md:gap-5">
+                {/* name + meta */}
+                <div className="min-w-0 md:flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-foreground truncate">{s.name}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${s.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-muted text-muted-foreground'}`}>{s.enabled ? 'Live' : 'Paused'}</span>
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1 truncate">✉ {s.from_address} · {s.inbox} · {s.schedule_cron}</div>
                 </div>
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${s.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-muted text-muted-foreground'}`}>{s.enabled ? 'Live' : 'Paused'}</span>
-                  <span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">{s.schedule_cron}</span>
+
+                {/* accuracy bar */}
+                <div className="w-full md:w-44 shrink-0">
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden flex">
+                    <div className="bg-emerald-500 h-full" style={{ width: `${hit}%` }} />
+                    <div className="bg-red-500 h-full" style={{ width: `${100 - hit}%` }} />
+                  </div>
+                  <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                    <span>clean {s.sent_clean}</span><span>edited {s.edited}</span>
+                  </div>
                 </div>
-                <div className="text-sm text-muted-foreground mt-3">✉ {s.from_address} · {s.inbox}</div>
-                <div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden flex">
-                  <div className="bg-emerald-500 h-full" style={{ width: `${hit}%` }} />
-                  <div className="bg-red-500 h-full" style={{ width: `${100 - hit}%` }} />
+
+                {/* run times */}
+                <div className="text-xs text-muted-foreground md:w-36 shrink-0 md:text-right">
+                  last run {ago(s.last_run_at)}<span className="hidden md:inline"><br /></span><span className="md:hidden"> · </span>next {hhmm(s.next_run_at)}
                 </div>
-                <div className="flex justify-between text-xs text-muted-foreground mt-1.5">
-                  <span>Sent clean {s.sent_clean}</span><span>You edited {s.edited}</span>
-                </div>
-                <div className="flex justify-between text-xs text-muted-foreground mt-3 pt-3 border-t border-border">
-                  <span>last run {ago(s.last_run_at)}</span><span>next {s.next_run_at ? new Date(s.next_run_at * 1000).toUTCString().slice(17, 22) : '—'}</span>
-                </div>
+
+                {/* executor */}
+                <span className={`text-xs font-medium px-2.5 py-1 rounded-full inline-flex items-center gap-1 shrink-0 self-start md:self-center ${s.executor === 'hermes' ? 'bg-amber-50 text-amber-700' : 'bg-indigo-50 text-indigo-700'}`}>
+                  {s.executor === 'hermes' ? <Server className="h-3 w-3" /> : <Cpu className="h-3 w-3" />}
+                  {s.executor === 'hermes' ? 'Hermes' : 'Worker'}
+                </span>
               </div>
             );
           })}

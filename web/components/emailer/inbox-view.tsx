@@ -52,7 +52,7 @@ export default function InboxView() {
   async function load() {
     setLoading(true); setError(null);
     try {
-      const r = await getEmailHistory('newer_than:14d');
+      const r = await getEmailHistory('newer_than:30d', 100);
       if (r.success && r.result) setAll((r.result.threads as unknown as InboxThread[]) || []);
       else setError('Failed to load inbox');
     } catch (e) {
@@ -61,7 +61,7 @@ export default function InboxView() {
   }
   useEffect(() => { load(); }, []);
 
-  const inbox = all.filter(needsReply);
+  const inbox = all.filter(needsReply).sort((a, b) => new Date(b.last_message_date).getTime() - new Date(a.last_message_date).getTime());
   const filtered = all.length - inbox.length;
 
   if (loading) return <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading inbox…</div>;
@@ -71,7 +71,7 @@ export default function InboxView() {
       <div className="flex items-center justify-between mb-3">
         <div>
           <h2 className="text-base font-semibold text-foreground">Needs reply</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Last 14 days · spam, newsletters, mass-mailings and no-reply senders filtered out{filtered > 0 ? ` (${filtered} hidden)` : ''}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Last 30 days · newest first · spam, newsletters, mass-mailings and no-reply senders filtered out{filtered > 0 ? ` (${filtered} hidden)` : ''}</p>
         </div>
         <button onClick={load} className="text-sm border border-border rounded-md px-3 py-1.5 inline-flex items-center gap-2 hover:bg-muted"><RefreshCw className="h-4 w-4" /> Refresh</button>
       </div>

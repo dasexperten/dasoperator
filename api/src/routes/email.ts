@@ -91,6 +91,8 @@ email.post('/send', async (c) => {
 // =============================================================================
 email.get('/history', async (c) => {
   const query = c.req.query('query') || 'newer_than:30d';
+  const limitRaw = parseInt(c.req.query('limit') || '50', 10);
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
 
   try {
     const bridgeResponse = await c.env.EMAILER.fetch(new Request('https://emailer/', {
@@ -99,6 +101,7 @@ email.get('/history', async (c) => {
       body: JSON.stringify({
         action: 'find',
         query,
+        limit,
       }),
       signal: AbortSignal.timeout(30_000),
     }));

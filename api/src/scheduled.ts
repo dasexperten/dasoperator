@@ -339,6 +339,18 @@ export async function handleScheduled(
   const cron = event.cron;
   console.log(`[cron] tick: ${cron}`);
 
+  // Email archive harvest — every minute until done (temporary backfill job).
+  if (cron === '* * * * *') {
+    try {
+      const { runHarvestTick } = await import('./lib/email-harvest');
+      const r = await runHarvestTick(env);
+      console.log('[cron:email-harvest] ' + JSON.stringify(r));
+    } catch (e) {
+      console.error('[cron:email-harvest] failed:', e);
+    }
+    return;
+  }
+
   // Email scenario tick — every 3h at :23 UTC ("Pochtalon Pechkin").
   // Marks run timestamps for enabled scenarios and is the hook where the
   // worker/hermes drafting pipeline plugs in (reads inbox -> playbook ->

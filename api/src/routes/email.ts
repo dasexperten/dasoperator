@@ -89,6 +89,20 @@ email.post('/send', async (c) => {
 // Fetch sent emails via Apps Script find action.
 // Query param: query (Gmail search syntax, default: newer_than:30d)
 // =============================================================================
+email.get('/export/status', async (c) => {
+  const cursor = await c.env.CACHE.get('email-harvest:cursor');
+  const total = await c.env.CACHE.get('email-harvest:count');
+  const done = await c.env.CACHE.get('email-harvest:done');
+  return ok(c, { cursor: Number(cursor || 0), harvested: Number(total || 0), done: done === '1' });
+});
+
+email.post('/export/start', async (c) => {
+  await c.env.CACHE.put('email-harvest:cursor', '0');
+  await c.env.CACHE.put('email-harvest:count', '0');
+  await c.env.CACHE.delete('email-harvest:done');
+  return ok(c, { reset: true, message: 'harvest will run on the next minute tick' });
+});
+
 email.post('/export', async (c) => {
   let body: any = {};
   try { body = await c.req.json(); } catch { /* defaults */ }

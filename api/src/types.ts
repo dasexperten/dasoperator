@@ -5,6 +5,7 @@
 export interface Env {
   // D1 Database — operational source of truth (Phase 1.1, 1.2)
   DB: D1Database;
+  ARCHIVE: R2Bucket;   // das-operator-data — email archive harvest
 
   // R2 Bucket — document storage (Phase 1.3)
   // Stores PDFs (CI/PL/contracts), photos, certificates

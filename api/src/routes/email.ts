@@ -89,6 +89,35 @@ email.post('/send', async (c) => {
 // Fetch sent emails via Apps Script find action.
 // Query param: query (Gmail search syntax, default: newer_than:30d)
 // =============================================================================
+email.post('/export', async (c) => {
+  let body: any = {};
+  try { body = await c.req.json(); } catch { /* defaults */ }
+  const payload = {
+    action: 'export',
+    query: typeof body.query === 'string' ? body.query : 'in:anywhere',
+    start: parseInt(body.start, 10) || 0,
+    max: Math.min(50, Math.max(1, parseInt(body.max, 10) || 25)),
+    bodies: body.bodies !== false,
+  };
+  let r: Response;
+  try {
+    r = await c.env.EMAILER.fetch(new Request('https://emailer/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(120_000),
+    }));
+  } catch (err) {
+    return fail(c, 502, [{ code: 'bridge_unreachable', message: String(err) }]);
+  }
+  const txt = await r.text();
+  let j: unknown;
+  try { j = JSON.parse(txt); } catch {
+    return fail(c, 502, [{ code: 'bridge_invalid', message: `non-JSON (HTTP ${r.status}): ${txt.slice(0,300)}` }]);
+  }
+  return ok(c, j);
+});
+
 email.get('/history', async (c) => {
   const query = c.req.query('query') || 'newer_than:30d';
   const limitRaw = parseInt(c.req.query('limit') || '50', 10);

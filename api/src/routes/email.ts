@@ -89,6 +89,22 @@ email.post('/send', async (c) => {
 // Fetch sent emails via Apps Script find action.
 // Query param: query (Gmail search syntax, default: newer_than:30d)
 // =============================================================================
+email.get('/export/keys', async (c) => {
+  const list = await c.env.ARCHIVE.list({ prefix: 'emails-archive/', limit: 1000 });
+  return ok(c, { count: list.objects.length, keys: list.objects.map((o) => ({ key: o.key, size: o.size })) });
+});
+
+email.get('/export/batch', async (c) => {
+  const key = c.req.query('key');
+  if (!key) return fail(c, 422, [{ code: 'no_key', message: 'key query param required' }]);
+  const obj = await c.env.ARCHIVE.get(key);
+  if (!obj) return fail(c, 404, [{ code: 'not_found', message: key }]);
+  const text = await obj.text();
+  let j: unknown;
+  try { j = JSON.parse(text); } catch { return fail(c, 500, [{ code: 'bad_json', message: 'batch not JSON' }]); }
+  return ok(c, j);
+});
+
 email.get('/export/status', async (c) => {
   const cursor = await c.env.CACHE.get('email-harvest:cursor');
   const total = await c.env.CACHE.get('email-harvest:count');

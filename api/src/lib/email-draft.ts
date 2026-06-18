@@ -23,15 +23,16 @@ async function nemotron(env: Env, sys: string, usr: string): Promise<string> {
 }
 
 async function opus(env: Env, sys: string, usr: string): Promise<string> {
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
+  // Opus 4.8 via OpenRouter (Anthropic direct key is stale) — ERP contour.
+  const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
-    headers: { 'x-api-key': env.ANTHROPIC_API_KEY || '', 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: 'claude-opus-4-8', max_tokens: 1600, system: sys,
-      messages: [{ role: 'user', content: usr }] }),
+    headers: { 'Authorization': `Bearer ${env.OPENROUTER_ERP}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'anthropic/claude-opus-4.8', max_tokens: 1600, temperature: 0.3,
+      messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }] }),
     signal: AbortSignal.timeout(180_000),
   });
   const j = await r.json<any>();
-  return (j?.content?.[0]?.text) || (j?.error ? `[opus error: ${j.error?.message}]` : '');
+  return (j?.choices?.[0]?.message?.content) || (j?.error ? `[opus error: ${j.error?.message}]` : '');
 }
 
 const ANALYST_SYS = 'Ты Nemotron — аналитический слой email-агента Арама (Das Experten, oral care). Тебе дают КАНОН (классификация + playbook-и из реальной почты) и входящее письмо. Выдай СТРОГО компактный JSON-бриф: {"group":"","route":"","key_facts":"","must":"","avoid":"","outline":""}. Без рассуждений.';

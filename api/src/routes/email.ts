@@ -90,7 +90,7 @@ email.post('/send', async (c) => {
 // Query param: query (Gmail search syntax, default: newer_than:30d)
 // =============================================================================
 email.post('/canon-put', async (c) => {
-  const key = c.req.query('key') || 'emails/email-canon/DISTILL_FULL.md';
+  const key = c.req.query('key') || 'emails/canon/DISTILL_FULL.md';
   const text = await c.req.text();
   if (!text || text.length < 10) return fail(c, 422, [{ code: 'empty', message: 'body required' }]);
   await c.env.ARCHIVE.put(key, text, { httpMetadata: { contentType: 'text/markdown; charset=utf-8' } });
@@ -98,10 +98,20 @@ email.post('/canon-put', async (c) => {
 });
 
 email.get('/canon', async (c) => {
-  const key = c.req.query('key') || 'emails/email-canon/DISTILL_FULL.md';
+  const key = c.req.query('key') || 'emails/canon/DISTILL_FULL.md';
   const obj = await c.env.ARCHIVE.get(key);
   if (!obj) return fail(c, 404, [{ code: 'not_found', message: key }]);
   return new Response(await obj.text(), { headers: { 'Content-Type': 'text/markdown; charset=utf-8' } });
+});
+
+email.post('/r2-del', async (c) => {
+  const prefix = c.req.query('prefix');
+  if (!prefix || prefix.length < 4) return fail(c, 422, [{ code: 'bad_prefix', message: 'prefix required (>=4 chars)' }]);
+  const list = await c.env.ARCHIVE.list({ prefix, limit: 200 });
+  let del = 0;
+  for (const o of list.objects) { await c.env.ARCHIVE.delete(o.key); del++; }
+  const truncated = (list as any).truncated;
+  return ok(c, { deleted: del, more: !!truncated });
 });
 
 email.post('/r2-migrate', async (c) => {
@@ -112,14 +122,14 @@ email.post('/r2-migrate', async (c) => {
   let copied = 0;
   for (const o of list.objects) {
     const obj = await c.env.ARCHIVE_OLD.get(o.key);
-    if (obj) { await c.env.ARCHIVE.put('emails/' + o.key, await obj.arrayBuffer(), { httpMetadata: obj.httpMetadata }); copied++; }
+    if (obj) { await c.env.ARCHIVE.put('emails/archive/' + o.key.replace('emails-archive/',''), await obj.arrayBuffer(), { httpMetadata: obj.httpMetadata }); copied++; }
   }
   const truncated = (list as any).truncated;
   return ok(c, { copied, cursor: truncated ? (list as any).cursor : null, done: !truncated });
 });
 
 email.get('/export/keys', async (c) => {
-  const list = await c.env.ARCHIVE.list({ prefix: 'emails/emails-archive/', limit: 1000 });
+  const list = await c.env.ARCHIVE.list({ prefix: 'emails/archive/', limit: 1000 });
   return ok(c, { count: list.objects.length, keys: list.objects.map((o) => ({ key: o.key, size: o.size })) });
 });
 

@@ -40,7 +40,7 @@ export async function runHarvestTick(env: Env): Promise<Record<string, unknown>>
     return { error: 'transient_empty_at_start', cursor };
   }
 
-  const key = `emails-archive/batch-${String(cursor).padStart(7, '0')}.json`;
+  const key = `emails/emails-archive/batch-${String(cursor).padStart(7, '0')}.json`;
   await env.ARCHIVE.put(key, JSON.stringify(res.threads), { httpMetadata: { contentType: 'application/json' } });
 
   const next = (typeof res.next_start === 'number') ? res.next_start : cursor + count;

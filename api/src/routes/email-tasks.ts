@@ -290,14 +290,14 @@ r.post('/draft', async (c) => {
 
 
 r.post('/canon/sync', async (c) => {
-  const o = await c.env.ARCHIVE.get('email-canon/DISTILL_FULL.md');
+  const o = await c.env.ARCHIVE.get('emails/email-canon/DISTILL_FULL.md');
   if (!o) return fail(c, 404, [{ code: 'no_canon', message: 'R2 canon missing' }]);
   const text = await o.text();
   await c.env.DB.prepare(
     "INSERT INTO email_canon (branch, key, content, updated_at) VALUES ('email','full',?,?) ON CONFLICT(branch,key) DO UPDATE SET content=excluded.content, updated_at=excluded.updated_at"
   ).bind(text, Math.floor(Date.now() / 1000)).run();
   clearCanonCache();
-  return ok(c, { cached_bytes: text.length, source: 'r2:email-canon/DISTILL_FULL.md' });
+  return ok(c, { cached_bytes: text.length, source: 'r2:emails/email-canon/DISTILL_FULL.md' });
 });
 
 r.get('/canon/cache', async (c) => {

@@ -11,7 +11,7 @@ async function canon(env: Env): Promise<string> {
     const row = await env.DB.prepare("SELECT content FROM email_canon WHERE branch='email' AND key='full'").first<{ content: string }>();
     if (row?.content) { CANON_CACHE = row.content; return CANON_CACHE; }
   } catch { /* table may not exist yet */ }
-  const o = await env.ARCHIVE.get('email-canon/DISTILL_FULL.md');
+  const o = await env.ARCHIVE.get('emails/email-canon/DISTILL_FULL.md');
   CANON_CACHE = o ? await o.text() : '';
   return CANON_CACHE;
 }

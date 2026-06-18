@@ -89,6 +89,21 @@ email.post('/send', async (c) => {
 // Fetch sent emails via Apps Script find action.
 // Query param: query (Gmail search syntax, default: newer_than:30d)
 // =============================================================================
+email.post('/canon-put', async (c) => {
+  const key = c.req.query('key') || 'email-canon/DISTILL_FULL.md';
+  const text = await c.req.text();
+  if (!text || text.length < 10) return fail(c, 422, [{ code: 'empty', message: 'body required' }]);
+  await c.env.ARCHIVE.put(key, text, { httpMetadata: { contentType: 'text/markdown; charset=utf-8' } });
+  return ok(c, { key, bytes: text.length });
+});
+
+email.get('/canon', async (c) => {
+  const key = c.req.query('key') || 'email-canon/DISTILL_FULL.md';
+  const obj = await c.env.ARCHIVE.get(key);
+  if (!obj) return fail(c, 404, [{ code: 'not_found', message: key }]);
+  return new Response(await obj.text(), { headers: { 'Content-Type': 'text/markdown; charset=utf-8' } });
+});
+
 email.get('/export/keys', async (c) => {
   const list = await c.env.ARCHIVE.list({ prefix: 'emails-archive/', limit: 1000 });
   return ok(c, { count: list.objects.length, keys: list.objects.map((o) => ({ key: o.key, size: o.size })) });

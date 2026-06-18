@@ -104,6 +104,19 @@ email.get('/canon', async (c) => {
   return new Response(await obj.text(), { headers: { 'Content-Type': 'text/markdown; charset=utf-8' } });
 });
 
+email.post('/r2-migrate', async (c) => {
+  if (!c.env.ARCHIVE_OLD) return fail(c, 400, [{ code: 'no_old', message: 'ARCHIVE_OLD not bound' }]);
+  const cursor = c.req.query('cursor') || undefined;
+  const list = await c.env.ARCHIVE_OLD.list({ cursor, limit: 80 });
+  let copied = 0;
+  for (const o of list.objects) {
+    const obj = await c.env.ARCHIVE_OLD.get(o.key);
+    if (obj) { await c.env.ARCHIVE.put(o.key, await obj.arrayBuffer(), { httpMetadata: obj.httpMetadata }); copied++; }
+  }
+  const truncated = (list as any).truncated;
+  return ok(c, { copied, cursor: truncated ? (list as any).cursor : null, done: !truncated });
+});
+
 email.get('/export/keys', async (c) => {
   const list = await c.env.ARCHIVE.list({ prefix: 'emails-archive/', limit: 1000 });
   return ok(c, { count: list.objects.length, keys: list.objects.map((o) => ({ key: o.key, size: o.size })) });

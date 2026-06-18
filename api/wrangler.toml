@@ -44,6 +44,10 @@ bucket_name = "das-pricelists"
 
 [[r2_buckets]]
 binding = "ARCHIVE"
+bucket_name = "self-learning"
+
+[[r2_buckets]]
+binding = "ARCHIVE_OLD"
 bucket_name = "das-operator-data"
 
 # -----------------------------------------------------------------------------

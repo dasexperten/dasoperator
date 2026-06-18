@@ -14,6 +14,7 @@ import {
 } from '@/lib/api';
 import MarketplacePulse from './marketplace-pulse';
 import SystemHealth from './system-health';
+import DasKompanion from '@/components/das-kompanion/das-kompanion';
 
 // =============================================================================
 // Helpers
@@ -369,6 +370,9 @@ export default function HomeDashboard() {
           )}
         </div>
       </section>
+
+      {/* DAS-KOMPANION ============================================= */}
+      <DasKompanion />
     </div>
   );
 }

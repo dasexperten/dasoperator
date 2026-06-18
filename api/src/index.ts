@@ -65,6 +65,7 @@ import loyaltyRoutes from './routes/loyalty';
 import plannerRoutes from './routes/planner';
 import authRoutes from './routes/auth';
 import activityRoutes from './routes/activity';
+import chatRoutes from './routes/chat';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
 
@@ -210,6 +211,7 @@ app.route('/api/inbox', inboxRoutes);
 app.route('/api/freight-rfq', freightRfqRoutes);
 app.route('/api/integrations', integrationsRoutes);
 app.route('/api/loyalty', loyaltyRoutes);
+app.route('/api/chat', chatRoutes);
 
 export default {
   fetch: app.fetch,

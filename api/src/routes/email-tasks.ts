@@ -11,6 +11,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
+import { draftReply } from '../lib/email-draft';
 
 const r = new Hono<{ Bindings: Env }>();
 
@@ -266,6 +267,25 @@ r.post('/seed', async (c) => {
   }
 
   return ok(c, { seeded: scenarios.length });
+});
+
+
+r.post('/draft', async (c) => {
+  let b: any = {};
+  try { b = await c.req.json(); } catch { return fail(c, 400, [{ code: 'invalid_json', message: 'JSON body required' }]); }
+  if (!b.body && !b.subject) return fail(c, 422, [{ code: 'no_input', message: 'subject or body required' }]);
+  const inc = { sender: String(b.sender || ''), subject: String(b.subject || ''), body: String(b.body || '') };
+  let res;
+  try { res = await draftReply(c.env, inc); }
+  catch (e) { return fail(c, 502, [{ code: 'engine_failed', message: String(e) }]); }
+  const id = crypto.randomUUID();
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    await c.env.DB.prepare(
+      "INSERT INTO email_agent_tasks (id, scenario_id, source_email_id, subject, sender, status, draft_body, confidence, executor, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'awaiting_ok', ?, ?, 'hermes', ?, ?)"
+    ).bind(id, b.scenario_id || 'inbox-triage', b.source_email_id || null, inc.subject, inc.sender, res.draft, 0.8, now, now).run();
+  } catch (e) { /* table may not FK-match scenario; still return draft */ }
+  return ok(c, { task_id: id, brief: res.brief, draft: res.draft });
 });
 
 export default r;

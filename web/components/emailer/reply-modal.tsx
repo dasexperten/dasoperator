@@ -6,12 +6,13 @@ import { sendEmail, type EmailThread, type SendEmailParams } from '@/lib/api';
 
 interface ReplyModalProps {
   thread: EmailThread;
+  initialBody?: string;
   onClose: () => void;
   onSent: () => void;
 }
 
-export default function ReplyModal({ thread, onClose, onSent }: ReplyModalProps) {
-  const [body, setBody] = useState('');
+export default function ReplyModal({ thread, initialBody, onClose, onSent }: ReplyModalProps) {
+  const [body, setBody] = useState(initialBody || '');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);

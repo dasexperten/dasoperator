@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Loader2, RefreshCw, Reply, Paperclip, AlertCircle } from 'lucide-react';
-import { getEmailHistory, type EmailThread } from '@/lib/api';
+import { getEmailHistory, apiPost, type EmailThread } from '@/lib/api';
 import ReplyModal from './reply-modal';
 
 // Live history thread shape (richer than the declared EmailThread)
@@ -48,6 +48,8 @@ export default function InboxView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reply, setReply] = useState<EmailThread | null>(null);
+  const [aiDraft, setAiDraft] = useState<string>('');
+  const [drafting, setDrafting] = useState<string | null>(null);
 
   async function load() {
     setLoading(true); setError(null);
@@ -98,16 +100,25 @@ export default function InboxView() {
             <div className="flex flex-col items-end gap-2 shrink-0">
               <span className="text-xs text-muted-foreground whitespace-nowrap">{fmtDate(t.last_message_date)}</span>
               <button
-                onClick={() => setReply({ thread_id: t.thread_id, subject: t.subject, snippet: t.last_message_snippet, from: t.last_message_from, to: '', date: t.last_message_date, has_attachments: t.has_attachments, labels: [] })}
-                className="text-xs border border-border rounded-md px-2.5 py-1 inline-flex items-center gap-1 hover:bg-muted">
-                <Reply className="h-3 w-3" /> Reply
+                disabled={drafting === t.thread_id}
+                onClick={async () => {
+                  setDrafting(t.thread_id);
+                  const th = { thread_id: t.thread_id, subject: t.subject, snippet: t.last_message_snippet, from: t.last_message_from, to: '', date: t.last_message_date, has_attachments: t.has_attachments, labels: [] };
+                  try {
+                    const r = await apiPost<{ draft: string }>('/api/email-tasks/draft', { sender: t.last_message_from, subject: t.subject, body: t.last_message_snippet, source_email_id: t.thread_id });
+                    setAiDraft(r.success && r.result ? r.result.draft : '');
+                  } catch { setAiDraft(''); }
+                  setReply(th); setDrafting(null);
+                }}
+                className="text-xs border border-border rounded-md px-2.5 py-1 inline-flex items-center gap-1 hover:bg-muted disabled:opacity-50">
+                <Reply className="h-3 w-3" /> {drafting === t.thread_id ? 'Drafting…' : 'Reply (AI)'}
               </button>
             </div>
           </div>
         ))}
       </div>
 
-      {reply && <ReplyModal thread={reply} onClose={() => setReply(null)} onSent={() => { setReply(null); load(); }} />}
+      {reply && <ReplyModal thread={reply} initialBody={aiDraft} onClose={() => { setReply(null); setAiDraft(''); }} onSent={() => { setReply(null); setAiDraft(''); load(); }} />}
     </div>
   );
 }

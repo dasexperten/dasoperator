@@ -1,8 +1,8 @@
 // =============================================================================
-// Das-Kompanion — AI chatbot for ERP
+// Das-Kompanion — AI chatbot for ERP (v2 - simplified)
 //
-// POST /api/chat { message, session_token?, history? }
-//   → { reply, actions?, context? }
+// POST /api/chat { message, history? }
+//   → { reply }
 //
 // The chatbot works STRICTLY within the database — no data generation.
 // All actions are permission-checked against the user's role.
@@ -19,471 +19,242 @@ const chat = new Hono<{ Bindings: Env }>();
 // ---------------------------------------------------------------------------
 // System prompt — defines Das-Kompanion's behavior
 // ---------------------------------------------------------------------------
-const SYSTEM_PROMPT = `You are Das-Kompanion, an AI assistant for Das Experten ERP system.
+const SYSTEM_PROMPT = `Du bist Das-Kompanion, ein KI-Assistent für das Das Experten ERP-System.
 
-YOUR ROLE:
-- Help users navigate and understand the ERP database
-- Search for documents, operations, partners, products
-- Analyze data (sums, trends, statuses)
-- Create operations when requested (with confirmation)
-- Answer questions about business data
+DEINE ROLLE:
+- Benutzern helfen, die ERP-Datenbank zu verstehen und zu navigieren
+- Dokumente, Operationen, Partner, Produkte suchen
+- Daten analysieren (Summen, Trends, Status)
+- Operationen erstellen (mit Bestätigung)
+- Fragen zum Geschäft beantworten
 
-STRICT RULES:
-1. NEVER generate or fabricate data — only use what exists in the database
-2. NEVER create documents without user confirmation
-3. Always check user permissions before actions
-4. Respond in the same language as the user
-5. Be concise and professional
-6. When creating operations, ALWAYS ask for confirmation first
+STRENGE REGELN:
+1. NIEMALS Daten generieren oder erfinden — nur existierende Daten aus der Datenbank verwenden
+2. NIEMALS Dokumente ohne Bestätigung erstellen
+3. IMMER Berechtigungen des Benutzers prüfen
+4. Im selben antworten wie der Benutzer fragt (Deutsch/Englisch/Russisch)
+5. Knapp und professionell antworten
+6. Bei Erstellung von Operationen IMMER zuerst bestätigen lassen
 
-AVAILABLE FUNCTIONS:
-- search_operations: Find operations by partner, date range, status, type
-- search_partners: Find partners by name, type, country
-- search_products: Find products by name, category, manufacturer
-- search_documents: Find documents by number, type, operation
-- get_operation_details: Get full details of an operation
-- get_partner_details: Get full details of a partner
-- get_product_details: Get full details of a product
-- get_stock_levels: Check current stock levels
-- get_net_balances: Check partner balances
-- create_operation: Create a new operation (requires confirmation)
-- get_dashboard_summary: Get quick overview of business metrics
+WENN DU AUF DATENBANK-ZUGRIFF BRAUCHST:
+Antworte mit einer JSON-Struktur wie diese:
+{"action": "search", "type": "operations", "query": {"partner_name": "TORI"}}
+{"action": "search", "type": "partners", "query": {"name": "Georgia"}}
+{"action": "search", "type": "products", "query": {"category": "Toothpaste"}}
+{"action": "details", "type": "operation", "id": "abc123"}
+{"action": "details", "type": "partner", "id": "xyz789"}
+{"action": "summary"}
 
-RESPONSE FORMAT:
-- For simple queries: respond directly with the data
-- For complex queries: use function calls to fetch data
-- For creation requests: confirm with user before executing
-- Always link to relevant ERP pages when possible`;
+WICHTIG: Wenn du Daten brauchst, antworte NUR mit dem JSON-Objekt, kein额外 text.
+Wenn du keine Daten brauchst, antworte normal in Prosa.
 
-// ---------------------------------------------------------------------------
-// Function definitions for LLM
-// ---------------------------------------------------------------------------
-const FUNCTIONS = [
-  {
-    name: 'search_operations',
-    description: 'Search operations by partner, date range, status, or type',
-    parameters: {
-      type: 'object',
-      properties: {
-        partner_name: { type: 'string', description: 'Partner name to search for' },
-        date_from: { type: 'string', description: 'Start date (YYYY-MM-DD)' },
-        date_to: { type: 'string', description: 'End date (YYYY-MM-DD)' },
-        status: { type: 'string', enum: ['draft', 'order_fulfilment', 'production', 'shipped', 'delivered', 'cancelled'] },
-        operation_type: { type: 'string', enum: ['sale', 'purchase', 'transfer'] },
-        limit: { type: 'number', description: 'Max results (default 10)' },
-      },
-    },
-  },
-  {
-    name: 'search_partners',
-    description: 'Search partners by name, type, or country',
-    parameters: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'Partner name to search for' },
-        partner_type: { type: 'string', enum: ['buyer', 'supplier', 'shipper'] },
-        country: { type: 'string', description: 'Country filter' },
-        limit: { type: 'number', description: 'Max results (default 10)' },
-      },
-    },
-  },
-  {
-    name: 'search_products',
-    description: 'Search products by name, category, or manufacturer',
-    parameters: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'Product name to search for' },
-        category: { type: 'string', description: 'Category filter' },
-        manufacturer_id: { type: 'string', description: 'Manufacturer ID' },
-        limit: { type: 'number', description: 'Max results (default 10)' },
-      },
-    },
-  },
-  {
-    name: 'search_documents',
-    description: 'Search documents by number, type, or operation',
-    parameters: {
-      type: 'object',
-      properties: {
-        document_number: { type: 'string', description: 'Document number' },
-        document_type: { type: 'string', enum: ['CI', 'PL', 'contract', 'annex', 'IS'] },
-        operation_id: { type: 'string', description: 'Operation ID' },
-        limit: { type: 'number', description: 'Max results (default 10)' },
-      },
-    },
-  },
-  {
-    name: 'get_operation_details',
-    description: 'Get full details of an operation',
-    parameters: {
-      type: 'object',
-      properties: {
-        operation_id: { type: 'string', description: 'Operation ID' },
-      },
-      required: ['operation_id'],
-    },
-  },
-  {
-    name: 'get_partner_details',
-    description: 'Get full details of a partner',
-    parameters: {
-      type: 'object',
-      properties: {
-        partner_id: { type: 'string', description: 'Partner ID' },
-      },
-      required: ['partner_id'],
-    },
-  },
-  {
-    name: 'get_product_details',
-    description: 'Get full details of a product',
-    parameters: {
-      type: 'object',
-      properties: {
-        product_id: { type: 'string', description: 'Product ID' },
-      },
-      required: ['product_id'],
-    },
-  },
-  {
-    name: 'get_stock_levels',
-    description: 'Check current stock levels for products',
-    parameters: {
-      type: 'object',
-      properties: {
-        product_id: { type: 'string', description: 'Product ID (optional, shows all if omitted)' },
-        warehouse_id: { type: 'string', description: 'Warehouse ID (optional)' },
-      },
-    },
-  },
-  {
-    name: 'get_net_balances',
-    description: 'Check partner balances',
-    parameters: {
-      type: 'object',
-      properties: {
-        partner_id: { type: 'string', description: 'Partner ID (optional, shows all if omitted)' },
-      },
-    },
-  },
-  {
-    name: 'create_operation',
-    description: 'Create a new operation (requires confirmation)',
-    parameters: {
-      type: 'object',
-      properties: {
-        operation_type: { type: 'string', enum: ['sale', 'purchase', 'transfer'], description: 'Type of operation' },
-        partner_id: { type: 'string', description: 'Partner ID' },
-        items: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              product_id: { type: 'string' },
-              qty: { type: 'number' },
-              unit_price: { type: 'number' },
-            },
-          },
-          description: 'Line items',
-        },
-        notes: { type: 'string', description: 'Optional notes' },
-      },
-      required: ['operation_type', 'partner_id', 'items'],
-    },
-  },
-  {
-    name: 'get_dashboard_summary',
-    description: 'Get quick overview of business metrics',
-    parameters: {
-      type: 'object',
-      properties: {},
-    },
-  },
-];
+BEISPIELE:
+Benutzer: "Zeig mir die letzten Operationen"
+Antwort: {"action": "search", "type": "operations", "query": {"limit": 5}}
+
+Benutzer: "Was ist Der.experten?"
+Antwort: Das Experten ist eine deutsche Marke für Mundhygieneprodukte...
+
+Benutzer: "Erstelle eine Verkaufsoperation für 100 Einheiten DE201 an TORI"
+Antwort: Ich kann die Operation erstellen. Bitte bestätigen Sie:
+- Typ: Verkauf
+- Partner: TORI
+- Produkt: DE201
+- Menge: 100
+
+Soll ich die Operation erstellen?`;
 
 // ---------------------------------------------------------------------------
-// Execute function calls against the database
+// Execute database queries based on LLM response
 // ---------------------------------------------------------------------------
-async function executeFunction(
-  name: string,
-  args: Record<string, unknown>,
+async function executeQuery(
+  action: Record<string, unknown>,
   env: Env,
   user: AuthUser,
 ): Promise<unknown> {
   const db = env.DB;
+  const act = action.action as string;
+  const type = action.type as string;
+  const query = (action.query as Record<string, unknown>) ?? {};
+  const id = action.id as string;
 
-  // Permission check helper
-  const checkPermission = (module: string, required: string) => {
+  // Permission check
+  const checkPerm = (module: string) => {
     if (user.role === 'admin') return true;
     const access = user.permissions[module] ?? 'none';
-    if (required === 'read') return ['full', 'rw', 'read'].includes(access);
-    if (required === 'write') return ['full', 'rw'].includes(access);
-    return false;
+    return ['full', 'rw', 'read'].includes(access);
   };
 
-  switch (name) {
-    case 'search_operations': {
-      if (!checkPermission('/operations', 'read')) {
-        return { error: 'No permission to access operations' };
+  try {
+    if (act === 'search') {
+      if (type === 'operations') {
+        if (!checkPerm('/operations')) return { error: 'Keine Berechtigung für Operationen' };
+
+        let sql = `SELECT o.id, o.reference, o.operation_date, o.operation_type, o.status, 
+                          o.total_amount, o.currency, p.trade_name as partner_name
+                   FROM operations o 
+                   LEFT JOIN partners p ON p.id = o.partner_id 
+                   WHERE o.deleted_at IS NULL`;
+        const params: unknown[] = [];
+
+        if (query.partner_name) {
+          sql += ` AND p.trade_name LIKE ?`;
+          params.push(`%${query.partner_name}%`);
+        }
+        if (query.status) {
+          sql += ` AND o.status = ?`;
+          params.push(query.status);
+        }
+        if (query.operation_type) {
+          sql += ` AND o.operation_type = ?`;
+          params.push(query.operation_type);
+        }
+
+        sql += ` ORDER BY o.operation_date DESC LIMIT ?`;
+        params.push(query.limit ?? 10);
+
+        const result = await db.prepare(sql).bind(...params).all();
+        return { type: 'operations', data: result.results };
       }
 
-      let query = `SELECT o.*, p.trade_name as partner_name 
-                    FROM operations o 
-                    LEFT JOIN partners p ON p.id = o.partner_id 
-                    WHERE o.deleted_at IS NULL`;
-      const params: unknown[] = [];
+      if (type === 'partners') {
+        if (!checkPerm('/partners')) return { error: 'Keine Berechtigung für Partner' };
 
-      if (args.partner_name) {
-        query += ` AND p.trade_name LIKE ?`;
-        params.push(`%${args.partner_name}%`);
-      }
-      if (args.status) {
-        query += ` AND o.status = ?`;
-        params.push(args.status);
-      }
-      if (args.operation_type) {
-        query += ` AND o.operation_type = ?`;
-        params.push(args.operation_type);
-      }
-      if (args.date_from) {
-        query += ` AND o.operation_date >= ?`;
-        params.push(Math.floor(new Date(args.date_from as string).getTime() / 1000));
-      }
-      if (args.date_to) {
-        query += ` AND o.operation_date <= ?`;
-        params.push(Math.floor(new Date(args.date_to as string).getTime() / 1000));
+        let sql = `SELECT id, trade_name, legal_name, country, partner_type, status 
+                   FROM partners WHERE deleted_at IS NULL`;
+        const params: unknown[] = [];
+
+        if (query.name) {
+          sql += ` AND (trade_name LIKE ? OR legal_name LIKE ?)`;
+          params.push(`%${query.name}%`, `%${query.name}%`);
+        }
+        if (query.partner_type) {
+          sql += ` AND partner_type = ?`;
+          params.push(query.partner_type);
+        }
+        if (query.country) {
+          sql += ` AND country LIKE ?`;
+          params.push(`%${query.country}%`);
+        }
+
+        sql += ` ORDER BY trade_name LIMIT ?`;
+        params.push(query.limit ?? 10);
+
+        const result = await db.prepare(sql).bind(...params).all();
+        return { type: 'partners', data: result.results };
       }
 
-      query += ` ORDER BY o.operation_date DESC LIMIT ?`;
-      params.push(args.limit ?? 10);
+      if (type === 'products') {
+        if (!checkPerm('/products')) return { error: 'Keine Berechtigung für Produkte' };
 
-      const result = await db.prepare(query).bind(...params).all();
-      return { operations: result.results };
+        let sql = `SELECT id, product_name, invoice_label, category, manufacturer_id 
+                   FROM products WHERE deleted_at IS NULL`;
+        const params: unknown[] = [];
+
+        if (query.name) {
+          sql += ` AND (product_name LIKE ? OR invoice_label LIKE ?)`;
+          params.push(`%${query.name}%`, `%${query.name}%`);
+        }
+        if (query.category) {
+          sql += ` AND category = ?`;
+          params.push(query.category);
+        }
+
+        sql += ` ORDER BY product_name LIMIT ?`;
+        params.push(query.limit ?? 10);
+
+        const result = await db.prepare(sql).bind(...params).all();
+        return { type: 'products', data: result.results };
+      }
+
+      if (type === 'documents') {
+        if (!checkPerm('/operations')) return { error: 'Keine Berechtigung für Dokumente' };
+
+        let sql = `SELECT d.id, d.document_number, d.document_type, d.document_date, 
+                          d.status, d.total_amount, d.currency, o.reference as operation_ref
+                   FROM documents d 
+                   LEFT JOIN operations o ON o.id = d.operation_id 
+                   WHERE d.deleted_at IS NULL`;
+        const params: unknown[] = [];
+
+        if (query.document_number) {
+          sql += ` AND d.document_number LIKE ?`;
+          params.push(`%${query.document_number}%`);
+        }
+        if (query.document_type) {
+          sql += ` AND d.document_type = ?`;
+          params.push(query.document_type);
+        }
+
+        sql += ` ORDER BY d.document_date DESC LIMIT ?`;
+        params.push(query.limit ?? 10);
+
+        const result = await db.prepare(sql).bind(...params).all();
+        return { type: 'documents', data: result.results };
+      }
     }
 
-    case 'search_partners': {
-      if (!checkPermission('/partners', 'read')) {
-        return { error: 'No permission to access partners' };
+    if (act === 'details') {
+      if (type === 'operation') {
+        if (!checkPerm('/operations')) return { error: 'Keine Berechtigung für Operationen' };
+
+        const op = await db.prepare(
+          `SELECT o.*, p.trade_name as partner_name, c.abbreviation as company
+           FROM operations o 
+           LEFT JOIN partners p ON p.id = o.partner_id
+           LEFT JOIN companies c ON c.id = o.our_company_id
+           WHERE o.id = ?`
+        ).bind(id).first();
+
+        if (!op) return { error: 'Operation nicht gefunden' };
+
+        const items = await db.prepare(
+          `SELECT li.*, pr.product_name
+           FROM line_items li
+           LEFT JOIN products pr ON pr.id = li.product_id
+           WHERE li.operation_id = ?`
+        ).bind(id).all();
+
+        return { type: 'operation_detail', operation: op, items: items.results };
       }
 
-      let query = `SELECT * FROM partners WHERE deleted_at IS NULL`;
-      const params: unknown[] = [];
+      if (type === 'partner') {
+        if (!checkPerm('/partners')) return { error: 'Keine Berechtigung für Partner' };
 
-      if (args.name) {
-        query += ` AND (trade_name LIKE ? OR legal_name LIKE ?)`;
-        params.push(`%${args.name}%`, `%${args.name}%`);
-      }
-      if (args.partner_type) {
-        query += ` AND partner_type = ?`;
-        params.push(args.partner_type);
-      }
-      if (args.country) {
-        query += ` AND country LIKE ?`;
-        params.push(`%${args.country}%`);
+        const partner = await db.prepare(
+          `SELECT * FROM partners WHERE id = ?`
+        ).bind(id).first();
+
+        if (!partner) return { error: 'Partner nicht gefunden' };
+
+        return { type: 'partner_detail', partner };
       }
 
-      query += ` ORDER BY trade_name LIMIT ?`;
-      params.push(args.limit ?? 10);
+      if (type === 'product') {
+        if (!checkPerm('/products')) return { error: 'Keine Berechtigung für Produkte' };
 
-      const result = await db.prepare(query).bind(...params).all();
-      return { partners: result.results };
+        const product = await db.prepare(
+          `SELECT p.*, m.name as manufacturer_name
+           FROM products p
+           LEFT JOIN manufacturers m ON m.id = p.manufacturer_id
+           WHERE p.id = ?`
+        ).bind(id).first();
+
+        if (!product) return { error: 'Produkt nicht gefunden' };
+
+        const stock = await db.prepare(
+          `SELECT s.qty_units, w.name as warehouse_name, w.code
+           FROM stocks s
+           LEFT JOIN warehouses w ON w.id = s.warehouse_id
+           WHERE s.product_id = ?`
+        ).bind(id).all();
+
+        return { type: 'product_detail', product, stock: stock.results };
+      }
     }
 
-    case 'search_products': {
-      if (!checkPermission('/products', 'read')) {
-        return { error: 'No permission to access products' };
-      }
-
-      let query = `SELECT * FROM products WHERE deleted_at IS NULL`;
-      const params: unknown[] = [];
-
-      if (args.name) {
-        query += ` AND (product_name LIKE ? OR invoice_label LIKE ?)`;
-        params.push(`%${args.name}%`, `%${args.name}%`);
-      }
-      if (args.category) {
-        query += ` AND category = ?`;
-        params.push(args.category);
-      }
-      if (args.manufacturer_id) {
-        query += ` AND manufacturer_id = ?`;
-        params.push(args.manufacturer_id);
-      }
-
-      query += ` ORDER BY product_name LIMIT ?`;
-      params.push(args.limit ?? 10);
-
-      const result = await db.prepare(query).bind(...params).all();
-      return { products: result.results };
-    }
-
-    case 'search_documents': {
-      if (!checkPermission('/operations', 'read')) {
-        return { error: 'No permission to access documents' };
-      }
-
-      let query = `SELECT d.*, o.reference as operation_reference 
-                    FROM documents d 
-                    LEFT JOIN operations o ON o.id = d.operation_id 
-                    WHERE d.deleted_at IS NULL`;
-      const params: unknown[] = [];
-
-      if (args.document_number) {
-        query += ` AND d.document_number LIKE ?`;
-        params.push(`%${args.document_number}%`);
-      }
-      if (args.document_type) {
-        query += ` AND d.document_type = ?`;
-        params.push(args.document_type);
-      }
-      if (args.operation_id) {
-        query += ` AND d.operation_id = ?`;
-        params.push(args.operation_id);
-      }
-
-      query += ` ORDER BY d.document_date DESC LIMIT ?`;
-      params.push(args.limit ?? 10);
-
-      const result = await db.prepare(query).bind(...params).all();
-      return { documents: result.results };
-    }
-
-    case 'get_operation_details': {
-      if (!checkPermission('/operations', 'read')) {
-        return { error: 'No permission to access operations' };
-      }
-
-      const op = await db.prepare(
-        `SELECT o.*, p.trade_name as partner_name, c.abbreviation as company_abbreviation
-         FROM operations o 
-         LEFT JOIN partners p ON p.id = o.partner_id
-         LEFT JOIN companies c ON c.id = o.our_company_id
-         WHERE o.id = ?`
-      ).bind(args.operation_id).first();
-
-      if (!op) return { error: 'Operation not found' };
-
-      const items = await db.prepare(
-        `SELECT li.*, pr.product_name, pr.invoice_label
-         FROM line_items li
-         LEFT JOIN products pr ON pr.id = li.product_id
-         WHERE li.operation_id = ?`
-      ).bind(args.operation_id).all();
-
-      return { operation: op, items: items.results };
-    }
-
-    case 'get_partner_details': {
-      if (!checkPermission('/partners', 'read')) {
-        return { error: 'No permission to access partners' };
-      }
-
-      const partner = await db.prepare(
-        `SELECT * FROM partners WHERE id = ?`
-      ).bind(args.partner_id).first();
-
-      if (!partner) return { error: 'Partner not found' };
-
-      const ops = await db.prepare(
-        `SELECT COUNT(*) as count FROM operations WHERE partner_id = ? AND deleted_at IS NULL`
-      ).bind(args.partner_id).first();
-
-      return { partner, operations_count: ops?.count ?? 0 };
-    }
-
-    case 'get_product_details': {
-      if (!checkPermission('/products', 'read')) {
-        return { error: 'No permission to access products' };
-      }
-
-      const product = await db.prepare(
-        `SELECT p.*, m.name as manufacturer_name
-         FROM products p
-         LEFT JOIN manufacturers m ON m.id = p.manufacturer_id
-         WHERE p.id = ?`
-      ).bind(args.product_id).first();
-
-      if (!product) return { error: 'Product not found' };
-
-      const stock = await db.prepare(
-        `SELECT s.*, w.name as warehouse_name, w.code as warehouse_code
-         FROM stocks s
-         LEFT JOIN warehouses w ON w.id = s.warehouse_id
-         WHERE s.product_id = ?`
-      ).bind(args.product_id).all();
-
-      return { product, stock: stock.results };
-    }
-
-    case 'get_stock_levels': {
-      if (!checkPermission('/warehouses', 'read')) {
-        return { error: 'No permission to access warehouses' };
-      }
-
-      let query = `SELECT s.*, p.product_name, p.invoice_label, w.name as warehouse_name, w.code as warehouse_code
-                    FROM stocks s
-                    LEFT JOIN products p ON p.id = s.product_id
-                    LEFT JOIN warehouses w ON w.id = s.warehouse_id
-                    WHERE 1=1`;
-      const params: unknown[] = [];
-
-      if (args.product_id) {
-        query += ` AND s.product_id = ?`;
-        params.push(args.product_id);
-      }
-      if (args.warehouse_id) {
-        query += ` AND s.warehouse_id = ?`;
-        params.push(args.warehouse_id);
-      }
-
-      query += ` ORDER BY w.code, p.product_name`;
-
-      const result = await db.prepare(query).bind(...params).all();
-      return { stocks: result.results };
-    }
-
-    case 'get_net_balances': {
-      if (!checkPermission('/finance', 'read')) {
-        return { error: 'No permission to access finance' };
-      }
-
-      let query = `SELECT partner_id, 
-                    SUM(CASE WHEN direction = 'incoming' THEN amount ELSE 0 END) -
-                    SUM(CASE WHEN direction = 'outgoing' THEN amount ELSE 0 END) as net_balance,
-                    currency
-                    FROM payments
-                    WHERE deleted_at IS NULL`;
-      const params: unknown[] = [];
-
-      if (args.partner_id) {
-        query += ` AND partner_id = ?`;
-        params.push(args.partner_id);
-      }
-
-      query += ` GROUP BY partner_id, currency`;
-
-      const result = await db.prepare(query).bind(...params).all();
-      return { balances: result.results };
-    }
-
-    case 'create_operation': {
-      if (!checkPermission('/operations', 'write')) {
-        return { error: 'No permission to create operations' };
-      }
-
-      // This is a placeholder — actual creation would need full validation
-      return {
-        status: 'pending_confirmation',
-        message: 'Operation creation requires confirmation. Please confirm with the user.',
-        preview: args,
-      };
-    }
-
-    case 'get_dashboard_summary': {
-      if (!checkPermission('/', 'read')) {
-        return { error: 'No permission to access dashboard' };
-      }
+    if (act === 'summary') {
+      if (!checkPerm('/')) return { error: 'Keine Berechtigung' };
 
       const ops = await db.prepare(
         `SELECT COUNT(*) as total, 
@@ -500,14 +271,17 @@ async function executeFunction(
       ).first();
 
       return {
+        type: 'summary',
         operations: ops,
         partners: partners,
         products: products,
       };
     }
 
-    default:
-      return { error: `Unknown function: ${name}` };
+    return { error: 'Unbekannte Aktion' };
+  } catch (error) {
+    console.error('[das-kompanion] Query error:', error);
+    return { error: 'Datenbankfehler' };
   }
 }
 
@@ -527,7 +301,7 @@ chat.post('/', async (c) => {
     return fail(c, 400, [{ code: 'empty_message', message: 'message is required' }]);
   }
 
-  // Get user from session token (optional — allows anonymous usage with limited access)
+  // Get user from session token (optional)
   const token = c.req.header('Authorization')?.replace('Bearer ', '');
   let user: AuthUser | null = null;
 
@@ -539,7 +313,7 @@ chat.post('/', async (c) => {
   if (!user) {
     user = {
       id: 'anonymous',
-      name: 'Guest',
+      name: 'Gast',
       role: 'support',
       permissions: {
         '/': 'read',
@@ -559,66 +333,110 @@ chat.post('/', async (c) => {
   ];
 
   try {
-    // Call LLM with function calling
+    // Call LLM
     const result = await callPro(messages, {
       env: c.env,
-      maxTokens: 4000,
+      maxTokens: 2000,
       temperature: 0.3,
     });
 
-    // Check if LLM wants to call functions
-    const text = result.text;
-    let functionCalls: Array<{ name: string; arguments: Record<string, unknown> }> = [];
+    const text = result.text.trim();
 
-    // Try to parse function calls from response
-    // (In production, you'd use proper function calling API)
-    const functionCallMatch = text.match(/```json\n([\s\S]*?)\n```/);
-    if (functionCallMatch) {
+    // Check if response contains a JSON action
+    let jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
       try {
-        const parsed = JSON.parse(functionCallMatch[1]);
-        if (parsed.function_calls) {
-          functionCalls = parsed.function_calls;
+        const action = JSON.parse(jsonMatch[0]);
+        if (action.action) {
+          // Execute the database query
+          const queryResult = await executeQuery(action, c.env, user);
+
+          // Format the result for the user
+          let formattedReply = '';
+
+          if ((queryResult as Record<string, unknown>).error) {
+            formattedReply = (queryResult as Record<string, unknown>).error as string;
+          } else {
+            const qr = queryResult as Record<string, unknown>;
+            const data = qr.data as Array<Record<string, unknown>> | undefined;
+
+            if (qr.type === 'operations' && data) {
+              formattedReply = `Gefundene Operationen (${data.length}):\n\n`;
+              data.forEach((op, i) => {
+                const date = new Date((op.operation_date as number) * 1000).toLocaleDateString('de-DE');
+                formattedReply += `${i + 1}. ${op.reference ?? op.id} — ${date} — ${op.partner_name ?? 'Kein Partner'} — ${op.status} — ${op.total_amount} ${op.currency}\n`;
+              });
+            } else if (qr.type === 'partners' && data) {
+              formattedReply = `Gefundene Partner (${data.length}):\n\n`;
+              data.forEach((p, i) => {
+                formattedReply += `${i + 1}. ${p.trade_name} — ${p.partner_type} — ${p.country ?? 'Kein Land'} — ${p.status}\n`;
+              });
+            } else if (qr.type === 'products' && data) {
+              formattedReply = `Gefundene Produkte (${data.length}):\n\n`;
+              data.forEach((p, i) => {
+                formattedReply += `${i + 1}. ${p.product_name} — ${p.category}\n`;
+              });
+            } else if (qr.type === 'documents' && data) {
+              formattedReply = `Gefundene Dokumente (${data.length}):\n\n`;
+              data.forEach((d, i) => {
+                const date = new Date((d.document_date as number) * 1000).toLocaleDateString('de-DE');
+                formattedReply += `${i + 1}. ${d.document_number} — ${d.document_type} — ${date} — ${d.status}\n`;
+              });
+            } else if (qr.type === 'operation_detail') {
+              const op = qr.operation as Record<string, unknown>;
+              const items = qr.items as Array<Record<string, unknown>>;
+              const date = new Date((op.operation_date as number) * 1000).toLocaleDateString('de-DE');
+              formattedReply = `Operation: ${op.reference ?? op.id}\n`;
+              formattedReply += `Datum: ${date}\n`;
+              formattedReply += `Typ: ${op.operation_type}\n`;
+              formattedReply += `Partner: ${op.partner_name}\n`;
+              formattedReply += `Status: ${op.status}\n`;
+              formattedReply += `Betrag: ${op.total_amount} ${op.currency}\n\n`;
+              formattedReply += `Positionen:\n`;
+              items.forEach((item, i) => {
+                formattedReply += `${i + 1}. ${item.product_name} — ${item.qty} × ${item.unit_price} ${item.currency}\n`;
+              });
+            } else if (qr.type === 'partner_detail') {
+              const p = qr.partner as Record<string, unknown>;
+              formattedReply = `Partner: ${p.trade_name}\n`;
+              formattedReply += `Rechtlicher Name: ${p.legal_name ?? '—'}\n`;
+              formattedReply += `Land: ${p.country ?? '—'}\n`;
+              formattedReply += `Typ: ${p.partner_type}\n`;
+              formattedReply += `Status: ${p.status}\n`;
+              formattedReply += `E-Mail: ${p.email ?? '—'}\n`;
+            } else if (qr.type === 'product_detail') {
+              const p = qr.product as Record<string, unknown>;
+              const stock = qr.stock as Array<Record<string, unknown>>;
+              formattedReply = `Produkt: ${p.product_name}\n`;
+              formattedReply += `Kategorie: ${p.category}\n`;
+              formattedReply += `Hersteller: ${p.manufacturer_name}\n`;
+              formattedReply += `Barcode: ${p.barcode ?? '—'}\n\n`;
+              formattedReply += `Bestand:\n`;
+              stock.forEach((s, i) => {
+                formattedReply += `${i + 1}. ${s.warehouse_name} (${s.code}): ${s.qty_units} Stück\n`;
+              });
+            } else if (qr.type === 'summary') {
+              const ops = qr.operations as Record<string, unknown>;
+              const partners = qr.partners as Record<string, unknown>;
+              const products = qr.products as Record<string, unknown>;
+              formattedReply = `Zusammenfassung:\n`;
+              formattedReply += `• Operationen: ${ops.total} total, ${ops.active} aktiv\n`;
+              formattedReply += `• Partner: ${partners.total}\n`;
+              formattedReply += `• Produkte: ${products.total}\n`;
+            } else {
+              formattedReply = JSON.stringify(queryResult, null, 2);
+            }
+          }
+
+          return ok(c, { reply: formattedReply });
         }
       } catch {
-        // Not a function call, treat as regular response
+        // Not valid JSON or not an action — treat as regular response
       }
     }
 
-    // Execute any function calls
-    const functionResults: Array<{ name: string; result: unknown }> = [];
-    for (const fc of functionCalls) {
-      const result = await executeFunction(fc.name, fc.arguments, c.env, user);
-      functionResults.push({ name: fc.name, result });
-    }
-
-    // If we had function calls, get a final response with the data
-    let finalReply = text;
-    if (functionResults.length > 0) {
-      const dataMessages = [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: message },
-        { role: 'assistant', content: text },
-        { role: 'system', content: `Function results:\n${JSON.stringify(functionResults, null, 2)}` },
-      ];
-
-      const finalResult = await callPro(dataMessages, {
-        env: c.env,
-        maxTokens: 4000,
-        temperature: 0.3,
-      });
-
-      finalReply = finalResult.text;
-    }
-
-    return ok(c, {
-      reply: finalReply,
-      actions: functionResults.length > 0 ? functionResults : undefined,
-      user: {
-        id: user.id,
-        name: user.name,
-        role: user.role,
-      },
-    });
+    // Regular text response from LLM
+    return ok(c, { reply: text });
   } catch (error) {
     console.error('[das-kompanion] Error:', error);
     return fail(c, 500, [{ code: 'chat_error', message: 'Failed to process chat message' }]);

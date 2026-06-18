@@ -2,6 +2,7 @@ import './globals.css';
 import type { Metadata, Viewport } from 'next';
 import MobileShell from '@/components/layout/mobile-shell';
 import ActivityTracker from '@/components/activity-tracker';
+import DasKompanionWrapper from '@/components/das-kompanion/das-kompanion-wrapper';
 
 export const runtime = 'edge';
 
@@ -23,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-screen bg-background text-foreground antialiased">
         <MobileShell>{children}</MobileShell>
         <ActivityTracker />
+        <DasKompanionWrapper />
         <script
           // Strips native spinner from <input type="number"> and attaches
           // ▲/▼ buttons OUTSIDE the field. CSS in globals.css does the

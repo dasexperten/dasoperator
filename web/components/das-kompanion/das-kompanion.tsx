@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { MessageSquare, Send, X, Loader2, ExternalLink } from 'lucide-react';
+import { MessageSquare, Send, X, Loader2, ExternalLink, Trash2 } from 'lucide-react';
 
 // =============================================================================
 // Types
@@ -11,7 +11,6 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
-  actions?: Array<{ name: string; result: unknown }>;
 }
 
 interface ChatWidgetProps {
@@ -20,10 +19,38 @@ interface ChatWidgetProps {
 }
 
 // =============================================================================
-// Helper — generate unique ID
+// Helpers
 // =============================================================================
 function generateId(): string {
   return Math.random().toString(36).substring(2, 15);
+}
+
+const STORAGE_KEY = 'das-kompanion-history';
+const MAX_HISTORY = 50;
+
+function loadHistory(): ChatMessage[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return parsed.map((m: any) => ({
+      ...m,
+      timestamp: new Date(m.timestamp),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(messages: ChatMessage[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const toSave = messages.slice(-MAX_HISTORY);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+  } catch {
+    // localStorage full or unavailable
+  }
 }
 
 // =============================================================================
@@ -36,6 +63,18 @@ export default function DasKompanion({ apiUrl = 'https://dasoperator-api.dasexpe
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Load history on mount
+  useEffect(() => {
+    setMessages(loadHistory());
+  }, []);
+
+  // Save history when messages change
+  useEffect(() => {
+    if (messages.length > 0) {
+      saveHistory(messages);
+    }
+  }, [messages]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -74,15 +113,18 @@ export default function DasKompanion({ apiUrl = 'https://dasoperator-api.dasexpe
         headers['Authorization'] = `Bearer ${token}`;
       }
 
+      // Send last 10 messages for context
+      const history = messages.slice(-10).map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+
       const response = await fetch(`${apiUrl}/api/chat`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
           message: userMessage.content,
-          history: messages.slice(-10).map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
+          history,
         }),
       });
 
@@ -94,15 +136,13 @@ export default function DasKompanion({ apiUrl = 'https://dasoperator-api.dasexpe
           role: 'assistant',
           content: data.result.reply,
           timestamp: new Date(),
-          actions: data.result.actions,
         };
         setMessages((prev) => [...prev, assistantMessage]);
       } else {
-        // Error
         const errorMessage: ChatMessage = {
           id: generateId(),
           role: 'assistant',
-          content: 'Sorry, I encountered an error. Please try again.',
+          content: 'Entschuldigung, es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.',
           timestamp: new Date(),
         };
         setMessages((prev) => [...prev, errorMessage]);
@@ -112,13 +152,21 @@ export default function DasKompanion({ apiUrl = 'https://dasoperator-api.dasexpe
       const errorMessage: ChatMessage = {
         id: generateId(),
         role: 'assistant',
-        content: 'Network error. Please check your connection and try again.',
+        content: 'Netzwerkfehler. Bitte überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.',
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Clear history
+  // ---------------------------------------------------------------------------
+  const clearHistory = () => {
+    setMessages([]);
+    localStorage.removeItem(STORAGE_KEY);
   };
 
   // ---------------------------------------------------------------------------
@@ -132,97 +180,10 @@ export default function DasKompanion({ apiUrl = 'https://dasoperator-api.dasexpe
   };
 
   // ---------------------------------------------------------------------------
-  // Format action results for display
+  // Format timestamp
   // ---------------------------------------------------------------------------
-  const formatAction = (action: { name: string; result: unknown }) => {
-    const result = action.result as Record<string, unknown>;
-
-    if (result.error) {
-      return (
-        <div className="text-sm text-red-500 mt-2 p-2 bg-red-50 rounded">
-          {result.error as string}
-        </div>
-      );
-    }
-
-    // Format based on action type
-    switch (action.name) {
-      case 'search_operations': {
-        const ops = (result.operations as Array<Record<string, unknown>>)?.slice(0, 5) || [];
-        return (
-          <div className="mt-2 p-2 bg-gray-50 rounded text-sm">
-            <div className="font-semibold mb-1">Operations found:</div>
-            {ops.map((op, i) => (
-              <div key={i} className="flex justify-between py-1 border-b border-gray-200 last:border-0">
-                <span>{(op.reference as string) || (op.id as string)?.slice(0, 8)}</span>
-                <span className="text-gray-500">{op.status as string}</span>
-                <a
-                  href={`/operations/${op.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-500 hover:underline"
-                >
-                  <ExternalLink size={12} />
-                </a>
-              </div>
-            ))}
-          </div>
-        );
-      }
-
-      case 'search_partners': {
-        const partners = (result.partners as Array<Record<string, unknown>>)?.slice(0, 5) || [];
-        return (
-          <div className="mt-2 p-2 bg-gray-50 rounded text-sm">
-            <div className="font-semibold mb-1">Partners found:</div>
-            {partners.map((p, i) => (
-              <div key={i} className="flex justify-between py-1 border-b border-gray-200 last:border-0">
-                <span>{p.trade_name as string}</span>
-                <span className="text-gray-500">{p.partner_type as string}</span>
-                <a
-                  href={`/partners/${p.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-500 hover:underline"
-                >
-                  <ExternalLink size={12} />
-                </a>
-              </div>
-            ))}
-          </div>
-        );
-      }
-
-      case 'search_products': {
-        const products = (result.products as Array<Record<string, unknown>>)?.slice(0, 5) || [];
-        return (
-          <div className="mt-2 p-2 bg-gray-50 rounded text-sm">
-            <div className="font-semibold mb-1">Products found:</div>
-            {products.map((p, i) => (
-              <div key={i} className="flex justify-between py-1 border-b border-gray-200 last:border-0">
-                <span>{p.product_name as string}</span>
-                <span className="text-gray-500">{p.category as string}</span>
-                <a
-                  href={`/products/${p.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-500 hover:underline"
-                >
-                  <ExternalLink size={12} />
-                </a>
-              </div>
-            ))}
-          </div>
-        );
-      }
-
-      default:
-        return (
-          <div className="mt-2 p-2 bg-gray-50 rounded text-sm">
-            <pre className="whitespace-pre-wrap">{JSON.stringify(result, null, 2)}</pre>
-          </div>
-        );
-    }
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
   };
 
   // ---------------------------------------------------------------------------
@@ -235,8 +196,8 @@ export default function DasKompanion({ apiUrl = 'https://dasoperator-api.dasexpe
         onClick={() => setIsOpen(!isOpen)}
         className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all hover:scale-105"
         style={{
-          backgroundColor: 'var(--brand-schwarz)',
-          color: 'var(--paper)',
+          backgroundColor: 'var(--brand-schwarz, #1a1a1a)',
+          color: 'var(--paper, #fff)',
         }}
         title="Das-Kompanion"
       >
@@ -248,28 +209,39 @@ export default function DasKompanion({ apiUrl = 'https://dasoperator-api.dasexpe
         <div
           className="fixed bottom-24 right-6 z-50 w-96 h-[500px] flex flex-col shadow-2xl rounded-lg overflow-hidden"
           style={{
-            backgroundColor: 'var(--paper)',
-            border: '1px solid var(--border-hairline)',
+            backgroundColor: 'var(--paper, #fff)',
+            border: '1px solid var(--border-hairline, #e5e5e5)',
           }}
         >
           {/* Header */}
           <div
             className="px-4 py-3 flex items-center justify-between"
             style={{
-              backgroundColor: 'var(--brand-schwarz)',
-              color: 'var(--paper)',
+              backgroundColor: 'var(--brand-schwarz, #1a1a1a)',
+              color: 'var(--paper, #fff)',
             }}
           >
             <div className="flex items-center gap-2">
               <MessageSquare size={18} />
               <span className="font-semibold">Das-Kompanion</span>
             </div>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="opacity-70 hover:opacity-100"
-            >
-              <X size={18} />
-            </button>
+            <div className="flex items-center gap-2">
+              {messages.length > 0 && (
+                <button
+                  onClick={clearHistory}
+                  className="opacity-70 hover:opacity-100 transition-opacity"
+                  title="Verlauf löschen"
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
+              <button
+                onClick={() => setIsOpen(false)}
+                className="opacity-70 hover:opacity-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
           {/* Messages */}
@@ -277,9 +249,9 @@ export default function DasKompanion({ apiUrl = 'https://dasoperator-api.dasexpe
             {messages.length === 0 && (
               <div className="text-center text-gray-500 mt-8">
                 <MessageSquare size={32} className="mx-auto mb-2 opacity-50" />
-                <p className="text-sm">Ask me anything about your ERP data</p>
+                <p className="text-sm">Fragen Sie mich alles über Ihre ERP-Daten</p>
                 <p className="text-xs mt-1 text-gray-400">
-                  Search operations, partners, products, or get insights
+                  Operationen, Partner, Produkte suchen und analysieren
                 </p>
               </div>
             )}
@@ -290,16 +262,20 @@ export default function DasKompanion({ apiUrl = 'https://dasoperator-api.dasexpe
                 className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div
-                  className={`max-w-[80%] px-3 py-2 rounded-lg text-sm ${
+                  className={`max-w-[85%] px-3 py-2 rounded-lg text-sm ${
                     msg.role === 'user'
                       ? 'bg-blue-500 text-white'
                       : 'bg-gray-100 text-gray-900'
                   }`}
                 >
                   <div className="whitespace-pre-wrap">{msg.content}</div>
-                  {msg.actions?.map((action, i) => (
-                    <div key={i}>{formatAction(action)}</div>
-                  ))}
+                  <div
+                    className={`text-xs mt-1 ${
+                      msg.role === 'user' ? 'text-blue-100' : 'text-gray-400'
+                    }`}
+                  >
+                    {formatTime(msg.timestamp)}
+                  </div>
                 </div>
               </div>
             ))}
@@ -318,7 +294,7 @@ export default function DasKompanion({ apiUrl = 'https://dasoperator-api.dasexpe
           {/* Input */}
           <div
             className="px-4 py-3 border-t"
-            style={{ borderColor: 'var(--border-hairline)' }}
+            style={{ borderColor: 'var(--border-hairline, #e5e5e5)' }}
           >
             <div className="flex gap-2">
               <input
@@ -327,11 +303,11 @@ export default function DasKompanion({ apiUrl = 'https://dasoperator-api.dasexpe
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask about operations, partners, products..."
+                placeholder="Fragen Sie nach Operationen, Partnern..."
                 className="flex-1 px-3 py-2 text-sm rounded border focus:outline-none focus:ring-2 focus:ring-blue-500"
                 style={{
-                  borderColor: 'var(--border-hairline)',
-                  backgroundColor: 'var(--paper)',
+                  borderColor: 'var(--border-hairline, #e5e5e5)',
+                  backgroundColor: 'var(--paper, #fff)',
                 }}
                 disabled={isLoading}
               />
@@ -340,8 +316,8 @@ export default function DasKompanion({ apiUrl = 'https://dasoperator-api.dasexpe
                 disabled={!input.trim() || isLoading}
                 className="px-3 py-2 rounded transition-colors disabled:opacity-50"
                 style={{
-                  backgroundColor: 'var(--brand-schwarz)',
-                  color: 'var(--paper)',
+                  backgroundColor: 'var(--brand-schwarz, #1a1a1a)',
+                  color: 'var(--paper, #fff)',
                 }}
               >
                 <Send size={16} />

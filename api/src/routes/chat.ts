@@ -1,23 +1,19 @@
 // =============================================================================
-// Das-Kompanion — AI chatbot for ERP (v2 - simplified)
+// Das-Kompanion — AI chatbot for ERP (v3 - robust)
 //
 // POST /api/chat { message, history? }
 //   → { reply }
-//
-// The chatbot works STRICTLY within the database — no data generation.
-// All actions are permission-checked against the user's role.
 // =============================================================================
 
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
-import { callPro } from '../lib/llm';
 import { validateSession, type AuthUser } from '../lib/auth';
 
 const chat = new Hono<{ Bindings: Env }>();
 
 // ---------------------------------------------------------------------------
-// System prompt — defines Das-Kompanion's behavior
+// System prompt
 // ---------------------------------------------------------------------------
 const SYSTEM_PROMPT = `Du bist Das-Kompanion, ein KI-Assistent für das Das Experten ERP-System.
 
@@ -25,60 +21,76 @@ DEINE ROLLE:
 - Benutzern helfen, die ERP-Datenbank zu verstehen und zu navigieren
 - Dokumente, Operationen, Partner, Produkte suchen
 - Daten analysieren (Summen, Trends, Status)
-- Operationen erstellen (mit Bestätigung)
 - Fragen zum Geschäft beantworten
 
 STRENGE REGELN:
 1. NIEMALS Daten generieren oder erfinden — nur existierende Daten aus der Datenbank verwenden
-2. NIEMALS Dokumente ohne Bestätigung erstellen
-3. IMMER Berechtigungen des Benutzers prüfen
-4. Im selben antworten wie der Benutzer fragt (Deutsch/Englisch/Russisch)
-5. Knapp und professionell antworten
-6. Bei Erstellung von Operationen IMMER zuerst bestätigen lassen
+2. Im selben antworten wie der Benutzer fragt (Deutsch/Englisch/Russisch)
+3. Knapp und professionell antworten
 
 WENN DU AUF DATENBANK-ZUGRIFF BRAUCHST:
-Antworte mit einer JSON-Struktur wie diese:
-{"action": "search", "type": "operations", "query": {"partner_name": "TORI"}}
-{"action": "search", "type": "partners", "query": {"name": "Georgia"}}
-{"action": "search", "type": "products", "query": {"category": "Toothpaste"}}
-{"action": "details", "type": "operation", "id": "abc123"}
-{"action": "details", "type": "partner", "id": "xyz789"}
-{"action": "summary"}
+Antworte mit einer JSON-Struktur wie diese (NUR das JSON, kein额外 text):
+{"action":"search","type":"operations","query":{"partner_name":"TORI","limit":5}}
+{"action":"search","type":"partners","query":{"name":"Georgia"}}
+{"action":"search","type":"products","query":{"category":"Toothpaste"}}
+{"action":"details","type":"operation","id":"abc123"}
+{"action":"details","type":"partner","id":"xyz789"}
+{"action":"summary"}
 
-WICHTIG: Wenn du Daten brauchst, antworte NUR mit dem JSON-Objekt, kein额外 text.
-Wenn du keine Daten brauchst, antworte normal in Prosa.
-
-BEISPIELE:
-Benutzer: "Zeig mir die letzten Operationen"
-Antwort: {"action": "search", "type": "operations", "query": {"limit": 5}}
-
-Benutzer: "Was ist Der.experten?"
-Antwort: Das Experten ist eine deutsche Marke für Mundhygieneprodukte...
-
-Benutzer: "Erstelle eine Verkaufsoperation für 100 Einheiten DE201 an TORI"
-Antwort: Ich kann die Operation erstellen. Bitte bestätigen Sie:
-- Typ: Verkauf
-- Partner: TORI
-- Produkt: DE201
-- Menge: 100
-
-Soll ich die Operation erstellen?`;
+Wenn du keine Daten brauchst, antworte normal in Prosa.`;
 
 // ---------------------------------------------------------------------------
-// Execute database queries based on LLM response
+// Simple DeepSeek call (inline, no external dependency issues)
+// ---------------------------------------------------------------------------
+async function callLLM(
+  messages: Array<{ role: string; content: string }>,
+  env: Env,
+): Promise<string> {
+  const apiKey = env.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    throw new Error('DEEPSEEK_API_KEY not configured');
+  }
+
+  const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'deepseek-v4-pro',
+      messages,
+      max_tokens: 2000,
+      temperature: 0.3,
+    }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`LLM failed: HTTP ${res.status} — ${errBody.slice(0, 200)}`);
+  }
+
+  const data = await res.json() as {
+    choices: Array<{ message: { content: string } }>;
+  };
+
+  return data.choices?.[0]?.message?.content ?? '';
+}
+
+// ---------------------------------------------------------------------------
+// Execute database queries
 // ---------------------------------------------------------------------------
 async function executeQuery(
   action: Record<string, unknown>,
   env: Env,
   user: AuthUser,
-): Promise<unknown> {
+): Promise<string> {
   const db = env.DB;
   const act = action.action as string;
   const type = action.type as string;
   const query = (action.query as Record<string, unknown>) ?? {};
   const id = action.id as string;
 
-  // Permission check
   const checkPerm = (module: string) => {
     if (user.role === 'admin') return true;
     const access = user.permissions[module] ?? 'none';
@@ -88,7 +100,7 @@ async function executeQuery(
   try {
     if (act === 'search') {
       if (type === 'operations') {
-        if (!checkPerm('/operations')) return { error: 'Keine Berechtigung für Operationen' };
+        if (!checkPerm('/operations')) return 'Keine Berechtigung für Operationen';
 
         let sql = `SELECT o.id, o.reference, o.operation_date, o.operation_type, o.status, 
                           o.total_amount, o.currency, p.trade_name as partner_name
@@ -114,11 +126,20 @@ async function executeQuery(
         params.push(query.limit ?? 10);
 
         const result = await db.prepare(sql).bind(...params).all();
-        return { type: 'operations', data: result.results };
+        const ops = result.results ?? [];
+
+        if (ops.length === 0) return 'Keine Operationen gefunden.';
+
+        let reply = `Gefundene Operationen (${ops.length}):\n\n`;
+        ops.forEach((op: any, i: number) => {
+          const date = new Date(op.operation_date * 1000).toLocaleDateString('de-DE');
+          reply += `${i + 1}. ${op.reference ?? op.id?.slice(0, 8)} — ${date} — ${op.partner_name ?? '—'} — ${op.status} — ${op.total_amount} ${op.currency}\n`;
+        });
+        return reply;
       }
 
       if (type === 'partners') {
-        if (!checkPerm('/partners')) return { error: 'Keine Berechtigung für Partner' };
+        if (!checkPerm('/partners')) return 'Keine Berechtigung für Partner';
 
         let sql = `SELECT id, trade_name, legal_name, country, partner_type, status 
                    FROM partners WHERE deleted_at IS NULL`;
@@ -141,13 +162,21 @@ async function executeQuery(
         params.push(query.limit ?? 10);
 
         const result = await db.prepare(sql).bind(...params).all();
-        return { type: 'partners', data: result.results };
+        const partners = result.results ?? [];
+
+        if (partners.length === 0) return 'Keine Partner gefunden.';
+
+        let reply = `Gefundene Partner (${partners.length}):\n\n`;
+        partners.forEach((p: any, i: number) => {
+          reply += `${i + 1}. ${p.trade_name} — ${p.partner_type} — ${p.country ?? '—'} — ${p.status}\n`;
+        });
+        return reply;
       }
 
       if (type === 'products') {
-        if (!checkPerm('/products')) return { error: 'Keine Berechtigung für Produkte' };
+        if (!checkPerm('/products')) return 'Keine Berechtigung für Produkte';
 
-        let sql = `SELECT id, product_name, invoice_label, category, manufacturer_id 
+        let sql = `SELECT id, product_name, invoice_label, category 
                    FROM products WHERE deleted_at IS NULL`;
         const params: unknown[] = [];
 
@@ -164,16 +193,23 @@ async function executeQuery(
         params.push(query.limit ?? 10);
 
         const result = await db.prepare(sql).bind(...params).all();
-        return { type: 'products', data: result.results };
+        const products = result.results ?? [];
+
+        if (products.length === 0) return 'Keine Produkte gefunden.';
+
+        let reply = `Gefundene Produkte (${products.length}):\n\n`;
+        products.forEach((p: any, i: number) => {
+          reply += `${i + 1}. ${p.product_name} — ${p.category}\n`;
+        });
+        return reply;
       }
 
       if (type === 'documents') {
-        if (!checkPerm('/operations')) return { error: 'Keine Berechtigung für Dokumente' };
+        if (!checkPerm('/operations')) return 'Keine Berechtigung für Dokumente';
 
         let sql = `SELECT d.id, d.document_number, d.document_type, d.document_date, 
-                          d.status, d.total_amount, d.currency, o.reference as operation_ref
+                          d.status, d.total_amount, d.currency
                    FROM documents d 
-                   LEFT JOIN operations o ON o.id = d.operation_id 
                    WHERE d.deleted_at IS NULL`;
         const params: unknown[] = [];
 
@@ -190,13 +226,22 @@ async function executeQuery(
         params.push(query.limit ?? 10);
 
         const result = await db.prepare(sql).bind(...params).all();
-        return { type: 'documents', data: result.results };
+        const docs = result.results ?? [];
+
+        if (docs.length === 0) return 'Keine Dokumente gefunden.';
+
+        let reply = `Gefundene Dokumente (${docs.length}):\n\n`;
+        docs.forEach((d: any, i: number) => {
+          const date = new Date(d.document_date * 1000).toLocaleDateString('de-DE');
+          reply += `${i + 1}. ${d.document_number} — ${d.document_type} — ${date} — ${d.status}\n`;
+        });
+        return reply;
       }
     }
 
     if (act === 'details') {
       if (type === 'operation') {
-        if (!checkPerm('/operations')) return { error: 'Keine Berechtigung für Operationen' };
+        if (!checkPerm('/operations')) return 'Keine Berechtigung für Operationen';
 
         const op = await db.prepare(
           `SELECT o.*, p.trade_name as partner_name, c.abbreviation as company
@@ -206,7 +251,7 @@ async function executeQuery(
            WHERE o.id = ?`
         ).bind(id).first();
 
-        if (!op) return { error: 'Operation nicht gefunden' };
+        if (!op) return 'Operation nicht gefunden.';
 
         const items = await db.prepare(
           `SELECT li.*, pr.product_name
@@ -215,23 +260,41 @@ async function executeQuery(
            WHERE li.operation_id = ?`
         ).bind(id).all();
 
-        return { type: 'operation_detail', operation: op, items: items.results };
+        const date = new Date((op as any).operation_date * 1000).toLocaleDateString('de-DE');
+        let reply = `Operation: ${(op as any).reference ?? id}\n`;
+        reply += `Datum: ${date}\n`;
+        reply += `Typ: ${(op as any).operation_type}\n`;
+        reply += `Partner: ${(op as any).partner_name}\n`;
+        reply += `Status: ${(op as any).status}\n`;
+        reply += `Betrag: ${(op as any).total_amount} ${(op as any).currency}\n\n`;
+        reply += `Positionen:\n`;
+        (items.results ?? []).forEach((item: any, i: number) => {
+          reply += `${i + 1}. ${item.product_name} — ${item.qty} × ${item.unit_price} ${item.currency}\n`;
+        });
+        return reply;
       }
 
       if (type === 'partner') {
-        if (!checkPerm('/partners')) return { error: 'Keine Berechtigung für Partner' };
+        if (!checkPerm('/partners')) return 'Keine Berechtigung für Partner';
 
         const partner = await db.prepare(
           `SELECT * FROM partners WHERE id = ?`
         ).bind(id).first();
 
-        if (!partner) return { error: 'Partner nicht gefunden' };
+        if (!partner) return 'Partner nicht gefunden.';
 
-        return { type: 'partner_detail', partner };
+        const p = partner as any;
+        let reply = `Partner: ${p.trade_name}\n`;
+        reply += `Rechtlicher Name: ${p.legal_name ?? '—'}\n`;
+        reply += `Land: ${p.country ?? '—'}\n`;
+        reply += `Typ: ${p.partner_type}\n`;
+        reply += `Status: ${p.status}\n`;
+        reply += `E-Mail: ${p.email ?? '—'}\n`;
+        return reply;
       }
 
       if (type === 'product') {
-        if (!checkPerm('/products')) return { error: 'Keine Berechtigung für Produkte' };
+        if (!checkPerm('/products')) return 'Keine Berechtigung für Produkte';
 
         const product = await db.prepare(
           `SELECT p.*, m.name as manufacturer_name
@@ -240,7 +303,7 @@ async function executeQuery(
            WHERE p.id = ?`
         ).bind(id).first();
 
-        if (!product) return { error: 'Produkt nicht gefunden' };
+        if (!product) return 'Produkt nicht gefunden.';
 
         const stock = await db.prepare(
           `SELECT s.qty_units, w.name as warehouse_name, w.code
@@ -249,12 +312,21 @@ async function executeQuery(
            WHERE s.product_id = ?`
         ).bind(id).all();
 
-        return { type: 'product_detail', product, stock: stock.results };
+        const p = product as any;
+        let reply = `Produkt: ${p.product_name}\n`;
+        reply += `Kategorie: ${p.category}\n`;
+        reply += `Hersteller: ${p.manufacturer_name}\n`;
+        reply += `Barcode: ${p.barcode ?? '—'}\n\n`;
+        reply += `Bestand:\n`;
+        (stock.results ?? []).forEach((s: any, i: number) => {
+          reply += `${i + 1}. ${s.warehouse_name} (${s.code}): ${s.qty_units} Stück\n`;
+        });
+        return reply;
       }
     }
 
     if (act === 'summary') {
-      if (!checkPerm('/')) return { error: 'Keine Berechtigung' };
+      if (!checkPerm('/')) return 'Keine Berechtigung';
 
       const ops = await db.prepare(
         `SELECT COUNT(*) as total, 
@@ -270,18 +342,17 @@ async function executeQuery(
         `SELECT COUNT(*) as total FROM products WHERE deleted_at IS NULL`
       ).first();
 
-      return {
-        type: 'summary',
-        operations: ops,
-        partners: partners,
-        products: products,
-      };
+      const o = ops as any;
+      const pa = partners as any;
+      const pr = products as any;
+
+      return `Zusammenfassung:\n• Operationen: ${o.total} total, ${o.active} aktiv\n• Partner: ${pa.total}\n• Produkte: ${pr.total}`;
     }
 
-    return { error: 'Unbekannte Aktion' };
+    return 'Unbekannte Aktion.';
   } catch (error) {
     console.error('[das-kompanion] Query error:', error);
-    return { error: 'Datenbankfehler' };
+    return 'Datenbankfehler: ' + (error instanceof Error ? error.message : 'unknown');
   }
 }
 
@@ -309,7 +380,7 @@ chat.post('/', async (c) => {
     user = await validateSession(c.env.DB, token);
   }
 
-  // Default user for anonymous access (read-only, limited)
+  // Default user for anonymous access
   if (!user) {
     user = {
       id: 'anonymous',
@@ -325,7 +396,7 @@ chat.post('/', async (c) => {
     };
   }
 
-  // Build messages array for LLM
+  // Build messages
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
     ...(body.history ?? []),
@@ -334,112 +405,29 @@ chat.post('/', async (c) => {
 
   try {
     // Call LLM
-    const result = await callPro(messages, {
-      env: c.env,
-      maxTokens: 2000,
-      temperature: 0.3,
-    });
-
-    const text = result.text.trim();
+    const text = await callLLM(messages, c.env);
 
     // Check if response contains a JSON action
-    let jsonMatch = text.match(/\{[\s\S]*\}/);
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       try {
         const action = JSON.parse(jsonMatch[0]);
         if (action.action) {
-          // Execute the database query
-          const queryResult = await executeQuery(action, c.env, user);
-
-          // Format the result for the user
-          let formattedReply = '';
-
-          if ((queryResult as Record<string, unknown>).error) {
-            formattedReply = (queryResult as Record<string, unknown>).error as string;
-          } else {
-            const qr = queryResult as Record<string, unknown>;
-            const data = qr.data as Array<Record<string, unknown>> | undefined;
-
-            if (qr.type === 'operations' && data) {
-              formattedReply = `Gefundene Operationen (${data.length}):\n\n`;
-              data.forEach((op, i) => {
-                const date = new Date((op.operation_date as number) * 1000).toLocaleDateString('de-DE');
-                formattedReply += `${i + 1}. ${op.reference ?? op.id} — ${date} — ${op.partner_name ?? 'Kein Partner'} — ${op.status} — ${op.total_amount} ${op.currency}\n`;
-              });
-            } else if (qr.type === 'partners' && data) {
-              formattedReply = `Gefundene Partner (${data.length}):\n\n`;
-              data.forEach((p, i) => {
-                formattedReply += `${i + 1}. ${p.trade_name} — ${p.partner_type} — ${p.country ?? 'Kein Land'} — ${p.status}\n`;
-              });
-            } else if (qr.type === 'products' && data) {
-              formattedReply = `Gefundene Produkte (${data.length}):\n\n`;
-              data.forEach((p, i) => {
-                formattedReply += `${i + 1}. ${p.product_name} — ${p.category}\n`;
-              });
-            } else if (qr.type === 'documents' && data) {
-              formattedReply = `Gefundene Dokumente (${data.length}):\n\n`;
-              data.forEach((d, i) => {
-                const date = new Date((d.document_date as number) * 1000).toLocaleDateString('de-DE');
-                formattedReply += `${i + 1}. ${d.document_number} — ${d.document_type} — ${date} — ${d.status}\n`;
-              });
-            } else if (qr.type === 'operation_detail') {
-              const op = qr.operation as Record<string, unknown>;
-              const items = qr.items as Array<Record<string, unknown>>;
-              const date = new Date((op.operation_date as number) * 1000).toLocaleDateString('de-DE');
-              formattedReply = `Operation: ${op.reference ?? op.id}\n`;
-              formattedReply += `Datum: ${date}\n`;
-              formattedReply += `Typ: ${op.operation_type}\n`;
-              formattedReply += `Partner: ${op.partner_name}\n`;
-              formattedReply += `Status: ${op.status}\n`;
-              formattedReply += `Betrag: ${op.total_amount} ${op.currency}\n\n`;
-              formattedReply += `Positionen:\n`;
-              items.forEach((item, i) => {
-                formattedReply += `${i + 1}. ${item.product_name} — ${item.qty} × ${item.unit_price} ${item.currency}\n`;
-              });
-            } else if (qr.type === 'partner_detail') {
-              const p = qr.partner as Record<string, unknown>;
-              formattedReply = `Partner: ${p.trade_name}\n`;
-              formattedReply += `Rechtlicher Name: ${p.legal_name ?? '—'}\n`;
-              formattedReply += `Land: ${p.country ?? '—'}\n`;
-              formattedReply += `Typ: ${p.partner_type}\n`;
-              formattedReply += `Status: ${p.status}\n`;
-              formattedReply += `E-Mail: ${p.email ?? '—'}\n`;
-            } else if (qr.type === 'product_detail') {
-              const p = qr.product as Record<string, unknown>;
-              const stock = qr.stock as Array<Record<string, unknown>>;
-              formattedReply = `Produkt: ${p.product_name}\n`;
-              formattedReply += `Kategorie: ${p.category}\n`;
-              formattedReply += `Hersteller: ${p.manufacturer_name}\n`;
-              formattedReply += `Barcode: ${p.barcode ?? '—'}\n\n`;
-              formattedReply += `Bestand:\n`;
-              stock.forEach((s, i) => {
-                formattedReply += `${i + 1}. ${s.warehouse_name} (${s.code}): ${s.qty_units} Stück\n`;
-              });
-            } else if (qr.type === 'summary') {
-              const ops = qr.operations as Record<string, unknown>;
-              const partners = qr.partners as Record<string, unknown>;
-              const products = qr.products as Record<string, unknown>;
-              formattedReply = `Zusammenfassung:\n`;
-              formattedReply += `• Operationen: ${ops.total} total, ${ops.active} aktiv\n`;
-              formattedReply += `• Partner: ${partners.total}\n`;
-              formattedReply += `• Produkte: ${products.total}\n`;
-            } else {
-              formattedReply = JSON.stringify(queryResult, null, 2);
-            }
-          }
-
-          return ok(c, { reply: formattedReply });
+          const result = await executeQuery(action, c.env, user);
+          return ok(c, { reply: result });
         }
       } catch {
-        // Not valid JSON or not an action — treat as regular response
+        // Not valid JSON — treat as regular response
       }
     }
 
-    // Regular text response from LLM
+    // Regular text response
     return ok(c, { reply: text });
   } catch (error) {
     console.error('[das-kompanion] Error:', error);
-    return fail(c, 500, [{ code: 'chat_error', message: 'Failed to process chat message' }]);
+    // Return a helpful error message instead of generic failure
+    const errMsg = error instanceof Error ? error.message : 'unknown error';
+    return ok(c, { reply: `Entschuldigung, es ist ein Fehler aufgetreten: ${errMsg}` });
   }
 });
 

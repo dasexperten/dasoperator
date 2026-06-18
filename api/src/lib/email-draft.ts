@@ -3,8 +3,14 @@
 import type { Env } from '../types';
 
 let CANON_CACHE = '';
+export function clearCanonCache() { CANON_CACHE = ''; }
 async function canon(env: Env): Promise<string> {
   if (CANON_CACHE) return CANON_CACHE;
+  // D1 hot cache first (fast), fall back to R2 source.
+  try {
+    const row = await env.DB.prepare("SELECT content FROM email_canon WHERE branch='email' AND key='full'").first<{ content: string }>();
+    if (row?.content) { CANON_CACHE = row.content; return CANON_CACHE; }
+  } catch { /* table may not exist yet */ }
   const o = await env.ARCHIVE.get('email-canon/DISTILL_FULL.md');
   CANON_CACHE = o ? await o.text() : '';
   return CANON_CACHE;

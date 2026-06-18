@@ -612,3 +612,155 @@ input[type="number"] {
 /* ---- 19. Loading state ("Loading...") inline in subtitle: also hidden ----
    Captured via rule 15 (h1 + p). No extra rule needed. */
 
+/* ===========================================================================
+   MOBILE ENHANCEMENTS v2 — 2026-06-19
+   Additional mobile improvements for better UX on phones.
+   =========================================================================== */
+
+/* ---- 20. Das-Kompanion: position above bottom nav on mobile ---- */
+@media (max-width: 767px) {
+  .dx-kompanion-trigger {
+    bottom: 80px !important; /* above bottom nav */
+  }
+}
+
+/* ---- 21. Metric cards: stack on mobile ---- */
+@media (max-width: 767px) {
+  .grid.grid-cols-4 {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+  }
+}
+
+/* ---- 22. Metric card value: smaller font on mobile ---- */
+@media (max-width: 767px) {
+  [style*="font-size: 40px"] {
+    font-size: 28px !important;
+  }
+}
+
+/* ---- 23. Status chips: prevent wrapping ---- */
+@media (max-width: 767px) {
+  .inline-flex.items-center {
+    white-space: nowrap;
+  }
+}
+
+/* ---- 24. Link buttons: full-width on mobile ---- */
+@media (max-width: 767px) {
+  a[class*="bg-"][class*="text-white"],
+  a[class*="bg-blue"],
+  a[class*="bg-green"],
+  a[class*="bg-red"] {
+    display: flex !important;
+    width: 100% !important;
+    justify-content: center !important;
+  }
+}
+
+/* ---- 25. Detail pages: reduce spacing ---- */
+@media (max-width: 767px) {
+  .space-y-6 > * + * {
+    margin-top: 16px !important;
+  }
+  .space-y-8 > * + * {
+    margin-top: 20px !important;
+  }
+}
+
+/* ---- 26. Tables: sticky first column on mobile ---- */
+@media (max-width: 767px) {
+  table td:first-child,
+  table th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--paper, #fff);
+  }
+  table th:first-child {
+    z-index: 2;
+  }
+}
+
+/* ---- 27. Form inputs: prevent iOS zoom ---- */
+@media (max-width: 767px) {
+  input[type="text"],
+  input[type="number"],
+  input[type="email"],
+  input[type="password"],
+  input[type="search"],
+  input[type="tel"],
+  input[type="url"],
+  select,
+  textarea {
+    font-size: 16px !important;
+    min-height: 44px !important;
+  }
+}
+
+/* ---- 28. Touch-friendly: larger tap targets ---- */
+@media (max-width: 767px) {
+  button,
+  a,
+  [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  /* Links in text should be tappable */
+  p a,
+  td a {
+    padding: 4px 0;
+  }
+}
+
+/* ---- 29. Scrollable areas: smooth scroll ---- */
+@media (max-width: 767px) {
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
+  /* Hide scrollbar but keep functionality */
+  .overflow-x-auto::-webkit-scrollbar {
+    display: none;
+  }
+  .overflow-x-auto {
+    scrollbar-width: none;
+  }
+}
+
+/* ---- 30. Modal/dialog: full-screen on mobile ---- */
+@media (max-width: 767px) {
+  [role="dialog"],
+  .modal,
+  [class*="modal"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    max-height: 100vh !important;
+  }
+}
+
+/* ---- 31. Das-Kompanion chat window: full-width on mobile ---- */
+@media (max-width: 767px) {
+  .dx-kompanion-window {
+    right: 8px !important;
+    left: 8px !important;
+    width: auto !important;
+    bottom: 80px !important;
+    max-height: 60vh !important;
+  }
+}
+
+/* ---- 32. Pagination: larger buttons on mobile ---- */
+@media (max-width: 767px) {
+  nav[aria-label="pagination"] a,
+  nav[aria-label="pagination"] button,
+  .pagination a,
+  .pagination button {
+    min-height: 40px;
+    min-width: 40px;
+    font-size: 14px;
+  }
+}
+

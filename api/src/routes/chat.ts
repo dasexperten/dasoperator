@@ -40,68 +40,41 @@ Antworte mit einer JSON-Struktur wie diese (NUR das JSON, kein额外 text):
 Wenn du keine Daten brauchst, antworte normal in Prosa.`;
 
 // ---------------------------------------------------------------------------
-// LLM call — OpenRouter: Nemotron (free) → Qwen (fallback)
+// LLM call — OpenAI GPT-5.5 (subscription billing, $0 extra)
 // ---------------------------------------------------------------------------
 async function callLLM(
   messages: Array<{ role: string; content: string }>,
   env: Env,
 ): Promise<string> {
-  const apiKey = env.OPENROUTER_ERP;
+  const apiKey = env.OPENAI_API_KEY;
   if (!apiKey) {
-    throw new Error('OPENROUTER_ERP not configured');
+    throw new Error('OPENAI_API_KEY not configured');
   }
 
-  // Try Nemotron free first
-  const models = [
-    'nvidia/nemotron-3-ultra-550b-a55b:free',
-    'qwen/qwen3.7-plus',
-  ];
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages,
+      max_tokens: 2000,
+      temperature: 0.3,
+    }),
+  });
 
-  for (const model of models) {
-    try {
-      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://erp.dasexperten.de',
-          'X-Title': 'Das-Kompanion',
-        },
-        body: JSON.stringify({
-          model,
-          messages,
-          max_tokens: 2000,
-          temperature: 0.3,
-        }),
-      });
-
-      if (res.ok) {
-        const data = await res.json() as {
-          choices: Array<{ message: { content: string } }>;
-        };
-        return data.choices?.[0]?.message?.content ?? '';
-      }
-
-      const errBody = await res.text();
-      console.warn(`[das-kompanion] ${model} failed (${res.status}): ${errBody.slice(0, 100)}`);
-
-      // If rate limited or quota exceeded, try next model
-      if (res.status === 429 || res.status === 402) {
-        continue;
-      }
-
-      // Other errors — throw
-      throw new Error(`LLM failed: HTTP ${res.status} — ${errBody.slice(0, 200)}`);
-    } catch (err) {
-      if (models.indexOf(model) === models.length - 1) {
-        // Last model failed — throw
-        throw err;
-      }
-      console.warn(`[das-kompanion] ${model} error, trying next:`, err);
-    }
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`LLM failed: HTTP ${res.status} — ${errBody.slice(0, 200)}`);
   }
 
-  throw new Error('All LLM models failed');
+  const data = await res.json() as {
+    choices: Array<{ message: { content: string } }>;
+  };
+
+  return data.choices?.[0]?.message?.content ?? '';
 }
 
 // ---------------------------------------------------------------------------

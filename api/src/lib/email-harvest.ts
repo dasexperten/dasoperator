@@ -51,3 +51,21 @@ export async function runHarvestTick(env: Env): Promise<Record<string, unknown>>
 
   return { wrote: count, total, cursor, next, key, done: !!res.done };
 }
+
+// One-shot background copy: das-operator-data/emails-archive/ -> self-learning/emails/archive/
+// Runs on the minute cron after harvest is done. Cursor in KV; self-stops.
+export async function runCopyTick(env: Env): Promise<Record<string, unknown>> {
+  if (!env.ARCHIVE_OLD) return { skip: 'no_old' };
+  if ((await env.CACHE.get('email-copy:done')) === '1') return { skip: 'done' };
+  const cursor = (await env.CACHE.get('email-copy:cursor')) || undefined;
+  const list = await env.ARCHIVE_OLD.list({ prefix: 'emails-archive/', cursor, limit: 40 });
+  let copied = 0;
+  for (const o of list.objects) {
+    const obj = await env.ARCHIVE_OLD.get(o.key);
+    if (obj) { await env.ARCHIVE.put('emails/archive/' + o.key.replace('emails-archive/', ''), await obj.arrayBuffer(), { httpMetadata: obj.httpMetadata }); copied++; }
+  }
+  const truncated = (list as any).truncated;
+  if (truncated && (list as any).cursor) await env.CACHE.put('email-copy:cursor', (list as any).cursor);
+  else await env.CACHE.put('email-copy:done', '1');
+  return { copied, done: !truncated };
+}

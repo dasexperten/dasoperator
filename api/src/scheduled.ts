@@ -342,9 +342,13 @@ export async function handleScheduled(
   // Email archive harvest — every minute until done (temporary backfill job).
   if (cron === '* * * * *') {
     try {
-      const { runHarvestTick } = await import('./lib/email-harvest');
+      const { runHarvestTick, runCopyTick } = await import('./lib/email-harvest');
       const r = await runHarvestTick(env);
       console.log('[cron:email-harvest] ' + JSON.stringify(r));
+      if ((r as any).skipped === 'done') {
+        const cp = await runCopyTick(env);
+        console.log('[cron:email-copy] ' + JSON.stringify(cp));
+      }
     } catch (e) {
       console.error('[cron:email-harvest] failed:', e);
     }

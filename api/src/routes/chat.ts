@@ -40,25 +40,57 @@ Antworte mit einer JSON-Struktur wie diese (NUR das JSON, kein额外 text):
 Wenn du keine Daten brauchst, antworte normal in Prosa.`;
 
 // ---------------------------------------------------------------------------
-// Simple DeepSeek call (inline, no external dependency issues)
+// LLM call — tries DeepSeek first, falls back to MiMo (free)
 // ---------------------------------------------------------------------------
 async function callLLM(
   messages: Array<{ role: string; content: string }>,
   env: Env,
 ): Promise<string> {
-  const apiKey = env.DEEPSEEK_API_KEY;
-  if (!apiKey) {
-    throw new Error('DEEPSEEK_API_KEY not configured');
+  // Try DeepSeek first
+  const deepseekKey = env.DEEPSEEK_API_KEY;
+  if (deepseekKey) {
+    try {
+      const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${deepseekKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'deepseek-v4-pro',
+          messages,
+          max_tokens: 2000,
+          temperature: 0.3,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json() as {
+          choices: Array<{ message: { content: string } }>;
+        };
+        return data.choices?.[0]?.message?.content ?? '';
+      }
+      // DeepSeek failed, fall through to MiMo
+      console.warn('[das-kompanion] DeepSeek failed, falling back to MiMo');
+    } catch (err) {
+      console.warn('[das-kompanion] DeepSeek error, falling back to MiMo:', err);
+    }
   }
 
-  const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+  // Fallback: MiMo API (free tier)
+  const mimoKey = env.MIMO_API_KEY;
+  if (!mimoKey) {
+    throw new Error('No LLM provider available — both DEEPSEEK_API_KEY and MIMO_API_KEY are missing');
+  }
+
+  const res = await fetch('https://api.xiaomimimo.com/v1/chat/completions', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${apiKey}`,
+      'Authorization': `Bearer ${mimoKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'deepseek-v4-pro',
+      model: 'mimo-v2-flash',
       messages,
       max_tokens: 2000,
       temperature: 0.3,

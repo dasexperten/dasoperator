@@ -41,7 +41,21 @@ const WRITER_SYS = 'Ты пишешь email от лица Арама (Das Expert
 export async function draftReply(env: Env, inc: { sender: string; subject: string; body: string }) {
   const k = await canon(env);
   const incTxt = `От: ${inc.sender}\nТема: ${inc.subject || '(без темы)'}\nТекст:\n${(inc.body || '').slice(0, 2500)}`;
-  const brief = await nemotron(env, ANALYST_SYS, `КАНОН:\n${k.slice(0, 9000)}\n\nВХОДЯЩЕЕ:\n${incTxt}`);
-  const draft = await opus(env, WRITER_SYS, `БРИФ (Nemotron):\n${brief}\n\nКАНОН (стиль и playbook):\n${k.slice(0, 9000)}\n\nВХОДЯЩЕЕ ПИСЬМО:\n${incTxt}\n\nНапиши ответ.`);
-  return { brief, draft };
+
+  // Approved rules + stop-phrases the operator confirmed — highest priority, applied every draft.
+  let approved = '';
+  let appliedRules = 0, appliedStops = 0;
+  try {
+    const pb = await env.DB.prepare(
+      "SELECT lesson, kind FROM email_playbook WHERE active = 1 ORDER BY approved_at DESC LIMIT 120"
+    ).all<{ lesson: string; kind: string }>();
+    const rules = (pb.results || []).filter((x) => x.kind === 'lesson');
+    const stops = (pb.results || []).filter((x) => x.kind === 'stop_phrase');
+    appliedRules = rules.length; appliedStops = stops.length;
+    if (rules.length) approved += '\n\nОДОБРЕННЫЕ ПРАВИЛА (высший приоритет, применяй обязательно):\n' + rules.map((x) => '• ' + x.lesson).join('\n');
+    if (stops.length) approved += '\n\nСТОП-ФРАЗЫ / запреты (никогда не используй):\n' + stops.map((x) => '• ' + x.lesson).join('\n');
+  } catch { /* table may be empty */ }
+  const brief = await nemotron(env, ANALYST_SYS, `КАНОН:\n${k.slice(0, 9000)}${approved}\n\nВХОДЯЩЕЕ:\n${incTxt}`);
+  const draft = await opus(env, WRITER_SYS, `БРИФ (Nemotron):\n${brief}\n\nКАНОН (стиль и playbook):\n${k.slice(0, 9000)}${approved}\n\nВХОДЯЩЕЕ ПИСЬМО:\n${incTxt}\n\nНапиши ответ.`);
+  return { brief, draft, applied_rules: appliedRules, applied_stops: appliedStops };
 }

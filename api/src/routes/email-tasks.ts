@@ -285,7 +285,7 @@ r.post('/draft', async (c) => {
       "INSERT INTO email_agent_tasks (id, scenario_id, source_email_id, subject, sender, status, draft_body, confidence, executor, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'awaiting_ok', ?, ?, 'hermes', ?, ?)"
     ).bind(id, b.scenario_id || 'inbox-triage', b.source_email_id || null, inc.subject, inc.sender, res.draft, 0.8, now, now).run();
   } catch (e) { /* table may not FK-match scenario; still return draft */ }
-  return ok(c, { task_id: id, brief: res.brief, draft: res.draft });
+  return ok(c, { task_id: id, brief: res.brief, draft: res.draft, applied_rules: (res as any).applied_rules ?? 0, applied_stops: (res as any).applied_stops ?? 0 });
 });
 
 export default r;

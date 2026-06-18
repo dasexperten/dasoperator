@@ -152,8 +152,9 @@ export default function LoginPage() {
           {busy ? 'Checking…' : error ?? '\u00a0'}
         </div>
 
-        {/* Keypad */}
+        {/* Keypad — dx-keep-grid prevents mobile CSS from collapsing to 1-col */}
         <div
+          className="dx-keep-grid"
           style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(3, 1fr)',

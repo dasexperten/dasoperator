@@ -40,24 +40,35 @@ Antworte mit einer JSON-Struktur wie diese (NUR das JSON, kein额外 text):
 Wenn du keine Daten brauchst, antworte normal in Prosa.`;
 
 // ---------------------------------------------------------------------------
-// LLM call — tries DeepSeek first, falls back to MiMo (free)
+// LLM call — OpenRouter: Nemotron (free) → Qwen (fallback)
 // ---------------------------------------------------------------------------
 async function callLLM(
   messages: Array<{ role: string; content: string }>,
   env: Env,
 ): Promise<string> {
-  // Try DeepSeek first
-  const deepseekKey = env.DEEPSEEK_API_KEY;
-  if (deepseekKey) {
+  const apiKey = env.OPENROUTER_ERP;
+  if (!apiKey) {
+    throw new Error('OPENROUTER_ERP not configured');
+  }
+
+  // Try Nemotron free first
+  const models = [
+    'nvidia/nemotron-3-ultra-550b-a55b:free',
+    'qwen/qwen3.7-plus',
+  ];
+
+  for (const model of models) {
     try {
-      const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${deepseekKey}`,
+          'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://erp.dasexperten.de',
+          'X-Title': 'Das-Kompanion',
         },
         body: JSON.stringify({
-          model: 'deepseek-v4-pro',
+          model,
           messages,
           max_tokens: 2000,
           temperature: 0.3,
@@ -70,43 +81,27 @@ async function callLLM(
         };
         return data.choices?.[0]?.message?.content ?? '';
       }
-      // DeepSeek failed, fall through to MiMo
-      console.warn('[das-kompanion] DeepSeek failed, falling back to MiMo');
+
+      const errBody = await res.text();
+      console.warn(`[das-kompanion] ${model} failed (${res.status}): ${errBody.slice(0, 100)}`);
+
+      // If rate limited or quota exceeded, try next model
+      if (res.status === 429 || res.status === 402) {
+        continue;
+      }
+
+      // Other errors — throw
+      throw new Error(`LLM failed: HTTP ${res.status} — ${errBody.slice(0, 200)}`);
     } catch (err) {
-      console.warn('[das-kompanion] DeepSeek error, falling back to MiMo:', err);
+      if (models.indexOf(model) === models.length - 1) {
+        // Last model failed — throw
+        throw err;
+      }
+      console.warn(`[das-kompanion] ${model} error, trying next:`, err);
     }
   }
 
-  // Fallback: MiMo API (free tier)
-  const mimoKey = env.MIMO_API_KEY;
-  if (!mimoKey) {
-    throw new Error('No LLM provider available — both DEEPSEEK_API_KEY and MIMO_API_KEY are missing');
-  }
-
-  const res = await fetch('https://api.xiaomimimo.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${mimoKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'mimo-v2-flash',
-      messages,
-      max_tokens: 2000,
-      temperature: 0.3,
-    }),
-  });
-
-  if (!res.ok) {
-    const errBody = await res.text();
-    throw new Error(`LLM failed: HTTP ${res.status} — ${errBody.slice(0, 200)}`);
-  }
-
-  const data = await res.json() as {
-    choices: Array<{ message: { content: string } }>;
-  };
-
-  return data.choices?.[0]?.message?.content ?? '';
+  throw new Error('All LLM models failed');
 }
 
 // ---------------------------------------------------------------------------

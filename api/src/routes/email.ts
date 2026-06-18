@@ -107,7 +107,8 @@ email.get('/canon', async (c) => {
 email.post('/r2-migrate', async (c) => {
   if (!c.env.ARCHIVE_OLD) return fail(c, 400, [{ code: 'no_old', message: 'ARCHIVE_OLD not bound' }]);
   const cursor = c.req.query('cursor') || undefined;
-  const list = await c.env.ARCHIVE_OLD.list({ cursor, limit: 80 });
+  const prefix = c.req.query('prefix') || 'emails-archive/';   // copy ONLY this prefix (das-operator-data is shared)
+  const list = await c.env.ARCHIVE_OLD.list({ cursor, prefix, limit: 40 });
   let copied = 0;
   for (const o of list.objects) {
     const obj = await c.env.ARCHIVE_OLD.get(o.key);

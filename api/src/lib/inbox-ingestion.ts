@@ -699,7 +699,7 @@ The attached PDF is an invoice/УПД/счёт. Extract all fields per the schem
   }
 }
 
-async function insertInbox(env: Env, c: any, e: any, text: string, cls: string, status: string, notes: string): Promise<string> {
+export async function insertInbox(env: Env, c: any, e: any, text: string, cls: string, status: string, notes: string): Promise<string> {
   const invId = `inv_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
   const now = Math.floor(Date.now() / 1000);
   const lineItemsJson = JSON.stringify(e.line_items || []);

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
+import { classifyEmail } from '../lib/email-classify';
 
 const email = new Hono<{ Bindings: Env }>();
 
@@ -461,5 +462,71 @@ email.post('/modify', async (c) => {
 
   return ok(c, bridgePayload, ['Thread modified via emailer-bridge']);
 });
+
+// =============================================================================
+// POST /api/email/inbox-action
+// One inbox decision = act now + teach a rule. Classifies the email INTERNALLY
+// (type never shown on the frontend), writes a two-layer sender×type rule, and
+// removes the thread from the inbox via the bridge.
+// =============================================================================
+const inboxActionSchema = z.object({
+  thread_id: z.string().min(1),
+  sender: z.string().min(1),
+  subject: z.string().optional().default(''),
+  snippet: z.string().optional().default(''),
+  action: z.enum(['delete', 'forward', 'file']),
+  target: z.string().optional(),
+  make_rule: z.boolean().optional().default(true),
+  rule_whole_sender: z.boolean().optional().default(false),
+});
+
+email.post('/inbox-action', async (c) => {
+  let body: unknown;
+  try { body = await c.req.json(); } catch { return fail(c, 400, [{ code: 'invalid_json', message: 'Request body must be valid JSON' }]); }
+  const parsed = inboxActionSchema.safeParse(body);
+  if (!parsed.success) return fail(c, 422, [{ code: 'invalid_body', message: 'Request body validation failed', details: { issues: parsed.error.issues } }]);
+  const d = parsed.data;
+  const user = c.get('user') as { id: string } | undefined;
+  const userId = user?.id || 'default';
+  const now = Math.floor(Date.now() / 1000);
+
+  // 1) classify internally (type is never surfaced to the UI)
+  const cls = await classifyEmail(c.env, { sender: d.sender, subject: d.subject, body: d.snippet });
+  try {
+    await c.env.DB.prepare(
+      'INSERT OR REPLACE INTO email_classifications (thread_id, sender, email_type, confidence, source, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).bind(d.thread_id, d.sender, cls.email_type, cls.confidence, cls.source, now).run();
+  } catch { /* table may not be migrated yet */ }
+
+  // 2) teach a rule: delete -> exclude, forward -> forward (sender×type by default)
+  let rule_id: string | null = null;
+  if (d.make_rule && (d.action === 'delete' || d.action === 'forward')) {
+    rule_id = crypto.randomUUID();
+    const senderDomain = d.sender.includes('@') ? d.sender.split('@').pop() || d.sender : d.sender;
+    await c.env.DB.prepare(
+      'INSERT INTO email_rules (id, user_id, match_sender, email_type, action, target, source, confidence, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)',
+    ).bind(
+      rule_id, userId, senderDomain,
+      d.rule_whole_sender ? null : cls.email_type,
+      d.action === 'delete' ? 'exclude' : 'forward',
+      d.action === 'forward' ? (d.target || null) : null,
+      'learned', cls.confidence, now, now,
+    ).run();
+  }
+
+  // 3) act now: remove the thread from the inbox via the bridge
+  let acted = false;
+  try {
+    const r = await c.env.EMAILER.fetch(new Request('https://emailer/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'modify', thread_id: d.thread_id, archive: true }),
+      signal: AbortSignal.timeout(30_000),
+    }));
+    acted = r.ok;
+  } catch { acted = false; }
+
+  return ok(c, { action: d.action, classified_as: cls.email_type, rule_id, acted }, ['Inbox action applied']);
+})
 
 export default email;

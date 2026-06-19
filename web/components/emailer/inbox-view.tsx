@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, RefreshCw, Reply, Paperclip, AlertCircle } from 'lucide-react';
-import { getEmailHistory, apiPost, type EmailThread, type EmailHistoryResponse } from '@/lib/api';
+import { Loader2, RefreshCw, Reply, Paperclip, AlertCircle, ExternalLink, Trash2, Forward, FileDown } from 'lucide-react';
+import { getEmailHistory, apiPost, inboxAction, type EmailThread } from '@/lib/api';
 import ReplyModal from './reply-modal';
 
 interface InboxThread {
@@ -67,34 +67,31 @@ export default function InboxView() {
   const [reply, setReply] = useState<EmailThread | null>(null);
   const [aiDraft, setAiDraft] = useState<string>('');
   const [drafting, setDrafting] = useState<string | null>(null);
+  const [acting, setActing] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'reply'>('reply');
-  const [offset, setOffset] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
 
-  const PAGE = 100;
-  const QUERY = 'in:inbox newer_than:90d';
-
-  async function load(off = 0, append = false) {
-    if (append) setLoadingMore(true); else { setLoading(true); setError(null); }
+  async function act(t: InboxThread, action: 'delete' | 'forward' | 'file', target?: string) {
+    setActing(t.thread_id);
     try {
-      const r = await getEmailHistory(QUERY, PAGE, off);
-      const res = r.result as (EmailHistoryResponse & { has_more?: boolean }) | undefined;
-      if (r.success && res) {
-        const threads = (res.threads as unknown as InboxThread[]) || [];
-        setAll((prev) => (append ? [...prev, ...threads] : threads));
-        setHasMore(Boolean(res.has_more));
-        setOffset(off + threads.length);
-      } else if (!append) {
-        setError('Failed to load inbox');
-      }
-    } catch (e) {
-      if (!append) setError(e instanceof Error ? e.message : 'Error');
-    } finally {
-      if (append) setLoadingMore(false); else setLoading(false);
-    }
+      const r = await inboxAction({ thread_id: t.thread_id, sender: t.last_message_from, subject: t.subject, snippet: t.last_message_snippet, action, target });
+      if (r.success) setAll((prev) => prev.filter((x) => x.thread_id !== t.thread_id));
+    } catch { /* leave the row in place on error */ }
+    setActing(null);
   }
-  useEffect(() => { load(0, false); }, []);
+
+  async function load() {
+    setLoading(true); setError(null);
+    try {
+      // Bridge re-uploads attachments on every find, so large batches time out.
+      // 20 loads reliably; raise only after the bridge stops re-uploading on list.
+      const r = await getEmailHistory('in:inbox newer_than:45d', 20);
+      if (r.success && r.result) setAll((r.result.threads as unknown as InboxThread[]) || []);
+      else setError('Failed to load inbox');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error');
+    } finally { setLoading(false); }
+  }
+  useEffect(() => { load(); }, []);
 
   const sorted = [...all].sort((a, b) => new Date(b.last_message_date).getTime() - new Date(a.last_message_date).getTime());
   const replyCount = sorted.filter(needsReply).length;
@@ -113,7 +110,7 @@ export default function InboxView() {
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">Last 60 days · newest first · {replyCount} need your reply</p>
         </div>
-        <button onClick={() => load(0, false)} className="text-sm border border-border rounded-md px-3 py-1.5 inline-flex items-center gap-2 hover:bg-muted"><RefreshCw className="h-4 w-4" /> Refresh</button>
+        <button onClick={load} className="text-sm border border-border rounded-md px-3 py-1.5 inline-flex items-center gap-2 hover:bg-muted"><RefreshCw className="h-4 w-4" /> Refresh</button>
       </div>
 
       {sorted.length > 0 && (
@@ -167,6 +164,34 @@ export default function InboxView() {
                     className="text-xs rounded-md px-2.5 py-1 inline-flex items-center gap-1 bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">
                     <Reply className="h-3 w-3" /> {drafting === t.thread_id ? 'Drafting…' : 'Reply (AI)'}
                   </button>
+                  <button
+                    disabled={acting === t.thread_id}
+                    onClick={() => act(t, 'file')}
+                    aria-label="File" title="Оприходовать документ в систему"
+                    className="text-muted-foreground border border-border rounded-md w-7 h-7 inline-flex items-center justify-center hover:bg-muted disabled:opacity-50">
+                    <FileDown className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    disabled={acting === t.thread_id}
+                    onClick={() => { const to = window.prompt('Переслать кому? (email)'); if (to) act(t, 'forward', to); }}
+                    aria-label="Forward" title="Переслать + правило маршрута"
+                    className="text-muted-foreground border border-border rounded-md w-7 h-7 inline-flex items-center justify-center hover:bg-muted disabled:opacity-50">
+                    <Forward className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    disabled={acting === t.thread_id}
+                    onClick={() => act(t, 'delete')}
+                    aria-label="Delete" title="Удалить + правило (больше не в инбокс)"
+                    className="text-muted-foreground border border-border rounded-md w-7 h-7 inline-flex items-center justify-center hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-50">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                  <a
+                    href={`https://mail.google.com/mail/u/0/#all/${t.thread_id}`}
+                    target="_blank" rel="noopener noreferrer"
+                    aria-label="Open in Gmail" title="Open in Gmail"
+                    className="text-muted-foreground border border-border rounded-md w-7 h-7 inline-flex items-center justify-center hover:bg-muted">
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
                 </div>
               </div>
             </div>
@@ -174,15 +199,7 @@ export default function InboxView() {
         })}
       </div>
 
-      {hasMore && (
-        <div className="flex justify-center mt-3">
-          <button onClick={() => load(offset, true)} disabled={loadingMore} className="text-sm border border-border rounded-md px-4 py-2 inline-flex items-center gap-2 hover:bg-muted disabled:opacity-50">
-            {loadingMore && <Loader2 className="h-4 w-4 animate-spin" />} {loadingMore ? 'Loading…' : 'Next 100'}
-          </button>
-        </div>
-      )}
-
-      {reply && <ReplyModal thread={reply} initialBody={aiDraft} onClose={() => { setReply(null); setAiDraft(''); }} onSent={() => { setReply(null); setAiDraft(''); load(0, false); }} />}
+      {reply && <ReplyModal thread={reply} initialBody={aiDraft} onClose={() => { setReply(null); setAiDraft(''); }} onSent={() => { setReply(null); setAiDraft(''); load(); }} />}
     </div>
   );
 }

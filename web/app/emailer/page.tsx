@@ -3,22 +3,20 @@
 export const runtime = 'edge';
 
 import { useState } from 'react';
-import { ListChecks, Workflow, GraduationCap, Inbox, History } from 'lucide-react';
-import TasksView from '@/components/emailer/tasks-view';
-import ScenariosView from '@/components/emailer/scenarios-view';
+import { Shield, GraduationCap, Inbox, History } from 'lucide-react';
 import LearningView from '@/components/emailer/learning-view';
 import InboxView from '@/components/emailer/inbox-view';
 import EmailHistory from '@/components/emailer/email-history';
+import EmailRules from '@/components/emailer/email-rules';
 
-type Tab = 'tasks' | 'inbox' | 'scenarios' | 'learning' | 'history';
+type Tab = 'inbox' | 'rules' | 'learning' | 'history';
 
 export default function EmailerPage() {
   const [activeTab, setActiveTab] = useState<Tab>('inbox');
 
-  const tabs: { id: Tab; label: string; icon: typeof ListChecks }[] = [
+  const tabs: { id: Tab; label: string; icon: typeof Inbox }[] = [
     { id: 'inbox', label: 'Inbox', icon: Inbox },
-    { id: 'tasks', label: 'Tasks', icon: ListChecks },
-    { id: 'scenarios', label: 'Scenarios', icon: Workflow },
+    { id: 'rules', label: 'Rules', icon: Shield },
     { id: 'learning', label: 'Learning', icon: GraduationCap },
     { id: 'history', label: 'History', icon: History },
   ];
@@ -35,7 +33,7 @@ export default function EmailerPage() {
           </span>
         </div>
         <p className="text-sm text-muted-foreground mt-1">
-          Your inbox, triaged by sender and urgency. You act on what matters — the system quietly learns your judgment in the background.
+          Your inbox, triaged by sender and type. You act on what matters — the system learns your judgment as rules.
         </p>
       </div>
 
@@ -62,8 +60,7 @@ export default function EmailerPage() {
       </div>
 
       <div className="px-6 py-6">
-        {activeTab === 'tasks' && <TasksView />}
-        {activeTab === 'scenarios' && <ScenariosView />}
+        {activeTab === 'rules' && <EmailRules />}
         {activeTab === 'learning' && <LearningView />}
         {activeTab === 'inbox' && <InboxView />}
         {activeTab === 'history' && <EmailHistory />}

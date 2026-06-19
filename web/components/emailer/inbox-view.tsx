@@ -82,7 +82,9 @@ export default function InboxView() {
   async function load() {
     setLoading(true); setError(null);
     try {
-      const r = await getEmailHistory('in:inbox newer_than:60d', 50);
+      // Bridge re-uploads attachments on every find, so large batches time out.
+      // 20 loads reliably; raise only after the bridge stops re-uploading on list.
+      const r = await getEmailHistory('in:inbox newer_than:45d', 20);
       if (r.success && r.result) setAll((r.result.threads as unknown as InboxThread[]) || []);
       else setError('Failed to load inbox');
     } catch (e) {

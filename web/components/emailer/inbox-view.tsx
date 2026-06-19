@@ -5,7 +5,6 @@ import { Loader2, RefreshCw, Reply, Paperclip, AlertCircle, ExternalLink, Archiv
 import { getEmailHistory, apiPost, type EmailThread } from '@/lib/api';
 import ReplyModal from './reply-modal';
 
-// Live history thread shape (richer than the declared EmailThread)
 interface InboxThread {
   thread_id: string;
   subject: string;
@@ -17,13 +16,12 @@ interface InboxThread {
   participants: string[];
 }
 
-// Senders that never need a human reply — spam, newsletters, system, marketplace bots.
+// Senders that don't normally need a human reply — newsletters, system, marketplace bots.
 const SYSTEM_RE = /(no[-_.]?reply|do[-_.]?not[-_.]?reply|noreply|newsletter|mailer-daemon|postmaster|bounce|notification|mailing|digest|automated|robot|uvedoml|news@|info@|seller\.ozon|@ozon\.ru|marketplace@|support@dasexperten|@sберbank|sberbank)/i;
 // Our own outbound — if the LAST message is from us, the ball is not in our court.
 const OWN_RE = /dasexperten\.(de|ru)|dasexperten@gmail\.com|kosarevam491/i;
 
-// Triage categories — visual hint only, derived from sender + subject + snippet.
-type Cat = 'urgent' | 'invoice' | 'reply';
+type Cat = 'urgent' | 'invoice' | 'reply' | 'fyi';
 const URGENT_RE = /(срочно|urgent|overdue|просроч|asap|немедленно|deadline|сегодня до|important)/i;
 const INVOICE_RE = /(счёт|счет|invoice|оплат|payment|накладн|акт сверки|бухгалт|account|инвойс|due|задолжен)/i;
 
@@ -31,6 +29,7 @@ const CAT: Record<Cat, { spine: string; chip: string; av: string; label: string 
   urgent:  { spine: 'border-l-red-500',     chip: 'bg-red-50 text-red-700',         av: 'bg-red-50 text-red-700',         label: 'Urgent' },
   invoice: { spine: 'border-l-amber-400',   chip: 'bg-amber-50 text-amber-700',     av: 'bg-amber-50 text-amber-700',     label: 'Invoice' },
   reply:   { spine: 'border-l-emerald-500', chip: 'bg-emerald-50 text-emerald-700', av: 'bg-emerald-50 text-emerald-700', label: 'Reply needed' },
+  fyi:     { spine: 'border-l-transparent', chip: 'bg-muted text-muted-foreground', av: 'bg-muted text-muted-foreground', label: 'FYI' },
 };
 
 function emailOf(s: string): string {
@@ -41,19 +40,20 @@ function nameOf(s: string): string {
   const m = s?.match(/^"?([^"<]+?)"?\s*</);
   return (m ? m[1] : (s || '').split('@')[0]).trim().replace(/^"|"$/g, '');
 }
-function classify(t: InboxThread): Cat {
+function needsReply(t: InboxThread): boolean {
+  const from = emailOf(t.last_message_from);
+  if (!from) return false;
+  if (SYSTEM_RE.test(t.last_message_from)) return false;
+  if (OWN_RE.test(from)) return false;
+  if ((t.participants?.length ?? 0) > 4) return false;
+  return true;
+}
+function category(t: InboxThread): Cat {
+  if (!needsReply(t)) return 'fyi';
   const hay = `${t.subject} ${t.last_message_snippet} ${t.last_message_from}`;
   if (URGENT_RE.test(hay)) return 'urgent';
   if (INVOICE_RE.test(hay)) return 'invoice';
   return 'reply';
-}
-function needsReply(t: InboxThread): boolean {
-  const from = emailOf(t.last_message_from);
-  if (!from) return false;                          // no sender
-  if (SYSTEM_RE.test(t.last_message_from)) return false; // spam / newsletter / system
-  if (OWN_RE.test(from)) return false;              // last message is ours → already handled
-  if ((t.participants?.length ?? 0) > 4) return false;  // mass mailing
-  return true;
 }
 function fmtDate(d: string): string {
   try { return new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); }
@@ -68,6 +68,7 @@ export default function InboxView() {
   const [aiDraft, setAiDraft] = useState<string>('');
   const [drafting, setDrafting] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'all' | 'reply'>('all');
 
   async function modify(threadId: string, ops: { archive?: boolean; mark_read?: boolean }) {
     setActing(threadId);
@@ -90,10 +91,11 @@ export default function InboxView() {
   }
   useEffect(() => { load(); }, []);
 
-  const inbox = all.filter(needsReply).sort((a, b) => new Date(b.last_message_date).getTime() - new Date(a.last_message_date).getTime());
-  const filtered = all.length - inbox.length;
-  const attachCount = inbox.filter((t) => t.has_attachments).length;
-  const invoiceCount = inbox.filter((t) => { const c = classify(t); return c === 'invoice' || c === 'urgent'; }).length;
+  const sorted = [...all].sort((a, b) => new Date(b.last_message_date).getTime() - new Date(a.last_message_date).getTime());
+  const replyCount = sorted.filter(needsReply).length;
+  const list = filter === 'reply' ? sorted.filter(needsReply) : sorted;
+  const attachCount = sorted.filter((t) => t.has_attachments).length;
+  const invoiceCount = sorted.filter((t) => { const c = category(t); return c === 'invoice' || c === 'urgent'; }).length;
 
   if (loading) return <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading inbox…</div>;
 
@@ -102,27 +104,32 @@ export default function InboxView() {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-base font-semibold text-foreground">
-            {inbox.length > 0 ? `${inbox.length} ${inbox.length === 1 ? 'conversation is' : 'conversations are'} waiting for you` : 'Inbox zero'}
+            {sorted.length > 0 ? `${sorted.length} ${sorted.length === 1 ? 'email' : 'emails'} in your inbox` : 'Inbox zero'}
           </h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Last 30 days · newest first{filtered > 0 ? ` · ${filtered} promos & notifications tucked away` : ''}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Last 60 days · newest first · {replyCount} need your reply</p>
         </div>
         <button onClick={load} className="text-sm border border-border rounded-md px-3 py-1.5 inline-flex items-center gap-2 hover:bg-muted"><RefreshCw className="h-4 w-4" /> Refresh</button>
       </div>
 
-      {inbox.length > 0 && (
+      {sorted.length > 0 && (
         <div className="grid grid-cols-3 gap-2.5 mb-4">
-          <div className="rounded-lg bg-muted/50 px-3 py-2"><div className="text-xs text-muted-foreground">Needs your reply</div><div className="text-xl font-semibold text-foreground">{inbox.length}</div></div>
+          <div className="rounded-lg bg-muted/50 px-3 py-2"><div className="text-xs text-muted-foreground">Needs your reply</div><div className="text-xl font-semibold text-foreground">{replyCount}</div></div>
           <div className="rounded-lg bg-muted/50 px-3 py-2"><div className="text-xs text-muted-foreground">Money &amp; invoices</div><div className="text-xl font-semibold text-foreground">{invoiceCount}</div></div>
           <div className="rounded-lg bg-muted/50 px-3 py-2"><div className="text-xs text-muted-foreground">With attachments</div><div className="text-xl font-semibold text-foreground">{attachCount}</div></div>
         </div>
       )}
 
+      <div className="flex gap-2 mb-4">
+        <button onClick={() => setFilter('all')} className={`text-sm px-3 py-1 rounded-full border ${filter === 'all' ? 'bg-emerald-600 text-white border-emerald-600' : 'border-border text-muted-foreground hover:bg-muted'}`}>All · {sorted.length}</button>
+        <button onClick={() => setFilter('reply')} className={`text-sm px-3 py-1 rounded-full border ${filter === 'reply' ? 'bg-emerald-600 text-white border-emerald-600' : 'border-border text-muted-foreground hover:bg-muted'}`}>Needs reply · {replyCount}</button>
+      </div>
+
       {error && <div className="flex items-center gap-2 text-sm text-red-600 mb-3"><AlertCircle className="h-4 w-4" /> {error}</div>}
 
       <div className="rounded-lg border border-border overflow-hidden">
-        {inbox.length === 0 && <div className="px-4 py-10 text-center text-muted-foreground">Inbox zero — nothing waiting on a reply.</div>}
-        {inbox.map((t) => {
-          const cat = CAT[classify(t)];
+        {list.length === 0 && <div className="px-4 py-10 text-center text-muted-foreground">Nothing here.</div>}
+        {list.map((t) => {
+          const cat = CAT[category(t)];
           return (
             <div key={t.thread_id} className={`flex items-start gap-4 px-4 py-3 border-b border-border last:border-b-0 border-l-4 ${cat.spine} hover:bg-muted/40`}>
               <div className={`w-9 h-9 rounded-full ${cat.av} flex items-center justify-center text-sm font-medium shrink-0 mt-0.5`}>

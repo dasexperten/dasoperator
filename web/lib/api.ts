@@ -2698,6 +2698,18 @@ export async function deleteEmailRule(id: string) {
   return apiDelete<{ deleted: boolean }>(`/api/email/rules/${id}`);
 }
 
+export async function inboxAction(data: {
+  thread_id: string;
+  sender: string;
+  subject?: string;
+  snippet?: string;
+  action: 'delete' | 'forward' | 'file';
+  target?: string;
+  rule_whole_sender?: boolean;
+}) {
+  return apiPost<{ action: string; classified_as: string; rule_id: string | null; acted: boolean }>('/api/email/inbox-action', data);
+}
+
 export interface SendEmailParams {
   action?: 'send' | 'reply' | 'reply_all';
   recipient?: string;

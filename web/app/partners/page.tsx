@@ -8,6 +8,7 @@ import { useEffect, useState, useMemo, Fragment } from 'react';
 import Link from 'next/link';
 import { Search, Loader2, Plus, Mail, X, Send } from 'lucide-react';
 import { getPartnersWithBalances, type Partner } from '@/lib/api';
+import { ProductsPartnersTabs } from '@/components/products-partners/products-partners-tabs';
 import NetBalance from '@/components/ui/net-balance';
 
 type ExtendedPartner = Partner & {
@@ -291,6 +292,7 @@ export default function PartnersPage() {
 
   return (
     <div className="space-y-6 max-w-7xl">
+      <ProductsPartnersTabs />
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="dx-eyebrow-rot mb-2">Master Data</div>

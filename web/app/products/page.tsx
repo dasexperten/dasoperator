@@ -9,6 +9,7 @@ import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Search, Loader2, Plus, ChevronUp, ChevronDown } from 'lucide-react';
 import { CopyableValue } from '@/components/ui/copyable';
+import { ProductsPartnersTabs } from '@/components/products-partners/products-partners-tabs';
 import {
   getProductsList, getProductsWithStock, getPricelistMap,
   type ProductListItem, type ProductWithStock,
@@ -223,6 +224,7 @@ export default function ProductsPage() {
 
   return (
     <div className="space-y-8 max-w-7xl">
+      <ProductsPartnersTabs />
       <div className="flex items-start justify-between gap-6">
         <div>
           <div className="dx-eyebrow-rot mb-2">Master Data</div>

@@ -2,8 +2,8 @@ import { Hono } from 'hono';
 import { findExistingPartnerByName, isBankProviderName, generateReadablePartnerId } from '../lib/partner-dedup';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
-import { runInboxIngestion, classifyViaClaude, deepseekClassify, fetchPdf } from '../lib/inbox-ingestion';
-import { findMatchingOperation, thresholdFor } from '../lib/inbox-auto-match';
+import { runInboxIngestion, classifyViaClaude, deepseekClassify, fetchPdf, insertInbox } from '../lib/inbox-ingestion';
+import { findMatchingOperation, thresholdFor, applyMatchToInbox } from '../lib/inbox-auto-match';
 import { allocateAwaitingTxToOperation } from '../lib/bank-tx-allocator';
 import { reconcileInboxRowAgainstBankTx } from '../lib/invoice-amount-reconcile';
 
@@ -945,6 +945,133 @@ inbox.post('/:id/reclassify', async (c) => {
     }]);
   }
 });
+
+// =============================================================================
+// POST /api/inbox/ingest-thread — "File" one email's documents into the ERP.
+// Body: { thread_id }
+// Pulls the thread (the bridge auto-resolves attachments to R2), classifies each
+// PDF/CSV with Claude (DeepSeek fallback), inserts into invoice_inbox, then
+// auto-matches to an operation — same path the daily cron uses, scoped to one email.
+// =============================================================================
+inbox.post('/ingest-thread', async (c) => {
+  let body: { thread_id?: string };
+  try { body = await c.req.json(); } catch { return fail(c, 400, [{ code: 'invalid_json', message: 'JSON body required' }]); }
+  const threadId = body?.thread_id;
+  if (!threadId) return fail(c, 400, [{ code: 'bad_request', message: 'thread_id required' }]);
+
+  let thr: any;
+  try {
+    const r = await c.env.EMAILER.fetch('https://emailer/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'get_thread', thread_id: threadId }),
+      signal: AbortSignal.timeout(90_000),
+    });
+    thr = await r.json();
+  } catch (e) {
+    return fail(c, 502, [{ code: 'bridge_unreachable', message: e instanceof Error ? e.message : String(e) }]);
+  }
+  if (!thr?.success) return fail(c, 502, [{ code: 'bridge_error', message: thr?.error || 'get_thread failed' }]);
+
+  const subject: string = thr.subject || '';
+  const filed: any[] = [];
+  const classifiable = (mt: string, name: string) =>
+    mt === 'application/pdf' || mt === 'text/plain' || mt === 'text/csv' || mt === 'application/csv' ||
+    /\.(pdf|csv|txt)$/i.test(name || '');
+
+  for (const m of thr.messages || []) {
+    for (const att of m.attachments_resolved || []) {
+      if (!att?.r2_url || !att?.filename) continue;
+      const mime = (att.mime_type || '').toLowerCase();
+      if (!classifiable(mime, att.filename)) continue;
+
+      const dup = await c.env.DB.prepare(
+        'SELECT 1 FROM invoice_inbox WHERE attachment_filename = ? AND gmail_thread_id = ? LIMIT 1'
+      ).bind(att.filename, threadId).first();
+      if (dup) { filed.push({ filename: att.filename, status: 'already_filed' }); continue; }
+
+      const r2Key = att.r2_url.includes('.r2.dev/') ? att.r2_url.split('.r2.dev/')[1] : att.r2_url;
+      const ctx = {
+        thread_id: threadId,
+        from: m.from || (thr.participants && thr.participants[0]) || '',
+        subject,
+        snippet: (m.body_plain || '').slice(0, 500),
+        filename: att.filename,
+        r2_url: att.r2_url,
+        r2_key: r2Key,
+        mime_type: mime || 'application/pdf',
+      };
+
+      const buf = await fetchPdf(ctx.r2_url);
+      if (!buf) { filed.push({ filename: att.filename, status: 'download_failed' }); continue; }
+
+      let text = '';
+      if (ctx.mime_type === 'text/plain' || ctx.mime_type.includes('csv') || /\.(csv|txt)$/i.test(att.filename)) {
+        text = new TextDecoder('utf-8', { fatal: false }).decode(buf).slice(0, 50000);
+      }
+
+      let extracted: any = null;
+      if (ctx.mime_type === 'application/pdf') {
+        try { extracted = await classifyViaClaude(c.env, buf, ctx); } catch { /* fall through to deepseek */ }
+      }
+      if (!extracted) extracted = await deepseekClassify(c.env, text, ctx);
+      if (!extracted) { filed.push({ filename: att.filename, status: 'classify_failed' }); continue; }
+
+      const isAutoReject =
+        extracted.classification === 'sale_payment' ||
+        extracted.classification === 'not_invoice' ||
+        (extracted.classification === 'service' && extracted.service_category === 'Government / Tax' && !extracted.amount_total);
+      const status = isAutoReject ? 'manual_rejected' : 'needs_partner_link';
+      let cls = extracted.classification;
+      if (cls === 'unclear') cls = 'pending';
+      const notes = isAutoReject
+        ? `Filed from Emailer; auto-rejected: ${extracted.classification}`
+        : (extracted.notes || 'Filed from Emailer');
+
+      const invId = await insertInbox(c.env, ctx, extracted, text, cls, status, notes);
+
+      const item: any = {
+        filename: att.filename,
+        classification: cls,
+        confidence: extracted.confidence ?? null,
+        vendor: extracted.vendor_name || null,
+        amount: extracted.amount_total ?? null,
+        currency: extracted.currency || null,
+        status: isAutoReject ? 'rejected' : 'filed',
+        operation: null as string | null,
+      };
+
+      if (!isAutoReject) {
+        try {
+          const inboxRow = await c.env.DB.prepare(
+            `SELECT id, classification, extracted_vendor_name, extracted_vendor_inn,
+                    extracted_vendor_email, extracted_invoice_no, extracted_invoice_date,
+                    extracted_our_invoice_ref, extracted_currency, extracted_amount,
+                    extracted_buyer_entity, attachment_text_extracted, matched_partner_id,
+                    extracted_shipment_ref, extracted_service_subtype,
+                    attachment_r2_key, attachment_filename, email_subject, email_from
+               FROM invoice_inbox WHERE id = ?`
+          ).bind(invId).first<any>();
+          if (inboxRow) {
+            const match = await findMatchingOperation(inboxRow, c.env);
+            const outcome = await applyMatchToInbox(inboxRow, match, c.env);
+            if (outcome.kind === 'auto_attached') {
+              item.status = 'attached';
+              item.operation = `${outcome.match.operation_reference} (${Math.round(outcome.match.confidence * 100)}%)`;
+            } else if (outcome.kind === 'suggested') {
+              item.status = 'suggested';
+              item.operation = `${outcome.match.operation_reference} (${Math.round(outcome.match.confidence * 100)}%)`;
+            }
+          }
+        } catch { /* non-fatal — row stays needs_partner_link for manual link */ }
+      }
+      filed.push(item);
+    }
+  }
+
+  return ok(c, { thread_id: threadId, count: filed.length, filed }, ['Thread filed into invoice inbox']);
+});
+
 
 export default inbox;
 

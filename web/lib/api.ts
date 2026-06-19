@@ -2648,10 +2648,12 @@ export interface EmailHistoryResponse {
   threads: EmailThread[];
   total: number;
   query: string;
+  has_more?: boolean;
+  start?: number;
 }
 
-export async function getEmailHistory(query = 'newer_than:30d', limit = 50) {
-  return apiGet<EmailHistoryResponse>(`/api/email/history?query=${encodeURIComponent(query)}&limit=${limit}`);
+export async function getEmailHistory(query = 'newer_than:30d', limit = 50, offset = 0) {
+  return apiGet<EmailHistoryResponse>(`/api/email/history?query=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`);
 }
 
 export type EmailRuleAction = 'exclude' | 'attention' | 'keep' | 'delete' | 'forward' | 'archive';

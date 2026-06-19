@@ -13,11 +13,11 @@ import EmailHistory from '@/components/emailer/email-history';
 type Tab = 'tasks' | 'inbox' | 'scenarios' | 'learning' | 'history';
 
 export default function EmailerPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('tasks');
+  const [activeTab, setActiveTab] = useState<Tab>('inbox');
 
   const tabs: { id: Tab; label: string; icon: typeof ListChecks }[] = [
-    { id: 'tasks', label: 'Tasks', icon: ListChecks },
     { id: 'inbox', label: 'Inbox', icon: Inbox },
+    { id: 'tasks', label: 'Tasks', icon: ListChecks },
     { id: 'scenarios', label: 'Scenarios', icon: Workflow },
     { id: 'learning', label: 'Learning', icon: GraduationCap },
     { id: 'history', label: 'History', icon: History },
@@ -26,9 +26,16 @@ export default function EmailerPage() {
   return (
     <div className="min-h-screen bg-background">
       <div className="border-b border-border px-6 py-4">
-        <h1 className="text-2xl font-bold text-foreground">Emailer</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-foreground">Emailer</h1>
+          <span className="flex h-[3px] w-14 overflow-hidden rounded-full" aria-hidden="true">
+            <span className="flex-1 bg-zinc-900" />
+            <span className="flex-1 bg-[#D7141A]" />
+            <span className="flex-1 bg-[#F0C915]" />
+          </span>
+        </div>
         <p className="text-sm text-muted-foreground mt-1">
-          Task conveyor — agents read, reason, draft. You approve. The system learns.
+          Your inbox, triaged by sender and urgency. You act on what matters — the system quietly learns your judgment in the background.
         </p>
       </div>
 

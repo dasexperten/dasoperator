@@ -2654,14 +2654,21 @@ export async function getEmailHistory(query = 'newer_than:30d', limit = 50) {
   return apiGet<EmailHistoryResponse>(`/api/email/history?query=${encodeURIComponent(query)}&limit=${limit}`);
 }
 
+export type EmailRuleAction = 'exclude' | 'attention' | 'keep' | 'delete' | 'forward' | 'archive';
+
 export interface EmailRule {
   id: string;
-  rule_type: 'forward' | 'auto_delete' | 'archive';
-  pattern: string;
-  action: string | null;
+  match_sender: string | null;
+  email_type: string | null;
+  action: EmailRuleAction;
   target: string | null;
+  source: 'manual' | 'learned';
+  confidence: number | null;
   enabled: boolean;
+  match_count: number;
+  last_matched_at: number | null;
   created_at: number;
+  updated_at: number;
 }
 
 export async function getEmailRules() {
@@ -2669,13 +2676,22 @@ export async function getEmailRules() {
 }
 
 export async function createEmailRule(data: {
-  rule_type: 'forward' | 'auto_delete' | 'archive';
-  pattern: string;
-  action?: string;
+  match_sender?: string;
+  email_type?: string;
+  action: EmailRuleAction;
   target?: string;
+  source?: 'manual' | 'learned';
+  confidence?: number;
   enabled?: boolean;
 }) {
   return apiPost<EmailRule>('/api/email/rules', data);
+}
+
+export async function updateEmailRule(
+  id: string,
+  data: { match_sender?: string; email_type?: string; action?: EmailRuleAction; target?: string; enabled?: boolean },
+) {
+  return apiPatch<EmailRule>(`/api/email/rules/${id}`, data);
 }
 
 export async function deleteEmailRule(id: string) {

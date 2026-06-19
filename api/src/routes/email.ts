@@ -241,7 +241,7 @@ email.get('/rules', async (c) => {
     const userId = user?.id || 'default';
 
     const { results } = await c.env.DB.prepare(
-      'SELECT id, rule_type, pattern, action, target, enabled, created_at FROM email_rules WHERE user_id = ? ORDER BY created_at DESC'
+      'SELECT id, match_sender, email_type, action, target, source, confidence, enabled, match_count, last_matched_at, created_at, updated_at FROM email_rules WHERE user_id = ? ORDER BY created_at DESC'
     ).bind(userId).all();
 
     return ok(c, { rules: results }, ['Email rules fetched']);
@@ -258,14 +258,19 @@ email.get('/rules', async (c) => {
 // Create a new email rule.
 // =============================================================================
 const ruleSchema = z.object({
-  rule_type: z.enum(['forward', 'auto_delete', 'archive']),
-  pattern: z.string().min(1),
-  action: z.string().optional(),
+  match_sender: z.string().min(1).optional(),
+  email_type: z.string().min(1).optional(),
+  action: z.enum(['exclude', 'attention', 'keep', 'delete', 'forward', 'archive']),
   target: z.string().optional(),
+  source: z.enum(['manual', 'learned']).default('manual'),
+  confidence: z.number().optional(),
   enabled: z.boolean().default(true),
 }).refine(
+  (data) => !!data.match_sender || !!data.email_type,
+  { message: 'a rule must match a sender, a type, or both' }
+).refine(
   (data) => {
-    if (data.rule_type === 'forward') return !!data.target;
+    if (data.action === 'forward') return !!data.target;
     return true;
   },
   { message: 'forward rules require a target email address' }
@@ -296,15 +301,18 @@ email.post('/rules', async (c) => {
     const now = Math.floor(Date.now() / 1000);
 
     await c.env.DB.prepare(
-      'INSERT INTO email_rules (id, user_id, rule_type, pattern, action, target, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO email_rules (id, user_id, match_sender, email_type, action, target, source, confidence, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).bind(
       id,
       userId,
-      parsed.data.rule_type,
-      parsed.data.pattern,
-      parsed.data.action || null,
+      parsed.data.match_sender || null,
+      parsed.data.email_type || null,
+      parsed.data.action,
       parsed.data.target || null,
+      parsed.data.source,
+      parsed.data.confidence ?? null,
       parsed.data.enabled ? 1 : 0,
+      now,
       now
     ).run();
 
@@ -314,6 +322,45 @@ email.post('/rules', async (c) => {
       code: 'db_error',
       message: err instanceof Error ? err.message : String(err),
     }]);
+  }
+});
+
+// =============================================================================
+// PATCH /api/email/rules/:id
+// Toggle enabled / update a rule's fields.
+// =============================================================================
+const rulePatchSchema = z.object({
+  match_sender: z.string().optional(),
+  email_type: z.string().optional(),
+  action: z.enum(['exclude', 'attention', 'keep', 'delete', 'forward', 'archive']).optional(),
+  target: z.string().optional(),
+  enabled: z.boolean().optional(),
+});
+
+email.patch('/rules/:id', async (c) => {
+  const id = c.req.param('id');
+  let body: unknown;
+  try { body = await c.req.json(); } catch { return fail(c, 400, [{ code: 'invalid_json', message: 'Request body must be valid JSON' }]); }
+  const parsed = rulePatchSchema.safeParse(body);
+  if (!parsed.success) {
+    return fail(c, 422, [{ code: 'invalid_body', message: 'Request body validation failed', details: { issues: parsed.error.issues } }]);
+  }
+  const user = c.get('user') as { id: string } | undefined;
+  const userId = user?.id || 'default';
+  const fields: string[] = [];
+  const vals: unknown[] = [];
+  for (const k of ['match_sender', 'email_type', 'action', 'target'] as const) {
+    const v = parsed.data[k];
+    if (v !== undefined) { fields.push(`${k} = ?`); vals.push(v); }
+  }
+  if (parsed.data.enabled !== undefined) { fields.push('enabled = ?'); vals.push(parsed.data.enabled ? 1 : 0); }
+  if (fields.length === 0) return ok(c, { updated: false }, ['Nothing to update']);
+  fields.push('updated_at = ?'); vals.push(Math.floor(Date.now() / 1000));
+  try {
+    await c.env.DB.prepare(`UPDATE email_rules SET ${fields.join(', ')} WHERE id = ? AND user_id = ?`).bind(...vals, id, userId).run();
+    return ok(c, { id, updated: true }, ['Email rule updated']);
+  } catch (err) {
+    return fail(c, 500, [{ code: 'db_error', message: err instanceof Error ? err.message : String(err) }]);
   }
 });
 

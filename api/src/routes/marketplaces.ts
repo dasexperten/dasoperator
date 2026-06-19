@@ -506,6 +506,20 @@ marketplaces.get('/pulse/daily-trend', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/marketplaces/pulse/cached — serves KV-cached pulse data
+// Falls back to live query if cache is empty (e.g. after deploy or first visit).
+// ---------------------------------------------------------------------------
+marketplaces.get('/pulse/cached', async (c) => {
+  const cacheKey = c.req.query('key') || 'pulse:sales-today';
+  if (c.env.CACHE) {
+    const cached = await c.env.CACHE.get(cacheKey, 'json');
+    if (cached) return ok(c, cached);
+  }
+  // Cache miss — fall through to live endpoint
+  return null as any; // handled by router fallthrough
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/marketplaces/pulse/sales-today
 // Card 1 — today's sales by marketplace, with Δ vs yesterday.
 // ---------------------------------------------------------------------------

@@ -67,8 +67,19 @@ type SkuFunnel = {
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://dasoperator-api.dasexperten.workers.dev';
 
 // ───────────────────────── Helpers ─────────────────────────
-async function fetchJson<T>(path: string): Promise<T | null> {
+async function fetchJson<T>(path: string, cacheKey?: string): Promise<T | null> {
   try {
+    // Try KV cache first (updated daily at 04:00 MSK by cron)
+    if (cacheKey) {
+      try {
+        const cachedRes = await fetch(`${API_BASE}/api/marketplaces/pulse/cached?key=${cacheKey}`);
+        if (cachedRes.ok) {
+          const cachedJson = await cachedRes.json() as { success: boolean; result: T };
+          if (cachedJson.success && cachedJson.result) return cachedJson.result;
+        }
+      } catch { /* cache miss — fall through to live */ }
+    }
+    // Live fallback
     const res = await fetch(`${API_BASE}${path}`);
     const json = await res.json() as { success: boolean; result: T };
     return json.success ? json.result : null;
@@ -138,9 +149,9 @@ export default function MarketplacePulse() {
 
   useEffect(() => {
     Promise.all([
-      fetchJson<SalesToday>('/api/marketplaces/pulse/sales-today'),
-      fetchJson<Spotlight>('/api/marketplaces/pulse/sku-spotlight'),
-      fetchJson<DailyTrend>('/api/marketplaces/pulse/daily-trend'),
+      fetchJson<SalesToday>('/api/marketplaces/pulse/sales-today', 'pulse:sales-today'),
+      fetchJson<Spotlight>('/api/marketplaces/pulse/sku-spotlight', 'pulse:sku-spotlight'),
+      fetchJson<DailyTrend>('/api/marketplaces/pulse/daily-trend', 'pulse:daily-trend'),
     ]).then(([s, sp, t]) => {
       setSalesToday(s); setSpotlight(sp); setTrend(t); setLoading(false);
     });

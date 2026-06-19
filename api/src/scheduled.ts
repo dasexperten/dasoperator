@@ -716,6 +716,34 @@ export async function handleScheduled(
     return;
   }
 
+  // Daily marketplace PULSE cache — 01:00 UTC (04:00 MSK)
+  // Pre-caches the three pulse endpoints in KV so the home page loads instantly at 5 AM.
+  if (cron === '0 1 * * *') {
+    console.log('[cron:pulse-cache] starting daily pulse cache warm');
+    try {
+      const selfFetch = async (path: string) => {
+        const r = await env.SELF.fetch(new Request(`https://internal${path}`));
+        return r.ok ? await r.json<{ success: boolean; result: any }>() : null;
+      };
+
+      const [sales, spotlight, trend] = await Promise.all([
+        selfFetch('/api/marketplaces/pulse/sales-today'),
+        selfFetch('/api/marketplaces/pulse/sku-spotlight'),
+        selfFetch('/api/marketplaces/pulse/daily-trend'),
+      ]);
+
+      if (env.CACHE) {
+        if (sales?.result) await env.CACHE.put('pulse:sales-today', JSON.stringify(sales.result), { expirationTtl: 7200 });
+        if (spotlight?.result) await env.CACHE.put('pulse:sku-spotlight', JSON.stringify(spotlight.result), { expirationTtl: 7200 });
+        if (trend?.result) await env.CACHE.put('pulse:daily-trend', JSON.stringify(trend.result), { expirationTtl: 7200 });
+        console.log('[cron:pulse-cache] cached 3 pulse endpoints');
+      }
+    } catch (e) {
+      console.error('[cron:pulse-cache] failed:', e);
+    }
+    return;
+  }
+
     console.warn(`[cron] no handler for cron expression: ${cron}`);
 
   // FX refresh — daily, internal libs, no self-fetch needed

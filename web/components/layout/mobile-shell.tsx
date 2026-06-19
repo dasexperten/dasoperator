@@ -76,9 +76,8 @@ interface BottomNavItem {
 // Candidate items, ordered by priority. We pick the first 5 the role can see.
 const BOTTOM_NAV_CANDIDATES: BottomNavItem[] = [
   { name: 'Home',         icon: Home,          href: '/' },
-  { name: 'Partners',     icon: Users,         href: '/partners' },
-  { name: 'Ops',          icon: FileText,      href: '/operations' },
   { name: 'Products',     icon: Package,       href: '/products' },
+  { name: 'Ops',          icon: FileText,      href: '/operations' },
   { name: 'Reviews',      icon: MessageSquare, href: '/reviews' },
   { name: 'Markets',      icon: ShoppingCart,  href: '/marketplaces' },
   { name: 'Analytics',    icon: BarChart3,     href: '/analytics' },
@@ -104,6 +103,8 @@ function BottomNav({ pathname }: { pathname: string }) {
 
   function isActive(href: string): boolean {
     if (href === '/') return pathname === '/';
+    // Products & Partners section — active for both /products and /partners
+    if (href === '/products') return pathname.startsWith('/products') || pathname.startsWith('/partners');
     return pathname.startsWith(href);
   }
 

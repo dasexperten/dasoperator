@@ -18,10 +18,9 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { name: 'Home',         icon: Home,          href: '/' },
-  { name: 'Partners',     icon: Users,         href: '/partners' },
+  { name: 'Products & Partners', icon: Package, href: '/products' },
   { name: 'Operations',   icon: FileText,      href: '/operations' },
   { name: 'Planner',      icon: Calculator,    href: '/planner' },
-  { name: 'Products',     icon: Package,       href: '/products' },
   { name: 'Warehouses',   icon: Warehouse,     href: '/warehouses' },
   { name: 'Marketplaces', icon: ShoppingCart,  href: '/marketplaces' },
   { name: 'Reviews',      icon: MessageSquare, href: '/reviews' },
@@ -64,6 +63,8 @@ export default function Sidebar({ mobileOpen = false }: { mobileOpen?: boolean }
   function isActive(href: string): boolean {
     if (href === '/') return pathname === '/';
     if (href === '/finance') return pathname.startsWith('/finance');
+    // Products & Partners section — active for both /products and /partners
+    if (href === '/products') return pathname.startsWith('/products') || pathname.startsWith('/partners');
     return pathname.startsWith(href);
   }
 

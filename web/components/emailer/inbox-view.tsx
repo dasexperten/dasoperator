@@ -81,7 +81,7 @@ export default function InboxView() {
   async function load() {
     setLoading(true); setError(null);
     try {
-      const r = await getEmailHistory('newer_than:30d', 100);
+      const r = await getEmailHistory('in:inbox newer_than:60d', 50);
       if (r.success && r.result) setAll((r.result.threads as unknown as InboxThread[]) || []);
       else setError('Failed to load inbox');
     } catch (e) {

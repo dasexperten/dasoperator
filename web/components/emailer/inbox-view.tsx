@@ -68,7 +68,7 @@ export default function InboxView() {
   const [aiDraft, setAiDraft] = useState<string>('');
   const [drafting, setDrafting] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'all' | 'reply'>('all');
+  const [filter, setFilter] = useState<'all' | 'reply'>('reply');
 
   async function modify(threadId: string, ops: { archive?: boolean; mark_read?: boolean }) {
     setActing(threadId);

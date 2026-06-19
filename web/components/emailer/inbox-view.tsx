@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, RefreshCw, Reply, Paperclip, AlertCircle, ExternalLink, Archive, MailOpen } from 'lucide-react';
-import { getEmailHistory, apiPost, type EmailThread } from '@/lib/api';
+import { Loader2, RefreshCw, Reply, Paperclip, AlertCircle, ExternalLink, Trash2, Forward, FileDown } from 'lucide-react';
+import { getEmailHistory, apiPost, inboxAction, type EmailThread } from '@/lib/api';
 import ReplyModal from './reply-modal';
 
 interface InboxThread {
@@ -70,11 +70,11 @@ export default function InboxView() {
   const [acting, setActing] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'reply'>('reply');
 
-  async function modify(threadId: string, ops: { archive?: boolean; mark_read?: boolean }) {
-    setActing(threadId);
+  async function act(t: InboxThread, action: 'delete' | 'forward' | 'file', target?: string) {
+    setActing(t.thread_id);
     try {
-      const r = await apiPost('/api/email/modify', { thread_id: threadId, ...ops });
-      if (r.success && ops.archive) setAll((prev) => prev.filter((x) => x.thread_id !== threadId));
+      const r = await inboxAction({ thread_id: t.thread_id, sender: t.last_message_from, subject: t.subject, snippet: t.last_message_snippet, action, target });
+      if (r.success) setAll((prev) => prev.filter((x) => x.thread_id !== t.thread_id));
     } catch { /* leave the row in place on error */ }
     setActing(null);
   }
@@ -166,17 +166,24 @@ export default function InboxView() {
                   </button>
                   <button
                     disabled={acting === t.thread_id}
-                    onClick={() => modify(t.thread_id, { mark_read: true })}
-                    aria-label="Mark read" title="Mark read"
+                    onClick={() => act(t, 'file')}
+                    aria-label="File" title="Оприходовать документ в систему"
                     className="text-muted-foreground border border-border rounded-md w-7 h-7 inline-flex items-center justify-center hover:bg-muted disabled:opacity-50">
-                    <MailOpen className="h-3.5 w-3.5" />
+                    <FileDown className="h-3.5 w-3.5" />
                   </button>
                   <button
                     disabled={acting === t.thread_id}
-                    onClick={() => modify(t.thread_id, { archive: true })}
-                    aria-label="Archive" title="Archive"
+                    onClick={() => { const to = window.prompt('Переслать кому? (email)'); if (to) act(t, 'forward', to); }}
+                    aria-label="Forward" title="Переслать + правило маршрута"
                     className="text-muted-foreground border border-border rounded-md w-7 h-7 inline-flex items-center justify-center hover:bg-muted disabled:opacity-50">
-                    <Archive className="h-3.5 w-3.5" />
+                    <Forward className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    disabled={acting === t.thread_id}
+                    onClick={() => act(t, 'delete')}
+                    aria-label="Delete" title="Удалить + правило (больше не в инбокс)"
+                    className="text-muted-foreground border border-border rounded-md w-7 h-7 inline-flex items-center justify-center hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-50">
+                    <Trash2 className="h-3.5 w-3.5" />
                   </button>
                   <a
                     href={`https://mail.google.com/mail/u/0/#all/${t.thread_id}`}

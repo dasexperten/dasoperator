@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Loader2, RefreshCw, Reply, Paperclip, AlertCircle, ExternalLink, Archive, MailOpen } from 'lucide-react';
-import { getEmailHistory, apiPost, type EmailThread } from '@/lib/api';
+import { getEmailHistory, apiPost, type EmailThread, type EmailHistoryResponse } from '@/lib/api';
 import ReplyModal from './reply-modal';
 
 interface InboxThread {
@@ -69,6 +69,12 @@ export default function InboxView() {
   const [drafting, setDrafting] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'reply'>('reply');
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const PAGE = 100;
+  const QUERY = 'in:inbox newer_than:90d';
 
   async function modify(threadId: string, ops: { archive?: boolean; mark_read?: boolean }) {
     setActing(threadId);
@@ -79,19 +85,26 @@ export default function InboxView() {
     setActing(null);
   }
 
-  async function load() {
-    setLoading(true); setError(null);
+  async function load(off = 0, append = false) {
+    if (append) setLoadingMore(true); else { setLoading(true); setError(null); }
     try {
-      // Bridge re-uploads attachments on every find, so large batches time out.
-      // 20 loads reliably; raise only after the bridge stops re-uploading on list.
-      const r = await getEmailHistory('in:inbox newer_than:45d', 20);
-      if (r.success && r.result) setAll((r.result.threads as unknown as InboxThread[]) || []);
-      else setError('Failed to load inbox');
+      const r = await getEmailHistory(QUERY, PAGE, off);
+      const res = r.result as (EmailHistoryResponse & { has_more?: boolean }) | undefined;
+      if (r.success && res) {
+        const threads = (res.threads as unknown as InboxThread[]) || [];
+        setAll((prev) => (append ? [...prev, ...threads] : threads));
+        setHasMore(Boolean(res.has_more));
+        setOffset(off + threads.length);
+      } else if (!append) {
+        setError('Failed to load inbox');
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error');
-    } finally { setLoading(false); }
+      if (!append) setError(e instanceof Error ? e.message : 'Error');
+    } finally {
+      if (append) setLoadingMore(false); else setLoading(false);
+    }
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(0, false); }, []);
 
   const sorted = [...all].sort((a, b) => new Date(b.last_message_date).getTime() - new Date(a.last_message_date).getTime());
   const replyCount = sorted.filter(needsReply).length;
@@ -110,7 +123,7 @@ export default function InboxView() {
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">Last 60 days · newest first · {replyCount} need your reply</p>
         </div>
-        <button onClick={load} className="text-sm border border-border rounded-md px-3 py-1.5 inline-flex items-center gap-2 hover:bg-muted"><RefreshCw className="h-4 w-4" /> Refresh</button>
+        <button onClick={() => load(0, false)} className="text-sm border border-border rounded-md px-3 py-1.5 inline-flex items-center gap-2 hover:bg-muted"><RefreshCw className="h-4 w-4" /> Refresh</button>
       </div>
 
       {sorted.length > 0 && (
@@ -192,7 +205,15 @@ export default function InboxView() {
         })}
       </div>
 
-      {reply && <ReplyModal thread={reply} initialBody={aiDraft} onClose={() => { setReply(null); setAiDraft(''); }} onSent={() => { setReply(null); setAiDraft(''); load(); }} />}
+      {hasMore && (
+        <div className="flex justify-center mt-3">
+          <button onClick={() => load(offset, true)} disabled={loadingMore} className="text-sm border border-border rounded-md px-4 py-2 inline-flex items-center gap-2 hover:bg-muted disabled:opacity-50">
+            {loadingMore && <Loader2 className="h-4 w-4 animate-spin" />} {loadingMore ? 'Loading…' : 'Next 100'}
+          </button>
+        </div>
+      )}
+
+      {reply && <ReplyModal thread={reply} initialBody={aiDraft} onClose={() => { setReply(null); setAiDraft(''); }} onSent={() => { setReply(null); setAiDraft(''); load(0, false); }} />}
     </div>
   );
 }

@@ -1,24 +1,24 @@
-\'use client\';
+'use client';
 
-export const runtime = \'edge\';
+export const runtime = 'edge';
 
-import { useState } from \'react\';
-import { Shield, GraduationCap, Inbox, History } from \'lucide-react\';
-import LearningView from \'@/components/emailer/learning-view\';
-import InboxView from \'@/components/emailer/inbox-view\';
-import EmailHistory from \'@/components/emailer/email-history\';
-import EmailRules from \'@/components/emailer/email-rules\';
+import { useState } from 'react';
+import { Shield, GraduationCap, Inbox, History } from 'lucide-react';
+import LearningView from '@/components/emailer/learning-view';
+import InboxView from '@/components/emailer/inbox-view';
+import EmailHistory from '@/components/emailer/email-history';
+import EmailRules from '@/components/emailer/email-rules';
 
-type Tab = \'inbox\' | \'rules\' | \'learning\' | \'history\';
+type Tab = 'inbox' | 'rules' | 'learning' | 'history';
 
 export default function EmailerPage() {
-  const [activeTab, setActiveTab] = useState<Tab>(\'inbox\');
+  const [activeTab, setActiveTab] = useState<Tab>('inbox');
 
   const tabs: { id: Tab; label: string; icon: typeof Inbox }[] = [
-    { id: \'inbox\', label: \'Inbox\', icon: Inbox },
-    { id: \'rules\', label: \'Rules\', icon: Shield },
-    { id: \'learning\', label: \'Learning\', icon: GraduationCap },
-    { id: \'history\', label: \'History\', icon: History },
+    { id: 'inbox', label: 'Inbox', icon: Inbox },
+    { id: 'rules', label: 'Rules', icon: Shield },
+    { id: 'learning', label: 'Learning', icon: GraduationCap },
+    { id: 'history', label: 'History', icon: History },
   ];
 
   return (
@@ -47,8 +47,8 @@ export default function EmailerPage() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex items-center gap-2 py-3 px-1 border-b-2 font-medium text-sm whitespace-nowrap transition-colors ${
                   activeTab === tab.id
-                    ? \'border-primary text-primary\'
-                    : \'border-transparent text-muted-foreground hover:text-foreground hover:border-border\'
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
                 }`}
               >
                 <Icon className="h-4 w-4" />
@@ -60,10 +60,10 @@ export default function EmailerPage() {
       </div>
 
       <div className="px-6 py-6">
-        {activeTab === \'rules\' && <EmailRules />}
-        {activeTab === \'learning\' && <LearningView />}
-        {activeTab === \'inbox\' && <InboxView />}
-        {activeTab === \'history\' && <EmailHistory />}
+        {activeTab === 'rules' && <EmailRules />}
+        {activeTab === 'learning' && <LearningView />}
+        {activeTab === 'inbox' && <InboxView />}
+        {activeTab === 'history' && <EmailHistory />}
       </div>
     </div>
   );

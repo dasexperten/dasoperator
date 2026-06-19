@@ -388,4 +388,72 @@ email.get('/health', async (c) => {
   }
 });
 
+// =============================================================================
+// POST /api/email/modify
+// Mutate Gmail thread state via emailer-bridge: archive / mark read / unread.
+// Body: { thread_id: string, archive?: boolean, mark_read?: boolean, mark_unread?: boolean }
+// =============================================================================
+const modifySchema = z.object({
+  thread_id: z.string().min(1),
+  archive: z.boolean().optional(),
+  mark_read: z.boolean().optional(),
+  mark_unread: z.boolean().optional(),
+}).refine(
+  (d) => !!(d.archive || d.mark_read || d.mark_unread),
+  { message: 'At least one of archive, mark_read, mark_unread must be true' }
+);
+
+email.post('/modify', async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return fail(c, 400, [{ code: 'invalid_json', message: 'Request body must be valid JSON' }]);
+  }
+
+  const parsed = modifySchema.safeParse(body);
+  if (!parsed.success) {
+    return fail(c, 422, [{
+      code: 'invalid_body',
+      message: 'Request body validation failed',
+      details: { issues: parsed.error.issues },
+    }]);
+  }
+
+  let bridgeResponse: Response;
+  try {
+    bridgeResponse = await c.env.EMAILER.fetch(new Request('https://emailer/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'modify', ...parsed.data }),
+      signal: AbortSignal.timeout(30_000),
+    }));
+  } catch (err) {
+    return fail(c, 502, [{
+      code: 'bridge_unreachable',
+      message: err instanceof Error ? err.message : String(err),
+    }]);
+  }
+
+  let bridgePayload: unknown;
+  try {
+    bridgePayload = await bridgeResponse.json();
+  } catch {
+    return fail(c, 502, [{
+      code: 'bridge_invalid_response',
+      message: `emailer-bridge returned non-JSON (HTTP ${bridgeResponse.status})`,
+    }]);
+  }
+
+  if (!bridgeResponse.ok) {
+    return fail(c, 502, [{
+      code: 'bridge_error',
+      message: `emailer-bridge returned HTTP ${bridgeResponse.status}`,
+      details: { bridge_response: bridgePayload },
+    }]);
+  }
+
+  return ok(c, bridgePayload, ['Thread modified via emailer-bridge']);
+});
+
 export default email;

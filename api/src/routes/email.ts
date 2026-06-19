@@ -190,7 +190,9 @@ email.post('/export', async (c) => {
 email.get('/history', async (c) => {
   const query = c.req.query('query') || 'newer_than:30d';
   const limitRaw = parseInt(c.req.query('limit') || '50', 10);
-  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 50;
+  const offsetRaw = parseInt(c.req.query('offset') || '0', 10);
+  const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? offsetRaw : 0;
 
   try {
     const bridgeResponse = await c.env.EMAILER.fetch(new Request('https://emailer/', {
@@ -199,12 +201,11 @@ email.get('/history', async (c) => {
       body: JSON.stringify({
         action: 'find',
         query,
+        // Bridge now lists lazily (no attachment upload), so large pages are fast.
+        // `start` enables Next-page pagination.
+        max_results: limit,
+        start: offset,
         limit,
-        // NOTE: ActionFind re-uploads every attachment to R2 on each find, so
-        // large batches time out. We intentionally do NOT send `max_results`
-        // here — the bridge falls back to its fast default (10). Raising this
-        // safely requires the bridge to upload attachments lazily (on open),
-        // which is a bridge change deployed from das-architektura.
       }),
       signal: AbortSignal.timeout(60_000),
     }));

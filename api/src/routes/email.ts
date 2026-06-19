@@ -199,9 +199,12 @@ email.get('/history', async (c) => {
       body: JSON.stringify({
         action: 'find',
         query,
+        // ActionFind reads `max_results` (hard cap 50). `limit` alone was ignored,
+        // so the inbox silently fell back to the bridge default of 10 threads.
+        max_results: limit,
         limit,
       }),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(60_000),
     }));
 
     let bridgePayload: unknown;

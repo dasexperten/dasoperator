@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, RefreshCw, Reply, Paperclip, AlertCircle, ExternalLink } from 'lucide-react';
+import { Loader2, RefreshCw, Reply, Paperclip, AlertCircle, ExternalLink, Archive, MailOpen } from 'lucide-react';
 import { getEmailHistory, apiPost, type EmailThread } from '@/lib/api';
 import ReplyModal from './reply-modal';
 
@@ -67,6 +67,16 @@ export default function InboxView() {
   const [reply, setReply] = useState<EmailThread | null>(null);
   const [aiDraft, setAiDraft] = useState<string>('');
   const [drafting, setDrafting] = useState<string | null>(null);
+  const [acting, setActing] = useState<string | null>(null);
+
+  async function modify(threadId: string, ops: { archive?: boolean; mark_read?: boolean }) {
+    setActing(threadId);
+    try {
+      const r = await apiPost('/api/email/modify', { thread_id: threadId, ...ops });
+      if (r.success && ops.archive) setAll((prev) => prev.filter((x) => x.thread_id !== threadId));
+    } catch { /* leave the row in place on error */ }
+    setActing(null);
+  }
 
   async function load() {
     setLoading(true); setError(null);
@@ -144,6 +154,20 @@ export default function InboxView() {
                     }}
                     className="text-xs rounded-md px-2.5 py-1 inline-flex items-center gap-1 bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">
                     <Reply className="h-3 w-3" /> {drafting === t.thread_id ? 'Drafting…' : 'Reply (AI)'}
+                  </button>
+                  <button
+                    disabled={acting === t.thread_id}
+                    onClick={() => modify(t.thread_id, { mark_read: true })}
+                    aria-label="Mark read" title="Mark read"
+                    className="text-muted-foreground border border-border rounded-md w-7 h-7 inline-flex items-center justify-center hover:bg-muted disabled:opacity-50">
+                    <MailOpen className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    disabled={acting === t.thread_id}
+                    onClick={() => modify(t.thread_id, { archive: true })}
+                    aria-label="Archive" title="Archive"
+                    className="text-muted-foreground border border-border rounded-md w-7 h-7 inline-flex items-center justify-center hover:bg-muted disabled:opacity-50">
+                    <Archive className="h-3.5 w-3.5" />
                   </button>
                   <a
                     href={`https://mail.google.com/mail/u/0/#all/${t.thread_id}`}

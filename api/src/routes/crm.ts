@@ -491,7 +491,10 @@ crm.get('/timeline', async (c) => {
     const startEpoch = Math.floor(start.getTime() / 1000);
 
     const regRows = await c.env.DB.prepare(
-      'SELECT registered_at FROM loyalty_accounts WHERE registered_at >= ?'
+      // Exclude the one-time RetailCRM->D1 migration backfill (source=
+      // 'retailcrm_migration', all stamped 2026-06-11) — those are not real
+      // daily signups and would spike the chart with ~1k on a single day.
+      "SELECT registered_at FROM loyalty_accounts WHERE registered_at >= ? AND source <> 'retailcrm_migration'"
     ).bind(startEpoch).all<{ registered_at: number }>();
 
     const regByDay = new Map<string, number>();

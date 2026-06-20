@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, RefreshCw, Reply, Paperclip, AlertCircle, FileInput } from 'lucide-react';
-import { getEmailHistory, apiPost, type EmailThread, type EmailHistoryResponse } from '@/lib/api';
+import { Loader2, RefreshCw, Reply, Paperclip, AlertCircle, FileInput, Forward, Trash2 } from 'lucide-react';
+import { getEmailHistory, apiPost, inboxAction, type EmailThread, type EmailHistoryResponse } from '@/lib/api';
 import ReplyModal from './reply-modal';
 
 interface InboxThread {
@@ -73,6 +73,29 @@ export default function InboxView() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [filing, setFiling] = useState<string | null>(null);
   const [fileResult, setFileResult] = useState<Record<string, string>>({});
+  const [acting, setActing] = useState<string | null>(null);
+
+  async function deleteThread(t: InboxThread) {
+    setActing(t.thread_id);
+    try {
+      const r = await inboxAction({ thread_id: t.thread_id, sender: emailOf(t.last_message_from) || t.last_message_from, subject: t.subject, snippet: t.last_message_snippet, action: 'delete' });
+      if (r.success) setAll((prev) => prev.filter((x) => x.thread_id !== t.thread_id));
+      else setFileResult((p) => ({ ...p, [t.thread_id]: 'Delete failed' }));
+    } catch { setFileResult((p) => ({ ...p, [t.thread_id]: 'Delete failed' })); }
+    setActing(null);
+  }
+
+  async function forwardThread(t: InboxThread) {
+    const target = typeof window !== 'undefined' ? window.prompt('Пересылать письма от этого отправителя на адрес:') : '';
+    if (!target) return;
+    setActing(t.thread_id);
+    try {
+      const r = await inboxAction({ thread_id: t.thread_id, sender: emailOf(t.last_message_from) || t.last_message_from, subject: t.subject, snippet: t.last_message_snippet, action: 'forward', target });
+      if (r.success) setAll((prev) => prev.filter((x) => x.thread_id !== t.thread_id));
+      else setFileResult((p) => ({ ...p, [t.thread_id]: 'Forward failed' }));
+    } catch { setFileResult((p) => ({ ...p, [t.thread_id]: 'Forward failed' })); }
+    setActing(null);
+  }
 
   const PAGE = 100;
   const QUERY = 'in:inbox newer_than:90d';
@@ -202,6 +225,20 @@ export default function InboxView() {
                       <FileInput className="h-3 w-3" /> {filing === t.thread_id ? 'Filing…' : 'File'}
                     </button>
                   )}
+                  <button
+                    disabled={acting === t.thread_id}
+                    onClick={() => forwardThread(t)}
+                    aria-label="Forward" title="Forward as a rule (this sender → recipient)"
+                    className="text-muted-foreground border border-border rounded-md w-7 h-7 inline-flex items-center justify-center hover:bg-muted disabled:opacity-50">
+                    <Forward className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    disabled={acting === t.thread_id}
+                    onClick={() => deleteThread(t)}
+                    aria-label="Delete" title="Delete as a rule (this sender)"
+                    className="text-muted-foreground border border-border rounded-md w-7 h-7 inline-flex items-center justify-center hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-50">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
                 </div>
                 {fileResult[t.thread_id] && (
                   <span className="text-xs text-emerald-700 whitespace-nowrap">{fileResult[t.thread_id]}</span>

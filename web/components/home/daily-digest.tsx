@@ -106,7 +106,7 @@ export default function DailyDigest() {
             <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--fg-1)' }}>Продажи</div>
             <div style={{ fontSize: '13px', color: 'var(--fg-2)', marginTop: '4px' }}>
               {digest.marketplace.combined > 0
-                ? `${Math.round(digest.marketplace.combined).toLocaleString('ru-RU')} ₽`
+                ? `${Math.round(digest.marketplace.combined).toLocaleString('ru-RU')} ₽`
                 : 'Данные обновляются…'}
             </div>
           </div>

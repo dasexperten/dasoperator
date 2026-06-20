@@ -1574,7 +1574,7 @@ function PromoMatrix() {
                   <div className="name">{sku.name || '—'}</div>
                 </td>
                 <td className="apo-promo-td-price">
-                  {sku.current_price > 0 ? `${sku.current_price} ₽` : '—'}
+                  {sku.current_price > 0 ? `${sku.current_price} ₽` : '—'}
                 </td>
                 {data.actions.map((a) => {
                   const cell = data.cells[`${sku.id}:${a.action_id}`];
@@ -1688,7 +1688,7 @@ function MatrixCellComponent({
   return (
     <td className="apo-promo-cell">
       <div className={priceClass}>
-        {cell.action_price > 0 ? `${cell.action_price} ₽` : '—'}
+        {cell.action_price > 0 ? `${cell.action_price} ₽` : '—'}
       </div>
       <div className="apo-promo-input-wrap">
         <span>осталось</span>

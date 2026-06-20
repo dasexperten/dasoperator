@@ -94,7 +94,7 @@ function fmtRubCompact(n: number): string {
 }
 
 function fmtRubFull(n: number): string {
-  return new Intl.NumberFormat('ru-RU').format(Math.round(n)) + ' ₽';
+  return new Intl.NumberFormat('ru-RU').format(Math.round(n)) + ' ₽';
 }
 
 // Relative "updated" label. English, ERP UI language. Minutes/hours/days.
@@ -785,7 +785,7 @@ function TopBottomCard({ data, loading }: { data: Spotlight | null; loading: boo
 }
 
 function TopRow({ row, sortMode }: { row: Spotlight['top'][number]; sortMode: SortMode }) {
-  const valueLabel = sortMode === 'units' ? `${row.units_sold} ед` : fmtRubCompact(row.revenue_rub) + ' ₽';
+  const valueLabel = sortMode === 'units' ? `${row.units_sold} ед` : fmtRubCompact(row.revenue_rub) + ' ₽';
   const wbShare = row.units_sold > 0 ? (row.wb_units / row.units_sold) * 100 : 0;
 
   return (

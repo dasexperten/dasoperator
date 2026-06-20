@@ -986,7 +986,7 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '16px' }}>
             <Kpi label="Factory" value={`$${landed.factory.usd_per_unit.toFixed(4)}`} sub={`$${landed.factory.usd_total.toFixed(2)} for ${landed.source.qty.toLocaleString('en-US')} pcs`} />
             <Kpi label="Freight + services" value={`$${(landed.landed.usd_per_unit - landed.factory.usd_per_unit - (landed.marking ? landed.marking.usd / landed.source.qty : 0)).toFixed(4)}`} sub={`${landed.allocated_services?.length ?? 0} cost lines`} />
-            <Kpi label="Marking" value={landed.marking ? `$${(landed.marking.usd / landed.source.qty).toFixed(4)}` : '—'} sub={landed.marking ? `${landed.marking.rate_per_unit_rub} ₽/pc paste` : 'non-paste'} />
+            <Kpi label="Marking" value={landed.marking ? `$${(landed.marking.usd / landed.source.qty).toFixed(4)}` : '—'} sub={landed.marking ? `${landed.marking.rate_per_unit_rub} ₽/pc paste` : 'non-paste'} />
             <Kpi label="Landed total" value={`$${landed.landed.usd_per_unit.toFixed(4)}`} sub={`+${landed.landed.freight_markup_pct.toFixed(1)}% over factory`} highlight />
           </div>
           <div style={{ borderTop: '0.5px solid #E0DCD7', paddingTop: '12px' }}>

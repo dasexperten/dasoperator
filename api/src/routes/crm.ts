@@ -6,128 +6,230 @@ import { normalizePhone, tierFor } from '../lib/loyalty';
 
 const crm = new Hono<{ Bindings: Env }>();
 
-interface RetailOrder {
-  id: number;
-  number?: string;
+// =============================================================================
+// Phase 11 (2026-06-20): CRM dashboard source migrated RetailCRM -> Yandex KIT
+// (orders = source of truth) + D1 loyalty ledger. RetailCRM removed from every
+// read endpoint (/stats /funnel /timeline /customers). Response shapes preserved
+// so web/app/crm/page.tsx renders unchanged; extra KIT-derived fields are
+// additive (old UI ignores them, new widgets can use them).
+//
+// All four read endpoints derive from ONE cached KIT orders aggregate
+// (getKitAggregate, TTL 300s): a page load triggers a single full KIT pull,
+// not four. KIT exposes raw orders only, so the analytics are computed here.
+// =============================================================================
+
+const KIT_BASE = 'https://api.kit.yandex.net/v1';
+// A KIT order is a realised sale when it is paid AND in a fulfilment status.
+const PAID_STATUSES = new Set(['PAYMENT_FINALLY_PAID', 'PAYMENT_PAID']);
+const SALE_STATUSES = new Set(['COMPLETED', 'WAIT_FOR_DELIVERY']);
+
+interface KitOrder {
+  id?: string;
+  order_number?: number | string;
   status?: string;
-  totalSumm?: number;
-  bonusesCreditTotal?: number;
-  bonusesChargeTotal?: number;
-  loyaltyLevel?: { id?: number; name?: string };
-  createdAt?: string;
-  customer?: {
-    id?: number;
-    firstName?: string;
-    lastName?: string;
-    email?: string;
-  };
+  created_at?: string;
+  total_final_price?: string;
+  purchased_price?: string;
+  total_price?: string;
+  payment?: { status?: string; method?: string };
+  client?: { phone?: string; email?: string; first_name?: string; last_name?: string };
+  delivery_chunks?: Array<{ items?: Array<{ quantity?: number }> }>;
 }
 
-interface RetailLoyaltyAccount {
-  id: number;
-  amount?: number;
-  ordersSum?: number;
-  nextLevelSum?: number;
-  level?: {
-    id?: number;
-    name?: string;
-    privilegeSize?: number;
-  };
-  customer?: { id?: number };
+interface CustomerAgg {
+  phone: string;
+  name: string;
+  email: string | null;
+  orders_count: number;
+  sales_count: number;
+  total_spent: number;
+  last_order: string;
 }
 
-interface RetailCustomer {
-  id: number;
-  externalId?: string;
-  firstName?: string;
-  lastName?: string;
-  email?: string;
-  phones?: Array<{ number?: string }>;
-  ordersCount?: number;
-  totalSumm?: number;
-  averageSumm?: number;
-  createdAt?: string;
-  site?: string;
+interface KitAggregate {
+  orders_total: number;
+  sales_count: number;
+  cancelled_count: number;
+  revenue_total: number;
+  units_total: number;
+  customers_total: number;
+  buyers_count: number;
+  repeat_buyers: number;
+  orders_this_month: number;
+  revenue_this_month: number;
+  monthly: Array<{ month: string; orders: number; sales: number; revenue: number }>;
+  daily30: Array<{ date: string; orders: number }>;
+  customers: CustomerAgg[];
 }
 
-async function retailGet<T = unknown>(
-  domain: string,
-  token: string,
-  path: string,
-  params: Record<string, string | number | undefined> = {}
-): Promise<T> {
-  const url = new URL(`https://${domain}.retailcrm.ru/api/v5${path}`);
-  for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
-  }
+function rub(v: string | undefined): number {
+  const n = parseFloat(v ?? '0');
+  return Number.isFinite(n) ? n : 0;
+}
+
+async function fetchKitOrdersPage(env: Env, page: number, perPage = 100) {
+  const url = new URL(`${KIT_BASE}/orders`);
+  url.searchParams.set('page', String(page));
+  url.searchParams.set('per_page', String(perPage));
   const res = await fetch(url.toString(), {
-    method: 'GET',
-    headers: { 'X-API-KEY': token, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${env.YANDEX_KIT_TOKEN}` },
   });
-  if (!res.ok) {
-    throw new Error(`Retail CRM HTTP ${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(`KIT API ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return (await res.json()) as { total_count?: number; orders?: KitOrder[] };
+}
+
+async function fetchAllKitOrders(env: Env): Promise<{ total: number; orders: KitOrder[] }> {
+  const first = await fetchKitOrdersPage(env, 1, 100);
+  const total = first.total_count ?? (first.orders?.length ?? 0);
+  let orders = first.orders ?? [];
+  const pageCount = Math.min(40, Math.ceil(total / 100)); // hard cap 4000 orders
+  const rest: number[] = [];
+  for (let p = 2; p <= pageCount; p++) rest.push(p);
+  // Controlled concurrency (chunks of 6) — stays under KIT's 10 req/s limit.
+  for (let i = 0; i < rest.length; i += 6) {
+    const chunk = rest.slice(i, i + 6);
+    const pages = await Promise.all(chunk.map((p) => fetchKitOrdersPage(env, p, 100)));
+    for (const pg of pages) orders = orders.concat(pg.orders ?? []);
   }
-  return (await res.json()) as T;
+  return { total, orders };
+}
+
+function buildAggregate(total: number, orders: KitOrder[]): KitAggregate {
+  const nowMonth = new Date().toISOString().slice(0, 7);
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const dayKeys: string[] = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(today);
+    d.setUTCDate(today.getUTCDate() - i);
+    dayKeys.push(d.toISOString().slice(0, 10));
+  }
+  const ordersByDay = new Map<string, number>(dayKeys.map((k) => [k, 0]));
+  const monthly = new Map<string, { orders: number; sales: number; revenue: number }>();
+  const allPhones = new Set<string>();
+  const salesByPhone = new Map<string, number>();
+  const custMap = new Map<string, CustomerAgg>();
+
+  let salesCount = 0, cancelled = 0, revenueTotal = 0, units = 0;
+  let ordersThisMonth = 0, revenueThisMonth = 0;
+
+  for (const o of orders) {
+    const created = o.created_at ?? '';
+    const month = created.slice(0, 7);
+    const day = created.slice(0, 10);
+    const isSale = SALE_STATUSES.has(o.status ?? '') && PAID_STATUSES.has(o.payment?.status ?? '');
+    const isCancelled = (o.status ?? '') === 'CANCELLED';
+    const net = Math.round(rub(o.total_final_price ?? o.purchased_price));
+    const phone = normalizePhone(o.client?.phone);
+
+    if (isCancelled) cancelled += 1;
+
+    const m = monthly.get(month) ?? { orders: 0, sales: 0, revenue: 0 };
+    m.orders += 1;
+    if (isSale) { m.sales += 1; m.revenue += net; }
+    monthly.set(month, m);
+
+    if (ordersByDay.has(day)) ordersByDay.set(day, (ordersByDay.get(day) ?? 0) + 1);
+
+    if (month === nowMonth) {
+      ordersThisMonth += 1;
+      if (isSale) revenueThisMonth += net;
+    }
+
+    if (isSale) {
+      salesCount += 1;
+      revenueTotal += net;
+      for (const ch of o.delivery_chunks ?? []) {
+        for (const it of ch.items ?? []) units += Number(it.quantity ?? 0);
+      }
+    }
+
+    if (phone) {
+      allPhones.add(phone);
+      if (isSale) salesByPhone.set(phone, (salesByPhone.get(phone) ?? 0) + 1);
+      const name =
+        [o.client?.first_name, o.client?.last_name].filter(Boolean).join(' ') ||
+        o.client?.email || '—';
+      const cu = custMap.get(phone) ?? {
+        phone, name, email: o.client?.email ?? null,
+        orders_count: 0, sales_count: 0, total_spent: 0, last_order: created,
+      };
+      cu.orders_count += 1;
+      if (isSale) { cu.sales_count += 1; cu.total_spent += net; }
+      if (created > cu.last_order) cu.last_order = created;
+      if (cu.name === '—' && name !== '—') cu.name = name;
+      custMap.set(phone, cu);
+    }
+  }
+
+  let repeat = 0;
+  for (const n of salesByPhone.values()) if (n >= 2) repeat += 1;
+
+  const monthlyArr = Array.from(monthly.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([month, v]) => ({ month, orders: v.orders, sales: v.sales, revenue: v.revenue }));
+  const customers = Array.from(custMap.values()).sort((a, b) => b.total_spent - a.total_spent);
+
+  return {
+    orders_total: total,
+    sales_count: salesCount,
+    cancelled_count: cancelled,
+    revenue_total: revenueTotal,
+    units_total: units,
+    customers_total: allPhones.size,
+    buyers_count: salesByPhone.size,
+    repeat_buyers: repeat,
+    orders_this_month: ordersThisMonth,
+    revenue_this_month: revenueThisMonth,
+    monthly: monthlyArr,
+    daily30: dayKeys.map((date) => ({ date, orders: ordersByDay.get(date) ?? 0 })),
+    customers,
+  };
+}
+
+async function getKitAggregate(env: Env): Promise<KitAggregate> {
+  return withKvCache(env, cacheKey('crm:kit-agg', { v: 1 }), 300, async () => {
+    const { total, orders } = await fetchAllKitOrders(env);
+    return buildAggregate(total, orders);
+  });
+}
+
+async function loyaltyMemberCount(env: Env): Promise<number> {
+  const row = await env.DB.prepare('SELECT COUNT(*) AS c FROM loyalty_accounts').first<{ c: number }>();
+  return row?.c ?? 0;
 }
 
 crm.get('/stats', async (c) => {
-  const domain = c.env.RETAIL_CRM_DOMAIN;
-  const token = c.env.RETAIL_CRM_TOKEN;
-  if (!domain || !token) {
-    return fail(c, 503, [{ code: 'crm_not_configured', message: 'Retail CRM not configured.' }]);
+  if (!c.env.YANDEX_KIT_TOKEN) {
+    return fail(c, 503, [{ code: 'kit_not_configured', message: 'YANDEX_KIT_TOKEN missing.' }]);
   }
-
   try {
-    const payload = await withKvCache(c.env, cacheKey('crm:stats', { domain }), 300, async () => {
-      const monthStart = new Date();
-      monthStart.setUTCDate(1);
-      monthStart.setUTCHours(0, 0, 0, 0);
-      const monthStartIso = monthStart.toISOString().slice(0, 10);
-
-      // Parallel — all 4 upstream calls run at once instead of in sequence.
-      // Drops worst-case from sum(4 calls) to max(4 calls) — typically 4x faster.
-      const [customersResp, ordersTotalResp, ordersMonthResp, loyaltyResp] =
-        await Promise.all([
-          retailGet<{ pagination?: { totalCount?: number } }>(
-            domain, token, '/customers', { 'page': 1, 'limit': 20 }
-          ),
-          retailGet<{ pagination?: { totalCount?: number } }>(
-            domain, token, '/orders', { 'page': 1, 'limit': 20 }
-          ),
-          retailGet<{
-            pagination?: { totalCount?: number };
-            orders?: RetailOrder[];
-          }>(domain, token, '/orders', {
-            'filter[createdAtFrom]': monthStartIso,
-            'page': 1,
-            'limit': 100,
-          }),
-          retailGet<{
-            pagination?: { totalCount?: number };
-          }>(domain, token, '/loyalty/accounts', { 'page': 1, 'limit': 20 }),
-        ]);
-
-      const ordersThisMonth = ordersMonthResp.pagination?.totalCount ?? 0;
-      const monthOrders = ordersMonthResp.orders ?? [];
-      const revenueThisMonth = monthOrders.reduce(
-        (sum, o) => sum + (typeof o.totalSumm === 'number' ? o.totalSumm : 0),
-        0
-      );
-
-      return {
-        source: `${domain}.retailcrm.ru`,
-        customers_total: customersResp.pagination?.totalCount ?? 0,
-        orders_total: ordersTotalResp.pagination?.totalCount ?? 0,
-        orders_this_month: ordersThisMonth,
-        revenue_this_month_rub: revenueThisMonth,
-        loyalty_members_total: loyaltyResp.pagination?.totalCount ?? 0,
-        synced_at: Math.floor(Date.now() / 1000),
-      };
+    const [agg, loyaltyMembers] = await Promise.all([
+      getKitAggregate(c.env),
+      loyaltyMemberCount(c.env),
+    ]);
+    return ok(c, {
+      source: 'kit:dasexperten.ru + d1:loyalty',
+      customers_total: agg.customers_total,
+      orders_total: agg.orders_total,
+      orders_this_month: agg.orders_this_month,
+      revenue_this_month_rub: agg.revenue_this_month,
+      loyalty_members_total: loyaltyMembers,
+      // --- additive KIT analytics (ignored by old UI, ready for new widgets) ---
+      sales_total: agg.sales_count,
+      revenue_total_rub: agg.revenue_total,
+      aov_rub: agg.sales_count ? Math.round(agg.revenue_total / agg.sales_count) : 0,
+      units_total: agg.units_total,
+      cancelled_total: agg.cancelled_count,
+      cancel_rate_pct: agg.orders_total
+        ? Math.round((agg.cancelled_count / agg.orders_total) * 1000) / 10
+        : 0,
+      monthly: agg.monthly,
+      synced_at: Math.floor(Date.now() / 1000),
     });
-    return ok(c, payload);
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
-    return fail(c, 502, [{ code: 'crm_upstream_error', message: msg }]);
+    return fail(c, 502, [{ code: 'kit_upstream_error', message: msg }]);
   }
 });
 
@@ -284,308 +386,152 @@ crm.get('/orders', async (c) => {
 //   limit   — 20 / 50 / 100 (default 50)
 //   search  — free-text by name (filter[name]); if digits-only, tries phone
 crm.get('/customers', async (c) => {
-  const domain = c.env.RETAIL_CRM_DOMAIN;
-  const token = c.env.RETAIL_CRM_TOKEN;
-  if (!domain || !token) {
-    return fail(c, 503, [{ code: 'crm_not_configured', message: 'Retail CRM not configured.' }]);
+  if (!c.env.YANDEX_KIT_TOKEN) {
+    return fail(c, 503, [{ code: 'kit_not_configured', message: 'YANDEX_KIT_TOKEN missing.' }]);
   }
-
   const page = Math.max(1, Number(c.req.query('page') ?? 1));
   const rawLimit = Number(c.req.query('limit') ?? 50);
   const limit = [20, 50, 100].includes(rawLimit) ? rawLimit : 50;
-  const search = (c.req.query('search') ?? '').trim();
+  const rawSearch = (c.req.query('search') ?? '').trim();
+  const search = rawSearch.toLowerCase();
+  const digits = search.replace(/\D/g, '');
 
-  const params: Record<string, string | number | undefined> = {
-    'page': page,
-    'limit': limit,
+  const TIER_RU: Record<string, string> = {
+    svoy: 'Свой', tsenitel: 'Ценитель', expert: 'Эксперт', ambassador: 'Амбассадор',
   };
 
-  if (search) {
-    if (/^[\d+\s\-()]+$/.test(search) && search.replace(/\D/g, '').length >= 4) {
-      // Digits-style → search by phone
-      params['filter[phone]'] = search;
-    } else {
-      params['filter[name]'] = search;
-    }
-  }
-
   try {
-    const payload = await withKvCache(
-      c.env,
-      cacheKey('crm:customers', { domain, page, limit, search }),
-      120,
-      async () => {
-        // Parallel — customers feed + loyalty lookup table fetched simultaneously
-        const [customersResp, loyaltyResp] = await Promise.all([
-          retailGet<{
-            pagination?: { totalCount?: number; currentPage?: number; totalPageCount?: number };
-            customers?: RetailCustomer[];
-          }>(domain, token, '/customers', params),
-          retailGet<{
-            loyaltyAccounts?: RetailLoyaltyAccount[];
-          }>(domain, token, '/loyalty/accounts', { 'page': 1, 'limit': 100 }),
-        ]);
+    const agg = await getKitAggregate(c.env);
+    let list = agg.customers;
+    if (search) {
+      list = list.filter((cu) =>
+        cu.name.toLowerCase().includes(search) ||
+        (cu.email ?? '').toLowerCase().includes(search) ||
+        (digits.length >= 4 && cu.phone.includes(digits))
+      );
+    }
+    const totalCount = list.length;
+    const pageRows = list.slice((page - 1) * limit, page * limit);
 
-        const customersOnPage = customersResp.customers ?? [];
+    const phones = pageRows.map((cu) => cu.phone);
+    const accByPhone = new Map<string, any>();
+    if (phones.length) {
+      const ph = phones.map(() => '?').join(',');
+      const rows = await c.env.DB.prepare(
+        `SELECT phone, balance, pending_balance, tier, lifetime_spent FROM loyalty_accounts WHERE phone IN (${ph})`
+      ).bind(...phones).all<any>();
+      for (const r of rows.results ?? []) accByPhone.set(r.phone, r);
+    }
 
-        const loyaltyByCustomer = new Map<number, RetailLoyaltyAccount>();
-        for (const a of loyaltyResp.loyaltyAccounts ?? []) {
-          if (a.customer?.id !== undefined) {
-            loyaltyByCustomer.set(a.customer.id, a);
-          }
-        }
+    const customers = pageRows.map((cu) => {
+      const acc = accByPhone.get(cu.phone);
+      const tierInfo = acc ? tierFor(acc.lifetime_spent) : null;
+      return {
+        id: cu.phone,
+        name: cu.name,
+        email: cu.email,
+        phone: cu.phone,
+        orders_count: cu.orders_count,
+        total_spent: cu.total_spent,
+        average_order: cu.sales_count ? Math.round(cu.total_spent / cu.sales_count) : 0,
+        created_at: cu.last_order,
+        loyalty_balance: acc ? acc.balance : null,
+        loyalty_level: acc ? (TIER_RU[acc.tier] ?? acc.tier) : null,
+        loyalty_privilege_pct: tierInfo ? tierInfo.percent : null,
+      };
+    });
 
-        const customers = customersOnPage.map((cu) => {
-          const acc = loyaltyByCustomer.get(cu.id);
-          const phone = cu.phones?.[0]?.number ?? null;
-          return {
-            id: cu.id,
-            name: [cu.firstName, cu.lastName].filter(Boolean).join(' ') || cu.email || '—',
-            email: cu.email ?? null,
-            phone,
-            orders_count: typeof cu.ordersCount === 'number' ? cu.ordersCount : 0,
-            total_spent: typeof cu.totalSumm === 'number' ? cu.totalSumm : 0,
-            average_order: typeof cu.averageSumm === 'number' ? cu.averageSumm : 0,
-            created_at: cu.createdAt ?? '—',
-            loyalty_balance: typeof acc?.amount === 'number' ? acc.amount : null,
-            loyalty_level: acc?.level?.name ?? null,
-            loyalty_privilege_pct: typeof acc?.level?.privilegeSize === 'number'
-              ? acc.level.privilegeSize
-              : null,
-          };
-        });
-
-        return {
-          source: `${domain}.retailcrm.ru`,
-          pagination: {
-            page,
-            limit,
-            total_count: customersResp.pagination?.totalCount ?? 0,
-            total_pages: customersResp.pagination?.totalPageCount ?? 1,
-          },
-          search,
-          customers,
-          synced_at: Math.floor(Date.now() / 1000),
-        };
-      }
-    );
-    return ok(c, payload);
+    return ok(c, {
+      source: 'kit:dasexperten.ru + d1:loyalty',
+      pagination: {
+        page, limit,
+        total_count: totalCount,
+        total_pages: Math.max(1, Math.ceil(totalCount / limit)),
+      },
+      search: rawSearch,
+      customers,
+      synced_at: Math.floor(Date.now() / 1000),
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
-    return fail(c, 502, [{ code: 'crm_upstream_error', message: msg }]);
+    return fail(c, 502, [{ code: 'kit_upstream_error', message: msg }]);
   }
 });
 
-// =============================================================================
-// GET /api/crm/timeline — daily registrations + orders for last 30 days
-// =============================================================================
-// Walks Retail CRM customers + orders, groups by day. Used by the Daily
-// activity chart on /crm page. Yandex Metrika visits are merged client-side.
 crm.get('/timeline', async (c) => {
-  const domain = c.env.RETAIL_CRM_DOMAIN;
-  const token = c.env.RETAIL_CRM_TOKEN;
-  if (!domain || !token) {
-    return fail(c, 503, [{ code: 'crm_not_configured', message: 'Retail CRM not configured.' }]);
+  if (!c.env.YANDEX_KIT_TOKEN) {
+    return fail(c, 503, [{ code: 'kit_not_configured', message: 'YANDEX_KIT_TOKEN missing.' }]);
   }
+  try {
+    const agg = await getKitAggregate(c.env);
 
-  // Build last 30 day window — UTC days, oldest first
-  const days = 30;
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  const startDate = new Date(today);
-  startDate.setUTCDate(today.getUTCDate() - (days - 1));
+    // Registrations by day from the D1 loyalty ledger (registered_at, last 30d).
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const start = new Date(today);
+    start.setUTCDate(today.getUTCDate() - 29);
+    const startEpoch = Math.floor(start.getTime() / 1000);
 
-  const dayKeys: string[] = [];
-  for (let i = 0; i < days; i++) {
-    const d = new Date(startDate);
-    d.setUTCDate(startDate.getUTCDate() + i);
-    dayKeys.push(d.toISOString().slice(0, 10));
-  }
+    const regRows = await c.env.DB.prepare(
+      'SELECT registered_at FROM loyalty_accounts WHERE registered_at >= ?'
+    ).bind(startEpoch).all<{ registered_at: number }>();
 
-  const startIso = startDate.toISOString().slice(0, 10);
-  const endIso = today.toISOString().slice(0, 10);
-
-  // Counters: dayKey -> count
-  const regsByDay = new Map<string, number>(dayKeys.map((k) => [k, 0]));
-  const ordersByDay = new Map<string, number>(dayKeys.map((k) => [k, 0]));
-
-  function bumpDay(map: Map<string, number>, isoTimestamp: string | undefined) {
-    if (!isoTimestamp) return;
-    const day = isoTimestamp.slice(0, 10);
-    if (map.has(day)) {
-      map.set(day, (map.get(day) ?? 0) + 1);
+    const regByDay = new Map<string, number>();
+    for (const r of regRows.results ?? []) {
+      if (!r.registered_at) continue;
+      const day = new Date(r.registered_at * 1000).toISOString().slice(0, 10);
+      regByDay.set(day, (regByDay.get(day) ?? 0) + 1);
     }
-  }
 
-  try {
-    const payload = await withKvCache(
-      c.env,
-      cacheKey('crm:timeline', { domain, days, endIso }),
-      600,
-      async () => {
-        // Parallel — customers and orders pagination walks run concurrently
-        // (each is internally sequential because pages aren't known upfront,
-        // but the two loops don't depend on each other).
-        const walkCustomers = async () => {
-          let page = 1;
-          while (page <= 20) {
-            const resp = await retailGet<{
-              pagination?: { totalPageCount?: number; currentPage?: number };
-              customers?: Array<{ createdAt?: string }>;
-            }>(domain, token, '/customers', {
-              'page': page,
-              'limit': 100,
-              'filter[dateFrom]': startIso,
-              'filter[dateTo]': endIso,
-            });
-            for (const cu of resp.customers ?? []) bumpDay(regsByDay, cu.createdAt);
-            const totalPages = resp.pagination?.totalPageCount ?? 1;
-            if (page >= totalPages) break;
-            page += 1;
-          }
-        };
+    const timeline = agg.daily30.map((d) => ({
+      date: d.date,
+      registrations: regByDay.get(d.date) ?? 0,
+      orders: d.orders,
+    }));
 
-        const walkOrders = async () => {
-          let page = 1;
-          while (page <= 20) {
-            const resp = await retailGet<{
-              pagination?: { totalPageCount?: number; currentPage?: number };
-              orders?: Array<{ createdAt?: string }>;
-            }>(domain, token, '/orders', {
-              'page': page,
-              'limit': 100,
-              'filter[createdAtFrom]': startIso,
-              'filter[createdAtTo]': endIso,
-            });
-            for (const o of resp.orders ?? []) bumpDay(ordersByDay, o.createdAt);
-            const totalPages = resp.pagination?.totalPageCount ?? 1;
-            if (page >= totalPages) break;
-            page += 1;
-          }
-        };
-
-        await Promise.all([walkCustomers(), walkOrders()]);
-
-        const timeline = dayKeys.map((day) => ({
-          date: day,
-          registrations: regsByDay.get(day) ?? 0,
-          orders: ordersByDay.get(day) ?? 0,
-        }));
-
-        return {
-          source: `${domain}.retailcrm.ru`,
-          window_days: days,
-          timeline,
-          synced_at: Math.floor(Date.now() / 1000),
-        };
-      }
-    );
-    return ok(c, payload);
+    return ok(c, {
+      source: 'kit:dasexperten.ru + d1:loyalty',
+      window_days: 30,
+      timeline,
+      synced_at: Math.floor(Date.now() / 1000),
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
-    return fail(c, 502, [{ code: 'crm_upstream_error', message: msg }]);
+    return fail(c, 502, [{ code: 'kit_upstream_error', message: msg }]);
   }
 });
 
-// =============================================================================
-// GET /api/crm/funnel — conversion stages for the funnel widget
-// =============================================================================
-// Walks customers (paginated 100/page, up to ~1000 customers) to count:
-//   • registered_total — all customers
-//   • loyalty_members  — separate /loyalty/accounts call
-//   • bought_at_least_once — customers with ordersCount >= 1
-//   • repeat_buyers    — customers with ordersCount >= 2
 crm.get('/funnel', async (c) => {
-  const domain = c.env.RETAIL_CRM_DOMAIN;
-  const token = c.env.RETAIL_CRM_TOKEN;
-  if (!domain || !token) {
-    return fail(c, 503, [{ code: 'crm_not_configured', message: 'Retail CRM not configured.' }]);
+  if (!c.env.YANDEX_KIT_TOKEN) {
+    return fail(c, 503, [{ code: 'kit_not_configured', message: 'YANDEX_KIT_TOKEN missing.' }]);
   }
-
   try {
-    const payload = await withKvCache(
-      c.env,
-      cacheKey('crm:funnel', { domain }),
-      600,
-      async () => {
-        let registeredTotal = 0;
-        let bought = 0;
-        let repeat = 0;
-
-        // Kick off loyalty count in parallel with the customers pagination walk
-        const loyaltyPromise = retailGet<{
-          pagination?: { totalCount?: number };
-        }>(domain, token, '/loyalty/accounts', { 'page': 1, 'limit': 20 });
-
-        // Walk customers — up to 12 pages (1200 customers ceiling, well above current 928)
-        let page = 1;
-        let totalPages = 1;
-        while (page <= 12) {
-          const resp = await retailGet<{
-            pagination?: { totalCount?: number; totalPageCount?: number };
-            customers?: Array<{ ordersCount?: number }>;
-          }>(domain, token, '/customers', { 'page': page, 'limit': 100 });
-
-          if (page === 1) {
-            registeredTotal = resp.pagination?.totalCount ?? 0;
-            totalPages = resp.pagination?.totalPageCount ?? 1;
-          }
-
-          for (const cu of resp.customers ?? []) {
-            const oc = cu.ordersCount ?? 0;
-            if (oc >= 1) bought += 1;
-            if (oc >= 2) repeat += 1;
-          }
-
-          if (page >= totalPages) break;
-          page += 1;
-        }
-
-        const loyaltyResp = await loyaltyPromise;
-        const loyaltyMembers = loyaltyResp.pagination?.totalCount ?? 0;
-
-        return {
-          source: `${domain}.retailcrm.ru`,
-          stages: {
-            registered: registeredTotal,
-            loyalty_members: loyaltyMembers,
-            bought_at_least_once: bought,
-            repeat_buyers: repeat,
-          },
-          // Convenience derivatives
-          conversion_to_buyer_pct: registeredTotal > 0
-            ? Math.round((bought / registeredTotal) * 1000) / 10
-            : 0,
-          repeat_rate_pct: bought > 0
-            ? Math.round((repeat / bought) * 1000) / 10
-            : 0,
-          welcome_burnt_estimate: Math.max(0, loyaltyMembers - bought),
-          synced_at: Math.floor(Date.now() / 1000),
-        };
-      }
-    );
-    return ok(c, payload);
+    const [agg, loyaltyMembers] = await Promise.all([
+      getKitAggregate(c.env),
+      loyaltyMemberCount(c.env),
+    ]);
+    const registered = agg.customers_total;
+    const bought = agg.buyers_count;
+    const repeat = agg.repeat_buyers;
+    return ok(c, {
+      source: 'kit:dasexperten.ru + d1:loyalty',
+      stages: {
+        registered,
+        loyalty_members: loyaltyMembers,
+        bought_at_least_once: bought,
+        repeat_buyers: repeat,
+      },
+      conversion_to_buyer_pct: registered > 0 ? Math.round((bought / registered) * 1000) / 10 : 0,
+      repeat_rate_pct: bought > 0 ? Math.round((repeat / bought) * 1000) / 10 : 0,
+      welcome_burnt_estimate: Math.max(0, loyaltyMembers - bought),
+      synced_at: Math.floor(Date.now() / 1000),
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
-    return fail(c, 502, [{ code: 'crm_upstream_error', message: msg }]);
+    return fail(c, 502, [{ code: 'kit_upstream_error', message: msg }]);
   }
 });
 
-
-// ════════════════════════════════════════════════════════════════════════════
-// POST /api/crm/sync-site-sales
-//
-// Fetch Retail CRM orders for the given window (default: last 2 days incl. today)
-// and upsert per-day aggregates into marketplace_sales_daily as marketplace='site'.
-//
-// Business rule (locked 2026-05-13):
-//   "Sale" = any order on site 'dasexperten' EXCEPT status='cancelled'.
-//   This mirrors how Ozon/WB daily aggregates are computed (orders placed, not
-//   shipped/paid). If an order later cancels, the prior day's aggregate is
-//   corrected on the next sync (idempotent UPSERT).
-//
-// Idempotent — UPSERT keyed on (marketplace='site', date).
-// ════════════════════════════════════════════════════════════════════════════
 crm.post('/sync-site-sales', async (c) => {
   const domain = c.env.RETAIL_CRM_DOMAIN;
   const token = c.env.RETAIL_CRM_TOKEN;

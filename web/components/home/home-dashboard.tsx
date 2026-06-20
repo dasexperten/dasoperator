@@ -14,6 +14,7 @@ import {
 } from '@/lib/api';
 import MarketplacePulse from './marketplace-pulse';
 import SystemHealth from './system-health';
+import DailyDigest from './daily-digest';
 
 // =============================================================================
 // Helpers
@@ -229,6 +230,7 @@ export default function HomeDashboard() {
 
       {/* SYSTEM HEALTH ============================================== */}
       <SystemHealth />
+      <DailyDigest />
 
       {/* MARKETPLACE PULSE ========================================== */}
       <MarketplacePulse />

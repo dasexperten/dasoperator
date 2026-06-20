@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import { ReviewCard } from '../../components/reviews/review-card';
 import './reviews-page.css';

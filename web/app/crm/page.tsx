@@ -383,7 +383,7 @@ export default function CrmPage() {
           page={customersPage}
           setPage={setCustomersPage}
         >
-          <CustomersTable customers={customers} hasSearch={!!customersActiveSearch} search={customersActiveSearch} />
+          <CustomersTable customers={customers} hasSearch={!!customersActiveSearch} search={customersActiveSearch} sort={custSort} onSort={sortCustomers} />
         </DataTablePanel>
       )}
 
@@ -1047,7 +1047,7 @@ function OrdersTable({ orders, hasSearch, search }: { orders: CrmOrder[]; hasSea
   );
 }
 
-function CustomersTable({ customers, hasSearch, search }: { customers: CrmCustomer[]; hasSearch: boolean; search: string }) {
+function CustomersTable({ customers, hasSearch, search, sort, onSort }: { customers: CrmCustomer[]; hasSearch: boolean; search: string; sort: { key: string; dir: 'asc' | 'desc' }; onSort: (k: string) => void }) {
   return (
     <table className="w-full">
       <thead>
@@ -1055,10 +1055,10 @@ function CustomersTable({ customers, hasSearch, search }: { customers: CrmCustom
           <Th align="left">Customer</Th>
           <Th align="left">Email</Th>
           <Th align="left">Phone</Th>
-          <SortTh label="Orders" sortKey="orders" current={custSort} onSort={sortCustomers} />
-          <SortTh label="Total spent" sortKey="spent" current={custSort} onSort={sortCustomers} />
+          <SortTh label="Orders" sortKey="orders" current={sort} onSort={onSort} />
+          <SortTh label="Total spent" sortKey="spent" current={sort} onSort={onSort} />
           <Th align="left">Level</Th>
-          <SortTh label="Balance" sortKey="balance" current={custSort} onSort={sortCustomers} />
+          <SortTh label="Balance" sortKey="balance" current={sort} onSort={onSort} />
           <Th align="left">Registered</Th>
         </tr>
       </thead>

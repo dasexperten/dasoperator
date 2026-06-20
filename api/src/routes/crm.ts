@@ -254,6 +254,101 @@ crm.get('/orders', async (c) => {
   const STATUS_KEBAB = (st: string) => st.toLowerCase().replace(/_/g, '-');
 
   try {
+    // -----------------------------------------------------------------------
+    // Ranking mode (Variant B): rank ALL orders, not just the visible page.
+    // Pull the full KIT feed once (cached 120s), enrich with loyalty, then
+    // sort + paginate in memory. Active only when a sort is requested and there
+    // is no search (search keeps its own scan path below).
+    // -----------------------------------------------------------------------
+    const sortKey = (c.req.query('sort') ?? '').toLowerCase();
+    const sortAsc = (c.req.query('dir') ?? 'desc').toLowerCase() === 'asc';
+    if (sortKey && !search) {
+      const mul = sortAsc ? 1 : -1;
+      const full = await withKvCache(
+        c.env,
+        'crm:orders-kit-full-v1',
+        120,
+        async () => {
+          const fetchKitPageFull = async (p: number) => {
+            const url = new URL('https://api.kit.yandex.net/v1/orders');
+            url.searchParams.set('page', String(p));
+            url.searchParams.set('per_page', '100');
+            const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${c.env.YANDEX_KIT_TOKEN}` } });
+            if (!res.ok) throw new Error(`KIT API ${res.status}: ${(await res.text()).slice(0, 200)}`);
+            return (await res.json()) as { total_count?: number; orders?: any[] };
+          };
+          const all: any[] = [];
+          for (let p = 1; p <= 30; p++) {
+            const resp = await fetchKitPageFull(p);
+            const batch = resp.orders ?? [];
+            all.push(...batch);
+            if (batch.length < 100) break;
+          }
+          const accByPhone = new Map<string, any>();
+          {
+            const rows = await c.env.DB.prepare('SELECT phone, balance, pending_balance, tier, lifetime_spent FROM loyalty_accounts').all<any>();
+            for (const r of rows.results ?? []) accByPhone.set(r.phone, r);
+          }
+          const accrualByOrder = new Map<string, any>();
+          {
+            const rows = await c.env.DB.prepare("SELECT kit_order_id, points, status FROM loyalty_transactions WHERE type = 'accrual'").all<any>();
+            for (const r of rows.results ?? []) accrualByOrder.set(r.kit_order_id, r);
+          }
+          const mapped = all.map((o) => {
+            const phone = normalizePhone(o?.client?.phone);
+            const acc = phone ? accByPhone.get(phone) : undefined;
+            const accrual = accrualByOrder.get(o.id);
+            let charged = 0;
+            for (const chunk of o.delivery_chunks ?? []) {
+              for (const it of chunk.items ?? []) {
+                charged +=
+                  Math.round(parseFloat(it.promocode_discount ?? '0')) +
+                  Math.round(parseFloat(it.loyalty_discount ?? '0')) +
+                  Math.round(parseFloat(it.gift_card_discount ?? '0'));
+              }
+            }
+            const tierInfo = acc ? tierFor(acc.lifetime_spent) : null;
+            return {
+              id: o.order_number,
+              number: String(o.order_number ?? ''),
+              customer_name: [o.client?.first_name, o.client?.last_name].filter(Boolean).join(' ') || o.client?.email || '—',
+              total: Math.round(parseFloat(o.total_final_price ?? o.purchased_price ?? '0')),
+              status: STATUS_KEBAB(o.status ?? '—'),
+              created_at: o.created_at ?? '—',
+              bonus_credited: accrual ? accrual.points : 0,
+              bonus_credited_status: accrual ? accrual.status : null,
+              bonus_charged: charged,
+              loyalty_balance: acc ? acc.balance : null,
+              loyalty_pending: acc ? acc.pending_balance : null,
+              loyalty_level: acc ? (TIER_RU[acc.tier] ?? acc.tier) : null,
+              loyalty_privilege_pct: tierInfo ? tierInfo.percent : null,
+            };
+          });
+          return { orders: mapped };
+        },
+      );
+      const sorted = [...((full.orders ?? []) as any[])].sort((a, b) => {
+        switch (sortKey) {
+          case 'total': return (a.total - b.total) * mul;
+          case 'credited': return (a.bonus_credited - b.bonus_credited) * mul;
+          case 'charged': return (a.bonus_charged - b.bonus_charged) * mul;
+          case 'balance': return ((a.loyalty_balance ?? 0) - (b.loyalty_balance ?? 0)) * mul;
+          case 'status': return String(a.status).localeCompare(String(b.status)) * mul;
+          case 'date': return (new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) * mul;
+          default: return 0;
+        }
+      });
+      const totalCount = sorted.length;
+      const pageRows = sorted.slice((page - 1) * limit, page * limit);
+      return ok(c, {
+        source: 'kit-full+d1',
+        pagination: { page, limit, total_count: totalCount, total_pages: Math.max(1, Math.ceil(totalCount / limit)) },
+        search: '',
+        orders: pageRows,
+        synced_at: Math.floor(Date.now() / 1000),
+      }, ['Orders ranked']);
+    }
+
     const payload = await withKvCache(
       c.env,
       cacheKey('crm:orders-kit', { page, limit, search }),

@@ -206,6 +206,12 @@ export default function CrmPage() {
     }
   }, [ordersPage, ordersLimit, ordersActiveSearch]);
 
+  const [custSort, setCustSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'spent', dir: 'desc' });
+  const sortCustomers = (k: string) => {
+    setCustSort((prev) => (prev.key === k ? { key: k, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key: k, dir: 'desc' }));
+    setCustomersPage(1);
+  };
+
   const loadCustomers = useCallback(async () => {
     setCustomersLoading(true);
     setCustomersError(null);
@@ -215,6 +221,8 @@ export default function CrmPage() {
         limit: String(customersLimit),
       });
       if (customersActiveSearch) params.set('search', customersActiveSearch);
+      params.set('sort', custSort.key);
+      params.set('dir', custSort.dir);
       const res = await fetch(`${API_BASE}/api/crm/customers?${params}`);
       const data = await res.json();
       if (data.success && data.result) {
@@ -228,7 +236,7 @@ export default function CrmPage() {
     } finally {
       setCustomersLoading(false);
     }
-  }, [customersPage, customersLimit, customersActiveSearch]);
+  }, [customersPage, customersLimit, customersActiveSearch, custSort]);
 
   useEffect(() => { loadStats(); }, [loadStats]);
   useEffect(() => { loadMetrika(); }, [loadMetrika]);
@@ -1047,10 +1055,10 @@ function CustomersTable({ customers, hasSearch, search }: { customers: CrmCustom
           <Th align="left">Customer</Th>
           <Th align="left">Email</Th>
           <Th align="left">Phone</Th>
-          <Th align="right">Orders</Th>
-          <Th align="right">Total spent</Th>
+          <SortTh label="Orders" sortKey="orders" current={custSort} onSort={sortCustomers} />
+          <SortTh label="Total spent" sortKey="spent" current={custSort} onSort={sortCustomers} />
           <Th align="left">Level</Th>
-          <Th align="right">Balance</Th>
+          <SortTh label="Balance" sortKey="balance" current={custSort} onSort={sortCustomers} />
           <Th align="left">Registered</Th>
         </tr>
       </thead>
@@ -1090,6 +1098,15 @@ function Th({ children, align = 'left' }: { children: React.ReactNode; align?: '
   return (
     <th className={`px-6 py-3 text-${align}`} style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
       {children}
+    </th>
+  );
+}
+
+function SortTh({ label, sortKey, current, onSort, align = 'right' }: { label: string; sortKey: string; current: { key: string; dir: 'asc' | 'desc' }; onSort: (k: string) => void; align?: 'left' | 'right' }) {
+  const activeCol = current.key === sortKey;
+  return (
+    <th onClick={() => onSort(sortKey)} className={`px-6 py-3 text-${align}`} style={{ fontSize: 14, fontWeight: 700, color: activeCol ? 'var(--fg-1)' : 'var(--fg-3)', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>
+      {label}{activeCol ? (current.dir === 'asc' ? ' ↑' : ' ↓') : ''}
     </th>
   );
 }

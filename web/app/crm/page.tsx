@@ -300,7 +300,7 @@ export default function CrmPage() {
           <KpiTile label="Loyalty members" value={stats.loyalty_members_total.toLocaleString('ru-RU')} />
           <KpiTile label="Orders (total)" value={stats.orders_total.toLocaleString('ru-RU')} />
           <KpiTile label="Orders this month" value={stats.orders_this_month.toLocaleString('ru-RU')} />
-          <KpiTile label="Revenue this month" value={`${stats.revenue_this_month_rub.toLocaleString('ru-RU')} ₽`} />
+          <KpiTile label="Revenue this month" value={`${stats.revenue_this_month_rub.toLocaleString('ru-RU')} ₽`} />
           <KpiTile
             label="Visits today"
             value={metrika ? metrika.today.visits.toLocaleString('ru-RU') : (metrikaLoading ? '…' : '—')}
@@ -1014,7 +1014,7 @@ function OrdersTable({ orders, hasSearch, search }: { orders: CrmOrder[]; hasSea
           <tr key={o.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
             <Td bold>{o.number}</Td>
             <Td>{o.customer_name}</Td>
-            <Td align="right" bold>{o.total.toLocaleString('ru-RU')} ₽</Td>
+            <Td align="right" bold>{o.total.toLocaleString('ru-RU')} ₽</Td>
             <Td align="right" bold style={{ color: o.bonus_credited > 0 ? '#0a7a3b' : 'var(--fg-3)' }}>
               {o.bonus_credited > 0 ? `+${o.bonus_credited}` : '—'}
             </Td>
@@ -1068,7 +1068,7 @@ function CustomersTable({ customers, hasSearch, search }: { customers: CrmCustom
             <Td muted>{cu.email || '—'}</Td>
             <Td muted>{cu.phone || '—'}</Td>
             <Td align="right" bold>{cu.orders_count}</Td>
-            <Td align="right" bold>{cu.total_spent.toLocaleString('ru-RU')} ₽</Td>
+            <Td align="right" bold>{cu.total_spent.toLocaleString('ru-RU')} ₽</Td>
             <Td bold style={{ color: cu.loyalty_level ? 'var(--fg-1)' : 'var(--fg-3)' }}>
               {cu.loyalty_level || '—'}
               {cu.loyalty_privilege_pct !== null && (
@@ -1108,6 +1108,7 @@ function Td({
       fontSize: 14,
       fontWeight: bold ? 700 : 400,
       color: muted ? 'var(--fg-3)' : 'var(--fg-1)',
+      whiteSpace: align === 'right' ? 'nowrap' : undefined,
       ...style,
     }}>
       {children}

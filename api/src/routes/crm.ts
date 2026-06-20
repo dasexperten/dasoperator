@@ -410,6 +410,24 @@ crm.get('/customers', async (c) => {
         (digits.length >= 4 && cu.phone.includes(digits))
       );
     }
+    const sortKey = (c.req.query('sort') ?? 'spent').toLowerCase();
+    const asc = (c.req.query('dir') ?? 'desc').toLowerCase() === 'asc';
+    const mul = asc ? 1 : -1;
+    let balMap: Map<string, number> | null = null;
+    if (sortKey === 'balance') {
+      balMap = new Map<string, number>();
+      try {
+        const allBal = await c.env.DB.prepare('SELECT phone, balance FROM loyalty_accounts').all<{ phone: string; balance: number }>();
+        for (const r of allBal.results ?? []) balMap.set(r.phone, Number(r.balance) || 0);
+      } catch { /* ignore — missing balances sort as 0 */ }
+    }
+    list = [...list].sort((a, b) => {
+      if (sortKey === 'orders') return (a.orders_count - b.orders_count) * mul;
+      if (sortKey === 'registered') return (a.last_order - b.last_order) * mul;
+      if (sortKey === 'name') return a.name.localeCompare(b.name) * mul;
+      if (sortKey === 'balance') return ((balMap!.get(a.phone) ?? 0) - (balMap!.get(b.phone) ?? 0)) * mul;
+      return (a.total_spent - b.total_spent) * mul;
+    });
     const totalCount = list.length;
     const pageRows = list.slice((page - 1) * limit, page * limit);
 

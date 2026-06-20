@@ -8,6 +8,7 @@ import { allocateAwaitingTxToOperation } from '../lib/bank-tx-allocator';
 import { reconcileInboxRowAgainstBankTx } from '../lib/invoice-amount-reconcile';
 
 import { backfillYandexReports } from '../lib/yandex-pay-sale';
+import { runEmailRetention } from '../lib/email-retention';
 
 const inbox = new Hono<{ Bindings: Env }>();
 
@@ -1072,6 +1073,17 @@ inbox.post('/ingest-thread', async (c) => {
   return ok(c, { thread_id: threadId, count: filed.length, filed }, ['Thread filed into invoice inbox']);
 });
 
+
+// POST /api/inbox/run-retention — manually run the monthly compaction now.
+// Same code path as the 0 3 1 * * cron. Rolls resolved hot rows to R2 + prunes D1.
+inbox.post('/run-retention', async (c) => {
+  try {
+    const stats = await runEmailRetention(c.env);
+    return ok(c, stats, ['Email retention compaction complete']);
+  } catch (e) {
+    return fail(c, 500, [{ code: 'retention_error', message: e instanceof Error ? e.message : String(e) }]);
+  }
+});
 
 export default inbox;
 

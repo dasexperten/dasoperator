@@ -1088,7 +1088,7 @@ function CustomersTable({ customers, hasSearch, search }: { customers: CrmCustom
 
 function Th({ children, align = 'left' }: { children: React.ReactNode; align?: 'left' | 'right' }) {
   return (
-    <th className={`px-6 py-3 text-${align}`} style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg-3)' }}>
+    <th className={`px-6 py-3 text-${align}`} style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
       {children}
     </th>
   );

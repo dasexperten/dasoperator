@@ -182,6 +182,12 @@ export default function CrmPage() {
     }
   }, []);
 
+  const [ordersSort, setOrdersSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: '', dir: 'desc' });
+  const sortOrders = (k: string) => {
+    setOrdersSort((prev) => (prev.key === k ? { key: k, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key: k, dir: 'desc' }));
+    setOrdersPage(1);
+  };
+
   const loadOrders = useCallback(async () => {
     setOrdersLoading(true);
     setOrdersError(null);
@@ -191,6 +197,7 @@ export default function CrmPage() {
         limit: String(ordersLimit),
       });
       if (ordersActiveSearch) params.set('search', ordersActiveSearch);
+      if (ordersSort.key) { params.set('sort', ordersSort.key); params.set('dir', ordersSort.dir); }
       const res = await fetch(`${API_BASE}/api/crm/orders?${params}`);
       const data = await res.json();
       if (data.success && data.result) {
@@ -204,7 +211,7 @@ export default function CrmPage() {
     } finally {
       setOrdersLoading(false);
     }
-  }, [ordersPage, ordersLimit, ordersActiveSearch]);
+  }, [ordersPage, ordersLimit, ordersActiveSearch, ordersSort]);
 
   const [custSort, setCustSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'spent', dir: 'desc' });
   const sortCustomers = (k: string) => {
@@ -362,7 +369,7 @@ export default function CrmPage() {
           page={ordersPage}
           setPage={setOrdersPage}
         >
-          <OrdersTable orders={orders} hasSearch={!!ordersActiveSearch} search={ordersActiveSearch} />
+          <OrdersTable orders={orders} hasSearch={!!ordersActiveSearch} search={ordersActiveSearch} sort={ordersSort} onSort={sortOrders} />
         </DataTablePanel>
       )}
 
@@ -994,20 +1001,20 @@ function DataTablePanel({
   );
 }
 
-function OrdersTable({ orders, hasSearch, search }: { orders: CrmOrder[]; hasSearch: boolean; search: string }) {
+function OrdersTable({ orders, hasSearch, search, sort, onSort }: { orders: CrmOrder[]; hasSearch: boolean; search: string; sort: { key: string; dir: 'asc' | 'desc' }; onSort: (k: string) => void }) {
   return (
     <table className="w-full">
       <thead>
         <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
           <Th align="left">Order</Th>
           <Th align="left">Customer</Th>
-          <Th align="right">Total</Th>
-          <Th align="right">Credited</Th>
-          <Th align="right">Charged</Th>
+          <SortTh label="Total" sortKey="total" current={sort} onSort={onSort} />
+          <SortTh label="Credited" sortKey="credited" current={sort} onSort={onSort} />
+          <SortTh label="Charged" sortKey="charged" current={sort} onSort={onSort} />
           <Th align="left">Level</Th>
-          <Th align="right">Balance</Th>
+          <SortTh label="Balance" sortKey="balance" current={sort} onSort={onSort} />
           <Th align="left">Status</Th>
-          <Th align="left">Date</Th>
+          <SortTh label="Date" sortKey="date" current={sort} onSort={onSort} align="left" />
         </tr>
       </thead>
       <tbody>

@@ -95,35 +95,29 @@ export async function upsertAccount(
   args: { phone: string; email?: string | null; name?: string | null; kitCustomerId?: string | null }
 ): Promise<{ id: string; balance: number; pending_balance: number; lifetime_spent: number; tier: string }> {
   const now = Math.floor(Date.now() / 1000);
-  const existing = await env.DB.prepare(
-    'SELECT id, balance, pending_balance, lifetime_spent, tier FROM loyalty_accounts WHERE phone = ?'
-  )
-    .bind(args.phone)
-    .first<{ id: string; balance: number; pending_balance: number; lifetime_spent: number; tier: string }>();
-
-  if (existing) {
-    await env.DB.prepare(
-      `UPDATE loyalty_accounts SET
-         email = COALESCE(?, email), name = COALESCE(?, name),
-         kit_customer_id = COALESCE(?, kit_customer_id),
-         last_activity_at = ?, updated_at = ?
-       WHERE id = ?`
-    )
-      .bind(args.email ?? null, args.name ?? null, args.kitCustomerId ?? null, now, now, existing.id)
-      .run();
-    return existing;
-  }
-
   const id = 'la_' + crypto.randomUUID();
-  await env.DB.prepare(
+  // Atomic upsert by phone. Previous read-then-write (SELECT, then INSERT or
+  // UPDATE) raced: two concurrent ORDER_STATUS_CHANGED webhooks for the same
+  // new phone both saw "not found" and both INSERTed -> "UNIQUE constraint
+  // failed: loyalty_accounts.phone", dropping the accrual. ON CONFLICT makes
+  // insert-or-update a single statement, so the second caller updates instead
+  // of crashing. Balance / tier / lifetime are untouched on conflict.
+  const row = await env.DB.prepare(
     `INSERT INTO loyalty_accounts
        (id, phone, email, name, kit_customer_id, balance, pending_balance, lifetime_spent,
         tier, status, source, registered_at, last_activity_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 0, 0, 0, 'svoy', 'active', 'kit', ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, 0, 0, 0, 'svoy', 'active', 'kit', ?, ?, ?, ?)
+     ON CONFLICT(phone) DO UPDATE SET
+       email = COALESCE(excluded.email, loyalty_accounts.email),
+       name = COALESCE(excluded.name, loyalty_accounts.name),
+       kit_customer_id = COALESCE(excluded.kit_customer_id, loyalty_accounts.kit_customer_id),
+       last_activity_at = excluded.last_activity_at,
+       updated_at = excluded.updated_at
+     RETURNING id, balance, pending_balance, lifetime_spent, tier`
   )
     .bind(id, args.phone, args.email ?? null, args.name ?? null, args.kitCustomerId ?? null, now, now, now, now)
-    .run();
-  return { id, balance: 0, pending_balance: 0, lifetime_spent: 0, tier: 'svoy' };
+    .first<{ id: string; balance: number; pending_balance: number; lifetime_spent: number; tier: string }>();
+  return row!;
 }
 
 // -----------------------------------------------------------------------------

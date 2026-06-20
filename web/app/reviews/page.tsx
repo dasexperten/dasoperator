@@ -2,489 +2,262 @@
 
 import React, { useState, useEffect } from 'react';
 
-interface Review {
+type Review = {
   id: string;
   author: string;
-  date: string;
-  platform: 'ozon' | 'wb' | 'email';
   rating: number;
-  text: string;
-  answer?: string;
-  productSku?: string;
-  productFamily?: string;
-}
+  comment: string;
+  createdAt: string;
+  platform?: string;
+};
 
-interface Stats {
-  total: number;
-  averageRating: number;
-  positive: number;
-  negative: number;
-  neutral: number;
-}
-
-export function ReviewsPage() {
+export default function ReviewsPage() {
   const [reviews, setReviews] = useState<Review[]>([]);
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({
-    platform: 'all',
-    rating: 'all',
-    search: '',
-  });
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 20;
 
   useEffect(() => {
+    const fetchReviews = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch('/api/reviews');
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch reviews');
+        }
+        
+        const data = await response.json();
+        setReviews(data.reviews || []);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'An unknown error occurred');
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchReviews();
-  }, [filters, page]);
+  }, []);
 
-  const fetchReviews = async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({
-        platform: filters.platform,
-        rating: filters.rating,
-        search: filters.search,
-        page: page.toString(),
-        limit: pageSize.toString(),
-      });
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px]" style={{ color: 'var(--fg-3)' }}>
+        <div style={{ 
+          width: 32, 
+          height: 32, 
+          border: '3px solid var(--stone-200)', 
+          borderTopColor: 'var(--brand-rot)',
+          borderRadius: '50%',
+          animation: 'spin 1s linear infinite'
+        }} />
+        <p style={{ marginTop: 12, fontFamily: 'var(--font-body)', fontSize: 14 }}>Загрузка отзывов...</p>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
 
-      const response = await fetch(`/api/reviews?${params}`);
-      const data = await response.json();
-      
-      setReviews(data.reviews || []);
-      setStats(data.stats || null);
-    } catch (error) {
-      console.error('Failed to fetch reviews:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleFilterChange = (key: string, value: string) => {
-    setFilters(prev => ({ ...prev, [key]: value }));
-    setPage(1);
-  };
-
-  const renderStars = (rating: number) => {
-    return Array.from({ length: 5 }, (_, i) => (
-      <span key={i} style={{ color: i < rating ? '#FEF004' : '#C9C1B0' }}>
-        ★
-      </span>
-    ));
-  };
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px]" style={{ color: 'var(--brand-rot)' }}>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 14 }}>{error}</p>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#FBFAF6', padding: '32px' }}>
-      <header style={{ marginBottom: '32px' }}>
+    <div style={{ maxWidth: 960, margin: '0 auto', padding: '24px 16px' }}>
+      {/* Header */}
+      <div style={{ marginBottom: 24 }}>
         <h1 style={{ 
-          fontSize: '32px', 
+          fontFamily: 'var(--font-display)', 
+          fontSize: 32, 
           fontWeight: 800, 
-          color: '#1A1519',
-          margin: '0 0 8px 0'
+          color: 'var(--fg-1)',
+          margin: 0
         }}>
           Отзывы клиентов
         </h1>
         <p style={{ 
-          fontSize: '16px', 
-          color: '#4A4238',
-          margin: 0
+          fontFamily: 'var(--font-body)', 
+          fontSize: 14, 
+          color: 'var(--fg-2)',
+          marginTop: 8
         }}>
-          Управление отзывами с маркетплейсов и прямых каналов
+          {reviews.length} {reviews.length === 1 ? 'отзыв' : 'отзывов'}
         </p>
-      </header>
-
-      {stats && (
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-          gap: '16px',
-          marginBottom: '32px'
-        }}>
-          <div style={{ 
-            background: '#FFFFFF', 
-            border: '1px solid rgba(26,21,25,0.08)',
-            borderRadius: '6px',
-            padding: '16px',
-            textAlign: 'center'
-          }}>
-            <div style={{ fontSize: '32px', fontWeight: 700, color: '#1A1519' }}>
-              {stats.total}
-            </div>
-            <div style={{ 
-              fontSize: '12px', 
-              color: '#6E6558',
-              textTransform: 'uppercase',
-              letterSpacing: '0.18em'
-            }}>
-              Всего отзывов
-            </div>
-          </div>
-          <div style={{ 
-            background: '#FFFFFF', 
-            border: '1px solid rgba(26,21,25,0.08)',
-            borderRadius: '6px',
-            padding: '16px',
-            textAlign: 'center'
-          }}>
-            <div style={{ fontSize: '32px', fontWeight: 700, color: '#1A1519' }}>
-              {stats.averageRating.toFixed(1)}
-            </div>
-            <div style={{ 
-              fontSize: '12px', 
-              color: '#6E6558',
-              textTransform: 'uppercase',
-              letterSpacing: '0.18em'
-            }}>
-              Средний рейтинг
-            </div>
-          </div>
-          <div style={{ 
-            background: '#FFFFFF', 
-            border: '1px solid rgba(26,21,25,0.08)',
-            borderRadius: '6px',
-            padding: '16px',
-            textAlign: 'center'
-          }}>
-            <div style={{ fontSize: '32px', fontWeight: 700, color: '#2E7D4F' }}>
-              {stats.positive}
-            </div>
-            <div style={{ 
-              fontSize: '12px', 
-              color: '#6E6558',
-              textTransform: 'uppercase',
-              letterSpacing: '0.18em'
-            }}>
-              Положительные
-            </div>
-          </div>
-          <div style={{ 
-            background: '#FFFFFF', 
-            border: '1px solid rgba(26,21,25,0.08)',
-            borderRadius: '6px',
-            padding: '16px',
-            textAlign: 'center'
-          }}>
-            <div style={{ fontSize: '32px', fontWeight: 700, color: '#E5202C' }}>
-              {stats.negative}
-            </div>
-            <div style={{ 
-              fontSize: '12px', 
-              color: '#6E6558',
-              textTransform: 'uppercase',
-              letterSpacing: '0.18em'
-            }}>
-              Отрицательные
-            </div>
-          </div>
-          <div style={{ 
-            background: '#FFFFFF', 
-            border: '1px solid rgba(26,21,25,0.08)',
-            borderRadius: '6px',
-            padding: '16px',
-            textAlign: 'center'
-          }}>
-            <div style={{ fontSize: '32px', fontWeight: 700, color: '#C77A00' }}>
-              {stats.neutral}
-            </div>
-            <div style={{ 
-              fontSize: '12px', 
-              color: '#6E6558',
-              textTransform: 'uppercase',
-              letterSpacing: '0.18em'
-            }}>
-              Нейтральные
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div style={{ 
-        display: 'flex', 
-        flexWrap: 'wrap', 
-        gap: '12px',
-        marginBottom: '32px',
-        padding: '16px',
-        background: '#F3F0E8',
-        borderRadius: '6px'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <label style={{ 
-            fontSize: '11px', 
-            fontWeight: 700, 
-            color: '#6E6558',
-            textTransform: 'uppercase',
-            letterSpacing: '0.18em'
-          }}>
-            Платформа
-          </label>
-          <select
-            value={filters.platform}
-            onChange={(e) => handleFilterChange('platform', e.target.value)}
-            style={{
-              fontSize: '14px',
-              color: '#1A1519',
-              background: '#FFFFFF',
-              border: '1px solid rgba(26,21,25,0.14)',
-              borderRadius: '4px',
-              padding: '8px 12px',
-              minHeight: '44px'
-            }}
-          >
-            <option value="all">Все платформы</option>
-            <option value="ozon">Ozon</option>
-            <option value="wb">Wildberries</option>
-            <option value="email">Email</option>
-          </select>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <label style={{ 
-            fontSize: '11px', 
-            fontWeight: 700, 
-            color: '#6E6558',
-            textTransform: 'uppercase',
-            letterSpacing: '0.18em'
-          }}>
-            Рейтинг
-          </label>
-          <select
-            value={filters.rating}
-            onChange={(e) => handleFilterChange('rating', e.target.value)}
-            style={{
-              fontSize: '14px',
-              color: '#1A1519',
-              background: '#FFFFFF',
-              border: '1px solid rgba(26,21,25,0.14)',
-              borderRadius: '4px',
-              padding: '8px 12px',
-              minHeight: '44px'
-            }}
-          >
-            <option value="all">Все рейтинги</option>
-            <option value="5">5 звезд</option>
-            <option value="4">4 звезды</option>
-            <option value="3">3 звезды</option>
-            <option value="2">2 звезды</option>
-            <option value="1">1 звезда</option>
-          </select>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <label style={{ 
-            fontSize: '11px', 
-            fontWeight: 700, 
-            color: '#6E6558',
-            textTransform: 'uppercase',
-            letterSpacing: '0.18em'
-          }}>
-            Поиск
-          </label>
-          <input
-            type="search"
-            placeholder="Поиск по тексту отзыва..."
-            value={filters.search}
-            onChange={(e) => handleFilterChange('search', e.target.value)}
-            style={{
-              fontSize: '14px',
-              color: '#1A1519',
-              background: '#FFFFFF',
-              border: '1px solid rgba(26,21,25,0.14)',
-              borderRadius: '4px',
-              padding: '8px 12px',
-              minHeight: '44px',
-              minWidth: '200px'
-            }}
-          />
-        </div>
       </div>
 
-      {loading ? (
+      {/* Reviews List */}
+      {reviews.length === 0 ? (
         <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
-          gap: '16px'
+          textAlign: 'center', 
+          padding: '48px 16px', 
+          background: 'var(--paper-sunk)', 
+          borderRadius: 6,
+          border: '1px dashed var(--stone-200)'
         }}>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} style={{ 
-              background: '#FFFFFF', 
-              border: '1px solid rgba(26,21,25,0.08)',
-              borderRadius: '6px',
-              padding: '16px',
-              opacity: 0.5
-            }}>
-              <div style={{ width: 120, height: 16, background: '#C9C1B0', marginBottom: 8 }} />
-              <div style={{ width: 80, height: 12, background: '#C9C1B0', marginBottom: 12 }} />
-              <div style={{ width: 100, height: 16, background: '#C9C1B0', marginBottom: 12 }} />
-              <div style={{ width: '100%', height: 60, background: '#C9C1B0' }} />
-            </div>
-          ))}
+          <p style={{ color: 'var(--fg-3)', fontFamily: 'var(--font-body)', fontSize: 14 }}>
+            Отзывов пока нет
+          </p>
         </div>
       ) : (
-        <>
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
-            gap: '16px'
-          }}>
-            {reviews.map((review) => (
-              <div key={review.id} style={{ 
-                background: '#FFFFFF', 
-                border: '1px solid rgba(26,21,25,0.08)',
-                borderRadius: '6px',
-                padding: '16px',
-                boxShadow: '0 1px 2px rgba(26,21,25,.05), 0 0 0 1px rgba(26,21,25,0.08)'
-              }}>
-                <div style={{ 
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
-                  alignItems: 'flex-start',
-                  marginBottom: '12px'
-                }}>
-                  <div>
-                    <div style={{ fontSize: '14px', fontWeight: 600, color: '#1A1519' }}>
-                      {review.author}
-                    </div>
-                    <div style={{ fontSize: '12px', color: '#6E6558' }}>
-                      {new Date(review.date).toLocaleDateString('ru-RU')}
-                    </div>
-                  </div>
-                  <span style={{
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    color: '#FFFFFF',
-                    padding: '4px 8px',
-                    borderRadius: '999px',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.04em',
-                    background: review.platform === 'ozon' ? '#005BFF' : 
-                               review.platform === 'wb' ? '#CB11AB' : '#0D199E'
-                  }}>
-                    {review.platform.toUpperCase()}
-                  </span>
-                </div>
-
-                <div style={{ marginBottom: '12px' }}>
-                  {renderStars(review.rating)}
-                </div>
-
-                <p style={{ 
-                  fontSize: '16px', 
-                  color: '#1A1519',
-                  lineHeight: 1.7,
-                  margin: '0 0 12px 0'
-                }}>
-                  {review.text}
-                </p>
-
-                {review.answer && (
-                  <div style={{ 
-                    background: '#F3F0E8',
-                    borderLeft: '3px solid #E5202C',
-                    padding: '12px',
-                    borderRadius: '0 4px 4px 0',
-                    marginTop: '12px'
-                  }}>
-                    <div style={{ 
-                      fontSize: '11px', 
-                      fontWeight: 700, 
-                      color: '#E5202C',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.18em',
-                      marginBottom: '8px'
-                    }}>
-                      Наш ответ
-                    </div>
-                    <p style={{ 
-                      fontSize: '14px', 
-                      color: '#4A4238',
-                      lineHeight: 1.55,
-                      margin: 0
-                    }}>
-                      {review.answer}
-                    </p>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {reviews.length === 0 && (
-            <div style={{ 
-              textAlign: 'center', 
-              padding: '64px', 
-              color: '#6E6558' 
-            }}>
-              Отзывы не найдены
-            </div>
-          )}
-
-          <nav style={{ 
-            display: 'flex', 
-            justifyContent: 'center', 
-            alignItems: 'center', 
-            gap: '8px',
-            marginTop: '32px'
-          }} aria-label="Pagination">
-            <button
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              disabled={page === 1}
-              aria-label="Previous page"
-              style={{
-                fontSize: '14px',
-                fontWeight: 600,
-                color: '#1A1519',
-                background: '#FFFFFF',
-                border: '1px solid rgba(26,21,25,0.14)',
-                borderRadius: '4px',
-                padding: '8px 12px',
-                minWidth: '44px',
-                minHeight: '44px',
-                cursor: page === 1 ? 'not-allowed' : 'pointer',
-                opacity: page === 1 ? 0.5 : 1
-              }}
-            >
-              ←
-            </button>
-            <span style={{
-              fontSize: '14px',
-              fontWeight: 600,
-              color: '#FFFFFF',
-              background: '#E5202C',
-              border: '1px solid #E5202C',
-              borderRadius: '4px',
-              padding: '8px 12px',
-              minWidth: '44px',
-              minHeight: '44px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              {page}
-            </span>
-            <button
-              onClick={() => setPage(p => p + 1)}
-              disabled={reviews.length < pageSize}
-              aria-label="Next page"
-              style={{
-                fontSize: '14px',
-                fontWeight: 600,
-                color: '#1A1519',
-                background: '#FFFFFF',
-                border: '1px solid rgba(26,21,25,0.14)',
-                borderRadius: '4px',
-                padding: '8px 12px',
-                minWidth: '44px',
-                minHeight: '44px',
-                cursor: reviews.length < pageSize ? 'not-allowed' : 'pointer',
-                opacity: reviews.length < pageSize ? 0.5 : 1
-              }}
-            >
-              →
-            </button>
-          </nav>
-        </>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {reviews.map((review) => (
+            <ReviewCard key={review.id} review={review} />
+          ))}
+        </div>
       )}
+
+      {/* Pagination */}
+      {reviews.length > pageSize && (
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          gap: 8,
+          marginTop: 32
+        }}>
+          <button
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            disabled={page === 1}
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 14,
+              fontWeight: 600,
+              color: 'var(--fg-1)',
+              background: 'var(--paper-raised)',
+              border: '1px solid var(--stone-200)',
+              borderRadius: 4,
+              padding: '8px 16px',
+              cursor: page === 1 ? 'not-allowed' : 'pointer',
+              opacity: page === 1 ? 0.5 : 1
+            }}
+          >
+            Назад
+          </button>
+          <span style={{
+            fontFamily: 'var(--font-body)',
+            fontSize: 14,
+            fontWeight: 600,
+            color: 'var(--paper-raised)',
+            background: 'var(--brand-rot)',
+            border: '1px solid var(--brand-rot)',
+            borderRadius: 4,
+            padding: '8px 16px'
+          }}>
+            {page}
+          </span>
+          <button
+            onClick={() => setPage(p => p + 1)}
+            disabled={reviews.length < pageSize}
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 14,
+              fontWeight: 600,
+              color: 'var(--fg-1)',
+              background: 'var(--paper-raised)',
+              border: '1px solid var(--stone-200)',
+              borderRadius: 4,
+              padding: '8px 16px',
+              cursor: reviews.length < pageSize ? 'not-allowed' : 'pointer',
+              opacity: reviews.length < pageSize ? 0.5 : 1
+            }}
+          >
+            Вперёд
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReviewCard({ review }: { review: Review }) {
+  const platformColors: Record<string, string> = {
+    ozon: '#005BFF',
+    wb: '#CB11AB',
+    email: '#0D199E'
+  };
+
+  return (
+    <div style={{ 
+      background: 'var(--paper-raised)', 
+      border: '1px solid var(--stone-100)', 
+      borderRadius: 6,
+      padding: 16,
+      boxShadow: '0 1px 2px rgba(26,21,25,.05)'
+    }}>
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'flex-start',
+        marginBottom: 12
+      }}>
+        <div>
+          <p style={{ 
+            fontFamily: 'var(--font-body)', 
+            fontSize: 14, 
+            fontWeight: 600, 
+            color: 'var(--fg-1)',
+            margin: 0
+          }}>
+            {review.author}
+          </p>
+          <p style={{ 
+            fontFamily: 'var(--font-narrow)', 
+            fontSize: 12, 
+            color: 'var(--fg-3)',
+            margin: '4px 0 0 0'
+          }}>
+            {new Date(review.createdAt).toLocaleDateString('ru-RU', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            })}
+          </p>
+        </div>
+        
+        {review.platform && (
+          <span style={{
+            fontFamily: 'var(--font-narrow)',
+            fontSize: 11,
+            fontWeight: 600,
+            color: 'var(--paper-raised)',
+            padding: '4px 8px',
+            borderRadius: 999,
+            textTransform: 'uppercase',
+            letterSpacing: '0.04em',
+            background: platformColors[review.platform] || 'var(--stone-400)'
+          }}>
+            {review.platform}
+          </span>
+        )}
+      </div>
+
+      {/* Star Rating */}
+      <div style={{ display: 'flex', gap: 2, marginBottom: 12 }}>
+        {[1, 2, 3, 4, 5].map((star) => (
+          <span
+            key={star}
+            style={{ 
+              color: star <= review.rating ? 'var(--brand-gold)' : 'var(--stone-200)',
+              fontSize: 16
+            }}
+          >
+            ★
+          </span>
+        ))}
+      </div>
+      
+      <p style={{ 
+        fontFamily: 'var(--font-body)', 
+        fontSize: 14, 
+        color: 'var(--fg-1)',
+        lineHeight: 1.6,
+        margin: 0
+      }}>
+        {review.comment}
+      </p>
     </div>
   );
 }

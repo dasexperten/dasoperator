@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ReviewCard } from './review-card';
+import { ReviewCard } from '../../components/reviews/review-card';
 import './reviews-page.css';
 
 interface Review {

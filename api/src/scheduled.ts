@@ -12,6 +12,7 @@ import type { Env } from './types';
 import { todayUtcDate, refreshFxFromCbr } from './lib/fx-cbr';
 import { storeSnapshot } from './lib/fx-store';
 import { runInboxIngestion } from './lib/inbox-ingestion';
+import { runEmailRetention } from './lib/email-retention';
 import { runBankStatementIngestion } from './lib/bank-statement-ingestion';
 import { scheduleWbWeekly, scheduleOzonMonthly, tickMarketplacePull, rebuildPriorMonthSite, rebuildPriorMonthDasexpertenCom } from './lib/marketplace-pull';
 import { reportCronFailure } from './lib/auto-healer';
@@ -338,6 +339,18 @@ export async function handleScheduled(
 ): Promise<void> {
   const cron = event.cron;
   console.log(`[cron] tick: ${cron}`);
+
+  // Monthly compaction (1st @ 03:00 UTC): roll resolved hot rows to R2, prune D1.
+  // Canon (playbook / rules / scenarios / settings) is never touched.
+  if (cron === '0 3 1 * *') {
+    try {
+      const r = await runEmailRetention(env);
+      console.log('[cron:email-retention] ' + JSON.stringify(r));
+    } catch (e) {
+      console.error('[cron:email-retention] failed:', e);
+    }
+    return;
+  }
 
   // Email archive harvest — every minute until done (temporary backfill job).
   if (cron === '* * * * *') {

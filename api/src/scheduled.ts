@@ -723,6 +723,22 @@ export async function handleScheduled(
     return;
   }
 
+  // Daily digest — 03:00 UTC (06:00 MSK), generates morning briefing
+  if (cron === '0 3 * * *') {
+    console.log('[cron:daily-digest] starting');
+    try {
+      const r = await env.SELF.fetch(new Request(
+        'https://internal/api/daily-digest',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' } }
+      ));
+      const text = await r.text();
+      console.log(`[cron:daily-digest] HTTP ${r.status} body=${text.slice(0, 300)}`);
+    } catch (e) {
+      console.error('[cron:daily-digest] failed:', e);
+    }
+    return;
+  }
+
   // Daily marketplace SALES pull — 05:00 UTC (08:00 МСК), after yesterday settles.
   if (cron === '0 5 * * *') {
     await runMarketplaceSalesSync(env);

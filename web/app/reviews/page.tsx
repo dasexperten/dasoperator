@@ -22,14 +22,31 @@ export default function ReviewsPage() {
     const fetchReviews = async () => {
       try {
         setLoading(true);
-        const response = await fetch('/api/reviews');
-        
+        const API_BASE = 'https://dasoperator-api.dasexperten.workers.dev';
+        const token = typeof window !== 'undefined'
+          ? window.localStorage.getItem('dx_auth_token')
+          : null;
+        const response = await fetch(`${API_BASE}/api/reviews/drafts?limit=50`, {
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
+
         if (!response.ok) {
           throw new Error('Failed to fetch reviews');
         }
-        
+
         const data = await response.json();
-        setReviews(data.reviews || []);
+        const mapped: Review[] = (data.drafts || []).map((d: any) => ({
+          id: d.id,
+          author: d.customer_name || 'Аноним',
+          rating: d.rating || 0,
+          comment: d.review_text || [d.pros, d.cons].filter(Boolean).join(' — ') || '—',
+          createdAt: d.created_at,
+          platform: d.channel,
+        }));
+        setReviews(mapped);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An unknown error occurred');
       } finally {

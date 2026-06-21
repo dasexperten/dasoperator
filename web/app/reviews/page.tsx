@@ -79,6 +79,7 @@ export default function ReviewsPage() {
           text: x.review_text || [x.pros && `+ ${x.pros}`, x.cons && `− ${x.cons}`].filter(Boolean).join('\n'),
           answer: x.draft_text, status: x.status, date: x.created_at,
         }));
+        mapped = mapped.filter((i) => i.text && i.text.trim().length > 0);
       } else {
         const d = await api(`/api/mp/questions?channel=${tab.channel}&limit=50`);
         mapped = (d.questions || []).map((x: any): Item => ({

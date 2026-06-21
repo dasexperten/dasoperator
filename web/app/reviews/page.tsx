@@ -208,7 +208,7 @@ function Stars({ n }: { n: number }) {
 }
 
 function Card({ it }: { it: Item }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const color = CHANNEL_COLOR[it.channel];
   const badge = it.channel === 'wb' ? 'WB' : 'OZON';
   const author = it.author || (it.channel === 'ozon' ? 'Ozon customer' : 'Customer');

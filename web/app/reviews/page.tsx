@@ -4,8 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 
 // =============================================================================
 // /reviews — marketplace reviews & questions, 4 live feeds from das_erp_dev D1.
-// WB/Ozon reviews   -> /api/reviews/drafts?channel=
-// WB/Ozon questions -> /api/mp/questions?channel=
+// Bold / high-contrast UI. Same data wiring as before.
 // =============================================================================
 
 const API_BASE = 'https://dasoperator-api.dasexperten.workers.dev';
@@ -14,16 +13,9 @@ type Channel = 'ozon' | 'wb';
 type Kind = 'reviews' | 'questions';
 
 type Item = {
-  id: string;
-  kind: Kind;
-  channel: Channel;
-  rating?: number;
-  author?: string | null;
-  product?: string | null;
-  text: string;
-  answer?: string | null;
-  status?: string | null;
-  date?: string | null;
+  id: string; kind: Kind; channel: Channel;
+  rating?: number; author?: string | null; product?: string | null;
+  text: string; answer?: string | null; status?: string | null; date?: string | null;
 };
 
 const TABS: { key: string; channel: Channel; kind: Kind; label: string }[] = [
@@ -34,9 +26,13 @@ const TABS: { key: string; channel: Channel; kind: Kind; label: string }[] = [
 ];
 
 const CHANNEL_COLOR: Record<Channel, string> = { ozon: '#005BFF', wb: '#CB11AB' };
-const STATUS_LABEL: Record<string, string> = {
-  auto_sent: 'Auto-replied', approved_sent: 'Replied', pending: 'Pending',
-  failed: 'Failed', rejected: 'Rejected', answered: 'Answered',
+const STATUS_STYLE: Record<string, { bg: string; fg: string; label: string }> = {
+  auto_sent: { bg: '#E7F6EC', fg: '#1B7A3D', label: 'Auto-replied' },
+  approved_sent: { bg: '#E7F6EC', fg: '#1B7A3D', label: 'Replied' },
+  answered: { bg: '#E7F6EC', fg: '#1B7A3D', label: 'Answered' },
+  pending: { bg: '#FFF3D6', fg: '#9A6700', label: 'Pending' },
+  failed: { bg: '#FBE3E4', fg: '#B42318', label: 'Failed' },
+  rejected: { bg: '#FBE3E4', fg: '#B42318', label: 'Rejected' },
 };
 
 function authToken(): string | null {
@@ -79,8 +75,7 @@ export default function ReviewsPage() {
         const d = await api(`/api/reviews/drafts?${p.toString()}`);
         mapped = (d.drafts || []).map((x: any): Item => ({
           id: x.id, kind: 'reviews', channel: tab.channel,
-          rating: x.rating || 0, author: x.customer_name,
-          product: x.product_name || x.product_sku,
+          rating: x.rating || 0, author: x.customer_name, product: x.product_name || x.product_sku,
           text: x.review_text || [x.pros && `+ ${x.pros}`, x.cons && `− ${x.cons}`].filter(Boolean).join('\n'),
           answer: x.draft_text, status: x.status, date: x.created_at,
         }));
@@ -112,45 +107,65 @@ export default function ReviewsPage() {
   }, [items, search, tab.kind]);
 
   return (
-    <div style={{ maxWidth: 1000, margin: '0 auto', padding: '24px 16px 64px' }}>
+    <div style={{ maxWidth: 1040, margin: '0 auto', padding: '28px 16px 72px' }}>
       <style>{`@keyframes dxspin{to{transform:rotate(360deg)}}`}</style>
 
-      <div style={{ marginBottom: 20 }}>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 30, fontWeight: 800, color: 'var(--fg-1)', margin: 0 }}>Reviews &amp; questions</h1>
-        <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--fg-3)', marginTop: 6 }}>Customer feedback across marketplaces</p>
+      {/* Header */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+          <span style={{ width: 44, height: 6, background: 'var(--brand-rot)', borderRadius: 3 }} />
+          <span style={{ width: 22, height: 6, background: 'var(--brand-gold)', borderRadius: 3 }} />
+        </div>
+        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 42, fontWeight: 900, lineHeight: 1.05, color: 'var(--fg-1)', margin: 0, letterSpacing: '-0.01em' }}>
+          Reviews &amp; questions
+        </h1>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 16, fontWeight: 600, color: 'var(--fg-2)', marginTop: 8 }}>
+          Customer feedback across marketplaces
+        </p>
       </div>
 
-      <div style={{ display: 'flex', gap: 6, marginBottom: 20, overflowX: 'auto', borderBottom: '1px solid var(--stone-100)' }}>
+      {/* Tabs — bold filled pills */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 22, flexWrap: 'wrap' }}>
         {TABS.map(t => {
           const on = t.key === active;
+          const col = CHANNEL_COLOR[t.channel];
           return (
             <button key={t.key} onClick={() => { setActive(t.key); setSearch(''); setRating(null); }} style={{
-              fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: on ? 700 : 500,
-              color: on ? 'var(--fg-1)' : 'var(--fg-3)', background: 'transparent', border: 'none',
-              borderBottom: on ? `2px solid ${CHANNEL_COLOR[t.channel]}` : '2px solid transparent',
-              padding: '10px 14px', cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 8,
+              fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 800,
+              color: on ? '#fff' : 'var(--fg-1)',
+              background: on ? col : 'var(--paper-raised)',
+              border: on ? `2px solid ${col}` : '2px solid var(--stone-200)',
+              borderRadius: 10, padding: '11px 18px', cursor: 'pointer', whiteSpace: 'nowrap',
+              display: 'flex', alignItems: 'center', gap: 8,
+              boxShadow: on ? `0 4px 14px ${col}44` : 'none',
+              transition: 'all .12s',
             }}>
-              <span style={{ width: 8, height: 8, borderRadius: 999, background: CHANNEL_COLOR[t.channel], display: 'inline-block', opacity: on ? 1 : 0.5 }} />
+              <span style={{ width: 9, height: 9, borderRadius: 999, background: on ? '#fff' : col, display: 'inline-block' }} />
               {t.label}
             </button>
           );
         })}
       </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 18 }}>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder={tab.kind === 'reviews' ? 'Search reviews, products…' : 'Search questions, products…'} style={{
-          flex: '1 1 240px', minWidth: 200, height: 38, padding: '0 14px', fontFamily: 'var(--font-body)', fontSize: 14,
-          color: 'var(--fg-1)', background: 'var(--paper-raised)', border: '1px solid var(--stone-200)', borderRadius: 6, outline: 'none',
-        }} />
+      {/* Toolbar */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 22 }}>
+        <input value={search} onChange={e => setSearch(e.target.value)}
+          placeholder={tab.kind === 'reviews' ? 'Search reviews, products…' : 'Search questions, products…'}
+          style={{
+            flex: '1 1 260px', minWidth: 220, height: 46, padding: '0 16px',
+            fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 600, color: 'var(--fg-1)',
+            background: 'var(--paper-raised)', border: '2px solid var(--stone-200)', borderRadius: 10, outline: 'none',
+          }} />
         {tab.kind === 'reviews' && (
-          <div style={{ display: 'flex', gap: 4 }}>
+          <div style={{ display: 'flex', gap: 6 }}>
             {[null, 5, 4, 3, 2, 1].map(r => {
               const on = rating === r;
               return (
                 <button key={String(r)} onClick={() => setRating(r)} style={{
-                  fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: on ? 700 : 500,
-                  color: on ? 'var(--paper-raised)' : 'var(--fg-2)', background: on ? 'var(--brand-rot)' : 'var(--paper-raised)',
-                  border: `1px solid ${on ? 'var(--brand-rot)' : 'var(--stone-200)'}`, borderRadius: 6, padding: '7px 12px', cursor: 'pointer',
+                  fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 800,
+                  color: on ? '#fff' : 'var(--fg-1)', background: on ? 'var(--brand-rot)' : 'var(--paper-raised)',
+                  border: `2px solid ${on ? 'var(--brand-rot)' : 'var(--stone-200)'}`, borderRadius: 10,
+                  padding: '9px 14px', cursor: 'pointer',
                 }}>{r === null ? 'All' : `${r}★`}</button>
               );
             })}
@@ -159,14 +174,14 @@ export default function ReviewsPage() {
       </div>
 
       {loading ? <Spinner />
-        : error ? <div style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--brand-rot)', fontFamily: 'var(--font-body)', fontSize: 14 }}>{error}</div>
-        : visible.length === 0 ? <div style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--fg-3)', fontFamily: 'var(--font-body)', fontSize: 14 }}>Nothing here yet.</div>
+        : error ? <div style={{ textAlign: 'center', padding: '56px 16px', color: 'var(--brand-rot)', fontFamily: 'var(--font-body)', fontSize: 16, fontWeight: 700 }}>{error}</div>
+        : visible.length === 0 ? <div style={{ textAlign: 'center', padding: '56px 16px', color: 'var(--fg-2)', fontFamily: 'var(--font-body)', fontSize: 16, fontWeight: 700 }}>Nothing here yet.</div>
         : (
           <>
-            <div style={{ fontFamily: 'var(--font-narrow)', fontSize: 13, color: 'var(--fg-3)', marginBottom: 12 }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--fg-2)', marginBottom: 14 }}>
               {visible.length} {tab.kind}
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {visible.map(it => <Card key={it.id} it={it} />)}
             </div>
           </>
@@ -177,17 +192,17 @@ export default function ReviewsPage() {
 
 function Spinner() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 320, color: 'var(--fg-3)' }}>
-      <div style={{ width: 30, height: 30, border: '3px solid var(--stone-200)', borderTopColor: 'var(--brand-rot)', borderRadius: '50%', animation: 'dxspin 0.9s linear infinite' }} />
-      <p style={{ marginTop: 12, fontFamily: 'var(--font-body)', fontSize: 14 }}>Loading…</p>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 320, color: 'var(--fg-2)' }}>
+      <div style={{ width: 34, height: 34, border: '4px solid var(--stone-200)', borderTopColor: 'var(--brand-rot)', borderRadius: '50%', animation: 'dxspin 0.9s linear infinite' }} />
+      <p style={{ marginTop: 14, fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 700 }}>Loading…</p>
     </div>
   );
 }
 
 function Stars({ n }: { n: number }) {
   return (
-    <span style={{ display: 'inline-flex', gap: 1 }}>
-      {[1, 2, 3, 4, 5].map(s => <span key={s} style={{ color: s <= n ? 'var(--brand-gold)' : 'var(--stone-200)', fontSize: 15 }}>★</span>)}
+    <span style={{ display: 'inline-flex', gap: 2 }}>
+      {[1, 2, 3, 4, 5].map(s => <span key={s} style={{ color: s <= n ? 'var(--brand-gold)' : 'var(--stone-200)', fontSize: 20, lineHeight: 1 }}>★</span>)}
     </span>
   );
 }
@@ -199,38 +214,38 @@ function Card({ it }: { it: Item }) {
   const author = it.author || (it.channel === 'ozon' ? 'Ozon customer' : 'Customer');
   const initial = author.trim().charAt(0).toUpperCase();
   const text = it.text && it.text.trim() ? it.text : (it.kind === 'reviews' ? '— rating only, no text —' : '');
+  const st = it.status ? STATUS_STYLE[it.status] : null;
   return (
-    <div style={{ background: 'var(--paper-raised)', border: '1px solid var(--stone-100)', borderRadius: 8, padding: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', minWidth: 0 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 999, background: 'var(--paper-sunk)', color: 'var(--fg-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 15, flex: '0 0 auto' }}>{initial}</div>
+    <div style={{ background: 'var(--paper-raised)', border: '2px solid var(--stone-200)', borderRadius: 14, padding: 20, boxShadow: '0 2px 10px rgba(26,21,25,.06)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 14 }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', minWidth: 0 }}>
+          <div style={{ width: 46, height: 46, borderRadius: 12, background: color, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-display)', fontWeight: 900, fontSize: 19, flex: '0 0 auto' }}>{initial}</div>
           <div style={{ minWidth: 0 }}>
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--fg-1)', margin: 0 }}>{author}</p>
-            <p style={{ fontFamily: 'var(--font-narrow)', fontSize: 12, color: 'var(--fg-3)', margin: '2px 0 0' }}>{fmtDate(it.date)}</p>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 16, fontWeight: 800, color: 'var(--fg-1)', margin: 0 }}>{author}</p>
+            <p style={{ fontFamily: 'var(--font-narrow)', fontSize: 13, fontWeight: 600, color: 'var(--fg-2)', margin: '3px 0 0' }}>{fmtDate(it.date)}</p>
           </div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flex: '0 0 auto' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flex: '0 0 auto' }}>
           {it.kind === 'reviews' && <Stars n={it.rating || 0} />}
-          <span style={{ fontFamily: 'var(--font-narrow)', fontSize: 11, fontWeight: 700, color: 'var(--paper-raised)', background: color, padding: '3px 8px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{badge}</span>
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 900, color: '#fff', background: color, padding: '4px 11px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{badge}</span>
         </div>
       </div>
 
-      {it.product && <p style={{ fontFamily: 'var(--font-narrow)', fontSize: 12, color: 'var(--fg-3)', margin: '12px 0 0' }}>{it.product}</p>}
-      {text && <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--fg-1)', lineHeight: 1.6, margin: '6px 0 0', whiteSpace: 'pre-line' }}>{text}</p>}
+      {it.product && <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: 'var(--fg-2)', margin: '14px 0 0' }}>{it.product}</p>}
+      {text && <p style={{ fontFamily: 'var(--font-body)', fontSize: 16, fontWeight: 500, color: 'var(--fg-1)', lineHeight: 1.6, margin: '8px 0 0', whiteSpace: 'pre-line' }}>{text}</p>}
 
-      {it.answer && (
-        <div style={{ marginTop: 12, borderTop: '1px solid var(--stone-100)', paddingTop: 10 }}>
-          <button onClick={() => setOpen(o => !o)} style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: 'var(--fg-link)' }}>
-            {it.status && <span style={{ fontFamily: 'var(--font-narrow)', fontSize: 11, fontWeight: 700, color: 'var(--fg-2)', background: 'var(--paper-sunk)', padding: '2px 8px', borderRadius: 999 }}>{STATUS_LABEL[it.status] || it.status}</span>}
-            {open ? (it.kind === 'reviews' ? 'Hide reply' : 'Hide answer') : (it.kind === 'reviews' ? 'Show reply' : 'Show answer')}
-          </button>
-          {open && <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--fg-2)', lineHeight: 1.6, margin: '8px 0 0', padding: '10px 12px', background: 'var(--paper-sunk)', borderRadius: 6, whiteSpace: 'pre-line' }}>{it.answer}</p>}
+      {(it.answer || st) && (
+        <div style={{ marginTop: 14, borderTop: '2px solid var(--stone-100)', paddingTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {st && <span style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 900, color: st.fg, background: st.bg, padding: '4px 11px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{st.label}</span>}
+          {it.answer && (
+            <button onClick={() => setOpen(o => !o)} style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 800, color: 'var(--fg-link)' }}>
+              {open ? (it.kind === 'reviews' ? 'Hide reply' : 'Hide answer') : (it.kind === 'reviews' ? 'Show reply' : 'Show answer')}
+            </button>
+          )}
         </div>
       )}
-      {!it.answer && it.status && (
-        <div style={{ marginTop: 10 }}>
-          <span style={{ fontFamily: 'var(--font-narrow)', fontSize: 11, fontWeight: 700, color: 'var(--fg-2)', background: 'var(--paper-sunk)', padding: '2px 8px', borderRadius: 999 }}>{STATUS_LABEL[it.status] || it.status}</span>
-        </div>
+      {it.answer && open && (
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 500, color: 'var(--fg-1)', lineHeight: 1.6, margin: '10px 0 0', padding: '14px 16px', background: 'var(--paper-sunk)', borderRadius: 10, borderLeft: `4px solid ${color}`, whiteSpace: 'pre-line' }}>{it.answer}</p>
       )}
     </div>
   );

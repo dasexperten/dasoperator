@@ -56,6 +56,22 @@ async function syncOzonReviews(env: any): Promise<number> {
   return n;
 }
 
+async function fetchOzonAnswer(env: any, questionId: string, sku: any): Promise<string | null> {
+  try {
+    const r = await fetch(`${OZ_BASE}/v1/question/answer/list`, {
+      method: 'POST', headers: ozHeaders(env),
+      body: JSON.stringify({ question_id: questionId, sku: Number(sku) || 0 }),
+    });
+    if (!r.ok) return null;
+    const j: any = await r.json();
+    const answers: any[] = j.answers || [];
+    const txt = answers.map((a) => a.text).filter(Boolean).join('\n\n');
+    return txt || null;
+  } catch {
+    return null;
+  }
+}
+
 async function syncOzonQuestions(env: any): Promise<number> {
   const r = await fetch(`${OZ_BASE}/v1/question/list`, { method: 'POST', headers: ozHeaders(env), body: JSON.stringify({}) });
   if (!r.ok) throw new Error(`Ozon questions ${r.status}: ${(await r.text()).slice(0, 200)}`);
@@ -63,11 +79,12 @@ async function syncOzonQuestions(env: any): Promise<number> {
   const qs: any[] = j.questions || [];
   let n = 0;
   for (const q of qs) {
+    const answerText = (q.answers_count > 0) ? await fetchOzonAnswer(env, q.id, q.sku) : null;
     await env.DB.prepare(
-      `INSERT INTO mp_questions (id, channel, external_id, product_sku, question_text, customer_name, status, created_at, updated_at)
-       VALUES (?, 'ozon', ?, ?, ?, ?, ?, ?, datetime('now'))
-       ON CONFLICT(channel, external_id) DO UPDATE SET question_text=excluded.question_text, status=excluded.status, updated_at=datetime('now')`
-    ).bind('ozq_' + q.id, String(q.id), String(q.sku || ''), q.text || '', q.author_name || null, (q.answers_count > 0 ? 'answered' : 'pending'), q.published_at || new Date().toISOString()).run();
+      `INSERT INTO mp_questions (id, channel, external_id, product_sku, question_text, answer_text, customer_name, status, created_at, updated_at)
+       VALUES (?, 'ozon', ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(channel, external_id) DO UPDATE SET question_text=excluded.question_text, answer_text=excluded.answer_text, status=excluded.status, updated_at=datetime('now')`
+    ).bind('ozq_' + q.id, String(q.id), String(q.sku || ''), q.text || '', answerText, q.author_name || null, (q.answers_count > 0 ? 'answered' : 'pending'), q.published_at || new Date().toISOString()).run();
     n++;
   }
   return n;

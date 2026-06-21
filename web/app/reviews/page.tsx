@@ -232,7 +232,7 @@ function Card({ it }: { it: Item }) {
       </div>
 
       {it.product && <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: 'var(--fg-2)', margin: '14px 0 0' }}>{it.product}</p>}
-      {text && <p style={{ fontFamily: 'var(--font-body)', fontSize: 16, fontWeight: 500, color: 'var(--fg-1)', lineHeight: 1.6, margin: '8px 0 0', whiteSpace: 'pre-line' }}>{text}</p>}
+      {text && <p style={{ fontFamily: 'var(--font-body)', fontSize: 19, fontWeight: 700, fontStyle: 'italic', color: 'var(--fg-1)', lineHeight: 1.55, margin: '8px 0 0', whiteSpace: 'pre-line' }}>{text}</p>}
 
       {(it.answer || st) && (
         <div style={{ marginTop: 14, borderTop: '2px solid var(--stone-100)', paddingTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>

@@ -340,6 +340,17 @@ export async function handleScheduled(
   const cron = event.cron;
   console.log(`[cron] tick: ${cron}`);
 
+  // Marketplace feeds refresh (every 6h @ :40): Ozon reviews + Ozon/WB questions → D1.
+  if (cron === '40 */6 * * *') {
+    try {
+      await fetch('https://dasoperator-api.dasexperten.workers.dev/api/mp/sync-all', { method: 'POST' });
+      console.log('[cron:mp-feeds] sync-all triggered');
+    } catch (e) {
+      console.error('[cron:mp-feeds] failed:', e);
+    }
+    return;
+  }
+
   // Monthly compaction (1st @ 03:00 UTC): roll resolved hot rows to R2, prune D1.
   // Canon (playbook / rules / scenarios / settings) is never touched.
   if (cron === '0 3 1 * *') {

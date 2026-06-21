@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { Home, Users, FileText, Package, BarChart3, ShoppingCart, MessageSquare } from 'lucide-react';
+import { Home, ArrowLeftRight, Warehouse, MessageSquare, Mail } from 'lucide-react';
 import Sidebar from './sidebar';
 import Header from './header';
 import AuthGate from './auth-gate';
@@ -75,12 +75,11 @@ interface BottomNavItem {
 
 // Candidate items, ordered by priority. We pick the first 5 the role can see.
 const BOTTOM_NAV_CANDIDATES: BottomNavItem[] = [
-  { name: 'Home',         icon: Home,          href: '/' },
-  { name: 'Products',     icon: Package,       href: '/products' },
-  { name: 'Ops',          icon: FileText,      href: '/operations' },
-  { name: 'Reviews',      icon: MessageSquare, href: '/reviews' },
-  { name: 'Markets',      icon: ShoppingCart,  href: '/marketplaces' },
-  { name: 'Analytics',    icon: BarChart3,     href: '/analytics' },
+  { name: 'Pulse',      icon: Home,           href: '/' },
+  { name: 'Operations', icon: ArrowLeftRight, href: '/operations' },
+  { name: 'Stock',      icon: Warehouse,      href: '/warehouses' },
+  { name: 'Reviews',    icon: MessageSquare,  href: '/reviews' },
+  { name: 'Emailer',    icon: Mail,           href: '/emailer' },
 ];
 
 function BottomNav({ pathname }: { pathname: string }) {
@@ -103,8 +102,6 @@ function BottomNav({ pathname }: { pathname: string }) {
 
   function isActive(href: string): boolean {
     if (href === '/') return pathname === '/';
-    // Products & Partners section — active for both /products and /partners
-    if (href === '/products') return pathname.startsWith('/products') || pathname.startsWith('/partners');
     return pathname.startsWith(href);
   }
 

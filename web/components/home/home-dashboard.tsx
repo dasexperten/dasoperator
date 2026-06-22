@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowUpRight, Loader2 } from 'lucide-react';
+import { getUser } from '@/lib/auth';
 import {
   getOperations,
   getPayments,
@@ -102,6 +103,17 @@ export default function HomeDashboard() {
   const [balances, setBalances] = useState<{ partner_id: string; net_balance_usd: number }[]>([]);
   const [fx, setFx] = useState<FxLatest | null>(null);
   const [loading, setLoading] = useState(true);
+  const [greetName, setGreetName] = useState('');
+  const [greetWord, setGreetWord] = useState('Guten Tag');
+  const [greetDate, setGreetDate] = useState('');
+
+  useEffect(() => {
+    const u: any = getUser();
+    setGreetName(u && u.name ? String(u.name).split(' ')[0] : '');
+    const h = new Date().getHours();
+    setGreetWord(h < 12 ? 'Guten Morgen' : h < 18 ? 'Guten Tag' : 'Guten Abend');
+    setGreetDate(new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }));
+  }, []);
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -167,7 +179,7 @@ export default function HomeDashboard() {
           className="dx-eyebrow-rot mb-3"
           style={{ fontSize: 'var(--fs-body-sm)' }}
         >
-          Pulse
+          {greetDate || 'Pulse'}
         </div>
         <h1
           style={{
@@ -178,7 +190,7 @@ export default function HomeDashboard() {
             color: 'var(--fg-1)',
           }}
         >
-          Das Operator
+          {greetWord}{greetName ? <>{', '}<span style={{ color: 'var(--brand-rot)' }}>{greetName}</span></> : ''}
         </h1>
         <p
           className="mt-3"
@@ -228,12 +240,12 @@ export default function HomeDashboard() {
         </div>
       </section>
 
+      {/* MARKETPLACE PULSE ========================================== */}
+      <MarketplacePulse />
+
       {/* SYSTEM HEALTH ============================================== */}
       <SystemHealth />
       <DailyDigest />
-
-      {/* MARKETPLACE PULSE ========================================== */}
-      <MarketplacePulse />
 
       {/* RECENT OPERATIONS ========================================== */}
       <section>

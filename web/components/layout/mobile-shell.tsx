@@ -76,10 +76,10 @@ interface BottomNavItem {
 // Candidate items, ordered by priority. We pick the first 5 the role can see.
 const BOTTOM_NAV_CANDIDATES: BottomNavItem[] = [
   { name: 'Pulse',      icon: Home,           href: '/' },
-  { name: 'Operations', icon: ArrowLeftRight, href: '/operations' },
   { name: 'Stock',      icon: Warehouse,      href: '/warehouses' },
   { name: 'Reviews',    icon: MessageSquare,  href: '/reviews' },
   { name: 'Emailer',    icon: Mail,           href: '/emailer' },
+  { name: 'Operations', icon: ArrowLeftRight, href: '/operations' },
 ];
 
 function BottomNav({ pathname }: { pathname: string }) {

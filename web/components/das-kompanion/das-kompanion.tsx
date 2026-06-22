@@ -194,7 +194,7 @@ export default function DasKompanion({ apiUrl = 'https://dasoperator-api.dasexpe
       {/* Floating button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all hover:scale-105"
+        className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-50 w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all hover:scale-105"
         style={{
           backgroundColor: 'var(--brand-schwarz, #1a1a1a)',
           color: 'var(--paper, #fff)',
@@ -207,7 +207,7 @@ export default function DasKompanion({ apiUrl = 'https://dasoperator-api.dasexpe
       {/* Chat window */}
       {isOpen && (
         <div
-          className="fixed bottom-24 right-6 z-50 w-96 h-[500px] flex flex-col shadow-2xl rounded-lg overflow-hidden"
+          className="fixed z-50 flex flex-col shadow-2xl rounded-lg overflow-hidden inset-x-3 top-16 bottom-20 md:inset-x-auto md:top-auto md:bottom-24 md:right-6 md:w-96 md:h-[500px]"
           style={{
             backgroundColor: 'var(--paper, #fff)',
             border: '1px solid var(--border-hairline, #e5e5e5)',

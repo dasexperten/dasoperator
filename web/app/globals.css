@@ -764,3 +764,45 @@ input[type="number"] {
   }
 }
 
+
+
+/* ===========================================================================
+   MOBILE: list tables -> stacked cards (2026-06, mobile redesign)
+   <768px only. Each <tr> becomes a card, each <td> a labelled-ish row.
+   Reversible: delete this block to restore horizontal-scroll tables.
+   =========================================================================== */
+@media (max-width: 767px) {
+  main table { display: block; width: 100%; overflow: visible; white-space: normal; border: none; }
+  main table thead {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  main table tbody { display: block; }
+  main table tr {
+    display: block;
+    background: var(--paper-raised, #fff);
+    border: 1px solid var(--border-hairline);
+    border-radius: 10px;
+    padding: 4px 13px;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 2px rgba(26,21,25,.04);
+  }
+  main table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    width: auto !important;
+    white-space: normal !important;
+    text-align: right !important;
+    padding: 8px 0 !important;
+    border: none !important;
+    border-bottom: 1px solid var(--border-hairline) !important;
+    position: static !important;
+  }
+  main table td:last-child { border-bottom: none !important; }
+  main table td:first-child { font-weight: 700; }
+  main table tr > td:first-child { text-align: left !important; }
+  /* hide empty/colspan placeholder rows nicely */
+  main table td[colspan] { justify-content: center; text-align: center !important; }
+}

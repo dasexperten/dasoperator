@@ -555,6 +555,13 @@ export default function WarehousesPage() {
           </table>
         </div>
       )}
+      {showTransfer && (
+        <StockTransferModal
+          warehouses={warehouses}
+          onClose={() => setShowTransfer(false)}
+          onDone={() => { setShowTransfer(false); setReloadKey((k) => k + 1); }}
+        />
+      )}
     </div>
   );
 }
@@ -878,13 +885,6 @@ function SyncWarningBanner({ health }: { health: MarketplaceHealthResponse | nul
           Last attempt at {formatBannerTimestamp(failedAt)} did not complete. Stock columns below show data from the previous successful sync. <a href="/marketplaces" style={{ color: 'var(--brand-rot)', textDecoration: 'underline' }}>View sync log</a>
         </div>
       </div>
-      {showTransfer && (
-        <StockTransferModal
-          warehouses={warehouses}
-          onClose={() => setShowTransfer(false)}
-          onDone={() => { setShowTransfer(false); setReloadKey((k) => k + 1); }}
-        />
-      )}
     </div>
   );
 }

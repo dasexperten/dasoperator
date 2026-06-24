@@ -125,7 +125,7 @@ export default function StockTransferModal({ warehouses, onClose, onDone }: Stoc
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div
         className="w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
-        style={{ backgroundColor: 'var(--paper-1)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}
+        style={{ backgroundColor: 'var(--paper-raised)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}
       >
         <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '1px solid var(--border-hairline)' }}>
           <div className="flex items-center gap-2">

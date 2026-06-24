@@ -6,7 +6,7 @@ export const runtime = 'edge';
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Loader2, Search, ArrowUp, ArrowDown, AlertTriangle } from 'lucide-react';
+import { Loader2, Search, ArrowUp, ArrowDown, AlertTriangle, ArrowLeftRight } from 'lucide-react';
 import {
   getProductsWithStock, getWarehouses, getMarketplaceStocks, getMarketplaceHealth,
   getExternalStocksByProduct,
@@ -14,6 +14,7 @@ import {
   type MarketplaceHealthResponse,
   type ExternalStockByProductRow,
 } from '@/lib/api';
+import StockTransferModal from '@/components/warehouses/stock-transfer-modal';
 
 // Sort key — special string ids for fixed columns ('sku', 'product', 'ozon',
 // 'wb', 'total') or warehouse_id for per-warehouse columns.
@@ -38,6 +39,8 @@ export default function WarehousesPage() {
   // Default sort: Total column, descending (Aram's standing instruction).
   // Click cycles desc → asc → null.
   const [sort, setSort] = useState<SortState | null>({ key: 'total', dir: 'desc' });
+  const [showTransfer, setShowTransfer] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -81,7 +84,7 @@ export default function WarehousesPage() {
       }
     };
     fetchAll();
-  }, []);
+  }, [reloadKey]);
 
   // Toggle sort: same key → cycles desc → asc → null.
   // Different key → starts at desc (most useful default for stock columns).
@@ -273,21 +276,40 @@ export default function WarehousesPage() {
 
   return (
     <div className="space-y-8 max-w-full">
-      <div>
-        <div className="dx-eyebrow-rot mb-2">Inventory</div>
-        <h1
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="dx-eyebrow-rot mb-2">Inventory</div>
+          <h1
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 'var(--fs-display-md)',
+              fontWeight: 900,
+              color: 'var(--fg-1)',
+            }}
+          >
+            Warehouses
+          </h1>
+          <p className="mt-2" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
+            {loading ? 'Loading...' : `${products.length} SKUs × ${warehouses.length} warehouses · ${grandTotal.toLocaleString('en-US')} pieces total`}
+          </p>
+        </div>
+        <button
+          onClick={() => setShowTransfer(true)}
+          className="shrink-0 flex items-center gap-2"
           style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: 'var(--fs-display-md)',
-            fontWeight: 900,
-            color: 'var(--fg-1)',
+            padding: '9px 16px',
+            borderRadius: 'var(--radius-sm)',
+            border: 'none',
+            backgroundColor: 'var(--brand-blau, #185FA5)',
+            color: '#fff',
+            fontSize: 'var(--fs-body-sm)',
+            fontWeight: 600,
+            whiteSpace: 'nowrap',
           }}
         >
-          Warehouses
-        </h1>
-        <p className="mt-2" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
-          {loading ? 'Loading...' : `${products.length} SKUs × ${warehouses.length} warehouses · ${grandTotal.toLocaleString('en-US')} pieces total`}
-        </p>
+          <ArrowLeftRight className="h-4 w-4" />
+          Stock transfer
+        </button>
       </div>
 
       <div className="dx-ribbon-rule" />
@@ -856,6 +878,13 @@ function SyncWarningBanner({ health }: { health: MarketplaceHealthResponse | nul
           Last attempt at {formatBannerTimestamp(failedAt)} did not complete. Stock columns below show data from the previous successful sync. <a href="/marketplaces" style={{ color: 'var(--brand-rot)', textDecoration: 'underline' }}>View sync log</a>
         </div>
       </div>
+      {showTransfer && (
+        <StockTransferModal
+          warehouses={warehouses}
+          onClose={() => setShowTransfer(false)}
+          onDone={() => { setShowTransfer(false); setReloadKey((k) => k + 1); }}
+        />
+      )}
     </div>
   );
 }

@@ -1474,6 +1474,42 @@ export async function getStocks(filters?: { warehouse_id?: string; product_id?: 
   return apiGet<StocksListResponse>(`/api/stocks${qs}`);
 }
 
+// -----------------------------------------------------------------------------
+// Stock transfer — move stock between two warehouses of the same company
+// -----------------------------------------------------------------------------
+
+export interface StockTransferLine {
+  product_id: string;
+  quantity: number;
+}
+
+export interface StockTransferParams {
+  from_warehouse_id: string;
+  to_warehouse_id: string;
+  lines: StockTransferLine[];
+  reason?: string | null;
+  notes?: string | null;
+  performed_by?: string | null;
+}
+
+export interface StockTransferResult {
+  transfer_ref: string;
+  from_warehouse: { id: string; code: string };
+  to_warehouse: { id: string; code: string };
+  company_id: string;
+  lines: Array<{
+    product_id: string;
+    product_name: string;
+    quantity: number;
+    from_balance_after: number;
+    to_balance_after: number;
+  }>;
+}
+
+export async function transferStock(params: StockTransferParams) {
+  return apiPost<StockTransferResult>('/api/stocks/transfer', params);
+}
+
 export interface ProductStockResponse {
   product: { id: string; product_name: string; pieces_per_case: number };
   total_on_hand: number;

@@ -750,7 +750,12 @@ operations.get('/', async (c) => {
     SELECT
       ${columns},
       COALESCE(vps.paid_total, 0) AS paid_amount,
-      vps.payment_status
+      vps.payment_status,
+      p.acceptance_required AS partner_acceptance_required,
+      (SELECT CASE WHEN SUM(CASE WHEN oa.kind IN ('acceptance','act') THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END
+         FROM operation_attachments oa WHERE oa.operation_id = o.id AND oa.deleted_at IS NULL) AS has_acceptance_attachment,
+      (SELECT CASE WHEN SUM(CASE WHEN oa.kind IN ('invoice','service_invoice','freight_invoice') THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END
+         FROM operation_attachments oa WHERE oa.operation_id = o.id AND oa.deleted_at IS NULL) AS has_invoice_attachment
     ${fromJoin}
     LEFT JOIN v_operation_payment_status vps ON vps.operation_id = o.id
     WHERE o.deleted_at IS NULL
@@ -793,6 +798,9 @@ operations.get('/', async (c) => {
     return {
       ...row,
       payment_state: derivePaymentState(total, paid, String(row.status), row.partner_id as string | null, row.reference as string | null),
+      partner_acceptance_required: row.partner_acceptance_required as 0 | 1 | null,
+      has_acceptance_attachment: Number(row.has_acceptance_attachment) > 0,
+      has_invoice_attachment: Number(row.has_invoice_attachment) > 0,
     };
   });
 
@@ -2572,4 +2580,5 @@ operations.post('/_tick-marketplace-pull', async (c) => {
 
 
 export default operations;
+
 

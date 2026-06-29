@@ -19,6 +19,7 @@ import {
   type OperationDocumentSource,
 } from '@/lib/api';
 import { ContractRef } from '@/components/ui/contract-ref';
+import StatusStages from '@/components/operations/status-stages';
 
 const TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
   sale:     { bg: 'rgba(46,125,79,0.08)',  fg: 'var(--status-success)' },
@@ -1017,11 +1018,6 @@ export default function OperationsPage() {
               ) : (
                 filtered.map((op) => {
                   const tc = TYPE_COLORS[op.operation_type];
-                  const ps = op.payment_state ?? 'neutral';
-                  const po = PAYMENT_OVERLAY[ps]!;
-                  const total = op.total_amount || 0;
-                  const paid = op.paid_amount ?? 0;
-                  const pct = total > 0 ? Math.round((paid / total) * 100) : 0;
                   const isBatchRow = (op as { is_batch?: boolean }).is_batch === true;
                   const clusterCount = (op as { cluster_count?: number }).cluster_count ?? 0;
                   return (
@@ -1095,24 +1091,7 @@ export default function OperationsPage() {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        {op.operation_type === 'transfer' ? (
-                          // Transfers don't have payment — plain status text, no background
-                          <span style={{ color: 'var(--fg-2)', fontSize: '14px', fontWeight: 600 }}>
-                            {statusLabel(op.status, op.operation_type)}
-                          </span>
-                        ) : (
-                          <div className="inline-flex items-center gap-2" style={{
-                            padding: '4px 10px',
-                            backgroundColor: po.bg,
-                            color: po.fg,
-                            borderRadius: 'var(--radius-sm)',
-                            fontSize: '14px',
-                            fontWeight: 500,
-                          }}>
-                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: po.dot, display: 'inline-block' }} />
-                            <span style={{ color: 'var(--fg-1)', fontWeight: 600 }}>{statusLabel(op.status, op.operation_type)}</span>
-                          </div>
-                        )}
+                        <StatusStages op={op} />
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="inline-flex items-center gap-2">
@@ -1740,4 +1719,5 @@ function LegendDot({ color, label }: { color: string; label: string }) {
     </span>
   );
 }
+
 

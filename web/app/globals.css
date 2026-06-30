@@ -806,3 +806,26 @@ input[type="number"] {
   /* hide empty/colspan placeholder rows nicely */
   main table td[colspan] { justify-content: center; text-align: center !important; }
 }
+
+
+/* ---- 33. Home: greeting heading — smaller on mobile ---- */
+@media (max-width: 767px) {
+  .dx-home-greeting {
+    font-size: clamp(28px, 8vw, 36px) !important;
+    line-height: 1.08 !important;
+  }
+}
+
+/* ---- 34. Home: metric cards — 2×2 grid on mobile ---- */
+@media (max-width: 767px) {
+  .dx-metrics-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+  .dx-metrics-grid > div {
+    padding: 14px 16px !important;
+  }
+  .dx-metrics-grid [style*="font-size: 40px"],
+  .dx-metrics-grid [style*="fontSize: '40px'"] {
+    font-size: 28px !important;
+  }
+}

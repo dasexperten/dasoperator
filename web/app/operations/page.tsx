@@ -1034,11 +1034,18 @@ export default function OperationsPage() {
                       {/* v2 manufacturer fallback — deployed 2026-05-11 */}
                       <td className="px-4 py-3" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>
                         {(() => {
-                          const { label, partnerId } = resolvePartnerLabel(op);
-                          return partnerId ? (
-                            <Link href={`/partners/${partnerId}`} style={{ color: 'var(--fg-1)' }}>
+                          const { label } = resolvePartnerLabel(op);
+                          return label !== '—' ? (
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              title={`Show only ${label}`}
+                              onClick={(e) => { e.stopPropagation(); setSearch(label); }}
+                              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSearch(label); } }}
+                              style={{ color: 'var(--fg-1)', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '3px' }}
+                            >
                               {label}
-                            </Link>
+                            </span>
                           ) : (
                             <span>{label}</span>
                           );

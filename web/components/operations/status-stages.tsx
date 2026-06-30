@@ -13,11 +13,11 @@
  * not apply to that operation type.
  *
  * Applicability per type:
- *   service   → SRV · DOC · PAY
+ *   service   → SRV · DOC · PAY  (DOC lights on issued)
  *   sale      → DOC · PAY · SHP
  *   purchase  → DOC · PAY · SHP
  *   transfer  → DOC · SHP
- *   tax       → DOC · PAY
+ *   tax       → DOC · PAY  (no service stage)
  *
  * Lit logic mirrors the detail-page ServiceStatusBar for service ops
  * (acceptance / invoice attachments + payment), and derives goods stages
@@ -61,9 +61,17 @@ function computeSlots(op: Operation): Record<SlotKey, SlotState> {
   const slots: Record<SlotKey, SlotState> = { SRV: 'off', DOC: 'off', PAY: 'off', SHP: 'off' };
   const ld = (b: boolean): SlotState => (b ? 'lit' : 'dim');
 
-  if (isService) {
+  if (type === 'tax') {
+    // Tax ops carry operation_track='service' in the DB, so they must be
+    // matched before the service branch — a tax payment has no 'service
+    // provided' stage. Documents light on issued, payment on settled.
+    slots.DOC = ld(issued);
+    slots.PAY = ld(paid);
+  } else if (isService) {
     slots.SRV = ld(serviceProvided);
-    slots.DOC = ld(hasInv);
+    // Option B: Documents light once the invoice is issued in the ERP
+    // (status beyond draft), not only when a file is attached.
+    slots.DOC = ld(hasInv || issued);
     slots.PAY = ld(paid);
   } else if (type === 'sale' || type === 'purchase') {
     slots.DOC = ld(issued);
@@ -72,9 +80,6 @@ function computeSlots(op: Operation): Record<SlotKey, SlotState> {
   } else if (type === 'transfer') {
     slots.DOC = ld(issued);
     slots.SHP = ld(shipped);
-  } else if (type === 'tax') {
-    slots.DOC = ld(issued);
-    slots.PAY = ld(paid);
   }
 
   return slots;

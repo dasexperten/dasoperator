@@ -53,6 +53,12 @@ function fmt(n: number): string {
   return Math.round(n).toLocaleString('ru-RU');
 }
 
+// Local date as YYYY-MM-DD (no TZ drift) for the date input default.
+function todayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 // =============================================================================
 // Per-row state: either "from" side or "to" side was last edited.
 // This lets the user drive from either column.
@@ -71,6 +77,9 @@ export default function BundlingFormClient() {
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [operationDate, setOperationDate] = useState<string>(todayStr());
+  const [showBackdateConfirm, setShowBackdateConfirm] = useState(false);
+  const isBackdated = operationDate < todayStr();
 
   // Refs for Enter-key navigation: fromRefs[i] and toRefs[i]
   const fromRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -170,11 +179,19 @@ export default function BundlingFormClient() {
   const totalFrom = activeItems.reduce((s, it) => s + (it?.from_qty ?? 0), 0);
   const totalTo   = activeItems.reduce((s, it) => s + (it?.to_qty   ?? 0), 0);
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     if (activeItems.length === 0) { setError('Введи количество хотя бы в одной строке'); return; }
+    setError(null);
+    if (isBackdated) { setShowBackdateConfirm(true); return; }
+    void doSubmit();
+  };
+
+  const doSubmit = async () => {
+    setShowBackdateConfirm(false);
     setSubmitting(true);
     setError(null);
     try {
+      const opDateUnix = Math.floor(new Date(`${operationDate}T12:00:00`).getTime() / 1000);
       const res = await fetch(`${API_BASE}/api/bundling`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -182,6 +199,7 @@ export default function BundlingFormClient() {
           warehouse_id:   warehouseId,
           our_company_id: COMPANY_MAP[warehouseId] ?? 'dee',
           items: activeItems,
+          operation_date: opDateUnix,
         }),
       });
       const d = await res.json() as {
@@ -235,6 +253,32 @@ export default function BundlingFormClient() {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* DATE */}
+      <div>
+        <p className="dx-section-label" style={{ marginBottom: '10px' }}>DATE</p>
+        <input
+          type="date"
+          value={operationDate}
+          max={todayStr()}
+          onChange={e => setOperationDate(e.target.value)}
+          style={{
+            padding: '9px 12px',
+            fontSize: '14px',
+            fontWeight: 700,
+            border: `1px solid ${isBackdated ? 'var(--brand-rot)' : 'var(--border-hairline)'}`,
+            borderRadius: 'var(--radius-sm)',
+            backgroundColor: 'var(--paper)',
+            color: isBackdated ? 'var(--brand-rot)' : 'var(--fg-1)',
+            outline: 'none',
+          }}
+        />
+        {isBackdated && (
+          <p style={{ fontSize: '13px', color: 'var(--brand-rot)', marginTop: '6px' }}>
+            Задним числом — попросим подтверждение
+          </p>
+        )}
       </div>
 
       {/* TABLE */}
@@ -432,6 +476,32 @@ export default function BundlingFormClient() {
 
       {error && (
         <p style={{ color: 'var(--brand-rot)', fontSize: '14px' }}>{error}</p>
+      )}
+
+      {showBackdateConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ width: '420px', maxWidth: '90vw', background: 'var(--paper)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-hairline)', padding: '24px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--fg-1)', marginBottom: '10px' }}>Backdated operation</h3>
+            <p style={{ fontSize: '14px', color: 'var(--fg-2)', marginBottom: '18px', lineHeight: 1.5 }}>
+              Операция записывается прошедшей датой <strong style={{ color: 'var(--brand-rot)' }}>{operationDate}</strong>, не сегодня. Вы уверены?
+            </p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowBackdateConfirm(false)}
+                style={{ padding: '9px 18px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)', color: 'var(--fg-1)', fontWeight: 700, fontSize: '14px', cursor: 'pointer' }}
+              >
+                Нет
+              </button>
+              <button
+                onClick={() => void doSubmit()}
+                disabled={submitting}
+                style={{ padding: '9px 18px', borderRadius: 'var(--radius-sm)', border: 'none', backgroundColor: 'var(--brand-rot)', color: 'var(--paper)', fontWeight: 700, fontSize: '14px', cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.6 : 1 }}
+              >
+                Да, подтвердить
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

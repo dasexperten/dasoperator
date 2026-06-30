@@ -1021,6 +1021,10 @@ operations.get('/:id', async (c) => {
 const updateStatusSchema = z.object({
   status: z.enum(['issued', 'order_fulfilment', 'production', 'stocked', 'shipped', 'delivered', 'cancelled']),
   notes: z.string().optional(),
+  // Optional backdating: unix seconds. When provided, stock movements written
+  // by this transition are stamped with this date instead of now (goods that
+  // physically left on a past date). Frontend confirms before sending.
+  operation_date: z.number().int().positive().optional(),
 });
 
 // Allowed transitions — branched by operation_type
@@ -1416,6 +1420,8 @@ operations.patch('/:id/status', async (c) => {
   const lineItems = lineItemsResult.results;
   const now = Math.floor(Date.now() / 1000);
   const warnings: string[] = [];
+  // Backdate stamp for stock movements (falls back to now when not provided).
+  const opDate = parsed.data.operation_date ?? now;
 
   // Build batch statements
   const stmts: D1PreparedStatement[] = [];
@@ -1855,7 +1861,7 @@ operations.patch('/:id/status', async (c) => {
       `).bind(
         movId, spec.warehouseId, spec.productId, spec.movementType,
         spec.qty, opId, spec.reason,
-        parsed.data.notes ?? null, now, balanceAfter, spec.stockState, now
+        parsed.data.notes ?? null, opDate, balanceAfter, spec.stockState, now
       )
     );
 

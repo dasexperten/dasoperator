@@ -6,7 +6,7 @@ export const runtime = 'edge';
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Loader2, Search, ArrowUp, ArrowDown, AlertTriangle, ArrowLeftRight } from 'lucide-react';
+import { Loader2, Search, ArrowUp, ArrowDown, AlertTriangle, ArrowLeftRight, Package } from 'lucide-react';
 import {
   getProductsWithStock, getWarehouses, getMarketplaceStocks, getMarketplaceHealth,
   getExternalStocksByProduct,
@@ -293,23 +293,43 @@ export default function WarehousesPage() {
             {loading ? 'Loading...' : `${products.length} SKUs × ${warehouses.length} warehouses · ${grandTotal.toLocaleString('en-US')} pieces total`}
           </p>
         </div>
-        <button
-          onClick={() => setShowTransfer(true)}
-          className="shrink-0 flex items-center gap-2"
-          style={{
-            padding: '9px 16px',
-            borderRadius: 'var(--radius-sm)',
-            border: 'none',
-            backgroundColor: 'var(--brand-blau, #185FA5)',
-            color: '#fff',
-            fontSize: 'var(--fs-body-sm)',
-            fontWeight: 600,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          <ArrowLeftRight className="h-4 w-4" />
-          Stock transfer
-        </button>
+        <div className="shrink-0 flex items-center gap-2">
+          <Link
+            href="/operations/bundling/new"
+            className="flex items-center gap-2"
+            style={{
+              padding: '9px 16px',
+              borderRadius: 'var(--radius-sm)',
+              border: 'none',
+              backgroundColor: 'var(--brand-rot, #A32D2D)',
+              color: '#fff',
+              fontSize: 'var(--fs-body-sm)',
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+              textDecoration: 'none',
+            }}
+          >
+            <Package className="h-4 w-4" />
+            Bundling
+          </Link>
+          <button
+            onClick={() => setShowTransfer(true)}
+            className="flex items-center gap-2"
+            style={{
+              padding: '9px 16px',
+              borderRadius: 'var(--radius-sm)',
+              border: 'none',
+              backgroundColor: 'var(--brand-blau, #185FA5)',
+              color: '#fff',
+              fontSize: 'var(--fs-body-sm)',
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <ArrowLeftRight className="h-4 w-4" />
+            Stock transfer
+          </button>
+        </div>
       </div>
 
       <div className="dx-ribbon-rule" />

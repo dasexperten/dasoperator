@@ -6,6 +6,12 @@ import { Loader2, FileText, Package, FileCheck, Truck, Wrench, Box, CheckCircle2
 import { issueDocuments } from '@/lib/api';
 import ServiceStatusBar from './service-status-bar';
 
+// Local date YYYY-MM-DD (no TZ drift) for the Shipped date picker default.
+function shipTodayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 interface DocumentActionBarProps {
   operationId: string;
   operationStatus: string;
@@ -77,6 +83,8 @@ export default function DocumentActionBar({
 }: DocumentActionBarProps) {
   const [busy, setBusy] = useState<ButtonId | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [shipModalOpen, setShipModalOpen] = useState(false);
+  const [shipDate, setShipDate] = useState<string>(shipTodayStr());
 
   // ── Service track short-circuit ─────────────────────────────────────────
   // Service operations (auditors, logistics, agencies) skip the goods
@@ -158,16 +166,17 @@ export default function DocumentActionBar({
     }
   };
 
-  const handleStatusChange = async (id: ButtonId, targetStatus: string, label: string) => {
-    if (!window.confirm(`Move operation to ${label}?`)) return;
+  const performStatusChange = async (id: ButtonId, targetStatus: string, label: string, operationDate?: number) => {
     setBusy(id);
     setFeedback(null);
     try {
       const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://dasoperator-api.dasexperten.workers.dev';
+      const payload: { status: string; operation_date?: number } = { status: targetStatus };
+      if (operationDate) payload.operation_date = operationDate;
       const r = await fetch(`${API_BASE}/api/operations/${operationId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: targetStatus }),
+        body: JSON.stringify(payload),
       });
       const data = await r.json();
       if (!r.ok || !data.success) {
@@ -181,6 +190,17 @@ export default function DocumentActionBar({
     } finally {
       setBusy(null);
     }
+  };
+
+  const handleStatusChange = async (id: ButtonId, targetStatus: string, label: string) => {
+    if (!window.confirm(`Move operation to ${label}?`)) return;
+    await performStatusChange(id, targetStatus, label);
+  };
+
+  const confirmShip = async () => {
+    const unix = Math.floor(new Date(`${shipDate}T12:00:00`).getTime() / 1000);
+    setShipModalOpen(false);
+    await performStatusChange('SHIP', 'shipped', 'Shipped', unix);
   };
 
   const buttonStyle = (active: boolean): React.CSSProperties => ({
@@ -341,7 +361,7 @@ export default function DocumentActionBar({
           </button>
         )}
         <button
-          onClick={() => handleStatusChange('SHIP', 'shipped', 'Shipped')}
+          onClick={() => { setShipDate(shipTodayStr()); setShipModalOpen(true); }}
           disabled={!shipActive || !!busy}
           style={statusButtonStyle(shipActive, '#E6F1FB', '#185FA5', '#0C447C')}
           title={
@@ -392,6 +412,54 @@ export default function DocumentActionBar({
         <p style={{ fontSize: '14px', color: 'var(--fg-3)', margin: 0 }}>
           Operation is cancelled — documents cannot be issued.
         </p>
+      )}
+
+      {shipModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ width: '420px', maxWidth: '90vw', background: 'var(--paper)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-hairline)', padding: '24px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--fg-1)', marginBottom: '10px' }}>Move to Shipped</h3>
+            <p style={{ fontSize: '14px', color: 'var(--fg-2)', marginBottom: '14px', lineHeight: 1.5 }}>
+              Shipment date — set a past date if the goods already left.
+            </p>
+            <input
+              type="date"
+              value={shipDate}
+              max={shipTodayStr()}
+              onChange={(e) => setShipDate(e.target.value)}
+              style={{
+                padding: '9px 12px',
+                fontSize: '14px',
+                fontWeight: 700,
+                border: `1px solid ${shipDate < shipTodayStr() ? 'var(--brand-rot)' : 'var(--border-hairline)'}`,
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: 'var(--paper)',
+                color: shipDate < shipTodayStr() ? 'var(--brand-rot)' : 'var(--fg-1)',
+                outline: 'none',
+                marginBottom: '8px',
+              }}
+            />
+            {shipDate < shipTodayStr() && (
+              <p style={{ fontSize: '13px', color: 'var(--brand-rot)', margin: '0 0 14px' }}>
+                Задним числом — отгрузка запишется этой датой.
+              </p>
+            )}
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '8px' }}>
+              <button
+                onClick={() => setShipModalOpen(false)}
+                style={{ padding: '9px 18px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)', color: 'var(--fg-1)', fontWeight: 700, fontSize: '14px', cursor: 'pointer' }}
+              >
+                Нет
+              </button>
+              <button
+                onClick={() => void confirmShip()}
+                disabled={busy === 'SHIP'}
+                style={{ padding: '9px 18px', borderRadius: 'var(--radius-sm)', border: 'none', backgroundColor: 'var(--brand-rot)', color: 'var(--paper)', fontWeight: 700, fontSize: '14px', cursor: busy === 'SHIP' ? 'not-allowed' : 'pointer', opacity: busy === 'SHIP' ? 0.6 : 1 }}
+              >
+                Да, подтвердить
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

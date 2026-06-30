@@ -477,6 +477,19 @@ export async function handleScheduled(
       console.error('[cron:inbox] failed:', e);
     }
 
+    // Nightly three-way reconcile: turn waiting F4 service invoices / acts into
+    // operations (create if none, attach if exists). Anchored on invoice number
+    // so it never duplicates the bank-created deal. Runs after ingestion so the
+    // freshest docs are considered. (Aram spec, 2026-06-30.)
+    console.log('[cron:inbox-reconcile] starting nightly deal reconcile');
+    try {
+      const { runInboxReconcile } = await import('./lib/inbox-reconcile');
+      const rec = await runInboxReconcile(env);
+      console.log(`[cron:inbox-reconcile] complete: ${JSON.stringify(rec)}`);
+    } catch (e) {
+      console.error('[cron:inbox-reconcile] failed:', e);
+    }
+
     // Also run bank statement ingestion for active sources
     console.log('[cron:bank-statements] starting daily bank statement ingestion');
     try {

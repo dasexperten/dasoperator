@@ -289,6 +289,38 @@ export async function autoMatchBankTransaction(
           };
         }
       }
+      // No existing operation carries this invoice number. If the payment is an
+      // OUTGOING settlement to a KNOWN service partner and explicitly names the
+      // invoice, create the deal from the payment (guarded). The named invoice
+      // number is the anchor; nightly inbox-reconcile dedups on the same number,
+      // so the document (счёт/акт) attaches to THIS op, never a second one.
+      // Guard rails (prevent the phantom-deal incidents): outgoing only, partner
+      // resolved by INN, and partner kind is a service provider. A 'naked'
+      // payment with no invoice number never reaches here — it parks as
+      // awaiting_invoice and is retried each night. (Aram spec, 2026-06-30.)
+      if (tx.direction === 'outgoing') {
+        const invPartner = await findPartnerByInn(env, tx.contragent_inn);
+        if (invPartner && SERVICE_KINDS.has(invPartner.kind || '')) {
+          const opId = await createServiceOperation(env, {
+            partner_id: invPartner.id,
+            amount_major: toMajor(tx.amount, tx.currency),
+            currency: tx.currency,
+            operation_date: tx.executed_at,
+            purpose: tx.payment_purpose || '',
+            contragent_name: tx.contragent_name || invPartner.id,
+            invoice_no: invno,
+          });
+          const attIds = await attachPaymentAndInvoice(env, { operation_id: opId, tx });
+          await persistOutcome(env, txId, 'auto_invno_pair', opId);
+          return {
+            outcome: 'auto_invno_pair',
+            operation_id: opId,
+            partner_id: invPartner.id,
+            attachment_ids: attIds,
+            reason: `Invoice № ${invno} named, no existing deal — created ${opId} from payment (service ${invPartner.id})`,
+          };
+        }
+      }
     }
   }
 

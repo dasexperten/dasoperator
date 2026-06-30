@@ -364,8 +364,8 @@ export default function WarehousesPage() {
           Error: {error}
         </div>
       ) : (
-        <div className="bg-card overflow-x-auto" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
-          <table className="w-full text-sm" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
+        <div className="bg-card overflow-x-auto dx-table-scroll" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
+          <table className="w-full text-sm dx-keep-table" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
             <thead>
               <tr>
                 <SortableTh sticky sortKey="sku" sort={sort} onClick={handleSortClick}>SKU</SortableTh>
@@ -451,7 +451,7 @@ export default function WarehousesPage() {
                       <td className="px-3 py-2" style={{ fontWeight: 700, color: 'var(--fg-1)', fontSize: '14px' }}>
                         <Link href={`/products/${skuLower}`} style={{ color: 'inherit' }}>{skuShort}</Link>
                       </td>
-                      <td className="px-3 py-2" style={{ fontWeight: 700, color: 'var(--fg-1)', fontSize: '14px', maxWidth: '280px' }}>
+                      <td className="px-3 py-2 dx-sticky-2" style={{ fontWeight: 700, color: 'var(--fg-1)', fontSize: '14px', maxWidth: '280px' }}>
                         <Link href={`/products/${skuLower}`} style={{ color: 'inherit' }}>{p.product_name}</Link>
                       </td>
                       {sortedWarehouses.map((w) => {
@@ -490,7 +490,7 @@ export default function WarehousesPage() {
               <tfoot>
                 <tr style={{ borderTop: '2px solid var(--border-hairline)' }}>
                   <td className="px-3 py-2" style={{ fontSize: '14px', color: 'var(--fg-3)', backgroundColor: 'var(--paper-sunk)' }}>Total</td>
-                  <td className="px-3 py-2" style={{ backgroundColor: 'var(--paper-sunk)' }}></td>
+                  <td className="px-3 py-2 dx-sticky-2" style={{ backgroundColor: 'var(--paper-sunk)' }}></td>
                   {sortedWarehouses.map((w) => {
                     const tot = totalsByWarehouse.totals[w.code] ?? 0;
                     const cellBg = TINT_BY_GROUP[groupForWarehouse(w)];

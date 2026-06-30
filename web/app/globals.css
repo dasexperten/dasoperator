@@ -294,6 +294,12 @@ input[type="number"] {
   [class*="grid-cols-6"] {
     grid-template-columns: 1fr !important;
   }
+  /* Dense small KPI tiles (5-/6-up) read better 2-up than as one tall stack.
+     Higher specificity (.grid.grid-cols-N) wins over the [class*] rule above. */
+  .grid.grid-cols-5,
+  .grid.grid-cols-6 {
+    grid-template-columns: 1fr 1fr !important;
+  }
   .grid {
     gap: 12px !important;
   }
@@ -739,6 +745,23 @@ input[type="number"] {
     border-radius: 0 !important;
     max-height: 100vh !important;
   }
+  /* .dx-modal-panel — inline-styled modal cards become full-width bottom
+     sheets. position:fixed self-docks to the viewport bottom regardless of
+     how the overlay aligns its children, so no overlay edits are needed. */
+  .dx-modal-panel {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    top: auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    border-radius: 14px 14px 0 0 !important;
+    max-height: 92vh !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 /* ---- 31. Das-Kompanion chat window: full-width on mobile ---- */
@@ -772,13 +795,14 @@ input[type="number"] {
    Reversible: delete this block to restore horizontal-scroll tables.
    =========================================================================== */
 @media (max-width: 767px) {
-  main table { display: block; width: 100%; overflow: visible; white-space: normal; border: none; }
-  main table thead {
+  /* .dx-keep-table opts out (wide matrices keep horizontal scroll — see block 35) */
+  main table:not(.dx-keep-table) { display: block; width: 100%; overflow: visible; white-space: normal; border: none; }
+  main table:not(.dx-keep-table) thead {
     position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
   }
-  main table tbody { display: block; }
-  main table tr {
+  main table:not(.dx-keep-table) tbody { display: block; }
+  main table:not(.dx-keep-table) tr {
     display: block;
     background: var(--paper-raised, #fff);
     border: 1px solid var(--border-hairline);
@@ -787,24 +811,82 @@ input[type="number"] {
     margin-bottom: 10px;
     box-shadow: 0 1px 2px rgba(26,21,25,.04);
   }
-  main table td {
+  main table:not(.dx-keep-table) td {
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 12px;
     width: auto !important;
+    min-height: 44px;
     white-space: normal !important;
     text-align: right !important;
-    padding: 8px 0 !important;
+    padding: 10px 0 !important;
     border: none !important;
     border-bottom: 1px solid var(--border-hairline) !important;
     position: static !important;
   }
-  main table td:last-child { border-bottom: none !important; }
-  main table td:first-child { font-weight: 700; }
-  main table tr > td:first-child { text-align: left !important; }
+  /* Column label, injected as data-label by the auto-labeler script in layout.tsx */
+  main table:not(.dx-keep-table) td[data-label]::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    margin-right: auto;
+    padding-right: 12px;
+    font-weight: 600;
+    text-align: left;
+    color: var(--fg-2, #6b6660);
+    white-space: nowrap;
+  }
+  main table:not(.dx-keep-table) td:last-child { border-bottom: none !important; }
+  main table:not(.dx-keep-table) td:first-child { font-weight: 700; }
+  main table:not(.dx-keep-table) td:first-child::before { content: none; }
+  main table:not(.dx-keep-table) tr > td:first-child { text-align: left !important; }
   /* hide empty/colspan placeholder rows nicely */
-  main table td[colspan] { justify-content: center; text-align: center !important; }
+  main table:not(.dx-keep-table) td[colspan] { justify-content: center; text-align: center !important; }
+  main table:not(.dx-keep-table) td[colspan]::before { content: none; }
+}
+
+/* ===========================================================================
+   35. MOBILE: wide matrices (.dx-keep-table) — keep table + sticky lead cols
+   For tables too wide to stack as cards (e.g. warehouse stock matrix).
+   The wrapper must be .overflow-x-auto so the body scrolls horizontally.
+   =========================================================================== */
+@media (max-width: 767px) {
+  .dx-table-scroll {
+    position: relative;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* right-edge shadow hints there is more to scroll */
+  .dx-table-scroll::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 18px;
+    pointer-events: none;
+    background: linear-gradient(to left, rgba(26,21,25,.10), transparent);
+  }
+  main table.dx-keep-table { display: table; width: max-content; min-width: 100%; }
+  main table.dx-keep-table th,
+  main table.dx-keep-table td { white-space: nowrap; }
+  /* SKU (1st) + Product (2nd) stay pinned while the rest scrolls */
+  main table.dx-keep-table td:first-child,
+  main table.dx-keep-table th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--paper, #fff);
+  }
+  main table.dx-keep-table th:first-child { z-index: 3; }
+  main table.dx-keep-table td.dx-sticky-2,
+  main table.dx-keep-table th.dx-sticky-2 {
+    position: sticky;
+    left: 60px;
+    z-index: 1;
+    background: var(--paper, #fff);
+  }
+  main table.dx-keep-table th.dx-sticky-2 { z-index: 3; }
 }
 
 

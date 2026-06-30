@@ -113,6 +113,85 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 })();`,
           }}
         />
+        <script
+          // Mobile table->card labeller. Below 768px globals.css turns each
+          // table row into a card; this copies the column header text onto
+          // every <td> as data-label so the card shows "Label: value" instead
+          // of bare values. Bespoke inline tables get labelled for free, no
+          // per-page edits. Re-runs on data load / route change via
+          // MutationObserver, mirroring the number-spinner script above.
+          dangerouslySetInnerHTML={{
+            __html: `(function(){
+  if (typeof window === 'undefined') return;
+  var mq = window.matchMedia('(max-width: 767px)');
+  function text(el){ return (el.textContent || '').replace(/\\s+/g,' ').trim(); }
+  function labelTable(table){
+    if (!table || table.classList.contains('dx-keep-table')) return;
+    if (table.closest && !table.closest('main')) return;
+    var headRow = table.querySelector('thead tr');
+    if (!headRow) return;
+    var heads = headRow.children;
+    var labels = [];
+    for (var h=0; h<heads.length; h++){
+      var span = (heads[h].getAttribute('colspan')|0) || 1;
+      var t = text(heads[h]);
+      for (var s=0; s<span; s++) labels.push(t);
+    }
+    var bodyRows = table.querySelectorAll('tbody tr');
+    for (var r=0; r<bodyRows.length; r++){
+      var cells = bodyRows[r].children, col = 0;
+      for (var c=0; c<cells.length; c++){
+        var cell = cells[c];
+        if (cell.tagName !== 'TD'){ col += (cell.getAttribute('colspan')|0) || 1; continue; }
+        // idempotent: skip cells already labelled (by us or the page)
+        if (!cell.hasAttribute('data-label') && labels[col] != null) {
+          cell.setAttribute('data-label', labels[col]);
+        }
+        col += (cell.getAttribute('colspan')|0) || 1;
+      }
+    }
+  }
+  function scan(root){
+    if (!mq.matches) return;
+    var tables = (root || document).querySelectorAll('main table');
+    for (var i=0; i<tables.length; i++) labelTable(tables[i]);
+  }
+  function handle(n){
+    if (n.nodeType !== 1) return;
+    if (n.tagName === 'TABLE') { labelTable(n); return; }
+    // a row/cell added to an existing table — re-label that table
+    var t = n.closest ? n.closest('main table') : null;
+    if (t) labelTable(t);
+    if (n.querySelectorAll){
+      var inner = n.querySelectorAll('main table');
+      for (var k=0; k<inner.length; k++) labelTable(inner[k]);
+    }
+  }
+  function init(){
+    scan(document);
+    new MutationObserver(function(muts){
+      if (!mq.matches) return;
+      for (var i=0; i<muts.length; i++){
+        var added = muts[i].addedNodes;
+        for (var j=0; j<added.length; j++) handle(added[j]);
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+    // re-scan when crossing the breakpoint (rotate / resize)
+    var onMq = function(){ if (mq.matches) scan(document); };
+    if (mq.addEventListener) mq.addEventListener('change', onMq);
+    else if (mq.addListener) mq.addListener(onMq);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start);
+  } else {
+    start();
+  }
+  function start(){
+    requestAnimationFrame(function(){ requestAnimationFrame(init); });
+  }
+})();`,
+          }}
+        />
       </body>
     </html>
   );

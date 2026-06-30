@@ -190,7 +190,7 @@ function AddSourceModal({
       }}
     >
       <div
-        onClick={(e) => e.stopPropagation()}
+        className="dx-modal-panel" onClick={(e) => e.stopPropagation()}
         style={{
           backgroundColor: 'var(--paper)', borderRadius: 'var(--radius-md)',
           padding: '24px', width: '480px', maxWidth: '90vw',
@@ -347,7 +347,7 @@ function SourcesListModal({
         position: 'fixed', inset: 0, backgroundColor: 'rgba(15,15,15,0.50)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50,
       }}>
-      <div onClick={(e) => e.stopPropagation()}
+      <div className="dx-modal-panel" onClick={(e) => e.stopPropagation()}
         style={{
           backgroundColor: 'var(--paper)', borderRadius: 'var(--radius-md)',
           padding: '24px', width: '640px', maxWidth: '95vw',
@@ -1188,7 +1188,7 @@ export default function OperationsPage() {
           }}
         >
           <div
-            onClick={(e) => e.stopPropagation()}
+            className="dx-modal-panel" onClick={(e) => e.stopPropagation()}
             style={{
               backgroundColor: 'var(--paper)', borderRadius: 'var(--radius-md)',
               padding: '24px', width: '640px', maxWidth: '95vw',

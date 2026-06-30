@@ -519,6 +519,15 @@ export default function PartnersPage() {
                       )}
                     </div>
                   </div>
+                  {/* Contact + contract — full data parity with desktop table */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginTop: '6px' }}>
+                    <div style={{ color: 'var(--fg-2)', fontSize: '13px', fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {parseEmails(p.email)[0]?.email ?? '—'}
+                    </div>
+                    <div style={{ flexShrink: 0, fontSize: '13px', fontWeight: 700, color: p.contract_no ? 'var(--fg-1)' : 'var(--fg-muted)' }}>
+                      {p.contract_no ? p.contract_no : 'No contract'}
+                    </div>
+                  </div>
                 </Link>
               );
             })

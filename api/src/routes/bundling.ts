@@ -115,7 +115,7 @@ bundling.post('/', async (c) => {
           (id, warehouse_id, product_id, movement_type, quantity, source,
            source_ref_type, source_ref_id, reason, performed_at, balance_after, created_at)
         VALUES (?,?,?,?,?,?,?,?,?,?,
-          COALESCE((SELECT on_hand FROM stocks WHERE warehouse_id=? AND product_id=?), 0) - ?,
+          COALESCE((SELECT on_hand FROM stocks WHERE warehouse_id=? AND product_id=? AND stock_state='on_hand'), 0) - ?,
           ?)
       `).bind(
         mvFromId, warehouse_id, item.from_product_id,
@@ -131,9 +131,9 @@ bundling.post('/', async (c) => {
     // Update stocks: from_product
     batch.push(
       c.env.DB.prepare(`
-        INSERT INTO stocks (id, warehouse_id, product_id, on_hand, last_movement_at, updated_at)
-        VALUES (?, ?, ?, -?, ?, ?)
-        ON CONFLICT(warehouse_id, product_id) DO UPDATE SET
+        INSERT INTO stocks (id, warehouse_id, product_id, stock_state, on_hand, last_movement_at, updated_at)
+        VALUES (?, ?, ?, 'on_hand', -?, ?, ?)
+        ON CONFLICT(warehouse_id, product_id, stock_state) DO UPDATE SET
           on_hand = on_hand - ?,
           last_movement_at = ?,
           updated_at = ?
@@ -151,7 +151,7 @@ bundling.post('/', async (c) => {
           (id, warehouse_id, product_id, movement_type, quantity, source,
            source_ref_type, source_ref_id, reason, performed_at, balance_after, created_at)
         VALUES (?,?,?,?,?,?,?,?,?,?,
-          COALESCE((SELECT on_hand FROM stocks WHERE warehouse_id=? AND product_id=?), 0) + ?,
+          COALESCE((SELECT on_hand FROM stocks WHERE warehouse_id=? AND product_id=? AND stock_state='on_hand'), 0) + ?,
           ?)
       `).bind(
         mvToId, warehouse_id, item.to_product_id,
@@ -167,9 +167,9 @@ bundling.post('/', async (c) => {
     // Update stocks: to_product
     batch.push(
       c.env.DB.prepare(`
-        INSERT INTO stocks (id, warehouse_id, product_id, on_hand, last_movement_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(warehouse_id, product_id) DO UPDATE SET
+        INSERT INTO stocks (id, warehouse_id, product_id, stock_state, on_hand, last_movement_at, updated_at)
+        VALUES (?, ?, ?, 'on_hand', ?, ?, ?)
+        ON CONFLICT(warehouse_id, product_id, stock_state) DO UPDATE SET
           on_hand = on_hand + ?,
           last_movement_at = ?,
           updated_at = ?

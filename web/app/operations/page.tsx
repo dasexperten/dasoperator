@@ -115,8 +115,10 @@ function formatDate(unix: number): string {
   return new Date(unix * 1000).toISOString().split('T')[0]!;
 }
 
-function formatMoney(amount: number, currency: string): string {
-  const isZeroDecimal = ['VND', 'JPY', 'KRW'].includes(currency);
+function formatMoney(amount: number | null | undefined, currency: string | null | undefined): string {
+  // Internal ops (bundling/transfer) carry no money — render a dash, never crash.
+  if (amount === null || amount === undefined) return '—';
+  const isZeroDecimal = ['VND', 'JPY', 'KRW'].includes(currency ?? '');
   const fractionDigits = isZeroDecimal ? 0 : 2;
   return amount.toLocaleString('en-US', {
     minimumFractionDigits: fractionDigits,
@@ -993,7 +995,7 @@ export default function OperationsPage() {
                         ) : (
                           <>
                             {formatMoney(op.total_amount, op.currency)}
-                            <span style={{ fontSize: '12px', color: 'var(--fg-3)', marginLeft: '4px', fontWeight: 700 }}>{op.currency}</span>
+                            {op.currency && <span style={{ fontSize: '12px', color: 'var(--fg-3)', marginLeft: '4px', fontWeight: 700 }}>{op.currency}</span>}
                           </>
                         )}
                       </span>
@@ -1034,11 +1036,18 @@ export default function OperationsPage() {
                       {/* v2 manufacturer fallback — deployed 2026-05-11 */}
                       <td className="px-4 py-3" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>
                         {(() => {
-                          const { label, partnerId } = resolvePartnerLabel(op);
-                          return partnerId ? (
-                            <Link href={`/partners/${partnerId}`} style={{ color: 'var(--fg-1)' }}>
+                          const { label } = resolvePartnerLabel(op);
+                          return label !== '—' ? (
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              title={`Show only ${label}`}
+                              onClick={() => setSearch(label)}
+                              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSearch(label); } }}
+                              style={{ color: 'var(--fg-1)', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '3px' }}
+                            >
                               {label}
-                            </Link>
+                            </span>
                           ) : (
                             <span>{label}</span>
                           );
@@ -1087,7 +1096,7 @@ export default function OperationsPage() {
                         {isBatchRow ? (
                           <span>{(op as { total_units?: number }).total_units ?? 0} <span style={{ color: 'var(--fg-3)', fontWeight: 600, fontSize: '13px' }}>pcs</span></span>
                         ) : (
-                          `${formatMoney(op.total_amount, op.currency)} ${op.currency}`
+                          `${formatMoney(op.total_amount, op.currency)}${op.currency ? ' ' + op.currency : ''}`
                         )}
                       </td>
                       <td className="px-4 py-3">

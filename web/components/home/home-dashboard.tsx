@@ -189,6 +189,7 @@ export default function HomeDashboard() {
             lineHeight: 1.02,
             color: 'var(--fg-1)',
           }}
+        className="dx-home-greeting"
         >
           {greetWord}{greetName ? <>{', '}<span style={{ color: 'var(--brand-rot)' }}>{greetName}</span></> : ''}
         </h1>
@@ -208,7 +209,7 @@ export default function HomeDashboard() {
 
       {/* HEADLINE METRICS =========================================== */}
       <section>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-4 gap-4 dx-metrics-grid">
           <MetricCard
             label="Operations"
             sublabel="last 30 days"
@@ -561,3 +562,4 @@ function DirectionChip({ direction }: { direction: 'incoming' | 'outgoing' }) {
     </span>
   );
 }
+

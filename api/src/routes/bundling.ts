@@ -67,7 +67,7 @@ bundling.post('/', async (c) => {
   // Generate reference number BND-001
   const seqRow = await c.env.DB.prepare(
     'UPDATE sequences SET next_number = next_number + 1, updated_at = ? WHERE id = ? RETURNING next_number, padding'
-  ).bind(now, 'seq_bnd').first<{ next_number: number; padding: number }>();
+  ).bind(now, 'bnd').first<{ next_number: number; padding: number }>();
   if (!seqRow) return fail(c, 500, [{ code: 'sequence_error', message: 'Could not generate BND reference' }]);
 
   const refNum = String(seqRow.next_number - 1).padStart(seqRow.padding, '0');

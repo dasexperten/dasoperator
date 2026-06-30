@@ -64,14 +64,18 @@ bundling.post('/', async (c) => {
     if (!pt) return fail(c, 404, [{ code: 'product_not_found', message: `Product ${item.to_product_id} not found` }]);
   }
 
-  // Generate reference number BND-001
-  const seqRow = await c.env.DB.prepare(
-    'UPDATE sequences SET next_number = next_number + 1, updated_at = ? WHERE id = ? RETURNING next_number, padding'
-  ).bind(now, 'bnd').first<{ next_number: number; padding: number }>();
-  if (!seqRow) return fail(c, 500, [{ code: 'sequence_error', message: 'Could not generate BND reference' }]);
-
-  const refNum = String(seqRow.next_number - 1).padStart(seqRow.padding, '0');
-  const reference = `BND-${refNum}`;
+  // Generate per-warehouse reference: BD<WAREHOUSE>-NNN  (e.g. BDLBR-001).
+  // Counter is scoped to the warehouse by reading the highest existing suffix.
+  const refPrefix = `BD${warehouse_id.toUpperCase()}`;
+  const lastRef = await c.env.DB.prepare(
+    "SELECT reference FROM operations WHERE reference LIKE ? ORDER BY reference DESC LIMIT 1"
+  ).bind(`${refPrefix}-%`).first<{ reference: string }>();
+  let nextNum = 1;
+  if (lastRef?.reference) {
+    const m = lastRef.reference.match(/-(\d+)$/);
+    if (m) nextNum = parseInt(m[1], 10) + 1;
+  }
+  const reference = `${refPrefix}-${String(nextNum).padStart(3, '0')}`;
 
   const opId = `op_${crypto.randomUUID()}`;
 

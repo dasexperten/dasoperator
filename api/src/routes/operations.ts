@@ -1702,38 +1702,13 @@ operations.patch('/:id/status', async (c) => {
   //
   // Skipped SKUs: those already at zero (no movement created — saves audit noise).
   // ──────────────────────────────────────────────────────────────────────
-  if (targetStatus === 'shipped' && op.warehouse_from_id && lineItems.length > 0) {
-    const skuList = lineItems.map((li) => li.product_id);
-    const placeholders = skuList.map(() => '?').join(',');
-    const phantomQuery = await c.env.DB.prepare(
-      `SELECT product_id, on_hand FROM stocks
-       WHERE warehouse_id = ? AND stock_state = 'on_hand'
-         AND product_id IN (${placeholders}) AND on_hand > 0`
-    ).bind(op.warehouse_from_id, ...skuList).all<{ product_id: string; on_hand: number }>();
-    for (const phantom of phantomQuery.results || []) {
-      // Skip if a real movement spec already drains this exact phantom — avoids
-      // double-counting (e.g. sale 'shipment' already takes -qty from on_hand;
-      // we only clear what's left over after that real deduction).
-      const alreadyDeducted = movementSpecs
-        .filter((m) =>
-          m.warehouseId === op.warehouse_from_id &&
-          m.productId === phantom.product_id &&
-          m.stockState === 'on_hand'
-        )
-        .reduce((sum, m) => sum + m.qty, 0);
-      const remaining = phantom.on_hand + alreadyDeducted;
-      if (remaining > 0) {
-        movementSpecs.push({
-          warehouseId: op.warehouse_from_id,
-          productId: phantom.product_id,
-          movementType: 'phantom_clear',
-          qty: -remaining,
-          reason: 'phantom_cleared_at_shipped',
-          stockState: 'on_hand',
-        });
-      }
-    }
-  }
+  // SHIPPED phantom-clear DISABLED (2026-06-30). The original block zeroed ALL
+  // remaining on_hand of the shipped SKUs at warehouse_from, which destroys
+  // legitimate stock on any partial sale (e.g. ship 576 of 852 -> wipes 276),
+  // and it used movement_type 'phantom_clear' that isn't in the CHECK constraint
+  // so it always threw (never executed in prod). A normal shipment deducts only
+  // the sold qty via the 'shipment' spec above; leftover stock is real, not a
+  // phantom. Reinstate only with a valid movement_type AND state-targeted logic.
 
   if (targetStatus === 'delivered' && lineItems.length > 0 &&
       (opType === 'purchase' || opType === 'transfer')) {

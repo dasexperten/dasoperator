@@ -157,11 +157,38 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       }
     }
   }
+  function colCount(table){
+    var head = table.tHead;
+    if (!head || !head.rows.length) return 0;
+    var row = head.rows[head.rows.length - 1], n = 0;
+    for (var i=0; i<row.cells.length; i++) n += row.cells[i].colSpan || 1;
+    return n;
+  }
+  function makeWideScroll(table){
+    if (table.getAttribute('data-dx-wide') === '1') return;
+    table.setAttribute('data-dx-wide', '1');
+    table.classList.add('dx-wide-table');
+    var p = table.parentNode;
+    if (p && !(p.classList && p.classList.contains('dx-scroll-x'))){
+      var w = document.createElement('div');
+      w.className = 'dx-scroll-x';
+      p.insertBefore(w, table);
+      w.appendChild(table);
+    }
+  }
+  function processTable(table){
+    // Many-column matrices (stock by warehouse, promo grids) read badly as a
+    // tall stack of "column: —" rows and can't be scanned across. Keep them a
+    // compact, horizontally-scrollable table. Narrow list tables become the
+    // labelled cards. Threshold: > 6 columns.
+    if (colCount(table) > 6) makeWideScroll(table);
+    else labelTable(table);
+  }
   function scan(){
     var main = document.querySelector('main');
     if (!main) return;
     var tables = main.querySelectorAll('table');
-    for (var i=0; i<tables.length; i++) labelTable(tables[i]);
+    for (var i=0; i<tables.length; i++) processTable(tables[i]);
   }
   var scheduled = false;
   function schedule(){

@@ -126,7 +126,7 @@ export default function ReviewsPage() {
       </div>
 
       {/* Tabs — bold filled pills */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 22, flexWrap: 'wrap' }}>
+      <div className="dx-tabs-fill" style={{ display: 'flex', gap: 10, marginBottom: 22, flexWrap: 'wrap' }}>
         {TABS.map(t => {
           const on = t.key === active;
           const col = CHANNEL_COLOR[t.channel];

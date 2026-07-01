@@ -67,6 +67,12 @@ export interface Env {
   // → update /mnt/project/anthropic.md.
   CLAUDE_CODE_OAUTH_TOKEN?: string;
 
+  // codex-bridge (hermes-vps): gpt-5.5 via ChatGPT-Plus OAuth for review reply
+  // generation. Primary; DeepSeek is the fallback when the subscription quota
+  // is spent. HMAC-signed (X-Bridge-Signature). See SECRETS/openai.md.
+  CODEX_BRIDGE_URL?: string;
+  CODEX_BRIDGE_HMAC_SECRET?: string;
+
   // CloudConvert — docx → PDF conversion (Phase PDF)
   // Optional — if missing, PDF endpoint returns 503.
   CLOUDCONVERT_API_KEY?: string;

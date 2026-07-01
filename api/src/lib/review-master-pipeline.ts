@@ -23,6 +23,7 @@
 
 import type { Env } from '../types';
 import { callPro } from './llm';
+import { codexGenerate } from './openai-codex';
 import { sanitizeReply } from './sanitize';
 import { loadSkillMd, loadSkuKnowledge, loadSegmentCheck } from './skill-loader';
 
@@ -68,43 +69,43 @@ export interface PipelineResult {
 // =============================================================================
 // Provider wrappers
 // =============================================================================
-async function callClaude(env: Env, system: string, user: string, maxTokens: number): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
-  if (!env.CLAUDE_CODE_OAUTH_TOKEN && !env.DEEPSEEK_API_KEY) {
-    throw new Error('No LLM provider configured (need CLAUDE_CODE_OAUTH_TOKEN or DEEPSEEK_API_KEY)');
+const CODEX_COOLDOWN_KEY = 'codex:cooldown-until';
+
+// GPT-5.5 (ChatGPT-Plus OAuth via codex-bridge on hermes-vps) is the PRIMARY
+// engine for writing customer replies (per Aram, 2026-07). DeepSeek is the
+// fallback the moment the subscription quota is spent. A short KV cooldown
+// stops us wasting ~8s/review hammering codex while its quota is exhausted.
+async function callGpt(env: Env, system: string, user: string, maxTokens: number, temp = 0.3): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
+  let skipCodex = false;
+  if (env.CACHE) {
+    try {
+      const until = await env.CACHE.get(CODEX_COOLDOWN_KEY);
+      if (until && Number(until) > Date.now()) skipCodex = true;
+    } catch { /* ignore */ }
   }
-  // Primary: Anthropic Sonnet 4.6 via OAuth (subscription quota).
-  // Automatic fallback: DeepSeek V4-Pro if Anthropic returns 429/5xx.
-  // Pay-as-you-go Anthropic is intentionally NOT a fallback.
-  // Prompt caching dropped — on OAuth subscription, all tokens count equally.
-  const r = await callPro(
-    [
-      { role: 'system', content: system },
-      { role: 'user', content: user },
-    ],
-    { env, maxTokens, temperature: 0.3, prefer: 'auto' },
-  );
-  return {
-    text: r.text.trim(),
-    tokensIn: r.usage.prompt_tokens ?? 0,
-    tokensOut: r.usage.completion_tokens ?? 0,
-  };
+  if (!skipCodex && env.CODEX_BRIDGE_URL) {
+    try {
+      const text = await codexGenerate(env, system, user);
+      return { text: text.trim(), tokensIn: 0, tokensOut: 0 };
+    } catch (e) {
+      if (env.CACHE) {
+        try { await env.CACHE.put(CODEX_COOLDOWN_KEY, String(Date.now() + 20 * 60 * 1000), { expirationTtl: 20 * 60 }); } catch { /* ignore */ }
+      }
+      console.warn('[review-pipeline] codex gpt-5.5 failed, falling back to DeepSeek: ' + String((e as any)?.message ?? e).slice(0, 160));
+    }
+  }
+  return callDeepSeek(env, system, user, maxTokens, temp);
+}
+
+async function callClaude(env: Env, system: string, user: string, maxTokens: number): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
+  // Reply-writing gate → GPT-5.5 primary, DeepSeek fallback (see callGpt).
+  return callGpt(env, system, user, maxTokens, 0.3);
 }
 
 
 async function callQwen(env: Env, system: string, user: string, maxTokens: number, temp = 0.4): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
-  // Rating-only review answers. Qwen-max primary, DeepSeek fallback (handled in llm router).
-  const r = await callPro(
-    [
-      { role: 'system', content: system },
-      { role: 'user', content: user },
-    ],
-    { env, maxTokens, temperature: temp, prefer: 'qwen' },
-  );
-  return {
-    text: r.text.trim(),
-    tokensIn: r.usage.prompt_tokens ?? 0,
-    tokensOut: r.usage.completion_tokens ?? 0,
-  };
+  // Rating-only reply-writing gate → GPT-5.5 primary, DeepSeek fallback.
+  return callGpt(env, system, user, maxTokens, temp);
 }
 
 async function callDeepSeek(env: Env, system: string, user: string, maxTokens: number, temp = 0.3): Promise<{ text: string; tokensIn: number; tokensOut: number }> {

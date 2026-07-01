@@ -726,7 +726,7 @@ export async function handleScheduled(
     console.log('[cron:wb-auto-reply] tick start');
     try {
       const { runWbAutoReply } = await import('./lib/wb-reviews');
-      const result = await runWbAutoReply(env, { maxReplies: 30, maxInspect: 300, pauseMsBetween: 1500 });
+      const result = await runWbAutoReply(env, { maxReplies: 10, maxInspect: 60, pauseMsBetween: 1500 });
       console.log(`[cron:wb-auto-reply] ${JSON.stringify({
         replied: result.replied,
         skipped: result.ratingOnlySkipped,

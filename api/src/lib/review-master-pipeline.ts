@@ -94,7 +94,27 @@ async function callGpt(env: Env, system: string, user: string, maxTokens: number
       console.warn('[review-pipeline] codex gpt-5.5 failed, falling back to DeepSeek: ' + String((e as any)?.message ?? e).slice(0, 160));
     }
   }
-  return callDeepSeek(env, system, user, maxTokens, temp);
+  // Fallback chain when gpt-5.5 is unavailable. deepseek-v4-pro is a REASONING
+  // model — at a tight token cap it spends the whole budget thinking and returns
+  // empty (finish=length), so give the writer generous headroom. If DeepSeek
+  // still comes back empty, fall through to Claude OAuth so a reply is ALWAYS
+  // produced (reviews must never silently stop drafting again).
+  try {
+    const ds = await callDeepSeek(env, system, user, Math.max(maxTokens, 4000), temp);
+    if (ds.text && ds.text.trim().length > 20) return ds;
+  } catch { /* fall through to Claude */ }
+  const r = await callPro(
+    [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
+    { env, maxTokens: Math.max(maxTokens, 1500), temperature: temp, prefer: 'auto' },
+  );
+  return {
+    text: r.text.trim(),
+    tokensIn: r.usage.prompt_tokens ?? 0,
+    tokensOut: r.usage.completion_tokens ?? 0,
+  };
 }
 
 async function callClaude(env: Env, system: string, user: string, maxTokens: number): Promise<{ text: string; tokensIn: number; tokensOut: number }> {

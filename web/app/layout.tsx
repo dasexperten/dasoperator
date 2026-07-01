@@ -113,6 +113,74 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 })();`,
           }}
         />
+        <script
+          // Mobile stacked-card LABELS. On phones globals.css turns every
+          // <main> table into a stack of cards and hides the <thead>. Without
+          // the header a cell shows a bare value ("128,000 ₽") with no idea
+          // which column it is. This copies each <th> caption onto the matching
+          // <td> as data-dx-col; CSS (v3.5) prints it as the row's left label.
+          // Runs once + on every DOM mutation (tables arrive after data fetch).
+          // Attributes are inert on desktop (the ::before is media-query gated).
+          dangerouslySetInnerHTML={{
+            __html: `(function(){
+  if (typeof window === 'undefined') return;
+  function headerLabels(table){
+    var head = table.tHead;
+    if (!head || !head.rows.length) return null;
+    var row = head.rows[head.rows.length - 1];
+    var out = [], ci = 0;
+    for (var i=0; i<row.cells.length; i++){
+      var span = row.cells[i].colSpan || 1;
+      var txt = (row.cells[i].textContent || '').replace(/\\s+/g,' ').trim();
+      for (var s=0; s<span; s++) out[ci++] = txt;
+    }
+    return out;
+  }
+  function labelTable(table){
+    // Skip nested inner tables — only label a table's own direct body rows.
+    var labels = headerLabels(table);
+    if (!labels) return;
+    var bodies = table.tBodies;
+    for (var b=0; b<bodies.length; b++){
+      var rows = bodies[b].rows;
+      for (var r=0; r<rows.length; r++){
+        var cells = rows[r].cells, ci = 0;
+        for (var c=0; c<cells.length; c++){
+          var cell = cells[c], span = cell.colSpan || 1;
+          if (cell.tagName === 'TD'){
+            var lbl = span === 1 ? (labels[ci] || '') : '';
+            if (lbl) cell.setAttribute('data-dx-col', lbl);
+            else cell.removeAttribute('data-dx-col');
+          }
+          ci += span;
+        }
+      }
+    }
+  }
+  function scan(){
+    var main = document.querySelector('main');
+    if (!main) return;
+    var tables = main.querySelectorAll('table');
+    for (var i=0; i<tables.length; i++) labelTable(tables[i]);
+  }
+  var scheduled = false;
+  function schedule(){
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(function(){ scheduled = false; scan(); });
+  }
+  function init(){
+    scan();
+    new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();`,
+          }}
+        />
       </body>
     </html>
   );

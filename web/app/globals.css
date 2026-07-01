@@ -575,24 +575,26 @@ input[type="number"] {
   /* On products / partners / operations pages, filter selects sit inside
      <div class="flex gap-3 items-center"> rows. We want them side-by-side
      (2 columns) on phone instead of stacked. */
-  .flex.gap-2.items-center,
-  .flex.gap-3.items-center,
-  .flex.gap-4.items-center {
+  /* Scoped to `main` so the header/sidebar chrome (which also uses
+     flex + gap-3 + items-center) is never turned into a grid. */
+  main .flex.gap-2.items-center,
+  main .flex.gap-3.items-center,
+  main .flex.gap-4.items-center {
     display: grid !important;
     grid-template-columns: 1fr 1fr;
     gap: 8px !important;
     align-items: stretch;
   }
   /* If there's an odd third item (a button) it spans both columns */
-  .flex.gap-2.items-center > *:nth-child(odd):last-child,
-  .flex.gap-3.items-center > *:nth-child(odd):last-child,
-  .flex.gap-4.items-center > *:nth-child(odd):last-child {
+  main .flex.gap-2.items-center > *:nth-child(odd):last-child,
+  main .flex.gap-3.items-center > *:nth-child(odd):last-child,
+  main .flex.gap-4.items-center > *:nth-child(odd):last-child {
     grid-column: 1 / -1;
   }
   /* Selects inside become full-width within their grid cell */
-  .flex.gap-2.items-center > select,
-  .flex.gap-3.items-center > select,
-  .flex.gap-4.items-center > select {
+  main .flex.gap-2.items-center > select,
+  main .flex.gap-3.items-center > select,
+  main .flex.gap-4.items-center > select {
     width: 100% !important;
     min-width: 0 !important;
   }
@@ -828,4 +830,115 @@ input[type="number"] {
   .dx-metrics-grid [style*="fontSize: '40px'"] {
     font-size: 28px !important;
   }
+}
+
+/* ===========================================================================
+   MOBILE v3 — 2026-07-01 — ZERO horizontal overflow + self-labelling cards
+   ---------------------------------------------------------------------------
+   Objective (Aram): on a phone NOTHING may scroll sideways, and every widget
+   must be legible with low cognitive load. This layer:
+     • installs a page-scroll firewall (the page can never move sideways),
+     • lets every flex child shrink and every long token (IBAN / UUID / email /
+       reference) break instead of pushing the layout wide,
+     • neutralises inline `white-space:nowrap` / fixed `max-width` inside table
+       cards so truncated values become readable,
+     • pins form controls to the viewport width,
+     • wraps any flex row that holds buttons or inputs,
+     • restores the COLUMN LABEL on every stacked-card cell (paired with the
+       data-dx-col injector in app/layout.tsx) so a value is never label-less.
+   Everything is scoped to `main` so the header / sidebar / bottom-nav chrome
+   is untouched. Reversible: delete this block.
+   =========================================================================== */
+@media (max-width: 767px) {
+
+  /* ---- v3.1  Page-scroll firewall ---------------------------------------
+     html/body clip horizontal spill; `main` (the vertical scroller) clips its
+     own x-axis. A genuinely 2-D widget (promo matrix) keeps its OWN
+     overflow-x:auto box, so only that box scrolls — never the page. */
+  html, body { max-width: 100%; overflow-x: hidden; }
+  /* `!important` is required: <main> carries Tailwind's `.overflow-auto`
+     (a class → higher specificity than a bare `main` element rule), which
+     would otherwise leave main as its own sideways-scroll container. */
+  main { overflow-x: hidden !important; }
+  main > div { max-width: 100%; }
+
+  /* Kill the legacy `table tbody { width: max-content }` (mobile rule 2) that
+     the stacked-card transform never overrode — it let a card grow to the
+     width of its longest unbreakable string and scroll sideways. Pin the whole
+     table stack to the container so cards always fit and text reflows inside. */
+  main table,
+  main table > tbody,
+  main table > tfoot,
+  main table tbody tr { width: 100% !important; max-width: 100% !important; min-width: 0 !important; }
+  /* Keep the visually-hidden header truly 1px — mobile rule 2 set
+     `min-width:100%` on every thead, which was overriding the card
+     transform's `width:1px` and leaving an absolute 375–495px ghost row. */
+  main table > thead { display: block !important; width: 1px !important; height: 1px !important; min-width: 0 !important; max-width: 1px !important; overflow: hidden !important; }
+
+  /* ---- v3.2  Shrink + break: kill the two root causes of overflow --------
+     (a) flex children default to min-width:auto (= content width) which lets a
+         long word push the row wider than the screen — force min-width:0.
+     (b) long unbreakable strings break at any point when they'd otherwise
+         overflow. */
+  main .flex > *,
+  main [style*="display: flex"] > *,
+  main [style*="display:flex"] > * { min-width: 0; }
+
+  main p, main span, main a, main dd, main dt, main li,
+  main td, main th, main h1, main h2, main h3, main h4, main label, main strong {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  /* Inside a stacked-card cell, inline nowrap / fixed max-width would clip or
+     overflow. Let the text reflow. Opt out with .dx-nowrap (status chips). */
+  main table td[style*="nowrap"]:not(.dx-nowrap),
+  main table td [style*="nowrap"]:not(.dx-nowrap) { white-space: normal !important; }
+  main table td[style*="max-width"],
+  main table td [style*="max-width"] { max-width: 100% !important; }
+
+  /* ---- v3.3  Form controls never exceed the screen ----------------------- */
+  main input, main select, main textarea { max-width: 100% !important; box-sizing: border-box; }
+  main input[type="text"], main input[type="search"], main input[type="email"] { width: 100% !important; }
+
+  /* ---- v3.4  Wrap any flex row carrying buttons / inputs -----------------
+     :has() is supported by every current mobile browser. Wrapping a control
+     row is always safe; it never wraps plain label:value text rows. */
+  main .flex:has(> button), main .flex:has(> input), main .flex:has(> select),
+  main [style*="display: flex"]:has(> button),
+  main [style*="display: flex"]:has(> input),
+  main [style*="display: flex"]:has(> select),
+  main [style*="display:flex"]:has(> button),
+  main [style*="display:flex"]:has(> input),
+  main [style*="display:flex"]:has(> select) { flex-wrap: wrap; }
+
+  /* ---- v3.5  Self-labelling stacked cards --------------------------------
+     app/layout.tsx copies each <th> caption onto its <td> as data-dx-col.
+     We render it as the left side of the space-between card row, so every
+     value reads "Label            value" instead of a context-free number.
+     First cell stays the bold card title (no prefix). 14px floor respected. */
+  main table td[data-dx-col]::before {
+    content: attr(data-dx-col);
+    flex: 0 0 auto;
+    max-width: 48%;
+    margin-right: 12px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--fg-3);
+    overflow-wrap: anywhere;
+  }
+  main table tr > td:first-child::before { display: none; }
+  /* A cell the injector left unlabelled (e.g. actions column) still lays out
+     cleanly as a right-aligned control cluster. */
+
+  /* ---- v3.6  Wide class-defined matrices: fit first, scroll-in-box last ---
+     These are true 2-D grids (promo matrix) that cannot reflow to one column
+     without losing meaning. Shrink them to fit where possible; the enclosing
+     overflow-x:auto box (never the page) absorbs any remainder. */
+  main .apo-promo-table { min-width: 0 !important; }
+  main .apo-promo-table-wrap,
+  main .dx-scroll-x { display: block; width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* ---- v3.7  Tap-safe, tidy card rows ------------------------------------ */
+  main table td { gap: 12px; }
 }

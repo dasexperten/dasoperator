@@ -99,10 +99,12 @@ async function callGpt(env: Env, system: string, user: string, maxTokens: number
   // empty (finish=length), so give the writer generous headroom. If DeepSeek
   // still comes back empty, fall through to Claude OAuth so a reply is ALWAYS
   // produced (reviews must never silently stop drafting again).
+  // DeepSeek fallback — fast deepseek-chat (NOT the reasoning v4-pro).
   try {
-    const ds = await callDeepSeek(env, system, user, Math.max(maxTokens, 4000), temp);
+    const ds = await deepseekChat(env, system, user, Math.max(maxTokens, 800), temp);
     if (ds.text && ds.text.trim().length > 20) return ds;
-  } catch { /* fall through to Claude */ }
+  } catch { /* fall through to Claude OAuth */ }
+  // Safety net: Claude OAuth — reviews must never silently stop drafting again.
   const r = await callPro(
     [
       { role: 'system', content: system },
@@ -126,6 +128,25 @@ async function callClaude(env: Env, system: string, user: string, maxTokens: num
 async function callQwen(env: Env, system: string, user: string, maxTokens: number, temp = 0.4): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
   // Rating-only reply-writing gate → GPT-5.5 primary, DeepSeek fallback.
   return callGpt(env, system, user, maxTokens, temp);
+}
+
+// Fast, non-reasoning DeepSeek writer (deepseek-chat). The router's default
+// deepseek-v4-pro is a REASONING model that burns the token budget thinking and
+// returns empty at tight caps — wrong tool for short reply writing. This hits
+// deepseek-chat directly for the reply-writing fallback.
+async function deepseekChat(env: Env, system: string, user: string, maxTokens: number, temp: number): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
+  if (!env.DEEPSEEK_API_KEY) throw new Error('DEEPSEEK_API_KEY not set');
+  const r = await fetch('https://api.deepseek.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'deepseek-chat', max_tokens: maxTokens, temperature: temp, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!r.ok) throw new Error(`deepseek-chat HTTP ${r.status}: ${(await r.text()).slice(0, 120)}`);
+  const j = await r.json<any>();
+  const text = (j?.choices?.[0]?.message?.content ?? '').trim();
+  if (!text) throw new Error('deepseek-chat empty content');
+  return { text, tokensIn: j?.usage?.prompt_tokens ?? 0, tokensOut: j?.usage?.completion_tokens ?? 0 };
 }
 
 async function callDeepSeek(env: Env, system: string, user: string, maxTokens: number, temp = 0.3): Promise<{ text: string; tokensIn: number; tokensOut: number }> {

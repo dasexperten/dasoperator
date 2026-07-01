@@ -2781,3 +2781,10 @@ export async function getEmailHealth() {
     latency_ms: number;
   }>('/api/email/health');
 }
+
+// ---------------------------------------------------------------------------
+// Admin: resync D1 product_prices from Pricer .md pricelists stored in R2.
+// ---------------------------------------------------------------------------
+export async function resyncPrices(apply: boolean = true) {
+  return apiPost('/api/admin/resync-prices', { apply });
+}

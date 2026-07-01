@@ -7,11 +7,11 @@ export const runtime = 'edge';
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Search, Loader2, Plus, ChevronUp, ChevronDown } from 'lucide-react';
+import { Search, Loader2, Plus, ChevronUp, ChevronDown, RefreshCw } from 'lucide-react';
 import { CopyableValue } from '@/components/ui/copyable';
 import { ProductsPartnersTabs } from '@/components/products-partners/products-partners-tabs';
 import {
-  getProductsList, getProductsWithStock, getPricelistMap,
+  getProductsList, getProductsWithStock, getPricelistMap, resyncPrices,
   type ProductListItem, type ProductWithStock,
 } from '@/lib/api';
 
@@ -78,6 +78,9 @@ export default function ProductsPage() {
   const [priceMap, setPriceMap] = useState<Record<string, number>>({});
   const [priceCurrency, setPriceCurrency] = useState<string>('USD');
   const [priceLoading, setPriceLoading] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [resyncing, setResyncing] = useState(false);
+  const [resyncMsg, setResyncMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -209,6 +212,36 @@ export default function ProductsPage() {
     return list;
   }, [filtered, sortKey, sortDir, priceMap]);
 
+  useEffect(() => {
+    try {
+      const u = JSON.parse(window.localStorage.getItem('dx_auth_user') || '{}');
+      setIsAdmin(u?.role === 'admin');
+    } catch { /* ignore */ }
+  }, []);
+
+  async function handleResync() {
+    if (resyncing) return;
+    setResyncing(true);
+    setResyncMsg(null);
+    try {
+      const res = await resyncPrices();
+      if (res.success) {
+        setResyncMsg(res.messages?.[0] ?? 'Prices resynced');
+        const pm = await getPricelistMap(priceTypeId);
+        if (pm.success && pm.result) {
+          setPriceMap(pm.result.prices);
+          setPriceCurrency(pm.result.currency);
+        }
+      } else {
+        setResyncMsg(res.errors?.[0]?.message ?? 'Resync failed');
+      }
+    } catch (e) {
+      setResyncMsg(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setResyncing(false);
+    }
+  }
+
   const pasteCount = rows.filter((p) => p.category === 'Toothpaste').length;
   const brushCount = rows.filter((p) => p.category === 'Toothbrush').length;
   const otherCount = rows.length - pasteCount - brushCount;
@@ -243,6 +276,28 @@ export default function ProductsPage() {
               : `${rows.length} products · ${pasteCount} toothpastes · ${brushCount} brushes${otherCount > 0 ? ` · ${otherCount} other` : ''}`}
           </p>
         </div>
+        <div className="flex items-center gap-3">
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={handleResync}
+            disabled={resyncing}
+            className="inline-flex items-center gap-2 px-4 py-2"
+            style={{
+              backgroundColor: 'var(--paper-sunk)',
+              color: 'var(--fg-1)',
+              border: '1px solid var(--border-hairline)',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: '14px',
+              fontWeight: 600,
+              cursor: resyncing ? 'default' : 'pointer',
+            }}
+            title="Пересчитать цены из прайсов pricer (R2 → D1)"
+          >
+            {resyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Resync prices
+          </button>
+        )}
         <Link
           href="/products/new"
           className="inline-flex items-center gap-2 px-4 py-2"
@@ -257,8 +312,12 @@ export default function ProductsPage() {
           <Plus className="h-4 w-4" />
           Add product
         </Link>
+        </div>
       </div>
 
+      {resyncMsg && (
+        <div style={{ fontSize: '13px', color: 'var(--fg-2)' }}>{resyncMsg}</div>
+      )}
       <div className="dx-ribbon-rule" />
 
       <div className="space-y-3">

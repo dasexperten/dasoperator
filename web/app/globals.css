@@ -885,9 +885,17 @@ input[type="number"] {
   main [style*="display:flex"] > * { min-width: 0; }
 
   main p, main span, main a, main dd, main dt, main li,
-  main td, main th, main h1, main h2, main h3, main h4, main label, main strong {
+  main td, main th, main label, main strong {
     overflow-wrap: anywhere;
     word-break: break-word;
+  }
+  /* Headings wrap only between words — NEVER per-character. Combined with
+     min-width:0 a squeezed one-word title ("Warehouses") was breaking into a
+     vertical column of letters; header rows also stack (v3.8) so a title
+     always has full width. */
+  main h1, main h2, main h3, main h4, main h5, main h6 {
+    overflow-wrap: normal !important;
+    word-break: normal !important;
   }
 
   /* Inside a stacked-card cell, inline nowrap / fixed max-width would clip or
@@ -904,13 +912,15 @@ input[type="number"] {
   /* ---- v3.4  Wrap any flex row carrying buttons / inputs -----------------
      :has() is supported by every current mobile browser. Wrapping a control
      row is always safe; it never wraps plain label:value text rows. */
-  main .flex:has(> button), main .flex:has(> input), main .flex:has(> select),
+  main .flex:has(> button), main .flex:has(> input), main .flex:has(> select), main .flex:has(> a[class*="bg-"]),
   main [style*="display: flex"]:has(> button),
   main [style*="display: flex"]:has(> input),
   main [style*="display: flex"]:has(> select),
+  main [style*="display: flex"]:has(> a[class*="bg-"]),
   main [style*="display:flex"]:has(> button),
   main [style*="display:flex"]:has(> input),
-  main [style*="display:flex"]:has(> select) { flex-wrap: wrap; }
+  main [style*="display:flex"]:has(> select),
+  main [style*="display:flex"]:has(> a[class*="bg-"]) { flex-wrap: wrap; }
 
   /* ---- v3.5  Self-labelling stacked cards --------------------------------
      app/layout.tsx copies each <th> caption onto its <td> as data-dx-col.
@@ -941,4 +951,31 @@ input[type="number"] {
 
   /* ---- v3.7  Tap-safe, tidy card rows ------------------------------------ */
   main table td { gap: 12px; }
+}
+
+/* ---------------------------------------------------------------------------
+   MOBILE v3.8 — header rows stack; page-hero titles never get crushed
+   Fixes seen on real devices 2026-07-01: the Warehouses title breaking into a
+   vertical column of letters, and the Marketplace-Pulse HUD clipping off-screen.
+   --------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  /* Override the older compact-header rule (16) that forced nowrap. When a page
+     header carries a wide action cluster (Warehouses: Bundling + Stock transfer)
+     it must WRAP below the title instead of squeezing it to one letter wide. */
+  main .flex.items-start.justify-between,
+  main .flex.items-center.justify-between { flex-wrap: wrap !important; }
+  /* Title block flexes on line 1; the action cluster(s) drop to their own line
+     and fill its full width — otherwise a `shrink-0` cluster stays at content
+     width (e.g. Bundling + Stock transfer = 432px) and overflows. Full width
+     lets its inner 1fr/1fr grid size the buttons to fit. */
+  main .flex.items-start.justify-between > :first-child,
+  main .flex.items-center.justify-between > :first-child { flex: 1 1 auto; min-width: 0; }
+  main .flex.items-start.justify-between > :not(:first-child),
+  main .flex.items-center.justify-between > :not(:first-child) { flex: 1 1 100% !important; }
+
+  /* Marketplace-pulse "sales today": stack the per-channel HUD under the big
+     total (it was minWidth:190px + right-aligned, clipping at the screen edge). */
+  .dx-pulse-head { flex-direction: column !important; }
+  .dx-pulse-hud { min-width: 0 !important; width: 100%; text-align: left !important; }
+  .dx-pulse-hud > div { justify-content: space-between !important; }
 }

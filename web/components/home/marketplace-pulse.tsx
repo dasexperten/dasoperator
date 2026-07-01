@@ -292,7 +292,7 @@ function SalesTodayCard({ data, loading, refreshing, onRefresh }: { data: SalesT
       {loading ? <CardLoading /> : !data ? <CardEmpty>No data yet — cron may not have run.</CardEmpty> : (
         <>
           {/* Header row: big totals left, live hover HUD right */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', marginBottom: '14px' }}>
+          <div className="dx-pulse-head" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', marginBottom: '14px' }}>
             <div style={{ minWidth: 0 }}>
               <div style={{ fontFamily: 'var(--font-display)', fontSize: '32px', fontWeight: 700, color: COLOR_OZON, lineHeight: 1.1 }}>
                 {fmtRubFull(data.combined.revenue_rub)}
@@ -333,7 +333,7 @@ function SalesTodayCard({ data, loading, refreshing, onRefresh }: { data: SalesT
             </div>
 
             {displayDay && (
-              <div style={{ textAlign: 'right', fontSize: '14px', lineHeight: 1.5, minWidth: '190px' }}>
+              <div className="dx-pulse-hud" style={{ textAlign: 'right', fontSize: '14px', lineHeight: 1.5, minWidth: '190px' }}>
                 <div style={{ color: 'var(--fg-muted)', fontSize: '14px', marginBottom: '2px' }}>
                   {fmtWeekday(displayDay.date)} · {fmtDayMonth(displayDay.date)}
                 </div>

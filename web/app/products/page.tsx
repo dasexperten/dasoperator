@@ -16,11 +16,12 @@ import {
 } from '@/lib/api';
 
 const PRICE_TYPES: Array<{ id: string; label: string; currency: string }> = [
-  { id: 'distr_usd',    label: 'Distributor USD',  currency: 'USD' },
-  { id: 'distr_rub',    label: 'Distributor RUB',  currency: 'RUB' },
-  { id: 'export_usd',   label: 'EXPORT_USD',       currency: 'USD' },
-  { id: 'wb_ru',        label: 'WB_RU (RRP)',      currency: 'RUB' },
-  { id: 'purchase_cny', label: 'PURCHASE_CNY',     currency: 'CNY' },
+  { id: 'distr_usd',    label: 'International (USD)', currency: 'USD' },
+  { id: 'distr_rub',    label: 'Russia Distr (RUB)',  currency: 'RUB' },
+  { id: 'wb_ru',        label: 'Russia RSP (RUB)',    currency: 'RUB' },
+  { id: 'purchase_cny', label: 'Purchasing (CNY)',    currency: 'CNY' },
+  { id: 'export_usd',   label: 'Purchasing (USD)',    currency: 'USD' },
+  { id: 'dasex_group',  label: 'Dasex (USD)',         currency: 'USD' },
 ];
 
 type SortKey = 'sku' | 'product' | 'total' | 'price' | 'monthly' | 'coef';

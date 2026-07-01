@@ -342,9 +342,14 @@ export async function handleScheduled(
 
   // Marketplace feeds refresh (every 6h @ :40): Ozon reviews + Ozon/WB questions → D1.
   if (cron === '40 */6 * * *') {
+    // Direct in-process call — the old fetch() to our own *.workers.dev URL was
+    // silently blocked by Cloudflare (error 1042, same-account worker loop),
+    // so Ozon reviews + Ozon/WB questions never ingested. runMpFeedsSync writes
+    // marketplace_sync_log heartbeats so the watchdog can see these feeds.
     try {
-      await fetch('https://dasoperator-api.dasexperten.workers.dev/api/mp/sync-all', { method: 'POST' });
-      console.log('[cron:mp-feeds] sync-all triggered');
+      const { runMpFeedsSync } = await import('./routes/mp-feeds');
+      const r = await runMpFeedsSync(env);
+      console.log('[cron:mp-feeds] ' + JSON.stringify(r));
     } catch (e) {
       console.error('[cron:mp-feeds] failed:', e);
     }

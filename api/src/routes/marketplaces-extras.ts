@@ -871,21 +871,34 @@ async function fetchOzonAnalytics(
   let offset = 0;
   const limit = 1000;
   while (true) {
-    const resp = await fetch('https://api-seller.ozon.ru/v1/analytics/data', {
-      method: 'POST',
-      headers: {
-        'Client-Id': env.OZON_CLIENT_ID,
-        'Api-Key': env.OZON_API_KEY,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        date_from: dateFrom, date_to: dateTo,
-        metrics, dimension,
-        filters: [],
-        sort: [{ key: metrics[0], order: 'DESC' }],
-        limit, offset,
-      }),
-    });
+    let resp: Response;
+    let attempt = 0;
+    while (true) {
+      resp = await fetch('https://api-seller.ozon.ru/v1/analytics/data', {
+        method: 'POST',
+        headers: {
+          'Client-Id': env.OZON_CLIENT_ID,
+          'Api-Key': env.OZON_API_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          date_from: dateFrom, date_to: dateTo,
+          metrics, dimension,
+          filters: [],
+          sort: [{ key: metrics[0], order: 'DESC' }],
+          limit, offset,
+        }),
+      });
+      // Ozon seller-api caps at ~2 req/s → HTTP 429. Exponential backoff
+      // (1s,2s,4s,8s,16s) instead of failing the whole sales sync. This is the
+      // fix for ozon-sales going stale 33h on a single 429.
+      if (resp.status === 429 && attempt < 5) {
+        await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
+        attempt++;
+        continue;
+      }
+      break;
+    }
     if (!resp.ok) throw new Error(`Ozon analytics HTTP ${resp.status}: ${await resp.text()}`);
     const data = await resp.json<{ result: { data: OzonAnalyticsRow[] } }>();
     const batch = data.result?.data ?? [];
@@ -893,6 +906,8 @@ async function fetchOzonAnalytics(
     if (batch.length < limit) break;
     offset += limit;
     if (offset > 10000) break;
+    // gentle spacing between pages to stay under the 2 req/s ceiling
+    await new Promise((r) => setTimeout(r, 550));
   }
   return out;
 }

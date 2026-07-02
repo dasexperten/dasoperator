@@ -20,10 +20,7 @@ export default function Breadcrumb({ items }: { items: BreadcrumbItem[] }) {
             {item.href && !isLast ? (
               <Link
                 href={item.href}
-                className="transition-colors"
-                style={{ fontSize: '14px', color: 'var(--fg-3)' }}
-                onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--brand-rot)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--fg-3)'; }}
+                style={{ fontSize: '14px', color: 'var(--fg-2)', textDecoration: 'underline', textUnderlineOffset: '2px' }}
               >
                 {item.label}
               </Link>

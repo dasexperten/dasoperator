@@ -993,6 +993,65 @@ input[type="number"] {
 }
 
 /* ---------------------------------------------------------------------------
+   MOBILE v3.10 — spec phase 0: unambiguous reachability rules
+   From the Mobile-Friendly UI Constraints: tap targets >= 44x44px.
+   --------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  .dx-hamburger { width: 44px !important; height: 44px !important; }
+  main button,
+  main a[class*="bg-"],
+  main [role="button"],
+  main select,
+  main input:not([type="checkbox"]):not([type="radio"]) { min-height: 44px !important; }
+  .dx-bottom-nav-item { min-height: 44px; }
+}
+
+/* ---------------------------------------------------------------------------
+   MOBILE v3.11 — spec priority 1: disclosure list cards
+   Spec: "ONE primary number per card; primary data font-size >= 20pt; secondary
+   metadata collapses behind disclosure (tap to expand)." The injector in
+   app/layout.tsx marks each row's title / primary-number / detail cells and
+   wires a tap that toggles .dx-expanded. Collapsed = title + big number +
+   chevron; expanded = the full labelled rows. Rows with no numeric primary
+   (dx-card without .dx-has-primary) stay fully shown.
+   --------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  main table tr.dx-card.dx-has-primary { cursor: pointer; }
+  /* Collapsed: hide the detail rows; keep title + primary visible. */
+  main table tr.dx-card.dx-has-primary:not(.dx-expanded) td[data-dx-role="detail"] { display: none !important; }
+
+  /* The one primary number — large, bold, with a small caption on the left. */
+  main table td[data-dx-role="primary"] {
+    font-size: 22px !important;
+    font-weight: 800 !important;
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+  }
+  main table td[data-dx-role="primary"]::before {
+    font-size: 13px !important;
+    font-weight: 600;
+    color: var(--fg-3);
+    align-self: center;
+  }
+
+  /* Title cell carries the expand affordance (chevron) on the right. */
+  main table tr.dx-card.dx-has-primary > td[data-dx-role="title"] { font-weight: 700; }
+  main table tr.dx-card.dx-has-primary > td[data-dx-role="title"]::after {
+    content: '⌄';
+    margin-left: auto;
+    padding-left: 12px;
+    color: var(--fg-3);
+    font-size: 16px;
+    align-self: center;
+    flex: 0 0 auto;
+  }
+  main table tr.dx-card.dx-has-primary.dx-expanded > td[data-dx-role="title"]::after { content: '⌃'; }
+
+  /* When collapsed, the primary row is the last visible cell — drop its rule. */
+  main table tr.dx-card.dx-has-primary:not(.dx-expanded) td[data-dx-role="primary"] { border-bottom: none !important; }
+}
+
+/* ---------------------------------------------------------------------------
    MOBILE v3.9 — wide tables SCROLL sideways (not a tall card stack); tab rows
    fill the width. Direct response to real-device feedback 2026-07-01: the
    stock-by-warehouse matrix read as a tall list of mostly-empty "WH: —" rows

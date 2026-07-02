@@ -13,7 +13,7 @@ export function ok<T>(c: Context, result: T, messages: string[] = []) {
 
 export function fail(
   c: Context,
-  status: 400 | 401 | 403 | 404 | 409 | 422 | 500,
+  status: 400 | 401 | 403 | 404 | 409 | 422 | 500 | 503,
   errors: ApiError[],
   messages: string[] = []
 ) {

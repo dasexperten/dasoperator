@@ -198,7 +198,7 @@ export async function destroySession(db: D1Database, token: string): Promise<voi
 
 export const ALL_MODULES = [
   '/', '/partners', '/operations', '/planner', '/products', '/warehouses',
-  '/marketplaces', '/reviews', '/crm', '/finance', '/analytics', '/settings',
+  '/marketplaces', '/website', '/reviews', '/crm', '/finance', '/analytics', '/settings',
 ] as const;
 
 export type ModuleKey = typeof ALL_MODULES[number];

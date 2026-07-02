@@ -868,6 +868,23 @@ async function runMarketplaceSync(env: Env): Promise<void> {
     console.log(`[cron] skipping WB stocks (hour=${hourForWb}, runs at 0/4/8/12/16/20 UTC due to WB rate limit)`);
   }
 
+  // Website storefront (Cloudflare Pages + Stripe) — mirror orders + catalog.
+  // Low volume, no rate-limit pressure; skipped cleanly when STRIPE_KEY is unset
+  // (the sync endpoints return 503). Orders first (the thing ops watches), then
+  // the catalog/price mirror.
+  try {
+    const r = await selfFetch('/api/website/sync/orders');
+    console.log(`[cron] website orders HTTP ${r.status}`);
+  } catch (e) {
+    console.error('[cron] website orders threw:', e);
+  }
+  try {
+    const r = await selfFetch('/api/website/sync/catalog');
+    console.log(`[cron] website catalog HTTP ${r.status}`);
+  } catch (e) {
+    console.error('[cron] website catalog threw:', e);
+  }
+
   // Sales moved OUT of the hourly cron (2026-05-28). Sales now pull once daily
   // at 05:00 UTC (08:00 МСК) via runMarketplaceSalesSync, plus the manual
   // "refresh" button on the dashboard. This removes 24×/day rate-limit churn —

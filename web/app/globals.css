@@ -335,6 +335,8 @@ input[type="number"] {
 
 /* ---- 4. Flex rows wrap on mobile ---- */
 @media (max-width: 767px) {
+  .flex.gap-1,
+  .flex.gap-1\.5,
   .flex.gap-2,
   .flex.gap-3,
   .flex.gap-4,
@@ -354,13 +356,17 @@ input[type="number"] {
   }
 }
 
-/* ---- 5. Page-header rows stack on mobile ---- */
+/* ---- 5. Page-header rows stack on mobile ----
+   Any Tailwind `.flex.justify-between` row wraps on mobile (covers
+   items-center / items-baseline / items-start / items-end variants — the
+   audit found several align-* variants that slipped the old items-center
+   selector and clipped their right-hand meta). */
 @media (max-width: 767px) {
-  .flex.items-center.justify-between {
+  .flex.justify-between {
     flex-wrap: wrap;
     gap: 12px;
   }
-  .flex.items-center.justify-between > * {
+  .flex.justify-between > * {
     min-width: 0;
   }
 }

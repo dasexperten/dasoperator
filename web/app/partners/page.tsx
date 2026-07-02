@@ -713,15 +713,15 @@ function EmailComposer({
 
   return (
     <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontSize: 13, color: 'var(--fg-3)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ fontSize: 13, color: 'var(--fg-3)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           To: <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{partnerName}</span>
           <span style={{ marginLeft: 8, color: 'var(--fg-2)' }}>{`<${recipientEmail}>`}</span>
         </div>
         <button
           type="button"
           onClick={onClose}
-          style={{ color: 'var(--fg-3)', padding: 4 }}
+          style={{ color: 'var(--fg-3)', padding: 4, flexShrink: 0 }}
           aria-label="Close composer"
         >
           <X size={16} />

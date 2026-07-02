@@ -292,9 +292,9 @@ function SalesTodayCard({ data, loading, refreshing, onRefresh }: { data: SalesT
       {loading ? <CardLoading /> : !data ? <CardEmpty>No data yet — cron may not have run.</CardEmpty> : (
         <>
           {/* Header row: big totals left, live hover HUD right */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', marginBottom: '14px' }}>
+          <div className="dx-pulse-head" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', marginBottom: '14px' }}>
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: '32px', fontWeight: 700, color: COLOR_OZON, lineHeight: 1.1 }}>
+              <div className="dx-pulse-hero" style={{ fontFamily: 'var(--font-display)', fontSize: '32px', fontWeight: 700, color: COLOR_OZON, lineHeight: 1.1 }}>
                 {fmtRubFull(data.combined.revenue_rub)}
               </div>
               <div style={{ fontSize: '14px', color: COLOR_OZON, marginTop: '2px' }}>
@@ -333,7 +333,7 @@ function SalesTodayCard({ data, loading, refreshing, onRefresh }: { data: SalesT
             </div>
 
             {displayDay && (
-              <div style={{ textAlign: 'right', fontSize: '14px', lineHeight: 1.5, minWidth: '190px' }}>
+              <div className="dx-pulse-hud" style={{ textAlign: 'right', fontSize: '14px', lineHeight: 1.5, minWidth: '190px' }}>
                 <div style={{ color: 'var(--fg-muted)', fontSize: '14px', marginBottom: '2px' }}>
                   {fmtWeekday(displayDay.date)} · {fmtDayMonth(displayDay.date)}
                 </div>
@@ -1235,7 +1235,7 @@ function SparklineWithHover({
       </div>
 
       {/* X axis labels: spread evenly under chart, aligned with Y column */}
-      <div style={{ display: 'flex', justifyContent: 'space-between',
+      <div className="dx-pulse-axis" style={{ display: 'flex', justifyContent: 'space-between',
                     fontSize: '14px', color: 'var(--fg-muted)',
                     marginTop: '6px', paddingLeft: '56px' }}>
         {series.map((d, i) => {
@@ -1251,7 +1251,7 @@ function SparklineWithHover({
       </div>
 
       {/* Legend */}
-      <div style={{ display: 'flex', justifyContent: 'center', gap: '20px',
+      <div className="dx-pulse-legend" style={{ display: 'flex', justifyContent: 'center', gap: '20px',
                     fontSize: '14px', color: 'var(--fg-3)', marginTop: '10px', paddingLeft: '56px' }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
           <span style={{ width: '16px', height: '2px', backgroundColor: COLOR_COMBINED, display: 'inline-block' }} />

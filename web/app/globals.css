@@ -249,6 +249,18 @@ input[type="number"] {
    touching individual page files. Breakpoint: <768px = mobile.
    =========================================================================== */
 
+/* ---- 0. Global guard: the page must never scroll sideways ----
+   A single too-wide child (bespoke inline-styled card, chart label row, etc.)
+   must not drag the whole viewport horizontally. Internal scroll containers
+   (.overflow-x-auto / .dx-table-scroll) keep their OWN horizontal scroll, so
+   wide tables/matrices are unaffected — only the page itself stops moving. */
+@media (max-width: 767px) {
+  html, body {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+}
+
 /* ---- 1. Main content frame: reduce padding on mobile ---- */
 @media (max-width: 767px) {
   main > div {
@@ -909,5 +921,30 @@ input[type="number"] {
   .dx-metrics-grid [style*="font-size: 40px"],
   .dx-metrics-grid [style*="fontSize: '40px'"] {
     font-size: 28px !important;
+  }
+}
+
+/* ---- 36. Home: Marketplace Pulse — reflow so nothing overflows ---- */
+@media (max-width: 767px) {
+  /* hero header: let the right-side HUD drop below the big number */
+  .dx-pulse-head {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+  .dx-pulse-hud {
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+  .dx-pulse-hero {
+    font-size: 24px !important;
+  }
+  /* chart axis labels + legend: drop the 56px left inset and allow wrapping */
+  .dx-pulse-axis {
+    padding-left: 0 !important;
+  }
+  .dx-pulse-legend {
+    padding-left: 0 !important;
+    flex-wrap: wrap !important;
+    gap: 8px 14px !important;
   }
 }

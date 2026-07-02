@@ -179,7 +179,7 @@ export default function MarketplacePulse() {
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 dx-stack-mobile">
         <SalesTodayCard data={salesToday} loading={loading} refreshing={refreshing} onRefresh={handleRefresh} />
         <TrendCard data={trend} loading={loading} />
         <PieBreakdownCard />
@@ -551,7 +551,7 @@ function PieBreakdownCard() {
       </div>
 
       {loading ? <CardLoading /> : !data ? <CardEmpty>No data.</CardEmpty> : (
-        <div className="grid grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 dx-stack-mobile">
           <SkuPie data={data} />
           <PartnerPie data={data} />
         </div>

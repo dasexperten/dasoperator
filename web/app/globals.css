@@ -259,6 +259,16 @@ input[type="number"] {
     max-width: 100%;
     overflow-x: hidden;
   }
+  /* The app's real scroll container is <main class="overflow-auto"> inside the
+     shell — not <body>. If a too-wide child let it scroll sideways, Android
+     Chrome widens the layout viewport and (max-width:767px) STOPS matching, so
+     every grid falls back to its desktop multi-column form. Pin main to
+     vertical-only scroll; wide tables keep their own .overflow-x-auto /
+     .dx-table-scroll wrappers, which still scroll internally. */
+  main {
+    overflow-x: hidden !important;
+    max-width: 100vw;
+  }
 }
 
 /* ---- 1. Main content frame: reduce padding on mobile ---- */
@@ -946,5 +956,21 @@ input[type="number"] {
     padding-left: 0 !important;
     flex-wrap: wrap !important;
     gap: 8px 14px !important;
+  }
+}
+
+/* ---- 37. Mobile: force a multi-column grid to stack full-width ----
+   Some nested `grid grid-cols-N` containers do NOT collapse via the
+   grid-template-columns override (a stubborn cascade interaction). Switching
+   the container to a flex column reliably stacks its children full-width and
+   sidesteps the grid track sizing entirely. Opt-in via `dx-stack-mobile`. */
+@media (max-width: 767px) {
+  .dx-stack-mobile {
+    display: flex !important;
+    flex-direction: column !important;
+  }
+  .dx-stack-mobile > * {
+    width: 100% !important;
+    max-width: 100% !important;
   }
 }

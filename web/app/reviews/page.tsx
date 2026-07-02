@@ -159,15 +159,16 @@ export default function ReviewsPage() {
           }} />
         {tab.kind === 'reviews' && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, rowGap: 8 }}>
-            {[null, 5, 4, 3, 2, 1].map(r => {
+            {[5, 4, 3, 2, 1].map(r => {
               const on = rating === r;
+              // Toggle: tapping the active star again clears the filter (= show all).
               return (
-                <button key={String(r)} onClick={() => setRating(r)} style={{
+                <button key={r} onClick={() => setRating(on ? null : r)} style={{
                   fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 800,
                   color: on ? '#fff' : 'var(--fg-1)', background: on ? 'var(--brand-rot)' : 'var(--paper-raised)',
                   border: `2px solid ${on ? 'var(--brand-rot)' : 'var(--stone-200)'}`, borderRadius: 10,
                   padding: '9px 14px', cursor: 'pointer',
-                }}>{r === null ? 'All' : `${r}★`}</button>
+                }}>{`${r}★`}</button>
               );
             })}
           </div>

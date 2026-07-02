@@ -135,6 +135,43 @@ app.post('/sync-all', async (c) => {
   return c.json({ ok: true, ...out });
 });
 
+// =============================================================================
+// Heartbeat-logged runner for the cron. Writes marketplace_sync_log rows so the
+// watchdog (integration-health MP_RULES) can see reviews/questions freshness.
+// Runs channels sequentially with light spacing — Ozon seller-api caps at 2 req/s.
+// =============================================================================
+async function logSync(env: any, marketplace: string, fn: () => Promise<number>): Promise<{ ok: boolean; rows?: number; error?: string }> {
+  const started = Math.floor(Date.now() / 1000);
+  const res = await env.DB.prepare(
+    "INSERT INTO marketplace_sync_log (marketplace, started_at, status) VALUES (?, ?, 'running')"
+  ).bind(marketplace, started).run();
+  const id = res.meta.last_row_id as number;
+  try {
+    const rows = await fn();
+    await env.DB.prepare(
+      "UPDATE marketplace_sync_log SET finished_at = ?, status = 'ok', rows_synced = ? WHERE id = ?"
+    ).bind(Math.floor(Date.now() / 1000), rows, id).run();
+    return { ok: true, rows };
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    await env.DB.prepare(
+      "UPDATE marketplace_sync_log SET finished_at = ?, status = 'error', error_message = ? WHERE id = ?"
+    ).bind(Math.floor(Date.now() / 1000), msg.slice(0, 500), id).run();
+    return { ok: false, error: msg };
+  }
+}
+
+export async function runMpFeedsSync(env: any): Promise<Record<string, unknown>> {
+  await ensureQuestionsTable(env);
+  const out: Record<string, unknown> = {};
+  out.ozon_reviews = await logSync(env, 'ozon-reviews', () => syncOzonReviews(env));
+  await new Promise((r) => setTimeout(r, 700));
+  out.ozon_questions = await logSync(env, 'ozon-questions', () => syncOzonQuestions(env));
+  await new Promise((r) => setTimeout(r, 700));
+  out.wb_questions = await logSync(env, 'wb-questions', () => syncWbQuestions(env));
+  return out;
+}
+
 app.get('/questions', async (c) => {
   const env = c.env as any;
   const channel = c.req.query('channel') || 'wb';

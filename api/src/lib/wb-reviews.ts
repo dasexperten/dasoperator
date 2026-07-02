@@ -605,6 +605,19 @@ export async function runWbAutoReply(
 
   result.durationMs = Date.now() - startedAt;
   if (result.errors.length > 0 && result.replied === 0) result.status = 'error';
+
+  // Heartbeat for the watchdog (integration-health wb_reviews rule reads
+  // marketplace_sync_log where marketplace='wb-reviews' and status='ok').
+  // A tick that ran without a hard error is a healthy heartbeat, even if the
+  // backlog was empty (drafted=0). Throttled ticks return earlier and are
+  // intentionally NOT logged as ok.
+  if (result.status !== 'error' && env.DB) {
+    try {
+      await env.DB.prepare(
+        "INSERT INTO marketplace_sync_log (marketplace, started_at, finished_at, status, rows_synced) VALUES ('wb-reviews', ?, ?, 'ok', ?)"
+      ).bind(Math.floor(startedAt / 1000), Math.floor(Date.now() / 1000), result.drafted).run();
+    } catch { /* heartbeat is best-effort */ }
+  }
   console.log(`[wb-auto-reply] done replied=${result.replied} drafted=${result.drafted} skipped=${result.ratingOnlySkipped} errors=${result.errors.length} of ${result.inspected} inspected in ${result.durationMs}ms`);
 
   // Persist a compact log entry to KV so Aram can inspect tick history

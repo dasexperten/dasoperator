@@ -23,6 +23,7 @@
 
 import type { Env } from '../types';
 import { callPro } from './llm';
+import { codexGenerate } from './openai-codex';
 import { sanitizeReply } from './sanitize';
 import { loadSkillMd, loadSkuKnowledge, loadSegmentCheck } from './skill-loader';
 
@@ -68,20 +69,48 @@ export interface PipelineResult {
 // =============================================================================
 // Provider wrappers
 // =============================================================================
-async function callClaude(env: Env, system: string, user: string, maxTokens: number): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
-  if (!env.CLAUDE_CODE_OAUTH_TOKEN && !env.DEEPSEEK_API_KEY) {
-    throw new Error('No LLM provider configured (need CLAUDE_CODE_OAUTH_TOKEN or DEEPSEEK_API_KEY)');
+const CODEX_COOLDOWN_KEY = 'codex:cooldown-until';
+
+// GPT-5.5 (ChatGPT-Plus OAuth via codex-bridge on hermes-vps) is the PRIMARY
+// engine for writing customer replies (per Aram, 2026-07). DeepSeek is the
+// fallback the moment the subscription quota is spent. A short KV cooldown
+// stops us wasting ~8s/review hammering codex while its quota is exhausted.
+async function callGpt(env: Env, system: string, user: string, maxTokens: number, temp = 0.3): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
+  let skipCodex = false;
+  if (env.CACHE) {
+    try {
+      const until = await env.CACHE.get(CODEX_COOLDOWN_KEY);
+      if (until && Number(until) > Date.now()) skipCodex = true;
+    } catch { /* ignore */ }
   }
-  // Primary: Anthropic Sonnet 4.6 via OAuth (subscription quota).
-  // Automatic fallback: DeepSeek V4-Pro if Anthropic returns 429/5xx.
-  // Pay-as-you-go Anthropic is intentionally NOT a fallback.
-  // Prompt caching dropped — on OAuth subscription, all tokens count equally.
+  if (!skipCodex && env.CODEX_BRIDGE_URL) {
+    try {
+      const text = await codexGenerate(env, system, user);
+      return { text: text.trim(), tokensIn: 0, tokensOut: 0 };
+    } catch (e) {
+      if (env.CACHE) {
+        try { await env.CACHE.put(CODEX_COOLDOWN_KEY, String(Date.now() + 20 * 60 * 1000), { expirationTtl: 20 * 60 }); } catch { /* ignore */ }
+      }
+      console.warn('[review-pipeline] codex gpt-5.5 failed, falling back to DeepSeek: ' + String((e as any)?.message ?? e).slice(0, 160));
+    }
+  }
+  // Fallback chain when gpt-5.5 is unavailable. deepseek-v4-pro is a REASONING
+  // model — at a tight token cap it spends the whole budget thinking and returns
+  // empty (finish=length), so give the writer generous headroom. If DeepSeek
+  // still comes back empty, fall through to Claude OAuth so a reply is ALWAYS
+  // produced (reviews must never silently stop drafting again).
+  // DeepSeek fallback — fast deepseek-chat (NOT the reasoning v4-pro).
+  try {
+    const ds = await deepseekChat(env, system, user, Math.max(maxTokens, 800), temp);
+    if (ds.text && ds.text.trim().length > 20) return ds;
+  } catch { /* fall through to Claude OAuth */ }
+  // Safety net: Claude OAuth — reviews must never silently stop drafting again.
   const r = await callPro(
     [
       { role: 'system', content: system },
       { role: 'user', content: user },
     ],
-    { env, maxTokens, temperature: 0.3, prefer: 'auto' },
+    { env, maxTokens: Math.max(maxTokens, 1500), temperature: temp, prefer: 'auto' },
   );
   return {
     text: r.text.trim(),
@@ -90,21 +119,34 @@ async function callClaude(env: Env, system: string, user: string, maxTokens: num
   };
 }
 
+async function callClaude(env: Env, system: string, user: string, maxTokens: number): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
+  // Reply-writing gate → GPT-5.5 primary, DeepSeek fallback (see callGpt).
+  return callGpt(env, system, user, maxTokens, 0.3);
+}
+
 
 async function callQwen(env: Env, system: string, user: string, maxTokens: number, temp = 0.4): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
-  // Rating-only review answers. Qwen-max primary, DeepSeek fallback (handled in llm router).
-  const r = await callPro(
-    [
-      { role: 'system', content: system },
-      { role: 'user', content: user },
-    ],
-    { env, maxTokens, temperature: temp, prefer: 'qwen' },
-  );
-  return {
-    text: r.text.trim(),
-    tokensIn: r.usage.prompt_tokens ?? 0,
-    tokensOut: r.usage.completion_tokens ?? 0,
-  };
+  // Rating-only reply-writing gate → GPT-5.5 primary, DeepSeek fallback.
+  return callGpt(env, system, user, maxTokens, temp);
+}
+
+// Fast, non-reasoning DeepSeek writer (deepseek-chat). The router's default
+// deepseek-v4-pro is a REASONING model that burns the token budget thinking and
+// returns empty at tight caps — wrong tool for short reply writing. This hits
+// deepseek-chat directly for the reply-writing fallback.
+async function deepseekChat(env: Env, system: string, user: string, maxTokens: number, temp: number): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
+  if (!env.DEEPSEEK_API_KEY) throw new Error('DEEPSEEK_API_KEY not set');
+  const r = await fetch('https://api.deepseek.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'deepseek-chat', max_tokens: maxTokens, temperature: temp, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!r.ok) throw new Error(`deepseek-chat HTTP ${r.status}: ${(await r.text()).slice(0, 120)}`);
+  const j = await r.json<any>();
+  const text = (j?.choices?.[0]?.message?.content ?? '').trim();
+  if (!text) throw new Error('deepseek-chat empty content');
+  return { text, tokensIn: j?.usage?.prompt_tokens ?? 0, tokensOut: j?.usage?.completion_tokens ?? 0 };
 }
 
 async function callDeepSeek(env: Env, system: string, user: string, maxTokens: number, temp = 0.3): Promise<{ text: string; tokensIn: number; tokensOut: number }> {

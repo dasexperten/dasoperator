@@ -97,13 +97,16 @@ export default function InboxView() {
     setActing(null);
   }
 
-  const PAGE = 100;
+  // Keep the first page small — the emailer-bridge (Apps Script over Gmail)
+  // hydrates each thread sequentially, so load time is ~linear in PAGE. 25 is
+  // a fast first paint; the rest comes via "load more".
+  const PAGE = 25;
   const QUERY = 'in:inbox newer_than:90d';
 
-  async function load(off = 0, append = false) {
+  async function load(off = 0, append = false, fresh = false) {
     if (append) setLoadingMore(true); else { setLoading(true); setError(null); }
     try {
-      const r = await getEmailHistory(QUERY, PAGE, off);
+      const r = await getEmailHistory(QUERY, PAGE, off, fresh);
       const res = r.result as (EmailHistoryResponse & { has_more?: boolean }) | undefined;
       if (r.success && res) {
         const threads = (res.threads as unknown as InboxThread[]) || [];
@@ -160,9 +163,9 @@ export default function InboxView() {
           <h2 className="text-base font-semibold text-foreground">
             {sorted.length > 0 ? `${sorted.length} ${sorted.length === 1 ? 'email' : 'emails'} in your inbox` : 'Inbox zero'}
           </h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Last 60 days · newest first · {replyCount} need your reply</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Last 90 days · newest first · {replyCount} need your reply</p>
         </div>
-        <button onClick={() => load(0, false)} className="text-sm border border-border rounded-md px-3 py-1.5 inline-flex items-center gap-2 hover:bg-muted"><RefreshCw className="h-4 w-4" /> Refresh</button>
+        <button onClick={() => load(0, false, true)} className="text-sm border border-border rounded-md px-3 py-1.5 inline-flex items-center gap-2 hover:bg-muted"><RefreshCw className="h-4 w-4" /> Refresh</button>
       </div>
 
       {sorted.length > 0 && (
@@ -252,12 +255,12 @@ export default function InboxView() {
       {hasMore && (
         <div className="flex justify-center mt-3">
           <button onClick={() => load(offset, true)} disabled={loadingMore} className="text-sm border border-border rounded-md px-4 py-2 inline-flex items-center gap-2 hover:bg-muted disabled:opacity-50">
-            {loadingMore && <Loader2 className="h-4 w-4 animate-spin" />} {loadingMore ? 'Loading…' : 'Next 100'}
+            {loadingMore && <Loader2 className="h-4 w-4 animate-spin" />} {loadingMore ? 'Loading…' : `Next ${PAGE}`}
           </button>
         </div>
       )}
 
-      {reply && <ReplyModal thread={reply} initialBody={aiDraft} onClose={() => { setReply(null); setAiDraft(''); }} onSent={() => { setReply(null); setAiDraft(''); load(0, false); }} />}
+      {reply && <ReplyModal thread={reply} initialBody={aiDraft} onClose={() => { setReply(null); setAiDraft(''); }} onSent={() => { setReply(null); setAiDraft(''); load(0, false, true); }} />}
     </div>
   );
 }

@@ -110,7 +110,7 @@ function AddSourceModal({
       }}
     >
       <div
-        onClick={(e) => e.stopPropagation()}
+        className="dx-modal-panel" onClick={(e) => e.stopPropagation()}
         style={{
           backgroundColor: 'var(--paper)', borderRadius: 'var(--radius-md)',
           padding: '24px', width: '480px', maxWidth: '90vw',
@@ -336,7 +336,7 @@ function UploadStatementModal({
       }}
     >
       <div
-        onClick={(e) => e.stopPropagation()}
+        className="dx-modal-panel" onClick={(e) => e.stopPropagation()}
         style={{
           backgroundColor: 'var(--paper)', borderRadius: 'var(--radius-md)',
           padding: '24px', width: '520px', maxWidth: '90vw',
@@ -539,7 +539,7 @@ function SourcesListModal({
       }}
     >
       <div
-        onClick={(e) => e.stopPropagation()}
+        className="dx-modal-panel" onClick={(e) => e.stopPropagation()}
         style={{
           backgroundColor: 'var(--paper)', borderRadius: 'var(--radius-md)',
           padding: '24px', width: '560px', maxWidth: '90vw', maxHeight: '80vh',
@@ -1036,7 +1036,7 @@ export default function FinanceTransactionsPage() {
           }}
         >
           <div
-            onClick={(e) => e.stopPropagation()}
+            className="dx-modal-panel" onClick={(e) => e.stopPropagation()}
             style={{
               width: '720px', maxWidth: '95vw',
               background: 'var(--paper-base, #fff)',

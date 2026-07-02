@@ -340,9 +340,11 @@ export default function AssignWizard({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: 8,
         marginBottom: 14,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           <span style={{
             fontSize: 14, fontWeight: 700,
             background: 'rgba(13,25,158,0.08)',
@@ -356,7 +358,7 @@ export default function AssignWizard({
             {step === 1 ? 'Partner' : 'Operation'}
           </span>
         </div>
-        <span style={{ fontSize: 14, color: 'var(--fg-3)', fontWeight: 700 }}>
+        <span style={{ fontSize: 14, color: 'var(--fg-3)', fontWeight: 700, minWidth: 0 }}>
           {txSummary}
         </span>
       </div>
@@ -618,12 +620,14 @@ export default function AssignWizard({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 12,
           }}>
-            <div>
+            <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 14, color: '#0D199E', fontWeight: 700, marginBottom: 2 }}>
                 Partner
               </div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--fg-1)' }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--fg-1)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {partner.trade_name}
               </div>
             </div>
@@ -638,6 +642,7 @@ export default function AssignWizard({
                 fontSize: 14, fontWeight: 700,
                 cursor: busy ? 'default' : 'pointer',
                 display: 'flex', alignItems: 'center', gap: 4,
+                flexShrink: 0,
               }}
             >
               <ChevronLeft size={14} /> Change

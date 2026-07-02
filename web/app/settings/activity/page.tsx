@@ -162,8 +162,8 @@ export default function ActivityPage() {
                     >
                       <span style={{ width: 32, height: 32, borderRadius: '50%', backgroundColor: 'var(--paper-sunk)', color: 'var(--fg-1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, flexShrink: 0 }}>{initials(u.name)}</span>
                       <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--fg-1)', flex: 1, minWidth: 80 }}>{u.name}</span>
-                      <span style={{ fontSize: '12px', color: 'var(--fg-2)', width: 96 }}>{u.week_hours.toFixed(1)} h / wk</span>
-                      <span style={{ fontSize: '12px', color: 'var(--fg-2)', width: 92 }}>{u.avg_day_hours.toFixed(1)} h / day</span>
+                      <span className="dx-hide-mobile" style={{ fontSize: '12px', color: 'var(--fg-2)', width: 96 }}>{u.week_hours.toFixed(1)} h / wk</span>
+                      <span className="dx-hide-mobile" style={{ fontSize: '12px', color: 'var(--fg-2)', width: 92 }}>{u.avg_day_hours.toFixed(1)} h / day</span>
                       <span className="flex items-center gap-2" style={{ width: 110 }}>
                         <span style={{ flex: 1, height: 7, borderRadius: 4, background: 'var(--paper-sunk)', overflow: 'hidden' }}>
                           <span style={{ display: 'block', width: `${u.activity_pct}%`, height: '100%', background: pctColor(u.activity_pct) }} />

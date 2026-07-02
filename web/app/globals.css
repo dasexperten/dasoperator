@@ -249,6 +249,28 @@ input[type="number"] {
    touching individual page files. Breakpoint: <768px = mobile.
    =========================================================================== */
 
+/* ---- 0. Global guard: the page must never scroll sideways ----
+   A single too-wide child (bespoke inline-styled card, chart label row, etc.)
+   must not drag the whole viewport horizontally. Internal scroll containers
+   (.overflow-x-auto / .dx-table-scroll) keep their OWN horizontal scroll, so
+   wide tables/matrices are unaffected — only the page itself stops moving. */
+@media (max-width: 767px) {
+  html, body {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+  /* The app's real scroll container is <main class="overflow-auto"> inside the
+     shell — not <body>. If a too-wide child let it scroll sideways, Android
+     Chrome widens the layout viewport and (max-width:767px) STOPS matching, so
+     every grid falls back to its desktop multi-column form. Pin main to
+     vertical-only scroll; wide tables keep their own .overflow-x-auto /
+     .dx-table-scroll wrappers, which still scroll internally. */
+  main {
+    overflow-x: hidden !important;
+    max-width: 100vw;
+  }
+}
+
 /* ---- 1. Main content frame: reduce padding on mobile ---- */
 @media (max-width: 767px) {
   main > div {
@@ -292,11 +314,13 @@ input[type="number"] {
   [class*="grid-cols-4"],
   [class*="grid-cols-5"],
   [class*="grid-cols-6"] {
-    /* minmax(0,1fr) — NOT plain 1fr (= minmax(auto,1fr)). A card with a wide
-       non-shrinkable child (chart, nowrap product name) would otherwise push
-       the "collapsed" column past the screen and stick out. minmax(0,…) lets
-       the column shrink to the container regardless of content. */
-    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-columns: 1fr !important;
+  }
+  /* Dense small KPI tiles (5-/6-up) read better 2-up than as one tall stack.
+     Higher specificity (.grid.grid-cols-N) wins over the [class*] rule above. */
+  .grid.grid-cols-5,
+  .grid.grid-cols-6 {
+    grid-template-columns: 1fr 1fr !important;
   }
   .grid {
     gap: 12px !important;
@@ -305,12 +329,14 @@ input[type="number"] {
      collapses to single column UNLESS marked as opt-in via class
      'dx-keep-grid' (e.g. the mobile-only filter row that explicitly wants 2). */
   [style*="grid-template-columns"]:not(.dx-keep-grid):not(.dx-show-mobile):not(.dx-show-mobile *) {
-    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-columns: 1fr !important;
   }
 }
 
 /* ---- 4. Flex rows wrap on mobile ---- */
 @media (max-width: 767px) {
+  .flex.gap-1,
+  .flex.gap-1\.5,
   .flex.gap-2,
   .flex.gap-3,
   .flex.gap-4,
@@ -330,13 +356,17 @@ input[type="number"] {
   }
 }
 
-/* ---- 5. Page-header rows stack on mobile ---- */
+/* ---- 5. Page-header rows stack on mobile ----
+   Any Tailwind `.flex.justify-between` row wraps on mobile (covers
+   items-center / items-baseline / items-start / items-end variants — the
+   audit found several align-* variants that slipped the old items-center
+   selector and clipped their right-hand meta). */
 @media (max-width: 767px) {
-  .flex.items-center.justify-between {
+  .flex.justify-between {
     flex-wrap: wrap;
     gap: 12px;
   }
-  .flex.items-center.justify-between > * {
+  .flex.justify-between > * {
     min-width: 0;
   }
 }
@@ -542,8 +572,11 @@ input[type="number"] {
 
 /* ---- 16. Compact h1 + inline action button on mobile ---- */
 @media (max-width: 767px) {
-  /* Force the title row container to stay on ONE line */
-  .flex.items-start.justify-between {
+  /* Force the title row container to stay on ONE line.
+     Exception: headers with a multi-button action cluster opt out via
+     `.dx-header-wrap` (they'd overlap the title if forced to one line) and
+     instead wrap the cluster onto its own row below the title. */
+  .flex.items-start.justify-between:not(.dx-header-wrap) {
     flex-wrap: nowrap !important;
     align-items: center !important;
     gap: 12px !important;
@@ -579,26 +612,24 @@ input[type="number"] {
   /* On products / partners / operations pages, filter selects sit inside
      <div class="flex gap-3 items-center"> rows. We want them side-by-side
      (2 columns) on phone instead of stacked. */
-  /* Scoped to `main` so the header/sidebar chrome (which also uses
-     flex + gap-3 + items-center) is never turned into a grid. */
-  main .flex.gap-2.items-center,
-  main .flex.gap-3.items-center,
-  main .flex.gap-4.items-center {
+  .flex.gap-2.items-center,
+  .flex.gap-3.items-center,
+  .flex.gap-4.items-center {
     display: grid !important;
     grid-template-columns: 1fr 1fr;
     gap: 8px !important;
     align-items: stretch;
   }
   /* If there's an odd third item (a button) it spans both columns */
-  main .flex.gap-2.items-center > *:nth-child(odd):last-child,
-  main .flex.gap-3.items-center > *:nth-child(odd):last-child,
-  main .flex.gap-4.items-center > *:nth-child(odd):last-child {
+  .flex.gap-2.items-center > *:nth-child(odd):last-child,
+  .flex.gap-3.items-center > *:nth-child(odd):last-child,
+  .flex.gap-4.items-center > *:nth-child(odd):last-child {
     grid-column: 1 / -1;
   }
   /* Selects inside become full-width within their grid cell */
-  main .flex.gap-2.items-center > select,
-  main .flex.gap-3.items-center > select,
-  main .flex.gap-4.items-center > select {
+  .flex.gap-2.items-center > select,
+  .flex.gap-3.items-center > select,
+  .flex.gap-4.items-center > select {
     width: 100% !important;
     min-width: 0 !important;
   }
@@ -633,7 +664,7 @@ input[type="number"] {
 /* ---- 21. Metric cards: stack on mobile ---- */
 @media (max-width: 767px) {
   .grid.grid-cols-4 {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    grid-template-columns: 1fr 1fr !important;
     gap: 8px !important;
   }
 }
@@ -745,6 +776,23 @@ input[type="number"] {
     border-radius: 0 !important;
     max-height: 100vh !important;
   }
+  /* .dx-modal-panel — inline-styled modal cards become full-width bottom
+     sheets. position:fixed self-docks to the viewport bottom regardless of
+     how the overlay aligns its children, so no overlay edits are needed. */
+  .dx-modal-panel {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    top: auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    border-radius: 14px 14px 0 0 !important;
+    max-height: 92vh !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 /* ---- 31. Das-Kompanion chat window: full-width on mobile ---- */
@@ -778,14 +826,19 @@ input[type="number"] {
    Reversible: delete this block to restore horizontal-scroll tables.
    =========================================================================== */
 @media (max-width: 767px) {
-  main table { display: block; width: 100%; overflow: visible; white-space: normal; border: none; }
-  main table thead {
-    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
-  }
-  main table tbody { display: block; }
-  main table tr {
-    display: block;
+  /* .dx-keep-table opts out (wide matrices keep horizontal scroll — see block 35).
+     The table / tbody / tr all become flex columns (NOT display:block). A
+     display:block <table> keeps anonymous table-box behaviour and shrink-to-fits
+     to its widest cell, so a long cell (e.g. a product description) refuses to
+     wrap and pushes the card — and its values — off the right edge. A full
+     flex-column chain constrains every row to the container width so cells wrap. */
+  main table:not(.dx-keep-table) { display: flex; flex-direction: column; width: 100%; overflow: visible; white-space: normal; border: none; }
+  main table:not(.dx-keep-table) thead { display: none; }
+  main table:not(.dx-keep-table) tbody { display: flex; flex-direction: column; width: 100%; }
+  main table:not(.dx-keep-table) tr {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
     background: var(--paper-raised, #fff);
     border: 1px solid var(--border-hairline);
     border-radius: 10px;
@@ -793,24 +846,89 @@ input[type="number"] {
     margin-bottom: 10px;
     box-shadow: 0 1px 2px rgba(26,21,25,.04);
   }
-  main table td {
+  main table:not(.dx-keep-table) td {
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 12px;
-    width: auto !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 44px;
     white-space: normal !important;
+    overflow-wrap: anywhere;
     text-align: right !important;
-    padding: 8px 0 !important;
+    padding: 10px 0 !important;
     border: none !important;
     border-bottom: 1px solid var(--border-hairline) !important;
-    position: static !important;
+    /* static (not !important) so cells that anchor a dropdown/tooltip can keep
+       their inline position:relative — still beats the sticky-first-col rule by
+       specificity. */
+    position: static;
   }
-  main table td:last-child { border-bottom: none !important; }
-  main table td:first-child { font-weight: 700; }
-  main table tr > td:first-child { text-align: left !important; }
+  /* inner elements (buttons, links, badges) must be allowed to shrink/wrap */
+  main table:not(.dx-keep-table) td > * { min-width: 0; max-width: 100%; }
+  /* Column label, injected as data-label by the auto-labeler script in layout.tsx */
+  main table:not(.dx-keep-table) td[data-label]::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    margin-right: auto;
+    padding-right: 12px;
+    font-weight: 600;
+    text-align: left;
+    color: var(--fg-2, #6b6660);
+    white-space: nowrap;
+  }
+  main table:not(.dx-keep-table) td:last-child { border-bottom: none !important; }
+  main table:not(.dx-keep-table) td:first-child { font-weight: 700; }
+  main table:not(.dx-keep-table) td:first-child::before { content: none; }
+  main table:not(.dx-keep-table) tr > td:first-child { text-align: left !important; }
   /* hide empty/colspan placeholder rows nicely */
-  main table td[colspan] { justify-content: center; text-align: center !important; }
+  main table:not(.dx-keep-table) td[colspan] { justify-content: center; text-align: center !important; }
+  main table:not(.dx-keep-table) td[colspan]::before { content: none; }
+}
+
+/* ===========================================================================
+   35. MOBILE: wide matrices (.dx-keep-table) — keep table + sticky lead cols
+   For tables too wide to stack as cards (e.g. warehouse stock matrix).
+   The wrapper must be .overflow-x-auto so the body scrolls horizontally.
+   =========================================================================== */
+@media (max-width: 767px) {
+  .dx-table-scroll {
+    position: relative;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* right-edge shadow hints there is more to scroll */
+  .dx-table-scroll::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 18px;
+    pointer-events: none;
+    background: linear-gradient(to left, rgba(26,21,25,.10), transparent);
+  }
+  main table.dx-keep-table { display: table; width: max-content; min-width: 100%; }
+  main table.dx-keep-table th,
+  main table.dx-keep-table td { white-space: nowrap; }
+  /* SKU (1st) + Product (2nd) stay pinned while the rest scrolls */
+  main table.dx-keep-table td:first-child,
+  main table.dx-keep-table th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--paper, #fff);
+  }
+  main table.dx-keep-table th:first-child { z-index: 3; }
+  main table.dx-keep-table td.dx-sticky-2,
+  main table.dx-keep-table th.dx-sticky-2 {
+    position: sticky;
+    left: 60px;
+    z-index: 1;
+    background: var(--paper, #fff);
+  }
+  main table.dx-keep-table th.dx-sticky-2 { z-index: 3; }
 }
 
 
@@ -825,7 +943,7 @@ input[type="number"] {
 /* ---- 34. Home: metric cards — 2×2 grid on mobile ---- */
 @media (max-width: 767px) {
   .dx-metrics-grid {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    grid-template-columns: 1fr 1fr !important;
   }
   .dx-metrics-grid > div {
     padding: 14px 16px !important;
@@ -836,225 +954,79 @@ input[type="number"] {
   }
 }
 
-/* ===========================================================================
-   MOBILE v3 — 2026-07-01 — ZERO horizontal overflow + self-labelling cards
-   ---------------------------------------------------------------------------
-   Objective (Aram): on a phone NOTHING may scroll sideways, and every widget
-   must be legible with low cognitive load. This layer:
-     • installs a page-scroll firewall (the page can never move sideways),
-     • lets every flex child shrink and every long token (IBAN / UUID / email /
-       reference) break instead of pushing the layout wide,
-     • neutralises inline `white-space:nowrap` / fixed `max-width` inside table
-       cards so truncated values become readable,
-     • pins form controls to the viewport width,
-     • wraps any flex row that holds buttons or inputs,
-     • restores the COLUMN LABEL on every stacked-card cell (paired with the
-       data-dx-col injector in app/layout.tsx) so a value is never label-less.
-   Everything is scoped to `main` so the header / sidebar / bottom-nav chrome
-   is untouched. Reversible: delete this block.
-   =========================================================================== */
+/* ---- 36. Home: Marketplace Pulse — reflow so nothing overflows ---- */
 @media (max-width: 767px) {
-
-  /* ---- v3.1  Page-scroll firewall ---------------------------------------
-     html/body clip horizontal spill; `main` (the vertical scroller) clips its
-     own x-axis. A genuinely 2-D widget (promo matrix) keeps its OWN
-     overflow-x:auto box, so only that box scrolls — never the page. */
-  html, body { max-width: 100%; overflow-x: hidden; }
-  /* `!important` is required: <main> carries Tailwind's `.overflow-auto`
-     (a class → higher specificity than a bare `main` element rule), which
-     would otherwise leave main as its own sideways-scroll container. */
-  main { overflow-x: hidden !important; }
-  main > div { max-width: 100%; }
-
-  /* Kill the legacy `table tbody { width: max-content }` (mobile rule 2) that
-     the stacked-card transform never overrode — it let a card grow to the
-     width of its longest unbreakable string and scroll sideways. Pin the whole
-     table stack to the container so cards always fit and text reflows inside. */
-  main table,
-  main table > tbody,
-  main table > tfoot,
-  main table tbody tr { width: 100% !important; max-width: 100% !important; min-width: 0 !important; }
-  /* Keep the visually-hidden header truly 1px — mobile rule 2 set
-     `min-width:100%` on every thead, which was overriding the card
-     transform's `width:1px` and leaving an absolute 375–495px ghost row. */
-  main table > thead { display: block !important; width: 1px !important; height: 1px !important; min-width: 0 !important; max-width: 1px !important; overflow: hidden !important; }
-
-  /* ---- v3.2  Shrink + break: kill the two root causes of overflow --------
-     (a) flex children default to min-width:auto (= content width) which lets a
-         long word push the row wider than the screen — force min-width:0.
-     (b) long unbreakable strings break at any point when they'd otherwise
-         overflow. */
-  main .flex > *,
-  main [style*="display: flex"] > *,
-  main [style*="display:flex"] > *,
-  main .grid > *,
-  main [style*="display: grid"] > *,
-  main [style*="display:grid"] > * { min-width: 0; }
-
-  main p, main span, main a, main dd, main dt, main li,
-  main td, main th, main label, main strong {
-    overflow-wrap: anywhere;
-    word-break: break-word;
-  }
-  /* Headings wrap only between words — NEVER per-character. Combined with
-     min-width:0 a squeezed one-word title ("Warehouses") was breaking into a
-     vertical column of letters; header rows also stack (v3.8) so a title
-     always has full width. */
-  main h1, main h2, main h3, main h4, main h5, main h6 {
-    overflow-wrap: normal !important;
-    word-break: normal !important;
-  }
-
-  /* Inside a stacked-card cell, inline nowrap / fixed max-width would clip or
-     overflow. Let the text reflow. Opt out with .dx-nowrap (status chips). */
-  main table td[style*="max-width"],
-  main table td [style*="max-width"] { max-width: 100% !important; }
-  /* Kill inline white-space:nowrap on page CONTENT app-wide (not just cells):
-     a nowrap product name / reference inside a card sets its min-content huge
-     and blows the card/column wide. Opt out with .dx-nowrap; buttons and
-     bg-styled action links keep nowrap (they're already sized to fit). */
-  main [style*="nowrap"]:not(.dx-nowrap):not(button):not([role="button"]):not(a[class*="bg-"]) {
-    white-space: normal !important;
-  }
-
-  /* ---- v3.3  Form controls never exceed the screen ----------------------- */
-  main input, main select, main textarea { max-width: 100% !important; box-sizing: border-box; }
-  main input[type="text"], main input[type="search"], main input[type="email"] { width: 100% !important; }
-
-  /* ---- v3.4  Wrap any flex row carrying buttons / inputs -----------------
-     :has() is supported by every current mobile browser. Wrapping a control
-     row is always safe; it never wraps plain label:value text rows. */
-  main .flex:has(> button), main .flex:has(> input), main .flex:has(> select), main .flex:has(> a[class*="bg-"]),
-  main [style*="display: flex"]:has(> button),
-  main [style*="display: flex"]:has(> input),
-  main [style*="display: flex"]:has(> select),
-  main [style*="display: flex"]:has(> a[class*="bg-"]),
-  main [style*="display:flex"]:has(> button),
-  main [style*="display:flex"]:has(> input),
-  main [style*="display:flex"]:has(> select),
-  main [style*="display:flex"]:has(> a[class*="bg-"]) { flex-wrap: wrap; }
-
-  /* ---- v3.5  Self-labelling stacked cards --------------------------------
-     app/layout.tsx copies each <th> caption onto its <td> as data-dx-col.
-     We render it as the left side of the space-between card row, so every
-     value reads "Label            value" instead of a context-free number.
-     First cell stays the bold card title (no prefix). 14px floor respected. */
-  main table td[data-dx-col]::before {
-    content: attr(data-dx-col);
-    flex: 0 0 auto;
-    max-width: 48%;
-    margin-right: 12px;
-    text-align: left;
-    font-weight: 600;
-    color: var(--fg-3);
-    overflow-wrap: anywhere;
-  }
-  main table tr > td:first-child::before { display: none; }
-  /* A cell the injector left unlabelled (e.g. actions column) still lays out
-     cleanly as a right-aligned control cluster. */
-
-  /* ---- v3.6  Wide class-defined matrices: fit first, scroll-in-box last ---
-     These are true 2-D grids (promo matrix) that cannot reflow to one column
-     without losing meaning. Shrink them to fit where possible; the enclosing
-     overflow-x:auto box (never the page) absorbs any remainder. */
-  main .apo-promo-table { min-width: 0 !important; }
-  main .apo-promo-table-wrap,
-  main .dx-scroll-x { display: block; width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-
-  /* ---- v3.7  Tap-safe, tidy card rows ------------------------------------ */
-  main table td { gap: 12px; }
-}
-
-/* ---------------------------------------------------------------------------
-   MOBILE v3.8 — header rows stack; page-hero titles never get crushed
-   Fixes seen on real devices 2026-07-01: the Warehouses title breaking into a
-   vertical column of letters, and the Marketplace-Pulse HUD clipping off-screen.
-   --------------------------------------------------------------------------- */
-@media (max-width: 767px) {
-  /* Override the older compact-header rule (16) that forced nowrap. When a page
-     header carries a wide action cluster (Warehouses: Bundling + Stock transfer)
-     it must WRAP below the title instead of squeezing it to one letter wide. */
-  main .flex.items-start.justify-between,
-  main .flex.items-center.justify-between { flex-wrap: wrap !important; }
-  /* Title block flexes on line 1; the action cluster(s) drop to their own line
-     and fill its full width — otherwise a `shrink-0` cluster stays at content
-     width (e.g. Bundling + Stock transfer = 432px) and overflows. Full width
-     lets its inner 1fr/1fr grid size the buttons to fit. */
-  main .flex.items-start.justify-between > :first-child,
-  main .flex.items-center.justify-between > :first-child { flex: 1 1 auto; min-width: 0; }
-  main .flex.items-start.justify-between > :not(:first-child),
-  main .flex.items-center.justify-between > :not(:first-child) { flex: 1 1 100% !important; }
-
-  /* Marketplace-pulse "sales today": stack the per-channel HUD under the big
-     total (it was minWidth:190px + right-aligned, clipping at the screen edge). */
-  .dx-pulse-head { flex-direction: column !important; }
-  .dx-pulse-hud { min-width: 0 !important; width: 100%; text-align: left !important; }
-  .dx-pulse-hud > div { justify-content: space-between !important; }
-}
-
-/* ---------------------------------------------------------------------------
-   MOBILE v3.9 — wide tables SCROLL sideways (not a tall card stack); tab rows
-   fill the width. Direct response to real-device feedback 2026-07-01: the
-   stock-by-warehouse matrix read as a tall list of mostly-empty "WH: —" rows
-   with no way to scroll across, and channel-tab rows wasted the right half.
-   --------------------------------------------------------------------------- */
-@media (max-width: 767px) {
-  /* A >6-column table is wrapped in .dx-scroll-x and tagged .dx-wide-table by
-     the injector in app/layout.tsx. Keep it a real, compact, side-scrollable
-     table (undo the stacked-card transform and the width caps from v3.1). */
-  main table.dx-wide-table,
-  main table.dx-wide-table > thead,
-  main table.dx-wide-table > tbody,
-  main table.dx-wide-table tr { max-width: none !important; }
-  main table.dx-wide-table {
-    display: table !important;
-    width: auto !important;
-    min-width: 100% !important;
-    white-space: nowrap;
-    border-collapse: collapse;
-  }
-  main table.dx-wide-table > thead {
-    display: table-header-group !important;
-    position: static !important;
-    width: auto !important; height: auto !important;
-    clip: auto !important; overflow: visible !important;
-  }
-  main table.dx-wide-table > tbody { display: table-row-group !important; width: auto !important; }
-  main table.dx-wide-table tr {
-    display: table-row !important; width: auto !important;
-    background: none !important; border: 0 !important;
-    border-radius: 0 !important; padding: 0 !important;
-    margin: 0 !important; box-shadow: none !important;
-  }
-  main table.dx-wide-table th,
-  main table.dx-wide-table td {
-    display: table-cell !important;
-    white-space: nowrap !important;
-    text-align: left !important;
-    padding: 10px 12px !important;
-    border: 0 !important;
-    border-bottom: 1px solid var(--border-hairline) !important;
-  }
-  main table.dx-wide-table td::before { display: none !important; }
-  /* Freeze the first column (SKU / name) so it stays visible while scrolling. */
-  main table.dx-wide-table th:first-child,
-  main table.dx-wide-table td:first-child {
-    position: sticky; left: 0; z-index: 1;
-    background: var(--paper-raised);
-  }
-
-  /* Tab / segmented control rows fill the width as an even 2-column grid
-     instead of wrapping to content-width buttons with dead space on the right.
-     Opt in with .dx-tabs-fill on the row. */
-  main .dx-tabs-fill {
-    display: grid !important;
-    grid-template-columns: 1fr 1fr;
+  /* hero header: let the right-side HUD drop below the big number */
+  .dx-pulse-head {
+    flex-wrap: wrap !important;
     gap: 8px !important;
   }
-  main .dx-tabs-fill > * {
+  .dx-pulse-hud {
+    min-width: 0 !important;
     width: 100% !important;
+  }
+  .dx-pulse-hero {
+    font-size: 24px !important;
+  }
+  /* chart axis labels + legend: drop the 56px left inset and allow wrapping */
+  .dx-pulse-axis {
+    padding-left: 0 !important;
+  }
+  .dx-pulse-legend {
+    padding-left: 0 !important;
+    flex-wrap: wrap !important;
+    gap: 8px 14px !important;
+  }
+}
+
+/* ---- 37. Mobile: force a multi-column grid to stack full-width ----
+   Some nested `grid grid-cols-N` containers do NOT collapse via the
+   grid-template-columns override (a stubborn cascade interaction). Switching
+   the container to a flex column reliably stacks its children full-width and
+   sidesteps the grid track sizing entirely. Opt-in via `dx-stack-mobile`. */
+@media (max-width: 767px) {
+  .dx-stack-mobile {
+    display: flex !important;
+    flex-direction: column !important;
+  }
+  .dx-stack-mobile > * {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
+/* ---- 39. Page-header action buttons: compact + full-width row on mobile ----
+   Marks the cluster of action buttons next to a page title (e.g. Warehouses
+   "Bundling / Stock transfer", Operations "Add Source / Upload / Triage / Add
+   new"). On mobile the cluster drops to its own full-width line (the header
+   wraps via rule 5) and its buttons shrink so they no longer dwarf the page. */
+@media (max-width: 767px) {
+  .dx-page-actions {
+    width: 100% !important;
+    gap: 8px !important;
+    flex-wrap: wrap !important;
+  }
+  .dx-page-actions > a,
+  .dx-page-actions > button {
+    flex: 1 1 auto;
+    justify-content: center;
+    padding: 8px 12px !important;
+    font-size: 13px !important;
+    min-height: 38px !important;
+    white-space: nowrap;
+  }
+}
+
+/* ---- 38. Reviews: source tabs compact 2×2 on mobile ---- */
+@media (max-width: 767px) {
+  .dx-review-tabs {
+    gap: 8px !important;
+  }
+  .dx-review-tabs > button {
+    flex: 1 1 calc(50% - 4px) !important;   /* two per row → 2×2 */
     min-width: 0 !important;
     justify-content: center !important;
-    white-space: normal !important;
+    padding: 9px 10px !important;
+    font-size: 14px !important;
   }
 }

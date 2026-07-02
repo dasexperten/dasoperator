@@ -179,7 +179,7 @@ export default function MarketplacePulse() {
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 dx-stack-mobile">
         <SalesTodayCard data={salesToday} loading={loading} refreshing={refreshing} onRefresh={handleRefresh} />
         <TrendCard data={trend} loading={loading} />
         <PieBreakdownCard />
@@ -294,7 +294,7 @@ function SalesTodayCard({ data, loading, refreshing, onRefresh }: { data: SalesT
           {/* Header row: big totals left, live hover HUD right */}
           <div className="dx-pulse-head" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', marginBottom: '14px' }}>
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: '32px', fontWeight: 700, color: COLOR_OZON, lineHeight: 1.1 }}>
+              <div className="dx-pulse-hero" style={{ fontFamily: 'var(--font-display)', fontSize: '32px', fontWeight: 700, color: COLOR_OZON, lineHeight: 1.1 }}>
                 {fmtRubFull(data.combined.revenue_rub)}
               </div>
               <div style={{ fontSize: '14px', color: COLOR_OZON, marginTop: '2px' }}>
@@ -551,7 +551,7 @@ function PieBreakdownCard() {
       </div>
 
       {loading ? <CardLoading /> : !data ? <CardEmpty>No data.</CardEmpty> : (
-        <div className="grid grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 dx-stack-mobile">
           <SkuPie data={data} />
           <PartnerPie data={data} />
         </div>
@@ -1235,7 +1235,7 @@ function SparklineWithHover({
       </div>
 
       {/* X axis labels: spread evenly under chart, aligned with Y column */}
-      <div style={{ display: 'flex', justifyContent: 'space-between',
+      <div className="dx-pulse-axis" style={{ display: 'flex', justifyContent: 'space-between',
                     fontSize: '14px', color: 'var(--fg-muted)',
                     marginTop: '6px', paddingLeft: '56px' }}>
         {series.map((d, i) => {
@@ -1251,7 +1251,7 @@ function SparklineWithHover({
       </div>
 
       {/* Legend */}
-      <div style={{ display: 'flex', justifyContent: 'center', gap: '20px',
+      <div className="dx-pulse-legend" style={{ display: 'flex', justifyContent: 'center', gap: '20px',
                     fontSize: '14px', color: 'var(--fg-3)', marginTop: '10px', paddingLeft: '56px' }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
           <span style={{ width: '16px', height: '2px', backgroundColor: COLOR_COMBINED, display: 'inline-block' }} />

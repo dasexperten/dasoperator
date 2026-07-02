@@ -190,7 +190,7 @@ function AddSourceModal({
       }}
     >
       <div
-        onClick={(e) => e.stopPropagation()}
+        className="dx-modal-panel" onClick={(e) => e.stopPropagation()}
         style={{
           backgroundColor: 'var(--paper)', borderRadius: 'var(--radius-md)',
           padding: '24px', width: '480px', maxWidth: '90vw',
@@ -347,7 +347,7 @@ function SourcesListModal({
         position: 'fixed', inset: 0, backgroundColor: 'rgba(15,15,15,0.50)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50,
       }}>
-      <div onClick={(e) => e.stopPropagation()}
+      <div className="dx-modal-panel" onClick={(e) => e.stopPropagation()}
         style={{
           backgroundColor: 'var(--paper)', borderRadius: 'var(--radius-md)',
           padding: '24px', width: '640px', maxWidth: '95vw',
@@ -706,7 +706,7 @@ export default function OperationsPage() {
 
   return (
     <div className="space-y-8 max-w-7xl">
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between dx-header-wrap">
         <div>
           <div className="dx-eyebrow-rot dx-hide-mobile" style={{ marginBottom: '8px' }}>
             Operations
@@ -718,7 +718,7 @@ export default function OperationsPage() {
             {loading ? 'Loading...' : `${operations.length} across all partners · ${filtered.length} shown`}
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap dx-page-actions">
           <button
             onClick={() => setSourcesListOpen(true)}
             className="inline-flex items-center gap-2 px-3 py-2"
@@ -1188,7 +1188,7 @@ export default function OperationsPage() {
           }}
         >
           <div
-            onClick={(e) => e.stopPropagation()}
+            className="dx-modal-panel" onClick={(e) => e.stopPropagation()}
             style={{
               backgroundColor: 'var(--paper)', borderRadius: 'var(--radius-md)',
               padding: '24px', width: '640px', maxWidth: '95vw',

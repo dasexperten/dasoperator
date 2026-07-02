@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { classifyEmail } from '../lib/email-classify';
+import { withKvCache, cacheKey } from '../lib/kv-cache';
 
 const email = new Hono<{ Bindings: Env }>();
 
@@ -194,8 +195,15 @@ email.get('/history', async (c) => {
   const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 50;
   const offsetRaw = parseInt(c.req.query('offset') || '0', 10);
   const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? offsetRaw : 0;
+  // Refresh button sends fresh=1 to bypass the cache and re-warm it.
+  const fresh = c.req.query('fresh') === '1';
 
-  try {
+  // The bridge (Apps Script over Gmail) hydrates threads sequentially and can
+  // take tens of seconds, so cache the successful payload in KV. Errors are
+  // never cached (the fetcher throws → withKvCache re-runs next time).
+  const key = cacheKey('emailer:history', { query, limit, offset });
+
+  const fetchFromBridge = async (): Promise<unknown> => {
     const bridgeResponse = await c.env.EMAILER.fetch(new Request('https://emailer/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -215,24 +223,27 @@ email.get('/history', async (c) => {
     try {
       bridgePayload = await bridgeResponse.json();
     } catch {
-      return fail(c, 502, [{
-        code: 'bridge_invalid_response',
-        message: `emailer-bridge returned non-JSON (HTTP ${bridgeResponse.status})`,
-      }]);
+      throw new Error(`emailer-bridge returned non-JSON (HTTP ${bridgeResponse.status})`);
     }
-
     if (!bridgeResponse.ok) {
-      return fail(c, 502, [{
-        code: 'bridge_error',
-        message: `emailer-bridge returned HTTP ${bridgeResponse.status}`,
-        details: { bridge_response: bridgePayload },
-      }]);
+      throw new Error(`emailer-bridge returned HTTP ${bridgeResponse.status}`);
     }
+    return bridgePayload;
+  };
 
-    return ok(c, bridgePayload, ['Email history fetched']);
+  try {
+    let payload: unknown;
+    if (fresh) {
+      payload = await fetchFromBridge();
+      // Re-warm the cache so other clients get the fresh copy.
+      try { await c.env.CACHE.put(key, JSON.stringify(payload), { expirationTtl: 180 }); } catch { /* ignore */ }
+    } else {
+      payload = await withKvCache(c.env, key, 180, fetchFromBridge);
+    }
+    return ok(c, payload, ['Email history fetched']);
   } catch (err) {
     return fail(c, 502, [{
-      code: 'bridge_unreachable',
+      code: 'bridge_error',
       message: err instanceof Error ? err.message : String(err),
     }]);
   }

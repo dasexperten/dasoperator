@@ -124,7 +124,7 @@ export default function WarehouseDetailClient({ warehouseId }: { warehouseId: st
       </Link>
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-6">
+      <div className="flex items-start justify-between gap-6 dx-header-wrap">
         <div>
           <div className="flex items-center gap-3 mb-3">
             <span className="px-2 py-1" style={{ fontSize: '14px', backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-xs)', color: 'var(--fg-2)', fontWeight: 700 }}>
@@ -148,7 +148,7 @@ export default function WarehouseDetailClient({ warehouseId }: { warehouseId: st
             )}
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap dx-page-actions">
           {isExternalWarehouse ? (
             <div style={{
               padding: '8px 14px',

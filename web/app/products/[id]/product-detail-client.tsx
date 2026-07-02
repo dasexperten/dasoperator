@@ -487,8 +487,8 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
   return (
     <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
       {/* HEADER */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '32px' }}>
-        <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '32px' }}>
+        <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: '14px', textTransform: 'uppercase', fontWeight: 500, color: '#6B6B6B', marginBottom: '8px' }}>
             Master Data
           </div>

@@ -662,6 +662,7 @@ function ClusterItem({
           width: '100%',
           display: 'flex',
           alignItems: 'center',
+          flexWrap: 'wrap',
           gap: 20,
           padding: '20px 24px',
           backgroundColor: 'transparent',
@@ -700,7 +701,7 @@ function ClusterItem({
             units to ship
           </div>
         </div>
-        <div style={{ fontSize: '14px', color: 'var(--fg-2)', minWidth: 160 }}>
+        <div style={{ fontSize: '14px', color: 'var(--fg-2)', minWidth: 0 }}>
           <strong style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{stats.sku_count}</strong> SKUs
           {stats.oos > 0 && (
             <span style={{ color: 'var(--brand-rot)', fontWeight: 700, marginLeft: 6 }}>
@@ -2123,6 +2124,8 @@ function PromoActionItem({
           width: '100%',
           display: 'flex',
           alignItems: 'center',
+          flexWrap: 'wrap',
+          rowGap: 10,
           gap: 16,
           padding: '16px 24px',
           backgroundColor: 'transparent',

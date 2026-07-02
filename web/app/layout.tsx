@@ -114,96 +114,80 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
         <script
-          // Mobile stacked-card LABELS. On phones globals.css turns every
-          // <main> table into a stack of cards and hides the <thead>. Without
-          // the header a cell shows a bare value ("128,000 ₽") with no idea
-          // which column it is. This copies each <th> caption onto the matching
-          // <td> as data-dx-col; CSS (v3.5) prints it as the row's left label.
-          // Runs once + on every DOM mutation (tables arrive after data fetch).
-          // Attributes are inert on desktop (the ::before is media-query gated).
+          // Mobile table->card labeller. Below 768px globals.css turns each
+          // table row into a card; this copies the column header text onto
+          // every <td> as data-label so the card shows "Label: value" instead
+          // of bare values. Bespoke inline tables get labelled for free, no
+          // per-page edits. Re-runs on data load / route change via
+          // MutationObserver, mirroring the number-spinner script above.
           dangerouslySetInnerHTML={{
             __html: `(function(){
   if (typeof window === 'undefined') return;
-  function headerLabels(table){
-    var head = table.tHead;
-    if (!head || !head.rows.length) return null;
-    var row = head.rows[head.rows.length - 1];
-    var out = [], ci = 0;
-    for (var i=0; i<row.cells.length; i++){
-      var span = row.cells[i].colSpan || 1;
-      var txt = (row.cells[i].textContent || '').replace(/\\s+/g,' ').trim();
-      for (var s=0; s<span; s++) out[ci++] = txt;
-    }
-    return out;
-  }
+  var mq = window.matchMedia('(max-width: 767px)');
+  function text(el){ return (el.textContent || '').replace(/\\s+/g,' ').trim(); }
   function labelTable(table){
-    // Skip nested inner tables — only label a table's own direct body rows.
-    var labels = headerLabels(table);
-    if (!labels) return;
-    var bodies = table.tBodies;
-    for (var b=0; b<bodies.length; b++){
-      var rows = bodies[b].rows;
-      for (var r=0; r<rows.length; r++){
-        var cells = rows[r].cells, ci = 0;
-        for (var c=0; c<cells.length; c++){
-          var cell = cells[c], span = cell.colSpan || 1;
-          if (cell.tagName === 'TD'){
-            var lbl = span === 1 ? (labels[ci] || '') : '';
-            if (lbl) cell.setAttribute('data-dx-col', lbl);
-            else cell.removeAttribute('data-dx-col');
-          }
-          ci += span;
+    if (!table || table.classList.contains('dx-keep-table')) return;
+    if (table.closest && !table.closest('main')) return;
+    var headRow = table.querySelector('thead tr');
+    if (!headRow) return;
+    var heads = headRow.children;
+    var labels = [];
+    for (var h=0; h<heads.length; h++){
+      var span = (heads[h].getAttribute('colspan')|0) || 1;
+      var t = text(heads[h]);
+      for (var s=0; s<span; s++) labels.push(t);
+    }
+    var bodyRows = table.querySelectorAll('tbody tr');
+    for (var r=0; r<bodyRows.length; r++){
+      var cells = bodyRows[r].children, col = 0;
+      for (var c=0; c<cells.length; c++){
+        var cell = cells[c];
+        if (cell.tagName !== 'TD'){ col += (cell.getAttribute('colspan')|0) || 1; continue; }
+        // idempotent: skip cells already labelled (by us or the page)
+        if (!cell.hasAttribute('data-label') && labels[col] != null) {
+          cell.setAttribute('data-label', labels[col]);
         }
+        col += (cell.getAttribute('colspan')|0) || 1;
       }
     }
   }
-  function colCount(table){
-    var head = table.tHead;
-    if (!head || !head.rows.length) return 0;
-    var row = head.rows[head.rows.length - 1], n = 0;
-    for (var i=0; i<row.cells.length; i++) n += row.cells[i].colSpan || 1;
-    return n;
+  function scan(root){
+    if (!mq.matches) return;
+    var tables = (root || document).querySelectorAll('main table');
+    for (var i=0; i<tables.length; i++) labelTable(tables[i]);
   }
-  function makeWideScroll(table){
-    if (table.getAttribute('data-dx-wide') === '1') return;
-    table.setAttribute('data-dx-wide', '1');
-    table.classList.add('dx-wide-table');
-    var p = table.parentNode;
-    if (p && !(p.classList && p.classList.contains('dx-scroll-x'))){
-      var w = document.createElement('div');
-      w.className = 'dx-scroll-x';
-      p.insertBefore(w, table);
-      w.appendChild(table);
+  function handle(n){
+    if (n.nodeType !== 1) return;
+    if (n.tagName === 'TABLE') { labelTable(n); return; }
+    // a row/cell added to an existing table — re-label that table
+    var t = n.closest ? n.closest('main table') : null;
+    if (t) labelTable(t);
+    if (n.querySelectorAll){
+      var inner = n.querySelectorAll('main table');
+      for (var k=0; k<inner.length; k++) labelTable(inner[k]);
     }
   }
-  function processTable(table){
-    // Many-column matrices (stock by warehouse, promo grids) read badly as a
-    // tall stack of "column: —" rows and can't be scanned across. Keep them a
-    // compact, horizontally-scrollable table. Narrow list tables become the
-    // labelled cards. Threshold: > 6 columns.
-    if (colCount(table) > 6) makeWideScroll(table);
-    else labelTable(table);
-  }
-  function scan(){
-    var main = document.querySelector('main');
-    if (!main) return;
-    var tables = main.querySelectorAll('table');
-    for (var i=0; i<tables.length; i++) processTable(tables[i]);
-  }
-  var scheduled = false;
-  function schedule(){
-    if (scheduled) return;
-    scheduled = true;
-    requestAnimationFrame(function(){ scheduled = false; scan(); });
-  }
   function init(){
-    scan();
-    new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
+    scan(document);
+    new MutationObserver(function(muts){
+      if (!mq.matches) return;
+      for (var i=0; i<muts.length; i++){
+        var added = muts[i].addedNodes;
+        for (var j=0; j<added.length; j++) handle(added[j]);
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+    // re-scan when crossing the breakpoint (rotate / resize)
+    var onMq = function(){ if (mq.matches) scan(document); };
+    if (mq.addEventListener) mq.addEventListener('change', onMq);
+    else if (mq.addListener) mq.addListener(onMq);
   }
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', start);
   } else {
-    init();
+    start();
+  }
+  function start(){
+    requestAnimationFrame(function(){ requestAnimationFrame(init); });
   }
 })();`,
           }}

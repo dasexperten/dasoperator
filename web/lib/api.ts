@@ -2688,8 +2688,9 @@ export interface EmailHistoryResponse {
   start?: number;
 }
 
-export async function getEmailHistory(query = 'newer_than:30d', limit = 50, offset = 0) {
-  return apiGet<EmailHistoryResponse>(`/api/email/history?query=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`);
+export async function getEmailHistory(query = 'newer_than:30d', limit = 50, offset = 0, fresh = false) {
+  const freshParam = fresh ? '&fresh=1' : '';
+  return apiGet<EmailHistoryResponse>(`/api/email/history?query=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}${freshParam}`);
 }
 
 export type EmailRuleAction = 'exclude' | 'attention' | 'keep' | 'delete' | 'forward' | 'archive';

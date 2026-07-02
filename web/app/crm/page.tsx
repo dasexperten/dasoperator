@@ -484,8 +484,8 @@ function LoyaltyFunnel({
       borderRadius: 'var(--radius-sm)',
       padding: '20px 24px',
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
-        <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
+        <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--fg-1)' }}>Loyalty conversion funnel</div>
           <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>Where customers move from sign-up to repeat purchase</div>
         </div>
@@ -725,7 +725,8 @@ function DailyActivityChart({
             borderRadius: 'var(--radius-sm)',
             display: 'flex',
             alignItems: 'center',
-            gap: 24,
+            flexWrap: 'wrap',
+            gap: 12,
             fontSize: 14,
             minHeight: 44,
           }}>
@@ -753,7 +754,7 @@ function DailyActivityChart({
           </div>
 
           {/* Legend */}
-          <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 14 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginTop: 12, fontSize: 14 }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)' }}>
               <span style={{ width: 14, height: 10, backgroundColor: '#D3D1C7', opacity: 0.5, borderRadius: 2, display: 'inline-block' }} />
               Visits (Yandex Metrika)

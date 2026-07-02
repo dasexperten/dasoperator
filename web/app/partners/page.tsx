@@ -519,6 +519,15 @@ export default function PartnersPage() {
                       )}
                     </div>
                   </div>
+                  {/* Contact + contract — full data parity with desktop table */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginTop: '6px' }}>
+                    <div style={{ color: 'var(--fg-2)', fontSize: '13px', fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {parseEmails(p.email)[0]?.email ?? '—'}
+                    </div>
+                    <div style={{ flexShrink: 0, fontSize: '13px', fontWeight: 700, color: p.contract_no ? 'var(--fg-1)' : 'var(--fg-muted)' }}>
+                      {p.contract_no ? p.contract_no : 'No contract'}
+                    </div>
+                  </div>
                 </Link>
               );
             })
@@ -704,15 +713,15 @@ function EmailComposer({
 
   return (
     <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontSize: 13, color: 'var(--fg-3)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ fontSize: 13, color: 'var(--fg-3)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           To: <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{partnerName}</span>
           <span style={{ marginLeft: 8, color: 'var(--fg-2)' }}>{`<${recipientEmail}>`}</span>
         </div>
         <button
           type="button"
           onClick={onClose}
-          style={{ color: 'var(--fg-3)', padding: 4 }}
+          style={{ color: 'var(--fg-3)', padding: 4, flexShrink: 0 }}
           aria-label="Close composer"
         >
           <X size={16} />

@@ -6,7 +6,7 @@ export const runtime = 'edge';
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Loader2, Search, ArrowUp, ArrowDown, AlertTriangle, ArrowLeftRight, Package } from 'lucide-react';
+import { Loader2, Search, ArrowUp, ArrowDown, AlertTriangle, ArrowLeftRight, Package, SlidersHorizontal, Check, X } from 'lucide-react';
 import {
   getProductsWithStock, getWarehouses, getMarketplaceStocks, getMarketplaceHealth,
   getExternalStocksByProduct,
@@ -41,6 +41,13 @@ export default function WarehousesPage() {
   const [sort, setSort] = useState<SortState | null>({ key: 'total', dir: 'desc' });
   const [showTransfer, setShowTransfer] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  // Mobile column picker: on phones the ~15-column matrix is unusable, so we
+  // hide the Product name and show only SKU + a hand-picked set of warehouse
+  // columns. `visibleCols` holds warehouse ids + special keys, persisted.
+  const [isMobile, setIsMobile] = useState(false);
+  const [visibleCols, setVisibleCols] = useState<Set<string>>(new Set());
+  const [colsInitialized, setColsInitialized] = useState(false);
+  const [showColPicker, setShowColPicker] = useState(false);
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -85,6 +92,15 @@ export default function WarehousesPage() {
     };
     fetchAll();
   }, [reloadKey]);
+
+  // Track the mobile breakpoint (drives which columns render).
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const on = () => setIsMobile(mq.matches);
+    on();
+    mq.addEventListener?.('change', on);
+    return () => mq.removeEventListener?.('change', on);
+  }, []);
 
   // Toggle sort: same key → cycles desc → asc → null.
   // Different key → starts at desc (most useful default for stock columns).
@@ -274,9 +290,56 @@ export default function WarehousesPage() {
     [warehouses]
   );
 
+  const SPECIAL_COLS: Array<{ key: string; label: string }> = [
+    { key: 'otw', label: 'OTW (on the way)' },
+    { key: 'ozon', label: 'Ozon' },
+    { key: 'wb', label: 'Wildberries' },
+    { key: 'total', label: 'Total' },
+  ];
+
+  // Initialise the visible-columns set once warehouses load: from localStorage,
+  // or default to the first 3 warehouses (group-sorted) + Total.
+  useEffect(() => {
+    if (colsInitialized || sortedWarehouses.length === 0) return;
+    let initial: string[] | null = null;
+    try {
+      const saved = localStorage.getItem('dx-wh-cols');
+      if (saved) initial = JSON.parse(saved);
+    } catch { /* ignore malformed */ }
+    if (!initial || initial.length === 0) {
+      initial = [...sortedWarehouses.slice(0, 3).map((w) => w.id), 'total'];
+    }
+    setVisibleCols(new Set(initial));
+    setColsInitialized(true);
+  }, [sortedWarehouses, colsInitialized]);
+
+  useEffect(() => {
+    if (!colsInitialized) return;
+    try { localStorage.setItem('dx-wh-cols', JSON.stringify(Array.from(visibleCols))); } catch { /* ignore */ }
+  }, [visibleCols, colsInitialized]);
+
+  const toggleCol = (key: string) =>
+    setVisibleCols((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+
+  // On mobile: hide Product, show only the picked warehouse + special columns.
+  // On desktop: everything, as before.
+  const showProduct = !isMobile;
+  const showCol = (key: string) => !isMobile || visibleCols.has(key);
+  const visibleWarehouses = isMobile
+    ? sortedWarehouses.filter((w) => visibleCols.has(w.id))
+    : sortedWarehouses;
+  const renderedColCount =
+    (showProduct ? 2 : 1) +
+    visibleWarehouses.length +
+    SPECIAL_COLS.filter((c) => showCol(c.key)).length;
+
   return (
     <div className="space-y-8 max-w-full">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4 dx-header-wrap">
         <div>
           <div className="dx-eyebrow-rot mb-2">Inventory</div>
           <h1
@@ -293,7 +356,7 @@ export default function WarehousesPage() {
             {loading ? 'Loading...' : `${products.length} SKUs × ${warehouses.length} warehouses · ${grandTotal.toLocaleString('en-US')} pieces total`}
           </p>
         </div>
-        <div className="shrink-0 flex items-center gap-2">
+        <div className="shrink-0 flex items-center gap-2 dx-page-actions">
           <Link
             href="/operations/bundling/new"
             className="flex items-center gap-2"
@@ -351,6 +414,25 @@ export default function WarehousesPage() {
             }}
           />
         </div>
+        {/* Mobile-only: choose which warehouse columns to show */}
+        <div className="dx-show-mobile">
+          <button
+            onClick={() => setShowColPicker(true)}
+            className="flex items-center gap-2"
+            style={{
+              padding: '10px 14px',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border-hairline)',
+              background: 'var(--paper-raised)',
+              color: 'var(--fg-1)',
+              fontSize: '14px',
+              fontWeight: 700,
+            }}
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            Columns · {visibleCols.size}
+          </button>
+        </div>
       </div>
 
       <SyncWarningBanner health={mpHealth} />
@@ -364,13 +446,13 @@ export default function WarehousesPage() {
           Error: {error}
         </div>
       ) : (
-        <div className="bg-card overflow-x-auto" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
-          <table className="w-full text-sm" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
+        <div className="bg-card overflow-x-auto dx-table-scroll" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
+          <table className="w-full text-sm dx-keep-table" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
             <thead>
               <tr>
                 <SortableTh sticky sortKey="sku" sort={sort} onClick={handleSortClick}>SKU</SortableTh>
-                <SortableTh sticky2 sortKey="product" sort={sort} onClick={handleSortClick}>Product</SortableTh>
-                {sortedWarehouses.map((w) => (
+                {showProduct && <SortableTh sticky2 sortKey="product" sort={sort} onClick={handleSortClick}>Product</SortableTh>}
+                {visibleWarehouses.map((w) => (
                   <SortableTh
                     key={w.id}
                     center
@@ -386,42 +468,42 @@ export default function WarehousesPage() {
                 {/* OTW (On The Way) — virtual warehouse aggregating all
                     in-transit stock. Position: between Yzh (last factory)
                     and Ozon (marketplace). */}
-                <SortableTh
+                {showCol('otw') && <SortableTh
                   center
                   bg="rgba(250, 199, 117, 0.18)"
                   sortKey="otw"
                   sort={sort}
                   onClick={handleSortClick}
-                >OTW</SortableTh>
-                <SortableTh
+                >OTW</SortableTh>}
+                {showCol('ozon') && <SortableTh
                   center
                   withParens
                   bg={MARKETPLACE_TINT.ozon}
                   sortKey="ozon"
                   sort={sort}
                   onClick={handleSortClick}
-                >Ozon</SortableTh>
-                <SortableTh
+                >Ozon</SortableTh>}
+                {showCol('wb') && <SortableTh
                   center
                   withParens
                   bg={MARKETPLACE_TINT.wb}
                   sortKey="wb"
                   sort={sort}
                   onClick={handleSortClick}
-                >WB</SortableTh>
-                <SortableTh
+                >WB</SortableTh>}
+                {showCol('total') && <SortableTh
                   center
                   accent
                   sortKey="total"
                   sort={sort}
                   onClick={handleSortClick}
-                >Total</SortableTh>
+                >Total</SortableTh>}
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={warehouses.length + 6} className="text-center py-12" style={{ color: 'var(--fg-3)' }}>
+                  <td colSpan={renderedColCount} className="text-center py-12" style={{ color: 'var(--fg-3)' }}>
                     No products match
                   </td>
                 </tr>
@@ -451,10 +533,12 @@ export default function WarehousesPage() {
                       <td className="px-3 py-2" style={{ fontWeight: 700, color: 'var(--fg-1)', fontSize: '14px' }}>
                         <Link href={`/products/${skuLower}`} style={{ color: 'inherit' }}>{skuShort}</Link>
                       </td>
-                      <td className="px-3 py-2" style={{ fontWeight: 700, color: 'var(--fg-1)', fontSize: '14px', maxWidth: '280px' }}>
-                        <Link href={`/products/${skuLower}`} style={{ color: 'inherit' }}>{p.product_name}</Link>
-                      </td>
-                      {sortedWarehouses.map((w) => {
+                      {showProduct && (
+                        <td className="px-3 py-2 dx-sticky-2" style={{ fontWeight: 700, color: 'var(--fg-1)', fontSize: '14px', maxWidth: '280px' }}>
+                          <Link href={`/products/${skuLower}`} style={{ color: 'inherit' }}>{p.product_name}</Link>
+                        </td>
+                      )}
+                      {visibleWarehouses.map((w) => {
                         const v = byWh[w.id] ?? 0;
                         const prod = prodByWh[w.id] ?? 0;
                         const ext = externalStocks[`${skuLower}|${w.id}`];
@@ -470,17 +554,19 @@ export default function WarehousesPage() {
                           />
                         );
                       })}
-                      <OtwCellTd value={otwQty} />
-                      <MarketplaceCellTd value={ozonVal} ourValue={ourOzonVal} tint={MARKETPLACE_TINT.ozon} />
-                      <MarketplaceCellTd value={wbVal}   ourValue={ourWbVal}   tint={MARKETPLACE_TINT.wb} />
-                      <td className="px-3 py-2 text-right" style={{
-                        fontSize: '14px',
-                        fontWeight: 700,
-                        color: (realTotalByProduct[p.id] ?? 0) > 0 ? 'var(--fg-1)' : 'var(--fg-muted)',
-                        backgroundColor: 'var(--paper-sunk)',
-                      }}>
-                        {(realTotalByProduct[p.id] ?? 0).toLocaleString('en-US')}
-                      </td>
+                      {showCol('otw') && <OtwCellTd value={otwQty} />}
+                      {showCol('ozon') && <MarketplaceCellTd value={ozonVal} ourValue={ourOzonVal} tint={MARKETPLACE_TINT.ozon} />}
+                      {showCol('wb') && <MarketplaceCellTd value={wbVal}   ourValue={ourWbVal}   tint={MARKETPLACE_TINT.wb} />}
+                      {showCol('total') && (
+                        <td className="px-3 py-2 text-right" style={{
+                          fontSize: '14px',
+                          fontWeight: 700,
+                          color: (realTotalByProduct[p.id] ?? 0) > 0 ? 'var(--fg-1)' : 'var(--fg-muted)',
+                          backgroundColor: 'var(--paper-sunk)',
+                        }}>
+                          {(realTotalByProduct[p.id] ?? 0).toLocaleString('en-US')}
+                        </td>
+                      )}
                     </tr>
                   );
                 })
@@ -490,8 +576,8 @@ export default function WarehousesPage() {
               <tfoot>
                 <tr style={{ borderTop: '2px solid var(--border-hairline)' }}>
                   <td className="px-3 py-2" style={{ fontSize: '14px', color: 'var(--fg-3)', backgroundColor: 'var(--paper-sunk)' }}>Total</td>
-                  <td className="px-3 py-2" style={{ backgroundColor: 'var(--paper-sunk)' }}></td>
-                  {sortedWarehouses.map((w) => {
+                  {showProduct && <td className="px-3 py-2 dx-sticky-2" style={{ backgroundColor: 'var(--paper-sunk)' }}></td>}
+                  {visibleWarehouses.map((w) => {
                     const tot = totalsByWarehouse.totals[w.code] ?? 0;
                     const cellBg = TINT_BY_GROUP[groupForWarehouse(w)];
                     if (w.external_provider) {
@@ -525,7 +611,7 @@ export default function WarehousesPage() {
                     );
                   })}
                   {/* OTW total */}
-                  <td className="px-3 py-2 text-right" style={{
+                  {showCol('otw') && <td className="px-3 py-2 text-right" style={{
                     fontSize: '14px',
                     fontWeight: 700,
                     color: totalsByWarehouse.otwTotal > 0 ? '#854F0B' : 'var(--fg-1)',
@@ -533,8 +619,8 @@ export default function WarehousesPage() {
                     fontVariantNumeric: 'tabular-nums',
                   }}>
                     {totalsByWarehouse.otwTotal.toLocaleString('en-US')}
-                  </td>
-                  <td className="px-3 py-2" style={{
+                  </td>}
+                  {showCol('ozon') && <td className="px-3 py-2" style={{
                     fontSize: '14px',
                     fontWeight: 700,
                     color: 'var(--fg-1)',
@@ -546,8 +632,8 @@ export default function WarehousesPage() {
                       </span>
                       <span />
                     </div>
-                  </td>
-                  <td className="px-3 py-2" style={{
+                  </td>}
+                  {showCol('wb') && <td className="px-3 py-2" style={{
                     fontSize: '14px',
                     fontWeight: 700,
                     color: 'var(--fg-1)',
@@ -559,8 +645,8 @@ export default function WarehousesPage() {
                       </span>
                       <span />
                     </div>
-                  </td>
-                  <td className="px-3 py-2 text-right" style={{
+                  </td>}
+                  {showCol('total') && <td className="px-3 py-2 text-right" style={{
                     fontSize: '14px',
                     fontWeight: 700,
                     color: 'var(--fg-1)',
@@ -568,11 +654,57 @@ export default function WarehousesPage() {
                     fontVariantNumeric: 'tabular-nums',
                   }}>
                     {grandTotal.toLocaleString('en-US')}
-                  </td>
+                  </td>}
                 </tr>
               </tfoot>
             )}
           </table>
+        </div>
+      )}
+      {showColPicker && (
+        <div
+          onClick={() => setShowColPicker(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(15,15,15,0.5)', zIndex: 80, display: 'flex', alignItems: 'flex-end' }}
+        >
+          <div
+            className="dx-modal-panel"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--paper)', width: '100%',
+              borderRadius: '14px 14px 0 0', padding: '16px',
+              maxHeight: '80vh', overflowY: 'auto',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 800, color: 'var(--fg-1)' }}>Columns to show</h2>
+              <button onClick={() => setShowColPicker(false)} aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--fg-3)', padding: 4 }}>
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--fg-3)', marginBottom: 8 }}>SKU is always shown. Pick the warehouses to display alongside it.</p>
+            {sortedWarehouses.map((w) => {
+              const on = visibleCols.has(w.id);
+              return (
+                <button key={w.id} onClick={() => toggleCol(w.id)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '12px 4px', borderBottom: '1px solid var(--border-hairline)', background: 'transparent', textAlign: 'left', cursor: 'pointer' }}>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--fg-1)' }}>
+                    {w.code}
+                    <span style={{ marginLeft: 8, fontWeight: 400, color: 'var(--fg-3)' }}>{w.country ?? ''}</span>
+                  </span>
+                  {on ? <Check className="h-5 w-5" style={{ color: 'var(--brand-rot)' }} /> : <span style={{ width: 20, display: 'inline-block' }} />}
+                </button>
+              );
+            })}
+            {SPECIAL_COLS.map((c) => {
+              const on = visibleCols.has(c.key);
+              return (
+                <button key={c.key} onClick={() => toggleCol(c.key)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '12px 4px', borderBottom: '1px solid var(--border-hairline)', background: 'transparent', textAlign: 'left', cursor: 'pointer' }}>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--fg-1)' }}>{c.label}</span>
+                  {on ? <Check className="h-5 w-5" style={{ color: 'var(--brand-rot)' }} /> : <span style={{ width: 20, display: 'inline-block' }} />}
+                </button>
+              );
+            })}
+            <button onClick={() => setShowColPicker(false)} style={{ marginTop: 16, width: '100%', padding: '12px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--brand-rot)', color: '#fff', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>Done</button>
+          </div>
         </div>
       )}
       {showTransfer && (

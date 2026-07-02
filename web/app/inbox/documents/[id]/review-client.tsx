@@ -137,8 +137,8 @@ export default function ReviewClient({ id }: { id: string }) {
       <Link href="/inbox/documents" className="inline-flex items-center gap-1" style={{ color: 'var(--fg-2)', fontSize: '14px', textDecoration: 'none' }}><ArrowLeft className="h-4 w-4" />Back to inbox</Link>
 
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--fg-1)' }}>{ext.filename}</div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--fg-1)', overflowWrap: 'anywhere' }}>{ext.filename}</div>
           <div style={{ fontSize: '14px', color: 'var(--fg-2)', marginTop: '2px' }}>
             {String(ext.header_fields?.doc_number?.value ?? '')} · {ext.document_kind} · {ext.target_action} → {ext.target_table}
           </div>

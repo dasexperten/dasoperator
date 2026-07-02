@@ -64,6 +64,7 @@ import wbHealthRoutes from './routes/wb-health';
 import skillsRoutes from './routes/skills';
 import integrationsRoutes from './routes/integrations';
 import loyaltyRoutes from './routes/loyalty';
+import websiteRoutes from './routes/website';
 import plannerRoutes from './routes/planner';
 import authRoutes from './routes/auth';
 import activityRoutes from './routes/activity';
@@ -216,6 +217,7 @@ app.route('/api/inbox', inboxRoutes);
 app.route('/api/freight-rfq', freightRfqRoutes);
 app.route('/api/integrations', integrationsRoutes);
 app.route('/api/loyalty', loyaltyRoutes);
+app.route('/api/website', websiteRoutes);
 app.route('/api/chat', chatRoutes);
 app.route('/api/daily-digest', dailyDigestRoutes);
 

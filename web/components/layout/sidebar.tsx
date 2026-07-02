@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   Home, Users, FileText, Package, Warehouse, ShoppingCart,
   Headphones, BarChart3, Wallet, Settings, Calculator, MessageSquare, Mail,
-  LogOut,
+  Globe, LogOut,
 } from 'lucide-react';
 import { getUser, logout, hasModuleAccess, ROLE_LABEL, type Role, type AuthUser } from '@/lib/auth';
 
@@ -23,6 +23,7 @@ const NAV_ITEMS: NavItem[] = [
   { name: 'Planner',      icon: Calculator,    href: '/planner' },
   { name: 'Warehouses',   icon: Warehouse,     href: '/warehouses' },
   { name: 'Marketplaces', icon: ShoppingCart,  href: '/marketplaces' },
+  { name: 'Website',      icon: Globe,         href: '/website' },
   { name: 'Reviews',      icon: MessageSquare, href: '/reviews' },
   { name: 'CRM',          icon: Headphones,    href: '/crm' },
   { name: 'Emailer',      icon: Mail,          href: '/emailer' },

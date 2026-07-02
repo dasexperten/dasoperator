@@ -126,7 +126,7 @@ export default function ReviewsPage() {
       </div>
 
       {/* Tabs — bold filled pills */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 22, flexWrap: 'wrap' }}>
+      <div className="dx-review-tabs" style={{ display: 'flex', gap: 10, marginBottom: 22, flexWrap: 'wrap' }}>
         {TABS.map(t => {
           const on = t.key === active;
           const col = CHANNEL_COLOR[t.channel];
@@ -158,7 +158,7 @@ export default function ReviewsPage() {
             background: 'var(--paper-raised)', border: '2px solid var(--stone-200)', borderRadius: 10, outline: 'none',
           }} />
         {tab.kind === 'reviews' && (
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, rowGap: 8 }}>
             {[null, 5, 4, 3, 2, 1].map(r => {
               const on = rating === r;
               return (

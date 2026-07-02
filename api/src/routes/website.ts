@@ -1,5 +1,5 @@
 /**
- * Website storefront (Cloudflare Pages + Stripe) → ERP routes.
+ * dasexperten.com storefront (Stripe on Cloudflare) → ERP routes.
  *
  *   POST /api/website/sync/orders   — pull Stripe Checkout Sessions into the mirror
  *   POST /api/website/sync/catalog  — pull Stripe Products/Prices into the mirror
@@ -70,8 +70,10 @@ website.get('/orders', async (c) => {
   const offset = parseInt(c.req.query('offset') || '0', 10) || 0;
   const paymentStatus = c.req.query('payment_status');
 
+  const site = c.req.query('site');
+
   let sql = `
-    SELECT id, number, created_date, updated_date, status, payment_status,
+    SELECT id, site, number, created_date, updated_date, status, payment_status,
            currency, amount_subtotal, amount_shipping, amount_tax, amount_discount,
            amount_total, buyer_email, buyer_name, ship_country, payment_intent, synced_at
     FROM website_orders
@@ -79,6 +81,7 @@ website.get('/orders', async (c) => {
   `;
   const binds: unknown[] = [];
   if (paymentStatus) { sql += ` AND payment_status = ?`; binds.push(paymentStatus); }
+  if (site) { sql += ` AND site = ?`; binds.push(site); }
   sql += ` ORDER BY created_date DESC LIMIT ? OFFSET ?`;
   binds.push(limit, offset);
 

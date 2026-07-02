@@ -1,5 +1,5 @@
 /**
- * Website (Stripe storefront) → ERP sync orchestration.
+ * dasexperten.com storefront (Stripe on Cloudflare) → ERP sync orchestration.
  *
  *   runWebsiteOrdersSync  — pull Checkout Sessions incrementally (created-date
  *                           watermark + cursor paging), upsert website_orders
@@ -8,8 +8,13 @@
  *
  * MIRROR ONLY: nothing here writes to operations/line_items. Website revenue's
  * financial truth stays in the monthly DASCOM-YYYYMM bank-settlement operations
- * (see marketplace-pull.ts). Per-order accounting is a deliberate Phase-2 item.
+ * on partner 'dasexperten_com' (see marketplace-pull.ts). Per-order accounting
+ * is a deliberate Phase-2 item.
+ *
+ * Rows carry site='dasexperten_com' today; the planned dasexperten.ru move onto
+ * Cloudflare will reuse the same path with a different site value.
  */
+const SITE = 'dasexperten_com';
 import type { Env } from '../types';
 import { stripeGet, type StripeListResponse } from './stripe-client';
 import {
@@ -121,17 +126,18 @@ export async function runWebsiteOrdersSync(
       const ts = now();
       const stmts: D1PreparedStatement[] = [];
       for (const s of sessions) {
-        const o = mapOrder(s);
+        const o = mapOrder(s, SITE);
         const raw = JSON.stringify(s).slice(0, 100000);
         stmts.push(
           env.DB.prepare(
             `INSERT INTO website_orders
-               (id, source, number, created_date, updated_date, status, payment_status,
+               (id, site, source, number, created_date, updated_date, status, payment_status,
                 fulfillment_status, currency, amount_subtotal, amount_shipping, amount_tax,
                 amount_discount, amount_total, buyer_email, buyer_name, ship_country,
                 payment_intent, raw_json, synced_at, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
+               site = excluded.site,
                number = excluded.number,
                updated_date = excluded.updated_date,
                status = excluded.status,
@@ -150,7 +156,7 @@ export async function runWebsiteOrdersSync(
                synced_at = excluded.synced_at,
                updated_at = excluded.updated_at`
           ).bind(
-            o.id, o.source, o.number, o.created_date, ts, o.status, o.payment_status,
+            o.id, o.site, o.source, o.number, o.created_date, ts, o.status, o.payment_status,
             o.currency, o.amount_subtotal, o.amount_shipping, o.amount_tax,
             o.amount_discount, o.amount_total, o.buyer_email, o.buyer_name, o.ship_country,
             o.payment_intent, raw, ts, ts, ts

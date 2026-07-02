@@ -138,11 +138,11 @@ export interface Env {
   // Bearer token shared with telegramer-bridge Worker.
   TELEGRAMER_BRIDGE_SECRET?: string;
 
-  // Stripe restricted key (rk_live_*) for the dasexperten storefront checkout
-  // (Cloudflare Pages + Stripe, replaces the legacy Wix store). Read-only usage
-  // here: pull Checkout Sessions + Products/Prices to mirror website orders and
-  // catalog into the ERP. Same account as SECRETS/stripe.md. Worker secret,
-  // never a plain var. When absent, /api/website/* sync returns 503.
+  // Stripe restricted key (rk_live_*) for the dasexperten.com storefront checkout
+  // (Stripe on Cloudflare, replacing the legacy Wix store). Read-only usage here:
+  // pull Checkout Sessions + Products/Prices to mirror website orders and catalog
+  // into the ERP. Same account as SECRETS/stripe.md. Worker secret, never a plain
+  // var. When absent, /api/website/* sync returns 503.
   STRIPE_KEY?: string;
 }
 

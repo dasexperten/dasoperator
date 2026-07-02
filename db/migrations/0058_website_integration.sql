@@ -1,17 +1,21 @@
--- Phase 12.0 — dasexperten website (Cloudflare Pages + Stripe) → ERP integration.
+-- Phase 12.0 — dasexperten.com website (Cloudflare + Stripe) → ERP integration.
 --
--- The storefront migrated off Wix to a Cloudflare Pages site (dasexperten.de,
--- with .com folding into it) whose checkout runs on Stripe Checkout Sessions
--- via the dasexperten-checkout Worker → NextSmartShip fulfillment.
+-- dasexperten.com is migrating off Wix onto Cloudflare; its checkout runs on
+-- the same Stripe account (Das Experten International) via the
+-- dasexperten-checkout Worker → NextSmartShip fulfillment.
 --
 -- This migration mirrors website orders into the ERP for visibility and SKU
 -- reconciliation. It is a MIRROR, NOT bookkeeping: website revenue keeps its
 -- single financial truth in the monthly bank-settlement operations
--- (DASCOM-YYYYMM, built by rebuildPriorMonthDasexpertenCom in
--- marketplace-pull.ts). Creating per-order sale operations here would
--- double-count revenue — the same rule cemented for Yandex Pay in
--- scheduled.ts. Per-order → line_items enrichment is a deliberate Phase-2
--- item, out of scope here.
+-- (DASCOM-YYYYMM on partner 'dasexperten_com', built by
+-- rebuildPriorMonthDasexpertenCom in marketplace-pull.ts from the Wio/Stripe
+-- settlement). Creating per-order sale operations here would double-count
+-- revenue — the same rule cemented for Yandex Pay in scheduled.ts. Per-order
+-- → line_items enrichment is a deliberate Phase-2 item, out of scope here.
+--
+-- The `site` column future-proofs for the planned dasexperten.ru move off
+-- Yandex KIT onto Cloudflare: when it lands, .ru orders reuse these same
+-- tables with site='dasexperten_ru' — no new schema needed.
 --
 -- Money is stored in MINOR units (USD cents), matching the ERP-wide
 -- convention (see web/lib/money.ts). Stripe already returns integer cents,
@@ -19,6 +23,7 @@
 
 CREATE TABLE IF NOT EXISTS website_orders (
   id                TEXT PRIMARY KEY,             -- Stripe Checkout Session id (cs_...)
+  site              TEXT NOT NULL DEFAULT 'dasexperten_com',  -- storefront: dasexperten_com | dasexperten_ru (future)
   source            TEXT NOT NULL DEFAULT 'stripe',
   number            TEXT,                         -- human-facing ref if present (payment_intent)
   created_date      INTEGER NOT NULL,             -- unix (session.created)
@@ -43,6 +48,7 @@ CREATE TABLE IF NOT EXISTS website_orders (
 );
 CREATE INDEX IF NOT EXISTS idx_website_orders_created ON website_orders(created_date DESC);
 CREATE INDEX IF NOT EXISTS idx_website_orders_payment ON website_orders(payment_status);
+CREATE INDEX IF NOT EXISTS idx_website_orders_site ON website_orders(site);
 
 CREATE TABLE IF NOT EXISTS website_order_lines (
   id                TEXT PRIMARY KEY,             -- <order_id>_<idx>

@@ -100,6 +100,7 @@ function productIdOf(price: StripePrice | null | undefined): string | null {
 
 export interface WebsiteOrderRow {
   id: string;
+  site: string;
   source: string;
   number: string | null;
   created_date: number;
@@ -141,8 +142,13 @@ export interface WebsiteProductRow {
 
 // ---- Mappers ---------------------------------------------------------------
 
-/** Map a Stripe Checkout Session to the website_orders row shape. */
-export function mapOrder(s: StripeCheckoutSession): WebsiteOrderRow {
+/**
+ * Map a Stripe Checkout Session to the website_orders row shape.
+ * `site` identifies the storefront the order belongs to; defaults to
+ * dasexperten_com (the one Stripe account in use today). When dasexperten.ru
+ * moves onto Cloudflare, its sync passes site='dasexperten_ru'.
+ */
+export function mapOrder(s: StripeCheckoutSession, site = 'dasexperten_com'): WebsiteOrderRow {
   const shipCountry =
     s.shipping_details?.address?.country ??
     s.collected_information?.shipping_details?.address?.country ??
@@ -150,6 +156,7 @@ export function mapOrder(s: StripeCheckoutSession): WebsiteOrderRow {
     null;
   return {
     id: s.id,
+    site,
     source: 'stripe',
     number: idOf(s.payment_intent ?? null),
     created_date: intOr0(s.created),

@@ -140,8 +140,8 @@ export default function WebsitePage() {
         <div className="flex items-center gap-3">
           <Globe className="w-6 h-6 text-gray-700" />
           <div>
-            <h1 className="text-xl font-semibold">Website — dasexperten storefront</h1>
-            <p className="text-sm text-gray-500">Stripe checkout orders mirrored into the ERP (Cloudflare Pages storefront).</p>
+            <h1 className="text-xl font-semibold">Website — dasexperten.com storefront</h1>
+            <p className="text-sm text-gray-500">Stripe checkout orders from dasexperten.com (on Cloudflare) mirrored into the ERP.</p>
           </div>
         </div>
         <button

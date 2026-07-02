@@ -69,6 +69,10 @@ describe('mapOrder', () => {
   it('prefers shipping_details country over billing', () => {
     expect(mapOrder(session).ship_country).toBe('AT');
   });
+  it('defaults site to dasexperten_com and honours an override', () => {
+    expect(mapOrder(session).site).toBe('dasexperten_com');
+    expect(mapOrder(session, 'dasexperten_ru').site).toBe('dasexperten_ru');
+  });
   it('handles a bare session with no details without throwing', () => {
     const row = mapOrder({ id: 'cs_bare', created: 1 });
     expect(row.amount_total).toBe(0);

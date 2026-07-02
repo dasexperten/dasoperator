@@ -706,7 +706,7 @@ export default function OperationsPage() {
 
   return (
     <div className="space-y-8 max-w-7xl">
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between dx-header-wrap">
         <div>
           <div className="dx-eyebrow-rot dx-hide-mobile" style={{ marginBottom: '8px' }}>
             Operations
@@ -718,7 +718,7 @@ export default function OperationsPage() {
             {loading ? 'Loading...' : `${operations.length} across all partners · ${filtered.length} shown`}
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap dx-page-actions">
           <button
             onClick={() => setSourcesListOpen(true)}
             className="inline-flex items-center gap-2 px-3 py-2"

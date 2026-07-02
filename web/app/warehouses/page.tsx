@@ -339,7 +339,7 @@ export default function WarehousesPage() {
 
   return (
     <div className="space-y-8 max-w-full">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4 dx-header-wrap">
         <div>
           <div className="dx-eyebrow-rot mb-2">Inventory</div>
           <h1
@@ -356,7 +356,7 @@ export default function WarehousesPage() {
             {loading ? 'Loading...' : `${products.length} SKUs × ${warehouses.length} warehouses · ${grandTotal.toLocaleString('en-US')} pieces total`}
           </p>
         </div>
-        <div className="shrink-0 flex items-center gap-2">
+        <div className="shrink-0 flex items-center gap-2 dx-page-actions">
           <Link
             href="/operations/bundling/new"
             className="flex items-center gap-2"

@@ -572,8 +572,11 @@ input[type="number"] {
 
 /* ---- 16. Compact h1 + inline action button on mobile ---- */
 @media (max-width: 767px) {
-  /* Force the title row container to stay on ONE line */
-  .flex.items-start.justify-between {
+  /* Force the title row container to stay on ONE line.
+     Exception: headers with a multi-button action cluster opt out via
+     `.dx-header-wrap` (they'd overlap the title if forced to one line) and
+     instead wrap the cluster onto its own row below the title. */
+  .flex.items-start.justify-between:not(.dx-header-wrap) {
     flex-wrap: nowrap !important;
     align-items: center !important;
     gap: 12px !important;
@@ -978,6 +981,28 @@ input[type="number"] {
   .dx-stack-mobile > * {
     width: 100% !important;
     max-width: 100% !important;
+  }
+}
+
+/* ---- 39. Page-header action buttons: compact + full-width row on mobile ----
+   Marks the cluster of action buttons next to a page title (e.g. Warehouses
+   "Bundling / Stock transfer", Operations "Add Source / Upload / Triage / Add
+   new"). On mobile the cluster drops to its own full-width line (the header
+   wraps via rule 5) and its buttons shrink so they no longer dwarf the page. */
+@media (max-width: 767px) {
+  .dx-page-actions {
+    width: 100% !important;
+    gap: 8px !important;
+    flex-wrap: wrap !important;
+  }
+  .dx-page-actions > a,
+  .dx-page-actions > button {
+    flex: 1 1 auto;
+    justify-content: center;
+    padding: 8px 12px !important;
+    font-size: 13px !important;
+    min-height: 38px !important;
+    white-space: nowrap;
   }
 }
 

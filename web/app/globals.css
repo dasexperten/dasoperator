@@ -860,7 +860,10 @@ input[type="number"] {
     padding: 10px 0 !important;
     border: none !important;
     border-bottom: 1px solid var(--border-hairline) !important;
-    position: static !important;
+    /* static (not !important) so cells that anchor a dropdown/tooltip can keep
+       their inline position:relative — still beats the sticky-first-col rule by
+       specificity. */
+    position: static;
   }
   /* inner elements (buttons, links, badges) must be allowed to shrink/wrap */
   main table:not(.dx-keep-table) td > * { min-width: 0; max-width: 100%; }

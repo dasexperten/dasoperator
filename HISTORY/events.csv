@@ -1,0 +1,101 @@
+date,phase,category,module,event,source
+2026-05-02,foundation,decision,architecture,ADR 001 accepted — D1 vs Skills hybrid source of truth (Variant Z),docs/decisions/001
+2026-05-02,foundation,decision,architecture,ADR 002 accepted — 9 D1 schema conventions (slug PKs; money as integer minor units; unix dates; FX x1e6; soft-delete; timestamps; FK RESTRICT; TEXT+CHECK enums; JSON in TEXT),docs/decisions/002
+2026-05-02,foundation,session,project,CHECKPOINT 2026-05-02 recorded,reconstructed/_PROJECT.md
+2026-05-02,1.0,milestone,repo,Phase 1.0 repository skeleton (api/web/db/docs),README.md
+2026-05-02,1.0a,fix,web,Phase 1.0a Cloudflare Pages Static Export fix — first deploy live,README.md
+2026-05-02,1.1,schema-migration,schema,0001 initial D1 schema — 16 tables (reference/operational/system),migration 0001
+2026-05-03,1.1,seed,reference,0003 Phase 1.1 populate — companies + sequences,migration 0003
+2026-05-03,1.2,seed,reference,0002 Phase 1.2 reference data seed (companies partners products),migration 0002
+2026-05-03,1.x,session,project,END OF DAY 2026-05-03 recorded,reconstructed/_PROJECT.md
+2026-05-04,2.x,feature,operations,0004 operations.reference column (PARTNERABBR-YYMMDDXX),migration 0004
+2026-05-04,2.x,schema-migration,contracts,0005 contracts table + payment markdown enhancements,migration 0005
+2026-05-04,2.x,schema-migration,payments,0006 payments table + cleanup legacy paid columns,migration 0006
+2026-05-04,2.0c,schema-migration,invoicer,0007 invoicer foundation — schema rewrite for new engine,migration 0007
+2026-05-04,2.0c,seed,invoicer,0008 seed invoicer data + product-id rename + test cleanup,migration 0008
+2026-05-04,2.0c,seed,invoicer,0009 invoicer roles + manufacturer bank routes + seq_is,migration 0009
+2026-05-04,2.x,feature,contracts,0010 VAT rate on contracts and operations,migration 0010
+2026-05-04,2.x,session,project,END OF DAY 2026-05-04 recorded,reconstructed/_PROJECT.md
+2026-05-05,4.1,schema-migration,inventory,0011 Inventory module — hybrid perpetual (movements + sessions),migration 0011
+2026-05-05,5.1,schema-migration,products,0012 product_images table (photos in R2 metadata in D1),migration 0012
+2026-05-05,5.x,fix,warehouses,0013 rename warehouse gzh_bw/GZH-BW to dgn,migration 0013
+2026-05-05,4.x,session,project,END OF DAY 2026-05-05 recorded,reconstructed/_PROJECT.md
+2026-05-06,6.0,integration,marketplaces,0014 marketplace stock snapshots from Ozon and Wildberries (multipack convention),migration 0014_marketplace_stocks
+2026-05-06,6.x,feature,operations,0015 add bundling to operations.operation_type CHECK,migration 0015_bundling
+2026-05-06,6.x,session,project,END OF SESSION 2026-05-06 recorded — static-export 404 flagged,reconstructed/_PROJECT.md
+2026-05-07,6.x,session,project,END OF SESSION 2026-05-07 recorded,reconstructed/_PROJECT.md
+2026-05-08,7.x,schema-migration,partners,0017 clean break — unified partners + prefix removal (applied to prod),migration 0017
+2026-05-08,7.x,feature,documents,0016 documents.pdf_converted_r2_url (CloudConvert PDF; docx stays source),migration 0016
+2026-05-08,7.x,feature,invoicer,0018 invoice_label internationalization,migration 0018
+2026-05-09,7.1,feature,contracts,Contract files in R2 — POST/GET/DELETE /api/contracts/:id/file (20MB cap),EOS 2026-05-09 pm
+2026-05-09,7.1,schema-migration,contracts,0014 contracts.contract_file_key (R2 object key),migration 0014_contract_file_key
+2026-05-09,7.1b,schema-migration,partners,0015 partners.abbreviation column (upload 422 if unset),migration 0015_partners_abbreviation
+2026-05-09,7.2,feature,web,Contract-file UI drop-zone/view/replace/delete + green PDF pill on partner hub,EOS 2026-05-09 pm
+2026-05-09,7.3,feature,web,Edit Partner form — first generic CRUD edit screen; abbreviation relaxed 4 to 2-6,EOS 2026-05-09 pm
+2026-05-09,7.4,feature,contracts,Cross-partner /contracts registry — 4 KPI cards search filters clickable rows,EOS 2026-05-09 pm
+2026-05-09,7.x,fix,web,Documents-tab counter on operations made real (was hardcoded 0),EOS 2026-05-09 pm
+2026-05-09,8.x,seed,partners,0019 partner abbreviations 70/70 unique seeded + unique index,migration 0019
+2026-05-09,8.x,fix,warehouses,0020 warehouse han to swh rename (id=lowercase(code)),migration 0020
+2026-05-09,8.x,seed,contracts,0021 real manufacturer + intra-group contracts from Drive Agreements (9 new),migration 0021
+2026-05-09,8.x,seed,contracts,0022 F4 Lubertsy real fulfillment contract No9 (2025-07-15),migration 0022
+2026-05-09,8.x,seed,contracts,0023 F4 Lubertsy addendum No1 (2026-04-22),migration 0023
+2026-05-09,8.x,fix,contracts,0024 fix manufacturer contracts currency USD to CNY,migration 0024
+2026-05-09,8.x,schema-migration,contracts,0025 unify agreements into contracts table,migration 0025
+2026-05-09,8.x,integration,crm,0026 CRM legacy customers — 912 rows from Yandex KIT export,migration 0026
+2026-05-09,8.x,fix,marketplaces,Ozon Performance CPC sync RESTORED (CSV to JSON; 2-step SKU map; 23/23 SKUs),snapshot 2026-05-09
+2026-05-09,8.x,fix,partners,Partners list contract_no derived from contracts table (ROW_NUMBER + COALESCE),snapshot 2026-05-09
+2026-05-09,8.x,decision,warehouses,F4 Lubertsy = warehouse LBR confirmed one entity (INN 550412856773),snapshot 2026-05-09
+2026-05-09,9.x,schema-migration,inbox,0027 Invoice Inbox foundation — invoice_inbox + payments.inbox_origin,migration 0027
+2026-05-09,9.x,schema-migration,inbox,0028 invoice_inbox extended extraction fields,migration 0028
+2026-05-09,9.x,milestone,inbox,First invoice processed end-to-end (Accuvat 2026/00659; DeepSeek service 0.95),BACKLOG.md
+2026-05-12,3.x,schema-migration,documents,0029 documents.document_number partial unique index,migration 0029
+2026-05-12,3.x,decision,documents,0030 language-model overhaul — document language decided seller-side,migration 0030
+2026-05-12,3.x,feature,operations,0031 operations delivery/fulfilment status (third state dimension),migration 0031
+2026-05-12,3.x,feature,documents,0032 add RFQ to documents.document_type CHECK + rfq sequence,migration 0032_documents_rfq_type
+2026-05-12,3.x,feature,warehouses,0032 OTW on-the-way virtual warehouse + stock-state dimension,migration 0032_otw_and_stock_state
+2026-05-12,5.x,feature,products,0033 products.ctn_volume_m3 (logistics volume),migration 0033
+2026-05-14,x,schema-migration,operations,0034 service operations foundation,migration 0034
+2026-05-14,x,fix,partners,0035 service-partners follow-up backfill,migration 0035
+2026-05-14,x,fix,operations,0036 backfill operation_track for service partners,migration 0036
+2026-05-14,x,fix,partners,0037 backfill partner subtype from kind,migration 0037
+2026-05-14,x,feature,partners,0038 partners.acceptance_required flag,migration 0038
+2026-05-15,x,feature,operations,0039 transfer batches — group F4-WH-R ops by (date marketplace) — Aram law,migration 0039
+2026-05-15,9.x,integration,inbox,0040 invoice_inbox telegram source + 15-min cron + WATCHLIST bypass — Aram law,migration 0040
+2026-05-20,7.x,feature,finance,0041 agent settlements — triangle settlement model,migration 0041
+2026-05-20,7.x,feature,finance,0042 money audit views (v_money per-table),migration 0042
+2026-05-20,x,schema-migration,operations,0043 operation_type CHECK widened to add service and tax,migration 0043
+2026-06-02,x,schema-migration,planner,0044 Procurement Planner foundation + planner_runs history,migration 0044
+2026-06-08,x,schema-migration,auth,0045 auth users + sessions; 3 users; PINs PBKDF2-SHA256,migration 0045
+2026-06-08,x,feature,auth,0046 per-user permissions JSON as live source of truth,migration 0046
+2026-06-08,7.x,schema-migration,banking,0047 recreate bank_statement_files,migration 0047
+2026-06-08,x,integration,self-healing,0048 self-healing infrastructure — v_health watchdog auto-healer TG escalation,migration 0048
+2026-06-08,7.x,feature,documents,0049 attachment lock signal (operation_attachments.sent_at; 409 on locked delete),migration 0049
+2026-06-11,10.0,schema-migration,loyalty,0050 Loyalty Engine — Klub Ekspertov tiers; KIT ORDER_STATUS_CHANGED webhook,migration 0050
+2026-06-11,10.1,schema-migration,loyalty,0051 Loyalty redemptions — personal KIT promo-codes DAS-XXXX-XX 48h TTL,migration 0051
+2026-06-11,10.x,milestone,loyalty,Vision-Coding EXTEND registered — loyalty engine + Pages das-bonus bonus.dasexperten.ru,vision-coding
+2026-06-12,10.x,decision,loyalty,RetailCRM exit — loyalty moved fully in-house,das-architektura 2026-06-12 note
+2026-06-16,x,feature,activity,0052 user_activity append-only log feeding team dashboard,migration 0052
+2026-06-16,x,feature,emailer,0053 email_rules (forward/delete),migration 0053
+2026-06-16,x,feature,emailer,0054 email_tasks — Emailer reframed as TASKS command center + learning loop,migration 0054
+2026-06-16,x,feature,emailer,0055 email_canon D1 hot cache (source of truth R2 + GitHub),migration 0055
+2026-06-16,x,feature,emailer,0056 email_rules two-layer (sender x type),migration 0056
+2026-06-16,x,feature,emailer,0057 email_classifications internal email_type tags (UI-invisible),migration 0057
+2026-06-21,x,feature,reviews,Reviews page built (inline to GLM 5.2 to wired /api/reviews/drafts),git 414249b/62f4e5c/f7705de
+2026-06-21,x,feature,reviews,4-tab Reviews and Questions UI (Ozon/WB reviews+questions) English,git e42e642/c4bb835
+2026-06-21,x,integration,marketplaces,Marketplace feeds ingest Ozon reviews+questions and WB questions into D1 (/api/mp),git 96e27ea/82749f3
+2026-06-21,x,integration,marketplaces,Cron auto-refresh marketplace feeds every 6h,git 4be022d
+2026-06-22,x,integration,marketplaces,Ingest Ozon question answers (/v1/question/answer/list),git 220e26d
+2026-06-22,x,feature,reviews,Hide rating-only reviews (no text) on WB and Ozon + visual polish,git 2dfeb05/42faede
+2026-06-22,x,feature,web,das-kompanion chat panel responsive full-screen sheet <768px,git c184d38
+2026-06-23,x,feature,web,Mobile list tables render as stacked cards <768px; Pulse home greeting,git b4c9763/dd577ad
+2026-06-24,x,feature,warehouses,Stock Transfer between same-company warehouses (modal),git d006e66
+2026-06-30,x,feature,warehouses,Bundling on Warehouses + backdating; ref BD<WAREHOUSE>-NNN per-warehouse counter,git 87e1226/f845ec2
+2026-06-30,x,feature,operations,Operation lifecycle fixed-slot stage buttons SRV/DOC/PAY/SHP (StatusStages),git 010d2d2/c2eabc8
+2026-06-30,x,integration,inbox,inbox-reconcile nightly three-way deal builder (account/act/payment to one deal),git 3b5e727
+2026-06-30,x,fix,operations,Shipped-transition fix (removed destructive phantom-clear),git de5d040
+2026-07-01,x,feature,reviews,Reply generation GPT-5.5 primary to DeepSeek to Claude OAuth fallback chain,git a6e0ecb/d7d5e3d
+2026-07-01,x,fix,marketplaces,Marketplace unfreeze feeds + watchdog coverage,git 30fd3c7
+2026-07-01,x,feature,products,Prices Resync button R2 pricelists to D1 product_prices + label rename,git 12958e2/1f6a0a7
+2026-07-01,x,fix,web,Mobile audit begins — header title crush + Pulse HUD clip (PR #77-79),git fca099a/9b29418
+2026-07-02,x,fix,web,Mobile full-page audit — zero horizontal overflow self-labelling cards (PR #76),git c906035
+2026-07-02,x,perf,emailer,Emailer perf — small first page + KV-cache the inbox history,git 7f71aa9

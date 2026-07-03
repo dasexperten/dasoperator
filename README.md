@@ -6,15 +6,38 @@ Cloudflare-native ERP system for Das Experten International.
 
 ## Status
 
+**Live in production.** Worker `dasoperator-api.dasexperten.workers.dev` +
+frontend `dasoperator.pages.dev` on D1 `das_erp_dev`. The system spans
+60 migrations, 65 API route modules, 41 UI pages, and phases 1.0 → 10.1.
+
 | Phase | Description | Status |
 |---|---|---|
-| 1.0 | Repository skeleton (api / web / db / docs) | Done |
-| 1.0a | Cloudflare Pages Static Export fix | Done |
-| 1.1 | D1 schema initial migration (16 tables) | In review |
-| 1.2 | Reference data seed (companies, partners, products) | Planned |
-| 1.3 | R2 bucket + KV namespace setup | Planned |
-| 2.0 | Skills bridge (8 HTTP endpoints) | Planned |
-| 3.0 | UI shell (dashboards, forms) | Planned |
+| 1.x | Skeleton, D1 schema, reference seed | Done |
+| 2.x | Operations, contracts, payments, invoicer foundation | Done |
+| 3.x | UI shell, documents hardening, delivery status, RFQ, OTW | Live |
+| 4.x | Inventory module (action forms partial) | Live |
+| 5.x | Products, images (edit/create + photo polish open) | Live |
+| 6.x | Marketplaces — Ozon/WB stocks, sales, CPC, reviews/questions | Live |
+| 7.x | Contracts registry, R2 files, banking (Modulbank), settlements | Live |
+| 8.x | Real contracts, warehouse normalization, CRM legacy import | Done |
+| 9.x | Email-to-Operation / Invoice Inbox (Gmail + Telegram) | Live |
+| 10.x | Loyalty Engine «Клуб Экспертов» (RetailCRM replacement) | Done |
+
+Full phase detail and status → [`HISTORY/PHASES.md`](HISTORY/PHASES.md).
+Open items → [`BACKLOG.md`](BACKLOG.md).
+
+## Project history
+
+The complete record of everything built, decided, and deployed lives in
+[`HISTORY/`](HISTORY/) — a reconstructed event database:
+
+- [`HISTORY/EVENTS.md`](HISTORY/EVENTS.md) — master chronological log (2026-05-02 → today)
+- [`HISTORY/events.csv`](HISTORY/events.csv) — machine-readable event table
+- [`HISTORY/MIGRATIONS.md`](HISTORY/MIGRATIONS.md) — annotated ledger of all 60 migrations
+- [`HISTORY/SYSTEM-INVENTORY.md`](HISTORY/SYSTEM-INVENTORY.md) — every module / route / page / table
+- [`HISTORY/DECISIONS.md`](HISTORY/DECISIONS.md) — decisions + cemented business rules
+- [`HISTORY/INFRASTRUCTURE.md`](HISTORY/INFRASTRUCTURE.md) — infra, integrations, deploy protocol
+- [`HISTORY/sessions/`](HISTORY/sessions/) — end-of-session records + session index
 
 ## Structure
 

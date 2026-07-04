@@ -1,25 +1,42 @@
 // api/src/marketplaces/fbo-routes.ts
 //
-// FBO supply planning — HTTP surface over fbo-sync / fbo-calc.
+// HTTP layer for FBO supply planning. Mount in the main app:
 //
-//   GET  /api/marketplaces/fbo/ozon   -> live recalc, JSON in the exact shape
-//   GET  /api/marketplaces/fbo/wb        the /marketplaces frontend expects
-//   GET  /api/marketplaces/fbo/runs?marketplace=ozon|wb
-//                                     -> GitHub-Actions workflow_runs mimicry
-//                                        from fbo_calc_runs (frontend RunsTable
-//                                        renders it unchanged)
-//   POST /api/marketplaces/fbo/sync   -> runFboSync (Ozon + WB, 60-90 s)
+//   import { fboRoutes } from './marketplaces/fbo-routes';
+//   app.route('/api/marketplaces/fbo', fboRoutes);
 //
-// The calc returns a cluster-array shape (fbo-calc.ts FboStatus); the frontend
-// (web/app/marketplaces/page.tsx) wants clusters as a Record plus a flat skus
-// list with UPPERCASE zones. The adapter below is the single place where the
-// two shapes meet — evolve the frontend contract here, not in calc.
+// Endpoints:
+//   GET  /api/marketplaces/fbo/ozon   -> status JSON (replaces the dead
+//   GET  /api/marketplaces/fbo/wb        raw.githubusercontent *-fbo-status.json)
+//   POST /api/marketplaces/fbo/sync   -> pull fresh cluster-grain data from
+//                                        Ozon + WB APIs (60-90s: WB throttle),
+//                                        then recalc both. Manual trigger for
+//                                        the "recalculate" button; the daily
+//                                        cron calls runFboSync directly.
+//   GET  /api/marketplaces/fbo/runs   -> last 10 calc runs per marketplace
+//                                        (feeds the status panel that replaces
+//                                        the old GitHub Actions runs block).
+//
+// Calc is cheap (pure D1 read + math), so GET endpoints recalc on every hit:
+// the screen always reflects the latest synced data, no staleness, and the
+// run log doubles as an access log. If that ever gets heavy, add KV caching.
+//
+// SHAPE ADAPTER: the deployed frontend (web/app/marketplaces/page.tsx)
+// consumes a different shape than fbo-calc emits — clusters as a Record of
+// {to_ship, sku_count, oos, deficit}, a FLAT skus list with cluster on each
+// row, UPPERCASE zone labels (DEFICIT/OVERSTOCK checked at page.tsx:637/744),
+// total_skus / unknown_pack field names, and runs consumed strictly via
+// data.workflow_runs (page.tsx:258). toFrontendShape() below is the single
+// place the two shapes meet — evolve the frontend contract here, not in calc.
+// /runs returns BOTH keys: workflow_runs (current frontend) + runs (raw rows
+// for the future native status panel).
 
 import { Hono } from 'hono';
-import type { Env } from '../types';
-import { runFboSync } from './fbo-sync';
 import { runFboCalc } from './fbo-calc';
 import type { FboStatus, Zone } from './fbo-calc';
+import { runFboSync, type FboEnv } from './fbo-sync';
+
+type Env = { Bindings: FboEnv };
 
 const ZONE_LABEL: Record<Zone, string> = {
   toship: 'DEFICIT',
@@ -77,29 +94,43 @@ function toFrontendShape(s: FboStatus) {
   };
 }
 
-export const fboRoutes = new Hono<{ Bindings: Env }>();
+export const fboRoutes = new Hono<Env>();
 
 fboRoutes.get('/ozon', async (c) => {
-  const status = await runFboCalc(c.env, 'ozon');
-  return c.json(toFrontendShape(status));
+  try {
+    return c.json(toFrontendShape(await runFboCalc(c.env, 'ozon')));
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
+  }
 });
 
 fboRoutes.get('/wb', async (c) => {
-  const status = await runFboCalc(c.env, 'wb');
-  return c.json(toFrontendShape(status));
+  try {
+    return c.json(toFrontendShape(await runFboCalc(c.env, 'wb')));
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
+  }
 });
 
-// GitHub-Actions mimicry: { workflow_runs: [{ run_number, created_at,
-// updated_at, status, conclusion, html_url }] } — RunsTable + RunBadge
-// consume it unchanged. html_url points at the live status JSON.
+fboRoutes.post('/sync', async (c) => {
+  try {
+    const report = await runFboSync(c.env);
+    return c.json({ ok: true, report });
+  } catch (e) {
+    return c.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 500);
+  }
+});
+
 fboRoutes.get('/runs', async (c) => {
-  const mp = c.req.query('marketplace') === 'wb' ? 'wb' : 'ozon';
-  const { results } = await c.env.DB
-    .prepare(
-      'SELECT id, status, created_at FROM fbo_calc_runs WHERE marketplace = ? ORDER BY created_at DESC LIMIT 10',
-    )
-    .bind(mp)
-    .all<{ id: number; status: string; created_at: number }>();
+  const mp = c.req.query('marketplace');
+  const stmt = mp
+    ? c.env.DB.prepare(
+        'SELECT * FROM fbo_calc_runs WHERE marketplace = ? ORDER BY created_at DESC LIMIT 10',
+      ).bind(mp)
+    : c.env.DB.prepare('SELECT * FROM fbo_calc_runs ORDER BY created_at DESC LIMIT 20');
+  const { results } = await stmt.all<{ id: number; status: string; created_at: number }>();
+  // workflow_runs = GitHub Actions mimicry (RunsTable + RunBadge consume it
+  // unchanged); html_url points at the live status JSON.
   const workflow_runs = results.map((r) => {
     const iso = new Date(r.created_at * 1000).toISOString();
     return {
@@ -108,17 +139,10 @@ fboRoutes.get('/runs', async (c) => {
       updated_at: iso,
       status: 'completed',
       conclusion: r.status === 'ok' ? 'success' : 'failure',
-      html_url: `https://dasoperator-api.dasexperten.workers.dev/api/marketplaces/fbo/${mp}`,
+      html_url: `https://dasoperator-api.dasexperten.workers.dev/api/marketplaces/fbo/${mp === 'wb' ? 'wb' : 'ozon'}`,
     };
   });
-  return c.json({ workflow_runs });
-});
-
-// Manual full sync (Ozon + WB). WB statistics-api throttling makes this a
-// 60-90 s request — callers should be patient, not retry.
-fboRoutes.post('/sync', async (c) => {
-  const report = await runFboSync(c.env);
-  return c.json(report);
+  return c.json({ workflow_runs, runs: results });
 });
 
 export default fboRoutes;

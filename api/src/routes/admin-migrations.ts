@@ -338,6 +338,33 @@ admin.post('/migrate/web-analytics', async (c) => {
   return ok(c, { applied: true, tables: (tables.results ?? []).map((t) => t.name) });
 });
 
+// ---------------------------------------------------------------------------
+// POST /admin/migrate/crm-website — Phase 12.0 (2026-07-04)
+// Creates the website-CRM tables (dasexperten.com orders → customer database):
+// crm_customers, crm_orders, crm_webhook_log, crm_sync_state.
+// Mirror of db/migrations/0060_crm_website.sql — pure CREATE IF NOT EXISTS,
+// safe to run any number of times.
+// ---------------------------------------------------------------------------
+admin.post('/migrate/crm-website', async (c) => {
+  const { CRM_WEBSITE_DDL } = await import('../lib/crm-website');
+  const before = await c.env.DB.prepare(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name IN
+     ('crm_customers','crm_orders','crm_webhook_log','crm_sync_state')`
+  ).all<{ name: string }>();
+
+  await c.env.DB.batch(CRM_WEBSITE_DDL.map((sql) => c.env.DB.prepare(sql)));
+
+  const after = await c.env.DB.prepare(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name IN
+     ('crm_customers','crm_orders','crm_webhook_log','crm_sync_state')`
+  ).all<{ name: string }>();
+
+  return ok(c, {
+    already_present: (before.results ?? []).map((r) => r.name),
+    now_present: (after.results ?? []).map((r) => r.name),
+  });
+});
+
 export default admin;
 
 

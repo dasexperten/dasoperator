@@ -51,6 +51,7 @@ import bankMatchRulesRoutes from './routes/bank-match-rules';
 import financeCategoriesRoutes from './routes/finance-categories';
 import documentExtractionsRoutes from './routes/document-extractions';
 import crmRoutes from './routes/crm';
+import crmWebsiteRoutes from './routes/crm-website';
 import metrikaRoutes from './routes/metrika';
 import ga4Routes from './routes/ga4';
 import clarityRoutes from './routes/clarity';
@@ -215,6 +216,7 @@ app.route('/api/marketplace', marketplaceMatchRoutes);
 app.route('/api/bank-match-rules', bankMatchRulesRoutes);
 app.route('/api/finance-categories', financeCategoriesRoutes);
 app.route('/api/document-extractions', documentExtractionsRoutes);
+app.route('/api/crm/website', crmWebsiteRoutes);  // .com storefront (Stripe) — must come BEFORE /api/crm
 app.route('/api/crm', crmRoutes);
 app.route('/api/metrika', metrikaRoutes);
 app.route('/api/ga4', ga4Routes);

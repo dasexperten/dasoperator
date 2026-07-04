@@ -64,10 +64,16 @@ interface CrmOrder {
   loyalty_balance: number | null;
   loyalty_level: string | null;
   loyalty_privilege_pct: number | null;
+  // present only for the .com (website/Stripe) source
+  currency?: string;
+  email?: string | null;
+  ship_country?: string | null;
+  items?: Array<{ sku: string; name?: string; qty: number }>;
+  order_source?: string;
 }
 
 interface CrmCustomer {
-  id: number;
+  id: number | string;
   name: string;
   email: string | null;
   phone: string | null;
@@ -78,7 +84,30 @@ interface CrmCustomer {
   loyalty_balance: number | null;
   loyalty_level: string | null;
   loyalty_privilege_pct: number | null;
+  // present only for the .com (website/Stripe) source
+  currency?: string;
+  country?: string | null;
+  customer_source?: string;
 }
+
+// /api/crm/website/stats — KPI strip for the .com storefront source
+interface ComStats {
+  source: string;
+  currency: string;
+  orders_total: number;
+  revenue_total_cents: number;
+  aov_cents: number;
+  orders_this_month: number;
+  revenue_this_month_cents: number;
+  customers_total: number;
+  buyers_count: number;
+  repeat_buyers: number;
+  customers_by_source: { website: number; wix: number; retailcrm: number };
+  top_skus: Array<{ sku: string; name: string; units: number }>;
+  synced_at: number;
+}
+
+type CrmSource = 'ru' | 'com';
 
 interface PageMeta {
   page: number;
@@ -106,6 +135,14 @@ export default function CrmPage() {
   const [funnelLoading, setFunnelLoading] = useState(true);
 
   const [tab, setTab] = useState<TabId>('orders');
+
+  // Which storefront feeds the Orders/Customers tabs:
+  // 'ru'  — dasexperten.ru via Yandex KIT (/api/crm/*, RUB)
+  // 'com' — dasexperten.com via Stripe   (/api/crm/website/*, USD)
+  const [crmSource, setCrmSource] = useState<CrmSource>('ru');
+  const [comStats, setComStats] = useState<ComStats | null>(null);
+  const [comStatsLoading, setComStatsLoading] = useState(false);
+  const [comStatsError, setComStatsError] = useState<string | null>(null);
 
   // Orders state
   const [orders, setOrders] = useState<CrmOrder[]>([]);
@@ -182,6 +219,21 @@ export default function CrmPage() {
     }
   }, []);
 
+  const loadComStats = useCallback(async () => {
+    setComStatsLoading(true);
+    setComStatsError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/crm/website/stats`);
+      const data = await res.json();
+      if (data.success && data.result) setComStats(data.result);
+      else setComStatsError(data.errors?.[0]?.message || 'Failed to load');
+    } catch (e) {
+      setComStatsError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setComStatsLoading(false);
+    }
+  }, []);
+
   const [ordersSort, setOrdersSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: '', dir: 'desc' });
   const sortOrders = (k: string) => {
     setOrdersSort((prev) => (prev.key === k ? { key: k, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key: k, dir: 'desc' }));
@@ -198,10 +250,25 @@ export default function CrmPage() {
       });
       if (ordersActiveSearch) params.set('search', ordersActiveSearch);
       if (ordersSort.key) { params.set('sort', ordersSort.key); params.set('dir', ordersSort.dir); }
-      const res = await fetch(`${API_BASE}/api/crm/orders?${params}`);
+      const path = crmSource === 'com' ? '/api/crm/website/orders' : '/api/crm/orders';
+      const res = await fetch(`${API_BASE}${path}?${params}`);
       const data = await res.json();
       if (data.success && data.result) {
-        setOrders(data.result.orders);
+        const rows = (data.result.orders ?? []).map((o: any) =>
+          crmSource === 'com'
+            ? {
+                ...o,
+                created_at: String(o.created_at).slice(0, 10),
+                bonus_credited: 0,
+                bonus_charged: 0,
+                loyalty_balance: null,
+                loyalty_level: null,
+                loyalty_privilege_pct: null,
+                order_source: o.source,
+              }
+            : o
+        );
+        setOrders(rows);
         setOrdersMeta(data.result.pagination);
       } else {
         setOrdersError(data.errors?.[0]?.message || 'Failed to load orders');
@@ -211,7 +278,7 @@ export default function CrmPage() {
     } finally {
       setOrdersLoading(false);
     }
-  }, [ordersPage, ordersLimit, ordersActiveSearch, ordersSort]);
+  }, [ordersPage, ordersLimit, ordersActiveSearch, ordersSort, crmSource]);
 
   const [custSort, setCustSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'spent', dir: 'desc' });
   const sortCustomers = (k: string) => {
@@ -230,10 +297,23 @@ export default function CrmPage() {
       if (customersActiveSearch) params.set('search', customersActiveSearch);
       params.set('sort', custSort.key);
       params.set('dir', custSort.dir);
-      const res = await fetch(`${API_BASE}/api/crm/customers?${params}`);
+      const path = crmSource === 'com' ? '/api/crm/website/customers' : '/api/crm/customers';
+      const res = await fetch(`${API_BASE}${path}?${params}`);
       const data = await res.json();
       if (data.success && data.result) {
-        setCustomers(data.result.customers);
+        const rows = (data.result.customers ?? []).map((cu: any) =>
+          crmSource === 'com'
+            ? {
+                ...cu,
+                created_at: String(cu.created_at).slice(0, 10),
+                loyalty_balance: null,
+                loyalty_level: null,
+                loyalty_privilege_pct: null,
+                customer_source: cu.source,
+              }
+            : cu
+        );
+        setCustomers(rows);
         setCustomersMeta(data.result.pagination);
       } else {
         setCustomersError(data.errors?.[0]?.message || 'Failed to load customers');
@@ -243,7 +323,7 @@ export default function CrmPage() {
     } finally {
       setCustomersLoading(false);
     }
-  }, [customersPage, customersLimit, customersActiveSearch, custSort]);
+  }, [customersPage, customersLimit, customersActiveSearch, custSort, crmSource]);
 
   useEffect(() => { loadStats(); }, [loadStats]);
   useEffect(() => { loadMetrika(); }, [loadMetrika]);
@@ -251,6 +331,16 @@ export default function CrmPage() {
   useEffect(() => { loadFunnel(); }, [loadFunnel]);
   useEffect(() => { if (tab === 'orders') loadOrders(); }, [tab, loadOrders]);
   useEffect(() => { if (tab === 'customers') loadCustomers(); }, [tab, loadCustomers]);
+  useEffect(() => { if (crmSource === 'com') loadComStats(); }, [crmSource, loadComStats]);
+
+  function switchSource(next: CrmSource) {
+    if (next === crmSource) return;
+    setCrmSource(next);
+    setOrdersPage(1);
+    setCustomersPage(1);
+    setOrdersSort({ key: '', dir: 'desc' });
+    setCustSort({ key: 'spent', dir: 'desc' });
+  }
 
   function handleOrdersSearchSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -268,6 +358,7 @@ export default function CrmPage() {
     loadMetrika();
     loadTimeline();
     loadFunnel();
+    if (crmSource === 'com') loadComStats();
     if (tab === 'orders') loadOrders();
     else loadCustomers();
   }
@@ -284,7 +375,9 @@ export default function CrmPage() {
             <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--fg-1)' }}>CRM</h1>
           </div>
           <p style={{ fontSize: 14, color: 'var(--fg-3)', marginTop: 4 }}>
-            Retail CRM — customers, orders, revenue
+            {crmSource === 'com'
+              ? 'dasexperten.com — Stripe orders & customer database'
+              : 'Retail CRM — customers, orders, revenue'}
           </p>
         </div>
         <button
@@ -304,12 +397,48 @@ export default function CrmPage() {
         </button>
       </div>
 
-      {statsError && (
+      {/* Storefront source switcher: .ru (Yandex KIT) ↔ .com (Stripe) */}
+      <div className="flex items-center gap-2">
+        <SourcePill
+          active={crmSource === 'ru'}
+          onClick={() => switchSource('ru')}
+          label="dasexperten.ru"
+          sublabel="Yandex KIT · ₽"
+        />
+        <SourcePill
+          active={crmSource === 'com'}
+          onClick={() => switchSource('com')}
+          label="dasexperten.com"
+          sublabel="Stripe · $"
+        />
+      </div>
+
+      {crmSource === 'ru' && statsError && (
         <ErrorBox title="Retail CRM stats unavailable" message={statsError} />
+      )}
+      {crmSource === 'com' && comStatsError && (
+        <ErrorBox title="Website CRM stats unavailable" message={comStatsError} />
+      )}
+
+      {/* KPI tiles — .com source (USD, cents from /api/crm/website/stats) */}
+      {crmSource === 'com' && comStats && (
+        <div className="grid grid-cols-6 gap-4">
+          <KpiTile label="Customers" value={comStats.customers_total.toLocaleString('ru-RU')} />
+          <KpiTile label="Buyers / repeat" value={`${comStats.buyers_count} / ${comStats.repeat_buyers}`} />
+          <KpiTile label="Orders (total)" value={comStats.orders_total.toLocaleString('ru-RU')} />
+          <KpiTile label="Orders this month" value={comStats.orders_this_month.toLocaleString('ru-RU')} />
+          <KpiTile label="Revenue this month" value={`$${(comStats.revenue_this_month_cents / 100).toLocaleString('en-US')}`} />
+          <KpiTile label="Revenue total / AOV" value={`$${(comStats.revenue_total_cents / 100).toLocaleString('en-US')} / $${(comStats.aov_cents / 100).toFixed(0)}`} />
+        </div>
+      )}
+      {crmSource === 'com' && comStatsLoading && !comStats && (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--fg-muted)' }} />
+        </div>
       )}
 
       {/* KPI tiles */}
-      {stats && (
+      {crmSource === 'ru' && stats && (
         <div className="grid grid-cols-6 gap-4">
           <KpiTile label="Customers" value={stats.customers_total.toLocaleString('ru-RU')} />
           <KpiTile label="Loyalty members" value={stats.loyalty_members_total.toLocaleString('ru-RU')} />
@@ -323,15 +452,17 @@ export default function CrmPage() {
         </div>
       )}
 
-      {/* Loyalty conversion funnel */}
-      <LoyaltyFunnel funnel={funnel} loading={funnelLoading} />
+      {/* Loyalty conversion funnel — .ru/KIT analytics */}
+      {crmSource === 'ru' && <LoyaltyFunnel funnel={funnel} loading={funnelLoading} />}
 
       {/* Daily activity — visits behind, registrations middle, orders front */}
-      <DailyActivityChart
-        crmTimeline={timeline?.timeline ?? null}
-        metrikaTimeline={metrika?.timeline ?? null}
-        loading={timelineLoading || metrikaLoading}
-      />
+      {crmSource === 'ru' && (
+        <DailyActivityChart
+          crmTimeline={timeline?.timeline ?? null}
+          metrikaTimeline={metrika?.timeline ?? null}
+          loading={timelineLoading || metrikaLoading}
+        />
+      )}
 
       {/* Tabs */}
       <div className="flex items-center gap-1" style={{ borderBottom: '1px solid var(--border-hairline)' }}>
@@ -340,14 +471,14 @@ export default function CrmPage() {
           onClick={() => setTab('orders')}
           icon={<ShoppingBag className="h-4 w-4" />}
           label="Orders"
-          count={stats?.orders_total ?? null}
+          count={(crmSource === 'com' ? comStats?.orders_total : stats?.orders_total) ?? null}
         />
         <TabButton
           active={tab === 'customers'}
           onClick={() => setTab('customers')}
           icon={<Users className="h-4 w-4" />}
           label="Customers"
-          count={stats?.customers_total ?? null}
+          count={(crmSource === 'com' ? comStats?.customers_total : stats?.customers_total) ?? null}
         />
       </div>
 
@@ -369,7 +500,7 @@ export default function CrmPage() {
           page={ordersPage}
           setPage={setOrdersPage}
         >
-          <OrdersTable orders={orders} hasSearch={!!ordersActiveSearch} search={ordersActiveSearch} sort={ordersSort} onSort={sortOrders} />
+          <OrdersTable orders={orders} hasSearch={!!ordersActiveSearch} search={ordersActiveSearch} sort={ordersSort} onSort={sortOrders} variant={crmSource} />
         </DataTablePanel>
       )}
 
@@ -390,13 +521,20 @@ export default function CrmPage() {
           page={customersPage}
           setPage={setCustomersPage}
         >
-          <CustomersTable customers={customers} hasSearch={!!customersActiveSearch} search={customersActiveSearch} sort={custSort} onSort={sortCustomers} />
+          <CustomersTable customers={customers} hasSearch={!!customersActiveSearch} search={customersActiveSearch} sort={custSort} onSort={sortCustomers} variant={crmSource} />
         </DataTablePanel>
       )}
 
-      {stats && (
+      {crmSource === 'ru' && stats && (
         <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>
           Source: {stats.source} · synced {new Date(stats.synced_at * 1000).toLocaleString('ru-RU')}
+        </div>
+      )}
+      {crmSource === 'com' && comStats && (
+        <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>
+          Source: {comStats.source} · customers: website {comStats.customers_by_source.website} /
+          wix {comStats.customers_by_source.wix} / retailcrm {comStats.customers_by_source.retailcrm} ·
+          synced {new Date(comStats.synced_at * 1000).toLocaleString('ru-RU')}
         </div>
       )}
     </div>
@@ -828,6 +966,32 @@ function TabButton({
   );
 }
 
+function SourcePill({
+  active, onClick, label, sublabel,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  sublabel: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="px-4 py-2"
+      style={{
+        textAlign: 'left',
+        backgroundColor: active ? 'rgba(199, 33, 39, 0.08)' : 'var(--paper)',
+        border: active ? '1px solid var(--brand-rot)' : '1px solid var(--border-hairline)',
+        borderRadius: 'var(--radius-sm)',
+        cursor: 'pointer',
+      }}
+    >
+      <div style={{ fontSize: 14, fontWeight: 700, color: active ? 'var(--brand-rot)' : 'var(--fg-1)' }}>{label}</div>
+      <div style={{ fontSize: 12, color: 'var(--fg-3)' }}>{sublabel}</div>
+    </button>
+  );
+}
+
 function ErrorBox({ title, message }: { title: string; message: string }) {
   return (
     <div className="flex items-start gap-3 p-4" style={{
@@ -1002,7 +1166,57 @@ function DataTablePanel({
   );
 }
 
-function OrdersTable({ orders, hasSearch, search, sort, onSort }: { orders: CrmOrder[]; hasSearch: boolean; search: string; sort: { key: string; dir: 'asc' | 'desc' }; onSort: (k: string) => void }) {
+function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru' }: { orders: CrmOrder[]; hasSearch: boolean; search: string; sort: { key: string; dir: 'asc' | 'desc' }; onSort: (k: string) => void; variant?: CrmSource }) {
+  if (variant === 'com') {
+    // Website (.com/Stripe) orders — no loyalty columns; USD; SKU line items
+    return (
+      <table className="w-full">
+        <thead>
+          <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+            <SortTh label="Order" sortKey="number" current={sort} onSort={onSort} align="left" />
+            <Th align="left">Customer</Th>
+            <Th align="left">Items</Th>
+            <SortTh label="Total" sortKey="total" current={sort} onSort={onSort} />
+            <Th align="left">Country</Th>
+            <SortTh label="Status" sortKey="status" current={sort} onSort={onSort} align="left" />
+            <Th align="left">Payment</Th>
+            <SortTh label="Date" sortKey="date" current={sort} onSort={onSort} align="left" />
+          </tr>
+        </thead>
+        <tbody>
+          {orders.length === 0 && (
+            <tr>
+              <td colSpan={8} className="px-6 py-8 text-center" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
+                {hasSearch ? `No orders matching "${search}"` : 'No website orders yet'}
+              </td>
+            </tr>
+          )}
+          {orders.map((o) => (
+            <tr key={`${o.order_source ?? 'website'}-${o.number}`} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+              <Td bold>
+                {o.number}
+                {o.order_source && o.order_source !== 'website' && (
+                  <span style={{ fontWeight: 400, color: 'var(--fg-3)', marginLeft: 6 }}>{o.order_source}</span>
+                )}
+              </Td>
+              <Td>
+                {o.customer_name}
+                {o.email && <div style={{ fontSize: 12, color: 'var(--fg-3)' }}>{o.email}</div>}
+              </Td>
+              <Td muted>
+                {(o.items ?? []).map((it) => `${it.sku}×${it.qty}`).join(', ') || '—'}
+              </Td>
+              <Td align="right" bold>${o.total.toLocaleString('en-US')}</Td>
+              <Td muted>{o.ship_country || '—'}</Td>
+              <Td muted>{o.status}</Td>
+              <Td muted>{(o as any).payment_method || '—'}</Td>
+              <Td muted>{o.created_at}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  }
   return (
     <table className="w-full">
       <thead>
@@ -1055,7 +1269,47 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort }: { orders: CrmO
   );
 }
 
-function CustomersTable({ customers, hasSearch, search, sort, onSort }: { customers: CrmCustomer[]; hasSearch: boolean; search: string; sort: { key: string; dir: 'asc' | 'desc' }; onSort: (k: string) => void }) {
+function CustomersTable({ customers, hasSearch, search, sort, onSort, variant = 'ru' }: { customers: CrmCustomer[]; hasSearch: boolean; search: string; sort: { key: string; dir: 'asc' | 'desc' }; onSort: (k: string) => void; variant?: CrmSource }) {
+  if (variant === 'com') {
+    // Website (.com) customer database — no loyalty columns; USD; source tag
+    return (
+      <table className="w-full">
+        <thead>
+          <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+            <SortTh label="Customer" sortKey="name" current={sort} onSort={onSort} align="left" />
+            <Th align="left">Email</Th>
+            <Th align="left">Phone</Th>
+            <Th align="left">Country</Th>
+            <Th align="left">Source</Th>
+            <SortTh label="Orders" sortKey="orders" current={sort} onSort={onSort} />
+            <SortTh label="Total spent" sortKey="spent" current={sort} onSort={onSort} />
+            <SortTh label="Registered" sortKey="registered" current={sort} onSort={onSort} align="left" />
+          </tr>
+        </thead>
+        <tbody>
+          {customers.length === 0 && (
+            <tr>
+              <td colSpan={8} className="px-6 py-8 text-center" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
+                {hasSearch ? `No customers matching "${search}"` : 'No website customers yet'}
+              </td>
+            </tr>
+          )}
+          {customers.map((cu) => (
+            <tr key={cu.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+              <Td bold>{cu.name}</Td>
+              <Td muted>{cu.email || '—'}</Td>
+              <Td muted>{cu.phone || '—'}</Td>
+              <Td muted>{cu.country || '—'}</Td>
+              <Td muted>{cu.customer_source || 'website'}</Td>
+              <Td align="right" bold>{cu.orders_count}</Td>
+              <Td align="right" bold>${cu.total_spent.toLocaleString('en-US')}</Td>
+              <Td muted>{cu.created_at}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  }
   return (
     <table className="w-full">
       <thead>

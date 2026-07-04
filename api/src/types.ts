@@ -146,6 +146,28 @@ export interface Env {
   // See F4_INVENTORY_SECRETS.md for full integration spec.
   F4_SKLADBOT_TOKEN?: string;
 
+  // R2 Bucket — website CRM raw archive (Phase 12.0 — dasexperten.com orders).
+  // Bucket das-loyalty-customers, keys under crm/ (orders, customers, imports).
+  // Shared with the loyalty-bridge Worker which writes its own top-level keys —
+  // everything dasoperator writes stays inside the crm/ prefix.
+  CUSTOMERS_DB?: R2Bucket;
+
+  // Stripe (dasexperten.com checkout) — Phase 12.0 website CRM.
+  // STRIPE_SECRET_KEY: restricted live key (rk_live_*), see
+  //   dasexperten.com repo SECRETS/stripe.md §2. Read access to
+  //   PaymentIntents/Refunds is all the poller needs.
+  // STRIPE_WEBHOOK_SECRET: whsec_* of the dashboard-created webhook endpoint
+  //   /api/crm/website/webhook/stripe. Optional — without it the webhook
+  //   answers 503 and the hourly poller carries ingestion alone.
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+
+  // Wix REST API — one-shot historical backfill of the .com store
+  // (44 orders + 35 members). See dasexperten.com repo SECRETS/wix.md.
+  WIX_API_KEY?: string;
+  WIX_SITE_ID?: string;
+  WIX_ACCOUNT_ID?: string;
+
   // Telegramer bridge — used by inbox-ingestion-telegram.ts to pull
   // documents (invoices and acceptance certificates) from Telegram chats
   // registered in operation_document_sources with source_type='telegram_contact'.

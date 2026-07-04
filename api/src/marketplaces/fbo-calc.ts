@@ -81,6 +81,11 @@ export interface FboStatus {
 const K_DEFICIT = 0.8;
 const K_OVERSTOCK = 1.2;
 const V_FAST = 3.0;      // units/day; recalibrate to p80 after first sync
+const MIN_ACTIVE_DAYS = 10;   // velocity damper: a 1-2 day sales burst is not a
+                              // sustained rate — first prod run had 1-day spans
+                              // inflating v 30x (48 sold -> 1440 to_ship)
+const MIN_FLOOR_SALES = 5;    // presence floor only for cells with real demand:
+                              // 1-3 stray sales were earning a full 288-unit carton
 const BOOST_MIN = 1.2;   // 36 days of coverage for the slow tail
 const BOOST_MAX = 2.0;   // 60 days of coverage for proven hits
 
@@ -92,14 +97,24 @@ export function packSize(sku: string): number | null {
   return m[1] === '2' ? (isSet ? 36 : 72) : (isSet ? 144 : 288);
 }
 
-export function velocity(sales: number, firstSale: string | null, lastSale: string | null): number {
+// V2.1: while stock is live the SKU is "active" up to the window end — only a
+// stocked-out cell truncates at last_sale (it stopped selling because it ran
+// dry, not because demand died). MIN_ACTIVE_DAYS damps burst spans either way.
+export function velocity(
+  sales: number,
+  firstSale: string | null,
+  lastSale: string | null,
+  stock: number,
+  windowEnd: string,
+): number {
   if (sales <= 0) return 0;
-  let days = 30; // no dates -> conservative full-window denominator, never 1
-  if (firstSale && lastSale) {
-    const span = (Date.parse(lastSale) - Date.parse(firstSale)) / 86400_000;
-    days = Math.max(1, Math.round(span) + 1); // inclusive span, min 1
+  let days = 30; // no dates -> conservative full-window denominator
+  if (firstSale) {
+    const end = stock > 0 ? windowEnd : (lastSale || windowEnd);
+    const span = (Date.parse(end) - Date.parse(firstSale)) / 86400_000;
+    days = Math.max(1, Math.round(span) + 1); // inclusive span
   }
-  return sales / days;
+  return sales / Math.max(days, MIN_ACTIVE_DAYS);
 }
 
 export function boost(v: number): number {
@@ -115,9 +130,10 @@ export function classify(stock: number, v: number): { k: number | null; zone: Zo
   return { k, zone: 'default' };
 }
 
-export function shipAmount(stock: number, v: number, zone: Zone, pack: number | null): number {
+export function shipAmount(stock: number, v: number, zone: Zone, pack: number | null, sales: number): number {
   if (pack === null) return 0;                       // unknown packaging — flag, never guess
   if (zone !== 'toship' && zone !== 'stockout') return 0;
+  if (sales < MIN_FLOOR_SALES) return 0;             // noise cells don't earn a carton
   const target = v * 30 * boost(v);
   const raw = Math.ceil(Math.max(0, target - stock) / pack) * pack;
   return Math.max(pack, raw);                        // presence floor: one carton minimum
@@ -149,6 +165,7 @@ export async function runFboCalc(env: FboCalcEnv, mp: 'ozon' | 'wb'): Promise<Fb
     cells.set(key(r.base_sku, r.cluster), cell);
   }
 
+  const status_run_date = new Date().toISOString().slice(0, 10); // = sales window end
   const byCluster = new Map<string, FboSkuRow[]>();
   const skuSet = new Set<string>();
   let toShipUnits = 0, toShipCount = 0, oos = 0, overstock = 0, unknownPack = 0;
@@ -156,12 +173,12 @@ export async function runFboCalc(env: FboCalcEnv, mp: 'ozon' | 'wb'): Promise<Fb
   for (const [k, cell] of cells) {
     const [sku = '', cluster = ''] = k.split('\u0000');
     skuSet.add(sku);
-    const v = velocity(cell.sales, cell.first, cell.last);
+    const v = velocity(cell.sales, cell.first, cell.last, cell.stock, status_run_date);
     const { k: coef, zone } = classify(cell.stock, v);
     const pack = packSize(sku);
     // UNKNOWN cluster rows are displayed but never shipped — geography
     // unconfirmed means the carton has no address.
-    const to_ship = cluster === 'UNKNOWN' ? 0 : shipAmount(cell.stock, v, zone, pack);
+    const to_ship = cluster === 'UNKNOWN' ? 0 : shipAmount(cell.stock, v, zone, pack, cell.sales);
     if (pack === null) unknownPack++;
     if (zone === 'stockout') oos++;
     if (zone === 'overstock') overstock++;
@@ -195,7 +212,7 @@ export async function runFboCalc(env: FboCalcEnv, mp: 'ozon' | 'wb'): Promise<Fb
 
   const status: FboStatus = {
     marketplace: mp,
-    run_date: new Date().toISOString().slice(0, 10),
+    run_date: status_run_date,
     generated_at: Math.floor(Date.now() / 1000),
     sku_count: skuSet.size,
     stocks_rows: stocksQ.results.length,

@@ -315,10 +315,13 @@ export interface FboSyncReport {
   wb:   { stocks: number; sales: number; unknown_warehouses: number; partial_error?: string } | { error: string };
 }
 
-export async function runFboSync(env: FboEnv): Promise<FboSyncReport> {
+// `only` limits the run to one marketplace — the manual POST /sync?mp=wb
+// path exists because WB's per-seller limiter can stretch retries past an
+// HTTP client's patience; skipping the Ozon block buys those minutes back.
+export async function runFboSync(env: FboEnv, only?: 'ozon' | 'wb'): Promise<FboSyncReport> {
   const report: FboSyncReport = { ozon: { error: 'not run' }, wb: { error: 'not run' } };
 
-  try {
+  if (only !== 'wb') try {
     await refreshOzonClusterMap(env); // needed by sales (postings carry warehouse_name only)
     const map = await loadClusterMap(env, 'ozon');
     const st = await syncOzonStocks(env);
@@ -334,6 +337,8 @@ export async function runFboSync(env: FboEnv): Promise<FboSyncReport> {
   // WB statistics-api is rate-limited: pause between the Ozon block and the
   // two WB calls, and between the WB calls themselves.
   await new Promise((res) => setTimeout(res, 5000));
+
+  if (only === 'ozon') return report;
 
   // WB stocks and sales are INDEPENDENT blocks: the statistics-api limiter is
   // per-seller-global ("Limited by global limiter, per seller") and shared

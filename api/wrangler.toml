@@ -121,6 +121,10 @@ service = "dasoperator-api"
 # Handler: src/scheduled.ts handleScheduled — dispatches by event.cron string.
 # -----------------------------------------------------------------------------
 #
+# 50 */6 * * *— Ozon review draft-prep (10 min after :40 ingestion). Generates
+#                draft replies for unprocessed Ozon reviews; publishing stays a
+#                human batch action on /reviews. Handler: scheduled.ts.
+#
 # 0 4 * * 4   — WB weekly realization auto-pull schedule. Thursday 04:00 UTC = 
 #                07:00 МСК, after WB publishes the prev-week report on Thursday. 
 #                Creates a 'pending' task in marketplace_pull_tasks. Phase 8.0.
@@ -133,7 +137,7 @@ service = "dasoperator-api"
 # to advance fetch pagination and build operations from staging.
 #
 [triggers]
-crons = ["0 3 * * *", "0 1 * * *", "0 12 * * *", "0 * * * *", "5 */6 * * *", "*/2 * * * *", "0 0 * * *", "15 * * * *", "30 */6 * * *", "*/15 * * * *", "0 2 * * *", "0 4 * * 4", "0 3 5 * *", "*/20 * * * *", "0 4 1-7 * 3", "*/10 * * * *", "0 5 * * *", "23 */3 * * *", "* * * * *", "0 3 1 * *", "40 */6 * * *"]
+crons = ["0 3 * * *", "0 1 * * *", "0 12 * * *", "0 * * * *", "5 */6 * * *", "*/2 * * * *", "0 0 * * *", "15 * * * *", "30 */6 * * *", "*/15 * * * *", "0 2 * * *", "0 4 * * 4", "0 3 5 * *", "*/20 * * * *", "0 4 1-7 * 3", "*/10 * * * *", "0 5 * * *", "23 */3 * * *", "* * * * *", "0 3 1 * *", "40 */6 * * *", "50 */6 * * *"]
 
 
 # -----------------------------------------------------------------------------

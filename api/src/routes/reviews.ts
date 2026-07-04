@@ -14,8 +14,17 @@ import {
   draftReply,
   WbRateLimitError,
 } from '../lib/wb-reviews';
+import { postOzonComment, runOzonDraftPrep } from '../lib/ozon-reviews';
 
 const app = new Hono<{ Bindings: Env }>();
+
+// Channel-aware publish dispatcher: WB reviews use feedbacks-api answer,
+// Ozon reviews use the review comment/create endpoint.
+async function postReply(env: Env, channel: string | null | undefined, externalId: string, text: string): Promise<void> {
+  if ((channel ?? 'wb') === 'ozon') return postOzonComment(env, externalId, text);
+  return postAnswer(env, externalId, text);
+}
+
 
 // -----------------------------------------------------------------------------
 // GET /api/reviews/stats — live counts from WB, cached in KV for 60s
@@ -187,7 +196,7 @@ app.post('/drafts/:id/approve', async (c) => {
   if (!textToSend) return c.json({ ok: false, error: 'no text to send' }, 400);
 
   try {
-    await postAnswer(c.env, draft.external_id, textToSend);
+    await postReply(c.env, draft.channel, draft.external_id, textToSend);
     await c.env.DB.prepare(`
       UPDATE review_drafts
       SET status = 'approved_sent', approved_by = ?, draft_text = ?, posted_to_wb_at = datetime('now'), updated_at = datetime('now')
@@ -282,7 +291,7 @@ app.post('/drafts/:id/publish', async (c) => {
   if (!textToSend) return c.json({ ok: false, error: 'no text to publish' }, 400);
 
   try {
-    await postAnswer(c.env, draft.external_id, textToSend);
+    await postReply(c.env, draft.channel, draft.external_id, textToSend);
     await c.env.DB.prepare(`
       UPDATE review_drafts
       SET status = 'approved_sent',
@@ -315,7 +324,7 @@ app.post('/drafts/:id/release', async (c) => {
   if (!draft.draft_text) return c.json({ ok: false, error: 'no text' }, 400);
 
   try {
-    await postAnswer(c.env, draft.external_id, draft.draft_text);
+    await postReply(c.env, draft.channel, draft.external_id, draft.draft_text);
     await c.env.DB.prepare(`
       UPDATE review_drafts
       SET status = 'approved_sent', approved_by = 'aram', posted_to_wb_at = datetime('now'),
@@ -419,15 +428,16 @@ app.post('/reply-all', async (c) => {
   const maxBatch = Math.min(500, Math.max(1, parseInt(body.maxBatch ?? '100', 10) || 100));
   const pauseMs = Math.max(500, parseInt(body.pauseMs ?? '1200', 10) || 1200);
   const sku = (body.sku ?? '').toString().trim().toLowerCase();
+  const channel = ((body.channel ?? 'wb').toString().trim().toLowerCase() === 'ozon') ? 'ozon' : 'wb';
 
   // Fetch pending drafts
   let sql = `
     SELECT id, external_id, draft_text, rating
     FROM review_drafts
-    WHERE channel = 'wb' AND status = 'pending'
+    WHERE channel = ? AND status = 'pending'
       AND draft_text IS NOT NULL AND LENGTH(draft_text) > 0
   `;
-  const binds: any[] = [];
+  const binds: any[] = [channel];
   if (sku) {
     sql += ` AND LOWER(product_sku) LIKE ?`;
     binds.push(`${sku}%`);
@@ -447,7 +457,7 @@ app.post('/reply-all', async (c) => {
 
   for (const d of drafts) {
     try {
-      await postAnswer(c.env, d.external_id, d.draft_text);
+      await postReply(c.env, channel, d.external_id, d.draft_text);
       await c.env.DB.prepare(`
         UPDATE review_drafts
         SET status = 'auto_sent',
@@ -622,5 +632,22 @@ app.post('/sweep-retries', async (c) => {
   return c.json({ ok: true, reset, pending: pendingCount, sent, failed, errors });
 });
 
+
+
+// -----------------------------------------------------------------------------
+// POST /api/reviews/ozon-prep-tick — manual trigger: generate draft replies for
+// unprocessed Ozon reviews (same code path as the cron). Does NOT post to Ozon.
+// Query: ?max=15 (draft cap), ?inspect=60 (scan cap)
+// -----------------------------------------------------------------------------
+app.post('/ozon-prep-tick', async (c) => {
+  const max = Math.min(50, Math.max(1, parseInt(c.req.query('max') || '15', 10) || 15));
+  const inspect = Math.min(200, Math.max(max, parseInt(c.req.query('inspect') || '60', 10) || 60));
+  try {
+    const r = await runOzonDraftPrep(c.env, { maxDrafts: max, maxInspect: inspect });
+    return c.json({ ok: true, ...r });
+  } catch (e: any) {
+    return c.json({ ok: false, error: String(e?.message ?? e) }, 502);
+  }
+});
 
 export default app;

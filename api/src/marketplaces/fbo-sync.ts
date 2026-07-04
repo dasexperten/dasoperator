@@ -85,33 +85,52 @@ async function registerUnknown(env: FboEnv, mp: 'ozon' | 'wb', names: Set<string
 
 type SalesCell = { units: number; first: string; last: string };
 
+// Snapshot writes are a SINGLE transactional batch (DELETE + multi-row
+// INSERTs, <=19 rows per statement to stay under D1's 100-param limit).
+// Two overlapping syncs used to interleave at chunk boundaries: run B's
+// DELETE landed between run A's insert chunks and tore the snapshot
+// (report said 448 rows, table held 198).
 async function writeStocksSnapshot(env: FboEnv, mp: 'ozon' | 'wb', rows: Map<string, number>): Promise<number> {
   const now = Math.floor(Date.now() / 1000);
-  await env.DB.prepare('DELETE FROM fbo_stocks_cluster WHERE marketplace = ?').bind(mp).run();
-  const stmt = env.DB.prepare(
-    'INSERT INTO fbo_stocks_cluster (marketplace, base_sku, cluster, units, synced_at) VALUES (?, ?, ?, ?, ?)');
-  const batch: D1PreparedStatement[] = [];
-  for (const [key, units] of rows) {
-    const [sku, cluster] = key.split('\u0000');
-    batch.push(stmt.bind(mp, sku, cluster, units, now));
+  const batch: D1PreparedStatement[] = [
+    env.DB.prepare('DELETE FROM fbo_stocks_cluster WHERE marketplace = ?').bind(mp),
+  ];
+  const entries = [...rows];
+  for (let i = 0; i < entries.length; i += 19) {
+    const chunk = entries.slice(i, i + 19);
+    const sql = 'INSERT INTO fbo_stocks_cluster (marketplace, base_sku, cluster, units, synced_at) VALUES '
+      + chunk.map(() => '(?, ?, ?, ?, ?)').join(', ');
+    const params: (string | number)[] = [];
+    for (const [key, units] of chunk) {
+      const [sku = '', cluster = ''] = key.split('\u0000');
+      params.push(mp, sku, cluster, units, now);
+    }
+    batch.push(env.DB.prepare(sql).bind(...params));
   }
-  for (let i = 0; i < batch.length; i += 50) await env.DB.batch(batch.slice(i, i + 50));
+  await env.DB.batch(batch);
   return rows.size;
 }
 
 async function writeSalesSnapshot(env: FboEnv, mp: 'ozon' | 'wb', rows: Map<string, SalesCell>): Promise<number> {
   const now = Math.floor(Date.now() / 1000);
-  await env.DB.prepare('DELETE FROM fbo_sales_cluster WHERE marketplace = ?').bind(mp).run();
-  const stmt = env.DB.prepare(
-    'INSERT INTO fbo_sales_cluster (marketplace, base_sku, cluster, units_30d, period_from, period_to, first_sale, last_sale, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
   const from = isoDaysAgo(DAYS);
   const to = isoDaysAgo(0);
-  const batch: D1PreparedStatement[] = [];
-  for (const [key, c] of rows) {
-    const [sku, cluster] = key.split('\u0000');
-    batch.push(stmt.bind(mp, sku, cluster, c.units, from, to, c.first, c.last, now));
+  const batch: D1PreparedStatement[] = [
+    env.DB.prepare('DELETE FROM fbo_sales_cluster WHERE marketplace = ?').bind(mp),
+  ];
+  const entries = [...rows];
+  for (let i = 0; i < entries.length; i += 11) {
+    const chunk = entries.slice(i, i + 11); // 9 params/row, 99 <= 100 limit
+    const sql = 'INSERT INTO fbo_sales_cluster (marketplace, base_sku, cluster, units_30d, period_from, period_to, first_sale, last_sale, synced_at) VALUES '
+      + chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+    const params: (string | number)[] = [];
+    for (const [key, c] of chunk) {
+      const [sku = '', cluster = ''] = key.split('\u0000');
+      params.push(mp, sku, cluster, c.units, from, to, c.first, c.last, now);
+    }
+    batch.push(env.DB.prepare(sql).bind(...params));
   }
-  for (let i = 0; i < batch.length; i += 50) await env.DB.batch(batch.slice(i, i + 50));
+  await env.DB.batch(batch);
   return rows.size;
 }
 
@@ -239,7 +258,10 @@ const wbHeaders = (env: FboEnv) => ({ Authorization: env.WB_API_TOKEN });
 
 async function syncWbStocks(env: FboEnv, map: Map<string, string>): Promise<{ rows: number; unknown: Set<string> }> {
   const r = await fetchRetry(
-    'https://statistics-api.wildberries.ru/api/v1/supplier/stocks?dateFrom=2019-06-20',
+    // dateFrom is required but /stocks returns the full current snapshot
+    // regardless (proven by the hourly refresh in routes/marketplaces.ts).
+    // The 2019-06-20 full-history dump was exactly what WB kept 429-ing.
+    `https://statistics-api.wildberries.ru/api/v1/supplier/stocks?dateFrom=${isoDaysAgo(60)}`,
     { headers: wbHeaders(env) },
     3,
     70_000,

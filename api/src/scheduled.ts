@@ -15,6 +15,7 @@ import { runInboxIngestion } from './lib/inbox-ingestion';
 import { runEmailRetention } from './lib/email-retention';
 import { runBankStatementIngestion } from './lib/bank-statement-ingestion';
 import { scheduleWbWeekly, scheduleOzonMonthly, tickMarketplacePull, rebuildPriorMonthSite, rebuildPriorMonthDasexpertenCom } from './lib/marketplace-pull';
+import { runFboSync } from './marketplaces/fbo-sync';
 import { reportCronFailure } from './lib/auto-healer';
 
 
@@ -787,7 +788,11 @@ export async function handleScheduled(
   }
 
   // Daily marketplace SALES pull — 05:00 UTC (08:00 МСК), after yesterday settles.
+  // FBO cluster-grain sync piggybacks the same slot: direct in-process call
+  // (NOT selfFetch to *.workers.dev — bug 1042), runs past the sales pull via
+  // waitUntil because of WB statistics-api throttling pauses (60-90 s).
   if (cron === '0 5 * * *') {
+    _ctx.waitUntil(runFboSync(env));
     await runMarketplaceSalesSync(env);
     return;
   }

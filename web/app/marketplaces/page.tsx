@@ -47,9 +47,9 @@ const WB_PINK = 'rgb(203, 17, 122)';
 const OZON_CONFIG = {
   accent: OZON_BLUE,
   accentLabel: 'OZON FBO · SUPPLY PLANNING',
-  statusUrl: 'https://raw.githubusercontent.com/dasexperten/arams-db/main/docs/ozon-fbo-status.json',
+  statusUrl: 'https://dasoperator-api.dasexperten.workers.dev/api/marketplaces/fbo/ozon',
   runsUrl:
-    'https://api.github.com/repos/dasexperten/arams-db/actions/workflows/ozon-fbo-monthly.yml/runs?per_page=10',
+    'https://dasoperator-api.dasexperten.workers.dev/api/marketplaces/fbo/runs?marketplace=ozon',
   workflowUrl: 'https://github.com/dasexperten/arams-db/actions/workflows/ozon-fbo-monthly.yml',
   clusterOrder: [
     'Москва',
@@ -67,9 +67,9 @@ const OZON_CONFIG = {
 const WB_CONFIG = {
   accent: WB_PINK,
   accentLabel: 'WB FBO · SUPPLY PLANNING',
-  statusUrl: 'https://raw.githubusercontent.com/dasexperten/arams-db/main/docs/wb-fbo-status.json',
+  statusUrl: 'https://dasoperator-api.dasexperten.workers.dev/api/marketplaces/fbo/wb',
   runsUrl:
-    'https://api.github.com/repos/dasexperten/arams-db/actions/workflows/wb-fbo-monthly.yml/runs?per_page=10',
+    'https://dasoperator-api.dasexperten.workers.dev/api/marketplaces/fbo/runs?marketplace=wb',
   workflowUrl: 'https://github.com/dasexperten/arams-db/actions/workflows/wb-fbo-monthly.yml',
   clusterOrder: [] as string[],
   csvPrefix: 'wb_fbo',

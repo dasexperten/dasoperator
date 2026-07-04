@@ -1,7 +1,7 @@
 // api/src/marketplaces/fbo-sync.ts
 //
 // FBO supply planning — cluster-grain data sync.
-// Writes fbo_stocks_cluster / fbo_sales_cluster (migration 0058_fbo_cluster_grain.sql).
+// Writes fbo_stocks_cluster / fbo_sales_cluster (migrations 0058 + 0059).
 //
 // Self-contained: no imports from the rest of the app. Wire-up (separate round):
 //   scheduled.ts  -> if (hour === 5) await runFboSync(env)   // daily 05:00 UTC = 08:00 MSK
@@ -16,6 +16,8 @@
 //   - Unknown warehouses are inserted into fbo_cluster_map as UNKNOWN for
 //     manual review; their rows still land in stocks/sales under 'UNKNOWN'.
 //   - WB returns (saleID starting with 'R') and cancelled sales are excluded.
+//   - Sales rows carry first_sale/last_sale per cell (migration 0059) — V2
+//     active-days velocity inputs for fbo-calc.ts; NULL -> calc falls back to /30.
 //   - Ozon paid-storage exclusions are NOT applied here — calc's job.
 
 export interface FboEnv {
@@ -67,13 +69,14 @@ async function writeSnapshot(
   table: 'fbo_stocks_cluster' | 'fbo_sales_cluster',
   mp: 'ozon' | 'wb',
   rows: Map<string, number>, // key = `${base_sku}\u0000${cluster}`
+  dates?: Map<string, { first: string; last: string }>, // sales only: first/last sale day per key
 ): Promise<number> {
   const now = Math.floor(Date.now() / 1000);
   await env.DB.prepare(`DELETE FROM ${table} WHERE marketplace = ?`).bind(mp).run();
   const stmt =
     table === 'fbo_stocks_cluster'
       ? env.DB.prepare('INSERT INTO fbo_stocks_cluster (marketplace, base_sku, cluster, units, synced_at) VALUES (?, ?, ?, ?, ?)')
-      : env.DB.prepare('INSERT INTO fbo_sales_cluster (marketplace, base_sku, cluster, units_30d, period_from, period_to, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+      : env.DB.prepare('INSERT INTO fbo_sales_cluster (marketplace, base_sku, cluster, units_30d, period_from, period_to, first_sale, last_sale, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
   const from = isoDaysAgo(DAYS);
   const to = isoDaysAgo(0);
   const batch: D1PreparedStatement[] = [];
@@ -82,7 +85,7 @@ async function writeSnapshot(
     batch.push(
       table === 'fbo_stocks_cluster'
         ? stmt.bind(mp, sku, cluster, units, now)
-        : stmt.bind(mp, sku, cluster, units, from, to, now),
+        : stmt.bind(mp, sku, cluster, units, from, to, dates?.get(key)?.first ?? null, dates?.get(key)?.last ?? null, now),
     );
   }
   for (let i = 0; i < batch.length; i += 50) await env.DB.batch(batch.slice(i, i + 50));
@@ -92,6 +95,22 @@ async function writeSnapshot(
 const bump = (m: Map<string, number>, sku: string, cluster: string, n: number): void => {
   const k = `${sku}\u0000${cluster}`;
   m.set(k, (m.get(k) || 0) + n);
+};
+
+// Track first/last sale day per (sku, cluster) cell — V2 velocity inputs
+// (fbo-calc.ts derives active-days velocity from this span).
+const bumpDate = (
+  d: Map<string, { first: string; last: string }>,
+  sku: string,
+  cluster: string,
+  day: string,
+): void => {
+  if (!day) return;
+  const k = `${sku}\u0000${cluster}`;
+  const cur = d.get(k);
+  if (!cur) { d.set(k, { first: day, last: day }); return; }
+  if (day < cur.first) cur.first = day;
+  if (day > cur.last) cur.last = day;
 };
 
 // ------------------------------------------------------------------ Ozon
@@ -162,6 +181,7 @@ async function syncOzonStocks(env: FboEnv): Promise<{ rows: number; unknown: Set
 // with the shipping warehouse). Window: trailing 30 days, cancelled skipped.
 async function syncOzonSales(env: FboEnv, map: Map<string, string>): Promise<{ rows: number; unknown: Set<string> }> {
   const agg = new Map<string, number>();
+  const dates = new Map<string, { first: string; last: string }>();
   const unknown = new Set<string>();
   let offset = 0;
   for (let page = 0; page < 40; page++) {
@@ -183,15 +203,18 @@ async function syncOzonSales(env: FboEnv, map: Map<string, string>): Promise<{ r
       const wh = p?.analytics_data?.warehouse_name || '';
       let cluster = map.get(wh);
       if (!cluster) { cluster = 'UNKNOWN'; unknown.add(wh); }
+      const day = String(p.created_at || '').slice(0, 10);
       for (const prod of p.products || []) {
         const sku = normSku(prod.offer_id);
-        if (sku) bump(agg, sku, cluster, prod.quantity || 0);
+        if (!sku) continue;
+        bump(agg, sku, cluster, prod.quantity || 0);
+        bumpDate(dates, sku, cluster, day);
       }
     }
     if (postings.length < 1000) break;
     offset += 1000;
   }
-  const rows = await writeSnapshot(env, 'fbo_sales_cluster', 'ozon', agg);
+  const rows = await writeSnapshot(env, 'fbo_sales_cluster', 'ozon', agg, dates);
   return { rows, unknown };
 }
 
@@ -228,6 +251,7 @@ async function syncWbSales(env: FboEnv, map: Map<string, string>): Promise<{ row
   if (!r.ok) throw new Error(`wb supplier/sales HTTP ${r.status}`);
   const rows = (await r.json()) as any[];
   const agg = new Map<string, number>();
+  const dates = new Map<string, { first: string; last: string }>();
   const unknown = new Set<string>();
   for (const row of rows || []) {
     if (typeof row.saleID === 'string' && row.saleID.startsWith('R')) continue; // return
@@ -238,8 +262,9 @@ async function syncWbSales(env: FboEnv, map: Map<string, string>): Promise<{ row
     let cluster = map.get(wh);
     if (!cluster) { cluster = 'UNKNOWN'; unknown.add(wh); }
     bump(agg, sku, cluster, 1); // one row = one sold unit
+    bumpDate(dates, sku, cluster, String(row.date || '').slice(0, 10));
   }
-  const n = await writeSnapshot(env, 'fbo_sales_cluster', 'wb', agg);
+  const n = await writeSnapshot(env, 'fbo_sales_cluster', 'wb', agg, dates);
   return { rows: n, unknown };
 }
 

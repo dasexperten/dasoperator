@@ -1,0 +1,9 @@
+{
+  "worker": "emailer-bridge",
+  "snapshot_date": "2026-07-04",
+  "snapshot_reason": "arams-db (original source repo) deleted by Aram 2026-07-04; this is a live-bundle recovery so future edits have a starting point.",
+  "compatibility_date": "2026-04-30",
+  "cron_schedule": "none",
+  "bindings": [],
+  "note": "Secret values are NOT included (Cloudflare never exposes them via API) — only binding names/types. Re-set secrets via CF Cloud Master token per SECRETS/cloudflare.md before any redeploy."
+}

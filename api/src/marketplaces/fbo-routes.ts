@@ -34,7 +34,7 @@
 import { Hono } from 'hono';
 import { runFboCalc } from './fbo-calc';
 import type { FboStatus, Zone } from './fbo-calc';
-import { runFboSync, type FboEnv } from './fbo-sync';
+import { runFboSync, ingestWb, type FboEnv } from './fbo-sync';
 
 type Env = { Bindings: FboEnv };
 
@@ -118,6 +118,20 @@ fboRoutes.post('/sync', async (c) => {
     const only = mp === 'ozon' || mp === 'wb' ? mp : undefined;
     const report = await runFboSync(c.env, only);
     return c.json({ ok: true, report });
+  } catch (e) {
+    return c.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 500);
+  }
+});
+
+// Bring-your-own-payload WB ingest: when WB throttles Cloudflare egress,
+// fetch supplier/stocks + supplier/sales JSON from any unthrottled IP and
+// POST {stocks: [...], sales: [...]} here (either key optional). The data
+// flows through the same aggregation + snapshot code as the live sync.
+fboRoutes.post('/ingest-wb', async (c) => {
+  try {
+    const body = (await c.req.json()) as { stocks?: any[]; sales?: any[] };
+    const result = await ingestWb(c.env, body.stocks ?? null, body.sales ?? null);
+    return c.json({ ok: true, result });
   } catch (e) {
     return c.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 500);
   }

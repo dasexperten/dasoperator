@@ -1,0 +1,34 @@
+{
+  "worker": "promozon",
+  "snapshot_date": "2026-07-04",
+  "snapshot_reason": "arams-db (original source repo) deleted by Aram 2026-07-04; this is a live-bundle recovery so future edits have a starting point.",
+  "compatibility_date": "2025-01-01",
+  "cron_schedule": "0 */4 * * *",
+  "bindings": [
+    {
+      "type": "d1",
+      "name": "DB"
+    },
+    {
+      "type": "secret_text",
+      "name": "OZON_PERF_CLIENT_ID"
+    },
+    {
+      "type": "secret_text",
+      "name": "OZON_PERF_CLIENT_SECRET"
+    },
+    {
+      "type": "secret_text",
+      "name": "OZON_SELLER_API_KEY"
+    },
+    {
+      "type": "secret_text",
+      "name": "OZON_SELLER_CLIENT_ID"
+    },
+    {
+      "type": "secret_text",
+      "name": "PROMOZON_AUTH"
+    }
+  ],
+  "note": "Secret values are NOT included (Cloudflare never exposes them via API) — only binding names/types. Re-set secrets via CF Cloud Master token per SECRETS/cloudflare.md before any redeploy."
+}

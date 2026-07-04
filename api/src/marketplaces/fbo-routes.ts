@@ -114,7 +114,9 @@ fboRoutes.get('/wb', async (c) => {
 
 fboRoutes.post('/sync', async (c) => {
   try {
-    const report = await runFboSync(c.env);
+    const mp = c.req.query('mp');
+    const only = mp === 'ozon' || mp === 'wb' ? mp : undefined;
+    const report = await runFboSync(c.env, only);
     return c.json({ ok: true, report });
   } catch (e) {
     return c.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 500);

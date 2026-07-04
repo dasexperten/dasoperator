@@ -61,6 +61,7 @@ import salesBreakdownRoutes from './routes/sales-breakdown';
 import reviewsRoutes from './routes/reviews';
 import mpFeedsRoutes from './routes/mp-feeds';
 import wbHealthRoutes from './routes/wb-health';
+import { fboRoutes } from './marketplaces/fbo-routes';
 import skillsRoutes from './routes/skills';
 import integrationsRoutes from './routes/integrations';
 import loyaltyRoutes from './routes/loyalty';
@@ -193,6 +194,7 @@ app.route('/api/warehouses', warehousesRoutes);
 app.route('/admin', adminMigrationsRoutes);
 app.route('/api/admin/auto-heal', adminAutoHealRoutes);
 app.route('/api/admin', adminResyncPricesRoutes);
+app.route('/api/marketplaces/fbo', fboRoutes);  // must come BEFORE the generic /api/marketplaces mounts
 app.route('/api/marketplaces', marketplacesRoutes);
 app.route('/api/marketplaces', marketplacesExtrasRoutes);
 app.route('/api/marketplaces', marketplacesPromosRoutes);

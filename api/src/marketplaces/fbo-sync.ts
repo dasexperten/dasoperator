@@ -6,24 +6,32 @@
 // Self-contained: no imports from the rest of the app. Wire-up:
 //   scheduled.ts  -> '0 5 * * *' branch: ctx.waitUntil(runFboSync(env))
 //   routes        -> POST /api/marketplaces/fbo/sync -> runFboSync(env)
+//                    POST /api/marketplaces/fbo/ingest-wb -> ingestWb(env, ...)
 //
 // Design decisions (approved methodology, April 2026 + this session):
 //   - Grain: (marketplace, base_sku, cluster). base_sku = lowercase article,
 //     spaces stripped — same convention as marketplace_stocks_* tables.
 //     Multipack listings (DE201 AA) are their own base_sku, so raw units
 //     aggregate cleanly without pack_factor math.
-//   - Snapshot semantics: each run DELETEs the marketplace slice and rewrites.
+//   - Snapshot semantics: each run rewrites the marketplace slice in ONE
+//     transactional batch (DELETE + multi-row upsert INSERTs) — overlapping
+//     runs used to interleave at chunk boundaries and tear the snapshot.
 //   - Unknown warehouses are inserted into fbo_cluster_map as UNKNOWN for
 //     manual review; their rows still land in stocks/sales under 'UNKNOWN'.
-//   - Warehouse lookup is NORMALIZED (upper-case, separators -> '_'): Ozon
-//     postings report АЛМАТЫ_2_РФЦ / САНКТ-ПЕТЕРБУРГ_РФЦ while cluster/list
-//     publishes Алматы_2_РФЦ / Санкт_Петербург_РФЦ — same warehouse, three
-//     spellings. First prod run stranded 25% of sales in UNKNOWN over this.
 //   - WB returns (saleID starting with 'R') and cancelled sales are excluded.
+//   - Sales rows carry first_sale/last_sale per cell (migration 0059) — V2
+//     active-days velocity inputs for fbo-calc.ts; NULL -> calc falls back to /30.
 //   - Ozon paid-storage exclusions are NOT applied here — calc's job.
+//   - WB statistics-api throttles Cloudflare egress IPs far harder than the
+//     per-seller budget suggests (the same token answers 200 instantly from
+//     elsewhere while the worker gets 429 "Limited by global limiter" for
+//     many minutes). Hence: 5 retries x 70 s, stocks/sales as independent
+//     blocks, and ingestWb() as the bring-your-own-payload relay — fetch the
+//     two WB JSONs from any unthrottled IP and POST them to /fbo/ingest-wb.
 
 export interface FboEnv {
   DB: D1Database;
+  CACHE?: KVNamespace; // sync mutex lives here when bound
   OZON_CLIENT_ID: string;
   OZON_API_KEY: string;
   WB_API_TOKEN: string;
@@ -36,17 +44,18 @@ const DAYS = 30;
 const normSku = (s: string): string =>
   (s || '').toLowerCase().replace(/[\s_-]+/g, '').trim();
 
-// Warehouse lookup key: case- and separator-insensitive.
+// Warehouse lookup key: case- and separator-insensitive
+// (ЕКАТЕРИНБУРГ_РФЦ_НОВЫЙ vs Екатеринбург_РФЦ_НОВЫЙ vs САНКТ-ПЕТЕРБУРГ_РФЦ).
 const normWh = (s: string): string =>
   (s || '').toUpperCase().replace(/[^A-ZА-ЯЁ0-9]+/gu, '_').replace(/^_+|_+$/g, '');
 
 const isoDaysAgo = (d: number): string =>
   new Date(Date.now() - d * 86400_000).toISOString().slice(0, 10);
 
-// backoffMs override matters for WB statistics-api: its per-token buckets
-// refill slowly, so the default 2-6 s ladder just burns attempts inside the
-// same closed window (and repeated 429 hits extend the lockout). WB callers
-// pass 70 s so a retry lands in a fresh window.
+// backoffMs override matters for WB statistics-api: its windows refill
+// slowly, so the default 2-6 s ladder just burns attempts inside the same
+// closed window (and repeated 429 hits extend the lockout). WB callers pass
+// 70 s so a retry lands in a fresh window.
 async function fetchRetry(url: string, init: RequestInit, tries = 3, backoffMs = 0): Promise<Response> {
   let last: Response | null = null;
   for (let i = 0; i < tries; i++) {
@@ -58,20 +67,65 @@ async function fetchRetry(url: string, init: RequestInit, tries = 3, backoffMs =
   return last!;
 }
 
-// Lookup map keyed by normWh(). When several raw spellings collapse to one
-// key, a real cluster always beats UNKNOWN (registerUnknown rows must not
-// shadow the cluster/list truth).
-async function loadClusterMap(env: FboEnv, mp: 'ozon' | 'wb'): Promise<Map<string, string>> {
+// Postings ship from operational RFC warehouses (ЕКАТЕРИНБУРГ_РФЦ_НОВЫЙ,
+// САНКТ-ПЕТЕРБУРГ_РФЦ...) that /v1/cluster/list does not always enumerate —
+// it covers supply-in topology, not fulfilment. Their names share the city
+// token with warehouses the topology DOES know. Resolution order:
+//   1) exact match in fbo_cluster_map (manual edits win),
+//   2) normalized match (case/separator variants of the same name),
+//   3) first name token (before '_') against tokens of known warehouses,
+//   4) UNKNOWN (registered for manual review; manual edits persist).
+// Generic non-city first tokens (СЦ_, РЦ_, ЛЦ_) are excluded from the index:
+// СЦ_ЕКАТЕРИНБУРГ and СЦ_КАЗАНЬ would otherwise collide on 'СЦ' and route
+// cartons to whichever city registered first.
+const GENERIC_WH_TOKENS = new Set(['СЦ', 'РЦ', 'ЛЦ', 'ТСЦ', 'РФЦ', 'МПСЦ', 'ХАБ']);
+
+export function buildPrefixIndex(map: Map<string, string>): Map<string, string> {
+  const idx = new Map<string, string>();
+  for (const [wh, cluster] of map) {
+    if (cluster === 'UNKNOWN') continue;
+    const token = normWh(wh).split('_')[0] || '';
+    if (token && !GENERIC_WH_TOKENS.has(token) && !idx.has(token)) idx.set(token, cluster);
+  }
+  return idx;
+}
+
+export function resolveCluster(
+  wh: string,
+  map: Map<string, string>,
+  normIdx: Map<string, string>,
+  prefixIdx: Map<string, string>,
+): string {
+  const exact = map.get(wh);
+  if (exact && exact !== 'UNKNOWN') return exact;
+  const byNorm = normIdx.get(normWh(wh));
+  if (byNorm && byNorm !== 'UNKNOWN') return byNorm;
+  const token = normWh(wh).split('_')[0] || '';
+  if (token && !GENERIC_WH_TOKENS.has(token)) {
+    const byPrefix = prefixIdx.get(token);
+    if (byPrefix) return byPrefix;
+  }
+  return 'UNKNOWN';
+}
+
+interface ClusterLookup {
+  map: Map<string, string>;      // raw name -> cluster (manual edits win)
+  normIdx: Map<string, string>;  // normWh(name) -> cluster
+  prefixIdx: Map<string, string>;
+}
+
+async function loadClusterMap(env: FboEnv, mp: 'ozon' | 'wb'): Promise<ClusterLookup> {
   const { results } = await env.DB
     .prepare('SELECT warehouse_name, cluster FROM fbo_cluster_map WHERE marketplace = ?')
     .bind(mp).all<{ warehouse_name: string; cluster: string }>();
-  const map = new Map<string, string>();
-  for (const r of results) {
-    const key = normWh(r.warehouse_name);
-    const prev = map.get(key);
-    if (!prev || prev === 'UNKNOWN') map.set(key, r.cluster);
+  const map = new Map(results.map((r) => [r.warehouse_name, r.cluster]));
+  const normIdx = new Map<string, string>();
+  for (const [wh, cluster] of map) {
+    const key = normWh(wh);
+    const prev = normIdx.get(key);
+    if (!prev || prev === 'UNKNOWN') normIdx.set(key, cluster);
   }
-  return map;
+  return { map, normIdx, prefixIdx: buildPrefixIndex(map) };
 }
 
 async function registerUnknown(env: FboEnv, mp: 'ozon' | 'wb', names: Set<string>): Promise<void> {
@@ -83,50 +137,42 @@ async function registerUnknown(env: FboEnv, mp: 'ozon' | 'wb', names: Set<string
   await env.DB.batch([...names].map((n) => stmt.bind(mp, n, 'UNKNOWN', now)));
 }
 
-type SalesCell = { units: number; first: string; last: string };
-
-// Snapshot writes are a SINGLE transactional batch (DELETE + multi-row
-// INSERTs, <=19 rows per statement to stay under D1's 100-param limit).
-// Two overlapping syncs used to interleave at chunk boundaries: run B's
-// DELETE landed between run A's insert chunks and tore the snapshot
-// (report said 448 rows, table held 198).
-async function writeStocksSnapshot(env: FboEnv, mp: 'ozon' | 'wb', rows: Map<string, number>): Promise<number> {
-  const now = Math.floor(Date.now() / 1000);
-  const batch: D1PreparedStatement[] = [
-    env.DB.prepare('DELETE FROM fbo_stocks_cluster WHERE marketplace = ?').bind(mp),
-  ];
-  const entries = [...rows];
-  for (let i = 0; i < entries.length; i += 19) {
-    const chunk = entries.slice(i, i + 19);
-    const sql = 'INSERT INTO fbo_stocks_cluster (marketplace, base_sku, cluster, units, synced_at) VALUES '
-      + chunk.map(() => '(?, ?, ?, ?, ?)').join(', ');
-    const params: (string | number)[] = [];
-    for (const [key, units] of chunk) {
-      const [sku = '', cluster = ''] = key.split('\u0000');
-      params.push(mp, sku, cluster, units, now);
-    }
-    batch.push(env.DB.prepare(sql).bind(...params));
-  }
-  await env.DB.batch(batch);
-  return rows.size;
-}
-
-async function writeSalesSnapshot(env: FboEnv, mp: 'ozon' | 'wb', rows: Map<string, SalesCell>): Promise<number> {
+// Snapshot writes are a SINGLE transactional batch: DELETE + multi-row
+// upsert INSERTs (rows/statement sized to stay under D1's 100-param limit).
+// Two overlapping syncs used to interleave at chunk boundaries and tear the
+// snapshot (report said 448 rows, table held 198); the KV mutex in
+// runFboSync is the first line of defence, this is the second, the upsert
+// ON CONFLICT the third.
+async function writeSnapshot(
+  env: FboEnv,
+  table: 'fbo_stocks_cluster' | 'fbo_sales_cluster',
+  mp: 'ozon' | 'wb',
+  rows: Map<string, number>, // key = `${base_sku}\u0000${cluster}`
+  dates?: Map<string, { first: string; last: string }>, // sales only
+): Promise<number> {
   const now = Math.floor(Date.now() / 1000);
   const from = isoDaysAgo(DAYS);
   const to = isoDaysAgo(0);
   const batch: D1PreparedStatement[] = [
-    env.DB.prepare('DELETE FROM fbo_sales_cluster WHERE marketplace = ?').bind(mp),
+    env.DB.prepare(`DELETE FROM ${table} WHERE marketplace = ?`).bind(mp),
   ];
   const entries = [...rows];
-  for (let i = 0; i < entries.length; i += 11) {
-    const chunk = entries.slice(i, i + 11); // 9 params/row, 99 <= 100 limit
-    const sql = 'INSERT INTO fbo_sales_cluster (marketplace, base_sku, cluster, units_30d, period_from, period_to, first_sale, last_sale, synced_at) VALUES '
-      + chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
-    const params: (string | number)[] = [];
-    for (const [key, c] of chunk) {
+  const perStmt = table === 'fbo_stocks_cluster' ? 19 : 11; // 5 / 9 params per row
+  for (let i = 0; i < entries.length; i += perStmt) {
+    const chunk = entries.slice(i, i + perStmt);
+    const sql =
+      table === 'fbo_stocks_cluster'
+        ? 'INSERT INTO fbo_stocks_cluster (marketplace, base_sku, cluster, units, synced_at) VALUES '
+          + chunk.map(() => '(?, ?, ?, ?, ?)').join(', ')
+          + ' ON CONFLICT (marketplace, base_sku, cluster) DO UPDATE SET units = excluded.units, synced_at = excluded.synced_at'
+        : 'INSERT INTO fbo_sales_cluster (marketplace, base_sku, cluster, units_30d, period_from, period_to, first_sale, last_sale, synced_at) VALUES '
+          + chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')
+          + ' ON CONFLICT (marketplace, base_sku, cluster) DO UPDATE SET units_30d = excluded.units_30d, period_from = excluded.period_from, period_to = excluded.period_to, first_sale = excluded.first_sale, last_sale = excluded.last_sale, synced_at = excluded.synced_at';
+    const params: (string | number | null)[] = [];
+    for (const [key, units] of chunk) {
       const [sku = '', cluster = ''] = key.split('\u0000');
-      params.push(mp, sku, cluster, c.units, from, to, c.first, c.last, now);
+      if (table === 'fbo_stocks_cluster') params.push(mp, sku, cluster, units, now);
+      else params.push(mp, sku, cluster, units, from, to, dates?.get(key)?.first ?? null, dates?.get(key)?.last ?? null, now);
     }
     batch.push(env.DB.prepare(sql).bind(...params));
   }
@@ -139,15 +185,20 @@ const bump = (m: Map<string, number>, sku: string, cluster: string, n: number): 
   m.set(k, (m.get(k) || 0) + n);
 };
 
-// One sale event: accumulate units and stretch the first/last sale span —
-// the denominator of Product Velocity in fbo-calc.
-const bumpSale = (m: Map<string, SalesCell>, sku: string, cluster: string, n: number, date: string): void => {
+// Track first/last sale day per (sku, cluster) cell — V2 velocity inputs
+// (fbo-calc.ts derives active-days velocity from this span).
+const bumpDate = (
+  d: Map<string, { first: string; last: string }>,
+  sku: string,
+  cluster: string,
+  day: string,
+): void => {
+  if (!day) return;
   const k = `${sku}\u0000${cluster}`;
-  const c = m.get(k);
-  if (!c) { m.set(k, { units: n, first: date, last: date }); return; }
-  c.units += n;
-  if (date < c.first) c.first = date;
-  if (date > c.last) c.last = date;
+  const cur = d.get(k);
+  if (!cur) { d.set(k, { first: day, last: day }); return; }
+  if (day < cur.first) cur.first = day;
+  if (day > cur.last) cur.last = day;
 };
 
 // ------------------------------------------------------------------ Ozon
@@ -210,14 +261,15 @@ async function syncOzonStocks(env: FboEnv): Promise<{ rows: number; unknown: Set
       bump(agg, sku, cluster, item.available_stock_count || 0);
     }
   }
-  const rows = await writeStocksSnapshot(env, 'ozon', agg);
+  const rows = await writeSnapshot(env, 'fbo_stocks_cluster', 'ozon', agg);
   return { rows, unknown: new Set() };
 }
 
 // Sales per cluster come from FBO postings (each carries analytics_data
 // with the shipping warehouse). Window: trailing 30 days, cancelled skipped.
-async function syncOzonSales(env: FboEnv, map: Map<string, string>): Promise<{ rows: number; unknown: Set<string> }> {
-  const agg = new Map<string, SalesCell>();
+async function syncOzonSales(env: FboEnv, lookup: ClusterLookup): Promise<{ rows: number; unknown: Set<string> }> {
+  const agg = new Map<string, number>();
+  const dates = new Map<string, { first: string; last: string }>();
   const unknown = new Set<string>();
   let offset = 0;
   for (let page = 0; page < 40; page++) {
@@ -237,18 +289,20 @@ async function syncOzonSales(env: FboEnv, map: Map<string, string>): Promise<{ r
     for (const p of postings) {
       if (p.status === 'cancelled') continue;
       const wh = p?.analytics_data?.warehouse_name || '';
-      let cluster = map.get(normWh(wh));
-      if (!cluster || cluster === 'UNKNOWN') { cluster = 'UNKNOWN'; unknown.add(wh); }
-      const date = String(p.created_at || p.in_process_at || '').slice(0, 10) || isoDaysAgo(0);
+      const cluster = resolveCluster(wh, lookup.map, lookup.normIdx, lookup.prefixIdx);
+      if (cluster === 'UNKNOWN') unknown.add(wh);
+      const day = String(p.created_at || p.in_process_at || '').slice(0, 10);
       for (const prod of p.products || []) {
         const sku = normSku(prod.offer_id);
-        if (sku) bumpSale(agg, sku, cluster, prod.quantity || 0, date);
+        if (!sku) continue;
+        bump(agg, sku, cluster, prod.quantity || 0);
+        bumpDate(dates, sku, cluster, day);
       }
     }
     if (postings.length < 1000) break;
     offset += 1000;
   }
-  const rows = await writeSalesSnapshot(env, 'ozon', agg);
+  const rows = await writeSnapshot(env, 'fbo_sales_cluster', 'ozon', agg, dates);
   return { rows, unknown };
 }
 
@@ -256,11 +310,49 @@ async function syncOzonSales(env: FboEnv, map: Map<string, string>): Promise<{ r
 
 const wbHeaders = (env: FboEnv) => ({ Authorization: env.WB_API_TOKEN });
 
-async function syncWbStocks(env: FboEnv, map: Map<string, string>): Promise<{ rows: number; unknown: Set<string> }> {
+// Pure aggregation halves, shared by the live fetch path and ingestWb()
+// (bring-your-own-payload relay for when WB throttles Cloudflare egress).
+
+function aggregateWbStocks(rows: any[], lookup: ClusterLookup): {
+  agg: Map<string, number>; unknown: Set<string>;
+} {
+  const agg = new Map<string, number>();
+  const unknown = new Set<string>();
+  for (const row of rows || []) {
+    const sku = normSku(row.supplierArticle);
+    if (!sku) continue;
+    const wh = row.warehouseName || '';
+    const cluster = resolveCluster(wh, lookup.map, lookup.normIdx, lookup.prefixIdx);
+    if (cluster === 'UNKNOWN') unknown.add(wh);
+    bump(agg, sku, cluster, row.quantity || 0);
+  }
+  return { agg, unknown };
+}
+
+function aggregateWbSales(rows: any[], lookup: ClusterLookup): {
+  agg: Map<string, number>; dates: Map<string, { first: string; last: string }>; unknown: Set<string>;
+} {
+  const agg = new Map<string, number>();
+  const dates = new Map<string, { first: string; last: string }>();
+  const unknown = new Set<string>();
+  for (const row of rows || []) {
+    if (typeof row.saleID === 'string' && row.saleID.startsWith('R')) continue; // return
+    if (row.isCancel) continue;
+    const sku = normSku(row.supplierArticle);
+    if (!sku) continue;
+    const wh = row.warehouseName || '';
+    const cluster = resolveCluster(wh, lookup.map, lookup.normIdx, lookup.prefixIdx);
+    if (cluster === 'UNKNOWN') unknown.add(wh);
+    bump(agg, sku, cluster, 1); // one row = one sold unit
+    bumpDate(dates, sku, cluster, String(row.date || '').slice(0, 10));
+  }
+  return { agg, dates, unknown };
+}
+
+async function syncWbStocks(env: FboEnv, lookup: ClusterLookup): Promise<{ rows: number; unknown: Set<string> }> {
   const r = await fetchRetry(
     // dateFrom is required but /stocks returns the full current snapshot
     // regardless (proven by the hourly refresh in routes/marketplaces.ts).
-    // The 2019-06-20 full-history dump was exactly what WB kept 429-ing.
     `https://statistics-api.wildberries.ru/api/v1/supplier/stocks?dateFrom=${isoDaysAgo(60)}`,
     { headers: wbHeaders(env) },
     5,
@@ -268,21 +360,12 @@ async function syncWbStocks(env: FboEnv, map: Map<string, string>): Promise<{ ro
   );
   if (!r.ok) throw new Error(`wb supplier/stocks HTTP ${r.status}`);
   const rows = (await r.json()) as any[];
-  const agg = new Map<string, number>();
-  const unknown = new Set<string>();
-  for (const row of rows || []) {
-    const sku = normSku(row.supplierArticle);
-    if (!sku) continue;
-    const wh = row.warehouseName || '';
-    let cluster = map.get(normWh(wh));
-    if (!cluster || cluster === 'UNKNOWN') { cluster = 'UNKNOWN'; unknown.add(wh); }
-    bump(agg, sku, cluster, row.quantity || 0);
-  }
-  const n = await writeStocksSnapshot(env, 'wb', agg);
+  const { agg, unknown } = aggregateWbStocks(rows, lookup);
+  const n = await writeSnapshot(env, 'fbo_stocks_cluster', 'wb', agg);
   return { rows: n, unknown };
 }
 
-async function syncWbSales(env: FboEnv, map: Map<string, string>): Promise<{ rows: number; unknown: Set<string> }> {
+async function syncWbSales(env: FboEnv, lookup: ClusterLookup): Promise<{ rows: number; unknown: Set<string> }> {
   const r = await fetchRetry(
     `https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=${isoDaysAgo(DAYS)}&flag=0`,
     { headers: wbHeaders(env) },
@@ -291,21 +374,35 @@ async function syncWbSales(env: FboEnv, map: Map<string, string>): Promise<{ row
   );
   if (!r.ok) throw new Error(`wb supplier/sales HTTP ${r.status}`);
   const rows = (await r.json()) as any[];
-  const agg = new Map<string, SalesCell>();
-  const unknown = new Set<string>();
-  for (const row of rows || []) {
-    if (typeof row.saleID === 'string' && row.saleID.startsWith('R')) continue; // return
-    if (row.isCancel) continue;
-    const sku = normSku(row.supplierArticle);
-    if (!sku) continue;
-    const wh = row.warehouseName || '';
-    let cluster = map.get(normWh(wh));
-    if (!cluster || cluster === 'UNKNOWN') { cluster = 'UNKNOWN'; unknown.add(wh); }
-    const date = String(row.date || '').slice(0, 10) || isoDaysAgo(0);
-    bumpSale(agg, sku, cluster, 1, date); // one row = one sold unit
-  }
-  const n = await writeSalesSnapshot(env, 'wb', agg);
+  const { agg, dates, unknown } = aggregateWbSales(rows, lookup);
+  const n = await writeSnapshot(env, 'fbo_sales_cluster', 'wb', agg, dates);
   return { rows: n, unknown };
+}
+
+// Bring-your-own-payload WB ingest: caller fetched supplier/stocks and/or
+// supplier/sales JSON from an unthrottled IP and POSTs them here; the data
+// flows through the exact same aggregation + snapshot code as the live sync.
+export async function ingestWb(
+  env: FboEnv,
+  stocksRows: any[] | null,
+  salesRows: any[] | null,
+): Promise<{ stocks: number | null; sales: number | null; unknown_warehouses: number }> {
+  const lookup = await loadClusterMap(env, 'wb');
+  const unknown = new Set<string>();
+  let stocks: number | null = null;
+  let sales: number | null = null;
+  if (Array.isArray(stocksRows)) {
+    const { agg, unknown: u } = aggregateWbStocks(stocksRows, lookup);
+    stocks = await writeSnapshot(env, 'fbo_stocks_cluster', 'wb', agg);
+    for (const w of u) unknown.add(w);
+  }
+  if (Array.isArray(salesRows)) {
+    const { agg, dates, unknown: u } = aggregateWbSales(salesRows, lookup);
+    sales = await writeSnapshot(env, 'fbo_sales_cluster', 'wb', agg, dates);
+    for (const w of u) unknown.add(w);
+  }
+  await registerUnknown(env, 'wb', unknown);
+  return { stocks, sales, unknown_warehouses: unknown.size };
 }
 
 // ----------------------------------------------------------- entry point
@@ -316,60 +413,72 @@ export interface FboSyncReport {
 }
 
 // `only` limits the run to one marketplace — the manual POST /sync?mp=wb
-// path exists because WB's per-seller limiter can stretch retries past an
-// HTTP client's patience; skipping the Ozon block buys those minutes back.
+// path exists because WB's throttling can stretch retries past an HTTP
+// client's patience; skipping the Ozon block buys those minutes back.
 export async function runFboSync(env: FboEnv, only?: 'ozon' | 'wb'): Promise<FboSyncReport> {
   const report: FboSyncReport = { ozon: { error: 'not run' }, wb: { error: 'not run' } };
 
-  if (only !== 'wb') try {
-    await refreshOzonClusterMap(env); // needed by sales (postings carry warehouse_name only)
-    const map = await loadClusterMap(env, 'ozon');
-    const st = await syncOzonStocks(env);
-    const sa = await syncOzonSales(env, map);
-    const unk = new Set([...st.unknown, ...sa.unknown]);
-    await registerUnknown(env, 'ozon', unk);
-    report.ozon = { stocks: st.rows, sales: sa.rows, unknown_warehouses: unk.size };
-  } catch (e) {
-    report.ozon = { error: e instanceof Error ? e.message : String(e) };
-    console.error('[fbo-sync] ozon failed:', e);
+  // Mutex: two overlapping syncs (manual + cron, or two manual) interleave
+  // DELETE/INSERT and tear the snapshot — seen live 2026-07-04. KV lock
+  // covers the run; the transactional writes above are the second line.
+  const LOCK = 'fbo:sync:lock';
+  if (env.CACHE) {
+    if (await env.CACHE.get(LOCK)) {
+      const busy = { error: 'sync already running (lock held)' };
+      return { ozon: busy, wb: busy };
+    }
+    await env.CACHE.put(LOCK, String(Date.now()), { expirationTtl: 900 });
   }
-
-  // WB statistics-api is rate-limited: pause between the Ozon block and the
-  // two WB calls, and between the WB calls themselves.
-  await new Promise((res) => setTimeout(res, 5000));
-
-  if (only === 'ozon') return report;
-
-  // WB stocks and sales are INDEPENDENT blocks: the statistics-api limiter is
-  // per-seller-global ("Limited by global limiter, per seller") and shared
-  // with every other consumer in the account, so the stocks endpoint being
-  // contested must not cost us the sales snapshot (and vice versa).
-  const wbErrors: string[] = [];
-  let wbStocks = 0, wbSales = 0;
-  const wbUnknown = new Set<string>();
-  const map = await loadClusterMap(env, 'wb');
   try {
-    const st = await syncWbStocks(env, map);
-    wbStocks = st.rows;
-    for (const u of st.unknown) wbUnknown.add(u);
-  } catch (e) {
-    wbErrors.push(`stocks: ${e instanceof Error ? e.message : String(e)}`);
-    console.error('[fbo-sync] wb stocks failed:', e);
-  }
-  await new Promise((res) => setTimeout(res, 65_000)); // WB rate limit
-  try {
-    const sa = await syncWbSales(env, map);
-    wbSales = sa.rows;
-    for (const u of sa.unknown) wbUnknown.add(u);
-  } catch (e) {
-    wbErrors.push(`sales: ${e instanceof Error ? e.message : String(e)}`);
-    console.error('[fbo-sync] wb sales failed:', e);
-  }
-  await registerUnknown(env, 'wb', wbUnknown);
-  report.wb = wbErrors.length === 2
-    ? { error: wbErrors.join('; ') }
-    : { stocks: wbStocks, sales: wbSales, unknown_warehouses: wbUnknown.size,
-        ...(wbErrors.length ? { partial_error: wbErrors.join('; ') } : {}) };
+    if (only !== 'wb') {
+      try {
+        await refreshOzonClusterMap(env); // needed by sales (postings carry warehouse_name only)
+        const lookup = await loadClusterMap(env, 'ozon');
+        const st = await syncOzonStocks(env);
+        const sa = await syncOzonSales(env, lookup);
+        const unk = new Set([...st.unknown, ...sa.unknown]);
+        await registerUnknown(env, 'ozon', unk);
+        report.ozon = { stocks: st.rows, sales: sa.rows, unknown_warehouses: unk.size };
+      } catch (e) {
+        report.ozon = { error: e instanceof Error ? e.message : String(e) };
+        console.error('[fbo-sync] ozon failed:', e);
+      }
+    }
+    if (only === 'ozon') return report;
 
-  return report;
+    // WB stocks and sales are INDEPENDENT blocks: the statistics-api
+    // throttling is shared with every other consumer in the account, so the
+    // stocks endpoint being contested must not cost us the sales snapshot.
+    await new Promise((res) => setTimeout(res, 5000));
+    const wbErrors: string[] = [];
+    let wbStocks = 0, wbSales = 0;
+    const wbUnknown = new Set<string>();
+    const lookup = await loadClusterMap(env, 'wb');
+    try {
+      const st = await syncWbStocks(env, lookup);
+      wbStocks = st.rows;
+      for (const u of st.unknown) wbUnknown.add(u);
+    } catch (e) {
+      wbErrors.push(`stocks: ${e instanceof Error ? e.message : String(e)}`);
+      console.error('[fbo-sync] wb stocks failed:', e);
+    }
+    await new Promise((res) => setTimeout(res, 65_000)); // WB rate limit
+    try {
+      const sa = await syncWbSales(env, lookup);
+      wbSales = sa.rows;
+      for (const u of sa.unknown) wbUnknown.add(u);
+    } catch (e) {
+      wbErrors.push(`sales: ${e instanceof Error ? e.message : String(e)}`);
+      console.error('[fbo-sync] wb sales failed:', e);
+    }
+    await registerUnknown(env, 'wb', wbUnknown);
+    report.wb = wbErrors.length === 2
+      ? { error: wbErrors.join('; ') }
+      : { stocks: wbStocks, sales: wbSales, unknown_warehouses: wbUnknown.size,
+          ...(wbErrors.length ? { partial_error: wbErrors.join('; ') } : {}) };
+
+    return report;
+  } finally {
+    if (env.CACHE) await env.CACHE.delete(LOCK);
+  }
 }

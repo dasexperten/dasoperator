@@ -37,13 +37,17 @@ const normSku = (s: string): string =>
 const isoDaysAgo = (d: number): string =>
   new Date(Date.now() - d * 86400_000).toISOString().slice(0, 10);
 
-async function fetchRetry(url: string, init: RequestInit, tries = 3): Promise<Response> {
+// backoffMs override matters for WB statistics-api: its limit is ~1 req/min
+// per token, so the default 2-6 s ladder just burns attempts inside the same
+// closed window (and repeated 429 hits extend the lockout). WB callers pass
+// 70 s so a retry lands in a fresh window.
+async function fetchRetry(url: string, init: RequestInit, tries = 3, backoffMs = 0): Promise<Response> {
   let last: Response | null = null;
   for (let i = 0; i < tries; i++) {
     const r = await fetch(url, init);
     if (r.status !== 429 && r.status < 500) return r;
     last = r;
-    await new Promise((res) => setTimeout(res, 2000 * (i + 1)));
+    await new Promise((res) => setTimeout(res, backoffMs || 2000 * (i + 1)));
   }
   return last!;
 }
@@ -226,6 +230,8 @@ async function syncWbStocks(env: FboEnv, map: Map<string, string>): Promise<{ ro
   const r = await fetchRetry(
     'https://statistics-api.wildberries.ru/api/v1/supplier/stocks?dateFrom=2019-06-20',
     { headers: wbHeaders(env) },
+    3,
+    70_000,
   );
   if (!r.ok) throw new Error(`wb supplier/stocks HTTP ${r.status}`);
   const rows = (await r.json()) as any[];
@@ -247,6 +253,8 @@ async function syncWbSales(env: FboEnv, map: Map<string, string>): Promise<{ row
   const r = await fetchRetry(
     `https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=${isoDaysAgo(DAYS)}&flag=0`,
     { headers: wbHeaders(env) },
+    3,
+    70_000,
   );
   if (!r.ok) throw new Error(`wb supplier/sales HTTP ${r.status}`);
   const rows = (await r.json()) as any[];

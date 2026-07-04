@@ -8,13 +8,12 @@
 //              30-day-diluted one.
 //   demand30 = v * 30                       normalized monthly demand
 //   K        = stock / demand30             coefficient on TRUE demand
-//   boost(v) = 1.2 + 0.8 * min(1, v/V_FAST) velocity amplifier, 1.2..2.0:
-//              fast movers earn freedom (up to 60 days of coverage), slow
-//              movers stay lean (36 days).
-//   target   = demand30 * boost(v)
-//   to_ship  = ceil(max(0, target - stock) / pack) * pack, and never less
-//              than ONE carton in a shipping zone — presence floor: a slow
-//              SKU with live sales keeps its shelf.
+//   target   = v * TARGET_DAYS (15) — replenish to HALF A MONTH of coverage
+//              (approved 2026-07-04, replaces the boost() 36-60-day targets):
+//              stock 0 -> ship exactly half of the cluster's monthly demand;
+//              stock already >= 15 days -> ship 0, even in a deficit zone.
+//   to_ship  = ceil(max(0, target - stock) / pack) * pack — carton rounding
+//              is the only overshoot; no presence floor.
 //
 //   zones (on normalized K):
 //           K < 0.8            -> 'toship'     (deficit, ship)
@@ -31,9 +30,6 @@
 //   Raw (not velocity-normalized) on purpose: it is the same stock/sales
 //   number the operator sees in the UI, so the gate is auditable by eye.
 //   Auto-releases on a later run once the global coefficient drops back.
-//
-//   V_FAST = 3.0 units/day is a PLACEHOLDER: recalibrate to the 80th
-//   percentile of real per-cell velocities after the first production sync.
 //
 //   packaging (base units per master carton, detected from normalized sku):
 //           de2## paste 72, de2## set 36, de1## brush 288, de1## set 144,
@@ -92,14 +88,12 @@ export interface FboStatus {
 const K_DEFICIT = 0.8;
 const K_OVERSTOCK = 1.2;
 const K_GLOBAL_STOP = 3.0; // raw total-stock/total-sales gate; > this = SKU ships nowhere
-const V_FAST = 3.0;      // units/day; recalibrate to p80 after first sync
+const TARGET_DAYS = 15;  // replenish to half a month of coverage (2026-07-04)
 const MIN_ACTIVE_DAYS = 10;   // velocity damper: a 1-2 day sales burst is not a
                               // sustained rate — first prod run had 1-day spans
                               // inflating v 30x (48 sold -> 1440 to_ship)
-const MIN_FLOOR_SALES = 5;    // presence floor only for cells with real demand:
-                              // 1-3 stray sales were earning a full 288-unit carton
-const BOOST_MIN = 1.2;   // 36 days of coverage for the slow tail
-const BOOST_MAX = 2.0;   // 60 days of coverage for proven hits
+const MIN_FLOOR_SALES = 5;    // cells with real demand only: 1-3 stray sales
+                              // were earning a full 288-unit carton
 
 // base_sku arrives normalized (lowercase, no spaces): de201, de201aa, de119aaaa
 export function packSize(sku: string): number | null {
@@ -129,10 +123,6 @@ export function velocity(
   return sales / Math.max(days, MIN_ACTIVE_DAYS);
 }
 
-export function boost(v: number): number {
-  return BOOST_MIN + (BOOST_MAX - BOOST_MIN) * Math.min(1, v / V_FAST);
-}
-
 export function classify(stock: number, v: number): { k: number | null; zone: Zone } {
   if (v <= 0) return { k: null, zone: 'default' };
   if (stock <= 0) return { k: 0, zone: 'stockout' };
@@ -146,9 +136,8 @@ export function shipAmount(stock: number, v: number, zone: Zone, pack: number | 
   if (pack === null) return 0;                       // unknown packaging — flag, never guess
   if (zone !== 'toship' && zone !== 'stockout') return 0;
   if (sales < MIN_FLOOR_SALES) return 0;             // noise cells don't earn a carton
-  const target = v * 30 * boost(v);
-  const raw = Math.ceil(Math.max(0, target - stock) / pack) * pack;
-  return Math.max(pack, raw);                        // presence floor: one carton minimum
+  const target = v * TARGET_DAYS;                    // half a month of coverage
+  return Math.ceil(Math.max(0, target - stock) / pack) * pack;
 }
 
 export async function runFboCalc(env: FboCalcEnv, mp: 'ozon' | 'wb'): Promise<FboStatus> {

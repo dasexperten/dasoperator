@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="../colors_and_type.css"/>
+<style>
+  html,body{margin:0;background:var(--paper);}
+  .card{padding:20px 24px;min-height:150px;display:flex;flex-direction:column;gap:14px;}
+  .row{display:flex;gap:10px;align-items:flex-end;}
+  .swatch{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;}
+  .chip{height:56px;border-radius:var(--radius-sm);box-shadow:var(--shadow-hairline);}
+  .hex{font:500 11px/1 var(--font-mono);color:var(--fg-3);}
+  .name{font:700 11px/1 var(--font-narrow);text-transform:uppercase;letter-spacing:.18em;color:var(--fg-1);}
+</style></head><body>
+<div class="card">
+  <div style="display:flex;align-items:center;justify-content:space-between;">
+    <div class="dx-label">Brand / Heritage</div>
+    <div class="dx-ribbon-rule" style="width:96px"><i></i><i></i><i></i></div>
+  </div>
+  <div class="row">
+    <div class="swatch"><div class="chip" style="background:#282229"></div><div class="name">Schwarz</div><div class="hex">#282229</div></div>
+    <div class="swatch"><div class="chip" style="background:#E5202C"></div><div class="name">Rot</div><div class="hex">#E5202C</div></div>
+    <div class="swatch"><div class="chip" style="background:#FEF004;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)"></div><div class="name">Gold</div><div class="hex">#FEF004</div></div>
+    <div class="swatch"><div class="chip" style="background:#1A1519"></div><div class="name">Ink</div><div class="hex">#1A1519</div></div>
+  </div>
+</div>
+</body></html>

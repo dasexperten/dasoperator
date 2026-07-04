@@ -1,5 +1,15 @@
 # Das Operator ERP
 
+## 🎨 Design System — MANDATORY
+
+All Das Experten design principles live in [`Design/`](./Design/) — brand voice, color palette, typography, spacing, components, casing rules.
+
+- [`Design/README.md`](./Design/README.md) — the design system source of truth
+- [`Design/colors_and_type.css`](./Design/colors_and_type.css) — ready-to-use CSS design tokens
+
+**Rule for humans and AI agents:** any UI, page, banner, document, or visual output produced from this repo MUST follow these principles. Consult `Design/` before styling anything.
+
+
 Cloudflare-native ERP system for Das Experten International.
 
 **Stack:** D1 + R2 + KV + Workers + Hono + Next.js 14 + Drizzle + shadcn/ui + Tremor

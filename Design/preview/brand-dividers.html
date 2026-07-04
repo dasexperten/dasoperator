@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="../colors_and_type.css"/>
+<style>
+  html,body{margin:0;background:var(--paper);}
+  .card{padding:20px 24px;display:flex;flex-direction:column;gap:12px;}
+  .row{display:flex;align-items:center;gap:20px;}
+  .sep{flex:1;display:flex;flex-direction:column;gap:8px;}
+  .big{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;height:10px;border-radius:3px;overflow:hidden;}
+  .big i{display:block;}
+  .big i:nth-child(1){background:var(--brand-schwarz);}
+  .big i:nth-child(2){background:var(--brand-rot);}
+  .big i:nth-child(3){background:var(--brand-gold);}
+  .hr{height:1px;background:var(--border-hairline);}
+  .cap{font:700 10px/1 var(--font-narrow);text-transform:uppercase;letter-spacing:.18em;color:var(--fg-2);}
+  .end{font:italic 500 14px/1 var(--font-accent);color:var(--fg-2);display:flex;align-items:center;gap:10px;}
+</style></head><body>
+<div class="card">
+  <div class="dx-label">Ribbon rule &amp; hairline system</div>
+  <div class="row"><div class="sep"><div class="cap">Section divider · heavy</div><div class="big"><i></i><i></i><i></i></div></div></div>
+  <div class="row"><div class="sep"><div class="cap">Section divider · thin (.dx-ribbon-rule)</div><div class="dx-ribbon-rule"><i></i><i></i><i></i></div></div></div>
+  <div class="row"><div class="sep"><div class="cap">Content hairline</div><div class="hr"></div></div></div>
+  <div class="row"><div class="end">— end of article <span class="dx-ribbon-rule" style="width:40px;display:inline-grid;"><i></i><i></i><i></i></span></div></div>
+</div>
+</body></html>

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="../colors_and_type.css"/>
+<style>
+  html,body{margin:0;background:var(--paper);}
+  .card{padding:20px 24px;display:flex;flex-direction:column;gap:12px;}
+  .nav{display:flex;align-items:center;gap:24px;padding:14px 18px;background:rgba(251,250,246,.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-radius:var(--radius-md);box-shadow:var(--shadow-hairline);}
+  .mark{height:28px;}
+  .links{display:flex;gap:18px;flex:1;}
+  .link{font:600 13px/1 var(--font-body);color:var(--fg-1);text-decoration:none;position:relative;padding:4px 0;}
+  .link.active::after{content:'';position:absolute;left:0;right:0;bottom:-4px;height:2px;background:var(--brand-rot);}
+  .right{display:flex;gap:10px;align-items:center;}
+  .iconbtn{width:32px;height:32px;border-radius:var(--radius-sm);display:grid;place-items:center;color:var(--fg-1);background:transparent;border:none;cursor:pointer;}
+  .iconbtn:hover{background:var(--bone);}
+  .cta{font:700 12px/1 var(--font-display);padding:8px 12px;border-radius:var(--radius-sm);background:var(--brand-rot);color:var(--paper);border:none;}
+  .ribbon{background:var(--brand-schwarz);color:var(--paper);padding:8px 18px;font:600 11px/1 var(--font-narrow);letter-spacing:.14em;text-transform:uppercase;display:flex;justify-content:space-between;border-radius:var(--radius-md);}
+</style></head><body>
+<div class="card">
+  <div class="dx-label">Navigation system</div>
+  <div class="ribbon"><span>Gratis Versand ab € 30 · Fluoride-free · Made in Germany</span><span>DE · EN · RU</span></div>
+  <div class="nav">
+    <img class="mark" src="../assets/logo-full.png" alt="das experten"/>
+    <div class="links">
+      <a class="link active" href="#">Shop</a>
+      <a class="link" href="#">Die Wissenschaft</a>
+      <a class="link" href="#">Über uns</a>
+      <a class="link" href="#">Partner</a>
+      <a class="link" href="#">Kontakt</a>
+    </div>
+    <div class="right">
+      <button class="iconbtn" aria-label="search">⌕</button>
+      <button class="iconbtn" aria-label="account">◎</button>
+      <button class="cta">Warenkorb · 2</button>
+    </div>
+  </div>
+</div>
+</body></html>

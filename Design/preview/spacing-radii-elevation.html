@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="../colors_and_type.css"/>
+<style>
+  html,body{margin:0;background:var(--paper);}
+  .card{padding:20px 24px;display:flex;flex-direction:column;gap:16px;}
+  .row{display:flex;gap:16px;align-items:flex-end;}
+  .tok{display:flex;flex-direction:column;align-items:center;gap:6px;}
+  .box{width:72px;height:48px;background:var(--paper-raised);box-shadow:var(--shadow-hairline);}
+  .n{font:500 10px/1 var(--font-mono);color:var(--fg-3);}
+  .nm{font:700 10px/1 var(--font-narrow);text-transform:uppercase;letter-spacing:.14em;color:var(--fg-1);}
+</style></head><body>
+<div class="card">
+  <div class="dx-label">Radii &amp; elevation</div>
+  <div class="row">
+    <div class="tok"><div class="box" style="border-radius:2px"></div><div class="nm">XS</div><div class="n">2px</div></div>
+    <div class="tok"><div class="box" style="border-radius:4px"></div><div class="nm">SM</div><div class="n">4px</div></div>
+    <div class="tok"><div class="box" style="border-radius:6px"></div><div class="nm">MD</div><div class="n">6px</div></div>
+    <div class="tok"><div class="box" style="border-radius:10px"></div><div class="nm">LG</div><div class="n">10px</div></div>
+    <div class="tok"><div class="box" style="border-radius:999px"></div><div class="nm">Pill</div><div class="n">999</div></div>
+    <div style="width:1px;align-self:stretch;background:var(--border-hairline);margin:0 8px"></div>
+    <div class="tok"><div class="box" style="box-shadow:var(--shadow-card)"></div><div class="nm">Card</div></div>
+    <div class="tok"><div class="box" style="box-shadow:var(--shadow-raised)"></div><div class="nm">Raised</div></div>
+    <div class="tok"><div class="box" style="box-shadow:var(--shadow-float)"></div><div class="nm">Float</div></div>
+  </div>
+</div>
+</body></html>

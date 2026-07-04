@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="../colors_and_type.css"/>
+<style>
+  html,body{margin:0;background:var(--paper);}
+  .card{padding:20px 24px;display:flex;flex-direction:column;gap:12px;}
+  .row{display:flex;gap:12px;align-items:flex-end;}
+  .field{flex:1;display:flex;flex-direction:column;gap:5px;}
+  label{font:700 10px/1 var(--font-narrow);text-transform:uppercase;letter-spacing:.18em;color:var(--fg-2);}
+  .input{font:500 14px/1 var(--font-body);padding:11px 12px;border-radius:var(--radius-sm);border:1px solid var(--border-strong);background:var(--paper-raised);box-shadow:var(--shadow-inset);color:var(--fg-1);outline:none;}
+  .input:focus{border-color:var(--brand-rot);box-shadow:inset 0 1px 0 rgba(255,255,255,.6), 0 0 0 3px rgba(229,32,44,.14);}
+  .select{position:relative;}
+  .select::after{content:'';position:absolute;right:12px;top:50%;width:0;height:0;border:5px solid transparent;border-top-color:var(--fg-2);transform:translateY(-2px);pointer-events:none;}
+  .hint{font:500 11px/1.3 var(--font-narrow);color:var(--fg-3);}
+</style></head><body>
+<div class="card">
+  <div class="dx-label">Form inputs</div>
+  <div class="row">
+    <div class="field"><label>Email</label><input class="input" placeholder="you@company.de"/></div>
+    <div class="field select"><label>Country</label><select class="input"><option>Deutschland</option><option>Österreich</option><option>United States</option></select></div>
+  </div>
+  <div class="row">
+    <div class="field"><label>Password</label><input class="input" type="password" value="••••••••••"/><span class="hint">12+ characters. No tracking.</span></div>
+    <div class="field"><label>Order ref</label><input class="input" style="font-family:var(--font-mono)" value="DE-2026-0417-B3"/></div>
+  </div>
+</div>
+</body></html>

@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<title>Das Experten — Packaging System</title>
+<link rel="stylesheet" href="../../colors_and_type.css"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;}
+html,body{margin:0;background:var(--paper-sunk);}
+.wrap{max-width:1280px;margin:0 auto;padding:40px 32px 72px}
+header{margin-bottom:32px;display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:18px;border-bottom:1px solid var(--border-strong)}
+header h1{font:900 40px/1 var(--font-display);letter-spacing:-.03em;margin:0}
+header .sub{font:400 14px/1.4 var(--font-body);color:var(--fg-2);max-width:40ch;text-align:right}
+.section{margin-bottom:56px}
+.section h2{font:800 20px/1 var(--font-display);margin:0 0 4px}
+.section .lbl{font:700 10px/1 var(--font-narrow);text-transform:uppercase;letter-spacing:.2em;color:var(--brand-rot);margin-bottom:8px}
+.section p{font:400 13px/1.5 var(--font-body);color:var(--fg-2);margin:0 0 20px;max-width:60ch}
+
+/* carton face */
+.row{display:grid;grid-template-columns:repeat(5,1fr);gap:14px}
+.carton{background:var(--paper-raised);border-radius:var(--radius-sm);box-shadow:var(--shadow-card);aspect-ratio:.42/1;display:flex;flex-direction:column;padding:14px 10px;overflow:hidden;position:relative;}
+.carton::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:var(--line)}
+.carton .logo{display:flex;align-items:center;gap:4px;margin-bottom:auto}
+.carton .ribs{display:flex;flex-direction:column;gap:1.5px}
+.carton .ribs i{display:block;width:10px;height:2.5px;border-radius:1px;transform:skewX(-15deg)}
+.carton .ribs i:nth-child(1){background:#282229}
+.carton .ribs i:nth-child(2){background:#E5202C}
+.carton .ribs i:nth-child(3){background:#FEF004}
+.carton .wm{font:900 8px/1 var(--font-display);letter-spacing:-.02em;color:var(--brand-schwarz-ink)}
+.carton .tag{font:900 15px/1 var(--font-display);color:var(--line);letter-spacing:-.02em;margin:8px 0 4px}
+.carton .tagsub{font:500 6px/1 var(--font-narrow);color:var(--stone-500);letter-spacing:.15em;text-transform:uppercase;margin-bottom:auto}
+.carton .claim{font:700 7px/1.2 var(--font-body);color:var(--brand-schwarz-ink);margin-bottom:4px}
+.carton .molecules{display:flex;gap:2px;margin-bottom:6px}
+.carton .molecules span{width:4px;height:4px;border-radius:50%}
+.carton .vol{font:700 8px/1 var(--font-mono);color:var(--fg-2);margin-top:auto;text-align:right}
+.carton .type{font:500 6px/1 var(--font-narrow);color:var(--stone-400);letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px}
+
+.lbl-carton{font:600 10px/1.3 var(--font-narrow);color:var(--fg-2);margin-top:8px;text-align:center}
+
+/* label anatomy */
+.anatomy{background:var(--paper-raised);border-radius:var(--radius-md);padding:32px;box-shadow:var(--shadow-hairline);display:grid;grid-template-columns:220px 1fr;gap:40px;align-items:center}
+.anatomy .carton{aspect-ratio:.42/1;--line:#0D199E;max-width:220px}
+.anat-list{display:flex;flex-direction:column;gap:14px}
+.anat{display:grid;grid-template-columns:28px 1fr;gap:12px;align-items:start}
+.anat .n{width:26px;height:26px;border-radius:50%;background:var(--brand-schwarz-ink);color:var(--paper);font:800 12px/1 var(--font-display);display:grid;place-items:center}
+.anat h4{font:800 14px/1.1 var(--font-display);margin:0 0 2px}
+.anat p{font:400 12px/1.4 var(--font-body);color:var(--fg-2);margin:0}
+
+/* bar strip */
+.strips{display:flex;flex-direction:column;gap:10px}
+.strip{height:40px;border-radius:var(--radius-xs);display:flex;align-items:center;padding:0 18px;color:var(--paper);font:700 11px/1 var(--font-narrow);text-transform:uppercase;letter-spacing:.22em;justify-content:space-between}
+.strip b{font-family:var(--font-display);font-weight:900;font-size:14px;letter-spacing:-.01em;text-transform:none}
+
+/* claim seals */
+.seals{display:flex;gap:16px;flex-wrap:wrap}
+.seal{width:104px;height:104px;border-radius:50%;background:var(--paper-raised);box-shadow:var(--shadow-card);display:grid;place-items:center;text-align:center;padding:10px;font:900 10px/1.1 var(--font-display);letter-spacing:.02em;text-transform:uppercase;color:var(--brand-schwarz-ink);border:1.5px solid var(--brand-schwarz-ink)}
+.seal.rot{background:var(--brand-rot);color:var(--paper);border-color:var(--brand-rot)}
+.seal.gold{background:var(--brand-gold);border-color:var(--brand-schwarz-ink)}
+.seal small{display:block;font:500 7px/1 var(--font-narrow);letter-spacing:.18em;margin-top:4px;opacity:.8}
+</style>
+</head><body>
+<div class="wrap">
+<header>
+  <div>
+    <div class="dx-eyebrow">Packaging system</div>
+    <h1>One chassis. Five product lines.</h1>
+  </div>
+  <div class="sub">The carton shape, typographic hierarchy, and tri-color ribbons stay fixed across the range. The accent color and product mark change per line.</div>
+</header>
+
+<section class="section">
+  <div class="lbl">01 · Range</div>
+  <h2>Product-line cartons</h2>
+  <p>Each carton is 70 ml (Kids at 50 ml). Top accent stripe + large product wordmark are the two variables. Everything else is system.</p>
+  <div class="row">
+    <div>
+      <div class="carton" style="--line:#0D199E">
+        <div class="logo"><div class="ribs"><i></i><i></i><i></i></div><span class="wm">das experten®</span></div>
+        <div class="type">innoWeiss</div>
+        <div class="tag">innoWeiss</div>
+        <div class="tagsub">mit Enzymen</div>
+        <div class="claim">Enzyme-Whitening<br/>ohne Abrasion</div>
+        <div class="molecules"><span style="background:#0D199E"></span><span style="background:#E5202C"></span><span style="background:#FEF004"></span></div>
+        <div class="vol">70 ml</div>
+      </div>
+      <div class="lbl-carton">innoWeiss · #0D199E</div>
+    </div>
+    <div>
+      <div class="carton" style="--line:#1A1519">
+        <div class="logo"><div class="ribs"><i></i><i></i><i></i></div><span class="wm">das experten®</span></div>
+        <div class="type">Detox</div>
+        <div class="tag">Detox</div>
+        <div class="tagsub">mit Aktivkohle</div>
+        <div class="claim">Tiefenreinigung<br/>ohne Schmelzschäden</div>
+        <div class="molecules"><span style="background:#1A1519"></span><span style="background:#E5202C"></span></div>
+        <div class="vol">70 ml</div>
+      </div>
+      <div class="lbl-carton">Detox · #1A1519</div>
+    </div>
+    <div>
+      <div class="carton" style="--line:#0E7C66">
+        <div class="logo"><div class="ribs"><i></i><i></i><i></i></div><span class="wm">das experten®</span></div>
+        <div class="type">Fresh</div>
+        <div class="tag">Fresh</div>
+        <div class="tagsub">mit Probiotika</div>
+        <div class="claim">Täglicher Schutz<br/>mit Minze</div>
+        <div class="molecules"><span style="background:#0E7C66"></span><span style="background:#FEF004"></span></div>
+        <div class="vol">70 ml</div>
+      </div>
+      <div class="lbl-carton">Fresh · #0E7C66</div>
+    </div>
+    <div>
+      <div class="carton" style="--line:#7A3B8A">
+        <div class="logo"><div class="ribs"><i></i><i></i><i></i></div><span class="wm">das experten®</span></div>
+        <div class="type">Sensitive</div>
+        <div class="tag">Sensitive</div>
+        <div class="tagsub">mit Peptiden</div>
+        <div class="claim">Remineralisierung<br/>für empf. Zähne</div>
+        <div class="molecules"><span style="background:#7A3B8A"></span><span style="background:#E5202C"></span></div>
+        <div class="vol">70 ml</div>
+      </div>
+      <div class="lbl-carton">Sensitive · #7A3B8A</div>
+    </div>
+    <div>
+      <div class="carton" style="--line:#FE7F2D">
+        <div class="logo"><div class="ribs"><i></i><i></i><i></i></div><span class="wm">das experten®</span></div>
+        <div class="type">Kids</div>
+        <div class="tag">Kids</div>
+        <div class="tagsub">Erdbeere · ab 3 J.</div>
+        <div class="claim">Sanfte Formel<br/>ohne Fluorid</div>
+        <div class="molecules"><span style="background:#FE7F2D"></span><span style="background:#FEF004"></span></div>
+        <div class="vol">50 ml</div>
+      </div>
+      <div class="lbl-carton">Kids · #FE7F2D</div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="lbl">02 · Anatomy</div>
+  <h2>Carton anatomy</h2>
+  <p>The hierarchy every carton shares. Numbered callouts keep design reviews fast.</p>
+  <div class="anatomy">
+    <div class="carton" style="--line:#0D199E">
+      <div class="logo"><div class="ribs"><i></i><i></i><i></i></div><span class="wm">das experten®</span></div>
+      <div class="type">innoWeiss</div>
+      <div class="tag">innoWeiss</div>
+      <div class="tagsub">mit Enzymen</div>
+      <div class="claim">Enzyme-Whitening<br/>ohne Abrasion</div>
+      <div class="molecules"><span style="background:#0D199E"></span><span style="background:#E5202C"></span><span style="background:#FEF004"></span></div>
+      <div class="vol">70 ml</div>
+    </div>
+    <div class="anat-list">
+      <div class="anat"><div class="n">1</div><div><h4>Line accent stripe</h4><p>4 px top bar in the product-line color. The only fully-bleed color on the face.</p></div></div>
+      <div class="anat"><div class="n">2</div><div><h4>Corporate lockup</h4><p>Ribbons + wordmark. Always at the top. Min. height 6 mm on print.</p></div></div>
+      <div class="anat"><div class="n">3</div><div><h4>Product wordmark</h4><p>Archivo 900 in the line color. Descriptor below in Archivo Narrow, tracked wide.</p></div></div>
+      <div class="anat"><div class="n">4</div><div><h4>Primary claim</h4><p>Two lines max. Archivo 700. Schwarz on paper. No exclamation marks.</p></div></div>
+      <div class="anat"><div class="n">5</div><div><h4>Ingredient molecules</h4><p>Coloured dots echo the claim's active compounds. Never more than three.</p></div></div>
+      <div class="anat"><div class="n">6</div><div><h4>Volume readout</h4><p>Manrope. Bottom-right. The only proportional-numerals readout on the face.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="lbl">03 · Claim strips</div>
+  <h2>Secondary-face claim bars</h2>
+  <p>For the long panels of the carton or shelf talkers. Heavy ALL CAPS label left, product lockup right.</p>
+  <div class="strips">
+    <div class="strip" style="background:var(--brand-schwarz)">Fluoridfrei · SLS-frei · Parabenfrei · Vegan<b>das experten®</b></div>
+    <div class="strip" style="background:#0D199E">Enzyme-Whitening · ohne Abrasion · klinisch getestet<b>innoWeiss</b></div>
+    <div class="strip" style="background:var(--brand-rot)">Made in Germany · seit 2019 · microbiome-friendly<b>das experten®</b></div>
+    <div class="strip" style="background:var(--brand-gold);color:var(--brand-schwarz-ink)">Innovativ und praktisch. · gmbh@dasexperten.de<b>das experten®</b></div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="lbl">04 · Seals</div>
+  <h2>Claim seals</h2>
+  <p>Circular on-carton seals. Three weights: hollow (default claim), rot (new / challenger), gold (featured / best-seller).</p>
+  <div class="seals">
+    <div class="seal">Fluoride<br/>free<small>since 2019</small></div>
+    <div class="seal">Microbiome<br/>friendly<small>clinically proven</small></div>
+    <div class="seal rot">New<br/>formula<small>Mit Enzymen</small></div>
+    <div class="seal gold">Best<br/>seller<small>412 reviews</small></div>
+    <div class="seal">Made in<br/>Germany<small>Berlin · EU</small></div>
+  </div>
+</section>
+</div>
+</body></html>

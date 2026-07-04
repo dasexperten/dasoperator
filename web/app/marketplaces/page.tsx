@@ -155,6 +155,7 @@ interface FboStatus {
   oos_count: number;
   overstock_count: number;
   unknown_pack: number;
+  global_stop_count?: number;
   clusters: Record<string, ClusterStats>;
   skus: SkuRow[];
 }
@@ -824,6 +825,23 @@ function ClusterItem({
                     >
                       <td style={tdStyle}>
                         <span style={{ fontWeight: 700, color: skuColor }}>{s.sku}</span>
+                        {s.flag === 'global_stop' && (
+                          <span
+                            title="Global stop: network-wide stock exceeds 3 months of sales — no supply anywhere until it sells down"
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              color: 'var(--brand-rot)',
+                              border: '1px solid var(--brand-rot)',
+                              borderRadius: 4,
+                              padding: '1px 5px',
+                              marginLeft: 8,
+                              letterSpacing: '0.04em',
+                            }}
+                          >
+                            GLOBAL STOP
+                          </span>
+                        )}
                         {showAggK && (
                           <span
                             title="Global K across all clusters"

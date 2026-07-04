@@ -23,6 +23,15 @@
 //           stock = 0, sales>0 -> 'stockout'   (priority alarm, ships)
 //           sales = 0          -> 'default', K undefined, ship 0
 //
+//   global stop-valve (approved 2026-07-04, option B): a SKU whose RAW global
+//   coefficient — total stock / total sales_30d across ALL clusters — exceeds
+//   K_GLOBAL_STOP ships NOWHERE, even into locally deficit/stockout clusters.
+//   No new money into a product the network already holds 3+ months of; local
+//   gaps wait until the pile in slow clusters sells down or is redistributed.
+//   Raw (not velocity-normalized) on purpose: it is the same stock/sales
+//   number the operator sees in the UI, so the gate is auditable by eye.
+//   Auto-releases on a later run once the global coefficient drops back.
+//
 //   V_FAST = 3.0 units/day is a PLACEHOLDER: recalibrate to the 80th
 //   percentile of real per-cell velocities after the first production sync.
 //
@@ -52,6 +61,7 @@ export interface FboSkuRow {
   zone: Zone;
   to_ship: number;
   unknown_pack: boolean;
+  global_stop: boolean;
 }
 
 export interface FboCluster {
@@ -75,11 +85,13 @@ export interface FboStatus {
   overstock_count: number;
   unknown_cluster_count: number;
   unknown_pack_count: number;
+  global_stop_count: number;
   clusters: FboCluster[];
 }
 
 const K_DEFICIT = 0.8;
 const K_OVERSTOCK = 1.2;
+const K_GLOBAL_STOP = 3.0; // raw total-stock/total-sales gate; > this = SKU ships nowhere
 const V_FAST = 3.0;      // units/day; recalibrate to p80 after first sync
 const MIN_ACTIVE_DAYS = 10;   // velocity damper: a 1-2 day sales burst is not a
                               // sustained rate — first prod run had 1-day spans
@@ -150,6 +162,7 @@ export async function runFboCalc(env: FboCalcEnv, mp: 'ozon' | 'wb'): Promise<Fb
   // Full outer join on (sku, cluster): stock without sales and sales without
   // stock are both real states (dead stock vs sold-out listing).
   type Cell = { stock: number; sales: number; first: string | null; last: string | null };
+  const SEP = String.fromCharCode(0); // same NUL separator the key() builder uses
   const cells = new Map<string, Cell>();
   const key = (s: string, c: string) => `${s}\u0000${c}`;
   for (const r of stocksQ.results) {
@@ -165,6 +178,21 @@ export async function runFboCalc(env: FboCalcEnv, mp: 'ozon' | 'wb'): Promise<Fb
     cells.set(key(r.base_sku, r.cluster), cell);
   }
 
+  // Global stop-valve: raw stock/sales per SKU summed over every cluster
+  // (UNKNOWN included — its units are still capital on Ozon shelves).
+  const totals = new Map<string, { stock: number; sales: number }>();
+  for (const [k, cell] of cells) {
+    const sku = k.slice(0, k.indexOf(SEP));
+    const t = totals.get(sku) || { stock: 0, sales: 0 };
+    t.stock += cell.stock;
+    t.sales += cell.sales;
+    totals.set(sku, t);
+  }
+  const globalStop = new Set<string>();
+  for (const [sku, t] of totals) {
+    if (t.sales > 0 && t.stock / t.sales > K_GLOBAL_STOP) globalStop.add(sku);
+  }
+
   const status_run_date = new Date().toISOString().slice(0, 10); // = sales window end
   const byCluster = new Map<string, FboSkuRow[]>();
   const skuSet = new Set<string>();
@@ -176,9 +204,13 @@ export async function runFboCalc(env: FboCalcEnv, mp: 'ozon' | 'wb'): Promise<Fb
     const v = velocity(cell.sales, cell.first, cell.last, cell.stock, status_run_date);
     const { k: coef, zone } = classify(cell.stock, v);
     const pack = packSize(sku);
+    const stopped = globalStop.has(sku);
     // UNKNOWN cluster rows are displayed but never shipped — geography
-    // unconfirmed means the carton has no address.
-    const to_ship = cluster === 'UNKNOWN' ? 0 : shipAmount(cell.stock, v, zone, pack, cell.sales);
+    // unconfirmed means the carton has no address. Globally-stopped SKUs keep
+    // their true zone on screen but ship 0 everywhere.
+    const to_ship = cluster === 'UNKNOWN' || stopped
+      ? 0
+      : shipAmount(cell.stock, v, zone, pack, cell.sales);
     if (pack === null) unknownPack++;
     if (zone === 'stockout') oos++;
     if (zone === 'overstock') overstock++;
@@ -192,6 +224,7 @@ export async function runFboCalc(env: FboCalcEnv, mp: 'ozon' | 'wb'): Promise<Fb
       zone,
       to_ship,
       unknown_pack: pack === null,
+      global_stop: stopped,
     };
     if (!byCluster.has(cluster)) byCluster.set(cluster, []);
     byCluster.get(cluster)!.push(row);
@@ -223,6 +256,7 @@ export async function runFboCalc(env: FboCalcEnv, mp: 'ozon' | 'wb'): Promise<Fb
     overstock_count: overstock,
     unknown_cluster_count: byCluster.get('UNKNOWN')?.length || 0,
     unknown_pack_count: unknownPack,
+    global_stop_count: globalStop.size,
     clusters,
   };
 

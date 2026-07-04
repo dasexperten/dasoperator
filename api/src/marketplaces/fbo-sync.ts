@@ -3,8 +3,8 @@
 // FBO supply planning — cluster-grain data sync.
 // Writes fbo_stocks_cluster / fbo_sales_cluster (migrations 0058 + 0059).
 //
-// Self-contained: no imports from the rest of the app. Wire-up (separate round):
-//   scheduled.ts  -> if (hour === 5) await runFboSync(env)   // daily 05:00 UTC = 08:00 MSK
+// Self-contained: no imports from the rest of the app. Wire-up:
+//   scheduled.ts  -> '0 5 * * *' branch: ctx.waitUntil(runFboSync(env))
 //   routes        -> POST /api/marketplaces/fbo/sync -> runFboSync(env)
 //
 // Design decisions (approved methodology, April 2026 + this session):
@@ -15,9 +15,11 @@
 //   - Snapshot semantics: each run DELETEs the marketplace slice and rewrites.
 //   - Unknown warehouses are inserted into fbo_cluster_map as UNKNOWN for
 //     manual review; their rows still land in stocks/sales under 'UNKNOWN'.
+//   - Warehouse lookup is NORMALIZED (upper-case, separators -> '_'): Ozon
+//     postings report АЛМАТЫ_2_РФЦ / САНКТ-ПЕТЕРБУРГ_РФЦ while cluster/list
+//     publishes Алматы_2_РФЦ / Санкт_Петербург_РФЦ — same warehouse, three
+//     spellings. First prod run stranded 25% of sales in UNKNOWN over this.
 //   - WB returns (saleID starting with 'R') and cancelled sales are excluded.
-//   - Sales rows carry first_sale/last_sale per cell (migration 0059) — V2
-//     active-days velocity inputs for fbo-calc.ts; NULL -> calc falls back to /30.
 //   - Ozon paid-storage exclusions are NOT applied here — calc's job.
 
 export interface FboEnv {
@@ -34,13 +36,17 @@ const DAYS = 30;
 const normSku = (s: string): string =>
   (s || '').toLowerCase().replace(/[\s_-]+/g, '').trim();
 
+// Warehouse lookup key: case- and separator-insensitive.
+const normWh = (s: string): string =>
+  (s || '').toUpperCase().replace(/[^A-ZА-ЯЁ0-9]+/gu, '_').replace(/^_+|_+$/g, '');
+
 const isoDaysAgo = (d: number): string =>
   new Date(Date.now() - d * 86400_000).toISOString().slice(0, 10);
 
-// backoffMs override matters for WB statistics-api: its limit is ~1 req/min
-// per token, so the default 2-6 s ladder just burns attempts inside the same
-// closed window (and repeated 429 hits extend the lockout). WB callers pass
-// 70 s so a retry lands in a fresh window.
+// backoffMs override matters for WB statistics-api: its per-token buckets
+// refill slowly, so the default 2-6 s ladder just burns attempts inside the
+// same closed window (and repeated 429 hits extend the lockout). WB callers
+// pass 70 s so a retry lands in a fresh window.
 async function fetchRetry(url: string, init: RequestInit, tries = 3, backoffMs = 0): Promise<Response> {
   let last: Response | null = null;
   for (let i = 0; i < tries; i++) {
@@ -52,11 +58,20 @@ async function fetchRetry(url: string, init: RequestInit, tries = 3, backoffMs =
   return last!;
 }
 
+// Lookup map keyed by normWh(). When several raw spellings collapse to one
+// key, a real cluster always beats UNKNOWN (registerUnknown rows must not
+// shadow the cluster/list truth).
 async function loadClusterMap(env: FboEnv, mp: 'ozon' | 'wb'): Promise<Map<string, string>> {
   const { results } = await env.DB
     .prepare('SELECT warehouse_name, cluster FROM fbo_cluster_map WHERE marketplace = ?')
     .bind(mp).all<{ warehouse_name: string; cluster: string }>();
-  return new Map(results.map((r) => [r.warehouse_name, r.cluster]));
+  const map = new Map<string, string>();
+  for (const r of results) {
+    const key = normWh(r.warehouse_name);
+    const prev = map.get(key);
+    if (!prev || prev === 'UNKNOWN') map.set(key, r.cluster);
+  }
+  return map;
 }
 
 async function registerUnknown(env: FboEnv, mp: 'ozon' | 'wb', names: Set<string>): Promise<void> {
@@ -68,29 +83,33 @@ async function registerUnknown(env: FboEnv, mp: 'ozon' | 'wb', names: Set<string
   await env.DB.batch([...names].map((n) => stmt.bind(mp, n, 'UNKNOWN', now)));
 }
 
-async function writeSnapshot(
-  env: FboEnv,
-  table: 'fbo_stocks_cluster' | 'fbo_sales_cluster',
-  mp: 'ozon' | 'wb',
-  rows: Map<string, number>, // key = `${base_sku}\u0000${cluster}`
-  dates?: Map<string, { first: string; last: string }>, // sales only: first/last sale day per key
-): Promise<number> {
+type SalesCell = { units: number; first: string; last: string };
+
+async function writeStocksSnapshot(env: FboEnv, mp: 'ozon' | 'wb', rows: Map<string, number>): Promise<number> {
   const now = Math.floor(Date.now() / 1000);
-  await env.DB.prepare(`DELETE FROM ${table} WHERE marketplace = ?`).bind(mp).run();
-  const stmt =
-    table === 'fbo_stocks_cluster'
-      ? env.DB.prepare('INSERT INTO fbo_stocks_cluster (marketplace, base_sku, cluster, units, synced_at) VALUES (?, ?, ?, ?, ?)')
-      : env.DB.prepare('INSERT INTO fbo_sales_cluster (marketplace, base_sku, cluster, units_30d, period_from, period_to, first_sale, last_sale, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-  const from = isoDaysAgo(DAYS);
-  const to = isoDaysAgo(0);
+  await env.DB.prepare('DELETE FROM fbo_stocks_cluster WHERE marketplace = ?').bind(mp).run();
+  const stmt = env.DB.prepare(
+    'INSERT INTO fbo_stocks_cluster (marketplace, base_sku, cluster, units, synced_at) VALUES (?, ?, ?, ?, ?)');
   const batch: D1PreparedStatement[] = [];
   for (const [key, units] of rows) {
     const [sku, cluster] = key.split('\u0000');
-    batch.push(
-      table === 'fbo_stocks_cluster'
-        ? stmt.bind(mp, sku, cluster, units, now)
-        : stmt.bind(mp, sku, cluster, units, from, to, dates?.get(key)?.first ?? null, dates?.get(key)?.last ?? null, now),
-    );
+    batch.push(stmt.bind(mp, sku, cluster, units, now));
+  }
+  for (let i = 0; i < batch.length; i += 50) await env.DB.batch(batch.slice(i, i + 50));
+  return rows.size;
+}
+
+async function writeSalesSnapshot(env: FboEnv, mp: 'ozon' | 'wb', rows: Map<string, SalesCell>): Promise<number> {
+  const now = Math.floor(Date.now() / 1000);
+  await env.DB.prepare('DELETE FROM fbo_sales_cluster WHERE marketplace = ?').bind(mp).run();
+  const stmt = env.DB.prepare(
+    'INSERT INTO fbo_sales_cluster (marketplace, base_sku, cluster, units_30d, period_from, period_to, first_sale, last_sale, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  const from = isoDaysAgo(DAYS);
+  const to = isoDaysAgo(0);
+  const batch: D1PreparedStatement[] = [];
+  for (const [key, c] of rows) {
+    const [sku, cluster] = key.split('\u0000');
+    batch.push(stmt.bind(mp, sku, cluster, c.units, from, to, c.first, c.last, now));
   }
   for (let i = 0; i < batch.length; i += 50) await env.DB.batch(batch.slice(i, i + 50));
   return rows.size;
@@ -101,20 +120,15 @@ const bump = (m: Map<string, number>, sku: string, cluster: string, n: number): 
   m.set(k, (m.get(k) || 0) + n);
 };
 
-// Track first/last sale day per (sku, cluster) cell — V2 velocity inputs
-// (fbo-calc.ts derives active-days velocity from this span).
-const bumpDate = (
-  d: Map<string, { first: string; last: string }>,
-  sku: string,
-  cluster: string,
-  day: string,
-): void => {
-  if (!day) return;
+// One sale event: accumulate units and stretch the first/last sale span —
+// the denominator of Product Velocity in fbo-calc.
+const bumpSale = (m: Map<string, SalesCell>, sku: string, cluster: string, n: number, date: string): void => {
   const k = `${sku}\u0000${cluster}`;
-  const cur = d.get(k);
-  if (!cur) { d.set(k, { first: day, last: day }); return; }
-  if (day < cur.first) cur.first = day;
-  if (day > cur.last) cur.last = day;
+  const c = m.get(k);
+  if (!c) { m.set(k, { units: n, first: date, last: date }); return; }
+  c.units += n;
+  if (date < c.first) c.first = date;
+  if (date > c.last) c.last = date;
 };
 
 // ------------------------------------------------------------------ Ozon
@@ -177,15 +191,14 @@ async function syncOzonStocks(env: FboEnv): Promise<{ rows: number; unknown: Set
       bump(agg, sku, cluster, item.available_stock_count || 0);
     }
   }
-  const rows = await writeSnapshot(env, 'fbo_stocks_cluster', 'ozon', agg);
+  const rows = await writeStocksSnapshot(env, 'ozon', agg);
   return { rows, unknown: new Set() };
 }
 
 // Sales per cluster come from FBO postings (each carries analytics_data
 // with the shipping warehouse). Window: trailing 30 days, cancelled skipped.
 async function syncOzonSales(env: FboEnv, map: Map<string, string>): Promise<{ rows: number; unknown: Set<string> }> {
-  const agg = new Map<string, number>();
-  const dates = new Map<string, { first: string; last: string }>();
+  const agg = new Map<string, SalesCell>();
   const unknown = new Set<string>();
   let offset = 0;
   for (let page = 0; page < 40; page++) {
@@ -205,20 +218,18 @@ async function syncOzonSales(env: FboEnv, map: Map<string, string>): Promise<{ r
     for (const p of postings) {
       if (p.status === 'cancelled') continue;
       const wh = p?.analytics_data?.warehouse_name || '';
-      let cluster = map.get(wh);
-      if (!cluster) { cluster = 'UNKNOWN'; unknown.add(wh); }
-      const day = String(p.created_at || '').slice(0, 10);
+      let cluster = map.get(normWh(wh));
+      if (!cluster || cluster === 'UNKNOWN') { cluster = 'UNKNOWN'; unknown.add(wh); }
+      const date = String(p.created_at || p.in_process_at || '').slice(0, 10) || isoDaysAgo(0);
       for (const prod of p.products || []) {
         const sku = normSku(prod.offer_id);
-        if (!sku) continue;
-        bump(agg, sku, cluster, prod.quantity || 0);
-        bumpDate(dates, sku, cluster, day);
+        if (sku) bumpSale(agg, sku, cluster, prod.quantity || 0, date);
       }
     }
     if (postings.length < 1000) break;
     offset += 1000;
   }
-  const rows = await writeSnapshot(env, 'fbo_sales_cluster', 'ozon', agg, dates);
+  const rows = await writeSalesSnapshot(env, 'ozon', agg);
   return { rows, unknown };
 }
 
@@ -241,11 +252,11 @@ async function syncWbStocks(env: FboEnv, map: Map<string, string>): Promise<{ ro
     const sku = normSku(row.supplierArticle);
     if (!sku) continue;
     const wh = row.warehouseName || '';
-    let cluster = map.get(wh);
-    if (!cluster) { cluster = 'UNKNOWN'; unknown.add(wh); }
+    let cluster = map.get(normWh(wh));
+    if (!cluster || cluster === 'UNKNOWN') { cluster = 'UNKNOWN'; unknown.add(wh); }
     bump(agg, sku, cluster, row.quantity || 0);
   }
-  const n = await writeSnapshot(env, 'fbo_stocks_cluster', 'wb', agg);
+  const n = await writeStocksSnapshot(env, 'wb', agg);
   return { rows: n, unknown };
 }
 
@@ -258,8 +269,7 @@ async function syncWbSales(env: FboEnv, map: Map<string, string>): Promise<{ row
   );
   if (!r.ok) throw new Error(`wb supplier/sales HTTP ${r.status}`);
   const rows = (await r.json()) as any[];
-  const agg = new Map<string, number>();
-  const dates = new Map<string, { first: string; last: string }>();
+  const agg = new Map<string, SalesCell>();
   const unknown = new Set<string>();
   for (const row of rows || []) {
     if (typeof row.saleID === 'string' && row.saleID.startsWith('R')) continue; // return
@@ -267,12 +277,12 @@ async function syncWbSales(env: FboEnv, map: Map<string, string>): Promise<{ row
     const sku = normSku(row.supplierArticle);
     if (!sku) continue;
     const wh = row.warehouseName || '';
-    let cluster = map.get(wh);
-    if (!cluster) { cluster = 'UNKNOWN'; unknown.add(wh); }
-    bump(agg, sku, cluster, 1); // one row = one sold unit
-    bumpDate(dates, sku, cluster, String(row.date || '').slice(0, 10));
+    let cluster = map.get(normWh(wh));
+    if (!cluster || cluster === 'UNKNOWN') { cluster = 'UNKNOWN'; unknown.add(wh); }
+    const date = String(row.date || '').slice(0, 10) || isoDaysAgo(0);
+    bumpSale(agg, sku, cluster, 1, date); // one row = one sold unit
   }
-  const n = await writeSnapshot(env, 'fbo_sales_cluster', 'wb', agg, dates);
+  const n = await writeSalesSnapshot(env, 'wb', agg);
   return { rows: n, unknown };
 }
 
@@ -299,8 +309,8 @@ export async function runFboSync(env: FboEnv): Promise<FboSyncReport> {
     console.error('[fbo-sync] ozon failed:', e);
   }
 
-  // WB statistics-api is rate-limited (~1 req/min): pause between the
-  // Ozon block and the two WB calls, and between the WB calls themselves.
+  // WB statistics-api is rate-limited: pause between the Ozon block and the
+  // two WB calls, and between the WB calls themselves.
   await new Promise((res) => setTimeout(res, 5000));
 
   try {

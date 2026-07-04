@@ -263,7 +263,7 @@ async function syncWbStocks(env: FboEnv, map: Map<string, string>): Promise<{ ro
     // The 2019-06-20 full-history dump was exactly what WB kept 429-ing.
     `https://statistics-api.wildberries.ru/api/v1/supplier/stocks?dateFrom=${isoDaysAgo(60)}`,
     { headers: wbHeaders(env) },
-    3,
+    5,
     70_000,
   );
   if (!r.ok) throw new Error(`wb supplier/stocks HTTP ${r.status}`);
@@ -286,7 +286,7 @@ async function syncWbSales(env: FboEnv, map: Map<string, string>): Promise<{ row
   const r = await fetchRetry(
     `https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=${isoDaysAgo(DAYS)}&flag=0`,
     { headers: wbHeaders(env) },
-    3,
+    5,
     70_000,
   );
   if (!r.ok) throw new Error(`wb supplier/sales HTTP ${r.status}`);
@@ -312,7 +312,7 @@ async function syncWbSales(env: FboEnv, map: Map<string, string>): Promise<{ row
 
 export interface FboSyncReport {
   ozon: { stocks: number; sales: number; unknown_warehouses: number } | { error: string };
-  wb:   { stocks: number; sales: number; unknown_warehouses: number } | { error: string };
+  wb:   { stocks: number; sales: number; unknown_warehouses: number; partial_error?: string } | { error: string };
 }
 
 export async function runFboSync(env: FboEnv): Promise<FboSyncReport> {
@@ -335,18 +335,36 @@ export async function runFboSync(env: FboEnv): Promise<FboSyncReport> {
   // two WB calls, and between the WB calls themselves.
   await new Promise((res) => setTimeout(res, 5000));
 
+  // WB stocks and sales are INDEPENDENT blocks: the statistics-api limiter is
+  // per-seller-global ("Limited by global limiter, per seller") and shared
+  // with every other consumer in the account, so the stocks endpoint being
+  // contested must not cost us the sales snapshot (and vice versa).
+  const wbErrors: string[] = [];
+  let wbStocks = 0, wbSales = 0;
+  const wbUnknown = new Set<string>();
+  const map = await loadClusterMap(env, 'wb');
   try {
-    const map = await loadClusterMap(env, 'wb');
     const st = await syncWbStocks(env, map);
-    await new Promise((res) => setTimeout(res, 65_000)); // WB rate limit
-    const sa = await syncWbSales(env, map);
-    const unk = new Set([...st.unknown, ...sa.unknown]);
-    await registerUnknown(env, 'wb', unk);
-    report.wb = { stocks: st.rows, sales: sa.rows, unknown_warehouses: unk.size };
+    wbStocks = st.rows;
+    for (const u of st.unknown) wbUnknown.add(u);
   } catch (e) {
-    report.wb = { error: e instanceof Error ? e.message : String(e) };
-    console.error('[fbo-sync] wb failed:', e);
+    wbErrors.push(`stocks: ${e instanceof Error ? e.message : String(e)}`);
+    console.error('[fbo-sync] wb stocks failed:', e);
   }
+  await new Promise((res) => setTimeout(res, 65_000)); // WB rate limit
+  try {
+    const sa = await syncWbSales(env, map);
+    wbSales = sa.rows;
+    for (const u of sa.unknown) wbUnknown.add(u);
+  } catch (e) {
+    wbErrors.push(`sales: ${e instanceof Error ? e.message : String(e)}`);
+    console.error('[fbo-sync] wb sales failed:', e);
+  }
+  await registerUnknown(env, 'wb', wbUnknown);
+  report.wb = wbErrors.length === 2
+    ? { error: wbErrors.join('; ') }
+    : { stocks: wbStocks, sales: wbSales, unknown_warehouses: wbUnknown.size,
+        ...(wbErrors.length ? { partial_error: wbErrors.join('; ') } : {}) };
 
   return report;
 }

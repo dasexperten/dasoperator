@@ -44,9 +44,42 @@ function humanizeOzonError(raw: string): string {
 }
 const WB_PINK = 'rgb(203, 17, 122)';
 
+// Brand skins: each tab locally overrides the ERP theme variables that every
+// FBO component already reads (--paper-*, --fg-*, --border-hairline,
+// --radius-*), so the whole subtree re-skins via the CSS cascade without
+// touching component internals. First pass uses the public brand identities
+// (Ozon 2024 blue system / WB magenta-violet); swap the hex values for the
+// Claude Design token exports when they land in the repo.
+const OZON_THEME = {
+  '--paper-1': '#FFFFFF',
+  '--paper-sunk': '#EBF1FF',
+  '--border-hairline': '#D6E3FF',
+  '--fg-1': '#001A34',
+  '--fg-2': '#4D6E8F',
+  '--fg-muted': '#7E99B3',
+  '--radius-sm': '12px',
+  '--radius-md': '16px',
+  '--radius-pill': '999px',
+} as React.CSSProperties;
+
+const WB_THEME = {
+  '--paper-1': '#FFFFFF',
+  '--paper-sunk': '#F8F1FC',
+  '--border-hairline': '#EBD8F5',
+  '--fg-1': '#26063B',
+  '--fg-2': '#6E4A8C',
+  '--fg-muted': '#9A7BB3',
+  '--radius-sm': '10px',
+  '--radius-md': '12px',
+  '--radius-pill': '999px',
+} as React.CSSProperties;
+
 const OZON_CONFIG = {
   accent: OZON_BLUE,
   accentLabel: 'OZON FBO · SUPPLY PLANNING',
+  theme: OZON_THEME,
+  pageBg: '#F2F6FF',
+  brandBar: OZON_BLUE,
   statusUrl: 'https://dasoperator-api.dasexperten.workers.dev/api/marketplaces/fbo/ozon',
   runsUrl:
     'https://dasoperator-api.dasexperten.workers.dev/api/marketplaces/fbo/runs?marketplace=ozon',
@@ -67,6 +100,9 @@ const OZON_CONFIG = {
 const WB_CONFIG = {
   accent: WB_PINK,
   accentLabel: 'WB FBO · SUPPLY PLANNING',
+  theme: WB_THEME,
+  pageBg: '#FAF4FE',
+  brandBar: 'linear-gradient(135deg, #CB11AB 0%, #7D31EE 100%)',
   statusUrl: 'https://dasoperator-api.dasexperten.workers.dev/api/marketplaces/fbo/wb',
   runsUrl:
     'https://dasoperator-api.dasexperten.workers.dev/api/marketplaces/fbo/runs?marketplace=wb',
@@ -78,6 +114,9 @@ const WB_CONFIG = {
 interface DashboardConfig {
   accent: string;
   accentLabel: string;
+  theme: React.CSSProperties;
+  pageBg: string;
+  brandBar: string;
   statusUrl: string;
   runsUrl: string;
   workflowUrl: string;
@@ -351,7 +390,24 @@ function FboDashboard({ config }: { config: DashboardConfig }) {
   if (!status) return null;
 
   return (
-    <div className="space-y-8">
+    <div
+      style={{
+        ...config.theme,
+        background: config.pageBg,
+        borderRadius: 20,
+        padding: '24px',
+        color: 'var(--fg-1)',
+      }}
+    >
+      <div
+        style={{
+          height: 6,
+          borderRadius: 3,
+          background: config.brandBar,
+          marginBottom: 20,
+        }}
+      />
+      <div className="space-y-8">
       {/* Hero sub */}
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
@@ -514,6 +570,7 @@ function FboDashboard({ config }: { config: DashboardConfig }) {
           <div style={{ color: 'var(--brand-rot)', fontSize: '14px' }}>{runsError}</div>
         )}
         {!runsLoading && !runsError && <RunsTable runs={runs} accent={config.accent} />}
+      </div>
       </div>
     </div>
   );

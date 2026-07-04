@@ -356,6 +356,24 @@ export async function handleScheduled(
     return;
   }
 
+  // Ozon review draft-prep (every 6h @ :50, 10 min after ingestion): generate
+  // draft replies for unprocessed Ozon reviews via the 6-gate review-master
+  // pipeline. Drafts only (status='pending', channel='ozon'); a human publishes
+  // them from /reviews (reply-all). Mirrors the WB reply-all model.
+  if (cron === '50 */6 * * *') {
+    try {
+      const { runOzonDraftPrep } = await import('./lib/ozon-reviews');
+      const r = await runOzonDraftPrep(env, { maxDrafts: 15, maxInspect: 60 });
+      console.log('[cron:ozon-review-prep] ' + JSON.stringify({
+        inspected: r.inspected, drafted: r.drafted, skipped: r.skipped,
+        ratingOnly: r.ratingOnly, errors: r.errors.length, durationMs: r.durationMs,
+      }));
+    } catch (e) {
+      console.error('[cron:ozon-review-prep] failed:', e);
+    }
+    return;
+  }
+
   // Monthly compaction (1st @ 03:00 UTC): roll resolved hot rows to R2, prune D1.
   // Canon (playbook / rules / scenarios / settings) is never touched.
   if (cron === '0 3 1 * *') {

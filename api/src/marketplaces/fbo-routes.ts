@@ -73,7 +73,7 @@ function toFrontendShape(s: FboStatus) {
         k: r.k,
         zone: ZONE_LABEL[r.zone],
         to_ship: r.to_ship,
-        ...(r.unknown_pack ? { flag: 'unknown_pack' } : {}),
+        ...(r.unknown_pack ? { flag: 'unknown_pack' } : r.global_stop ? { flag: 'global_stop' } : {}),
       });
     }
   }
@@ -89,6 +89,7 @@ function toFrontendShape(s: FboStatus) {
     overstock_count: s.overstock_count,
     unknown_cluster_count: s.unknown_cluster_count,
     unknown_pack: s.unknown_pack_count,
+    global_stop_count: s.global_stop_count,
     clusters,
     skus,
   };

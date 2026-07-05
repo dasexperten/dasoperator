@@ -365,7 +365,7 @@ export default function AnalyticsPage() {
                   <TableCell>
                     <Flex alignItems="center" justifyContent="start" style={{ gap: 8 }}>
                       <span style={{ minWidth: 36 }}>{share.toFixed(1)}%</span>
-                      <ProgressBar value={share} color={accent as any} size="sm" style={{ flex: 1 }} />
+                      <ProgressBar value={share} color={accent as any} style={{ flex: 1 }} />
                     </Flex>
                   </TableCell>
                 </TableRow>

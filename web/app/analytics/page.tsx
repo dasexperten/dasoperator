@@ -6,8 +6,6 @@ import {
   Metric,
   Text,
   Title,
-  TabList,
-  Tab,
   AreaChart,
   BarChart,
   Table,
@@ -274,13 +272,12 @@ export default function AnalyticsPage() {
         </Text>
         {stats && stats.timeline && stats.timeline.length > 0 ? (
           <AreaChart
+            className="h-72 mt-2"
             data={stats.timeline}
             index="date"
             categories={['visits']}
             colors={['indigo']}
             valueFormatter={fmtNum}
-            height={260}
-            marginTop={8}
             showAnimation={false}
           />
         ) : (
@@ -291,10 +288,24 @@ export default function AnalyticsPage() {
       {/* ============================ Window toggle ============================ */}
       <Flex justifyContent="between" alignItems="center">
         <Title style={{ color: 'var(--fg-1)' }}>Traffic sources &amp; search phrases</Title>
-        <TabList value={windowSel} onValueChange={(v) => setWindowSel(v as '90' | '30')} color="slate">
-          <Tab value="90" text="90 days" />
-          <Tab value="30" text="30 days" />
-        </TabList>
+        <div style={{ display: 'inline-flex', gap: 0, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
+          {(['90', '30'] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setWindowSel(v)}
+              style={{
+                padding: '8px 16px',
+                fontSize: 13,
+                fontWeight: 600,
+                border: 'none',
+                cursor: 'pointer',
+                background: windowSel === v ? 'var(--brand-schwarz)' : 'var(--paper-raised)',
+                color: windowSel === v ? 'var(--paper)' : 'var(--fg-2)',
+              }}
+            >{v === '90' ? '90 days' : '30 days'}</button>
+          ))}
+        </div>
       </Flex>
 
       {/* ============================ Sources bar chart ============================ */}
@@ -305,13 +316,12 @@ export default function AnalyticsPage() {
         </Text>
         {curSrc && curSrc.rows && curSrc.rows.length > 0 ? (
           <BarChart
+            className="h-72 mt-2"
             data={curSrc.rows.map(r => ({ source: r.source, visits: r.visits, purchases: r.purchases }))}
             index="source"
             categories={['visits', 'purchases']}
             colors={['slate', 'green']}
             valueFormatter={fmtNum}
-            height={260}
-            marginTop={8}
             showAnimation={false}
             layout="vertical"
           />

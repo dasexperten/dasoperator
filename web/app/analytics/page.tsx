@@ -275,7 +275,7 @@ export default function AnalyticsPage() {
         {stats && stats.timeline && stats.timeline.length > 0 ? (
           <AreaChart
             data={stats.timeline}
-            dataKey="date"
+            index="date"
             categories={['visits']}
             colors={['indigo']}
             valueFormatter={fmtNum}
@@ -306,7 +306,7 @@ export default function AnalyticsPage() {
         {curSrc && curSrc.rows && curSrc.rows.length > 0 ? (
           <BarChart
             data={curSrc.rows.map(r => ({ source: r.source, visits: r.visits, purchases: r.purchases }))}
-            dataKey="source"
+            index="source"
             categories={['visits', 'purchases']}
             colors={['slate', 'green']}
             valueFormatter={fmtNum}

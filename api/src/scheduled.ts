@@ -703,6 +703,23 @@ export async function handleScheduled(
     return;
   }
 
+  // Nightly web-analytics ingestion — 02:30 UTC (05:30 МСК).
+  // Pulls yesterday from GA4 + Metrika + Clarity (+ Direct when configured)
+  // into web_analytics_daily / web_behavior_snapshots. Clarity gets EXACTLY
+  // one API call (10/day hard limit). Per-leg failures go through the
+  // auto-healer inside runWebAnalyticsNightly; this catch is the backstop.
+  if (cron === '30 2 * * *') {
+    try {
+      const { runWebAnalyticsNightly } = await import('./lib/web-analytics-sync');
+      const r = await runWebAnalyticsNightly(env);
+      console.log(`[cron:web-analytics] ${r.date}: ${r.legs.join(' | ')}`);
+    } catch (e) {
+      console.error('[cron:web-analytics] failed:', e);
+      await reportCronFailure(env, 'web_analytics_nightly', e, { cron: '30 2 * * *' });
+    }
+    return;
+  }
+
   // Nightly rematch sweep — 2:00 UTC (6:00 Yerevan).
   // Re-runs auto-match on all unmatched bank_transactions from last 180 days.
   // Catches old transactions that became matchable after new partners,

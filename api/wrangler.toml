@@ -133,11 +133,16 @@ service = "dasoperator-api"
 #                03:00 UTC = 06:00 МСК, gives Ozon time to finalize prev month. 
 #                Creates a 'pending' task. Phase 8.0.
 #
-# Note: */15 cron above ALSO ticks marketplace_pull_tasks (one task per tick) 
+# Note: */15 cron above ALSO ticks marketplace_pull_tasks (one task per tick)
 # to advance fetch pagination and build operations from staging.
 #
+# 30 2 * * *  — nightly web-analytics ingestion (05:30 МСК): GA4 + Metrika
+#                + Clarity (+ Direct when configured) → web_analytics_daily /
+#                web_behavior_snapshots. Clarity = EXACTLY 1 API call/night
+#                (10/day hard limit). Handler: lib/web-analytics-sync.ts.
+#
 [triggers]
-crons = ["0 3 * * *", "0 1 * * *", "0 12 * * *", "0 * * * *", "5 */6 * * *", "*/2 * * * *", "0 0 * * *", "15 * * * *", "30 */6 * * *", "*/15 * * * *", "0 2 * * *", "0 4 * * 4", "0 3 5 * *", "*/20 * * * *", "0 4 1-7 * 3", "*/10 * * * *", "0 5 * * *", "23 */3 * * *", "* * * * *", "0 3 1 * *", "40 */6 * * *", "50 */6 * * *"]
+crons = ["0 3 * * *", "0 1 * * *", "0 12 * * *", "0 * * * *", "5 */6 * * *", "*/2 * * * *", "0 0 * * *", "15 * * * *", "30 */6 * * *", "*/15 * * * *", "0 2 * * *", "30 2 * * *", "0 4 * * 4", "0 3 5 * *", "*/20 * * * *", "0 4 1-7 * 3", "*/10 * * * *", "0 5 * * *", "23 */3 * * *", "* * * * *", "0 3 1 * *", "40 */6 * * *", "50 */6 * * *"]
 
 
 # -----------------------------------------------------------------------------

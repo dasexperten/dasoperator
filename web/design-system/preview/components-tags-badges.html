@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="../colors_and_type.css"/>
+<style>
+  html,body{margin:0;background:var(--paper);}
+  .card{padding:20px 24px;display:flex;flex-direction:column;gap:14px;}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+  .tag{font:700 10px/1 var(--font-narrow);text-transform:uppercase;letter-spacing:.14em;padding:6px 10px;border-radius:var(--radius-pill);}
+  .tag-rot{background:var(--brand-rot);color:var(--paper);}
+  .tag-gold{background:var(--brand-gold);color:var(--brand-schwarz-ink);}
+  .tag-ink{background:var(--brand-schwarz);color:var(--paper);}
+  .tag-line-iw{background:#0D199E;color:var(--paper);}
+  .tag-ghost{background:transparent;color:var(--fg-1);box-shadow:inset 0 0 0 1px var(--border-strong);}
+  .badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:var(--radius-sm);font:500 12px/1 var(--font-body);background:var(--paper-sunk);box-shadow:var(--shadow-hairline);}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--status-success);}
+</style></head><body>
+<div class="card">
+  <div class="dx-label">Tags &amp; badges</div>
+  <div class="row">
+    <span class="tag tag-rot">New</span>
+    <span class="tag tag-gold">Best seller</span>
+    <span class="tag tag-ink">Limited</span>
+    <span class="tag tag-line-iw">innoWeiss</span>
+    <span class="tag tag-ghost">Fluoride-free</span>
+    <span class="tag tag-ghost">Vegan</span>
+  </div>
+  <div class="row">
+    <span class="badge"><span class="dot"></span> In stock · ships from Berlin</span>
+    <span class="badge"><span class="dot" style="background:var(--status-info)"></span> Clinically tested</span>
+    <span class="badge"><span class="dot" style="background:var(--status-warning)"></span> Low stock</span>
+  </div>
+</div>
+</body></html>

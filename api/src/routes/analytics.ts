@@ -155,4 +155,84 @@ analytics.get('/marketplace-summary', async (c) => {
   }
 });
 
+// =============================================================================
+// GET /api/analytics/web-daily?days=30 — D1 archive of nightly web analytics
+// =============================================================================
+// Reads web_analytics_daily (written by the 02:30 UTC cron). One row per
+// (date, source): ga4 / metrika / direct. For 'direct' the semantics are
+// paid-source: sessions=clicks, purchases=conversions, revenue=spend.
+// Returns rows: [] before the first cron run (table may not exist yet).
+// =============================================================================
+analytics.get('/web-daily', async (c) => {
+  const days = Math.min(Math.max(parseInt(c.req.query('days') ?? '30', 10) || 30, 1), 365);
+  try {
+    const rows = await c.env.DB.prepare(
+      `SELECT date, source, sessions, users, purchases, revenue, cr, aov
+         FROM web_analytics_daily
+        WHERE date >= date('now', ?)
+        ORDER BY date ASC, source ASC`
+    )
+      .bind(`-${days} days`)
+      .all();
+    return ok(c, {
+      window_days: days,
+      rows: rows.results ?? [],
+      synced_at: Math.floor(Date.now() / 1000),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    if (/no such table/i.test(msg)) {
+      return ok(c, { window_days: days, rows: [], synced_at: Math.floor(Date.now() / 1000) });
+    }
+    return fail(c, 500, [{ code: 'analytics_db_error', message: msg }]);
+  }
+});
+
+// =============================================================================
+// GET /api/analytics/behavior-history?days=30 — D1 archive of Clarity snapshots
+// =============================================================================
+// web_behavior_snapshots: one row per date; JSON columns are parsed here so
+// the frontend gets ready arrays. This D1 accumulation is the ONLY Clarity
+// archive (the API has no historical backfill).
+// =============================================================================
+analytics.get('/behavior-history', async (c) => {
+  const days = Math.min(Math.max(parseInt(c.req.query('days') ?? '30', 10) || 30, 1), 365);
+  try {
+    const res = await c.env.DB.prepare(
+      `SELECT * FROM web_behavior_snapshots
+        WHERE date >= date('now', ?)
+        ORDER BY date ASC`
+    )
+      .bind(`-${days} days`)
+      .all<Record<string, unknown>>();
+
+    const parse = (v: unknown) => {
+      if (typeof v !== 'string' || !v) return [];
+      try {
+        return JSON.parse(v);
+      } catch {
+        return [];
+      }
+    };
+    const rows = (res.results ?? []).map((r) => ({
+      ...r,
+      top_pages: parse(r.top_pages),
+      top_referrers: parse(r.top_referrers),
+      countries: parse(r.countries),
+      devices: parse(r.devices),
+    }));
+    return ok(c, {
+      window_days: days,
+      rows,
+      synced_at: Math.floor(Date.now() / 1000),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    if (/no such table/i.test(msg)) {
+      return ok(c, { window_days: days, rows: [], synced_at: Math.floor(Date.now() / 1000) });
+    }
+    return fail(c, 500, [{ code: 'analytics_db_error', message: msg }]);
+  }
+});
+
 export default analytics;

@@ -219,15 +219,77 @@ async function checkModulbank(env: Env, now: number): Promise<IntegrationHealth>
   return { key: 'modulbank', label: 'Modulbank', status, last_success_at: lastTxAt, age_minutes: txAgeMin, detail, expects: `every 1h \u00b7 degraded >${MODULBANK_DEGRADED_AFTER_H}h \u00b7 broken >${MODULBANK_BROKEN_AFTER_H}h silent`, ok_24h: 0, err_24h: err24 };
 }
 
+// -----------------------------------------------------------------------------
+// Web analytics nightly ingestion (cron 30 2 * * *) — GA4/Metrika/Clarity → D1.
+// SLA: one row per source per night. Also carries the token-expiry watch
+// (HARD RULE 8): Metrika OAuth ~May 2027; GA4 SA key non-expiring but
+// rotatable; Clarity token effectively never expires.
+// -----------------------------------------------------------------------------
+const TOKEN_WATCH = 'tokens: Metrika expires ~2027-05 · GA4 SA key non-expiring · Clarity ~never';
+
+async function checkWebAnalytics(env: Env, now: number): Promise<IntegrationHealth> {
+  try {
+    const rows = await env.DB.prepare(
+      `SELECT source, MAX(date) AS last_date FROM web_analytics_daily GROUP BY source`
+    ).all<{ source: string; last_date: string }>();
+
+    const bySource = new Map((rows.results ?? []).map((r) => [r.source, r.last_date]));
+    if (bySource.size === 0) {
+      return {
+        key: 'web_analytics', label: 'Web analytics · nightly', status: 'degraded',
+        last_success_at: null, age_minutes: null,
+        detail: `no rows yet — waiting for first 02:30 UTC cron · ${TOKEN_WATCH}`,
+        expects: 'nightly 02:30 UTC', ok_24h: 0, err_24h: 0,
+      };
+    }
+
+    // freshest row across the mandatory sources (direct is optional until its token lands)
+    const mandatory = ['ga4', 'metrika'];
+    let oldestMandatoryTs: number | null = null;
+    for (const s of mandatory) {
+      const d = bySource.get(s);
+      const ts = d ? Math.floor(Date.parse(`${d}T02:30:00Z`) / 1000) : null;
+      if (ts === null || Number.isNaN(ts)) { oldestMandatoryTs = null; break; }
+      oldestMandatoryTs = oldestMandatoryTs === null ? ts : Math.min(oldestMandatoryTs, ts);
+    }
+    const ageMin = oldestMandatoryTs ? Math.round((now - oldestMandatoryTs) / 60) : null;
+    const ageH = ageMin === null ? null : ageMin / 60;
+    // yesterday's row lands ~26.5h after that date's 02:30 stamp; alarm past 2 missed nights
+    const status = classifyAge(ageH, 30, 54);
+    const perSource = ['ga4', 'metrika', 'direct']
+      .map((s) => `${s}=${bySource.get(s) ?? 'never'}`)
+      .join(' ');
+    return {
+      key: 'web_analytics', label: 'Web analytics · nightly', status,
+      last_success_at: oldestMandatoryTs, age_minutes: ageMin,
+      detail: `${perSource} · ${TOKEN_WATCH}`,
+      expects: 'nightly 02:30 UTC', ok_24h: 0, err_24h: 0,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const missing = /no such table/i.test(msg);
+    return {
+      key: 'web_analytics', label: 'Web analytics · nightly',
+      status: missing ? 'degraded' : 'broken',
+      last_success_at: null, age_minutes: null,
+      detail: missing
+        ? `tables not created yet — run POST /admin/migrate/web-analytics or wait for first cron · ${TOKEN_WATCH}`
+        : trimErr(msg),
+      expects: 'nightly 02:30 UTC', ok_24h: 0, err_24h: 1,
+    };
+  }
+}
+
 export async function computeIntegrationHealth(env: Env): Promise<HealthReport> {
   const now = Math.floor(Date.now() / 1000);
   const checks = await Promise.all([
     ...MP_RULES.map((r) => checkMarketplace(env, now, r)),
     checkWbBackfill(env, now),
     checkModulbank(env, now),
+    checkWebAnalytics(env, now),
   ]);
 
-  const order = ['ozon_stocks', 'ozon_sales', 'wb_stocks', 'wb_sales', 'ozon_reviews', 'wb_reviews', 'ozon_questions', 'wb_questions', 'wb_backfill', 'modulbank'];
+  const order = ['ozon_stocks', 'ozon_sales', 'wb_stocks', 'wb_sales', 'ozon_reviews', 'wb_reviews', 'ozon_questions', 'wb_questions', 'wb_backfill', 'modulbank', 'web_analytics'];
   checks.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
 
   const needsYou = checks.filter((c) => c.status === 'broken').length;

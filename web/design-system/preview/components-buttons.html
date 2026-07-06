@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="../colors_and_type.css"/>
+<style>
+  html,body{margin:0;background:var(--paper);}
+  .card{padding:20px 24px;display:flex;flex-direction:column;gap:14px;}
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;}
+  .btn{font:700 13px/1 var(--font-display);padding:12px 18px;border-radius:var(--radius-sm);border:1px solid transparent;cursor:pointer;transition:all var(--dur-base) var(--ease-standard);display:inline-flex;align-items:center;gap:8px;}
+  .btn-primary{background:var(--brand-rot);color:var(--paper);}
+  .btn-primary:hover{background:#c51824;transform:translateY(-1px);}
+  .btn-dark{background:var(--brand-schwarz);color:var(--paper);}
+  .btn-ghost{background:transparent;color:var(--fg-1);border-color:var(--border-strong);}
+  .btn-ghost:hover{background:var(--bone);}
+  .btn-link{background:transparent;color:var(--fg-1);padding:6px 0;border-radius:0;border-bottom:2px solid var(--brand-rot);}
+  .btn-sm{font-size:12px;padding:8px 12px;}
+</style></head><body>
+<div class="card">
+  <div class="dx-label">Buttons</div>
+  <div class="row">
+    <button class="btn btn-primary">Shop innoWeiss</button>
+    <button class="btn btn-dark">Become a partner</button>
+    <button class="btn btn-ghost">Learn more</button>
+    <button class="btn btn-link">Read the science →</button>
+  </div>
+  <div class="row">
+    <button class="btn btn-primary btn-sm">Add to cart · €9,90</button>
+    <button class="btn btn-ghost btn-sm">Save for later</button>
+    <button class="btn btn-dark btn-sm">Sign in</button>
+  </div>
+</div>
+</body></html>

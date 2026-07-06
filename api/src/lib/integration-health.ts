@@ -148,6 +148,12 @@ async function checkWbBackfill(env: Env, now: number): Promise<IntegrationHealth
   return { key: 'wb_backfill', label: 'WB \u00b7 backfill tasks', status, last_success_at: null, age_minutes: null, detail, expects: 'drains every 15 min', ok_24h: done, err_24h: frozenN };
 }
 
+// Silence thresholds, based on observed Modulbank DEE transaction cadence
+// (busiest gaps historically run ~3-4 days). Past that, "no news" stops being
+// good news and the chip should say so instead of reading green forever.
+const MODULBANK_DEGRADED_AFTER_H = 48;
+const MODULBANK_BROKEN_AFTER_H = 120;
+
 async function checkModulbank(env: Env, now: number): Promise<IntegrationHealth> {
   const since = now - 26 * HOUR;
   const [lastFail, lastHeal, lastTx] = await Promise.all([
@@ -157,20 +163,26 @@ async function checkModulbank(env: Env, now: number): Promise<IntegrationHealth>
     env.DB.prepare(
       `SELECT occurred_at, result FROM auto_heal_log WHERE service_name LIKE 'modulbank%' ORDER BY occurred_at DESC LIMIT 1`
     ).first<{ occurred_at: number; result: string }>(),
+    // Scoped to Modulbank accounts only \u2014 a Wio/VTB transaction landing in
+    // bank_transactions must not be able to mask a real Modulbank outage.
     env.DB.prepare(
-      `SELECT MAX(created_at) AS t FROM bank_transactions`
+      `SELECT MAX(bt.created_at) AS t
+       FROM bank_transactions bt
+       JOIN company_bank_accounts cba ON cba.id = bt.company_bank_account_id
+       WHERE cba.bank_provider_id = 'bp_modulbank'`
     ).first<{ t: number | null }>(),
   ]);
 
   const lastTxAt = lastTx?.t ?? null;
   const txAgeMin = lastTxAt ? Math.round((now - lastTxAt) / 60) : null;
+  const txAgeH = lastTxAt ? (now - lastTxAt) / HOUR : null;
 
-  // Recovery signal: ANY of these clears the broken state —
+  // Recovery signal: ANY of these clears the broken state \u2014
   //   1. healer logged a successful repair after the failure, OR
-  //   2. a bank transaction was created (any source) after the failure.
+  //   2. a Modulbank transaction was created after the failure.
   // The 2nd condition matters because Modulbank outages self-heal: their 404
   // window passes, the next cron pull works fine, and the system is healthy
-  // again — even though no healer ran. Without this clause, a long-past
+  // again \u2014 even though no healer ran. Without this clause, a long-past
   // 404 keeps the chip red forever.
   const recoveredByHealer = Boolean(
     lastHeal && lastHeal.result === 'success' && lastFail && lastHeal.occurred_at >= lastFail.occurred_at
@@ -190,12 +202,21 @@ async function checkModulbank(env: Env, now: number): Promise<IntegrationHealth>
   if (unhealedRecentFailure) {
     status = 'broken';
     detail = `${trimErr(lastFail!.error_message || 'sync error')} \u2014 needs you`;
+  } else if (txAgeH !== null && txAgeH > MODULBANK_BROKEN_AFTER_H) {
+    // No logged failure, but nothing has posted in days \u2014 either the webhook
+    // subscription or token quietly died, or the account genuinely went
+    // silent. Either way it's outside normal cadence and needs a human look.
+    status = 'broken';
+    detail = `no transaction for ${fmtAgo(txAgeMin)} (longer than normal) \u2014 needs you`;
+  } else if (txAgeH !== null && txAgeH > MODULBANK_DEGRADED_AFTER_H) {
+    status = 'degraded';
+    detail = `no transaction for ${fmtAgo(txAgeMin)} \u2014 watching`;
   } else {
     detail = lastTxAt ? `last transaction ${fmtAgo(txAgeMin)} \u00b7 self-healing on` : 'no transactions yet';
   }
 
   const err24 = lastFail && lastFail.occurred_at >= now - 86400 ? 1 : 0;
-  return { key: 'modulbank', label: 'Modulbank', status, last_success_at: lastTxAt, age_minutes: txAgeMin, detail, expects: 'every 1h \u00b7 alert if silent >26h', ok_24h: 0, err_24h: err24 };
+  return { key: 'modulbank', label: 'Modulbank', status, last_success_at: lastTxAt, age_minutes: txAgeMin, detail, expects: `every 1h \u00b7 degraded >${MODULBANK_DEGRADED_AFTER_H}h \u00b7 broken >${MODULBANK_BROKEN_AFTER_H}h silent`, ok_24h: 0, err_24h: err24 };
 }
 
 export async function computeIntegrationHealth(env: Env): Promise<HealthReport> {

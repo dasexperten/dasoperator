@@ -60,7 +60,7 @@ export default function SystemHealth() {
               status: r.status,
               message: r.message,
               detail,
-              href: '/inbox/banking',
+              href: '/finance',
             };
           })
           .catch((): HealthCheck => ({

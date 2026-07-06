@@ -147,3 +147,25 @@ export function metricNum(row: { metricValues?: Array<{ value: string }> }, idx:
   const v = parseFloat(row.metricValues?.[idx]?.value ?? '0');
   return Number.isFinite(v) ? v : 0;
 }
+
+
+// =============================================================================
+// runRealtimeReport wrapper — separate endpoint (analyticsdata …:runRealtimeReport),
+// same Bearer token as runReport. No date range (last ~30 min, GA4-managed window).
+// =============================================================================
+export async function ga4RunRealtimeReport(env: Env, body: Record<string, unknown>): Promise<Ga4Report> {
+  if (!env.GA4_PROPERTY_ID) throw new Error('GA4_PROPERTY_ID not configured');
+  const token = await getGa4AccessToken(env);
+  const res = await fetch(`${GA4_BASE}/properties/${env.GA4_PROPERTY_ID}:runRealtimeReport`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`GA4 runRealtimeReport HTTP ${res.status}: ${await res.text()}`);
+  }
+  return (await res.json()) as Ga4Report;
+}

@@ -410,22 +410,47 @@ site.post('/sync/stripe', async (c) => {
   return ok(c, r);
 });
 
+// Chunked + resumable — call repeatedly until done:true. Body {reset:true} restarts.
 site.post('/backfill/wix', async (c) => {
+  const body = await c.req.json<{ reset?: boolean }>().catch(() => ({} as any));
   try {
-    const r = await backfillWix(c.env);
+    const r = await backfillWix(c.env, { reset: !!body?.reset });
     return ok(c, r);
   } catch (e) {
     return fail(c, 502, [{ code: 'wix_backfill_failed', message: e instanceof Error ? e.message : String(e) }]);
   }
 });
 
+// Chunked + resumable — body {from_page?, pages?}; call until done:true.
 site.post('/backfill/retailcrm', async (c) => {
+  const body = await c.req.json<{ from_page?: number; pages?: number }>().catch(() => ({} as any));
   try {
-    const r = await backfillRetailCrm(c.env);
+    const r = await backfillRetailCrm(c.env, {
+      ...(body?.from_page ? { fromPage: Number(body.from_page) } : {}),
+      ...(body?.pages ? { pages: Number(body.pages) } : {}),
+    });
     return ok(c, r);
   } catch (e) {
     return fail(c, 502, [{ code: 'retailcrm_backfill_failed', message: e instanceof Error ? e.message : String(e) }]);
   }
+});
+
+// One-shot cleanup: drop the Wix-Payments-era Stripe charges that the first
+// history sync ingested as source='website' orders before the
+// skipped:not_checkout_pi guard existed. Those charges carry no checkout
+// metadata (order_number fell back to the pi_… id) and duplicate the
+// source='wix' order rows. Idempotent — deletes nothing on a clean DB.
+site.post('/backfill/cleanup-wix-era-pis', async (c) => {
+  const affected = await c.env.DB.prepare(
+    `SELECT id, customer_id FROM crm_orders WHERE source = 'website' AND order_number LIKE 'pi\\_%' ESCAPE '\\'`
+  ).all<{ id: string; customer_id: string | null }>();
+  const rows = affected.results ?? [];
+  if (rows.length) {
+    await c.env.DB.prepare(
+      `DELETE FROM crm_orders WHERE source = 'website' AND order_number LIKE 'pi\\_%' ESCAPE '\\'`
+    ).run();
+  }
+  return ok(c, { deleted: rows.length });
 });
 
 site.post('/import', async (c) => {

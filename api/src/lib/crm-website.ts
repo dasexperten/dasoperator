@@ -627,6 +627,14 @@ export async function ingestPaymentIntent(
   pi: any
 ): Promise<{ action: string; order_id?: string; customer_id?: string | null }> {
   if (pi?.status !== 'succeeded') return { action: 'skipped:not_succeeded' };
+  // Wix Payments processed cards through this same Stripe account until the
+  // 2026-07 cutover. Those platform-created PIs carry NO checkout metadata and
+  // would duplicate the source='wix' order history (the wix rows have the real
+  // buyer/email/items) — only PIs stamped by our checkout Worker are orders here.
+  const md = pi?.metadata ?? {};
+  if (!md.order_number && !md.nss_order_number && !md.order) {
+    return { action: 'skipped:not_checkout_pi' };
+  }
   const order = mapPaymentIntent(pi);
   if (!order.order_number) return { action: 'skipped:no_order_number' };
   order.items = await enrichItemNames(env, order.items);
@@ -728,11 +736,40 @@ export async function pollStripeOrders(
 }
 
 // -----------------------------------------------------------------------------
+// Sync-state helpers — backfills persist their progress here so each HTTP
+// invocation stays well under the Worker's ~1000-subrequest budget (the first
+// un-chunked run died mid-import) and simply resumes on the next call.
+// -----------------------------------------------------------------------------
+async function getSyncState(env: Env, key: string): Promise<string | null> {
+  const row = await env.DB.prepare('SELECT value FROM crm_sync_state WHERE key = ?')
+    .bind(key)
+    .first<{ value: string }>();
+  return row?.value ?? null;
+}
+
+async function setSyncState(env: Env, key: string, value: string): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO crm_sync_state (key, value, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+  )
+    .bind(key, value, now())
+    .run();
+}
+
+async function clearSyncState(env: Env, key: string): Promise<void> {
+  await env.DB.prepare('DELETE FROM crm_sync_state WHERE key = ?').bind(key).run();
+}
+
+// -----------------------------------------------------------------------------
 // Backfill: Wix Stores orders + Wix members  (source='wix')
 //
 // Uses the Wix REST API with an account-level API key. All field access is
 // optional-chained — Wix payload shapes vary by API revision and a missing
 // field must degrade, not abort a 44-order import.
+//
+// Chunked: one orders page (or one members page) per invocation; progress in
+// crm_sync_state (wix:orders_cursor / wix:orders_done / wix:members_offset).
+// Call repeatedly until the response says done:true. Body {reset:true} restarts.
 // -----------------------------------------------------------------------------
 const WIX_BASE = 'https://www.wixapis.com';
 
@@ -804,17 +841,35 @@ function mapWixOrder(o: any): CanonicalOrder {
   };
 }
 
-export async function backfillWix(env: Env): Promise<{
-  orders_scanned: number; orders_created: number; members_scanned: number; customers_touched: number;
+export async function backfillWix(
+  env: Env,
+  opts: { reset?: boolean } = {}
+): Promise<{
+  phase: 'orders' | 'members';
+  orders_scanned: number; orders_created: number;
+  members_scanned: number; customers_touched: number;
+  done: boolean;
 }> {
   const headers = wixHeaders(env);
+  const ORDERS_PER_RUN = 15;
+  const MEMBERS_PER_RUN = 25;
+
+  if (opts.reset) {
+    await clearSyncState(env, 'wix:orders_cursor');
+    await clearSyncState(env, 'wix:orders_done');
+    await clearSyncState(env, 'wix:members_offset');
+  }
+
   let ordersScanned = 0;
   let ordersCreated = 0;
+  let membersScanned = 0;
+  let customersTouched = 0;
 
-  // --- Orders (ecom v1 search, cursor-paged; site history is 44 orders) ---
-  let cursor: string | undefined;
-  for (let page = 0; page < 10; page++) {
-    const body: any = { cursorPaging: { limit: 100 } };
+  // --- Phase 1: orders (ecom v1 search, cursor-paged; site history is 44) ---
+  const ordersDone = (await getSyncState(env, 'wix:orders_done')) === '1';
+  if (!ordersDone) {
+    const cursor = await getSyncState(env, 'wix:orders_cursor');
+    const body: any = { cursorPaging: { limit: ORDERS_PER_RUN } };
     if (cursor) body.cursorPaging.cursor = cursor;
     const res = await fetch(`${WIX_BASE}/ecom/v1/orders/search`, {
       method: 'POST',
@@ -831,47 +886,55 @@ export async function backfillWix(env: Env): Promise<{
       const r = await upsertOrder(env, mapped, { wix_order: o });
       if (r.action === 'created') ordersCreated++;
     }
-    cursor = data?.metadata?.cursors?.next;
-    if (!cursor || !orders.length) break;
-  }
-
-  // --- Members (35 community members → customers with source='wix') ---
-  let membersScanned = 0;
-  let customersTouched = 0;
-  for (let offset = 0; offset < 1000; offset += 100) {
-    const res = await fetch(
-      `${WIX_BASE}/members/v1/members?fieldsets=FULL&paging.limit=100&paging.offset=${offset}`,
-      { headers }
-    );
-    if (!res.ok) throw new Error(`Wix members HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
-    const data = (await res.json()) as any;
-    const members = data?.members ?? [];
-    for (const m of members) {
-      membersScanned++;
-      const email = normEmail(m?.loginEmail ?? m?.contact?.emails?.[0]);
-      const phone = m?.contact?.phones?.[0] ?? null;
-      if (!email && !phone) continue;
-      await upsertCustomer(
-        env,
-        {
-          email,
-          phone,
-          first_name: m?.contact?.firstName ?? m?.profile?.nickname ?? null,
-          last_name: m?.contact?.lastName ?? null,
-          source: 'wix',
-          external_ids: {
-            ...(m?.id ? { wix_member_id: m.id } : {}),
-            ...(m?.contactId ? { wix_contact_id: m.contactId } : {}),
-          },
-        },
-        { fillOnly: true }
-      );
-      customersTouched++;
+    const next = data?.metadata?.cursors?.next;
+    if (next && orders.length) {
+      await setSyncState(env, 'wix:orders_cursor', next);
+      return { phase: 'orders', orders_scanned: ordersScanned, orders_created: ordersCreated, members_scanned: 0, customers_touched: 0, done: false };
     }
-    if (members.length < 100) break;
+    await setSyncState(env, 'wix:orders_done', '1');
+    await clearSyncState(env, 'wix:orders_cursor');
   }
 
-  return { orders_scanned: ordersScanned, orders_created: ordersCreated, members_scanned: membersScanned, customers_touched: customersTouched };
+  // --- Phase 2: members (35 community members → customers, source='wix') ---
+  const offset = Number((await getSyncState(env, 'wix:members_offset')) ?? 0);
+  const res = await fetch(
+    `${WIX_BASE}/members/v1/members?fieldsets=FULL&paging.limit=${MEMBERS_PER_RUN}&paging.offset=${offset}`,
+    { headers }
+  );
+  if (!res.ok) throw new Error(`Wix members HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = (await res.json()) as any;
+  const members = data?.members ?? [];
+  for (const m of members) {
+    membersScanned++;
+    const email = normEmail(m?.loginEmail ?? m?.contact?.emails?.[0]);
+    const phone = m?.contact?.phones?.[0] ?? null;
+    if (!email && !phone) continue;
+    await upsertCustomer(
+      env,
+      {
+        email,
+        phone,
+        first_name: m?.contact?.firstName ?? m?.profile?.nickname ?? null,
+        last_name: m?.contact?.lastName ?? null,
+        source: 'wix',
+        external_ids: {
+          ...(m?.id ? { wix_member_id: m.id } : {}),
+          ...(m?.contactId ? { wix_contact_id: m.contactId } : {}),
+        },
+      },
+      { fillOnly: true }
+    );
+    customersTouched++;
+  }
+
+  if (members.length === MEMBERS_PER_RUN) {
+    await setSyncState(env, 'wix:members_offset', String(offset + MEMBERS_PER_RUN));
+    return { phase: 'members', orders_scanned: ordersScanned, orders_created: ordersCreated, members_scanned: membersScanned, customers_touched: customersTouched, done: false };
+  }
+
+  await clearSyncState(env, 'wix:members_offset');
+  await clearSyncState(env, 'wix:orders_done');
+  return { phase: 'members', orders_scanned: ordersScanned, orders_created: ordersCreated, members_scanned: membersScanned, customers_touched: customersTouched, done: true };
 }
 
 // -----------------------------------------------------------------------------
@@ -881,17 +944,26 @@ export async function backfillWix(env: Env): Promise<{
 // counters here track website (USD) orders exclusively. Raw rows are archived
 // to R2 under crm/imports/retailcrm/ for reference.
 // -----------------------------------------------------------------------------
-export async function backfillRetailCrm(env: Env): Promise<{ scanned: number; customers_touched: number; pages: number }> {
+// Chunked: processes `pages` pages of 100 per invocation (default 2 ≈ 200
+// customers ≈ ~500 subrequests), resumes from crm_sync_state
+// 'retailcrm:next_page'. Call repeatedly until done:true. {from_page:1} restarts.
+export async function backfillRetailCrm(
+  env: Env,
+  opts: { fromPage?: number; pages?: number } = {}
+): Promise<{ scanned: number; customers_touched: number; from_page: number; next_page: number | null; total_pages: number; done: boolean }> {
   if (!env.RETAIL_CRM_DOMAIN || !env.RETAIL_CRM_TOKEN) {
     throw new Error('RETAIL_CRM_DOMAIN / RETAIL_CRM_TOKEN not configured');
   }
+  const startPage = opts.fromPage ?? Number((await getSyncState(env, 'retailcrm:next_page')) ?? 1);
+  const pagesThisRun = Math.max(1, Math.min(opts.pages ?? 2, 5));
+
   let scanned = 0;
   let touched = 0;
-  let page = 1;
-  let totalPages = 1;
+  let page = startPage;
+  let totalPages = startPage;
   const rawBatch: any[] = [];
 
-  while (page <= totalPages && page <= 50) {
+  while (page <= totalPages && page < startPage + pagesThisRun) {
     const url = new URL(`https://${env.RETAIL_CRM_DOMAIN}.retailcrm.ru/api/v5/customers`);
     url.searchParams.set('apiKey', env.RETAIL_CRM_TOKEN);
     url.searchParams.set('page', String(page));
@@ -931,6 +1003,19 @@ export async function backfillRetailCrm(env: Env): Promise<{ scanned: number; cu
     page++;
   }
 
-  await r2Put(env, 'crm/imports/retailcrm/customers.json', { imported_at: now(), count: rawBatch.length, customers: rawBatch });
-  return { scanned, customers_touched: touched, pages: page - 1 };
+  if (rawBatch.length) {
+    await r2Put(env, `crm/imports/retailcrm/customers-p${startPage}-p${page - 1}.json`, {
+      imported_at: now(),
+      count: rawBatch.length,
+      customers: rawBatch,
+    });
+  }
+
+  const done = page > totalPages;
+  if (done) {
+    await clearSyncState(env, 'retailcrm:next_page');
+  } else {
+    await setSyncState(env, 'retailcrm:next_page', String(page));
+  }
+  return { scanned, customers_touched: touched, from_page: startPage, next_page: done ? null : page, total_pages: totalPages, done };
 }

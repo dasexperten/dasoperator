@@ -195,6 +195,47 @@
   background: var(--paper-raised);
 }
 
+/* ---- Segmented window toggle (90d/30d) — desktop hover + 44px tap tier ------ */
+.wa-toggle {
+  display: inline-flex;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+}
+.wa-toggle button {
+  padding: 8px 14px;
+  min-height: var(--dx-tap-target-min);
+  min-width: var(--dx-tap-target-min);
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  background: var(--paper-raised);
+  color: var(--fg-2);
+  transition: background-color var(--dx-transition-fast);
+}
+.wa-toggle button:hover { background: var(--dx-hover-lift); color: var(--fg-1); }
+.wa-toggle button.active { background: var(--brand-schwarz); color: var(--paper); }
+.wa-toggle button.active:hover { background: var(--brand-schwarz-ink); }
+
+/* ---- In-UI keyboard-shortcut hint (desktop tier: shortcuts documented) ------- */
+.wa-kbd-hint {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 0 10px;
+  color: var(--fg-3);
+  white-space: nowrap;
+}
+.wa-kbd-hint kbd {
+  font-family: var(--font-mono);
+  background: var(--paper-sunk);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 1px 6px;
+}
+@media (min-width: 768px) { .wa-kbd-hint { display: inline-flex; } }
+
 /* ---- Funnel bars -------------------------------------------------------------- */
 .wa-funnel-row { display: grid; grid-template-columns: 160px 1fr 170px; gap: 12px; align-items: center; padding: 10px 0; }
 @media (max-width: 700px) { .wa-funnel-row { grid-template-columns: 120px 1fr; } .wa-funnel-row .meta { grid-column: 1 / -1; } }

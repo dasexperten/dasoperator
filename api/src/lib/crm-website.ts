@@ -851,7 +851,7 @@ export async function backfillWix(
   done: boolean;
 }> {
   const headers = wixHeaders(env);
-  const ORDERS_PER_RUN = 15;
+  const ORDERS_PER_RUN = 50; // whole store history (44 orders) fits one page
   const MEMBERS_PER_RUN = 25;
 
   if (opts.reset) {
@@ -869,8 +869,11 @@ export async function backfillWix(
   const ordersDone = (await getSyncState(env, 'wix:orders_done')) === '1';
   if (!ordersDone) {
     const cursor = await getSyncState(env, 'wix:orders_cursor');
-    const body: any = { cursorPaging: { limit: ORDERS_PER_RUN } };
-    if (cursor) body.cursorPaging.cursor = cursor;
+    // Wix cursor paging: when resuming, the body must carry ONLY the cursor —
+    // sending limit alongside it made Wix return the first page every time.
+    const body: any = cursor
+      ? { cursorPaging: { cursor } }
+      : { cursorPaging: { limit: ORDERS_PER_RUN } };
     const res = await fetch(`${WIX_BASE}/ecom/v1/orders/search`, {
       method: 'POST',
       headers,

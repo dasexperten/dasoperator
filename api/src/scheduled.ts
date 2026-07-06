@@ -341,6 +341,21 @@ export async function handleScheduled(
   const cron = event.cron;
   console.log(`[cron] tick: ${cron}`);
 
+  // Website CRM — hourly Stripe reconciliation (Phase 12.0, dasexperten.com).
+  // Webhook /api/crm/website/webhook/stripe is the real-time path; this poll
+  // catches anything it missed and sweeps refunds. No-op until
+  // STRIPE_SECRET_KEY is set and /admin/migrate/crm-website has run.
+  if (cron === '7 * * * *') {
+    try {
+      const { pollStripeOrders } = await import('./lib/crm-website');
+      const r = await pollStripeOrders(env);
+      console.log('[cron:crm-website-stripe] ' + JSON.stringify(r));
+    } catch (e) {
+      console.error('[cron:crm-website-stripe] failed:', e);
+    }
+    return;
+  }
+
   // Marketplace feeds refresh (every 6h @ :40): Ozon reviews + Ozon/WB questions → D1.
   if (cron === '40 */6 * * *') {
     // Direct in-process call — the old fetch() to our own *.workers.dev URL was

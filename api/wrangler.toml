@@ -51,6 +51,19 @@ binding = "ARCHIVE_OLD"
 bucket_name = "das-operator-data"
 
 # -----------------------------------------------------------------------------
+# R2 Bucket — website CRM raw archive (Phase 12.0 — dasexperten.com orders)
+# Raw JSON snapshot of every website order + customer under crm/:
+#   crm/orders/{source}/{order_number}.json · crm/customers/{id}.json ·
+#   crm/imports/…  D1 (crm_orders/crm_customers) stays the queryable layer,
+#   this bucket is the replay/audit source of truth (ADR-001 split).
+# Bucket is shared with the loyalty-bridge Worker (its RetailCRM export lives
+# at top-level keys); dasoperator only ever touches the crm/ prefix.
+# -----------------------------------------------------------------------------
+[[r2_buckets]]
+binding = "CUSTOMERS_DB"
+bucket_name = "das-loyalty-customers"
+
+# -----------------------------------------------------------------------------
 # KV Namespace — sequences cache
 # Stores: next_number for DEE/DEI/DEASEAN/DEC/CI/PL counters
 # Pattern: KV first, D1 second (write-through cache)
@@ -141,8 +154,15 @@ service = "dasoperator-api"
 #                web_behavior_snapshots. Clarity = EXACTLY 1 API call/night
 #                (10/day hard limit). Handler: lib/web-analytics-sync.ts.
 #
+# 7 * * * *   — hourly Stripe reconciliation poller (Phase 12.0 website CRM).
+#                Lists succeeded PaymentIntents of the dasexperten.com checkout
+#                since the crm_sync_state cursor and upserts them into
+#                crm_orders/crm_customers (+ R2 crm/ archive). The webhook
+#                /api/crm/website/webhook/stripe is the real-time path; this
+#                poller is the safety net and also sweeps refunds.
+#
 [triggers]
-crons = ["0 3 * * *", "0 1 * * *", "0 12 * * *", "0 * * * *", "5 */6 * * *", "*/2 * * * *", "0 0 * * *", "15 * * * *", "30 */6 * * *", "*/15 * * * *", "0 2 * * *", "30 2 * * *", "0 4 * * 4", "0 3 5 * *", "*/20 * * * *", "0 4 1-7 * 3", "*/10 * * * *", "0 5 * * *", "23 */3 * * *", "* * * * *", "0 3 1 * *", "40 */6 * * *", "50 */6 * * *"]
+crons = ["0 3 * * *", "0 1 * * *", "0 12 * * *", "0 * * * *", "5 */6 * * *", "*/2 * * * *", "0 0 * * *", "15 * * * *", "30 */6 * * *", "*/15 * * * *", "0 2 * * *", "30 2 * * *", "0 4 * * 4", "0 3 5 * *", "*/20 * * * *", "0 4 1-7 * 3", "*/10 * * * *", "0 5 * * *", "23 */3 * * *", "* * * * *", "0 3 1 * *", "40 */6 * * *", "50 */6 * * *", "7 * * * *"]
 
 
 # -----------------------------------------------------------------------------

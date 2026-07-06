@@ -11,6 +11,14 @@ Last reviewed: 2026-05-09
 
 These are the next items in line. Pick by saying the letter (A, B, C…).
 
+**2026-07-04 — Website CRM (Phase 12.0) shipped, needs go-live steps.**
+dasexperten.com (Stripe) orders now flow into D1 `crm_orders`/`crm_customers`
+with raw JSON in R2 `das-loyalty-customers` under `crm/`; `/crm` got a
+storefront source pill (.ru KIT ↔ .com Stripe). Remaining manual steps after
+deploy: run `/admin/migrate/crm-website`, `wrangler secret put
+STRIPE_SECRET_KEY`, optionally register the Stripe webhook + backfill
+Wix/RetailCRM. Full runbook: `docs/notes/crm-website-orders.md`.
+
 **A — Static Export 404 fix** (blocker)
 Architectural problem: Next.js builds detail pages from a hardcoded list at
 build time. Any new product, partner, operation created via the UI returns

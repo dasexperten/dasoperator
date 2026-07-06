@@ -869,11 +869,12 @@ export async function backfillWix(
   const ordersDone = (await getSyncState(env, 'wix:orders_done')) === '1';
   if (!ordersDone) {
     const cursor = await getSyncState(env, 'wix:orders_cursor');
-    // Wix cursor paging: when resuming, the body must carry ONLY the cursor —
-    // sending limit alongside it made Wix return the first page every time.
+    // ecom/v1/orders/search takes its arguments inside a `search` wrapper —
+    // a top-level cursorPaging is silently ignored (25 default rows, cursor
+    // never applied; verified live 2026-07-06). Resume carries only the cursor.
     const body: any = cursor
-      ? { cursorPaging: { cursor } }
-      : { cursorPaging: { limit: ORDERS_PER_RUN } };
+      ? { search: { cursorPaging: { cursor } } }
+      : { search: { cursorPaging: { limit: ORDERS_PER_RUN } } };
     const res = await fetch(`${WIX_BASE}/ecom/v1/orders/search`, {
       method: 'POST',
       headers,

@@ -85,17 +85,24 @@ export function WorldMap({
       <rect x={0} y={0} width={WORLD.width} height={WORLD.height} fill="transparent" />
       {WORLD.countries.map((c) => {
         const v = byName.get(c.name);
+        const title = v ? `${c.name}: ${new Intl.NumberFormat('en-US').format(v)}` : c.name;
         return (
-          <path
-            key={c.id}
-            d={c.d}
-            fill={colorFor(c.name)}
-            stroke="var(--paper)"
-            strokeWidth={0.4}
-            fillRule="evenodd"
-          >
-            {v ? <title>{`${c.name}: ${new Intl.NumberFormat('en-US').format(v)}`}</title> : <title>{c.name}</title>}
-          </path>
+          <g key={c.id}>
+            {/* Fill needs each fragment closed (the antimeridian-splitter emits
+                one Z per fragment — Russia/Fiji/the Aleutians end up as 2-3
+                closed pieces instead of one ring). */}
+            <path d={c.d} fill={colorFor(c.name)} fillRule="evenodd">
+              <title>{title}</title>
+            </path>
+            {/* Stroke is drawn from a Z-stripped copy of the same "d". Every
+                closed fragment's Z would otherwise draw a straight border
+                stroke connecting its two cut ends — for Russia's Arctic-coast
+                fragments that chord runs almost the full map width and shows
+                up as a stray horizontal line. Fill doesn't have this problem
+                (SVG needs the explicit close there); only the visible stroke
+                does, so we skip Z for stroke only. */}
+            <path d={c.d.replace(/Z/g, '')} fill="none" stroke="var(--paper)" strokeWidth={0.4} />
+          </g>
         );
       })}
     </svg>

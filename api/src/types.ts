@@ -127,6 +127,20 @@ export interface Env {
   YANDEX_METRIKA_COUNTER?: string;
   YANDEX_METRIKA_TOKEN?: string;
 
+  // GA4 Data API (analyticsdata.googleapis.com/v1beta) — web analytics
+  // command center. GA4_SA_KEY is the full service-account JSON; auth is
+  // JWT RS256 via WebCrypto in lib/ga4.ts. Both are Worker secrets.
+  GA4_PROPERTY_ID?: string;
+  GA4_SA_KEY?: string;
+
+  // Microsoft Clarity Data Export API (scope Data.Export).
+  // HARD LIMIT 10 calls/project/day — see lib/clarity.ts quota discipline.
+  CLARITY_API_TOKEN?: string;
+
+  // Yandex Direct Reports API v5. NOT SET YET — every consumer degrades to
+  // { configured: false } until the token lands (lib/direct.ts).
+  DIRECT_OAUTH_TOKEN?: string;
+
   // F4 Lyubertsy fulfillment / Skladbot WMS — Phase 7.x
   // Bearer token issued 2026-05-13, expires 2026-11-13.
   // See F4_INVENTORY_SECRETS.md for full integration spec.

@@ -321,6 +321,23 @@ admin.post('/migrate/source-buyer-entity', async (c) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// POST /admin/migrate/web-analytics — Web Analytics Command Center (2026-07-06)
+// Creates the two nightly-ingestion tables:
+//   web_analytics_daily     (date, source) — ga4 / metrika / direct rows
+//   web_behavior_snapshots  (date)         — Clarity daily snapshot
+// Idempotent — CREATE TABLE IF NOT EXISTS (also run by the nightly cron
+// itself, so this endpoint is a convenience for immediate setup).
+// ---------------------------------------------------------------------------
+admin.post('/migrate/web-analytics', async (c) => {
+  const { ensureWebAnalyticsTables } = await import('../lib/web-analytics-sync');
+  await ensureWebAnalyticsTables(c.env);
+  const tables = await c.env.DB.prepare(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name IN ('web_analytics_daily','web_behavior_snapshots')`
+  ).all<{ name: string }>();
+  return ok(c, { applied: true, tables: (tables.results ?? []).map((t) => t.name) });
+});
+
 export default admin;
 
 

@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<title>Das Experten — Marketing</title>
+<link rel="stylesheet" href="../../colors_and_type.css"/>
+<style>
+  *,*::before,*::after{box-sizing:border-box;}
+  html,body{margin:0;background:var(--paper);}
+  .wrap{max-width:1280px;margin:0 auto;}
+  /* top ribbon */
+  .ribbon{background:var(--brand-schwarz);color:var(--paper);padding:9px 32px;font:600 11px/1 var(--font-narrow);letter-spacing:.16em;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center;}
+  .ribbon span{opacity:.9}
+  .ribbon .lang{display:flex;gap:10px}
+  .ribbon .lang a{color:var(--paper);opacity:.55;text-decoration:none;}
+  .ribbon .lang a.active{opacity:1;border-bottom:1.5px solid var(--brand-gold);padding-bottom:3px;}
+  /* nav */
+  nav.top{display:flex;align-items:center;gap:32px;padding:18px 32px;background:rgba(251,250,246,.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);position:sticky;top:0;z-index:10;border-bottom:1px solid var(--border-hairline);}
+  nav.top img{height:36px;width:auto;}
+  nav.top .links{display:flex;gap:24px;flex:1;}
+  nav.top a.link{font:600 14px/1 var(--font-body);color:var(--fg-1);text-decoration:none;position:relative;padding:6px 0;}
+  nav.top a.link.active::after{content:'';position:absolute;left:0;right:0;bottom:-2px;height:2px;background:var(--brand-rot);}
+  nav.top .right{display:flex;gap:10px;align-items:center;}
+  .iconbtn{width:38px;height:38px;border-radius:var(--radius-sm);display:grid;place-items:center;background:transparent;border:none;cursor:pointer;font-size:16px;color:var(--fg-1);}
+  .iconbtn:hover{background:var(--bone);}
+  .cta{font:700 13px/1 var(--font-display);padding:10px 14px;border-radius:var(--radius-sm);background:var(--brand-rot);color:var(--paper);border:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px;}
+  .cta:hover{background:#c51824;}
+  .cta-ghost{background:transparent;color:var(--fg-1);border:1px solid var(--border-strong);}
+  .cta-dark{background:var(--brand-schwarz);color:var(--paper);}
+
+  /* HERO */
+  .hero{padding:64px 32px 72px;display:grid;grid-template-columns:1.1fr .9fr;gap:48px;align-items:center;position:relative;}
+  .hero .eyebrow{display:flex;align-items:center;gap:12px;margin-bottom:24px;}
+  .hero .eyebrow .dx-ribbon-rule{width:48px}
+  .hero h1{font:900 clamp(56px,7vw,104px)/0.95 var(--font-display);letter-spacing:-0.035em;margin:0 0 24px;color:var(--fg-1);}
+  .hero h1 em{font-style:normal;color:var(--brand-rot);}
+  .hero .lede{font:400 19px/1.5 var(--font-body);color:var(--fg-2);max-width:52ch;margin-bottom:32px;}
+  .hero .actions{display:flex;gap:12px;align-items:center;}
+  .hero .trust{display:flex;gap:24px;margin-top:40px;padding-top:24px;border-top:1px solid var(--border-hairline);}
+  .trust-item{display:flex;flex-direction:column;gap:4px;}
+  .trust-item .n{font:700 28px/1 var(--font-accent);color:var(--fg-1);}
+  .trust-item .l{font:600 10px/1.2 var(--font-narrow);text-transform:uppercase;letter-spacing:.16em;color:var(--fg-3);}
+  /* hero visual */
+  .hero-visual{position:relative;aspect-ratio:4/5;background:var(--paper-sunk);border-radius:var(--radius-lg);overflow:hidden;}
+  .hero-visual::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 30%, rgba(255,255,255,0) 0%, rgba(13,25,158,0.04) 80%);}
+  .hero-visual .stripe{position:absolute;top:24px;left:0;right:0;height:4px;background:#0D199E;}
+  .hero-visual .pkg{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:40%;aspect-ratio:0.32/1;background:linear-gradient(180deg,#fff,#e8ecf7);border-radius:14px;box-shadow:var(--shadow-float);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px;}
+  .hero-visual .pkg .inno{font:900 22px/1 var(--font-display);color:#0D199E;letter-spacing:-.015em;text-align:center;}
+  .hero-visual .pkg .weiss{font:900 22px/1 var(--font-display);color:#0D199E;letter-spacing:-.015em;margin-top:2px;}
+  .hero-visual .pkg .sub{font:500 9px/1.3 var(--font-narrow);color:var(--stone-500);text-align:center;margin-top:10px;letter-spacing:.08em;text-transform:uppercase;}
+  .hero-visual .pkg .dots{display:flex;gap:6px;margin-top:auto;margin-bottom:18px;}
+  .hero-visual .pkg .dots span{width:7px;height:7px;border-radius:50%;}
+  .hero-visual .pkg .dots span:nth-child(1){background:#0D199E;}
+  .hero-visual .pkg .dots span:nth-child(2){background:#E5202C;}
+  .hero-visual .pkg .dots span:nth-child(3){background:#FEF004;}
+  .hero-visual .badge{position:absolute;top:28px;right:28px;width:92px;height:92px;border-radius:50%;background:var(--brand-gold);display:grid;place-items:center;transform:rotate(-8deg);padding:8px;text-align:center;font:900 11px/1.15 var(--font-display);letter-spacing:.04em;color:var(--brand-schwarz-ink);text-transform:uppercase;}
+
+  /* VILLAIN / PROBLEM section */
+  .villain{background:var(--brand-schwarz);color:var(--paper);padding:96px 32px;}
+  .villain .inner{display:grid;grid-template-columns:.4fr .6fr;gap:48px;align-items:start;}
+  .villain .lead{font:900 44px/1.05 var(--font-display);letter-spacing:-.03em;color:var(--paper);}
+  .villain .lead em{font-style:italic;font-family:var(--font-accent);font-weight:500;color:var(--brand-gold);}
+  .villain ul{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:20px;}
+  .villain li{display:grid;grid-template-columns:36px 1fr;gap:14px;padding-bottom:20px;border-bottom:1px solid rgba(255,255,255,.12);}
+  .villain li:last-child{border-bottom:none;}
+  .villain .x{width:36px;height:36px;border-radius:6px;background:var(--brand-rot);display:grid;place-items:center;font:900 18px/1 var(--font-display);color:var(--paper);}
+  .villain .claim{font:700 19px/1.3 var(--font-body);color:var(--paper);margin-bottom:4px;}
+  .villain .claim strong{color:var(--brand-gold);}
+  .villain .expl{font:400 14px/1.5 var(--font-body);color:var(--stone-200);}
+
+  /* SCIENCE section */
+  .science{padding:96px 32px;background:var(--paper);}
+  .science .head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:40px;gap:32px;}
+  .science h2{font:900 56px/1.02 var(--font-display);letter-spacing:-.03em;margin:0;max-width:12ch;}
+  .science h2 em{font-style:italic;font-family:var(--font-accent);font-weight:500;}
+  .science .rail{font:400 16px/1.55 var(--font-body);color:var(--fg-2);max-width:40ch;}
+  .science .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;}
+  .sci-card{background:var(--paper-raised);border-radius:var(--radius-md);padding:28px;box-shadow:var(--shadow-hairline);display:flex;flex-direction:column;gap:16px;position:relative;overflow:hidden;}
+  .sci-card .num{font:700 72px/1 var(--font-accent);color:var(--brand-rot);letter-spacing:-.02em;}
+  .sci-card h3{font:800 22px/1.15 var(--font-display);letter-spacing:-.015em;margin:0;}
+  .sci-card p{font:400 14px/1.5 var(--font-body);color:var(--fg-2);margin:0;}
+  .sci-card .ing{margin-top:auto;padding-top:14px;border-top:1px solid var(--border-hairline);font:500 11px/1.5 var(--font-mono);color:var(--fg-3);}
+
+  /* PRODUCT GRID */
+  .shop{padding:96px 32px;background:var(--paper-sunk);}
+  .shop .head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:32px;}
+  .shop h2{font:900 44px/1 var(--font-display);letter-spacing:-.03em;margin:0;}
+  .shop .view{font:600 13px/1 var(--font-body);color:var(--fg-1);text-decoration:none;border-bottom:2px solid var(--brand-rot);padding-bottom:3px;}
+  .pgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;}
+  .pcard{background:var(--paper-raised);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-hairline);position:relative;cursor:pointer;transition:all var(--dur-base) var(--ease-standard);}
+  .pcard:hover{transform:translateY(-2px);box-shadow:var(--shadow-raised);}
+  .pcard .strip{height:4px;}
+  .pcard .shot{aspect-ratio:4/3;background:var(--paper-sunk);display:grid;place-items:center;}
+  .pcard .shot svg{width:60%;height:85%;}
+  .pcard .body{padding:16px 18px 20px;display:flex;flex-direction:column;gap:4px;}
+  .pcard .line{font:700 14px/1 'Eras Bold ITC', var(--font-display);letter-spacing:0;}
+  .pcard .nm{font:800 20px/1.1 var(--font-display);letter-spacing:-.015em;margin-top:4px;}
+  .pcard .de{font:400 12px/1.4 var(--font-body);color:var(--fg-2);margin-top:4px;}
+  .pcard .foot{display:flex;justify-content:space-between;align-items:baseline;margin-top:12px;padding-top:12px;border-top:1px solid var(--border-hairline);}
+  .pcard .price{font:700 16px/1 var(--font-accent);}
+  .pcard .vol{font:500 10px/1 var(--font-mono);color:var(--fg-3);}
+  .pcard.new::after{content:'Neu';position:absolute;top:14px;right:14px;background:var(--brand-rot);color:var(--paper);font:700 9px/1 var(--font-narrow);text-transform:uppercase;letter-spacing:.18em;padding:5px 8px;border-radius:2px;}
+
+  /* QUOTE */
+  .quote{padding:96px 32px;text-align:center;}
+  .quote .dx-ribbon-rule{width:80px;margin:0 auto 28px;}
+  .quote blockquote{font:italic 500 40px/1.25 var(--font-accent);color:var(--fg-1);margin:0;max-width:22ch;margin:0 auto;letter-spacing:-.01em;}
+  .quote cite{display:block;margin-top:28px;font:600 11px/1.4 var(--font-narrow);text-transform:uppercase;letter-spacing:.22em;color:var(--fg-3);font-style:normal;}
+
+  /* FOOTER */
+  footer{background:var(--paper-sunk);padding:64px 32px 32px;}
+  footer .top{display:grid;grid-template-columns:1.2fr .8fr .8fr .8fr .8fr;gap:40px;padding-bottom:40px;border-bottom:1px solid var(--border-hairline);}
+  footer img.mark{height:32px;width:auto;margin-bottom:20px;}
+  footer .col h4{font:700 11px/1 var(--font-narrow);text-transform:uppercase;letter-spacing:.2em;color:var(--fg-1);margin:0 0 18px;}
+  footer .col a{display:block;font:500 14px/2 var(--font-body);color:var(--fg-2);text-decoration:none;}
+  footer .col a:hover{color:var(--fg-1);}
+  footer p.mission{font:400 14px/1.55 var(--font-body);color:var(--fg-2);max-width:30ch;}
+  footer .bottom{display:flex;justify-content:space-between;align-items:center;padding-top:24px;}
+  footer .bottom .copy{font:500 11px/1 var(--font-narrow);color:var(--fg-3);letter-spacing:.12em;text-transform:uppercase;}
+  footer .bottom .ribbon-rule{width:160px;}
+</style>
+</head><body>
+
+<div class="wrap">
+
+<!-- top ribbon -->
+<div class="ribbon">
+  <span>Gratis Versand ab € 30 · Made in Germany · Microbiome-friendly</span>
+  <div class="lang"><a href="#" class="active">DE</a><a href="#">EN</a><a href="#">RU</a></div>
+</div>
+
+<!-- nav -->
+<nav class="top">
+  <img src="../../assets/logo-full.png" alt="das experten"/>
+  <div class="links">
+    <a class="link active" href="#">Shop</a>
+    <a class="link" href="#">Die Wissenschaft</a>
+    <a class="link" href="#">Über uns</a>
+    <a class="link" href="#">Partner werden</a>
+    <a class="link" href="#">Journal</a>
+  </div>
+  <div class="right">
+    <button class="iconbtn" aria-label="search">⌕</button>
+    <button class="iconbtn" aria-label="account">◎</button>
+    <button class="cta">Warenkorb <span style="background:rgba(255,255,255,.2);padding:2px 6px;border-radius:2px;font-size:10px;">2</span></button>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div>
+    <div class="eyebrow"><span class="dx-ribbon-rule"><i></i><i></i><i></i></span><span class="dx-eyebrow">Innovativ und praktisch · seit 2019</span></div>
+    <h1>Your toothpaste is<br/><em>failing you.</em><br/>We fixed it.</h1>
+    <p class="lede">Enzymes instead of abrasives. Probiotics instead of antiseptics. Bioactive peptides instead of fluoride. Microbiome-friendly oral care — engineered in Germany.</p>
+    <div class="actions">
+      <button class="cta">Shop innoWeiss →</button>
+      <button class="cta cta-ghost">Read the science</button>
+    </div>
+    <div class="trust">
+      <div class="trust-item"><span class="n">0 %</span><span class="l">Fluoride</span></div>
+      <div class="trust-item"><span class="n">5+ yrs</span><span class="l">Market proven</span></div>
+      <div class="trust-item"><span class="n">24</span><span class="l">Countries</span></div>
+      <div class="trust-item"><span class="n">100 %</span><span class="l">Vegan</span></div>
+    </div>
+  </div>
+  <div class="hero-visual">
+    <div class="stripe"></div>
+    <div class="badge">Enzyme<br/>whitening<br/>no abrasion</div>
+    <div class="pkg">
+      <div class="inno">inno</div>
+      <div class="weiss">Weiss</div>
+      <div class="sub">mit Enzymen · 70 ml</div>
+      <div class="dots"><span></span><span></span><span></span></div>
+    </div>
+  </div>
+</section>
+
+<!-- VILLAIN -->
+<section class="villain">
+  <div class="inner">
+    <div>
+      <div class="dx-eyebrow" style="color:var(--brand-gold);margin-bottom:20px">The old way</div>
+      <div class="lead">Most toothpaste doesn't <em>protect.</em> It strips, sterilizes, and weakens.</div>
+    </div>
+    <ul>
+      <li><span class="x">✕</span><div><div class="claim"><strong>Abrasives</strong> scrape away enamel.</div><div class="expl">Silica particles create micro-scratches that never heal. Every brush makes teeth weaker.</div></div></li>
+      <li><span class="x">✕</span><div><div class="claim"><strong>Harsh antiseptics</strong> kill the good bacteria your gums need.</div><div class="expl">A sterile mouth is not a healthy mouth. Your microbiome is a defense system.</div></div></li>
+      <li><span class="x">✕</span><div><div class="claim">That "whitening effect"? <strong>Just dehydration.</strong></div><div class="expl">Bleaches strip moisture to make teeth look bright for a few hours. Then back to worse.</div></div></li>
+    </ul>
+  </div>
+</section>
+
+<!-- SCIENCE -->
+<section class="science">
+  <div class="head">
+    <h2>We engineered something <em>different.</em></h2>
+    <p class="rail">Three mechanisms, one formulation. Bioactive oral care that works with your body — not against it.</p>
+  </div>
+  <div class="grid">
+    <div class="sci-card">
+      <span class="num">01</span>
+      <h3>Enzyme-powered<br/>whitening</h3>
+      <p><strong>Dissolves stains at a molecular level. No grinding. No damage to enamel.</strong></p>
+      <div class="ing">› Bromelain · Papain · Glucose oxidase</div>
+    </div>
+    <div class="sci-card">
+      <span class="num">02</span>
+      <h3>Probiotics for<br/>the microbiome</h3>
+      <p>Restores healthy flora. Pushes out cavity-causing bacteria without destroying immunity.</p>
+      <div class="ing">› L. reuteri · L. paracasei</div>
+    </div>
+    <div class="sci-card">
+      <span class="num">03</span>
+      <h3>Bioactive<br/>peptide defense</h3>
+      <p>Strengthens enamel and fortifies gums before inflammation begins. Fluoride-free.</p>
+      <div class="ing">› Hydroxyapatite · Casein phosphopeptide</div>
+    </div>
+  </div>
+</section>
+
+<!-- SHOP -->
+<section class="shop">
+  <div class="head">
+    <h2>The range.</h2>
+    <a class="view" href="#">View all 14 products →</a>
+  </div>
+  <div class="pgrid">
+    <div class="pcard new">
+      <div class="strip" style="background:#0D199E"></div>
+      <div class="shot">
+        <svg viewBox="0 0 60 130"><defs><linearGradient id="g1" x2="0" y2="1"><stop stop-color="#fff"/><stop offset="1" stop-color="#e8ecf7"/></linearGradient></defs><rect x="4" y="10" width="52" height="112" rx="8" fill="url(#g1)" stroke="rgba(0,0,0,.1)"/><rect x="22" y="0" width="16" height="16" rx="3" fill="#0D199E"/><text x="30" y="62" text-anchor="middle" font-family="Archivo" font-weight="900" font-size="11" fill="#0D199E">inno</text><text x="30" y="76" text-anchor="middle" font-family="Archivo" font-weight="900" font-size="11" fill="#0D199E">Weiss</text><circle cx="16" cy="98" r="3" fill="#0D199E"/><circle cx="30" cy="104" r="2.5" fill="#E5202C"/><circle cx="44" cy="98" r="3" fill="#FEF004"/></svg>
+      </div>
+      <div class="body">
+        <div class="line" style="color:#0D199E">innoWeiss · mit Enzymen</div>
+        <div class="nm">Enzyme Whitening</div>
+        <div class="de">Multilevel whitening with active oxygen. 70ml.</div>
+        <div class="foot"><span class="price">€ 9,90</span><span class="vol">70 ml</span></div>
+      </div>
+    </div>
+
+    <div class="pcard">
+      <div class="strip" style="background:#1A1519"></div>
+      <div class="shot">
+        <svg viewBox="0 0 60 130"><defs><linearGradient id="g2" x2="0" y2="1"><stop stop-color="#2a2a2a"/><stop offset="1" stop-color="#0a0a0a"/></linearGradient></defs><rect x="4" y="10" width="52" height="112" rx="8" fill="url(#g2)" stroke="rgba(0,0,0,.1)"/><rect x="22" y="0" width="16" height="16" rx="3" fill="#1A1519"/><text x="30" y="68" text-anchor="middle" font-family="Archivo" font-weight="900" font-size="11" fill="#fff">Detox</text><text x="30" y="82" text-anchor="middle" font-family="Archivo" font-weight="500" font-size="6" fill="#fff" letter-spacing="1">charcoal</text></svg>
+      </div>
+      <div class="body">
+        <div class="line" style="color:#1A1519">Detox · mit Aktivkohle</div>
+        <div class="nm">Charcoal Detox</div>
+        <div class="de">Deep cleansing with activated charcoal. 70ml.</div>
+        <div class="foot"><span class="price">€ 8,90</span><span class="vol">70 ml</span></div>
+      </div>
+    </div>
+
+    <div class="pcard">
+      <div class="strip" style="background:#0E7C66"></div>
+      <div class="shot">
+        <svg viewBox="0 0 60 130"><defs><linearGradient id="g3" x2="0" y2="1"><stop stop-color="#fff"/><stop offset="1" stop-color="#e3f0ec"/></linearGradient></defs><rect x="4" y="10" width="52" height="112" rx="8" fill="url(#g3)" stroke="rgba(0,0,0,.1)"/><rect x="22" y="0" width="16" height="16" rx="3" fill="#0E7C66"/><text x="30" y="68" text-anchor="middle" font-family="Archivo" font-weight="900" font-size="11" fill="#0E7C66">Fresh</text><text x="30" y="82" text-anchor="middle" font-family="Archivo" font-weight="500" font-size="6" fill="#0E7C66" letter-spacing="1">mint</text></svg>
+      </div>
+      <div class="body">
+        <div class="line" style="color:#0E7C66">Fresh · mit Minze</div>
+        <div class="nm">Daily Fresh</div>
+        <div class="de">Probiotic daily paste with mint. 70ml.</div>
+        <div class="foot"><span class="price">€ 7,90</span><span class="vol">70 ml</span></div>
+      </div>
+    </div>
+
+    <div class="pcard">
+      <div class="strip" style="background:#7A3B8A"></div>
+      <div class="shot">
+        <svg viewBox="0 0 60 130"><defs><linearGradient id="g4" x2="0" y2="1"><stop stop-color="#fff"/><stop offset="1" stop-color="#ece3f0"/></linearGradient></defs><rect x="4" y="10" width="52" height="112" rx="8" fill="url(#g4)" stroke="rgba(0,0,0,.1)"/><rect x="22" y="0" width="16" height="16" rx="3" fill="#7A3B8A"/><text x="30" y="68" text-anchor="middle" font-family="Archivo" font-weight="900" font-size="10" fill="#7A3B8A">Sensitive</text><text x="30" y="82" text-anchor="middle" font-family="Archivo" font-weight="500" font-size="6" fill="#7A3B8A" letter-spacing="1">peptide</text></svg>
+      </div>
+      <div class="body">
+        <div class="line" style="color:#7A3B8A">Sensitive · mit Peptiden</div>
+        <div class="nm">Enamel Repair</div>
+        <div class="de">For sensitive teeth. Peptide-based defense. 70ml.</div>
+        <div class="foot"><span class="price">€ 10,90</span><span class="vol">70 ml</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- QUOTE -->
+<section class="quote">
+  <div class="dx-ribbon-rule"><i></i><i></i><i></i></div>
+  <blockquote>"Real innovation should be for everyone — not just those willing to overpay."</blockquote>
+  <cite>— Das Experten · Founding principle</cite>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="top">
+    <div>
+      <img class="mark" src="../../assets/logo-full.png" alt="das experten"/>
+      <p class="mission">German-engineered oral care that works with your biology, not against it. Berlin · since 2019.</p>
+    </div>
+    <div class="col"><h4>Shop</h4><a>innoWeiss</a><a>Detox</a><a>Fresh</a><a>Sensitive</a><a>Kids</a><a>Bundles</a></div>
+    <div class="col"><h4>Learn</h4><a>Die Wissenschaft</a><a>Journal</a><a>Zahnärzte</a><a>FAQ</a></div>
+    <div class="col"><h4>Company</h4><a>Über uns</a><a>Partner werden</a><a>Presse</a><a>Kontakt</a></div>
+    <div class="col"><h4>Support</h4><a>Versand</a><a>Rückgabe</a><a>Datenschutz</a><a>Impressum</a></div>
+  </div>
+  <div class="bottom">
+    <div class="copy">© 2026 Das Experten GmbH · Berlin</div>
+    <div class="ribbon-rule dx-ribbon-rule"><i></i><i></i><i></i></div>
+    <div class="copy">gmbh@dasexperten.de</div>
+  </div>
+</footer>
+
+</div>
+</body></html>

@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<title>Das Experten — Distributor Portal</title>
+<link rel="stylesheet" href="../../colors_and_type.css"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;}
+html,body{margin:0;background:var(--paper-sunk);height:100%;}
+.app{display:grid;grid-template-columns:240px 1fr;min-height:100vh;}
+/* sidebar */
+aside{background:var(--brand-schwarz);color:var(--paper);padding:24px 16px;display:flex;flex-direction:column;gap:24px;}
+aside .brand{display:flex;align-items:baseline;gap:6px;margin:4px 8px 8px;font:900 18px/1 var(--font-display);letter-spacing:-.02em;color:var(--paper);}
+aside .brand sup{font:700 9px/1 var(--font-narrow);letter-spacing:.18em;text-transform:uppercase;color:var(--brand-gold);position:relative;top:-2px;}
+aside .section{font:700 10px/1 var(--font-narrow);text-transform:uppercase;letter-spacing:.2em;color:var(--stone-300);padding:0 10px;margin-bottom:-8px}
+aside nav{display:flex;flex-direction:column;gap:2px}
+aside a{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--radius-sm);color:var(--stone-200);text-decoration:none;font:600 13px/1 var(--font-body);}
+aside a:hover{background:rgba(255,255,255,.06);color:var(--paper)}
+aside a.active{background:var(--brand-rot);color:var(--paper)}
+aside a .ico{width:16px;text-align:center;opacity:.8}
+aside .foot{margin-top:auto;padding:12px;border-top:1px solid rgba(255,255,255,.1);display:flex;gap:10px;align-items:center}
+aside .avatar{width:32px;height:32px;border-radius:50%;background:var(--brand-gold);color:var(--brand-schwarz-ink);display:grid;place-items:center;font:700 12px/1 var(--font-display)}
+aside .who{font:600 12px/1.2 var(--font-body);color:var(--paper)}
+aside .who small{display:block;font:500 10px/1.2 var(--font-narrow);color:var(--stone-300);letter-spacing:.1em;text-transform:uppercase;margin-top:2px}
+
+/* main */
+main{padding:24px 32px 48px;display:flex;flex-direction:column;gap:24px;}
+.topbar{display:flex;align-items:center;gap:16px;padding-bottom:16px;border-bottom:1px solid var(--border-hairline)}
+.topbar h1{font:900 28px/1 var(--font-display);letter-spacing:-.02em;margin:0;flex:1}
+.search{display:flex;align-items:center;gap:8px;background:var(--paper-raised);padding:8px 12px;border-radius:var(--radius-sm);box-shadow:var(--shadow-hairline);min-width:280px}
+.search input{border:none;background:transparent;outline:none;flex:1;font:500 13px/1 var(--font-body)}
+.topbar .lang{font:500 11px/1 var(--font-narrow);color:var(--fg-3);letter-spacing:.1em;text-transform:uppercase}
+.topbar .notif{position:relative;width:36px;height:36px;border-radius:var(--radius-sm);background:var(--paper-raised);display:grid;place-items:center;box-shadow:var(--shadow-hairline);cursor:pointer}
+.topbar .notif::after{content:'';position:absolute;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--brand-rot)}
+
+/* kpis */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.kpi{background:var(--paper-raised);border-radius:var(--radius-md);padding:18px;box-shadow:var(--shadow-hairline);position:relative;overflow:hidden}
+.kpi .l{font:700 10px/1 var(--font-narrow);text-transform:uppercase;letter-spacing:.18em;color:var(--fg-3);margin-bottom:10px}
+.kpi .v{font:800 32px/1 var(--font-accent);letter-spacing:-.02em}
+.kpi .d{font:500 11px/1.2 var(--font-mono);margin-top:6px;color:var(--status-success)}
+.kpi .d.down{color:var(--brand-rot)}
+.kpi.accent{background:var(--brand-schwarz-ink);color:var(--paper)}
+.kpi.accent .l{color:var(--stone-300)}
+.kpi.accent .v{color:var(--brand-gold)}
+
+/* panels */
+.grid2{display:grid;grid-template-columns:2fr 1fr;gap:16px}
+.panel{background:var(--paper-raised);border-radius:var(--radius-md);box-shadow:var(--shadow-hairline);overflow:hidden}
+.panel .head{padding:16px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border-hairline)}
+.panel h3{font:800 16px/1 var(--font-display);margin:0;letter-spacing:-.01em}
+.panel .head a{font:600 12px/1 var(--font-body);color:var(--fg-1);text-decoration:none;border-bottom:2px solid var(--brand-rot);padding-bottom:2px}
+
+table{width:100%;border-collapse:collapse;font:500 13px/1 var(--font-body);}
+th{text-align:left;font:700 10px/1 var(--font-narrow);text-transform:uppercase;letter-spacing:.18em;color:var(--fg-3);padding:12px 20px;border-bottom:1px solid var(--border-hairline);background:var(--paper-sunk)}
+td{padding:14px 20px;border-bottom:1px solid var(--border-hairline)}
+tr:last-child td{border-bottom:none}
+tbody td:nth-child(2){font-weight:700;color:var(--fg-1)}
+td.right{text-align:right}
+td.num{font-family:var(--font-mono);font-weight:500;letter-spacing:0;white-space:nowrap}
+.status{display:inline-flex;align-items:center;gap:6px;font:700 10px/1 var(--font-narrow);text-transform:uppercase;letter-spacing:.16em;padding:4px 8px;border-radius:var(--radius-pill)}
+.status .dot{width:6px;height:6px;border-radius:50%}
+.status.shipped{background:rgba(46,125,79,.12);color:var(--status-success)}
+.status.shipped .dot{background:var(--status-success)}
+.status.prep{background:rgba(199,122,0,.12);color:var(--status-warning)}
+.status.prep .dot{background:var(--status-warning)}
+.status.new{background:rgba(13,25,158,.1);color:var(--line-innoweiss)}
+.status.new .dot{background:var(--line-innoweiss)}
+
+/* activity feed */
+.feed{padding:8px 0}
+.f-item{padding:14px 20px;display:grid;grid-template-columns:28px 1fr;gap:10px;border-bottom:1px solid var(--border-hairline)}
+.f-item:last-child{border-bottom:none}
+.f-item .dot{width:10px;height:10px;border-radius:50%;margin-top:6px}
+.f-item .tx{font:500 13px/1.4 var(--font-body)}
+.f-item .ts{font:500 11px/1 var(--font-mono);color:var(--fg-3);margin-top:4px}
+
+/* catalog teaser */
+.catalog{background:var(--paper-raised);border-radius:var(--radius-md);box-shadow:var(--shadow-hairline);padding:20px;display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px}
+.cat-card{padding:12px;border-radius:var(--radius-sm);background:var(--paper-sunk);display:flex;flex-direction:column;gap:8px;cursor:pointer}
+.cat-card .strip{height:3px;border-radius:2px}
+.cat-card .nm{font:800 14px/1.1 var(--font-display);letter-spacing:-.01em}
+.cat-card .wholesale{font:700 12px/1 var(--font-accent);color:var(--brand-rot)}
+.cat-card .moq{font:500 10px/1 var(--font-mono);color:var(--fg-3)}
+</style>
+</head><body>
+
+<div class="app">
+<aside>
+  <div class="brand">das experten<sup>®</sup></div>
+  <div class="section">Übersicht</div>
+  <nav>
+    <a href="#" class="active"><span class="ico">◎</span>Dashboard</a>
+    <a href="#"><span class="ico">▤</span>Bestellungen</a>
+    <a href="#"><span class="ico">▦</span>Katalog</a>
+    <a href="#"><span class="ico">€</span>Preise &amp; Rabatte</a>
+  </nav>
+  <div class="section">Konto</div>
+  <nav>
+    <a href="#"><span class="ico">◉</span>Rechnungen</a>
+    <a href="#"><span class="ico">▤</span>Marketing-Assets</a>
+    <a href="#"><span class="ico">◷</span>Schulungen</a>
+    <a href="#"><span class="ico">?</span>Support</a>
+  </nav>
+  <div class="foot">
+    <div class="avatar">SK</div>
+    <div class="who">Svetlana Kaleeva<small>Distributor · Tier A</small></div>
+  </div>
+</aside>
+
+<main>
+  <div class="topbar">
+    <h1>Guten Tag, Apotheke Bruncken.</h1>
+    <div class="search"><span style="color:var(--fg-3)">⌕</span><input placeholder="Bestellung, SKU oder Rechnung suchen…"/></div>
+    <div class="lang">DE</div>
+    <div class="notif">◔</div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="l">Offene Bestellungen</div><div class="v">7</div><div class="d">+2 seit letzter Woche</div></div>
+    <div class="kpi"><div class="l">Umsatz · dieser Monat</div><div class="v">€ 18.420</div><div class="d">↑ 12.4 % vs. Vormonat</div></div>
+    <div class="kpi"><div class="l">Lagerbestand</div><div class="v">964<small style="font-size:14px;font-family:var(--font-narrow);color:var(--fg-3);margin-left:4px">SKUs</small></div><div class="d down">2 unter MOQ</div></div>
+    <div class="kpi accent"><div class="l">Nächster Versand</div><div class="v">21. Apr</div><div class="d" style="color:var(--stone-200)">Berlin → Tallinn · DHL Express</div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <div class="head"><h3>Letzte Bestellungen</h3><a href="#">Alle ansehen →</a></div>
+      <table>
+        <thead><tr><th>Referenz</th><th>Produkt</th><th>Menge</th><th>Status</th><th class="right">Wert</th></tr></thead>
+        <tbody>
+          <tr><td class="num">DE-2026-0417-B3</td><td>innoWeiss 70 ml</td><td class="num">360</td><td><span class="status shipped"><span class="dot"></span>Versendet</span></td><td class="right num">€ 2.844,00</td></tr>
+          <tr><td class="num">DE-2026-0416-A1</td><td>Detox 70 ml</td><td class="num">240</td><td><span class="status prep"><span class="dot"></span>In Vorb.</span></td><td class="right num">€ 1.896,00</td></tr>
+          <tr><td class="num">DE-2026-0415-C7</td><td>Fresh 70 ml · Bundle</td><td class="num">120</td><td><span class="status shipped"><span class="dot"></span>Versendet</span></td><td class="right num">€ 864,00</td></tr>
+          <tr><td class="num">DE-2026-0414-D2</td><td>Sensitive 70 ml</td><td class="num">96</td><td><span class="status new"><span class="dot"></span>Neu</span></td><td class="right num">€ 998,40</td></tr>
+          <tr><td class="num">DE-2026-0413-F9</td><td>Kids Strawberry 50 ml</td><td class="num">180</td><td><span class="status shipped"><span class="dot"></span>Versendet</span></td><td class="right num">€ 1.062,00</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <div class="head"><h3>Aktivität</h3></div>
+      <div class="feed">
+        <div class="f-item"><div class="dot" style="background:var(--status-success)"></div><div><div class="tx">Lieferung <b>DE-0417-B3</b> in Tallinn zugestellt.</div><div class="ts">VOR 14 MIN</div></div></div>
+        <div class="f-item"><div class="dot" style="background:var(--line-innoweiss)"></div><div><div class="tx">Neuer Katalog H2 2026 · innoWeiss 100 ml launch.</div><div class="ts">HEUTE · 09:42</div></div></div>
+        <div class="f-item"><div class="dot" style="background:var(--status-warning)"></div><div><div class="tx">Detox 70 ml unter MOQ — Nachbestellung empfohlen.</div><div class="ts">GESTERN · 17:20</div></div></div>
+        <div class="f-item"><div class="dot" style="background:var(--brand-rot)"></div><div><div class="tx">Rechnung <b>INV-5218</b> bezahlt.</div><div class="ts">GESTERN · 10:05</div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="head"><h3>Katalog · Schnellzugriff</h3><a href="#">Vollständiger Katalog →</a></div>
+    <div class="catalog">
+      <div class="cat-card"><div class="strip" style="background:#0D199E"></div><div class="nm">innoWeiss 70ml</div><div class="wholesale">€ 4,95 / St.</div><div class="moq">MOQ 120 · 30 % Marge</div></div>
+      <div class="cat-card"><div class="strip" style="background:#1A1519"></div><div class="nm">Detox 70ml</div><div class="wholesale">€ 4,45 / St.</div><div class="moq">MOQ 120 · 30 % Marge</div></div>
+      <div class="cat-card"><div class="strip" style="background:#0E7C66"></div><div class="nm">Fresh 70ml</div><div class="wholesale">€ 3,95 / St.</div><div class="moq">MOQ 120 · 28 % Marge</div></div>
+      <div class="cat-card"><div class="strip" style="background:#7A3B8A"></div><div class="nm">Sensitive 70ml</div><div class="wholesale">€ 5,45 / St.</div><div class="moq">MOQ 96 · 32 % Marge</div></div>
+      <div class="cat-card"><div class="strip" style="background:#FE7F2D"></div><div class="nm">Kids 50ml</div><div class="wholesale">€ 2,95 / St.</div><div class="moq">MOQ 180 · 25 % Marge</div></div>
+      <div class="cat-card"><div class="strip" style="background:#0D199E"></div><div class="nm">innoWeiss 100ml</div><div class="wholesale">€ 6,95 / St.</div><div class="moq">Neu · Juli '26</div></div>
+      <div class="cat-card"><div class="strip" style="background:#1A1519"></div><div class="nm">Bürste Premium</div><div class="wholesale">€ 2,95 / St.</div><div class="moq">MOQ 240</div></div>
+      <div class="cat-card"><div class="strip" style="background:#E5202C"></div><div class="nm">Bundle Starter</div><div class="wholesale">€ 14,50 / Set</div><div class="moq">MOQ 60 · 35 % Marge</div></div>
+    </div>
+  </div>
+</main>
+</div>
+</body></html>

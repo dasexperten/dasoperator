@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="../colors_and_type.css"/>
+<style>
+  html,body{margin:0;background:var(--paper);}
+  .card{padding:20px 24px;display:flex;flex-direction:column;gap:14px;}
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+  .item{padding:10px 12px;border-radius:var(--radius-sm);box-shadow:var(--shadow-hairline);display:flex;align-items:center;gap:10px;}
+  .dot{width:14px;height:14px;border-radius:var(--radius-pill);flex:none;}
+  .label{font:700 11px/1 var(--font-narrow);text-transform:uppercase;letter-spacing:.14em;color:var(--fg-1);flex:1;}
+  .hex{font:500 11px/1 var(--font-mono);color:var(--fg-3);}
+</style></head><body>
+<div class="card">
+  <div class="dx-label">Semantic · status &amp; feedback</div>
+  <div class="grid">
+    <div class="item"><div class="dot" style="background:#2E7D4F"></div><div class="label">Success</div><div class="hex">#2E7D4F</div></div>
+    <div class="item"><div class="dot" style="background:#C77A00"></div><div class="label">Warning</div><div class="hex">#C77A00</div></div>
+    <div class="item"><div class="dot" style="background:#E5202C"></div><div class="label">Error · Rot</div><div class="hex">#E5202C</div></div>
+    <div class="item"><div class="dot" style="background:#0D199E"></div><div class="label">Info</div><div class="hex">#0D199E</div></div>
+    <div class="item" style="background:#1A1519;color:var(--paper);"><div class="dot" style="background:var(--paper)"></div><div class="label" style="color:var(--paper)">Ink · fg-1</div><div class="hex" style="color:var(--stone-200)">#1A1519</div></div>
+    <div class="item"><div class="dot" style="background:#FBFAF6;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)"></div><div class="label">Canvas · bg</div><div class="hex">#FBFAF6</div></div>
+  </div>
+</div>
+</body></html>

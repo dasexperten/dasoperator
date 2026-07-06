@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<title>Das Experten — PDP & Cart</title>
+<link rel="stylesheet" href="../../colors_and_type.css"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;}
+html,body{margin:0;background:var(--paper);}
+.wrap{max-width:1280px;margin:0 auto;}
+.ribbon{background:var(--brand-schwarz);color:var(--paper);padding:9px 32px;font:600 11px/1 var(--font-narrow);letter-spacing:.16em;text-transform:uppercase;display:flex;justify-content:space-between;}
+nav.top{display:flex;align-items:center;gap:32px;padding:16px 32px;background:var(--paper);border-bottom:1px solid var(--border-hairline);position:sticky;top:0;z-index:10;}
+nav.top img{height:32px}
+.links{display:flex;gap:24px;flex:1}
+.links a{font:600 14px/1 var(--font-body);color:var(--fg-1);text-decoration:none}
+.right{display:flex;gap:10px;align-items:center}
+.iconbtn{width:36px;height:36px;border-radius:var(--radius-sm);display:grid;place-items:center;background:transparent;border:none;cursor:pointer;color:var(--fg-1)}
+.iconbtn:hover{background:var(--bone)}
+.cta{font:700 13px/1 var(--font-display);padding:10px 14px;border-radius:var(--radius-sm);background:var(--brand-rot);color:var(--paper);border:none;cursor:pointer}
+.breadcrumb{padding:18px 32px;font:500 12px/1 var(--font-narrow);color:var(--fg-3);letter-spacing:.08em;text-transform:uppercase;}
+.breadcrumb a{color:var(--fg-3);text-decoration:none}
+.breadcrumb .sep{margin:0 10px;color:var(--border-strong)}
+.breadcrumb .cur{color:var(--fg-1)}
+
+/* PDP */
+.pdp{display:grid;grid-template-columns:1.1fr .9fr;gap:56px;padding:8px 32px 72px}
+.gallery{display:grid;grid-template-columns:72px 1fr;gap:16px;align-items:start}
+.thumbs{display:flex;flex-direction:column;gap:10px}
+.thumb{width:72px;aspect-ratio:1;border-radius:var(--radius-sm);background:var(--paper-sunk);cursor:pointer;box-shadow:var(--shadow-hairline);display:grid;place-items:center;}
+.thumb.active{box-shadow:0 0 0 2px var(--brand-schwarz-ink)}
+.thumb svg{width:42px;height:58px}
+.main-shot{aspect-ratio:1;background:var(--paper-sunk);border-radius:var(--radius-lg);position:relative;overflow:hidden;display:grid;place-items:center}
+.main-shot::before{content:'';position:absolute;top:0;left:0;right:0;height:6px;background:#0D199E}
+.main-shot svg{width:44%;height:85%}
+.badge-flag{position:absolute;top:28px;right:28px;background:var(--brand-gold);color:var(--brand-schwarz-ink);font:900 10px/1.15 var(--font-display);letter-spacing:.06em;text-transform:uppercase;padding:12px 14px;border-radius:var(--radius-sm);text-align:center;transform:rotate(-4deg)}
+
+/* info */
+.info .line{font:700 14px/1 'Eras Bold ITC', var(--font-display);letter-spacing:0;color:#0D199E;margin-bottom:10px}
+.info h1{font:900 44px/1 var(--font-display);letter-spacing:-.02em;margin:0 0 8px}
+.info .sub{font:italic 400 18px/1.3 var(--font-accent);color:var(--fg-2);margin-bottom:20px}
+.info .rate{display:flex;align-items:center;gap:10px;margin-bottom:24px;font:500 13px/1 var(--font-body);color:var(--fg-2)}
+.info .stars{color:var(--brand-rot);letter-spacing:2px;font-size:14px}
+.info .price-row{display:flex;align-items:baseline;gap:12px;padding:20px 0;border-top:1px solid var(--border-hairline);border-bottom:1px solid var(--border-hairline);margin-bottom:24px}
+.info .price{font:700 36px/1 var(--font-accent);color:var(--fg-1)}
+.info .unit{font:500 12px/1 var(--font-mono);color:var(--fg-3)}
+.info .save{margin-left:auto;background:var(--brand-gold);color:var(--brand-schwarz-ink);padding:6px 10px;border-radius:var(--radius-sm);font:700 11px/1 var(--font-narrow);text-transform:uppercase;letter-spacing:.18em}
+
+.options{display:flex;flex-direction:column;gap:16px;margin-bottom:20px}
+.opt-label{font:700 11px/1 var(--font-narrow);text-transform:uppercase;letter-spacing:.18em;color:var(--fg-2);margin-bottom:8px}
+.opt-row{display:flex;gap:8px}
+.opt{padding:12px 16px;border-radius:var(--radius-sm);border:1px solid var(--border-strong);background:var(--paper-raised);font:600 13px/1 var(--font-body);cursor:pointer;color:var(--fg-1)}
+.opt.active{background:var(--brand-schwarz-ink);color:var(--paper);border-color:var(--brand-schwarz-ink)}
+.qty{display:inline-flex;align-items:center;border:1px solid var(--border-strong);border-radius:var(--radius-sm);overflow:hidden}
+.qty button{width:36px;height:44px;background:transparent;border:none;font-size:16px;cursor:pointer}
+.qty span{width:44px;text-align:center;font:600 14px/1 var(--font-body)}
+
+.actions{display:grid;grid-template-columns:1fr auto;gap:10px;margin-bottom:20px}
+.actions .add{padding:16px;background:var(--brand-rot);color:var(--paper);border:none;border-radius:var(--radius-sm);font:700 14px/1 var(--font-display);cursor:pointer;transition:background var(--dur-base) var(--ease-standard)}
+.actions .add:hover{background:#c51824}
+.actions .wish{width:54px;border:1px solid var(--border-strong);background:transparent;border-radius:var(--radius-sm);font-size:18px;cursor:pointer}
+
+.stock{display:flex;gap:8px;align-items:center;font:500 12px/1.4 var(--font-narrow);color:var(--fg-2);margin-bottom:28px}
+.stock .dot{width:8px;height:8px;border-radius:50%;background:var(--status-success)}
+
+.claims{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:20px;background:var(--paper-sunk);border-radius:var(--radius-md);margin-bottom:24px}
+.claim{display:flex;gap:10px;align-items:flex-start;font:500 12px/1.4 var(--font-body);color:var(--fg-1)}
+.claim .tick{width:18px;height:18px;border-radius:4px;background:var(--brand-schwarz-ink);color:var(--paper);font:900 10px/1 var(--font-display);display:grid;place-items:center;flex:none;margin-top:1px}
+
+.ing-accordion{border-top:1px solid var(--border-hairline)}
+.ing-row{padding:14px 0;border-bottom:1px solid var(--border-hairline);display:flex;justify-content:space-between;cursor:pointer;font:700 13px/1 var(--font-body)}
+.ing-row::after{content:'+';color:var(--fg-3)}
+.ing-row.open::after{content:'−'}
+.ing-detail{font:500 12px/1.55 var(--font-mono);color:var(--fg-2);padding:0 0 14px;display:none}
+.ing-row.open + .ing-detail{display:block}
+
+/* how to use */
+.howto{padding:72px 32px;background:var(--paper-sunk);border-radius:var(--radius-lg);margin:0 32px 72px;}
+.howto h2{font:900 40px/1 var(--font-display);letter-spacing:-.02em;margin:0 0 36px}
+.howto .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:32px}
+.step{display:flex;flex-direction:column;gap:10px}
+.step .n{font:700 48px/1 var(--font-accent);color:var(--brand-rot);letter-spacing:-.02em}
+.step h3{font:800 20px/1.15 var(--font-display);margin:0}
+.step p{font:400 14px/1.55 var(--font-body);color:var(--fg-2);margin:0}
+
+/* REVIEW */
+.reviews{padding:0 32px 72px}
+.reviews h2{font:900 36px/1 var(--font-display);letter-spacing:-.02em;margin:0 0 20px}
+.review-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.review{background:var(--paper-raised);border-radius:var(--radius-md);padding:22px;box-shadow:var(--shadow-hairline);display:flex;flex-direction:column;gap:12px}
+.review .s{color:var(--brand-rot);letter-spacing:2px;font-size:13px}
+.review .title{font:700 15px/1.2 var(--font-body)}
+.review .body{font:400 13px/1.5 var(--font-body);color:var(--fg-2)}
+.review .meta{font:500 11px/1 var(--font-narrow);color:var(--fg-3);text-transform:uppercase;letter-spacing:.12em;margin-top:auto;padding-top:8px;border-top:1px solid var(--border-hairline)}
+
+/* CART DRAWER */
+.cart-drawer{position:fixed;top:0;right:0;bottom:0;width:420px;background:var(--paper);box-shadow:var(--shadow-float);z-index:100;display:flex;flex-direction:column;transform:translateX(100%);transition:transform var(--dur-slow) var(--ease-standard)}
+.cart-drawer.open{transform:translateX(0)}
+.cart-head{display:flex;justify-content:space-between;align-items:center;padding:20px 24px;border-bottom:1px solid var(--border-hairline)}
+.cart-head h3{font:900 20px/1 var(--font-display);margin:0}
+.cart-head .close{background:transparent;border:none;font-size:20px;cursor:pointer}
+.cart-items{flex:1;overflow-y:auto;padding:8px 0}
+.cart-item{display:grid;grid-template-columns:64px 1fr auto;gap:12px;padding:16px 24px;border-bottom:1px solid var(--border-hairline)}
+.cart-item .ishot{width:64px;height:64px;background:var(--paper-sunk);border-radius:var(--radius-sm);display:grid;place-items:center}
+.cart-item .ishot svg{width:26px;height:52px}
+.cart-item .nm{font:700 14px/1.2 'Eras Bold ITC', var(--font-body);letter-spacing:0;margin-bottom:4px}
+.cart-item .ln{font:500 11px/1 var(--font-narrow);color:var(--fg-3);text-transform:uppercase;letter-spacing:.14em;margin-bottom:8px}
+.cart-item .qty-sm{display:inline-flex;border:1px solid var(--border-strong);border-radius:var(--radius-xs);overflow:hidden;font-size:11px}
+.cart-item .qty-sm button{width:24px;height:24px;border:none;background:transparent;cursor:pointer}
+.cart-item .qty-sm span{width:28px;text-align:center;line-height:24px}
+.cart-item .p{font:700 14px/1 var(--font-accent);text-align:right}
+.cart-foot{padding:20px 24px;border-top:1px solid var(--border-hairline);display:flex;flex-direction:column;gap:12px}
+.cart-foot .row{display:flex;justify-content:space-between;font:500 13px/1 var(--font-body)}
+.cart-foot .tot{font:800 18px/1 var(--font-display)}
+.cart-foot .checkout{padding:16px;background:var(--brand-rot);color:var(--paper);border:none;border-radius:var(--radius-sm);font:700 14px/1 var(--font-display);cursor:pointer}
+.cart-foot .hint{font:500 11px/1.4 var(--font-narrow);color:var(--fg-3);text-align:center}
+.overlay{position:fixed;inset:0;background:rgba(26,21,25,.35);z-index:99;opacity:0;pointer-events:none;transition:opacity var(--dur-base) var(--ease-standard)}
+.overlay.on{opacity:1;pointer-events:auto}
+</style>
+</head><body>
+
+<div class="wrap">
+<div class="ribbon"><span>Gratis Versand ab € 30 · Made in Germany</span><span>DE · EN · RU</span></div>
+<nav class="top">
+  <img src="../../assets/logo-full.png" alt="das experten"/>
+  <div class="links"><a>Shop</a><a>Die Wissenschaft</a><a>Über uns</a><a>Partner</a></div>
+  <div class="right">
+    <button class="iconbtn" aria-label="search">⌕</button>
+    <button class="iconbtn" aria-label="account">◎</button>
+    <button class="cta" id="cart-btn">Warenkorb · 2</button>
+  </div>
+</nav>
+
+<div class="breadcrumb">
+  <a>Shop</a><span class="sep">›</span><a>innoWeiss</a><span class="sep">›</span><span class="cur">Enzyme Whitening 70ml</span>
+</div>
+
+<!-- PDP -->
+<section class="pdp">
+  <div class="gallery">
+    <div class="thumbs">
+      <div class="thumb active"><svg viewBox="0 0 60 130"><rect x="4" y="10" width="52" height="112" rx="8" fill="#fff" stroke="rgba(0,0,0,.1)"/><text x="30" y="66" text-anchor="middle" font-family="Archivo" font-weight="900" font-size="11" fill="#0D199E">inno</text><text x="30" y="80" text-anchor="middle" font-family="Archivo" font-weight="900" font-size="11" fill="#0D199E">Weiss</text></svg></div>
+      <div class="thumb"><svg viewBox="0 0 60 60"><rect x="6" y="6" width="48" height="48" rx="6" fill="#fff" stroke="rgba(0,0,0,.1)"/><text x="30" y="34" text-anchor="middle" font-family="Archivo" font-weight="900" font-size="8" fill="#0D199E">70ml</text></svg></div>
+      <div class="thumb"><svg viewBox="0 0 60 60"><rect x="6" y="6" width="48" height="48" rx="4" fill="#f5f5f5"/><circle cx="30" cy="30" r="14" fill="#0D199E" opacity=".15"/><circle cx="30" cy="30" r="6" fill="#0D199E"/></svg></div>
+      <div class="thumb"><svg viewBox="0 0 60 60"><rect x="6" y="6" width="48" height="48" rx="4" fill="#1A1519"/><text x="30" y="34" text-anchor="middle" font-family="Archivo" font-weight="900" font-size="8" fill="#fff">LAB</text></svg></div>
+    </div>
+    <div class="main-shot">
+      <div class="badge-flag">Enzyme<br/>whitening<br/>no abrasion</div>
+      <svg viewBox="0 0 60 130"><defs><linearGradient id="pg" x2="0" y2="1"><stop stop-color="#fff"/><stop offset="1" stop-color="#e8ecf7"/></linearGradient></defs><rect x="4" y="10" width="52" height="112" rx="8" fill="url(#pg)" stroke="rgba(0,0,0,.12)"/><rect x="22" y="0" width="16" height="16" rx="3" fill="#0D199E"/><text x="30" y="54" text-anchor="middle" font-family="Archivo" font-weight="900" font-size="13" fill="#0D199E">inno</text><text x="30" y="70" text-anchor="middle" font-family="Archivo" font-weight="900" font-size="13" fill="#0D199E">Weiss</text><text x="30" y="84" text-anchor="middle" font-family="Archivo Narrow" font-size="5" fill="#4A4238" letter-spacing="1.5">MIT ENZYMEN</text><circle cx="14" cy="102" r="3.5" fill="#0D199E"/><circle cx="30" cy="108" r="3" fill="#E5202C"/><circle cx="46" cy="102" r="3.5" fill="#FEF004" stroke="#aaa" stroke-width=".3"/></svg>
+    </div>
+  </div>
+
+  <div class="info">
+    <div class="line">innoWeiss · mit Enzymen</div>
+    <h1>Enzyme Whitening</h1>
+    <div class="sub">Multilevel whitening toothpaste with active oxygen.</div>
+    <div class="rate"><span class="stars">★★★★★</span><span>4.8 · 412 Bewertungen</span></div>
+
+    <div class="price-row">
+      <span class="price">€ 9,90</span>
+      <span class="unit">70 ml · € 141,40 / l</span>
+      <span class="save">Spare 15 %</span>
+    </div>
+
+    <div class="options">
+      <div><div class="opt-label">Größe</div><div class="opt-row"><button class="opt">30 ml</button><button class="opt active">70 ml</button><button class="opt">3 × 70 ml</button></div></div>
+      <div><div class="opt-label">Abo · 10 % Rabatt</div><div class="opt-row"><button class="opt active">Einmalig</button><button class="opt">Alle 2 Monate</button><button class="opt">Alle 3 Monate</button></div></div>
+      <div><div class="opt-label">Menge</div><div class="qty"><button>−</button><span>1</span><button>+</button></div></div>
+    </div>
+
+    <div class="actions">
+      <button class="add" id="add-btn">In den Warenkorb · € 9,90</button>
+      <button class="wish" aria-label="wishlist">♡</button>
+    </div>
+
+    <div class="stock"><span class="dot"></span>Auf Lager · Versand aus Berlin innerhalb 24h</div>
+
+    <div class="claims">
+      <div class="claim"><span class="tick">✓</span>Fluoridfrei</div>
+      <div class="claim"><span class="tick">✓</span>SLS-frei</div>
+      <div class="claim"><span class="tick">✓</span>Parabenfrei</div>
+      <div class="claim"><span class="tick">✓</span>Vegan</div>
+      <div class="claim"><span class="tick">✓</span>Klinisch getestet</div>
+      <div class="claim"><span class="tick">✓</span>Hergestellt in Deutschland</div>
+    </div>
+
+    <div class="ing-accordion">
+      <div class="ing-row open">Inhaltsstoffe</div>
+      <div class="ing-detail"><strong>Aqua, Xylitol, Hydrated Silica, Glycerin, Sorbitol,</strong> Xanthan Gum, Cellulose Gum, <strong>Peppermint Oil, Stevia</strong> Extract, Sodium Benzoate, Calcium Disodium EDTA, Bromelain, Papain, Glucose Oxidase, Potassium Sorbate.</div>
+      <div class="ing-row">Anwendung</div>
+      <div class="ing-row">Versand &amp; Rückgabe</div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW TO USE -->
+<section class="howto">
+  <h2>So funktioniert <em style="font-family:var(--font-accent);font-style:italic;font-weight:500">innoWeiss</em>.</h2>
+  <div class="steps">
+    <div class="step"><span class="n">01</span><h3>Enzyme aktivieren</h3><p>Bromelain und Papain werden im Kontakt mit Speichel aktiv und beginnen, organische Verfärbungen aufzulösen.</p></div>
+    <div class="step"><span class="n">02</span><h3>Sauerstoff freisetzen</h3><p>Glukoseoxidase bildet aktiven Sauerstoff, der tief in die Zahnstruktur eindringt — ohne zu scheuern.</p></div>
+    <div class="step"><span class="n">03</span><h3>Schmelz schützen</h3><p>Hydroxylapatit remineralisiert und stärkt, während das Mikrobiom erhalten bleibt.</p></div>
+  </div>
+</section>
+
+<!-- REVIEWS -->
+<section class="reviews">
+  <h2>412 Bewertungen · 4.8 von 5</h2>
+  <div class="review-grid">
+    <div class="review"><div class="s">★★★★★</div><div class="title">Endlich ohne Fluorid</div><div class="body">Nach zwei Wochen merklich hellere Zähne, ohne das unangenehme Gefühl, das ich von Bleichprodukten kenne. Die Geschmacksrichtung ist dezent.</div><div class="meta">Anna K. · Berlin · 03/26</div></div>
+    <div class="review"><div class="s">★★★★★</div><div class="title">Microbiome-friendly works</div><div class="body">Zahnarzt bestätigt: weniger Plaque, Zahnfleisch sieht besser aus. Verifiziert nach 3 Monaten täglicher Nutzung.</div><div class="meta">Markus T. · München · 02/26</div></div>
+    <div class="review"><div class="s">★★★★☆</div><div class="title">Gut, aber teuer</div><div class="body">Das Produkt ist top, der Preis liegt über Drogerie-Niveau. Mit Abo wird's fairer.</div><div class="meta">Lisa H. · Hamburg · 01/26</div></div>
+  </div>
+</section>
+
+</div>
+
+<!-- CART DRAWER -->
+<div class="overlay" id="ov"></div>
+<aside class="cart-drawer" id="cart">
+  <div class="cart-head"><h3>Warenkorb · 2</h3><button class="close" id="cart-close">×</button></div>
+  <div class="cart-items">
+    <div class="cart-item">
+      <div class="ishot"><svg viewBox="0 0 60 130"><rect x="4" y="10" width="52" height="112" rx="6" fill="#fff" stroke="rgba(0,0,0,.15)"/><text x="30" y="60" text-anchor="middle" font-family="Archivo" font-weight="900" font-size="10" fill="#0D199E">inno</text><text x="30" y="74" text-anchor="middle" font-family="Archivo" font-weight="900" font-size="10" fill="#0D199E">Weiss</text></svg></div>
+      <div><div class="ln" style="color:#0D199E">innoWeiss</div><div class="nm">Enzyme Whitening · 70 ml</div><div class="qty-sm"><button>−</button><span>1</span><button>+</button></div></div>
+      <div class="p">€ 9,90</div>
+    </div>
+    <div class="cart-item">
+      <div class="ishot"><svg viewBox="0 0 60 130"><rect x="4" y="10" width="52" height="112" rx="6" fill="#1A1519"/><text x="30" y="68" text-anchor="middle" font-family="Archivo" font-weight="900" font-size="9" fill="#fff">Detox</text></svg></div>
+      <div><div class="ln">Detox</div><div class="nm">Charcoal Detox · 70 ml</div><div class="qty-sm"><button>−</button><span>1</span><button>+</button></div></div>
+      <div class="p">€ 8,90</div>
+    </div>
+  </div>
+  <div class="cart-foot">
+    <div class="row"><span>Zwischensumme</span><span>€ 18,80</span></div>
+    <div class="row"><span>Versand</span><span style="color:var(--status-success)">Gratis (ab € 30 möglich → € 11,20)</span></div>
+    <div class="row tot"><span>Gesamt</span><span>€ 18,80</span></div>
+    <button class="checkout">Zur Kasse →</button>
+    <div class="hint">30 Tage Rückgaberecht · Versand aus Berlin</div>
+  </div>
+</aside>
+
+<script>
+  const cart=document.getElementById('cart'),ov=document.getElementById('ov');
+  const open=()=>{cart.classList.add('open');ov.classList.add('on')};
+  const close=()=>{cart.classList.remove('open');ov.classList.remove('on')};
+  document.getElementById('cart-btn').onclick=open;
+  document.getElementById('add-btn').onclick=open;
+  document.getElementById('cart-close').onclick=close;
+  ov.onclick=close;
+  document.querySelectorAll('.opt').forEach(o=>o.onclick=()=>{
+    o.parentElement.querySelectorAll('.opt').forEach(s=>s.classList.remove('active'));
+    o.classList.add('active');
+  });
+  document.querySelectorAll('.ing-row').forEach(r=>r.onclick=()=>r.classList.toggle('open'));
+</script>
+</body></html>

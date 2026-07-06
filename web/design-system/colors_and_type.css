@@ -7,7 +7,7 @@
    ========================================================================== */
 
 /* ---------- Webfonts (substitutions flagged in README) ---------- */
-@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=Archivo+Narrow:wght@400;500;600;700&family=Fraunces:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Manrope:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=Archivo+Narrow:wght@400;500;600;700&family=Fraunces:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Manrope:wght@400;500;600;700;800&display=swap');
 
 /* ---------- Brand fonts (uploaded) ---------- */
 /* NOTE: fonts/Eras-Bold_Regular.ttf the client uploaded is corrupted —
@@ -16,7 +16,7 @@
    Archivo Black, which is the closest free analogue. */
 @font-face {
   font-family: 'Megafonts';
-  src: url('/fonts/megafonts_inc.ttf') format('truetype');
+  src: url('fonts/megafonts_inc.ttf') format('truetype');
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
@@ -117,15 +117,13 @@
   /* Display  — Eras Bold ITC is the wordmark face but the uploaded TTF is corrupted;
                 stack falls back to Archivo Black until a working file arrives.
      Body     — Archivo (sans), with Narrow variant for tight meta.
-     Accent         — Fraunces serif for apothecary pull-quotes / numerals.
-     Accent-Jakarta — Plus Jakarta Sans for big section headers (24px UPPERCASE).
-     Mono           — Manrope (geometric semi-rounded) for lab/data readouts. */
+     Accent   — Fraunces serif for apothecary pull-quotes / numerals.
+     Mono     — Manrope (replaces JetBrains Mono — proportional sans, normal tracking).       */
   --font-display:  'Eras Bold ITC', 'Archivo Black', 'Archivo', 'Helvetica Neue', Arial, sans-serif;
   --font-body:     'Archivo', 'Helvetica Neue', Arial, sans-serif;
   --font-narrow:   'Archivo Narrow', 'Archivo', Arial, sans-serif;
   --font-accent:   'Fraunces', 'Iowan Old Style', Georgia, serif;
-  --font-accent-jakarta: 'Plus Jakarta Sans', 'Helvetica Neue', Arial, sans-serif;
-  --font-mono:     'Manrope', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono:     'Manrope', 'Archivo', 'Helvetica Neue', Arial, sans-serif;
 
   /* ---------------- TYPE SCALE ---------------- */
   /* Decisive, modernist scale. Display sizes skew tight & heavy. */
@@ -142,8 +140,8 @@
   --fs-body-lg: 18px;
   --fs-body:    16px;
   --fs-body-sm: 14px;
-  --fs-caption: 14px;
-  --fs-micro:   14px;
+  --fs-caption: 12px;
+  --fs-micro:   11px;
 
   /* line-heights */
   --lh-tight:   1.02;
@@ -152,13 +150,13 @@
   --lh-body:    1.55;
   --lh-loose:   1.7;
 
-  /* tracking — capped at 0 per project rule (no tracked-out caps anywhere) */
+  /* tracking */
   --tr-tighter:  -0.03em;
   --tr-tight:    -0.015em;
   --tr-normal:    0em;
-  --tr-wide:     0;
-  --tr-wider:    0;
-  --tr-widest:   0;
+  --tr-wide:     0.04em;
+  --tr-wider:    0.1em;
+  --tr-widest:   0.18em;
 }
 
 /* ==========================================================================
@@ -191,12 +189,12 @@ body {
 .dx-h3, h3.dx, .dx-prose h3 { font: 700 var(--fs-h3)/var(--lh-heading) var(--font-display); letter-spacing: var(--tr-tight); }
 .dx-h4, h4.dx, .dx-prose h4 { font: 700 var(--fs-h4)/var(--lh-snug) var(--font-display); }
 .dx-h5, h5.dx, .dx-prose h5 { font: 600 var(--fs-h5)/var(--lh-snug) var(--font-body); }
-.dx-h6, h6.dx, .dx-prose h6 { font: 700 var(--fs-h6)/var(--lh-snug) var(--font-mono); letter-spacing: 0; text-transform: uppercase; }
+.dx-h6, h6.dx, .dx-prose h6 { font: 700 var(--fs-h6)/var(--lh-snug) var(--font-narrow); letter-spacing: var(--tr-widest); text-transform: uppercase; }
 
 .dx-eyebrow {
-  font: 600 var(--fs-body-sm)/1.2 var(--font-mono);
+  font: 700 var(--fs-micro)/1 var(--font-narrow);
   text-transform: uppercase;
-  letter-spacing: 0;
+  letter-spacing: var(--tr-widest);
   color: var(--brand-rot);
 }
 
@@ -207,9 +205,9 @@ body {
 }
 
 .dx-body, .dx-prose p { font: 400 var(--fs-body)/var(--lh-body) var(--font-body); color: var(--fg-1); }
-.dx-caption { font: 500 var(--fs-body-sm)/1.4 var(--font-mono); color: var(--fg-3); letter-spacing: 0; }
-.dx-mono    { font: 500 var(--fs-body-sm)/1.45 var(--font-mono);  color: var(--fg-2); }
-.dx-label   { font: 600 var(--fs-body-sm)/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0; color: var(--fg-2); }
+.dx-caption { font: 500 var(--fs-caption)/1.4 var(--font-narrow); color: var(--fg-3); letter-spacing: var(--tr-wide); }
+.dx-mono    { font: 500 var(--fs-body-sm)/1.45 var(--font-mono);  color: var(--fg-2); letter-spacing: 0; }
+.dx-label   { font: 700 var(--fs-micro)/1 var(--font-narrow); text-transform: uppercase; letter-spacing: var(--tr-widest); color: var(--fg-2); }
 
 /* Product names — set in Eras Bold ITC, the actual brand display face from the wordmark.
    Use on innoWeiss, Detox, Fresh, Sensitive, Kids labels in product cards, packaging, PDPs. */
@@ -245,13 +243,11 @@ body {
 
 /* ============================================================
    INTERACTION STATES — mandatory tiers (design-principles.md)
-   Synced from web/design-system/colors_and_type.css (handoff
-   bundle, Aram directive 2026-07-02). Desktop tier: hover fill,
-   focus ring, tab order. Mobile tier: 44px tap floor.
+   Desktop tier: hover, focus ring, tab order. Added 2026-07-02.
    ============================================================ */
 :root {
   --dx-transition-fast: 120ms ease-out;          /* feedback only — no decorative motion */
-  --dx-focus-ring: 0 0 0 2px var(--paper, #FBFAF6), 0 0 0 4px var(--brand-rot, #E5202C);
+  --dx-focus-ring: 0 0 0 2px var(--brand-paper, #F6F3EE), 0 0 0 4px var(--brand-rot, #E5202C);
   --dx-hover-lift: rgba(26, 21, 25, 0.06);       /* schwarz-ink @ 6% — hover fill on paper */
   --dx-hover-lift-dark: rgba(246, 243, 238, 0.10); /* paper @ 10% — hover fill on schwarz */
   --dx-tap-target-min: 44px;                     /* mobile tier floor, also desktop click comfort */
@@ -268,6 +264,10 @@ body {
 .dx-hoverable { transition: background-color var(--dx-transition-fast), box-shadow var(--dx-transition-fast); }
 .dx-hoverable:hover { background-color: var(--dx-hover-lift); }
 .dx-on-dark.dx-hoverable:hover { background-color: var(--dx-hover-lift-dark); }
+
+/* touch targets: guarantee the floor without inflating visual size */
+.dx-tap { position: relative; }
+.dx-tap::after { content: ''; position: absolute; inset: 50% auto auto 50%; translate: -50% -50%; width: max(100%, var(--dx-tap-target-min)); height: max(100%, var(--dx-tap-target-min)); }
 
 /* honor users who disable motion — universal tier, distraction-free */
 @media (prefers-reduced-motion: reduce) {

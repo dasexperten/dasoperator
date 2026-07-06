@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="../colors_and_type.css"/>
+<style>
+  html,body{margin:0;background:var(--paper);}
+  .card{padding:20px 24px;display:flex;flex-direction:column;gap:12px;}
+  .row{display:flex;gap:14px;align-items:center;}
+  .mark{padding:14px;background:var(--paper-raised);border-radius:var(--radius-md);box-shadow:var(--shadow-hairline);display:grid;place-items:center;}
+  .mark img{height:68px;width:auto;display:block;}
+  .meta{font:500 11px/1.4 var(--font-mono);color:var(--fg-3);}
+  .usage{display:grid;grid-template-columns:1fr 1fr;gap:10px;font:500 12px/1.4 var(--font-body);color:var(--fg-2);}
+  .usage div{padding:8px 10px;border-radius:var(--radius-sm);box-shadow:var(--shadow-hairline);background:var(--paper-raised);}
+  .usage .y{border-left:3px solid var(--status-success);}
+  .usage .n{border-left:3px solid var(--brand-rot);}
+</style></head><body>
+<div class="card">
+  <div class="dx-label">Logomark &amp; ribbon motif</div>
+  <div class="row">
+    <div class="mark"><img src="../assets/logo-mark.png" alt="three-ribbon mark"/></div>
+    <div class="meta">
+      Three waves, Schwarz–Rot–Gold.<br/>
+      Min. height 32px. Clear-space = height of one ribbon on all sides.<br/>
+      Never recolor. Never stretch. Never place on active imagery.
+    </div>
+  </div>
+  <div class="usage">
+    <div class="y">✓ On paper, bone, pure white</div>
+    <div class="n">✗ On red, yellow, or black fills</div>
+  </div>
+</div>
+</body></html>

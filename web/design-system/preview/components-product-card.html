@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="../colors_and_type.css"/>
+<style>
+  html,body{margin:0;background:var(--paper);}
+  .card{padding:20px 24px;}
+  .product{display:grid;grid-template-columns:140px 1fr;gap:18px;background:var(--paper-raised);border-radius:var(--radius-lg);box-shadow:var(--shadow-hairline);overflow:hidden;position:relative;}
+  .strip{position:absolute;top:0;left:0;right:0;height:4px;background:#0D199E;}
+  .shot{background:var(--paper-sunk);display:flex;align-items:center;justify-content:center;height:150px;}
+  .shot svg{width:72px;height:130px;}
+  .body{padding:16px 18px 16px 0;display:flex;flex-direction:column;gap:6px;}
+  .line{font:700 14px/1 'Eras Bold ITC', var(--font-display);letter-spacing:0;color:#0D199E;}
+  .name{font:800 22px/1 var(--font-display);letter-spacing:-.015em;color:var(--fg-1);}
+  .desc{font:400 13px/1.4 var(--font-body);color:var(--fg-2);}
+  .foot{display:flex;justify-content:space-between;align-items:baseline;margin-top:auto;padding-top:8px;}
+  .price{font:700 18px/1 var(--font-accent);}
+  .vol{font:500 11px/1 var(--font-mono);color:var(--fg-3);}
+</style></head><body>
+<div class="card">
+  <div class="dx-label" style="margin-bottom:10px">Product card</div>
+  <div class="product">
+    <div class="strip"></div>
+    <div class="shot">
+      <svg viewBox="0 0 60 130"><defs><linearGradient id="g" x2="0" y2="1"><stop stop-color="#fff"/><stop offset="1" stop-color="#e8ecf7"/></linearGradient></defs><rect x="4" y="10" width="52" height="112" rx="8" fill="url(#g)" stroke="rgba(0,0,0,.1)"/><rect x="22" y="0" width="16" height="16" rx="3" fill="#0D199E"/><text x="30" y="62" text-anchor="middle" font-family="Archivo" font-weight="900" font-size="11" fill="#0D199E">inno</text><text x="30" y="76" text-anchor="middle" font-family="Archivo" font-weight="900" font-size="11" fill="#0D199E">Weiss</text><circle cx="16" cy="98" r="3" fill="#0D199E"/><circle cx="30" cy="104" r="2.5" fill="#E5202C"/><circle cx="44" cy="98" r="3" fill="#FEF004"/></svg>
+    </div>
+    <div class="body">
+      <div class="line">innoWeiss · mit Enzymen</div>
+      <div class="name">Enzyme Whitening 70ml</div>
+      <div class="desc">Multilevel whitening toothpaste. Dissolves stains without abrasion.</div>
+      <div class="foot"><span class="price">€ 9,90</span><span class="vol">70 ml · 113ml/€</span></div>
+    </div>
+  </div>
+</div>
+</body></html>

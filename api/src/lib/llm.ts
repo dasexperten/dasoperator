@@ -30,6 +30,7 @@ import type { Env } from '../types';
 import { callPro as anthropicPro, callFlash as anthropicFlash } from './anthropic';
 import { callPro as deepseekPro, callFlash as deepseekFlash } from './deepseek';
 import { callPro as qwenPro, callFlash as qwenFlash } from './qwen';
+import { callPro as openrouterPro, callFlash as openrouterFlash } from './openrouter';
 
 // Re-export the shared message + result types so call sites import everything
 // from a single module.
@@ -48,7 +49,7 @@ export interface LlmCallOptions {
    * fallback). Set 'deepseek' to skip Anthropic entirely — useful for the
    * occasional caller that wants the cheaper provider regardless.
    */
-  prefer?: 'auto' | 'anthropic' | 'deepseek' | 'qwen';
+  prefer?: 'auto' | 'anthropic' | 'deepseek' | 'qwen' | 'openrouter';
 }
 
 function shouldFallbackOn(err: unknown): boolean {
@@ -84,6 +85,20 @@ async function route(
     ...(maxTokens !== undefined ? { maxTokens } : {}),
     ...(temperature !== undefined ? { temperature } : {}),
   };
+
+  // Caller pinned OpenRouter (Anthropic models via OpenRouter — used when the
+  // direct OAuth bridge is flaky/times out for a given call site, e.g. long
+  // bank-statement extractions). No DeepSeek fallback: this path exists
+  // specifically to keep Sonnet in the loop for financial documents.
+  if (prefer === 'openrouter') {
+    const orOpts = {
+      apiKey: env.OPENROUTER_ERP ?? '',
+      ...(maxTokens !== undefined ? { maxTokens } : {}),
+      ...(temperature !== undefined ? { temperature } : {}),
+    };
+    const r = variant === 'pro' ? await openrouterPro(messages, orOpts) : await openrouterFlash(messages, orOpts);
+    return r;
+  }
 
   // Caller asked for Qwen (rating-only review answers) — qwen-max primary,
   // DeepSeek V4-Pro fallback on hard failure. Sonnet is never used here.

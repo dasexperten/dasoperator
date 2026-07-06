@@ -94,7 +94,7 @@ export interface LlmResult {
   usage: LlmUsage;
   model: string;
   /** Which provider actually served the request — for cost analytics later. */
-  provider: 'anthropic' | 'deepseek' | 'qwen';
+  provider: 'anthropic' | 'deepseek' | 'qwen' | 'openrouter';
 }
 
 interface OAuthCallOptions {

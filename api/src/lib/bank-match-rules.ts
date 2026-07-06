@@ -188,7 +188,7 @@ Rules for pattern selection:
   try {
     const result = await callPro(
       [{ role: 'user', content: prompt }],
-      { env, maxTokens: 400, temperature: 0.3, prefer: 'anthropic' },
+      { env, maxTokens: 400, temperature: 0.3, prefer: 'openrouter' },
     );
 
     const jsonMatch = result.text.match(/\{[\s\S]*\}/);

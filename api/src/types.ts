@@ -49,6 +49,9 @@ export interface Env {
   // Qwen (Alibaba DashScope, intl) — rating-only review answers (qwen-max).
   // Set via: wrangler secret put DASHSCOPE_API_KEY
   DASHSCOPE_API_KEY?: string;
+  // OpenRouter ERP contour key — see SECRETS/openrouter.md (ERP_API).
+  // Set via: wrangler secret put OPENROUTER_ERP
+  OPENROUTER_ERP?: string;
 
   // ⚠️ DEPRECATED (2026-05-28): no code path reads this anymore.
   // The ERP's only Anthropic transport is OAuth (CLAUDE_CODE_OAUTH_TOKEN).

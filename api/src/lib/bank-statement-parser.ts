@@ -104,7 +104,7 @@ export async function parseStatement(
         { role: 'system', content: EXTRACTION_PROMPT },
         { role: 'user', content: `Filename: ${filename}\n\nContents:\n${trimmed}` },
       ],
-      { env, temperature: 0, maxTokens: 16000, prefer: 'anthropic' },
+      { env, temperature: 0, maxTokens: 16000, prefer: 'openrouter' },
     );
     content = res.text || '{}';
   } catch (e) {

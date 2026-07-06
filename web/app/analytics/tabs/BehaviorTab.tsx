@@ -55,6 +55,33 @@ export default function BehaviorTab() {
 
       {b && (
         <>
+          {/* Clarity-native snapshot row — same 4 cards, same wording, as the
+              Clarity dashboard itself (Sessions / Pages per session /
+              Scroll depth / Active time spent). Kept separate from the
+              dead/rage/quickback KPI row below, which is our own added signal. */}
+          <div className="wa-kpis">
+            <Kpi
+              label="Sessions"
+              value={fmtNum(b.totals.sessions)}
+              delta={`${fmtNum(b.totals.bot_sessions)} bot sessions excluded`}
+            />
+            <Kpi
+              label="Pages per session"
+              value={b.totals.pages_per_session === null ? '—' : b.totals.pages_per_session.toFixed(2)}
+              delta="average"
+            />
+            <Kpi
+              label="Scroll depth"
+              value={fmtPct(b.engagement.avg_scroll_depth_pct)}
+              delta="average"
+            />
+            <Kpi
+              label="Active time spent"
+              value={fmtSec(b.engagement.active_time_sec)}
+              delta={`out of ${fmtSec(b.engagement.total_time_sec)} total time`}
+            />
+          </div>
+
           <div className="wa-kpis">
             <Kpi
               label="Sessions · 24h"

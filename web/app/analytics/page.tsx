@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import './analytics.css';
+import SnapshotTab from './tabs/SnapshotTab';
 import OverviewTab from './tabs/OverviewTab';
 import TrafficTab from './tabs/TrafficTab';
 import FunnelTab from './tabs/FunnelTab';
@@ -28,6 +29,7 @@ import CampaignsTab from './tabs/CampaignsTab';
 // =============================================================================
 
 const TABS = [
+  { id: 'snapshot', label: 'Snapshot', src: 'GA4 (map, realtime, language)' },
   { id: 'overview', label: 'Overview', src: 'GA4 + D1 orders' },
   { id: 'traffic', label: 'Traffic & Sources', src: 'GA4 + Metrika (RU)' },
   { id: 'funnel', label: 'Funnel', src: 'GA4 events' },
@@ -38,9 +40,9 @@ const TABS = [
 type TabId = (typeof TABS)[number]['id'];
 
 export default function AnalyticsPage() {
-  const [active, setActive] = useState<TabId>('overview');
+  const [active, setActive] = useState<TabId>('snapshot');
   // Tabs stay mounted once visited — no refetch flash when switching back.
-  const [visited, setVisited] = useState<Set<TabId>>(() => new Set<TabId>(['overview']));
+  const [visited, setVisited] = useState<Set<TabId>>(() => new Set<TabId>(['snapshot']));
 
   const activate = useCallback((id: TabId) => {
     setActive(id);
@@ -96,11 +98,14 @@ export default function AnalyticsPage() {
           </button>
         ))}
         <span className="wa-kbd-hint" aria-hidden="true">
-          <kbd>1</kbd>–<kbd>5</kbd> switch tabs
+          <kbd>1</kbd>–<kbd>6</kbd> switch tabs
         </span>
       </div>
 
       {/* Panels stay mounted once visited; only the active one is shown. */}
+      <div style={{ display: active === 'snapshot' ? 'block' : 'none' }}>
+        {visited.has('snapshot') && <SnapshotTab />}
+      </div>
       <div style={{ display: active === 'overview' ? 'block' : 'none' }}>
         {visited.has('overview') && <OverviewTab />}
       </div>

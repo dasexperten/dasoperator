@@ -16,7 +16,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { withKvCache, cacheKey } from '../lib/kv-cache';
-import { ga4Configured, ga4RunReport, ga4Date, metricNum } from '../lib/ga4';
+import { ga4Configured, ga4RunReport, ga4RunRealtimeReport, ga4Date, metricNum } from '../lib/ga4';
 
 const ga4 = new Hono<{ Bindings: Env }>();
 
@@ -314,5 +314,283 @@ ga4.get('/funnel', async (c) => {
     return fail(c, 502, [{ code: 'ga4_upstream_error', message: msg }]);
   }
 });
+
+
+// =============================================================================
+// GET /api/ga4/geo?days=7 — active users by country (choropleth + table).
+// KV cache: 1h
+// =============================================================================
+ga4.get('/geo', async (c) => {
+  if (!ga4Configured(c.env)) return notConfigured(c);
+  const days = windowDays(c, 7);
+  const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '50', 10) || 50, 1), 250);
+
+  try {
+    const payload = await withKvCache(c.env, cacheKey('ga4:geo', { days, limit }), 3600, async () => {
+      const resp = await ga4RunReport(c.env, {
+        dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+        dimensions: [{ name: 'country' }, { name: 'countryId' }],
+        metrics: [{ name: 'activeUsers' }],
+        orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }],
+        limit,
+      });
+
+      const rows = (resp.rows ?? []).map((r) => ({
+        country: r.dimensionValues?.[0]?.value || '(not set)',
+        country_id: r.dimensionValues?.[1]?.value || '',
+        active_users: Math.round(metricNum(r, 0)),
+      }));
+
+      // Prior period (for the delta arrows the UI shows per-row) — same shape,
+      // matched by country name. Best-effort: skipped silently on failure.
+      let prevByCountry = new Map<string, number>();
+      try {
+        const prev = await ga4RunReport(c.env, {
+          dateRanges: [{ startDate: `${days * 2}daysAgo`, endDate: `${days + 1}daysAgo` }],
+          dimensions: [{ name: 'country' }],
+          metrics: [{ name: 'activeUsers' }],
+          limit,
+        });
+        for (const r of prev.rows ?? []) {
+          prevByCountry.set(r.dimensionValues?.[0]?.value ?? '', Math.round(metricNum(r, 0)));
+        }
+      } catch (e) {
+        console.error('[ga4:geo] prior-period leg failed (non-fatal):', e);
+      }
+
+      const rowsWithDelta = rows.map((r) => {
+        const prev = prevByCountry.get(r.country);
+        const delta_pct = prev && prev > 0 ? round2(((r.active_users - prev) / prev) * 100) : null;
+        return { ...r, delta_pct };
+      });
+
+      return {
+        source: sourceLabel(c.env),
+        window_days: days,
+        totals: { active_users: rows.reduce((a, r) => a + r.active_users, 0) },
+        rows: rowsWithDelta,
+        synced_at: Math.floor(Date.now() / 1000),
+      };
+    });
+    return ok(c, payload);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return fail(c, 502, [{ code: 'ga4_upstream_error', message: msg }]);
+  }
+});
+
+// =============================================================================
+// GET /api/ga4/languages?days=30 — active users by (UI) language.
+// KV cache: 1h
+// =============================================================================
+ga4.get('/languages', async (c) => {
+  if (!ga4Configured(c.env)) return notConfigured(c);
+  const days = windowDays(c);
+  const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '15', 10) || 15, 1), 100);
+
+  try {
+    const payload = await withKvCache(c.env, cacheKey('ga4:languages', { days, limit }), 3600, async () => {
+      const resp = await ga4RunReport(c.env, {
+        dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+        dimensions: [{ name: 'language' }],
+        metrics: [{ name: 'activeUsers' }],
+        orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }],
+        limit,
+      });
+
+      const rows = (resp.rows ?? []).map((r) => ({
+        language: r.dimensionValues?.[0]?.value || '(not set)',
+        active_users: Math.round(metricNum(r, 0)),
+      }));
+
+      return {
+        source: sourceLabel(c.env),
+        window_days: days,
+        totals: { active_users: rows.reduce((a, r) => a + r.active_users, 0) },
+        rows,
+        synced_at: Math.floor(Date.now() / 1000),
+      };
+    });
+    return ok(c, payload);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return fail(c, 502, [{ code: 'ga4_upstream_error', message: msg }]);
+  }
+});
+
+// =============================================================================
+// GET /api/ga4/content?days=7&limit=25 — views by page title & screen name.
+// KV cache: 1h
+// =============================================================================
+ga4.get('/content', async (c) => {
+  if (!ga4Configured(c.env)) return notConfigured(c);
+  const days = windowDays(c, 7);
+  const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '25', 10) || 25, 1), 250);
+
+  try {
+    const payload = await withKvCache(c.env, cacheKey('ga4:content', { days, limit }), 3600, async () => {
+      const resp = await ga4RunReport(c.env, {
+        dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+        dimensions: [{ name: 'unifiedScreenName' }],
+        metrics: [{ name: 'screenPageViews' }],
+        orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
+        limit,
+      });
+
+      const rows = (resp.rows ?? []).map((r) => ({
+        title: r.dimensionValues?.[0]?.value || '(not set)',
+        views: Math.round(metricNum(r, 0)),
+      }));
+
+      return {
+        source: sourceLabel(c.env),
+        window_days: days,
+        totals: { views: rows.reduce((a, r) => a + r.views, 0) },
+        rows,
+        synced_at: Math.floor(Date.now() / 1000),
+      };
+    });
+    return ok(c, payload);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return fail(c, 502, [{ code: 'ga4_upstream_error', message: msg }]);
+  }
+});
+
+// =============================================================================
+// GET /api/ga4/snapshot?days=28 — ecommerce snapshot: activeUsers, addToCarts,
+// checkouts (begin_checkout), ecommercePurchases — daily series, current window
+// vs the immediately preceding window of equal length (for the delta chips).
+// No KV cache on the "current" leg beyond the standard 1h — this backs the
+// GA4-style Reports-snapshot card, refreshed hourly is plenty.
+// =============================================================================
+ga4.get('/snapshot', async (c) => {
+  if (!ga4Configured(c.env)) return notConfigured(c);
+  const days = windowDays(c, 28);
+
+  try {
+    const payload = await withKvCache(c.env, cacheKey('ga4:snapshot', { days }), 3600, async () => {
+      const metrics = [
+        { name: 'activeUsers' },
+        { name: 'addToCarts' },
+        { name: 'checkouts' },
+        { name: 'ecommercePurchases' },
+      ];
+
+      const [current, previous] = await Promise.all([
+        ga4RunReport(c.env, {
+          dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+          dimensions: [{ name: 'date' }],
+          metrics,
+          orderBys: [{ dimension: { dimensionName: 'date' } }],
+          limit: 366,
+        }),
+        ga4RunReport(c.env, {
+          dateRanges: [{ startDate: `${days * 2}daysAgo`, endDate: `${days + 1}daysAgo` }],
+          metrics,
+        }),
+      ]);
+
+      const rows = (current.rows ?? []).map((r) => ({
+        date: ga4Date(r.dimensionValues?.[0]?.value ?? ''),
+        active_users: Math.round(metricNum(r, 0)),
+        add_to_carts: Math.round(metricNum(r, 1)),
+        checkouts: Math.round(metricNum(r, 2)),
+        purchases: Math.round(metricNum(r, 3)),
+      }));
+
+      const sum = (k: 'active_users' | 'add_to_carts' | 'checkouts' | 'purchases') =>
+        rows.reduce((a, r) => a + r[k], 0);
+
+      const prevRow = previous.rows?.[0];
+      const prevTotals = {
+        active_users: Math.round(metricNum(prevRow ?? {}, 0)),
+        add_to_carts: Math.round(metricNum(prevRow ?? {}, 1)),
+        checkouts: Math.round(metricNum(prevRow ?? {}, 2)),
+        purchases: Math.round(metricNum(prevRow ?? {}, 3)),
+      };
+
+      const totals = {
+        active_users: sum('active_users'),
+        add_to_carts: sum('add_to_carts'),
+        checkouts: sum('checkouts'),
+        purchases: sum('purchases'),
+      };
+
+      const deltaPct = (cur: number, prev: number) => (prev > 0 ? round2(((cur - prev) / prev) * 100) : null);
+
+      return {
+        source: sourceLabel(c.env),
+        window_days: days,
+        totals,
+        previous_totals: prevTotals,
+        deltas_pct: {
+          active_users: deltaPct(totals.active_users, prevTotals.active_users),
+          add_to_carts: deltaPct(totals.add_to_carts, prevTotals.add_to_carts),
+          checkouts: deltaPct(totals.checkouts, prevTotals.checkouts),
+          purchases: deltaPct(totals.purchases, prevTotals.purchases),
+        },
+        rows,
+        synced_at: Math.floor(Date.now() / 1000),
+      };
+    });
+    return ok(c, payload);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return fail(c, 502, [{ code: 'ga4_upstream_error', message: msg }]);
+  }
+});
+
+// =============================================================================
+// GET /api/ga4/realtime — active users in the last 30 min, per-minute buckets
+// + breakdown by country. No caching (realtime is realtime); GA4 realtime API
+// quota is generous (separate from the Data API's runReport quota).
+// =============================================================================
+ga4.get('/realtime', async (c) => {
+  if (!ga4Configured(c.env)) return notConfigured(c);
+
+  try {
+    const [perMinute, byCountry] = await Promise.all([
+      ga4RunRealtimeReport(c.env, {
+        dimensions: [{ name: 'minutesAgo' }],
+        metrics: [{ name: 'activeUsers' }],
+        orderBys: [{ dimension: { dimensionName: 'minutesAgo' } }],
+        limit: 30,
+      }),
+      ga4RunRealtimeReport(c.env, {
+        dimensions: [{ name: 'country' }],
+        metrics: [{ name: 'activeUsers' }],
+        orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }],
+        limit: 15,
+      }),
+    ]);
+
+    // minutesAgo comes back "0".."29" (0 = current minute); reverse so the
+    // chart reads oldest -> newest, left to right, like the GA4 widget.
+    const perMinuteRows = (perMinute.rows ?? [])
+      .map((r) => ({
+        minutes_ago: parseInt(r.dimensionValues?.[0]?.value ?? '0', 10),
+        active_users: Math.round(metricNum(r, 0)),
+      }))
+      .sort((a, b) => b.minutes_ago - a.minutes_ago);
+
+    const countryRows = (byCountry.rows ?? []).map((r) => ({
+      country: r.dimensionValues?.[0]?.value || '(not set)',
+      active_users: Math.round(metricNum(r, 0)),
+    }));
+
+    return ok(c, {
+      source: sourceLabel(c.env),
+      active_users_now: countryRows.reduce((a, r) => a + r.active_users, 0),
+      per_minute: perMinuteRows,
+      by_country: countryRows,
+      synced_at: Math.floor(Date.now() / 1000),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return fail(c, 502, [{ code: 'ga4_upstream_error', message: msg }]);
+  }
+});
+
 
 export default ga4;

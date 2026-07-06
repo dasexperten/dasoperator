@@ -94,6 +94,44 @@ export type MetrikaStats = {
   today: { visits: number; users: number; bounce_rate_pct: number; avg_duration_sec: number };
   timeline: Array<{ date: string; visits: number; users: number }>;
 };
+export type Ga4Geo = {
+  source: string;
+  window_days: number;
+  totals: { active_users: number };
+  rows: Array<{ country: string; country_id: string; active_users: number; delta_pct: number | null }>;
+  synced_at: number;
+};
+export type Ga4Languages = {
+  source: string;
+  window_days: number;
+  totals: { active_users: number };
+  rows: Array<{ language: string; active_users: number }>;
+  synced_at: number;
+};
+export type Ga4Content = {
+  source: string;
+  window_days: number;
+  totals: { views: number };
+  rows: Array<{ title: string; views: number }>;
+  synced_at: number;
+};
+export type Ga4Snapshot = {
+  source: string;
+  window_days: number;
+  totals: { active_users: number; add_to_carts: number; checkouts: number; purchases: number };
+  previous_totals: { active_users: number; add_to_carts: number; checkouts: number; purchases: number };
+  deltas_pct: { active_users: number | null; add_to_carts: number | null; checkouts: number | null; purchases: number | null };
+  rows: Array<{ date: string; active_users: number; add_to_carts: number; checkouts: number; purchases: number }>;
+  synced_at: number;
+};
+export type Ga4Realtime = {
+  source: string;
+  active_users_now: number;
+  per_minute: Array<{ minutes_ago: number; active_users: number }>;
+  by_country: Array<{ country: string; active_users: number }>;
+  synced_at: number;
+};
+
 export type MpSummary = {
   marketplaces: Array<{
     marketplace: string; fbo_units: number; sales_30d: number;

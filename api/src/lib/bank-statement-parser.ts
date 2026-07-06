@@ -7,8 +7,9 @@
 //   2. runBankStatementIngestion (cron)    — auto-fetch from bank_statement_sources
 //
 // Pipeline:
-//   1. Read file bytes (CSV/XLSX → text, PDF → DeepSeek vision/text)
-//   2. Send to DeepSeek with a strict extraction prompt
+//   1. Read file bytes (CSV/XLSX → text, PDF → Sonnet vision/text)
+//   2. Send to Sonnet (claude-sonnet-4-6) with a strict extraction prompt — pinned,
+//      no DeepSeek fallback (financial documents, see CLAUDE.md rule 0d)
 //   3. Validate & insert into bank_transactions
 //      Idempotent via UNIQUE (company_bank_account_id, external_id)
 //
@@ -16,7 +17,7 @@
 
 import type { Env } from '../types';
 import { autoMatchBankTransaction } from './bank-auto-match';
-import { callFlash } from './llm';
+import { callPro } from './llm';
 
 
 const EXTRACTION_PROMPT = `You are a bank statement parser. Extract every transaction into JSON.
@@ -93,17 +94,17 @@ export async function parseStatement(
     throw new Error('DEEPSEEK_API_KEY not configured');
   }
 
-  // Trim very long inputs to ~80KB (DeepSeek-v3 context fits comfortably)
+  // Trim very long inputs to ~80KB (comfortable context margin)
   const trimmed = fileText.length > 80_000 ? fileText.slice(0, 80_000) : fileText;
 
   let content: string;
   try {
-    const res = await callFlash(
+    const res = await callPro(
       [
         { role: 'system', content: EXTRACTION_PROMPT },
         { role: 'user', content: `Filename: ${filename}\n\nContents:\n${trimmed}` },
       ],
-      { env, temperature: 0, maxTokens: 16000 },
+      { env, temperature: 0, maxTokens: 16000, prefer: 'anthropic' },
     );
     content = res.text || '{}';
   } catch (e) {
@@ -115,7 +116,7 @@ export async function parseStatement(
     parsed.transactions = parsed.transactions ?? [];
     return parsed;
   } catch (e) {
-    // Salvage attempt: DeepSeek sometimes truncates output mid-transaction
+    // Salvage attempt: the model sometimes truncates output mid-transaction
     // when output exceeds max_tokens. Try cutting at the last complete `}` in
     // the `transactions` array, then closing the JSON cleanly.
     try {
@@ -148,7 +149,7 @@ export async function parseStatement(
     }
     const preview = content.slice(0, 500);
     const totalLen = content.length;
-    throw new Error(`DeepSeek returned invalid JSON (length=${totalLen}, preview): ${preview}`);
+    throw new Error(`Bank statement parser returned invalid JSON (length=${totalLen}, preview): ${preview}`);
   }
 }
 

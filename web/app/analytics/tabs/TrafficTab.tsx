@@ -154,18 +154,14 @@ export default function TrafficTab() {
         <div className="wa-panel-head">
           <h3>Traffic sources — RU contour</h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ display: 'inline-flex', borderRadius: 'var(--radius-sm)', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
+            <div className="wa-toggle" role="group" aria-label="Metrika window">
               {(['90', '30'] as const).map((v) => (
                 <button
                   key={v}
                   type="button"
                   onClick={() => setWin(v)}
-                  className="dx-hoverable"
-                  style={{
-                    padding: '8px 14px', fontWeight: 600, border: 'none', cursor: 'pointer',
-                    background: win === v ? 'var(--brand-schwarz)' : 'var(--paper-raised)',
-                    color: win === v ? 'var(--paper)' : 'var(--fg-2)',
-                  }}
+                  className={win === v ? 'active' : ''}
+                  aria-pressed={win === v}
                 >{v}d</button>
               ))}
             </div>

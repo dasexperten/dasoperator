@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import './analytics.css';
 import OverviewTab from './tabs/OverviewTab';
 import TrafficTab from './tabs/TrafficTab';
@@ -42,10 +42,26 @@ export default function AnalyticsPage() {
   // Tabs stay mounted once visited — no refetch flash when switching back.
   const [visited, setVisited] = useState<Set<TabId>>(() => new Set<TabId>(['overview']));
 
-  const activate = (id: TabId) => {
+  const activate = useCallback((id: TabId) => {
     setActive(id);
     setVisited((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
-  };
+  }, []);
+
+  // Desktop tier (design-system interaction principles): keyboard shortcuts
+  // for the high-frequency action — keys 1-5 switch tabs. Documented in-UI
+  // via the hint next to the tab bar; ignored while typing in a field.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
+      const idx = parseInt(e.key, 10) - 1;
+      const tab = idx >= 0 ? TABS[idx] : undefined;
+      if (tab) activate(tab.id);
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activate]);
 
   return (
     <div className="space-y-6 max-w-7xl">
@@ -65,19 +81,23 @@ export default function AnalyticsPage() {
 
       {/* ============================ TABS ============================ */}
       <div className="wa-tabs" role="tablist" aria-label="Analytics sections">
-        {TABS.map((t) => (
+        {TABS.map((t, i) => (
           <button
             key={t.id}
             type="button"
             role="tab"
             aria-selected={active === t.id}
+            aria-keyshortcuts={String(i + 1)}
             className={`wa-tab${active === t.id ? ' active' : ''}`}
             onClick={() => activate(t.id)}
-            title={`Source: ${t.src}`}
+            title={`Source: ${t.src} · key ${i + 1}`}
           >
             {t.label}
           </button>
         ))}
+        <span className="wa-kbd-hint" aria-hidden="true">
+          <kbd>1</kbd>–<kbd>5</kbd> switch tabs
+        </span>
       </div>
 
       {/* Panels stay mounted once visited; only the active one is shown. */}

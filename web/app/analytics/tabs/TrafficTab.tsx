@@ -99,7 +99,7 @@ export default function TrafficTab() {
                   <tr key={r.channel}>
                     <td style={{ fontWeight: 700 }}>{r.channel}</td>
                     <td className="num right">{fmtNum(r.sessions)}</td>
-                    <td className="num right">{fmtNum(r.users)}</td>
+                    <td className="num right soft">{fmtNum(r.users)}</td>
                     <td className="num right">{fmtNum(r.purchases)}</td>
                     <td className="num right">{fmtMoney(r.revenue)}</td>
                     <td className="num right">{fmtPct(r.cr)}</td>
@@ -108,7 +108,7 @@ export default function TrafficTab() {
                 <tr style={{ background: 'var(--paper-sunk)' }}>
                   <td style={{ fontWeight: 700 }}>TOTAL · {channels.data.window_days}d</td>
                   <td className="num right" style={{ fontWeight: 700 }}>{fmtNum(channels.data.totals.sessions)}</td>
-                  <td className="num right">{fmtNum(channels.data.totals.users)}</td>
+                  <td className="num right soft">{fmtNum(channels.data.totals.users)}</td>
                   <td className="num right" style={{ fontWeight: 700 }}>{fmtNum(channels.data.totals.purchases)}</td>
                   <td className="num right">{fmtMoney(channels.data.totals.revenue)}</td>
                   <td className="num right">{fmtPct(channels.data.totals.cr)}</td>
@@ -188,7 +188,7 @@ export default function TrafficTab() {
                     <td className="num right">{fmtNum(r.visits)}</td>
                     <td className="num right">{fmtNum(r.purchases)}</td>
                     <td className="num right">{fmtPct(r.cr)}</td>
-                    <td className="num right">{((r.visits / total) * 100).toFixed(1)}%</td>
+                    <td className="num right soft">{((r.visits / total) * 100).toFixed(1)}%</td>
                   </tr>
                 );
               })}
@@ -198,7 +198,7 @@ export default function TrafficTab() {
                   <td className="num right" style={{ fontWeight: 700 }}>{fmtNum(sources.data.totals.visits)}</td>
                   <td className="num right" style={{ fontWeight: 700 }}>{fmtNum(sources.data.totals.purchases)}</td>
                   <td className="num right">{fmtPct(sources.data.totals.cr)}</td>
-                  <td className="num right">100%</td>
+                  <td className="num right soft">100%</td>
                 </tr>
               )}
             </tbody>
@@ -258,7 +258,7 @@ export default function TrafficTab() {
                   <td style={{ fontWeight: 700 }}>{c.cluster}</td>
                   <td>{c.query_ru}</td>
                   <td style={{ color: 'var(--fg-2)' }}>{c.query_en}</td>
-                  <td className="num">{c.sku}</td>
+                  <td className="num soft">{c.sku}</td>
                   <td><span className="wa-status rot"><span className="dot" />no landing</span></td>
                 </tr>
               ))}

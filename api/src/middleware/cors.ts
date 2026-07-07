@@ -10,6 +10,7 @@ import type { MiddlewareHandler } from 'hono';
 
 const ALLOWED_ORIGINS = [
   'https://dasoperator.pages.dev',
+  'https://erp.dasexperten.com',
   'https://erp.dasexperten.de',
   'https://bonus.dasexperten.ru',
   'https://das-bonus.pages.dev',
@@ -26,7 +27,7 @@ function isAllowedOrigin(origin: string): boolean {
 }
 
 export const corsMiddleware: MiddlewareHandler = async (c, next) => {
-  const origin = c.req.header('Origin');
+  const origin = c.req.header(Origin\);
 
   // Preflight OPTIONS request
   if (c.req.method === 'OPTIONS') {
@@ -54,3 +55,4 @@ export const corsMiddleware: MiddlewareHandler = async (c, next) => {
     c.res.headers.set('Vary', 'Origin');
   }
 };
+

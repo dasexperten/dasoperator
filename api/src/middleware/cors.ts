@@ -27,7 +27,7 @@ function isAllowedOrigin(origin: string): boolean {
 }
 
 export const corsMiddleware: MiddlewareHandler = async (c, next) => {
-  const origin = c.req.header(Origin\);
+  const origin = c.req.header('Origin');
 
   // Preflight OPTIONS request
   if (c.req.method === 'OPTIONS') {

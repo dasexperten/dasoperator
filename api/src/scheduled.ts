@@ -436,6 +436,19 @@ export async function handleScheduled(
     return;
   }
 
+  // Ozon → RUB price sync (every 6h @ :45). Mirrors current Ozon prices into the
+  // RUB manual overrides so the storefront/checkout/matrix match Ozon.
+  if (cron === '45 */6 * * *') {
+    try {
+      const { syncOzonPricesToRub } = await import('./lib/ozon-price-sync');
+      const r = await syncOzonPricesToRub(env);
+      console.log('[cron:ozon-price-sync] ' + JSON.stringify(r));
+    } catch (e) {
+      console.error('[cron:ozon-price-sync] failed:', e);
+    }
+    return;
+  }
+
   if (cron === '0 12 * * *') {
     await runFxRefresh();
     // Storefront zonal pricing rates (EUR-based, 18 currencies) — separate keys

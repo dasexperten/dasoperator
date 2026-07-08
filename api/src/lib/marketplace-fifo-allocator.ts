@@ -235,6 +235,7 @@ export async function runMarketplaceFifoForPartner(
 
     while (txRemaining > 0.01 && opCursor < ops.length) {
       const op = ops[opCursor];
+      if (!op) break; // defensive — cursor is bounds-checked above
       const allocateAmount = Math.min(txRemaining, op.unpaid_remainder);
 
       // Record attachment
@@ -283,14 +284,14 @@ export async function runMarketplaceFifoForPartner(
                 updated_at = ?
           WHERE id = ?`,
       ).bind(lastTouchedOpId, status, now, now, tx.id).run();
+
+      if (txRemaining > 0.01) {
+        // Partially allocated — ops exhausted, count the unallocated tail once
+        leftoverMinor += txRemaining * minorFactor;
+      }
     } else {
       // Could not allocate any portion — ops exhausted
       leftoverMinor += tx.amount;
-    }
-
-    if (opCursor >= ops.length && txRemaining > 0.01) {
-      // No more ops to fill — count leftover
-      leftoverMinor += txRemaining * minorFactor;
     }
   }
 

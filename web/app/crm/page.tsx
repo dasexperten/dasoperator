@@ -118,6 +118,7 @@ interface PricingMatrixColumn {
   rate: number | null;
   stripe_hidden: boolean;
   prices: Record<string, number>;
+  manual?: Record<string, boolean>;
 }
 interface PricingMatrix {
   base_currency: string;
@@ -1078,6 +1079,54 @@ function fmtNum(amount: number | undefined, decimals: number): string {
   }).format(amount);
 }
 
+// Editable price cell — click to type a manual price; blank + Enter reverts to
+// the computed value. Manual cells are tinted. Commits to /api/pricing/override.
+function PriceCell({ col, sku, onSave }: {
+  col: PricingMatrixColumn; sku: string; onSave: (currency: string, sku: string, amount: string) => Promise<void>;
+}) {
+  const value = col.prices[sku];
+  const isManual = !!(col.manual && col.manual[sku]);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  if (typeof value !== 'number') {
+    return <td style={{ textAlign: 'right', padding: '9px 12px', color: 'var(--fg-3)', borderBottom: '1px solid var(--border-hairline)' }}>—</td>;
+  }
+  async function commit(raw: string) {
+    setEditing(false);
+    const norm = raw.trim().replace(',', '.');
+    const cur = String(value);
+    if (norm === cur || (norm === '' && !isManual)) return; // no change
+    setBusy(true);
+    try { await onSave(col.currency, sku, norm); } finally { setBusy(false); }
+  }
+  return (
+    <td
+      onClick={() => { if (!editing) { setDraft(String(value)); setEditing(true); } }}
+      title={isManual ? 'Manual price — click to edit, clear to revert to computed' : 'Computed — click to set a manual price'}
+      style={{
+        textAlign: 'right', padding: '9px 12px', cursor: 'text',
+        color: isManual ? 'var(--brand-rot)' : 'var(--fg-1)', fontWeight: isManual ? 700 : 400,
+        backgroundColor: isManual ? 'rgba(199,33,39,0.06)' : undefined,
+        borderBottom: '1px solid var(--border-hairline)', opacity: busy ? 0.5 : 1,
+      }}
+    >
+      {editing ? (
+        <input
+          autoFocus
+          defaultValue={draft}
+          onFocus={(e) => e.target.select()}
+          onBlur={(e) => commit(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditing(false); }}
+          style={{ width: 78, textAlign: 'right', font: 'inherit', color: 'var(--fg-1)', border: '1px solid var(--brand-rot)', borderRadius: 4, padding: '2px 4px', background: 'var(--paper)' }}
+        />
+      ) : (
+        <span>{fmtNum(value, col.decimals)}{isManual ? ' •' : ''}</span>
+      )}
+    </td>
+  );
+}
+
 function PricingMatrixSection({
   matrix, loading, error, onRetry,
 }: {
@@ -1086,6 +1135,20 @@ function PricingMatrixSection({
   error: string | null;
   onRetry: () => void;
 }) {
+  const saveOverride = useCallback(async (currency: string, sku: string, amount: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/pricing/override`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currency, sku, amount: amount === '' ? null : amount }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.errors?.[0]?.message || 'save failed');
+      onRetry(); // reload the matrix to reflect the new value
+    } catch (e) {
+      alert('Could not save price: ' + (e instanceof Error ? e.message : String(e)));
+    }
+  }, [onRetry]);
+
   if (error) {
     return (
       <div className="space-y-3">
@@ -1154,9 +1217,7 @@ function PricingMatrixSection({
                 <td style={{ textAlign: 'left', padding: '9px 12px', fontWeight: 700, color: 'var(--fg-1)', position: 'sticky', left: 0, backgroundColor: ri % 2 ? 'var(--paper)' : 'var(--paper)', borderBottom: '1px solid var(--border-hairline)' }}>{row.sku}</td>
                 <td style={{ textAlign: 'right', padding: '9px 12px', color: 'var(--fg-3)', borderBottom: '1px solid var(--border-hairline)' }}>{row.base_eur}</td>
                 {matrix.columns.map((col) => (
-                  <td key={col.currency} style={{ textAlign: 'right', padding: '9px 12px', color: 'var(--fg-1)', borderBottom: '1px solid var(--border-hairline)' }}>
-                    {fmtNum(col.prices[row.sku], col.decimals)}
-                  </td>
+                  <PriceCell key={col.currency} col={col} sku={row.sku} onSave={saveOverride} />
                 ))}
               </tr>
             ))}
@@ -1165,9 +1226,10 @@ function PricingMatrixSection({
       </div>
 
       <p style={{ fontSize: 12, color: 'var(--fg-3)' }}>
-        Phase 1 — computed: EUR base × daily FX × psychological rounding, via the same resolver
-        the storefront and checkout use. Phase 2 will make this an editable zone × SKU override
-        table behind the same interface. Checkout always reprices server-side by the shipping country.
+        Computed cells = EUR base × daily FX × psychological rounding. <b>Click any cell to set a
+        manual price</b> in that currency (shown in <span style={{ color: 'var(--brand-rot)', fontWeight: 700 }}>red •</span>);
+        clear it and press Enter to revert to computed. Manual prices flow straight to the storefront
+        and checkout via the same resolver. Checkout always reprices server-side by the shipping country.
       </p>
     </div>
   );

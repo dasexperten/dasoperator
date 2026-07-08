@@ -5,6 +5,8 @@ import zones from '../pricing/zones.json';
 import basePrices from '../pricing/base-prices.json';
 import { priceCatalogue, type ZonesConfig } from '../pricing/resolver';
 import { readPricingRates } from '../lib/fx-pricing';
+import { readOverrides, setOverride } from '../lib/pricing-overrides';
+import { fail } from '../lib/responses';
 
 // =============================================================================
 // GET /api/pricing/matrix — zonal pricing matrix for the ERP CRM view.
@@ -46,9 +48,10 @@ const pricingMatrix = new Hono<{ Bindings: Env }>();
 
 pricingMatrix.get('/matrix', async (c) => {
   const { rates, updated_at } = await readPricingRates(c.env);
+  const overrides = await readOverrides(c.env);
 
   const columns = COLUMNS.map((col) => {
-    const cat = priceCatalogue(col.country, { cfg, rates, baseBySku });
+    const cat = priceCatalogue(col.country, { cfg, rates, baseBySku, overrides });
     const rate = col.currency === cfg.base_currency ? 1 : rates[col.currency] ?? null;
     return {
       country: col.country,
@@ -57,7 +60,8 @@ pricingMatrix.get('/matrix', async (c) => {
       decimals: cat.decimals,
       rate,
       stripe_hidden: cfg.stripe_hidden_zones.includes(cat.zone),
-      prices: cat.prices, // { SKU: amount }
+      prices: cat.prices,     // { SKU: amount }
+      manual: cat.manual || {}, // { SKU: true } for hand-set cells
     };
   });
 
@@ -73,6 +77,27 @@ pricingMatrix.get('/matrix', async (c) => {
     rows,
     zones: Object.keys(cfg.zones),
   });
+});
+
+// POST /api/pricing/override — set or clear a manual (currency, sku) price.
+// Body: { currency, sku, amount }  (amount null/0/"" clears the override).
+pricingMatrix.post('/override', async (c) => {
+  let body: any = {};
+  try { body = await c.req.json(); } catch { return fail(c, 400, [{ code: 'bad_json', message: 'Body must be JSON' }]); }
+  const currency = String(body.currency || '').toUpperCase();
+  const sku = String(body.sku || '').toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency) || !sku) return fail(c, 422, [{ code: 'bad_input', message: 'currency (ISO) + sku required' }]);
+  // Only allow currencies we actually present.
+  if (cfg.currency_decimals[currency] == null) return fail(c, 422, [{ code: 'bad_currency', message: 'unknown currency ' + currency }]);
+  let amount: number | null = null;
+  if (body.amount != null && body.amount !== '') {
+    amount = Number(body.amount);
+    if (!(amount > 0)) return fail(c, 422, [{ code: 'bad_amount', message: 'amount must be > 0 or empty to clear' }]);
+    amount = +amount.toFixed(cfg.currency_decimals[currency] ?? 2);
+  }
+  const overrides = await setOverride(c.env, currency, sku, amount);
+  c.header('Cache-Control', 'no-store');
+  return ok(c, { currency, sku, amount, cleared: amount == null, overrides });
 });
 
 export default pricingMatrix;

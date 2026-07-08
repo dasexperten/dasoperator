@@ -63,6 +63,8 @@ pricingMatrix.get('/matrix', async (c) => {
 
   const rows = Object.keys(baseBySku).map((sku) => ({ sku, base_eur: baseBySku[sku] }));
 
+  // ERP view — always fresh; never let the edge cache this (or a transient 404).
+  c.header('Cache-Control', 'no-store');
   return ok(c, {
     base_currency: cfg.base_currency,
     updated_at,

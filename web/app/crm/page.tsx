@@ -260,7 +260,7 @@ export default function CrmPage() {
     setMatrixLoading(true);
     setMatrixError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/pricing/matrix`);
+      const res = await fetch(`${API_BASE}/api/pricing/matrix`, { cache: 'no-store' });
       const data = await res.json();
       if (data.success && data.result) setMatrix(data.result);
       else setMatrixError(data.errors?.[0]?.message || 'Failed to load');

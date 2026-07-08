@@ -224,7 +224,7 @@ export default function CloudflareInboxView() {
         <div>
           <h2 className="text-base font-semibold text-foreground">System mailboxes</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Cloudflare Email Sending archive (notify.dasexperten.com) — read-only, not connected to the Gmail bridge
+            Cloudflare email archive — outbound system mail plus inbound routed to Das Operator, read-only
           </p>
         </div>
         <button onClick={loadMailboxes} className="text-sm border border-border rounded-md px-3 py-1.5 inline-flex items-center gap-2 hover:bg-muted">

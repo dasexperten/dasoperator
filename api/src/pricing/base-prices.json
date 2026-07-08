@@ -1,11 +1,30 @@
 {
-  "_note": "Canonical server-side EUR base prices (SSOT for zonal repricing). MUST stay in sync with public/assets/product-data.js `price` fields. Only SKUs with a base here are purchasable/repriced. 19 catalogue products still have empty price in product-data.js — pending owner (see BACKLOGS 2026-07-08).",
+  "_note": "Canonical server-side EUR base prices (SSOT for zonal repricing). 5 original + 19 derived from pricer PL-INT_USD (FOB Guangzhou) x ~13 retail markup, charm-rounded. Adjust in the ERP Geo Price Matrix.",
   "currency": "EUR",
   "prices": {
+    "DE101": "10.90",
+    "DE105": "7.90",
+    "DE106": "7.90",
+    "DE107": "5.90",
+    "DE111": "12.90",
+    "DE112": "12.90",
+    "DE115": "12.90",
+    "DE116": "3.90",
+    "DE117": "10.90",
+    "DE119": "10.90",
+    "DE120": "7.90",
+    "DE122": "7.90",
+    "DE125": "12.90",
+    "DE130": "12.90",
+    "DE131": "10.90",
     "DE201": "9.90",
     "DE202": "12.00",
+    "DE203": "12.90",
     "DE205": "12.90",
     "DE206": "19.90",
+    "DE207": "10.90",
+    "DE208": "10.90",
+    "DE209": "24.90",
     "DE210": "25.50"
   }
 }

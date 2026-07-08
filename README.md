@@ -124,3 +124,24 @@ Response: `{ "success": true, "messageId": "..." }` or
 `sendOrderNotification`, and `sendSystemNotification`. All of them funnel
 through `sendEmail`, which validates required fields and rejects any `from`
 address outside `@notify.dasexperten.com` before calling the `EMAIL` binding.
+
+**R2 Inbox archive** — every successful send is durably archived by
+`api/src/lib/inbox-archive.ts` into the `ARCHIVE` R2 bucket (`self-learning`):
+
+```
+Inbox/<mailbox-address>/sent/<ISO-timestamp>-<uuid>.json       — full record
+Inbox/<mailbox-address>/received/<ISO-timestamp>-<uuid>.json   — full record (future: inbound mail)
+Inbox/<mailbox-address>.json                                   — index of all records for that mailbox
+```
+
+One subfolder per mailbox address, holding both directions. The per-mailbox
+index file lets a UI list "all mail for X" with a single R2 read instead of
+paginating `list()`; it's updated via an etag-conditional read-modify-write
+loop since R2 has no atomic append. `dasexperten@gmail.com` is explicitly
+excluded — that inbox stays in Gmail only, never archived here. Archiving is
+always best-effort and never blocks or fails the actual send.
+
+This currently covers the `sent` side for the 5 `notify.dasexperten.com`
+identities (wired into `sendEmail`). Archiving `received` mail, and doing the
+same for the human `dasexperten.de` mailboxes sent via the `EMAILER` bridge,
+is follow-up work.

@@ -13,6 +13,7 @@
 // =============================================================================
 
 import type { Env } from '../types';
+import { archiveEmail } from '../lib/inbox-archive';
 
 export const SENDING_DOMAIN = 'notify.dasexperten.com';
 
@@ -129,6 +130,19 @@ export async function sendEmail(env: Env, params: SendEmailParams): Promise<Send
       sender: params.from,
       subject: params.subject,
       success: true,
+      messageId: result.messageId,
+    });
+
+    // Durable per-mailbox record — Inbox/<from>/sent/... in R2. Best-effort;
+    // never throws back into the send path (see archiveEmail).
+    await archiveEmail(env, 'sent', params.from, {
+      to: recipients,
+      from: params.from,
+      cc: params.cc,
+      bcc: params.bcc,
+      subject: params.subject,
+      text: params.text,
+      html: params.html,
       messageId: result.messageId,
     });
 

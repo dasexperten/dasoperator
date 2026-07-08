@@ -173,7 +173,7 @@ export default function CloudflareInboxView() {
                   ) : (
                     <ArrowDownLeft className="h-4 w-4 text-blue-600" />
                   )}
-                  <h2 className="text-base font-semibold text-foreground truncate">{record.subject || '(no subject)'}</h2>
+                  <h2 className="text-base font-bold text-foreground truncate">{record.subject || '(no subject)'}</h2>
                 </div>
                 {record.direction === 'received' && !replyOpen && (
                   <button
@@ -288,7 +288,7 @@ export default function CloudflareInboxView() {
         </button>
 
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-foreground">{selectedAddress}</h2>
+          <h2 className="text-base font-bold text-foreground">{selectedAddress}</h2>
           <button onClick={() => selectMailbox(selectedAddress)} className="text-sm border border-border rounded-md px-3 py-1.5 inline-flex items-center gap-2 hover:bg-muted">
             <RefreshCw className="h-4 w-4" /> Refresh
           </button>
@@ -322,7 +322,7 @@ export default function CloudflareInboxView() {
                         ) : (
                           <ArrowDownLeft className="h-3.5 w-3.5 text-blue-600 shrink-0" />
                         )}
-                        <h3 className="text-sm font-medium text-foreground truncate">{e.subject || '(no subject)'}</h3>
+                        <h3 className="text-sm font-bold text-foreground truncate">{e.subject || '(no subject)'}</h3>
                       </div>
                       <p className="text-xs text-muted-foreground truncate">
                         {e.direction === 'sent' ? `To: ${fmtAddressList(e.to)}` : `From: ${e.from || '—'}`}
@@ -363,7 +363,7 @@ export default function CloudflareInboxView() {
           )}
         </div>
         <div className="min-w-0">
-          <div className="text-sm font-medium text-foreground truncate">{m.address}</div>
+          <div className="text-sm font-bold text-foreground truncate">{m.address}</div>
           <div className="text-xs text-muted-foreground">{m.count} {m.count === 1 ? 'message' : 'messages'}</div>
         </div>
       </div>
@@ -375,7 +375,7 @@ export default function CloudflareInboxView() {
     <div>
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="text-base font-semibold text-foreground">Mailboxes</h2>
+          <h2 className="text-lg font-bold text-foreground">Mailboxes</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             Cloudflare email archive — inbound mail routed to Das Operator and outbound system mail, read-only
           </p>

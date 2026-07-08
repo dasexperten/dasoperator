@@ -217,14 +217,45 @@ export default function CloudflareInboxView() {
     );
   }
 
-  // Mailbox list (default view).
+  // Mailbox list (default view). Split into Inbound (mail routed IN to
+  // Das Operator, e.g. sales@dasexperten.com) and System outbound (the
+  // notify.* addresses the ERP sends FROM). Split key: notify. = outbound.
+  const inboundMailboxes = mailboxes.filter((m) => !m.address.includes('@notify.'));
+  const outboundMailboxes = mailboxes.filter((m) => m.address.includes('@notify.'));
+
+  const renderMailboxRow = (m: MailboxSummary, inbound: boolean) => (
+    <button
+      key={m.address}
+      onClick={() => selectMailbox(m.address)}
+      className="w-full text-left p-4 hover:bg-secondary/50 transition-colors flex items-center justify-between gap-4"
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <div
+          className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+          style={{ background: inbound ? 'var(--bg-accent, #FCEBEB)' : 'var(--paper-sunk, #F3F0E8)' }}
+        >
+          {inbound ? (
+            <ArrowDownLeft className="h-4 w-4" style={{ color: 'var(--brand-rot, #E5202C)' }} />
+          ) : (
+            <Mail className="h-4 w-4 text-muted-foreground" />
+          )}
+        </div>
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-foreground truncate">{m.address}</div>
+          <div className="text-xs text-muted-foreground">{m.count} {m.count === 1 ? 'message' : 'messages'}</div>
+        </div>
+      </div>
+      <span className="text-xs text-muted-foreground whitespace-nowrap">{fmtDate(m.last_activity)}</span>
+    </button>
+  );
+
   return (
     <div className="max-w-4xl mx-auto">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="text-base font-semibold text-foreground">System mailboxes</h2>
+          <h2 className="text-base font-semibold text-foreground">Mailboxes</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Cloudflare email archive — outbound system mail plus inbound routed to Das Operator, read-only
+            Cloudflare email archive — inbound mail routed to Das Operator and outbound system mail, read-only
           </p>
         </div>
         <button onClick={loadMailboxes} className="text-sm border border-border rounded-md px-3 py-1.5 inline-flex items-center gap-2 hover:bg-muted">
@@ -238,33 +269,36 @@ export default function CloudflareInboxView() {
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
           <AlertCircle className="h-5 w-5 text-red-600" /> <span className="text-red-800">{mailboxError}</span>
         </div>
+      ) : mailboxes.length === 0 ? (
+        <div className="bg-card border border-border rounded-lg shadow-sm p-8 text-center">
+          <InboxIcon className="h-12 w-12 mx-auto text-muted-foreground" />
+          <p className="mt-2 text-sm text-muted-foreground">No archived mailboxes yet</p>
+        </div>
       ) : (
-        <div className="bg-card border border-border rounded-lg shadow-sm">
-          {mailboxes.length === 0 ? (
-            <div className="p-8 text-center">
-              <InboxIcon className="h-12 w-12 mx-auto text-muted-foreground" />
-              <p className="mt-2 text-sm text-muted-foreground">No archived mailboxes yet</p>
+        <div className="space-y-6">
+          <div>
+            <div className="dx-eyebrow-rot mb-2">Inbound</div>
+            <div className="bg-card border border-border rounded-lg shadow-sm">
+              {inboundMailboxes.length === 0 ? (
+                <div className="p-6 text-center text-sm text-muted-foreground">
+                  No inbound mail yet — messages sent to sales@, support@, eurasia@, emea@ or asean@dasexperten.com will appear here.
+                </div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {inboundMailboxes.map((m) => renderMailboxRow(m, true))}
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="divide-y divide-border">
-              {mailboxes.map((m) => (
-                <button
-                  key={m.address}
-                  onClick={() => selectMailbox(m.address)}
-                  className="w-full text-left p-4 hover:bg-secondary/50 transition-colors flex items-center justify-between gap-4"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0">
-                      <Mail className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-foreground truncate">{m.address}</div>
-                      <div className="text-xs text-muted-foreground">{m.count} {m.count === 1 ? 'message' : 'messages'}</div>
-                    </div>
-                  </div>
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">{fmtDate(m.last_activity)}</span>
-                </button>
-              ))}
+          </div>
+
+          {outboundMailboxes.length > 0 && (
+            <div>
+              <div className="dx-eyebrow-rot mb-2">System (outbound)</div>
+              <div className="bg-card border border-border rounded-lg shadow-sm">
+                <div className="divide-y divide-border">
+                  {outboundMailboxes.map((m) => renderMailboxRow(m, false))}
+                </div>
+              </div>
             </div>
           )}
         </div>

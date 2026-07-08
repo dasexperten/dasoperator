@@ -1,6 +1,8 @@
 # Backlog — 2026-07-08 — Cloudflare Email Inbox
 
-**Сессия:** интеграция Cloudflare Email Sending (`notify.dasexperten.com`) в Das Operator ERP + R2-архив входящей/исходящей почты по папкам на mailbox, плюс попутный фикс мёртвого домена `dasexperten.de` в существующем коде. Всё в PR [#104](https://github.com/dasexperten/dasoperator/pull/104), ветка `claude/cloudflare-email-sending-xxbsii`.
+**Сессия:** интеграция Cloudflare Email Sending (`notify.dasexperten.com`) в Das Operator ERP + R2-архив входящей/исходящей почты по папкам на mailbox + новая вкладка Inbox на `/emailer`, читающая архив напрямую (без Gmail-моста), плюс попутный фикс мёртвого домена `dasexperten.de` в существующем коде. Всё в PR [#104](https://github.com/dasexperten/dasoperator/pull/104), ветка `claude/cloudflare-email-sending-xxbsii`.
+
+**PR #104: смёржен и задеплоен.** `Deploy Worker` (commit `781806105a1a8b045ae2ed9dda7a7cbf5812b311`) прошёл зелёным целиком — install, deploy, smoke test. Фича живая в проде.
 
 ---
 
@@ -33,10 +35,20 @@
 - [x] README-заметка про follow-up work исправлена (была `.de`)
 - [x] **Не тронуто** (вне рамок этой задачи, флагнуто Араму): `api/src/middleware/cors.ts` (`erp.dasexperten.de` в allowed origins — это домен самого ERP-фронтенда, не почта), `Design/README.md` и `web/design-system/README.md` (ссылки на маркетинговый сайт `www.dasexperten.de`)
 
-### 4. PR и CI
+### 4. Внутренний почтовый клиент на `/emailer` (по прямому запросу Арама)
+- [x] Aram: вкладка **Inbox** на `/emailer` не должна быть завязана на emailer-bridge/Gmail — должна показывать реальные R2-субфолдеры системных ящиков
+- [x] `api/src/routes/email-archive.ts` — read-only API поверх архива: `GET /api/email/mailboxes` (список ящиков + count + last activity), `GET /api/email/mailboxes/:address` (список писем), `GET /api/email/mailboxes/:address/message?key=...` (полная запись). Гейт — валидная сессия; message-эндпоинт отклоняет `key` не из своего ящика (422)
+- [x] `web/components/emailer/cloudflare-inbox-view.tsx` — новый компонент: список ящиков → список писем → детали. Полностью независим от Gmail/emailer-bridge (тот остался на вкладках Rules/Learning/History)
+- [x] **Поймал и закрыл потенциальный XSS**: письмо рендерилось бы через `dangerouslySetInnerHTML`, а часть шаблонов (например, `sendLeadNotification`) вставляет текст стороннего пользователя (лид с сайта) в HTML без экранирования → заменил на sandboxed `<iframe sandbox="">` без выполнения скриптов
+- [x] Старый `web/components/emailer/inbox-view.tsx` (Gmail-триаж) удалён — больше нигде не используется
+- [x] **Проверено вживую** через изолированный `wrangler dev --remote` против реального бакета: `/mailboxes` отдаёт все 5 адресов с правильным count, `/mailboxes/:address` — правильные записи, cross-mailbox `key` корректно отклоняется (422)
+
+### 5. PR, CI и деплой
 - [x] PR [#104](https://github.com/dasexperten/dasoperator/pull/104) создан как draft, подписка на webhook-события включена
-- [x] 5 коммитов, CI зелёный на каждом (`migration-numbers` ✅, `Cloudflare Pages` ✅), 0 review-комментариев
-- [x] Все ad-hoc тестовые Worker'ы (`wrangler dev --remote`), временные `.dev.vars` и scratch-директории — удалены после проверки; в прод ничего не задеплоено (деплой только через CI при мёрдже в `main`, согласно правилу репо "RAIL 5")
+- [x] 7 коммитов, CI зелёный на каждом (`migration-numbers` ✅, `Cloudflare Pages` ✅), 0 review-комментариев
+- [x] Все ad-hoc тестовые Worker'ы (`wrangler dev --remote`), временные `.dev.vars` и scratch-директории — удалены после каждой проверки
+- [x] **PR смёржен** (squash, commit `781806105a1a8b045ae2ed9dda7a7cbf5812b311`) по прямому запросу Арама
+- [x] **`Deploy Worker` CI прошёл зелёным** — install → `wrangler deploy` → smoke test, всё success. Фича живая на `dasoperator-api` в проде
 
 ---
 
@@ -45,13 +57,13 @@
 ### Прямое продолжение этой фичи
 - [ ] **Архивация `received`** — у 5 `notify.dasexperten.com`-адресов физически нет входящей почты (only-send, нет Email Routing на этот саб-домен), так что `received/`-папки остаются пустыми. Это ожидаемо для этих адресов
 - [ ] **Архивация human-ящиков `dasexperten.com`** (`sales@`, `support@`, `emea@`, `asean@`, `eurasia@`) — их почта идёт через Google Apps Script / `emailer-bridge`, туда архивация ещё не встроена (ни sent, ни received). Нужно решить, перехватывать на стороне `emailer-bridge` или `api/src/routes/email.ts`
-- [ ] **`erp.dasexperten.com/emailer` UI** — сейчас читает почту напрямую из Gmail (live через bridge), не из папок `Inbox/` в R2. Переключение на архив как источник данных не сделано
 - [ ] Решить: чистить ли `dasexperten.de` в `cors.ts` (allowed origin ERP-фронтенда) и в `Design/README.md` / `web/design-system/README.md` (маркетинговый сайт) — ждём подтверждения от Арама, что домен мёртв целиком, а не только для почты
 
-### Эксплуатация PR #104
-- [ ] PR всё ещё **draft** — не смёржен. Ветка `claude/cloudflare-email-sending-xxbsii`
-- [ ] После мёрджа: задать `wrangler secret put ADMIN_EMAIL_TEST_SECRET` в проде (`dasoperator-api`) — без этого `/api/email/test` вернёт 401 с любым секретом
-- [ ] После мёрджа: прогнать acceptance-тест из тикета — `POST /api/email/test` с `{"to": "dasexperten@gmail.com"}`, ожидается письмо от `no-reply@notify.dasexperten.com`
+### Эксплуатация (после мёрджа/деплоя)
+- [x] ~~PR draft, не смёржен~~ — смёржен, `Deploy Worker` CI прошёл зелёным
+- [ ] Задать `wrangler secret put ADMIN_EMAIL_TEST_SECRET` в проде (`dasoperator-api`) — без него `/api/email/test` вернёт 401 с любым секретом (сам архив-ридер `/api/email/mailboxes*` этот секрет не требует, там обычная сессия)
+- [ ] Прогнать acceptance-тест из тикета — `POST /api/email/test` с `{"to": "dasexperten@gmail.com"}`, ожидается письмо от `no-reply@notify.dasexperten.com`
+- [ ] Зайти на `erp.dasexperten.com/emailer` → Inbox и глазами проверить, что все 5 ящиков и тестовые письма отображаются корректно (бэкенд уже проверен вживую, но сам UI на реальном прод-фронтенде — ещё нет)
 - [ ] Индекс-файл `Inbox/<mailbox>.json` растёт бесконечно (весь список за всё время в одном JSON-массиве) — для v1 это ок, но если объём вырастет, потребуется пагинация/ротация индекса
 
 ---
@@ -65,13 +77,17 @@
 | `api/src/services/email.ts` | Сервис отправки: 6 функций, валидация домена отправителя |
 | `api/src/lib/inbox-archive.ts` | R2-архив sent/received + индекс-файл на mailbox |
 | `api/src/routes/email-send.ts` | `POST /api/email/test` |
+| `api/src/routes/email-archive.ts` | Read-only API архива: `/api/email/mailboxes*` |
+| `web/components/emailer/cloudflare-inbox-view.tsx` | Новый UI вкладки Inbox — читает архив, не Gmail |
+| `web/components/emailer/inbox-view.tsx` | Удалён (мёртвый код после замены) |
 | `api/src/routes/email-tasks.ts` | Фикс `.de` → `.com` в seed-сценариях |
 | `web/components/emailer/compose-email.tsx` | Фикс `.de` → `.com` в UI отправки |
-| `README.md` | Раздел про EMAIL binding, allowed senders, R2 Inbox-архив |
+| `README.md` | Разделы про EMAIL binding, allowed senders, R2 Inbox-архив, read API |
 | R2 bucket `self-learning`, префикс `Inbox/` | Реальные тестовые письма + индексы для всех 5 адресов |
-| PR #104 | https://github.com/dasexperten/dasoperator/pull/104 |
+| PR #104 | https://github.com/dasexperten/dasoperator/pull/104 (смёржен) |
+| Commit `781806105a1a8b045ae2ed9dda7a7cbf5812b311` | Squash-мёрдж на `main`, задеплоен CI |
 
 ---
 
-**Сессия продолжается** (PR открыт, ждём решения Арама по scope продолжения — received-архивация, human-ящики, UI на `/emailer`, чистка `.de` вне почты).
-**Статус:** ✅ ядро фичи (Cloudflare Email Sending + R2 sent-архив) готово и проверено вживую, PR открыт draft, CI зелёный.
+**Сессия закрыта:** 2026-07-08 — PR смёржен, задеплоен, фича живая в проде.
+**Статус:** ✅ Cloudflare Email Sending + R2 sent-архив + новый Cloudflare Inbox UI на `/emailer` — всё готово, проверено вживую и в проде. Остаётся: received-архивация, human-ящики через emailer-bridge, чистка `.de` вне почты — ждут решения Арама по scope.

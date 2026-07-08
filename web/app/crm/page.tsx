@@ -1049,22 +1049,33 @@ function SourcePill({
   );
 }
 
-function flagEmoji(cc: string): string {
-  if (!cc || cc.length !== 2) return '';
-  const A = 0x1f1e6;
-  return String.fromCodePoint(A + cc.charCodeAt(0) - 65, A + cc.charCodeAt(1) - 65);
+// Real flag rendered as a small circular image (emoji flags don't render on
+// Windows — they degrade to the 2-letter country code). SVGs are bundled in
+// /public/flags so there's no runtime dependency on an external CDN.
+function FlagDot({ country }: { country: string }) {
+  const cc = country.toLowerCase();
+  return (
+    <img
+      src={`/flags/${cc}.svg`}
+      alt={country}
+      width={18}
+      height={18}
+      style={{
+        width: 18, height: 18, borderRadius: '50%', objectFit: 'cover',
+        display: 'inline-block', verticalAlign: 'middle',
+        boxShadow: '0 0 0 1px var(--border-hairline)',
+      }}
+    />
+  );
 }
 
-function fmtMoney(amount: number | undefined, currency: string, decimals: number): string {
+// Cell value: number only (the currency lives in the column header). Respects
+// the currency's decimals — VND/RUB → grouped integers, KWD → 3 decimals.
+function fmtNum(amount: number | undefined, decimals: number): string {
   if (typeof amount !== 'number') return '—';
-  try {
-    return new Intl.NumberFormat('en', {
-      style: 'currency', currency,
-      minimumFractionDigits: decimals, maximumFractionDigits: decimals,
-    }).format(amount);
-  } catch {
-    return `${currency} ${amount.toFixed(decimals)}`;
-  }
+  return new Intl.NumberFormat('en', {
+    minimumFractionDigits: decimals, maximumFractionDigits: decimals,
+  }).format(amount);
 }
 
 function PricingMatrixSection({
@@ -1127,7 +1138,9 @@ function PricingMatrixSection({
               <th style={{ textAlign: 'right', padding: '10px 12px', borderBottom: '1px solid var(--border-hairline)', color: 'var(--fg-3)' }}>Base €</th>
               {matrix.columns.map((col) => (
                 <th key={col.currency} style={{ textAlign: 'right', padding: '10px 12px', borderBottom: '1px solid var(--border-hairline)' }}>
-                  <div style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{flagEmoji(col.country)} {col.currency}</div>
+                  <div style={{ fontWeight: 700, color: 'var(--fg-1)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+                    <FlagDot country={col.country} /> {col.currency}
+                  </div>
                   <div style={{ fontSize: 11, color: 'var(--fg-3)', fontWeight: 400 }}>
                     {col.zone}{col.stripe_hidden ? ' · no Stripe' : ''}
                   </div>
@@ -1139,10 +1152,10 @@ function PricingMatrixSection({
             {matrix.rows.map((row, ri) => (
               <tr key={row.sku} style={{ backgroundColor: ri % 2 ? 'var(--paper)' : 'transparent' }}>
                 <td style={{ textAlign: 'left', padding: '9px 12px', fontWeight: 700, color: 'var(--fg-1)', position: 'sticky', left: 0, backgroundColor: ri % 2 ? 'var(--paper)' : 'var(--paper)', borderBottom: '1px solid var(--border-hairline)' }}>{row.sku}</td>
-                <td style={{ textAlign: 'right', padding: '9px 12px', color: 'var(--fg-3)', borderBottom: '1px solid var(--border-hairline)' }}>€{row.base_eur}</td>
+                <td style={{ textAlign: 'right', padding: '9px 12px', color: 'var(--fg-3)', borderBottom: '1px solid var(--border-hairline)' }}>{row.base_eur}</td>
                 {matrix.columns.map((col) => (
                   <td key={col.currency} style={{ textAlign: 'right', padding: '9px 12px', color: 'var(--fg-1)', borderBottom: '1px solid var(--border-hairline)' }}>
-                    {fmtMoney(col.prices[row.sku], col.currency, col.decimals)}
+                    {fmtNum(col.prices[row.sku], col.decimals)}
                   </td>
                 ))}
               </tr>

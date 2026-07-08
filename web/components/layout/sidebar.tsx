@@ -124,7 +124,7 @@ export default function Sidebar({ mobileOpen = false }: { mobileOpen?: boolean }
                   color: active ? 'var(--paper)' : 'var(--stone-200)',
                   borderRadius: 'var(--radius-sm)',
                   fontSize: '18px',
-                  fontWeight: 700,
+                  fontWeight: active ? 800 : 700,
                 }}
               >
                 <Icon className="h-5 w-5" />

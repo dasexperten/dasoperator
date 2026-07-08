@@ -95,4 +95,13 @@ pricingMatrix.post('/override', async (c) => {
   return ok(c, { currency, sku, amount, cleared: amount == null, overrides });
 });
 
+// POST /api/pricing/sync-ozon — pull current Ozon prices → RUB overrides now.
+// (Also runs on a cron; this endpoint lets the ERP trigger it on demand.)
+pricingMatrix.post('/sync-ozon', async (c) => {
+  const { syncOzonPricesToRub } = await import('../lib/ozon-price-sync');
+  const r = await syncOzonPricesToRub(c.env);
+  c.header('Cache-Control', 'no-store');
+  return ok(c, r);
+});
+
 export default pricingMatrix;

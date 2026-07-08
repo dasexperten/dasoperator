@@ -79,6 +79,7 @@ import dailyDigestRoutes from './routes/daily-digest';
 import analyticsRoutes from './routes/analytics';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
+import { handleInboundEmail } from './lib/email-inbound';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -238,5 +239,6 @@ app.route('/api/daily-digest', dailyDigestRoutes);
 export default {
   fetch: app.fetch,
   scheduled: handleScheduled,
+  email: (message, env: Env) => handleInboundEmail(message, env),
 } satisfies ExportedHandler<Env>;
 

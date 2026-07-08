@@ -11,9 +11,10 @@
   "dependencies": {
     "docx": "^9.6.1",
     "hono": "^4.6.13",
+    "postal-mime": "2.4.3",
+    "unpdf": "^0.12.1",
     "xlsx": "^0.18.5",
-    "zod": "^3.23.8",
-    "unpdf": "^0.12.1"
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250109.0",

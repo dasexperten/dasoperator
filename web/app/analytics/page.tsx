@@ -73,6 +73,9 @@ export default function AnalyticsPage() {
         <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 900, color: 'var(--fg-1)' }}>
           dasexperten.com Analytics
         </h1>
+        <p style={{ color: 'var(--fg-2)', marginTop: 4, maxWidth: 720 }}>
+          Discover how visitors engage with your site&apos;s pages.
+        </p>
         <div className="dx-ribbon-rule mt-4" style={{ maxWidth: 240 }}><i /><i /><i /></div>
         <div style={{ marginTop: 12, maxWidth: 720 }}>
           <div className="dx-eyebrow mb-2">Behaviour rules</div>

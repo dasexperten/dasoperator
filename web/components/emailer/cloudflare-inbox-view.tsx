@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Mail, Inbox as InboxIcon, RefreshCw, Loader2, AlertCircle, ArrowLeft, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { Mail, Inbox as InboxIcon, RefreshCw, Loader2, AlertCircle, ArrowLeft, ArrowUpRight, ArrowDownLeft, Reply, Send, X, CheckCircle2 } from 'lucide-react';
 import {
   getMailboxes,
   getMailboxMessages,
   getMailboxMessage,
+  sendReply,
   type MailboxSummary,
   type MailboxIndexEntry,
   type MailboxMessageRecord,
@@ -44,6 +45,56 @@ export default function CloudflareInboxView() {
   const [record, setRecord] = useState<MailboxMessageRecord | null>(null);
   const [loadingRecord, setLoadingRecord] = useState(false);
   const [recordError, setRecordError] = useState<string | null>(null);
+
+  // Reply form state.
+  const [replyOpen, setReplyOpen] = useState(false);
+  const [replyTo, setReplyTo] = useState('');
+  const [replySubject, setReplySubject] = useState('');
+  const [replyBody, setReplyBody] = useState('');
+  const [replyFrom, setReplyFrom] = useState('sales@send.dasexperten.ru');
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [sentOk, setSentOk] = useState(false);
+
+  function openReply() {
+    if (!record) return;
+    const orig = Array.isArray(record.from) ? record.from[0] : record.from;
+    setReplyTo(orig || '');
+    const subj = record.subject || '';
+    setReplySubject(subj.toLowerCase().startsWith('re:') ? subj : `Re: ${subj}`);
+    setReplyBody('');
+    setSendError(null);
+    setSentOk(false);
+    setReplyOpen(true);
+  }
+
+  async function submitReply() {
+    if (!replyTo || !replySubject || !replyBody) {
+      setSendError('Fill in recipient, subject and message.');
+      return;
+    }
+    setSending(true);
+    setSendError(null);
+    try {
+      const r = await sendReply({
+        to: replyTo,
+        subject: replySubject,
+        text: replyBody,
+        from: replyFrom,
+        in_reply_to: record?.messageId,
+      });
+      if (r.success) {
+        setSentOk(true);
+        setReplyOpen(false);
+      } else {
+        setSendError(r.error || 'Send failed');
+      }
+    } catch (e) {
+      setSendError(e instanceof Error ? e.message : 'Send failed');
+    } finally {
+      setSending(false);
+    }
+  }
 
   async function loadMailboxes() {
     setLoadingMailboxes(true);
@@ -115,13 +166,24 @@ export default function CloudflareInboxView() {
         ) : record ? (
           <div className="bg-card border border-border rounded-lg shadow-sm">
             <div className="border-b border-border px-4 py-3">
-              <div className="flex items-center gap-2 mb-1">
-                {record.direction === 'sent' ? (
-                  <ArrowUpRight className="h-4 w-4 text-emerald-600" />
-                ) : (
-                  <ArrowDownLeft className="h-4 w-4 text-blue-600" />
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <div className="flex items-center gap-2 min-w-0">
+                  {record.direction === 'sent' ? (
+                    <ArrowUpRight className="h-4 w-4 text-emerald-600" />
+                  ) : (
+                    <ArrowDownLeft className="h-4 w-4 text-blue-600" />
+                  )}
+                  <h2 className="text-base font-semibold text-foreground truncate">{record.subject || '(no subject)'}</h2>
+                </div>
+                {record.direction === 'received' && !replyOpen && (
+                  <button
+                    onClick={openReply}
+                    className="shrink-0 flex items-center gap-1.5 text-sm font-medium rounded-md px-3 py-1.5"
+                    style={{ background: 'var(--brand-rot, #E5202C)', color: '#fff' }}
+                  >
+                    <Reply className="h-4 w-4" /> Reply
+                  </button>
                 )}
-                <h2 className="text-base font-semibold text-foreground">{record.subject || '(no subject)'}</h2>
               </div>
               <div className="text-xs text-muted-foreground space-y-0.5 mt-2">
                 <div>From: {record.from || '—'}</div>
@@ -132,6 +194,64 @@ export default function CloudflareInboxView() {
                 {record.messageId && <div className="truncate">Message-Id: {record.messageId}</div>}
               </div>
             </div>
+
+            {sentOk && (
+              <div className="mx-4 mt-4 p-3 rounded-md flex items-center gap-2" style={{ background: 'var(--paper-sunk, #EAF3DE)' }}>
+                <CheckCircle2 className="h-4 w-4" style={{ color: 'var(--status-success, #2E7D4F)' }} />
+                <span className="text-sm" style={{ color: 'var(--status-success, #2E7D4F)' }}>Reply sent via Resend.</span>
+              </div>
+            )}
+
+            {replyOpen && (
+              <div className="mx-4 mt-4 border border-border rounded-lg p-4 space-y-3" style={{ background: 'var(--paper-sunk, #F3F0E8)' }}>
+                <div className="flex items-center justify-between">
+                  <div className="dx-eyebrow-rot">Reply</div>
+                  <button onClick={() => setReplyOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-xs text-muted-foreground">
+                    From
+                    <select value={replyFrom} onChange={(e) => setReplyFrom(e.target.value)} className="mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-card">
+                      <option value="sales@send.dasexperten.ru">sales@send.dasexperten.ru</option>
+                      <option value="support@send.dasexperten.ru">support@send.dasexperten.ru</option>
+                      <option value="oplata@send.dasexperten.ru">oplata@send.dasexperten.ru</option>
+                    </select>
+                  </label>
+                  <label className="block text-xs text-muted-foreground">
+                    To
+                    <input value={replyTo} onChange={(e) => setReplyTo(e.target.value)} className="mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-card" />
+                  </label>
+                  <label className="block text-xs text-muted-foreground">
+                    Subject
+                    <input value={replySubject} onChange={(e) => setReplySubject(e.target.value)} className="mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-card" />
+                  </label>
+                  <label className="block text-xs text-muted-foreground">
+                    Message
+                    <textarea value={replyBody} onChange={(e) => setReplyBody(e.target.value)} rows={6} className="mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-card" placeholder="Type your reply…" />
+                  </label>
+                </div>
+                {sendError && (
+                  <div className="p-2 rounded-md flex items-center gap-2" style={{ background: 'var(--bg-danger, #FCEBEB)' }}>
+                    <AlertCircle className="h-4 w-4" style={{ color: 'var(--brand-rot, #E5202C)' }} />
+                    <span className="text-sm" style={{ color: 'var(--brand-rot, #E5202C)' }}>{sendError}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={submitReply}
+                    disabled={sending}
+                    className="flex items-center gap-1.5 text-sm font-medium rounded-md px-4 py-2 disabled:opacity-60"
+                    style={{ background: 'var(--brand-rot, #E5202C)', color: '#fff' }}
+                  >
+                    {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    {sending ? 'Sending…' : 'Send reply'}
+                  </button>
+                  <button onClick={() => setReplyOpen(false)} className="text-sm text-muted-foreground hover:text-foreground px-3 py-2">Cancel</button>
+                </div>
+                <p className="text-xs text-muted-foreground">Reply is sent through Resend from the selected address. Inbound stays on Cloudflare.</p>
+              </div>
+            )}
+
             <div className="px-4 py-4">
               {record.html ? (
                 // Sandboxed, scriptless iframe — some templates (e.g. lead-form

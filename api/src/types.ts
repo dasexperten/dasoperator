@@ -51,6 +51,10 @@ export interface Env {
   // ADMIN_EMAIL_TEST_SECRET. Send it as header X-Admin-Email-Test-Secret.
   ADMIN_EMAIL_TEST_SECRET?: string;
 
+  // Resend API key (restricted, send-only) for human-facing replies from the
+  // Emailer UI. Verified sending domain: send.dasexperten.ru.
+  RESEND_API_KEY?: string;
+
   // Secrets (Phase 5.x — LLM integration)
   // Set via Cloudflare Workers secrets, never committed to repo.
   DEEPSEEK_API_KEY: string;

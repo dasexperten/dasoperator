@@ -2747,6 +2747,33 @@ export async function getMailboxMessage(address: string, key: string) {
   );
 }
 
+// Human reply via Resend. Returns the bare { success, messageId } / { success,
+// error } shape the /reply endpoint emits (not the ok()/fail() envelope).
+export async function sendReply(input: {
+  to: string | string[];
+  subject: string;
+  text: string;
+  from?: string;
+  cc?: string | string[];
+  in_reply_to?: string;
+}): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const token =
+    typeof window !== 'undefined' ? window.localStorage.getItem('dx_auth_token') : null;
+  const res = await fetch(`${API_BASE}/api/email/reply`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(input),
+  });
+  try {
+    return await res.json();
+  } catch {
+    return { success: false, error: `HTTP ${res.status}` };
+  }
+}
+
 export type EmailRuleAction = 'exclude' | 'attention' | 'keep' | 'delete' | 'forward' | 'archive';
 
 export interface EmailRule {

@@ -18,7 +18,7 @@ export default function ComposeEmail() {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [bodyFormat, setBodyFormat] = useState<'plain' | 'html'>('plain');
-  const [from, setFrom] = useState('eurasia@dasexperten.de');
+  const [from, setFrom] = useState('eurasia@dasexperten.com');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [sending, setSending] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -27,11 +27,11 @@ export default function ComposeEmail() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const senderOptions = [
-    { value: 'eurasia@dasexperten.de', label: 'Eurasia Team' },
-    { value: 'emea@dasexperten.de', label: 'EMEA Team' },
-    { value: 'marketing@dasexperten.de', label: 'Marketing' },
-    { value: 'sales@dasexperten.de', label: 'Sales' },
-    { value: 'support@dasexperten.de', label: 'Support' },
+    { value: 'eurasia@dasexperten.com', label: 'Eurasia Team' },
+    { value: 'emea@dasexperten.com', label: 'EMEA Team' },
+    { value: 'marketing@dasexperten.com', label: 'Marketing' },
+    { value: 'sales@dasexperten.com', label: 'Sales' },
+    { value: 'support@dasexperten.com', label: 'Support' },
   ];
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {

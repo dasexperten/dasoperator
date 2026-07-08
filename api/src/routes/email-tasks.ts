@@ -208,18 +208,18 @@ r.post('/seed', async (c) => {
   const t = now();
   const scenarios: Array<[string, string, string, string, string, string, number, number, number]> = [
     // id, name, executor, inbox, persona, trigger, enabled, sent_clean, edited
-    ['pechkin-s1-ozon-complaints', 'Ozon lost-order complaints', 'hermes', 'support@dasexperten.de',
+    ['pechkin-s1-ozon-complaints', 'Ozon lost-order complaints', 'hermes', 'support@dasexperten.com',
       'Viktor Orlov (signs to women) / Olga Lebedeva (signs to men) · blame Ozon logistics · auto-refund on cancel · never ask for card',
       'keywords: где заказ / не пришёл / трек / ПВЗ … · newer_than:12h · skip marketplace@seller.ozon.ru · skip if support@/gmail already in thread', 1, 44, 6],
     ['pechkin-s2-ozon-returns', 'Auto-delete Ozon return notices', 'worker', 'marketplace@seller.ozon.ru',
       'no send — trash matching system threads only (subject filter, never whole sender)',
       'from:marketplace@seller.ozon.ru subject:(возврат OR "точка выдачи" OR заберите) · newer_than:12h', 1, 31, 0],
-    ['pechkin-s3-zukonar-forward', 'Forward ЦУКОН invoices → Maria Kosareva', 'worker', 'eurasia@dasexperten.de',
+    ['pechkin-s3-zukonar-forward', 'Forward ЦУКОН invoices → Maria Kosareva', 'worker', 'eurasia@dasexperten.com',
       'forward only → kosarevam491@gmail.com · skip if already in participants[]',
       'from:zukonar@mail.ru · newer_than:12h', 1, 12, 1],
-    ['pechkin-s4-inbox-triage', 'Inbox triage', 'hermes', 'eurasia@dasexperten.de',
+    ['pechkin-s4-inbox-triage', 'Inbox triage', 'hermes', 'eurasia@dasexperten.com',
       'classify + route, no auto-send · 5-inbox router (eurasia/emea/marketing/sales/support)',
-      'in:anywhere newer_than:24h · exclude own dasexperten.de senders', 1, 18, 7],
+      'in:anywhere newer_than:24h · exclude own dasexperten.com senders', 1, 18, 7],
   ];
   const stmts = scenarios.map(([id, name, executor, inbox, persona, trig, enabled, clean, edited]) =>
     c.env.DB.prepare(

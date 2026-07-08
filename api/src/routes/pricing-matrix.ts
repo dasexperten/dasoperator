@@ -38,7 +38,6 @@ const COLUMNS: Array<{ country: string; currency: string }> = [
   { country: 'TH', currency: 'THB' },
   { country: 'MY', currency: 'MYR' },
   { country: 'PH', currency: 'PHP' },
-  { country: 'ID', currency: 'IDR' },
   { country: 'SG', currency: 'SGD' },
 ];
 

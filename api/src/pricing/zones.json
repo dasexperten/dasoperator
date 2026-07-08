@@ -1,7 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "base_currency": "EUR",
-  "note": "Phase-1 pricing = EUR base x daily FX x psychological rounding. Geo sets price; language only translates. Checkout reprices server-side by shipping country. Phase-2 will swap the source to a manual zone x SKU matrix behind the same resolver interface.",
+  "note": "Phase-1 pricing = EUR base x daily FX x psychological rounding. Geo sets price; language only translates. Rules: (A) a country whose language is not on the site defaults to USD; (B) all EAEU countries (RU/BY/KZ/AM/KG) are RUB. Europe stays EUR. Phase-2 will swap the source to a manual zone x SKU matrix behind the same resolver.",
   "zones": {
     "EU": {
       "anchor": "eur_asis",
@@ -17,7 +17,7 @@
     },
     "CIS": {
       "anchor": "fx",
-      "label": "CIS",
+      "label": "EAEU",
       "stripe_hidden": true
     },
     "SEA": {
@@ -90,17 +90,10 @@
     "KZ": "CIS",
     "AM": "CIS",
     "KG": "CIS",
-    "UZ": "CIS",
-    "AZ": "CIS",
-    "GE": "CIS",
-    "MD": "CIS",
-    "TJ": "CIS",
-    "TM": "CIS",
     "VN": "SEA",
     "TH": "SEA",
     "MY": "SEA",
     "PH": "SEA",
-    "ID": "SEA",
     "SG": "SEA"
   },
   "country_currency": {
@@ -118,7 +111,6 @@
     "TH": "THB",
     "MY": "MYR",
     "PH": "PHP",
-    "ID": "IDR",
     "SG": "SGD"
   },
   "currency_rounding": {
@@ -135,7 +127,6 @@
     "THB": "end_9_int",
     "PHP": "end_9_int",
     "VND": "end_9000",
-    "IDR": "end_9000",
     "KWD": "end_900_3dec",
     "BHD": "end_900_3dec",
     "OMR": "end_900_3dec",
@@ -155,7 +146,6 @@
     "THB": 0,
     "PHP": 0,
     "VND": 0,
-    "IDR": 0,
     "RUB": 0,
     "KWD": 3,
     "BHD": 3,

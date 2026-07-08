@@ -105,8 +105,10 @@ X-Admin-Email-Test-Secret: <ADMIN_EMAIL_TEST_SECRET>
 { "to": "someone@example.com" }
 ```
 
-Sends a fixed test message from `no-reply@notify.dasexperten.com`. Protected
-by either an admin session (`Authorization: Bearer <token>` from
+Sends a fixed test message from `no-reply@notify.dasexperten.com`. Pass an
+optional `"from"` (must be one of the five allowed addresses above) to
+smoke-test a different identity, e.g. `{ "to": "...", "from": "orders@notify.dasexperten.com" }`.
+Protected by either an admin session (`Authorization: Bearer <token>` from
 `/api/auth/login`, role `admin`) or the shared secret header above. Set the
 secret with:
 

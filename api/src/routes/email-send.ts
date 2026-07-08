@@ -14,7 +14,9 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { validateSession } from '../lib/auth';
-import { sendTestEmail } from '../services/email';
+import { sendTestEmail, SENDERS } from '../services/email';
+
+const KNOWN_SENDERS = new Set<string>(Object.values(SENDERS));
 
 const route = new Hono<{ Bindings: Env }>();
 
@@ -45,7 +47,7 @@ route.post('/test', async (c) => {
     return c.json({ success: false, error: 'unauthorized' }, 401);
   }
 
-  let body: { to?: unknown };
+  let body: { to?: unknown; from?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -57,7 +59,21 @@ route.post('/test', async (c) => {
     return c.json({ success: false, error: '`to` is required' }, 422);
   }
 
-  const result = await sendTestEmail(c.env, to);
+  // Optional sender override for smoke-testing each provisioned identity —
+  // restricted to the known SENDERS set (not arbitrary @notify.dasexperten.com
+  // local-parts) since this endpoint's job is to verify the 5 real mailboxes.
+  let from: string | undefined;
+  if (typeof body?.from === 'string' && body.from.trim()) {
+    from = body.from.trim();
+    if (!KNOWN_SENDERS.has(from)) {
+      return c.json({
+        success: false,
+        error: `\`from\` must be one of: ${[...KNOWN_SENDERS].join(', ')}`,
+      }, 422);
+    }
+  }
+
+  const result = await sendTestEmail(c.env, to, from);
   if (!result.success) {
     return c.json(result, 502);
   }

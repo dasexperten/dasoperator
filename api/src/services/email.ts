@@ -148,14 +148,16 @@ export async function sendEmail(env: Env, params: SendEmailParams): Promise<Send
 
 // ---------------------------------------------------------------------------
 // sendTestEmail — used by POST /api/email/test
+// `from` defaults to no-reply@ but may be overridden to any of the other
+// provisioned identities (SENDERS) so ops can smoke-test each mailbox.
 // ---------------------------------------------------------------------------
-export async function sendTestEmail(env: Env, to: string): Promise<SendEmailResult> {
+export async function sendTestEmail(env: Env, to: string, from: string = SENDERS.noReply): Promise<SendEmailResult> {
   return sendEmail(env, {
     to,
-    from: SENDERS.noReply,
+    from,
     subject: 'Das Operator Email Sending Test',
-    text: 'This is a test email from Das Operator via Cloudflare Email Sending.',
-    html: '<h1>Das Operator Email Sending Test</h1><p>This is a test email from Das Operator via Cloudflare Email Sending.</p>',
+    text: `This is a test email from Das Operator via Cloudflare Email Sending.\n\nSent from: ${from}`,
+    html: `<h1>Das Operator Email Sending Test</h1><p>This is a test email from Das Operator via Cloudflare Email Sending.</p><p>Sent from: <strong>${from}</strong></p>`,
   });
 }
 

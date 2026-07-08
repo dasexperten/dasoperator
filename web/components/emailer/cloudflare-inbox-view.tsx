@@ -98,7 +98,7 @@ export default function CloudflareInboxView() {
   // Message detail — takes over the right pane when an entry is selected.
   if (selectedAddress && selectedEntry) {
     return (
-      <div className="max-w-4xl mx-auto">
+      <div>
         <button
           onClick={() => { setSelectedEntry(null); setRecord(null); }}
           className="mb-4 flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
@@ -157,7 +157,7 @@ export default function CloudflareInboxView() {
   // Message list for a selected mailbox.
   if (selectedAddress) {
     return (
-      <div className="max-w-4xl mx-auto">
+      <div>
         <button
           onClick={() => { setSelectedAddress(null); setEntries([]); }}
           className="mb-4 flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
@@ -250,7 +250,7 @@ export default function CloudflareInboxView() {
   );
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div>
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h2 className="text-base font-semibold text-foreground">Mailboxes</h2>

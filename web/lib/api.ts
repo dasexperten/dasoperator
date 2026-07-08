@@ -2693,6 +2693,60 @@ export async function getEmailHistory(query = 'newer_than:30d', limit = 50, offs
   return apiGet<EmailHistoryResponse>(`/api/email/history?query=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}${freshParam}`);
 }
 
+// ---------------------------------------------------------------------------
+// Cloudflare Inbox archive — read-only client for api/src/lib/inbox-archive.ts.
+// Independent of the Gmail/EMAILER bridge above: this reads the R2
+// Inbox/<mailbox>/... records written by the notify.dasexperten.com senders.
+// ---------------------------------------------------------------------------
+
+export interface MailboxSummary {
+  address: string;
+  count: number;
+  last_activity: string | null;
+}
+
+export interface MailboxIndexEntry {
+  key: string;
+  direction: 'sent' | 'received';
+  timestamp: string;
+  subject: string;
+  from?: string;
+  to?: string | string[];
+  messageId?: string;
+  threadId?: string;
+}
+
+export interface MailboxMessageRecord {
+  direction: 'sent' | 'received';
+  address: string;
+  timestamp: string;
+  to?: string | string[];
+  from?: string;
+  cc?: string | string[];
+  bcc?: string | string[];
+  subject: string;
+  text?: string;
+  html?: string;
+  messageId?: string;
+  threadId?: string;
+}
+
+export async function getMailboxes() {
+  return apiGet<{ mailboxes: MailboxSummary[] }>('/api/email/mailboxes');
+}
+
+export async function getMailboxMessages(address: string) {
+  return apiGet<{ address: string; entries: MailboxIndexEntry[] }>(
+    `/api/email/mailboxes/${encodeURIComponent(address)}`
+  );
+}
+
+export async function getMailboxMessage(address: string, key: string) {
+  return apiGet<{ record: MailboxMessageRecord }>(
+    `/api/email/mailboxes/${encodeURIComponent(address)}/message?key=${encodeURIComponent(key)}`
+  );
+}
+
 export type EmailRuleAction = 'exclude' | 'attention' | 'keep' | 'delete' | 'forward' | 'archive';
 
 export interface EmailRule {

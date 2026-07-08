@@ -5,7 +5,7 @@ export const runtime = 'edge';
 import { useState } from 'react';
 import { Shield, GraduationCap, Inbox, History } from 'lucide-react';
 import LearningView from '@/components/emailer/learning-view';
-import InboxView from '@/components/emailer/inbox-view';
+import CloudflareInboxView from '@/components/emailer/cloudflare-inbox-view';
 import EmailHistory from '@/components/emailer/email-history';
 import EmailRules from '@/components/emailer/email-rules';
 
@@ -33,7 +33,7 @@ export default function EmailerPage() {
           </span>
         </div>
         <p className="text-sm text-muted-foreground mt-1">
-          Your inbox, triaged by sender and type. You act on what matters — the system learns your judgment as rules.
+          Inbox: the Cloudflare system-mailbox archive (notify.dasexperten.com). Rules/Learning/History: your Gmail inbox, triaged by sender and type.
         </p>
       </div>
 
@@ -62,7 +62,7 @@ export default function EmailerPage() {
       <div className="px-6 py-6">
         {activeTab === 'rules' && <EmailRules />}
         {activeTab === 'learning' && <LearningView />}
-        {activeTab === 'inbox' && <InboxView />}
+        {activeTab === 'inbox' && <CloudflareInboxView />}
         {activeTab === 'history' && <EmailHistory />}
       </div>
     </div>

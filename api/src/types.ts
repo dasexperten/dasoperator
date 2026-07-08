@@ -39,6 +39,18 @@ export interface Env {
   // /api/marketplaces/sync/* routes — public *.workers.dev would 1042.
   SELF: Fetcher;
 
+  // Cloudflare Email Sending (Beta) binding — outbound transactional email
+  // from notify.dasexperten.com. See src/services/email.ts for the allowed
+  // sender addresses and send/validation logic. NOT to be confused with
+  // EMAILER (Apps Script/Gmail bridge for .de human-facing mail) or Email
+  // Routing on dasexperten.com (inbound forwarding) — three separate systems.
+  EMAIL: SendEmail;
+
+  // Shared secret gating POST /api/email/test until Bearer-session admin
+  // auth is wired to this endpoint too. Set via: wrangler secret put
+  // ADMIN_EMAIL_TEST_SECRET. Send it as header X-Admin-Email-Test-Secret.
+  ADMIN_EMAIL_TEST_SECRET?: string;
+
   // Secrets (Phase 5.x — LLM integration)
   // Set via Cloudflare Workers secrets, never committed to repo.
   DEEPSEEK_API_KEY: string;

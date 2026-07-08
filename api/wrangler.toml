@@ -111,6 +111,21 @@ binding = "SELF"
 service = "dasoperator-api"
 
 # -----------------------------------------------------------------------------
+# Email Sending binding — Cloudflare Email Sending (Beta)
+# Sending domain: notify.dasexperten.com (DNS/SPF/DKIM configured in Cloudflare,
+# Email Sending enabled, quota 200/day as of setup). This is a SEPARATE product
+# from Email Routing on dasexperten.com (inbound forwarding) — do not mix them.
+#
+# No destination_address / allowed_destination_addresses set → unrestricted
+# recipient (required: transactional emails go to arbitrary customers/leads,
+# not a fixed inbox). Allowed sender addresses are enforced in application
+# code (see src/services/email.ts), not at the binding level:
+#   no-reply@, notifications@, orders@, forms@, system@ — all @notify.dasexperten.com
+# -----------------------------------------------------------------------------
+[[send_email]]
+name = "EMAIL"
+
+# -----------------------------------------------------------------------------
 # Cron triggers
 #
 # 0 12 * * *   — daily FX refresh from CBR at 12:00 UTC (15:00 Moscow time,

@@ -102,11 +102,6 @@
     "US": "USD",
     "CA": "CAD",
     "AE": "AED",
-    "SA": "SAR",
-    "QA": "QAR",
-    "KW": "KWD",
-    "BH": "BHD",
-    "OM": "OMR",
     "VN": "VND",
     "TH": "THB",
     "MY": "MYR",
@@ -120,8 +115,6 @@
     "CAD": "end_90",
     "PLN": "end_90",
     "AED": "end_90",
-    "SAR": "end_90",
-    "QAR": "end_90",
     "MYR": "end_90",
     "SGD": "end_90",
     "TRY": "end_9_int",
@@ -149,10 +142,7 @@
     "PHP": 0,
     "VND": 0,
     "RUB": 0,
-    "CNY": 0,
-    "KWD": 3,
-    "BHD": 3,
-    "OMR": 3
+    "CNY": 0
   },
   "stripe_hidden_zones": [
     "CIS"

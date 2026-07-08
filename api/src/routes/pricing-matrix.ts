@@ -29,12 +29,7 @@ const COLUMNS: Array<{ country: string; currency: string }> = [
   { country: 'PL', currency: 'PLN' },
   { country: 'TR', currency: 'TRY' },
   { country: 'CA', currency: 'CAD' },
-  { country: 'AE', currency: 'AED' },
-  { country: 'SA', currency: 'SAR' },
-  { country: 'QA', currency: 'QAR' },
-  { country: 'KW', currency: 'KWD' },
-  { country: 'BH', currency: 'BHD' },
-  { country: 'OM', currency: 'OMR' },
+  { country: 'AE', currency: 'AED' },   // all Gulf countries -> AED
   { country: 'RU', currency: 'RUB' },
   { country: 'VN', currency: 'VND' },
   { country: 'TH', currency: 'THB' },

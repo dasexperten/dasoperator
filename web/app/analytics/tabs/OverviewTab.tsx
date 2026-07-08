@@ -108,8 +108,8 @@ export default function OverviewTab() {
                   <td style={{ fontWeight: 700, textTransform: 'uppercase' }}>{m.marketplace}</td>
                   <td className="num right">{fmtNum(m.fbo_units)}</td>
                   <td className="num right">{fmtNum(m.sales_30d)}</td>
-                  <td className="num right">{m.sku_count_stock}/{m.sku_count_sales}</td>
-                  <td className="num right">{timeAgo(m.last_finish ?? m.last_sync)}</td>
+                  <td className="num right soft">{m.sku_count_stock}/{m.sku_count_sales}</td>
+                  <td className="num right soft">{timeAgo(m.last_finish ?? m.last_sync)}</td>
                 </tr>
               ))}
               {!mp.loading && (mp.data?.marketplaces ?? []).length === 0 && (

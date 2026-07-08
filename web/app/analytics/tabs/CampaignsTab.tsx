@@ -73,7 +73,7 @@ export default function CampaignsTab() {
                   {d.rows.map((r) => (
                     <tr key={r.campaign_id}>
                       <td style={{ fontWeight: 700 }}>{r.campaign}</td>
-                      <td className="num right">{fmtNum(r.impressions)}</td>
+                      <td className="num right soft">{fmtNum(r.impressions)}</td>
                       <td className="num right">{fmtNum(r.clicks)}</td>
                       <td className="num right">{fmtRub(r.cost)}</td>
                       <td className="num right">{fmtNum(r.conversions)}</td>
@@ -82,7 +82,7 @@ export default function CampaignsTab() {
                   {d.totals && (
                     <tr style={{ background: 'var(--paper-sunk)' }}>
                       <td style={{ fontWeight: 700 }}>TOTAL</td>
-                      <td className="num right">{fmtNum(d.totals.impressions)}</td>
+                      <td className="num right soft">{fmtNum(d.totals.impressions)}</td>
                       <td className="num right" style={{ fontWeight: 700 }}>{fmtNum(d.totals.clicks)}</td>
                       <td className="num right" style={{ fontWeight: 700 }}>{fmtRub(d.totals.cost)}</td>
                       <td className="num right">{fmtNum(d.totals.conversions)}</td>

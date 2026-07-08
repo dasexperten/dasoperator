@@ -34,7 +34,7 @@
   font-size: 32px;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-  color: var(--fg-1);
+  color: var(--brand-rot); /* data values wear the system accent — bold + bright */
 }
 .wa-kpi .d {
   font-family: var(--font-mono);
@@ -100,6 +100,14 @@
   border-radius: var(--radius-pill);
   padding: 4px 10px;
   white-space: nowrap;
+  max-width: 100%;
+}
+/* Mobile tier: chips wrap instead of running off-screen; panel heads stack
+   (title row, then controls/chips) so nothing overlaps at 390px. */
+@media (max-width: 767px) {
+  .wa-source { white-space: normal; text-align: left; }
+  .wa-panel-head { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .wa-panel-head > div { flex-wrap: wrap; max-width: 100%; }
 }
 .wa-source .dot {
   width: 6px;
@@ -137,10 +145,19 @@
   vertical-align: top;
 }
 .wa-table tr:last-child td { border-bottom: none; }
+/* Data cells — bold + bright in the system accent (Rot), the one accent this
+   screen owns. Kit precedent: .cat-card .wholesale money values in rot.
+   Secondary numerics (timestamps, shares) use .soft so the hot cells read. */
 .wa-table td.num {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  color: var(--brand-rot);
+  font-weight: 800 !important;
+}
+.wa-table td.num.soft {
+  color: var(--fg-2);
+  font-weight: 500 !important;
 }
 .wa-table td.right, .wa-table th.right { text-align: right; }
 .wa-table-scroll { overflow-x: auto; }
@@ -179,6 +196,7 @@
   cursor: pointer;
   padding: 10px 18px;
   min-height: var(--dx-tap-target-min);
+  flex: none; /* never shrink — labels must scroll, not overlap (mobile tier) */
   background: transparent;
   color: var(--fg-2);
   font-family: var(--font-body);

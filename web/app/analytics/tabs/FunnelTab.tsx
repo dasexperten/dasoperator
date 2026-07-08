@@ -56,7 +56,7 @@ export default function FunnelTab() {
                     />
                   </div>
                   <div className="meta" style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-2)', whiteSpace: 'nowrap' }}>
-                    <strong style={{ color: 'var(--fg-1)' }}>{fmtNum(r.count)}</strong>
+                    <strong style={{ color: 'var(--brand-rot)', fontWeight: 800 }}>{fmtNum(r.count)}</strong>
                     {i > 0 && r.rate_vs_prev_pct !== null && <> · {fmtPct(r.rate_vs_prev_pct)} of prev</>}
                   </div>
                 </div>

@@ -57,3 +57,68 @@ Located in `docs/decisions/`.
 - Plan: Workers Paid
 - D1 database: `das_erp_dev` (East Europe)
 - Shared workers: `emailer-bridge`, `apify-bridge`
+
+## Outbound transactional email (Cloudflare Email Sending)
+
+Automated/transactional email is sent from **`notify.dasexperten.com`** via a
+Cloudflare Email Sending (Beta) Worker binding — this is a **separate system**
+from:
+
+- `EMAILER` (Apps Script/Gmail bridge) — human-facing mail on the main
+  `dasexperten.com` mailboxes (`sales@`, `support@`, `emea@`, `asean@`, `eurasia@`).
+- Cloudflare Email Routing on `dasexperten.com` — inbound forwarding only.
+
+Do not mix these systems: automated mail always goes out via `EMAIL`, never
+via the human mailboxes above.
+
+**Allowed sender addresses** (enforced in code, not just convention —
+`api/src/services/email.ts` rejects anything else):
+
+- `no-reply@notify.dasexperten.com`
+- `notifications@notify.dasexperten.com`
+- `orders@notify.dasexperten.com`
+- `forms@notify.dasexperten.com`
+- `system@notify.dasexperten.com`
+
+**Configuring the `EMAIL` binding** — already declared in `api/wrangler.toml`:
+
+```toml
+[[send_email]]
+name = "EMAIL"
+```
+
+No `destination_address` / `allowed_destination_addresses` is set, so the
+binding can send to any recipient (required — leads/customers are arbitrary
+addresses, not one fixed inbox). The sending domain itself
+(`notify.dasexperten.com`) must already be verified and enabled for Email
+Sending in the Cloudflare dashboard (DNS/SPF/DKIM records configured) —
+that part is account-level setup, not something `wrangler deploy` creates.
+Current beta quota: 200 emails/day.
+
+**Test endpoint:**
+
+```
+POST /api/email/test
+Content-Type: application/json
+X-Admin-Email-Test-Secret: <ADMIN_EMAIL_TEST_SECRET>
+
+{ "to": "someone@example.com" }
+```
+
+Sends a fixed test message from `no-reply@notify.dasexperten.com`. Protected
+by either an admin session (`Authorization: Bearer <token>` from
+`/api/auth/login`, role `admin`) or the shared secret header above. Set the
+secret with:
+
+```
+wrangler secret put ADMIN_EMAIL_TEST_SECRET
+```
+
+Response: `{ "success": true, "messageId": "..." }` or
+`{ "success": false, "error": "..." }`.
+
+**Service module** — `api/src/services/email.ts` exposes `sendEmail`,
+`sendTestEmail`, `sendLeadNotification`, `sendFormSubmissionNotification`,
+`sendOrderNotification`, and `sendSystemNotification`. All of them funnel
+through `sendEmail`, which validates required fields and rejects any `from`
+address outside `@notify.dasexperten.com` before calling the `EMAIL` binding.

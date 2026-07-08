@@ -147,3 +147,26 @@ same for the human `dasexperten.com` mailboxes (`sales@`, `support@`, `emea@`,
 `asean@`, `eurasia@`) sent via the `EMAILER` bridge, is follow-up work.
 (`dasexperten.de` is no longer a live domain — anything still referencing it
 elsewhere in this repo is stale.)
+
+**Reading the archive** — `api/src/routes/email-archive.ts` exposes a
+read-only API over the same R2 data, gated behind a valid session
+(`Authorization: Bearer <token>`, any logged-in user):
+
+```
+GET /api/email/mailboxes                  — every mailbox with an index, with message count + last activity
+GET /api/email/mailboxes/:address         — that mailbox's message list (newest first)
+GET /api/email/mailboxes/:address/message?key=...  — one full record
+```
+
+`:address` is URL-encoded (e.g. `orders%40notify.dasexperten.com`). The
+`message` endpoint refuses any `key` that doesn't fall under
+`Inbox/<address>/` — no cross-mailbox reads via a crafted key.
+
+This backs the **Inbox** tab on `/emailer`
+(`web/components/emailer/cloudflare-inbox-view.tsx`) — an internal mail
+client for the Cloudflare system mailboxes, completely independent of the
+Gmail/`EMAILER` bridge (that's the `Rules`/`Learning`/`History` tabs on the
+same page). Message HTML is rendered in a sandboxed, scriptless `<iframe>`
+rather than injected into the page — some templates interpolate third-party
+input (e.g. lead-form messages) into stored HTML unescaped, so it's treated
+as untrusted content.

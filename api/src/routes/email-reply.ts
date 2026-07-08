@@ -23,10 +23,11 @@ import { archiveEmail } from '../lib/inbox-archive';
 
 const route = new Hono<{ Bindings: Env }>();
 
-// Only Resend-verified senders. send.dasexperten.ru is the verified domain;
-// dasexperten.ru is allowed as a display alias per the ru mail policy.
-const ALLOWED_FROM = /@(send\.)?dasexperten\.ru$/i;
-const DEFAULT_FROM = 'sales@send.dasexperten.ru';
+// Only Resend-verified senders. my.dasexperten.com is the verified sending
+// domain (mirrors the .com inbound addresses); send.dasexperten.ru kept as a
+// fallback for legacy .ru replies.
+const ALLOWED_FROM = /@(my\.dasexperten\.com|(send\.)?dasexperten\.ru)$/i;
+const DEFAULT_FROM = 'sales@my.dasexperten.com';
 
 const replySchema = z.object({
   to: z.string().email().or(z.array(z.string().email()).min(1)),

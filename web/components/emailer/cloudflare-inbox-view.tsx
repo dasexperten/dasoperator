@@ -51,7 +51,7 @@ export default function CloudflareInboxView() {
   const [replyTo, setReplyTo] = useState('');
   const [replySubject, setReplySubject] = useState('');
   const [replyBody, setReplyBody] = useState('');
-  const [replyFrom, setReplyFrom] = useState('sales@send.dasexperten.ru');
+  const [replyFrom, setReplyFrom] = useState('sales@my.dasexperten.com');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [sentOk, setSentOk] = useState(false);
@@ -212,9 +212,11 @@ export default function CloudflareInboxView() {
                   <label className="block text-xs text-muted-foreground">
                     From
                     <select value={replyFrom} onChange={(e) => setReplyFrom(e.target.value)} className="mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-card">
-                      <option value="sales@send.dasexperten.ru">sales@send.dasexperten.ru</option>
-                      <option value="support@send.dasexperten.ru">support@send.dasexperten.ru</option>
-                      <option value="oplata@send.dasexperten.ru">oplata@send.dasexperten.ru</option>
+                      <option value="sales@my.dasexperten.com">sales@my.dasexperten.com</option>
+                      <option value="support@my.dasexperten.com">support@my.dasexperten.com</option>
+                      <option value="eurasia@my.dasexperten.com">eurasia@my.dasexperten.com</option>
+                      <option value="emea@my.dasexperten.com">emea@my.dasexperten.com</option>
+                      <option value="asean@my.dasexperten.com">asean@my.dasexperten.com</option>
                     </select>
                   </label>
                   <label className="block text-xs text-muted-foreground">
@@ -248,7 +250,7 @@ export default function CloudflareInboxView() {
                   </button>
                   <button onClick={() => setReplyOpen(false)} className="text-sm text-muted-foreground hover:text-foreground px-3 py-2">Cancel</button>
                 </div>
-                <p className="text-xs text-muted-foreground">Reply is sent through Resend from the selected address. Inbound stays on Cloudflare.</p>
+                <p className="text-xs text-muted-foreground">Reply is sent through Resend from my.dasexperten.com. Inbound stays on Cloudflare.</p>
               </div>
             )}
 

@@ -71,6 +71,7 @@ Real-time analytics.
 | W15 | Real-time analytics / AI-platform sessions | NONE | **CUT** — nightly-refresh design; no realtime leg | — |
 | W16 | Contact/form submissions, bookings | NONE | **CUT** — no form product on .com | — |
 | W17 | Email / marketing campaign reports | NONE | **CUT** in /analytics — email ops live in ERP /emailer | — |
+| W18 | Top navigation flows (4-step Sankey) | GA4 | pairwise version: `landingPage` entries + internal `pageReferrer → pagePath` transitions (`/api/ga4/nav-flows`); full session paths need the BigQuery export — method note in UI | Behavior |
 
 ## Paid-media legs (both catalogs' "marketing/attribution" sections)
 

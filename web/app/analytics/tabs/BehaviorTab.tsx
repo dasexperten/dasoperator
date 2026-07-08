@@ -13,7 +13,7 @@ import { AreaChart } from '@tremor/react';
 import {
   useApi, fmtNum, fmtPct, fmtSec, timeAgo,
   Kpi, Panel, LoadState, ChartLegend,
-  type ClarityBehavior, type BehaviorHistory,
+  type ClarityBehavior, type BehaviorHistory, type Ga4NavFlows,
 } from '../shared';
 
 const CLARITY_PROJECT_URL = 'https://clarity.microsoft.com/projects';
@@ -41,9 +41,54 @@ function DimTable({ title, rows }: { title: string; rows: Array<{ name: string; 
   );
 }
 
+// Wix "Top navigation flows" analogue — see /api/ga4/nav-flows. Two columns:
+// entry pages (landingPage sessions) and top internal transitions
+// (pageReferrer -> pagePath views). Pairwise, not full 4-step session paths —
+// GA4's Data API has no path dimension; the method note comes from the API.
+function NavFlows({ data }: { data: Ga4NavFlows }) {
+  const entryMax = Math.max(1, ...data.entries.map((e) => e.sessions));
+  const edgeMax = Math.max(1, ...data.edges.map((e) => e.views));
+  const bar = (v: number, max: number) => (
+    <div style={{ height: 4, background: 'var(--paper-sunk)', borderRadius: 2, marginTop: 3 }}>
+      <div style={{ height: 4, width: `${(v / max) * 100}%`, background: 'var(--fg-link)', borderRadius: 2 }} />
+    </div>
+  );
+  return (
+    <div className="wa-grid2eq">
+      <div>
+        <h4 style={{ color: 'var(--fg-2)', marginBottom: 8 }}>1st page (entry) · sessions</h4>
+        {data.entries.slice(0, 8).map((e) => (
+          <div key={e.page} style={{ marginBottom: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+              <span style={{ wordBreak: 'break-all' }}>{e.page}</span>
+              <span className="num">{fmtNum(e.sessions)}</span>
+            </div>
+            {bar(e.sessions, entryMax)}
+          </div>
+        ))}
+        {data.entries.length === 0 && <p style={{ color: 'var(--fg-3)' }}>No data in this window.</p>}
+      </div>
+      <div>
+        <h4 style={{ color: 'var(--fg-2)', marginBottom: 8 }}>Top transitions (from → to) · page views</h4>
+        {data.edges.slice(0, 8).map((e) => (
+          <div key={e.from + e.to} style={{ marginBottom: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+              <span style={{ wordBreak: 'break-all' }}>{e.from} → {e.to}</span>
+              <span className="num">{fmtNum(e.views)}</span>
+            </div>
+            {bar(e.views, edgeMax)}
+          </div>
+        ))}
+        {data.edges.length === 0 && <p style={{ color: 'var(--fg-3)' }}>No internal transitions in this window.</p>}
+      </div>
+    </div>
+  );
+}
+
 export default function BehaviorTab() {
   const behavior = useApi<ClarityBehavior>('/api/clarity/behavior?days=1');
   const history = useApi<BehaviorHistory>('/api/analytics/behavior-history?days=30');
+  const flows = useApi<Ga4NavFlows>('/api/ga4/nav-flows?days=30');
 
   const b = behavior.data;
   const sig = (k: string) => b?.signals?.[k]?.sessions_pct ?? null;
@@ -128,6 +173,18 @@ export default function BehaviorTab() {
           </div>
         </>
       )}
+
+      <Panel title="Top navigation flows" source="GA4 · pageReferrer → pagePath (internal)">
+        <LoadState loading={flows.loading} error={flows.error} />
+        {flows.data && (
+          <>
+            <NavFlows data={flows.data} />
+            <p className="wa-note" style={{ marginTop: 12 }}>
+              {flows.data.method} Window: {flows.data.window_days}d · synced {timeAgo(flows.data.synced_at)}.
+            </p>
+          </>
+        )}
+      </Panel>
 
       <Panel title="Behavior trend — nightly archive" source="D1 · web_behavior_snapshots">
         {histRows.length >= 2 ? (

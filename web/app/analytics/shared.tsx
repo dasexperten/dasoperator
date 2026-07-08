@@ -40,6 +40,15 @@ export type Ga4Funnel = {
   rows: Array<{ step: string; count: number; rate_vs_prev_pct: number | null; rate_vs_sessions_pct: number | null }>;
   synced_at: number;
 };
+export type Ga4NavFlows = {
+  source: string;
+  window_days: number;
+  method: string;
+  totals: { entry_sessions: number; edge_views: number };
+  entries: Array<{ page: string; sessions: number }>;
+  edges: Array<{ from: string; to: string; views: number }>;
+  synced_at: number;
+};
 export type ClarityBehavior = {
   source: string;
   window_days: number;

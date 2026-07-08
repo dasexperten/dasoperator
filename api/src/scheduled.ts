@@ -438,6 +438,15 @@ export async function handleScheduled(
 
   if (cron === '0 12 * * *') {
     await runFxRefresh();
+    // Storefront zonal pricing rates (EUR-based, 18 currencies) — separate keys
+    // from the CBR store above. See lib/fx-pricing.ts.
+    try {
+      const { refreshPricingRates } = await import('./lib/fx-pricing');
+      const r = await refreshPricingRates(env);
+      console.log('[cron:fx-pricing] ' + JSON.stringify(r));
+    } catch (e) {
+      console.error('[cron:fx-pricing] failed:', e);
+    }
     await runPartnerStatusRecalc(env);
     return;
   }

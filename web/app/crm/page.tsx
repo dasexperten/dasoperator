@@ -414,7 +414,7 @@ export default function CrmPage() {
           </div>
           <p style={{ fontSize: 14, color: 'var(--fg-3)', marginTop: 4 }}>
             {crmSource === 'pricing'
-              ? 'Матрица цен — зональные цены по валютам (EUR base × FX × округление)'
+              ? 'Geo Price Matrix — зональные цены по валютам (EUR base × FX × округление)'
               : crmSource === 'com'
               ? 'dasexperten.com — Stripe orders & customer database'
               : 'Retail CRM — customers, orders, revenue'}
@@ -454,8 +454,8 @@ export default function CrmPage() {
         <SourcePill
           active={crmSource === 'pricing'}
           onClick={() => switchSource('pricing')}
-          label="Матрица цен"
-          sublabel="Zonal · 18 валют"
+          label="Geo Price Matrix"
+          sublabel="Zonal · 18 currencies"
         />
       </div>
 

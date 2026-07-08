@@ -455,7 +455,7 @@ export default function CrmPage() {
           active={crmSource === 'pricing'}
           onClick={() => switchSource('pricing')}
           label="Geo Price Matrix"
-          sublabel="Zonal · 17 currencies"
+          sublabel="Zonal · 18 currencies"
         />
       </div>
 

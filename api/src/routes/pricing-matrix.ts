@@ -39,6 +39,7 @@ const COLUMNS: Array<{ country: string; currency: string }> = [
   { country: 'MY', currency: 'MYR' },
   { country: 'PH', currency: 'PHP' },
   { country: 'SG', currency: 'SGD' },
+  { country: 'CN', currency: 'CNY' },
 ];
 
 const pricingMatrix = new Hono<{ Bindings: Env }>();

@@ -107,7 +107,26 @@ interface ComStats {
   synced_at: number;
 }
 
-type CrmSource = 'ru' | 'com';
+type CrmSource = 'ru' | 'com' | 'pricing';
+
+// Zonal pricing matrix (from GET /api/pricing/matrix)
+interface PricingMatrixColumn {
+  country: string;
+  currency: string;
+  zone: string;
+  decimals: number;
+  rate: number | null;
+  stripe_hidden: boolean;
+  prices: Record<string, number>;
+}
+interface PricingMatrix {
+  base_currency: string;
+  updated_at: string | null;
+  rates_stale: boolean;
+  columns: PricingMatrixColumn[];
+  rows: Array<{ sku: string; base_eur: string }>;
+  zones: string[];
+}
 
 interface PageMeta {
   page: number;
@@ -140,6 +159,9 @@ export default function CrmPage() {
   // 'ru'  — dasexperten.ru via Yandex KIT (/api/crm/*, RUB)
   // 'com' — dasexperten.com via Stripe   (/api/crm/website/*, USD)
   const [crmSource, setCrmSource] = useState<CrmSource>('ru');
+  const [matrix, setMatrix] = useState<PricingMatrix | null>(null);
+  const [matrixLoading, setMatrixLoading] = useState(false);
+  const [matrixError, setMatrixError] = useState<string | null>(null);
   const [comStats, setComStats] = useState<ComStats | null>(null);
   const [comStatsLoading, setComStatsLoading] = useState(false);
   const [comStatsError, setComStatsError] = useState<string | null>(null);
@@ -231,6 +253,21 @@ export default function CrmPage() {
       setComStatsError(e instanceof Error ? e.message : 'Network error');
     } finally {
       setComStatsLoading(false);
+    }
+  }, []);
+
+  const loadMatrix = useCallback(async () => {
+    setMatrixLoading(true);
+    setMatrixError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/pricing/matrix`);
+      const data = await res.json();
+      if (data.success && data.result) setMatrix(data.result);
+      else setMatrixError(data.errors?.[0]?.message || 'Failed to load');
+    } catch (e) {
+      setMatrixError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setMatrixLoading(false);
     }
   }, []);
 
@@ -332,6 +369,7 @@ export default function CrmPage() {
   useEffect(() => { if (tab === 'orders') loadOrders(); }, [tab, loadOrders]);
   useEffect(() => { if (tab === 'customers') loadCustomers(); }, [tab, loadCustomers]);
   useEffect(() => { if (crmSource === 'com') loadComStats(); }, [crmSource, loadComStats]);
+  useEffect(() => { if (crmSource === 'pricing' && !matrix) loadMatrix(); }, [crmSource, matrix, loadMatrix]);
 
   function switchSource(next: CrmSource) {
     if (next === crmSource) return;
@@ -375,7 +413,9 @@ export default function CrmPage() {
             <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--fg-1)' }}>CRM</h1>
           </div>
           <p style={{ fontSize: 14, color: 'var(--fg-3)', marginTop: 4 }}>
-            {crmSource === 'com'
+            {crmSource === 'pricing'
+              ? 'Матрица цен — зональные цены по валютам (EUR base × FX × округление)'
+              : crmSource === 'com'
               ? 'dasexperten.com — Stripe orders & customer database'
               : 'Retail CRM — customers, orders, revenue'}
           </p>
@@ -411,7 +451,22 @@ export default function CrmPage() {
           label="dasexperten.com"
           sublabel="Stripe · $"
         />
+        <SourcePill
+          active={crmSource === 'pricing'}
+          onClick={() => switchSource('pricing')}
+          label="Матрица цен"
+          sublabel="Zonal · 18 валют"
+        />
       </div>
+
+      {crmSource === 'pricing' && (
+        <PricingMatrixSection
+          matrix={matrix}
+          loading={matrixLoading}
+          error={matrixError}
+          onRetry={loadMatrix}
+        />
+      )}
 
       {crmSource === 'ru' && statsError && (
         <ErrorBox title="Retail CRM stats unavailable" message={statsError} />
@@ -465,6 +520,7 @@ export default function CrmPage() {
       )}
 
       {/* Tabs */}
+      {crmSource !== 'pricing' && (
       <div className="flex items-center gap-1" style={{ borderBottom: '1px solid var(--border-hairline)' }}>
         <TabButton
           active={tab === 'orders'}
@@ -481,9 +537,10 @@ export default function CrmPage() {
           count={(crmSource === 'com' ? comStats?.customers_total : stats?.customers_total) ?? null}
         />
       </div>
+      )}
 
       {/* Tab content */}
-      {tab === 'orders' && (
+      {crmSource !== 'pricing' && tab === 'orders' && (
         <DataTablePanel
           title="Orders"
           meta={ordersMeta}
@@ -504,7 +561,7 @@ export default function CrmPage() {
         </DataTablePanel>
       )}
 
-      {tab === 'customers' && (
+      {crmSource !== 'pricing' && tab === 'customers' && (
         <DataTablePanel
           title="Customers"
           meta={customersMeta}
@@ -989,6 +1046,117 @@ function SourcePill({
       <div style={{ fontSize: 14, fontWeight: 700, color: active ? 'var(--brand-rot)' : 'var(--fg-1)' }}>{label}</div>
       <div style={{ fontSize: 12, color: 'var(--fg-3)' }}>{sublabel}</div>
     </button>
+  );
+}
+
+function flagEmoji(cc: string): string {
+  if (!cc || cc.length !== 2) return '';
+  const A = 0x1f1e6;
+  return String.fromCodePoint(A + cc.charCodeAt(0) - 65, A + cc.charCodeAt(1) - 65);
+}
+
+function fmtMoney(amount: number | undefined, currency: string, decimals: number): string {
+  if (typeof amount !== 'number') return '—';
+  try {
+    return new Intl.NumberFormat('en', {
+      style: 'currency', currency,
+      minimumFractionDigits: decimals, maximumFractionDigits: decimals,
+    }).format(amount);
+  } catch {
+    return `${currency} ${amount.toFixed(decimals)}`;
+  }
+}
+
+function PricingMatrixSection({
+  matrix, loading, error, onRetry,
+}: {
+  matrix: PricingMatrix | null;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  if (error) {
+    return (
+      <div className="space-y-3">
+        <ErrorBox title="Pricing matrix unavailable" message={error} />
+        <button onClick={onRetry} className="px-4 py-2" style={{
+          fontSize: 13, fontWeight: 700, color: 'var(--fg-1)',
+          backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)',
+          borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+        }}>Retry</button>
+      </div>
+    );
+  }
+  if (loading && !matrix) {
+    return (
+      <div className="flex items-center justify-center py-10">
+        <Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--fg-muted)' }} />
+      </div>
+    );
+  }
+  if (!matrix) return null;
+
+  const updated = matrix.updated_at ? new Date(matrix.updated_at).toLocaleString('ru-RU') : '—';
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div style={{ fontSize: 13, color: 'var(--fg-3)' }}>
+          Base <strong style={{ color: 'var(--fg-1)' }}>{matrix.base_currency}</strong> ·{' '}
+          {matrix.columns.length} currencies · {matrix.rows.length} SKU · FX updated {updated}
+          {matrix.rates_stale && (
+            <span style={{ marginLeft: 8, color: 'var(--brand-rot)', fontWeight: 700 }}>
+              ⚠ rates not yet loaded (run FX cron)
+            </span>
+          )}
+        </div>
+        <button onClick={onRetry} className="flex items-center gap-2 px-3 py-1.5" style={{
+          fontSize: 13, fontWeight: 700, color: 'var(--fg-1)',
+          backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)',
+          borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+        }}>
+          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
+        </button>
+      </div>
+
+      <div style={{ overflowX: 'auto', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)' }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13, whiteSpace: 'nowrap' }}>
+          <thead>
+            <tr style={{ backgroundColor: 'var(--paper-sunk)' }}>
+              <th style={{ textAlign: 'left', padding: '10px 12px', position: 'sticky', left: 0, backgroundColor: 'var(--paper-sunk)', borderBottom: '1px solid var(--border-hairline)' }}>SKU</th>
+              <th style={{ textAlign: 'right', padding: '10px 12px', borderBottom: '1px solid var(--border-hairline)', color: 'var(--fg-3)' }}>Base €</th>
+              {matrix.columns.map((col) => (
+                <th key={col.currency} style={{ textAlign: 'right', padding: '10px 12px', borderBottom: '1px solid var(--border-hairline)' }}>
+                  <div style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{flagEmoji(col.country)} {col.currency}</div>
+                  <div style={{ fontSize: 11, color: 'var(--fg-3)', fontWeight: 400 }}>
+                    {col.zone}{col.stripe_hidden ? ' · no Stripe' : ''}
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {matrix.rows.map((row, ri) => (
+              <tr key={row.sku} style={{ backgroundColor: ri % 2 ? 'var(--paper)' : 'transparent' }}>
+                <td style={{ textAlign: 'left', padding: '9px 12px', fontWeight: 700, color: 'var(--fg-1)', position: 'sticky', left: 0, backgroundColor: ri % 2 ? 'var(--paper)' : 'var(--paper)', borderBottom: '1px solid var(--border-hairline)' }}>{row.sku}</td>
+                <td style={{ textAlign: 'right', padding: '9px 12px', color: 'var(--fg-3)', borderBottom: '1px solid var(--border-hairline)' }}>€{row.base_eur}</td>
+                {matrix.columns.map((col) => (
+                  <td key={col.currency} style={{ textAlign: 'right', padding: '9px 12px', color: 'var(--fg-1)', borderBottom: '1px solid var(--border-hairline)' }}>
+                    {fmtMoney(col.prices[row.sku], col.currency, col.decimals)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <p style={{ fontSize: 12, color: 'var(--fg-3)' }}>
+        Phase 1 — computed: EUR base × daily FX × psychological rounding, via the same resolver
+        the storefront and checkout use. Phase 2 will make this an editable zone × SKU override
+        table behind the same interface. Checkout always reprices server-side by the shipping country.
+      </p>
+    </div>
   );
 }
 

@@ -1,0 +1,25 @@
+# =============================================================================
+# Das Operator ERP — repo hygiene checks on every PR and push to main
+# =============================================================================
+# Currently guards:
+#   - db/migrations numeric prefixes must be unique (apply-order safety)
+# =============================================================================
+
+name: Checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  migration-numbers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check migration number uniqueness
+        run: bash scripts/check-migration-numbers.sh

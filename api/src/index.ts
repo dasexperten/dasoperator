@@ -20,6 +20,7 @@ import sequencesRoutes from './routes/sequences';
 import operationsRoutes from './routes/operations';
 import operationsImportRoutes from './routes/operations-import';
 import operationDocsRoutes from './routes/operation-docs';
+import geoPriceRoutes from './routes/geo-price';
 import fxRoutes from './routes/fx';
 import contractsRoutes from './routes/contracts';
 import paymentsRoutes from './routes/payments';
@@ -150,6 +151,7 @@ app.get('/api/_llm-diag', async (c) => {
 });
 
 app.route('/health', healthRoutes);
+app.route('/geo-price', geoPriceRoutes);  // public zonal price feed for dasexperten.com storefront
 app.route('/api/products', productsRoutes);
 app.route('/api/products', productsPricingRoutes);  // adds :productId/price
 app.route('/api/products', productStock);           // adds :id/stock

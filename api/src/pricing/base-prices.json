@@ -1,0 +1,11 @@
+{
+  "_note": "Canonical server-side EUR base prices (SSOT for zonal repricing). MUST stay in sync with public/assets/product-data.js `price` fields. Only SKUs with a base here are purchasable/repriced. 19 catalogue products still have empty price in product-data.js — pending owner (see BACKLOGS 2026-07-08).",
+  "currency": "EUR",
+  "prices": {
+    "DE201": "9.90",
+    "DE202": "12.00",
+    "DE205": "12.90",
+    "DE206": "19.90",
+    "DE210": "25.50"
+  }
+}

@@ -27,6 +27,10 @@ function isAllowedOrigin(origin: string): boolean {
 }
 
 export const corsMiddleware: MiddlewareHandler = async (c, next) => {
+  // /geo-price is a public storefront endpoint with its own permissive CORS for
+  // the dasexperten.com origins — let that route own its headers entirely.
+  if (c.req.path === '/geo-price') return next();
+
   const origin = c.req.header('Origin');
 
   // Preflight OPTIONS request

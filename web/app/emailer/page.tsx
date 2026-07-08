@@ -4,6 +4,7 @@ export const runtime = 'edge';
 
 import { useState } from 'react';
 import { Shield, GraduationCap, Inbox, History } from 'lucide-react';
+import PageHeader from '@/components/ui/page-header';
 import LearningView from '@/components/emailer/learning-view';
 import CloudflareInboxView from '@/components/emailer/cloudflare-inbox-view';
 import EmailHistory from '@/components/emailer/email-history';
@@ -22,34 +23,30 @@ export default function EmailerPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="border-b border-border px-6 py-4">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-foreground">Emailer</h1>
-          <span className="flex h-[3px] w-14 overflow-hidden rounded-full" aria-hidden="true">
-            <span className="flex-1 bg-zinc-900" />
-            <span className="flex-1 bg-[#D7141A]" />
-            <span className="flex-1 bg-[#F0C915]" />
-          </span>
-        </div>
-        <p className="text-sm text-muted-foreground mt-1">
-          Inbox: the Cloudflare system-mailbox archive (notify.dasexperten.com). Rules/Learning/History: your Gmail inbox, triaged by sender and type.
-        </p>
-      </div>
+    <div className="space-y-8 max-w-full">
+      <PageHeader
+        eyebrow="Communications"
+        title="Emailer"
+        subtitle="Inbox: the Cloudflare system-mailbox archive (notify.dasexperten.com). Rules/Learning/History: your Gmail inbox, triaged by sender and type."
+      />
 
-      <div className="border-b border-border px-6">
+      <div style={{ borderBottom: '1px solid var(--border-hairline)' }}>
         <nav className="flex gap-6 overflow-x-auto" aria-label="Tabs">
           {tabs.map((tab) => {
             const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 py-3 px-1 border-b-2 font-medium text-sm whitespace-nowrap transition-colors ${
-                  activeTab === tab.id
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
-                }`}
+                className="flex items-center gap-2 whitespace-nowrap transition-colors"
+                style={{
+                  padding: '12px 4px',
+                  borderBottom: `2px solid ${isActive ? 'var(--brand-rot)' : 'transparent'}`,
+                  color: isActive ? 'var(--brand-rot)' : 'var(--fg-2)',
+                  fontSize: 'var(--fs-body-sm)',
+                  fontWeight: 600,
+                }}
               >
                 <Icon className="h-4 w-4" />
                 {tab.label}
@@ -59,7 +56,7 @@ export default function EmailerPage() {
         </nav>
       </div>
 
-      <div className="px-6 py-6">
+      <div>
         {activeTab === 'rules' && <EmailRules />}
         {activeTab === 'learning' && <LearningView />}
         {activeTab === 'inbox' && <CloudflareInboxView />}

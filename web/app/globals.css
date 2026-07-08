@@ -53,13 +53,19 @@
   /* Eyebrow label — was tiny uppercase mono, now Manrope 14px regular per font rules */
   .dx-eyebrow {
     font-family: var(--font-sans);
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: 0;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     color: var(--fg-2);
   }
 
   .dx-eyebrow-rot {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     color: var(--brand-rot);
   }
 
@@ -94,8 +100,8 @@
   /* Product name — Manrope Bold for brand-mark moments */
   .dx-product-name {
     font-family: var(--font-sans);
-    font-weight: 700;
-    letter-spacing: 0;
+    font-weight: 800;
+    letter-spacing: -0.01em;
     text-transform: none;
   }
 

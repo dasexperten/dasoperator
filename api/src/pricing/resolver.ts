@@ -88,10 +88,21 @@ export function convert(
   return roundFor(cfg, currency, eur * rate);
 }
 
+// Manual per-(currency, sku) price overrides (Phase 2 — editable in the ERP).
+// A present value is the FINAL price in that currency: no FX, no rounding.
+export type Overrides = Record<string, Record<string, number>>;
+
 export interface ResolveCtx {
   cfg: ZonesConfig;
   rates: Rates;
   baseBySku: Record<string, string | number>;
+  overrides?: Overrides;
+}
+
+export function overrideFor(overrides: Overrides | undefined, currency: string, sku: string): number | null {
+  const cur = overrides && overrides[currency];
+  const v = cur ? cur[sku] : undefined;
+  return typeof v === 'number' && v > 0 ? v : null;
 }
 
 export interface PricedCatalogue {
@@ -100,13 +111,17 @@ export interface PricedCatalogue {
   currency: string;
   decimals: number;
   prices: Record<string, number>;
+  manual?: Record<string, boolean>;
 }
 
 export function priceCatalogue(country: string | undefined, ctx: ResolveCtx): PricedCatalogue {
   const currency = currencyForCountry(ctx.cfg, country);
   const decimals = ctx.cfg.currency_decimals[currency] ?? 2;
   const prices: Record<string, number> = {};
+  const manual: Record<string, boolean> = {};
   for (const sku of Object.keys(ctx.baseBySku)) {
+    const ov = overrideFor(ctx.overrides, currency, sku);
+    if (ov != null) { prices[sku] = ov; manual[sku] = true; continue; }
     const base = ctx.baseBySku[sku];
     if (base == null || base === '') continue;
     const amount = convert(ctx.cfg, base, currency, ctx.rates);
@@ -118,6 +133,7 @@ export function priceCatalogue(country: string | undefined, ctx: ResolveCtx): Pr
     currency,
     decimals,
     prices,
+    manual,
   };
 }
 
@@ -127,9 +143,11 @@ export function priceForSku(
   country: string | undefined,
   ctx: ResolveCtx
 ): { sku: string; amount: number; currency: string; zone: string } | null {
+  const currency = currencyForCountry(ctx.cfg, country);
+  const ov = overrideFor(ctx.overrides, currency, sku);
+  if (ov != null) return { sku, amount: ov, currency, zone: zoneForCountry(ctx.cfg, country) };
   const base = ctx.baseBySku[sku];
   if (base == null || base === '') return null;
-  const currency = currencyForCountry(ctx.cfg, country);
   const amount = convert(ctx.cfg, base, currency, ctx.rates);
   if (amount == null) return null;
   return { sku, amount, currency, zone: zoneForCountry(ctx.cfg, country) };

@@ -4,6 +4,7 @@ import zones from '../pricing/zones.json';
 import basePrices from '../pricing/base-prices.json';
 import { priceCatalogue, type ZonesConfig } from '../pricing/resolver';
 import { readPricingRates, refreshPricingRates } from '../lib/fx-pricing';
+import { readOverrides } from '../lib/pricing-overrides';
 
 // =============================================================================
 // GET /geo-price — public zonal price feed for the storefront.
@@ -73,7 +74,8 @@ geoPrice.get('/', async (c) => {
     }
   }
 
-  const cat = priceCatalogue(country, { cfg, rates, baseBySku });
+  const overrides = await readOverrides(c.env);
+  const cat = priceCatalogue(country, { cfg, rates, baseBySku, overrides });
 
   const body = {
     country: cat.country,

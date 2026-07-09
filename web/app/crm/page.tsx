@@ -398,6 +398,7 @@ export default function CrmPage() {
     loadTimeline();
     loadFunnel();
     if (crmSource === 'com') loadComStats();
+    if (crmSource === 'pricing') loadMatrix(); // Geo Price Matrix view — reload it too
     if (tab === 'orders') loadOrders();
     else loadCustomers();
   }

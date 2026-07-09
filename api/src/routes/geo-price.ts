@@ -9,13 +9,14 @@ import { readEffective } from '../lib/pricing-overrides';
 // =============================================================================
 // GET /geo-price — public zonal price feed for the storefront.
 //
-// Resolves the visitor's country (dx_region cookie > ?country= > CF-IPCountry),
+// Resolves the visitor's country (?country= for tests/ERP > CF-IPCountry),
 // then returns { country, zone, currency, decimals, updated_at, prices }, where
 // prices = { SKU: amount } computed EUR base x daily FX x psychological rounding.
 //
+// Location is by IP only — no cookie override (a stale one must not pin currency).
 // Public (no auth, no credentials). Own permissive CORS for the two .com
-// storefront origins. Edge-cached 1h per full URL (country in the query).
-// Display only — the charge is always repriced server-side at checkout.
+// storefront origins. NOT shared-cacheable: the price varies by caller IP, which
+// isn't in the URL. Display only — the charge is repriced server-side at checkout.
 // =============================================================================
 
 const cfg = zones as unknown as ZonesConfig;
@@ -34,16 +35,6 @@ function corsFor(origin: string | undefined): Record<string, string> {
   };
 }
 
-function readCookie(header: string | undefined, name: string): string | null {
-  if (!header) return null;
-  for (const part of header.split(';')) {
-    const i = part.indexOf('=');
-    if (i < 0) continue;
-    if (part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
-  }
-  return null;
-}
-
 const ISO2 = /^[A-Za-z]{2}$/;
 
 const geoPrice = new Hono<{ Bindings: Env }>();
@@ -53,11 +44,12 @@ geoPrice.options('/', (c) => new Response(null, { status: 204, headers: corsFor(
 geoPrice.get('/', async (c) => {
   const cors = corsFor(c.req.header('Origin'));
 
-  // Resolution order: dx_region cookie wins, then ?country=, then IP geo.
-  const cookieRegion = readCookie(c.req.header('Cookie'), 'dx_region');
+  // Resolution order: ?country= (manual test / ERP matrix) wins, then IP geo.
+  // The dx_region cookie is intentionally NOT consulted — location is by IP only.
+  // (A stale cookie must never pin a visitor to the wrong currency after a move.)
   const qCountry = c.req.query('country');
   const ipCountry = c.req.header('CF-IPCountry');
-  let country = cookieRegion || qCountry || ipCountry || '';
+  let country = qCountry || ipCountry || '';
   if (!ISO2.test(country)) country = 'US'; // ROW anchor when unknown (T1 = Tor/unknown)
   country = country.toUpperCase();
 
@@ -93,8 +85,11 @@ geoPrice.get('/', async (c) => {
     headers: {
       ...cors,
       'Content-Type': 'application/json',
-      // Per-country edge cache, 1h; SWR keeps it warm past expiry.
-      'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+      // Price varies by the caller's IP (CF-IPCountry) but that is NOT in the
+      // URL — so it must never be shared-cached by URL, or one visitor's country
+      // would be served to another (and a VPN/move wouldn't re-price). Keep it
+      // per-client and non-stale; the storefront dedups with sessionStorage.
+      'Cache-Control': 'private, no-store',
     },
   });
 });

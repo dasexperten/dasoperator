@@ -4,7 +4,7 @@ export const runtime = 'edge';
 
 import { useEffect, useState, useCallback } from 'react';
 import {
-  Loader2, RefreshCw, Headphones, AlertCircle, Search,
+  Loader2, RefreshCw, Headphones, AlertCircle, Search, Save,
   ChevronLeft, ChevronRight, ShoppingBag, Users
 } from 'lucide-react';
 
@@ -422,21 +422,25 @@ export default function CrmPage() {
               : 'Retail CRM — customers, orders, revenue'}
           </p>
         </div>
-        <button
-          onClick={refreshAll}
-          disabled={isLoading}
-          className="flex items-center gap-2 px-4 py-2"
-          style={{
-            fontSize: 14, fontWeight: 700, color: 'var(--fg-1)',
-            backgroundColor: 'var(--paper-sunk)',
-            border: '1px solid var(--border-hairline)',
-            borderRadius: 'var(--radius-sm)',
-            cursor: isLoading ? 'wait' : 'pointer',
-          }}
-        >
-          <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+        {/* On the Geo Price Matrix view the matrix owns a single "Save Prices"
+            button; the global Refresh would be a confusing second button there. */}
+        {crmSource !== 'pricing' && (
+          <button
+            onClick={refreshAll}
+            disabled={isLoading}
+            className="flex items-center gap-2 px-4 py-2"
+            style={{
+              fontSize: 14, fontWeight: 700, color: 'var(--fg-1)',
+              backgroundColor: 'var(--paper-sunk)',
+              border: '1px solid var(--border-hairline)',
+              borderRadius: 'var(--radius-sm)',
+              cursor: isLoading ? 'wait' : 'pointer',
+            }}
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        )}
       </div>
 
       {/* Storefront source switcher: .ru (Yandex KIT) ↔ .com (Stripe) */}
@@ -1080,49 +1084,49 @@ function fmtNum(amount: number | undefined, decimals: number): string {
   }).format(amount);
 }
 
-// Editable price cell — click to type a manual price; blank + Enter reverts to
-// the computed value. Manual cells are tinted. Commits to /api/pricing/override.
-function PriceCell({ col, sku, onSave }: {
-  col: PricingMatrixColumn; sku: string; onSave: (currency: string, sku: string, amount: string) => Promise<void>;
+// Editable price cell — click to type a manual price; blank reverts to the
+// computed value. Edits are staged (amber) until "Save Prices" commits them.
+function PriceCell({ col, sku, staged, onStage }: {
+  col: PricingMatrixColumn; sku: string;
+  staged: string | undefined; // pending edit not yet saved (undefined = none, '' = revert to computed)
+  onStage: (currency: string, sku: string, norm: string, committed: string, isManual: boolean) => void;
 }) {
   const value = col.prices[sku];
   const isManual = !!(col.manual && col.manual[sku]);
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
-  const [busy, setBusy] = useState(false);
   if (typeof value !== 'number') {
     return <td style={{ textAlign: 'right', padding: '9px 12px', color: 'var(--fg-3)', borderBottom: '1px solid var(--border-hairline)' }}>—</td>;
   }
-  async function commit(raw: string) {
+  const isDirty = staged !== undefined;
+  function commit(raw: string) {
     setEditing(false);
-    const norm = raw.trim().replace(',', '.');
-    const cur = String(value);
-    if (norm === cur || (norm === '' && !isManual)) return; // no change
-    setBusy(true);
-    try { await onSave(col.currency, sku, norm); } finally { setBusy(false); }
+    onStage(col.currency, sku, raw.trim().replace(',', '.'), String(value), isManual);
   }
+  // Colour: dirty (amber) > manual (red) > computed.
+  const color = isDirty ? 'var(--brand-amber, #b45309)' : isManual ? 'var(--brand-rot)' : 'var(--fg-1)';
+  const bg = isDirty ? 'rgba(180,83,9,0.10)' : isManual ? 'rgba(199,33,39,0.06)' : undefined;
+  const shown = isDirty ? (staged === '' ? 'auto' : staged) : fmtNum(value, col.decimals);
   return (
     <td
-      onClick={() => { if (!editing) { setDraft(String(value)); setEditing(true); } }}
-      title={isManual ? 'Manual price — click to edit, clear to revert to computed' : 'Computed — click to set a manual price'}
+      onClick={() => { if (!editing) setEditing(true); }}
+      title={isDirty ? 'Unsaved — click Save Prices to apply' : isManual ? 'Manual price — click to edit, clear to revert to computed' : 'Computed — click to set a manual price'}
       style={{
         textAlign: 'right', padding: '9px 12px', cursor: 'text',
-        color: isManual ? 'var(--brand-rot)' : 'var(--fg-1)', fontWeight: isManual ? 700 : 400,
-        backgroundColor: isManual ? 'rgba(199,33,39,0.06)' : undefined,
-        borderBottom: '1px solid var(--border-hairline)', opacity: busy ? 0.5 : 1,
+        color, fontWeight: isDirty || isManual ? 700 : 400, backgroundColor: bg,
+        borderBottom: '1px solid var(--border-hairline)',
       }}
     >
       {editing ? (
         <input
           autoFocus
-          defaultValue={draft}
+          defaultValue={isDirty ? staged : String(value)}
           onFocus={(e) => e.target.select()}
           onBlur={(e) => commit(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditing(false); }}
           style={{ width: 78, textAlign: 'right', font: 'inherit', color: 'var(--fg-1)', border: '1px solid var(--brand-rot)', borderRadius: 4, padding: '2px 4px', background: 'var(--paper)' }}
         />
       ) : (
-        <span>{fmtNum(value, col.decimals)}{isManual ? ' •' : ''}</span>
+        <span>{shown}{isDirty ? ' ✎' : isManual ? ' •' : ''}</span>
       )}
     </td>
   );
@@ -1136,19 +1140,47 @@ function PricingMatrixSection({
   error: string | null;
   onRetry: () => void;
 }) {
-  const saveOverride = useCallback(async (currency: string, sku: string, amount: string) => {
+  // Edits are staged locally (per currency|sku) and committed together by the
+  // single "Save Prices" button — nothing is written until then.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+
+  const stageEdit = useCallback((currency: string, sku: string, norm: string, committed: string, isManual: boolean) => {
+    const key = currency + '|' + sku;
+    setDrafts((prev) => {
+      const next = { ...prev };
+      // No real change (typed back the current value, or cleared a computed cell)
+      // → drop any stale draft so the cell isn't falsely marked dirty.
+      if (norm === committed || (norm === '' && !isManual)) delete next[key];
+      else next[key] = norm;
+      return next;
+    });
+  }, []);
+
+  const savePrices = useCallback(async () => {
+    const entries = Object.entries(drafts);
+    if (!entries.length || saving) return;
+    setSaving(true);
     try {
-      const res = await fetch(`${API_BASE}/api/pricing/override`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currency, sku, amount: amount === '' ? null : amount }),
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.errors?.[0]?.message || 'save failed');
-      onRetry(); // reload the matrix to reflect the new value
+      for (const [key, val] of entries) {
+        const [currency, sku] = key.split('|');
+        const res = await fetch(`${API_BASE}/api/pricing/override`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currency, sku, amount: val === '' ? null : val }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(`${sku} ${currency}: ${data.errors?.[0]?.message || 'save failed'}`);
+      }
+      setDrafts({});
+      onRetry(); // reload the matrix to reflect the saved prices
     } catch (e) {
-      alert('Could not save price: ' + (e instanceof Error ? e.message : String(e)));
+      alert('Could not save prices: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setSaving(false);
     }
-  }, [onRetry]);
+  }, [drafts, saving, onRetry]);
+
+  const dirtyCount = Object.keys(drafts).length;
 
   if (error) {
     return (
@@ -1185,12 +1217,16 @@ function PricingMatrixSection({
             </span>
           )}
         </div>
-        <button onClick={onRetry} className="flex items-center gap-2 px-3 py-1.5" style={{
-          fontSize: 13, fontWeight: 700, color: 'var(--fg-1)',
-          backgroundColor: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)',
-          borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+        <button onClick={savePrices} disabled={saving || dirtyCount === 0} className="flex items-center gap-2 px-3 py-1.5" style={{
+          fontSize: 13, fontWeight: 700,
+          color: dirtyCount ? '#fff' : 'var(--fg-3)',
+          backgroundColor: dirtyCount ? 'var(--brand-rot)' : 'var(--paper-sunk)',
+          border: '1px solid ' + (dirtyCount ? 'var(--brand-rot)' : 'var(--border-hairline)'),
+          borderRadius: 'var(--radius-sm)', cursor: (saving || !dirtyCount) ? 'default' : 'pointer',
+          opacity: saving ? 0.7 : 1,
         }}>
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
+          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+          Save Prices{dirtyCount ? ` (${dirtyCount})` : ''}
         </button>
       </div>
 
@@ -1218,7 +1254,7 @@ function PricingMatrixSection({
                 <td style={{ textAlign: 'left', padding: '9px 12px', fontWeight: 700, color: 'var(--fg-1)', position: 'sticky', left: 0, backgroundColor: ri % 2 ? 'var(--paper)' : 'var(--paper)', borderBottom: '1px solid var(--border-hairline)' }}>{row.sku}</td>
                 <td style={{ textAlign: 'right', padding: '9px 12px', color: 'var(--fg-3)', borderBottom: '1px solid var(--border-hairline)' }}>{row.base_eur}</td>
                 {matrix.columns.map((col) => (
-                  <PriceCell key={col.currency} col={col} sku={row.sku} onSave={saveOverride} />
+                  <PriceCell key={col.currency} col={col} sku={row.sku} staged={drafts[col.currency + '|' + row.sku]} onStage={stageEdit} />
                 ))}
               </tr>
             ))}
@@ -1227,10 +1263,12 @@ function PricingMatrixSection({
       </div>
 
       <p style={{ fontSize: 12, color: 'var(--fg-3)' }}>
-        Computed cells = EUR base × daily FX × psychological rounding. <b>Click any cell to set a
-        manual price</b> in that currency (shown in <span style={{ color: 'var(--brand-rot)', fontWeight: 700 }}>red •</span>);
-        clear it and press Enter to revert to computed. Manual prices flow straight to the storefront
-        and checkout via the same resolver. Checkout always reprices server-side by the shipping country.
+        Computed cells = EUR base × daily FX × psychological rounding. <b>Click any cell to edit</b> a
+        manual price; edits stay <span style={{ color: 'var(--brand-amber, #b45309)', fontWeight: 700 }}>amber ✎</span> (unsaved)
+        until you press <b>Save Prices</b>. Clear a cell to revert it to computed. Saved manual prices
+        (<span style={{ color: 'var(--brand-rot)', fontWeight: 700 }}>red •</span>) flow straight to the
+        storefront and checkout via the same resolver, and are never auto-changed. Checkout always
+        reprices server-side by the shipping country.
       </p>
     </div>
   );

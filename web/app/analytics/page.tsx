@@ -70,9 +70,6 @@ export default function AnalyticsPage() {
       {/* ============================ HEADER ============================ */}
       <div>
         <div className="dx-eyebrow mb-2">Web Analytics Command Center</div>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 900, color: 'var(--fg-1)' }}>
-          dasexperten.com Analytics
-        </h1>
         <p style={{ color: 'var(--fg-2)', marginTop: 4, maxWidth: 720 }}>
           Discover how visitors engage with your site&apos;s pages.
         </p>

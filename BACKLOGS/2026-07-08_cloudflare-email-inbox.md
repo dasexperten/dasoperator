@@ -1,4 +1,5 @@
 # Backlog — 2026-07-08 — Cloudflare Email Inbox
+Category: erp
 
 **Сессия:** интеграция Cloudflare Email Sending (`notify.dasexperten.com`) в Das Operator ERP + R2-архив входящей/исходящей почты по папкам на mailbox + новая вкладка Inbox на `/emailer`, читающая архив напрямую (без Gmail-моста), плюс попутный фикс мёртвого домена `dasexperten.de` в существующем коде. Всё в PR [#104](https://github.com/dasexperten/dasoperator/pull/104), ветка `claude/cloudflare-email-sending-xxbsii`.
 

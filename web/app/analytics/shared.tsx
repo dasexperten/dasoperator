@@ -136,8 +136,12 @@ export type Ga4Snapshot = {
 export type Ga4Realtime = {
   source: string;
   active_users_now: number;
+  active_users_5min?: number;
   per_minute: Array<{ minutes_ago: number; active_users: number }>;
   by_country: Array<{ country: string; active_users: number }>;
+  by_audience?: Array<{ audience: string; count: number }>;
+  by_page?: Array<{ title: string; count: number }>;
+  by_event?: Array<{ event: string; count: number }>;
   synced_at: number;
 };
 

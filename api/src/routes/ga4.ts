@@ -542,6 +542,91 @@ ga4.get('/snapshot', async (c) => {
 });
 
 // =============================================================================
+// GET /api/ga4/nav-flows?days=30 — Wix "Top navigation flows" analogue.
+// GA4's Data API has no session-path dimension (that needs the BigQuery
+// export), so this is the honest pairwise version:
+//   entries — landingPage sessions (the "1st page" column)
+//   edges   — pageReferrer -> pagePath transitions, internal referrers only
+// The UI labels the method; edges are page-view transitions, not full paths.
+// KV cache: 1h
+// =============================================================================
+ga4.get('/nav-flows', async (c) => {
+  if (!ga4Configured(c.env)) return notConfigured(c);
+  const days = windowDays(c);
+
+  try {
+    const payload = await withKvCache(c.env, cacheKey('ga4:nav-flows', { days }), 3600, async () => {
+      const [entriesResp, edgesResp] = await Promise.all([
+        ga4RunReport(c.env, {
+          dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+          dimensions: [{ name: 'landingPage' }],
+          metrics: [{ name: 'sessions' }],
+          orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+          limit: 10,
+        }),
+        ga4RunReport(c.env, {
+          dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+          dimensions: [{ name: 'pageReferrer' }, { name: 'pagePath' }],
+          metrics: [{ name: 'screenPageViews' }],
+          // Internal navigation only — referrer on our own host.
+          dimensionFilter: {
+            filter: {
+              fieldName: 'pageReferrer',
+              stringFilter: { matchType: 'CONTAINS', value: 'dasexperten.com' },
+            },
+          },
+          orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
+          limit: 250,
+        }),
+      ]);
+
+      const entries = (entriesResp.rows ?? []).map((r) => ({
+        page: r.dimensionValues?.[0]?.value || '(not set)',
+        sessions: Math.round(metricNum(r, 0)),
+      }));
+      const entrySessions = entries.reduce((a, r) => a + r.sessions, 0);
+
+      // Referrer is a full URL — reduce to a path and aggregate (from, to)
+      // edges, dropping self-loops (reloads / hash navigation).
+      const edgeMap = new Map<string, { from: string; to: string; views: number }>();
+      for (const r of edgesResp.rows ?? []) {
+        const ref = r.dimensionValues?.[0]?.value ?? '';
+        const to = r.dimensionValues?.[1]?.value || '(not set)';
+        let from = '(not set)';
+        try {
+          from = new URL(ref).pathname || '/';
+        } catch {
+          /* non-URL referrer value — keep (not set) */
+        }
+        if (from === to) continue;
+        const key = `${from} ${to}`;
+        const cur = edgeMap.get(key);
+        const views = Math.round(metricNum(r, 0));
+        if (cur) cur.views += views;
+        else edgeMap.set(key, { from, to, views });
+      }
+      const edges = [...edgeMap.values()].sort((a, b) => b.views - a.views).slice(0, 20);
+      const edgeViews = edges.reduce((a, e) => a + e.views, 0);
+
+      return {
+        source: sourceLabel(c.env),
+        window_days: days,
+        method:
+          'GA4 pairwise transitions (pageReferrer → pagePath, internal only) — not full session paths; those require the BigQuery export.',
+        totals: { entry_sessions: entrySessions, edge_views: edgeViews },
+        entries,
+        edges,
+        synced_at: Math.floor(Date.now() / 1000),
+      };
+    });
+    return ok(c, payload);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return fail(c, 502, [{ code: 'ga4_upstream_error', message: msg }]);
+  }
+});
+
+// =============================================================================
 // GET /api/ga4/realtime — active users in the last 30 min, per-minute buckets
 // + breakdown by country. No caching (realtime is realtime); GA4 realtime API
 // quota is generous (separate from the Data API's runReport quota).

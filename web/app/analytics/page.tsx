@@ -74,11 +74,24 @@ export default function AnalyticsPage() {
           dasexperten.com Analytics
         </h1>
         <p style={{ color: 'var(--fg-2)', marginTop: 4, maxWidth: 720 }}>
-          Wix/Shopify-grade dashboards on our own trackers: GA4 (global), Microsoft Clarity
-          (behavior), Yandex Metrika (RU contour), D1 orders — refreshed nightly at 02:30 UTC.
-          Each tab states its source; contours are never blended without a formula note.
+          Discover how visitors engage with your site&apos;s pages.
         </p>
         <div className="dx-ribbon-rule mt-4" style={{ maxWidth: 240 }}><i /><i /><i /></div>
+        <div style={{ marginTop: 12, maxWidth: 720 }}>
+          <div className="dx-eyebrow mb-2">Behaviour rules</div>
+          <ul style={{ color: 'var(--fg-2)', margin: 0, paddingLeft: 18, display: 'grid', gap: 4 }}>
+            <li>Every tab labels its data source.</li>
+            <li>
+              Three trackers see three different volumes (geo + consent + sampling) — contours are
+              never blended without a formula note.
+            </li>
+            <li>
+              Nightly cron (02:30 UTC) archives into D1 — that archive is the only Clarity history
+              in existence.
+            </li>
+            <li>NONE-source metrics are cut, never faked.</li>
+          </ul>
+        </div>
       </div>
 
       {/* ============================ TABS ============================ */}

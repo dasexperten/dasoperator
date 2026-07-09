@@ -5,7 +5,7 @@ import zones from '../pricing/zones.json';
 import basePrices from '../pricing/base-prices.json';
 import { priceCatalogue, type ZonesConfig } from '../pricing/resolver';
 import { readPricingRates } from '../lib/fx-pricing';
-import { readOverrides, setOverride } from '../lib/pricing-overrides';
+import { setOverride, readEffective } from '../lib/pricing-overrides';
 import { fail } from '../lib/responses';
 
 // =============================================================================
@@ -43,10 +43,10 @@ const pricingMatrix = new Hono<{ Bindings: Env }>();
 
 pricingMatrix.get('/matrix', async (c) => {
   const { rates, updated_at } = await readPricingRates(c.env);
-  const overrides = await readOverrides(c.env);
+  const { effective, manual } = await readEffective(c.env);
 
   const columns = COLUMNS.map((col) => {
-    const cat = priceCatalogue(col.country, { cfg, rates, baseBySku, overrides });
+    const cat = priceCatalogue(col.country, { cfg, rates, baseBySku, overrides: effective, locked: manual });
     const rate = col.currency === cfg.base_currency ? 1 : rates[col.currency] ?? null;
     return {
       country: col.country,

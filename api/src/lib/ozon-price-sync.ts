@@ -1,21 +1,20 @@
 // =============================================================================
 // Ozon → RUB price sync.
 //
-// Pulls current Ozon Seller prices and writes them as manual RUB overrides
-// (fx:pricing:overrides.RUB) so the storefront + checkout + Geo Price Matrix
-// show exactly the Ozon price for the Russian market. One-way, read-only from
-// Ozon (we never change anything on Ozon).
+// Pulls current Ozon Seller prices and writes them into the AUTO override layer
+// (fx:pricing:auto.RUB) so the storefront + checkout + Geo Price Matrix show the
+// Ozon price for the Russian market. One-way, read-only from Ozon.
 //
-// Mapping: Ozon offer_id (uppercased) == our catalogue SKU (DE###). Only SKUs
-// present in base-prices.json are touched; SKUs not on Ozon keep their existing
-// manual/RSP override or the computed value.
+// LOCK RULE: a cell that was set by hand (manual layer, fx:pricing:overrides) is
+// LOCKED — the sync never overwrites it. It writes/refreshes only unlocked cells.
 //
-// Price chosen: marketing_price (what the buyer sees after Ozon promos) when > 0,
-// else the regular price.
+// Mapping: Ozon offer_id (uppercased) == our SKU (DE###). Pack-only SKUs derive
+// the per-unit price: DE###AA = 2-pack (/2), DE###AAAA = 4-pack (/4). Final RUB =
+// Ozon price × (1 − OZON_BUYER_DISCOUNT) — the actual Ozon-Card buyer price.
 // =============================================================================
 
 import type { Env } from '../types';
-import { readOverrides, OVERRIDES_KEY } from './pricing-overrides';
+import { readOverrides, readAuto, writeAuto } from './pricing-overrides';
 import basePrices from '../pricing/base-prices.json';
 
 const OZON_PRICES_URL = 'https://api-seller.ozon.ru/v5/product/info/prices';
@@ -40,7 +39,8 @@ export interface OzonSyncResult {
   ok: boolean;
   fetched: number;   // Ozon items seen
   matched: number;   // mapped to a known SKU with a positive price
-  updated: number;   // RUB overrides actually changed
+  updated: number;   // RUB auto values actually changed
+  locked: number;    // SKUs skipped because a manual RUB override is locked
   skus: string[];    // SKUs updated
   error?: string;
 }
@@ -48,7 +48,7 @@ export interface OzonSyncResult {
 export async function syncOzonPricesToRub(env: Env): Promise<OzonSyncResult> {
   const clientId = env.OZON_CLIENT_ID;
   const apiKey = env.OZON_API_KEY;
-  if (!clientId || !apiKey) return { ok: false, fetched: 0, matched: 0, updated: 0, skus: [], error: 'ozon_creds_missing' };
+  if (!clientId || !apiKey) return { ok: false, fetched: 0, matched: 0, updated: 0, locked: 0, skus: [], error: 'ozon_creds_missing' };
 
   // Collect every Ozon offer_id → buyer price. Some SKUs are sold only as
   // multi-packs: offer_id "DE###AA" = 2-pack, "DE###AAAA" = 4-pack. For those we
@@ -64,7 +64,7 @@ export async function syncOzonPricesToRub(env: Env): Promise<OzonSyncResult> {
         headers: { 'Client-Id': String(clientId), 'Api-Key': String(apiKey), 'Content-Type': 'application/json' },
         body: JSON.stringify({ cursor, limit: 1000, filter: { visibility: 'ALL' } }),
       });
-      if (!resp.ok) return { ok: false, fetched, matched: 0, updated: 0, skus: [], error: `ozon_http_${resp.status}` };
+      if (!resp.ok) return { ok: false, fetched, matched: 0, updated: 0, locked: 0, skus: [], error: `ozon_http_${resp.status}` };
       const data = (await resp.json()) as { items?: OzonPriceItem[]; cursor?: string };
       const items = data.items || [];
       fetched += items.length;
@@ -78,7 +78,7 @@ export async function syncOzonPricesToRub(env: Env): Promise<OzonSyncResult> {
       if (!cursor || items.length === 0) break;
     }
   } catch (e) {
-    return { ok: false, fetched, matched: 0, updated: 0, skus: [], error: e instanceof Error ? e.message : String(e) };
+    return { ok: false, fetched, matched: 0, updated: 0, locked: 0, skus: [], error: e instanceof Error ? e.message : String(e) };
   }
 
   // Resolve per-unit RUB for each known SKU: single, else 2-pack (AA)/2, else 4-pack (AAAA)/4.
@@ -96,21 +96,24 @@ export async function syncOzonPricesToRub(env: Env): Promise<OzonSyncResult> {
   }
 
   const matchedSkus = Object.keys(priceBySku);
-  if (matchedSkus.length === 0) return { ok: true, fetched, matched: 0, updated: 0, skus: [] };
+  if (matchedSkus.length === 0) return { ok: true, fetched, matched: 0, updated: 0, locked: 0, skus: [] };
 
-  // Merge into the RUB overrides in a single KV write.
-  const overrides = await readOverrides(env);
-  if (!overrides.RUB) overrides.RUB = {};
+  // Write into the AUTO layer only. Skip any SKU with a LOCKED manual RUB override.
+  const [manual, auto] = await Promise.all([readOverrides(env), readAuto(env)]);
+  const lockedRub = manual.RUB || {};
+  if (!auto.RUB) auto.RUB = {};
   const updated: string[] = [];
+  let locked = 0;
   for (const sku of matchedSkus) {
     const p = priceBySku[sku];
     if (p == null) continue;
-    if (overrides.RUB[sku] !== p) {
-      overrides.RUB[sku] = p;
+    if (lockedRub[sku] != null) { locked++; continue; } // hand-set → never touch
+    if (auto.RUB[sku] !== p) {
+      auto.RUB[sku] = p;
       updated.push(sku);
     }
   }
-  if (updated.length) await env.FX.put(OVERRIDES_KEY, JSON.stringify(overrides));
+  if (updated.length) await writeAuto(env, auto);
 
-  return { ok: true, fetched, matched: matchedSkus.length, updated: updated.length, skus: updated.sort() };
+  return { ok: true, fetched, matched: matchedSkus.length, updated: updated.length, locked, skus: updated.sort() };
 }

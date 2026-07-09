@@ -96,7 +96,8 @@ export interface ResolveCtx {
   cfg: ZonesConfig;
   rates: Rates;
   baseBySku: Record<string, string | number>;
-  overrides?: Overrides;
+  overrides?: Overrides;   // EFFECTIVE price overrides (auto + manual merged, manual wins)
+  locked?: Overrides;      // MANUAL-only layer — drives the "locked" flag (never auto-synced)
 }
 
 export function overrideFor(overrides: Overrides | undefined, currency: string, sku: string): number | null {
@@ -120,8 +121,10 @@ export function priceCatalogue(country: string | undefined, ctx: ResolveCtx): Pr
   const prices: Record<string, number> = {};
   const manual: Record<string, boolean> = {};
   for (const sku of Object.keys(ctx.baseBySku)) {
+    // "locked" reflects only a manual (hand-set) override for this cell.
+    if (overrideFor(ctx.locked, currency, sku) != null) manual[sku] = true;
     const ov = overrideFor(ctx.overrides, currency, sku);
-    if (ov != null) { prices[sku] = ov; manual[sku] = true; continue; }
+    if (ov != null) { prices[sku] = ov; continue; }
     const base = ctx.baseBySku[sku];
     if (base == null || base === '') continue;
     const amount = convert(ctx.cfg, base, currency, ctx.rates);

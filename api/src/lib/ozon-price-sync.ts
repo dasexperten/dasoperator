@@ -21,9 +21,13 @@ import basePrices from '../pricing/base-prices.json';
 const OZON_PRICES_URL = 'https://api-seller.ozon.ru/v5/product/info/prices';
 const KNOWN_SKUS = new Set(Object.keys((basePrices as { prices: Record<string, string> }).prices));
 
+// Extra Ozon buyer discount (Ozon Card etc.) NOT reflected in the API price
+// field — the actual price a buyer pays is price × (1 − this). Owner-set.
+const OZON_BUYER_DISCOUNT = 0.45;
+
 interface OzonPriceItem {
   offer_id?: string;
-  price?: { price?: string | number; marketing_price?: string | number };
+  price?: { price?: string | number; marketing_seller_price?: string | number };
 }
 
 function num(v: string | number | undefined): number {
@@ -67,7 +71,7 @@ export async function syncOzonPricesToRub(env: Env): Promise<OzonSyncResult> {
       for (const it of items) {
         const oid = (it.offer_id || '').toUpperCase();
         if (!oid) continue;
-        const price = num(it.price?.marketing_price) || num(it.price?.price);
+        const price = num(it.price?.price) || num(it.price?.marketing_seller_price);
         if (price > 0) byOffer[oid] = price;
       }
       cursor = data.cursor || '';
@@ -87,7 +91,8 @@ export async function syncOzonPricesToRub(env: Env): Promise<OzonSyncResult> {
     if (single > 0) unit = single;
     else if (pack2 > 0) unit = pack2 / 2;
     else if (pack4 > 0) unit = pack4 / 4;
-    if (unit > 0) priceBySku[sku] = Math.round(unit);
+    // Apply the Ozon buyer discount that the API price doesn't include.
+    if (unit > 0) priceBySku[sku] = Math.round(unit * (1 - OZON_BUYER_DISCOUNT));
   }
 
   const matchedSkus = Object.keys(priceBySku);

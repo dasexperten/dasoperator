@@ -345,29 +345,63 @@ export default function CloudflareInboxView() {
   const inboundMailboxes = mailboxes.filter((m) => !m.address.includes('@notify.'));
   const outboundMailboxes = mailboxes.filter((m) => m.address.includes('@notify.'));
 
+  // Local part before @, used for the display name and avatar initial.
+  const localPart = (addr: string) => (addr.split('@')[0] || addr).trim();
+  const avatarInitial = (addr: string) => (localPart(addr)[0] || '?').toUpperCase();
+  // Deterministic warm avatar colour derived from the address, kept in the
+  // brand's earthy range so it never clashes with rot/gold.
+  const avatarColor = (addr: string) => {
+    const palette = ['#B23A2E', '#8A6D3B', '#4A6B57', '#5A5566', '#7A5230', '#3F5E6B'];
+    let h = 0;
+    for (let i = 0; i < addr.length; i++) h = (h * 31 + addr.charCodeAt(i)) >>> 0;
+    return palette[h % palette.length];
+  };
+
   const renderMailboxRow = (m: MailboxSummary, inbound: boolean) => (
     <button
       key={m.address}
       onClick={() => selectMailbox(m.address)}
-      className="w-full text-left p-4 hover:bg-secondary/50 transition-colors flex items-center justify-between gap-4"
+      className="w-full text-left px-4 py-3.5 flex items-center gap-3 border-b border-border last:border-b-0 hover:bg-secondary/40 transition-colors"
+      style={inbound && m.count > 0 ? { background: 'linear-gradient(90deg, var(--bg-danger, #FCEBEB) 0%, transparent 42%)' } : undefined}
     >
-      <div className="flex items-center gap-3 min-w-0">
-        <div
-          className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
-          style={{ background: inbound ? 'var(--bg-accent, #FCEBEB)' : 'var(--paper-sunk, #F3F0E8)' }}
-        >
-          {inbound ? (
-            <ArrowDownLeft className="h-4 w-4" style={{ color: 'var(--brand-rot, #E5202C)' }} />
-          ) : (
-            <Mail className="h-4 w-4 text-muted-foreground" />
-          )}
+      <div
+        className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-white font-bold text-sm"
+        style={{ background: inbound ? 'var(--brand-rot, #E5202C)' : avatarColor(m.address), fontFamily: 'var(--font-display, inherit)' }}
+      >
+        {avatarInitial(m.address)}
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-bold text-foreground truncate">{m.address}</span>
+          <span
+            className="shrink-0 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded"
+            style={inbound
+              ? { background: 'var(--bg-danger, #FCEBEB)', color: 'var(--brand-rot, #E5202C)' }
+              : { background: 'var(--paper-sunk, #F3F0E8)', color: 'var(--fg-2, #6E6558)' }}
+          >
+            {inbound ? 'Inbound' : 'Sys'}
+          </span>
         </div>
-        <div className="min-w-0">
-          <div className="text-sm font-bold text-foreground truncate">{m.address}</div>
-          <div className="text-xs text-muted-foreground">{m.count} {m.count === 1 ? 'message' : 'messages'}</div>
+        <div className="text-xs text-muted-foreground mt-0.5">
+          {localPart(m.address)} · {m.count} {m.count === 1 ? 'message' : 'messages'}
         </div>
       </div>
-      <span className="text-xs text-muted-foreground whitespace-nowrap">{fmtDate(m.last_activity)}</span>
+
+      <div className="text-right shrink-0 flex items-center gap-3">
+        <div>
+          <div
+            className="text-sm font-bold tabular-nums"
+            style={{ color: inbound ? 'var(--brand-rot, #E5202C)' : 'var(--fg-2, #6E6558)', fontFamily: 'var(--font-mono, inherit)' }}
+          >
+            {m.count}
+          </div>
+          <div className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">{fmtDate(m.last_activity)}</div>
+        </div>
+        {inbound && m.count > 0 && (
+          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: 'var(--brand-rot, #E5202C)' }} />
+        )}
+      </div>
     </button>
   );
 

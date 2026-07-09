@@ -46,7 +46,10 @@ export async function syncOzonPricesToRub(env: Env): Promise<OzonSyncResult> {
   const apiKey = env.OZON_API_KEY;
   if (!clientId || !apiKey) return { ok: false, fetched: 0, matched: 0, updated: 0, skus: [], error: 'ozon_creds_missing' };
 
-  const priceBySku: Record<string, number> = {};
+  // Collect every Ozon offer_id → buyer price. Some SKUs are sold only as
+  // multi-packs: offer_id "DE###AA" = 2-pack, "DE###AAAA" = 4-pack. For those we
+  // derive the single-unit price (pack price / pack size).
+  const byOffer: Record<string, number> = {};
   let fetched = 0;
   let cursor = '';
 
@@ -62,16 +65,29 @@ export async function syncOzonPricesToRub(env: Env): Promise<OzonSyncResult> {
       const items = data.items || [];
       fetched += items.length;
       for (const it of items) {
-        const sku = (it.offer_id || '').toUpperCase();
-        if (!KNOWN_SKUS.has(sku)) continue;
+        const oid = (it.offer_id || '').toUpperCase();
+        if (!oid) continue;
         const price = num(it.price?.marketing_price) || num(it.price?.price);
-        if (price > 0) priceBySku[sku] = Math.round(price); // RUB shown as integer
+        if (price > 0) byOffer[oid] = price;
       }
       cursor = data.cursor || '';
       if (!cursor || items.length === 0) break;
     }
   } catch (e) {
     return { ok: false, fetched, matched: 0, updated: 0, skus: [], error: e instanceof Error ? e.message : String(e) };
+  }
+
+  // Resolve per-unit RUB for each known SKU: single, else 2-pack (AA)/2, else 4-pack (AAAA)/4.
+  const priceBySku: Record<string, number> = {};
+  for (const sku of KNOWN_SKUS) {
+    const single = byOffer[sku] ?? 0;
+    const pack2 = byOffer[sku + 'AA'] ?? 0;    // 2-pack
+    const pack4 = byOffer[sku + 'AAAA'] ?? 0;  // 4-pack
+    let unit = 0;
+    if (single > 0) unit = single;
+    else if (pack2 > 0) unit = pack2 / 2;
+    else if (pack4 > 0) unit = pack4 / 4;
+    if (unit > 0) priceBySku[sku] = Math.round(unit);
   }
 
   const matchedSkus = Object.keys(priceBySku);

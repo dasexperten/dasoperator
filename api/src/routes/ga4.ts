@@ -635,7 +635,7 @@ ga4.get('/realtime', async (c) => {
   if (!ga4Configured(c.env)) return notConfigured(c);
 
   try {
-    const [perMinute, byCountry] = await Promise.all([
+    const [perMinute, byCountry, fiveMin, byAudience, byPage, byEvent] = await Promise.all([
       ga4RunRealtimeReport(c.env, {
         dimensions: [{ name: 'minutesAgo' }],
         metrics: [{ name: 'activeUsers' }],
@@ -647,6 +647,30 @@ ga4.get('/realtime', async (c) => {
         metrics: [{ name: 'activeUsers' }],
         orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }],
         limit: 15,
+      }),
+      // True distinct count for the "last 5 minutes" card — minuteRanges, not
+      // a sum of per-minute buckets (those would double-count users).
+      ga4RunRealtimeReport(c.env, {
+        metrics: [{ name: 'activeUsers' }],
+        minuteRanges: [{ startMinutesAgo: 4, endMinutesAgo: 0 }],
+      }),
+      ga4RunRealtimeReport(c.env, {
+        dimensions: [{ name: 'audienceName' }],
+        metrics: [{ name: 'activeUsers' }],
+        orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }],
+        limit: 10,
+      }),
+      ga4RunRealtimeReport(c.env, {
+        dimensions: [{ name: 'unifiedScreenName' }],
+        metrics: [{ name: 'screenPageViews' }],
+        orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
+        limit: 10,
+      }),
+      ga4RunRealtimeReport(c.env, {
+        dimensions: [{ name: 'eventName' }],
+        metrics: [{ name: 'eventCount' }],
+        orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }],
+        limit: 10,
       }),
     ]);
 
@@ -664,11 +688,23 @@ ga4.get('/realtime', async (c) => {
       active_users: Math.round(metricNum(r, 0)),
     }));
 
+    const dimRows = (rep: typeof byAudience, key: string) =>
+      (rep.rows ?? []).map((r) => ({
+        [key]: r.dimensionValues?.[0]?.value || '(not set)',
+        count: Math.round(metricNum(r, 0)),
+      }));
+
     return ok(c, {
       source: sourceLabel(c.env),
       active_users_now: countryRows.reduce((a, r) => a + r.active_users, 0),
+      active_users_5min: Math.round(metricNum(fiveMin.rows?.[0] ?? {}, 0)),
       per_minute: perMinuteRows,
       by_country: countryRows,
+      by_audience: dimRows(byAudience, 'audience'),
+      by_page: dimRows(byPage, 'title'),
+      by_event: dimRows(byEvent, 'event'),
+      // NOTE for UI: GA4's realtime "by First user source" card has no
+      // Realtime-API dimension — cut, never faked (audienceName is supported).
       synced_at: Math.floor(Date.now() / 1000),
     });
   } catch (e) {

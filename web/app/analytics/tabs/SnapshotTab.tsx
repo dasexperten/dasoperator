@@ -65,12 +65,114 @@ export default function SnapshotTab() {
   const geoMax = geo.data?.rows[0]?.active_users ?? 0;
   const snapDelta = snapshot.data?.deltas_pct;
 
+  const rt = realtime.data;
+
   return (
     <div className="space-y-4">
       <div className="wa-note">
         Snapshot — same six cards as the GA4 UI's Reports snapshot + Realtime overview, rebuilt
         here so the numbers live next to the rest of the ERP. Source: GA4 property 511756146.
       </div>
+
+      {/* ============ Realtime overview — GA4-style, self-refreshes 60s ============ */}
+      <Panel title="Realtime overview" source="GA4 realtime · self-refreshes 60s">
+        <LoadState loading={realtime.loading} error={realtime.error} />
+        {rt && (
+          <>
+            <div className="wa-grid2eq" style={{ alignItems: 'start' }}>
+              <div>
+                <div className="wa-kpis">
+                  <Kpi label="Active users in last 30 minutes" value={fmtNum(rt.active_users_now)} />
+                  <Kpi label="Active users in last 5 minutes" value={rt.active_users_5min === undefined ? '—' : fmtNum(rt.active_users_5min)} />
+                </div>
+                {rt.per_minute.length > 0 && (
+                  <div className="wa-chart" style={{ marginTop: 12 }}>
+                    <BarChart
+                      className="h-40"
+                      data={rt.per_minute.map((r) => ({ minute: `-${r.minutes_ago}`, 'active users': r.active_users }))}
+                      index="minute"
+                      categories={['active users']}
+                      colors={['stone']}
+                      valueFormatter={fmtNum}
+                      showAnimation={false}
+                      showLegend={false}
+                      showXAxis={false}
+                    />
+                  </div>
+                )}
+              </div>
+              <WorldMap
+                data={rt.by_country.map((r) => ({ country: r.country, value: r.active_users }))}
+                height={260}
+              />
+            </div>
+
+            <div className="wa-grid2eq" style={{ marginTop: 16 }}>
+              <div className="wa-table-scroll" style={{ maxHeight: 240 }}>
+                <table className="wa-table">
+                  <thead><tr><th>Audience</th><th className="right">Active users</th></tr></thead>
+                  <tbody>
+                    {(rt.by_audience ?? []).map((r) => (
+                      <tr key={r.audience}><td style={{ fontWeight: 700 }}>{r.audience}</td><td className="num right">{fmtNum(r.count)}</td></tr>
+                    ))}
+                    {(rt.by_audience ?? []).length === 0 && (
+                      <tr><td colSpan={2} style={{ color: 'var(--fg-3)' }}>No audience data right now.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div className="wa-table-scroll" style={{ maxHeight: 240 }}>
+                <table className="wa-table">
+                  <thead><tr><th>Country</th><th className="right">Active users</th></tr></thead>
+                  <tbody>
+                    {rt.by_country.map((r) => (
+                      <tr key={r.country}><td style={{ fontWeight: 700 }}>{r.country}</td><td className="num right">{fmtNum(r.active_users)}</td></tr>
+                    ))}
+                    {rt.by_country.length === 0 && (
+                      <tr><td colSpan={2} style={{ color: 'var(--fg-3)' }}>Nobody on-site right now.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="wa-grid2eq" style={{ marginTop: 16 }}>
+              <div className="wa-table-scroll" style={{ maxHeight: 240 }}>
+                <table className="wa-table">
+                  <thead><tr><th>Page title and screen name</th><th className="right">Views</th></tr></thead>
+                  <tbody>
+                    {(rt.by_page ?? []).map((r) => (
+                      <tr key={r.title}><td style={{ maxWidth: 320, wordBreak: 'break-word' }}>{r.title}</td><td className="num right">{fmtNum(r.count)}</td></tr>
+                    ))}
+                    {(rt.by_page ?? []).length === 0 && (
+                      <tr><td colSpan={2} style={{ color: 'var(--fg-3)' }}>No page views right now.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div className="wa-table-scroll" style={{ maxHeight: 240 }}>
+                <table className="wa-table">
+                  <thead><tr><th>Event name</th><th className="right">Event count</th></tr></thead>
+                  <tbody>
+                    {(rt.by_event ?? []).map((r) => (
+                      <tr key={r.event}><td style={{ fontWeight: 700 }}>{r.event}</td><td className="num right">{fmtNum(r.count)}</td></tr>
+                    ))}
+                    {(rt.by_event ?? []).length === 0 && (
+                      <tr><td colSpan={2} style={{ color: 'var(--fg-3)' }}>No events right now.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="wa-note" style={{ marginTop: 12 }}>
+              Synced {timeAgo(rt.synced_at)} · minute bars run oldest (-29) to newest (0, now).
+              GA4's "by First user source" realtime card has no Realtime-API dimension — cut,
+              never faked.
+            </div>
+          </>
+        )}
+      </Panel>
 
       {/* ============ Active users by country — map + table ============ */}
       <Panel
@@ -232,53 +334,6 @@ export default function SnapshotTab() {
       </div>
 
       <div className="wa-grid2eq">
-        {/* ============ Realtime ============ */}
-        <Panel
-          title="Active users in the last 30 minutes"
-          source="GA4 realtime · self-refreshes 60s"
-          right={<span style={{ fontWeight: 800, color: 'var(--fg-1)' }}>{realtime.data ? fmtNum(realtime.data.active_users_now) : '—'}</span>}
-        >
-          <LoadState loading={realtime.loading} error={realtime.error} />
-          {realtime.data && realtime.data.per_minute.length > 0 && (
-            <div className="wa-chart">
-              <BarChart
-                className="h-40"
-                data={realtime.data.per_minute.map((r) => ({ minute: `-${r.minutes_ago}`, 'active users': r.active_users }))}
-                index="minute"
-                categories={['active users']}
-                colors={['stone']}
-                valueFormatter={fmtNum}
-                showAnimation={false}
-                showLegend={false}
-                showXAxis={false}
-              />
-            </div>
-          )}
-          {realtime.data && (
-            <div className="wa-table-scroll" style={{ marginTop: 12, maxHeight: 220 }}>
-              <table className="wa-table">
-                <thead><tr><th>Country</th><th className="right">Active users</th></tr></thead>
-                <tbody>
-                  {realtime.data.by_country.map((r) => (
-                    <tr key={r.country}>
-                      <td style={{ fontWeight: 700 }}>{r.country}</td>
-                      <td className="num right">{fmtNum(r.active_users)}</td>
-                    </tr>
-                  ))}
-                  {realtime.data.by_country.length === 0 && (
-                    <tr><td colSpan={2} style={{ color: 'var(--fg-3)' }}>Nobody on-site right now.</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {realtime.data && (
-            <div className="wa-note" style={{ marginTop: 12 }}>
-              Synced {timeAgo(realtime.data.synced_at)} · minute bars run oldest (-29) to newest (0, now).
-            </div>
-          )}
-        </Panel>
-
         {/* ============ Active users by language ============ */}
         <Panel title="Active users by Language" source="GA4 · last 28 days" pad={false}>
           <LoadState loading={languages.loading} error={languages.error} />

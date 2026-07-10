@@ -531,6 +531,20 @@ export async function handleScheduled(
 
   // Daily inbox ingestion at 00:00 UTC = 03:00 МСК
   if (cron === '0 0 * * *') {
+    // Marketplace SALES + FBO cluster sync moved here from 05:00 (2026-07-10,
+    // Aram): fire at exactly midnight so WB statistics-api calls land BEFORE
+    // any other consumer of the shared per-account quota wakes up. FBO sync
+    // (the WB stocks call that kept 429ing) goes first, sales pull chains
+    // after it — serialized on waitUntil so the two never race each other
+    // for the same quota. The hourly runMarketplaceSync deliberately skips
+    // hour 0 to stay out of the way (see hourForWb below).
+    _ctx.waitUntil(
+      runFboSync(env)
+        .catch((e) => console.error('[cron:fbo-sync] failed:', e))
+        .then(() => runMarketplaceSalesSync(env))
+        .catch((e) => console.error('[cron:sales-sync] failed:', e)),
+    );
+
     console.log('[cron:inbox] starting daily invoice ingestion');
     try {
       const stats = await runInboxIngestion(env);
@@ -842,15 +856,9 @@ export async function handleScheduled(
     return;
   }
 
-  // Daily marketplace SALES pull — 05:00 UTC (08:00 МСК), after yesterday settles.
-  // FBO cluster-grain sync piggybacks the same slot: direct in-process call
-  // (NOT selfFetch to *.workers.dev — bug 1042), runs past the sales pull via
-  // waitUntil because of WB statistics-api throttling pauses (60-90 s).
-  if (cron === '0 5 * * *') {
-    _ctx.waitUntil(runFboSync(env));
-    await runMarketplaceSalesSync(env);
-    return;
-  }
+  // Daily marketplace SALES + FBO sync moved to the '0 0 * * *' branch above
+  // (2026-07-10): at 05:00 the shared WB statistics-api quota was already
+  // burned by earlier consumers; midnight fires before everyone else.
 
   // Daily marketplace PULSE cache — 01:00 UTC (04:00 MSK)
   // Pre-caches the three pulse endpoints in KV so the home page loads instantly at 5 AM.
@@ -934,8 +942,11 @@ async function runMarketplaceSync(env: Env): Promise<void> {
   // budget on our tier; hourly hits returned 429 in ~72% of attempts and
   // produced no fresher data. Aligning the schedule with the real rate limit
   // eliminates the error log and keeps Ozon stocks refreshing hourly as before.
+  // Hour 0 excluded (2026-07-10): the midnight '0 0 * * *' cron runs the FBO
+  // + sales WB pulls at exactly 00:00 and must not compete with this call
+  // for the same per-account statistics-api quota.
   const hourForWb = new Date().getUTCHours();
-  if (hourForWb % 4 === 0) {
+  if (hourForWb % 4 === 0 && hourForWb !== 0) {
     try {
       const r = await selfFetch('/api/marketplaces/sync/wb');
       console.log(`[cron] wb stocks HTTP ${r.status}`);

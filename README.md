@@ -170,3 +170,12 @@ same page). Message HTML is rendered in a sandboxed, scriptless `<iframe>`
 rather than injected into the page — some templates interpolate third-party
 input (e.g. lead-form messages) into stored HTML unescaped, so it's treated
 as untrusted content.
+
+## DESIGN SSOT
+The single source of truth for ANY design matter — design systems,
+UI/UX rules, banners, product cards, characters, packaging,
+design skills, design decisions in any project — is:
+https://github.com/dasexperten/deSIGNER
+Design files in this repository are working copies / backups.
+On any conflict, deSIGNER wins. Before starting any design task,
+read deSIGNER/MASTER_INDEX.md.

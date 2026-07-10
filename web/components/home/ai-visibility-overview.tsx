@@ -21,6 +21,14 @@ type GroundingQuery = { label: string; cited: boolean };
 
 type AiVisibilityData = {
   demo: boolean;
+  authority: {
+    score: number; // 0..100
+    scoreTrend: number;
+    linkingSites: number;
+    linkingSitesTrend: number;
+    backlinks: number;
+    topSources: Array<{ domain: string; refs: number }>;
+  };
   updatedAt: string;
   shareOfAuthority: number; // 0..100
   competitors: string; // formatted line
@@ -39,6 +47,19 @@ type AiVisibilityData = {
 // Swap for fetch(`${API_BASE}/api/ai-visibility`) when feeds are wired.
 const DATA: AiVisibilityData = {
   demo: true,
+  authority: {
+    score: 26,
+    scoreTrend: 4,
+    linkingSites: 164,
+    linkingSitesTrend: 12,
+    backlinks: 412,
+    topSources: [
+      { domain: 'uni-heidelberg.de', refs: 5 },
+      { domain: 'dasexperten.de', refs: 5 },
+      { domain: 'dasexperten.com', refs: 4 },
+      { domain: 'das-experten.com', refs: 4 },
+    ],
+  },
   updatedAt: '07:00',
   shareOfAuthority: 19,
   competitors: 'Aster DM 10% · ORAL7 5% · Biofarma 0%',
@@ -232,6 +253,97 @@ export default function AiVisibilityOverview() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* Authority row */}
+          <div className="grid gap-3.5" style={{ gridTemplateColumns: '1fr 1fr 1fr 1.6fr', marginBottom: '14px' }}>
+            {/* Domain authority */}
+            <div
+              style={{
+                background: 'var(--paper-raised)',
+                border: '1px solid var(--border-hairline)',
+                borderRadius: 'var(--radius-md)',
+                padding: '14px',
+                boxShadow: 'var(--shadow-card)',
+              }}
+            >
+              <div className="dx-eyebrow" style={{ fontSize: '10px' }}>Domain authority</div>
+              <div className="flex items-baseline" style={{ gap: '4px', marginTop: '8px' }}>
+                <span className="dx-mono" style={{ fontSize: '26px', fontWeight: 900 }}>{d.authority.score}</span>
+                <span style={{ fontSize: '12px', color: 'var(--fg-3)' }}>/ 100</span>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--status-success)', marginLeft: '6px' }}>
+                  ↑{d.authority.scoreTrend}
+                </span>
+              </div>
+              <div style={{ height: '6px', background: 'var(--paper-sunk)', borderRadius: 'var(--radius-pill)', marginTop: '10px' }}>
+                <div
+                  style={{
+                    width: `${d.authority.score}%`,
+                    height: '6px',
+                    background: 'var(--brand-schwarz)',
+                    borderRadius: 'var(--radius-pill)',
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Linking sites */}
+            <div
+              style={{
+                background: 'var(--paper-raised)',
+                border: '1px solid var(--border-hairline)',
+                borderRadius: 'var(--radius-md)',
+                padding: '14px',
+                boxShadow: 'var(--shadow-card)',
+              }}
+            >
+              <div className="dx-eyebrow" style={{ fontSize: '10px' }}>Linking sites</div>
+              <div className="dx-mono" style={{ fontSize: '26px', fontWeight: 900, marginTop: '8px' }}>
+                {d.authority.linkingSites}
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--fg-3)' }}>
+                domains ·{' '}
+                <span style={{ color: 'var(--status-success)', fontWeight: 700 }}>↑ {d.authority.linkingSitesTrend}%</span>
+              </div>
+            </div>
+
+            {/* Backlinks */}
+            <div
+              style={{
+                background: 'var(--paper-raised)',
+                border: '1px solid var(--border-hairline)',
+                borderRadius: 'var(--radius-md)',
+                padding: '14px',
+                boxShadow: 'var(--shadow-card)',
+              }}
+            >
+              <div className="dx-eyebrow" style={{ fontSize: '10px' }}>Backlinks</div>
+              <div className="dx-mono" style={{ fontSize: '26px', fontWeight: 900, marginTop: '8px' }}>
+                {d.authority.backlinks}
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--fg-3)' }}>total external links</div>
+            </div>
+
+            {/* Top sources */}
+            <div
+              style={{
+                background: 'var(--paper-raised)',
+                border: '1px solid var(--border-hairline)',
+                borderRadius: 'var(--radius-md)',
+                padding: '14px 16px',
+                boxShadow: 'var(--shadow-card)',
+              }}
+            >
+              <div className="dx-eyebrow" style={{ fontSize: '10px', marginBottom: '8px' }}>Top sources by references</div>
+              <div className="flex flex-col" style={{ gap: '5px' }}>
+                {d.authority.topSources.map((s) => (
+                  <div key={s.domain} className="flex items-center justify-between" style={{ fontSize: '11px' }}>
+                    <span style={{ color: 'var(--fg-2)' }}>{s.domain}</span>
+                    <b className="dx-mono">{s.refs}</b>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 

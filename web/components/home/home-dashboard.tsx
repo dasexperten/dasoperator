@@ -15,7 +15,7 @@ import {
 } from '@/lib/api';
 import MarketplacePulse from './marketplace-pulse';
 import SystemHealth from './system-health';
-import DailyDigest from './daily-digest';
+import AiVisibilityOverview from './ai-visibility-overview';
 
 // =============================================================================
 // Helpers
@@ -246,7 +246,7 @@ export default function HomeDashboard() {
 
       {/* SYSTEM HEALTH ============================================== */}
       <SystemHealth />
-      <DailyDigest />
+      <AiVisibilityOverview />
 
       {/* RECENT OPERATIONS ========================================== */}
       <section>

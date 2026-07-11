@@ -35,6 +35,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
+import { fetchWbStat } from '../lib/wb-stat-cache';
 
 const marketplacesExtras = new Hono<{ Bindings: Env }>();
 
@@ -375,14 +376,13 @@ marketplacesExtras.post('/sync/sales/wb', async (c) => {
     const dateToStr = isoDate(today);
     const from = new Date(today.getTime() - periodDays * 24 * 3600_000);
     const dateFromStr = isoDate(from);
-    const dateFromIso = from.toISOString().split('.')[0] + '.000Z';
 
-    // Step 1 — raw sales feed
-    const salesUrl = `https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=${encodeURIComponent(dateFromIso)}`;
-    const salesResp = await fetch(salesUrl, { headers: { 'Authorization': c.env.WB_API_TOKEN } });
-    if (salesResp.status === 429) throw new Error('WB rate limited (429)');
-    if (!salesResp.ok) throw new Error(`WB sales HTTP ${salesResp.status}: ${await salesResp.text()}`);
-    const rows = await salesResp.json<any[]>();
+    // Step 1 — raw sales feed via the shared 30-min cache: the midnight FBO
+    // sync fetches the same supplier/sales body minutes earlier, so this
+    // reuses it instead of 429ing on the shared quota. The 30d superset is
+    // filtered down to periodDays by the sinceCutoff check below; windows
+    // wider than 30d (?days=N backfills) bypass the cache automatically.
+    const { rows } = await fetchWbStat(c.env, 'sales', { windowDays: periodDays });
 
     const perSku = new Map<string, { units: number; revenue: number; listings: Set<string> }>();
     const perDate = new Map<string, { units: number; revenue: number }>();

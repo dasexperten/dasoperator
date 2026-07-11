@@ -357,12 +357,16 @@ export default function CloudflareInboxView() {
       <button
         key={`${e.mailbox}:${e.key}`}
         onClick={() => selectFeedEntry(e)}
-        className="w-full text-left px-4 py-3 flex items-start gap-3 border-b border-border last:border-b-0 hover:bg-secondary/40 transition-colors"
+        className="relative w-full text-left px-4 py-3 block border-b border-border last:border-b-0 hover:bg-secondary/40 transition-colors"
       >
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-1.5 min-w-0">
+        {/* Date floats in the top-right corner — out of flow so the content
+            below runs the full width of the row. */}
+        <span className="absolute top-3 right-4 text-[10px] text-muted-foreground whitespace-nowrap">{fmtDate(e.timestamp)}</span>
+
+        <div className="w-full min-w-0">
+          <div className="flex items-baseline gap-1.5 min-w-0 pr-24">
             {/* Only the first letter is bold + coloured; the rest is normal. */}
-            <span className="text-sm truncate shrink-0 max-w-[48%]">
+            <span className="text-sm truncate shrink-0 max-w-[55%]">
               <span className="font-bold" style={{ color: accent }}>{first}</span>
               <span className="text-foreground">{rest}</span>
             </span>
@@ -370,7 +374,7 @@ export default function CloudflareInboxView() {
           </div>
           {/* Service-account mailbox, tiny italic, much smaller than the sender. */}
           <div className="text-[11px] italic text-muted-foreground truncate mt-0.5">{e.mailbox}</div>
-          {/* First lines of the message body. */}
+          {/* First lines of the message body — full width. */}
           {e.preview && (
             <div
               className="text-xs text-muted-foreground mt-1"
@@ -380,7 +384,6 @@ export default function CloudflareInboxView() {
             </div>
           )}
         </div>
-        <span className="text-[10px] text-muted-foreground whitespace-nowrap shrink-0">{fmtDate(e.timestamp)}</span>
       </button>
     );
   };

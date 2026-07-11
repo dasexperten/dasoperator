@@ -25,6 +25,7 @@
 
 import type { Env } from '../types';
 import { normalizePhone } from './loyalty';
+import { markCartConverted } from './crm-carts';
 
 // -----------------------------------------------------------------------------
 // DDL — single source shared by db/migrations/0060_crm_website.sql and
@@ -625,7 +626,7 @@ async function enrichItemNames(env: Env, items: CanonicalItem[]): Promise<Canoni
 export async function ingestPaymentIntent(
   env: Env,
   pi: any
-): Promise<{ action: string; order_id?: string; customer_id?: string | null }> {
+): Promise<{ action: string; order_id?: string; customer_id?: string | null; order?: CanonicalOrder }> {
   if (pi?.status !== 'succeeded') return { action: 'skipped:not_succeeded' };
   // Wix Payments processed cards through this same Stripe account until the
   // 2026-07 cutover. Those platform-created PIs carry NO checkout metadata and
@@ -639,7 +640,20 @@ export async function ingestPaymentIntent(
   if (!order.order_number) return { action: 'skipped:no_order_number' };
   order.items = await enrichItemNames(env, order.items);
   const r = await upsertOrder(env, order, { stripe_payment_intent: pi });
-  return { action: r.action, order_id: r.order_id, customer_id: r.customer_id };
+  // Convert the matching abandoned-cart funnel row (no-op if none / already
+  // converted). Runs for both webhook and poller — it only flips a status.
+  if (r.action === 'created') {
+    await markCartConverted(env, order.order_number, order.stripe_payment_intent ?? null);
+  }
+  // Return the mapped order on first creation so the real-time webhook caller
+  // can fire confirmation emails. The reconciliation poller deliberately does
+  // NOT email — a history backfill must never blast old customers.
+  return {
+    action: r.action,
+    order_id: r.order_id,
+    customer_id: r.customer_id,
+    ...(r.action === 'created' ? { order } : {}),
+  };
 }
 
 // -----------------------------------------------------------------------------

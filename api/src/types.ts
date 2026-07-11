@@ -112,6 +112,11 @@ export interface Env {
   // Generated once at setup, stored in both Worker secrets and VPS .env.
   OZON_PORTAL_INGEST_SECRET?: string;
 
+  // Shared secret for the dasexperten-checkout Worker to authenticate when
+  // POSTing website carts (/api/crm/website/cart) and NSS tracking
+  // (/api/crm/website/tracking). Set on both Workers via `wrangler secret put`.
+  INGEST_SECRET?: string;
+
   // Feature flag for the in-Worker cookie-based portal scraper. Set to 'true'
   // to re-enable. Disabled by default since 2026-05-18 because TLS-fingerprint
   // mismatch makes session cookies die within days. Analytics-based sold_count

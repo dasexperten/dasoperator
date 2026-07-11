@@ -90,6 +90,24 @@ interface CrmCustomer {
   customer_source?: string;
 }
 
+// /api/crm/website/carts — abandoned-checkout funnel (.com only)
+interface CrmCart {
+  id: string;
+  number: string;
+  status: 'initiated' | 'converted' | 'abandoned' | 'recovered';
+  customer_name: string;
+  email: string | null;
+  phone: string | null;
+  country: string | null;
+  city: string | null;
+  currency: string;
+  total: number;
+  items: Array<{ sku: string; name?: string; qty: number }>;
+  initiated_at: string;
+  converted_at: string | null;
+  abandoned_at: string | null;
+}
+
 // /api/crm/website/stats — KPI strip for the .com storefront source
 interface ComStats {
   source: string;
@@ -138,7 +156,7 @@ interface PageMeta {
 
 const API_BASE = 'https://dasoperator-api.dasexperten.workers.dev';
 
-type TabId = 'orders' | 'customers';
+type TabId = 'orders' | 'customers' | 'carts';
 
 export default function CrmPage() {
   const [stats, setStats] = useState<CrmStats | null>(null);
@@ -186,6 +204,16 @@ export default function CrmPage() {
   const [customersLimit, setCustomersLimit] = useState(50);
   const [customersSearchInput, setCustomersSearchInput] = useState('');
   const [customersActiveSearch, setCustomersActiveSearch] = useState('');
+
+  // Carts state (.com only — abandoned-checkout funnel)
+  const [carts, setCarts] = useState<CrmCart[]>([]);
+  const [cartsMeta, setCartsMeta] = useState<PageMeta | null>(null);
+  const [cartsLoading, setCartsLoading] = useState(false);
+  const [cartsError, setCartsError] = useState<string | null>(null);
+  const [cartsPage, setCartsPage] = useState(1);
+  const [cartsLimit, setCartsLimit] = useState(50);
+  const [cartsSearchInput, setCartsSearchInput] = useState('');
+  const [cartsActiveSearch, setCartsActiveSearch] = useState('');
 
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
@@ -363,12 +391,48 @@ export default function CrmPage() {
     }
   }, [customersPage, customersLimit, customersActiveSearch, custSort, crmSource]);
 
+  const [cartsSort, setCartsSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'date', dir: 'desc' });
+  const sortCarts = (k: string) => {
+    setCartsSort((prev) => (prev.key === k ? { key: k, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key: k, dir: 'desc' }));
+    setCartsPage(1);
+  };
+
+  const loadCarts = useCallback(async () => {
+    setCartsLoading(true);
+    setCartsError(null);
+    try {
+      const params = new URLSearchParams({
+        page: String(cartsPage),
+        limit: String(cartsLimit),
+      });
+      if (cartsActiveSearch) params.set('search', cartsActiveSearch);
+      if (cartsSort.key) { params.set('sort', cartsSort.key); params.set('dir', cartsSort.dir); }
+      const res = await fetch(`${API_BASE}/api/crm/website/carts?${params}`);
+      const data = await res.json();
+      if (data.success && data.result) {
+        const rows = (data.result.carts ?? []).map((r: any) => ({
+          ...r,
+          initiated_at: r.initiated_at ? String(r.initiated_at).slice(0, 10) : '—',
+        }));
+        setCarts(rows);
+        setCartsMeta(data.result.pagination);
+      } else {
+        setCartsError(data.errors?.[0]?.message || 'Failed to load carts');
+      }
+    } catch (e) {
+      setCartsError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setCartsLoading(false);
+    }
+  }, [cartsPage, cartsLimit, cartsActiveSearch, cartsSort]);
+
   useEffect(() => { loadStats(); }, [loadStats]);
   useEffect(() => { loadMetrika(); }, [loadMetrika]);
   useEffect(() => { loadTimeline(); }, [loadTimeline]);
   useEffect(() => { loadFunnel(); }, [loadFunnel]);
   useEffect(() => { if (tab === 'orders') loadOrders(); }, [tab, loadOrders]);
   useEffect(() => { if (tab === 'customers') loadCustomers(); }, [tab, loadCustomers]);
+  useEffect(() => { if (tab === 'carts' && crmSource === 'com') loadCarts(); }, [tab, crmSource, loadCarts]);
   useEffect(() => { if (crmSource === 'com') loadComStats(); }, [crmSource, loadComStats]);
   useEffect(() => { if (crmSource === 'pricing' && !matrix) loadMatrix(); }, [crmSource, matrix, loadMatrix]);
 
@@ -377,8 +441,12 @@ export default function CrmPage() {
     setCrmSource(next);
     setOrdersPage(1);
     setCustomersPage(1);
+    setCartsPage(1);
     setOrdersSort({ key: '', dir: 'desc' });
     setCustSort({ key: 'spent', dir: 'desc' });
+    setCartsSort({ key: 'date', dir: 'desc' });
+    // Carts only exist for the .com source — fall back to Orders when leaving it.
+    if (next !== 'com' && tab === 'carts') setTab('orders');
   }
 
   function handleOrdersSearchSubmit(e: React.FormEvent) {
@@ -391,6 +459,11 @@ export default function CrmPage() {
     setCustomersPage(1);
     setCustomersActiveSearch(customersSearchInput.trim());
   }
+  function handleCartsSearchSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setCartsPage(1);
+    setCartsActiveSearch(cartsSearchInput.trim());
+  }
 
   function refreshAll() {
     loadStats();
@@ -400,7 +473,8 @@ export default function CrmPage() {
     if (crmSource === 'com') loadComStats();
     if (crmSource === 'pricing') loadMatrix(); // Geo Price Matrix view — reload it too
     if (tab === 'orders') loadOrders();
-    else loadCustomers();
+    else if (tab === 'customers') loadCustomers();
+    else if (tab === 'carts') loadCarts();
   }
 
   const isLoading = statsLoading || metrikaLoading || timelineLoading || funnelLoading || ordersLoading || customersLoading;
@@ -542,6 +616,15 @@ export default function CrmPage() {
           label="Customers"
           count={(crmSource === 'com' ? comStats?.customers_total : stats?.customers_total) ?? null}
         />
+        {crmSource === 'com' && (
+          <TabButton
+            active={tab === 'carts'}
+            onClick={() => setTab('carts')}
+            icon={<ShoppingBag className="h-4 w-4" />}
+            label="Carts"
+            count={null}
+          />
+        )}
       </div>
       )}
 
@@ -585,6 +668,27 @@ export default function CrmPage() {
           setPage={setCustomersPage}
         >
           <CustomersTable customers={customers} hasSearch={!!customersActiveSearch} search={customersActiveSearch} sort={custSort} onSort={sortCustomers} variant={crmSource} />
+        </DataTablePanel>
+      )}
+
+      {crmSource === 'com' && tab === 'carts' && (
+        <DataTablePanel
+          title="Carts"
+          meta={cartsMeta}
+          loading={cartsLoading}
+          error={cartsError}
+          searchPlaceholder="Search email, order # or country"
+          searchInput={cartsSearchInput}
+          setSearchInput={setCartsSearchInput}
+          activeSearch={cartsActiveSearch}
+          onSearchSubmit={handleCartsSearchSubmit}
+          onClearSearch={() => { setCartsSearchInput(''); setCartsActiveSearch(''); setCartsPage(1); }}
+          limit={cartsLimit}
+          setLimit={(n) => { setCartsLimit(n); setCartsPage(1); }}
+          page={cartsPage}
+          setPage={setCartsPage}
+        >
+          <CartsTable carts={carts} hasSearch={!!cartsActiveSearch} search={cartsActiveSearch} sort={cartsSort} onSort={sortCarts} />
         </DataTablePanel>
       )}
 
@@ -1544,6 +1648,62 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru' }
             </Td>
             <Td muted>{o.status}</Td>
             <Td muted>{o.created_at}</Td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function CartStatusBadge({ status }: { status: CrmCart['status'] }) {
+  const map: Record<CrmCart['status'], { bg: string; fg: string; label: string }> = {
+    initiated: { bg: 'rgba(180,140,0,0.14)', fg: '#8a6d00', label: 'initiated' },
+    converted: { bg: 'rgba(10,122,59,0.14)', fg: '#0a7a3b', label: 'converted' },
+    abandoned: { bg: 'rgba(168,50,50,0.12)', fg: '#a83232', label: 'abandoned' },
+    recovered: { bg: 'rgba(40,90,180,0.14)', fg: '#2a5ab4', label: 'recovered' },
+  };
+  const s = map[status] ?? map.initiated;
+  return (
+    <span style={{ background: s.bg, color: s.fg, borderRadius: 5, padding: '2px 8px', fontSize: 12, fontWeight: 600 }}>
+      {s.label}
+    </span>
+  );
+}
+
+function CartsTable({ carts, hasSearch, search, sort, onSort }: { carts: CrmCart[]; hasSearch: boolean; search: string; sort: { key: string; dir: 'asc' | 'desc' }; onSort: (k: string) => void }) {
+  return (
+    <table className="w-full">
+      <thead>
+        <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+          <SortTh label="Order" sortKey="number" current={sort} onSort={onSort} align="left" />
+          <Th align="left">Customer</Th>
+          <Th align="left">Items</Th>
+          <SortTh label="Value" sortKey="total" current={sort} onSort={onSort} />
+          <Th align="left">Country</Th>
+          <SortTh label="Status" sortKey="status" current={sort} onSort={onSort} align="left" />
+          <SortTh label="Started" sortKey="date" current={sort} onSort={onSort} align="left" />
+        </tr>
+      </thead>
+      <tbody>
+        {carts.length === 0 && (
+          <tr>
+            <td colSpan={7} className="px-6 py-8 text-center" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
+              {hasSearch ? `No carts matching "${search}"` : 'No carts captured yet'}
+            </td>
+          </tr>
+        )}
+        {carts.map((r) => (
+          <tr key={r.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+            <Td bold>{r.number}</Td>
+            <Td>
+              {r.customer_name}
+              {r.email && <div style={{ fontSize: 12, color: 'var(--fg-3)' }}>{r.email}</div>}
+            </Td>
+            <Td muted>{(r.items ?? []).map((it) => `${it.sku}×${it.qty}`).join(', ') || '—'}</Td>
+            <Td align="right" bold>${r.total.toLocaleString('en-US')}</Td>
+            <Td muted>{r.country || '—'}</Td>
+            <Td><CartStatusBadge status={r.status} /></Td>
+            <Td muted>{r.initiated_at}</Td>
           </tr>
         ))}
       </tbody>

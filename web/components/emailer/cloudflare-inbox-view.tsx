@@ -347,6 +347,12 @@ export default function CloudflareInboxView() {
     const first = who[0] || '?';
     const rest = who.slice(1);
     const accent = dotColor(correspondent(e) || who);
+    // Service-account mailbox split into local part (before @) and domain. In
+    // the System folder the local part (orders / notifications / forms / …) is
+    // coloured so the automated-mail type is scannable at a glance.
+    const atIdx = e.mailbox.indexOf('@');
+    const mailLocal = atIdx >= 0 ? e.mailbox.slice(0, atIdx) : e.mailbox;
+    const mailDomain = atIdx >= 0 ? e.mailbox.slice(atIdx) : '';
     return (
       <button
         key={`${e.mailbox}:${e.key}`}
@@ -366,8 +372,16 @@ export default function CloudflareInboxView() {
             </span>
             <span className="text-sm text-muted-foreground truncate">{e.subject || '(no subject)'}</span>
           </div>
-          {/* Service-account mailbox, tiny italic, much smaller than the sender. */}
-          <div className="text-[11px] italic text-muted-foreground truncate mt-0.5">{e.mailbox}</div>
+          {/* Service-account mailbox, tiny italic, much smaller than the sender.
+              In the System folder the local part (before @) is coloured. */}
+          <div className="text-[11px] truncate mt-0.5">
+            {listView === 'system' ? (
+              <span className="font-semibold" style={{ color: dotColor(mailLocal) }}>{mailLocal}</span>
+            ) : (
+              <span className="italic text-muted-foreground">{mailLocal}</span>
+            )}
+            <span className="italic text-muted-foreground">{mailDomain}</span>
+          </div>
           {/* 2-sentence AI summary of the message — full width. */}
           {e.preview && (
             <div

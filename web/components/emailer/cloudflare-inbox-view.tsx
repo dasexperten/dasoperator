@@ -40,6 +40,13 @@ function displayName(addr: string): string {
   const at = addr.indexOf('@');
   return at > 0 ? addr.slice(0, at) : addr;
 }
+// Short plain-text preview of a message body (strip HTML, collapse whitespace).
+function toPreview(rec: { text?: string; html?: string }): string {
+  let t = rec.text || '';
+  if (!t && rec.html) t = rec.html.replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ');
+  return t.replace(/\s+/g, ' ').trim().slice(0, 300);
+}
+
 // Stable warm colour per correspondent, kept in the brand's earthy range.
 function dotColor(seed: string): string {
   const palette = ['#B23A2E', '#8A6D3B', '#4A6B57', '#5A5566', '#7A5230', '#3F5E6B'];
@@ -60,7 +67,7 @@ export default function CloudflareInboxView() {
   const [listView, setListView] = useState<'personal' | 'system'>('personal');
 
   // Flat message feed across the active group's mailboxes (the real inbox).
-  type FeedEntry = MailboxIndexEntry & { mailbox: string };
+  type FeedEntry = MailboxIndexEntry & { mailbox: string; preview?: string };
   const [feed, setFeed] = useState<FeedEntry[]>([]);
   const [loadingFeed, setLoadingFeed] = useState(true);
   const [feedError, setFeedError] = useState<string | null>(null);
@@ -161,8 +168,21 @@ export default function CloudflareInboxView() {
       const merged = lists
         .flat()
         .sort((x, y) => (y.timestamp || '').localeCompare(x.timestamp || ''))
-        .slice(0, 80);
+        .slice(0, 40);
+      // Show the list immediately; body previews fill in progressively.
       setFeed(merged);
+      setLoadingFeed(false);
+      const withPreview = await Promise.all(
+        merged.map(async (e) => {
+          try {
+            const r = await getMailboxMessage(e.mailbox, e.key);
+            return r.success && r.result ? { ...e, preview: toPreview(r.result.record) } : e;
+          } catch {
+            return e;
+          }
+        })
+      );
+      setFeed(withPreview);
     } catch (e) {
       setFeedError(e instanceof Error ? e.message : 'Error');
       setFeed([]);
@@ -337,7 +357,7 @@ export default function CloudflareInboxView() {
       <button
         key={`${e.mailbox}:${e.key}`}
         onClick={() => selectFeedEntry(e)}
-        className="w-full text-left px-4 py-3 flex items-center gap-3 border-b border-border last:border-b-0 hover:bg-secondary/40 transition-colors"
+        className="w-full text-left px-4 py-3 flex items-start gap-3 border-b border-border last:border-b-0 hover:bg-secondary/40 transition-colors"
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-1.5 min-w-0">
@@ -350,43 +370,52 @@ export default function CloudflareInboxView() {
           </div>
           {/* Service-account mailbox, tiny italic, much smaller than the sender. */}
           <div className="text-[11px] italic text-muted-foreground truncate mt-0.5">{e.mailbox}</div>
+          {/* First lines of the message body. */}
+          {e.preview && (
+            <div
+              className="text-xs text-muted-foreground mt-1"
+              style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
+            >
+              {e.preview}
+            </div>
+          )}
         </div>
-        <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">{fmtDate(e.timestamp)}</span>
+        <span className="text-[10px] text-muted-foreground whitespace-nowrap shrink-0">{fmtDate(e.timestamp)}</span>
       </button>
     );
   };
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-bold text-foreground">Inbox</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Cloudflare email archive — Personal (mail to sales@/support@/…) and System (notify.dasexperten.com), read-only
-          </p>
-        </div>
-        <button onClick={() => { loadMailboxes(); loadFeed(listView); }} className="text-sm border border-border rounded-md px-3 py-1.5 inline-flex items-center gap-2 hover:bg-muted">
-          <RefreshCw className="h-4 w-4" /> Refresh
-        </button>
+      <div className="mb-4">
+        <h2 className="text-lg font-bold text-foreground">Inbox</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Cloudflare email archive — Personal (mail to sales@/support@/…) and System (notify.dasexperten.com), read-only
+        </p>
       </div>
 
       <div className="space-y-4">
-        {/* Switchable Personal / System toggle */}
-        <div className="inline-flex rounded-lg border border-border bg-secondary/40 p-0.5">
-          {(['personal', 'system'] as const).map((v) => (
-            <button
-              key={v}
-              onClick={() => setListView(v)}
-              className={`px-4 py-1.5 text-sm font-bold rounded-md transition-colors ${
-                listView === v ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {v === 'personal' ? 'Personal' : 'System'}
-              <span className="ml-2 text-xs font-normal tabular-nums text-muted-foreground">
-                {v === 'personal' ? personalCount : systemCount}
-              </span>
-            </button>
-          ))}
+        {/* Toggle on the left, Refresh far right — same row */}
+        <div className="flex items-center justify-between">
+          <div className="inline-flex rounded-lg border border-border bg-secondary/40 p-0.5">
+            {(['personal', 'system'] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => setListView(v)}
+                className={`px-4 py-1.5 text-sm font-bold rounded-md transition-colors ${
+                  listView === v ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {v === 'personal' ? 'Personal' : 'System'}
+                <span className="ml-2 text-xs font-normal tabular-nums text-muted-foreground">
+                  {v === 'personal' ? personalCount : systemCount}
+                </span>
+              </button>
+            ))}
+          </div>
+          <button onClick={() => { loadMailboxes(); loadFeed(listView); }} className="text-sm border border-border rounded-md px-3 py-1.5 inline-flex items-center gap-2 hover:bg-muted">
+            <RefreshCw className="h-4 w-4" /> Refresh
+          </button>
         </div>
 
         <div className="bg-card border border-border rounded-lg shadow-sm">

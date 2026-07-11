@@ -35,12 +35,22 @@ import {
   type CanonicalOrder,
   type CanonicalCustomer,
 } from '../lib/crm-website';
+import { upsertCart, markCartAbandoned } from '../lib/crm-carts';
+import { sendNewOrderEmails, sendTrackingEmails, type OrderEmailData } from '../lib/crm-emails';
 
 const site = new Hono<{ Bindings: Env }>();
 const ADMIN_SECRET = 'das-admin-2026-migrations';
 
 function isAdmin(auth: string | undefined): boolean {
   return auth === `Bearer ${ADMIN_SECRET}`;
+}
+
+// The checkout Worker authenticates cart/tracking posts with a shared secret
+// (INGEST_SECRET). Falls back to the admin bearer so ops tooling still works.
+function isTrustedIngest(c: any): boolean {
+  const header = c.req.header('X-Ingest-Secret');
+  if (c.env.INGEST_SECRET && header && header === c.env.INGEST_SECRET) return true;
+  return isAdmin(c.req.header('Authorization'));
 }
 
 // -----------------------------------------------------------------------------
@@ -78,6 +88,12 @@ site.post('/webhook/stripe', async (c) => {
       ref = obj?.id ?? null;
       const r = await ingestPaymentIntent(c.env, obj);
       result = r.action;
+      // Real-time path only: a brand-new order fires the confirmation +
+      // internal notification. Backgrounded so the 200 to Stripe is not
+      // delayed by the email bridges. The poller never reaches this code.
+      if (r.action === 'created' && r.order) {
+        c.executionCtx.waitUntil(sendNewOrderEmails(c.env, r.order as OrderEmailData));
+      }
     } else if (type === 'charge.refunded') {
       ref = typeof obj?.payment_intent === 'string' ? obj.payment_intent : obj?.payment_intent?.id ?? null;
       if (ref) {
@@ -102,6 +118,226 @@ site.post('/webhook/stripe', async (c) => {
     .run();
 
   return ok(c, { processed: !result.startsWith('skipped') && !result.startsWith('error'), result });
+});
+
+// -----------------------------------------------------------------------------
+// Cart capture — the checkout Worker POSTs an "initiated" cart at the /quote
+// step (address entered, delivery agent being chosen, NSS draft created).
+// Authenticated with the shared INGEST_SECRET. Returns 200 fast; a payment
+// later flips it to 'converted' via ingestPaymentIntent → markCartConverted.
+// -----------------------------------------------------------------------------
+site.post('/cart', async (c) => {
+  if (!isTrustedIngest(c)) {
+    return fail(c, 403, [{ code: 'forbidden', message: 'ingest secret required' }]);
+  }
+  const body = await c.req.json<any>().catch(() => null);
+  if (!body || !body.order_number) {
+    return fail(c, 400, [{ code: 'bad_request', message: 'order_number required' }]);
+  }
+  try {
+    const r = await upsertCart(c.env, {
+      order_number: String(body.order_number),
+      email: body.email ?? null,
+      phone: body.phone ?? null,
+      customer_name: body.customer_name ?? null,
+      ship_country: body.ship_country ?? null,
+      ship_city: body.ship_city ?? null,
+      lang: body.lang ?? null,
+      currency: body.currency ?? null,
+      subtotal_cents: body.subtotal_cents ?? null,
+      items: Array.isArray(body.items) ? body.items : null,
+    });
+    // A re-quote (address edit) cancels the previous NSS draft; mark that older
+    // cart superseded so the funnel isn't cluttered with dead 'initiated' rows.
+    if (body.prev_order) await markCartAbandoned(c.env, String(body.prev_order));
+    return ok(c, { action: r.action, id: r.id });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    if (msg.includes('no such table')) {
+      return fail(c, 503, [{ code: 'not_migrated', message: 'Run POST /admin/migrate/crm-carts first' }]);
+    }
+    return fail(c, 500, [{ code: 'internal_error', message: msg }]);
+  }
+});
+
+// -----------------------------------------------------------------------------
+// Tracking write-back — the checkout Worker forwards NSS `order.shipped` here.
+// Persists tracking onto the crm_orders row and emails the customer the link
+// (+ internal copy). Authenticated with the shared INGEST_SECRET.
+// -----------------------------------------------------------------------------
+site.post('/tracking', async (c) => {
+  if (!isTrustedIngest(c)) {
+    return fail(c, 403, [{ code: 'forbidden', message: 'ingest secret required' }]);
+  }
+  const body = await c.req.json<any>().catch(() => null);
+  if (!body || !body.order_number) {
+    return fail(c, 400, [{ code: 'bad_request', message: 'order_number required' }]);
+  }
+  const orderNumber = String(body.order_number);
+  const trackingNumber = body.tracking_number ? String(body.tracking_number) : null;
+  const trackingUrl = body.tracking_url ? String(body.tracking_url) : null;
+  const shippingMethod = body.shipping_method ?? body.carrier ?? null;
+
+  try {
+    const upd = await c.env.DB.prepare(
+      `UPDATE crm_orders
+         SET tracking_number = COALESCE(?, tracking_number),
+             tracking_url = COALESCE(?, tracking_url),
+             shipping_method = COALESCE(?, shipping_method),
+             fulfillment_status = 'shipped',
+             updated_at = ?
+       WHERE source = 'website' AND order_number = ?`
+    )
+      .bind(trackingNumber, trackingUrl, shippingMethod, Math.floor(Date.now() / 1000), orderNumber)
+      .run();
+
+    const changed = upd.meta?.changes ?? 0;
+    if (changed > 0) {
+      const row = await c.env.DB.prepare(
+        `SELECT order_number, email, customer_name, currency, total_cents, subtotal_cents,
+                shipping_cents, lang, ship_country, ship_city, items
+         FROM crm_orders WHERE source = 'website' AND order_number = ?`
+      )
+        .bind(orderNumber)
+        .first<any>();
+      if (row) {
+        const data: OrderEmailData = { ...row, items: JSON.parse(row.items ?? '[]') };
+        c.executionCtx.waitUntil(
+          sendTrackingEmails(c.env, data, {
+            tracking_number: trackingNumber,
+            tracking_url: trackingUrl,
+            carrier: shippingMethod,
+          })
+        );
+      }
+    }
+    return ok(c, { updated: changed, order_number: orderNumber });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    if (msg.includes('no such table')) {
+      return fail(c, 503, [{ code: 'not_migrated', message: 'Run POST /admin/migrate/crm-website first' }]);
+    }
+    return fail(c, 500, [{ code: 'internal_error', message: msg }]);
+  }
+});
+
+// -----------------------------------------------------------------------------
+// Carts list — abandoned-checkout funnel for the .com source on /crm.
+// -----------------------------------------------------------------------------
+site.get('/carts', async (c) => {
+  const page = Math.max(1, Number(c.req.query('page') ?? 1));
+  const rawLimit = Number(c.req.query('limit') ?? 50);
+  const limit = [20, 50, 100].includes(rawLimit) ? rawLimit : 50;
+  const search = (c.req.query('search') ?? '').trim();
+  const statusFilter = (c.req.query('status') ?? '').trim(); // initiated|converted|abandoned|recovered
+  const sortKey = (c.req.query('sort') ?? 'date').toLowerCase();
+  const asc = (c.req.query('dir') ?? 'desc').toLowerCase() === 'asc';
+
+  const ORDER_BY: Record<string, string> = {
+    date: 'initiated_at',
+    total: 'subtotal_cents',
+    status: 'status',
+    number: 'order_number',
+  };
+  const orderCol = ORDER_BY[sortKey] ?? 'initiated_at';
+  const dir = asc ? 'ASC' : 'DESC';
+
+  try {
+    const where: string[] = [];
+    const binds: unknown[] = [];
+    if (search) {
+      binds.push(`%${search}%`);
+      where.push(`(order_number LIKE ?${binds.length} OR customer_name LIKE ?${binds.length} OR email LIKE ?${binds.length} OR ship_country LIKE ?${binds.length})`);
+    }
+    if (['initiated', 'converted', 'abandoned', 'recovered'].includes(statusFilter)) {
+      binds.push(statusFilter);
+      where.push(`status = ?${binds.length}`);
+    }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const total = await c.env.DB.prepare(`SELECT COUNT(*) AS n FROM crm_carts ${whereSql}`)
+      .bind(...binds)
+      .first<{ n: number }>();
+    const rows = await c.env.DB.prepare(
+      `SELECT id, order_number, status, email, phone, customer_name, ship_country,
+              ship_city, lang, currency, subtotal_cents, items, stripe_payment_intent,
+              initiated_at, converted_at, abandoned_at
+       FROM crm_carts ${whereSql}
+       ORDER BY ${orderCol} ${dir} LIMIT ? OFFSET ?`
+    )
+      .bind(...binds, limit, (page - 1) * limit)
+      .all<any>();
+
+    const totalCount = Number(total?.n ?? 0);
+    const carts = (rows.results ?? []).map((r) => ({
+      id: r.id,
+      number: String(r.order_number),
+      status: r.status,
+      customer_name: r.customer_name ?? r.email ?? '—',
+      email: r.email,
+      phone: r.phone,
+      country: r.ship_country,
+      city: r.ship_city,
+      lang: r.lang,
+      currency: r.currency,
+      total: Math.round(Number(r.subtotal_cents ?? 0) / 100),
+      subtotal_cents: Number(r.subtotal_cents ?? 0),
+      items: JSON.parse(r.items ?? '[]'),
+      stripe_payment_intent: r.stripe_payment_intent,
+      initiated_at: r.initiated_at ? new Date(r.initiated_at * 1000).toISOString() : '—',
+      converted_at: r.converted_at ? new Date(r.converted_at * 1000).toISOString() : null,
+      abandoned_at: r.abandoned_at ? new Date(r.abandoned_at * 1000).toISOString() : null,
+    }));
+
+    return ok(c, {
+      source: 'd1:crm_carts (dasexperten.com)',
+      pagination: { page, limit, total_count: totalCount, total_pages: Math.max(1, Math.ceil(totalCount / limit)) },
+      search,
+      carts,
+      synced_at: Math.floor(Date.now() / 1000),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    if (msg.includes('no such table')) {
+      return fail(c, 503, [{ code: 'not_migrated', message: 'Run POST /admin/migrate/crm-carts first' }]);
+    }
+    return fail(c, 500, [{ code: 'internal_error', message: msg }]);
+  }
+});
+
+// Carts KPI strip — counts by status + conversion rate + open abandoned value.
+site.get('/carts/stats', async (c) => {
+  try {
+    const byStatus = await c.env.DB.prepare(
+      `SELECT status, COUNT(*) AS n, COALESCE(SUM(subtotal_cents),0) AS value_cents
+       FROM crm_carts GROUP BY status`
+    ).all<{ status: string; n: number; value_cents: number }>();
+
+    const counts: Record<string, number> = { initiated: 0, converted: 0, abandoned: 0, recovered: 0 };
+    let abandonedValueCents = 0;
+    for (const r of byStatus.results ?? []) {
+      counts[r.status] = Number(r.n ?? 0);
+      if (r.status === 'abandoned' || r.status === 'initiated') abandonedValueCents += Number(r.value_cents ?? 0);
+    }
+    const totalCarts = Object.values(counts).reduce((a, b) => a + b, 0);
+    const conversionRate = totalCarts ? Math.round(((counts.converted ?? 0) / totalCarts) * 1000) / 10 : 0;
+
+    return ok(c, {
+      source: 'd1:crm_carts (dasexperten.com)',
+      currency: 'USD',
+      total_carts: totalCarts,
+      by_status: counts,
+      conversion_rate_pct: conversionRate,
+      open_abandoned_value_cents: abandonedValueCents,
+      synced_at: Math.floor(Date.now() / 1000),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    if (msg.includes('no such table')) {
+      return fail(c, 503, [{ code: 'not_migrated', message: 'Run POST /admin/migrate/crm-carts first' }]);
+    }
+    return fail(c, 500, [{ code: 'internal_error', message: msg }]);
+  }
 });
 
 // -----------------------------------------------------------------------------

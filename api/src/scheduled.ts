@@ -353,6 +353,14 @@ export async function handleScheduled(
     } catch (e) {
       console.error('[cron:crm-website-stripe] failed:', e);
     }
+    // Sweep abandoned carts: 'initiated' rows with no conversion after 6h.
+    try {
+      const { sweepAbandoned } = await import('./lib/crm-carts');
+      const swept = await sweepAbandoned(env, 6 * 3600);
+      if (swept) console.log(`[cron:crm-carts-sweep] abandoned=${swept}`);
+    } catch (e) {
+      console.error('[cron:crm-carts-sweep] failed:', e);
+    }
     return;
   }
 

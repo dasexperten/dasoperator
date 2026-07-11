@@ -365,6 +365,29 @@ admin.post('/migrate/crm-website', async (c) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// POST /admin/migrate/crm-carts — Phase 12.1 (2026-07-11)
+// Creates crm_carts (dasexperten.com abandoned-checkout capture).
+// Mirror of db/migrations/0061_crm_carts.sql — pure CREATE IF NOT EXISTS.
+// ---------------------------------------------------------------------------
+admin.post('/migrate/crm-carts', async (c) => {
+  const { CRM_CARTS_DDL } = await import('../lib/crm-carts');
+  const before = await c.env.DB.prepare(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name = 'crm_carts'`
+  ).all<{ name: string }>();
+
+  await c.env.DB.batch(CRM_CARTS_DDL.map((sql) => c.env.DB.prepare(sql)));
+
+  const after = await c.env.DB.prepare(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name = 'crm_carts'`
+  ).all<{ name: string }>();
+
+  return ok(c, {
+    already_present: (before.results ?? []).map((r) => r.name),
+    now_present: (after.results ?? []).map((r) => r.name),
+  });
+});
+
 export default admin;
 
 

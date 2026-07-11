@@ -1,0 +1,221 @@
+// =============================================================================
+// Website order emails (Phase 12.1)
+//
+// Fired from the order ingest path so every paid .com order triggers them
+// exactly once (guarded by upsertOrder's action==='created', so the webhook +
+// hourly poller never double-send):
+//
+//   • Internal notification → orders@dasexperten.com
+//       (a Cloudflare Email Routing address forwarding to the merchant inbox).
+//   • Customer confirmation / tracking → the buyer.
+//
+// Both go through the unrestricted EMAIL binding (Cloudflare Email Sending) from
+// the branded sender orders@notify.dasexperten.com, Reply-To orders@dasexperten.com.
+// That domain has SPF/DKIM configured and `orders@` is one of its intended
+// senders (see api/wrangler.toml [[send_email]] + services/email.ts SENDERS).
+// NO .de domain is used (owner decision).
+//
+// All sends are best-effort: an email failure must never break order ingest.
+// =============================================================================
+
+import type { Env } from '../types';
+import { sendEmail, SENDERS } from '../services/email';
+
+export const ORDERS_INBOX = 'orders@dasexperten.com';
+const REPLY_TO = ORDERS_INBOX;
+
+export interface OrderEmailData {
+  order_number: string;
+  email?: string | null;
+  customer_name?: string | null;
+  currency?: string | null;
+  total_cents?: number | null;
+  subtotal_cents?: number | null;
+  shipping_cents?: number | null;
+  lang?: string | null;
+  ship_country?: string | null;
+  ship_city?: string | null;
+  items?: Array<{ sku: string; name?: string | null; qty: number }> | null;
+}
+
+type Lang = 'en' | 'de' | 'ru' | 'vi';
+
+function pickLang(lang?: string | null): Lang {
+  const l = String(lang ?? '').slice(0, 2).toLowerCase();
+  return l === 'de' || l === 'ru' || l === 'vi' ? (l as Lang) : 'en';
+}
+
+function money(cents: number | null | undefined, currency: string | null | undefined): string {
+  const c = Number(cents ?? 0);
+  const cur = (currency ?? 'USD').toUpperCase();
+  // JPY-style zero-decimal currencies aside, cents/100 is right for the
+  // storefront's presentment set; this string is display-only.
+  return `${(c / 100).toFixed(2)} ${cur}`;
+}
+
+function itemsLines(o: OrderEmailData): string {
+  return (o.items ?? [])
+    .map((it) => `  • ${it.name ?? it.sku} × ${it.qty}`)
+    .join('\n');
+}
+
+function itemsRows(o: OrderEmailData): string {
+  return (o.items ?? [])
+    .map((it) => `<tr><td>${escapeHtml(it.name ?? it.sku)}</td><td style="text-align:right">× ${it.qty}</td></tr>`)
+    .join('');
+}
+
+function escapeHtml(s: string): string {
+  return String(s).replace(/[&<>"]/g, (ch) =>
+    ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : ch === '>' ? '&gt;' : '&quot;'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Customer-facing copy (localized). Kept compact; the .com storefront links
+// only — never a .de domain.
+// ---------------------------------------------------------------------------
+const T = {
+  confirmSubject: {
+    en: (n: string) => `Your Das Experten order ${n} is confirmed`,
+    de: (n: string) => `Deine Das Experten Bestellung ${n} ist bestätigt`,
+    ru: (n: string) => `Ваш заказ Das Experten ${n} подтверждён`,
+    vi: (n: string) => `Đơn hàng Das Experten ${n} của bạn đã được xác nhận`,
+  },
+  confirmIntro: {
+    en: 'Thank you for your order! We have received your payment and your order is being prepared for shipment.',
+    de: 'Vielen Dank für deine Bestellung! Wir haben deine Zahlung erhalten und bereiten den Versand vor.',
+    ru: 'Спасибо за заказ! Мы получили оплату и готовим отправку.',
+    vi: 'Cảm ơn bạn đã đặt hàng! Chúng tôi đã nhận được thanh toán và đang chuẩn bị giao hàng.',
+  },
+  orderLbl: { en: 'Order', de: 'Bestellung', ru: 'Заказ', vi: 'Đơn hàng' },
+  totalLbl: { en: 'Total', de: 'Gesamt', ru: 'Итого', vi: 'Tổng cộng' },
+  itemsLbl: { en: 'Items', de: 'Artikel', ru: 'Товары', vi: 'Sản phẩm' },
+  shipToLbl: { en: 'Ship to', de: 'Lieferung an', ru: 'Доставка', vi: 'Giao đến' },
+  signoff: { en: 'Das Experten', de: 'Das Experten', ru: 'Das Experten', vi: 'Das Experten' },
+  trackSubject: {
+    en: (n: string) => `Your Das Experten order ${n} has shipped`,
+    de: (n: string) => `Deine Das Experten Bestellung ${n} wurde versandt`,
+    ru: (n: string) => `Ваш заказ Das Experten ${n} отправлен`,
+    vi: (n: string) => `Đơn hàng Das Experten ${n} đã được gửi đi`,
+  },
+  trackIntro: {
+    en: 'Good news — your order is on its way. You can track it with the link below.',
+    de: 'Gute Nachrichten — deine Bestellung ist unterwegs. Verfolge sie über den Link unten.',
+    ru: 'Хорошие новости — заказ уже в пути. Отследить можно по ссылке ниже.',
+    vi: 'Tin vui — đơn hàng của bạn đang trên đường giao. Theo dõi qua liên kết bên dưới.',
+  },
+  trackLbl: { en: 'Track your parcel', de: 'Sendung verfolgen', ru: 'Отследить посылку', vi: 'Theo dõi đơn hàng' },
+  trackNoLbl: { en: 'Tracking number', de: 'Sendungsnummer', ru: 'Трек-номер', vi: 'Mã vận đơn' },
+} as const;
+
+// ---------------------------------------------------------------------------
+// New paid order — internal notification + customer confirmation.
+// ---------------------------------------------------------------------------
+export async function sendNewOrderEmails(env: Env, o: OrderEmailData): Promise<void> {
+  const total = money(o.total_cents, o.currency);
+  const shipTo = [o.ship_city, o.ship_country].filter(Boolean).join(', ');
+
+  // 1) Internal → orders@dasexperten.com
+  const internalText =
+    `New paid order on dasexperten.com\n\n` +
+    `Order: ${o.order_number}\n` +
+    `Customer: ${o.customer_name ?? '—'} <${o.email ?? '—'}>\n` +
+    `Ship to: ${shipTo || '—'}\n` +
+    `Total: ${total}\n\n` +
+    `Items:\n${itemsLines(o) || '  —'}`;
+  await sendEmail(env, {
+    to: ORDERS_INBOX,
+    from: SENDERS.orders,
+    subject: `New order ${o.order_number} — ${total}`,
+    text: internalText,
+    html:
+      `<h2>New paid order on dasexperten.com</h2>` +
+      `<p><strong>Order:</strong> ${escapeHtml(o.order_number)}<br>` +
+      `<strong>Customer:</strong> ${escapeHtml(o.customer_name ?? '—')} &lt;${escapeHtml(o.email ?? '—')}&gt;<br>` +
+      `<strong>Ship to:</strong> ${escapeHtml(shipTo || '—')}<br>` +
+      `<strong>Total:</strong> ${escapeHtml(total)}</p>` +
+      `<table style="border-collapse:collapse"><tbody>${itemsRows(o)}</tbody></table>`,
+  });
+
+  // 2) Customer confirmation — only if we have an address
+  if (o.email) {
+    const lang = pickLang(o.lang);
+    await sendEmail(env, {
+      to: o.email,
+      from: SENDERS.orders,
+      replyTo: REPLY_TO,
+      subject: T.confirmSubject[lang](o.order_number),
+      text:
+        `${T.confirmIntro[lang]}\n\n` +
+        `${T.orderLbl[lang]}: ${o.order_number}\n` +
+        `${T.itemsLbl[lang]}:\n${itemsLines(o) || '  —'}\n\n` +
+        `${T.totalLbl[lang]}: ${total}\n` +
+        (shipTo ? `${T.shipToLbl[lang]}: ${shipTo}\n` : '') +
+        `\n${T.signoff[lang]}\nhttps://dasexperten.com`,
+      html:
+        `<div style="font-family:system-ui,Arial,sans-serif;max-width:560px">` +
+        `<p>${escapeHtml(T.confirmIntro[lang])}</p>` +
+        `<p><strong>${escapeHtml(T.orderLbl[lang])}:</strong> ${escapeHtml(o.order_number)}</p>` +
+        `<table style="width:100%;border-collapse:collapse"><tbody>${itemsRows(o)}</tbody></table>` +
+        `<p><strong>${escapeHtml(T.totalLbl[lang])}:</strong> ${escapeHtml(total)}</p>` +
+        (shipTo ? `<p><strong>${escapeHtml(T.shipToLbl[lang])}:</strong> ${escapeHtml(shipTo)}</p>` : '') +
+        `<p style="margin-top:24px">${escapeHtml(T.signoff[lang])}<br>` +
+        `<a href="https://dasexperten.com">dasexperten.com</a></p></div>`,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Order shipped — customer tracking email + internal copy.
+// ---------------------------------------------------------------------------
+export async function sendTrackingEmails(
+  env: Env,
+  o: OrderEmailData,
+  tracking: { tracking_number?: string | null; tracking_url?: string | null; carrier?: string | null }
+): Promise<void> {
+  const num = tracking.tracking_number ?? '';
+  const url = tracking.tracking_url ?? '';
+
+  // Internal copy → orders@
+  await sendEmail(env, {
+    to: ORDERS_INBOX,
+    from: SENDERS.orders,
+    subject: `Order ${o.order_number} shipped`,
+    text:
+      `Order ${o.order_number} shipped` +
+      (tracking.carrier ? ` via ${tracking.carrier}` : '') +
+      `.\nTracking: ${num || '—'}\n${url || ''}`,
+  });
+
+  if (!o.email) return;
+  const lang = pickLang(o.lang);
+  const trackLine = url
+    ? `${T.trackLbl[lang]}: ${url}\n`
+    : num
+      ? `${T.trackNoLbl[lang]}: ${num}\n`
+      : '';
+  const linkHtml = url
+    ? `<p><a href="${escapeHtml(url)}" style="display:inline-block;padding:10px 18px;background:#111;color:#fff;border-radius:6px;text-decoration:none">${escapeHtml(T.trackLbl[lang])}</a></p>`
+    : '';
+  await sendEmail(env, {
+    to: o.email,
+    from: SENDERS.orders,
+    replyTo: REPLY_TO,
+    subject: T.trackSubject[lang](o.order_number),
+    text:
+      `${T.trackIntro[lang]}\n\n` +
+      `${T.orderLbl[lang]}: ${o.order_number}\n` +
+      (num ? `${T.trackNoLbl[lang]}: ${num}\n` : '') +
+      trackLine +
+      `\n${T.signoff[lang]}\nhttps://dasexperten.com`,
+    html:
+      `<div style="font-family:system-ui,Arial,sans-serif;max-width:560px">` +
+      `<p>${escapeHtml(T.trackIntro[lang])}</p>` +
+      `<p><strong>${escapeHtml(T.orderLbl[lang])}:</strong> ${escapeHtml(o.order_number)}</p>` +
+      (num ? `<p><strong>${escapeHtml(T.trackNoLbl[lang])}:</strong> ${escapeHtml(num)}</p>` : '') +
+      linkHtml +
+      `<p style="margin-top:24px">${escapeHtml(T.signoff[lang])}<br>` +
+      `<a href="https://dasexperten.com">dasexperten.com</a></p></div>`,
+  });
+}

@@ -330,28 +330,26 @@ export default function CloudflareInboxView() {
   // rides alongside so the important info is visible without opening the mail.
   const renderFeedRow = (e: FeedEntry) => {
     const who = displayName(correspondent(e));
-    const first = (who[0] || '?').toUpperCase();
+    const first = who[0] || '?';
     const rest = who.slice(1);
+    const accent = dotColor(correspondent(e) || who);
     return (
       <button
         key={`${e.mailbox}:${e.key}`}
         onClick={() => selectFeedEntry(e)}
-        className="w-full text-left px-4 py-3 flex items-center gap-2.5 border-b border-border last:border-b-0 hover:bg-secondary/40 transition-colors"
+        className="w-full text-left px-4 py-3 flex items-center gap-3 border-b border-border last:border-b-0 hover:bg-secondary/40 transition-colors"
       >
-        <div
-          className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-white font-bold text-sm"
-          style={{ background: dotColor(correspondent(e) || who), fontFamily: 'var(--font-display, inherit)' }}
-        >
-          {first}
-        </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-1.5 min-w-0">
-            <span className="text-sm font-bold text-foreground truncate shrink-0 max-w-[48%]">{rest || who}</span>
+            {/* Only the first letter is bold + coloured; the rest is normal. */}
+            <span className="text-sm truncate shrink-0 max-w-[48%]">
+              <span className="font-bold" style={{ color: accent }}>{first}</span>
+              <span className="text-foreground">{rest}</span>
+            </span>
             <span className="text-sm text-muted-foreground truncate">{e.subject || '(no subject)'}</span>
           </div>
-          <div className="text-xs text-muted-foreground truncate mt-0.5">
-            {e.direction === 'received' ? `to ${e.mailbox}` : `from ${e.mailbox}`}
-          </div>
+          {/* Service-account mailbox, tiny italic, much smaller than the sender. */}
+          <div className="text-[11px] italic text-muted-foreground truncate mt-0.5">{e.mailbox}</div>
         </div>
         <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">{fmtDate(e.timestamp)}</span>
       </button>

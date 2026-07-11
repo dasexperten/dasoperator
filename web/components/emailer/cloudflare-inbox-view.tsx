@@ -36,6 +36,9 @@ export default function CloudflareInboxView() {
   const [loadingMailboxes, setLoadingMailboxes] = useState(true);
   const [mailboxError, setMailboxError] = useState<string | null>(null);
 
+  // Which mailbox group the list shows — switchable, one at a time.
+  const [listView, setListView] = useState<'personal' | 'system'>('personal');
+
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
   const [entries, setEntries] = useState<MailboxIndexEntry[]>([]);
   const [loadingEntries, setLoadingEntries] = useState(false);
@@ -431,32 +434,46 @@ export default function CloudflareInboxView() {
           <p className="mt-2 text-sm text-muted-foreground">No archived mailboxes yet</p>
         </div>
       ) : (
-        <div className="space-y-6">
-          <div>
-            <div className="dx-eyebrow-rot mb-2">Inbound</div>
-            <div className="bg-card border border-border rounded-lg shadow-sm">
-              {inboundMailboxes.length === 0 ? (
+        <div className="space-y-4">
+          {/* Switchable Personal / System toggle */}
+          <div className="inline-flex rounded-lg border border-border bg-secondary/40 p-0.5">
+            {(['personal', 'system'] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => setListView(v)}
+                className={`px-4 py-1.5 text-sm font-bold rounded-md transition-colors ${
+                  listView === v ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {v === 'personal' ? 'Personal' : 'System'}
+                <span className="ml-2 text-xs font-normal tabular-nums text-muted-foreground">
+                  {v === 'personal' ? inboundMailboxes.length : outboundMailboxes.length}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div className="bg-card border border-border rounded-lg shadow-sm">
+            {listView === 'personal' ? (
+              inboundMailboxes.length === 0 ? (
                 <div className="p-6 text-center text-sm text-muted-foreground">
-                  No inbound mail yet — messages sent to sales@, support@, eurasia@, emea@ or asean@dasexperten.com will appear here.
+                  No personal mail yet — messages sent to sales@, support@, eurasia@, emea@ or asean@dasexperten.com will appear here.
                 </div>
               ) : (
                 <div className="divide-y divide-border">
                   {inboundMailboxes.map((m) => renderMailboxRow(m, true))}
                 </div>
-              )}
-            </div>
-          </div>
-
-          {outboundMailboxes.length > 0 && (
-            <div>
-              <div className="dx-eyebrow-rot mb-2">System (outbound)</div>
-              <div className="bg-card border border-border rounded-lg shadow-sm">
-                <div className="divide-y divide-border">
-                  {outboundMailboxes.map((m) => renderMailboxRow(m, false))}
-                </div>
+              )
+            ) : outboundMailboxes.length === 0 ? (
+              <div className="p-6 text-center text-sm text-muted-foreground">
+                No system mail yet — outbound notify.dasexperten.com messages will appear here.
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="divide-y divide-border">
+                {outboundMailboxes.map((m) => renderMailboxRow(m, false))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

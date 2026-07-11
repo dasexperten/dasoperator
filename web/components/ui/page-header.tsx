@@ -5,7 +5,10 @@ interface PageHeaderProps {
   eyebrow: string;
   /** Page title, rendered in the display font */
   title: string;
-  /** Optional subtitle / description line under the title */
+  /**
+   * Deprecated / no longer rendered. House rule: pages do not show a subtitle
+   * line. The prop is kept so existing callers still compile, but it is ignored.
+   */
   subtitle?: ReactNode;
   /** Optional action cluster (buttons / links) shown to the right of the title */
   actions?: ReactNode;
@@ -15,10 +18,13 @@ interface PageHeaderProps {
  * Das Experten brand page header.
  *
  * Encodes the house header pattern used across the ERP (Warehouses, Products, …):
- * red eyebrow → display title → subtitle → three-ribbon rule. Action clusters
- * sit to the right on desktop and wrap below the title on mobile.
+ * red eyebrow → display title → three-ribbon rule. Action clusters sit to the
+ * right on desktop and wrap below the title on mobile.
+ *
+ * House rule: no subtitle line. The `subtitle` prop is accepted (for backward
+ * compatibility) but intentionally NOT rendered — pages stay clean, titles only.
  */
-export default function PageHeader({ eyebrow, title, subtitle, actions }: PageHeaderProps) {
+export default function PageHeader({ eyebrow, title, actions }: PageHeaderProps) {
   return (
     <div className="space-y-8 max-w-full">
       <div className="flex items-start justify-between gap-4 dx-header-wrap">
@@ -34,11 +40,6 @@ export default function PageHeader({ eyebrow, title, subtitle, actions }: PageHe
           >
             {title}
           </h1>
-          {subtitle != null && (
-            <p className="mt-2" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
-              {subtitle}
-            </p>
-          )}
         </div>
         {actions != null && (
           <div className="shrink-0 flex items-center gap-2 dx-page-actions">{actions}</div>

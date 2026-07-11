@@ -16,6 +16,7 @@ import {
 import MarketplacePulse from './marketplace-pulse';
 import SystemHealth from './system-health';
 import AiVisibilityOverview from './ai-visibility-overview';
+import AiCrawlers from './ai-crawlers';
 
 // =============================================================================
 // Helpers
@@ -247,6 +248,7 @@ export default function HomeDashboard() {
       {/* SYSTEM HEALTH ============================================== */}
       <SystemHealth />
       <AiVisibilityOverview />
+      <AiCrawlers />
 
       {/* RECENT OPERATIONS ========================================== */}
       <section>

@@ -400,9 +400,6 @@ export default function CloudflareInboxView() {
     <div>
       <div className="mb-4">
         <h2 className="text-lg font-bold text-foreground">Inbox</h2>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Cloudflare email archive — Personal (mail to sales@/support@/…) and System (notify.dasexperten.com), read-only
-        </p>
       </div>
 
       <div className="space-y-4">

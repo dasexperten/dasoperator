@@ -11,7 +11,6 @@ export default function EmailerPage() {
       <PageHeader
         eyebrow="Communications"
         title="Emailer"
-        subtitle="Cloudflare email archive — Personal (mail to sales@/support@/…) and System (notify.dasexperten.com), read-only."
       />
 
       <CloudflareInboxView />

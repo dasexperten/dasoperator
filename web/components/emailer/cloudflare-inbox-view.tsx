@@ -231,15 +231,15 @@ export default function CloudflareInboxView() {
       style={inbound && m.count > 0 ? { background: 'linear-gradient(90deg, var(--bg-danger, #FCEBEB) 0%, transparent 42%)' } : undefined}
     >
       <div
-        className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-white font-bold text-sm"
-        style={{ background: inbound ? 'var(--brand-rot, #E5202C)' : avatarColor(m.address), fontFamily: 'var(--font-display, inherit)' }}
+        className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-white text-base"
+        style={{ background: inbound ? 'var(--brand-rot, #E5202C)' : avatarColor(m.address), fontFamily: 'var(--font-display, inherit)', fontWeight: 900, boxShadow: 'var(--shadow-raised)' }}
       >
         {avatarInitial(m.address)}
       </div>
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-bold text-foreground truncate">{m.address}</span>
+          <span className="text-sm text-foreground truncate" style={{ fontFamily: 'var(--font-display, inherit)', fontWeight: 800 }}>{m.address}</span>
           <span
             className="shrink-0 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded"
             style={inbound
@@ -276,12 +276,16 @@ export default function CloudflareInboxView() {
       <div>
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-bold text-foreground">Mailboxes</h2>
+            <h2 style={{ fontFamily: 'var(--font-display, inherit)', fontWeight: 900, fontSize: 'var(--fs-h3, 24px)', color: 'var(--fg-1, inherit)' }}>Mailboxes</h2>
             <p className="text-xs text-muted-foreground mt-0.5">
               Cloudflare email archive — inbound mail routed to Das Operator and outbound system mail
             </p>
           </div>
-          <button onClick={loadMailboxes} className="text-sm border border-border rounded-md px-3 py-1.5 inline-flex items-center gap-2 hover:bg-muted">
+          <button
+            onClick={loadMailboxes}
+            className="text-sm rounded-md px-3.5 py-2 inline-flex items-center gap-2"
+            style={{ background: 'var(--brand-schwarz, #282229)', color: '#fff', fontWeight: 700, boxShadow: 'var(--shadow-raised)' }}
+          >
             <RefreshCw className="h-4 w-4" /> Refresh
           </button>
         </div>
@@ -293,7 +297,7 @@ export default function CloudflareInboxView() {
             <AlertCircle className="h-5 w-5 text-red-600" /> <span className="text-red-800">{mailboxError}</span>
           </div>
         ) : mailboxes.length === 0 ? (
-          <div className="bg-card border border-border rounded-lg shadow-sm p-8 text-center">
+          <div className="bg-card border border-border rounded-lg shadow-md p-8 text-center">
             <InboxIcon className="h-12 w-12 mx-auto text-muted-foreground" />
             <p className="mt-2 text-sm text-muted-foreground">No archived mailboxes yet</p>
           </div>
@@ -301,7 +305,7 @@ export default function CloudflareInboxView() {
           <div className="space-y-6">
             <div>
               <div className="dx-eyebrow-rot mb-2">Inbound</div>
-              <div className="bg-card border border-border rounded-lg shadow-sm">
+              <div className="bg-card border border-border rounded-lg shadow-md">
                 {inboundMailboxes.length === 0 ? (
                   <div className="p-6 text-center text-sm text-muted-foreground">
                     No inbound mail yet — messages sent to sales@, support@, eurasia@, emea@, asean@ or dr.badalyan@dasexperten.com will appear here.
@@ -317,7 +321,7 @@ export default function CloudflareInboxView() {
             {outboundMailboxes.length > 0 && (
               <div>
                 <div className="dx-eyebrow-rot mb-2">System (outbound)</div>
-                <div className="bg-card border border-border rounded-lg shadow-sm">
+                <div className="bg-card border border-border rounded-lg shadow-md">
                   <div className="divide-y divide-border">
                     {outboundMailboxes.map((m) => renderMailboxRow(m, false))}
                   </div>
@@ -345,7 +349,7 @@ export default function CloudflareInboxView() {
 
       <div className="flex gap-4 items-start" style={{ minHeight: 480 }}>
         {/* Left pane: search + message list */}
-        <div className="w-full max-w-sm shrink-0 bg-card border border-border rounded-lg shadow-sm flex flex-col" style={{ maxHeight: 720 }}>
+        <div className="w-full max-w-sm shrink-0 bg-card border border-border rounded-lg shadow-md flex flex-col" style={{ maxHeight: 720 }}>
           <div className="p-3 border-b border-border space-y-2">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-sm font-bold text-foreground truncate">{selectedAddress}</h2>
@@ -425,12 +429,12 @@ export default function CloudflareInboxView() {
         {/* Right pane: message detail */}
         <div className="flex-1 min-w-0">
           {!selectedEntry ? (
-            <div className="bg-card border border-border rounded-lg shadow-sm p-12 text-center">
+            <div className="bg-card border border-border rounded-lg shadow-md p-12 text-center">
               <Mail className="h-12 w-12 mx-auto text-muted-foreground" />
               <p className="mt-2 text-sm text-muted-foreground">Select a message to read it</p>
             </div>
           ) : loadingRecord ? (
-            <div className="bg-card border border-border rounded-lg shadow-sm p-12 text-center">
+            <div className="bg-card border border-border rounded-lg shadow-md p-12 text-center">
               <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
             </div>
           ) : recordError ? (
@@ -438,7 +442,7 @@ export default function CloudflareInboxView() {
               <AlertCircle className="h-5 w-5 text-red-600" /> <span className="text-red-800">{recordError}</span>
             </div>
           ) : record ? (
-            <div className="bg-card border border-border rounded-lg shadow-sm">
+            <div className="bg-card border border-border rounded-lg shadow-md">
               <div className="border-b border-border px-4 py-3">
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <div className="flex items-center gap-2 min-w-0">
@@ -447,13 +451,13 @@ export default function CloudflareInboxView() {
                     ) : (
                       <ArrowDownLeft className="h-4 w-4 text-blue-600" />
                     )}
-                    <h2 className="text-base font-bold text-foreground truncate">{record.subject || '(no subject)'}</h2>
+                    <h2 className="truncate" style={{ fontFamily: 'var(--font-display, inherit)', fontWeight: 800, fontSize: 'var(--fs-h4, 20px)', color: 'var(--fg-1, inherit)' }}>{record.subject || '(no subject)'}</h2>
                   </div>
                   {record.direction === 'received' && !replyOpen && (
                     <button
                       onClick={openReply}
                       className="shrink-0 flex items-center gap-1.5 text-sm font-medium rounded-md px-3 py-1.5"
-                      style={{ background: 'var(--brand-rot, #E5202C)', color: '#fff' }}
+                      style={{ background: 'var(--brand-rot, #E5202C)', color: '#fff', fontWeight: 700, boxShadow: 'var(--shadow-raised)' }}
                     >
                       <Reply className="h-4 w-4" /> Reply
                     </button>
@@ -517,7 +521,7 @@ export default function CloudflareInboxView() {
                       onClick={submitReply}
                       disabled={sending}
                       className="flex items-center gap-1.5 text-sm font-medium rounded-md px-4 py-2 disabled:opacity-60"
-                      style={{ background: 'var(--brand-rot, #E5202C)', color: '#fff' }}
+                      style={{ background: 'var(--brand-rot, #E5202C)', color: '#fff', fontWeight: 700, boxShadow: 'var(--shadow-raised)' }}
                     >
                       {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                       {sending ? 'Sending…' : 'Send reply'}

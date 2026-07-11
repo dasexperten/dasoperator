@@ -47,7 +47,7 @@ export default function EmailerPage() {
         subtitle="Inbox reads the Cloudflare email archive (inbound to Das Operator + outbound system mail). Tasks/Scenarios/Learning are the self-learning AI reply engine. History/Compose are the legacy Gmail-bridge tools."
       />
 
-      <div className="flex items-center gap-1 border-b border-border" role="tablist" aria-label="Emailer sections">
+      <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Emailer sections">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -55,10 +55,16 @@ export default function EmailerPage() {
             role="tab"
             aria-selected={active === t.id}
             onClick={() => activate(t.id)}
-            className="px-3.5 py-2 text-sm font-medium -mb-px border-b-2 transition-colors"
-            style={active === t.id
-              ? { borderColor: 'var(--brand-rot, #E5202C)', color: 'var(--brand-rot, #E5202C)' }
-              : { borderColor: 'transparent', color: 'var(--fg-2, #6E6558)' }}
+            className="px-4 py-2 rounded-md transition-colors"
+            style={{
+              fontFamily: 'var(--font-display, inherit)',
+              fontWeight: 800,
+              fontSize: 'var(--fs-body-sm)',
+              letterSpacing: 'var(--tr-tight)',
+              ...(active === t.id
+                ? { background: 'var(--brand-rot, #E5202C)', color: '#fff', boxShadow: 'var(--shadow-raised)' }
+                : { background: 'var(--paper-sunk, #F3F0E8)', color: 'var(--fg-2, #6E6558)' }),
+            }}
           >
             {t.label}
           </button>

@@ -6,6 +6,7 @@ import {
   getMailboxes,
   getMailboxMessages,
   getMailboxMessage,
+  getMailboxMessageSummary,
   sendReply,
   type MailboxSummary,
   type MailboxIndexEntry,
@@ -40,13 +41,6 @@ function displayName(addr: string): string {
   const at = addr.indexOf('@');
   return at > 0 ? addr.slice(0, at) : addr;
 }
-// Short plain-text preview of a message body (strip HTML, collapse whitespace).
-function toPreview(rec: { text?: string; html?: string }): string {
-  let t = rec.text || '';
-  if (!t && rec.html) t = rec.html.replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ');
-  return t.replace(/\s+/g, ' ').trim().slice(0, 300);
-}
-
 // Stable warm colour per correspondent, kept in the brand's earthy range.
 function dotColor(seed: string): string {
   const palette = ['#B23A2E', '#8A6D3B', '#4A6B57', '#5A5566', '#7A5230', '#3F5E6B'];
@@ -169,14 +163,14 @@ export default function CloudflareInboxView() {
         .flat()
         .sort((x, y) => (y.timestamp || '').localeCompare(x.timestamp || ''))
         .slice(0, 40);
-      // Show the list immediately; body previews fill in progressively.
+      // Show the list immediately; 2-sentence AI summaries fill in progressively.
       setFeed(merged);
       setLoadingFeed(false);
       const withPreview = await Promise.all(
         merged.map(async (e) => {
           try {
-            const r = await getMailboxMessage(e.mailbox, e.key);
-            return r.success && r.result ? { ...e, preview: toPreview(r.result.record) } : e;
+            const r = await getMailboxMessageSummary(e.mailbox, e.key);
+            return r.success && r.result ? { ...e, preview: r.result.summary } : e;
           } catch {
             return e;
           }
@@ -374,11 +368,11 @@ export default function CloudflareInboxView() {
           </div>
           {/* Service-account mailbox, tiny italic, much smaller than the sender. */}
           <div className="text-[11px] italic text-muted-foreground truncate mt-0.5">{e.mailbox}</div>
-          {/* First lines of the message body — full width. */}
+          {/* 2-sentence AI summary of the message — full width. */}
           {e.preview && (
             <div
               className="text-xs text-muted-foreground mt-1"
-              style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
+              style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
             >
               {e.preview}
             </div>

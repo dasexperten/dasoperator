@@ -17,6 +17,7 @@ import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { validateSession } from '../lib/auth';
 import type { IndexEntry } from '../lib/inbox-archive';
+import { callFlash } from '../lib/llm';
 
 const route = new Hono<{ Bindings: Env }>();
 
@@ -140,6 +141,85 @@ route.get('/mailboxes/:address/message', async (c) => {
   } catch (err) {
     return fail(c, 500, [{ code: 'r2_error', message: err instanceof Error ? err.message : String(err) }]);
   }
+});
+
+// -----------------------------------------------------------------------------
+// GET /mailboxes/:address/summary?key=... — a 2-sentence AI summary of the
+// message body, so the inbox list can show the gist instead of raw first lines.
+// Cached in D1 (email_summaries) keyed by the R2 record key, so each message is
+// summarized once. Same path-prefix guard as /message.
+// -----------------------------------------------------------------------------
+function bodyText(record: any): string {
+  let t = String(record?.text || '');
+  if (!t && record?.html) {
+    t = String(record.html).replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ');
+  }
+  return t.replace(/\s+/g, ' ').trim();
+}
+
+route.get('/mailboxes/:address/summary', async (c) => {
+  if (!(await requireSession(c))) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+
+  const address = normalizeAddress(c.req.param('address'));
+  const key = c.req.query('key') || '';
+  const expectedPrefix = `Inbox/${address}/`;
+  if (!address) return fail(c, 422, [{ code: 'bad_address', message: 'address is required' }]);
+  if (!key || !key.startsWith(expectedPrefix)) {
+    return fail(c, 422, [{ code: 'bad_key', message: `key must start with ${expectedPrefix}` }]);
+  }
+
+  // Lazy cache table — self-healing, no migration round-trip needed.
+  try {
+    await c.env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS email_summaries (
+        msg_key TEXT PRIMARY KEY, summary TEXT NOT NULL, model TEXT, created_at INTEGER NOT NULL)`
+    ).run();
+    const cached = await c.env.DB.prepare('SELECT summary FROM email_summaries WHERE msg_key = ?')
+      .bind(key).first<{ summary: string }>();
+    if (cached?.summary) return ok(c, { summary: cached.summary, cached: true });
+  } catch {
+    /* cache is best-effort — fall through and summarize */
+  }
+
+  let record: any;
+  try {
+    const obj = await c.env.ARCHIVE.get(key);
+    if (!obj) return fail(c, 404, [{ code: 'not_found', message: key }]);
+    record = JSON.parse(await obj.text());
+  } catch (err) {
+    return fail(c, 500, [{ code: 'r2_error', message: err instanceof Error ? err.message : String(err) }]);
+  }
+
+  const subject = String(record?.subject || '');
+  const text = bodyText(record);
+  if (!text) {
+    return ok(c, { summary: subject ? `${subject}. No message body.` : 'No message content.', cached: false });
+  }
+
+  let summary = '';
+  try {
+    const r = await callFlash(
+      [
+        { role: 'system', content: 'You summarize one email for a busy operator. Reply with exactly two short, factual sentences capturing what the sender wants or reports. No greeting, no preamble, no quotation marks.' },
+        { role: 'user', content: `Subject: ${subject}\n\n${text.slice(0, 6000)}` },
+      ],
+      { env: c.env, maxTokens: 160, temperature: 0.2 }
+    );
+    summary = (r.text || '').replace(/\s+/g, ' ').trim();
+  } catch {
+    /* LLM unavailable — fall back to the raw opening below */
+  }
+  if (!summary) summary = text.slice(0, 200);
+
+  try {
+    await c.env.DB.prepare(
+      'INSERT OR REPLACE INTO email_summaries (msg_key, summary, model, created_at) VALUES (?, ?, ?, ?)'
+    ).bind(key, summary, 'flash', Math.floor(Date.now() / 1000)).run();
+  } catch {
+    /* best-effort cache write */
+  }
+
+  return ok(c, { summary, cached: false });
 });
 
 export default route;

@@ -2747,6 +2747,13 @@ export async function getMailboxMessage(address: string, key: string) {
   );
 }
 
+// 2-sentence AI summary of a message body (cached server-side).
+export async function getMailboxMessageSummary(address: string, key: string) {
+  return apiGet<{ summary: string; cached: boolean }>(
+    `/api/email/mailboxes/${encodeURIComponent(address)}/summary?key=${encodeURIComponent(key)}`
+  );
+}
+
 // Human reply via Resend. Returns the bare { success, messageId } / { success,
 // error } shape the /reply endpoint emits (not the ok()/fail() envelope).
 export async function sendReply(input: {

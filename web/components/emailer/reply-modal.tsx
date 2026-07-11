@@ -52,11 +52,11 @@ export default function ReplyModal({ thread, initialBody, onClose, onSent }: Rep
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-card border border-border rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="bg-card rounded-lg w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden flex flex-col" style={{ boxShadow: 'var(--shadow-float)' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <div>
-            <h2 className="text-lg font-semibold text-foreground">Reply</h2>
+            <h2 style={{ fontFamily: 'var(--font-display, inherit)', fontWeight: 800, fontSize: 'var(--fs-h4, 20px)' }}>Reply</h2>
             <p className="text-sm text-muted-foreground">
               Re: {thread.subject || '(No subject)'}
             </p>
@@ -110,7 +110,7 @@ export default function ReplyModal({ thread, initialBody, onClose, onSent }: Rep
               onChange={(e) => setBody(e.target.value)}
               placeholder="Write your reply..."
               rows={8}
-              className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-y"
+              className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm focus:outline-none focus:ring-2 resize-y"
             />
           </div>
         </div>
@@ -127,7 +127,8 @@ export default function ReplyModal({ thread, initialBody, onClose, onSent }: Rep
           <button
             onClick={handleSend}
             disabled={sending || !body.trim()}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-md hover:bg-primary/90 disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-md disabled:opacity-50"
+            style={{ background: 'var(--brand-rot)', color: '#fff', boxShadow: 'var(--shadow-raised)' }}
           >
             {sending ? (
               <Loader2 className="h-4 w-4 animate-spin" />

@@ -70,13 +70,14 @@ export default function EmailHistory() {
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             placeholder="Gmail search query (e.g., newer_than:30d, from:client@example.com)"
-            className="w-full pl-10 pr-4 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            className="w-full pl-10 pr-4 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2"
           />
         </div>
         <button
           onClick={handleSearch}
           disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-md hover:bg-primary/90 disabled:opacity-50"
+          className="flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-md disabled:opacity-50"
+          style={{ background: 'var(--brand-rot)', color: '#fff', boxShadow: 'var(--shadow-raised)' }}
         >
           {loading ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -96,7 +97,7 @@ export default function EmailHistory() {
       )}
 
       {/* Email List */}
-      <div className="bg-card border border-border rounded-lg shadow-sm">
+      <div className="bg-card border border-border rounded-lg shadow-md">
         {loading ? (
           <div className="p-8 text-center">
             <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
@@ -117,7 +118,7 @@ export default function EmailHistory() {
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <h3 className="text-sm font-medium text-foreground truncate">
+                      <h3 className="text-sm truncate" style={{ fontFamily: 'var(--font-display, inherit)', fontWeight: 800 }}>
                         {thread.subject || '(No subject)'}
                       </h3>
                       {thread.has_attachments && (
@@ -140,7 +141,7 @@ export default function EmailHistory() {
                     </span>
                     <button
                       onClick={() => handleReply(thread)}
-                      className="flex items-center gap-1 px-2 py-1 text-xs text-primary hover:text-primary/80 border border-primary/20 rounded hover:bg-primary/5"
+                      className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded" style={{ color: 'var(--brand-rot)', borderWidth: 1, borderColor: 'var(--brand-rot)', borderStyle: 'solid', opacity: 0.85 }}
                     >
                       <Reply className="h-3 w-3" />
                       Reply

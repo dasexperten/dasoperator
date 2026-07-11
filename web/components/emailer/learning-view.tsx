@@ -64,7 +64,7 @@ export default function LearningView() {
           </button>
           <div className="flex items-center gap-2">
             <Lightbulb className={`h-4 w-4 ${autoLearning ? 'text-emerald-600' : 'text-muted-foreground'}`} />
-            <span className="text-base font-semibold text-foreground">Auto-learning — {autoLearning ? 'ON' : 'OFF'}</span>
+            <span style={{ fontFamily: 'var(--font-display, inherit)', fontWeight: 800, fontSize: 'var(--fs-h5, 17px)' }}>Auto-learning — {autoLearning ? 'ON' : 'OFF'}</span>
           </div>
         </div>
         <p className="text-sm text-muted-foreground mt-2">
@@ -75,19 +75,19 @@ export default function LearningView() {
       </div>
 
       <div className="grid grid-cols-2 gap-2.5">
-        <div className="rounded-lg bg-muted/50 px-3 py-2"><div className="text-xs text-muted-foreground">Pending lessons</div><div className="text-xl font-semibold text-foreground">{lessons.length}</div></div>
-        <div className="rounded-lg bg-muted/50 px-3 py-2"><div className="text-xs text-muted-foreground">Live rules in canon</div><div className="text-xl font-semibold text-foreground">{playbook.length}</div></div>
+        <div className="rounded-lg bg-muted/50 px-3 py-2"><div className="text-xs text-muted-foreground">Pending lessons</div><div className="text-xl" style={{ fontFamily: 'var(--font-display, inherit)', fontWeight: 900 }}>{lessons.length}</div></div>
+        <div className="rounded-lg bg-muted/50 px-3 py-2"><div className="text-xs text-muted-foreground">Live rules in canon</div><div className="text-xl" style={{ fontFamily: 'var(--font-display, inherit)', fontWeight: 900 }}>{playbook.length}</div></div>
       </div>
 
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-semibold text-foreground">Pending lessons</h2>
+          <h2 style={{ fontFamily: 'var(--font-display, inherit)', fontWeight: 800, fontSize: 'var(--fs-h5, 17px)' }}>Pending lessons</h2>
           <span className="text-xs text-muted-foreground">learned from your Safety Gate edits</span>
         </div>
         {lessons.length === 0 && <div className="text-sm text-muted-foreground rounded-lg border border-border p-6 text-center">Nothing pending. The agent is in sync with you.</div>}
         <div className="space-y-3">
           {lessons.map((l) => (
-            <div key={l.id} className="rounded-lg border border-border bg-card p-4 border-l-4 border-l-indigo-400">
+            <div key={l.id} className="rounded-lg border border-border bg-card p-4 border-l-4 border-l-indigo-400 shadow-md">
               <div className="flex flex-wrap items-center gap-1.5 mb-2">
                 <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{l.scenario_name ?? l.scenario_id}</span>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">seen {l.seen_count}×</span>
@@ -108,7 +108,7 @@ export default function LearningView() {
                 </div>
               )}
               <div className="flex gap-2">
-                <button onClick={() => decide(l.id, 'approve')} disabled={busy === l.id} className="flex-1 py-3 rounded-md bg-emerald-600 text-white font-semibold text-base disabled:opacity-50 hover:bg-emerald-700">Keep this rule</button>
+                <button onClick={() => decide(l.id, 'approve')} disabled={busy === l.id} className="flex-1 py-3 rounded-md bg-emerald-600 text-white font-bold text-base disabled:opacity-50 hover:bg-emerald-700" style={{ boxShadow: 'var(--shadow-raised)' }}>Keep this rule</button>
                 <button onClick={() => decide(l.id, 'reject')} disabled={busy === l.id} className="flex-1 py-3 rounded-md border-2 border-red-300 text-red-600 font-semibold text-base disabled:opacity-50 hover:bg-red-50">Not useful</button>
               </div>
             </div>
@@ -118,7 +118,7 @@ export default function LearningView() {
 
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-semibold text-foreground">Playbook · live canon</h2>
+          <h2 style={{ fontFamily: 'var(--font-display, inherit)', fontWeight: 800, fontSize: 'var(--fs-h5, 17px)' }}>Playbook · live canon</h2>
           <span className="text-xs text-muted-foreground">GitHub · versioned · {playbook.length} active</span>
         </div>
         <div className="rounded-lg border border-border overflow-hidden">

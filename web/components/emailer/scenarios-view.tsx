@@ -36,7 +36,7 @@ export default function ScenariosView() {
   const paused = scenarios.filter((s) => !s.enabled);
 
   const card = (s: Scenario) => (
-    <div key={s.id} className={`rounded-lg border border-border bg-card p-4 border-l-4 ${s.enabled ? 'border-l-emerald-500' : 'border-l-muted-foreground/30'}`}>
+    <div key={s.id} className={`rounded-lg border border-border bg-card p-4 border-l-4 shadow-md ${s.enabled ? 'border-l-emerald-500' : 'border-l-muted-foreground/30'}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -44,7 +44,7 @@ export default function ScenariosView() {
               <span className={`w-1.5 h-1.5 rounded-full ${s.enabled ? 'bg-emerald-500' : 'bg-muted-foreground/50'}`} />
               {s.enabled ? 'Active' : 'Paused'}
             </span>
-            <span className="font-semibold text-foreground truncate">{s.name}</span>
+            <span className="truncate" style={{ fontFamily: 'var(--font-display, inherit)', fontWeight: 800 }}>{s.name}</span>
           </div>
           <div className="text-sm text-muted-foreground mt-1 flex items-center gap-1.5"><Mail className="h-3.5 w-3.5 shrink-0" /> {s.from_address} · {s.inbox}</div>
           {s.persona_rule && <div className="text-xs text-muted-foreground mt-1">{s.persona_rule}</div>}
@@ -75,22 +75,22 @@ export default function ScenariosView() {
       </div>
 
       <div className="grid grid-cols-2 gap-2.5">
-        <div className="rounded-lg bg-muted/50 px-3 py-2"><div className="text-xs text-muted-foreground">Active</div><div className="text-xl font-semibold text-foreground">{active.length}</div></div>
-        <div className="rounded-lg bg-muted/50 px-3 py-2"><div className="text-xs text-muted-foreground">Paused</div><div className="text-xl font-semibold text-foreground">{paused.length}</div></div>
+        <div className="rounded-lg bg-muted/50 px-3 py-2"><div className="text-xs text-muted-foreground">Active</div><div className="text-xl" style={{ fontFamily: 'var(--font-display, inherit)', fontWeight: 900 }}>{active.length}</div></div>
+        <div className="rounded-lg bg-muted/50 px-3 py-2"><div className="text-xs text-muted-foreground">Paused</div><div className="text-xl" style={{ fontFamily: 'var(--font-display, inherit)', fontWeight: 900 }}>{paused.length}</div></div>
       </div>
 
       {scenarios.length === 0 && <div className="rounded-lg border border-border p-6 text-center text-sm text-muted-foreground">No scenarios yet.</div>}
 
       {active.length > 0 && (
         <div className="space-y-3">
-          <h2 className="text-sm font-semibold text-foreground">Active</h2>
+          <h2 style={{ fontFamily: 'var(--font-display, inherit)', fontWeight: 800, fontSize: 'var(--fs-body-lg, 18px)' }}>Active</h2>
           {active.map(card)}
         </div>
       )}
 
       {paused.length > 0 && (
         <div className="space-y-3">
-          <h2 className="text-sm font-semibold text-foreground">Paused</h2>
+          <h2 style={{ fontFamily: 'var(--font-display, inherit)', fontWeight: 800, fontSize: 'var(--fs-body-lg, 18px)' }}>Paused</h2>
           {paused.map(card)}
         </div>
       )}

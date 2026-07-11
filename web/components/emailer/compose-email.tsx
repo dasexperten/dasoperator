@@ -143,7 +143,7 @@ export default function ComposeEmail() {
           <select
             value={from}
             onChange={(e) => setFrom(e.target.value)}
-            className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2"
           >
             {senderOptions.map((option) => (
               <option key={option.value} value={option.value}>
@@ -161,7 +161,7 @@ export default function ComposeEmail() {
             value={to}
             onChange={(e) => setTo(e.target.value)}
             placeholder="recipient@example.com"
-            className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2"
           />
         </div>
 
@@ -173,7 +173,7 @@ export default function ComposeEmail() {
             value={cc}
             onChange={(e) => setCc(e.target.value)}
             placeholder="cc@example.com"
-            className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2"
           />
         </div>
 
@@ -185,7 +185,7 @@ export default function ComposeEmail() {
             value={bcc}
             onChange={(e) => setBcc(e.target.value)}
             placeholder="bcc@example.com"
-            className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2"
           />
         </div>
 
@@ -197,7 +197,7 @@ export default function ComposeEmail() {
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
             placeholder="Email subject"
-            className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2"
           />
         </div>
 
@@ -209,22 +209,16 @@ export default function ComposeEmail() {
               <button
                 type="button"
                 onClick={() => setBodyFormat('plain')}
-                className={`px-3 py-1 text-sm rounded-md ${
-                  bodyFormat === 'plain'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
-                }`}
+                className="px-3 py-1 text-sm font-bold rounded-md"
+                style={bodyFormat === 'plain' ? { background: 'var(--brand-rot)', color: '#fff' } : undefined}
               >
                 Plain Text
               </button>
               <button
                 type="button"
                 onClick={() => setBodyFormat('html')}
-                className={`px-3 py-1 text-sm rounded-md ${
-                  bodyFormat === 'html'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
-                }`}
+                className="px-3 py-1 text-sm font-bold rounded-md"
+                style={bodyFormat === 'html' ? { background: 'var(--brand-rot)', color: '#fff' } : undefined}
               >
                 HTML
               </button>
@@ -239,7 +233,7 @@ export default function ComposeEmail() {
             onChange={(e) => setBody(e.target.value)}
             placeholder={bodyFormat === 'plain' ? 'Write your email...' : '<p>Write your email...</p>'}
             rows={12}
-            className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-y"
+            className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground font-mono text-sm focus:outline-none focus:ring-2 resize-y"
           />
         </div>
 
@@ -250,7 +244,7 @@ export default function ComposeEmail() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-1 text-sm text-primary hover:text-primary/80"
+              className="flex items-center gap-1 text-sm font-medium" style={{ color: 'var(--brand-rot)' }}
             >
               <Paperclip className="h-4 w-4" />
               Add file
@@ -309,7 +303,8 @@ export default function ComposeEmail() {
             type="button"
             onClick={() => handleSend(false)}
             disabled={sending || savingDraft}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-md hover:bg-primary/90 disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-md disabled:opacity-50"
+            style={{ background: 'var(--brand-rot)', color: '#fff', boxShadow: 'var(--shadow-raised)' }}
           >
             {sending ? (
               <Loader2 className="h-4 w-4 animate-spin" />

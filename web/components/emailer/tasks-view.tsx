@@ -90,14 +90,14 @@ export default function TasksView() {
         {metrics.map((m) => (
           <div key={m.label} className="rounded-md bg-muted/40 px-4 py-3">
             <div className="text-sm text-muted-foreground">{m.label}</div>
-            <div className={`text-2xl font-medium mt-1 ${m.accent}`}>{m.value}</div>
+            <div className={`text-2xl mt-1 ${m.accent}`} style={{ fontFamily: 'var(--font-display, inherit)', fontWeight: 900 }}>{m.value}</div>
           </div>
         ))}
       </div>
 
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-semibold text-foreground">Active scenarios</h2>
+          <h2 style={{ fontFamily: 'var(--font-display, inherit)', fontWeight: 800, fontSize: 'var(--fs-h5, 17px)' }}>Active scenarios</h2>
           <span className="text-xs text-muted-foreground">cron · every 3h @ :23 UTC · tap a row to expand</span>
         </div>
         <div className="space-y-2">
@@ -107,13 +107,13 @@ export default function TasksView() {
             const open = openId === s.id;
             const isBusy = busy === s.id;
             return (
-              <div key={s.id} className="rounded-lg border border-border bg-card overflow-hidden">
+              <div key={s.id} className="rounded-lg border border-border bg-card overflow-hidden shadow-md">
                 {/* header row */}
                 <button onClick={() => setOpenId(open ? null : s.id)} className="w-full text-left px-4 py-3 flex items-center gap-4">
                   <ChevronRight className={`h-4 w-4 text-muted-foreground shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold text-foreground truncate">{s.name}</span>
+                      <span className="truncate" style={{ fontFamily: 'var(--font-display, inherit)', fontWeight: 800 }}>{s.name}</span>
                       <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${s.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-muted text-muted-foreground'}`}>{s.enabled ? 'Live' : 'Paused'}</span>
                     </div>
                     <div className="text-xs text-muted-foreground mt-1 truncate">✉ {s.inbox} · 23 */3 * * *</div>
@@ -161,7 +161,7 @@ export default function TasksView() {
 
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-semibold text-foreground">Task queue</h2>
+          <h2 style={{ fontFamily: 'var(--font-display, inherit)', fontWeight: 800, fontSize: 'var(--fs-h5, 17px)' }}>Task queue</h2>
           <span className="text-xs text-muted-foreground">agent → draft → your OK → send via emailer-bridge</span>
         </div>
         <div className="rounded-lg border border-border overflow-hidden">

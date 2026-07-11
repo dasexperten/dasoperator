@@ -2714,6 +2714,8 @@ export interface MailboxIndexEntry {
   to?: string | string[];
   messageId?: string;
   threadId?: string;
+  origin?: 'human' | 'auto';
+  trigger?: string;
 }
 
 export interface MailboxMessageRecord {
@@ -2779,6 +2781,51 @@ export async function sendReply(input: {
   } catch {
     return { success: false, error: `HTTP ${res.status}` };
   }
+}
+
+// 3-4 line "what they want" digest for the dark message screen (?v=2).
+export async function getMailboxMessageSummaryV2(address: string, key: string) {
+  return apiGet<{ summary: string; cached: boolean }>(
+    `/api/email/mailboxes/${encodeURIComponent(address)}/summary?key=${encodeURIComponent(key)}&v=2`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Emailer Dark UI v3 — state layer (read/unread, attention, orders feed).
+// ---------------------------------------------------------------------------
+
+export async function markMailRead(keys: string[], mailbox: string) {
+  return apiPost<{ marked: number }>('/api/email/read', { keys, mailbox });
+}
+
+export async function getUnreadCount(group: 'human' | 'system') {
+  return apiGet<{ group: string; count: number }>(`/api/email/unread-count?group=${group}`);
+}
+
+export interface AttentionEntry {
+  correspondent: string;
+  subject: string;
+  sent_at: string;
+  hours_waiting: number;
+}
+
+export async function getAttention() {
+  return apiGet<{ count: number; waiting: AttentionEntry[] }>('/api/email/attention');
+}
+
+export interface OrderFeedItem {
+  key: string;
+  mailbox: string;
+  direction: 'sent' | 'received';
+  trigger: string;
+  subject: string;
+  timestamp: string;
+  correspondent: string;
+  status: 'new' | 'processed';
+}
+
+export async function getOrdersFeed(period: '24h' | '7d') {
+  return apiGet<{ period: string; count: number; items: OrderFeedItem[] }>(`/api/email/orders?period=${period}`);
 }
 
 export type EmailRuleAction = 'exclude' | 'attention' | 'keep' | 'delete' | 'forward' | 'archive';

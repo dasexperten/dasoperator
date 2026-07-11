@@ -157,25 +157,40 @@ function bodyText(record: any): string {
   return t.replace(/\s+/g, ' ').trim();
 }
 
+// v1 = 2-sentence preview (inbox list rows). v2 = 3-4 line "what they want"
+// digest for the dark message screen: gist, ask, deadline, deal temperature.
+const SUMMARY_PROMPTS: Record<1 | 2, string> = {
+  1: 'You summarize one email for a busy operator. Reply with exactly two short, factual sentences capturing what the sender wants or reports. No greeting, no preamble, no quotation marks.',
+  2: 'You summarize one email for a busy operator triaging their inbox. Reply with exactly 3-4 short lines, each a plain factual statement, covering in order: (1) the gist of the message, (2) what they are asking for or reporting, (3) any deadline or timing mentioned (or "No deadline mentioned" if none), (4) the deal temperature — hot/warm/cold/informational. No greeting, no preamble, no markdown, no quotation marks, one statement per line.',
+};
+
 route.get('/mailboxes/:address/summary', async (c) => {
   if (!(await requireSession(c))) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
 
   const address = normalizeAddress(c.req.param('address'));
   const key = c.req.query('key') || '';
   const expectedPrefix = `Inbox/${address}/`;
+  const version: 1 | 2 = c.req.query('v') === '2' ? 2 : 1;
   if (!address) return fail(c, 422, [{ code: 'bad_address', message: 'address is required' }]);
   if (!key || !key.startsWith(expectedPrefix)) {
     return fail(c, 422, [{ code: 'bad_key', message: `key must start with ${expectedPrefix}` }]);
   }
 
-  // Lazy cache table — self-healing, no migration round-trip needed.
+  // Lazy cache table — self-healing, no migration round-trip needed. The
+  // `version` column may already exist (migration 0062) or not yet in an
+  // environment that hasn't run migrations; ALTER failure there is fine,
+  // the SELECT below just won't filter by version until it does.
   try {
     await c.env.DB.prepare(
       `CREATE TABLE IF NOT EXISTS email_summaries (
         msg_key TEXT PRIMARY KEY, summary TEXT NOT NULL, model TEXT, created_at INTEGER NOT NULL)`
     ).run();
-    const cached = await c.env.DB.prepare('SELECT summary FROM email_summaries WHERE msg_key = ?')
-      .bind(key).first<{ summary: string }>();
+    try {
+      await c.env.DB.prepare('ALTER TABLE email_summaries ADD COLUMN version INTEGER NOT NULL DEFAULT 1').run();
+    } catch { /* column already exists */ }
+    const cached = await c.env.DB.prepare(
+      'SELECT summary FROM email_summaries WHERE msg_key = ? AND version = ?'
+    ).bind(key, version).first<{ summary: string }>();
     if (cached?.summary) return ok(c, { summary: cached.summary, cached: true });
   } catch {
     /* cache is best-effort — fall through and summarize */
@@ -200,12 +215,12 @@ route.get('/mailboxes/:address/summary', async (c) => {
   try {
     const r = await callFlash(
       [
-        { role: 'system', content: 'You summarize one email for a busy operator. Reply with exactly two short, factual sentences capturing what the sender wants or reports. No greeting, no preamble, no quotation marks.' },
+        { role: 'system', content: SUMMARY_PROMPTS[version] },
         { role: 'user', content: `Subject: ${subject}\n\n${text.slice(0, 6000)}` },
       ],
-      { env: c.env, maxTokens: 160, temperature: 0.2 }
+      { env: c.env, maxTokens: version === 2 ? 260 : 160, temperature: 0.2 }
     );
-    summary = (r.text || '').replace(/\s+/g, ' ').trim();
+    summary = (r.text || '').replace(/[ \t]+/g, ' ').trim();
   } catch {
     /* LLM unavailable — fall back to the raw opening below */
   }
@@ -213,8 +228,8 @@ route.get('/mailboxes/:address/summary', async (c) => {
 
   try {
     await c.env.DB.prepare(
-      'INSERT OR REPLACE INTO email_summaries (msg_key, summary, model, created_at) VALUES (?, ?, ?, ?)'
-    ).bind(key, summary, 'flash', Math.floor(Date.now() / 1000)).run();
+      'INSERT OR REPLACE INTO email_summaries (msg_key, summary, model, created_at, version) VALUES (?, ?, ?, ?, ?)'
+    ).bind(key, summary, 'flash', Math.floor(Date.now() / 1000), version).run();
   } catch {
     /* best-effort cache write */
   }

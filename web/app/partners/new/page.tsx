@@ -4,8 +4,8 @@ export const runtime = 'edge';
 
 
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, ChevronRight, Check } from 'lucide-react';
 import { createPartner, updatePartner } from '@/lib/api';
 import { COUNTRIES } from '@/lib/countries';
@@ -23,6 +23,7 @@ const inputStyle: React.CSSProperties = {
 
 export default function NewPartnerPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [step, setStep] = useState<1 | 2>(1);
   const [partnerSlug, setPartnerSlug] = useState<string>('');
@@ -35,6 +36,12 @@ export default function NewPartnerPage() {
   const [partnerLanguage, setPartnerLanguage] = useState<'EN' | 'RU' | 'EN-RU' | 'EN-AR' | 'EN-VI' | 'EN-ZH'>('EN');
   const [email, setEmail] = useState('');
   const [notes, setNotes] = useState('');
+
+  // Prefill from ?email= (e.g. "Create partner" from an emailer order/form card).
+  useEffect(() => {
+    const prefill = searchParams.get('email');
+    if (prefill) setEmail(prefill);
+  }, [searchParams]);
 
   // Step 2 state
   const [iban, setIban] = useState('');

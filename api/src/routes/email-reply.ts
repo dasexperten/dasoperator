@@ -148,6 +148,7 @@ route.post('/reply', async (c) => {
     text: d.text,
     messageId: resendJson.id,
     threadId: d.in_reply_to,
+    origin: 'human',
   });
 
   return c.json({ success: true, messageId: resendJson.id });

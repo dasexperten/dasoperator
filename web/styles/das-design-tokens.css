@@ -274,3 +274,77 @@ body {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
+
+/* ==========================================================================
+   EMAILER DARK v3 — scoped theme, module-local only.
+   Applies exclusively inside .emailer-dark; never touches :root or the rest
+   of Operator. Palette + acceptance from docs/design/emailer-dark-v3.md
+   (approved 2026-07-11).
+   ========================================================================== */
+.emailer-dark {
+  --ed-canvas:       #1A1519;  /* module canvas */
+  --ed-card:         #282229;  /* card surface */
+  --ed-body:         #221D22;  /* message body surface */
+  --ed-text:         #FBFAF6;  /* primary text */
+  --ed-text-2:       #C9C1B0;  /* secondary text (e.g. "Inbox" subtitle) */
+  --ed-meta:         #6E6558;  /* meta / timestamps */
+  --ed-gold:         #FEF004;  /* hero, primary action, active tab, orders */
+  --ed-gold-text:    #1A1519;  /* text on gold */
+  --ed-gold-text-2:  #4A4238;  /* secondary text on gold */
+  --ed-in:           #1D9E75;  /* inbound direction */
+  --ed-new-bg:       #04342C;  /* NEW badge background */
+  --ed-out:          #E5202C;  /* outbound direction / anomaly border */
+  --ed-system-bg:    #2C2C2A;  /* system card/tab surface */
+  --ed-system-text:  #888780;  /* system text, dim */
+  --ed-system-text-2:#B4B2A9;  /* system text, brighter */
+  --ed-border:       rgba(251, 250, 246, 0.08);
+  --ed-border-strong:rgba(251, 250, 246, 0.16);
+  --ed-radius:       10px;
+
+  background: var(--ed-canvas);
+  color: var(--ed-text);
+  font-family: var(--font-mono); /* Manrope — UI text */
+}
+
+.emailer-dark .ed-display {
+  font-family: var(--font-display); /* Archivo 900 (Eras Bold substitute) */
+  font-weight: 900;
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tr-tighter);
+  color: var(--ed-text);
+}
+
+.emailer-dark .ed-card {
+  background: var(--ed-card);
+  border: 1px solid var(--ed-border);
+  border-radius: var(--ed-radius);
+}
+
+.emailer-dark .ed-hero {
+  background: var(--ed-gold);
+  color: var(--ed-gold-text);
+  border-radius: var(--ed-radius);
+}
+
+.emailer-dark .ed-system {
+  background: var(--ed-system-bg);
+  color: var(--ed-system-text);
+  border-radius: var(--ed-radius);
+}
+
+.emailer-dark .ed-btn-primary {
+  background: var(--ed-gold);
+  color: var(--ed-gold-text);
+  font-weight: 700;
+  border-radius: var(--radius-md);
+}
+
+.emailer-dark .ed-tab-active {
+  box-shadow: inset 0 -2px 0 var(--ed-gold);
+  color: var(--ed-text);
+}
+
+.emailer-dark ::selection {
+  background: var(--ed-gold);
+  color: var(--ed-gold-text);
+}

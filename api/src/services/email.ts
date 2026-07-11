@@ -34,6 +34,11 @@ export interface SendEmailParams {
   replyTo?: string | undefined;
   cc?: string | string[] | undefined;
   bcc?: string | string[] | undefined;
+  // Names the automation that produced this send (e.g. "order-confirmation",
+  // "form-ack", "system-alert", "test") — everything through this module is
+  // origin=auto by construction (assertAllowedSender restricts it to
+  // @notify.dasexperten.com), so only the trigger label varies.
+  trigger?: string | undefined;
 }
 
 export type SendEmailResult =
@@ -144,6 +149,8 @@ export async function sendEmail(env: Env, params: SendEmailParams): Promise<Send
       text: params.text,
       html: params.html,
       messageId: result.messageId,
+      origin: 'auto',
+      trigger: params.trigger,
     });
 
     return { success: true, messageId: result.messageId };
@@ -172,6 +179,7 @@ export async function sendTestEmail(env: Env, to: string, from: string = SENDERS
     subject: 'Das Operator Email Sending Test',
     text: `This is a test email from Das Operator via Cloudflare Email Sending.\n\nSent from: ${from}`,
     html: `<h1>Das Operator Email Sending Test</h1><p>This is a test email from Das Operator via Cloudflare Email Sending.</p><p>Sent from: <strong>${from}</strong></p>`,
+    trigger: 'test',
   });
 }
 
@@ -210,6 +218,7 @@ export async function sendLeadNotification(env: Env, params: LeadNotificationPar
     subject: 'New Das Experten inquiry received',
     text: `New inquiry received.\n\n${textRows}\n\nMessage:\n${params.message}`,
     html: `<h2>New Das Experten inquiry received</h2><table>${htmlRows}</table><p><strong>Message:</strong></p><p>${params.message}</p>`,
+    trigger: 'lead',
   });
 }
 
@@ -240,6 +249,7 @@ export async function sendFormSubmissionNotification(
     subject: 'New Das Experten inquiry received',
     text: `Form submitted: ${params.formName}\n\n${textRows}`,
     html: `<h2>New Das Experten inquiry received</h2><p>Form: ${params.formName}</p><table>${htmlRows}</table>`,
+    trigger: 'form-ack',
   });
 }
 
@@ -262,6 +272,7 @@ export async function sendOrderNotification(env: Env, params: OrderNotificationP
     subject: 'Das Experten order update',
     text: `Order ${params.orderId}${statusLine}\n\n${params.message}`,
     html: `<h2>Das Experten order update</h2><p>Order <strong>${params.orderId}</strong>${statusLine}</p><p>${params.message}</p>`,
+    trigger: 'order-confirmation',
   });
 }
 
@@ -285,5 +296,6 @@ export async function sendSystemNotification(env: Env, params: SystemNotificatio
     subject: 'Das Operator system notification',
     text: `[${severity.toUpperCase()}] ${params.message}`,
     html: `<h2>Das Operator system notification</h2><p><strong>${severity.toUpperCase()}</strong></p><p>${params.message}</p>`,
+    trigger: 'system-alert',
   });
 }

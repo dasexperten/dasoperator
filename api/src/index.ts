@@ -14,6 +14,7 @@ import emailRoutes from './routes/email';
 import emailSendRoutes from './routes/email-send';
 import emailReplyRoutes from './routes/email-reply';
 import emailArchiveRoutes from './routes/email-archive';
+import emailStateRoutes from './routes/email-state';
 import emailTasksRoutes from './routes/email-tasks';
 import partnersRoutes from './routes/partners';
 import partnersParseCreate from './routes/partners-parse-create';
@@ -175,6 +176,7 @@ app.route('/api/email', emailRoutes);
 app.route('/api/email', emailSendRoutes);  // adds /test — Cloudflare Email Sending (notify.dasexperten.com)
 app.route('/api/email', emailReplyRoutes);  // adds /reply — human replies via Resend (send.dasexperten.ru)
 app.route('/api/email', emailArchiveRoutes);  // adds /mailboxes* — R2 Inbox archive read API
+app.route('/api/email', emailStateRoutes);  // adds /read, /unread-count, /attention, /orders — dark UI v3
 app.route('/api/email-tasks', emailTasksRoutes);
 app.route('/api/sequences', sequencesRoutes);
 app.route('/', attachmentsRoutes);

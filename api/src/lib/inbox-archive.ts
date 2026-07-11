@@ -32,6 +32,12 @@ const INDEX_WRITE_ATTEMPTS = 3;
 
 export type MailDirection = 'sent' | 'received';
 
+// origin classifies WHO the message is from in nature, not which mailbox it
+// touched — an automated order-confirmation can go out from any address, so
+// classification is per-message. trigger names the automation that produced
+// an 'auto' message (e.g. "order-confirmation", "form-ack"); null for human.
+export type MailOrigin = 'human' | 'auto';
+
 export interface ArchiveEmailInput {
   to?: string | string[] | undefined;
   from?: string | undefined;
@@ -42,6 +48,8 @@ export interface ArchiveEmailInput {
   html?: string | undefined;
   messageId?: string | undefined;
   threadId?: string | undefined;
+  origin?: MailOrigin | undefined;
+  trigger?: string | undefined;
 }
 
 export interface IndexEntry {
@@ -53,6 +61,8 @@ export interface IndexEntry {
   to?: string | string[] | undefined;
   messageId?: string | undefined;
   threadId?: string | undefined;
+  origin?: MailOrigin | undefined;
+  trigger?: string | undefined;
 }
 
 function normalizeAddress(address: string): string {
@@ -123,6 +133,8 @@ export async function archiveEmail(
       to: payload.to,
       messageId: payload.messageId,
       threadId: payload.threadId,
+      origin: payload.origin,
+      trigger: payload.trigger,
     });
   } catch (err) {
     console.log(JSON.stringify({

@@ -29,6 +29,18 @@ function headerList(value: string | undefined): string[] | undefined {
     .filter(Boolean);
 }
 
+// Inbound origin: a human counterparty writing in is 'human' by default.
+// 'auto' only for messages that self-identify as automated — bounces,
+// autoresponders, bulk mail — via standard headers (RFC 3834 / RFC 2919).
+function classifyInboundOrigin(message: ForwardableEmailMessage): 'human' | 'auto' {
+  const autoSubmitted = (message.headers.get('auto-submitted') || '').toLowerCase();
+  if (autoSubmitted && autoSubmitted !== 'no') return 'auto';
+  const precedence = (message.headers.get('precedence') || '').toLowerCase();
+  if (precedence === 'bulk' || precedence === 'junk' || precedence === 'auto_reply') return 'auto';
+  if (message.headers.get('x-autoreply') || message.headers.get('x-autorespond')) return 'auto';
+  return 'human';
+}
+
 // Read the raw MIME stream fully into a Uint8Array for the parser.
 async function readRaw(stream: ReadableStream<Uint8Array>, size: number): Promise<Uint8Array> {
   const buf = new Uint8Array(size);
@@ -74,6 +86,7 @@ export async function handleInboundEmail(
         parsed.inReplyTo ||
         headerList(message.headers.get('references') || undefined)?.[0] ||
         undefined,
+      origin: classifyInboundOrigin(message),
     });
   } catch (err) {
     // Never reject the message on a parse/archive failure — bouncing customer

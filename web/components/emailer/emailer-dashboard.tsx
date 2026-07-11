@@ -19,6 +19,7 @@ import {
   displayName,
   dotColor,
   correspondent,
+  emailAddr,
   originOf,
   groupByCorrespondent,
   withinPeriod,
@@ -135,7 +136,7 @@ export default function EmailerDashboard({
   // surface as anomalies at the top (delivery errors, bounces).
   const systemGroups = useMemo(() => {
     if (viewGroup !== 'system') return { anomalies: [] as MailEntry[], byTrigger: new Map<string, MailEntry[]>() };
-    const anomalyRe = /\b(fail|error|bounce|undeliverable|rejected)\b/i;
+    const anomalyRe = /(fail|error|bounce|undeliver|reject)/i;
     const anomalies: MailEntry[] = [];
     const byTrigger = new Map<string, MailEntry[]>();
     for (const e of filtered) {
@@ -164,10 +165,10 @@ export default function EmailerDashboard({
   }
 
   return (
-    <div className="emailer-dark rounded-[14px] p-5">
+    <div className="emailer-dark ed-screen rounded-[14px] p-5">
       {/* Toggle + search + refresh */}
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <div className="inline-flex rounded-lg p-0.5" style={{ background: 'var(--ed-card)' }}>
+      <div className="ed-toolbar mb-4">
+        <div className="ed-toggle inline-flex rounded-lg p-0.5" style={{ background: 'var(--ed-card)' }}>
           {(['people', 'system'] as const).map((v) => (
             <button
               key={v}
@@ -180,8 +181,8 @@ export default function EmailerDashboard({
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2">
-          <div className="relative">
+        <div className="ed-toolbar-right flex items-center gap-2 flex-1 justify-end">
+          <div className="ed-search relative">
             <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: 'var(--ed-meta)' }} />
             <input
               value={search}
@@ -191,7 +192,12 @@ export default function EmailerDashboard({
               style={{ background: 'var(--ed-card)', color: 'var(--ed-text)', border: '1px solid var(--ed-border)' }}
             />
           </div>
-          <button onClick={() => { loadAll(); loadSignals(); }} className="p-1.5 rounded-md" style={{ background: 'var(--ed-card)', color: 'var(--ed-text-2)' }}>
+          <button
+            onClick={() => { loadAll(); loadSignals(); }}
+            aria-label="Refresh"
+            className="ed-icon-btn p-2 rounded-md"
+            style={{ background: 'var(--ed-card)', color: 'var(--ed-text-2)' }}
+          >
             <RefreshCw className="h-4 w-4" />
           </button>
         </div>
@@ -199,7 +205,7 @@ export default function EmailerDashboard({
 
       {/* Header */}
       <div className="mb-4">
-        <div className="ed-display text-[34px] leading-none">
+        <div className="ed-display ed-h1 leading-none">
           {viewGroup === 'people' ? `${unreadHuman} unread` : `${filtered.length} system messages today`}
         </div>
         <div className="text-sm mt-1" style={{ color: 'var(--ed-text-2)' }}>
@@ -212,7 +218,7 @@ export default function EmailerDashboard({
       </div>
 
       {/* Period tabs */}
-      <div className="flex items-center gap-4 mb-5 text-sm">
+      <div className="ed-tabs mb-5 text-sm">
         {PERIODS.map((p) => (
           <button
             key={p.key}
@@ -233,9 +239,9 @@ export default function EmailerDashboard({
         </div>
       ) : viewGroup === 'people' ? (
         <>
-          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gridAutoRows: 'min-content' }}>
+          <div className="ed-grid">
             <AttentionCard waiting={attention} onOpen={(who) => {
-              const e = entries.find((x) => correspondent(x).toLowerCase() === who.toLowerCase());
+              const e = entries.find((x) => emailAddr(correspondent(x)) === emailAddr(who));
               if (e) onOpenMessage(e);
             }} />
 
@@ -279,7 +285,7 @@ export default function EmailerDashboard({
           </div>
 
           {moreCount > 0 && !showAll && (
-            <button onClick={() => setShowAll(true)} className="mt-3 text-sm font-semibold" style={{ color: 'var(--ed-gold)' }}>
+            <button onClick={() => setShowAll(true)} className="ed-action mt-3 text-sm font-semibold" style={{ color: 'var(--ed-gold)' }}>
               {moreCount} more →
             </button>
           )}
@@ -352,7 +358,7 @@ export default function EmailerDashboard({
       )}
 
       <div className="mt-6 pt-4" style={{ borderTop: '1px solid var(--ed-border)' }}>
-        <button onClick={onSwitchToList} className="text-sm font-semibold" style={{ color: 'var(--ed-text-2)' }}>
+        <button onClick={onSwitchToList} className="ed-action text-sm font-semibold" style={{ color: 'var(--ed-text-2)' }}>
           List view (legacy)
         </button>
       </div>

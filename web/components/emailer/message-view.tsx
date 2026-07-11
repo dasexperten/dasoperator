@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Loader2, AlertCircle, Reply, Send, X, CheckCircle2, Paperclip } from 'lucide-react';
+import { ArrowLeft, Loader2, AlertCircle, Reply, Send, X, CheckCircle2, Paperclip, History } from 'lucide-react';
 import {
   getMailboxMessage,
   getMailboxMessageSummaryV2,
@@ -21,7 +21,15 @@ const APEX_SENDERS = [
   'dr.badalyan@dasexperten.com',
 ];
 
-export default function MessageView({ entry, onBack }: { entry: MailEntry; onBack: () => void }) {
+export default function MessageView({
+  entry,
+  onBack,
+  onOpenCorrespondent,
+}: {
+  entry: MailEntry;
+  onBack: () => void;
+  onOpenCorrespondent?: (address: string) => void;
+}) {
   const [record, setRecord] = useState<MailboxMessageRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -133,11 +141,12 @@ export default function MessageView({ entry, onBack }: { entry: MailEntry; onBac
     }
   }
 
-  const who = record ? displayName(correspondent(record)) : displayName(correspondent(entry));
+  const counterparty = record ? correspondent(record) : correspondent(entry);
+  const who = displayName(counterparty);
 
   return (
-    <div className="emailer-dark rounded-[14px] p-5">
-      <button onClick={onBack} className="mb-4 flex items-center gap-1.5 text-sm" style={{ color: 'var(--ed-text-2)' }}>
+    <div className="emailer-dark ed-screen rounded-[14px] p-5">
+      <button onClick={onBack} className="ed-action mb-4 flex items-center gap-1.5 text-sm" style={{ color: 'var(--ed-text-2)' }}>
         <ArrowLeft className="h-4 w-4" /> Back
       </button>
 
@@ -151,12 +160,21 @@ export default function MessageView({ entry, onBack }: { entry: MailEntry; onBac
         <div className="space-y-5">
           <div>
             <div className="text-xs" style={{ color: 'var(--ed-meta)' }}>{entry.mailbox}</div>
-            <div className="ed-display text-[28px] leading-tight mt-1">{who}</div>
-            <div className="flex items-center gap-2 text-sm mt-1">
+            <div className="ed-display ed-h2 leading-tight mt-1 break-words">{who}</div>
+            <div className="flex items-center gap-2 text-sm mt-1 flex-wrap">
               <span style={{ color: record.direction === 'received' ? 'var(--ed-in)' : 'var(--ed-out)' }}>
                 {record.direction === 'received' ? 'Received' : 'Sent'}
               </span>
               <span style={{ color: 'var(--ed-meta)' }}>· {fmtDate(record.timestamp)}</span>
+              {onOpenCorrespondent && counterparty && (
+                <button
+                  onClick={() => onOpenCorrespondent(counterparty)}
+                  className="ed-action inline-flex items-center gap-1 text-xs font-semibold"
+                  style={{ color: 'var(--ed-gold)' }}
+                >
+                  <History className="h-3.5 w-3.5" /> History
+                </button>
+              )}
             </div>
             <div className="text-sm mt-2" style={{ color: 'var(--ed-text-2)' }}>{record.subject || '(no subject)'}</div>
             {thread.length > 1 && (
@@ -203,7 +221,7 @@ export default function MessageView({ entry, onBack }: { entry: MailEntry; onBac
             <div className="ed-card p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="text-xs font-bold" style={{ color: 'var(--ed-gold)' }}>REPLY</div>
-                <button onClick={() => setReplyOpen(false)} style={{ color: 'var(--ed-text-2)' }}><X className="h-4 w-4" /></button>
+                <button onClick={() => setReplyOpen(false)} aria-label="Close reply" className="ed-icon-btn p-1.5" style={{ color: 'var(--ed-text-2)' }}><X className="h-4 w-4" /></button>
               </div>
               <label className="block text-xs" style={{ color: 'var(--ed-text-2)' }}>
                 From
@@ -234,7 +252,7 @@ export default function MessageView({ entry, onBack }: { entry: MailEntry; onBac
                   {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   {sending ? 'Sending…' : 'Send reply'}
                 </button>
-                <button onClick={() => setReplyOpen(false)} className="text-sm px-3 py-2" style={{ color: 'var(--ed-text-2)' }}>Cancel</button>
+                <button onClick={() => setReplyOpen(false)} className="ed-action text-sm px-3 py-2" style={{ color: 'var(--ed-text-2)' }}>Cancel</button>
               </div>
             </div>
           ) : record.direction === 'received' ? (
@@ -250,7 +268,7 @@ export default function MessageView({ entry, onBack }: { entry: MailEntry; onBac
                 srcDoc={record.html}
                 sandbox=""
                 title={record.subject || 'email body'}
-                className="w-full min-h-[280px] rounded-md bg-white"
+                className="w-full min-h-[320px] h-[55vh] rounded-md bg-white"
               />
             ) : (
               <pre className="whitespace-pre-wrap text-sm font-sans" style={{ color: 'var(--ed-text)' }}>{record.text || '(empty body)'}</pre>

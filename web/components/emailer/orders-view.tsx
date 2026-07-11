@@ -66,17 +66,17 @@ export default function OrdersView({
   const confirmedCount = items.filter((i) => isOrderTrigger(i.trigger)).length;
 
   return (
-    <div className="emailer-dark rounded-[14px] p-5">
-      <button onClick={onBack} className="mb-4 flex items-center gap-1.5 text-sm" style={{ color: 'var(--ed-text-2)' }}>
+    <div className="emailer-dark ed-screen rounded-[14px] p-5">
+      <button onClick={onBack} className="ed-action mb-4 flex items-center gap-1.5 text-sm" style={{ color: 'var(--ed-text-2)' }}>
         <ArrowLeft className="h-4 w-4" /> Back
       </button>
 
       <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div>
-          <div className="ed-display text-[28px] leading-none">Orders {items.length}</div>
+          <div className="ed-display ed-h2 leading-none">Orders {items.length}</div>
           <div className="text-sm mt-1" style={{ color: 'var(--ed-gold)' }}>{confirmedCount} confirmed</div>
         </div>
-        <div className="inline-flex rounded-lg p-0.5" style={{ background: 'var(--ed-card)' }}>
+        <div className="ed-toggle inline-flex rounded-lg p-0.5" style={{ background: 'var(--ed-card)' }}>
           {(['24h', '7d'] as const).map((p) => (
             <button
               key={p}
@@ -90,7 +90,7 @@ export default function OrdersView({
         </div>
       </div>
 
-      <div className="flex items-center gap-4 mb-5 text-sm">
+      <div className="ed-tabs mb-5 text-sm">
         {([
           { key: 'all', label: 'All' },
           { key: 'orders', label: 'Orders' },
@@ -123,7 +123,7 @@ export default function OrdersView({
             return (
               <div
                 key={item.key}
-                className="ed-card p-4 flex flex-wrap items-center gap-3 justify-between"
+                className="ed-card p-4 ed-order-card"
                 style={{ borderLeft: `3px solid ${order ? 'var(--ed-gold)' : 'var(--ed-in)'}` }}
               >
                 <div className="min-w-0 flex-1">
@@ -140,17 +140,17 @@ export default function OrdersView({
                     {item.trigger.replace(/-/g, ' ')} · {fmtDate(item.timestamp)} · {item.status}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="ed-order-actions flex items-center gap-2 shrink-0">
                   <button
                     onClick={() => onOpenMessage(toMailEntry(item))}
-                    className="text-xs font-semibold px-2.5 py-1.5 rounded-md inline-flex items-center gap-1"
+                    className="ed-action text-xs font-semibold px-2.5 py-1.5 rounded-md inline-flex items-center gap-1"
                     style={{ background: 'var(--ed-body)', color: 'var(--ed-text-2)' }}
                   >
                     <Reply className="h-3 w-3" /> Reply
                   </button>
                   <Link
                     href={`/partners/new?email=${encodeURIComponent(item.correspondent)}`}
-                    className="text-xs font-semibold px-2.5 py-1.5 rounded-md inline-flex items-center gap-1"
+                    className="ed-action text-xs font-semibold px-2.5 py-1.5 rounded-md inline-flex items-center gap-1"
                     style={{ background: 'var(--ed-body)', color: 'var(--ed-text-2)' }}
                   >
                     <UserPlus className="h-3 w-3" /> Create partner

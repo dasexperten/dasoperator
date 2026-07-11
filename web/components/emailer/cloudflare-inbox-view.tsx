@@ -77,15 +77,29 @@ export default function CloudflareInboxView() {
   const [replyTo, setReplyTo] = useState('');
   const [replySubject, setReplySubject] = useState('');
   const [replyBody, setReplyBody] = useState('');
-  const [replyFrom, setReplyFrom] = useState('sales@my.dasexperten.com');
+  const [replyFrom, setReplyFrom] = useState('sales@dasexperten.com');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [sentOk, setSentOk] = useState(false);
+
+  // The six Resend-verified apex senders shown in the From selector.
+  const APEX_SENDERS = [
+    'sales@dasexperten.com',
+    'support@dasexperten.com',
+    'emea@dasexperten.com',
+    'eurasia@dasexperten.com',
+    'asean@dasexperten.com',
+    'dr.badalyan@dasexperten.com',
+  ];
 
   function openReply() {
     if (!record) return;
     const orig = Array.isArray(record.from) ? record.from[0] : record.from;
     setReplyTo(orig || '');
+    // Reply from the mailbox the message arrived at, when it is a verified
+    // apex sender (a mail to emea@ is answered by emea@, not sales@).
+    const arrivedAt = (record.address || '').toLowerCase();
+    if (APEX_SENDERS.includes(arrivedAt)) setReplyFrom(arrivedAt);
     const subj = record.subject || '';
     setReplySubject(subj.toLowerCase().startsWith('re:') ? subj : `Re: ${subj}`);
     setReplyBody('');
@@ -271,11 +285,12 @@ export default function CloudflareInboxView() {
                   <label className="block text-xs text-muted-foreground">
                     From
                     <select value={replyFrom} onChange={(e) => setReplyFrom(e.target.value)} className="mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-card">
-                      <option value="sales@my.dasexperten.com">sales@my.dasexperten.com</option>
-                      <option value="support@my.dasexperten.com">support@my.dasexperten.com</option>
-                      <option value="eurasia@my.dasexperten.com">eurasia@my.dasexperten.com</option>
-                      <option value="emea@my.dasexperten.com">emea@my.dasexperten.com</option>
-                      <option value="asean@my.dasexperten.com">asean@my.dasexperten.com</option>
+                      <option value="sales@dasexperten.com">sales@dasexperten.com</option>
+                      <option value="support@dasexperten.com">support@dasexperten.com</option>
+                      <option value="emea@dasexperten.com">emea@dasexperten.com</option>
+                      <option value="eurasia@dasexperten.com">eurasia@dasexperten.com</option>
+                      <option value="asean@dasexperten.com">asean@dasexperten.com</option>
+                      <option value="dr.badalyan@dasexperten.com">dr.badalyan@dasexperten.com</option>
                     </select>
                   </label>
                   <label className="block text-xs text-muted-foreground">
@@ -309,7 +324,7 @@ export default function CloudflareInboxView() {
                   </button>
                   <button onClick={() => setReplyOpen(false)} className="text-sm text-muted-foreground hover:text-foreground px-3 py-2">Cancel</button>
                 </div>
-                <p className="text-xs text-muted-foreground">Reply is sent through Resend from my.dasexperten.com. Inbound stays on Cloudflare.</p>
+                <p className="text-xs text-muted-foreground">Reply is sent through Resend from dasexperten.com (verified, no via banner). Inbound stays on Cloudflare.</p>
               </div>
             )}
 

@@ -3,16 +3,19 @@
 //
 // The Emailer UI reads inbound mail archived from Cloudflare Email Routing.
 // This endpoint is the *reply* path: it sends a real person-to-person email
-// via Resend (verified domain send.dasexperten.ru) and archives a copy as a
-// `sent` record next to the thread, so the conversation stays visible in the
-// same R2 archive the reader lists.
+// via Resend and archives a copy as a `sent` record next to the thread, so
+// the conversation stays visible in the same R2 archive the reader lists.
+//
+// v4 (2026-07-11): apex dasexperten.com is Resend-verified (DKIM aligned, no
+// "via" banner) — official human senders live there. my.dasexperten.com stays
+// the system-sender domain; send.dasexperten.ru kept for legacy .ru replies.
 //
 // Cloudflare handles inbound; Resend handles this one outbound hop. The
 // RESEND_API_KEY is a restricted (send-only) key stored as a Worker secret.
 //
 //   POST /api/email/reply
 //   Body: { to, subject, text, from?, cc?, in_reply_to? }
-//   from must end with @send.dasexperten.ru (Resend-verified) — enforced here.
+//   from must be a Resend-verified sender (apex / my. / legacy .ru) — enforced here.
 // =============================================================================
 
 import { Hono } from 'hono';
@@ -23,11 +26,23 @@ import { archiveEmail } from '../lib/inbox-archive';
 
 const route = new Hono<{ Bindings: Env }>();
 
-// Only Resend-verified senders. my.dasexperten.com is the verified sending
-// domain (mirrors the .com inbound addresses); send.dasexperten.ru kept as a
-// fallback for legacy .ru replies.
+// Only Resend-verified senders.
+// - Apex dasexperten.com (verified 2026-07-11): the six official human
+//   addresses — replies to counterparties go from these.
+// - my.dasexperten.com: system senders (Workers) — allowed for completeness.
+// - send.dasexperten.ru: legacy .ru fallback.
+const APEX_SENDERS = new Set([
+  'sales@dasexperten.com',
+  'support@dasexperten.com',
+  'emea@dasexperten.com',
+  'eurasia@dasexperten.com',
+  'asean@dasexperten.com',
+  'dr.badalyan@dasexperten.com',
+]);
 const ALLOWED_FROM = /@(my\.dasexperten\.com|(send\.)?dasexperten\.ru)$/i;
-const DEFAULT_FROM = 'sales@my.dasexperten.com';
+const isAllowedFrom = (addr: string): boolean =>
+  APEX_SENDERS.has(addr.toLowerCase()) || ALLOWED_FROM.test(addr);
+const DEFAULT_FROM = 'sales@dasexperten.com';
 
 const replySchema = z.object({
   to: z.string().email().or(z.array(z.string().email()).min(1)),
@@ -69,9 +84,13 @@ route.post('/reply', async (c) => {
   const d = parsed.data;
 
   const from = d.from ?? DEFAULT_FROM;
-  if (!ALLOWED_FROM.test(from)) {
+  if (!isAllowedFrom(from)) {
     return c.json(
-      { success: false, error: `from must be a @send.dasexperten.ru address (got ${from})` },
+      {
+        success: false,
+        error: `from is not a verified sender (got ${from})`,
+        allowed: [...APEX_SENDERS, '*@my.dasexperten.com', '*@send.dasexperten.ru'],
+      },
       422,
     );
   }

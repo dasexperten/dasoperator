@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Mail, Inbox as InboxIcon, RefreshCw, Loader2, AlertCircle, ArrowLeft, ArrowUpRight, ArrowDownLeft, Reply, Send, X, CheckCircle2 } from 'lucide-react';
+import { Inbox as InboxIcon, RefreshCw, Loader2, AlertCircle, ArrowLeft, ArrowUpRight, ArrowDownLeft, Reply, Send, X, CheckCircle2 } from 'lucide-react';
 import {
   getMailboxes,
   getMailboxMessages,
@@ -26,6 +26,28 @@ function fmtAddressList(v?: string | string[]): string {
   return Array.isArray(v) ? v.join(', ') : v;
 }
 
+// The correspondent = the CUSTOMER on a message: who we received it from, or
+// who we sent it to — never our own mailbox address.
+function correspondent(e: { direction: 'sent' | 'received'; from?: string; to?: string | string[] }): string {
+  const raw = e.direction === 'received' ? e.from : Array.isArray(e.to) ? e.to[0] : e.to;
+  return (raw || '').trim();
+}
+// Human name out of a "Name <email>" or bare "email" string.
+function displayName(addr: string): string {
+  if (!addr) return '—';
+  const named = addr.match(/^\s*"?([^"<]+?)"?\s*<[^>]+>\s*$/);
+  if (named && named[1]?.trim()) return named[1].trim();
+  const at = addr.indexOf('@');
+  return at > 0 ? addr.slice(0, at) : addr;
+}
+// Stable warm colour per correspondent, kept in the brand's earthy range.
+function dotColor(seed: string): string {
+  const palette = ['#B23A2E', '#8A6D3B', '#4A6B57', '#5A5566', '#7A5230', '#3F5E6B'];
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return palette[h % palette.length] as string;
+}
+
 // Internal Cloudflare mail client — reads the R2 Inbox/<mailbox>/... archive
 // written by api/src/lib/inbox-archive.ts. No connection to the Gmail/
 // EMAILER bridge (that's the separate "History" tab). Read-only: this is an
@@ -33,17 +55,17 @@ function fmtAddressList(v?: string | string[]): string {
 // (and, in future, received), not a place to compose or act on mail.
 export default function CloudflareInboxView() {
   const [mailboxes, setMailboxes] = useState<MailboxSummary[]>([]);
-  const [loadingMailboxes, setLoadingMailboxes] = useState(true);
-  const [mailboxError, setMailboxError] = useState<string | null>(null);
 
-  // Which mailbox group the list shows — switchable, one at a time.
+  // Which group the inbox shows — switchable, one at a time.
   const [listView, setListView] = useState<'personal' | 'system'>('personal');
 
-  const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
-  const [entries, setEntries] = useState<MailboxIndexEntry[]>([]);
-  const [loadingEntries, setLoadingEntries] = useState(false);
-  const [entriesError, setEntriesError] = useState<string | null>(null);
+  // Flat message feed across the active group's mailboxes (the real inbox).
+  type FeedEntry = MailboxIndexEntry & { mailbox: string };
+  const [feed, setFeed] = useState<FeedEntry[]>([]);
+  const [loadingFeed, setLoadingFeed] = useState(true);
+  const [feedError, setFeedError] = useState<string | null>(null);
 
+  const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
   const [selectedEntry, setSelectedEntry] = useState<MailboxIndexEntry | null>(null);
   const [record, setRecord] = useState<MailboxMessageRecord | null>(null);
   const [loadingRecord, setLoadingRecord] = useState(false);
@@ -100,46 +122,66 @@ export default function CloudflareInboxView() {
   }
 
   async function loadMailboxes() {
-    setLoadingMailboxes(true);
-    setMailboxError(null);
+    // Toggle counts are best-effort; the feed carries its own loading/error.
     try {
       const r = await getMailboxes();
       if (r.success && r.result) setMailboxes(r.result.mailboxes);
-      else setMailboxError(r.errors?.[0]?.message || 'Failed to load mailboxes');
+    } catch {
+      /* ignore — counts only */
+    }
+  }
+
+  // Build the flat inbox: pull each mailbox in the active group, merge their
+  // messages, newest first. isGroup splits human mailboxes (Personal) from the
+  // notify.* automated senders (System).
+  const isGroup = (addr: string, group: 'personal' | 'system') =>
+    group === 'system' ? addr.includes('@notify.') : !addr.includes('@notify.');
+
+  async function loadFeed(group: 'personal' | 'system') {
+    setLoadingFeed(true);
+    setFeedError(null);
+    try {
+      const mb = await getMailboxes();
+      if (!mb.success || !mb.result) {
+        setFeedError(mb.errors?.[0]?.message || 'Failed to load mail');
+        setFeed([]);
+        return;
+      }
+      const addrs = mb.result.mailboxes.map((m) => m.address).filter((a) => isGroup(a, group));
+      const lists = await Promise.all(
+        addrs.map(async (a) => {
+          try {
+            const r = await getMailboxMessages(a);
+            return r.success && r.result ? r.result.entries.map((e) => ({ ...e, mailbox: a })) : [];
+          } catch {
+            return [];
+          }
+        })
+      );
+      const merged = lists
+        .flat()
+        .sort((x, y) => (y.timestamp || '').localeCompare(x.timestamp || ''))
+        .slice(0, 80);
+      setFeed(merged);
     } catch (e) {
-      setMailboxError(e instanceof Error ? e.message : 'Error');
+      setFeedError(e instanceof Error ? e.message : 'Error');
+      setFeed([]);
     } finally {
-      setLoadingMailboxes(false);
+      setLoadingFeed(false);
     }
   }
 
   useEffect(() => { loadMailboxes(); }, []);
+  useEffect(() => { loadFeed(listView); }, [listView]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function selectMailbox(address: string) {
-    setSelectedAddress(address);
-    setSelectedEntry(null);
-    setRecord(null);
-    setLoadingEntries(true);
-    setEntriesError(null);
-    try {
-      const r = await getMailboxMessages(address);
-      if (r.success && r.result) setEntries(r.result.entries);
-      else setEntriesError(r.errors?.[0]?.message || 'Failed to load messages');
-    } catch (e) {
-      setEntriesError(e instanceof Error ? e.message : 'Error');
-    } finally {
-      setLoadingEntries(false);
-    }
-  }
-
-  async function selectEntry(entry: MailboxIndexEntry) {
-    if (!selectedAddress) return;
+  async function selectFeedEntry(entry: FeedEntry) {
+    setSelectedAddress(entry.mailbox);
     setSelectedEntry(entry);
     setRecord(null);
     setLoadingRecord(true);
     setRecordError(null);
     try {
-      const r = await getMailboxMessage(selectedAddress, entry.key);
+      const r = await getMailboxMessage(entry.mailbox, entry.key);
       if (r.success && r.result) setRecord(r.result.record);
       else setRecordError(r.errors?.[0]?.message || 'Failed to load message');
     } catch (e) {
@@ -149,15 +191,15 @@ export default function CloudflareInboxView() {
     }
   }
 
-  // Message detail — takes over the right pane when an entry is selected.
+  // Message detail — takes over the pane when a message is selected.
   if (selectedAddress && selectedEntry) {
     return (
       <div>
         <button
-          onClick={() => { setSelectedEntry(null); setRecord(null); }}
+          onClick={() => { setSelectedEntry(null); setSelectedAddress(null); setRecord(null); }}
           className="mb-4 flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
         >
-          <ArrowLeft className="h-4 w-4" /> Back to {selectedAddress}
+          <ArrowLeft className="h-4 w-4" /> Back to inbox
         </button>
 
         {loadingRecord ? (
@@ -279,203 +321,99 @@ export default function CloudflareInboxView() {
     );
   }
 
-  // Message list for a selected mailbox.
-  if (selectedAddress) {
+  // Group counts for the toggle — sum of archived messages per group.
+  const personalCount = mailboxes.filter((m) => !m.address.includes('@notify.')).reduce((s, m) => s + m.count, 0);
+  const systemCount = mailboxes.filter((m) => m.address.includes('@notify.')).reduce((s, m) => s + m.count, 0);
+
+  // One message row. The correspondent's FIRST letter lives inside the coloured
+  // dot; the rest of their name continues immediately after it. The subject
+  // rides alongside so the important info is visible without opening the mail.
+  const renderFeedRow = (e: FeedEntry) => {
+    const who = displayName(correspondent(e));
+    const first = (who[0] || '?').toUpperCase();
+    const rest = who.slice(1);
     return (
-      <div>
-        <button
-          onClick={() => { setSelectedAddress(null); setEntries([]); }}
-          className="mb-4 flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="h-4 w-4" /> All mailboxes
-        </button>
-
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-bold text-foreground">{selectedAddress}</h2>
-          <button onClick={() => selectMailbox(selectedAddress)} className="text-sm border border-border rounded-md px-3 py-1.5 inline-flex items-center gap-2 hover:bg-muted">
-            <RefreshCw className="h-4 w-4" /> Refresh
-          </button>
-        </div>
-
-        {loadingEntries ? (
-          <div className="p-8 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" /></div>
-        ) : entriesError ? (
-          <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
-            <AlertCircle className="h-5 w-5 text-red-600" /> <span className="text-red-800">{entriesError}</span>
-          </div>
-        ) : (
-          <div className="bg-card border border-border rounded-lg shadow-sm">
-            {entries.length === 0 ? (
-              <div className="p-8 text-center">
-                <Mail className="h-12 w-12 mx-auto text-muted-foreground" />
-                <p className="mt-2 text-sm text-muted-foreground">No mail archived for this mailbox yet</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-border">
-                {entries.map((e) => (
-                  <button
-                    key={e.key}
-                    onClick={() => selectEntry(e)}
-                    className="w-full text-left p-4 hover:bg-secondary/50 transition-colors flex items-start justify-between gap-4"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        {e.direction === 'sent' ? (
-                          <ArrowUpRight className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                        ) : (
-                          <ArrowDownLeft className="h-3.5 w-3.5 text-blue-600 shrink-0" />
-                        )}
-                        <h3 className="text-sm font-bold text-foreground truncate">{e.subject || '(no subject)'}</h3>
-                      </div>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {e.direction === 'sent' ? `To: ${fmtAddressList(e.to)}` : `From: ${e.from || '—'}`}
-                      </p>
-                    </div>
-                    <span className="text-xs text-muted-foreground whitespace-nowrap">{fmtDate(e.timestamp)}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // Mailbox list (default view). Split into Inbound (mail routed IN to
-  // Das Operator, e.g. sales@dasexperten.com) and System outbound (the
-  // notify.* addresses the ERP sends FROM). Split key: notify. = outbound.
-  const inboundMailboxes = mailboxes.filter((m) => !m.address.includes('@notify.'));
-  const outboundMailboxes = mailboxes.filter((m) => m.address.includes('@notify.'));
-
-  // Local part before @, used for the display name and avatar initial.
-  const localPart = (addr: string) => (addr.split('@')[0] || addr).trim();
-  const avatarInitial = (addr: string) => (localPart(addr)[0] || '?').toUpperCase();
-  // Deterministic warm avatar colour derived from the address, kept in the
-  // brand's earthy range so it never clashes with rot/gold.
-  const avatarColor = (addr: string) => {
-    const palette = ['#B23A2E', '#8A6D3B', '#4A6B57', '#5A5566', '#7A5230', '#3F5E6B'];
-    let h = 0;
-    for (let i = 0; i < addr.length; i++) h = (h * 31 + addr.charCodeAt(i)) >>> 0;
-    return palette[h % palette.length];
-  };
-
-  const renderMailboxRow = (m: MailboxSummary, inbound: boolean) => (
-    <button
-      key={m.address}
-      onClick={() => selectMailbox(m.address)}
-      className="w-full text-left px-4 py-3.5 flex items-center gap-3 border-b border-border last:border-b-0 hover:bg-secondary/40 transition-colors"
-      style={inbound && m.count > 0 ? { background: 'linear-gradient(90deg, var(--bg-danger, #FCEBEB) 0%, transparent 42%)' } : undefined}
-    >
-      <div
-        className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-white font-bold text-sm"
-        style={{ background: inbound ? 'var(--brand-rot, #E5202C)' : avatarColor(m.address), fontFamily: 'var(--font-display, inherit)' }}
+      <button
+        key={`${e.mailbox}:${e.key}`}
+        onClick={() => selectFeedEntry(e)}
+        className="w-full text-left px-4 py-3 flex items-center gap-2.5 border-b border-border last:border-b-0 hover:bg-secondary/40 transition-colors"
       >
-        {avatarInitial(m.address)}
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-bold text-foreground truncate">{m.address}</span>
-          <span
-            className="shrink-0 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded"
-            style={inbound
-              ? { background: 'var(--bg-danger, #FCEBEB)', color: 'var(--brand-rot, #E5202C)' }
-              : { background: 'var(--paper-sunk, #F3F0E8)', color: 'var(--fg-2, #6E6558)' }}
-          >
-            {inbound ? 'Inbound' : 'Sys'}
-          </span>
+        <div
+          className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-white font-bold text-sm"
+          style={{ background: dotColor(correspondent(e) || who), fontFamily: 'var(--font-display, inherit)' }}
+        >
+          {first}
         </div>
-        <div className="text-xs text-muted-foreground mt-0.5">
-          {localPart(m.address)} · {m.count} {m.count === 1 ? 'message' : 'messages'}
-        </div>
-      </div>
-
-      <div className="text-right shrink-0 flex items-center gap-3">
-        <div>
-          <div
-            className="text-sm font-bold tabular-nums"
-            style={{ color: inbound ? 'var(--brand-rot, #E5202C)' : 'var(--fg-2, #6E6558)', fontFamily: 'var(--font-mono, inherit)' }}
-          >
-            {m.count}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-1.5 min-w-0">
+            <span className="text-sm font-bold text-foreground truncate shrink-0 max-w-[48%]">{rest || who}</span>
+            <span className="text-sm text-muted-foreground truncate">{e.subject || '(no subject)'}</span>
           </div>
-          <div className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">{fmtDate(m.last_activity)}</div>
+          <div className="text-xs text-muted-foreground truncate mt-0.5">
+            {e.direction === 'received' ? `to ${e.mailbox}` : `from ${e.mailbox}`}
+          </div>
         </div>
-        {inbound && m.count > 0 && (
-          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: 'var(--brand-rot, #E5202C)' }} />
-        )}
-      </div>
-    </button>
-  );
+        <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">{fmtDate(e.timestamp)}</span>
+      </button>
+    );
+  };
 
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold text-foreground">Mailboxes</h2>
+          <h2 className="text-lg font-bold text-foreground">Inbox</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Cloudflare email archive — inbound mail routed to Das Operator and outbound system mail, read-only
+            Cloudflare email archive — Personal (mail to sales@/support@/…) and System (notify.dasexperten.com), read-only
           </p>
         </div>
-        <button onClick={loadMailboxes} className="text-sm border border-border rounded-md px-3 py-1.5 inline-flex items-center gap-2 hover:bg-muted">
+        <button onClick={() => { loadMailboxes(); loadFeed(listView); }} className="text-sm border border-border rounded-md px-3 py-1.5 inline-flex items-center gap-2 hover:bg-muted">
           <RefreshCw className="h-4 w-4" /> Refresh
         </button>
       </div>
 
-      {loadingMailboxes ? (
-        <div className="p-8 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" /></div>
-      ) : mailboxError ? (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
-          <AlertCircle className="h-5 w-5 text-red-600" /> <span className="text-red-800">{mailboxError}</span>
+      <div className="space-y-4">
+        {/* Switchable Personal / System toggle */}
+        <div className="inline-flex rounded-lg border border-border bg-secondary/40 p-0.5">
+          {(['personal', 'system'] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setListView(v)}
+              className={`px-4 py-1.5 text-sm font-bold rounded-md transition-colors ${
+                listView === v ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {v === 'personal' ? 'Personal' : 'System'}
+              <span className="ml-2 text-xs font-normal tabular-nums text-muted-foreground">
+                {v === 'personal' ? personalCount : systemCount}
+              </span>
+            </button>
+          ))}
         </div>
-      ) : mailboxes.length === 0 ? (
-        <div className="bg-card border border-border rounded-lg shadow-sm p-8 text-center">
-          <InboxIcon className="h-12 w-12 mx-auto text-muted-foreground" />
-          <p className="mt-2 text-sm text-muted-foreground">No archived mailboxes yet</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {/* Switchable Personal / System toggle */}
-          <div className="inline-flex rounded-lg border border-border bg-secondary/40 p-0.5">
-            {(['personal', 'system'] as const).map((v) => (
-              <button
-                key={v}
-                onClick={() => setListView(v)}
-                className={`px-4 py-1.5 text-sm font-bold rounded-md transition-colors ${
-                  listView === v ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {v === 'personal' ? 'Personal' : 'System'}
-                <span className="ml-2 text-xs font-normal tabular-nums text-muted-foreground">
-                  {v === 'personal' ? inboundMailboxes.length : outboundMailboxes.length}
-                </span>
-              </button>
-            ))}
-          </div>
 
-          <div className="bg-card border border-border rounded-lg shadow-sm">
-            {listView === 'personal' ? (
-              inboundMailboxes.length === 0 ? (
-                <div className="p-6 text-center text-sm text-muted-foreground">
-                  No personal mail yet — messages sent to sales@, support@, eurasia@, emea@ or asean@dasexperten.com will appear here.
-                </div>
-              ) : (
-                <div className="divide-y divide-border">
-                  {inboundMailboxes.map((m) => renderMailboxRow(m, true))}
-                </div>
-              )
-            ) : outboundMailboxes.length === 0 ? (
-              <div className="p-6 text-center text-sm text-muted-foreground">
-                No system mail yet — outbound notify.dasexperten.com messages will appear here.
-              </div>
-            ) : (
-              <div className="divide-y divide-border">
-                {outboundMailboxes.map((m) => renderMailboxRow(m, false))}
-              </div>
-            )}
-          </div>
+        <div className="bg-card border border-border rounded-lg shadow-sm">
+          {loadingFeed ? (
+            <div className="p-8 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" /></div>
+          ) : feedError ? (
+            <div className="p-4 flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-red-600" /> <span className="text-red-800 text-sm">{feedError}</span>
+            </div>
+          ) : feed.length === 0 ? (
+            <div className="p-8 text-center">
+              <InboxIcon className="h-12 w-12 mx-auto text-muted-foreground" />
+              <p className="mt-2 text-sm text-muted-foreground">
+                {listView === 'personal'
+                  ? 'No personal mail yet — messages to sales@, support@, eurasia@, emea@ or asean@dasexperten.com will appear here.'
+                  : 'No system mail yet — outbound notify.dasexperten.com messages will appear here.'}
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {feed.map(renderFeedRow)}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

@@ -23,10 +23,23 @@ const cfg = zones as unknown as ZonesConfig;
 const baseBySku = (basePrices as { prices: Record<string, string> }).prices;
 
 const DEFAULT_ORIGIN = 'https://www.dasexperten.com';
-const STORE_ORIGINS = [DEFAULT_ORIGIN, 'https://dasexperten.com'];
+
+// Every current/future *.dasexperten.com storefront host (www, apex, and the
+// per-locale vanity subdomains like ru./de.dasexperten.com) shares this CORS
+// rule — a fixed 2-entry allowlist silently broke geo-price on every one of
+// those subdomains (browser blocks the response, storefront falls back to
+// the baked placeholder price instead of the visitor's real zonal price).
+function isStoreOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+    return u.protocol === 'https:' && (u.hostname === 'dasexperten.com' || u.hostname.endsWith('.dasexperten.com'));
+  } catch {
+    return false;
+  }
+}
 
 function corsFor(origin: string | undefined): Record<string, string> {
-  const allow = origin && STORE_ORIGINS.includes(origin) ? origin : DEFAULT_ORIGIN;
+  const allow = origin && isStoreOrigin(origin) ? origin : DEFAULT_ORIGIN;
   return {
     'Access-Control-Allow-Origin': allow,
     'Access-Control-Allow-Methods': 'GET, OPTIONS',

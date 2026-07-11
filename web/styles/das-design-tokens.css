@@ -276,251 +276,423 @@ body {
 }
 
 /* ==========================================================================
-   EMAILER DARK v3 — scoped theme, module-local only.
-   Applies exclusively inside .emailer-dark; never touches :root or the rest
-   of Operator. Palette + acceptance from docs/design/emailer-dark-v3.md
-   (approved 2026-07-11).
+   DASOPERATOR MAIL (.dxmail) — owner-provided mockups implemented verbatim:
+   docs/design/references/dasoperator-inbox-mpstats.jsx  (desktop, 3-pane)
+   docs/design/references/dasoperator-mail-swipe.jsx     (mobile, swipe rows)
+   All selectors are scoped under .dxmail; palette comes from the mockups
+   (green #17BF50 on light panel), NOT from the ERP brand tokens — this is
+   the approved look for the mail module only.
    ========================================================================== */
-.emailer-dark {
-  --ed-canvas:       #1A1519;  /* module canvas */
-  --ed-card:         #282229;  /* card surface */
-  --ed-body:         #221D22;  /* message body surface */
-  --ed-text:         #FBFAF6;  /* primary text */
-  --ed-text-2:       #C9C1B0;  /* secondary text (e.g. "Inbox" subtitle) */
-  --ed-meta:         #6E6558;  /* meta / timestamps */
-  --ed-gold:         #FEF004;  /* hero, primary action, active tab, orders */
-  --ed-gold-text:    #1A1519;  /* text on gold */
-  --ed-gold-text-2:  #4A4238;  /* secondary text on gold */
-  --ed-in:           #1D9E75;  /* inbound direction */
-  --ed-new-bg:       #04342C;  /* NEW badge background */
-  --ed-out:          #E5202C;  /* outbound direction / anomaly border */
-  --ed-system-bg:    #2C2C2A;  /* system card/tab surface */
-  --ed-system-text:  #888780;  /* system text, dim */
-  --ed-system-text-2:#B4B2A9;  /* system text, brighter */
-  --ed-border:       rgba(251, 250, 246, 0.08);
-  --ed-border-strong:rgba(251, 250, 246, 0.16);
-  --ed-radius:       10px;
-
-  background: var(--ed-canvas);
-  color: var(--ed-text);
-  font-family: var(--font-mono); /* Manrope — UI text */
+.dxmail {
+  --green: #17BF50;
+  --green-dark: #109A3F;
+  --green-soft: #EAF9F0;
+  --navy: #0E1F2E;
+  --slate: #5B6B7A;
+  --muted: #93A1AE;
+  --line: #E7ECF0;
+  --panel: #F5F7F9;
+  --white: #FFFFFF;
+  height: 100%;
 }
+.dxmail * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
 
-.emailer-dark .ed-display {
-  font-family: var(--font-display); /* Archivo 900 (Eras Bold substitute) */
-  font-weight: 900;
-  line-height: var(--lh-tight);
-  letter-spacing: var(--tr-tighter);
-  color: var(--ed-text);
-}
-
-.emailer-dark .ed-card {
-  background: var(--ed-card);
-  border: 1px solid var(--ed-border);
-  border-radius: var(--ed-radius);
-}
-
-.emailer-dark .ed-hero {
-  background: var(--ed-gold);
-  color: var(--ed-gold-text);
-  border-radius: var(--ed-radius);
-}
-
-.emailer-dark .ed-system {
-  background: var(--ed-system-bg);
-  color: var(--ed-system-text);
-  border-radius: var(--ed-radius);
-}
-
-.emailer-dark .ed-btn-primary {
-  background: var(--ed-gold);
-  color: var(--ed-gold-text);
-  font-weight: 700;
-  border-radius: var(--radius-md);
-}
-
-.emailer-dark .ed-tab-active {
-  box-shadow: inset 0 -2px 0 var(--ed-gold);
-  color: var(--ed-text);
-}
-
-.emailer-dark ::selection {
-  background: var(--ed-gold);
-  color: var(--ed-gold-text);
-}
-
-/* --------------------------------------------------------------------------
-   Emailer Dark UI v3 — responsive + interaction layer.
-   Desktop keeps the card grid; ≤767px goes full-bleed (matches the 16px
-   main-frame padding in globals.css) with 44px touch targets; ≤480px locks
-   the masonry to two columns like the approved mobile mockup.
-   ========================================================================== */
-.emailer-dark button,
-.emailer-dark a,
-.emailer-dark input,
-.emailer-dark select,
-.emailer-dark textarea {
-  touch-action: manipulation;
-}
-
-.emailer-dark :focus-visible {
-  outline: 2px solid var(--ed-gold);
-  outline-offset: 2px;
-}
-
-/* Fluid display sizes — 34px/28px on desktop, shrink gracefully on phones. */
-.emailer-dark .ed-h1 { font-size: clamp(26px, 7vw, 34px); }
-.emailer-dark .ed-h2 { font-size: clamp(22px, 6vw, 28px); }
-
-.emailer-dark .ed-grid {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  grid-auto-rows: min-content;
-}
-
-/* Transparent border keeps hover border-brighten from shifting layout. */
-.emailer-dark .ed-system { border: 1px solid transparent; }
-
-.emailer-dark .ed-card,
-.emailer-dark .ed-hero,
-.emailer-dark .ed-system {
-  transition: transform 120ms ease, border-color 120ms ease;
-}
-@media (hover: hover) {
-  .emailer-dark button.ed-card:hover,
-  .emailer-dark button.ed-system:hover {
-    border-color: var(--ed-border-strong);
-    transform: translateY(-1px);
-  }
-  .emailer-dark button.ed-hero:not(:disabled):hover { transform: translateY(-1px); }
-}
-.emailer-dark button.ed-card:active,
-.emailer-dark button.ed-hero:not(:disabled):active,
-.emailer-dark button.ed-system:active { transform: translateY(0); }
-
-/* Horizontal tab/filter rows: scroll instead of wrapping into a mess. */
-.emailer-dark .ed-tabs {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-.emailer-dark .ed-tabs::-webkit-scrollbar { display: none; }
-.emailer-dark .ed-tabs > button { flex: 0 0 auto; white-space: nowrap; }
-
-.emailer-dark .ed-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-/* Mailbox filter chips (CRM correspondent screen). */
-.emailer-dark .ed-chip {
-  border: 1px solid var(--ed-border);
-  border-radius: 999px;
-  padding: 5px 12px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--ed-text-2);
-  background: var(--ed-card);
-  white-space: nowrap;
-}
-.emailer-dark .ed-chip[data-active="true"] {
-  background: var(--ed-gold);
-  color: var(--ed-gold-text);
-  border-color: var(--ed-gold);
-}
-
-/* Metrics strip (CRM correspondent screen): 4-up desktop, 2×2 on phones.
-   A dedicated class — inline grid styles get collapsed to one column by the
-   global mobile rules in globals.css. */
-.emailer-dark .ed-metrics {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-}
-
+/* Page frame: cancel the app's content padding, own the viewport slice
+   between the ERP header and (on phones) the ERP bottom nav. */
+.dxmail-page { margin: -32px; height: calc(100dvh - 96px); }
 @media (max-width: 767px) {
-  .emailer-dark .ed-metrics {
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-  }
-
-  /* globals.css converts .flex.gap-N.items-center rows into a 2-column grid
-     (a filter-row affordance for the light pages). Inside the emailer module
-     these combos are genuine flex rows — timeline entries, toolbars, card
-     action rows — so restore flex behaviour, higher specificity wins. */
-  .emailer-dark .flex.gap-2.items-center,
-  .emailer-dark .flex.gap-3.items-center,
-  .emailer-dark .flex.gap-4.items-center {
-    display: flex !important;
-    align-items: center;
-  }
-  .emailer-dark .flex.gap-2.items-center { gap: 8px !important; }
-  .emailer-dark .flex.gap-3.items-center { gap: 12px !important; }
-  .emailer-dark .flex.gap-4.items-center { gap: 16px !important; }
-
-  /* globals.css also wraps every .flex.justify-between; on the flex-col
-     dashboard cards that wrap pushes overflowing text into a phantom second
-     column outside the card — keep module rows/cards single-track. */
-  .emailer-dark .flex.justify-between { flex-wrap: nowrap; }
+  .dxmail-page { margin: -16px -16px -80px; height: calc(100dvh - 56px - 64px); }
 }
 
-/* Cards never leak content past their own rounded box. */
-.emailer-dark .ed-card,
-.emailer-dark .ed-hero,
-.emailer-dark .ed-system {
+.dxmail .dxmail-spin { animation: dxmail-rot 0.9s linear infinite; }
+@keyframes dxmail-rot { to { transform: rotate(360deg); } }
+
+/* ---------------- shared bits (both layouts) ---------------- */
+.dxmail .ava {
+  width: 38px; height: 38px; border-radius: 11px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800; color: white;
+  flex-shrink: 0;
+}
+.dxmail .pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; font-weight: 800;
+  padding: 2px 8px; border-radius: 999px;
+}
+.dxmail .pill-dot { width: 5px; height: 5px; border-radius: 999px; }
+.dxmail .prio {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 10px; font-weight: 800; color: #E5484D;
+  background: #FFEEEE; padding: 2px 7px; border-radius: 999px;
+}
+.dxmail .starb { background: none; border: none; cursor: pointer; margin-left: auto; padding: 1px; color: #CBD5DC; }
+.dxmail .starb.on { color: #FFB020; }
+.dxmail .empty { text-align: center; padding: 48px 20px; color: var(--muted); font-weight: 700; font-size: 13px; }
+.dxmail .abtn { background: none; border: none; padding: 10px; border-radius: 999px; cursor: pointer; color: var(--slate); display: flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
+.dxmail .abtn:active { background: var(--panel); }
+
+/* ---------------- DESKTOP (dasoperator-inbox-mpstats) ---------------- */
+.dxmail .shell {
+  font-family: 'Manrope', sans-serif;
+  background: var(--panel);
+  color: var(--navy);
+  height: 100%; width: 100%;
+  display: flex; flex-direction: column;
   overflow: hidden;
 }
+.dxmail .topbar {
+  background: var(--white);
+  border-bottom: 1px solid var(--line);
+  padding: 10px 20px;
+  display: flex; align-items: center; gap: 14px;
+  flex-shrink: 0;
+}
+.dxmail .brand-name { font-size: 17px; font-weight: 800; letter-spacing: -0.3px; }
+.dxmail .brand-tag {
+  background: var(--green-soft); color: var(--green-dark);
+  font-size: 10.5px; font-weight: 800; letter-spacing: 0.6px;
+  padding: 3px 9px; border-radius: 999px; text-transform: uppercase;
+}
+.dxmail .stats-strip { margin-left: auto; display: flex; gap: 10px; }
+.dxmail .stat-chip {
+  display: flex; align-items: center; gap: 7px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 12px;
+  font-size: 12px; font-weight: 700; color: var(--slate);
+}
+.dxmail .stat-num { font-size: 14px; font-weight: 800; color: var(--navy); }
 
-/* Orders/forms feed card: row on desktop, stacked on phones so the subject
-   keeps full width and the actions drop underneath. */
-.emailer-dark .ed-order-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+.dxmail .mainrow { flex: 1; display: flex; overflow: hidden; }
+
+.dxmail .sidebar {
+  width: 216px; flex-shrink: 0;
+  background: var(--white);
+  border-right: 1px solid var(--line);
+  display: flex; flex-direction: column;
+  padding: 16px 12px;
 }
-@media (max-width: 767px) {
-  .emailer-dark .ed-order-card {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .emailer-dark .ed-order-actions { justify-content: flex-start; }
+.dxmail .compose {
+  background: var(--green);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  padding: 12px;
+  font-family: 'Manrope', sans-serif;
+  font-weight: 800; font-size: 14px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  cursor: pointer;
+  box-shadow: 0 6px 14px -6px rgba(23,191,80,0.55);
+  transition: background 0.15s ease, transform 0.1s ease;
+  margin-bottom: 18px;
+}
+.dxmail .compose:hover { background: var(--green-dark); }
+.dxmail .compose:active { transform: scale(0.97); }
+
+.dxmail .folder {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-weight: 700; font-size: 13.5px;
+  color: var(--slate);
+  cursor: pointer;
+  transition: all 0.12s ease;
+  margin-bottom: 2px;
+}
+.dxmail .folder:hover { background: var(--panel); color: var(--navy); }
+.dxmail .folder.active { background: var(--green-soft); color: var(--green-dark); }
+.dxmail .fcount {
+  margin-left: auto;
+  background: var(--green); color: white;
+  font-size: 10.5px; font-weight: 800;
+  padding: 1px 7px; border-radius: 999px;
+}
+.dxmail .sidebar-note {
+  margin-top: auto;
+  background: linear-gradient(135deg, #EAF9F0, #E8F4FF);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
+  font-size: 11.5px; font-weight: 700; color: var(--slate); line-height: 1.45;
+}
+.dxmail .sidebar-note b { color: var(--green-dark); }
+
+.dxmail .list {
+  width: 372px; flex-shrink: 0;
+  background: var(--white);
+  border-right: 1px solid var(--line);
+  display: flex; flex-direction: column;
+}
+.dxmail .search-wrap { padding: 14px 14px 10px 14px; border-bottom: 1px solid var(--line); }
+.dxmail .search {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 12px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.dxmail .search:focus-within { border-color: var(--green); box-shadow: 0 0 0 3px rgba(23,191,80,0.12); }
+.dxmail .search input {
+  border: none; outline: none; background: transparent;
+  font-family: 'Manrope', sans-serif; font-size: 13px; font-weight: 600;
+  width: 100%; color: var(--navy);
+}
+.dxmail .search input::placeholder { color: var(--muted); }
+
+.dxmail .rows { overflow-y: auto; flex: 1; }
+.dxmail .row {
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  display: flex; gap: 11px;
+  transition: background 0.1s ease;
+  position: relative;
+}
+.dxmail .row:hover { background: #FAFCFB; }
+.dxmail .row.selected { background: var(--green-soft); }
+.dxmail .row.selected::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+  width: 3px; background: var(--green);
+}
+.dxmail .rmain { flex: 1; min-width: 0; }
+.dxmail .rtop { display: flex; justify-content: space-between; gap: 6px; align-items: baseline; }
+.dxmail .rfrom { font-weight: 800; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dxmail .rfrom.read { font-weight: 700; color: var(--slate); }
+.dxmail .rtime { font-size: 11px; font-weight: 700; color: var(--muted); flex-shrink: 0; }
+.dxmail .rsub { font-size: 12.5px; font-weight: 700; margin-top: 2px; color: var(--navy); }
+.dxmail .rsub.read { font-weight: 600; color: var(--slate); }
+.dxmail .rprev { font-size: 11.5px; color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.dxmail .rtags { display: flex; align-items: center; gap: 7px; margin-top: 7px; }
+.dxmail .unread-dot {
+  width: 7px; height: 7px; border-radius: 999px; background: var(--green);
+  flex-shrink: 0; margin-top: 15px;
 }
 
-@media (max-width: 767px) {
-  /* Full-bleed dark canvas: cancel the 16px main-frame padding. */
-  .emailer-dark.ed-screen {
-    margin-left: -16px;
-    margin-right: -16px;
-    border-radius: 0;
-    padding: 16px 14px 24px;
-  }
-  /* WCAG 2.5.5 — 44px tap targets on everything actionable. */
-  .emailer-dark .ed-tabs > button,
-  .emailer-dark .ed-toggle > button,
-  .emailer-dark .ed-btn-primary,
-  .emailer-dark .ed-icon-btn,
-  .emailer-dark .ed-action,
-  .emailer-dark .ed-chip {
-    min-height: 44px;
-  }
-  .emailer-dark .ed-chip { display: inline-flex; align-items: center; }
-  /* Search row drops under the People/System toggle and stretches. */
-  .emailer-dark .ed-toolbar-right { flex: 1 1 100%; }
-  .emailer-dark .ed-search { flex: 1 1 160px; min-width: 0; }
-  .emailer-dark .ed-search input { width: 100%; min-height: 44px; }
+.dxmail .detail { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--panel); }
+.dxmail .dcard {
+  margin: 16px; flex: 1;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 2px 8px -4px rgba(14,31,46,0.08);
+}
+.dxmail .dhead {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 14px;
+}
+.dxmail .back-btn {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 9px; padding: 6px; cursor: pointer; color: var(--slate);
+}
+.dxmail .dsub { font-size: 17px; font-weight: 800; letter-spacing: -0.2px; line-height: 1.25; }
+.dxmail .dmeta { font-size: 12px; font-weight: 700; color: var(--muted); margin-top: 3px; }
+.dxmail .dactions { margin-left: auto; display: flex; gap: 7px; flex-shrink: 0; }
+.dxmail .ibtn {
+  background: var(--white); border: 1px solid var(--line);
+  border-radius: 9px; padding: 7px; cursor: pointer; color: var(--slate);
+  transition: all 0.12s ease;
+}
+.dxmail .ibtn:hover { border-color: var(--green); color: var(--green-dark); background: var(--green-soft); }
+
+.dxmail .dbody { flex: 1; overflow-y: auto; padding: 22px; font-size: 14px; font-weight: 600; line-height: 1.75; color: #2C3E4C; white-space: pre-wrap; }
+.dxmail .attach {
+  display: inline-flex; align-items: center; gap: 7px;
+  margin-top: 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 12px; font-weight: 700; color: var(--slate);
+}
+.dxmail .replybar {
+  margin: 0 16px 16px 16px;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 8px 8px 8px 16px;
+  display: flex; align-items: center; gap: 10px;
+  box-shadow: 0 2px 8px -4px rgba(14,31,46,0.08);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.dxmail .replybar:focus-within { border-color: var(--green); box-shadow: 0 0 0 3px rgba(23,191,80,0.12); }
+.dxmail .replybar input {
+  flex: 1; border: none; outline: none; background: transparent;
+  font-family: 'Manrope', sans-serif; font-size: 13.5px; font-weight: 600; color: var(--navy);
+  min-width: 0;
+}
+.dxmail .replybar input::placeholder { color: var(--muted); }
+.dxmail .sendb {
+  background: var(--green); color: white;
+  border: none; border-radius: 10px;
+  padding: 10px 18px;
+  font-family: 'Manrope', sans-serif; font-weight: 800; font-size: 13px;
+  display: flex; align-items: center; gap: 7px;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+.dxmail .sendb:hover { background: var(--green-dark); }
+.dxmail .sendb:active { transform: scale(0.96); }
+
+.dxmail .nosel {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 12px;
+}
+.dxmail .nosel-t { font-size: 16px; font-weight: 800; }
+.dxmail .nosel-s { font-size: 13px; font-weight: 600; color: var(--muted); max-width: 240px; text-align: center; }
+
+/* ---------------- MOBILE (dasoperator-mail-swipe) ---------------- */
+.dxmail .phone {
+  font-family: 'Manrope', sans-serif; background: var(--panel); color: var(--navy);
+  height: 100%; width: 100%; max-width: 480px; margin: 0 auto;
+  display: flex; flex-direction: column; overflow: hidden; position: relative;
+}
+.dxmail .appbar { background: var(--white); border-bottom: 1px solid var(--line); padding: 12px 14px; display: flex; align-items: center; gap: 11px; flex-shrink: 0; min-height: 60px; }
+.dxmail .title { font-size: 17px; font-weight: 800; letter-spacing: -0.2px; }
+.dxmail .sub { font-size: 11px; font-weight: 700; color: var(--muted); margin-top: 1px; }
+.dxmail .searchbar { flex: 1; display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 10px 14px; }
+.dxmail .searchbar input { border: none; outline: none; background: transparent; font-family: 'Manrope', sans-serif; font-size: 14px; font-weight: 600; width: 100%; color: var(--navy); }
+.dxmail .searchbar input::placeholder { color: var(--muted); }
+.dxmail .stats { display: flex; gap: 8px; padding: 10px 14px; overflow-x: auto; flex-shrink: 0; background: var(--white); border-bottom: 1px solid var(--line); scrollbar-width: none; }
+.dxmail .stats::-webkit-scrollbar { display: none; }
+.dxmail .chip { display: flex; align-items: center; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; font-size: 11.5px; font-weight: 700; color: var(--slate); white-space: nowrap; flex-shrink: 0; }
+.dxmail .chip b { color: var(--navy); font-size: 13px; }
+.dxmail .hint { padding: 8px 14px; font-size: 11px; font-weight: 700; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+
+.dxmail .mrows { overflow-y: auto; flex: 1; padding-bottom: 150px; }
+
+/* ---- Swipe machinery ---- */
+.dxmail .sw-outer {
+  position: relative; overflow: hidden;
+  max-height: 200px;
+  transition: max-height 0.2s ease 0.18s, opacity 0.2s ease 0.18s;
+}
+.dxmail .sw-outer.leaving { max-height: 0; opacity: 0; }
+.dxmail .sw-bg {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 22px;
+  transition: opacity 0.05s linear;
+}
+.dxmail .sw-bg-icon {
+  display: flex; align-items: center; gap: 8px;
+  color: white; font-size: 12.5px; font-weight: 800;
+  transition: transform 0.08s ease;
+}
+.dxmail .mb-row {
+  background: var(--white); padding: 14px; border-bottom: 1px solid var(--line);
+  display: flex; gap: 12px; cursor: pointer; position: relative; min-height: 72px;
+  touch-action: pan-y; /* we handle horizontal, browser handles vertical */
+  will-change: transform;
+}
+.dxmail .mb-row.animating { transition: transform 0.18s ease; }
+
+.dxmail .phone .ava { width: 44px; height: 44px; border-radius: 13px; font-size: 13px; }
+.dxmail .mb-rmain { flex: 1; min-width: 0; }
+.dxmail .mb-rtop { display: flex; justify-content: space-between; gap: 6px; align-items: baseline; }
+.dxmail .mb-rfrom { font-weight: 800; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dxmail .mb-rfrom.read { font-weight: 700; color: var(--slate); }
+.dxmail .mb-rtime { font-size: 11px; font-weight: 700; color: var(--muted); flex-shrink: 0; }
+.dxmail .mb-rsub { font-size: 13px; font-weight: 700; margin-top: 2px; }
+.dxmail .mb-rsub.read { font-weight: 600; color: var(--slate); }
+.dxmail .mb-rprev { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.dxmail .mb-rtags { display: flex; align-items: center; gap: 7px; margin-top: 8px; flex-wrap: wrap; }
+.dxmail .mb-unread-bar { position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--green); }
+.dxmail .phone .pill { font-size: 10px; padding: 3px 9px; }
+.dxmail .phone .prio { padding: 3px 8px; }
+.dxmail .clip { display: flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 700; color: var(--muted); }
+.dxmail .phone .starb { padding: 8px; margin: -8px -4px -8px auto; min-width: 40px; min-height: 40px; display: flex; align-items: center; justify-content: center; }
+.dxmail .phone .empty { padding: 60px 24px; font-size: 14px; }
+
+.dxmail .fab { position: absolute; right: 16px; bottom: 86px; background: var(--green); color: white; border: none; border-radius: 18px; padding: 16px 20px; font-family: 'Manrope', sans-serif; font-weight: 800; font-size: 14.5px; display: flex; align-items: center; gap: 9px; cursor: pointer; box-shadow: 0 8px 20px -4px rgba(23,191,80,0.5); z-index: 20; }
+.dxmail .fab:active { transform: scale(0.94); background: var(--green-dark); }
+
+.dxmail .mnav { position: absolute; left: 0; right: 0; bottom: 0; background: var(--white); border-top: 1px solid var(--line); display: flex; padding: 6px 4px 10px 4px; z-index: 20; }
+.dxmail .navitem { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; background: none; border: none; cursor: pointer; padding: 6px 0; color: var(--muted); font-family: 'Manrope', sans-serif; font-size: 10.5px; font-weight: 700; }
+.dxmail .iconwrap { padding: 5px 16px; border-radius: 999px; position: relative; }
+.dxmail .navitem.active { color: var(--green-dark); }
+.dxmail .navitem.active .iconwrap { background: var(--green-soft); }
+.dxmail .navbadge { position: absolute; top: -1px; right: 8px; background: var(--green); color: white; font-size: 9px; font-weight: 800; min-width: 16px; height: 16px; border-radius: 999px; display: flex; align-items: center; justify-content: center; padding: 0 4px; border: 2px solid var(--white); }
+
+/* Mobile detail overlay */
+.dxmail .mdetail { position: absolute; inset: 0; background: var(--panel); display: flex; flex-direction: column; z-index: 30; animation: dxmail-slideIn 0.22s ease; }
+@keyframes dxmail-slideIn { from { transform: translateX(24px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+.dxmail .dwrap { flex: 1; overflow-y: auto; padding: 14px; }
+.dxmail .mdcard { background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 18px 16px; box-shadow: 0 2px 8px -4px rgba(14,31,46,0.08); }
+.dxmail .mdcard .dsub { font-size: 17px; font-weight: 800; line-height: 1.3; letter-spacing: 0; }
+.dxmail .dfrom { display: flex; align-items: center; gap: 11px; margin-top: 14px; }
+.dxmail .dname { font-size: 13.5px; font-weight: 800; }
+.dxmail .dorg { font-size: 11.5px; font-weight: 700; color: var(--muted); margin-top: 1px; }
+.dxmail .dtext { font-size: 14.5px; font-weight: 600; line-height: 1.75; color: #2C3E4C; margin-top: 16px; white-space: pre-wrap; }
+.dxmail .actions { display: flex; gap: 8px; margin-top: 14px; }
+.dxmail .action { flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px; background: var(--white); border: 1px solid var(--line); border-radius: 12px; padding: 12px; font-family: 'Manrope', sans-serif; font-size: 12.5px; font-weight: 800; color: var(--slate); cursor: pointer; min-height: 46px; }
+.dxmail .action:active { background: var(--green-soft); border-color: var(--green); color: var(--green-dark); }
+.dxmail .mreplybar { flex-shrink: 0; margin: 0 14px 14px 14px; background: var(--white); border: 1px solid var(--line); border-radius: 999px; padding: 6px 6px 6px 16px; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 14px -6px rgba(14,31,46,0.15); }
+.dxmail .mreplybar input { flex: 1; border: none; outline: none; font-family: 'Manrope', sans-serif; font-size: 14px; font-weight: 600; color: var(--navy); min-width: 0; background: transparent; }
+.dxmail .msendb { background: var(--green); color: white; border: none; border-radius: 999px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
+.dxmail .msendb:active { transform: scale(0.92); background: var(--green-dark); }
+
+/* ---------------- Snackbar (undo) ---------------- */
+.dxmail .snackbar {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: 24px; width: min(440px, calc(100vw - 28px));
+  background: var(--navy); color: white;
+  border-radius: 14px; padding: 13px 16px;
+  display: flex; align-items: center; gap: 10px;
+  font-family: 'Manrope', sans-serif; font-size: 13px; font-weight: 700;
+  box-shadow: 0 8px 24px -6px rgba(14,31,46,0.4);
+  z-index: 60;
+  animation: dxmail-snackIn 0.2s ease;
+}
+@media (max-width: 767px) { .dxmail .snackbar { bottom: 152px; } }
+@keyframes dxmail-snackIn { from { transform: translate(-50%, 12px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+.dxmail .undo-btn {
+  margin-left: auto; background: none; border: none;
+  color: #4ADE80; font-family: 'Manrope', sans-serif;
+  font-size: 13px; font-weight: 800; cursor: pointer;
+  display: flex; align-items: center; gap: 5px;
+  padding: 6px 8px; min-height: 40px;
 }
 
-@media (max-width: 480px) {
-  .emailer-dark .ed-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-  }
+/* ---------------- Compose modal (Написать письмо / FAB) ---------------- */
+.dxmail .cmodal-backdrop {
+  position: fixed; inset: 0; background: rgba(14,31,46,0.4);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 70; padding: 16px;
 }
+.dxmail .cmodal {
+  background: var(--white); border: 1px solid var(--line); border-radius: 16px;
+  width: min(560px, 100%); max-height: 90dvh; overflow-y: auto;
+  padding: 18px 16px;
+  font-family: 'Manrope', sans-serif; color: var(--navy);
+  box-shadow: 0 18px 48px -18px rgba(14,31,46,0.35);
+}
+.dxmail .cmodal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.dxmail .cmodal-title { font-size: 16px; font-weight: 800; }
+.dxmail .cmodal-label { display: block; font-size: 11.5px; font-weight: 700; color: var(--slate); margin-bottom: 10px; }
+.dxmail .cmodal-label input,
+.dxmail .cmodal-label select,
+.dxmail .cmodal-label textarea {
+  display: block; width: 100%; margin-top: 4px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px;
+  font-family: 'Manrope', sans-serif; font-size: 13.5px; font-weight: 600; color: var(--navy);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.dxmail .cmodal-label input:focus,
+.dxmail .cmodal-label select:focus,
+.dxmail .cmodal-label textarea:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(23,191,80,0.12); }
+.dxmail .cmodal-err { display: flex; align-items: center; gap: 6px; color: #E5484D; font-size: 12.5px; font-weight: 700; margin-bottom: 10px; }
+.dxmail .cmodal-actions { display: flex; align-items: center; gap: 10px; }
+.dxmail .cmodal-cancel { background: none; border: none; color: var(--slate); font-family: 'Manrope', sans-serif; font-size: 13px; font-weight: 700; cursor: pointer; padding: 10px 12px; }
+
+@media (prefers-reduced-motion: reduce) { .dxmail * { transition: none !important; animation: none !important; } }
+
+/* The mail screen brings its own FAB + bottom folder nav; the global
+   Das-Kompanion launcher lands exactly on top of them — hide it here only. */
+body:has(.dxmail) button[title="Das-Kompanion"] { display: none !important; }

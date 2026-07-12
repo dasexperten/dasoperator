@@ -43,7 +43,10 @@ type AiVisibilityData = {
   queries: GroundingQuery[];
 };
 
-// Demo payload — numbers from Wix SEO&GEO panel snapshot 2026-07-10.
+// Demo payload — INVENTED placeholder values with NO verified source. The earlier
+// comment claimed a "Wix SEO&GEO panel snapshot 2026-07-10", but no such snapshot is
+// recorded anywhere and Wix has no API for these metrics — treat every number below
+// (authority score, linking sites, backlinks, citations) as fictional until replaced.
 // Swap for fetch(`${API_BASE}/api/ai-visibility`) when feeds are wired.
 const DATA: AiVisibilityData = {
   demo: true,

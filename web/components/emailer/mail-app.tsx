@@ -428,6 +428,16 @@ function useMailBody(item: MailItem | null) {
   return { body, loading };
 }
 
+// Long subjects shrink instead of wrapping into 3-4 lines (owner's acceptance
+// condition): size tier by length, CSS caps the block at two lines + ellipsis.
+function subjSizeClass(subject: string): string {
+  const n = subject.length;
+  if (n > 140) return 'sz4';
+  if (n > 90) return 'sz3';
+  if (n > 50) return 'sz2';
+  return '';
+}
+
 function replyFromFor(item: MailItem): string {
   const mb = item.mailbox.toLowerCase();
   return APEX_SENDERS.includes(mb) ? mb : 'sales@dasexperten.com';
@@ -710,7 +720,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                   <button className="back-btn" onClick={() => setSelectedId(null)} aria-label="Закрыть письмо"><ChevronLeft size={16} /></button>
                   <div className="ava" style={{ background: selected.color, width: 44, height: 44, fontSize: 14 }}>{selected.initial}</div>
                   <div style={{ minWidth: 0 }}>
-                    <div className="dsub">{selected.subject}</div>
+                    <div className={`dsub ${subjSizeClass(selected.subject)}`}>{selected.subject}</div>
                     <div className="dmeta">{selected.from} · {selected.org} · {selected.time}</div>
                   </div>
                   <div className="dactions">
@@ -1092,7 +1102,7 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
 
           <div className="dwrap">
             <div className="mdcard">
-              <div className="dsub">{opened.subject}</div>
+              <div className={`dsub ${subjSizeClass(opened.subject)}`}>{opened.subject}</div>
               <div className="dfrom">
                 <div className="ava" style={{ width: 42, height: 42, background: opened.color, fontSize: 13 }}>{opened.initial}</div>
                 <div style={{ minWidth: 0, flex: 1 }}>

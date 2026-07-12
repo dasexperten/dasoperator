@@ -7,7 +7,7 @@ Category: erp
 
 `app/emailer/page.tsx` (добавлен в 65e6293, 2026-07-08) с самого начала рендерил **только** `CloudflareInboxView`. При этом в том же коммите были добавлены ещё пять компонентов — `tasks-view.tsx`, `scenarios-view.tsx`, `learning-view.tsx`, `email-history.tsx`, `compose-email.tsx` — и их бэкенд (`/api/email-tasks/*` и т.д.), которые нигде не импортировались. `BACKLOGS/self-learning-emailer.md` (09.07) описывает их как «LIVE on prod» с полноценным self-learning движком (Nemotron анализирует → Opus 4.8 пишет черновик в стиле Арама, approve-цикл, сценарии-автоматизация) — но эта вкладочная навигация в `page.tsx` никогда не коммитилась. Пять готовых фич были мертвым кодом с 08.07.
 
-Заодно поймал ту же дыру `erp.dasexperten.de` (мёртв, NXDOMAIN) в CORS allowlist `dasoperator-api` — уже фиксил её в предыдущем коммите этой же сессии (`17b96b4`), сюда попало через тот же PR.
+Заодно поймал ту же дыру `erp.dasexperten.com` (мёртв, NXDOMAIN) в CORS allowlist `dasoperator-api` — уже фиксил её в предыдущем коммите этой же сессии (`17b96b4`), сюда попало через тот же PR.
 
 ## Исправлено
 

@@ -55,7 +55,7 @@ const DATA: AiVisibilityData = {
     backlinks: 412,
     topSources: [
       { domain: 'uni-heidelberg.de', refs: 5 },
-      { domain: 'dasexperten.de', refs: 5 },
+      { domain: 'dasexperten.com', refs: 5 },
       { domain: 'dasexperten.com', refs: 4 },
       { domain: 'das-experten.com', refs: 4 },
     ],

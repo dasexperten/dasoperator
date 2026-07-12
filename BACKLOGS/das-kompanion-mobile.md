@@ -2,7 +2,7 @@
 Category: erp
 
 ## Session Summary
-Long session covering MiMo model config, Ozon marketing strategy, Das-Kompanion chatbot development, and comprehensive mobile responsiveness for ERP + dasexperten.de.
+Long session covering MiMo model config, Ozon marketing strategy, Das-Kompanion chatbot development, and comprehensive mobile responsiveness for ERP + dasexperten.com.
 
 ## Topics Covered
 
@@ -63,7 +63,7 @@ Long session covering MiMo model config, Ozon marketing strategy, Das-Kompanion 
   - Pagination: larger buttons
 - **Status**: ✅ Done
 
-### 6. dasexperten.de Mobile Responsiveness (v2)
+### 6. dasexperten.com Mobile Responsiveness (v2)
 - **Added 18 new CSS rules** to styles.css:
   - Hero: better mobile layout, stacked CTAs
   - Product grid: horizontal cards on mobile
@@ -84,7 +84,7 @@ Long session covering MiMo model config, Ozon marketing strategy, Das-Kompanion 
 4. `3c59505` — feat: ERP mobile enhancements v2
 
 ### das-architektura repo
-1. `96662fd` — feat: dasexperten.de mobile enhancements v2
+1. `96662fd` — feat: dasexperten.com mobile enhancements v2
 
 ## Pending Issues
 
@@ -97,7 +97,7 @@ Long session covering MiMo model config, Ozon marketing strategy, Das-Kompanion 
 
 ### Medium
 - [ ] **Ozon marketing**: Implement one of the presented ideas (bundles recommended)
-- [ ] **dasexperten.de deploy**: CSS changes in CoWork repo, need to deploy to Cloudflare Pages
+- [ ] **dasexperten.com deploy**: CSS changes in CoWork repo, need to deploy to Cloudflare Pages
 
 ### Low
 - [ ] **MiMo fallback script**: Currently only monitors, doesn't auto-switch back when free quota resets
@@ -115,7 +115,7 @@ Long session covering MiMo model config, Ozon marketing strategy, Das-Kompanion 
 - `web/app/globals.css` — Added 32 mobile CSS rules
 - `web/app/login/page.tsx` — Added dx-keep-grid class
 
-### dasexperten.de (CoWork)
+### dasexperten.com (CoWork)
 - `PROJECTS/dasexperten-de-website/public/styles.css` — Added 18 mobile CSS rules
 
 ### CoWork (local)
@@ -135,6 +135,6 @@ Long session covering MiMo model config, Ozon marketing strategy, Das-Kompanion 
 ## Next Session Priorities
 
 1. Fix Das-Kompanion LLM provider (MiMo or Anthropic)
-2. Deploy dasexperten.de CSS changes
+2. Deploy dasexperten.com CSS changes
 3. Implement one Ozon marketing idea (bundles)
 4. Test mobile responsiveness on real devices

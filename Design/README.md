@@ -27,7 +27,7 @@ Provided by the user:
 
 Public references consulted:
 
-- `https://www.dasexperten.de/` and `/about-us`, `/worldwide`
+- `https://www.dasexperten.com/` and `/about-us`, `/worldwide`
 - `https://www.dasexperten.com/` (official store)
 - `https://dasexperten.biz/` (distributor copy, tone samples)
 - `https://www.instagram.com/dasexperten/`

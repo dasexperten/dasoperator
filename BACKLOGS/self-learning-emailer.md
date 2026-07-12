@@ -22,7 +22,7 @@ A system gets better by digesting Aram's own history, **not** by retraining weig
 
 ---
 
-## What was built (LIVE on prod `erp.dasexperten.de`)
+## What was built (LIVE on prod `erp.dasexperten.com`)
 
 1. **`/emailer` rebuilt** — tabs **Tasks · Inbox · Scenarios · Learning · History** (Compose removed). Scenarios as horizontal **accordion** rows (Hermes/Cloudflare badges, accuracy curve). Big-bold Das Experten buttons.
 2. **D1 schema (migration 0054)** — `email_scenarios`, `email_agent_tasks`, `email_lessons`, `email_playbook`, `email_settings`. **0055** — `email_canon` (hot cache).
@@ -89,7 +89,7 @@ A system gets better by digesting Aram's own history, **not** by retraining weig
 
 ## Live verification (as of session end)
 
-- Prod `erp.dasexperten.de/emailer` 200 · all `/api/email-tasks/*` 200 · `emailer-bridge` ok.
+- Prod `erp.dasexperten.com/emailer` 200 · all `/api/email-tasks/*` 200 · `emailer-bridge` ok.
 - Canon `self-learning/emails/canon/DISTILL_FULL.md` 200, mirrored to D1.
 - Reply engine returns drafts with `applied_rules: 5` (approved rules honored).
 - Audit (Worker code / local / GitHub / Hermes / R2): no stale `das-operator-data` / `emails-archive` / `email-canon` paths except intentional migration source.

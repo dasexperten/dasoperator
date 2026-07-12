@@ -313,6 +313,24 @@ async function syncOzonSales(env: FboEnv, lookup: ClusterLookup): Promise<{ rows
 // Pure aggregation halves, shared by the live fetch path and ingestWb()
 // (bring-your-own-payload relay for when WB throttles Cloudflare egress).
 
+// WB's stocks-report regionName -> our cluster vocabulary. Derived from the
+// existing fbo_cluster_map assignments (Екатеринбург/Челябинск/Астана are
+// Восточный, Казань/Самара are Волга, Минск is Центральный). Used as a
+// fallback when a warehouse name is not in fbo_cluster_map — the new
+// endpoint spells many names differently than the old supplier/stocks did.
+const WB_REGION_TO_CLUSTER: Record<string, string> = {
+  'Центральный': 'Центральный',
+  'Южный и Северо-Кавказский': 'Южный',
+  'Северо-Западный': 'Северо-Западный',
+  'Приволжский': 'Волга',
+  'Уральский': 'Восточный',
+  'Дальневосточный и Сибирский': 'Восточный',
+  'Казахстан': 'Восточный',
+  'Беларусь': 'Центральный',
+  'Армения': 'Южный',
+  'Узбекистан': 'Восточный',
+};
+
 function aggregateWbStocks(rows: any[], lookup: ClusterLookup): {
   agg: Map<string, number>; unknown: Set<string>;
 } {
@@ -322,7 +340,11 @@ function aggregateWbStocks(rows: any[], lookup: ClusterLookup): {
     const sku = normSku(row.supplierArticle);
     if (!sku) continue;
     const wh = row.warehouseName || '';
-    const cluster = resolveCluster(wh, lookup.map, lookup.normIdx, lookup.prefixIdx);
+    let cluster = resolveCluster(wh, lookup.map, lookup.normIdx, lookup.prefixIdx);
+    if (cluster === 'UNKNOWN') {
+      const byRegion = WB_REGION_TO_CLUSTER[String(row.regionName || '')];
+      if (byRegion) cluster = byRegion;
+    }
     if (cluster === 'UNKNOWN') unknown.add(wh);
     bump(agg, sku, cluster, row.quantity || 0);
   }

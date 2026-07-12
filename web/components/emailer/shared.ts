@@ -40,6 +40,14 @@ export function correspondent(e: { direction: 'sent' | 'received'; from?: string
   return (raw || '').trim();
 }
 
+// Bare lowercase address out of either `Name <a@b>` or `a@b` — the archive
+// stores both forms for the same counterparty, so every grouping/matching
+// must go through this.
+export function emailAddr(raw: string): string {
+  const m = raw.match(/<([^>]+)>/);
+  return (m?.[1] ?? raw).trim().toLowerCase();
+}
+
 export function displayName(addr: string): string {
   if (!addr) return '—';
   const named = addr.match(/^\s*"?([^"<]+?)"?\s*<[^>]+>\s*$/);
@@ -80,7 +88,7 @@ export interface CorrespondentGroup {
 export function groupByCorrespondent(entries: MailEntry[]): CorrespondentGroup[] {
   const byAddr = new Map<string, MailEntry[]>();
   for (const e of entries) {
-    const addr = correspondent(e).toLowerCase();
+    const addr = emailAddr(correspondent(e));
     if (!addr) continue;
     if (!byAddr.has(addr)) byAddr.set(addr, []);
     byAddr.get(addr)!.push(e);

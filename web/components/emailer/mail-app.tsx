@@ -528,7 +528,6 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
   const [activeFolder, setActiveFolder] = useState<FolderId>('inbox');
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [showList, setShowList] = useState(true);
   const [compose, setCompose] = useState<{ to?: string; subject?: string; text?: string } | null>(null);
   const [replyText, setReplyText] = useState('');
   const [replySending, setReplySending] = useState(false);
@@ -577,7 +576,6 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
 
   const openEmail = (it: MailItem) => {
     setSelectedId(it.id);
-    setShowList(false);
     setReplyText('');
     markRead(it);
   };
@@ -627,7 +625,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
             const active = activeFolder === f.id;
             const count = f.id === 'inbox' ? inboxUnread : 0;
             return (
-              <div key={f.id} className={`folder ${active ? 'active' : ''}`} onClick={() => { setActiveFolder(f.id); setShowList(true); sel.clear(); }}>
+              <div key={f.id} className={`folder ${active ? 'active' : ''}`} onClick={() => { setActiveFolder(f.id); setSelectedId(null); sel.clear(); }}>
                 <Icon size={16} strokeWidth={2.4} />
                 {f.label}
                 {count > 0 && <span className="fcount">{count}</span>}
@@ -646,7 +644,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
         </div>
 
         {/* List */}
-        <div className="list" style={{ display: showList ? 'flex' : 'none' }}>
+        <div className="list">
           <div className="search-wrap">
             <div className="search">
               <Search size={14} color="#93A1AE" />
@@ -704,12 +702,12 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
         </div>
 
         {/* Detail */}
-        <div className="detail" style={{ display: showList ? 'none' : 'flex' }}>
+        <div className="detail">
           {selected ? (
             <>
               <div className="dcard">
                 <div className="dhead">
-                  <button className="back-btn" onClick={() => setShowList(true)} aria-label="К списку"><ChevronLeft size={16} /></button>
+                  <button className="back-btn" onClick={() => setSelectedId(null)} aria-label="Закрыть письмо"><ChevronLeft size={16} /></button>
                   <div className="ava" style={{ background: selected.color, width: 44, height: 44, fontSize: 14 }}>{selected.initial}</div>
                   <div style={{ minWidth: 0 }}>
                     <div className="dsub">{selected.subject}</div>
@@ -729,7 +727,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                         const id = selected.id;
                         if (selected.folder === 'archive') { unarchive(id); toast('Возвращено из архива'); }
                         else { archive(id); toast('Перемещено в архив', () => unarchive(id)); }
-                        setShowList(true);
+                        setSelectedId(null);
                       }}
                     ><Archive size={15} /></button>
                     <button
@@ -739,7 +737,6 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                         const id = selected.id;
                         remove(id);
                         toast('Письмо удалено', () => restore(id));
-                        setShowList(true);
                         setSelectedId(null);
                       }}
                     ><Trash2 size={15} /></button>

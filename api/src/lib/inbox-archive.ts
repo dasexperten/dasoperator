@@ -7,7 +7,7 @@
 //   Inbox/<mailbox-address>.json                                  — index (see below)
 //
 // One subfolder per mailbox address (e.g. orders@notify.dasexperten.com,
-// sales@dasexperten.de), each holding both directions. dasexperten@gmail.com
+// sales@dasexperten.com), each holding both directions. dasexperten@gmail.com
 // (the Cloudflare/Workspace account owner's personal Gmail) is explicitly
 // excluded per Aram — that inbox stays in Gmail only, never archived here.
 //

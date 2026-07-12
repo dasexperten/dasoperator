@@ -2,7 +2,7 @@
 Category: erp
 
 **Сессия:** Cowork, Mac
-**Запрос-вход:** Почему CRM-страница ERP (erp.dasexperten.de/crm) не показывает или мало показывает продажи, не показывает бонусную программу и сколько бонусов люди получают?
+**Запрос-вход:** Почему CRM-страница ERP (erp.dasexperten.com/crm) не показывает или мало показывает продажи, не показывает бонусную программу и сколько бонусов люди получают?
 **Итог-выход:** Корень найден прозвоном живых API (не доков). Бонусное начисление починено и задеплоено. Дашборд CRM переключён с мёртвого RetailCRM на KIT + D1-ledger. Мёртвый CF Workers Edit вычищен из каноника. Всё проверено вживую — цифры внутренне сходятся, новых крашей нет, баллы капают.
 
 ---
@@ -11,7 +11,7 @@ Category: erp
 
 | # | Находка | Доказательство |
 |---|---|---|
-| 1.1 | CRM-фронт `erp.dasexperten.de/crm` (Next.js на Cloudflare Pages, проект `dasoperator`) дёргает Воркер `dasoperator-api`; данные продаж/бонусов идут через `/api/crm/*` | x-powered-by: Next.js; бандл указывает на `dasoperator-api.dasexperten.workers.dev` + роуты `/api/crm/{stats,funnel,timeline}` |
+| 1.1 | CRM-фронт `erp.dasexperten.com/crm` (Next.js на Cloudflare Pages, проект `dasoperator`) дёргает Воркер `dasoperator-api`; данные продаж/бонусов идут через `/api/crm/*` | x-powered-by: Next.js; бандл указывает на `dasoperator-api.dasexperten.workers.dev` + роуты `/api/crm/{stats,funnel,timeline}` |
 | 1.2 | `/api/crm/stats` и `/funnel` читали мёртвый **RetailCRM** (`dasexperten.retailcrm.ru`) | живой ответ Воркера: `"source":"dasexperten.retailcrm.ru"`, `orders_total:1115` |
 | 1.3 | Продажи занижены ~на 37%: RetailCRM 1115 заказов против **1780 в KIT**; выручка обрезана (считался лишь один платёжный статус) | KIT `/orders` total_count=1780; у KIT два статуса оплаты — `PAYMENT_FINALLY_PAID` (1385) и `PAYMENT_PAID` (46) |
 | 1.4 | Бонусный движок (D1) жив: 1128 участников, 29 696 активных баллов — но начисление сбоит | `/api/loyalty/stats`; webhook_last_7d: из 971 события `accrued` только 124, `skipped:status_not_final` 555, **13 краш `error:D1_ERROR: UNIQUE constraint failed: loyalty_accounts.phone`**, `pending=0` |
@@ -65,7 +65,7 @@ Category: erp
 ## 5. Карта данных после сессии
 
 ```
-erp.dasexperten.de/crm  (Next.js, Cloudflare Pages «dasoperator»)
+erp.dasexperten.com/crm  (Next.js, Cloudflare Pages «dasoperator»)
         │  /api/crm/{stats, funnel, timeline, customers, orders}
         ▼
 dasoperator-api  (Cloudflare Worker)

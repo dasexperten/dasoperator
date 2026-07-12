@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS email_scenarios (
   description   TEXT,
   executor      TEXT NOT NULL DEFAULT 'worker'
                   CHECK (executor IN ('worker', 'hermes')),
-  inbox         TEXT NOT NULL,                          -- ALLOWED_SENDER_INBOX, e.g. 'sales@dasexperten.de'
+  inbox         TEXT NOT NULL,                          -- ALLOWED_SENDER_INBOX, e.g. 'sales@dasexperten.com'
   from_address  TEXT NOT NULL DEFAULT 'dasexperten@gmail.com', -- explicit From (SPF rule for cron)
   schedule_cron TEXT NOT NULL DEFAULT '23 */3 * * *',   -- every 3h at :23 UTC
   trigger_spec  TEXT,                                   -- JSON: keywords, filters, newer_than, skip-addresses

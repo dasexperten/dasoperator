@@ -1,7 +1,7 @@
 # Backlog — 2026-07-08 — Cloudflare Email Inbox
 Category: erp
 
-**Сессия:** интеграция Cloudflare Email Sending (`notify.dasexperten.com`) в Das Operator ERP + R2-архив входящей/исходящей почты по папкам на mailbox + новая вкладка Inbox на `/emailer`, читающая архив напрямую (без Gmail-моста), плюс попутный фикс мёртвого домена `dasexperten.de` в существующем коде. Всё в PR [#104](https://github.com/dasexperten/dasoperator/pull/104), ветка `claude/cloudflare-email-sending-xxbsii`.
+**Сессия:** интеграция Cloudflare Email Sending (`notify.dasexperten.com`) в Das Operator ERP + R2-архив входящей/исходящей почты по папкам на mailbox + новая вкладка Inbox на `/emailer`, читающая архив напрямую (без Gmail-моста), плюс попутный фикс мёртвого домена `dasexperten.com` в существующем коде. Всё в PR [#104](https://github.com/dasexperten/dasoperator/pull/104), ветка `claude/cloudflare-email-sending-xxbsii`.
 
 **PR #104: смёржен и задеплоен.** `Deploy Worker` (commit `781806105a1a8b045ae2ed9dda7a7cbf5812b311`) прошёл зелёным целиком — install, deploy, smoke test. Фича живая в проде.
 
@@ -29,12 +29,12 @@ Category: erp
 - [x] **Реально протестировано и подтверждено в живом бакете `self-learning`** — все 5 mailbox-папок с настоящими письмами + индексами уже лежат в R2 прямо сейчас (проверяемо в Cloudflare Dashboard → R2 → `self-learning` → префикс `Inbox/`)
 - [x] После первого прогона с багом — переиндексировал (`rebuildIndex`) осиротевшие записи `no-reply@notify.dasexperten.com`, чтобы индекс совпадал с реальными объектами
 
-### 3. Фикс мёртвого домена `dasexperten.de`
-- [x] Aram сообщил, что `dasexperten.de` больше не доступен как домен
+### 3. Фикс мёртвого домена `dasexperten.com`
+- [x] Aram сообщил, что `dasexperten.com` больше не доступен как домен
 - [x] `web/components/emailer/compose-email.tsx` — селектор отправителя и дефолт `from` переведены на `@dasexperten.com` (eurasia/emea/marketing/sales/support)
 - [x] `api/src/routes/email-tasks.ts` — seed-сценарии автоматизации (`pechkin-s1..s4`) переведены на `@dasexperten.com`
 - [x] README-заметка про follow-up work исправлена (была `.de`)
-- [x] **Не тронуто** (вне рамок этой задачи, флагнуто Араму): `api/src/middleware/cors.ts` (`erp.dasexperten.de` в allowed origins — это домен самого ERP-фронтенда, не почта), `Design/README.md` и `web/design-system/README.md` (ссылки на маркетинговый сайт `www.dasexperten.de`)
+- [x] **Не тронуто** (вне рамок этой задачи, флагнуто Араму): `api/src/middleware/cors.ts` (`erp.dasexperten.com` в allowed origins — это домен самого ERP-фронтенда, не почта), `Design/README.md` и `web/design-system/README.md` (ссылки на маркетинговый сайт `www.dasexperten.com`)
 
 ### 4. Внутренний почтовый клиент на `/emailer` (по прямому запросу Арама)
 - [x] Aram: вкладка **Inbox** на `/emailer` не должна быть завязана на emailer-bridge/Gmail — должна показывать реальные R2-субфолдеры системных ящиков
@@ -58,7 +58,7 @@ Category: erp
 ### Прямое продолжение этой фичи
 - [ ] **Архивация `received`** — у 5 `notify.dasexperten.com`-адресов физически нет входящей почты (only-send, нет Email Routing на этот саб-домен), так что `received/`-папки остаются пустыми. Это ожидаемо для этих адресов
 - [ ] **Архивация human-ящиков `dasexperten.com`** (`sales@`, `support@`, `emea@`, `asean@`, `eurasia@`) — их почта идёт через Google Apps Script / `emailer-bridge`, туда архивация ещё не встроена (ни sent, ни received). Нужно решить, перехватывать на стороне `emailer-bridge` или `api/src/routes/email.ts`
-- [ ] Решить: чистить ли `dasexperten.de` в `cors.ts` (allowed origin ERP-фронтенда) и в `Design/README.md` / `web/design-system/README.md` (маркетинговый сайт) — ждём подтверждения от Арама, что домен мёртв целиком, а не только для почты
+- [ ] Решить: чистить ли `dasexperten.com` в `cors.ts` (allowed origin ERP-фронтенда) и в `Design/README.md` / `web/design-system/README.md` (маркетинговый сайт) — ждём подтверждения от Арама, что домен мёртв целиком, а не только для почты
 
 ### Эксплуатация (после мёрджа/деплоя)
 - [x] ~~PR draft, не смёржен~~ — смёржен, `Deploy Worker` CI прошёл зелёным

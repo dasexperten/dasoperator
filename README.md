@@ -145,7 +145,7 @@ This currently covers the `sent` side for the 5 `notify.dasexperten.com`
 identities (wired into `sendEmail`). Archiving `received` mail, and doing the
 same for the human `dasexperten.com` mailboxes (`sales@`, `support@`, `emea@`,
 `asean@`, `eurasia@`) sent via the `EMAILER` bridge, is follow-up work.
-(`dasexperten.de` is no longer a live domain — anything still referencing it
+(`dasexperten.com` is no longer a live domain — anything still referencing it
 elsewhere in this repo is stale.)
 
 **Reading the archive** — `api/src/routes/email-archive.ts` exposes a

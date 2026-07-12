@@ -441,6 +441,33 @@ body {
 }
 .dxmail .search input::placeholder { color: var(--muted); }
 
+/* Gmail-style selection checkbox ("клетка") + bulk bar */
+.dxmail .rowcheck {
+  width: 18px; height: 18px; flex-shrink: 0;
+  border: 1.5px solid #CBD5DC; border-radius: 5px;
+  background: var(--white);
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; padding: 0; margin-top: 10px;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.dxmail .rowcheck:hover { border-color: var(--green); }
+.dxmail .rowcheck.on { background: var(--green); border-color: var(--green); }
+.dxmail .selbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 16px 8px 39px;
+  border-bottom: 1px solid var(--line);
+  min-height: 44px;
+}
+.dxmail .selbar .rowcheck { margin-top: 0; }
+.dxmail .selcount { font-size: 12px; font-weight: 800; color: var(--green-dark); }
+.dxmail .selhint { font-size: 11.5px; font-weight: 700; color: var(--muted); }
+.dxmail .selactions { margin-left: auto; display: flex; gap: 7px; }
+.dxmail .row.checked { background: var(--green-soft); }
+
+/* Mobile: avatar doubles as the checkbox (tap to select, Gmail-style) */
+.dxmail .mb-ava-check { border: none; cursor: pointer; padding: 0; font-family: 'Manrope', sans-serif; }
+.dxmail .mb-row.checked { background: var(--green-soft); }
+
 .dxmail .rows { overflow-y: auto; flex: 1; }
 .dxmail .row {
   padding: 13px 16px;

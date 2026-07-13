@@ -1,6 +1,6 @@
 ---
 name: emailer
-description: Das Experten universal email delivery gate — the ONLY outbound path, via Resend API (apex dasexperten.com human mail, my.dasexperten.com system mail; inbound archives to R2). ALWAYS trigger when user asks to send/draft email ("отправь письмо", "напиши и отправь", "шли по почте", "send email", "email this to", "отправь презентацию/инвойс/контракт клиенту"), OR via inter-skill gate [[GATE: emailer]] from any skill producing email output (sales-hunter, personizer, invoicer, logist, legalizer, das-presenter, ugc-master, review-master, seo-master). Handles attachments (base64 or R2 links), virtual-staff persona resolution, mandatory pre-send confirmation gate (full email shown, waits for explicit "ок"/"шли"/"send"). Fire immediately on trigger.
+description: Das Experten universal email delivery gate — the ONLY outbound path, via Resend API (apex dasexperten.com human mail, my.dasexperten.com system mail; inbound archives to R2). ALWAYS trigger when user asks to send/draft email ("отправь письмо", "напиши и отправь", "шли по почте", "send email", "email this to", "отправь презентацию/инвойс/контракт клиенту"), OR via inter-skill gate [[GATE: emailer]] from any skill that needs outbound mail (personizer, invoicer, logist, legalizer, das-presenter, ugc-master, review-master, seo-master, XA/outreach). **sales-hunter is NOT linked and is NEVER auto-invoked for email.** Handles attachments (base64 or R2 links), virtual-staff persona resolution, mandatory pre-send confirmation gate (full email shown, waits for explicit "ок"/"шли"/"send"). Fire immediately on trigger.
 ---
 
 # EMAILER v4.0 — Cloudflare + Resend only
@@ -10,11 +10,11 @@ description: Das Experten universal email delivery gate — the ONLY outbound pa
 > (приём + архив R2) и Resend (отправка). Прежний SKILL.md v3.x — архив,
 > его Apps Script/GCP/OAuth-секции больше не действуют.
 
-Das Experten universal email delivery gate. Fire immediately when the user asks to send/draft email, or via `[[GATE: emailer]]` from any skill (sales-hunter, personizer, invoicer, logist, legalizer, das-presenter, ugc-master, review-master, etc.).
+Das Experten universal email delivery gate. Fire immediately when the user asks to send/draft email, or via `[[GATE: emailer]]` from any skill that needs mail (personizer, invoicer, logist, legalizer, das-presenter, ugc-master, review-master, XA/outreach, etc.). **sales-hunter is separate — only if Owner names it.**
 
 **Direct triggers:** «отправь письмо», «напиши и отправь», «шли по почте», "send email", "email this to", «отправь презентацию/инвойс/контракт/PL клиенту», any outbound email/draft/reply request.
 
-**Gate triggers:** `[[GATE: emailer]]` after invoicer (PDF), das-presenter (PPTX), legalizer (contract/annex), sales-hunter (first touch), personizer (follow-up), logist (shipping docs).
+**Gate triggers:** `[[GATE: emailer]]` after invoicer (PDF), das-presenter (PPTX), legalizer (contract/annex), personizer (follow-up), logist (shipping docs), XA/GEO outreach drafts. **Not** after sales-hunter unless Owner explicitly ordered a sales-hunter task *and* a separate emailer send.
 
 ---
 
@@ -31,6 +31,8 @@ Applies ONLY to the personal Gmail `dasexperten@gmail.com` (Gmail MCP). Corporat
 ## 0.0. EXCLUSIVITY LOCK — non-negotiable
 
 This skill is THE ONLY path for any outbound email from any Das Experten operation.
+
+**sales-hunter (Owner rule):** NEVER execute sales-hunter unless the user/Owner explicitly asks for sales-hunter by name. sales-hunter is NOT a mailer and is NOT part of the emailer path. Outbound mail = this skill only.
 
 **FORBIDDEN — never use for ANY corporate email operation:**
 ❌ Apps Script Web App (`script.google.com/macros/.../exec`) — DECOMMISSIONED 2026-07-11.
@@ -168,7 +170,7 @@ Errors: 422 validation (поле в `message`) — исправить, повт�
 Calling skill даёт параметры Section 1 (можно локальные пути — emailer сам решает base64/R2). НЕ зовёт curl сам, НЕ обходит confirmation gate. Возврат: `resend_id` или ошибка; правки Арама — внутренний цикл emailer.
 
 ## 5. SKILL-SPECIFIC PATTERNS (unchanged intents, новый транспорт)
-invoicer → PDF-вложения, from sales@ или eurasia@ по языку; das-presenter → PPTX (обычно ссылкой, >10 MB), from sales@/emea@/asean@ по региону; legalizer → `legal: true`; sales-hunter → первый контакт, persona по virtual-staff; personizer → reply-цепочка через in_reply_to из R2-архива; logist → документы отгрузки; seo-master → линк-аутрич/PR-питчи, from partnerships@; ugc-master → блогерский бартер, from marketing@ (UGC override: женская персона); регистрации в каталогах/сайтовые запросы → from hello@.
+invoicer → PDF-вложения, from sales@ или eurasia@ по языку; das-presenter → PPTX (обычно ссылкой, >10 MB), from sales@/emea@/asean@ по региону; legalizer → `legal: true`; personizer → reply-цепочка через in_reply_to из R2-архива; logist → документы отгрузки; seo-master → линк-аутрич/PR-питчи, from partnerships@; ugc-master → блогерский бартер, from marketing@ (UGC override: женская персона); регистрации в каталогах/сайтовые запросы → from hello@.
 
 ## 6. INBOUND (справочно)
 Приём всех адресов: MX → CF Email Routing → worker dasoperator-api → R2 `self-learning` Inbox/<address>/received/. Чтение переписки — UI /emailer в Das Operator или чтение R2. Этот skill входящие не обрабатывает — только отправка.

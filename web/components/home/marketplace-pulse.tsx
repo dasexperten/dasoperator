@@ -462,40 +462,22 @@ function TrendCard({ data, loading }: { data: DailyTrend | null; loading: boolea
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Card 3 — Sales Breakdown YTD (two pies: by SKU + by Partner)
+// Card 3 — Sales Breakdown last 30 days (by product / SKU only)
 // ═══════════════════════════════════════════════════════════════════════════
 
 type BreakdownData = {
   period: { from: string; to: string; label: string };
   sku: {
     top10: Array<{ sku: string; product_name: string | null; units: number; revenue: number }>;
-    other: { count: number; revenue: number };
+    other: { count: number; revenue: number; units?: number };
     total: number;
+    total_units?: number;
     sku_count: number;
-  };
-  partners: {
-    items: Array<{ id: string; label: string; revenue: number; ops_count: number }>;
-    total: number;
-    currency: 'USD';
-    fx_date: string | null;
   };
 };
 
 const SKU_COLORS = ['#C4302B', '#D4A017', '#1D9E75', '#534AB7', '#D4537E', '#378ADD', '#639922', '#D85A30', '#993556', '#0F6E56'];
 const OTHER_COLOR = '#888780';
-const PARTNER_COLORS: Record<string, string> = {
-  ozon:                                                '#378ADD',
-  wb:                                                  '#7F77DD',
-  dasex_group:                                         '#888780',
-  tori_georgia:                                        '#1D9E75',
-  torwey:                                              '#D85A30',
-  'яндекс_пей_продажи_с_нашего_сайта':                 '#D4A017',
-  dm:                                                  '#97C459',
-  letoile:                                             '#D4537E',
-  dasexperten_com:                                     '#534AB7',
-};
-const PARTNER_PALETTE = ['#888780', '#1D9E75', '#D85A30', '#D4A017', '#97C459', '#D4537E', '#534AB7'];
-const PARTNER_OTHER = '#5F5E5A';
 
 function buildPieSlices(values: number[], explode = 6, rx = 90, ry = 49.5) {
   const total = values.reduce((s, v) => s + v, 0);
@@ -545,28 +527,27 @@ function PieBreakdownCard() {
         <div className="flex items-center gap-3">
           <Package className="h-4 w-4" style={{ color: 'var(--fg-2)' }} />
           <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', textTransform: 'uppercase' }}>
-            Sales breakdown · {data?.period.label || 'YTD'}
+            Sales breakdown · {data?.period.label || 'Last 30 days'}
           </span>
         </div>
+        {data?.period.from && (
+          <span style={{ fontSize: '12px', color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
+            {data.period.from} → {data.period.to}
+          </span>
+        )}
       </div>
 
       {loading ? <CardLoading /> : !data ? <CardEmpty>No data.</CardEmpty> : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 dx-stack-mobile">
-          <SkuPie data={data} />
-          <PartnerPie data={data} />
-        </div>
+        <SkuPie data={data} />
       )}
     </div>
   );
 }
 
 function SkuPie({ data }: { data: BreakdownData }) {
-  // Re-rank ALL SKUs by units (server sent them sorted by revenue)
-  // Server now returns top10 already sorted by units; just trust it.
   const sortedTop10 = data.sku.top10;
-  const otherUnits = (data.sku.other as any).units ?? 0;
-  // Prefer real total from server; fall back to summing what we have if absent.
-  const totalUnits = (data.sku as any).total_units
+  const otherUnits = data.sku.other.units ?? 0;
+  const totalUnits = data.sku.total_units
     ?? (sortedTop10.reduce((s, r) => s + r.units, 0) + otherUnits);
   const other = { count: data.sku.other.count, units: otherUnits };
 
@@ -577,7 +558,7 @@ function SkuPie({ data }: { data: BreakdownData }) {
 
   const legend = [
     ...sortedTop10.map((s, i) => ({
-      label: s.sku.toUpperCase(),
+      label: (s.product_name || s.sku).toUpperCase(),
       units: s.units,
       pct: totalUnits > 0 ? (s.units / totalUnits) * 100 : 0,
       color: SKU_COLORS[i] || OTHER_COLOR,
@@ -595,7 +576,7 @@ function SkuPie({ data }: { data: BreakdownData }) {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' }}>
-        <span style={{ fontSize: '13px', color: 'var(--fg-3)', textTransform: 'uppercase' }}>By SKU · retail only (units)</span>
+        <span style={{ fontSize: '13px', color: 'var(--fg-3)', textTransform: 'uppercase' }}>By product · retail only (units)</span>
         <span style={{ fontSize: '12px', color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>{totalUnits.toLocaleString('ru-RU')} шт</span>
       </div>
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '220px' }}>
@@ -638,76 +619,6 @@ function SkuPie({ data }: { data: BreakdownData }) {
             </span>
           </div>
         ))}
-      </div>
-    </div>
-  );
-}
-
-function fmtUsdShort(v: number): string {
-  if (Math.abs(v) >= 1_000_000) return '$' + (v / 1_000_000).toFixed(2) + 'M';
-  if (Math.abs(v) >= 1_000)     return '$' + (v / 1_000).toFixed(1) + 'k';
-  return '$' + v.toFixed(0);
-}
-
-function PartnerPie({ data }: { data: BreakdownData }) {
-  const slices = useMemo(() => {
-    return buildPieSlices(data.partners.items.map(p => p.revenue), 7);
-  }, [data]);
-
-  // Colors: explicit map for known partners; for the rest, walk PARTNER_PALETTE
-  // in order so we never collapse into one gray block.
-  let paletteIdx = 0;
-  const colors = data.partners.items.map((p) => {
-    if (p.id === '_other') return PARTNER_OTHER;
-    if (PARTNER_COLORS[p.id]) return PARTNER_COLORS[p.id];
-    const c = PARTNER_PALETTE[paletteIdx % PARTNER_PALETTE.length];
-    paletteIdx++;
-    return c;
-  });
-
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' }}>
-        <span style={{ fontSize: '13px', color: 'var(--fg-3)', textTransform: 'uppercase' }}>By Partner (USD)</span>
-        <span style={{ fontSize: '12px', color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>{fmtUsdShort(data.partners.total)}</span>
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '220px' }}>
-        <svg viewBox="-150 -90 300 180" width="100%" height="100%" style={{ overflow: 'visible' }}>
-          {slices.map((s, i) => (
-            <g key={i} transform={`translate(${s.dx.toFixed(2)},${s.dy.toFixed(2)})`}>
-              <path
-                d={`M 0,0 L ${s.sx.toFixed(2)},${s.sy.toFixed(2)} A ${s.rx},${s.ry} 0 ${s.largeArc},0 ${s.ex.toFixed(2)},${s.ey.toFixed(2)} Z`}
-                fill={colors[i]}
-                stroke="white"
-                strokeWidth={2}
-              />
-            </g>
-          ))}
-        </svg>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '11px', marginTop: '14px' }}>
-        {data.partners.items.map((p, i) => {
-          const muted = p.id === '_other';
-          return (
-          <div key={p.id} style={{
-            display: 'flex', alignItems: 'center', gap: '8px', padding: '3px 0',
-            borderTop: muted ? '0.5px solid var(--border-hairline)' : 'none',
-            marginTop:   muted ? '4px' : 0,
-            paddingTop:  muted ? '6px' : '3px',
-          }}>
-            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: colors[i], flexShrink: 0 }} />
-            <span style={{ flex: 1, fontWeight: 700, color: 'var(--fg-1)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {p.label}
-            </span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--fg-1)', whiteSpace: 'nowrap' }}>
-              {fmtUsdShort(p.revenue)}
-            </span>
-            <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-3)', width: '38px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-              {data.partners.total > 0 ? ((p.revenue / data.partners.total) * 100).toFixed(1) : '0.0'}%
-            </span>
-          </div>
-          );
-        })}
       </div>
     </div>
   );

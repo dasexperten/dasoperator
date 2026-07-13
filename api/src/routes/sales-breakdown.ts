@@ -1,53 +1,24 @@
 // =============================================================================
-// /api/dashboard/sales-breakdown — YTD aggregates for the Home page pies
+// /api/dashboard/sales-breakdown — last-30-days product mix for the Home pie
 //
-// • By SKU (units)     — units per product, top-10 + Other; revenue carried in
-//                        original currency, kept for sorting only.
-// • By Partner (USD)   — partner revenue converted to USD across all currencies
-//                        via KV `das-fx` snapshot. Technical partners excluded
-//                        (partners.is_technical = 1). Top-N + "Other (k partners)".
-//
-// Returns revenue in USD major units (e.g. 403500.50 = $403,500.50).
-// SKU revenue stays in raw mixed currency (display side only uses units anyway).
+// • By SKU (units) — units per product, top-10 + Other
+//   Retail only (WB / Ozon / site). No partner breakdown.
 // =============================================================================
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok } from '../lib/responses';
-import { readLatestPointer, readSnapshot } from '../lib/fx-store';
-import { getRateToUsdNano, applyFxToAmount } from '../lib/fx-cbr';
 
 const r = new Hono<{ Bindings: Env }>();
 
-const TOP_N_PARTNERS = 7;
-
-interface PartnerRow {
-  partner_id: string;
-  partner_name: string | null;
-  currency: string;
-  revenue: number;
-  ops_count: number;
-}
-
 r.get('/sales-breakdown', async (c) => {
   const now = new Date();
-  const ytdStart = Math.floor(Date.UTC(now.getUTCFullYear(), 0, 1) / 1000);
+  const nowSec = Math.floor(now.getTime() / 1000);
+  const fromSec = nowSec - 30 * 24 * 60 * 60;
 
-  // ---- FX snapshot -----------------------------------------------------------
-  const latestDate = await readLatestPointer(c.env.FX);
-  const fxSnapshot = latestDate ? await readSnapshot(c.env.FX, latestDate) : null;
-
-  // ---- SKU aggregation (units) ----------------------------------------------
-  // RETAIL ONLY — exclude B2B distributors. The pie shows end-consumer demand mix,
-  // so wholesale shipments (Dasex Group, TORI-GEORGIA, Torwey, Natusana, etc.)
-  // would distort the picture. Retail channels:
-  //   wb / ozon          — marketplaces
-  //   dasexperten_com    — our DTC site (AED via Stripe)
-  //   яндекс_пей_продажи_с_нашего_сайта — our DTC site (RUB via Yandex Pay)
+  // RETAIL ONLY — exclude B2B distributors. End-consumer demand mix.
   const RETAIL_PARTNER_IDS = ['wb', 'ozon', 'dasexperten_com', 'яндекс_пей_продажи_с_нашего_сайта'];
   const retailPlaceholders = RETAIL_PARTNER_IDS.map(() => '?').join(',');
 
-  // Technical partners excluded. Mixed-currency revenue is fine here since the
-  // UI sorts by units; revenue is kept only as a tie-breaker.
   const skuResult = await c.env.DB.prepare(`
     SELECT li.product_id    AS sku,
            SUM(li.qty)      AS units,
@@ -64,100 +35,24 @@ r.get('/sales-breakdown', async (c) => {
       AND o.operation_date >= ?
     GROUP BY li.product_id
     ORDER BY units DESC
-  `).bind(...RETAIL_PARTNER_IDS, ytdStart).all<{ sku: string; units: number; revenue: number; product_name: string | null }>();
+  `).bind(...RETAIL_PARTNER_IDS, fromSec).all<{ sku: string; units: number; revenue: number; product_name: string | null }>();
 
   const allSkus = skuResult.results;
   const top10 = allSkus.slice(0, 10);
   const tail = allSkus.slice(10);
-  const tailRev = tail.reduce((s, r) => s + (r.revenue || 0), 0);
-  const tailUnits = tail.reduce((s, r) => s + (r.units || 0), 0);
-  const totalSkuUnits = allSkus.reduce((s, r) => s + (r.units || 0), 0);
-  const totalSkuRev = allSkus.reduce((s, r) => s + (r.revenue || 0), 0);
+  const tailRev = tail.reduce((s, row) => s + (row.revenue || 0), 0);
+  const tailUnits = tail.reduce((s, row) => s + (row.units || 0), 0);
+  const totalSkuUnits = allSkus.reduce((s, row) => s + (row.units || 0), 0);
+  const totalSkuRev = allSkus.reduce((s, row) => s + (row.revenue || 0), 0);
 
-  // ---- Partner aggregation (USD) --------------------------------------------
-  // GROUP BY partner+currency so we can convert each row independently,
-  // then collapse currencies in JS by summing USD-equivalents per partner_id.
-  const partnerRowsRes = await c.env.DB.prepare(`
-    SELECT o.partner_id     AS partner_id,
-           p.trade_name     AS partner_name,
-           o.currency       AS currency,
-           SUM(o.total_amount) AS revenue,
-           COUNT(*)         AS ops_count
-    FROM operations o
-    LEFT JOIN partners p ON p.id = o.partner_id
-    WHERE o.deleted_at IS NULL
-      AND o.operation_type = 'sale'
-      AND COALESCE(p.is_technical, 0) = 0
-      AND o.operation_date >= ?
-    GROUP BY o.partner_id, o.currency
-  `).bind(ytdStart).all<PartnerRow>();
-
-  const byPartner = new Map<string, { id: string; label: string; revenue_usd: number; ops_count: number }>();
-  for (const row of partnerRowsRes.results) {
-    let usd = 0;
-    if (fxSnapshot) {
-      const rateNano = getRateToUsdNano(fxSnapshot, row.currency);
-      if (rateNano !== null) {
-        usd = applyFxToAmount(row.revenue || 0, rateNano, row.currency, 'USD');
-      } else if (row.currency === 'USD') {
-        usd = row.revenue || 0;
-      }
-    } else if (row.currency === 'USD') {
-      // No FX cached at all — at least surface USD-native partners correctly.
-      usd = row.revenue || 0;
-    }
-
-    const label = friendlyPartnerLabel(row.partner_id, row.partner_name);
-    const existing = byPartner.get(row.partner_id);
-    if (existing) {
-      existing.revenue_usd += usd;
-      existing.ops_count   += row.ops_count;
-    } else {
-      byPartner.set(row.partner_id, {
-        id: row.partner_id,
-        label,
-        revenue_usd: usd,
-        ops_count: row.ops_count,
-      });
-    }
-  }
-
-  const sortedPartners = [...byPartner.values()]
-    .sort((a, b) => b.revenue_usd - a.revenue_usd);
-
-  const headPartners = sortedPartners.slice(0, TOP_N_PARTNERS);
-  const tailPartners = sortedPartners.slice(TOP_N_PARTNERS);
-
-  // Build display list — keep "Other" only if there's actual tail to show.
-  const partnerItems: Array<{ id: string; label: string; revenue: number; ops_count: number }> =
-    headPartners.map((p) => ({
-      id: p.id,
-      label: p.label,
-      revenue: roundUsd(p.revenue_usd),
-      ops_count: p.ops_count,
-    }));
-
-  let otherRev = 0, otherOps = 0;
-  for (const p of tailPartners) {
-    otherRev += p.revenue_usd;
-    otherOps += p.ops_count;
-  }
-  if (tailPartners.length > 0 && otherRev > 0) {
-    partnerItems.push({
-      id: '_other',
-      label: `Other (${tailPartners.length} partner${tailPartners.length === 1 ? '' : 's'})`,
-      revenue: roundUsd(otherRev),
-      ops_count: otherOps,
-    });
-  }
-
-  const totalPartnerRev = sortedPartners.reduce((s, p) => s + p.revenue_usd, 0);
+  const fromDate = new Date(fromSec * 1000).toISOString().slice(0, 10);
+  const toDate = now.toISOString().slice(0, 10);
 
   return ok(c, {
     period: {
-      from: new Date(ytdStart * 1000).toISOString().slice(0, 10),
-      to:   now.toISOString().slice(0, 10),
-      label: 'YTD ' + now.getUTCFullYear(),
+      from: fromDate,
+      to: toDate,
+      label: 'Last 30 days',
     },
     sku: {
       top10: top10.map((s) => ({
@@ -175,24 +70,15 @@ r.get('/sales-breakdown', async (c) => {
       total_units: totalSkuUnits,
       sku_count: allSkus.length,
     },
+    // Partners removed from home breakdown (Aram 2026-07-13). Empty shape kept
+    // so older clients don't crash if they still read partners.
     partners: {
-      items: partnerItems,
-      total: roundUsd(totalPartnerRev),
+      items: [],
+      total: 0,
       currency: 'USD',
-      fx_date: fxSnapshot?.date ?? null,
+      fx_date: null,
     },
   });
 });
-
-function roundUsd(v: number): number {
-  return Math.round(v * 100) / 100;
-}
-
-function friendlyPartnerLabel(id: string, name: string | null): string {
-  if (id === 'wb')   return 'Wildberries';
-  if (id === 'ozon') return 'Ozon';
-  if (id === 'яндекс_пей_продажи_с_нашего_сайта') return 'dasexperten.ru';
-  return name || id;
-}
 
 export default r;

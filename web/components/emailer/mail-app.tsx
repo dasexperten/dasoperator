@@ -29,14 +29,16 @@ import {
 } from '@/lib/api';
 import { correspondent, displayName, emailAddr } from './shared';
 
-/* ---------- MPSTATS-style logo mark (from the mockups, verbatim) ---------- */
+/* ---------- Das Experten logo mark (three-ribbon app icon) ---------- */
 function LogoMark({ size = 38 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
-      <rect width="40" height="40" rx="12" fill="#17BF50" />
-      <path d="M27.19 14.92l-9.4-5.61c-.38-.23-.86.06-.86.51v11.21c0 .46.48.74.86.51l9.4-5.6c.38-.23.38-.8 0-1.02Z" fill="white" />
-      <path d="M28.17 21.62l-3.4-2.03a.56.56 0 0 0-.57 0l-7.97 4.76c-.38.23-.86-.06-.86-.51v-8.82c0-.44-.34-.79-.76-.79s-.77.35-.77.79v15.15c0 .46.48.74.86.51l13.47-8.04c.38-.23.38-.8 0-1.02Z" fill="white" />
-    </svg>
+    <img
+      src="/brand/app-icon-squircle-512.png"
+      width={size}
+      height={size}
+      alt="das experten"
+      style={{ display: 'block', flexShrink: 0 }}
+    />
   );
 }
 

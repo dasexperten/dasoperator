@@ -13,7 +13,7 @@ import {
 } from '@/lib/api';
 import MarketplacePulse from './marketplace-pulse';
 import SystemHealth from './system-health';
-import AiCrawlers from './ai-crawlers';
+import AiVisibilityOverview from './ai-visibility-overview';
 
 // =============================================================================
 // Helpers
@@ -230,9 +230,8 @@ export default function HomeDashboard() {
 
       {/* SYSTEM HEALTH ============================================== */}
       <SystemHealth />
-      {/* AiVisibilityOverview removed 2026-07-13: was 100% hardcoded demo
-          (DA 26 / linking 164 / backlinks 412 — not Ubersuggest, not live APIs). */}
-      <AiCrawlers />
+      {/* Real Ubersuggest authority (via /api/seo/site-metrics). Fake AI demo removed. */}
+      <AiVisibilityOverview />
 
       {/* RECENT OPERATIONS ========================================== */}
       <section>

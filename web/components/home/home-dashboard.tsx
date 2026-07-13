@@ -7,11 +7,9 @@ import { getUser } from '@/lib/auth';
 import {
   getOperations,
   getPayments,
-  getAllNetBalances,
-  getFxLatest,
+  getSiteSeoMetrics,
   type Operation,
   type Payment,
-  type FxLatest,
 } from '@/lib/api';
 import MarketplacePulse from './marketplace-pulse';
 import SystemHealth from './system-health';
@@ -37,31 +35,32 @@ function formatMoney(amount: number, currency: string): string {
   });
 }
 
-function formatUsdCompact(cents: number): string {
-  const dollars = Math.round(cents / 100);
-  if (Math.abs(dollars) >= 1_000_000) {
-    return `$${Math.round(dollars / 1_000_000).toLocaleString('en-US')}M`;
-  }
-  if (Math.abs(dollars) >= 10_000) {
-    return `$${Math.round(dollars / 1_000).toLocaleString('en-US')}K`;
-  }
-  return `$${dollars.toLocaleString('en-US')}`;
+function formatSeoNumber(n: number): string {
+  if (!Number.isFinite(n)) return '—';
+  if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(n) >= 10_000) return `${Math.round(n / 1_000)}k`;
+  return Math.round(n).toLocaleString('en-US');
 }
 
-function convertToUsdCents(amount: number, currency: string, fx: FxLatest | null): number {
-  if (!fx) return 0;
-  const rate = fx.rates[currency];
-  if (!rate) return 0;
-  // amount is in major units (e.g. 25500 RUB, not kopecks)
-  const usdUnits = (amount * rate.rate_to_usd_nano) / 1_000_000_000;
-  return Math.round(usdUnits * 100);
-}
+type SiteSeoMetrics = {
+  domain: string;
+  domain_authority: number;
+  backlinks: number;
+  ref_domains: number;
+  organic_traffic: number;
+  updated_at: number;
+  source: string;
+};
 
-function isWithinLast30Days(unixSec: number): boolean {
-  const nowSec = Math.floor(Date.now() / 1000);
-  const thirtyDaysSec = 30 * 24 * 60 * 60;
-  return unixSec >= nowSec - thirtyDaysSec && unixSec <= nowSec;
-}
+const SEO_SEED: SiteSeoMetrics = {
+  domain: 'dasexperten.com',
+  domain_authority: 11,
+  backlinks: 1093,
+  ref_domains: 328,
+  organic_traffic: 124,
+  updated_at: 0,
+  source: 'seed',
+};
 
 // =============================================================================
 // Status chip
@@ -101,8 +100,7 @@ function StatusChip({ status }: { status: string }) {
 export default function HomeDashboard() {
   const [operations, setOperations] = useState<Operation[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
-  const [balances, setBalances] = useState<{ partner_id: string; net_balance_usd: number }[]>([]);
-  const [fx, setFx] = useState<FxLatest | null>(null);
+  const [seo, setSeo] = useState<SiteSeoMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [greetName, setGreetName] = useState('');
   const [greetWord, setGreetWord] = useState('Guten Tag');
@@ -119,18 +117,17 @@ export default function HomeDashboard() {
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [opsRes, paysRes, balRes, fxRes] = await Promise.all([
+        const [opsRes, paysRes, seoRes] = await Promise.all([
           getOperations({ compact: true }),
           getPayments(),
-          getAllNetBalances(),
-          getFxLatest(),
+          getSiteSeoMetrics(),
         ]);
         if (opsRes.success && opsRes.result) setOperations(opsRes.result.operations);
         if (paysRes.success && paysRes.result) setPayments(paysRes.result.payments);
-        if (balRes.success && balRes.result) setBalances(balRes.result.balances);
-        if (fxRes.success && fxRes.result) setFx(fxRes.result);
+        if (seoRes.success && seoRes.result) setSeo(seoRes.result);
+        else setSeo(SEO_SEED);
       } catch {
-        // best-effort load — empty states render fine
+        setSeo(SEO_SEED);
       } finally {
         setLoading(false);
       }
@@ -139,28 +136,9 @@ export default function HomeDashboard() {
   }, []);
 
   // ---------------------------------------------------------------------------
-  // Compute headline metrics
+  // Headline KPIs = SEO snapshot (same 4-card design); tables use ops/payments
   // ---------------------------------------------------------------------------
   const activeOps = operations.filter((o) => o.status !== 'cancelled');
-  const opsLast30d = activeOps.filter((o) => isWithinLast30Days(o.operation_date));
-
-  const revenueUsdCentsLast30d = opsLast30d.reduce(
-    (sum, o) => sum + convertToUsdCents(o.total_amount, o.currency, fx),
-    0
-  );
-
-  // Payments out (last 30 days) — sum of OUTGOING payments we made, in USD.
-  // Replaces the previous Outstanding card; forward-looking metric moved out.
-  const paymentsOutUsdCentsLast30d = payments.reduce((sum, p) => {
-    if (p.direction !== 'outgoing') return sum;
-    if (!isWithinLast30Days(p.payment_date)) return sum;
-    return sum + convertToUsdCents(p.amount, p.currency, fx);
-  }, 0);
-
-  // Active partners = those with at least one non-cancelled operation
-  const activePartnerIds = new Set(activeOps.map((o) => o.partner_id));
-  const totalPartners = balances.length;
-  const activePartners = activePartnerIds.size;
 
   const recentOps = [...activeOps]
     .sort((a, b) => b.operation_date - a.operation_date)
@@ -169,6 +147,12 @@ export default function HomeDashboard() {
   const recentPayments = [...payments]
     .sort((a, b) => b.payment_date - a.payment_date)
     .slice(0, 3);
+
+  const m = seo ?? SEO_SEED;
+  const seoAsOf =
+    m.updated_at > 0
+      ? new Date(m.updated_at * 1000).toISOString().slice(0, 10)
+      : 'snapshot';
 
   // ---------------------------------------------------------------------------
   return (
@@ -202,7 +186,7 @@ export default function HomeDashboard() {
             maxWidth: '560px',
           }}
         >
-          Today's snapshot · {fx ? `FX as of ${fx.date}` : 'Loading FX...'}
+          Today's snapshot · {loading ? 'Loading SEO...' : `SEO as of ${seoAsOf}`}
         </p>
       </div>
 
@@ -212,30 +196,30 @@ export default function HomeDashboard() {
       <section>
         <div className="grid grid-cols-4 gap-4 dx-metrics-grid">
           <MetricCard
-            label="Operations"
-            sublabel="last 30 days"
-            value={opsLast30d.length.toString()}
+            label="Domain authority"
+            sublabel="dasexperten.com"
+            value={String(m.domain_authority)}
             tone="default"
             loading={loading}
           />
           <MetricCard
-            label="Revenue"
-            sublabel="last 30 days · USD equiv"
-            value={loading ? '—' : formatUsdCompact(revenueUsdCentsLast30d)}
+            label="Backlinks"
+            sublabel="dasexperten.com"
+            value={loading ? '—' : formatSeoNumber(m.backlinks)}
             tone="default"
             loading={loading}
           />
           <MetricCard
-            label="Payments"
-            sublabel="last 30 days · USD equiv"
-            value={loading ? '—' : formatUsdCompact(paymentsOutUsdCentsLast30d)}
+            label="Referring domains"
+            sublabel="dasexperten.com"
+            value={loading ? '—' : formatSeoNumber(m.ref_domains)}
             tone="default"
             loading={loading}
           />
           <MetricCard
-            label="Active partners"
-            sublabel={`of ${totalPartners} total`}
-            value={loading ? '—' : activePartners.toString()}
+            label="Organic traffic"
+            sublabel="dasexperten.com · est."
+            value={loading ? '—' : formatSeoNumber(m.organic_traffic)}
             tone="default"
             loading={loading}
           />

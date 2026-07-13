@@ -939,6 +939,21 @@ export async function getPayments(filters?: {
   return apiGet<PaymentsListResponse>(`/api/payments${qs}`);
 }
 
+/** Home dashboard — dasexperten.com Ubersuggest snapshot (KV-cached on API). */
+export interface SiteSeoMetrics {
+  domain: string;
+  domain_authority: number;
+  backlinks: number;
+  ref_domains: number;
+  organic_traffic: number;
+  updated_at: number;
+  source: string;
+}
+
+export async function getSiteSeoMetrics(domain = 'dasexperten.com') {
+  return apiGet<SiteSeoMetrics>(`/api/seo/site-metrics?domain=${encodeURIComponent(domain)}`);
+}
+
 export async function getPayment(id: string) {
   return apiGet<Payment>(`/api/payments/${id}`);
 }

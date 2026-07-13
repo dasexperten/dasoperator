@@ -1,7 +1,8 @@
 # das-dashboard — Command-Center Dashboard Pattern
 
-**Status:** Canonical design pattern · approved by owner 2026-07-10
-**Reference implementation:** `web/components/home/ai-visibility-overview.tsx`
+**Status:** Canonical design pattern · approved by owner 2026-07-10  
+**Mobile default:** This pattern is the **global mobile UI language** for Das Operator (all pages &lt;768px). See [mobile-ui.md](./mobile-ui.md).  
+**Reference implementation:** `web/components/home/ai-visibility-overview.tsx`, `web/components/home/ai-crawlers.tsx`  
 **Tokens source:** `web/styles/das-design-tokens.css` (never hard-code values)
 
 ## Anatomy

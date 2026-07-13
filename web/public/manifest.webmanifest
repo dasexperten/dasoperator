@@ -1,0 +1,30 @@
+{
+  "name": "Das Operator",
+  "short_name": "Operator",
+  "description": "Das Experten ERP — innovativ und praktisch",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#282229",
+  "theme_color": "#282229",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/brand/app-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/brand/app-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/brand/app-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

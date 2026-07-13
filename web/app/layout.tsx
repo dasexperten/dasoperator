@@ -9,13 +9,28 @@ export const runtime = 'edge';
 export const metadata: Metadata = {
   title: 'Das Operator',
   description: 'Das Experten ERP — innovativ und praktisch',
+  applicationName: 'Das Operator',
+  manifest: '/manifest.webmanifest',
+  icons: {
+    icon: [
+      { url: '/brand/favicon-32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/brand/app-icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/brand/app-icon-512.png', sizes: '512x512', type: 'image/png' },
+    ],
+    apple: [{ url: '/brand/app-icon-180.png', sizes: '180x180', type: 'image/png' }],
+  },
+  appleWebApp: {
+    capable: true,
+    title: 'Das Operator',
+    statusBarStyle: 'black-translucent',
+  },
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
-  themeColor: '#1a1a1a',
+  themeColor: '#282229',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -230,6 +230,22 @@ All HTML files import `colors_and_type.css` with a relative path. Assets are ref
 
 ---
 
+## Das Operator mobile UI (canonical · 2026-07-13)
+
+Phone chrome for the ERP uses the **das-dashboard** language as the default for every page &lt;768px:
+
+| Doc / asset | Path |
+|---|---|
+| Mobile shell rules | [mobile-ui.md](./mobile-ui.md) |
+| Dashboard pattern (also mobile default) | [das-dashboard.md](./das-dashboard.md) |
+| App icon master (full square) | `assets/app-icon-1024.png` |
+| App icon preview (squircle) | `assets/app-icon-squircle-1024.png` |
+
+Live code: `dasoperator` repo — `web/app/globals.css`, `web/components/layout/mobile-shell.tsx`, `web/public/brand/app-icon-*.png`, `web/public/manifest.webmanifest`.  
+Mirror this folder into **das-architektura/Design/** whenever the system changes.
+
+---
+
 ## Caveats & open questions
 
 1. **No codebase, no Figma.** The UI kits are an informed reinterpretation, not a 1:1 recreation. If a real codebase or Figma exists, attach it and I'll rebuild to match.

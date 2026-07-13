@@ -52,8 +52,10 @@ export default function MobileShell({ children }: { children: React.ReactNode })
         )}
         <div className="flex-1 flex flex-col overflow-hidden">
           <Header onHamburgerClick={() => setDrawerOpen(true)} />
-          <main className="flex-1 overflow-auto">
-            <div className="px-8 py-8">{children}</div>
+          {/* Tricolor ribbon — mobile das-dashboard chrome (hidden on desktop via CSS) */}
+          <div className="dx-mobile-tricolor" aria-hidden="true" />
+          <main className="flex-1 overflow-auto dx-main">
+            <div className="px-8 py-8 dx-main-inner">{children}</div>
           </main>
         </div>
         <BottomNav pathname={pathname} />

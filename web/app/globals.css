@@ -279,11 +279,12 @@ input[type="number"] {
 
 /* ---- 1. Main content frame: reduce padding on mobile ---- */
 @media (max-width: 767px) {
-  main > div {
+  main > div,
+  main > .dx-main-inner {
     padding-left: 16px !important;
     padding-right: 16px !important;
     padding-top: 16px !important;
-    padding-bottom: 80px !important; /* leave room for bottom nav */
+    padding-bottom: 84px !important; /* bottom nav 64 + tricolor 4 + air */
   }
 }
 
@@ -454,7 +455,7 @@ input[type="number"] {
   }
 }
 
-/* ---- 10. Bottom navigation bar — phone-only ---- */
+/* ---- 10. Bottom navigation bar — phone-only (das-dashboard dark chrome) ---- */
 .dx-bottom-nav { display: none; }
 @media (max-width: 767px) {
   .dx-bottom-nav {
@@ -466,8 +467,24 @@ input[type="number"] {
     z-index: 30;
     grid-template-columns: repeat(5, 1fr);
     height: 64px;
-    background-color: var(--brand-schwarz, #1a1a1a);
-    border-top: 1px solid rgba(255,255,255,0.08);
+    background-color: var(--brand-schwarz, #282229);
+    border-top: none;
+  }
+  /* Tricolor top edge — same hard-stop ribbon as das-dashboard */
+  .dx-bottom-nav::before {
+    content: '';
+    position: absolute;
+    top: -4px;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(
+      90deg,
+      var(--brand-schwarz) 0 33.33%,
+      var(--brand-rot) 33.33% 66.66%,
+      var(--brand-gold) 66.66% 100%
+    );
+    pointer-events: none;
   }
   .dx-bottom-nav-item {
     display: flex;
@@ -475,12 +492,14 @@ input[type="number"] {
     align-items: center;
     justify-content: center;
     gap: 4px;
-    color: var(--stone-300, #b8b8b8);
+    color: rgba(251, 250, 246, 0.55);
     text-decoration: none;
     padding: 6px 4px;
+    min-height: 44px;
+    transition: background-color 120ms ease-out, color 120ms ease-out;
   }
   .dx-bottom-nav-item[data-active="true"] {
-    color: var(--paper, #fff);
+    color: var(--paper, #fbfaf6);
     background-color: var(--brand-rot, #e5202c);
   }
   .dx-bottom-nav-item span {
@@ -559,17 +578,18 @@ input[type="number"] {
      </div>
    =========================================================================== */
 
-/* ---- 15. Hide decorative eyebrow + ribbon + subtitle on mobile ---- */
+/* ---- 15. Compact page headers on mobile (keep das-dashboard section chrome) ----
+   Only hide the PAGE-level eyebrow that sits immediately above an <h1>
+   ("Master Data" / "Inventory"). Section titles inside cards/panels
+   (AI Crawlers, Site authority, …) keep their dx-eyebrow-rot — that is
+   the das-dashboard pattern and the mobile default skin.
+   Page-level dx-ribbon-rule between title and content is kept (tricolor). */
 @media (max-width: 767px) {
-  /* "Master Data" / "Inventory" red eyebrow above page title — kill it */
-  .dx-eyebrow-rot {
+  /* Page-header eyebrow only: .dx-eyebrow-rot whose next sibling is h1 */
+  .dx-eyebrow-rot:has(+ h1) {
     display: none !important;
   }
-  /* Three-colour ribbon between title-row and content — kill it */
-  .dx-ribbon-rule {
-    display: none !important;
-  }
-  /* Subtitle line under <h1> ("Loading..." / "20 products · 9 toothpastes...")
+  /* Subtitle line under <h1> ("Loading..." / "20 products · …")
      The recurring pattern is <h1> immediately followed by <p>. Hide that p. */
   h1 + p {
     display: none !important;
@@ -1034,5 +1054,113 @@ input[type="number"] {
     justify-content: center !important;
     padding: 9px 10px !important;
     font-size: 14px !important;
+  }
+}
+
+/* ===========================================================================
+   MOBILE DAS-DASHBOARD DEFAULT SKIN — 2026-07-13
+   Makes the AI-Crawlers / Design/das-dashboard.md visual language the default
+   for EVERY mobile page without per-page rewrites:
+     · paper-sunk canvas behind content
+     · 4px tricolor ribbon under the header
+     · paper-raised metric/list cards with hairline + shadow-card
+     · section rhythm 14px
+   Desktop layout is untouched (all rules gated at max-width: 767px).
+   =========================================================================== */
+
+/* Tricolor strip under header — mobile only */
+.dx-mobile-tricolor {
+  display: none;
+}
+@media (max-width: 767px) {
+  .dx-mobile-tricolor {
+    display: block;
+    flex-shrink: 0;
+    height: 4px;
+    width: 100%;
+    background: linear-gradient(
+      90deg,
+      var(--brand-schwarz) 0 33.33%,
+      var(--brand-rot) 33.33% 66.66%,
+      var(--brand-gold) 66.66% 100%
+    );
+  }
+
+  /* Sunk paper tray — cards read as raised tiles (same as dashboard panels) */
+  main.dx-main,
+  main {
+    background-color: var(--paper-sunk, #f3f0e8) !important;
+  }
+
+  /* Header sits on pure raised paper above the ribbon */
+  .dx-header-main {
+    background-color: var(--paper-raised, #fff) !important;
+    border-bottom: none !important;
+  }
+
+  /* Page-level ribbon between title and body — match hard-stop 4px bar */
+  .dx-ribbon-rule {
+    display: block !important;
+    height: 4px !important;
+    border-radius: 0 !important;
+    margin: 4px 0 14px !important;
+    background: linear-gradient(
+      90deg,
+      var(--brand-schwarz) 0 33.33%,
+      var(--brand-rot) 33.33% 66.66%,
+      var(--brand-gold) 66.66% 100%
+    ) !important;
+  }
+
+  /* Cards & panels inside main: paper-raised + hairline + soft card shadow.
+     Scoped to main so the sticky header (also bg-card) is not rounded. */
+  main .bg-card {
+    background-color: var(--paper-raised, #fff) !important;
+    border: 1px solid var(--border-hairline) !important;
+    border-radius: var(--radius-md, 6px) !important;
+    box-shadow: var(--shadow-card) !important;
+  }
+
+  /* Metric tile grid — denser 14px rhythm like das-dashboard */
+  .dx-metrics-grid {
+    gap: 10px !important;
+  }
+  .dx-metrics-grid > div {
+    background-color: var(--paper-raised, #fff) !important;
+    border: 1px solid var(--border-hairline) !important;
+    border-radius: var(--radius-md, 6px) !important;
+    box-shadow: var(--shadow-card) !important;
+    padding: 14px !important;
+  }
+
+  /* Generic section spacing closer to dashboard 14–16px */
+  .space-y-10 > * + * {
+    margin-top: 16px !important;
+  }
+  .space-y-8 > * + * {
+    margin-top: 14px !important;
+  }
+
+  /* Compact page h1 on mobile — editorial weight */
+  main h1 {
+    font-weight: 900 !important;
+    color: var(--fg-1) !important;
+  }
+
+  /* Emailer owns its full-bleed chrome — don't paint paper-sunk under it */
+  main:has(.dxmail-page) {
+    background-color: transparent !important;
+  }
+}
+
+/* List-table cards — exact das-dashboard tile chrome */
+@media (max-width: 767px) {
+  main table:not(.dx-keep-table) tr {
+    background: var(--paper-raised, #fff) !important;
+    border: 1px solid var(--border-hairline) !important;
+    border-radius: var(--radius-md, 6px) !important;
+    padding: 4px 14px !important;
+    margin-bottom: 10px !important;
+    box-shadow: var(--shadow-card) !important;
   }
 }

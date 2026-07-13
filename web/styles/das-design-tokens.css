@@ -301,7 +301,8 @@ body {
    between the ERP header and (on phones) the ERP bottom nav. */
 .dxmail-page { margin: -32px; height: calc(100dvh - 96px); }
 @media (max-width: 767px) {
-  .dxmail-page { margin: -16px -16px -80px; height: calc(100dvh - 56px - 64px); }
+  /* Matches mobile main padding + bottom nav 64 + tricolor ribbon 4 under header */
+  .dxmail-page { margin: -16px -16px -84px; height: calc(100dvh - 56px - 4px - 64px); }
 }
 
 .dxmail .dxmail-spin { animation: dxmail-rot 0.9s linear infinite; }

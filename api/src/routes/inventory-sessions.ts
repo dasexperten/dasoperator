@@ -190,7 +190,7 @@ inventorySessions.post('/:id/lines', async (c) => {
 
   // Snapshot system_qty from stocks
   const stockRow = await c.env.DB.prepare(
-    'SELECT on_hand FROM stocks WHERE warehouse_id = ? AND product_id = ?'
+    "SELECT on_hand FROM stocks WHERE warehouse_id = ? AND product_id = ? AND stock_state = 'on_hand'"
   ).bind(session.warehouse_id, productId).first<{ on_hand: number }>();
   const systemQty = stockRow?.on_hand ?? 0;
 

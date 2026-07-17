@@ -462,9 +462,6 @@ body {
 }
 
 /* Agents / Departments accordion in sidebar */
-.dxmail .sidebar {
-  overflow-y: auto;
-}
 .dxmail .nav-section-h {
   display: flex;
   align-items: center;

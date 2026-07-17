@@ -31,7 +31,10 @@
 1. **No "Pipes"** — use the label **Departments**.
 2. **No `dr.badalyan@` in Agents** — Owner personal mail is not an agent folder. It is obvious it is the Owner.
 3. **Agent avatars** — whenever a row/folder is a named agent (from or mailbox), show small circular portrait from  
-   `https://www.dasexperten.com/assets/agents/{slug}.png` (40–48px). Do not invent faces if CDN 404.
+   `https://www.dasexperten.com/assets/agents/{slug}.png` (40–48px). Do not invent faces if CDN 404.  
+   **Masters SSOT:** `dasexperten/organizacia` → `avatars/{slug}.png`.  
+   **Publish:** `dasexperten.com` repo `tools/publish_agent_avatars.py` → `site/com/assets/agents/` → Cloudflare Pages project `dasexperten-com` (direct upload; push alone does not deploy).  
+   **Mina slug:** CDN canonical = `mina-rutunya.png` (+ alias `mina.png`). Emailer registry uses `mina-rutunya`.
 4. **Threads** — list is grouped by counterparty; open thread = back-and-forth (received + sent) for that contact on the selected mailbox.
 5. **Empty mailboxes stay visible** — 0 messages, not hidden.
 6. **Resizable list | preview** — desktop: drag the vertical splitter between the message list and the message detail pane left/right; width persisted in `localStorage`.

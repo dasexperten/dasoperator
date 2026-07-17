@@ -32,7 +32,8 @@ export const AGENT_MAILBOXES: UiMailbox[] = [
   { address: 'julian@dasexperten.com', kind: 'agent', slug: 'julian-farah', label: 'Julian Farah', role: 'GEO Specialist' },
   { address: 'lena@dasexperten.com', kind: 'agent', slug: 'lena-sergeeva', label: 'Lena Sergeeva', role: 'Central Executive Officer' },
   { address: 'alexandra@dasexperten.com', kind: 'agent', slug: 'alexandra-obnorskaya', label: 'Alexandra Obnorskaya', role: 'Marketplaces' },
-  { address: 'mina@dasexperten.com', kind: 'agent', slug: 'mina', label: 'Mina', role: 'Sysadmin' },
+  // CDN file is mina-rutunya.png (alias mina.png also published). Prefer canonical slug.
+  { address: 'mina@dasexperten.com', kind: 'agent', slug: 'mina-rutunya', label: 'Mina', role: 'Sysadmin' },
   { address: 'zina@dasexperten.com', kind: 'agent', slug: 'zina-pevtsova', label: 'Zina Pevtsova', role: 'Logistics' },
   { address: 'maya@dasexperten.com', kind: 'agent', slug: 'maya-krasochkina', label: 'Maya Krasochkina', role: 'Operations' },
   { address: 'dasha@dasexperten.com', kind: 'agent', slug: 'dasha-kozlovskaya', label: 'Dasha Kozlovskaya', role: 'Ozon Specialist' },

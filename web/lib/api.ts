@@ -2752,6 +2752,37 @@ export async function getMailboxes() {
   return apiGet<{ mailboxes: MailboxSummary[] }>('/api/email/mailboxes');
 }
 
+/** Agents + Departments accordion data (registry + R2 counts). Owner not included. */
+export async function getEmailNav() {
+  return apiGet<{
+    agents: Array<{
+      address: string;
+      label: string;
+      role: string | null;
+      slug: string | null;
+      avatar_url: string | null;
+      count: number;
+      last_activity: string | null;
+    }>;
+    departments: Array<{
+      address: string;
+      label: string;
+      role: string | null;
+      slug: string | null;
+      avatar_url: string | null;
+      count: number;
+      last_activity: string | null;
+    }>;
+    owner: {
+      address: string;
+      show_in_ui: false;
+      inbound: 'forward_gmail';
+      forward_to: string;
+      note: string;
+    };
+  }>('/api/email/nav');
+}
+
 export async function getMailboxMessages(address: string) {
   return apiGet<{ address: string; entries: MailboxIndexEntry[] }>(
     `/api/email/mailboxes/${encodeURIComponent(address)}`

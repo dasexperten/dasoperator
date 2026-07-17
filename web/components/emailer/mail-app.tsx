@@ -18,6 +18,7 @@ import {
   Search, Star, Archive, Trash2, Send, Inbox as InboxIcon,
   FileText, Paperclip, Plus, Reply, Forward, ChevronLeft, ArrowLeft,
   MoreHorizontal, MoreVertical, Mail, TrendingUp, AlertCircle, X, Undo2, Loader2,
+  ChevronDown, Users, Building2,
 } from 'lucide-react';
 import {
   getMailboxes,
@@ -28,6 +29,16 @@ import {
   sendReply,
 } from '@/lib/api';
 import { correspondent, displayName, emailAddr } from './shared';
+import {
+  AGENT_MAILBOXES,
+  DEPARTMENT_MAILBOXES,
+  COMPOSE_FROM_ADDRESSES,
+  OWNER_PERSONAL,
+  agentAvatarUrl,
+  addressesForMailbox,
+  findUiMailbox,
+  type UiMailbox,
+} from './mailbox-registry';
 
 /* ---------- Das Experten logo mark (three-ribbon app icon) ---------- */
 function LogoMark({ size = 38 }: { size?: number }) {
@@ -70,14 +81,83 @@ const TAG_STYLES: Array<{ bg: string; fg: string; dot: string }> = [
 const TAG_SYSTEM = { bg: '#F1F3F5', fg: '#5B6B7A', dot: '#93A1AE' };
 const AVA_COLORS = ['#17BF50', '#7B61FF', '#1B84FF', '#F0447C', '#F5920A'];
 
-const APEX_SENDERS = [
-  'sales@dasexperten.com',
-  'support@dasexperten.com',
-  'emea@dasexperten.com',
-  'eurasia@dasexperten.com',
-  'asean@dasexperten.com',
-  'dr.badalyan@dasexperten.com',
-];
+// Compose From = departments + agents. Owner personal (dr.badalyan@) is
+// excluded — personal mail is Gmail-only, not an ERP agent folder.
+const APEX_SENDERS = COMPOSE_FROM_ADDRESSES;
+
+const LS_LIST_WIDTH = 'dx_mail_list_width_v1';
+const LIST_WIDTH_DEFAULT = 372;
+const LIST_WIDTH_MIN = 280;
+const LIST_WIDTH_MAX = 720;
+
+function loadListWidth(): number {
+  if (typeof window === 'undefined') return LIST_WIDTH_DEFAULT;
+  try {
+    const n = Number(window.localStorage.getItem(LS_LIST_WIDTH));
+    if (Number.isFinite(n) && n >= LIST_WIDTH_MIN && n <= LIST_WIDTH_MAX) return n;
+  } catch { /* ignore */ }
+  return LIST_WIDTH_DEFAULT;
+}
+
+/** Desktop: drag handle between list and detail (left/right). */
+function useListPaneResize() {
+  const [listWidth, setListWidth] = useState(LIST_WIDTH_DEFAULT);
+  useEffect(() => { setListWidth(loadListWidth()); }, []);
+
+  const onSplitterDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = listWidth;
+    const onMove = (ev: MouseEvent) => {
+      const next = Math.min(LIST_WIDTH_MAX, Math.max(LIST_WIDTH_MIN, startW + (ev.clientX - startX)));
+      setListWidth(next);
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      setListWidth((w) => {
+        try { window.localStorage.setItem(LS_LIST_WIDTH, String(w)); } catch { /* ignore */ }
+        return w;
+      });
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [listWidth]);
+
+  return { listWidth, onSplitterDown };
+}
+
+type MailboxScope = null | { kind: 'agent' | 'department'; address: string };
+
+function AgentAvatar({ slug, label, size = 28 }: { slug?: string; label: string; size?: number }) {
+  const [broken, setBroken] = useState(false);
+  if (!slug || broken) {
+    return (
+      <span
+        className="nav-ava nav-ava-fallback"
+        style={{ width: size, height: size, fontSize: Math.max(10, size * 0.36) }}
+        aria-hidden
+      >
+        {initialsOf(label)}
+      </span>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      className="nav-ava"
+      src={agentAvatarUrl(slug)}
+      width={size}
+      height={size}
+      alt=""
+      onError={() => setBroken(true)}
+    />
+  );
+}
 
 function hashIdx(seed: string, mod: number): number {
   let h = 0;
@@ -188,11 +268,15 @@ function useMailData() {
         setRaw([]);
         return;
       }
+      // Skip Owner personal if any legacy R2 index still exists.
+      const addresses = mb.result.mailboxes
+        .map((m) => m.address)
+        .filter((a) => a.toLowerCase() !== OWNER_PERSONAL);
       const lists = await Promise.all(
-        mb.result.mailboxes.map(async (m) => {
+        addresses.map(async (address) => {
           try {
-            const r = await getMailboxMessages(m.address);
-            return r.success && r.result ? r.result.entries.map((e) => ({ ...e, mailbox: m.address })) : [];
+            const r = await getMailboxMessages(address);
+            return r.success && r.result ? r.result.entries.map((e) => ({ ...e, mailbox: address })) : [];
           } catch {
             return [];
           }
@@ -442,7 +526,20 @@ function subjSizeClass(subject: string): string {
 
 function replyFromFor(item: MailItem): string {
   const mb = item.mailbox.toLowerCase();
+  if (mb === OWNER_PERSONAL) return 'sales@dasexperten.com';
   return APEX_SENDERS.includes(mb) ? mb : 'sales@dasexperten.com';
+}
+
+function mailboxUnread(items: MailItem[], m: UiMailbox): number {
+  const set = new Set(addressesForMailbox(m));
+  return items.filter((i) => i.folder === 'inbox' && i.unread && set.has(i.mailbox.toLowerCase())).length;
+}
+
+function matchesScope(item: MailItem, scope: MailboxScope): boolean {
+  if (!scope) return true;
+  const def = findUiMailbox(scope.address);
+  if (!def) return item.mailbox.toLowerCase() === scope.address.toLowerCase();
+  return addressesForMailbox(def).includes(item.mailbox.toLowerCase());
 }
 
 function BodyView({ item, body, loading }: { item: MailItem; body: { text?: string; html?: string } | null; loading: boolean }) {
@@ -544,9 +641,14 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
   const [replyText, setReplyText] = useState('');
   const [replySending, setReplySending] = useState(false);
   const replyRef = useRef<HTMLInputElement>(null);
+  const [scope, setScope] = useState<MailboxScope>(null);
+  const [agentsOpen, setAgentsOpen] = useState(true);
+  const [deptsOpen, setDeptsOpen] = useState(true);
+  const { listWidth, onSplitterDown } = useListPaneResize();
 
   const visible = useMemo(() => {
     let list = items.filter((e) => (activeFolder === 'starred' ? e.starred && e.folder !== 'archive' : e.folder === activeFolder));
+    list = list.filter((e) => matchesScope(e, scope));
     if (query.trim()) {
       const q = query.toLowerCase();
       list = list.filter(
@@ -554,7 +656,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
       );
     }
     return list;
-  }, [items, activeFolder, query]);
+  }, [items, activeFolder, query, scope]);
 
   const selected = items.find((e) => e.id === selectedId) || null;
   const { body, loading: bodyLoading } = useMailBody(selected);
@@ -634,16 +736,84 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
 
           {FOLDERS.map((f) => {
             const Icon = f.icon;
-            const active = activeFolder === f.id;
+            const active = activeFolder === f.id && !scope;
             const count = f.id === 'inbox' ? inboxUnread : 0;
             return (
-              <div key={f.id} className={`folder ${active ? 'active' : ''}`} onClick={() => { setActiveFolder(f.id); setSelectedId(null); sel.clear(); }}>
+              <div
+                key={f.id}
+                className={`folder ${active ? 'active' : ''}`}
+                onClick={() => { setActiveFolder(f.id); setScope(null); setSelectedId(null); sel.clear(); }}
+              >
                 <Icon size={16} strokeWidth={2.4} />
                 {f.label}
                 {count > 0 && <span className="fcount">{count}</span>}
               </div>
             );
           })}
+
+          {/* Agents accordion — no dr.badalyan (Owner reads Gmail) */}
+          <button type="button" className={`nav-section-h ${agentsOpen ? 'open' : ''}`} onClick={() => setAgentsOpen((v) => !v)}>
+            <Users size={14} strokeWidth={2.4} />
+            <span>Agents</span>
+            <ChevronDown size={14} className="nav-chevron" />
+          </button>
+          {agentsOpen && (
+            <div className="nav-section-body">
+              {AGENT_MAILBOXES.map((m) => {
+                const active = scope?.kind === 'agent' && scope.address === m.address;
+                const u = mailboxUnread(items, m);
+                return (
+                  <div
+                    key={m.address}
+                    className={`folder nav-person ${active ? 'active' : ''}`}
+                    title={m.address}
+                    onClick={() => {
+                      setScope({ kind: 'agent', address: m.address });
+                      setActiveFolder('inbox');
+                      setSelectedId(null);
+                      sel.clear();
+                    }}
+                  >
+                    <AgentAvatar slug={m.slug} label={m.label} size={26} />
+                    <span className="nav-person-label">{m.label.split(' ')[0]}</span>
+                    {u > 0 && <span className="fcount">{u}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Departments (not "pipes") */}
+          <button type="button" className={`nav-section-h ${deptsOpen ? 'open' : ''}`} onClick={() => setDeptsOpen((v) => !v)}>
+            <Building2 size={14} strokeWidth={2.4} />
+            <span>Departments</span>
+            <ChevronDown size={14} className="nav-chevron" />
+          </button>
+          {deptsOpen && (
+            <div className="nav-section-body">
+              {DEPARTMENT_MAILBOXES.map((m) => {
+                const active = scope?.kind === 'department' && scope.address === m.address;
+                const u = mailboxUnread(items, m);
+                return (
+                  <div
+                    key={m.address}
+                    className={`folder nav-person ${active ? 'active' : ''}`}
+                    title={m.address}
+                    onClick={() => {
+                      setScope({ kind: 'department', address: m.address });
+                      setActiveFolder('inbox');
+                      setSelectedId(null);
+                      sel.clear();
+                    }}
+                  >
+                    <span className="nav-dept-dot" aria-hidden />
+                    <span className="nav-person-label">{m.label}</span>
+                    {u > 0 && <span className="fcount">{u}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           <div className="sidebar-note">
             {urgentNote.length > 0 ? (
@@ -655,8 +825,8 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
           </div>
         </div>
 
-        {/* List */}
-        <div className="list">
+        {/* List — width resizable via splitter to the right */}
+        <div className="list" style={{ width: listWidth }}>
           <div className="search-wrap">
             <div className="search">
               <Search size={14} color="#93A1AE" />
@@ -713,6 +883,18 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
           </div>
         </div>
 
+        {/* Resizable boundary between list and email preview (drag left/right) */}
+        <div
+          className="pane-splitter"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Изменить ширину списка писем"
+          aria-valuenow={listWidth}
+          aria-valuemin={LIST_WIDTH_MIN}
+          aria-valuemax={LIST_WIDTH_MAX}
+          onMouseDown={onSplitterDown}
+        />
+
         {/* Detail */}
         <div className="detail">
           {selected ? (
@@ -720,7 +902,13 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
               <div className="dcard">
                 <div className="dhead">
                   <button className="back-btn" onClick={() => setSelectedId(null)} aria-label="Закрыть письмо"><ChevronLeft size={16} /></button>
-                  <div className="ava" style={{ background: selected.color, width: 44, height: 44, fontSize: 14 }}>{selected.initial}</div>
+                  {(() => {
+                    const mb = findUiMailbox(selected.mailbox);
+                    if (mb?.kind === 'agent' && mb.slug) {
+                      return <AgentAvatar slug={mb.slug} label={mb.label} size={44} />;
+                    }
+                    return <div className="ava" style={{ background: selected.color, width: 44, height: 44, fontSize: 14 }}>{selected.initial}</div>;
+                  })()}
                   <div style={{ minWidth: 0 }}>
                     <div className={`dsub ${subjSizeClass(selected.subject)}`}>{selected.subject}</div>
                     <div className="dmeta">{selected.from} · {selected.org} · {selected.time}</div>

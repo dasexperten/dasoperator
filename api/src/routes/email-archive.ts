@@ -18,6 +18,13 @@ import { ok, fail } from '../lib/responses';
 import { validateSession } from '../lib/auth';
 import type { IndexEntry } from '../lib/inbox-archive';
 import { callFlash } from '../lib/llm';
+import {
+  agentsForUi,
+  departmentsForUi,
+  agentAvatarUrl,
+  OWNER_PERSONAL_ADDRESS,
+  OWNER_GMAIL_FORWARD,
+} from '../lib/mailbox-registry';
 
 const route = new Hono<{ Bindings: Env }>();
 
@@ -41,6 +48,7 @@ function normalizeAddress(raw: string): string {
 
 // -----------------------------------------------------------------------------
 // GET /mailboxes — every mailbox that has an Inbox/<address>.json index.
+// Owner personal (dr.badalyan@) is filtered out of the list — Gmail-only.
 // Index files sit directly under the Inbox/ prefix (no further "/"), so a
 // delimited list() call separates them from the per-mailbox sent/received
 // subfolders in one pass.
@@ -74,8 +82,72 @@ route.get('/mailboxes', async (c) => {
       return { address, count, last_activity: lastActivity };
     }));
 
-    mailboxes.sort((a, b) => (b.last_activity || '').localeCompare(a.last_activity || ''));
-    return ok(c, { mailboxes });
+    // Never surface Owner personal mailbox in ERP mail lists.
+    const filtered = mailboxes.filter(
+      (m) => m.address.toLowerCase() !== OWNER_PERSONAL_ADDRESS,
+    );
+    filtered.sort((a, b) => (b.last_activity || '').localeCompare(a.last_activity || ''));
+    return ok(c, { mailboxes: filtered });
+  } catch (err) {
+    return fail(c, 500, [{ code: 'r2_error', message: err instanceof Error ? err.message : String(err) }]);
+  }
+});
+
+// -----------------------------------------------------------------------------
+// GET /nav — Agents + Departments for /emailer accordion (registry + R2 counts).
+// Always returns full agent/department sets even when R2 is empty (count 0).
+// Owner personal is never included.
+// -----------------------------------------------------------------------------
+route.get('/nav', async (c) => {
+  if (!(await requireSession(c))) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+
+  try {
+    const listed = await c.env.ARCHIVE.list({ prefix: 'Inbox/', delimiter: '/' });
+    const indexKeys = listed.objects
+      .map((o) => o.key)
+      .filter((k) => k.endsWith('.json') && !k.slice('Inbox/'.length).includes('/'));
+
+    const countBy = new Map<string, { count: number; last_activity: string | null }>();
+    await Promise.all(indexKeys.map(async (key) => {
+      const address = key.slice('Inbox/'.length, -'.json'.length).toLowerCase();
+      if (address === OWNER_PERSONAL_ADDRESS) return;
+      try {
+        const obj = await c.env.ARCHIVE.get(key);
+        if (!obj) return;
+        const entries: IndexEntry[] = JSON.parse(await obj.text());
+        if (!Array.isArray(entries)) return;
+        const last = entries.reduce<string | null>(
+          (max, e) => (!max || e.timestamp > max ? e.timestamp : max),
+          null,
+        );
+        countBy.set(address, { count: entries.length, last_activity: last });
+      } catch { /* skip corrupt */ }
+    }));
+
+    const mapEntry = (m: ReturnType<typeof agentsForUi>[number]) => {
+      const meta = countBy.get(m.address.toLowerCase()) || { count: 0, last_activity: null };
+      return {
+        address: m.address,
+        label: m.label,
+        role: m.role ?? null,
+        slug: m.slug ?? null,
+        avatar_url: m.slug ? agentAvatarUrl(m.slug) : null,
+        count: meta.count,
+        last_activity: meta.last_activity,
+      };
+    };
+
+    return ok(c, {
+      agents: agentsForUi().map(mapEntry),
+      departments: departmentsForUi().map(mapEntry),
+      owner: {
+        address: OWNER_PERSONAL_ADDRESS,
+        show_in_ui: false,
+        inbound: 'forward_gmail',
+        forward_to: OWNER_GMAIL_FORWARD,
+        note: 'Owner personal mail is read in Gmail only; not listed under Agents.',
+      },
+    });
   } catch (err) {
     return fail(c, 500, [{ code: 'r2_error', message: err instanceof Error ? err.message : String(err) }]);
   }

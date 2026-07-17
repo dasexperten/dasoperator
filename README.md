@@ -66,7 +66,9 @@ from:
 
 - `EMAILER` (Apps Script/Gmail bridge) — human-facing mail on the main
   `dasexperten.com` mailboxes (`sales@`, `support@`, `emea@`, `asean@`, `eurasia@`).
-- Cloudflare Email Routing on `dasexperten.com` — inbound forwarding only.
+- Cloudflare Email Routing on `dasexperten.com` — inbound to Worker (R2 archive)
+  except Owner personal `dr.badalyan@` → **forward** `dasexperten@gmail.com`.
+  ERP UI: Agents + Departments (not "pipes"); see `docs/EMAILER_AGENTS_DEPARTMENTS.md`.
 
 Do not mix these systems: automated mail always goes out via `EMAIL`, never
 via the human mailboxes above.

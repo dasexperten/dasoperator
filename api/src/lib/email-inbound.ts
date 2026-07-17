@@ -17,9 +17,14 @@
 
 import PostalMime from 'postal-mime';
 import { archiveEmail } from './inbox-archive';
+import { isOwnerGmailOnly, OWNER_PERSONAL_ADDRESS, OWNER_GMAIL_FORWARD } from './mailbox-registry';
 import type { Env } from '../types';
 
 // ForwardableEmailMessage is a global type from @cloudflare/workers-types.
+//
+// Owner 2026-07-17: dr.badalyan@dasexperten.com is CF-forwarded to
+// dasexperten@gmail.com and must NOT be archived into R2 or shown under
+// Agents in /emailer. See docs/EMAILER_AGENTS_DEPARTMENTS.md.
 
 function headerList(value: string | undefined): string[] | undefined {
   if (!value) return undefined;
@@ -64,6 +69,22 @@ export async function handleInboundEmail(
   // The mailbox this record belongs to = the recipient address Cloudflare
   // routed to us (matches how `sent` records key on the From address).
   const mailbox = (message.to || '').trim().toLowerCase();
+
+  // Owner personal → Gmail only (CF Email Routing forward). If a catch-all
+  // or mis-rule still delivers here, drop without R2 archive.
+  if (isOwnerGmailOnly(mailbox) || mailbox === OWNER_PERSONAL_ADDRESS) {
+    console.log(
+      JSON.stringify({
+        scope: 'email-inbound',
+        success: true,
+        skipped: 'owner_gmail_forward',
+        mailbox,
+        forward_to: OWNER_GMAIL_FORWARD,
+        from: message.from,
+      }),
+    );
+    return;
+  }
 
   try {
     const raw = await readRaw(message.raw, message.rawSize);

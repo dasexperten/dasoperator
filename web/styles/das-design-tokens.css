@@ -373,6 +373,7 @@ body {
   border-right: 1px solid var(--line);
   display: flex; flex-direction: column;
   padding: 16px 12px;
+  overflow-y: auto;
 }
 .dxmail .compose {
   background: var(--green);
@@ -422,8 +423,114 @@ body {
 .dxmail .list {
   width: 372px; flex-shrink: 0;
   background: var(--white);
-  border-right: 1px solid var(--line);
+  /* border handled by .pane-splitter */
   display: flex; flex-direction: column;
+  min-width: 280px;
+  max-width: 720px;
+}
+
+/* Vertical drag handle: list | preview — Owner 2026-07-17 */
+.dxmail .pane-splitter {
+  flex-shrink: 0;
+  width: 6px;
+  margin: 0 -1px;
+  cursor: col-resize;
+  position: relative;
+  z-index: 2;
+  background: transparent;
+  touch-action: none;
+}
+.dxmail .pane-splitter::before {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0;
+  left: 2px;
+  width: 1px;
+  background: var(--line);
+  transition: background 0.12s ease, width 0.12s ease, left 0.12s ease;
+}
+.dxmail .pane-splitter:hover::before,
+.dxmail .pane-splitter:active::before {
+  left: 1px;
+  width: 3px;
+  background: var(--green);
+  border-radius: 2px;
+}
+.dxmail .pane-splitter:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: -1px;
+}
+
+/* Agents / Departments accordion in sidebar */
+.dxmail .sidebar {
+  overflow-y: auto;
+}
+.dxmail .nav-section-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 12px 0 4px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  font-family: 'Manrope', sans-serif;
+  font-weight: 800;
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+}
+.dxmail .nav-section-h:hover { background: var(--panel); color: var(--navy); }
+.dxmail .nav-section-h .nav-chevron {
+  margin-left: auto;
+  transition: transform 0.15s ease;
+  transform: rotate(-90deg);
+}
+.dxmail .nav-section-h.open .nav-chevron { transform: rotate(0deg); }
+.dxmail .nav-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 4px;
+}
+.dxmail .nav-person {
+  padding-left: 10px !important;
+  padding-right: 8px !important;
+  font-size: 12.5px !important;
+}
+.dxmail .nav-person-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.dxmail .nav-ava {
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  display: block;
+  background: var(--panel);
+}
+.dxmail .nav-ava-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--green-soft);
+  color: var(--green-dark);
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.dxmail .nav-dept-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--green);
+  flex-shrink: 0;
+  opacity: 0.85;
 }
 .dxmail .search-wrap { padding: 14px 14px 10px 14px; border-bottom: 1px solid var(--line); }
 .dxmail .search {

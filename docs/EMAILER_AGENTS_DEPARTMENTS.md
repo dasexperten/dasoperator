@@ -72,10 +72,12 @@ Destination address on Cloudflare account is verified: `dasexperten@gmail.com`.
 
 ---
 
-## 5. Desktop layout — resizable panes
+## 5. Desktop layout — resizable panes + ERP nav collapse
+
+### Mail panes (inside `/emailer`)
 
 ```
-[ Sidebar |  List  ‹drag›  Detail preview ]
+[ Mail folders |  List  ‹drag›  Detail preview ]
 ```
 
 - Default list width: **372px** (mockup).
@@ -83,7 +85,19 @@ Destination address on Cloudflare account is verified: `dasexperten@gmail.com`.
 - Handle class: `.dxmail .pane-splitter`.
 - Persist: `localStorage` key `dx_mail_list_width_v1`.
 
-Mobile keeps single-column swipe UI (no splitter).
+### ERP left sidebar (app chrome)
+
+On `/emailer` desktop, header button **«Скрыть меню» / «Меню»** collapses the **Das Operator** left nav (`aside.dx-sidebar`) so mail can use full width.
+
+| | |
+|---|---|
+| Control | Header toggle (PanelLeftClose / PanelLeftOpen) |
+| Scope | **Only while** pathname is `/emailer` — other ERP pages always show full nav |
+| Persist | `localStorage` `dx_emailer_erp_nav_collapsed_v1` (`1` = collapsed) |
+| CSS | `aside.dx-sidebar[data-desktop-collapsed="true"]` |
+| Mobile | N/A (drawer hamburger already) |
+
+Mobile keeps single-column swipe UI (no mail splitter; no ERP collapse control).
 
 ---
 
@@ -100,3 +114,4 @@ Mobile keeps single-column swipe UI (no splitter).
 | Date | Change |
 |---|---|
 | 2026-07-17 | Agents + Departments nav; exclude Owner from UI; `dr.badalyan` → Gmail forward documented; resizable list/detail splitter |
+| 2026-07-17 | Desktop: toggle collapse ERP left sidebar on `/emailer` for more reading space |

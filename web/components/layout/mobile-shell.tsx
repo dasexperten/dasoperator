@@ -17,13 +17,25 @@ import { getUser, hasModuleAccess } from '@/lib/auth';
  *
  * Sidebar + Header + BottomNav are filtered by role.
  */
+const LS_EMAILER_NAV = 'dx_emailer_erp_nav_collapsed_v1';
+
 export default function MobileShell({ children }: { children: React.ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Desktop ERP left nav collapse — used on /emailer for more reading space.
+  const [emailerNavCollapsed, setEmailerNavCollapsed] = useState(false);
   const pathname = usePathname();
+  const isEmailer = pathname === '/emailer' || pathname.startsWith('/emailer/');
 
   useEffect(() => {
     setDrawerOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      setEmailerNavCollapsed(window.localStorage.getItem(LS_EMAILER_NAV) === '1');
+    } catch { /* ignore */ }
+  }, []);
 
   useEffect(() => {
     if (drawerOpen) {
@@ -34,6 +46,19 @@ export default function MobileShell({ children }: { children: React.ReactNode })
     return () => { document.body.style.overflow = ''; };
   }, [drawerOpen]);
 
+  const toggleEmailerNav = () => {
+    setEmailerNavCollapsed((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(LS_EMAILER_NAV, next ? '1' : '0');
+      } catch { /* ignore */ }
+      return next;
+    });
+  };
+
+  // Only collapse the ERP sidebar while on emailer (desktop). Other routes stay full nav.
+  const desktopNavCollapsed = isEmailer && emailerNavCollapsed;
+
   // /login renders standalone (no shell)
   if (pathname === '/login') {
     return <AuthGate>{children}</AuthGate>;
@@ -41,8 +66,11 @@ export default function MobileShell({ children }: { children: React.ReactNode })
 
   return (
     <AuthGate>
-      <div className="flex h-screen">
-        <Sidebar mobileOpen={drawerOpen} />
+      <div
+        className="flex h-screen"
+        data-emailer-nav-collapsed={desktopNavCollapsed ? 'true' : 'false'}
+      >
+        <Sidebar mobileOpen={drawerOpen} desktopCollapsed={desktopNavCollapsed} />
         {drawerOpen && (
           <div
             className="dx-sidebar-backdrop"
@@ -50,8 +78,13 @@ export default function MobileShell({ children }: { children: React.ReactNode })
             aria-hidden="true"
           />
         )}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <Header onHamburgerClick={() => setDrawerOpen(true)} />
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+          <Header
+            onHamburgerClick={() => setDrawerOpen(true)}
+            showEmailerNavToggle={isEmailer}
+            emailerNavCollapsed={emailerNavCollapsed}
+            onEmailerNavToggle={toggleEmailerNav}
+          />
           {/* Tricolor ribbon — mobile das-dashboard chrome (hidden on desktop via CSS) */}
           <div className="dx-mobile-tricolor" aria-hidden="true" />
           <main className="flex-1 overflow-auto dx-main">

@@ -427,6 +427,55 @@ input[type="number"] {
 }
 @media (min-width: 768px) {
   .dx-sidebar-backdrop { display: none; }
+
+  /* /emailer: collapse ERP left nav for more mail reading space (Owner 2026-07-17) */
+  aside.dx-sidebar[data-desktop-collapsed="true"] {
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: hidden !important;
+    border: none !important;
+    opacity: 0;
+    pointer-events: none;
+    transition: width 180ms ease, opacity 140ms ease, min-width 180ms ease;
+  }
+  aside.dx-sidebar {
+    transition: width 180ms ease, opacity 140ms ease, min-width 180ms ease;
+  }
+
+  .dx-emailer-nav-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border-hairline, #e5e7eb);
+    background: var(--card, #fff);
+    color: var(--fg-1, #111);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  }
+  .dx-emailer-nav-toggle:hover {
+    border-color: var(--brand-gold, #c4a35a);
+    background: #faf8f4;
+  }
+  .dx-emailer-nav-toggle[aria-pressed="true"] {
+    border-color: #17BF50;
+    color: #109A3F;
+    background: #EAF9F0;
+  }
+}
+
+/* Mobile: no desktop collapse control (hamburger drawer is enough) */
+@media (max-width: 767px) {
+  .dx-emailer-nav-toggle { display: none !important; }
 }
 
 /* ---- 9. Header tweaks for mobile ---- */

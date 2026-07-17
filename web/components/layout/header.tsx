@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Search, Menu } from 'lucide-react';
+import { Search, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 /**
  * Header — top of the main content area.
@@ -9,6 +9,7 @@ import { Search, Menu } from 'lucide-react';
  * Desktop:
  *  - 32px schwarz ribbon row with "ERP Portal · Internal use only · clock"
  *  - 64px main row with search input + entity list "DEE / DEI / DASEAN / DEC"
+ *  - On /emailer: toggle to collapse/expand the ERP left sidebar (more mail space)
  *
  * Mobile:
  *  - Ribbon hidden via dx-header-ribbon → display:none
@@ -19,8 +20,20 @@ import { Search, Menu } from 'lucide-react';
  * Props:
  *   onHamburgerClick — fires when the mobile hamburger is tapped.
  *                      Opens the sidebar drawer.
+ *   showEmailerNavToggle / emailerNavCollapsed / onEmailerNavToggle —
+ *                      desktop ERP sidebar collapse on /emailer only.
  */
-export default function Header({ onHamburgerClick }: { onHamburgerClick?: () => void }) {
+export default function Header({
+  onHamburgerClick,
+  showEmailerNavToggle = false,
+  emailerNavCollapsed = false,
+  onEmailerNavToggle,
+}: {
+  onHamburgerClick?: () => void;
+  showEmailerNavToggle?: boolean;
+  emailerNavCollapsed?: boolean;
+  onEmailerNavToggle?: () => void;
+}) {
   const [now, setNow] = useState<string>('');
 
   useEffect(() => {
@@ -79,6 +92,27 @@ export default function Header({ onHamburgerClick }: { onHamburgerClick?: () => 
           >
             <Menu className="h-6 w-6" />
           </button>
+
+          {/* Desktop: collapse ERP left nav on /emailer for more reading width */}
+          {showEmailerNavToggle && (
+            <button
+              type="button"
+              className="dx-emailer-nav-toggle"
+              onClick={onEmailerNavToggle}
+              aria-pressed={emailerNavCollapsed}
+              aria-label={emailerNavCollapsed ? 'Show ERP navigation' : 'Hide ERP navigation'}
+              title={emailerNavCollapsed ? 'Показать меню ERP' : 'Скрыть меню ERP — больше места для почты'}
+            >
+              {emailerNavCollapsed ? (
+                <PanelLeftOpen className="h-5 w-5" strokeWidth={2.2} />
+              ) : (
+                <PanelLeftClose className="h-5 w-5" strokeWidth={2.2} />
+              )}
+              <span className="dx-emailer-nav-toggle-label">
+                {emailerNavCollapsed ? 'Меню' : 'Скрыть меню'}
+              </span>
+            </button>
+          )}
 
           {/* Mobile-only brand mark — replaces the search bar visually */}
           <div

@@ -36,7 +36,14 @@ const NAV_ITEMS: NavItem[] = [
  * Items the user cannot access are hidden entirely.
  * Footer shows user name + role + logout button.
  */
-export default function Sidebar({ mobileOpen = false }: { mobileOpen?: boolean }) {
+export default function Sidebar({
+  mobileOpen = false,
+  desktopCollapsed = false,
+}: {
+  mobileOpen?: boolean;
+  /** Desktop only: hide ERP nav while reading /emailer for more width. */
+  desktopCollapsed?: boolean;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -88,6 +95,8 @@ export default function Sidebar({ mobileOpen = false }: { mobileOpen?: boolean }
       className="dx-sidebar w-60 flex flex-col text-paper"
       style={{ backgroundColor: 'var(--brand-schwarz)' }}
       data-mobile-open={mobileOpen ? 'true' : 'false'}
+      data-desktop-collapsed={desktopCollapsed ? 'true' : 'false'}
+      aria-hidden={desktopCollapsed ? true : undefined}
     >
       <div className="px-5 pt-6 pb-5">
         <div

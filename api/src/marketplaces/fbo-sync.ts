@@ -29,9 +29,11 @@
 //     blocks, and ingestWb() as the bring-your-own-payload relay — fetch the
 //     two WB JSONs from any unthrottled IP and POST them to /fbo/ingest-wb.
 
+import { fetchWbStat } from '../lib/wb-stat-cache';
+
 export interface FboEnv {
   DB: D1Database;
-  CACHE?: KVNamespace; // sync mutex lives here when bound
+  CACHE?: KVNamespace; // sync mutex + shared WB raw-feed cache live here
   OZON_CLIENT_ID: string;
   OZON_API_KEY: string;
   WB_API_TOKEN: string;
@@ -308,10 +310,26 @@ async function syncOzonSales(env: FboEnv, lookup: ClusterLookup): Promise<{ rows
 
 // -------------------------------------------------------------------- WB
 
-const wbHeaders = (env: FboEnv) => ({ Authorization: env.WB_API_TOKEN });
-
 // Pure aggregation halves, shared by the live fetch path and ingestWb()
 // (bring-your-own-payload relay for when WB throttles Cloudflare egress).
+
+// WB's stocks-report regionName -> our cluster vocabulary. Derived from the
+// existing fbo_cluster_map assignments (Екатеринбург/Челябинск/Астана are
+// Восточный, Казань/Самара are Волга, Минск is Центральный). Used as a
+// fallback when a warehouse name is not in fbo_cluster_map — the new
+// endpoint spells many names differently than the old supplier/stocks did.
+const WB_REGION_TO_CLUSTER: Record<string, string> = {
+  'Центральный': 'Центральный',
+  'Южный и Северо-Кавказский': 'Южный',
+  'Северо-Западный': 'Северо-Западный',
+  'Приволжский': 'Волга',
+  'Уральский': 'Восточный',
+  'Дальневосточный и Сибирский': 'Восточный',
+  'Казахстан': 'Восточный',
+  'Беларусь': 'Центральный',
+  'Армения': 'Южный',
+  'Узбекистан': 'Восточный',
+};
 
 function aggregateWbStocks(rows: any[], lookup: ClusterLookup): {
   agg: Map<string, number>; unknown: Set<string>;
@@ -322,7 +340,11 @@ function aggregateWbStocks(rows: any[], lookup: ClusterLookup): {
     const sku = normSku(row.supplierArticle);
     if (!sku) continue;
     const wh = row.warehouseName || '';
-    const cluster = resolveCluster(wh, lookup.map, lookup.normIdx, lookup.prefixIdx);
+    let cluster = resolveCluster(wh, lookup.map, lookup.normIdx, lookup.prefixIdx);
+    if (cluster === 'UNKNOWN') {
+      const byRegion = WB_REGION_TO_CLUSTER[String(row.regionName || '')];
+      if (byRegion) cluster = byRegion;
+    }
     if (cluster === 'UNKNOWN') unknown.add(wh);
     bump(agg, sku, cluster, row.quantity || 0);
   }
@@ -349,31 +371,18 @@ function aggregateWbSales(rows: any[], lookup: ClusterLookup): {
   return { agg, dates, unknown };
 }
 
+// Both feeds go through the shared wb-stat-cache: one real HTTP request per
+// endpoint per 30-min window, reused by the legacy stocks/sales consumers
+// that run right after this in the midnight cron chain.
 async function syncWbStocks(env: FboEnv, lookup: ClusterLookup): Promise<{ rows: number; unknown: Set<string> }> {
-  const r = await fetchRetry(
-    // dateFrom is required but /stocks returns the full current snapshot
-    // regardless (proven by the hourly refresh in routes/marketplaces.ts).
-    `https://statistics-api.wildberries.ru/api/v1/supplier/stocks?dateFrom=${isoDaysAgo(60)}`,
-    { headers: wbHeaders(env) },
-    5,
-    70_000,
-  );
-  if (!r.ok) throw new Error(`wb supplier/stocks HTTP ${r.status}`);
-  const rows = (await r.json()) as any[];
+  const { rows } = await fetchWbStat(env, 'stocks', { tries: 5, backoffMs: 70_000 });
   const { agg, unknown } = aggregateWbStocks(rows, lookup);
   const n = await writeSnapshot(env, 'fbo_stocks_cluster', 'wb', agg);
   return { rows: n, unknown };
 }
 
 async function syncWbSales(env: FboEnv, lookup: ClusterLookup): Promise<{ rows: number; unknown: Set<string> }> {
-  const r = await fetchRetry(
-    `https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=${isoDaysAgo(DAYS)}&flag=0`,
-    { headers: wbHeaders(env) },
-    5,
-    70_000,
-  );
-  if (!r.ok) throw new Error(`wb supplier/sales HTTP ${r.status}`);
-  const rows = (await r.json()) as any[];
+  const { rows } = await fetchWbStat(env, 'sales', { tries: 5, backoffMs: 70_000 });
   const { agg, dates, unknown } = aggregateWbSales(rows, lookup);
   const n = await writeSnapshot(env, 'fbo_sales_cluster', 'wb', agg, dates);
   return { rows: n, unknown };

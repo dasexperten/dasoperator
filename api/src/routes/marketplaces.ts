@@ -15,6 +15,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { parseMarketplaceArticle } from '../lib/marketplace-articles';
+import { fetchWbStat } from '../lib/wb-stat-cache';
 
 const marketplaces = new Hono<{ Bindings: Env }>();
 
@@ -190,18 +191,11 @@ marketplaces.post('/sync/wb', async (c) => {
   const logId = logResult.meta.last_row_id;
 
   try {
-    const wbToken = c.env.WB_API_TOKEN;
-    if (!wbToken) throw new Error('WB_API_TOKEN not configured');
-
-    // dateFrom is REQUIRED by WB API but it returns full snapshot regardless.
-    // We use 30 days back to cover any delayed warehouse updates.
-    const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
-    const url = `https://statistics-api.wildberries.ru/api/v1/supplier/stocks?dateFrom=${encodeURIComponent(since)}`;
-    const resp = await fetch(url, { headers: { Authorization: wbToken } });
-    if (!resp.ok) {
-      throw new Error(`WB API ${resp.status}: ${await resp.text()}`);
-    }
-    const rows = (await resp.json()) as Array<{
+    // Shared raw-feed cache: if the FBO cluster sync (or anyone else) pulled
+    // supplier/stocks within the last 30 min, reuse that body instead of
+    // burning another request from the tiny shared WB quota.
+    const { rows: rawRows } = await fetchWbStat(c.env, 'stocks');
+    const rows = rawRows as Array<{
       supplierArticle: string;
       nmId: number;
       quantity: number;

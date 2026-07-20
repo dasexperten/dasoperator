@@ -66,7 +66,12 @@ async function probe(
 
 wbHealth.get('/', async (c) => {
   const mainToken = c.env.WB_API_TOKEN;
-  const reviewsToken = c.env.WB_API_TOKEN_REVIEWS;
+  // Tamara lane preferred (Owner 2026-07-20)
+  const reviewsToken =
+    c.env.TAMARA_WB_API_TOKEN_REVIEWS || c.env.WB_API_TOKEN_REVIEWS;
+  const reviewsLabel = c.env.TAMARA_WB_API_TOKEN_REVIEWS
+    ? 'TAMARA_WB_API_TOKEN_REVIEWS → feedbacks-api/questions'
+    : 'WB_API_TOKEN_REVIEWS → feedbacks-api/questions';
 
   // Use the smallest, cheapest available query on each surface.
   const probes = await Promise.all([
@@ -88,12 +93,16 @@ wbHealth.get('/', async (c) => {
     probe(
       'https://feedbacks-api.wildberries.ru/api/v1/questions/count?isAnswered=false',
       reviewsToken,
-      'WB_API_TOKEN_REVIEWS → feedbacks-api/questions'
+      reviewsLabel
     ),
   ]);
 
   const main = probes.filter((p) => p.label.startsWith('WB_API_TOKEN '));
-  const reviews = probes.filter((p) => p.label.startsWith('WB_API_TOKEN_REVIEWS'));
+  const reviews = probes.filter(
+    (p) =>
+      p.label.startsWith('WB_API_TOKEN_REVIEWS') ||
+      p.label.startsWith('TAMARA_WB_API_TOKEN_REVIEWS'),
+  );
 
   // Treat 429 as "working but throttled" — token itself is fine.
   const isHealthy = (p: ProbeResult) => p.status === 200 || p.status === 429;

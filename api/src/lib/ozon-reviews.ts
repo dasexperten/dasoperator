@@ -22,15 +22,13 @@ import {
   runRatingOnlyPipeline,
   type PipelineInput,
 } from './review-master-pipeline';
+import { ozonHeadersForTamara } from './tamara-marketplace-creds';
 
 const OZ_BASE = 'https://api-seller.ozon.ru';
 
 function ozHeaders(env: Env): Record<string, string> {
-  return {
-    'Client-Id': String(env.OZON_CLIENT_ID),
-    'Api-Key': String(env.OZON_API_KEY),
-    'Content-Type': 'application/json',
-  };
+  // Prefer TAMARA_OZON_API_KEY (Tamara review/Q&A lane) → legacy OZON_API_KEY
+  return ozonHeadersForTamara(env);
 }
 
 // -----------------------------------------------------------------------------

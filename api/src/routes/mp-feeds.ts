@@ -7,6 +7,7 @@
 // =============================================================================
 import { Hono } from 'hono';
 import type { Env } from '../types';
+import { ozonHeadersForTamara, requireTamaraWbReviewsToken } from '../lib/tamara-marketplace-creds';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -14,11 +15,8 @@ const WB_BASE = 'https://feedbacks-api.wildberries.ru';
 const OZ_BASE = 'https://api-seller.ozon.ru';
 
 function ozHeaders(env: any) {
-  return {
-    'Client-Id': String(env.OZON_CLIENT_ID),
-    'Api-Key': String(env.OZON_API_KEY),
-    'Content-Type': 'application/json',
-  };
+  // Tamara lane: TAMARA_OZON_API_KEY preferred (reviews + questions ingest)
+  return ozonHeadersForTamara(env as any);
 }
 
 async function ensureQuestionsTable(env: any) {
@@ -94,7 +92,7 @@ async function syncWbQuestions(env: any): Promise<number> {
   let n = 0;
   for (const answered of [false, true]) {
     const url = `${WB_BASE}/api/v1/questions?isAnswered=${answered}&take=100&skip=0&order=dateDesc`;
-    const r = await fetch(url, { headers: { Authorization: env.WB_API_TOKEN_REVIEWS } });
+    const r = await fetch(url, { headers: { Authorization: requireTamaraWbReviewsToken(env) } });
     if (!r.ok) continue;
     const j: any = await r.json();
     const qs: any[] = (j.data && j.data.questions) || [];

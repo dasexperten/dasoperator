@@ -100,6 +100,10 @@ export interface Env {
   // Ozon Seller API (https://api-seller.ozon.ru) — Client-Id + Api-Key headers
   OZON_CLIENT_ID: string;
   OZON_API_KEY: string;
+  // Tamara Haar (Customer Support) — preferred names for review/Q&A lane (Owner 2026-07-20)
+  // Fallback: OZON_API_KEY / OZON_CLIENT_ID. Never commit values.
+  TAMARA_OZON_API_KEY?: string;
+  TAMARA_OZON_CLIENT_ID?: string;
   OZON_PERF_CLIENT_ID: string;
   OZON_PERF_CLIENT_SECRET: string;
 
@@ -126,6 +130,8 @@ export interface Env {
   // Wildberries API (https://*-api.wildberries.ru) — bare token, no Bearer prefix
   WB_API_TOKEN: string;
   WB_API_TOKEN_REVIEWS: string;
+  // Tamara Haar — preferred reviews/feedbacks token (Owner 2026-07-20). Fallback: WB_API_TOKEN_REVIEWS.
+  TAMARA_WB_API_TOKEN_REVIEWS?: string;
 
   // Modulbank API (https://api.modulbank.ru/v1) — LK-issued token, Bearer prefix.
   // One token per company; token's first 10 chars also seed webhook signature

@@ -13,6 +13,7 @@
 import type { Env } from '../types';
 import { callPro } from './llm';
 import { runReviewMasterPipeline, runRatingOnlyPipeline, type PipelineInput } from './review-master-pipeline';
+import { requireTamaraWbReviewsToken } from './tamara-marketplace-creds';
 import { PRODUCT_KNOWLEDGE_BASE } from './wb-reviews-knowledge';
 
 const WB_BASE = 'https://feedbacks-api.wildberries.ru';
@@ -304,8 +305,9 @@ export async function safetyCheck(env: Env, draft: string, fb: any): Promise<{ s
 // WB API helpers
 // =============================================================================
 function wbAuthHeaders(env: Env): Record<string, string> {
-  if (!env.WB_API_TOKEN_REVIEWS) throw new Error('WB_API_TOKEN not configured');
-  return { Authorization: env.WB_API_TOKEN_REVIEWS, 'Content-Type': 'application/json' };
+  // Prefer TAMARA_WB_API_TOKEN_REVIEWS (Tamara lane) → legacy WB_API_TOKEN_REVIEWS
+  const token = requireTamaraWbReviewsToken(env);
+  return { Authorization: token, 'Content-Type': 'application/json' };
 }
 
 export async function fetchUnansweredCount(env: Env): Promise<{ total: number; today: number }> {

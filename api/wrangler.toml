@@ -1,5 +1,5 @@
 # =============================================================================
-# Das Operator ERP — Workers API configuration
+# Das Operator ERP â€” Workers API configuration
 # =============================================================================
 
 name = "dasoperator-api"
@@ -10,7 +10,7 @@ compatibility_flags = ["nodejs_compat"]
 account_id = "081ddb85cb399ad62a70210328d744fc"
 
 # -----------------------------------------------------------------------------
-# D1 Database — operational source of truth
+# D1 Database â€” operational source of truth
 # Phase 1.1: 16 tables created
 # Phase 1.2: 59 reference rows seeded
 # -----------------------------------------------------------------------------
@@ -20,7 +20,7 @@ database_name = "das_erp_dev"
 database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
 
 # -----------------------------------------------------------------------------
-# R2 Bucket — document storage
+# R2 Bucket â€” document storage
 # Stores: PDF (CI/PL/contracts), product photos, packing photos, certificates
 # Phase 1.3: bucket created in EEUR region
 # Folder structure inside bucket: /invoices, /packing-lists, /contracts, /photos
@@ -34,9 +34,9 @@ binding = "SKILLS_BUCKET"
 bucket_name = "das-skills"
 
 # -----------------------------------------------------------------------------
-# R2 Bucket — Pricer skill price lists (.md files)
+# R2 Bucket â€” Pricer skill price lists (.md files)
 # Stores: PL-DASEX-USD, PL-DISTR_RF, PL-INT_USD, PL-PRCH_CNY, PL-PRCH_USD, PL-RSP_RF
-# Pricer skill = source of truth. Edit .md → re-upload via sync script.
+# Pricer skill = source of truth. Edit .md â†’ re-upload via sync script.
 # -----------------------------------------------------------------------------
 [[r2_buckets]]
 binding = "PRICELISTS"
@@ -51,10 +51,10 @@ binding = "ARCHIVE_OLD"
 bucket_name = "das-operator-data"
 
 # -----------------------------------------------------------------------------
-# R2 Bucket — website CRM raw archive (Phase 12.0 — dasexperten.com orders)
+# R2 Bucket â€” website CRM raw archive (Phase 12.0 â€” dasexperten.com orders)
 # Raw JSON snapshot of every website order + customer under crm/:
-#   crm/orders/{source}/{order_number}.json · crm/customers/{id}.json ·
-#   crm/imports/…  D1 (crm_orders/crm_customers) stays the queryable layer,
+#   crm/orders/{source}/{order_number}.json Â· crm/customers/{id}.json Â·
+#   crm/imports/â€¦  D1 (crm_orders/crm_customers) stays the queryable layer,
 #   this bucket is the replay/audit source of truth (ADR-001 split).
 # Bucket is shared with the loyalty-bridge Worker (its RetailCRM export lives
 # at top-level keys); dasoperator only ever touches the crm/ prefix.
@@ -64,7 +64,7 @@ binding = "CUSTOMERS_DB"
 bucket_name = "das-loyalty-customers"
 
 # -----------------------------------------------------------------------------
-# KV Namespace — sequences cache
+# KV Namespace â€” sequences cache
 # Stores: next_number for DEE/DEI/DEASEAN/DEC/CI/PL counters
 # Pattern: KV first, D1 second (write-through cache)
 # -----------------------------------------------------------------------------
@@ -73,7 +73,7 @@ binding = "COUNTERS"
 id = "c63b6104eb1b43009f2ae65f51333d36"
 
 # -----------------------------------------------------------------------------
-# KV Namespace — daily FX rates
+# KV Namespace â€” daily FX rates
 # Stores: USD/RUB, USD/CNY, USD/EUR, etc. with date as key
 # TTL: 24 hours (refreshed by daily cron)
 # -----------------------------------------------------------------------------
@@ -82,7 +82,7 @@ binding = "FX"
 id = "47ac2dde6cd041c09597272e422a6c32"
 
 # -----------------------------------------------------------------------------
-# KV Namespace — generic ERP cache
+# KV Namespace â€” generic ERP cache
 # Stores: hot lookups (product invoice labels, partner banking refs),
 #         session data when Cloudflare Access integrated
 # TTL: variable per key
@@ -92,9 +92,9 @@ binding = "CACHE"
 id = "43f2004892714cbb919e5174ce2a8556"
 
 # -----------------------------------------------------------------------------
-# Service Binding — emailer-bridge Worker
+# Service Binding â€” emailer-bridge Worker
 # Lets dasoperator-api call emailer-bridge directly (in-process, no HTTP loop).
-# Cloudflare blocks Worker→same-account-Worker via *.workers.dev (error 1042),
+# Cloudflare blocks Workerâ†’same-account-Worker via *.workers.dev (error 1042),
 # so the inbox cron must use this binding to reach emailer.
 # -----------------------------------------------------------------------------
 [[services]]
@@ -111,16 +111,16 @@ binding = "SELF"
 service = "dasoperator-api"
 
 # -----------------------------------------------------------------------------
-# Email Sending binding — Cloudflare Email Sending (Beta)
+# Email Sending binding â€” Cloudflare Email Sending (Beta)
 # Sending domain: notify.dasexperten.com (DNS/SPF/DKIM configured in Cloudflare,
 # Email Sending enabled, quota 200/day as of setup). This is a SEPARATE product
-# from Email Routing on dasexperten.com (inbound forwarding) — do not mix them.
+# from Email Routing on dasexperten.com (inbound forwarding) â€” do not mix them.
 #
-# No destination_address / allowed_destination_addresses set → unrestricted
+# No destination_address / allowed_destination_addresses set â†’ unrestricted
 # recipient (required: transactional emails go to arbitrary customers/leads,
 # not a fixed inbox). Allowed sender addresses are enforced in application
 # code (see src/services/email.ts), not at the binding level:
-#   no-reply@, notifications@, orders@, forms@, system@ — all @notify.dasexperten.com
+#   no-reply@, notifications@, orders@, forms@, system@ â€” all @notify.dasexperten.com
 # -----------------------------------------------------------------------------
 [[send_email]]
 name = "EMAIL"
@@ -128,48 +128,49 @@ name = "EMAIL"
 # -----------------------------------------------------------------------------
 # Cron triggers
 #
-# 0 12 * * *   — daily FX refresh from CBR at 12:00 UTC (15:00 Moscow time,
+# 0 12 * * *   â€” daily FX refresh from CBR at 12:00 UTC (15:00 Moscow time,
 #                after CBR daily publication at 11:30 Moscow). Phase 2.0c-2b.
-# 0 * * * *    — hourly marketplace stock refresh from Ozon and Wildberries.
+# 0 * * * *    â€” hourly marketplace stock refresh from Ozon and Wildberries.
 #                Phase 6.0b. WB is heavily rate-limited (~1 req/min), so we
 #                synchronize Ozon first, then WB after a short delay.
 #
-# 20 * * * *  — hourly bank-tx auto-match retry sweep (covers ambiguous + partner_not_found
+# 20 * * * *  â€” hourly bank-tx auto-match retry sweep (covers ambiguous + partner_not_found
 #                rows that may now be resolvable after operations were created post-webhook).
 #
-# 0 2 * * *   — nightly bank-tx rematch sweep (2:00 UTC = 6:00 Yerevan).
+# 0 2 * * *   â€” nightly bank-tx rematch sweep (2:00 UTC = 6:00 Yerevan).
 #                Re-runs auto-match on every unmatched bank_transaction within
 #                last 180 days. Catches old txns that became matchable after
 #                new partners/operations/rules were added during the day.
 #
-# */15 * * * * — every 15 min Telegram chat → invoice_inbox ingestion.
+# */15 * * * * â€” every 15 min Telegram chat â†’ invoice_inbox ingestion.
 #                Phase 9.x. Pulls invoices/acceptance from registered
 #                telegram_contact sources via telegramer-bridge.
 #
-# Handler: src/scheduled.ts handleScheduled — dispatches by event.cron string.
+# Handler: src/scheduled.ts handleScheduled â€” dispatches by event.cron string.
 # -----------------------------------------------------------------------------
 #
-# 50 */6 * * *— Ozon review draft-prep (10 min after :40 ingestion). Generates
-#                draft replies for unprocessed Ozon reviews; publishing stays a
-#                human batch action on /reviews. Handler: scheduled.ts.
+# 30 */3 * * *â€” Tamara lane: Ozon review draft-prep (every 3h, after :20 feeds).
+#                Owner 2026-07-20: reply craft owner = Tamara only; ERP hosts job.
+#                Drafts land in dasoperator for UI; cadence was */6 then tightened
+#                to 3h (was more aggressive when paired with 20m WB ticks).
 #
-# 0 4 * * 4   — WB weekly realization auto-pull schedule. Thursday 04:00 UTC = 
-#                07:00 МСК, after WB publishes the prev-week report on Thursday. 
+# 0 4 * * 4   â€” WB weekly realization auto-pull schedule. Thursday 04:00 UTC = 
+#                07:00 ÐœÐ¡Ðš, after WB publishes the prev-week report on Thursday. 
 #                Creates a 'pending' task in marketplace_pull_tasks. Phase 8.0.
 #
-# 0 3 5 * *   — Ozon monthly transaction auto-pull schedule. 5th of month 
-#                03:00 UTC = 06:00 МСК, gives Ozon time to finalize prev month. 
+# 0 3 5 * *   â€” Ozon monthly transaction auto-pull schedule. 5th of month 
+#                03:00 UTC = 06:00 ÐœÐ¡Ðš, gives Ozon time to finalize prev month. 
 #                Creates a 'pending' task. Phase 8.0.
 #
 # Note: */15 cron above ALSO ticks marketplace_pull_tasks (one task per tick)
 # to advance fetch pagination and build operations from staging.
 #
-# 30 2 * * *  — nightly web-analytics ingestion (05:30 МСК): GA4 + Metrika
-#                + Clarity (+ Direct when configured) → web_analytics_daily /
+# 30 2 * * *  â€” nightly web-analytics ingestion (05:30 ÐœÐ¡Ðš): GA4 + Metrika
+#                + Clarity (+ Direct when configured) â†’ web_analytics_daily /
 #                web_behavior_snapshots. Clarity = EXACTLY 1 API call/night
 #                (10/day hard limit). Handler: lib/web-analytics-sync.ts.
 #
-# 7 * * * *   — hourly Stripe reconciliation poller (Phase 12.0 website CRM).
+# 7 * * * *   â€” hourly Stripe reconciliation poller (Phase 12.0 website CRM).
 #                Lists succeeded PaymentIntents of the dasexperten.com checkout
 #                since the crm_sync_state cursor and upserts them into
 #                crm_orders/crm_customers (+ R2 crm/ archive). The webhook
@@ -177,11 +178,15 @@ name = "EMAIL"
 #                poller is the safety net and also sweeps refunds.
 #
 [triggers]
-crons = ["0 3 * * *", "0 1 * * *", "0 12 * * *", "0 * * * *", "5 */6 * * *", "*/2 * * * *", "0 0 * * *", "15 * * * *", "30 */6 * * *", "*/15 * * * *", "0 2 * * *", "30 2 * * *", "0 4 * * 4", "0 3 5 * *", "*/20 * * * *", "0 4 1-7 * 3", "*/10 * * * *", "0 5 * * *", "23 */3 * * *", "* * * * *", "0 3 1 * *", "40 */6 * * *", "50 */6 * * *", "7 * * * *"]
+# Tamara care lane (Owner 2026-07-20): reviews / Q&A / customer replies â€” every 3h only
+#   10 */3 * * *  WB auto-reply (was */20 â€” too aggressive)
+#   20 */3 * * *  MP feeds: Ozon+WB reviews/questions ingest (was 40 */6)
+#   30 */3 * * *  Ozon draft-prep (was 50 */6)
+crons = ["0 3 * * *", "0 1 * * *", "0 12 * * *", "0 * * * *", "5 */6 * * *", "*/2 * * * *", "0 0 * * *", "15 * * * *", "30 */6 * * *", "*/15 * * * *", "0 2 * * *", "30 2 * * *", "0 4 * * 4", "0 3 5 * *", "10 */3 * * *", "0 4 1-7 * 3", "*/10 * * * *", "0 5 * * *", "23 */3 * * *", "* * * * *", "0 3 1 * *", "20 */3 * * *", "30 */3 * * *", "7 * * * *"]
 
 
 # -----------------------------------------------------------------------------
-# Plain env vars (visible in source — not secrets)
+# Plain env vars (visible in source â€” not secrets)
 # Used by /api/crm/* routes (Retail CRM REST v5).
 # Token is RETAIL_CRM_TOKEN, set as Worker secret separately.
 # -----------------------------------------------------------------------------

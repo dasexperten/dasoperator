@@ -48,10 +48,11 @@ const MP_RULES: MpRule[] = [
   { key: 'ozon_sales',  label: 'Ozon \u00b7 sales',  log_name: 'ozon-sales', expects: 'every 1h (429 ok)', degraded_after_h: 4, broken_after_h: 12 },
   { key: 'wb_stocks',   label: 'WB \u00b7 stocks',   log_name: 'wb',         expects: 'every ~4h (WB limit)', degraded_after_h: 6, broken_after_h: 10 },
   { key: 'wb_sales',    label: 'WB \u00b7 sales',    log_name: 'wb-sales',   expects: 'every 1h (429 ok)', degraded_after_h: 6, broken_after_h: 24 },
-  { key: 'ozon_reviews',   label: 'Ozon \u00b7 reviews',   log_name: 'ozon-reviews',   expects: 'every 6h',   degraded_after_h: 8,  broken_after_h: 24 },
-  { key: 'wb_reviews',     label: 'WB \u00b7 reviews',     log_name: 'wb-reviews',     expects: 'every 20 min', degraded_after_h: 2, broken_after_h: 6 },
-  { key: 'ozon_questions', label: 'Ozon \u00b7 questions', log_name: 'ozon-questions', expects: 'every 6h',   degraded_after_h: 8,  broken_after_h: 24 },
-  { key: 'wb_questions',   label: 'WB \u00b7 questions',   log_name: 'wb-questions',   expects: 'every 6h',   degraded_after_h: 8,  broken_after_h: 24 },
+  // Tamara care lane (Owner 2026-07-20): every 3h — not 20m / not company-wide spam
+  { key: 'ozon_reviews',   label: 'Ozon \u00b7 reviews (Tamara)',   log_name: 'ozon-reviews',   expects: 'every 3h',   degraded_after_h: 6,  broken_after_h: 12 },
+  { key: 'wb_reviews',     label: 'WB \u00b7 reviews (Tamara)',     log_name: 'wb-reviews',     expects: 'every 3h',   degraded_after_h: 6,  broken_after_h: 12 },
+  { key: 'ozon_questions', label: 'Ozon \u00b7 questions (Tamara)', log_name: 'ozon-questions', expects: 'every 3h',   degraded_after_h: 6,  broken_after_h: 12 },
+  { key: 'wb_questions',   label: 'WB \u00b7 questions (Tamara)',   log_name: 'wb-questions',   expects: 'every 3h',   degraded_after_h: 6,  broken_after_h: 12 },
 ];
 
 function classifyAge(ageH: number | null, degradedAfterH: number, brokenAfterH: number): HealthStatus {

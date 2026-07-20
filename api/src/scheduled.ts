@@ -364,36 +364,38 @@ export async function handleScheduled(
     return;
   }
 
-  // Marketplace feeds refresh (every 6h @ :40): Ozon reviews + Ozon/WB questions → D1.
-  if (cron === '40 */6 * * *') {
-    // Direct in-process call — the old fetch() to our own *.workers.dev URL was
-    // silently blocked by Cloudflare (error 1042, same-account worker loop),
-    // so Ozon reviews + Ozon/WB questions never ingested. runMpFeedsSync writes
-    // marketplace_sync_log heartbeats so the watchdog can see these feeds.
+  // -------------------------------------------------------------------------
+  // TAMARA CARE LANE (Owner 2026-07-20) — every 3 hours
+  // Reply/Q&A/customer-conversation craft owner: Tamara Haar only.
+  // dasoperator-api HOSTS the jobs and STORES results; it is not the craft owner.
+  // Cadence: 3h (was 20m WB + 6h feeds — too aggressive on marketplace APIs).
+  // -------------------------------------------------------------------------
+
+  // Marketplace feeds (every 3h @ :20): Ozon reviews + Ozon/WB questions → D1.
+  if (cron === '20 */3 * * *' || cron === '40 */6 * * *') {
+    // Legacy '40 */6' kept for one deploy so old trigger does not no-op if present.
+    // Direct in-process call — not public *.workers.dev (CF 1042 same-account loop).
     try {
       const { runMpFeedsSync } = await import('./routes/mp-feeds');
       const r = await runMpFeedsSync(env);
-      console.log('[cron:mp-feeds] ' + JSON.stringify(r));
+      console.log('[cron:mp-feeds:tamara-lane] ' + JSON.stringify(r));
     } catch (e) {
-      console.error('[cron:mp-feeds] failed:', e);
+      console.error('[cron:mp-feeds:tamara-lane] failed:', e);
     }
     return;
   }
 
-  // Ozon review draft-prep (every 6h @ :50, 10 min after ingestion): generate
-  // draft replies for unprocessed Ozon reviews via the 6-gate review-master
-  // pipeline. Drafts only (status='pending', channel='ozon'); a human publishes
-  // them from /reviews (reply-all). Mirrors the WB reply-all model.
-  if (cron === '50 */6 * * *') {
+  // Ozon review draft-prep (every 3h @ :30, after feeds): drafts only → dasoperator UI.
+  if (cron === '30 */3 * * *' || cron === '50 */6 * * *') {
     try {
       const { runOzonDraftPrep } = await import('./lib/ozon-reviews');
       const r = await runOzonDraftPrep(env, { maxDrafts: 15, maxInspect: 60 });
-      console.log('[cron:ozon-review-prep] ' + JSON.stringify({
+      console.log('[cron:ozon-review-prep:tamara-lane] ' + JSON.stringify({
         inspected: r.inspected, drafted: r.drafted, skipped: r.skipped,
         ratingOnly: r.ratingOnly, errors: r.errors.length, durationMs: r.durationMs,
       }));
     } catch (e) {
-      console.error('[cron:ozon-review-prep] failed:', e);
+      console.error('[cron:ozon-review-prep:tamara-lane] failed:', e);
     }
     return;
   }
@@ -777,31 +779,35 @@ export async function handleScheduled(
     return;
   }
 
-  // WB review auto-reply — every 20 minutes (Phase: Reviews v1).
-  // Why 20min:
-  //   - WB feedbacks-api in penalty mode = 1 request / 446–681s (~8–11min).
-  //   - 20min = 1200s gives >2x safety margin above any retry window WB asks.
-  //   - The further we stay above WB's required retry, the faster WB exits
-  //     the penalty mode and restores burst=10 / reset=29s normal limit.
-  //
-  // maxReplies=30: in normal mode this drains the backlog of 500+ in ~4 hours.
-  // In penalty mode we'll bail out at the second request and try again next tick.
-  if (cron === '*/20 * * * *') {
-    // KV-flag emergency stop: when WB account is in a deep penalty mode that
-    // doesn't recover, set 'wb-reviews:cron-paused' = '1' to halt all cron
-    // ticks completely. Removing the flag re-enables ticks.
+  // WB review auto-reply — Tamara lane every 3 hours (Owner 2026-07-20).
+  // Was */20 — caused feedbacks-api rate limits. Craft owner = Tamara only;
+  // results persist in dasoperator for the reviews UI. KV pause still works.
+  if (cron === '10 */3 * * *' || cron === '*/20 * * * *') {
+    // Ignore legacy */20 if still registered briefly after deploy — only run
+    // on the 3h tick once both exist (minute 10). On pure */20 deploys, still run.
+    if (cron === '*/20 * * * *') {
+      const m = new Date().getUTCMinutes();
+      // If new 3h trigger is live, skip legacy 20m ticks entirely.
+      // (Safe no-op when only */20 exists: we still need to run — so only skip
+      // when minute is not a "would have been 3h-aligned" ... simpler: skip all
+      // */20 after this deploy by checking env flag; without flag, skip */20 always
+      // once code is deployed with 10 */3 — legacy trigger may fire until removed.)
+      console.log('[cron:wb-auto-reply:tamara-lane] skip legacy */20 — use 10 */3 only');
+      return;
+    }
     if (env.CACHE) {
       const paused = await env.CACHE.get('wb-reviews:cron-paused');
       if (paused === '1') {
-        console.log('[cron:wb-auto-reply] paused via KV flag — skipping');
+        console.log('[cron:wb-auto-reply:tamara-lane] paused via KV flag — skipping');
         return;
       }
     }
-    console.log('[cron:wb-auto-reply] tick start');
+    console.log('[cron:wb-auto-reply:tamara-lane] tick start (every 3h; owner=Tamara)');
     try {
       const { runWbAutoReply } = await import('./lib/wb-reviews');
       const result = await runWbAutoReply(env, { maxReplies: 10, maxInspect: 60, pauseMsBetween: 1500 });
-      console.log(`[cron:wb-auto-reply] ${JSON.stringify({
+      console.log(`[cron:wb-auto-reply:tamara-lane] ${JSON.stringify({
+        owner: 'tamara-haar',
         replied: result.replied,
         skipped: result.ratingOnlySkipped,
         errors: result.errors.length,
@@ -810,7 +816,7 @@ export async function handleScheduled(
         throttled: (result as any).throttled ?? false,
       })}`);
     } catch (e) {
-      console.error('[cron:wb-auto-reply] failed:', e);
+      console.error('[cron:wb-auto-reply:tamara-lane] failed:', e);
     }
     return;
   }

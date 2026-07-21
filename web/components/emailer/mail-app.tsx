@@ -18,7 +18,7 @@ import {
   Search, Star, Archive, Trash2, Send, Inbox as InboxIcon,
   FileText, Paperclip, Plus, Reply, Forward, ChevronLeft, ArrowLeft,
   MoreHorizontal, MoreVertical, Mail, TrendingUp, AlertCircle, X, Undo2, Loader2,
-  ChevronDown, Users, Building2,
+  ChevronDown, Users, Building2, Menu,
 } from 'lucide-react';
 import {
   getMailboxes,
@@ -1137,9 +1137,22 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
   const [compose, setCompose] = useState<{ to?: string; subject?: string; text?: string } | null>(null);
   const [replyText, setReplyText] = useState('');
   const [replySending, setReplySending] = useState(false);
+  // Left drawer = desktop agents/folders sidebar (Owner: burger opens side box)
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [scope, setScope] = useState<MailboxScope>(null);
+  const [agentsOpen, setAgentsOpen] = useState(true);
+  const [deptsOpen, setDeptsOpen] = useState(true);
+
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [drawerOpen]);
 
   const visible = useMemo(() => {
     let list = items.filter((e) => (activeFolder === 'starred' ? e.starred && e.folder !== 'archive' : e.folder === activeFolder));
+    list = list.filter((e) => matchesScope(e, scope));
     if (query.trim()) {
       const q = query.toLowerCase();
       list = list.filter(
@@ -1147,14 +1160,18 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
       );
     }
     return list;
-  }, [items, activeFolder, query]);
+  }, [items, activeFolder, query, scope]);
 
   const { inboxUnread } = folderCounts(items);
   const urgentCount = items.filter((e) => e.folder === 'inbox' && e.priority === 'high').length;
 
   const opened = items.find((e) => e.id === openedId) || null;
   const { body, loading: bodyLoading } = useMailBody(opened);
-  const folderLabel = FOLDERS.find((f) => f.id === activeFolder)?.label || '';
+  const scopeLabel = scope
+    ? (findUiMailbox(scope.address)?.label || scope.address.split('@')[0])
+    : null;
+  const folderLabel = scopeLabel
+    || (FOLDERS.find((f) => f.id === activeFolder)?.label || '');
   const sel = useSelection(visible);
 
   const bulkBar = {
@@ -1226,16 +1243,129 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
           </>
         ) : (
           <>
-            <LogoMark size={34} />
+            <button
+              className="abtn"
+              onClick={() => setDrawerOpen(true)}
+              aria-label="Агенты и папки"
+              aria-expanded={drawerOpen}
+            >
+              <Menu size={22} strokeWidth={2.4} />
+            </button>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="title">DASOPERATOR</div>
+              <div className="title">Почта</div>
               <div className="sub">{folderLabel} · {visible.length}</div>
             </div>
             <button className="abtn" onClick={() => setSearchOpen(true)} aria-label="Поиск"><Search size={20} /></button>
-            <button className="abtn" aria-label="Меню"><MoreVertical size={20} /></button>
           </>
         )}
       </div>
+
+      {/* Left drawer — same agents/folders side box as desktop */}
+      {drawerOpen && (
+        <div className="mdrawer" role="dialog" aria-modal="true" aria-label="Агенты и папки">
+          <button type="button" className="mdrawer-backdrop" aria-label="Закрыть" onClick={() => setDrawerOpen(false)} />
+          <aside className="mdrawer-panel">
+            <div className="mdrawer-head">
+              <div className="mdrawer-title">Почта</div>
+              <button type="button" className="abtn" onClick={() => setDrawerOpen(false)} aria-label="Закрыть"><X size={20} /></button>
+            </div>
+            <button
+              type="button"
+              className="compose"
+              onClick={() => { setDrawerOpen(false); setCompose({}); }}
+            >
+              <Plus size={16} strokeWidth={3} /> Написать письмо
+            </button>
+
+            {FOLDERS.map((f) => {
+              const Icon = f.icon;
+              const active = activeFolder === f.id && !scope;
+              const count = f.id === 'inbox' ? inboxUnread : 0;
+              return (
+                <div
+                  key={f.id}
+                  className={`folder ${active ? 'active' : ''}`}
+                  onClick={() => {
+                    setActiveFolder(f.id);
+                    setScope(null);
+                    setOpenedId(null);
+                    sel.clear();
+                    setDrawerOpen(false);
+                  }}
+                >
+                  <Icon size={16} strokeWidth={2.4} />
+                  {f.label}
+                  {count > 0 && <span className="fcount">{count}</span>}
+                </div>
+              );
+            })}
+
+            <button type="button" className={`nav-section-h ${agentsOpen ? 'open' : ''}`} onClick={() => setAgentsOpen((v) => !v)}>
+              <Users size={14} strokeWidth={2.4} />
+              <span>Agents</span>
+              <ChevronDown size={14} className="nav-chevron" />
+            </button>
+            {agentsOpen && (
+              <div className="nav-section-body">
+                {AGENT_MAILBOXES.map((m) => {
+                  const active = scope?.kind === 'agent' && scope.address === m.address;
+                  const u = mailboxUnread(items, m);
+                  return (
+                    <div
+                      key={m.address}
+                      className={`folder nav-person ${active ? 'active' : ''}`}
+                      title={m.address}
+                      onClick={() => {
+                        setScope({ kind: 'agent', address: m.address });
+                        setActiveFolder('inbox');
+                        setOpenedId(null);
+                        sel.clear();
+                        setDrawerOpen(false);
+                      }}
+                    >
+                      <AgentAvatar slug={m.slug} label={m.label} size={26} />
+                      <span className="nav-person-label">{m.label.split(' ')[0]}</span>
+                      {u > 0 && <span className="fcount">{u}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <button type="button" className={`nav-section-h ${deptsOpen ? 'open' : ''}`} onClick={() => setDeptsOpen((v) => !v)}>
+              <Building2 size={14} strokeWidth={2.4} />
+              <span>Departments</span>
+              <ChevronDown size={14} className="nav-chevron" />
+            </button>
+            {deptsOpen && (
+              <div className="nav-section-body">
+                {DEPARTMENT_MAILBOXES.map((m) => {
+                  const active = scope?.kind === 'department' && scope.address === m.address;
+                  const u = mailboxUnread(items, m);
+                  return (
+                    <div
+                      key={m.address}
+                      className={`folder nav-person ${active ? 'active' : ''}`}
+                      title={m.address}
+                      onClick={() => {
+                        setScope({ kind: 'department', address: m.address });
+                        setActiveFolder('inbox');
+                        setOpenedId(null);
+                        sel.clear();
+                        setDrawerOpen(false);
+                      }}
+                    >
+                      <span className="nav-dept-dot" aria-hidden />
+                      <span className="nav-person-label">{m.label}</span>
+                      {u > 0 && <span className="fcount">{u}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </aside>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="stats">

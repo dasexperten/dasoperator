@@ -751,6 +751,62 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
 .dxmail .appbar { background: var(--white); border-bottom: 1px solid var(--line); padding: 12px 14px; display: flex; align-items: center; gap: 11px; flex-shrink: 0; min-height: 60px; }
 .dxmail .title { font-size: 17px; font-weight: 800; letter-spacing: -0.2px; }
 .dxmail .sub { font-size: 11px; font-weight: 700; color: var(--muted); margin-top: 1px; }
+
+/* Mobile left drawer — desktop agents/folders side box */
+.dxmail .mdrawer {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  pointer-events: none;
+}
+.dxmail .mdrawer-backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: rgba(26, 21, 25, 0.45);
+  cursor: pointer;
+  pointer-events: auto;
+  animation: dxmail-fadeIn 0.18s ease;
+}
+.dxmail .mdrawer-panel {
+  position: relative;
+  z-index: 1;
+  width: min(300px, 86vw);
+  height: 100%;
+  background: var(--white);
+  border-right: 1px solid var(--line);
+  box-shadow: var(--mail-float, 0 18px 48px -18px rgba(26, 21, 25, 0.28));
+  padding: 12px 12px 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+  animation: dxmail-drawerIn 0.22s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.dxmail .mdrawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding: 4px 4px 8px;
+}
+.dxmail .mdrawer-title {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.2px;
+  color: var(--navy);
+}
+@keyframes dxmail-drawerIn {
+  from { transform: translateX(-100%); opacity: 0.6; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes dxmail-fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
 .dxmail .searchbar { flex: 1; display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 10px 14px; }
 .dxmail .searchbar input { border: none; outline: none; background: transparent; font-family: 'Manrope', sans-serif; font-size: 14px; font-weight: 600; width: 100%; color: var(--navy); }
 .dxmail .searchbar input::placeholder { color: var(--muted); }

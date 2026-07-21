@@ -135,8 +135,11 @@ function useListPaneResize() {
 type MailboxScope = null | { kind: 'agent' | 'department'; address: string };
 
 function AgentAvatar({ slug, label, size = 28 }: { slug?: string; label: string; size?: number }) {
-  const [broken, setBroken] = useState(false);
-  if (!slug || broken) {
+  // Prefer same-origin /agents/{slug}.png; if missing, one CDN retry then initials.
+  const [src, setSrc] = useState<string | null>(slug ? agentAvatarUrl(slug) : null);
+  const [triedCdn, setTriedCdn] = useState(false);
+
+  if (!slug || !src) {
     return (
       <span
         className="nav-ava nav-ava-fallback"
@@ -151,11 +154,19 @@ function AgentAvatar({ slug, label, size = 28 }: { slug?: string; label: string;
     // eslint-disable-next-line @next/next/no-img-element
     <img
       className="nav-ava"
-      src={agentAvatarUrl(slug)}
+      src={src}
       width={size}
       height={size}
       alt=""
-      onError={() => setBroken(true)}
+      style={{ width: size, height: size }}
+      onError={() => {
+        if (!triedCdn) {
+          setTriedCdn(true);
+          setSrc(`https://www.dasexperten.com/assets/agents/${slug}.png`);
+          return;
+        }
+        setSrc(null);
+      }}
     />
   );
 }

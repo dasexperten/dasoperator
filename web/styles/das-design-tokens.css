@@ -538,6 +538,11 @@ body {
   flex-shrink: 0;
   display: block;
   background: var(--panel);
+  /* keep portrait readable on brand-rot active rows */
+  box-shadow: 0 0 0 1.5px rgba(26, 21, 25, 0.08);
+}
+.dxmail .folder.active .nav-ava {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.95);
 }
 .dxmail .nav-ava-fallback {
   display: inline-flex;
@@ -548,6 +553,10 @@ body {
   color: var(--green-dark);
   font-weight: 800;
   flex-shrink: 0;
+}
+.dxmail .folder.active .nav-ava-fallback {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
 }
 .dxmail .nav-dept-dot {
   width: 8px;

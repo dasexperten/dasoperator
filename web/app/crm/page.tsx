@@ -70,6 +70,8 @@ interface CrmOrder {
   ship_country?: string | null;
   items?: Array<{ sku: string; name?: string; qty: number }>;
   order_source?: string;
+  fulfillment_status?: string | null;
+  tracking_url?: string | null;
 }
 
 interface CrmCustomer {
@@ -117,11 +119,15 @@ interface ComStats {
   aov_cents: number;
   orders_this_month: number;
   revenue_this_month_cents: number;
+  sales_30d_cents?: number;
+  orders_30d?: number;
+  sales_prev30_cents?: number;
   customers_total: number;
   buyers_count: number;
   repeat_buyers: number;
   customers_by_source: { website: number; wix: number; retailcrm: number };
   top_skus: Array<{ sku: string; name: string; units: number }>;
+  monthly?: Array<{ month: string; orders: number; revenue_cents: number }>;
   synced_at: number;
 }
 
@@ -556,16 +562,7 @@ export default function CrmPage() {
       )}
 
       {/* KPI tiles — .com source (USD, cents from /api/crm/website/stats) */}
-      {crmSource === 'com' && comStats && (
-        <div className="grid grid-cols-6 gap-4">
-          <KpiTile label="Customers" value={comStats.customers_total.toLocaleString('ru-RU')} />
-          <KpiTile label="Buyers / repeat" value={`${comStats.buyers_count} / ${comStats.repeat_buyers}`} />
-          <KpiTile label="Orders (total)" value={comStats.orders_total.toLocaleString('ru-RU')} />
-          <KpiTile label="Orders this month" value={comStats.orders_this_month.toLocaleString('ru-RU')} />
-          <KpiTile label="Revenue this month" value={`$${(comStats.revenue_this_month_cents / 100).toLocaleString('en-US')}`} />
-          <KpiTile label="Revenue total / AOV" value={`$${(comStats.revenue_total_cents / 100).toLocaleString('en-US')} / $${(comStats.aov_cents / 100).toFixed(0)}`} />
-        </div>
-      )}
+      {crmSource === 'com' && comStats && <ComMetricBand stats={comStats} />}
       {crmSource === 'com' && comStatsLoading && !comStats && (
         <div className="flex items-center justify-center py-8">
           <Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--fg-muted)' }} />
@@ -1079,15 +1076,79 @@ function DailyActivityChart({
   );
 }
 
-function KpiTile({ label, value }: { label: string; value: string }) {
+function ComMetricBand({ stats }: { stats: ComStats }) {
+  const sales30 = (stats.sales_30d_cents ?? 0) / 100;
+  const prev30 = (stats.sales_prev30_cents ?? 0) / 100;
+  const deltaPct = prev30 > 0 ? Math.round(((sales30 - prev30) / prev30) * 100) : null;
+  const monthly = stats.monthly ?? [];
+  const curKey = new Date().toISOString().slice(0, 7);
+  const closed = monthly.filter((m) => m.month < curKey);
+  const lastM = closed[closed.length - 1];
+  const prevM = closed[closed.length - 2];
+  const lastRev = lastM ? lastM.revenue_cents / 100 : 0;
+  const lastDelta = lastM && prevM && prevM.revenue_cents > 0
+    ? Math.round(((lastM.revenue_cents - prevM.revenue_cents) / prevM.revenue_cents) * 100)
+    : null;
+  const monthName = lastM
+    ? new Date(`${lastM.month}-01T00:00:00Z`).toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })
+    : '—';
+  const buyers = stats.buyers_count ?? 0;
+  const repeatPct = buyers > 0 ? ((stats.repeat_buyers / buyers) * 100).toFixed(1) : '0.0';
+  const spark = monthly.slice(-12).map((m) => m.revenue_cents);
+  const maxV = Math.max(...spark, 1);
+  const pts = spark
+    .map((v, i) => `${spark.length > 1 ? (i / (spark.length - 1)) * 240 : 0},${42 - (v / maxV) * 34}`)
+    .join(' ');
+  const fmt = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
+  return (
+    <div className="grid grid-cols-6 gap-4">
+      <div className="col-span-2 p-5" style={{
+        background: 'linear-gradient(135deg, var(--schwarz-ink, #1A1519), #2B2228)',
+        borderRadius: 'var(--radius-sm)',
+        color: 'var(--paper, #FBFAF6)',
+      }}>
+        <div style={{ fontSize: 12, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#C9A94F' }}>Sales · last 30 days</div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 6 }}>
+          <span style={{ fontSize: 32, fontWeight: 700 }}>{fmt(sales30)}</span>
+          {deltaPct !== null && (
+            <span style={{ fontSize: 13, fontWeight: 700, color: deltaPct < 0 ? '#FF6B6B' : '#2FB894' }}>
+              {deltaPct < 0 ? '▼' : '▲'} {Math.abs(deltaPct)}%
+            </span>
+          )}
+        </div>
+        <div style={{ fontSize: 12, color: '#8E8790', marginTop: 2 }}>
+          {deltaPct !== null ? `vs ${fmt(prev30)} prior 30 days` : 'no prior-period data'}
+        </div>
+        {spark.length > 1 && (
+          <svg viewBox="0 0 240 44" preserveAspectRatio="none" style={{ width: '100%', height: 36, marginTop: 10, display: 'block' }} aria-hidden="true">
+            <polyline points={pts} fill="none" stroke="#2FB894" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+          </svg>
+        )}
+      </div>
+      <KpiTile label="Customers" value={stats.customers_total.toLocaleString('en-US')} />
+      <KpiTile label="Orders · 30 days" value={(stats.orders_30d ?? 0).toLocaleString('en-US')} />
+      <KpiTile
+        label={`Last month · ${monthName}`}
+        value={fmt(lastRev)}
+        sub={lastDelta === null ? undefined : `${lastDelta < 0 ? '▼' : '▲'} ${Math.abs(lastDelta)}% vs prior`}
+        accent
+      />
+      <KpiTile label="Repeat purchase rate" value={`${repeatPct}%`} sub={`${stats.repeat_buyers} of ${buyers} buyers`} accent />
+    </div>
+  );
+}
+
+function KpiTile({ label, value, sub, accent = false }: { label: string; value: string; sub?: string; accent?: boolean }) {
   return (
     <div className="p-5" style={{
       backgroundColor: 'var(--paper)',
       border: '1px solid var(--border-hairline)',
+      borderTop: accent ? '2px solid var(--brand-rot, #E5202C)' : '1px solid var(--border-hairline)',
       borderRadius: 'var(--radius-sm)',
     }}>
       <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>{label}</div>
       <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--fg-1)', marginTop: 8 }}>{value}</div>
+      {sub && <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 4 }}>{sub}</div>}
     </div>
   );
 }
@@ -1589,12 +1650,45 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru' }
                 {o.customer_name}
                 {o.email && <div style={{ fontSize: 12, color: 'var(--fg-3)' }}>{o.email}</div>}
               </Td>
-              <Td muted>
-                {(o.items ?? []).map((it) => `${it.sku}×${it.qty}`).join(', ') || '—'}
-              </Td>
+              <td className="px-6 py-3 text-left relative group" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
+                {(() => {
+                  const its = o.items ?? [];
+                  if (!its.length) return '—';
+                  const n = its.reduce((s, it) => s + (Number(it.qty) || 1), 0);
+                  return (
+                    <>
+                      <span style={{ background: 'var(--paper-sunk, #F3F0E8)', borderRadius: 999, padding: '2px 10px', fontWeight: 500, color: 'var(--fg-1)', cursor: 'default', whiteSpace: 'nowrap' }}>
+                        {n} item{n === 1 ? '' : 's'}
+                      </span>
+                      <div className="hidden group-hover:block absolute z-30" style={{ top: '100%', left: 24, background: 'var(--paper, #FFFFFF)', border: '1px solid var(--border-hairline)', borderRadius: 8, padding: '8px 12px', whiteSpace: 'nowrap', boxShadow: '0 4px 14px rgba(26,21,25,.10)' }}>
+                        {its.map((it, i) => (
+                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 18, fontSize: 12, padding: '2px 0' }}>
+                            <span style={{ fontFamily: 'ui-monospace, monospace' }}>{it.sku}</span>
+                            <span style={{ color: 'var(--fg-3)' }}>{it.name ? `${it.name} · ` : ''}×{it.qty}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  );
+                })()}
+              </td>
               <Td align="right" bold>${o.total.toLocaleString('en-US')}</Td>
-              <Td muted>{o.ship_country || '—'}</Td>
-              <Td muted>{o.status}</Td>
+              <td className="px-6 py-3 text-left" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
+                {o.ship_country ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <img
+                      src={`/flags/${o.ship_country.toLowerCase()}.svg`}
+                      alt=""
+                      width={19}
+                      height={14}
+                      style={{ borderRadius: 2, boxShadow: '0 0 0 1px rgba(26,21,25,.12)' }}
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                    />
+                    <span style={{ fontSize: 11 }}>{o.ship_country}</span>
+                  </span>
+                ) : '—'}
+              </td>
+              <Td><OrderStatusPill financial={o.status} fulfillment={o.fulfillment_status} trackingUrl={o.tracking_url} /></Td>
               <Td muted>{(o as any).payment_method || '—'}</Td>
               <Td muted>{o.created_at}</Td>
             </tr>
@@ -1653,6 +1747,28 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru' }
       </tbody>
     </table>
   );
+}
+
+function OrderStatusPill({ financial, fulfillment, trackingUrl }: { financial: string; fulfillment?: string | null; trackingUrl?: string | null }) {
+  let label = 'Paid';
+  let fg = 'var(--fg-3)';
+  let bg = 'var(--paper-sunk, #F1EFE8)';
+  let strike = false;
+  if (fulfillment === 'cancelled') { label = 'Cancelled'; strike = true; }
+  else if (financial === 'refunded' || financial === 'partially_refunded') { label = 'Refunded'; fg = '#8A6D1F'; bg = '#FBF3D8'; }
+  else if (financial === 'failed') { label = 'Failed'; fg = '#B22222'; bg = '#FBE6E6'; }
+  else if (financial === 'pending') { label = 'Pending'; }
+  else if (fulfillment === 'delivered') { label = 'Delivered'; fg = '#0E7C66'; bg = '#E1F5EE'; }
+  else if (fulfillment === 'shipped') { label = 'Shipped'; fg = '#185FA5'; bg = '#E6F1FB'; }
+  const pill = (
+    <span style={{ fontSize: 12, fontWeight: 600, color: fg, background: bg, borderRadius: 999, padding: '3px 10px', textDecoration: strike ? 'line-through' : undefined, whiteSpace: 'nowrap' }}>
+      {label}
+    </span>
+  );
+  if (label === 'Shipped' && trackingUrl) {
+    return <a href={trackingUrl} target="_blank" rel="noreferrer">{pill}</a>;
+  }
+  return pill;
 }
 
 function CartStatusBadge({ status }: { status: CrmCart['status'] }) {

@@ -624,10 +624,12 @@ marketplaces.get('/pulse/sales-today', async (c) => {
 // Site CRM sales stay local. Returns freshness from marketplace_sync_log.
 // ---------------------------------------------------------------------------
 
+// Use custom hostnames (not *.workers.dev): same-account Worker→workers.dev
+// is blocked by Cloudflare (empty/404). Custom zone routes reach specialists.
 const DASHA_OZON_SALES_URL =
-  'https://dasha-ozon.dasexperten.workers.dev/sync-sales?days=7';
+  'https://dasha-ozon.dasexperten.com/sync-sales?days=7';
 const ARINA_WB_SALES_URL =
-  'https://arina-wb.dasexperten.workers.dev/sync-sales?days=7';
+  'https://arina-wb.dasexperten.com/sync-sales?days=7';
 
 /** Call specialist Worker /sync-sales; return HTTP status (0 on network fail). */
 async function specialistSalesSync(url: string): Promise<number> {

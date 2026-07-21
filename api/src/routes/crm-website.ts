@@ -473,7 +473,7 @@ site.get('/orders', async (c) => {
     const rows = await c.env.DB.prepare(
       `SELECT id, source, order_number, stripe_payment_intent, customer_id, customer_name,
               email, currency, subtotal_cents, shipping_cents, total_cents,
-              financial_status, fulfillment_status, payment_method, lang,
+              financial_status, fulfillment_status, tracking_number, tracking_url, payment_method, lang,
               ship_country, ship_city, items, placed_at
        FROM crm_orders ${whereSql}
        ORDER BY ${orderCol} ${dir} LIMIT ? OFFSET ?`
@@ -498,6 +498,8 @@ site.get('/orders', async (c) => {
       currency: o.currency,
       status: o.financial_status,
       fulfillment_status: o.fulfillment_status,
+      tracking_number: o.tracking_number ?? null,
+      tracking_url: o.tracking_url ?? null,
       payment_method: o.payment_method,
       lang: o.lang,
       ship_country: o.ship_country,

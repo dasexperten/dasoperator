@@ -378,15 +378,12 @@ export async function handleScheduled(
 
   // Marketplace feeds (every 3h @ :20): Ozon reviews + Ozon/WB questions → D1.
   if (cron === '20 */3 * * *' || cron === '40 */6 * * *') {
-    // Legacy '40 */6' kept for one deploy so old trigger does not no-op if present.
-    // Direct in-process call — not public *.workers.dev (CF 1042 same-account loop).
-    try {
-      const { runMpFeedsSync } = await import('./routes/mp-feeds');
-      const r = await runMpFeedsSync(env);
-      console.log('[cron:mp-feeds:tamara-lane] ' + JSON.stringify(r));
-    } catch (e) {
-      console.error('[cron:mp-feeds:tamara-lane] failed:', e);
-    }
+    // CUTOVER (Owner 2026-07-21, ERP = dashboard law): the care feeds sync
+    // (Ozon reviews + Ozon/WB questions) moved to Worker `tamara-haar`
+    // (fleet, Phase 1, same 20 */3 slot). This branch is a deliberate no-op
+    // so the same Tamara token is not polled from two machines. Manual
+    // fallback stays: POST /api/mp-feeds/sync (runMpFeedsSync).
+    console.log('[cron:mp-feeds] no-op — feeds run on tamara-haar worker (Phase 1 cutover)');
     return;
   }
 

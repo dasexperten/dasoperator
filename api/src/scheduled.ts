@@ -377,10 +377,15 @@ export async function handleScheduled(
   // runs the morning cron and writes here via its ERP_DB binding).
 
   // Marketplace feeds (every 3h @ :20): Ozon reviews + Ozon/WB questions → D1.
+  // Owner 2026-07-21 Phase 1: craft moved to Worker `tamara-haar`.
+  // When KV `mp-feeds:cron-paused` = 1, this host MUST skip (no two hands).
   if (cron === '20 */3 * * *' || cron === '40 */6 * * *') {
-    // Legacy '40 */6' kept for one deploy so old trigger does not no-op if present.
-    // Direct in-process call — not public *.workers.dev (CF 1042 same-account loop).
     try {
+      const paused = await env.CACHE.get('mp-feeds:cron-paused');
+      if (paused === '1') {
+        console.log('[cron:mp-feeds:tamara-lane] paused — craft on Worker tamara-haar (no dual run)');
+        return;
+      }
       const { runMpFeedsSync } = await import('./routes/mp-feeds');
       const r = await runMpFeedsSync(env);
       console.log('[cron:mp-feeds:tamara-lane] ' + JSON.stringify(r));

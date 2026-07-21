@@ -486,7 +486,15 @@ export default function CrmPage() {
   const isLoading = statsLoading || metrikaLoading || timelineLoading || funnelLoading || ordersLoading || customersLoading;
 
   return (
-    <div className="space-y-6 max-w-full">
+    <div className="space-y-6 max-w-full crm-mock">
+      {/* Owner order 2026-07-21: port the mockup typography VERBATIM — Plus Jakarta Sans body,
+          Fraunces numerals/headings. Do NOT adapt to the ERP shell fonts. */}
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap');
+        .crm-mock{font-family:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif;}
+        .crm-mock h1{font-family:'Fraunces',serif;font-weight:600;}
+        .crm-mock tbody tr:hover{background:#F3F0E8;}
+      `}</style>
       {/* Header */}
       <div className="flex items-end justify-between">
         <div>
@@ -1109,7 +1117,7 @@ function ComMetricBand({ stats }: { stats: ComStats }) {
       }}>
         <div style={{ fontSize: 12, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#C9A94F' }}>Sales · last 30 days</div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 6 }}>
-          <span style={{ fontSize: 32, fontWeight: 700 }}>{fmt(sales30)}</span>
+          <span style={{ fontFamily: "'Fraunces', serif", fontSize: 34, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmt(sales30)}</span>
           {deltaPct !== null && (
             <span style={{ fontSize: 13, fontWeight: 700, color: deltaPct < 0 ? '#FF6B6B' : '#2FB894' }}>
               {deltaPct < 0 ? '▼' : '▲'} {Math.abs(deltaPct)}%
@@ -1147,7 +1155,7 @@ function KpiTile({ label, value, sub, accent = false }: { label: string; value: 
       borderRadius: 'var(--radius-sm)',
     }}>
       <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>{label}</div>
-      <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--fg-1)', marginTop: 8 }}>{value}</div>
+      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 28, fontWeight: 600, color: 'var(--fg-1)', marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
       {sub && <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 4 }}>{sub}</div>}
     </div>
   );
@@ -1640,7 +1648,7 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru' }
           )}
           {orders.map((o) => (
             <tr key={`${o.order_source ?? 'website'}-${o.number}`} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-              <Td bold>
+              <Td bold style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace', fontSize: 12 }}>
                 {o.number}
                 {o.order_source && o.order_source !== 'website' && (
                   <span style={{ fontWeight: 400, color: 'var(--fg-3)', marginLeft: 6 }}>{o.order_source}</span>
@@ -1916,7 +1924,7 @@ function CustomersTable({ customers, hasSearch, search, sort, onSort, variant = 
 
 function Th({ children, align = 'left' }: { children: React.ReactNode; align?: 'left' | 'right' }) {
   return (
-    <th className={`px-6 py-3 text-${align}`} style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
+    <th className={`px-6 py-3 text-${align}`} style={{ fontSize: 12, fontWeight: 400, color: '#888780', whiteSpace: 'nowrap' }}>
       {children}
     </th>
   );
@@ -1925,7 +1933,7 @@ function Th({ children, align = 'left' }: { children: React.ReactNode; align?: '
 function SortTh({ label, sortKey, current, onSort, align = 'right' }: { label: string; sortKey: string; current: { key: string; dir: 'asc' | 'desc' }; onSort: (k: string) => void; align?: 'left' | 'right' }) {
   const activeCol = current.key === sortKey;
   return (
-    <th onClick={() => onSort(sortKey)} className={`px-6 py-3 text-${align}`} style={{ fontSize: 14, fontWeight: 700, color: activeCol ? 'var(--fg-1)' : 'var(--fg-3)', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>
+    <th onClick={() => onSort(sortKey)} className={`px-6 py-3 text-${align}`} style={{ fontSize: 12, fontWeight: activeCol ? 600 : 400, color: activeCol ? 'var(--fg-1)' : '#888780', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>
       {label}{activeCol ? (current.dir === 'asc' ? ' ↑' : ' ↓') : ''}
     </th>
   );
@@ -1942,7 +1950,7 @@ function Td({
 }) {
   return (
     <td className={`px-6 py-3 text-${align}`} style={{
-      fontSize: 14,
+      fontSize: 13,
       fontWeight: bold ? 700 : 400,
       color: muted ? 'var(--fg-3)' : 'var(--fg-1)',
       whiteSpace: align === 'right' ? 'nowrap' : undefined,

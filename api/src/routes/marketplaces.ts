@@ -886,9 +886,10 @@ marketplaces.post('/backfill-wb-missing', async (c) => {
 
 
 // ---------------------------------------------------------------------------
-// Ozon discount-request workflow (Tamara morning lane, Owner 2026-07-21).
-// GET  /api/marketplaces/ozon/discount-tasks      — recent processed tasks
-// POST /api/marketplaces/ozon/discount-tasks/run  — manual run (same as cron)
+// Ozon discount-request results (Owner 2026-07-21: craft runs on Worker
+// tamara-haar, which writes ready rows into ozon_discount_tasks; the ERP
+// only stores and displays them here).
+// GET /api/marketplaces/ozon/discount-tasks — recent processed tasks
 // ---------------------------------------------------------------------------
 marketplaces.get('/ozon/discount-tasks', async (c) => {
   const rows = await c.env.DB.prepare(`
@@ -899,12 +900,6 @@ marketplaces.get('/ozon/discount-tasks', async (c) => {
     LIMIT 200
   `).all();
   return ok(c, { tasks: rows.results });
-});
-
-marketplaces.post('/ozon/discount-tasks/run', async (c) => {
-  const { runOzonDiscountTasks } = await import('../lib/ozon-discounts');
-  const r = await runOzonDiscountTasks(c.env);
-  return ok(c, r);
 });
 
 export default marketplaces;

@@ -180,18 +180,12 @@ name = "EMAIL"
 #                /api/crm/website/webhook/stripe is the real-time path; this
 #                poller is the safety net and also sweeps refunds.
 #
-# 0 6 * * *   â€” Ozon discount-request workflow (Tamara morning lane, Owner
-#                2026-07-21). lib/ozon-discounts.ts: approve buyer discount
-#                requests within care law (5% grant / 6% cap / 0.8 x min floor)
-#                with a conversion seller comment. Pause: KV CACHE key
-#                'ozon-discounts:cron-paused'.
-#
 [triggers]
 # Tamara care lane (Owner 2026-07-20): reviews / Q&A / customer replies â€” every 3h only
 #   10 */3 * * *  WB auto-reply (was */20 â€” too aggressive)
 #   20 */3 * * *  MP feeds: Ozon+WB reviews/questions ingest (was 40 */6)
 #   30 */3 * * *  Ozon draft-prep (was 50 */6)
-crons = ["0 3 * * *", "0 1 * * *", "0 12 * * *", "0 * * * *", "0 */4 * * *", "0 6 * * *", "5 */6 * * *", "*/2 * * * *", "0 0 * * *", "15 * * * *", "30 */6 * * *", "*/15 * * * *", "0 2 * * *", "30 2 * * *", "0 4 * * 4", "0 3 5 * *", "10 */3 * * *", "0 4 1-7 * 3", "*/10 * * * *", "0 5 * * *", "23 */3 * * *", "* * * * *", "0 3 1 * *", "20 */3 * * *", "30 */3 * * *", "7 * * * *"]
+crons = ["0 3 * * *", "0 1 * * *", "0 12 * * *", "0 * * * *", "0 */4 * * *", "5 */6 * * *", "*/2 * * * *", "0 0 * * *", "15 * * * *", "30 */6 * * *", "*/15 * * * *", "0 2 * * *", "30 2 * * *", "0 4 * * 4", "0 3 5 * *", "10 */3 * * *", "0 4 1-7 * 3", "*/10 * * * *", "0 5 * * *", "23 */3 * * *", "* * * * *", "0 3 1 * *", "20 */3 * * *", "30 */3 * * *", "7 * * * *"]
 
 
 # -----------------------------------------------------------------------------

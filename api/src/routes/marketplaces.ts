@@ -624,23 +624,23 @@ marketplaces.get('/pulse/sales-today', async (c) => {
 // Site CRM sales stay local. Returns freshness from marketplace_sync_log.
 // ---------------------------------------------------------------------------
 
-// Use custom hostnames (not *.workers.dev): same-account Worker→workers.dev
-// is blocked by Cloudflare (empty/404). Custom zone routes reach specialists.
-const DASHA_OZON_SALES_URL =
-  'https://dasha-ozon.dasexperten.com/sync-sales?days=7';
-const ARINA_WB_SALES_URL =
-  'https://arina-wb.dasexperten.com/sync-sales?days=7';
-
-/** Call specialist Worker /sync-sales; return HTTP status (0 on network fail). */
-async function specialistSalesSync(url: string): Promise<number> {
+/**
+ * Call specialist Worker /sync-sales via service binding.
+ * Same-account *.workers.dev is blocked (1042/404); custom DNS for
+ * dasha-ozon.dasexperten.com is not provisioned — bindings only.
+ */
+async function specialistSalesSync(
+  fetcher: Fetcher | undefined,
+  path: string
+): Promise<number> {
+  if (!fetcher) return 0;
   try {
-    const r = await fetch(url, {
-      method: 'GET',
-      headers: { 'User-Agent': 'dasoperator-api/pulse-refresh (+specialist-cutover)' },
-      // Sales pull can paginate analytics; allow up to ~90s
-      signal: AbortSignal.timeout(90_000),
-    });
-    // 200 with { error } still means the Worker answered — surface as 502-ish for UI
+    const r = await fetcher.fetch(
+      new Request(`https://internal${path}`, {
+        method: 'GET',
+        headers: { 'User-Agent': 'dasoperator-api/pulse-refresh (+specialist-cutover)' },
+      })
+    );
     if (r.ok) {
       const body = (await r.json().catch(() => null)) as { error?: string | null } | null;
       if (body && body.error) return 502;
@@ -685,11 +685,11 @@ marketplaces.get('/diag/wb-day/:date', async (c) => {
 });
 
 marketplaces.post('/pulse/refresh', async (c) => {
-  // Ozon (Dasha) + WB (Arina) + site CRM in parallel.
+  // Ozon (Dasha) + WB (Arina) via service bindings + site CRM in parallel.
   // Specialists write marketplace_sales_* into this ERP D1; we only trigger + read log.
   const [ozonStatus, wbStatus, siteStatus] = await Promise.all([
-    specialistSalesSync(DASHA_OZON_SALES_URL),
-    specialistSalesSync(ARINA_WB_SALES_URL),
+    specialistSalesSync(c.env.DASHA_OZON, '/sync-sales?days=7'),
+    specialistSalesSync(c.env.ARINA_WB, '/sync-sales?days=7'),
     c.env.SELF.fetch(new Request('https://internal/api/crm/sync-site-sales', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

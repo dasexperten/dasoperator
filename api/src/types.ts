@@ -38,6 +38,10 @@ export interface Env {
   // scheduled handler uses env.SELF.fetch() to invoke our own POST
   // /api/marketplaces/sync/* routes — public *.workers.dev would 1042.
   SELF: Fetcher;
+  /** Fleet Worker dasha-ozon — Ozon stocks+sales craft (Owner 2026-07-21) */
+  DASHA_OZON: Fetcher;
+  /** Fleet Worker arina-wb — WB stocks+sales craft (Owner 2026-07-21) */
+  ARINA_WB: Fetcher;
 
   // Cloudflare Email Sending (Beta) binding — outbound transactional email
   // from notify.dasexperten.com. See src/services/email.ts for the allowed

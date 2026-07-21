@@ -110,6 +110,16 @@ service = "emailer-bridge"
 binding = "SELF"
 service = "dasoperator-api"
 
+# Marketplace specialists (Owner 2026-07-21): pulse Refresh → their /sync-sales.
+# Same-account *.workers.dev is blocked (1042/404); service bindings only.
+[[services]]
+binding = "DASHA_OZON"
+service = "dasha-ozon"
+
+[[services]]
+binding = "ARINA_WB"
+service = "arina-wb"
+
 # -----------------------------------------------------------------------------
 # Email Sending binding â€” Cloudflare Email Sending (Beta)
 # Sending domain: notify.dasexperten.com (DNS/SPF/DKIM configured in Cloudflare,

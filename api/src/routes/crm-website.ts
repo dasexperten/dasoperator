@@ -352,15 +352,21 @@ site.get('/stats', async (c) => {
     monthStart.setUTCDate(1);
     monthStart.setUTCHours(0, 0, 0, 0);
     const monthEpoch = Math.floor(monthStart.getTime() / 1000);
+    const nowEpoch = Math.floor(Date.now() / 1000);
+    const d30 = nowEpoch - 30 * 86400;
+    const d60 = nowEpoch - 60 * 86400;
 
     const totals = await c.env.DB.prepare(
       `SELECT COUNT(*) AS orders_total,
               COALESCE(SUM(total_cents), 0) AS revenue_cents,
               COALESCE(SUM(CASE WHEN placed_at >= ?1 THEN 1 ELSE 0 END), 0) AS orders_this_month,
-              COALESCE(SUM(CASE WHEN placed_at >= ?1 THEN total_cents ELSE 0 END), 0) AS revenue_this_month_cents
+              COALESCE(SUM(CASE WHEN placed_at >= ?1 THEN total_cents ELSE 0 END), 0) AS revenue_this_month_cents,
+              COALESCE(SUM(CASE WHEN placed_at >= ?2 THEN total_cents ELSE 0 END), 0) AS sales_30d_cents,
+              COALESCE(SUM(CASE WHEN placed_at >= ?2 THEN 1 ELSE 0 END), 0) AS orders_30d,
+              COALESCE(SUM(CASE WHEN placed_at >= ?3 AND placed_at < ?2 THEN total_cents ELSE 0 END), 0) AS sales_prev30_cents
        FROM crm_orders
        WHERE financial_status IN ('paid','partially_refunded')`
-    ).bind(monthEpoch).first<any>();
+    ).bind(monthEpoch, d30, d60).first<any>();
 
     const custTotals = await c.env.DB.prepare(
       `SELECT COUNT(*) AS customers_total,
@@ -403,6 +409,9 @@ site.get('/stats', async (c) => {
       aov_cents: ordersTotal ? Math.round(revenueCents / ordersTotal) : 0,
       orders_this_month: Number(totals?.orders_this_month ?? 0),
       revenue_this_month_cents: Number(totals?.revenue_this_month_cents ?? 0),
+      sales_30d_cents: Number(totals?.sales_30d_cents ?? 0),
+      orders_30d: Number(totals?.orders_30d ?? 0),
+      sales_prev30_cents: Number(totals?.sales_prev30_cents ?? 0),
       customers_total: Number(custTotals?.customers_total ?? 0),
       buyers_count: Number(custTotals?.buyers ?? 0),
       repeat_buyers: Number(custTotals?.repeat_buyers ?? 0),

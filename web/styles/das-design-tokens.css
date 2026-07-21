@@ -745,18 +745,19 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
 /* ---------------- MOBILE (dasoperator-mail-swipe) ---------------- */
 .dxmail .phone {
   font-family: 'Manrope', sans-serif; background: var(--panel); color: var(--navy);
-  height: 100%; width: 100%; max-width: 480px; margin: 0 auto;
+  /* Full width on narrow screens — no 480px letterbox that clips the drawer */
+  height: 100%; width: 100%; max-width: none; margin: 0;
   display: flex; flex-direction: column; overflow: hidden; position: relative;
 }
 .dxmail .appbar { background: var(--white); border-bottom: 1px solid var(--line); padding: 12px 14px; display: flex; align-items: center; gap: 11px; flex-shrink: 0; min-height: 60px; }
 .dxmail .title { font-size: 17px; font-weight: 800; letter-spacing: -0.2px; }
 .dxmail .sub { font-size: 11px; font-weight: 700; color: var(--muted); margin-top: 1px; }
 
-/* Mobile left drawer — desktop agents/folders side box */
+/* Mobile left drawer — desktop agents/folders side box (fixed = full narrow viewport) */
 .dxmail .mdrawer {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 80;
   display: flex;
   pointer-events: none;
 }
@@ -774,13 +775,17 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
 .dxmail .mdrawer-panel {
   position: relative;
   z-index: 1;
-  width: min(300px, 86vw);
+  width: min(320px, 88vw);
   height: 100%;
+  max-height: 100dvh;
   background: var(--white);
   border-right: 1px solid var(--line);
   box-shadow: var(--mail-float, 0 18px 48px -18px rgba(26, 21, 25, 0.28));
   padding: 12px 12px 24px;
+  padding-top: max(12px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
   pointer-events: auto;

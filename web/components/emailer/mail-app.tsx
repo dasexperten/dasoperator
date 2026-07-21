@@ -1492,8 +1492,14 @@ export default function MailApp() {
   const snackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const mq = window.matchMedia('(max-width: 767px)');
-    const apply = () => setIsMobile(mq.matches);
+    // Narrow screen (incl. tablets) + standalone /mail Android app → phone UI with burger drawer.
+    // 960px so half-laptop / split view gets agents side-box via burger, not missing chrome.
+    const mq = window.matchMedia('(max-width: 960px)');
+    const apply = () => {
+      const standaloneMail =
+        window.location.pathname === '/mail' || window.location.pathname.startsWith('/mail/');
+      setIsMobile(standaloneMail || mq.matches);
+    };
     apply();
     setReady(true);
     mq.addEventListener('change', apply);

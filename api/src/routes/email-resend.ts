@@ -1,0 +1,151 @@
+// =============================================================================
+// Brand outbound via Resend + R2 Sent archive (Owner 2026-07-21).
+//
+//   POST /api/email/resend-send   — session: send + archive (compose / agents)
+//   POST /api/email/archive-sent  — session or service: archive only (backfill)
+//
+// Emailer UI lists Inbox/<from>/sent via /api/email/mailboxes — not Gmail.
+// Personal dasexperten@gmail.com is never CC'd or archived as brand Sent.
+// =============================================================================
+
+import { Hono } from 'hono';
+import { z } from 'zod';
+import type { Env } from '../types';
+import { validateSession } from '../lib/auth';
+import { sendHumanResend, extractEmailAddr } from '../lib/resend-human';
+
+const route = new Hono<{ Bindings: Env }>();
+
+function bearer(c: import('hono').Context): string | null {
+  const h = c.req.header('Authorization');
+  if (!h) return null;
+  const m = /^Bearer\s+(.+)$/i.exec(h);
+  return m?.[1] ? m[1].trim() : null;
+}
+
+async function requireUserOrService(c: import('hono').Context<{ Bindings: Env }>): Promise<boolean> {
+  const svc = c.req.header('X-Emailer-Service-Secret');
+  if (c.env.EMAILER_SERVICE_SECRET && svc && svc === c.env.EMAILER_SERVICE_SECRET) {
+    return true;
+  }
+  const token = bearer(c);
+  if (!token) return false;
+  const user = await validateSession(c.env.DB, token);
+  return !!user;
+}
+
+const sendSchema = z.object({
+  from: z.string().min(3),
+  to: z.string().email().or(z.array(z.string().email()).min(1)),
+  subject: z.string().min(1).max(500),
+  text: z.string().min(1).max(100_000),
+  html: z.string().max(200_000).optional(),
+  cc: z.string().email().or(z.array(z.string().email())).optional(),
+  bcc: z.string().email().or(z.array(z.string().email())).optional(),
+  in_reply_to: z.string().optional(),
+  trigger: z.string().max(120).optional(),
+});
+
+route.post('/resend-send', async (c) => {
+  if (!(await requireUserOrService(c))) {
+    return c.json({ success: false, error: 'unauthorized' }, 401);
+  }
+
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ success: false, error: 'invalid JSON' }, 400);
+  }
+
+  const parsed = sendSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ success: false, error: 'invalid body', issues: parsed.error.issues }, 422);
+  }
+
+  const d = parsed.data;
+  const result = await sendHumanResend(c.env, {
+    from: d.from,
+    to: d.to,
+    subject: d.subject,
+    text: d.text,
+    ...(d.html !== undefined ? { html: d.html } : {}),
+    ...(d.cc !== undefined ? { cc: d.cc } : {}),
+    ...(d.bcc !== undefined ? { bcc: d.bcc } : {}),
+    ...(d.in_reply_to !== undefined ? { in_reply_to: d.in_reply_to } : {}),
+    origin: 'human',
+    trigger: d.trigger || 'emailer-resend-send',
+  });
+
+  if (!result.success) {
+    return c.json({ success: false, error: result.error }, 502);
+  }
+  return c.json({
+    success: true,
+    messageId: result.messageId,
+    archived: result.archived,
+    mailbox: extractEmailAddr(d.from),
+  });
+});
+
+const archiveOneSchema = z.object({
+  from: z.string().min(3),
+  to: z.string().email().or(z.array(z.string().email()).min(1)),
+  subject: z.string().min(1),
+  text: z.string().optional().default(''),
+  html: z.string().optional(),
+  messageId: z.string().min(1),
+  cc: z.string().email().or(z.array(z.string().email())).optional(),
+  trigger: z.string().optional(),
+});
+
+const archiveBatchSchema = z.object({
+  items: z.array(archiveOneSchema).min(1).max(200),
+});
+
+/** Backfill Resend-accepted sends into Emailer Sent (R2) without re-sending. */
+route.post('/archive-sent', async (c) => {
+  if (!(await requireUserOrService(c))) {
+    return c.json({ success: false, error: 'unauthorized' }, 401);
+  }
+
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ success: false, error: 'invalid JSON' }, 400);
+  }
+
+  // Accept either a single object or { items: [...] }
+  const asBatch =
+    body && typeof body === 'object' && Array.isArray((body as { items?: unknown }).items)
+      ? archiveBatchSchema.safeParse(body)
+      : archiveBatchSchema.safeParse({ items: [body] });
+
+  if (!asBatch.success) {
+    return c.json({ success: false, error: 'invalid body', issues: asBatch.error.issues }, 422);
+  }
+
+  let ok = 0;
+  const errors: { messageId: string; error: string }[] = [];
+  for (const item of asBatch.data.items) {
+    const result = await sendHumanResend(c.env, {
+      from: item.from,
+      to: item.to,
+      subject: item.subject,
+      text: item.text || `(archived send ${item.messageId})`,
+      ...(item.html !== undefined ? { html: item.html } : {}),
+      ...(item.cc !== undefined ? { cc: item.cc } : {}),
+      messageId: item.messageId,
+      archive_only: true,
+      origin: 'human',
+      trigger: item.trigger || 'archive-backfill',
+    });
+    if (result.success) ok++;
+    else errors.push({ messageId: item.messageId, error: result.error });
+  }
+
+  return c.json({ success: true, archived: ok, failed: errors.length, errors });
+});
+
+export default route;

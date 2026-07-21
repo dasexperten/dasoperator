@@ -22,33 +22,18 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
 import { validateSession } from '../lib/auth';
-import { archiveEmail } from '../lib/inbox-archive';
+import { sendHumanResend, isAllowedHumanFrom, extractEmailAddr } from '../lib/resend-human';
 
 const route = new Hono<{ Bindings: Env }>();
 
-// Only Resend-verified senders.
-// - Apex dasexperten.com (verified 2026-07-11): the six official human
-//   addresses — replies to counterparties go from these.
-// - my.dasexperten.com: system senders (Workers) — allowed for completeness.
-// - send.dasexperten.ru: legacy .ru fallback.
-const APEX_SENDERS = new Set([
-  'sales@dasexperten.com',
-  'support@dasexperten.com',
-  'emea@dasexperten.com',
-  'eurasia@dasexperten.com',
-  'asean@dasexperten.com',
-  'dr.badalyan@dasexperten.com',
-]);
-const ALLOWED_FROM = /@(my\.dasexperten\.com|(send\.)?dasexperten\.ru)$/i;
-const isAllowedFrom = (addr: string): boolean =>
-  APEX_SENDERS.has(addr.toLowerCase()) || ALLOWED_FROM.test(addr);
 const DEFAULT_FROM = 'sales@dasexperten.com';
 
 const replySchema = z.object({
   to: z.string().email().or(z.array(z.string().email()).min(1)),
   subject: z.string().min(1).max(500),
   text: z.string().min(1).max(50_000),
-  from: z.string().email().optional(),
+  // Allow "Name <sales@…>" display form
+  from: z.string().min(3).optional(),
   cc: z.string().email().or(z.array(z.string().email())).optional(),
   in_reply_to: z.string().optional(),
 });
@@ -61,14 +46,9 @@ function bearer(c: import('hono').Context): string | null {
 }
 
 route.post('/reply', async (c) => {
-  // Auth: any logged-in user may reply.
   const token = bearer(c);
   const user = token ? await validateSession(c.env.DB, token) : null;
   if (!user) return c.json({ success: false, error: 'unauthorized' }, 401);
-
-  if (!c.env.RESEND_API_KEY) {
-    return c.json({ success: false, error: 'RESEND_API_KEY not configured' }, 500);
-  }
 
   let body: unknown;
   try {
@@ -82,76 +62,39 @@ route.post('/reply', async (c) => {
     return c.json({ success: false, error: 'invalid body', issues: parsed.error.issues }, 422);
   }
   const d = parsed.data;
-
   const from = d.from ?? DEFAULT_FROM;
-  if (!isAllowedFrom(from)) {
+
+  if (!isAllowedHumanFrom(from)) {
     return c.json(
       {
         success: false,
-        error: `from is not a verified sender (got ${from})`,
-        allowed: [...APEX_SENDERS, '*@my.dasexperten.com', '*@send.dasexperten.ru'],
+        error: `from is not a verified brand sender (got ${from})`,
       },
       422,
     );
   }
 
-  const toList = Array.isArray(d.to) ? d.to : [d.to];
-  const ccList = d.cc ? (Array.isArray(d.cc) ? d.cc : [d.cc]) : undefined;
-
-  // Send via Resend.
-  const resendBody: Record<string, unknown> = {
+  const result = await sendHumanResend(c.env, {
     from,
-    to: toList,
+    to: d.to,
     subject: d.subject,
     text: d.text,
-  };
-  if (ccList) resendBody.cc = ccList;
-  if (d.in_reply_to) {
-    resendBody.headers = {
-      'In-Reply-To': d.in_reply_to,
-      References: d.in_reply_to,
-    };
-  }
-
-  let resendJson: { id?: string; message?: string; name?: string };
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${c.env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(resendBody),
-      signal: AbortSignal.timeout(30_000),
-    });
-    resendJson = await res.json();
-    if (!res.ok || !resendJson.id) {
-      return c.json(
-        { success: false, error: resendJson.message || `Resend HTTP ${res.status}` },
-        502,
-      );
-    }
-  } catch (err) {
-    return c.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
-      502,
-    );
-  }
-
-  // Archive the outbound copy as `sent`, keyed on the From mailbox — mirrors
-  // how inbound is keyed on the To mailbox, so both appear in one archive.
-  await archiveEmail(c.env, 'sent', from, {
-    from,
-    to: toList,
-    cc: ccList,
-    subject: d.subject,
-    text: d.text,
-    messageId: resendJson.id,
-    threadId: d.in_reply_to,
+    ...(d.cc !== undefined ? { cc: d.cc } : {}),
+    ...(d.in_reply_to !== undefined ? { in_reply_to: d.in_reply_to } : {}),
     origin: 'human',
+    trigger: 'emailer-reply',
   });
 
-  return c.json({ success: true, messageId: resendJson.id });
+  if (!result.success) {
+    return c.json({ success: false, error: result.error }, 502);
+  }
+
+  return c.json({
+    success: true,
+    messageId: result.messageId,
+    archived: result.archived,
+    mailbox: extractEmailAddr(from),
+  });
 });
 
 export default route;

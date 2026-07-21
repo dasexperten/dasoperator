@@ -189,20 +189,103 @@ email.post('/export', async (c) => {
   return ok(c, j);
 });
 
+/**
+ * GET /api/email/history
+ * Owner 2026-07-21: primary source = R2 Inbox sent archive (Resend), NOT personal Gmail.
+ * Optional mailbox= filter (default: all brand mailboxes with indexes).
+ * Legacy Gmail bridge only if source=gmail (ops debug).
+ */
 email.get('/history', async (c) => {
-  const query = c.req.query('query') || 'newer_than:30d';
   const limitRaw = parseInt(c.req.query('limit') || '50', 10);
-  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 50;
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
   const offsetRaw = parseInt(c.req.query('offset') || '0', 10);
   const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? offsetRaw : 0;
-  // Refresh button sends fresh=1 to bypass the cache and re-warm it.
-  const fresh = c.req.query('fresh') === '1';
+  const mailboxFilter = (c.req.query('mailbox') || '').trim().toLowerCase();
+  const source = (c.req.query('source') || 'resend').toLowerCase();
 
-  // The bridge (Apps Script over Gmail) hydrates threads sequentially and can
-  // take tens of seconds, so cache the successful payload in KV. Errors are
-  // never cached (the fetcher throws → withKvCache re-runs next time).
+  // ── Primary: R2 sent archive (what Emailer Sent folder uses) ────────────
+  if (source !== 'gmail') {
+    try {
+      const listed = await c.env.ARCHIVE.list({ prefix: 'Inbox/', delimiter: '/' });
+      const indexKeys = listed.objects
+        .map((o) => o.key)
+        .filter((k) => k.endsWith('.json') && !k.slice('Inbox/'.length).includes('/'));
+
+      type Row = {
+        thread_id: string;
+        subject: string;
+        snippet: string;
+        from: string;
+        to: string;
+        date: string;
+        has_attachments: boolean;
+        labels: string[];
+        direction: 'sent' | 'received';
+        messageId: string;
+        key: string;
+        mailbox: string;
+      };
+      const rows: Row[] = [];
+
+      for (const indexKey of indexKeys) {
+        const address = indexKey.slice('Inbox/'.length, -'.json'.length).toLowerCase();
+        if (address === 'dasexperten@gmail.com' || address === 'dr.badalyan@dasexperten.com') continue;
+        if (mailboxFilter && address !== mailboxFilter) continue;
+        try {
+          const obj = await c.env.ARCHIVE.get(indexKey);
+          if (!obj) continue;
+          const entries = JSON.parse(await obj.text()) as Array<{
+            key: string;
+            direction: string;
+            timestamp: string;
+            subject: string;
+            from?: string;
+            to?: string | string[];
+            messageId?: string;
+          }>;
+          if (!Array.isArray(entries)) continue;
+          for (const e of entries) {
+            if (e.direction !== 'sent') continue;
+            const toStr = Array.isArray(e.to) ? e.to.join(', ') : (e.to || '');
+            rows.push({
+              thread_id: e.messageId || e.key,
+              subject: e.subject || '(no subject)',
+              snippet: toStr ? `To: ${toStr}` : 'Sent via Resend',
+              from: e.from || address,
+              to: toStr,
+              date: e.timestamp,
+              has_attachments: false,
+              labels: ['SENT', 'RESEND'],
+              direction: 'sent',
+              messageId: e.messageId || e.key,
+              key: e.key,
+              mailbox: address,
+            });
+          }
+        } catch { /* skip corrupt index */ }
+      }
+
+      rows.sort((a, b) => (a.date < b.date ? 1 : -1));
+      const page = rows.slice(offset, offset + limit);
+      return ok(c, {
+        threads: page,
+        total: rows.length,
+        query: mailboxFilter || 'sent:resend-archive',
+        has_more: offset + limit < rows.length,
+        start: offset,
+        source: 'r2-sent-archive',
+      }, ['Email history from Resend R2 archive']);
+    } catch (err) {
+      return fail(c, 500, [{
+        code: 'archive_error',
+        message: err instanceof Error ? err.message : String(err),
+      }]);
+    }
+  }
+
+  // ── Legacy: Gmail bridge (ops debug only — not Boss control surface) ──
+  const query = c.req.query('query') || 'newer_than:30d';
   const key = cacheKey('emailer:history', { query, limit, offset });
-
   const fetchFromBridge = async (): Promise<unknown> => {
     const bridgeResponse = await c.env.EMAILER.fetch(new Request('https://emailer/', {
       method: 'POST',
@@ -210,15 +293,12 @@ email.get('/history', async (c) => {
       body: JSON.stringify({
         action: 'find',
         query,
-        // Bridge now lists lazily (no attachment upload), so large pages are fast.
-        // `start` enables Next-page pagination.
         max_results: limit,
         start: offset,
         limit,
       }),
       signal: AbortSignal.timeout(60_000),
     }));
-
     let bridgePayload: unknown;
     try {
       bridgePayload = await bridgeResponse.json();
@@ -232,15 +312,8 @@ email.get('/history', async (c) => {
   };
 
   try {
-    let payload: unknown;
-    if (fresh) {
-      payload = await fetchFromBridge();
-      // Re-warm the cache so other clients get the fresh copy.
-      try { await c.env.CACHE.put(key, JSON.stringify(payload), { expirationTtl: 180 }); } catch { /* ignore */ }
-    } else {
-      payload = await withKvCache(c.env, key, 180, fetchFromBridge);
-    }
-    return ok(c, payload, ['Email history fetched']);
+    const payload = await withKvCache(c.env, key, 180, fetchFromBridge);
+    return ok(c, payload, ['Email history fetched (legacy Gmail bridge)']);
   } catch (err) {
     return fail(c, 502, [{
       code: 'bridge_error',

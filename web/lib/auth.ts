@@ -114,6 +114,10 @@ export function hasModuleAccess(user: AuthUser, route: string): boolean {
   if (user.role === 'admin') return true;
   const perms = user.permissions ?? {};
   if (route === '/') return (perms['/'] ?? 'none') !== 'none';
+  // Standalone Android mail app shares Emailer module permission
+  if (route === '/mail' || route.startsWith('/mail/')) {
+    return (perms['/emailer'] ?? 'none') !== 'none';
+  }
   for (const m of ALL_MODULES) {
     if (m === '/') continue;
     if (route === m || route.startsWith(m + '/')) {

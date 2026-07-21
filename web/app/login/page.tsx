@@ -1,15 +1,43 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState, useEffect, useCallback, useMemo } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { login, getToken } from '@/lib/auth';
 
 export const runtime = 'edge';
 
+/** Safe in-app redirect after login (blocks open redirects). */
+function safeNextPath(raw: string | null): string {
+  if (!raw) return '/';
+  if (!raw.startsWith('/') || raw.startsWith('//')) return '/';
+  // Allow mail standalone app + normal ERP routes
+  if (raw === '/mail' || raw.startsWith('/mail?') || raw.startsWith('/mail/')) return raw.split('#')[0];
+  if (raw.length > 200) return '/';
+  return raw.split('#')[0];
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div
+          className="min-h-screen flex items-center justify-center"
+          style={{ backgroundColor: 'var(--brand-schwarz)', color: 'var(--paper)', fontSize: 14 }}
+        >
+          Loading…
+        </div>
+      }
+    >
+      <LoginPageInner />
+    </Suspense>
+  );
+}
+
 /**
  * Login — PIN entry screen.
  *
- * 4-digit PIN via on-screen pad (tap or type). On success → push to `/`.
+ * 4-digit PIN via on-screen pad (tap or type). On success → push to `/`
+ * or `?next=` (e.g. Android mail PWA → /mail).
  * On failure → shake, clear digits, show error.
  *
  * UI rules:
@@ -17,17 +45,19 @@ export const runtime = 'edge';
  *  - Numerics bold (PIN digits → bold)
  *  - Schwarz/rot/gold palette via CSS vars from globals.css
  */
-export default function LoginPage() {
+function LoginPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextPath = useMemo(() => safeNextPath(searchParams.get('next')), [searchParams]);
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [shake, setShake] = useState(false);
 
-  // If already authenticated, bounce to home
+  // If already authenticated, bounce to intended destination
   useEffect(() => {
-    if (getToken()) router.replace('/');
-  }, [router]);
+    if (getToken()) router.replace(nextPath);
+  }, [router, nextPath]);
 
   const submit = useCallback(async (code: string) => {
     setBusy(true);
@@ -35,14 +65,14 @@ export default function LoginPage() {
     const res = await login(code);
     setBusy(false);
     if (res.ok) {
-      router.replace('/');
+      router.replace(nextPath);
     } else {
       setError(res.error);
       setShake(true);
       setTimeout(() => setShake(false), 450);
       setPin('');
     }
-  }, [router]);
+  }, [router, nextPath]);
 
   const onKey = useCallback((key: string) => {
     if (busy) return;

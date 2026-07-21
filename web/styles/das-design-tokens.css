@@ -310,6 +310,23 @@ body {
   .dxmail-page { margin: -16px -16px -84px; height: calc(100dvh - 56px - 4px - 64px); }
 }
 
+/* Standalone Android PWA / Capacitor — no ERP shell chrome */
+.dxmail-page.dxmail-standalone {
+  margin: 0 !important;
+  height: 100dvh !important;
+  height: 100svh !important;
+  max-height: 100dvh;
+  width: 100%;
+  overflow: hidden;
+}
+body:has(.dxmail-standalone) {
+  margin: 0;
+  overflow: hidden;
+  background: var(--brand-schwarz-ink, #1A1519);
+}
+/* Hide global Kompanion launcher on standalone mail app */
+body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !important; }
+
 .dxmail .dxmail-spin { animation: dxmail-rot 0.9s linear infinite; }
 @keyframes dxmail-rot { to { transform: rotate(360deg); } }
 

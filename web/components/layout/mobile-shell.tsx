@@ -59,8 +59,10 @@ export default function MobileShell({ children }: { children: React.ReactNode })
   // Only collapse the ERP sidebar while on emailer (desktop). Other routes stay full nav.
   const desktopNavCollapsed = isEmailer && emailerNavCollapsed;
 
-  // /login renders standalone (no shell)
-  if (pathname === '/login') {
+  const isMailApp = pathname === '/mail' || pathname.startsWith('/mail/');
+
+  // /login and standalone Android mail app — no ERP chrome
+  if (pathname === '/login' || isMailApp) {
     return <AuthGate>{children}</AuthGate>;
   }
 

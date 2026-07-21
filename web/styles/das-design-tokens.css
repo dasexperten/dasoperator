@@ -276,29 +276,28 @@ body {
 }
 
 /* ==========================================================================
-   DASOPERATOR MAIL (.dxmail) — owner-provided mockups implemented verbatim:
-   docs/design/references/dasoperator-inbox-mpstats.jsx  (desktop, 3-pane)
-   docs/design/references/dasoperator-mail-swipe.jsx     (mobile, swipe rows)
-   All selectors are scoped under .dxmail; palette comes from the mockups
-   (green #17BF50 on light panel), NOT from the ERP brand tokens — this is
-   the approved look for the mail module only.
+   DASOPERATOR MAIL (.dxmail) — layout from approved mockups
+   (docs/design/references/dasoperator-inbox-mpstats.jsx + mail-swipe.jsx).
 
-   Brighter pass (preview 2026-07-21): same green system, harder punch —
-   larger key numbers, solid active fills, raised cards/CTAs, denser chips.
-   Recipe from deSIGNER/SKILLS/brighter; colors stay mail-green (not brand-rot).
+   Palette (Owner 2026-07-21): SAME as CRM — brand rot / schwarz / paper / gold.
+   Aliases --green* keep selector names stable but resolve to brand-rot.
+   Brighter punch kept: large stats, solid active fills, raised cards.
    ========================================================================== */
 .dxmail {
-  --green: #17BF50;
-  --green-dark: #109A3F;
-  --green-soft: #EAF9F0;
-  --navy: #0E1F2E;
-  --slate: #5B6B7A;
-  --muted: #93A1AE;
-  --line: #E7ECF0;
-  --panel: #F5F7F9;
-  --white: #FFFFFF;
-  --mail-raised: 0 4px 16px -6px rgba(14, 31, 46, 0.12), 0 0 0 1px rgba(14, 31, 46, 0.06);
-  --mail-float: 0 10px 28px -10px rgba(14, 31, 46, 0.18), 0 0 0 1px rgba(14, 31, 46, 0.06);
+  /* names kept; values = CRM brand tokens */
+  --green: var(--brand-rot);              /* primary = crimson #E5202C */
+  --green-dark: #B81A24;                  /* hover / pressed rot */
+  --green-soft: rgba(229, 32, 44, 0.10);  /* selected / soft fill */
+  --navy: var(--brand-schwarz-ink);       /* primary ink */
+  --slate: var(--stone-500);              /* secondary text */
+  --muted: var(--stone-300);              /* meta */
+  --line: rgba(26, 21, 25, 0.10);         /* hairlines */
+  --panel: var(--paper-sunk);             /* trays */
+  --white: var(--paper-raised);           /* cards */
+  --mail-raised: var(--shadow-raised);
+  --mail-float: var(--shadow-float);
+  --mail-glow: rgba(229, 32, 44, 0.48);
+  --mail-ring: rgba(229, 32, 44, 0.14);
   height: 100%;
 }
 .dxmail * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
@@ -363,7 +362,7 @@ body {
   background: var(--green); color: white;
   font-size: 11px; font-weight: 800; letter-spacing: 0.6px;
   padding: 4px 10px; border-radius: 999px; text-transform: uppercase;
-  box-shadow: 0 4px 12px -6px rgba(23, 191, 80, 0.55);
+  box-shadow: 0 4px 12px -6px var(--mail-glow);
 }
 .dxmail .stats-strip { margin-left: auto; display: flex; gap: 8px; }
 .dxmail .stat-chip {
@@ -401,7 +400,7 @@ body {
   font-weight: 800; font-size: 14.5px;
   display: flex; align-items: center; justify-content: center; gap: 8px;
   cursor: pointer;
-  box-shadow: 0 8px 18px -6px rgba(23,191,80,0.6), 0 0 0 1px rgba(16,154,63,0.15);
+  box-shadow: 0 8px 18px -6px var(--mail-glow), 0 0 0 1px rgba(184, 26, 36, 0.18);
   transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
   margin-bottom: 14px;
 }
@@ -423,7 +422,7 @@ body {
 .dxmail .folder.active {
   background: var(--green);
   color: white;
-  box-shadow: 0 6px 14px -8px rgba(23, 191, 80, 0.55);
+  box-shadow: 0 6px 14px -8px var(--mail-glow);
 }
 .dxmail .folder.active .nav-person-label,
 .dxmail .folder.active svg { color: white; }
@@ -441,7 +440,7 @@ body {
 }
 .dxmail .sidebar-note {
   margin-top: auto;
-  background: linear-gradient(135deg, #EAF9F0, #E8F4FF);
+  background: linear-gradient(135deg, var(--paper-sunk), rgba(229, 32, 44, 0.08));
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 12px;
@@ -567,7 +566,7 @@ body {
   padding: 9px 12px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.dxmail .search:focus-within { border-color: var(--green); box-shadow: 0 0 0 3px rgba(23,191,80,0.12); }
+.dxmail .search:focus-within { border-color: var(--green); box-shadow: 0 0 0 3px var(--mail-ring); }
 .dxmail .search input {
   border: none; outline: none; background: transparent;
   font-family: 'Manrope', sans-serif; font-size: 13px; font-weight: 600;
@@ -690,7 +689,7 @@ body {
   box-shadow: var(--mail-raised);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.dxmail .replybar:focus-within { border-color: var(--green); box-shadow: 0 0 0 3px rgba(23,191,80,0.12), var(--mail-raised); }
+.dxmail .replybar:focus-within { border-color: var(--green); box-shadow: 0 0 0 3px var(--mail-ring), var(--mail-raised); }
 .dxmail .replybar input {
   flex: 1; border: none; outline: none; background: transparent;
   font-family: 'Manrope', sans-serif; font-size: 13.5px; font-weight: 600; color: var(--navy);
@@ -704,7 +703,7 @@ body {
   font-family: 'Manrope', sans-serif; font-weight: 800; font-size: 13.5px;
   display: flex; align-items: center; gap: 7px;
   cursor: pointer;
-  box-shadow: 0 6px 14px -6px rgba(23,191,80,0.55);
+  box-shadow: 0 6px 14px -6px var(--mail-glow);
   transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
 }
 .dxmail .sendb:hover { background: var(--green-dark); }
@@ -790,7 +789,7 @@ body {
 .dxmail .phone .starb { padding: 8px; margin: -8px -4px -8px auto; min-width: 40px; min-height: 40px; display: flex; align-items: center; justify-content: center; }
 .dxmail .phone .empty { padding: 60px 24px; font-size: 14px; }
 
-.dxmail .fab { position: absolute; right: 16px; bottom: 86px; background: var(--green); color: white; border: none; border-radius: 18px; padding: 16px 20px; font-family: 'Manrope', sans-serif; font-weight: 800; font-size: 14.5px; display: flex; align-items: center; gap: 9px; cursor: pointer; box-shadow: 0 8px 20px -4px rgba(23,191,80,0.5); z-index: 20; }
+.dxmail .fab { position: absolute; right: 16px; bottom: 86px; background: var(--green); color: white; border: none; border-radius: 18px; padding: 16px 20px; font-family: 'Manrope', sans-serif; font-weight: 800; font-size: 14.5px; display: flex; align-items: center; gap: 9px; cursor: pointer; box-shadow: 0 8px 20px -4px var(--mail-glow); z-index: 20; }
 .dxmail .fab:active { transform: scale(0.94); background: var(--green-dark); }
 
 .dxmail .mnav { position: absolute; left: 0; right: 0; bottom: 0; background: var(--white); border-top: 1px solid var(--line); display: flex; padding: 6px 4px 10px 4px; z-index: 20; }
@@ -801,7 +800,7 @@ body {
 .dxmail .navitem.active .iconwrap {
   background: var(--green);
   color: white;
-  box-shadow: 0 4px 12px -6px rgba(23, 191, 80, 0.55);
+  box-shadow: 0 4px 12px -6px var(--mail-glow);
 }
 .dxmail .navitem.active svg { color: white; stroke: white; }
 .dxmail .navbadge {
@@ -855,7 +854,7 @@ body {
 @keyframes dxmail-snackIn { from { transform: translate(-50%, 12px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
 .dxmail .undo-btn {
   margin-left: auto; background: none; border: none;
-  color: #4ADE80; font-family: 'Manrope', sans-serif;
+  color: var(--brand-gold); font-family: 'Manrope', sans-serif;
   font-size: 13px; font-weight: 800; cursor: pointer;
   display: flex; align-items: center; gap: 5px;
   padding: 6px 8px; min-height: 40px;
@@ -889,7 +888,7 @@ body {
 }
 .dxmail .cmodal-label input:focus,
 .dxmail .cmodal-label select:focus,
-.dxmail .cmodal-label textarea:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(23,191,80,0.12); }
+.dxmail .cmodal-label textarea:focus { border-color: var(--green); box-shadow: 0 0 0 3px var(--mail-ring); }
 .dxmail .cmodal-err { display: flex; align-items: center; gap: 6px; color: #E5484D; font-size: 12.5px; font-weight: 700; margin-bottom: 10px; }
 .dxmail .cmodal-actions { display: flex; align-items: center; gap: 10px; }
 .dxmail .cmodal-cancel { background: none; border: none; color: var(--slate); font-family: 'Manrope', sans-serif; font-size: 13px; font-weight: 700; cursor: pointer; padding: 10px 12px; }

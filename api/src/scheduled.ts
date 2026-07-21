@@ -860,13 +860,12 @@ export async function handleScheduled(
     return;
   }
 
-  // Daily marketplace SALES pull — 05:00 UTC (08:00 МСК), after yesterday settles.
-  // FBO cluster-grain sync piggybacks the same slot: direct in-process call
-  // (NOT selfFetch to *.workers.dev — bug 1042), runs past the sales pull via
-  // waitUntil because of WB statistics-api throttling pauses (60-90 s).
+  // 05:00 UTC slot: FBO cluster calc + site CRM sales.
+  // Ozon/WB marketplace sales NO LONGER run here (Owner 2026-07-21 cutover →
+  // dasha-ozon 22:00 UTC / arina-wb 22:15 UTC write marketplace_sales_*).
   if (cron === '0 5 * * *') {
     _ctx.waitUntil(runFboSync(env));
-    await runMarketplaceSalesSync(env);
+    await runMarketplaceSalesSync(env); // site CRM only; MP sales no-op inside
     return;
   }
 
@@ -958,39 +957,27 @@ async function runMarketplaceSync(env: Env): Promise<void> {
     console.error('[cron] wb stocks threw:', e);
   }
 
-  // Sales moved OUT of the hourly cron (2026-05-28). Sales now pull once daily
-  // at 05:00 UTC (08:00 МСК) via runMarketplaceSalesSync, plus the manual
-  // "refresh" button on the dashboard. This removes 24×/day rate-limit churn —
-  // sales feeds hit WB/Ozon analytics once a day when yesterday is fully settled.
-  console.log('[cron] marketplace STOCKS sync done (sales run on daily 05:00 cron)');
+  // Owner 2026-07-21: Ozon/WB marketplace SALES owned by dasha-ozon / arina-wb
+  // (nightly 22:00/22:15 UTC). This stocks cron does not pull sales.
+  console.log('[cron] marketplace STOCKS sync done (MP sales = Dasha/Arina Workers, not this cron)');
 }
 
 // =============================================================================
-// Marketplace SALES sync — daily at 05:00 UTC (08:00 МСК).
-// Pulls Ozon sales, WB sales, Site sales once per day. Generous spacing since
-// there is no hourly pressure; WB's 1 req/min limit is trivially satisfied.
+// Marketplace SALES sync — daily at 05:00 UTC (slot retained for site CRM).
+//
+// Owner 2026-07-21 CUTOVER: Ozon + WB marketplace sales are owned exclusively
+// by fleet Workers dasha-ozon / arina-wb (write marketplace_sales_* into ERP).
+// This Worker MUST NOT pull Ozon/WB sales anymore — dual writers corrupt
+// freshness and rate limits. Site (own-shop) sales stay here (CRM, not MP).
+// Manual POST /api/marketplaces/sync/sales/* remains for break-glass only.
 // =============================================================================
 async function runMarketplaceSalesSync(env: Env): Promise<void> {
-  console.log('[cron] marketplace SALES sync starting (daily 05:00 UTC)');
-  const selfFetch = (path: string) =>
-    env.SELF.fetch(new Request(`https://internal${path}`, { method: 'POST' }));
+  console.log(
+    '[cron] marketplace SALES: Ozon+WB DISABLED (Owner 2026-07-21 — dasha-ozon / arina-wb own MP sales). Site CRM sales only.'
+  );
 
-  try {
-    const r = await selfFetch('/api/marketplaces/sync/sales/ozon');
-    console.log(`[cron] ozon sales HTTP ${r.status}`);
-  } catch (e) {
-    console.error('[cron] ozon sales threw:', e);
-  }
-
-  // Wait well past WB's 1 req/min window before the WB sales call.
-  await new Promise((r) => setTimeout(r, 90_000));
-
-  try {
-    const r = await selfFetch('/api/marketplaces/sync/sales/wb');
-    console.log(`[cron] wb sales HTTP ${r.status}`);
-  } catch (e) {
-    console.error('[cron] wb sales threw:', e);
-  }
+  // Ozon / WB MP sales — NO-OP (Dasha + Arina). Do not re-enable without Owner.
+  // was: POST /api/marketplaces/sync/sales/ozon + /wb
 
   try {
     const r = await env.SELF.fetch(new Request('https://internal/api/crm/sync-site-sales', {
@@ -1003,7 +990,7 @@ async function runMarketplaceSalesSync(env: Env): Promise<void> {
     console.error('[cron] site sales threw:', e);
   }
 
-  console.log('[cron] marketplace SALES sync done');
+  console.log('[cron] marketplace SALES slot done (MP skipped; site CRM only)');
 }
 
 

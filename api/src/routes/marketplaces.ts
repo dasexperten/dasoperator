@@ -885,5 +885,27 @@ marketplaces.post('/backfill-wb-missing', async (c) => {
 });
 
 
+// ---------------------------------------------------------------------------
+// Ozon discount-request workflow (Tamara morning lane, Owner 2026-07-21).
+// GET  /api/marketplaces/ozon/discount-tasks      — recent processed tasks
+// POST /api/marketplaces/ozon/discount-tasks/run  — manual run (same as cron)
+// ---------------------------------------------------------------------------
+marketplaces.get('/ozon/discount-tasks', async (c) => {
+  const rows = await c.env.DB.prepare(`
+    SELECT task_id, offer_id, sku, base_price, requested_price, approved_price,
+           action, seller_comment, processed_at
+    FROM ozon_discount_tasks
+    ORDER BY processed_at DESC
+    LIMIT 200
+  `).all();
+  return ok(c, { tasks: rows.results });
+});
+
+marketplaces.post('/ozon/discount-tasks/run', async (c) => {
+  const { runOzonDiscountTasks } = await import('../lib/ozon-discounts');
+  const r = await runOzonDiscountTasks(c.env);
+  return ok(c, r);
+});
+
 export default marketplaces;
 

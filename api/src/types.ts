@@ -104,6 +104,10 @@ export interface Env {
   // Fallback: OZON_API_KEY / OZON_CLIENT_ID. Never commit values.
   TAMARA_OZON_API_KEY?: string;
   TAMARA_OZON_CLIENT_ID?: string;
+  // Ozon discount-request workflow (Tamara morning lane, Owner 2026-07-21):
+  // counter grant fraction (default 0.05) and hard cap (default 0.06).
+  OZON_DISCOUNT_GRANT?: string;
+  OZON_DISCOUNT_CAP?: string;
   OZON_PERF_CLIENT_ID: string;
   OZON_PERF_CLIENT_SECRET: string;
 

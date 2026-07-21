@@ -371,6 +371,20 @@ export async function handleScheduled(
   // Cadence: 3h (was 20m WB + 6h feeds — too aggressive on marketplace APIs).
   // -------------------------------------------------------------------------
 
+  // Ozon discount-request workflow (Tamara morning lane, Owner 2026-07-21):
+  // every morning 06:00 UTC (09:00 МСК) approve buyer discount requests within
+  // the care law (5% grant / 6% cap / 0.8×min floor) with a conversion comment.
+  if (cron === '0 6 * * *') {
+    try {
+      const { runOzonDiscountTasks } = await import('./lib/ozon-discounts');
+      const r = await runOzonDiscountTasks(env);
+      console.log('[cron:ozon-discounts:tamara-lane] ' + JSON.stringify(r));
+    } catch (e) {
+      console.error('[cron:ozon-discounts:tamara-lane] failed:', e);
+    }
+    return;
+  }
+
   // Marketplace feeds (every 3h @ :20): Ozon reviews + Ozon/WB questions → D1.
   if (cron === '20 */3 * * *' || cron === '40 */6 * * *') {
     // Legacy '40 */6' kept for one deploy so old trigger does not no-op if present.

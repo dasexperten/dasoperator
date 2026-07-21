@@ -161,7 +161,9 @@ site.post('/cart', async (c) => {
 });
 
 // -----------------------------------------------------------------------------
-// Tracking write-back — the checkout Worker forwards NSS `order.shipped` here.
+// Tracking write-back — the checkout Worker forwards NSS `order.shipped` /
+// `order.delivered` here. `status` in the body picks the fulfillment state
+// ('shipped' default, back-compat).
 // Persists tracking onto the crm_orders row and emails the customer the link
 // (+ internal copy). Authenticated with the shared INGEST_SECRET.
 // -----------------------------------------------------------------------------
@@ -177,6 +179,7 @@ site.post('/tracking', async (c) => {
   const trackingNumber = body.tracking_number ? String(body.tracking_number) : null;
   const trackingUrl = body.tracking_url ? String(body.tracking_url) : null;
   const shippingMethod = body.shipping_method ?? body.carrier ?? null;
+  const status = body.status === 'delivered' ? 'delivered' : 'shipped';
 
   try {
     const upd = await c.env.DB.prepare(
@@ -184,11 +187,11 @@ site.post('/tracking', async (c) => {
          SET tracking_number = COALESCE(?, tracking_number),
              tracking_url = COALESCE(?, tracking_url),
              shipping_method = COALESCE(?, shipping_method),
-             fulfillment_status = 'shipped',
+             fulfillment_status = ?,
              updated_at = ?
        WHERE source = 'website' AND order_number = ?`
     )
-      .bind(trackingNumber, trackingUrl, shippingMethod, Math.floor(Date.now() / 1000), orderNumber)
+      .bind(trackingNumber, trackingUrl, shippingMethod, status, Math.floor(Date.now() / 1000), orderNumber)
       .run();
 
     const changed = upd.meta?.changes ?? 0;
@@ -200,7 +203,7 @@ site.post('/tracking', async (c) => {
       )
         .bind(orderNumber)
         .first<any>();
-      if (row) {
+      if (row && status === 'shipped') {
         const data: OrderEmailData = { ...row, items: JSON.parse(row.items ?? '[]') };
         c.executionCtx.waitUntil(
           sendTrackingEmails(c.env, data, {

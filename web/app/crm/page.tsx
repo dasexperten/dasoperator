@@ -486,23 +486,33 @@ export default function CrmPage() {
   const isLoading = statsLoading || metrikaLoading || timelineLoading || funnelLoading || ordersLoading || customersLoading;
 
   return (
-    <div className="space-y-6 max-w-full crm-mock">
-      {/* Owner order 2026-07-21: port the mockup typography VERBATIM — Plus Jakarta Sans body,
-          Fraunces numerals/headings. Do NOT adapt to the ERP shell fonts. */}
+    <div className="space-y-4 max-w-full crm-mock">
+      {/* Owner order 2026-07-21: mockup typography — Plus Jakarta Sans body, Fraunces numerals.
+          Brighter pass (same day): denser layout, solid CTAs, larger key numbers, raised cards. */}
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&display=swap');
         .crm-mock{font-family:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif;}
-        .crm-mock h1{font-family:'Fraunces',serif;font-weight:600;}
+        .crm-mock h1{font-family:'Fraunces',serif;font-weight:700;}
         .crm-mock tbody tr:hover{background:#F3F0E8;}
       `}</style>
       {/* Header */}
-      <div className="flex items-end justify-between">
+      <div className="flex items-end justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
             <Headphones className="h-7 w-7" style={{ color: 'var(--brand-rot)' }} />
-            <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--fg-1)' }}>CRM</h1>
+            <h1 style={{
+              fontFamily: "'Fraunces', serif",
+              fontSize: 36,
+              fontWeight: 700,
+              lineHeight: 1.05,
+              color: 'var(--fg-1)',
+              margin: 0,
+              letterSpacing: '-0.01em',
+            }}>
+              CRM
+            </h1>
           </div>
-          <p style={{ fontSize: 14, color: 'var(--fg-3)', marginTop: 4 }}>
+          <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg-3)', marginTop: 4 }}>
             {crmSource === 'pricing'
               ? 'Geo Price Matrix — зональные цены по валютам (EUR base × FX × округление)'
               : crmSource === 'com'
@@ -518,10 +528,14 @@ export default function CrmPage() {
             disabled={isLoading}
             className="flex items-center gap-2 px-4 py-2"
             style={{
-              fontSize: 14, fontWeight: 700, color: 'var(--fg-1)',
-              backgroundColor: 'var(--paper-sunk)',
-              border: '1px solid var(--border-hairline)',
+              fontFamily: 'var(--font-display)',
+              fontSize: 14,
+              fontWeight: 800,
+              color: 'var(--fg-on-brand)',
+              backgroundColor: 'var(--brand-schwarz)',
+              border: 'none',
               borderRadius: 'var(--radius-sm)',
+              boxShadow: 'var(--shadow-raised)',
               cursor: isLoading ? 'wait' : 'pointer',
             }}
           >
@@ -579,12 +593,16 @@ export default function CrmPage() {
 
       {/* KPI tiles */}
       {crmSource === 'ru' && stats && (
-        <div className="grid grid-cols-6 gap-4">
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+          gap: 12,
+        }}>
           <KpiTile label="Customers" value={stats.customers_total.toLocaleString('ru-RU')} />
           <KpiTile label="Loyalty members" value={stats.loyalty_members_total.toLocaleString('ru-RU')} />
           <KpiTile label="Orders (total)" value={stats.orders_total.toLocaleString('ru-RU')} />
           <KpiTile label="Orders this month" value={stats.orders_this_month.toLocaleString('ru-RU')} />
-          <KpiTile label="Revenue this month" value={`${stats.revenue_this_month_rub.toLocaleString('ru-RU')} ₽`} />
+          <KpiTile label="Revenue this month" value={`${stats.revenue_this_month_rub.toLocaleString('ru-RU')} ₽`} accent />
           <KpiTile
             label="Visits today"
             value={metrika ? metrika.today.visits.toLocaleString('ru-RU') : (metrikaLoading ? '…' : '—')}
@@ -604,9 +622,9 @@ export default function CrmPage() {
         />
       )}
 
-      {/* Tabs */}
+      {/* Tabs — filled chips (brighter: fill, not underline) */}
       {crmSource !== 'pricing' && (
-      <div className="flex items-center gap-1" style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+      <div className="flex items-center gap-2 flex-wrap">
         <TabButton
           active={tab === 'orders'}
           onClick={() => setTab('orders')}
@@ -727,11 +745,11 @@ function LoyaltyFunnel({
   if (loading && !funnel) {
     return (
       <div style={{
-        backgroundColor: 'var(--paper)',
-        border: '1px solid var(--border-hairline)',
-        borderRadius: 'var(--radius-sm)',
-        padding: '20px 24px',
-        height: 200,
+        backgroundColor: 'var(--paper-raised)',
+        boxShadow: 'var(--shadow-raised)',
+        borderRadius: 'var(--radius-md)',
+        padding: '16px 20px',
+        height: 180,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -789,41 +807,66 @@ function LoyaltyFunnel({
 
   return (
     <div style={{
-      backgroundColor: 'var(--paper)',
-      border: '1px solid var(--border-hairline)',
-      borderRadius: 'var(--radius-sm)',
-      padding: '20px 24px',
+      backgroundColor: 'var(--paper-raised)',
+      boxShadow: 'var(--shadow-raised)',
+      borderRadius: 'var(--radius-md)',
+      padding: '16px 20px',
     }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--fg-1)' }}>Loyalty conversion funnel</div>
-          <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>Where customers move from sign-up to repeat purchase</div>
+          <div style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: 16,
+            fontWeight: 800,
+            color: 'var(--fg-1)',
+          }}>
+            Loyalty conversion funnel
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg-3)' }}>Where customers move from sign-up to repeat purchase</div>
         </div>
-        <div style={{ display: 'flex', gap: 16, fontSize: 14 }}>
-          <span style={{ color: 'var(--fg-3)' }}>
-            Conversion <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{funnel.conversion_to_buyer_pct}%</span>
+        <div style={{ display: 'flex', gap: 20, fontSize: 14, alignItems: 'baseline' }}>
+          <span style={{ color: 'var(--fg-3)', fontWeight: 600 }}>
+            Conversion{' '}
+            <span style={{
+              fontFamily: 'var(--font-display)',
+              fontWeight: 900,
+              fontSize: 22,
+              color: 'var(--brand-rot)',
+              marginLeft: 4,
+            }}>
+              {funnel.conversion_to_buyer_pct}%
+            </span>
           </span>
-          <span style={{ color: 'var(--fg-3)' }}>
-            Welcome burnt <span style={{ fontWeight: 700, color: '#993C1D' }}>~{funnel.welcome_burnt_estimate.toLocaleString('ru-RU')}</span>
+          <span style={{ color: 'var(--fg-3)', fontWeight: 600 }}>
+            Welcome burnt{' '}
+            <span style={{
+              fontFamily: 'var(--font-display)',
+              fontWeight: 900,
+              fontSize: 22,
+              color: 'var(--status-warning)',
+              marginLeft: 4,
+            }}>
+              ~{funnel.welcome_burnt_estimate.toLocaleString('ru-RU')}
+            </span>
           </span>
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {stagesData.map((stage) => {
           const widthPct = (stage.value / maxValue) * 100;
           return (
             <div key={stage.key} style={{ display: 'flex', alignItems: 'stretch', gap: 12 }}>
-              <div style={{ minWidth: 160, paddingTop: 6 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg-1)' }}>{stage.label}</div>
-                <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>{stage.sublabel}</div>
+              <div style={{ minWidth: 150, paddingTop: 4 }}>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 800, color: 'var(--fg-1)' }}>{stage.label}</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg-3)' }}>{stage.sublabel}</div>
               </div>
               <div style={{ flex: 1, position: 'relative' }}>
                 <div style={{
                   width: `${Math.max(widthPct, 4)}%`,
-                  minWidth: 100,
+                  minWidth: 110,
                   backgroundColor: stage.color,
-                  padding: '12px 16px',
+                  padding: '10px 14px',
                   borderRadius: 'var(--radius-sm)',
                   display: 'flex',
                   alignItems: 'center',
@@ -831,10 +874,23 @@ function LoyaltyFunnel({
                   gap: 12,
                   transition: 'width 300ms ease',
                 }}>
-                  <span style={{ fontSize: 18, fontWeight: 700, color: stage.textColor }}>
+                  <span style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 22,
+                    fontWeight: 900,
+                    lineHeight: 1,
+                    color: stage.textColor,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}>
                     {stage.value.toLocaleString('ru-RU')}
                   </span>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: stage.textColor, opacity: 0.7 }}>
+                  <span style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 15,
+                    fontWeight: 800,
+                    color: stage.textColor,
+                    opacity: 0.75,
+                  }}>
                     {stage.pct}%
                   </span>
                 </div>
@@ -929,26 +985,60 @@ function DailyActivityChart({
 
   return (
     <div style={{
-      backgroundColor: 'var(--paper)',
-      border: '1px solid var(--border-hairline)',
-      borderRadius: 'var(--radius-sm)',
-      padding: '20px 24px',
+      backgroundColor: 'var(--paper-raised)',
+      boxShadow: 'var(--shadow-raised)',
+      borderRadius: 'var(--radius-md)',
+      padding: '16px 20px',
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10, flexWrap: 'wrap', gap: 10 }}>
         <div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--fg-1)' }}>Daily activity</div>
-          <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>Last 30 days · hover to inspect</div>
+          <div style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: 16,
+            fontWeight: 800,
+            color: 'var(--fg-1)',
+          }}>
+            Daily activity
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg-3)' }}>Last 30 days · hover to inspect</div>
         </div>
         {!loading && merged.length > 0 && (
-          <div style={{ display: 'flex', gap: 16, fontSize: 14 }}>
-            <span style={{ color: 'var(--fg-3)' }}>
-              <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{totalVisits.toLocaleString('ru-RU')}</span> visits
+          <div style={{ display: 'flex', gap: 18, fontSize: 14, alignItems: 'baseline' }}>
+            <span style={{ color: 'var(--fg-3)', fontWeight: 600 }}>
+              <span style={{
+                fontFamily: 'var(--font-display)',
+                fontWeight: 900,
+                fontSize: 20,
+                color: 'var(--fg-1)',
+                marginRight: 4,
+              }}>
+                {totalVisits.toLocaleString('ru-RU')}
+              </span>
+              visits
             </span>
-            <span style={{ color: 'var(--fg-3)' }}>
-              <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{totalRegs.toLocaleString('ru-RU')}</span> reg
+            <span style={{ color: 'var(--fg-3)', fontWeight: 600 }}>
+              <span style={{
+                fontFamily: 'var(--font-display)',
+                fontWeight: 900,
+                fontSize: 20,
+                color: 'var(--fg-1)',
+                marginRight: 4,
+              }}>
+                {totalRegs.toLocaleString('ru-RU')}
+              </span>
+              reg
             </span>
-            <span style={{ color: 'var(--fg-3)' }}>
-              <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{totalOrders.toLocaleString('ru-RU')}</span> orders
+            <span style={{ color: 'var(--fg-3)', fontWeight: 600 }}>
+              <span style={{
+                fontFamily: 'var(--font-display)',
+                fontWeight: 900,
+                fontSize: 20,
+                color: 'var(--brand-rot)',
+                marginRight: 4,
+              }}>
+                {totalOrders.toLocaleString('ru-RU')}
+              </span>
+              orders
             </span>
           </div>
         )}
@@ -1109,27 +1199,56 @@ function ComMetricBand({ stats }: { stats: ComStats }) {
     .join(' ');
   const fmt = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
   return (
-    <div className="grid grid-cols-6 gap-4">
-      <div className="col-span-2 p-5" style={{
-        background: 'linear-gradient(135deg, var(--schwarz-ink, #1A1519), #2B2228)',
-        borderRadius: 'var(--radius-sm)',
-        color: 'var(--paper, #FBFAF6)',
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+      gap: 12,
+    }}>
+      <div style={{
+        gridColumn: 'span 2',
+        minWidth: 0,
+        padding: '14px 16px',
+        background: 'linear-gradient(135deg, var(--brand-schwarz-ink), #2B2228)',
+        borderRadius: 'var(--radius-md)',
+        boxShadow: 'var(--shadow-raised)',
+        color: 'var(--paper)',
       }}>
-        <div style={{ fontSize: 12, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#C9A94F' }}>Sales · last 30 days</div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 6 }}>
-          <span style={{ fontFamily: "'Fraunces', serif", fontSize: 34, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmt(sales30)}</span>
+        <div style={{
+          fontSize: 14,
+          fontWeight: 700,
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase',
+          color: 'var(--brand-gold)',
+        }}>
+          Sales · last 30 days
+        </div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+          <span style={{
+            fontFamily: "'Fraunces', serif",
+            fontSize: 40,
+            fontWeight: 700,
+            lineHeight: 1,
+            fontVariantNumeric: 'tabular-nums',
+            color: 'var(--paper-raised)',
+          }}>
+            {fmt(sales30)}
+          </span>
           {deltaPct !== null && (
-            <span style={{ fontSize: 13, fontWeight: 700, color: deltaPct < 0 ? '#FF6B6B' : '#2FB894' }}>
+            <span style={{
+              fontSize: 14,
+              fontWeight: 800,
+              color: deltaPct < 0 ? '#FF6B6B' : '#2FB894',
+            }}>
               {deltaPct < 0 ? '▼' : '▲'} {Math.abs(deltaPct)}%
             </span>
           )}
         </div>
-        <div style={{ fontSize: 12, color: '#8E8790', marginTop: 2 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--stone-300)', marginTop: 4 }}>
           {deltaPct !== null ? `vs ${fmt(prev30)} prior 30 days` : 'no prior-period data'}
         </div>
         {spark.length > 1 && (
           <svg viewBox="0 0 240 44" preserveAspectRatio="none" style={{ width: '100%', height: 36, marginTop: 10, display: 'block' }} aria-hidden="true">
-            <polyline points={pts} fill="none" stroke="#2FB894" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+            <polyline points={pts} fill="none" stroke="#2FB894" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
           </svg>
         )}
       </div>
@@ -1148,15 +1267,44 @@ function ComMetricBand({ stats }: { stats: ComStats }) {
 
 function KpiTile({ label, value, sub, accent = false }: { label: string; value: string; sub?: string; accent?: boolean }) {
   return (
-    <div className="p-5" style={{
-      backgroundColor: 'var(--paper)',
-      border: '1px solid var(--border-hairline)',
-      borderTop: accent ? '2px solid var(--brand-rot, #E5202C)' : '1px solid var(--border-hairline)',
-      borderRadius: 'var(--radius-sm)',
+    <div style={{
+      backgroundColor: accent ? 'var(--brand-schwarz-ink)' : 'var(--paper-raised)',
+      boxShadow: 'var(--shadow-raised)',
+      borderRadius: 'var(--radius-md)',
+      padding: '14px 16px',
+      minWidth: 0,
     }}>
-      <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>{label}</div>
-      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 28, fontWeight: 600, color: 'var(--fg-1)', marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
-      {sub && <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 4 }}>{sub}</div>}
+      <div style={{
+        fontSize: 14,
+        fontWeight: 700,
+        textTransform: 'uppercase',
+        letterSpacing: '0.04em',
+        color: accent ? 'var(--stone-300)' : 'var(--fg-3)',
+        marginBottom: 8,
+      }}>
+        {label}
+      </div>
+      <div style={{
+        fontFamily: "'Fraunces', serif",
+        fontWeight: 700,
+        fontSize: 34,
+        lineHeight: 1,
+        fontVariantNumeric: 'tabular-nums',
+        color: accent ? 'var(--brand-gold)' : 'var(--brand-rot)',
+        wordBreak: 'break-word',
+      }}>
+        {value}
+      </div>
+      {sub && (
+        <div style={{
+          fontSize: 14,
+          fontWeight: 600,
+          color: accent ? 'var(--stone-300)' : 'var(--fg-3)',
+          marginTop: 6,
+        }}>
+          {sub}
+        </div>
+      )}
     </div>
   );
 }
@@ -1173,14 +1321,16 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-2 px-5 py-3"
+      className="flex items-center gap-2 px-4 py-2.5"
       style={{
+        fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
         fontSize: 14,
-        fontWeight: 700,
-        color: active ? 'var(--brand-rot)' : 'var(--fg-3)',
-        backgroundColor: 'transparent',
-        borderBottom: active ? '2px solid var(--brand-rot)' : '2px solid transparent',
-        marginBottom: '-1px',
+        fontWeight: 800,
+        color: active ? 'var(--fg-on-brand)' : 'var(--fg-2)',
+        backgroundColor: active ? 'var(--brand-rot)' : 'var(--paper-sunk)',
+        border: 'none',
+        borderRadius: 'var(--radius-sm)',
+        boxShadow: active ? 'var(--shadow-raised)' : 'none',
         cursor: 'pointer',
       }}
     >
@@ -1188,12 +1338,14 @@ function TabButton({
       {label}
       {count !== null && (
         <span style={{
-          fontSize: 14,
+          fontFamily: "'Fraunces', serif",
+          fontSize: 15,
           fontWeight: 700,
-          color: active ? 'var(--brand-rot)' : 'var(--fg-muted)',
+          color: active ? 'var(--brand-rot)' : 'var(--fg-1)',
           padding: '2px 8px',
-          backgroundColor: active ? 'rgba(199, 33, 39, 0.08)' : 'var(--paper-sunk)',
-          borderRadius: 'var(--radius-sm)',
+          backgroundColor: 'var(--paper-raised)',
+          borderRadius: 'var(--radius-pill)',
+          fontVariantNumeric: 'tabular-nums',
         }}>
           {count.toLocaleString('ru-RU')}
         </span>
@@ -1213,17 +1365,31 @@ function SourcePill({
   return (
     <button
       onClick={onClick}
-      className="px-4 py-2"
+      className="px-4 py-2.5"
       style={{
         textAlign: 'left',
-        backgroundColor: active ? 'rgba(199, 33, 39, 0.08)' : 'var(--paper)',
-        border: active ? '1px solid var(--brand-rot)' : '1px solid var(--border-hairline)',
+        backgroundColor: active ? 'var(--brand-rot)' : 'var(--paper-sunk)',
+        border: 'none',
         borderRadius: 'var(--radius-sm)',
+        boxShadow: active ? 'var(--shadow-raised)' : 'none',
         cursor: 'pointer',
       }}
     >
-      <div style={{ fontSize: 14, fontWeight: 700, color: active ? 'var(--brand-rot)' : 'var(--fg-1)' }}>{label}</div>
-      <div style={{ fontSize: 12, color: 'var(--fg-3)' }}>{sublabel}</div>
+      <div style={{
+        fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
+        fontSize: 14,
+        fontWeight: 800,
+        color: active ? 'var(--fg-on-brand)' : 'var(--fg-1)',
+      }}>
+        {label}
+      </div>
+      <div style={{
+        fontSize: 14,
+        fontWeight: 600,
+        color: active ? 'rgba(251,250,246,0.85)' : 'var(--fg-3)',
+      }}>
+        {sublabel}
+      </div>
     </button>
   );
 }
@@ -1390,12 +1556,15 @@ function PricingMatrixSection({
             </span>
           )}
         </div>
-        <button onClick={savePrices} disabled={saving || dirtyCount === 0} className="flex items-center gap-2 px-3 py-1.5" style={{
-          fontSize: 13, fontWeight: 700,
-          color: dirtyCount ? '#fff' : 'var(--fg-3)',
+        <button onClick={savePrices} disabled={saving || dirtyCount === 0} className="flex items-center gap-2 px-4 py-2" style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 14, fontWeight: 800,
+          color: dirtyCount ? 'var(--fg-on-brand)' : 'var(--fg-3)',
           backgroundColor: dirtyCount ? 'var(--brand-rot)' : 'var(--paper-sunk)',
-          border: '1px solid ' + (dirtyCount ? 'var(--brand-rot)' : 'var(--border-hairline)'),
-          borderRadius: 'var(--radius-sm)', cursor: (saving || !dirtyCount) ? 'default' : 'pointer',
+          border: 'none',
+          borderRadius: 'var(--radius-sm)',
+          boxShadow: dirtyCount ? 'var(--shadow-raised)' : 'none',
+          cursor: (saving || !dirtyCount) ? 'default' : 'pointer',
           opacity: saving ? 0.7 : 1,
         }}>
           {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
@@ -1495,16 +1664,27 @@ function DataTablePanel({
 
   return (
     <div style={{
-      backgroundColor: 'var(--paper)',
-      border: '1px solid var(--border-hairline)',
-      borderRadius: 'var(--radius-sm)',
+      backgroundColor: 'var(--paper-raised)',
+      boxShadow: 'var(--shadow-raised)',
+      borderRadius: 'var(--radius-md)',
     }}>
-      <div className="px-6 py-4 flex items-center justify-between gap-4 flex-wrap"
+      <div className="px-5 py-3.5 flex items-center justify-between gap-4 flex-wrap"
            style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--fg-1)' }}>
+        <div style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 16,
+          fontWeight: 800,
+          color: 'var(--fg-1)',
+        }}>
           {title}
           {totalCount > 0 && (
-            <span style={{ fontWeight: 400, color: 'var(--fg-3)', marginLeft: 8 }}>
+            <span style={{
+              fontFamily: 'var(--font-body)',
+              fontWeight: 700,
+              color: 'var(--fg-3)',
+              marginLeft: 8,
+              fontSize: 14,
+            }}>
               {startRow.toLocaleString('ru-RU')}–{endRow.toLocaleString('ru-RU')} of {totalCount.toLocaleString('ru-RU')}
             </span>
           )}
@@ -1585,11 +1765,13 @@ function DataTablePanel({
               disabled={page === 1}
               className="flex items-center gap-1 px-3 py-2"
               style={{
-                fontSize: 14, fontWeight: 700,
-                color: page === 1 ? 'var(--fg-muted)' : 'var(--fg-1)',
-                backgroundColor: 'var(--paper-sunk)',
-                border: '1px solid var(--border-hairline)',
+                fontFamily: 'var(--font-display)',
+                fontSize: 14, fontWeight: 800,
+                color: page === 1 ? 'var(--fg-muted)' : 'var(--fg-on-brand)',
+                backgroundColor: page === 1 ? 'var(--paper-sunk)' : 'var(--brand-schwarz)',
+                border: 'none',
                 borderRadius: 'var(--radius-sm)',
+                boxShadow: page === 1 ? 'none' : 'var(--shadow-raised)',
                 cursor: page === 1 ? 'not-allowed' : 'pointer',
                 opacity: page === 1 ? 0.5 : 1,
               }}
@@ -1602,11 +1784,13 @@ function DataTablePanel({
               disabled={page >= totalPages}
               className="flex items-center gap-1 px-3 py-2"
               style={{
-                fontSize: 14, fontWeight: 700,
-                color: page >= totalPages ? 'var(--fg-muted)' : 'var(--fg-1)',
-                backgroundColor: 'var(--paper-sunk)',
-                border: '1px solid var(--border-hairline)',
+                fontFamily: 'var(--font-display)',
+                fontSize: 14, fontWeight: 800,
+                color: page >= totalPages ? 'var(--fg-muted)' : 'var(--fg-on-brand)',
+                backgroundColor: page >= totalPages ? 'var(--paper-sunk)' : 'var(--brand-schwarz)',
+                border: 'none',
                 borderRadius: 'var(--radius-sm)',
+                boxShadow: page >= totalPages ? 'none' : 'var(--shadow-raised)',
                 cursor: page >= totalPages ? 'not-allowed' : 'pointer',
                 opacity: page >= totalPages ? 0.5 : 1,
               }}

@@ -16,7 +16,10 @@ export interface UiMailbox {
   aliases?: string[];
 }
 
-const AVATAR_BASE = 'https://www.dasexperten.com/assets/agents';
+// Same-origin first: files in web/public/agents/ (bundled with Pages deploy).
+// CDN path was 404 on dasexperten.com (assets not live) → img onError → initials only.
+// Keep CDN as documented SSOT publish target; emailer must not depend on a dead URL.
+const AVATAR_BASE = '/agents';
 
 export function agentAvatarUrl(slug: string): string {
   return `${AVATAR_BASE}/${slug}.png`;

@@ -72,14 +72,15 @@ type FolderId = (typeof FOLDERS)[number]['id'];
 // Tag pill palette from the mockups. Real letters are tagged by the mailbox
 // they live in (business language), system/auto mail gets a muted gray.
 const TAG_STYLES: Array<{ bg: string; fg: string; dot: string }> = [
-  { bg: '#EAF9F0', fg: '#109A3F', dot: '#17BF50' },
-  { bg: '#F0EDFF', fg: '#7B61FF', dot: '#7B61FF' },
+  { bg: 'rgba(229, 32, 44, 0.10)', fg: '#B81A24', dot: '#E5202C' },
+  { bg: 'rgba(40, 34, 41, 0.08)', fg: '#282229', dot: '#282229' },
   { bg: '#E8F4FF', fg: '#1B84FF', dot: '#1B84FF' },
   { bg: '#FFF4E5', fg: '#F5920A', dot: '#F5920A' },
   { bg: '#FFEDF3', fg: '#F0447C', dot: '#F0447C' },
 ];
 const TAG_SYSTEM = { bg: '#F1F3F5', fg: '#5B6B7A', dot: '#93A1AE' };
-const AVA_COLORS = ['#17BF50', '#7B61FF', '#1B84FF', '#F0447C', '#F5920A'];
+/* CRM brand + product-line accents (no mock green) */
+const AVA_COLORS = ['#E5202C', '#282229', '#0D199E', '#0E7C66', '#FE7F2D'];
 
 // Compose From = departments + agents. Owner personal (dr.badalyan@) is
 // excluded — personal mail is Gmail-only, not an ERP agent folder.
@@ -134,8 +135,11 @@ function useListPaneResize() {
 type MailboxScope = null | { kind: 'agent' | 'department'; address: string };
 
 function AgentAvatar({ slug, label, size = 28 }: { slug?: string; label: string; size?: number }) {
-  const [broken, setBroken] = useState(false);
-  if (!slug || broken) {
+  // Prefer same-origin /agents/{slug}.png; if missing, one CDN retry then initials.
+  const [src, setSrc] = useState<string | null>(slug ? agentAvatarUrl(slug) : null);
+  const [triedCdn, setTriedCdn] = useState(false);
+
+  if (!slug || !src) {
     return (
       <span
         className="nav-ava nav-ava-fallback"
@@ -150,11 +154,19 @@ function AgentAvatar({ slug, label, size = 28 }: { slug?: string; label: string;
     // eslint-disable-next-line @next/next/no-img-element
     <img
       className="nav-ava"
-      src={agentAvatarUrl(slug)}
+      src={src}
       width={size}
       height={size}
       alt=""
-      onError={() => setBroken(true)}
+      style={{ width: size, height: size }}
+      onError={() => {
+        if (!triedCdn) {
+          setTriedCdn(true);
+          setSrc(`https://www.dasexperten.com/assets/agents/${slug}.png`);
+          return;
+        }
+        setSrc(null);
+      }}
     />
   );
 }
@@ -721,9 +733,9 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
         <div><div className="brand-name">DASOPERATOR</div></div>
         <span className="brand-tag">Почта</span>
         <div className="stats-strip">
-          <div className="stat-chip"><Mail size={14} color="#17BF50" /> Непрочитанные <span className="stat-num">{inboxUnread}</span></div>
-          <div className="stat-chip"><AlertCircle size={14} color="#E5484D" /> Срочные <span className="stat-num">{urgentCount}</span></div>
-          <div className="stat-chip"><TrendingUp size={14} color="#7B61FF" /> Ответов сегодня <span className="stat-num">{repliesToday}</span></div>
+          <div className="stat-chip"><Mail size={14} color="#E5202C" /> Непрочитанные <span className="stat-num">{inboxUnread}</span></div>
+          <div className="stat-chip"><AlertCircle size={14} color="#B81A24" /> Срочные <span className="stat-num">{urgentCount}</span></div>
+          <div className="stat-chip"><TrendingUp size={14} color="#282229" /> Ответов сегодня <span className="stat-num">{repliesToday}</span></div>
         </div>
       </div>
 
@@ -1053,7 +1065,7 @@ function SwipeableRow({
       <div
         className="sw-bg"
         style={{
-          background: dir === 'right' ? '#17BF50' : dir === 'left' ? '#E5484D' : 'transparent',
+          background: dir === 'right' ? '#E5202C' : dir === 'left' ? '#B81A24' : 'transparent',
           opacity: dir ? 0.15 + progress * 0.85 : 0,
         }}
       >
@@ -1227,15 +1239,15 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
 
       {/* Stats */}
       <div className="stats">
-        <div className="chip"><Mail size={13} color="#17BF50" /> Непрочитанных <b>{inboxUnread}</b></div>
-        <div className="chip"><AlertCircle size={13} color="#E5484D" /> Срочные <b>{urgentCount}</b></div>
+        <div className="chip"><Mail size={13} color="#E5202C" /> Непрочитанных <b>{inboxUnread}</b></div>
+        <div className="chip"><AlertCircle size={13} color="#B81A24" /> Срочные <b>{urgentCount}</b></div>
       </div>
 
       {/* Gesture hint */}
       <div className="hint">
-        <Archive size={12} color="#17BF50" /> свайп вправо — архив
+        <Archive size={12} color="#E5202C" /> свайп вправо — архив
         <span style={{ margin: '0 2px' }}>·</span>
-        <Trash2 size={12} color="#E5484D" /> свайп влево — удалить
+        <Trash2 size={12} color="#B81A24" /> свайп влево — удалить
       </div>
 
       {/* Rows */}

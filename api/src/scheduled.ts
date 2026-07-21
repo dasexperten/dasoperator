@@ -371,6 +371,11 @@ export async function handleScheduled(
   // Cadence: 3h (was 20m WB + 6h feeds — too aggressive on marketplace APIs).
   // -------------------------------------------------------------------------
 
+  // Ozon discount-request workflow: craft moved to Worker `tamara-haar`
+  // (Owner 2026-07-21: Das Operator is dashboard/ERP only — it stores and
+  // displays ready results in ozon_discount_tasks; the tamara-haar worker
+  // runs the morning cron and writes here via its ERP_DB binding).
+
   // Marketplace feeds (every 3h @ :20): Ozon reviews + Ozon/WB questions → D1.
   if (cron === '20 */3 * * *' || cron === '40 */6 * * *') {
     // Legacy '40 */6' kept for one deploy so old trigger does not no-op if present.
@@ -590,7 +595,10 @@ export async function handleScheduled(
     return;
   }
 
-  if (cron === '0 * * * *') {
+  // Marketplace STOCKS sync — every 4 hours (Owner 2026-07-21: Ozon and WB
+  // stock tokens fire on the 4h slot, not hourly). Auto-delivery rides along
+  // because it reads the stock totals this sync just wrote.
+  if (cron === '0 */4 * * *') {
     await runMarketplaceSync(env);
     // Right after stocks are refreshed, scan for shipments that can be
     // auto-delivered. Marketplace sync writes new stock totals; this checks
@@ -602,6 +610,10 @@ export async function handleScheduled(
     } catch (e) {
       console.error('[cron:auto-delivery] failed:', e);
     }
+    return;
+  }
+
+  if (cron === '0 * * * *') {
     // Retry WB review replies that previously hit rate limit and whose
     // next_attempt_at has now elapsed. Idempotent — calls own endpoint.
     try {
@@ -935,21 +947,15 @@ async function runMarketplaceSync(env: Env): Promise<void> {
 
   await new Promise((r) => setTimeout(r, 2000));
 
-  // WB stocks — only every 4 hours (UTC 00/04/08/12/16/20). WB's
-  // statistics-api supplier/stocks endpoint enforces a ~1 req per 3-4 hour
-  // budget on our tier; hourly hits returned 429 in ~72% of attempts and
-  // produced no fresher data. Aligning the schedule with the real rate limit
-  // eliminates the error log and keeps Ozon stocks refreshing hourly as before.
-  const hourForWb = new Date().getUTCHours();
-  if (hourForWb % 4 === 0) {
-    try {
-      const r = await selfFetch('/api/marketplaces/sync/wb');
-      console.log(`[cron] wb stocks HTTP ${r.status}`);
-    } catch (e) {
-      console.error('[cron] wb stocks threw:', e);
-    }
-  } else {
-    console.log(`[cron] skipping WB stocks (hour=${hourForWb}, runs at 0/4/8/12/16/20 UTC due to WB rate limit)`);
+  // WB stocks — the whole sync now lives on the 0 */4 cron (Owner 2026-07-21),
+  // so no in-function hour gate is needed. WB's statistics-api supplier/stocks
+  // endpoint enforces a ~1 req per 3-4 hour budget on our tier; hourly hits
+  // returned 429 in ~72% of attempts and produced no fresher data.
+  try {
+    const r = await selfFetch('/api/marketplaces/sync/wb');
+    console.log(`[cron] wb stocks HTTP ${r.status}`);
+  } catch (e) {
+    console.error('[cron] wb stocks threw:', e);
   }
 
   // Sales moved OUT of the hourly cron (2026-05-28). Sales now pull once daily

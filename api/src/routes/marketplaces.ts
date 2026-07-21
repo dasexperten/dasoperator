@@ -885,5 +885,22 @@ marketplaces.post('/backfill-wb-missing', async (c) => {
 });
 
 
+// ---------------------------------------------------------------------------
+// Ozon discount-request results (Owner 2026-07-21: craft runs on Worker
+// tamara-haar, which writes ready rows into ozon_discount_tasks; the ERP
+// only stores and displays them here).
+// GET /api/marketplaces/ozon/discount-tasks — recent processed tasks
+// ---------------------------------------------------------------------------
+marketplaces.get('/ozon/discount-tasks', async (c) => {
+  const rows = await c.env.DB.prepare(`
+    SELECT task_id, offer_id, sku, base_price, requested_price, approved_price,
+           action, seller_comment, processed_at
+    FROM ozon_discount_tasks
+    ORDER BY processed_at DESC
+    LIMIT 200
+  `).all();
+  return ok(c, { tasks: rows.results });
+});
+
 export default marketplaces;
 

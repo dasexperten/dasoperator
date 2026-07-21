@@ -79,8 +79,59 @@ function asList(v: string | string[] | undefined): string[] {
   return (Array.isArray(v) ? v : [v]).map((s) => s.trim()).filter(Boolean);
 }
 
+/** Placeholder / empty archive bodies must never ship to Emailer as "the letter". */
+export function isThinOrStubText(text: string | undefined): boolean {
+  const t = (text || '').trim();
+  if (t.length < 40) return true;
+  if (/Archived into Emailer Sent from Resend id/i.test(t)) return true;
+  if (/^\(archived send /i.test(t)) return true;
+  if (/Original body was partnership\/education outreach/i.test(t)) return true;
+  return false;
+}
+
+/**
+ * Pull body from Resend by id. Attachments stay on Resend — we only need text/html
+ * (links in body are enough; no binary attachment storage in Emailer).
+ */
+export async function fetchResendEmailBody(
+  env: Env,
+  messageId: string,
+): Promise<{ text?: string; html?: string; subject?: string; from?: string; to?: string[] } | null> {
+  if (!env.RESEND_API_KEY || !messageId) return null;
+  try {
+    const res = await fetch(`https://api.resend.com/emails/${messageId}`, {
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        Accept: 'application/json',
+        'User-Agent': 'dasoperator-emailer/1.0',
+      },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) return null;
+    const j = (await res.json()) as {
+      text?: string | null;
+      html?: string | null;
+      subject?: string;
+      from?: string;
+      to?: string[];
+    };
+    return {
+      ...(j.text ? { text: j.text } : {}),
+      ...(j.html ? { html: j.html } : {}),
+      ...(j.subject ? { subject: j.subject } : {}),
+      ...(j.from ? { from: j.from } : {}),
+      ...(j.to ? { to: j.to } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Send human brand mail via Resend and archive under Inbox/<from-addr>/sent/.
+ *
+ * Emailer always gets full **text** (and html if present). Attachments are not
+ * re-uploaded to R2 — keep files on Resend / public links inside the body.
  */
 export async function sendHumanResend(env: Env, params: HumanSendParams): Promise<HumanSendResult> {
   const fromRaw = params.from.trim();
@@ -100,23 +151,29 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
     return { success: false, error: '`to` required (and must not be only personal Gmail)' };
   }
   if (!params.subject?.trim()) return { success: false, error: '`subject` required' };
-  if (!params.text?.trim() && !params.html?.trim()) {
+  if (!params.text?.trim() && !params.html?.trim() && !params.archive_only) {
     return { success: false, error: '`text` or `html` required' };
   }
 
   let messageId = params.messageId;
+  let text = params.text || '';
+  let html = params.html;
 
   if (!params.archive_only) {
     if (!env.RESEND_API_KEY) {
       return { success: false, error: 'RESEND_API_KEY not configured' };
     }
+    // Live send always requires a real body before Resend.
+    if (isThinOrStubText(text) && !html?.trim()) {
+      return { success: false, error: '`text` too short/stub — Emailer must store the full letter body' };
+    }
     const resendBody: Record<string, unknown> = {
       from: fromRaw,
       to: toList,
       subject: params.subject,
-      text: params.text,
+      text: text || '(see html)',
     };
-    if (params.html) resendBody.html = params.html;
+    if (html) resendBody.html = html;
     if (ccList?.length) resendBody.cc = ccList;
     if (bccList?.length) resendBody.bcc = bccList;
     if (params.in_reply_to) {
@@ -150,19 +207,51 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
     return { success: false, error: 'messageId required for archive_only' };
   }
 
+  // Backfill / thin stubs: hydrate full body from Resend so Emailer shows real text.
+  // Attachments remain on Resend; we only pull text/html.
+  if (isThinOrStubText(text) && !html?.trim()) {
+    const hydrated = await fetchResendEmailBody(env, messageId);
+    if (hydrated?.text) text = hydrated.text;
+    if (hydrated?.html) html = hydrated.html;
+  }
+
+  if (isThinOrStubText(text) && !html?.trim()) {
+    return {
+      success: false,
+      error: `cannot archive ${messageId}: no full body (stub/empty) and Resend hydrate failed`,
+    };
+  }
+
   await archiveEmail(env, 'sent', fromAddr, {
     from: fromRaw,
     to: toList,
     cc: ccList,
     bcc: bccList,
     subject: params.subject,
-    text: params.text,
-    html: params.html,
+    text: text || undefined,
+    html: html,
     messageId,
     threadId: params.in_reply_to,
     origin: params.origin ?? 'human',
     trigger: params.trigger,
   });
+
+  // Also index under partnerships@ when it was CC'd so GEO team mailbox sees the send.
+  if (ccList?.some((a) => extractEmailAddr(a) === 'partnerships@dasexperten.com') && fromAddr !== 'partnerships@dasexperten.com') {
+    await archiveEmail(env, 'sent', 'partnerships@dasexperten.com', {
+      from: fromRaw,
+      to: toList,
+      cc: ccList,
+      bcc: bccList,
+      subject: params.subject,
+      text: text || undefined,
+      html: html,
+      messageId,
+      threadId: params.in_reply_to,
+      origin: params.origin ?? 'human',
+      trigger: (params.trigger || 'emailer') + '+cc-partnerships',
+    });
+  }
 
   return { success: true, messageId, archived: true };
 }

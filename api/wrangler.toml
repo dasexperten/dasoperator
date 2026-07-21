@@ -130,9 +130,12 @@ name = "EMAIL"
 #
 # 0 12 * * *   â€” daily FX refresh from CBR at 12:00 UTC (15:00 Moscow time,
 #                after CBR daily publication at 11:30 Moscow). Phase 2.0c-2b.
-# 0 * * * *    â€” hourly marketplace stock refresh from Ozon and Wildberries.
-#                Phase 6.0b. WB is heavily rate-limited (~1 req/min), so we
+# 0 */4 * * *  â€” marketplace stock refresh from Ozon and Wildberries every
+#                4 hours (Owner 2026-07-21: both stock tokens on the 4h slot,
+#                not hourly). Phase 6.0b. WB is heavily rate-limited, so we
 #                synchronize Ozon first, then WB after a short delay.
+#                Auto-delivery sweep rides the same slot.
+# 0 * * * *    â€” hourly WB review reply retry sweep (sweep-retries endpoint).
 #
 # 20 * * * *  â€” hourly bank-tx auto-match retry sweep (covers ambiguous + partner_not_found
 #                rows that may now be resolvable after operations were created post-webhook).
@@ -182,7 +185,7 @@ name = "EMAIL"
 #   10 */3 * * *  WB auto-reply (was */20 â€” too aggressive)
 #   20 */3 * * *  MP feeds: Ozon+WB reviews/questions ingest (was 40 */6)
 #   30 */3 * * *  Ozon draft-prep (was 50 */6)
-crons = ["0 3 * * *", "0 1 * * *", "0 12 * * *", "0 * * * *", "5 */6 * * *", "*/2 * * * *", "0 0 * * *", "15 * * * *", "30 */6 * * *", "*/15 * * * *", "0 2 * * *", "30 2 * * *", "0 4 * * 4", "0 3 5 * *", "10 */3 * * *", "0 4 1-7 * 3", "*/10 * * * *", "0 5 * * *", "23 */3 * * *", "* * * * *", "0 3 1 * *", "20 */3 * * *", "30 */3 * * *", "7 * * * *"]
+crons = ["0 3 * * *", "0 1 * * *", "0 12 * * *", "0 * * * *", "0 */4 * * *", "5 */6 * * *", "*/2 * * * *", "0 0 * * *", "15 * * * *", "30 */6 * * *", "*/15 * * * *", "0 2 * * *", "30 2 * * *", "0 4 * * 4", "0 3 5 * *", "10 */3 * * *", "0 4 1-7 * 3", "*/10 * * * *", "0 5 * * *", "23 */3 * * *", "* * * * *", "0 3 1 * *", "20 */3 * * *", "30 */3 * * *", "7 * * * *"]
 
 
 # -----------------------------------------------------------------------------

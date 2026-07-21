@@ -616,11 +616,39 @@ marketplaces.get('/pulse/sales-today', async (c) => {
 
 // ---------------------------------------------------------------------------
 // POST /api/marketplaces/pulse/refresh
-// Manual on-demand refresh of the three sales feeds. Fires Ozon sales + Site
-// (no rate limit) together, then WB sales once (WB may 429 — that's fine, the
-// stamp goes amber, never an error). No long inter-call sleeps: this is a
-// single user-triggered pull, not the cron's stocks+sales chain. Returns the
-// fresh freshness object so the UI can update the stamp immediately.
+// Manual on-demand refresh of sales feeds (home Marketplace Pulse "refresh").
+//
+// Owner 2026-07-21 cutover: Ozon + WB marketplace sales are owned by fleet
+// Workers dasha-ozon / arina-wb — NOT by this Worker's /sync/sales/* routes.
+// UI Refresh → signals specialists → they write marketplace_sales_* into ERP.
+// Site CRM sales stay local. Returns freshness from marketplace_sync_log.
+// ---------------------------------------------------------------------------
+
+const DASHA_OZON_SALES_URL =
+  'https://dasha-ozon.dasexperten.workers.dev/sync-sales?days=7';
+const ARINA_WB_SALES_URL =
+  'https://arina-wb.dasexperten.workers.dev/sync-sales?days=7';
+
+/** Call specialist Worker /sync-sales; return HTTP status (0 on network fail). */
+async function specialistSalesSync(url: string): Promise<number> {
+  try {
+    const r = await fetch(url, {
+      method: 'GET',
+      headers: { 'User-Agent': 'dasoperator-api/pulse-refresh (+specialist-cutover)' },
+      // Sales pull can paginate analytics; allow up to ~90s
+      signal: AbortSignal.timeout(90_000),
+    });
+    // 200 with { error } still means the Worker answered — surface as 502-ish for UI
+    if (r.ok) {
+      const body = (await r.json().catch(() => null)) as { error?: string | null } | null;
+      if (body && body.error) return 502;
+    }
+    return r.status;
+  } catch {
+    return 0;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // TEMP DIAG — reconcile WB price fields for a single day vs cabinet. Remove after.
 // Result is cached to KV (das-cache: 'diag:wb-fields') so a single successful WB
@@ -655,14 +683,11 @@ marketplaces.get('/diag/wb-day/:date', async (c) => {
 });
 
 marketplaces.post('/pulse/refresh', async (c) => {
-  const selfPost = (path: string) =>
-    c.env.SELF.fetch(new Request(`https://internal${path}`, { method: 'POST' }))
-      .then((r) => r.status)
-      .catch(() => 0);
-
-  // Ozon sales + Site run in parallel (neither is rate-limited).
-  const [ozonStatus, siteStatus] = await Promise.all([
-    selfPost('/api/marketplaces/sync/sales/ozon'),
+  // Ozon (Dasha) + WB (Arina) + site CRM in parallel.
+  // Specialists write marketplace_sales_* into this ERP D1; we only trigger + read log.
+  const [ozonStatus, wbStatus, siteStatus] = await Promise.all([
+    specialistSalesSync(DASHA_OZON_SALES_URL),
+    specialistSalesSync(ARINA_WB_SALES_URL),
     c.env.SELF.fetch(new Request('https://internal/api/crm/sync-site-sales', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -670,20 +695,22 @@ marketplaces.post('/pulse/refresh', async (c) => {
     })).then((r) => r.status).catch(() => 0),
   ]);
 
-  // WB sales last, on its own (strict 1 req/min limit). A 429 here is expected
-  // and non-fatal — the UI reflects it as "WB busy, retrying".
-  const wbStatus = await selfPost('/api/marketplaces/sync/sales/wb');
-
   const freshRow = await c.env.DB.prepare(`
     SELECT MAX(finished_at) AS last_ok
     FROM marketplace_sync_log
     WHERE marketplace IN ('ozon-sales','wb-sales') AND status = 'ok'
   `).first<{ last_ok: number | null }>();
 
-  const wbThrottled = wbStatus === 429 || wbStatus === 0;
+  // Amber stamp if a specialist timed out / 429 / network fail (not a hard UI error).
+  const wbThrottled = wbStatus === 429 || wbStatus === 0 || ozonStatus === 0;
 
   return ok(c, {
-    triggered: { ozon: ozonStatus, wb: wbStatus, site: siteStatus },
+    triggered: {
+      ozon: ozonStatus,
+      wb: wbStatus,
+      site: siteStatus,
+      owners: { ozon: 'dasha-ozon', wb: 'arina-wb', site: 'dasoperator-crm' },
+    },
     freshness: {
       last_success_at: freshRow?.last_ok ?? null,
       throttled: wbThrottled,

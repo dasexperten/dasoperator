@@ -448,22 +448,10 @@ export async function runWbAutoReply(
     }
   }
 
-  // count is informational only — if WB rate-limits us here, push through to
-  // list which uses a different sub-quota and is what actually matters
-  let countSucceeded = false;
-  try {
-    const counts = await fetchUnansweredCount(env);
-    result.countTotal = counts.total;
-    result.countToday = counts.today;
-    countSucceeded = true;
-    console.log(`[wb-auto-reply] start max=${maxReplies} backlog=${counts.total} today=${counts.today}`);
-  } catch (e: any) {
-    const msg = String(e?.message ?? e);
-    console.warn(`[wb-auto-reply] count soft-fail: ${msg.slice(0, 200)}`);
-  }
-  // Fallback to last cached stats so tick-log shows the real backlog
-  // (not a misleading 0) when WB throttles the count endpoint.
-  if (!countSucceeded && env.CACHE) {
+  // Owner 2026-07-22: do NOT call count-unanswered before list.
+  // Under WB global limiter (limit=1) the count call burns the only request
+  // in the window → list always 429 → zero replies forever. Stats from cache only.
+  if (env.CACHE) {
     try {
       const cached = await env.CACHE.get('wb-reviews:stats-cache', 'json') as any;
       if (cached) {
@@ -472,6 +460,7 @@ export async function runWbAutoReply(
       }
     } catch {}
   }
+  console.log(`[wb-auto-reply] start max=${maxReplies} backlog(cached)=${result.countTotal} (skip count — list first)`);
 
   let skip = 0;
   const pageSize = Math.min(100, maxInspect);

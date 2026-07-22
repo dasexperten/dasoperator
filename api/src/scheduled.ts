@@ -814,7 +814,7 @@ export async function handleScheduled(
     console.log('[cron:wb-auto-reply:tamara-lane] tick start (every 3h; owner=Tamara)');
     try {
       const { runWbAutoReply } = await import('./lib/wb-reviews');
-      const result = await runWbAutoReply(env, { maxReplies: 1, maxInspect: 20, pauseMsBetween: 3000 }); // Owner unpause 2026-07-22 soft: 1 req/tick
+      const result = await runWbAutoReply(env, { maxReplies: 100, maxInspect: 300, pauseMsBetween: 1500 }); // Owner 2026-07-22: every 3h answer FULL backlog
       console.log(`[cron:wb-auto-reply:tamara-lane] ${JSON.stringify({
         owner: 'tamara-haar',
         replied: result.replied,

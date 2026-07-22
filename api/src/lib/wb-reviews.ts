@@ -552,18 +552,32 @@ export async function runWbAutoReply(
       }
       console.log(`    draft ${draft.text.length} chars (in=${draft.inputTokens} out=${draft.outputTokens} cache_r=${draft.cacheReadTokens})`);
 
-      // Reply-All model: cron only PREPARES drafts. User reviews them on /reviews
-      // page and presses Reply All to publish in one batch.
-      const draftStatus = 'pending';
-      const heldReason: string | null = null;
+      // Owner 2026-07-22: every 3h answer FULL backlog — POST to WB (no draft theater).
+      // 1-2★: safety check first; UNSAFE → held (not posted).
+      let heldReason: string | null = null;
+      if (rating <= 2) {
+        try {
+          const check = await safetyCheck(env, draft.text, fb);
+          if (!check.safe) {
+            heldReason = check.reason ?? 'safety check failed';
+            console.warn(`    HELD by safety check: ${heldReason}`);
+          }
+        } catch (e: any) {
+          console.warn(`    safety check error (fail-open): ${e?.message}`);
+        }
+      }
+
+      const draftStatus = heldReason ? 'held' : 'pending';
       try {
         await env.DB.prepare(`
           INSERT INTO review_drafts (id, channel, external_id, rating, customer_name, product_name, product_sku, review_text, pros, cons, draft_text, status, rejection_reason, draft_tokens_in, draft_tokens_out, updated_at)
           VALUES (?, 'wb', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
           ON CONFLICT(channel, external_id) DO UPDATE SET
             draft_text = excluded.draft_text,
+            status = excluded.status,
+            rejection_reason = excluded.rejection_reason,
             updated_at = datetime('now')
-          WHERE review_drafts.status IN ('pending', 'held')
+          WHERE review_drafts.status IN ('pending', 'held', 'failed')
         `).bind(
           `rd_${crypto.randomUUID()}`,
           fid,
@@ -582,14 +596,53 @@ export async function runWbAutoReply(
         ).run();
       } catch (e: any) {
         console.error(`    D1 INSERT FAIL: ${e?.message}`);
-        // not fatal — continue to attempt post (unless held)
       }
 
-      // Cron stops here — draft saved as 'pending'. User publishes via Reply All.
-      result.drafted++;
-      result.details.push({ feedbackId: fid, rating, productName, replyChars: draft.text.length });
+      if (heldReason) {
+        result.drafted++;
+        result.details.push({ feedbackId: fid, rating, productName, replyChars: draft.text.length });
+        continue;
+      }
 
-      // Pause between WB calls to respect rate limit
+      // Post to WB — real answer, not draft parking
+      try {
+        await postAnswer(env, fid, draft.text);
+        console.log(`    posted to WB (${replyKind})`);
+        result.replied++;
+        result.details.push({ feedbackId: fid, rating, productName, replyChars: draft.text.length });
+        try {
+          await env.DB.prepare(`
+            UPDATE review_drafts SET status = 'auto_sent', posted_to_wb_at = datetime('now'), updated_at = datetime('now')
+            WHERE channel = 'wb' AND external_id = ?
+          `).bind(fid).run();
+        } catch {}
+      } catch (e: any) {
+        const msg = String(e?.message ?? e);
+        console.error(`    POST FAIL: ${msg}`);
+        result.errors.push({ feedbackId: fid, stage: 'post', error: msg });
+        try {
+          await env.DB.prepare(`
+            UPDATE review_drafts SET status = 'failed', rejection_reason = ?, updated_at = datetime('now')
+            WHERE channel = 'wb' AND external_id = ?
+          `).bind(`post failed: ${msg.slice(0, 200)}`, fid).run();
+        } catch {}
+        if (e instanceof WbRateLimitError && env.CACHE) {
+          const streakRaw = await env.CACHE.get(STREAK_KEY);
+          const streak = (parseInt(streakRaw ?? '0', 10) || 0) + 1;
+          const baseSec = e.retryAfterSec + 60;
+          const multiplier = Math.min(Math.pow(2, streak - 1), Math.ceil((MAX_BACKOFF_HOURS * 3600) / baseSec));
+          const waitSec = Math.min(baseSec * multiplier, MAX_BACKOFF_HOURS * 3600);
+          const until = Date.now() + waitSec * 1000;
+          await env.CACHE.put(THROTTLE_KEY, String(until), { expirationTtl: waitSec + 30 });
+          await env.CACHE.put(STREAK_KEY, String(streak), { expirationTtl: MAX_BACKOFF_HOURS * 3600 });
+          console.warn(`[wb-auto-reply] POST 429 streak=${streak}, throttle ${Math.round(waitSec / 60)}min`);
+          result.durationMs = Date.now() - startedAt;
+          return result;
+        }
+        continue;
+      }
+
+      // Pause between WB posts to respect rate limit
       if (result.replied < maxReplies) {
         await new Promise((r) => setTimeout(r, pauseMs));
       }

@@ -592,14 +592,14 @@ export async function handleScheduled(
     return;
   }
 
-  // Marketplace STOCKS sync — every 4 hours (Owner 2026-07-21: Ozon and WB
-  // stock tokens fire on the 4h slot, not hourly). Auto-delivery rides along
-  // because it reads the stock totals this sync just wrote.
+  // Marketplace STOCKS — Owner 2026-07-21/22 CUTOVER: Ozon+WB stock pulls are
+  // owned exclusively by fleet Workers dasha-ozon / arina-wb (write
+  // marketplace_stocks_* + marketplace_sync_log). This Worker MUST NOT pull
+  // MP stocks on cron — dual writers overwrite specialist logs and paint the
+  // dashboard red with the Operator key's missing stocks role (403).
+  // Slot kept for auto-delivery only (reads ERP stock rows specialists wrote).
   if (cron === '0 */4 * * *') {
-    await runMarketplaceSync(env);
-    // Right after stocks are refreshed, scan for shipments that can be
-    // auto-delivered. Marketplace sync writes new stock totals; this checks
-    // them against pending shipped operations.
+    await runMarketplaceSync(env); // no-op for MP stocks (see function body)
     try {
       const { runAutoDeliverySweep } = await import('./auto-delivery');
       const r = await runAutoDeliverySweep(env);
@@ -911,52 +911,20 @@ export async function handleScheduled(
 }
 
 // =============================================================================
-// Marketplace hourly sync
+// Marketplace STOCKS sync — CUTOVER complete (Owner 2026-07-22)
 // =============================================================================
 //
-// Cloudflare Workers cannot resolve their own external hostname during a
-// scheduled event (no Request context to derive base URL from). We hit the
-// public worker URL directly — DNS/Cloudflare routing handles the rest.
-//
-// Order matters: Ozon first (no rate-limit issue), then WB (1 req/min).
-// If Ozon fails, we still try WB. Errors are logged inside each endpoint
-// to marketplace_sync_log — no need to throw here, the log is the source
-// of truth for /marketplaces page.
+// Ozon stocks  → fleet Worker dasha-ozon  (cron 0 */4, ERP_DB write)
+// WB stocks    → fleet Worker arina-wb    (cron 0 */4, warehouse_remains)
+// Das Operator = dashboard / store only. Do NOT re-enable selfFetch stocks
+// without Owner. Manual POST /api/marketplaces/sync/ozon|wb remains break-glass.
 // =============================================================================
 
-async function runMarketplaceSync(env: Env): Promise<void> {
-  console.log('[cron] marketplace sync starting (via env.SELF binding)');
-
-  // Use the SELF service binding instead of public *.workers.dev.
-  // Cloudflare blocks Worker→same-account-Worker via the public URL
-  // with error 1042; service bindings bypass this restriction.
-  const selfFetch = (path: string) =>
-    env.SELF.fetch(new Request(`https://internal${path}`, { method: 'POST' }));
-
-  // Stocks first — they are the priority for the Warehouses page.
-  try {
-    const r = await selfFetch('/api/marketplaces/sync/ozon');
-    console.log(`[cron] ozon stocks HTTP ${r.status}`);
-  } catch (e) {
-    console.error('[cron] ozon stocks threw:', e);
-  }
-
-  await new Promise((r) => setTimeout(r, 2000));
-
-  // WB stocks — the whole sync now lives on the 0 */4 cron (Owner 2026-07-21),
-  // so no in-function hour gate is needed. WB's statistics-api supplier/stocks
-  // endpoint enforces a ~1 req per 3-4 hour budget on our tier; hourly hits
-  // returned 429 in ~72% of attempts and produced no fresher data.
-  try {
-    const r = await selfFetch('/api/marketplaces/sync/wb');
-    console.log(`[cron] wb stocks HTTP ${r.status}`);
-  } catch (e) {
-    console.error('[cron] wb stocks threw:', e);
-  }
-
-  // Owner 2026-07-21: Ozon/WB marketplace SALES owned by dasha-ozon / arina-wb
-  // (nightly 22:00/22:15 UTC). This stocks cron does not pull sales.
-  console.log('[cron] marketplace STOCKS sync done (MP sales = Dasha/Arina Workers, not this cron)');
+async function runMarketplaceSync(_env: Env): Promise<void> {
+  console.log(
+    '[cron] marketplace STOCKS: Ozon+WB DISABLED (Owner 2026-07-22 — dasha-ozon / arina-wb own MP stocks). Auto-delivery may still run on this slot.'
+  );
+  // Ozon / WB MP stocks — NO-OP (Dasha + Arina). Do not re-enable without Owner.
 }
 
 // =============================================================================

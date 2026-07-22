@@ -140,11 +140,10 @@ name = "EMAIL"
 #
 # 0 12 * * *   â€” daily FX refresh from CBR at 12:00 UTC (15:00 Moscow time,
 #                after CBR daily publication at 11:30 Moscow). Phase 2.0c-2b.
-# 0 */4 * * *  â€” marketplace stock refresh from Ozon and Wildberries every
-#                4 hours (Owner 2026-07-21: both stock tokens on the 4h slot,
-#                not hourly). Phase 6.0b. WB is heavily rate-limited, so we
-#                synchronize Ozon first, then WB after a short delay.
-#                Auto-delivery sweep rides the same slot.
+# 0 */4 * * *  â€” auto-delivery sweep only (Owner 2026-07-22 cutover).
+#                Ozon/WB marketplace STOCKS owned by dasha-ozon / arina-wb
+#                (not this Worker). Slot kept so auto-delivery still runs
+#                against ERP stock rows specialists wrote.
 # 0 * * * *    â€” hourly WB review reply retry sweep (sweep-retries endpoint).
 #
 # 20 * * * *  â€” hourly bank-tx auto-match retry sweep (covers ambiguous + partner_not_found

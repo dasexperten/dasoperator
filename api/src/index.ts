@@ -40,6 +40,7 @@ import productsLandedCostRoutes from './routes/products-landed-cost';
 import adminMigrationsRoutes from './routes/admin-migrations';
 import adminAutoHealRoutes from './routes/admin-auto-heal';
 import adminResyncPricesRoutes from './routes/admin-resync-prices';
+import adminCogsRuRoutes from './routes/admin-cogs-ru';
 import marketplacesRoutes from './routes/marketplaces';
 import marketplacesExtrasRoutes from './routes/marketplaces-extras';
 import marketplacesPromosRoutes from './routes/marketplaces-promos';
@@ -215,6 +216,7 @@ app.route('/api/warehouses', warehousesRoutes);
 app.route('/admin', adminMigrationsRoutes);
 app.route('/api/admin/auto-heal', adminAutoHealRoutes);
 app.route('/api/admin', adminResyncPricesRoutes);
+app.route('/api/admin', adminCogsRuRoutes); // POST /api/admin/cogs-ru/recompute
 app.route('/api/marketplaces/fbo', fboRoutes);  // must come BEFORE the generic /api/marketplaces mounts
 app.route('/api/marketplaces', marketplacesRoutes);
 app.route('/api/marketplaces', marketplacesExtrasRoutes);

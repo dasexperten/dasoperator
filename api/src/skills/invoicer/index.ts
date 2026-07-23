@@ -203,8 +203,17 @@ function signatureFromCompany(c: CompanyRow): RenderSignature {
   };
 }
 
-function signatureFallback(): RenderSignature {
-  return { name: 'Aram Badalyan', titleEn: 'General Manager', titleRu: 'Генеральный директор' };
+function signatureFromManufacturer(m: ManufacturerRow): RenderSignature {
+  // LAW: seller-issued documents (CI/IS/PL) are signed by the SELLER's own
+  // representative. For factory-sellers that is the manufacturer's registered
+  // signatory (manufacturers.signing_authority_*). If the factory has no
+  // registered signatory the name line stays blank for a hand signature —
+  // NEVER the buyer's General Manager.
+  return {
+    name: m.signing_authority_name ?? '',
+    titleEn: m.signing_authority_title_en ?? 'General Manager',
+    titleRu: m.signing_authority_title_ru ?? 'Генеральный директор',
+  };
 }
 
 // =============================================================================
@@ -557,7 +566,7 @@ export async function issueDocuments(
           bank: ciBank!,
           signature: r.spec.sellerKind === 'company'
             ? signatureFromCompany(r.seller.row as CompanyRow)
-            : signatureFallback(),
+            : signatureFromManufacturer(r.seller.row as ManufacturerRow),
           contract: input.contract,
           incoterms: selectIncoterms(input.ourCompany, input.partner, input.contract, isInternational),
           paymentTerms: input.partner?.payment_terms ?? null,
@@ -581,7 +590,7 @@ export async function issueDocuments(
           buyer: r.buyer.party,
           signature: r.spec.sellerKind === 'company'
             ? signatureFromCompany(r.seller.row as CompanyRow)
-            : signatureFallback(),
+            : signatureFromManufacturer(r.seller.row as ManufacturerRow),
           contract: input.contract,
           lineItems: input.lineItems,
           totalMinor: input.operation.total_amount ?? 0,
@@ -595,7 +604,7 @@ export async function issueDocuments(
           consignee: r.buyer.party,
           signature: r.spec.sellerKind === 'company'
             ? signatureFromCompany(r.seller.row as CompanyRow)
-            : signatureFallback(),
+            : signatureFromManufacturer(r.seller.row as ManufacturerRow),
           contract: input.contract,
           lineItems: input.lineItems,
           upcomingUpdRef: null, // populated below if we already issued the UPD this run
@@ -606,7 +615,7 @@ export async function issueDocuments(
           : (r.bankSelection ? bankFromSelection(r.bankSelection) : null);
         const signature = r.spec.sellerKind === 'company'
           ? signatureFromCompany(r.seller.row as CompanyRow)
-          : signatureFallback();
+          : signatureFromManufacturer(r.seller.row as ManufacturerRow);
         if (r.spec.variant === 'V2') {
           bytes = await renderInvoiceSpecPastes({
             reference, issuedAt: nowSec, currency: r.currency,

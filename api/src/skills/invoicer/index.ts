@@ -71,7 +71,7 @@ const ISSUER_ABBR: Record<string, string> = {
   wdaa: 'WDAA',
   honghui: 'HHUI',
   meizhiyuan: 'MZHN',
-  jinxia: 'JINX',
+  jinxia: 'YZJX',
 };
 
 function issuerAbbr(sellerKind: 'company' | 'manufacturer', sellerId: string): string {

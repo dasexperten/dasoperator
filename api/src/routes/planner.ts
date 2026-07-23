@@ -1,6 +1,10 @@
 // Procurement Planner endpoints — Phase 9.0
 // One cycle = one manufacturer group = one draft Purchase.
 //
+// STRUCTURAL (on GitHub main · Owner 2026-07-23) — see docs/PLANNER_STRUCTURAL.md
+//   - pack fungibility 1↔2↔4 (pieces math) before factory order
+//   - stock_zone=russia → warehouses.country = 'Russia' only
+//
 // Rules locked:
 //   - velocity window:  last 60 days
 //   - velocity formula: SUM(qty * bundle_size) / days_with_stock per base SKU

@@ -388,6 +388,45 @@ admin.post('/migrate/crm-carts', async (c) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// POST /admin/migrate/manufacturer-signing-authority  (migration 0064)
+// LAW: CI/IS/PL signature block carries the SELLER's representative.
+// Adds signing_authority_* columns to manufacturers + sets Jinxia = Luis Guan.
+// Idempotent — skips ALTERs if columns exist, UPDATE is a no-op re-run.
+// ---------------------------------------------------------------------------
+admin.post('/migrate/manufacturer-signing-authority', async (c) => {
+  const cols = await c.env.DB.prepare(`PRAGMA table_info(manufacturers)`).all<{ name: string }>();
+  const names = (cols.results ?? []).map((r) => r.name);
+  const altered: string[] = [];
+
+  for (const col of ['signing_authority_name', 'signing_authority_title_en', 'signing_authority_title_ru']) {
+    if (!names.includes(col)) {
+      await c.env.DB.prepare(`ALTER TABLE manufacturers ADD COLUMN ${col} TEXT`).run();
+      altered.push(col);
+    }
+  }
+
+  const upd = await c.env.DB.prepare(
+    `UPDATE manufacturers
+     SET signing_authority_name = ?1,
+         signing_authority_title_en = ?2,
+         signing_authority_title_ru = ?3
+     WHERE name LIKE '%Jinxia%' OR legal_name_en LIKE '%JINXIA%'
+        OR slug LIKE '%jinx%' OR slug LIKE '%yzjx%'`
+  ).bind('Luis Guan', 'General Manager', 'Генеральный директор').run();
+
+  const check = await c.env.DB.prepare(
+    `SELECT id, name, signing_authority_name, signing_authority_title_en
+     FROM manufacturers`
+  ).all();
+
+  return ok(c, {
+    columns_added: altered,
+    jinxia_rows_updated: upd.meta.changes,
+    manufacturers: check.results,
+  });
+});
+
 export default admin;
 
 

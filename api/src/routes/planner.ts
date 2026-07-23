@@ -9,9 +9,15 @@
 //   - MOQ:              14,400 (toothpastes, toothbrushes) · 5,000 (floss, interdental)
 //   - in-transit:       only operations.status IN ('production','shipped')
 //   - one cycle:        one manufacturer group → one draft Purchase
-//   - bundles:          AA = bundle_size 2 · AAAA = bundle_size 4 · rolled up to base_sku
+//   - bundles:          AA = bundle_size 2 · AAAA = bundle_size 4
+//                       Toothpaste: rolled up to base_sku (factory ships paste units).
+//                       Brushes/floss/other: separate pack SKUs BUT warehouse pack/unpack
+//                       (1↔2↔4) is fungible on LBR/SRN/FLP before factory order.
 //   - factory + transit warehouses excluded from "available stock"
 //   - lifecycle:        only active and new_launch considered
+//   - bundling cover:   default ON (?bundling=0 to disable) — free surplus at bundlable
+//                       warehouses covers family gaps so we do not order multipacks when
+//                       singles (or other packs) can be packed/unpacked on site.
 //
 // Routes:
 //   GET /api/planner/summary       — two cards (Jinxia / Honghui+WDAA) urgency
@@ -25,8 +31,12 @@ const r = new Hono<{ Bindings: Env }>();
 
 // Warehouses excluded from "available stock" (factory + virtual transit)
 const EXCLUDED_WH = ['gzh', 'yzh', 'dgn', 'otw'];
-// Russian warehouses used when stock_zone=russia
+// Legacy id list (kept for docs / tests). Live Russia filter uses warehouses.country.
 const RUSSIA_WH = ['lbr', 'srn', 'flp', 'ozon', 'wb'];
+// Warehouses where F4-style pack/unpack is real (NOT marketplace FBO)
+const BUNDLABLE_WH = ['lbr', 'srn', 'flp'];
+// Boss rule: Stock=Russia → only goods physically in Russia (or in transit TO Russia).
+// Never count China (DGN/GZH/YZH), Vietnam (SWH), or virtual OTW as Russia cover.
 
 const PALLET_VOLUME_M3 = 1.44;        // standard EUR pallet useful volume
 const CONTAINER_20FT_M3 = 28;          // 20ft cargo cubic capacity
@@ -75,7 +85,11 @@ type PlannerRow = {
   in_transit: number;
   cover_days: number | null;
   // order computation
-  raw_need: number;
+  raw_need: number;                     // factory gap AFTER bundling convert (when on)
+  raw_need_before_bundling: number;     // gap from owned stock alone
+  convertible_from_family: number;      // pack-units covered by pack/unpack on bundlable WH
+  bundling_hint: string | null;         // human line for UI (null if no convert)
+  family_id: string;                    // de201 for de201 / de201aa / de201aaaa
   moq: number;
   suggested_order: number;
   // carton breakdown for this SKU's contribution to the shipment
@@ -90,6 +104,178 @@ type PlannerRow = {
   is_new_launch: boolean;
 };
 
+/** Family key for pack fungibility (de201aa → de201). Toothpaste handled separately. */
+function familyKey(sku: string, baseSkuLink: string | null): string {
+  if (baseSkuLink) return baseSkuLink.toLowerCase();
+  const m = sku.toLowerCase().match(/^(de\d+)(?:aaaa|aa)?$/);
+  return m ? m[1]! : sku.toLowerCase();
+}
+
+/**
+ * Cover pack-SKU gaps from free surplus of sibling packs at bundlable warehouses.
+ * Work in physical pieces so 1↔2↔4 convert is exact.
+ * Does not invent stock: only surplus after each SKU reserves for its own demand.
+ */
+function applyPackFungibility(
+  rows: PlannerRow[],
+  bundlableStock: Map<string, number>,
+  leadTimeDays: number,
+  coverageDays: number,
+): void {
+  type St = {
+    row: PlannerRow;
+    pack: number;
+    demand: number;
+    owned: number;
+    freePieces: number;
+    freePiecesLeft: number;
+    gap: number;
+    converted: number;
+    piecesTakenFrom: Map<string, number>; // donor sku → pieces
+  };
+
+  const byFamily = new Map<string, PlannerRow[]>();
+  for (const r of rows) {
+    // Toothpaste already rolls multipacks into base units — skip pack-level convert
+    if (r.category === 'Toothpaste') {
+      r.raw_need_before_bundling = r.raw_need;
+      r.convertible_from_family = 0;
+      r.bundling_hint = null;
+      r.family_id = familyKey(r.base_sku, r.base_sku_link);
+      continue;
+    }
+    const fk = familyKey(r.base_sku, r.base_sku_link);
+    r.family_id = fk;
+    if (!byFamily.has(fk)) byFamily.set(fk, []);
+    byFamily.get(fk)!.push(r);
+  }
+
+  for (const [, members] of byFamily) {
+    if (members.length < 2) {
+      for (const r of members) {
+        r.raw_need_before_bundling = r.raw_need;
+        r.convertible_from_family = 0;
+        r.bundling_hint = null;
+      }
+      continue;
+    }
+
+    const states: St[] = members.map((row) => {
+      const pack = row.bundle_size && row.bundle_size > 0 ? row.bundle_size : 1;
+      // demand = target pool after lead+cover (same basis as raw_need before convert)
+      const demand = row.is_new_launch
+        ? row.raw_need
+        : Math.ceil(row.velocity_per_day * (leadTimeDays + coverageDays));
+      const owned = row.available_stock;
+      const bundlable = bundlableStock.get(row.base_sku) ?? 0;
+      const nonBundlable = Math.max(0, owned - bundlable);
+      const needFromBundlable = Math.max(0, demand - nonBundlable);
+      const freeBundlable = Math.max(0, bundlable - needFromBundlable);
+      const gap = Math.max(0, demand - owned);
+      return {
+        row,
+        pack,
+        demand,
+        owned,
+        freePieces: freeBundlable * pack,
+        freePiecesLeft: freeBundlable * pack,
+        gap,
+        converted: 0,
+        piecesTakenFrom: new Map(),
+      };
+    });
+
+    // Fill largest piece-gaps first so a deep AA hole steals singles before a shallow one
+    const gapOrder = [...states]
+      .filter((s) => s.gap > 0 && !s.row.is_new_launch)
+      .sort((a, b) => b.gap * b.pack - a.gap * a.pack);
+
+    for (const needy of gapOrder) {
+      let stillNeedPacks = needy.gap - needy.converted;
+      if (stillNeedPacks <= 0) continue;
+
+      // Prefer donors with smaller pack size first (pack singles → multipack is the common fix)
+      const donors = [...states]
+        .filter((d) => d.row.base_sku !== needy.row.base_sku && d.freePiecesLeft >= needy.pack)
+        .sort((a, b) => a.pack - b.pack || b.freePiecesLeft - a.freePiecesLeft);
+
+      for (const donor of donors) {
+        stillNeedPacks = needy.gap - needy.converted;
+        if (stillNeedPacks <= 0) break;
+        const packsCanMake = Math.floor(donor.freePiecesLeft / needy.pack);
+        if (packsCanMake <= 0) continue;
+        const packsToConvert = Math.min(stillNeedPacks, packsCanMake);
+        const piecesUsed = packsToConvert * needy.pack;
+        donor.freePiecesLeft -= piecesUsed;
+        needy.converted += packsToConvert;
+        const prev = needy.piecesTakenFrom.get(donor.row.base_sku) ?? 0;
+        needy.piecesTakenFrom.set(donor.row.base_sku, prev + piecesUsed);
+      }
+    }
+
+    for (const st of states) {
+      const row = st.row;
+      if (row.is_new_launch) {
+        row.raw_need_before_bundling = row.raw_need;
+        row.convertible_from_family = 0;
+        row.bundling_hint = null;
+        continue;
+      }
+
+      const rawBefore = st.gap;
+      const rawAfter = Math.max(0, st.gap - st.converted);
+      row.raw_need_before_bundling = rawBefore;
+      row.convertible_from_family = st.converted;
+      row.raw_need = rawAfter;
+
+      // Effective cover after convert (owned + converted into this pack form)
+      if (row.velocity_per_day > 0) {
+        row.cover_days = Math.round((row.available_stock + st.converted) / row.velocity_per_day);
+      }
+
+      const ctnQty = row.ctn_qty && row.ctn_qty > 0 ? row.ctn_qty : 1;
+      const ctnVol = row.ctn_volume_m3 || 0;
+      if (rawAfter === 0) {
+        row.suggested_order = 0;
+        row.cartons = 0;
+        row.volume_m3 = 0;
+        row.pallets = 0;
+        row.amount = null;
+      } else {
+        const withMoq = Math.max(rawAfter, row.moq);
+        const suggested = Math.ceil(withMoq / ctnQty) * ctnQty;
+        row.suggested_order = suggested;
+        row.cartons = suggested / ctnQty;
+        row.volume_m3 = Math.round(row.cartons * ctnVol * 1000) / 1000;
+        row.pallets = Math.round((row.volume_m3 / PALLET_VOLUME_M3) * 100) / 100;
+        row.amount =
+          row.unit_price != null
+            ? Math.round(row.unit_price * suggested * 100) / 100
+            : null;
+      }
+
+      if (st.converted > 0) {
+        const parts: string[] = [];
+        for (const [donorSku, pieces] of st.piecesTakenFrom) {
+          const donor = states.find((d) => d.row.base_sku === donorSku);
+          if (!donor || pieces <= 0) continue;
+          if (donor.pack <= st.pack) {
+            // packing up: N singles (or smaller packs) → multipack
+            parts.push(`${pieces} pcs from ${donorSku.toUpperCase()} → pack`);
+          } else {
+            const donorPacks = Math.floor(pieces / donor.pack);
+            parts.push(`unpack ${donorPacks}×${donorSku.toUpperCase()}`);
+          }
+        }
+        row.bundling_hint =
+          `+${st.converted} via bundling` + (parts.length ? ` (${parts.join('; ')})` : '');
+      } else {
+        row.bundling_hint = null;
+      }
+    }
+  }
+}
+
 async function computeForGroup(
   env: Env,
   groupId: string,
@@ -97,7 +283,8 @@ async function computeForGroup(
   currency: 'cny' | 'usd' = 'cny',
   windowDays = 60,
   coverageDays = 90,
-  leadTimeDays = 70
+  leadTimeDays = 70,
+  bundlingEnabled = true,
 ): Promise<PlannerRow[]> {
   const db = env.DB;
   // Load purchasing price map (lower-cased product_id keys).
@@ -219,21 +406,19 @@ async function computeForGroup(
   const velocityMap = new Map(velocityRes.results.map(v => [v.base_sku, v.units_60d || 0]));
 
   // 4. available stock per base SKU — depends on stockZone
-  //    russia:    Russian warehouses (lbr/srn/flp/ozon/wb)
-  //               PLUS open purchases (production/shipped) whose warehouse_to_id is in Russia
-  //    worldwide: all warehouses (still excluding factory ownership warehouses since those
-  //               are raw material, but including everything else)
-  //               PLUS all open purchases (production/shipped)
+  //    russia:    ONLY warehouses with country = 'Russia' (LBR, SRN, FLP, Ozon FBO, WB FBO, …)
+  //               PLUS open purchases (production/shipped) whose warehouse_to is in Russia.
+  //               NOT China (DGN/GZH/YZH), NOT Vietnam (SWH), NOT virtual OTW.
+  //    worldwide: all non-factory warehouses (excludes gzh/yzh/otw factory/virtual).
   //
-  //    For simplicity, we use a single union query: stocks (on_hand state, filtered by warehouse country)
-  //    + transit units (purchase operations production/shipped, filtered by destination country).
+  //    stocks filtered by warehouse.country; transit filtered by destination country.
   const isRussia = stockZone === 'russia';
 
   // 4a. On-hand stock in matching warehouses
   let stockSql: string;
   let stockBinds: unknown[];
   if (isRussia) {
-    const ruPlaceholders = RUSSIA_WH.map(() => '?').join(',');
+    // Country column is SSOT — new RU warehouses auto-include; CN/VN never leak
     stockSql = `
       WITH stock_per_row AS (
         SELECT
@@ -249,16 +434,17 @@ async function computeForGroup(
           END AS units
         FROM stocks s
         JOIN products p ON p.id = s.product_id
+        JOIN warehouses w ON w.id = s.warehouse_id
         WHERE s.stock_state = 'on_hand'
           AND s.on_hand > 0
-          AND s.warehouse_id IN (${ruPlaceholders})
+          AND w.country = 'Russia'
       )
       SELECT rollup_sku AS base_sku, SUM(units) AS available
       FROM stock_per_row
       WHERE rollup_sku IN (${baseSkuPlaceholders})
       GROUP BY rollup_sku
     `;
-    stockBinds = [...RUSSIA_WH, ...baseSkus];
+    stockBinds = [...baseSkus];
   } else {
     // worldwide: exclude factory raw warehouses (gzh/yzh) + virtual otw
     const excludeForWorld = ['gzh', 'yzh', 'otw'];
@@ -292,6 +478,40 @@ async function computeForGroup(
   const stockRes = await db.prepare(stockSql)
     .bind(...stockBinds).all<{ base_sku: string; available: number }>();
   const stockMap = new Map(stockRes.results.map(s => [s.base_sku, s.available || 0]));
+
+  // 4a2. Bundlable on-hand (LBR/SRN/FLP) — only when those WH are in scope for the zone.
+  //      Russia mode: already Russia-only. Worldwide: same RU 3PLs (packing happens there).
+  const bundlablePlaceholders = BUNDLABLE_WH.map(() => '?').join(',');
+  const bundlableSql = `
+    WITH stock_per_row AS (
+      SELECT
+        CASE
+          WHEN p.category = 'Toothpaste' AND COALESCE(p.bundle_size, 1) > 1
+            THEN p.base_sku
+          ELSE p.id
+        END AS rollup_sku,
+        CASE
+          WHEN p.category = 'Toothpaste' AND COALESCE(p.bundle_size, 1) > 1
+            THEN s.on_hand * p.bundle_size
+          ELSE s.on_hand
+        END AS units
+      FROM stocks s
+      JOIN products p ON p.id = s.product_id
+      JOIN warehouses w ON w.id = s.warehouse_id
+      WHERE s.stock_state = 'on_hand'
+        AND s.on_hand > 0
+        AND s.warehouse_id IN (${bundlablePlaceholders})
+        AND w.country = 'Russia'
+    )
+    SELECT rollup_sku AS base_sku, SUM(units) AS available
+    FROM stock_per_row
+    WHERE rollup_sku IN (${baseSkuPlaceholders})
+    GROUP BY rollup_sku
+  `;
+  const bundlableRes = await db.prepare(bundlableSql)
+    .bind(...BUNDLABLE_WH, ...baseSkus)
+    .all<{ base_sku: string; available: number }>();
+  const bundlableMap = new Map(bundlableRes.results.map(s => [s.base_sku, s.available || 0]));
 
   // 4b. In-transit: open purchases (production/shipped) — filter by destination country if russia mode
   let transitSql: string;
@@ -442,6 +662,10 @@ async function computeForGroup(
       in_transit: inTransit,
       cover_days: coverDays,
       raw_need: rawNeed,
+      raw_need_before_bundling: rawNeed,
+      convertible_from_family: 0,
+      bundling_hint: null,
+      family_id: familyKey(b.base_sku, b.base_sku_link),
       moq,
       suggested_order: suggested,
       cartons,
@@ -455,6 +679,11 @@ async function computeForGroup(
       is_new_launch: isNewLaunch,
     };
   });
+
+  // 8. Warehouse pack/unpack cover — reduce factory order when family can convert
+  if (bundlingEnabled) {
+    applyPackFungibility(rows, bundlableMap, leadTimeDays, coverageDays);
+  }
 
   return rows;
 }
@@ -533,13 +762,14 @@ function computeScenarios(rows: PlannerRow[]): Scenario[] {
 // Returns urgency scoring for each manufacturer_group with active products
 // =============================================================================
 r.get('/summary', async (c) => {
+  const bundlingEnabled = c.req.query('bundling') !== '0';
   const groupsRes = await c.env.DB.prepare(
     `SELECT id, name, notes FROM manufacturer_groups ORDER BY name`
   ).all<{ id: string; name: string; notes: string | null }>();
 
   const cards = [];
   for (const g of groupsRes.results) {
-    const rows = await computeForGroup(c.env, g.id);
+    const rows = await computeForGroup(c.env, g.id, 'russia', 'cny', 60, 90, 70, bundlingEnabled);
 
     // urgency metrics
     const skusToOrder = rows.filter(r => r.suggested_order > 0).length;
@@ -596,6 +826,8 @@ r.get('/summary', async (c) => {
       coverage_days: 90,
       lead_time_days: 70,
       excluded_warehouses: EXCLUDED_WH,
+      bundlable_warehouses: BUNDLABLE_WH,
+      bundling_enabled: bundlingEnabled,
     },
     groups: cards,
   });
@@ -615,8 +847,9 @@ r.get('/suggestions', async (c) => {
 
   const stockZone = (c.req.query('stock_zone') === 'worldwide' ? 'worldwide' : 'russia') as 'russia' | 'worldwide';
   const currency = (c.req.query('currency') === 'usd' ? 'usd' : 'cny') as 'cny' | 'usd';
+  const bundlingEnabled = c.req.query('bundling') !== '0';
 
-  const rows = await computeForGroup(c.env, groupId, stockZone, currency);
+  const rows = await computeForGroup(c.env, groupId, stockZone, currency, 60, 90, 70, bundlingEnabled);
   const scenarios = computeScenarios(rows);
 
   const groupRow = await c.env.DB.prepare(
@@ -645,6 +878,8 @@ r.get('/suggestions', async (c) => {
       lead_time_days: 70,
       stock_zone: stockZone,
       currency,
+      bundling_enabled: bundlingEnabled,
+      bundlable_warehouses: BUNDLABLE_WH,
     },
     rows: sorted,
     scenarios,
@@ -652,6 +887,7 @@ r.get('/suggestions', async (c) => {
       sku_count: rows.length,
       skus_to_order: rows.filter(r => r.suggested_order > 0).length,
       total_units_suggested: rows.reduce((s, r) => s + r.suggested_order, 0),
+      units_covered_by_bundling: rows.reduce((s, r) => s + (r.convertible_from_family || 0), 0),
     },
   });
 });

@@ -46,6 +46,10 @@ interface PlannerRow {
   in_transit: number;
   cover_days: number | null;
   raw_need: number;
+  raw_need_before_bundling?: number;
+  convertible_from_family?: number;
+  bundling_hint?: string | null;
+  family_id?: string;
   moq: number;
   suggested_order: number;
   cartons: number;
@@ -68,10 +72,23 @@ interface Scenario {
 
 interface SuggestionsResponse {
   group: { id: string; name: string; notes: string | null };
-  rules: { window_days: number; coverage_days: number; lead_time_days: number; stock_zone: 'russia' | 'worldwide'; currency: 'cny' | 'usd' };
+  rules: {
+    window_days: number;
+    coverage_days: number;
+    lead_time_days: number;
+    stock_zone: 'russia' | 'worldwide';
+    currency: 'cny' | 'usd';
+    bundling_enabled?: boolean;
+    bundlable_warehouses?: string[];
+  };
   rows: PlannerRow[];
   scenarios: Scenario[];
-  totals: { sku_count: number; skus_to_order: number; total_units_suggested: number };
+  totals: {
+    sku_count: number;
+    skus_to_order: number;
+    total_units_suggested: number;
+    units_covered_by_bundling?: number;
+  };
 }
 
 function currencySymbol(c: 'cny' | 'usd'): string {
@@ -182,6 +199,8 @@ export default function PlannerPage() {
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [stockZone, setStockZone] = useState<'russia' | 'worldwide'>('russia');
   const [currency, setCurrency] = useState<'cny' | 'usd'>('cny');
+  /** When on: free surplus singles/packs at LBR/SRN/FLP cover multipack gaps before factory order */
+  const [bundlingOn, setBundlingOn] = useState(true);
 
   const [detail, setDetail] = useState<SuggestionsResponse | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -212,13 +231,15 @@ export default function PlannerPage() {
     return autoFillCartons(rows, target, m, manual);
   }
 
-  // Load summary on mount
+  // Load summary when bundling mode changes (urgency depends on convert cover)
   useEffect(() => {
-    apiGet<SummaryResponse>('/api/planner/summary')
+    setLoading(true);
+    const q = bundlingOn ? '' : '?bundling=0';
+    apiGet<SummaryResponse>(`/api/planner/summary${q}`)
       .then((res) => {
         if (res.success && res.result) {
           setSummary(res.result);
-          // Auto-select first (most urgent) group
+          // Auto-select first (most urgent) group only once
           if (res.result.groups.length > 0 && !selectedGroup) {
             setSelectedGroup(res.result.groups[0].group_id);
           }
@@ -229,9 +250,9 @@ export default function PlannerPage() {
       .catch((e) => setError(e instanceof Error ? e.message : 'Network error'))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [bundlingOn]);
 
-  // Load detail when group / stockZone / currency changes
+  // Load detail when group / stockZone / currency / bundling changes
   useEffect(() => {
     if (!selectedGroup) {
       setDetail(null);
@@ -240,8 +261,9 @@ export default function PlannerPage() {
       return;
     }
     setDetailLoading(true);
+    const bundlingParam = bundlingOn ? '1' : '0';
     apiGet<SuggestionsResponse>(
-      `/api/planner/suggestions?group=${selectedGroup}&stock_zone=${stockZone}&currency=${currency}`
+      `/api/planner/suggestions?group=${selectedGroup}&stock_zone=${stockZone}&currency=${currency}&bundling=${bundlingParam}`
     )
       .then((res) => {
         if (res.success && res.result) {
@@ -256,7 +278,7 @@ export default function PlannerPage() {
       .catch((e) => setError(e instanceof Error ? e.message : 'Network error'))
       .finally(() => setDetailLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedGroup, stockZone, currency]);
+  }, [selectedGroup, stockZone, currency, bundlingOn]);
 
   function getTargetVolume(m: SizingMode): number {
     if (m === '20ft') return C20_VOLUME_M3;
@@ -976,8 +998,8 @@ export default function PlannerPage() {
               <span className="text-stone-400 mx-2">·</span>
               <span className="text-stone-600">{totPallets.toFixed(1)} pallets</span>
             </div>
-            <div className="flex items-center gap-4" style={{ fontSize: '13px' }}>
-              <div className="flex items-center gap-2">
+            <div className="flex items-center gap-4 flex-wrap" style={{ fontSize: '13px' }}>
+              <div className="flex items-center gap-2" title="Russia = only stock and inbound sitting in Russia (not China DGN, not Vietnam, not factory). Worldwide = all non-factory warehouses.">
                 <span className="text-stone-500">Stock:</span>
                 <ToggleGroup value={stockZone} options={[{ id: 'russia', label: 'Russia' }, { id: 'worldwide', label: 'Worldwide' }]} onChange={(v) => setStockZone(v as 'russia' | 'worldwide')} />
               </div>
@@ -985,9 +1007,26 @@ export default function PlannerPage() {
                 <span className="text-stone-500">Price:</span>
                 <ToggleGroup value={currency} options={[{ id: 'cny', label: 'CNY' }, { id: 'usd', label: 'USD' }]} onChange={(v) => setCurrency(v as 'cny' | 'usd')} disabledIds={['usd']} />
               </div>
+              <div className="flex items-center gap-2" title="Free surplus at LBR/SRN/FLP can pack/unpack 1↔2↔4 before ordering from factory">
+                <span className="text-stone-500">Bundling:</span>
+                <ToggleGroup
+                  value={bundlingOn ? 'on' : 'off'}
+                  options={[{ id: 'on', label: 'On' }, { id: 'off', label: 'Off' }]}
+                  onChange={(v) => setBundlingOn(v === 'on')}
+                />
+              </div>
               {detailLoading && <Loader2 className="w-4 h-4 animate-spin text-stone-400" />}
             </div>
           </div>
+
+          {/* Bundling cover note */}
+          {(detail.totals.units_covered_by_bundling ?? 0) > 0 && bundlingOn && (
+            <div className="px-4 py-2.5 rounded" style={{ background: '#E6F1FB', border: '0.5px solid #B5D4F4', fontSize: '13px', color: '#0C447C' }}>
+              <b>Bundling cover:</b>{' '}
+              {(detail.totals.units_covered_by_bundling ?? 0).toLocaleString()} pack-units filled from family surplus
+              (LBR/SRN/FLP pack↔unpack) — not ordered from factory. Toggle <b>Off</b> to see old separate-SKU plan.
+            </div>
+          )}
 
           {/* Manual override warning bar */}
           <div className="flex items-center gap-3 px-4 py-3 rounded" style={{ display: manualExceedsTarget ? 'flex' : 'none', background: '#FCEBEB', border: '0.5px solid #F09595', fontSize: '13px', color: '#791F1F' }}>
@@ -1402,6 +1441,9 @@ function SkuTable({
               Sales/day<SortArrow k="sales" />
             </th>
             <th className="text-right px-3 py-2">Stock</th>
+            <th className="text-right px-3 py-2" title="Pack-units covered by packing/unpacking family surplus on LBR/SRN/FLP">
+              From bundle
+            </th>
             <th className="text-right px-3 py-2 cursor-pointer select-none" onClick={() => clickHeader('ends')}>
               Ends in<SortArrow k="ends" />
             </th>
@@ -1421,11 +1463,12 @@ function SkuTable({
             const volume = finalVolume(r);
             const pallets = finalPallets(r);
             const amount = finalAmount(r);
-            const isStockout = r.available_stock === 0 && !r.is_new_launch && r.velocity_per_day > 0;
+            const convert = r.convertible_from_family ?? 0;
+            const isStockout = r.available_stock === 0 && convert === 0 && !r.is_new_launch && r.velocity_per_day > 0;
             const coverColor = r.cover_days === null ? 'text-stone-400' : r.cover_days <= 30 ? 'text-red-600' : r.cover_days <= 90 ? 'text-amber-600' : 'text-green-600';
             const isLocked = Object.prototype.hasOwnProperty.call(manualOverrides, r.base_sku);
             const rowStripe = idx % 2 === 0 ? '#FFFEF9' : 'white';
-            const rowBg = isLocked ? '#FAEEDA' : rowStripe;
+            const rowBg = isLocked ? '#FAEEDA' : convert > 0 ? '#F0F7FF' : rowStripe;
 
             return (
               <tr key={r.base_sku} style={{ background: rowBg }}>
@@ -1440,7 +1483,7 @@ function SkuTable({
                       <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 4, background: '#dcfce7', color: '#166534', fontWeight: 500 }}>4×</span>
                     )}
                   </div>
-                  <div style={{ display: (r.is_new_launch || (r.dearth_days > 0 && r.velocity_per_day > 0) || isStockout) ? 'flex' : 'none', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 2, fontSize: '11px' }}>
+                  <div style={{ display: (r.is_new_launch || (r.dearth_days > 0 && r.velocity_per_day > 0) || isStockout || !!r.bundling_hint) ? 'flex' : 'none', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 2, fontSize: '11px' }}>
                     {r.is_new_launch && <span className="text-blue-600">new launch · manual qty</span>}
                     {r.dearth_days > 0 && r.velocity_per_day > 0 && (
                       <span className="text-red-600 flex items-center gap-1">
@@ -1448,10 +1491,16 @@ function SkuTable({
                       </span>
                     )}
                     {isStockout && <span className="text-red-600">⚠ stockout</span>}
+                    {r.bundling_hint && (
+                      <span style={{ color: '#0C447C' }}>{r.bundling_hint}</span>
+                    )}
                   </div>
                 </td>
                 <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{r.is_new_launch ? '—' : r.velocity_per_day.toFixed(1)}</td>
                 <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{r.available_stock.toLocaleString()}</td>
+                <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700, color: convert > 0 ? '#0C447C' : '#a8a29e' }}>
+                  {convert > 0 ? `+${convert.toLocaleString()}` : '—'}
+                </td>
                 <td className={`px-3 py-2.5 text-right ${coverColor}`} style={{ fontWeight: 700 }}>{r.cover_days === null ? '—' : r.cover_days + 'd'}</td>
                 <td className="px-3 py-2.5 text-right">
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -1494,7 +1543,7 @@ function SkuTable({
           })}
           {/* TOTALS */}
           <tr className="border-t-2 border-stone-300 bg-stone-50">
-            <td className="px-3 py-2.5" style={{ fontWeight: 700 }} colSpan={5}>TOTAL</td>
+            <td className="px-3 py-2.5" style={{ fontWeight: 700 }} colSpan={6}>TOTAL</td>
             <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{totals.cartons || '—'}</td>
             <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{totals.units > 0 ? totals.units.toLocaleString() : '—'}</td>
             <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{totals.volume.toFixed(2)}</td>

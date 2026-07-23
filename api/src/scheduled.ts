@@ -611,18 +611,10 @@ export async function handleScheduled(
   }
 
   if (cron === '0 * * * *') {
-    // Retry WB review replies that previously hit rate limit and whose
-    // next_attempt_at has now elapsed. Idempotent — calls own endpoint.
-    try {
-      const r = await env.SELF.fetch(new Request(
-        'https://internal/api/reviews/sweep-retries',
-        { method: 'POST', headers: { 'Content-Type': 'application/json' } }
-      ));
-      const out = await r.json() as { ok?: boolean; reset?: number; sent?: number; failed?: number };
-      console.log(`[cron:reviews-sweep] reset=${out.reset ?? 0} sent=${out.sent ?? 0} failed=${out.failed ?? 0}`);
-    } catch (e) {
-      console.error('[cron:reviews-sweep] failed:', e);
-    }
+    // Owner 2026-07-23: DO NOT hit WB feedbacks here.
+    // Was: hourly POST /api/reviews/sweep-retries (up to 50 posts/hour) → "too many requests".
+    // WB review answers run ONLY on 10 */3 (every 3h full backlog). Failed posts wait for next 3h tick.
+    console.log('[cron:hourly] reviews-sweep DISABLED (Owner: WB care only every 3h)');
     return;
   }
 

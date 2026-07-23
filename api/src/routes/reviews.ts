@@ -530,7 +530,8 @@ app.post('/reply-all', async (c) => {
 //      to drain whatever's ready. WB rate-limit will stop the batch again
 //      mid-way — that's fine, next cron tick picks up where this one left off.
 //
-// Triggered by cron `0 * * * *` (hourly). Safe to call manually.
+// Owner 2026-07-23: NOT on hourly cron anymore (bombed WB). Manual break-glass only.
+// Automatic retries = next 3h auto-reply tick (`10 */3`).
 // -----------------------------------------------------------------------------
 app.post('/sweep-retries', async (c) => {
   const now_ts = Math.floor(Date.now() / 1000);

@@ -71,7 +71,8 @@ const MANUFACTURER_COLS = `
   legal_name_en, legal_name_ru, legal_name_cn,
   registered_address_en, registered_address_ru,
   tax_id, has_dual_route_banking, last_verified,
-  slug, is_packaging_manufacturer, is_legal_seller
+  slug, is_packaging_manufacturer, is_legal_seller,
+  signing_authority_name, signing_authority_title_en, signing_authority_title_ru
 `;
 
 const CONTRACT_COLS = `

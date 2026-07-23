@@ -113,6 +113,10 @@ export interface ManufacturerRow {
   slug: string | null;
   is_packaging_manufacturer: number;
   is_legal_seller: number;
+  // Added by 0064 — seller-side signatory for factory-issued documents
+  signing_authority_name: string | null;
+  signing_authority_title_en: string | null;
+  signing_authority_title_ru: string | null;
 }
 
 export interface ContractRow {

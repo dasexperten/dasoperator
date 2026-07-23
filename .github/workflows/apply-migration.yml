@@ -1,0 +1,51 @@
+name: Apply D1 migration
+
+# Manual-dispatch utility: applies a single migration file from db/migrations
+# to the live D1 database using the CI CLOUDFLARE_API_TOKEN secret.
+# Added 2026-07-23 (sandbox CF tokens revoked; CI secret is the working path).
+
+on:
+  workflow_dispatch:
+    inputs:
+      file:
+        description: 'Migration filename inside db/migrations/'
+        required: true
+
+concurrency:
+  group: apply-migration
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install wrangler
+        working-directory: api
+        run: npm install --no-audit --no-fund
+
+      - name: Apply migration
+        working-directory: api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 081ddb85cb399ad62a70210328d744fc
+        run: |
+          npx wrangler d1 execute das_erp_dev --remote \
+            --file="../db/migrations/${{ github.event.inputs.file }}" -y
+
+      - name: Verify columns
+        working-directory: api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 081ddb85cb399ad62a70210328d744fc
+        run: |
+          npx wrangler d1 execute das_erp_dev --remote --json \
+            --command="SELECT id, name, signing_authority_name, signing_authority_title_en FROM manufacturers" | tail -40

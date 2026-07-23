@@ -954,6 +954,40 @@ export async function getSiteSeoMetrics(domain = 'dasexperten.com') {
   return apiGet<SiteSeoMetrics>(`/api/seo/site-metrics?domain=${encodeURIComponent(domain)}`);
 }
 
+/** AI crawlers snapshot — Cloudflare UA pull stored in KV (demo=false when live). */
+export interface AiCrawlerTile {
+  operator: string;
+  bot: string;
+  extraBots: number;
+  allowed: string;
+  allowed_n: number;
+  referrals: number;
+  bytes?: number;
+}
+
+export interface AiCrawlersSnapshot {
+  domain: string;
+  window_days: number;
+  window_start: string;
+  window_end: string;
+  total_requests: number;
+  total_with_search_bots?: number;
+  allowed: number;
+  allowed_pct: number;
+  unsuccessful: number;
+  referrals: number;
+  source: string;
+  demo: boolean;
+  updated_at: number;
+  note?: string;
+  crawlers: AiCrawlerTile[];
+  spark: number[];
+}
+
+export async function getAiCrawlers(domain = 'dasexperten.com') {
+  return apiGet<AiCrawlersSnapshot>(`/api/seo/ai-crawlers?domain=${encodeURIComponent(domain)}`);
+}
+
 export async function getPayment(id: string) {
   return apiGet<Payment>(`/api/payments/${id}`);
 }

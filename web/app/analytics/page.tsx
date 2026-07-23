@@ -8,6 +8,7 @@ import TrafficTab from './tabs/TrafficTab';
 import FunnelTab from './tabs/FunnelTab';
 import BehaviorTab from './tabs/BehaviorTab';
 import CampaignsTab from './tabs/CampaignsTab';
+import AiGeoTab from './tabs/AiGeoTab';
 
 // =============================================================================
 // /analytics — Web Analytics Command Center.
@@ -18,11 +19,13 @@ import CampaignsTab from './tabs/CampaignsTab';
 //   Funnel            GA4 events
 //   Behavior          Microsoft Clarity (+ D1 nightly archive)
 //   Campaigns         Yandex Direct (token pending) + Google Ads (approval pending)
+//   AI / GEO          Cloudflare AI crawlers + Ubersuggest authority (Owner 2026-07-23)
 //
 // RULES: every tab labels its data source; three trackers see three different
 // volumes (geo + consent + sampling) and are never blended without a formula
 // note. Nightly cron (02:30 UTC) archives into D1 — that archive is the only
-// Clarity history in existence.
+// Clarity history in existence. AI crawlers never invent counts — demo marker
+// if no live POST yet.
 //
 // Design: pilot of the Das Experten design-system handoff (web/design-system/),
 // distributor ui_kit patterns; tokens only, no hardcoded hex.
@@ -35,6 +38,7 @@ const TABS = [
   { id: 'funnel', label: 'Funnel', src: 'GA4 events' },
   { id: 'behavior', label: 'Behavior', src: 'Clarity' },
   { id: 'campaigns', label: 'Campaigns', src: 'Direct + Ads' },
+  { id: 'ai-geo', label: 'AI / GEO', src: 'Cloudflare crawlers + Ubersuggest' },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -93,7 +97,7 @@ export default function AnalyticsPage() {
           </button>
         ))}
         <span className="wa-kbd-hint" aria-hidden="true">
-          <kbd>1</kbd>–<kbd>6</kbd> switch tabs
+          <kbd>1</kbd>–<kbd>7</kbd> switch tabs
         </span>
       </div>
 
@@ -116,14 +120,19 @@ export default function AnalyticsPage() {
       <div style={{ display: active === 'campaigns' ? 'block' : 'none' }}>
         {visited.has('campaigns') && <CampaignsTab />}
       </div>
+      <div style={{ display: active === 'ai-geo' ? 'block' : 'none' }}>
+        {visited.has('ai-geo') && <AiGeoTab />}
+      </div>
 
       {/* ============================ FOOTER ============================ */}
       <div style={{ paddingTop: 16, borderTop: '1px solid var(--border-hairline)' }}>
         <p style={{ color: 'var(--fg-3)' }}>
           Sources: GA4 property 511756146 · Clarity Data Export (10 calls/day cap — served from
           nightly cache) · Metrika counter 107720199 · D1 web_analytics_daily /
-          web_behavior_snapshots. Spec: docs/analytics-parity.md — NONE-source metrics are cut,
-          never faked. Pending: Yandex Direct token · Google Ads Basic-access approval.
+          web_behavior_snapshots · SEO/GEO: Ubersuggest site-metrics + Cloudflare AI crawlers
+          (KV via /api/seo/*). Spec: docs/analytics-parity.md — NONE-source metrics are cut,
+          never faked. Pending: Yandex Direct token · Google Ads Basic-access approval · home
+          AI blocks only after Owner pick.
         </p>
       </div>
     </div>

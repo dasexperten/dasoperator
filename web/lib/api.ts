@@ -2000,6 +2000,12 @@ export interface BankAccount {
   api_enabled: 0 | 1;
   last_sync_at: number | null;
   notes: string | null;
+  is_visible_in_ui?: 0 | 1;
+  bank_code?: string | null;
+  branch_number?: string | null;
+  routing_number?: string | null;
+  account_iban?: string | null;
+  account_holder?: string | null;
   company_abbreviation: string;
   company_legal_name: string;
   company_tax_id: string | null;
@@ -2007,6 +2013,7 @@ export interface BankAccount {
   company_ogrn: string | null;
   company_registered_address: string | null;
   bank_name: string | null;
+  bank_address?: string | null;
   bank_legal_name: string | null;
   bank_legal_name_ru: string | null;
   bank_bic: string | null;
@@ -2014,6 +2021,7 @@ export interface BankAccount {
   bank_correspondent_account: string | null;
   bank_country: string | null;
   bank_auth_method: 'static_token' | 'oauth2' | 'manual' | null;
+  bank_provider_name?: string | null;
 }
 
 export interface BankTransaction {

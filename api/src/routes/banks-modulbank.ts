@@ -531,27 +531,40 @@ banksModulbank.get('/transactions/:id', async (c) => {
 // happens client-side based on bank_provider_id / auth_method.
 // =============================================================================
 banksModulbank.get('/accounts', async (c) => {
+  // Unified bank reference: every visible company_bank_accounts row with a
+  // provider (Modulbank DEE, Wio DEI, Chase HK DEI, …). Per-account bank_*
+  // columns (0065+) win over bank_providers when both are set.
   const result = await c.env.DB.prepare(`
     SELECT
       cba.id, cba.company_id, cba.account_number, cba.account_purpose,
       cba.currency, cba.is_default, cba.bank_provider_id,
       cba.external_account_id, cba.external_company_id, cba.api_enabled,
-      cba.last_sync_at, cba.notes,
+      cba.last_sync_at, cba.notes, cba.is_visible_in_ui,
+      cba.bank_code, cba.branch_number, cba.routing_number,
+      cba.iban as account_iban,
+      cba.account_holder,
       co.abbreviation as company_abbreviation, co.legal_name as company_legal_name,
       co.tax_id as company_tax_id, co.kpp as company_kpp, co.ogrn as company_ogrn,
       co.registered_address as company_registered_address,
-      bp.name as bank_name,
+      COALESCE(NULLIF(TRIM(cba.bank_name), ''), bp.bank_legal_name, bp.name) as bank_name,
+      COALESCE(NULLIF(TRIM(cba.bank_address), ''), NULL) as bank_address,
       bp.bank_legal_name, bp.bank_legal_name_ru,
-      bp.bic as bank_bic, bp.swift as bank_swift,
+      bp.bic as bank_bic,
+      COALESCE(NULLIF(TRIM(cba.swift), ''), bp.swift) as bank_swift,
       bp.correspondent_account as bank_correspondent_account,
       bp.country as bank_country,
-      bp.auth_method as bank_auth_method
+      bp.auth_method as bank_auth_method,
+      bp.name as bank_provider_name
     FROM company_bank_accounts cba
     JOIN companies co ON cba.company_id = co.id
     LEFT JOIN bank_providers bp ON cba.bank_provider_id = bp.id
     WHERE cba.deleted_at IS NULL
-      AND cba.bank_provider_id IS NOT NULL
-    ORDER BY co.abbreviation, cba.account_purpose
+      AND cba.is_visible_in_ui = 1
+      AND (
+        cba.bank_provider_id IS NOT NULL
+        OR (cba.bank_name IS NOT NULL AND TRIM(cba.bank_name) != '')
+      )
+    ORDER BY co.abbreviation, cba.currency, cba.account_purpose, cba.id
   `).all();
 
   return ok(c, {

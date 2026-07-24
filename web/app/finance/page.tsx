@@ -758,6 +758,88 @@ export default function FinanceTransactionsPage() {
         </div>
       </div>
 
+      {/* Our bank accounts — Modulbank DEE · Wio DEI · Chase HK DEI · … */}
+      {!loading && accounts.length > 0 && (
+        <div className="mb-6">
+          <div style={{
+            fontSize: '12px', fontWeight: 700, color: 'var(--fg-2)',
+            textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '10px',
+          }}>
+            Our bank accounts
+          </div>
+          <div className="flex flex-wrap gap-3">
+            {accounts.map((acc) => {
+              const bankLabel =
+                acc.bank_name ||
+                acc.bank_provider_name ||
+                acc.bank_legal_name ||
+                'Bank';
+              const selected = accountFilter === acc.id;
+              return (
+                <button
+                  key={acc.id}
+                  type="button"
+                  onClick={() => setAccountFilter(selected ? 'all' : acc.id)}
+                  title={acc.notes ?? undefined}
+                  style={{
+                    border: selected ? '2px solid var(--fg-1)' : '1px solid var(--line-1)',
+                    borderRadius: 'var(--radius-sm)',
+                    backgroundColor: 'var(--paper)',
+                    padding: '12px 14px',
+                    minWidth: '220px',
+                    maxWidth: '320px',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-2" style={{ marginBottom: '6px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--fg-2)' }}>
+                      {acc.company_abbreviation}
+                      {acc.is_default === 1 ? ' · default' : ''}
+                    </span>
+                    <span style={{
+                      fontSize: '11px', fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: '999px',
+                      backgroundColor: 'var(--paper-sunk)',
+                      color: 'var(--fg-1)',
+                    }}>
+                      {acc.currency}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', marginBottom: '4px' }}>
+                    {bankLabel}
+                  </div>
+                  <div style={{
+                    fontSize: '13px', fontWeight: 600, color: 'var(--fg-1)',
+                    fontFamily: 'Manrope, ui-monospace, monospace', wordBreak: 'break-all',
+                  }}>
+                    {acc.account_number}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--fg-2)', marginTop: '6px' }}>
+                    {[
+                      acc.bank_swift ? `SWIFT ${acc.bank_swift}` : null,
+                      acc.bank_code ? `code ${acc.bank_code}` : null,
+                      acc.branch_number ? `br ${acc.branch_number}` : null,
+                      acc.routing_number ? `rt ${acc.routing_number}` : null,
+                      acc.api_enabled === 1 ? 'API' : 'manual',
+                    ].filter(Boolean).join(' · ')}
+                  </div>
+                  {acc.bank_address && (
+                    <div style={{ fontSize: '11px', color: 'var(--fg-3)', marginTop: '4px' }}>
+                      {acc.bank_address}
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <p style={{ fontSize: '12px', color: 'var(--fg-3)', marginTop: '8px' }}>
+            Click a card to filter transactions. DEI: Wio (UAE) and Chase HK are both active — pick one bank block per invoice.
+          </p>
+        </div>
+      )}
+
       {!loading && (
         <div className="mb-4 flex flex-wrap gap-3">
           {Object.entries(totals.incoming).map(([cur, amt]) => (
@@ -815,7 +897,7 @@ export default function FinanceTransactionsPage() {
           <option value="all">All accounts</option>
           {accounts.map((acc) => (
             <option key={acc.id} value={acc.id}>
-              {acc.company_abbreviation} {acc.currency} — {acc.account_number}
+              {acc.company_abbreviation} · {acc.bank_name || acc.bank_provider_name || 'Bank'} · {acc.currency} — {acc.account_number}
             </option>
           ))}
         </select>

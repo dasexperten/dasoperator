@@ -136,11 +136,20 @@ export interface ContractRow {
 export interface CompanyBankAccountRow {
   id: string;
   company_id: string;
-  account_purpose: 'primary' | 'rub' | 'cny_usd' | 'usd' | 'eur' | 'reserved_tax';
+  account_purpose: 'primary' | 'rub' | 'cny_usd' | 'usd' | 'eur' | 'reserved_tax' | string;
   account_number: string;
   currency: string;
   is_default: number;
   notes: string | null;
+  /** Per-account bank identity (0065+). Prefer over company legacy columns when set. */
+  bank_name?: string | null;
+  bank_address?: string | null;
+  swift?: string | null;
+  iban?: string | null;
+  account_holder?: string | null;
+  bank_code?: string | null;
+  branch_number?: string | null;
+  routing_number?: string | null;
 }
 
 export interface ManufacturerBankRouteRow {

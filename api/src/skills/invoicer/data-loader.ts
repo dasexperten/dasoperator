@@ -82,7 +82,9 @@ const CONTRACT_COLS = `
 `;
 
 const CBA_COLS = `
-  id, company_id, account_purpose, account_number, currency, is_default, notes
+  id, company_id, account_purpose, account_number, currency, is_default, notes,
+  bank_name, bank_address, swift, iban, account_holder,
+  bank_code, branch_number, routing_number
 `;
 
 const MBR_COLS = `

@@ -201,23 +201,45 @@ export function selectBankAccount(
       if (documentCurrency === 'RUB') {
         chosen = bankAccounts.find((a) => a.account_purpose === 'rub');
       } else {
-        chosen = bankAccounts.find((a) => a.account_purpose === 'cny_usd');
+        // Prefer explicit cny_usd purpose, then cny, then usd, then default
+        chosen =
+          bankAccounts.find((a) => a.account_purpose === 'cny_usd') ??
+          bankAccounts.find((a) => a.account_purpose === 'cny') ??
+          bankAccounts.find((a) => a.account_purpose === 'usd' && a.currency === documentCurrency);
+      }
+    }
+    // DEI / multi-currency: match document currency when a face exists (Wio USD, Chase USD/EUR, …)
+    if (!chosen && documentCurrency) {
+      const sameCcy = bankAccounts.filter((a) => a.currency === documentCurrency);
+      if (sameCcy.length > 0) {
+        chosen = sameCcy.find((a) => a.is_default === 1) ?? sameCcy[0];
       }
     }
     if (!chosen) chosen = bankAccounts.find((a) => a.is_default === 1);
     if (!chosen) chosen = bankAccounts[0];
     if (chosen) {
+      // Prefer per-account bank identity (Chase HK vs Wio) over company legacy columns
+      const bankName = (chosen.bank_name && chosen.bank_name.trim()) || company.bank_name || '';
+      const swift = (chosen.swift && chosen.swift.trim()) || company.swift;
+      const iban =
+        (chosen.iban && chosen.iban.trim()) ||
+        (chosen.account_number?.startsWith('AE') ? chosen.account_number : null) ||
+        company.iban;
+      const bankAddress =
+        (chosen.bank_address && chosen.bank_address.trim()) || company.bank_address;
+      const accountHolder =
+        (chosen.account_holder && chosen.account_holder.trim()) || company.legal_name;
       return {
         source: 'company_bank_accounts',
         account_number: chosen.account_number,
-        bank_name: company.bank_name ?? '',
-        swift: company.swift,
-        iban: company.iban,
-        bank_address: company.bank_address,
+        bank_name: bankName,
+        swift,
+        iban,
+        bank_address: bankAddress,
         bik: company.bik,
         correspondent_account: company.correspondent_account,
         currency: chosen.currency,
-        account_holder: company.legal_name,
+        account_holder: accountHolder,
       };
     }
   }

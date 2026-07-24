@@ -57,6 +57,15 @@ export const companyBankAccounts = sqliteTable("company_bank_accounts", {
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
   deletedAt: integer("deleted_at"),
+  // 0065 — per-account bank identity (multi-bank entities e.g. DEI Wio + Chase HK)
+  bankName: text("bank_name"),
+  bankAddress: text("bank_address"),
+  swift: text("swift"),
+  iban: text("iban"),
+  accountHolder: text("account_holder"),
+  bankCode: text("bank_code"),
+  branchNumber: text("branch_number"),
+  routingNumber: text("routing_number"),
 }, (t) => ({
   companyIdx: index("idx_cba_company").on(t.companyId),
   purposeIdx: index("idx_cba_purpose").on(t.accountPurpose),

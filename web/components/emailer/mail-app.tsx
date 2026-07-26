@@ -609,7 +609,7 @@ function BodyView({ item, body, loading }: { item: MailItem; body: { text?: stri
         sandbox={HTML_SANDBOX}
         referrerPolicy="no-referrer"
         title={item.subject}
-        style={{ width: '100%', minHeight: 320, height: '100%', border: 'none', borderRadius: 10, background: '#fff' }}
+        style={{ width: '100%', minHeight: 320, height: '100%', border: 'none', borderRadius: 0, background: '#fff' }}
       />
     );
   }

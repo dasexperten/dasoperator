@@ -554,6 +554,18 @@ function matchesScope(item: MailItem, scope: MailboxScope): boolean {
   return addressesForMailbox(def).includes(item.mailbox.toLowerCase());
 }
 
+// Owner 2026-07-26: picking an agent means "show me this person's mail" —
+// both what they received and what they sent, in one list. Before this the
+// agent was only a filter on top of the open folder, so clicking an agent
+// who had sent letters but received none showed an empty screen.
+// Archive and Важные stay real folders; Входящие/Отправленные merge under a scope.
+function passesFolder(item: MailItem, activeFolder: FolderId, scoped: boolean): boolean {
+  if (activeFolder === 'archive') return item.folder === 'archive';
+  if (activeFolder === 'starred') return item.starred && item.folder !== 'archive';
+  if (scoped) return item.folder !== 'archive';
+  return item.folder === activeFolder;
+}
+
 // Owner 2026-07-26: a link inside a letter must open in the browser on click.
 // Two cases, two fixes — see below. Security stays narrow: an incoming letter
 // never gets scripts, forms, or our origin (no allow-same-origin => no access
@@ -706,7 +718,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
   const { listWidth, onSplitterDown } = useListPaneResize();
 
   const visible = useMemo(() => {
-    let list = items.filter((e) => (activeFolder === 'starred' ? e.starred && e.folder !== 'archive' : e.folder === activeFolder));
+    let list = items.filter((e) => passesFolder(e, activeFolder, Boolean(scope)));
     list = list.filter((e) => matchesScope(e, scope));
     if (query.trim()) {
       const q = query.toLowerCase();
@@ -1199,7 +1211,7 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
   }, [drawerOpen]);
 
   const visible = useMemo(() => {
-    let list = items.filter((e) => (activeFolder === 'starred' ? e.starred && e.folder !== 'archive' : e.folder === activeFolder));
+    let list = items.filter((e) => passesFolder(e, activeFolder, Boolean(scope)));
     list = list.filter((e) => matchesScope(e, scope));
     if (query.trim()) {
       const q = query.toLowerCase();

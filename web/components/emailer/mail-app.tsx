@@ -217,6 +217,7 @@ interface MailItem {
   tagStyle: { bg: string; fg: string; dot: string };
   priority: 'high' | 'normal';
   folder: FolderId;      // resolved folder after local curation
+  agent?: string;        // author slug — a letter belongs to the person, not only the mailbox
 }
 
 // ---- localStorage curation sets -------------------------------------------
@@ -254,6 +255,7 @@ function useMailData() {
   const [raw, setRaw] = useState<Array<{
     key: string; mailbox: string; direction: 'sent' | 'received'; timestamp: string;
     subject: string; from?: string; to?: string | string[]; origin?: 'human' | 'auto'; trigger?: string;
+    agent?: string;   // roster slug of the person who wrote it, e.g. 'julian-farah'
   }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -342,6 +344,7 @@ function useMailData() {
           tagStyle: style,
           priority: (e.direction === 'received' && attentionAddrs.has(bare) ? 'high' : 'normal') as 'high' | 'normal',
           folder,
+          agent: e.agent,
         };
       })
       .filter(Boolean) as MailItem[];
@@ -547,9 +550,15 @@ function mailboxUnread(items: MailItem[], m: UiMailbox): number {
   return items.filter((i) => i.folder === 'inbox' && i.unread && set.has(i.mailbox.toLowerCase())).length;
 }
 
+// Owner 2026-07-26: an agent's folder holds every letter that PERSON wrote or
+// received — including mail they sent from a role mailbox such as partnerships@.
+// The author slug travels with the record; the mailbox match stays as fallback
+// for older letters written before slugs were stored.
 function matchesScope(item: MailItem, scope: MailboxScope): boolean {
   if (!scope) return true;
   const def = findUiMailbox(scope.address);
+  const slug = def?.slug ?? (scope as { slug?: string }).slug;
+  if (slug && item.agent && item.agent === slug) return true;
   if (!def) return item.mailbox.toLowerCase() === scope.address.toLowerCase();
   return addressesForMailbox(def).includes(item.mailbox.toLowerCase());
 }

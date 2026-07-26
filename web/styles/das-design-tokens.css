@@ -365,36 +365,47 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
 }
 .dxmail .topbar {
   background: var(--white);
-  border-bottom: 1px solid var(--line);
-  padding: 10px 18px;
-  display: flex; align-items: center; gap: 12px;
+  padding: 0 20px;
+  min-height: 62px;
+  display: flex; align-items: center; gap: 14px;
   flex-shrink: 0;
-  box-shadow: 0 1px 0 var(--line);
+  position: relative;
+}
+/* Brand signature: the three-ribbon flag as a 3px rule, not a red sticker. */
+.dxmail .topbar::after {
+  content: '';
+  position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+  background: linear-gradient(90deg,
+    var(--brand-schwarz-ink) 0 33.33%,
+    var(--brand-rot) 33.33% 66.66%,
+    var(--brand-gold) 66.66% 100%);
 }
 .dxmail .brand-name {
-  font-size: 20px; font-weight: 800; letter-spacing: -0.4px;
+  font-size: 19px; font-weight: 800; letter-spacing: 0;
   line-height: 1.05; color: var(--navy);
 }
 .dxmail .brand-tag {
-  background: var(--green); color: white;
-  font-size: 11px; font-weight: 800; letter-spacing: 0.6px;
-  padding: 4px 10px; border-radius: 999px; text-transform: uppercase;
-  box-shadow: 0 4px 12px -6px var(--mail-glow);
+  font-size: 11px; font-weight: 800; letter-spacing: 0;
+  color: var(--muted); margin-top: 3px;
 }
-.dxmail .stats-strip { margin-left: auto; display: flex; gap: 8px; }
+/* Metrics: numerals carry the weight, no chrome around them. */
+.dxmail .stats-strip { margin-left: auto; display: flex; align-items: stretch; }
 .dxmail .stat-chip {
-  display: flex; align-items: center; gap: 8px;
-  background: var(--white);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 7px 12px;
-  font-size: 12px; font-weight: 700; color: var(--slate);
-  box-shadow: var(--mail-raised);
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 0 20px;
+  border-left: 1px solid var(--line);
+  background: none; box-shadow: none; border-radius: 0;
 }
+.dxmail .stat-chip:first-child { border-left: none; }
 .dxmail .stat-num {
-  font-size: 20px; font-weight: 800; color: var(--navy);
+  font-size: 28px; font-weight: 800; color: var(--navy);
   line-height: 1; font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
+}
+.dxmail .stat-num.hot { color: var(--green); }
+.dxmail .stat-lab {
+  font-size: 11px; font-weight: 800; letter-spacing: 0;
+  color: var(--muted); margin-top: 5px; white-space: nowrap;
 }
 
 .dxmail .mainrow { flex: 1; display: flex; overflow: hidden; }
@@ -408,53 +419,53 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
   overflow-y: auto;
 }
 .dxmail .compose {
-  background: var(--green);
-  color: white;
+  background: var(--brand-schwarz-ink);
+  color: var(--paper);
   border: none;
   border-radius: 12px;
   padding: 12px;
   font-family: 'Manrope', sans-serif;
-  font-weight: 800; font-size: 14.5px;
+  font-weight: 800; font-size: 14px; letter-spacing: 0;
   display: flex; align-items: center; justify-content: center; gap: 8px;
   cursor: pointer;
-  box-shadow: 0 8px 18px -6px var(--mail-glow), 0 0 0 1px rgba(184, 26, 36, 0.18);
-  transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
-  margin-bottom: 14px;
+  transition: background 0.15s ease, transform 0.1s ease;
+  margin-bottom: 16px;
 }
-.dxmail .compose:hover { background: var(--green-dark); }
+.dxmail .compose:hover { background: var(--brand-schwarz); }
 .dxmail .compose:active { transform: scale(0.97); }
 
 .dxmail .folder {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 11px;
   padding: 9px 12px;
-  border-radius: 10px;
-  font-weight: 700; font-size: 13.5px;
+  border-radius: 9px;
+  font-weight: 800; font-size: 14px; letter-spacing: 0;
   color: var(--slate);
   cursor: pointer;
-  transition: all 0.12s ease;
-  margin-bottom: 2px;
+  transition: background 0.12s ease, color 0.12s ease;
+  margin-bottom: 1px;
+  position: relative;
 }
 .dxmail .folder:hover { background: var(--panel); color: var(--navy); }
-/* brighter: solid fill active, not soft tint */
+/* Owner 2026-07-26: rot is a marker, never a fill. Active = sunk tray + rule. */
 .dxmail .folder.active {
-  background: var(--green);
-  color: white;
-  box-shadow: 0 6px 14px -8px var(--mail-glow);
+  background: var(--panel);
+  color: var(--navy);
 }
-.dxmail .folder.active .nav-person-label,
-.dxmail .folder.active svg { color: white; }
+.dxmail .folder.active::before {
+  content: '';
+  position: absolute; left: 0; top: 6px; bottom: 6px;
+  width: 3px; border-radius: 2px;
+  background: var(--green);
+}
 .dxmail .fcount {
   margin-left: auto;
-  background: var(--green); color: white;
-  font-size: 12px; font-weight: 800;
-  padding: 2px 8px; border-radius: 999px;
+  background: none; color: var(--muted);
+  font-size: 12.5px; font-weight: 800;
+  padding: 0; border-radius: 0;
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
 }
-.dxmail .folder.active .fcount {
-  background: white;
-  color: var(--green-dark);
-}
+.dxmail .folder.active .fcount { color: var(--green); }
 .dxmail .sidebar-note {
   margin-top: auto;
   background: linear-gradient(135deg, var(--paper-sunk), rgba(229, 32, 44, 0.08));
@@ -520,8 +531,7 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
   font-family: 'Manrope', sans-serif;
   font-weight: 800;
   font-size: 11.5px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: 0;
   color: var(--muted);
   cursor: pointer;
 }
@@ -629,8 +639,8 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
 
 .dxmail .rows { overflow-y: auto; flex: 1; }
 .dxmail .row {
-  padding: 13px 16px;
-  border-bottom: 1px solid var(--line);
+  padding: 14px 16px 13px;
+  border-bottom: 1px solid rgba(26, 21, 25, 0.06);
   cursor: pointer;
   display: flex; gap: 11px;
   transition: background 0.1s ease;
@@ -640,36 +650,40 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
 .dxmail .row.selected { background: var(--green-soft); }
 .dxmail .row.selected::before {
   content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+  width: 3px; background: var(--brand-schwarz-ink);
+}
+/* Unread reads as a rule down the row, not a floating dot. */
+.dxmail .row.unread::after {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0;
   width: 3px; background: var(--green);
 }
+.dxmail .row.selected.unread::after { display: none; }
 .dxmail .rmain { flex: 1; min-width: 0; }
 .dxmail .rtop { display: flex; justify-content: space-between; gap: 6px; align-items: baseline; }
-.dxmail .rfrom { font-weight: 800; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dxmail .rfrom.read { font-weight: 700; color: var(--slate); }
-.dxmail .rtime { font-size: 11px; font-weight: 700; color: var(--muted); flex-shrink: 0; }
-.dxmail .rsub { font-size: 12.5px; font-weight: 700; margin-top: 2px; color: var(--navy); }
-.dxmail .rsub.read { font-weight: 600; color: var(--slate); }
-.dxmail .rprev { font-size: 11.5px; color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
-.dxmail .rtags { display: flex; align-items: center; gap: 7px; margin-top: 7px; }
-.dxmail .unread-dot {
-  width: 7px; height: 7px; border-radius: 999px; background: var(--green);
-  flex-shrink: 0; margin-top: 15px;
-}
+.dxmail .rfrom { font-weight: 800; font-size: 14.5px; letter-spacing: 0; color: var(--navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dxmail .rfrom.read { font-weight: 800; color: var(--slate); }
+.dxmail .rtime { font-size: 11px; font-weight: 700; color: var(--muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.dxmail .rsub { font-size: 13px; font-weight: 800; margin-top: 3px; color: var(--navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dxmail .rsub.read { font-weight: 700; color: var(--slate); }
+.dxmail .rprev { font-size: 12px; color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
+.dxmail .rtags { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
+.dxmail .unread-dot { display: none; }
 
 .dxmail .detail { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--panel); }
 .dxmail .dcard {
-  margin: 12px; flex: 1;
-  background: var(--white);
-  border: 1px solid var(--line);
-  border-radius: 14px;
+  margin: 0; flex: 1;
+  background: transparent;
+  border: none;
+  border-radius: 0;
   display: flex; flex-direction: column;
   overflow: hidden;
-  box-shadow: var(--mail-raised);
+  box-shadow: none;
 }
 .dxmail .dhead {
-  padding: 18px 22px;
+  padding: 22px 30px 18px;
+  background: var(--white);
   border-bottom: 1px solid var(--line);
-  display: flex; align-items: center; gap: 14px;
+  display: flex; align-items: center; gap: 16px;
 }
 .dxmail .back-btn {
   background: var(--panel); border: 1px solid var(--line);
@@ -678,14 +692,14 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
 /* Letter subject: never 3-4 wrapped lines — long subjects step the font
    size down instead (owner's acceptance condition); hard cap 2 lines. */
 .dxmail .dsub {
-  font-size: 19px; font-weight: 800; letter-spacing: -0.25px; line-height: 1.2;
+  font-size: 25px; font-weight: 800; letter-spacing: 0; line-height: 1.22;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   color: var(--navy);
 }
-.dxmail .dsub.sz2 { font-size: 16px; }
-.dxmail .dsub.sz3 { font-size: 14.5px; }
-.dxmail .dsub.sz4 { font-size: 13px; }
-.dxmail .dmeta { font-size: 12px; font-weight: 700; color: var(--muted); margin-top: 3px; }
+.dxmail .dsub.sz2 { font-size: 21px; }
+.dxmail .dsub.sz3 { font-size: 18px; }
+.dxmail .dsub.sz4 { font-size: 15.5px; }
+.dxmail .dmeta { font-size: 12.5px; font-weight: 700; color: var(--muted); margin-top: 6px; }
 .dxmail .dactions { margin-left: auto; display: flex; gap: 7px; flex-shrink: 0; }
 .dxmail .ibtn {
   background: var(--white); border: 1px solid var(--line);
@@ -695,7 +709,30 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
 }
 .dxmail .ibtn:hover { border-color: var(--green); color: var(--green-dark); background: var(--green-soft); }
 
-.dxmail .dbody { flex: 1; overflow-y: auto; padding: 22px; font-size: 14px; font-weight: 600; line-height: 1.75; color: #2C3E4C; white-space: pre-wrap; }
+/* Reading measure, not panel width — long letters stop being a wall. */
+.dxmail .dbody {
+  flex: 1; overflow-y: auto;
+  padding: 28px 30px 30px;
+  max-width: 74ch;
+  font-size: 15px; font-weight: 600; line-height: 1.75;
+  color: var(--stone-500); white-space: pre-wrap;
+}
+/* Owner 2026-07-26: a link in a letter is clickable and opens in a new tab. */
+.dxmail .dbody a, .dxmail .dtext a {
+  color: var(--green); font-weight: 800; text-decoration: none;
+  border-bottom: 2px solid rgba(229, 32, 44, 0.28);
+  padding-bottom: 1px; word-break: break-word;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.dxmail .dbody a:hover, .dxmail .dtext a:hover {
+  border-bottom-color: var(--green);
+  background: rgba(229, 32, 44, 0.07);
+}
+.dxmail .dbody a[target="_blank"]::after,
+.dxmail .dtext a[target="_blank"]::after {
+  content: '\2197'; font-size: 0.78em; font-weight: 800;
+  margin-left: 3px; vertical-align: 0.08em; opacity: 0.75;
+}
 .dxmail .attach {
   display: inline-flex; align-items: center; gap: 7px;
   margin-top: 16px;
@@ -706,7 +743,8 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
   font-size: 12px; font-weight: 700; color: var(--slate);
 }
 .dxmail .replybar {
-  margin: 0 12px 12px 12px;
+  margin: 0 30px 22px 30px;
+  max-width: calc(74ch + 40px);
   background: var(--white);
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -724,9 +762,9 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
 .dxmail .replybar input::placeholder { color: var(--muted); }
 .dxmail .sendb {
   background: var(--green); color: white;
-  border: none; border-radius: 10px;
-  padding: 11px 18px;
-  font-family: 'Manrope', sans-serif; font-weight: 800; font-size: 13.5px;
+  border: none; border-radius: 9px;
+  padding: 12px 22px;
+  font-family: 'Manrope', sans-serif; font-weight: 800; font-size: 13px; letter-spacing: 0;
   display: flex; align-items: center; gap: 7px;
   cursor: pointer;
   box-shadow: 0 6px 14px -6px var(--mail-glow);
@@ -750,7 +788,7 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
   display: flex; flex-direction: column; overflow: hidden; position: relative;
 }
 .dxmail .appbar { background: var(--white); border-bottom: 1px solid var(--line); padding: 12px 14px; display: flex; align-items: center; gap: 11px; flex-shrink: 0; min-height: 60px; }
-.dxmail .title { font-size: 17px; font-weight: 800; letter-spacing: -0.2px; }
+.dxmail .title { font-size: 17px; font-weight: 800; letter-spacing: 0; }
 .dxmail .sub { font-size: 11px; font-weight: 700; color: var(--muted); margin-top: 1px; }
 
 /* Mobile left drawer — desktop agents/folders side box (fixed = full narrow viewport) */
@@ -863,10 +901,10 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
 .dxmail .mb-rmain { flex: 1; min-width: 0; }
 .dxmail .mb-rtop { display: flex; justify-content: space-between; gap: 6px; align-items: baseline; }
 .dxmail .mb-rfrom { font-weight: 800; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dxmail .mb-rfrom.read { font-weight: 700; color: var(--slate); }
+.dxmail .mb-rfrom.read { font-weight: 800; color: var(--slate); }
 .dxmail .mb-rtime { font-size: 11px; font-weight: 700; color: var(--muted); flex-shrink: 0; }
-.dxmail .mb-rsub { font-size: 13px; font-weight: 700; margin-top: 2px; }
-.dxmail .mb-rsub.read { font-weight: 600; color: var(--slate); }
+.dxmail .mb-rsub { font-size: 13px; font-weight: 800; margin-top: 3px; }
+.dxmail .mb-rsub.read { font-weight: 700; color: var(--slate); }
 .dxmail .mb-rprev { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
 .dxmail .mb-rtags { display: flex; align-items: center; gap: 7px; margin-top: 8px; flex-wrap: wrap; }
 .dxmail .mb-unread-bar { position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--green); }
@@ -916,7 +954,7 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
 .dxmail .dfrom { display: flex; align-items: center; gap: 11px; margin-top: 14px; }
 .dxmail .dname { font-size: 13.5px; font-weight: 800; }
 .dxmail .dorg { font-size: 11.5px; font-weight: 700; color: var(--muted); margin-top: 1px; }
-.dxmail .dtext { font-size: 14.5px; font-weight: 600; line-height: 1.75; color: #2C3E4C; margin-top: 16px; white-space: pre-wrap; }
+.dxmail .dtext { font-size: 15px; font-weight: 600; line-height: 1.75; color: var(--stone-500); margin-top: 16px; white-space: pre-wrap; }
 .dxmail .actions { display: flex; gap: 8px; margin-top: 14px; }
 .dxmail .action { flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px; background: var(--white); border: 1px solid var(--line); border-radius: 12px; padding: 12px; font-family: 'Manrope', sans-serif; font-size: 12.5px; font-weight: 800; color: var(--slate); cursor: pointer; min-height: 46px; }
 .dxmail .action:active { background: var(--green-soft); border-color: var(--green); color: var(--green-dark); }

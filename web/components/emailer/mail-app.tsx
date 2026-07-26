@@ -17,7 +17,7 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import {
   Search, Star, Archive, Trash2, Send, Inbox as InboxIcon,
   FileText, Paperclip, Plus, Reply, Forward, ChevronLeft, ArrowLeft,
-  MoreHorizontal, MoreVertical, Mail, TrendingUp, AlertCircle, X, Undo2, Loader2,
+  MoreHorizontal, MoreVertical, Mail, AlertCircle, X, Undo2, Loader2,
   ChevronDown, Users, Building2, Menu,
 } from 'lucide-react';
 import {
@@ -554,19 +554,66 @@ function matchesScope(item: MailItem, scope: MailboxScope): boolean {
   return addressesForMailbox(def).includes(item.mailbox.toLowerCase());
 }
 
+// Owner 2026-07-26: a link inside a letter must open in the browser on click.
+// Two cases, two fixes — see below. Security stays narrow: an incoming letter
+// never gets scripts, forms, or our origin (no allow-same-origin => no access
+// to ERP cookies/storage). Only navigation-to-a-new-tab is unlocked.
+const HTML_SANDBOX = 'allow-popups allow-popups-to-escape-sandbox';
+
+// Force every link in an HTML letter into a new tab, whether or not the sender
+// set a target. <base> goes right after <head> (or in front, when the letter
+// has no head at all — browsers hoist it).
+function withBlankTarget(html: string): string {
+  const base = '<base target="_blank">';
+  if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, (m) => m + base);
+  if (/<html[^>]*>/i.test(html)) return html.replace(/<html[^>]*>/i, (m) => `${m}<head>${base}</head>`);
+  return base + html;
+}
+
+// Plain-text letters arrive as a raw string, so URLs are dead characters.
+// Split on urls / bare www. / e-mail addresses and wrap the matches.
+const LINK_RE = /((?:https?:\/\/|www\.)[^\s<>()[\]{}"']+[^\s<>()[\]{}"'.,;:!?]|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/g;
+
+function linkifyText(text: string): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  LINK_RE.lastIndex = 0;
+  while ((m = LINK_RE.exec(text)) !== null) {
+    const raw = m[0];
+    if (m.index > last) out.push(text.slice(last, m.index));
+    const isMail = raw.includes('@') && !/^https?:\/\//i.test(raw);
+    const href = isMail ? `mailto:${raw}` : raw.startsWith('www.') ? `https://${raw}` : raw;
+    out.push(
+      <a
+        key={`${m.index}-${raw}`}
+        href={href}
+        target={isMail ? undefined : '_blank'}
+        rel="noopener noreferrer nofollow"
+      >
+        {raw}
+      </a>
+    );
+    last = m.index + raw.length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
 function BodyView({ item, body, loading }: { item: MailItem; body: { text?: string; html?: string } | null; loading: boolean }) {
   if (loading) return <Loader2 className="dxmail-spin" size={20} />;
   if (body?.html) {
     return (
       <iframe
-        srcDoc={body.html}
-        sandbox=""
+        srcDoc={withBlankTarget(body.html)}
+        sandbox={HTML_SANDBOX}
+        referrerPolicy="no-referrer"
         title={item.subject}
         style={{ width: '100%', minHeight: 320, height: '100%', border: 'none', borderRadius: 10, background: '#fff' }}
       />
     );
   }
-  return <>{body?.text || '(пустое письмо)'}</>;
+  return <>{body?.text ? linkifyText(body.text) : '(пустое письмо)'}</>;
 }
 
 function folderCounts(items: MailItem[]) {
@@ -730,12 +777,14 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
       {/* Top bar */}
       <div className="topbar">
         <LogoMark size={34} />
-        <div><div className="brand-name">DASOPERATOR</div></div>
-        <span className="brand-tag">Почта</span>
+        <div>
+          <div className="brand-name">DASOPERATOR</div>
+          <div className="brand-tag">Почта</div>
+        </div>
         <div className="stats-strip">
-          <div className="stat-chip"><Mail size={14} color="#E5202C" /> Непрочитанные <span className="stat-num">{inboxUnread}</span></div>
-          <div className="stat-chip"><AlertCircle size={14} color="#B81A24" /> Срочные <span className="stat-num">{urgentCount}</span></div>
-          <div className="stat-chip"><TrendingUp size={14} color="#282229" /> Ответов сегодня <span className="stat-num">{repliesToday}</span></div>
+          <div className="stat-chip"><span className="stat-num hot">{inboxUnread}</span><span className="stat-lab">Непрочитанных</span></div>
+          <div className="stat-chip"><span className="stat-num">{urgentCount}</span><span className="stat-lab">Ждут ответа</span></div>
+          <div className="stat-chip"><span className="stat-num">{repliesToday}</span><span className="stat-lab">Ответов сегодня</span></div>
         </div>
       </div>
 
@@ -868,8 +917,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
             {!loading && error && <div className="empty">{error}</div>}
             {!loading && !error && visible.length === 0 && <div className="empty">Здесь пока пусто</div>}
             {visible.map((e) => (
-              <div key={e.id} className={`row ${selectedId === e.id ? 'selected' : ''} ${sel.checked.has(e.id) ? 'checked' : ''}`} onClick={() => openEmail(e)}>
-                {e.unread ? <div className="unread-dot" /> : <div style={{ width: 7, flexShrink: 0 }} />}
+              <div key={e.id} className={`row ${selectedId === e.id ? 'selected' : ''} ${sel.checked.has(e.id) ? 'checked' : ''} ${e.unread ? 'unread' : ''}`} onClick={() => openEmail(e)}>
                 <RowCheck on={sel.checked.has(e.id)} onToggle={() => sel.toggle(e.id)} />
                 <div className="ava" style={{ background: e.color }}>{e.initial}</div>
                 <div className="rmain">

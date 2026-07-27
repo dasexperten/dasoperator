@@ -642,7 +642,7 @@ app.post('/sweep-retries', async (c) => {
 // -----------------------------------------------------------------------------
 app.post('/ozon-prep-tick', async (c) => {
   const max = Math.min(50, Math.max(1, parseInt(c.req.query('max') || '15', 10) || 15));
-  const inspect = Math.min(200, Math.max(max, parseInt(c.req.query('inspect') || '60', 10) || 60));
+  const inspect = Math.min(1000, Math.max(max, parseInt(c.req.query('inspect') || '300', 10) || 300));
   try {
     const r = await runOzonDraftPrep(c.env, { maxDrafts: max, maxInspect: inspect });
     return c.json({ ok: true, ...r });

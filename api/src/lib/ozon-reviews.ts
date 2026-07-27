@@ -129,7 +129,9 @@ export async function runOzonDraftPrep(
 ): Promise<OzonPrepResult> {
   const startedAt = Date.now();
   const maxDrafts = Math.max(1, opts.maxDrafts ?? 15);
-  const maxInspect = Math.max(maxDrafts, opts.maxInspect ?? 60);
+  // Only ~19% of the Ozon queue carries text; the rest is parked without an LLM
+  // call, so inspection must reach much deeper than the draft budget.
+  const maxInspect = Math.max(maxDrafts, opts.maxInspect ?? 300);
 
   const result: OzonPrepResult = {
     status: 'ok', inspected: 0, drafted: 0, skipped: 0, ratingOnly: 0,
@@ -194,7 +196,27 @@ export async function runOzonDraftPrep(
       }
 
       const hasText = text.length > 0;
-      if (!hasText) result.ratingOnly++;
+      if (!hasText) {
+        // Owner 2026-07-27: Ozon refuses comments on text-less reviews
+        // («createComment: cannot comment on empty review»), so a draft for one
+        // can never be published. Park it instead of burning ~7.3k tokens.
+        result.ratingOnly++;
+        result.skipped++;
+        try {
+          await env.DB.prepare(`
+            INSERT INTO review_drafts
+              (id, channel, external_id, rating, product_name, product_sku, status,
+               rejection_reason, created_at, updated_at)
+            VALUES (?, 'ozon', ?, ?, ?, ?, 'rejected', 'ozon_empty_review', datetime('now'), datetime('now'))
+            ON CONFLICT(channel, external_id) DO UPDATE SET
+              status = 'rejected',
+              rejection_reason = 'ozon_empty_review',
+              updated_at = datetime('now')
+            WHERE review_drafts.status IN ('pending', 'held', 'failed')
+          `).bind(`rd_${crypto.randomUUID()}`, reviewId, rating, productName, productSku || null).run();
+        } catch { /* parking is best-effort */ }
+        continue;
+      }
 
       const input: PipelineInput = {
         feedbackId: reviewId,

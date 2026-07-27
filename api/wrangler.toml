@@ -210,5 +210,8 @@ crons = ["0 3 * * *", "0 1 * * *", "0 12 * * *", "0 * * * *", "0 */4 * * *", "5 
 # Token is RETAIL_CRM_TOKEN, set as Worker secret separately.
 # -----------------------------------------------------------------------------
 [vars]
+# Owner 2026-07-27: how many Ozon reviews are drafted in parallel. One draft is
+# ~7 LLM gates of waiting, so this is the throughput dial, not CPU.
+DRAFT_CONCURRENCY = "10"
 RETAIL_CRM_DOMAIN = "dasexperten"
 YANDEX_METRIKA_COUNTER = "107720199"

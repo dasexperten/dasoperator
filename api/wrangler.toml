@@ -194,7 +194,14 @@ name = "EMAIL"
 #   10 */3 * * *  WB auto-reply (was */20 â€” too aggressive)
 #   20 */3 * * *  MP feeds: Ozon+WB reviews/questions ingest (was 40 */6)
 #   30 */3 * * *  Ozon draft-prep (was 50 */6)
-crons = ["0 3 * * *", "0 1 * * *", "0 12 * * *", "0 * * * *", "0 */4 * * *", "5 */6 * * *", "*/2 * * * *", "0 0 * * *", "15 * * * *", "30 */6 * * *", "*/15 * * * *", "0 2 * * *", "30 2 * * *", "0 4 * * 4", "0 3 5 * *", "10 */3 * * *", "0 4 1-7 * 3", "*/10 * * * *", "0 5 * * *", "23 */3 * * *", "* * * * *", "0 3 1 * *", "20 */3 * * *", "30 */3 * * *", "7 * * * *"]
+# Owner 2026-07-27: care crons REMOVED here for good. Cloudflare replaces the
+# whole schedule set on every deploy, so deleting them in the dashboard only
+# lasted until the next push. Craft owner is Tamara: worker `tamara-haar`
+# now fires :20 feeds -> :30 draft-prep (calls /api/reviews/ozon-prep-tick
+# here) -> :40 publish. ERP stays host + storage, no timers of its own.
+# Removed: "20 */3" (already a no-op), "30 */3" (draft-prep), "10 */3" (WB
+# auto-reply — ERP has no WB token since the reissue, it was dead weight).
+crons = ["0 3 * * *", "0 1 * * *", "0 12 * * *", "0 * * * *", "0 */4 * * *", "5 */6 * * *", "*/2 * * * *", "0 0 * * *", "15 * * * *", "30 */6 * * *", "*/15 * * * *", "0 2 * * *", "30 2 * * *", "0 4 * * 4", "0 3 5 * *", "0 4 1-7 * 3", "*/10 * * * *", "0 5 * * *", "23 */3 * * *", "* * * * *", "0 3 1 * *", "7 * * * *"]
 
 
 # -----------------------------------------------------------------------------

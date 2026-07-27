@@ -377,6 +377,8 @@ export async function handleScheduled(
   // runs the morning cron and writes here via its ERP_DB binding).
 
   // Marketplace feeds (every 3h @ :20): Ozon reviews + Ozon/WB questions → D1.
+  // Owner 2026-07-27: these two triggers are GONE from wrangler.toml. The branches
+  // stay only as a guard in case a legacy schedule lingers on an old deploy.
   if (cron === '20 */3 * * *' || cron === '40 */6 * * *') {
     // CUTOVER (Owner 2026-07-21, ERP = dashboard law): the care feeds sync
     // (Ozon reviews + Ozon/WB questions) moved to Worker `tamara-haar`
@@ -389,6 +391,11 @@ export async function handleScheduled(
 
   // Ozon review draft-prep (every 3h @ :30, after feeds): drafts only → dasoperator UI.
   if (cron === '30 */3 * * *' || cron === '50 */6 * * *') {
+    // Trigger removed (Owner 2026-07-27): tamara-haar calls /api/reviews/ozon-prep-tick
+    // on her own :30 slot. Kept as a no-op guard against a stale schedule.
+    console.log('[cron:ozon-review-prep] no-op — fired by tamara-haar worker');
+    return;
+    // eslint-disable-next-line no-unreachable
     try {
       const { runOzonDraftPrep } = await import('./lib/ozon-reviews');
       const r = await runOzonDraftPrep(env, { maxDrafts: 15, maxInspect: 60 });
@@ -783,6 +790,8 @@ export async function handleScheduled(
   // WB review auto-reply — Tamara lane every 3 hours (Owner 2026-07-20).
   // Was */20 — caused feedbacks-api rate limits. Craft owner = Tamara only;
   // results persist in dasoperator for the reviews UI. KV pause still works.
+  // Owner 2026-07-27: trigger removed from wrangler.toml — ERP holds no WB token
+  // since the reissue, so this lane was dead weight burning the per-seller quota.
   if (cron === '10 */3 * * *' || cron === '*/20 * * * *') {
     // Ignore legacy */20 if still registered briefly after deploy — only run
     // on the 3h tick once both exist (minute 10). On pure */20 deploys, still run.

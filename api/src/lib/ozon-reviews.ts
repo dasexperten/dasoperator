@@ -147,11 +147,17 @@ export async function runOzonDraftPrep(
     result.errors.push({ stage: 'sku-map', error: String(e?.message ?? e).slice(0, 200) });
   }
 
+  // Owner 2026-07-27: reviews are collected first, then drafted with bounded
+  // concurrency. Each draft is ~7 LLM gates of mostly waiting, so running them
+  // one after another was the whole bottleneck.
+  const queue: Array<{ reviewId: string; rating: number; productName: string | null; productSku: string; ozonSku: number; text: string }> = [];
+  const CONCURRENCY = Math.max(1, Number((env as any).DRAFT_CONCURRENCY) || 6);
+
   let lastId: string | undefined;
   let hasNext = true;
   const pageSize = Math.min(100, maxInspect);
 
-  while (hasNext && result.inspected < maxInspect && result.drafted < maxDrafts) {
+  while (hasNext && result.inspected < maxInspect && queue.length < maxDrafts) {
     let page: { reviews: any[]; hasNext: boolean; lastId: string | undefined };
     try {
       page = await fetchOzonReviewPage(env, 'UNPROCESSED', pageSize, lastId);
@@ -165,7 +171,7 @@ export async function runOzonDraftPrep(
     lastId = page.lastId;
 
     for (const rv of page.reviews) {
-      if (result.inspected >= maxInspect || result.drafted >= maxDrafts) break;
+      if (result.inspected >= maxInspect || queue.length >= maxDrafts) break;
       result.inspected++;
 
       const reviewId = String(rv.id ?? '');
@@ -218,72 +224,81 @@ export async function runOzonDraftPrep(
         continue;
       }
 
-      const input: PipelineInput = {
-        feedbackId: reviewId,
-        rating,
-        customerName: null, // Ozon review list does not expose buyer name
-        productName: productName ?? (productSku || null),
-        productSku: productSku || null,
-        reviewText: hasText ? text : null,
-        pros: null,
-        cons: null,
-      };
-
-      let reply = '';
-      let tokensIn = 0, tokensOut = 0;
-      try {
-        const pr = hasText
-          ? await runReviewMasterPipeline(env, input)
-          : await runRatingOnlyPipeline(env, input);
-        reply = pr.reply;
-        tokensIn = pr.totalTokensIn;
-        tokensOut = pr.totalTokensOut;
-      } catch (e: any) {
-        result.errors.push({ reviewId, stage: 'pipeline', error: String(e?.message ?? e).slice(0, 200) });
-        continue;
-      }
-      if (!reply) {
-        result.errors.push({ reviewId, stage: 'pipeline', error: 'empty reply' });
-        continue;
-      }
-
-      try {
-        await env.DB.prepare(`
-          INSERT INTO review_drafts
-            (id, channel, external_id, rating, customer_name, product_name, product_sku,
-             review_text, draft_text, status, draft_tokens_in, draft_tokens_out, created_at, updated_at)
-          VALUES (?, 'ozon', ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, datetime('now'), datetime('now'))
-          ON CONFLICT(channel, external_id) DO UPDATE SET
-            rating = excluded.rating,
-            product_name = excluded.product_name,
-            product_sku = excluded.product_sku,
-            review_text = excluded.review_text,
-            draft_text = excluded.draft_text,
-            draft_tokens_in = excluded.draft_tokens_in,
-            draft_tokens_out = excluded.draft_tokens_out,
-            updated_at = datetime('now')
-          WHERE review_drafts.status IN ('pending', 'held', 'failed')
-        `).bind(
-          `rd_${crypto.randomUUID()}`,
-          reviewId,
-          rating,
-          null,
-          productName,
-          productSku || null,
-          hasText ? text : null,
-          reply,
-          tokensIn,
-          tokensOut,
-        ).run();
-      } catch (e: any) {
-        result.errors.push({ reviewId, stage: 'upsert', error: String(e?.message ?? e).slice(0, 200) });
-        continue;
-      }
-
-      result.drafted++;
-      result.details.push({ reviewId, rating, sku: productSku || String(ozonSku), replyChars: reply.length });
+      queue.push({ reviewId, rating, productName, productSku, ozonSku, text });
+      if (queue.length >= maxDrafts) break;
     }
   }
+
+  // ---- draft pool: CONCURRENCY reviews in flight, same pipeline per review ----
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+    while (cursor < queue.length) {
+      const job = queue[cursor++];
+        const input: PipelineInput = {
+          feedbackId: job.reviewId,
+          rating: job.rating,
+          customerName: null, // Ozon review list does not expose buyer name
+          productName: job.productName ?? (job.productSku || null),
+          productSku: job.productSku || null,
+          reviewText: job.text,
+          pros: null,
+          cons: null,
+        };
+
+        let reply = '';
+        let tokensIn = 0, tokensOut = 0;
+        try {
+          const pr = await runReviewMasterPipeline(env, input);
+          reply = pr.reply;
+          tokensIn = pr.totalTokensIn;
+          tokensOut = pr.totalTokensOut;
+        } catch (e: any) {
+          result.errors.push({ reviewId: job.reviewId, stage: 'pipeline', error: String(e?.message ?? e).slice(0, 200) });
+          continue;
+        }
+        if (!reply) {
+          result.errors.push({ reviewId: job.reviewId, stage: 'pipeline', error: 'empty reply' });
+          continue;
+        }
+
+        try {
+          await env.DB.prepare(`
+            INSERT INTO review_drafts
+                (id, channel, external_id, rating, customer_name, product_name, product_sku,
+                 review_text, draft_text, status, draft_tokens_in, draft_tokens_out, created_at, updated_at)
+            VALUES (?, 'ozon', ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, datetime('now'), datetime('now'))
+            ON CONFLICT(channel, external_id) DO UPDATE SET
+                rating = excluded.rating,
+                product_name = excluded.product_name,
+                product_sku = excluded.product_sku,
+                review_text = excluded.review_text,
+                draft_text = excluded.draft_text,
+                draft_tokens_in = excluded.draft_tokens_in,
+                draft_tokens_out = excluded.draft_tokens_out,
+                updated_at = datetime('now')
+            WHERE review_drafts.status IN ('pending', 'held', 'failed')
+          `).bind(
+            `rd_${crypto.randomUUID()}`,
+            job.reviewId,
+            job.rating,
+            null,
+            job.productName,
+            job.productSku || null,
+            job.text,
+            reply,
+            tokensIn,
+            tokensOut,
+          ).run();
+        } catch (e: any) {
+          result.errors.push({ reviewId: job.reviewId, stage: 'upsert', error: String(e?.message ?? e).slice(0, 200) });
+          continue;
+        }
+
+        result.drafted++;
+        result.details.push({ reviewId: job.reviewId, rating: job.rating, sku: job.productSku || String(job.ozonSku), replyChars: reply.length });
+    }
+  });
+  await Promise.all(workers);
 
   result.durationMs = Date.now() - startedAt;
   return result;

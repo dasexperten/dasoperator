@@ -391,15 +391,10 @@ export async function handleScheduled(
 
   // Ozon review draft-prep (every 3h @ :30, after feeds): drafts only → dasoperator UI.
   if (cron === '30 */3 * * *' || cron === '50 */6 * * *') {
-    // Trigger removed (Owner 2026-07-27): tamara-haar calls /api/reviews/ozon-prep-tick
-    // on her own :30 slot. Kept as a no-op guard against a stale schedule.
-    console.log('[cron:ozon-review-prep] no-op — fired by tamara-haar worker');
-    return;
-    // eslint-disable-next-line no-unreachable
-    try {
-      // RETIRED (Owner 2026-07-28): ERP writes nothing — drafting belongs to the
-      // tamara-haar worker. Trigger is already gone from wrangler.toml.
-      console.log('[cron:ozon-review-prep] retired — tamara-haar drafts reviews');
+    // RETIRED (Owner 2026-07-28): ERP writes nothing. Review answers are drafted
+    // by worker `tamara-haar` (draft-engine.mjs). Trigger is gone from
+    // wrangler.toml; this stays only as a guard against a stale schedule.
+    console.log('[cron:ozon-review-prep] retired — tamara-haar drafts reviews');
     return;
   }
 

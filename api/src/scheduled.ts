@@ -397,15 +397,9 @@ export async function handleScheduled(
     return;
     // eslint-disable-next-line no-unreachable
     try {
-      const { runOzonDraftPrep } = await import('./lib/ozon-reviews');
-      const r = await runOzonDraftPrep(env, { maxDrafts: 15, maxInspect: 60 });
-      console.log('[cron:ozon-review-prep:tamara-lane] ' + JSON.stringify({
-        inspected: r.inspected, drafted: r.drafted, skipped: r.skipped,
-        ratingOnly: r.ratingOnly, errors: r.errors.length, durationMs: r.durationMs,
-      }));
-    } catch (e) {
-      console.error('[cron:ozon-review-prep:tamara-lane] failed:', e);
-    }
+      // RETIRED (Owner 2026-07-28): ERP writes nothing — drafting belongs to the
+      // tamara-haar worker. Trigger is already gone from wrangler.toml.
+      console.log('[cron:ozon-review-prep] retired — tamara-haar drafts reviews');
     return;
   }
 

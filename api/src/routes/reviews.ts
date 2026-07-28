@@ -14,7 +14,7 @@ import {
   draftReply,
   WbRateLimitError,
 } from '../lib/wb-reviews';
-import { postOzonComment, runOzonDraftPrep } from '../lib/ozon-reviews';
+import { postOzonComment } from '../lib/ozon-reviews';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -640,15 +640,19 @@ app.post('/sweep-retries', async (c) => {
 // unprocessed Ozon reviews (same code path as the cron). Does NOT post to Ozon.
 // Query: ?max=15 (draft cap), ?inspect=60 (scan cap)
 // -----------------------------------------------------------------------------
-app.post('/ozon-prep-tick', async (c) => {
-  const max = Math.min(50, Math.max(1, parseInt(c.req.query('max') || '15', 10) || 15));
-  const inspect = Math.min(1000, Math.max(max, parseInt(c.req.query('inspect') || '300', 10) || 300));
-  try {
-    const r = await runOzonDraftPrep(c.env, { maxDrafts: max, maxInspect: inspect });
-    return c.json({ ok: true, ...r });
-  } catch (e: any) {
-    return c.json({ ok: false, error: String(e?.message ?? e) }, 502);
-  }
-});
+// RETIRED (Owner 2026-07-28): ERP writes nothing. Review answers are drafted by
+// Tamara's own worker (`tamara-haar`, fleet/tamara-haar/draft-engine.mjs), which
+// costs ~1 089 tokens per answer against the 43 500 this pipeline burned.
+// Kept as a tombstone so any forgotten caller gets a clear answer, not silence.
+app.post('/ozon-prep-tick', async (c) =>
+  c.json(
+    {
+      ok: false,
+      retired: true,
+      error: 'ERP does not write review answers. Drafting moved to worker tamara-haar (POST /draft-prep).',
+    },
+    410,
+  ),
+);
 
 export default app;

@@ -79,14 +79,30 @@ function asList(v: string | string[] | undefined): string[] {
   return (Array.isArray(v) ? v : [v]).map((s) => s.trim()).filter(Boolean);
 }
 
-/** Placeholder / empty archive bodies must never ship to Emailer as "the letter". */
-export function isThinOrStubText(text: string | undefined): boolean {
+/**
+ * A body that is empty or a known backfill placeholder. Length is deliberately
+ * NOT a factor: "Спасибо, принято" is a real letter, and a human replying from
+ * the Emailer reply bar writes short lines by design (Owner 2026-07-29).
+ */
+export function isPlaceholderText(text: string | undefined): boolean {
   const t = (text || '').trim();
-  if (t.length < 40) return true;
+  if (!t) return true;
   if (/Archived into Emailer Sent from Resend id/i.test(t)) return true;
   if (/^\(archived send /i.test(t)) return true;
   if (/Original body was partnership\/education outreach/i.test(t)) return true;
   return false;
+}
+
+/**
+ * Placeholder, empty, or suspiciously thin. Used ONLY on the archive_only /
+ * backfill path, where a short body means the original letter was never stored
+ * and we should hydrate it from Resend. Never gate a live send on this — see
+ * isPlaceholderText.
+ */
+export function isThinOrStubText(text: string | undefined): boolean {
+  const t = (text || '').trim();
+  if (t.length < 40) return true;
+  return isPlaceholderText(t);
 }
 
 /**
@@ -163,9 +179,10 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
     if (!env.RESEND_API_KEY) {
       return { success: false, error: 'RESEND_API_KEY not configured' };
     }
-    // Live send always requires a real body before Resend.
-    if (isThinOrStubText(text) && !html?.trim()) {
-      return { success: false, error: '`text` too short/stub — Emailer must store the full letter body' };
+    // Live send requires a real body — empty or placeholder only. A short human
+    // reply is a real body and must go out (Owner 2026-07-29).
+    if (isPlaceholderText(text) && !html?.trim()) {
+      return { success: false, error: '`text` is empty or a placeholder — write the letter body' };
     }
     const resendBody: Record<string, unknown> = {
       from: fromRaw,
@@ -215,7 +232,10 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
     if (hydrated?.html) html = hydrated.html;
   }
 
-  if (isThinOrStubText(text) && !html?.trim()) {
+  // Backfill may still refuse: an archive_only row with no body is worthless.
+  // A live send must NEVER be reported as failed here — the letter has already
+  // left the building; a thin archive row is a lesser evil than a false error.
+  if (params.archive_only && isThinOrStubText(text) && !html?.trim()) {
     return {
       success: false,
       error: `cannot archive ${messageId}: no full body (stub/empty) and Resend hydrate failed`,

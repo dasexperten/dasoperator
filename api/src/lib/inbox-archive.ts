@@ -38,6 +38,142 @@ export type MailDirection = 'sent' | 'received';
 // an 'auto' message (e.g. "order-confirmation", "form-ack"); null for human.
 export type MailOrigin = 'human' | 'auto';
 
+// -----------------------------------------------------------------------------
+// Attachments (Owner 2026-07-29: inline logos and attached images were parsed
+// and then thrown away, so /emailer had nothing to render).
+//
+// Binaries live as their own R2 objects next to the record, never inside the
+// JSON: a base64 blob in the record would also land in every index read.
+//   Inbox/<addr>/<direction>/<recordId>/att/<n>-<filename>
+// The record keeps metadata only, so the index stays small.
+//
+// Caps are deliberate. Cloudflare Email Routing accepts messages up to ~25 MB
+// and the Worker parses them in memory; refusing a fat attachment costs one
+// unviewable file, while OOM costs the whole letter.
+// -----------------------------------------------------------------------------
+const MAX_ATTACHMENTS = 20;
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const MAX_TOTAL_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+
+/** As handed to us by the MIME parser. `content` is the raw body. */
+export interface RawAttachment {
+  filename?: string | null;
+  mimeType?: string;
+  disposition?: 'attachment' | 'inline' | null;
+  related?: boolean;
+  contentId?: string;
+  content?: ArrayBuffer | string;
+  encoding?: 'base64' | 'utf8';
+}
+
+/** What ends up in the archived record — metadata, never bytes. */
+export interface ArchivedAttachment {
+  id: string;
+  key?: string | undefined;
+  filename: string;
+  mimeType: string;
+  size: number;
+  /** contentId with the angle brackets stripped, so `cid:` lookups match. */
+  contentId?: string | undefined;
+  inline: boolean;
+  /** Set when the file was too large to store; metadata is kept as a receipt. */
+  skipped?: 'too_large' | 'too_many' | 'quota' | 'write_failed' | undefined;
+}
+
+function safeFilename(name: string | null | undefined, index: number): string {
+  const base = (name || `attachment-${index + 1}`)
+    .replace(/[\\/]+/g, '-')
+    .replace(/[\u0000-\u001f"'?*<>|]/g, '')
+    .replace(/\.{2,}/g, '.')
+    .replace(/-{2,}/g, '-')
+    .replace(/^[-.]+/, '')
+    .trim();
+  return (base || `attachment-${index + 1}`).slice(0, 120);
+}
+
+/** postal-mime gives `<abc@host>`; HTML references it as `cid:abc@host`. */
+function bareContentId(cid: string | undefined): string | undefined {
+  if (!cid) return undefined;
+  return cid.replace(/^</, '').replace(/>$/, '').trim() || undefined;
+}
+
+function attachmentBytes(a: RawAttachment): Uint8Array | null {
+  const c = a.content;
+  if (!c) return null;
+  if (typeof c === 'string') {
+    if (a.encoding === 'base64') {
+      try {
+        const bin = atob(c);
+        const out = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+        return out;
+      } catch {
+        return null;
+      }
+    }
+    return new TextEncoder().encode(c);
+  }
+  return new Uint8Array(c);
+}
+
+async function storeAttachments(
+  env: Env,
+  prefix: string,
+  raw: RawAttachment[] | undefined
+): Promise<ArchivedAttachment[]> {
+  if (!raw?.length) return [];
+  const out: ArchivedAttachment[] = [];
+  let total = 0;
+
+  for (let i = 0; i < raw.length; i++) {
+    const a = raw[i]!;
+    const filename = safeFilename(a.filename, i);
+    const meta: ArchivedAttachment = {
+      id: String(i),
+      filename,
+      mimeType: a.mimeType || 'application/octet-stream',
+      size: 0,
+      contentId: bareContentId(a.contentId),
+      inline: a.disposition === 'inline' || a.related === true || Boolean(a.contentId),
+    };
+
+    if (i >= MAX_ATTACHMENTS) {
+      out.push({ ...meta, skipped: 'too_many' });
+      continue;
+    }
+    const bytes = attachmentBytes(a);
+    if (!bytes) continue;
+    meta.size = bytes.byteLength;
+
+    if (bytes.byteLength > MAX_ATTACHMENT_BYTES) {
+      out.push({ ...meta, skipped: 'too_large' });
+      continue;
+    }
+    if (total + bytes.byteLength > MAX_TOTAL_ATTACHMENT_BYTES) {
+      out.push({ ...meta, skipped: 'quota' });
+      continue;
+    }
+
+    const key = `${prefix}/att/${i}-${filename}`;
+    try {
+      await env.ARCHIVE.put(key, bytes, { httpMetadata: { contentType: meta.mimeType } });
+      total += bytes.byteLength;
+      out.push({ ...meta, key });
+    } catch (err) {
+      console.log(JSON.stringify({
+        scope: 'inbox-archive',
+        success: false,
+        stage: 'attachment',
+        key,
+        error: err instanceof Error ? err.message : String(err),
+      }));
+      out.push({ ...meta, skipped: 'write_failed' });
+    }
+  }
+
+  return out;
+}
+
 export interface ArchiveEmailInput {
   to?: string | string[] | undefined;
   from?: string | undefined;
@@ -50,6 +186,9 @@ export interface ArchiveEmailInput {
   threadId?: string | undefined;
   origin?: MailOrigin | undefined;
   trigger?: string | undefined;
+  /** Raw parser output. Stripped before the record is written — bytes go to
+   *  their own R2 objects, only metadata stays in the JSON. */
+  attachments?: RawAttachment[] | undefined;
 }
 
 export interface IndexEntry {
@@ -63,6 +202,7 @@ export interface IndexEntry {
   threadId?: string | undefined;
   origin?: MailOrigin | undefined;
   trigger?: string | undefined;
+  attachmentCount?: number | undefined;
 }
 
 function normalizeAddress(address: string): string {
@@ -117,8 +257,32 @@ export async function archiveEmail(
   if (!addr || SKIP_ADDRESSES.has(addr)) return;
 
   const timestamp = new Date().toISOString();
-  const key = `Inbox/${addr}/${direction}/${timestamp}-${crypto.randomUUID()}.json`;
-  const record = { direction, address: addr, timestamp, ...payload };
+  const recordId = `${timestamp}-${crypto.randomUUID()}`;
+  const key = `Inbox/${addr}/${direction}/${recordId}.json`;
+
+  // Bytes never enter the record: strip the raw attachments, store them as
+  // their own objects, keep metadata. A failure here must not lose the letter.
+  const { attachments: rawAttachments, ...rest } = payload;
+  let stored: ArchivedAttachment[] = [];
+  try {
+    stored = await storeAttachments(env, `Inbox/${addr}/${direction}/${recordId}`, rawAttachments);
+  } catch (err) {
+    console.log(JSON.stringify({
+      scope: 'inbox-archive',
+      success: false,
+      stage: 'attachments',
+      address: addr,
+      error: err instanceof Error ? err.message : String(err),
+    }));
+  }
+
+  const record = {
+    direction,
+    address: addr,
+    timestamp,
+    ...rest,
+    ...(stored.length ? { attachments: stored } : {}),
+  };
 
   try {
     await env.ARCHIVE.put(key, JSON.stringify(record), {
@@ -135,6 +299,7 @@ export async function archiveEmail(
       threadId: payload.threadId,
       origin: payload.origin,
       trigger: payload.trigger,
+      ...(stored.length ? { attachmentCount: stored.filter((a) => a.key).length } : {}),
     });
   } catch (err) {
     console.log(JSON.stringify({
@@ -145,4 +310,68 @@ export async function archiveEmail(
       error: err instanceof Error ? err.message : String(err),
     }));
   }
+}
+
+// -----------------------------------------------------------------------------
+// Read side: turn `cid:` references into data: URIs.
+//
+// Mail clients reference inline images by Content-ID. The Emailer renders the
+// body inside a sandboxed srcDoc iframe with no same-origin access, so it can
+// never fetch an authenticated attachment URL — inlining the bytes is the only
+// route that works there, and it adds no new public door to the API.
+//
+// Only images, and only up to a budget: base64 inflates by ~4/3 and this rides
+// on a JSON response.
+// -----------------------------------------------------------------------------
+const MAX_INLINE_BYTES = 3 * 1024 * 1024;
+
+function toBase64(bytes: Uint8Array): string {
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
+export async function inlineCidImages(
+  env: Env,
+  html: string,
+  attachments: ArchivedAttachment[] | undefined
+): Promise<string> {
+  if (!html || !attachments?.length) return html;
+  const byCid = new Map<string, ArchivedAttachment>();
+  for (const a of attachments) {
+    if (a.contentId && a.key && a.mimeType.startsWith('image/')) byCid.set(a.contentId, a);
+  }
+  if (!byCid.size) return html;
+
+  let budget = MAX_INLINE_BYTES;
+  const resolved = new Map<string, string>();
+  let out = html;
+
+  for (const [cid, att] of byCid) {
+    // cid:foo@bar — match inside src="..." / src='...' / bare, case-insensitive.
+    const pattern = new RegExp(`cid:${cid.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}`, 'gi');
+    if (!pattern.test(out)) continue;
+    pattern.lastIndex = 0;
+
+    if (att.size > budget) continue;
+    let uri = resolved.get(cid);
+    if (!uri) {
+      try {
+        const obj = await env.ARCHIVE.get(att.key!);
+        if (!obj) continue;
+        const bytes = new Uint8Array(await obj.arrayBuffer());
+        uri = `data:${att.mimeType};base64,${toBase64(bytes)}`;
+        resolved.set(cid, uri);
+        budget -= bytes.byteLength;
+      } catch {
+        continue;
+      }
+    }
+    out = out.replace(pattern, uri);
+  }
+
+  return out;
 }

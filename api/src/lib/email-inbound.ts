@@ -108,6 +108,10 @@ export async function handleInboundEmail(
         headerList(message.headers.get('references') || undefined)?.[0] ||
         undefined,
       origin: classifyInboundOrigin(message),
+      // Owner 2026-07-29: the parser produced these all along and we dropped
+      // them on the floor, so every cid: logo and attached photo rendered as a
+      // broken box in /emailer. archiveEmail stores the bytes separately.
+      attachments: parsed.attachments?.length ? parsed.attachments : undefined,
     });
   } catch (err) {
     // Never reject the message on a parse/archive failure — bouncing customer

@@ -16,7 +16,8 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { validateSession } from '../lib/auth';
-import type { IndexEntry } from '../lib/inbox-archive';
+import type { IndexEntry, ArchivedAttachment } from '../lib/inbox-archive';
+import { inlineCidImages } from '../lib/inbox-archive';
 import { callFlash } from '../lib/llm';
 import {
   agentsForUi,
@@ -208,6 +209,23 @@ route.get('/mailboxes/:address/message', async (c) => {
       record = JSON.parse(await obj.text());
     } catch {
       return fail(c, 500, [{ code: 'corrupt_record', message: `${key} is not valid JSON` }]);
+    }
+    // Inline images are stored as separate R2 objects; the sandboxed viewer
+    // cannot fetch them, so swap cid: references for data: URIs on the way out.
+    const r = record as { html?: string; attachments?: ArchivedAttachment[] };
+    if (r && typeof r === 'object' && r.html && r.attachments?.length) {
+      try {
+        r.html = await inlineCidImages(c.env, r.html, r.attachments);
+      } catch (err) {
+        // A broken image is survivable; a 500 on the whole letter is not.
+        console.log(JSON.stringify({
+          scope: 'email-archive',
+          success: false,
+          stage: 'inline_cid',
+          key,
+          error: err instanceof Error ? err.message : String(err),
+        }));
+      }
     }
     return ok(c, { record });
   } catch (err) {

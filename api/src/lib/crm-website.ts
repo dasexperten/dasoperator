@@ -562,8 +562,11 @@ export function mapPaymentIntent(pi: any): CanonicalOrder {
   const ship = pi?.shipping ?? {};
   const addr = ship?.address ?? {};
   const total = metaInt(pi?.amount_received) || metaInt(pi?.amount) || 0;
-  const shippingCents = metaInt(md.fee_cents) ?? 0;
-  const subtotal = metaInt(md.subtotal_cents) ?? Math.max(0, total - shippingCents);
+  // The checkout Worker names these goods_minor / fee_minor; older PIs and the
+  // documented contract use subtotal_cents / fee_cents. Accept both or the
+  // goods/shipping split silently collapses into the total.
+  const shippingCents = metaInt(md.fee_cents) ?? metaInt(md.fee_minor) ?? 0;
+  const subtotal = metaInt(md.subtotal_cents) ?? metaInt(md.goods_minor) ?? Math.max(0, total - shippingCents);
 
   const charge = pi?.latest_charge && typeof pi.latest_charge === 'object' ? pi.latest_charge : null;
   const paymentMethod =
@@ -654,6 +657,20 @@ export async function ingestPaymentIntent(
     customer_id: r.customer_id,
     ...(r.action === 'created' ? { order } : {}),
   };
+}
+
+// Fetch one PaymentIntent from Stripe (charge expanded, so billing e-mail and
+// refund totals resolve) and run it through the same ingest as the webhook.
+// Used by POST /api/crm/website/paid — the checkout Worker only forwards the
+// PI id, and Stripe stays the authority for money, shipping and card details.
+export async function ingestPaymentIntentById(
+  env: Env,
+  paymentIntentId: string
+): Promise<{ action: string; order_id?: string; customer_id?: string | null; order?: CanonicalOrder }> {
+  const pi = await stripeGet<any>(env, `/payment_intents/${paymentIntentId}`, {
+    'expand[]': 'latest_charge',
+  });
+  return ingestPaymentIntent(env, pi);
 }
 
 // -----------------------------------------------------------------------------

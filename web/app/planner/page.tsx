@@ -265,10 +265,11 @@ export default function PlannerPage() {
   // Level actually reached by the current allocation — shown on the container
   // card so the rule is visible, not just its result (Owner 2026-07-29).
   const levelDays = useMemo(() => {
-    if (mode === 'pallet' || !rows || rows.length === 0) return null;
+    const r = detail?.rows;
+    if (mode === 'pallet' || !r || r.length === 0) return null;
     const merged: Record<string, number> = { ...autoOverrides, ...manualOverrides };
-    return reachedLevelDays(rows, merged);
-  }, [rows, autoOverrides, manualOverrides, mode]);
+    return reachedLevelDays(r, merged);
+  }, [detail, autoOverrides, manualOverrides, mode]);
 
   // Create Draft modal state
   const [draftModalOpen, setDraftModalOpen] = useState(false);
@@ -1102,6 +1103,7 @@ export default function PlannerPage() {
 
           {/* Sizing buttons */}
           <SizingButtons
+            levelDays={levelDays}
             mode={mode}
             baselinePallets={totPallets}
             onModeChange={handleModeChange}
@@ -1312,11 +1314,12 @@ function ToggleGroup({ value, options, onChange, disabledIds }: { value: string;
 // SIZING BUTTONS
 // ============================================================
 function SizingButtons({
-  mode, baselinePallets, onModeChange,
+  mode, baselinePallets, onModeChange, levelDays,
 }: {
   mode: SizingMode;
   baselinePallets: number;
   onModeChange: (mode: SizingMode) => void;
+  levelDays?: number | null;
 }) {
   const palletSelected = mode === 'pallet';
   const c20Selected = mode === '20ft';
@@ -1384,7 +1387,7 @@ function SizingButtons({
         <div style={{ fontSize: 11, color: c20Selected ? '#185FA5' : '#78716c', marginTop: 8 }}>
           28 m³ — fill priority
         </div>
-        {levelDays !== null && mode === '20ft' && (
+        {levelDays != null && mode === '20ft' && (
           <div style={{ fontSize: 11, color: '#0C447C', marginTop: 4, fontWeight: 500 }}>
             уровень {levelDays} дн. на приходе
           </div>
@@ -1418,7 +1421,7 @@ function SizingButtons({
         <div style={{ fontSize: 11, color: c40Selected ? '#185FA5' : '#78716c', marginTop: 8 }}>
           76 m³ — fill priority
         </div>
-        {levelDays !== null && mode === '40ft' && (
+        {levelDays != null && mode === '40ft' && (
           <div style={{ fontSize: 11, color: '#0C447C', marginTop: 4, fontWeight: 500 }}>
             уровень {levelDays} дн. на приходе
           </div>

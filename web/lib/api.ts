@@ -2871,6 +2871,43 @@ export async function sendReply(input: {
   }
 }
 
+/**
+ * Ask the agent engine for a reply draft. Returns text only — it NEVER sends.
+ * The draft lands in the reply field and the human decides (HARD_RULES §0).
+ * Backend: POST /api/email-tasks/draft — pulls the approved canon, playbook
+ * rules and stop-phrases from D1 and stores the task as `awaiting_ok`.
+ */
+export async function draftAgentReply(input: {
+  sender: string;
+  subject: string;
+  body: string;
+  source_email_id?: string;
+}): Promise<{ success: boolean; draft?: string; brief?: string; error?: string }> {
+  const token =
+    typeof window !== 'undefined' ? window.localStorage.getItem('dx_auth_token') : null;
+  try {
+    const res = await fetch(`${API_BASE}/api/email-tasks/draft`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(input),
+    });
+    const json = (await res.json()) as {
+      success?: boolean;
+      result?: { draft?: string; brief?: string };
+      errors?: Array<{ message?: string }>;
+    };
+    if (!json.success || !json.result?.draft) {
+      return { success: false, error: json.errors?.[0]?.message || `HTTP ${res.status}` };
+    }
+    return { success: true, draft: json.result.draft, brief: json.result.brief };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'network error' };
+  }
+}
+
 // 3-4 line "what they want" digest for the dark message screen (?v=2).
 export async function getMailboxMessageSummaryV2(address: string, key: string) {
   return apiGet<{ summary: string; cached: boolean }>(

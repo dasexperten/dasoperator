@@ -18,7 +18,7 @@ import {
   Search, Star, Archive, Trash2, Send, Inbox as InboxIcon,
   FileText, Paperclip, Plus, Reply, Forward, ChevronLeft, ArrowLeft,
   MoreHorizontal, MoreVertical, Mail, AlertCircle, X, Undo2, Loader2,
-  ChevronDown, Users, Building2, Menu,
+  ChevronDown, Users, Building2, Menu, Wand2,
 } from 'lucide-react';
 import {
   getMailboxes,
@@ -27,6 +27,7 @@ import {
   getAttention,
   markMailRead,
   sendReply,
+  draftAgentReply,
 } from '@/lib/api';
 import { correspondent, displayName, emailAddr } from './shared';
 import {
@@ -545,6 +546,70 @@ function replyFromFor(item: MailItem): string {
   return APEX_SENDERS.includes(mb) ? mb : 'sales@dasexperten.com';
 }
 
+type ComposeInit = { to?: string; subject?: string; text?: string; from?: string; title?: string };
+
+function plainFromHtml(html: string | undefined): string {
+  if (!html) return '';
+  return html
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function replySubject(subject: string): string {
+  return subject.toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`;
+}
+
+// Owner 2026-07-29: the agent drafts, the human sends. This hook has no send
+// path at all — it opens the compose window with the text filled in, and the
+// existing Отправить button stays the only way out (HARD_RULES §0).
+function useAgentDraft(
+  openCompose: (init: ComposeInit) => void,
+  toast: (t: string, undo?: () => void) => void
+) {
+  const [drafting, setDrafting] = useState(false);
+
+  const run = useCallback(
+    async (item: MailItem | null, body: { text?: string; html?: string } | null) => {
+      if (!item || drafting) return;
+      const source = (body?.text || plainFromHtml(body?.html)).slice(0, 4000).trim();
+      if (!source) {
+        toast('Текст письма ещё не загрузился — откройте его и повторите');
+        return;
+      }
+      setDrafting(true);
+      try {
+        const r = await draftAgentReply({
+          sender: item.org,
+          subject: item.subject,
+          body: source,
+          source_email_id: item.id,
+        });
+        if (r.success && r.draft) {
+          openCompose({
+            to: item.org,
+            subject: replySubject(item.subject),
+            text: r.draft.trim(),
+            from: replyFromFor(item),
+            title: 'Черновик агента — проверьте перед отправкой',
+          });
+        } else {
+          toast(r.error || 'Агент не смог составить ответ');
+        }
+      } catch {
+        toast('Агент не смог составить ответ');
+      } finally {
+        setDrafting(false);
+      }
+    },
+    [drafting, openCompose, toast]
+  );
+
+  return { drafting, run };
+}
+
 function mailboxUnread(items: MailItem[], m: UiMailbox): number {
   const set = new Set(addressesForMailbox(m));
   return items.filter((i) => i.folder === 'inbox' && i.unread && set.has(i.mailbox.toLowerCase())).length;
@@ -650,11 +715,13 @@ function ComposeModal({
   onClose,
   onSent,
 }: {
-  initial?: { to?: string; subject?: string; text?: string };
+  initial?: { to?: string; subject?: string; text?: string; from?: string; title?: string };
   onClose: () => void;
   onSent: (msg: string) => void;
 }) {
-  const [from, setFrom] = useState(APEX_SENDERS[0]!);
+  const [from, setFrom] = useState(
+    initial?.from && APEX_SENDERS.includes(initial.from) ? initial.from : APEX_SENDERS[0]!
+  );
   const [to, setTo] = useState(initial?.to || '');
   const [subject, setSubject] = useState(initial?.subject || '');
   const [text, setText] = useState(initial?.text || '');
@@ -680,7 +747,7 @@ function ComposeModal({
     <div className="cmodal-backdrop" onClick={onClose}>
       <div className="cmodal" onClick={(e) => e.stopPropagation()}>
         <div className="cmodal-head">
-          <div className="cmodal-title">Новое письмо</div>
+          <div className="cmodal-title">{initial?.title || 'Новое письмо'}</div>
           <button className="abtn" onClick={onClose} aria-label="Закрыть"><X size={18} /></button>
         </div>
         <label className="cmodal-label">От кого
@@ -717,7 +784,8 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
   const [activeFolder, setActiveFolder] = useState<FolderId>('inbox');
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [compose, setCompose] = useState<{ to?: string; subject?: string; text?: string } | null>(null);
+  const [compose, setCompose] = useState<ComposeInit | null>(null);
+  const agentDraft = useAgentDraft(setCompose, toast);
   const [replyText, setReplyText] = useState('');
   const [replySending, setReplySending] = useState(false);
   const replyRef = useRef<HTMLInputElement>(null);
@@ -1038,6 +1106,14 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                   onChange={(e) => setReplyText(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') submitReply(); }}
                 />
+                <button
+                  className="draftb"
+                  onClick={() => agentDraft.run(selected, body)}
+                  disabled={agentDraft.drafting || replySending}
+                  title="Агент составит черновик — отправляете вы"
+                >
+                  {agentDraft.drafting ? <Loader2 size={13} className="dxmail-spin" /> : <Wand2 size={13} />} Ответит агент
+                </button>
                 <button className="sendb" onClick={submitReply} disabled={replySending}>
                   {replySending ? <Loader2 size={13} className="dxmail-spin" /> : <Send size={13} />} Отправить
                 </button>
@@ -1203,7 +1279,8 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [openedId, setOpenedId] = useState<string | null>(null);
-  const [compose, setCompose] = useState<{ to?: string; subject?: string; text?: string } | null>(null);
+  const [compose, setCompose] = useState<ComposeInit | null>(null);
+  const agentDraft = useAgentDraft(setCompose, toast);
   const [replyText, setReplyText] = useState('');
   const [replySending, setReplySending] = useState(false);
   // Left drawer = desktop agents/folders sidebar (Owner: burger opens side box)
@@ -1538,6 +1615,14 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
               onChange={(e) => setReplyText(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') submitReply(); }}
             />
+            <button
+              className="mdraftb"
+              onClick={() => agentDraft.run(opened, body)}
+              disabled={agentDraft.drafting || replySending}
+              aria-label="Ответит агент"
+            >
+              {agentDraft.drafting ? <Loader2 size={17} className="dxmail-spin" /> : <Wand2 size={17} />}
+            </button>
             <button className="msendb" onClick={submitReply} disabled={replySending} aria-label="Отправить">
               {replySending ? <Loader2 size={17} className="dxmail-spin" /> : <Send size={17} />}
             </button>

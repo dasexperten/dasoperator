@@ -891,8 +891,24 @@ externalRequests.post('/import', async (c) => {
   const dry = url.searchParams.get('dry') === '1';
   const now = Math.floor(Date.now() / 1000);
 
+  // FLOOR — the hard guard this endpoint exists to carry.
+  //
+  // A warehouse is truth as of its last committed inventory session: the count
+  // absorbed every receipt and write-off that came before it. Posting those
+  // requests again counts the same goods twice. The dry run on 2026-07-29 found
+  // 389 355 units of acceptance and 175 629 of write-off sitting below that line
+  // — posting them would have inflated LBR from 145k to over 400k.
+  //
+  // So: never post a request dated at or before the warehouse's last committed
+  // session. Fall back to the opening balance when a warehouse was never counted.
+  // Forward-only is the correct mode; backfill is not.
+  const floorRow = await c.env.DB.prepare(`
+    SELECT MAX(committed_at) AS t FROM inventory_sessions
+    WHERE warehouse_id = 'lbr' AND status = 'committed' AND committed_at IS NOT NULL
+  `).first<{ t: number | null }>();
   const OPENING_BALANCE_DATE = Math.floor(Date.UTC(2026, 4, 7) / 1000);
-  const BACKFILL_MOVEMENT_DATE = Math.floor(Date.UTC(2026, 4, 8) / 1000);
+  const floorTs = floorRow?.t ?? OPENING_BALANCE_DATE;
+  const floorDate = new Date(floorTs * 1000).toISOString().slice(0, 10);
 
   const pending = await c.env.DB.prepare(`
     SELECT er.id, er.delivery_number, er.request_type_norm, er.created_at_external,
@@ -907,9 +923,10 @@ externalRequests.post('/import', async (c) => {
       AND er.external_provider = 'f4_skladbot'
       AND er.warehouse_id = 'lbr'
       AND o.id IS NULL
+      AND er.created_at_external > ?
     ORDER BY er.created_at_external ASC
     LIMIT ?
-  `).bind(limit).all<{
+  `).bind(floorDate, limit).all<{
     id: string;
     delivery_number: string;
     request_type_norm: string;
@@ -952,8 +969,7 @@ externalRequests.post('/import', async (c) => {
     const m = (req.created_at_external || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (m) opDate = Math.floor(Date.UTC(+m[1], +m[2] - 1, +m[3]) / 1000);
 
-    const isBackfill = opDate < OPENING_BALANCE_DATE;
-    const movementDate = isBackfill ? BACKFILL_MOVEMENT_DATE : opDate;
+    const movementDate = opDate;
     const totalUnits = lines.reduce((a, l) => a + l.qty, 0);
 
     if (dry) {
@@ -1004,7 +1020,7 @@ externalRequests.post('/import', async (c) => {
         source: 'sync_3pl',
         source_ref_type: 'operation',
         source_ref_id: opId,
-        reason: isBackfill ? `retroactive_backfill_${req.request_type_norm}` : `${req.request_type_norm}_f4`,
+        reason: `${req.request_type_norm}_f4`,
         notes: opRef,
         performed_by: 'importer',
         performed_at: movementDate,
@@ -1021,6 +1037,7 @@ externalRequests.post('/import', async (c) => {
   return c.json({
     ok: true,
     dry,
+    floor: floorDate,
     scanned: (pending.results || []).length,
     imported: results.filter((r) => r.reason === 'imported').length,
     units: results.filter((r) => r.reason === 'imported').reduce((a, r) => a + r.units, 0),

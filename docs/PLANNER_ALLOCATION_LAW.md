@@ -12,29 +12,35 @@ This file is the code-side copy. If the two disagree, organizacia wins.
 ## Order of work — not negotiable
 
 **Importer first, planner second.** A corrected allocator fed by frozen stock will faithfully
-distribute a container across false inputs.
+distribute a container across false inputs. The importer is built and forward-only —
+it stops accumulation, it does not replay history. See §1.
 
 ---
 
-## 1 — Skladbot importer (dead since June)
+## 1 — Skladbot importer — BUILT 2026-07-29
 
-`external_requests` syncs daily and is current. The import into operations is not.
+`8da4632` (build) · `eb79e21` (floor guard). Shipped to `main`, **not deployed**.
 
-| Month | Requests | Imported |
-|---|---|---|
-| 2026-04 | 46 | 36 |
-| 2026-05 | 40 | 14 |
-| 2026-06 | 46 | **0** |
-| 2026-07 | 27 | **0** |
+The mirror (`/sync`) was always healthy and on cron. What did not exist:
+`mp_delivery` had a hand-run endpoint capped at 30 rows a call, and `acceptance` /
+`writeoff` had **no import path at any point** — hence every one unposted since 2025-09.
 
-135 of 217 unposted. 72 `mp_delivery` = 76 025 units (2026-05-17 → 2026-07-27),
-all 43 `acceptance`, all 18 `writeoff`.
+Built: `POST /api/external-requests/import` for acceptance (receipt, `accepted_amount`)
+and writeoff (`write_off`), mp_delivery cap 30 → 500, both on the f4-sync cron,
+movements through `applyMovement` so the sign rules are enforced. `?dry=1` plans only.
 
-Post **in chronological order** — the negative-stock guard rejects an outbound whose inbound
-has not landed. The guard is correct; do not weaken it to force a backfill through.
+### Do NOT backfill the 135
 
-Bundling arrives in the feed already: `bundling_divisor`, `bundling_from_qty`,
-`bundling_to_qty` per item. Post it with its request.
+A dry run against prod D1 found 389 355 units of acceptance and 175 629 of write-off
+dated below the opening balance, and everything up to 2026-07-15 already absorbed by the
+committed LBR inventory session. Posting would have taken LBR from ~145 573 past 400 000.
+
+**Floor rule, now in code:** a warehouse is truth as of its last committed inventory
+session; requests at or before that timestamp are absorbed by definition. The floor is read
+from `inventory_sessions` per run, falling back to the opening balance for a warehouse never
+counted. Backfill logic deleted with it — **forward-only**.
+
+Above the floor today: acceptance 0 · writeoff 0 · mp_delivery 1 request / 15 units.
 
 ## 2 — Backfill 13 sales
 

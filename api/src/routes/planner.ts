@@ -38,13 +38,13 @@ const EXCLUDED_WH = ['gzh', 'yzh', 'dgn', 'otw'];
 // Legacy id list (kept for docs / tests). Live Russia filter uses warehouses.country.
 const RUSSIA_WH = ['lbr', 'srn', 'flp', 'ozon', 'wb'];
 // Warehouses where F4-style pack/unpack is real (NOT marketplace FBO)
-const BUNDLABLE_WH = ['lbr', 'srn', 'flp'];
+const BUNDLABLE_WH = ['lbr', 'srn']; // Owner 2026-07-29: we do not work with FlyPost — flp removed, it held no goods
 // Boss rule: Stock=Russia → only goods physically in Russia (or in transit TO Russia).
 // Never count China (DGN/GZH/YZH), Vietnam (SWH), or virtual OTW as Russia cover.
 
 const PALLET_VOLUME_M3 = 1.44;        // standard EUR pallet useful volume
 const CONTAINER_20FT_M3 = 28;          // 20ft cargo cubic capacity
-const CONTAINER_40FT_M3 = 56;          // 40ft cargo cubic capacity
+const CONTAINER_40FT_M3 = 76;          // 40HQ cargo cubic capacity (Owner 2026-07-29 — was 56, disagreed with the frontend)
 const PALLET_MAX = 6;
 const FORTYFT_THRESHOLD = 1.2;         // 120% of 20ft → escalate to 40ft
 

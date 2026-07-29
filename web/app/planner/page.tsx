@@ -107,85 +107,135 @@ const C40_VOLUME_M3 = 76;  // 40HQ High Cube interior volume
 type SizingMode = 'pallet' | '20ft' | '40ft';
 
 // ============================================================
-// AUTO FILL ALGORITHM
-// Greedy by score = vel^1.5 / cover_after, respecting manual locks.
-// For container modes: cap relaxes in tiers until container fills.
-// (Container fill is PRIORITY — cap is a soft preference, not a wall.)
-// Pallets mode: single strict cap 180d (user picks volume = picks demand).
+// LEVEL FILL ALLOCATOR  (Owner 2026-07-29 · HARD_RULES §5b.1)
+//
+// One objective for all three modes: every ordered position must ARRIVE with
+// the same days of cover. The container fixes volume; the level is solved for it.
+//
+//   need(L) = velocity x (L + lead) - stock        L measured AT ARRIVAL
+//
+// Thresholds (Owner): need < 9000 -> skip · 9000..MOQ -> round up to MOQ ·
+// >= MOQ -> take need, rounded up to whole cartons.
+//
+// Law of the lock: a hand-entered number is final, INCLUDING zero. Locked rows
+// reserve their volume before the search and never enter it.
+//
+// Replaces the velocity-greedy filler (score = vel^1.5 / cover_after + tier
+// ladder), which ranked by how fast a SKU sells rather than how soon it runs
+// out and let one position eat half a container before yielding.
 // ============================================================
+const LEAD_TIME_DAYS = 70;
+const MIN_ORDER_UNITS = 9000;
+
 function autoFillCartons(
   rows: PlannerRow[],
   targetVolumeM3: number,
   mode: SizingMode,
   manualOverrides: Record<string, number>,
 ): Record<string, number> {
-  // Tier ladder per mode. Pallets = one strict tier. Containers = progressive relaxation.
-  const TIERS = mode === 'pallet' ? [180] : mode === '20ft' ? [365, 545, 730, 910, 1095] : [540, 730, 910, 1095, 1280];
+  const out: Record<string, number> = {};
+  for (const r of rows) out[r.base_sku] = 0;
 
-  const overrides: Record<string, number> = {};
-  for (const r of rows) overrides[r.base_sku] = 0;
-
-  // Manual entries reserve their volume up front.
-  let manualVol = 0;
+  // Locked rows take their volume off the table first.
+  let lockedVol = 0;
+  const isLocked = (sku: string) =>
+    Object.prototype.hasOwnProperty.call(manualOverrides, sku);
   for (const r of rows) {
-    if (Object.prototype.hasOwnProperty.call(manualOverrides, r.base_sku)) {
-      manualVol += (manualOverrides[r.base_sku] ?? 0) * (r.ctn_volume_m3 ?? 0);
+    if (isLocked(r.base_sku)) {
+      const c = manualOverrides[r.base_sku] ?? 0;
+      out[r.base_sku] = c;
+      lockedVol += c * (r.ctn_volume_m3 ?? 0);
     }
   }
 
-  function coverAfter(r: PlannerRow, cartons: number): number {
-    if (r.velocity_per_day <= 0) return Infinity;
-    const newUnits = cartons * (r.ctn_qty ?? 0);
-    const total = r.available_stock + newUnits;
-    return total / r.velocity_per_day;
+  const free = Math.max(0, targetVolumeM3 - lockedVol);
+  const pool = rows.filter(
+    (r) => !isLocked(r.base_sku) && r.velocity_per_day > 0 && (r.ctn_volume_m3 ?? 0) > 0,
+  );
+  if (pool.length === 0 || free <= 0) return out;
+
+  // Cartons a row takes at level L, thresholds applied.
+  const cartonsAt = (r: PlannerRow, L: number): number => {
+    const ctnQty = r.ctn_qty && r.ctn_qty > 0 ? r.ctn_qty : 1;
+    const need = r.velocity_per_day * (L + LEAD_TIME_DAYS) - r.available_stock;
+    if (need < MIN_ORDER_UNITS) return 0;
+    const units = Math.max(need, r.moq);
+    return Math.ceil(units / ctnQty);
+  };
+  const volAt = (L: number) =>
+    pool.reduce((a, r) => a + cartonsAt(r, L) * (r.ctn_volume_m3 ?? 0), 0);
+
+  // Pallet mode keeps a fixed horizon; containers solve for it.
+  if (mode === 'pallet') {
+    for (const r of pool) out[r.base_sku] = cartonsAt(r, 90);
+    return out;
   }
 
-  let freeVol = targetVolumeM3 - manualVol;
-
-  for (const cap of TIERS) {
-    let safety = 0;
-    while (freeVol > 0.001 && safety < 100000) {
-      let bestRow: PlannerRow | null = null;
-      let bestAddCartons = 0;
-      let bestAddVol = 0;
-      let bestScore = -1;
-
-      for (const r of rows) {
-        if (Object.prototype.hasOwnProperty.call(manualOverrides, r.base_sku)) continue;
-        if (r.velocity_per_day <= 0) continue;
-        if (r.is_new_launch) continue;
-        if (r.lifecycle_status !== 'active') continue;
-        const ctnVol = r.ctn_volume_m3 ?? 0;
-        if (ctnVol <= 0) continue;
-
-        const cur = overrides[r.base_sku] ?? 0;
-        const addCartons = cur === 0 ? Math.ceil(r.moq / (r.ctn_qty ?? 1)) : 1;
-        const addVol = addCartons * ctnVol;
-        if (addVol > freeVol) continue;
-
-        const newCov = coverAfter(r, cur + addCartons);
-        if (newCov > cap) continue;
-
-        const cov = Math.max(1, newCov);
-        const score = Math.pow(r.velocity_per_day, 1.5) / cov;
-
-        if (score > bestScore) {
-          bestScore = score;
-          bestRow = r;
-          bestAddCartons = addCartons;
-          bestAddVol = addVol;
-        }
+  // Binary search the largest L that still fits. Volume is monotone in L.
+  let lo = 0;
+  let hi = 1200;
+  if (volAt(lo) > free) {
+    // Even the floor overflows — take the cheapest set that fits, urgent first.
+    const byCover = [...pool].sort(
+      (a, b) => (a.cover_days ?? Infinity) - (b.cover_days ?? Infinity),
+    );
+    let left = free;
+    for (const r of byCover) {
+      const c = cartonsAt(r, 0);
+      const v = c * (r.ctn_volume_m3 ?? 0);
+      if (c > 0 && v <= left) {
+        out[r.base_sku] = c;
+        left -= v;
       }
-
-      if (bestRow === null) break;
-      overrides[bestRow.base_sku] = (overrides[bestRow.base_sku] ?? 0) + bestAddCartons;
-      freeVol -= bestAddVol;
-      safety++;
     }
-    if (freeVol < 0.001) break;
+    return out;
+  }
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (volAt(mid) <= free) lo = mid;
+    else hi = mid;
+  }
+  for (const r of pool) out[r.base_sku] = cartonsAt(r, lo);
+
+  // Rounding leaves slack. Give it to whoever is lowest, one carton at a time.
+  let left = free - volAt(lo);
+  let guard = 0;
+  while (left > 0.0001 && guard++ < 5000) {
+    let best: PlannerRow | null = null;
+    let bestCov = Infinity;
+    for (const r of pool) {
+      const v = r.ctn_volume_m3 ?? 0;
+      if (v > left || out[r.base_sku] <= 0) continue;
+      const ctnQty = r.ctn_qty && r.ctn_qty > 0 ? r.ctn_qty : 1;
+      const cov =
+        (r.available_stock + out[r.base_sku] * ctnQty) / r.velocity_per_day;
+      if (cov < bestCov) {
+        bestCov = cov;
+        best = r;
+      }
+    }
+    if (!best) break;
+    out[best.base_sku] += 1;
+    left -= best.ctn_volume_m3 ?? 0;
   }
 
-  return overrides;
+  return out;
+}
+
+// Level actually reached — for the UI badge, so the rule is visible.
+export function reachedLevelDays(
+  rows: PlannerRow[],
+  cartons: Record<string, number>,
+): number | null {
+  const covs = rows
+    .filter((r) => r.velocity_per_day > 0 && (cartons[r.base_sku] ?? 0) > 0)
+    .map((r) => {
+      const ctnQty = r.ctn_qty && r.ctn_qty > 0 ? r.ctn_qty : 1;
+      const units = r.available_stock + (cartons[r.base_sku] ?? 0) * ctnQty;
+      return units / r.velocity_per_day - LEAD_TIME_DAYS;
+    });
+  if (covs.length === 0) return null;
+  return Math.round(Math.min(...covs));
 }
 
 // ============================================================
@@ -211,6 +261,14 @@ export default function PlannerPage() {
   const [manualOverrides, setManualOverrides] = useState<Record<string, number>>({});
 
   const [mode, setMode] = useState<SizingMode>('pallet');
+
+  // Level actually reached by the current allocation — shown on the container
+  // card so the rule is visible, not just its result (Owner 2026-07-29).
+  const levelDays = useMemo(() => {
+    if (mode === 'pallet' || !rows || rows.length === 0) return null;
+    const merged: Record<string, number> = { ...autoOverrides, ...manualOverrides };
+    return reachedLevelDays(rows, merged);
+  }, [rows, autoOverrides, manualOverrides, mode]);
 
   // Create Draft modal state
   const [draftModalOpen, setDraftModalOpen] = useState(false);
@@ -1326,6 +1384,11 @@ function SizingButtons({
         <div style={{ fontSize: 11, color: c20Selected ? '#185FA5' : '#78716c', marginTop: 8 }}>
           28 m³ — fill priority
         </div>
+        {levelDays !== null && mode === '20ft' && (
+          <div style={{ fontSize: 11, color: '#0C447C', marginTop: 4, fontWeight: 500 }}>
+            уровень {levelDays} дн. на приходе
+          </div>
+        )}
       </button>
 
       {/* 40HQ */}
@@ -1355,6 +1418,11 @@ function SizingButtons({
         <div style={{ fontSize: 11, color: c40Selected ? '#185FA5' : '#78716c', marginTop: 8 }}>
           76 m³ — fill priority
         </div>
+        {levelDays !== null && mode === '40ft' && (
+          <div style={{ fontSize: 11, color: '#0C447C', marginTop: 4, fontWeight: 500 }}>
+            уровень {levelDays} дн. на приходе
+          </div>
+        )}
       </button>
     </div>
   );

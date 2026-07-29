@@ -223,7 +223,7 @@ function autoFillCartons(
 }
 
 // Level actually reached — for the UI badge, so the rule is visible.
-export function reachedLevelDays(
+function reachedLevelDays(
   rows: PlannerRow[],
   cartons: Record<string, number>,
 ): number | null {

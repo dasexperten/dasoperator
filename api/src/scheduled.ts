@@ -660,6 +660,27 @@ export async function handleScheduled(
     } catch (e) {
       console.error('[cron:f4-sync] requests sync failed:', e);
     }
+
+    // Owner 2026-07-29: turning a mirrored request into an operation was a
+    // hand-run endpoint (mp_delivery only, 30 rows a call) and acceptance /
+    // writeoff had no path at all. 135 of 217 requests sat unposted, June and
+    // July at zero. Both now run right after the mirror, oldest first.
+    for (const step of [
+      { name: 'mp-delivery', path: '/api/external-requests/mp-delivery-backfill?limit=50' },
+      { name: 'acc-wof', path: '/api/external-requests/import?limit=50' },
+    ]) {
+      console.log(`[cron:f4-sync] importing ${step.name}`);
+      try {
+        const r = await env.SELF.fetch(new Request(
+          `https://internal${step.path}`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }
+        ));
+        const out = await r.json() as { imported?: number; units?: number; results?: unknown[] };
+        console.log(`[cron:f4-sync] ${step.name}: imported ${out.imported ?? 0}, units ${out.units ?? 0}`);
+      } catch (e) {
+        console.error(`[cron:f4-sync] ${step.name} import failed:`, e);
+      }
+    }
     return;
   }
 

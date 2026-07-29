@@ -18,6 +18,7 @@
  * The token to call Skladbot lives in the F4_SKLADBOT_TOKEN Worker secret.
  */
 import { Hono } from 'hono';
+import { applyMovement } from '../lib/inventory';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 
@@ -527,7 +528,7 @@ externalRequests.post('/sync', async (c) => {
 // ──────────────────────────────────────────────────────────────────────────
 externalRequests.post('/mp-delivery-backfill', async (c) => {
   const url = new URL(c.req.url);
-  const limit = Math.min(parseInt(url.searchParams.get('limit') || '10', 10), 30);
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 500);
   const now = Math.floor(Date.now() / 1000);
 
   // Backfill cutoff: all stock_movements for historical mp_delivery (operations
@@ -862,6 +863,168 @@ externalRequests.post('/mp-delivery-backfill', async (c) => {
     results,
     remaining: remainCheck?.n ?? 0,
     has_more: (remainCheck?.n ?? 0) > 0,
+  });
+});
+
+// =============================================================================
+// POST /import — acceptance + writeoff → operations + stock movements
+//
+// Why this exists (Owner 2026-07-29): mp_delivery had a hand-run backfill.
+// acceptance and writeoff had NO import path at all — every one of them has sat
+// unposted since 2025-09. This closes that hole and runs on cron.
+//
+// Direction:
+//   acceptance → goods arrive at LBR   → transfer (from NULL → lbr), receipt
+//   writeoff   → goods leave LBR       → transfer (lbr → NULL),      write_off
+//
+// Quantities: acceptance uses accepted_amount (what the warehouse actually took),
+// falling back to amount when the request predates that field. writeoff uses amount.
+//
+// Ordering: oldest first. Final on_hand is order-independent (movements are
+// additive), but balance_after snapshots read correctly only in chronology.
+//
+// ?dry=1 returns the plan without writing anything.
+// =============================================================================
+externalRequests.post('/import', async (c) => {
+  const url = new URL(c.req.url);
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 500);
+  const dry = url.searchParams.get('dry') === '1';
+  const now = Math.floor(Date.now() / 1000);
+
+  const OPENING_BALANCE_DATE = Math.floor(Date.UTC(2026, 4, 7) / 1000);
+  const BACKFILL_MOVEMENT_DATE = Math.floor(Date.UTC(2026, 4, 8) / 1000);
+
+  const pending = await c.env.DB.prepare(`
+    SELECT er.id, er.delivery_number, er.request_type_norm, er.created_at_external,
+           er.is_completed, er.comment
+    FROM external_requests er
+    LEFT JOIN operations o
+      ON o.reference = CASE er.request_type_norm
+           WHEN 'acceptance' THEN 'ACC-' || er.delivery_number
+           ELSE 'WOF-' || er.delivery_number END
+     AND o.deleted_at IS NULL
+    WHERE er.request_type_norm IN ('acceptance', 'writeoff')
+      AND er.external_provider = 'f4_skladbot'
+      AND er.warehouse_id = 'lbr'
+      AND o.id IS NULL
+    ORDER BY er.created_at_external ASC
+    LIMIT ?
+  `).bind(limit).all<{
+    id: string;
+    delivery_number: string;
+    request_type_norm: string;
+    created_at_external: string;
+    is_completed: number;
+    comment: string | null;
+  }>();
+
+  const results: Array<{ request: string; type: string; op: string | null; units: number; reason: string }> = [];
+
+  for (const req of pending.results || []) {
+    const isAcceptance = req.request_type_norm === 'acceptance';
+    const opRef = `${isAcceptance ? 'ACC' : 'WOF'}-${req.delivery_number}`;
+
+    if (req.is_completed !== 1) {
+      results.push({ request: req.delivery_number, type: req.request_type_norm, op: null, units: 0, reason: 'not_completed' });
+      continue;
+    }
+
+    const items = await c.env.DB.prepare(`
+      SELECT i.product_id, i.vendor_code, i.amount, i.accepted_amount
+      FROM external_request_items i
+      JOIN products p ON p.id = COALESCE(i.product_id, LOWER(i.vendor_code)) AND p.deleted_at IS NULL
+      WHERE i.external_request_id = ?
+    `).bind(req.id).all<{ product_id: string | null; vendor_code: string; amount: number; accepted_amount: number }>();
+
+    const lines = (items.results || [])
+      .map((i) => ({
+        product_id: (i.product_id || i.vendor_code).toLowerCase(),
+        qty: isAcceptance ? (i.accepted_amount > 0 ? i.accepted_amount : i.amount) : i.amount,
+      }))
+      .filter((l) => l.qty > 0);
+
+    if (lines.length === 0) {
+      results.push({ request: req.delivery_number, type: req.request_type_norm, op: null, units: 0, reason: 'no_valid_lines' });
+      continue;
+    }
+
+    let opDate = now;
+    const m = (req.created_at_external || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) opDate = Math.floor(Date.UTC(+m[1], +m[2] - 1, +m[3]) / 1000);
+
+    const isBackfill = opDate < OPENING_BALANCE_DATE;
+    const movementDate = isBackfill ? BACKFILL_MOVEMENT_DATE : opDate;
+    const totalUnits = lines.reduce((a, l) => a + l.qty, 0);
+
+    if (dry) {
+      results.push({ request: req.delivery_number, type: req.request_type_norm, op: null, units: totalUnits, reason: 'dry_run' });
+      continue;
+    }
+
+    const opId = `op_${crypto.randomUUID()}`;
+    const stmts: D1PreparedStatement[] = [];
+
+    stmts.push(
+      c.env.DB.prepare(`
+        INSERT INTO operations (
+          id, operation_date, operation_type, operation_track, partner_id,
+          our_company_id, warehouse_from_id, warehouse_to_id, status,
+          currency, total_amount, reference, notes, delivery_status,
+          created_at, updated_at
+        ) VALUES (?, ?, 'transfer', 'goods', NULL, 'dee', ?, ?, 'delivered', 'RUB', 0, ?, ?, 'delivered', ?, ?)
+      `).bind(
+        opId, opDate,
+        isAcceptance ? null : 'lbr',
+        isAcceptance ? 'lbr' : null,
+        opRef,
+        `F4 ${req.request_type_norm}. ${req.comment || ''}`.trim(),
+        now, now
+      )
+    );
+
+    for (const l of lines) {
+      stmts.push(
+        c.env.DB.prepare(`
+          INSERT INTO line_items (
+            id, operation_id, product_id, qty, unit_price, unit_price_after_disc,
+            line_amount, currency, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, 0, 0, 0, 'RUB', ?, ?)
+        `).bind(`li_${crypto.randomUUID()}`, opId, l.product_id, l.qty, now, now)
+      );
+    }
+
+    await c.env.DB.batch(stmts);
+
+    for (const l of lines) {
+      await applyMovement(c.env.DB, {
+        warehouse_id: 'lbr',
+        product_id: l.product_id,
+        movement_type: isAcceptance ? 'receipt' : 'write_off',
+        quantity: isAcceptance ? l.qty : -l.qty,
+        source: 'sync_3pl',
+        source_ref_type: 'operation',
+        source_ref_id: opId,
+        reason: isBackfill ? `retroactive_backfill_${req.request_type_norm}` : `${req.request_type_norm}_f4`,
+        notes: opRef,
+        performed_by: 'importer',
+        performed_at: movementDate,
+      });
+    }
+
+    await c.env.DB.prepare(
+      `UPDATE external_requests SET imported_op_id = ? WHERE id = ?`
+    ).bind(opId, req.id).run();
+
+    results.push({ request: req.delivery_number, type: req.request_type_norm, op: opId, units: totalUnits, reason: 'imported' });
+  }
+
+  return c.json({
+    ok: true,
+    dry,
+    scanned: (pending.results || []).length,
+    imported: results.filter((r) => r.reason === 'imported').length,
+    units: results.filter((r) => r.reason === 'imported').reduce((a, r) => a + r.units, 0),
+    results,
   });
 });
 

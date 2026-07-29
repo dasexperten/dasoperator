@@ -33,7 +33,6 @@ import {
   upsertOrder,
   upsertCustomer,
   ingestPaymentIntentById,
-  parseItemsMeta,
   type CanonicalOrder,
   type CanonicalCustomer,
 } from '../lib/crm-website';
@@ -178,94 +177,6 @@ site.post('/cart', async (c) => {
 });
 
 // -----------------------------------------------------------------------------
-// Paid-order ingest — the checkout Worker calls this the moment Stripe reports
-// payment_intent.succeeded, authenticated with the shared INGEST_SECRET.
-//
-// Stripe stays the authority: given a PI id we re-read it (charge expanded) and
-// run the same ingest as the webhook, so shipping address, card brand and
-// refunds are right. The posted body is the fallback when the PI id is absent
-// or Stripe is unreachable — an order must never be lost because of a lookup.
-//
-// Idempotent through upsertOrder: only the first creation sends mail, so a
-// Worker retry or a later poller pass cannot double-mail a customer.
-// -----------------------------------------------------------------------------
-site.post('/paid', async (c) => {
-  if (!isTrustedIngest(c)) {
-    return fail(c, 403, [{ code: 'forbidden', message: 'ingest secret required' }]);
-  }
-  const body = await c.req.json<any>().catch(() => null);
-  if (!body || !body.order_number) {
-    return fail(c, 400, [{ code: 'bad_request', message: 'order_number required' }]);
-  }
-  const orderNumber = String(body.order_number);
-  const piId = body.stripe_payment_intent ? String(body.stripe_payment_intent) : null;
-  let result = 'skipped';
-  let emailed = false;
-
-  try {
-    let action = '';
-    let order: CanonicalOrder | undefined;
-
-    if (piId && c.env.STRIPE_SECRET_KEY) {
-      try {
-        const r = await ingestPaymentIntentById(c.env, piId);
-        action = r.action;
-        order = r.order;
-      } catch (e) {
-        action = 'stripe_lookup_failed';
-      }
-    }
-
-    if (action !== 'created' && action !== 'updated' && action !== 'unchanged') {
-      // Fallback: build the order from what the Worker posted.
-      const fallback: CanonicalOrder = {
-        source: 'website',
-        order_number: orderNumber,
-        stripe_payment_intent: piId,
-        email: body.email ? String(body.email) : null,
-        currency: String(body.currency || 'USD').toUpperCase(),
-        subtotal_cents: Number(body.goods_minor ?? 0) || 0,
-        shipping_cents: Number(body.fee_minor ?? 0) || 0,
-        total_cents: Number(body.total_minor ?? 0) || 0,
-        financial_status: 'paid',
-        fulfillment_status: 'submitted',
-        lang: body.lang ? String(body.lang) : null,
-        ship_country: body.ship_country ? String(body.ship_country) : null,
-        items: parseItemsMeta(body.items),
-        placed_at: Math.floor(Date.now() / 1000),
-      };
-      const up = await upsertOrder(c.env, fallback, { via: 'checkout-worker', body });
-      action = up.action + (piId ? ':fallback' : ':body_only');
-      if (up.action === 'created') order = fallback;
-    }
-
-    if (order && action.startsWith('created')) {
-      emailed = true;
-      c.executionCtx.waitUntil(sendNewOrderEmails(c.env, order as OrderEmailData));
-    }
-    result = action;
-  } catch (e) {
-    result = 'error:' + (e instanceof Error ? e.message : String(e)).slice(0, 300);
-  }
-
-  // Same audit discipline as the Stripe webhook — a silent bridge is how this
-  // path stayed broken before.
-  try {
-    await c.env.DB.prepare(
-      'INSERT INTO crm_webhook_log (id, source, event_type, ref, payload, result, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    )
-      .bind('cw_' + crypto.randomUUID(), 'checkout-worker', 'order.paid', piId ?? orderNumber,
-        JSON.stringify(body).slice(0, 4000), result, Math.floor(Date.now() / 1000))
-      .run();
-  } catch {}
-
-  if (result.startsWith('error:')) {
-    return fail(c, 500, [{ code: 'ingest_failed', message: result.slice(0, 300) }]);
-  }
-  return ok(c, { order_number: orderNumber, result, emailed });
-});
-
-// -----------------------------------------------------------------------------
 // Tracking write-back — the checkout Worker forwards NSS `order.shipped` /
 // `order.delivered` here. `status` in the body picks the fulfillment state
 // ('shipped' default, back-compat).
@@ -365,7 +276,50 @@ site.post('/paid', async (c) => {
       .bind(orderNumber)
       .first<{ email: string | null }>();
     if (!before) {
-      return fail(c, 404, [{ code: 'not_found', message: 'order row not created yet' }]);
+      // Real-time path: the Worker fires seconds after payment, up to an hour
+      // before the reconciliation poller creates the row. Create it here, from
+      // Stripe when the PI id is known (authoritative address, card, refunds),
+      // otherwise from the posted body — an order must never be lost.
+      const piId = body.stripe_payment_intent ? String(body.stripe_payment_intent) : null;
+      let order: CanonicalOrder | undefined;
+      let created = false;
+      if (piId && c.env.STRIPE_SECRET_KEY) {
+        try {
+          const r = await ingestPaymentIntentById(c.env, piId);
+          if (r.order) { order = r.order; created = r.action === 'created'; }
+        } catch { /* fall through to the body */ }
+      }
+      if (!order) {
+        const fallback: CanonicalOrder = {
+          source: 'website',
+          order_number: orderNumber,
+          stripe_payment_intent: piId,
+          email,
+          currency: String(body.currency || 'USD').toUpperCase(),
+          subtotal_cents: goods ?? 0,
+          shipping_cents: fee ?? 0,
+          total_cents: Number(body.total_minor ?? 0) || 0,
+          financial_status: 'paid',
+          fulfillment_status: 'submitted',
+          lang,
+          ship_country: body.ship_country ? String(body.ship_country) : null,
+          items,
+          placed_at: now,
+        };
+        const up = await upsertOrder(c.env, fallback, { via: 'checkout-worker', body });
+        order = fallback;
+        created = up.action === 'created';
+      }
+      if (!order.email && email) order.email = email;
+      let mailedNew = false;
+      if (wantSend && created && order.email) {
+        c.executionCtx.waitUntil(sendNewOrderEmails(c.env, order as OrderEmailData));
+        mailedNew = true;
+      }
+      return ok(c, {
+        order_number: orderNumber, created, email_set: !!order.email,
+        items: order.items?.length ?? 0, mailed: mailedNew,
+      });
     }
     const hadEmail = !!(before.email && before.email.trim());
 

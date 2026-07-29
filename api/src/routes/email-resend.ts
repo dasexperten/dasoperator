@@ -28,6 +28,11 @@ async function requireUserOrService(c: import('hono').Context<{ Bindings: Env }>
   if (c.env.EMAILER_SERVICE_SECRET && svc && svc === c.env.EMAILER_SERVICE_SECRET) {
     return true;
   }
+  // Agent-session service key for repair work (order backfill, customer recovery).
+  const bf = c.req.header('X-Ingest-Secret');
+  if (c.env.BACKFILL_SECRET && bf && bf === c.env.BACKFILL_SECRET) {
+    return true;
+  }
   const token = bearer(c);
   if (!token) return false;
   const user = await validateSession(c.env.DB, token);

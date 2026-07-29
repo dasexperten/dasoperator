@@ -58,6 +58,7 @@ export interface Env {
   // Resend API key (restricted, send-only) for human-facing replies from the
   // Emailer UI. Verified sending domain: send.dasexperten.ru.
   RESEND_API_KEY?: string;
+  BACKFILL_SECRET?: string;
   /** Shared secret for agent/harness → POST /api/email/resend-send | archive-sent */
   EMAILER_SERVICE_SECRET?: string;
 

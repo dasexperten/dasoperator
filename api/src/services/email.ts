@@ -99,8 +99,62 @@ function logSendAttempt(fields: {
 }
 
 // ---------------------------------------------------------------------------
-// sendEmail — the one function that actually talks to the EMAIL binding.
-// Every other helper in this module funnels through here.
+// Transport. Resend on the apex is the primary path: the Cloudflare EMAIL
+// binding only reaches destination addresses verified on the account, which
+// makes it useless for real customers. The binding stays as a fallback.
+// Emailer law: apex dasexperten.com only — notify.* is rewritten on the way out.
+// ---------------------------------------------------------------------------
+function toApex(addr: string): string {
+  return addr.replace(/@notify\.dasexperten\.com/gi, '@dasexperten.com');
+}
+
+async function deliver(
+  env: Env,
+  params: SendEmailParams,
+  recipients: string[]
+): Promise<{ messageId: string }> {
+  if (env.RESEND_API_KEY) {
+    const payload: Record<string, unknown> = {
+      from: toApex(params.from),
+      to: recipients,
+      subject: params.subject,
+    };
+    if (params.text !== undefined) payload.text = params.text;
+    if (params.html !== undefined) payload.html = params.html;
+    if (params.replyTo !== undefined) payload.reply_to = toApex(params.replyTo);
+    if (params.cc !== undefined) payload.cc = toList(params.cc);
+    if (params.bcc !== undefined) payload.bcc = toList(params.bcc);
+
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { id?: string };
+      return { messageId: data.id ?? '' };
+    }
+    // Fall through to the binding, but leave a trace of why.
+    console.log('resend send failed', res.status, (await res.text()).slice(0, 200));
+  }
+
+  return env.EMAIL.send({
+    from: params.from,
+    to: recipients,
+    subject: params.subject,
+    ...(params.text !== undefined ? { text: params.text } : {}),
+    ...(params.html !== undefined ? { html: params.html } : {}),
+    ...(params.replyTo !== undefined ? { replyTo: params.replyTo } : {}),
+    ...(params.cc !== undefined ? { cc: params.cc } : {}),
+    ...(params.bcc !== undefined ? { bcc: params.bcc } : {}),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// sendEmail — the one function every other helper in this module funnels through.
 // ---------------------------------------------------------------------------
 export async function sendEmail(env: Env, params: SendEmailParams): Promise<SendEmailResult> {
   const recipients = toList(params.to);
@@ -119,16 +173,7 @@ export async function sendEmail(env: Env, params: SendEmailParams): Promise<Send
     // are omitted entirely rather than assigned `undefined` — the workers-types
     // SendEmail builder type doesn't accept explicit undefined under
     // exactOptionalPropertyTypes.
-    const result = await env.EMAIL.send({
-      from: params.from,
-      to: recipients,
-      subject: params.subject,
-      ...(params.text !== undefined ? { text: params.text } : {}),
-      ...(params.html !== undefined ? { html: params.html } : {}),
-      ...(params.replyTo !== undefined ? { replyTo: params.replyTo } : {}),
-      ...(params.cc !== undefined ? { cc: params.cc } : {}),
-      ...(params.bcc !== undefined ? { bcc: params.bcc } : {}),
-    });
+    const result = await deliver(env, params, recipients);
 
     logSendAttempt({
       recipient: recipients,

@@ -50,7 +50,22 @@ function isAdmin(auth: string | undefined): boolean {
 function isTrustedIngest(c: any): boolean {
   const header = c.req.header('X-Ingest-Secret');
   if (c.env.INGEST_SECRET && header && header === c.env.INGEST_SECRET) return true;
+  if (c.env.BACKFILL_SECRET && header && header === c.env.BACKFILL_SECRET) return true;
   return isAdmin(c.req.header('Authorization'));
+}
+
+// "DE210x1,DE201x2" -> [{ sku, qty }] — compact form carried in Stripe metadata,
+// which caps a value at 500 characters.
+function parsePackedItems(v: unknown): Array<{ sku: string; qty: number }> {
+  return String(v ?? '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const m = /^([A-Za-z0-9_-]+)x(\d+)$/.exec(part);
+      return m ? { sku: m[1] as string, qty: Number(m[2]) } : null;
+    })
+    .filter((x): x is { sku: string; qty: number } => !!x);
 }
 
 // -----------------------------------------------------------------------------
@@ -220,6 +235,101 @@ site.post('/tracking', async (c) => {
     if (msg.includes('no such table')) {
       return fail(c, 503, [{ code: 'not_migrated', message: 'Run POST /admin/migrate/crm-website first' }]);
     }
+    return fail(c, 500, [{ code: 'internal_error', message: msg }]);
+  }
+});
+
+// -----------------------------------------------------------------------------
+// Paid order — pushed straight from the dasexperten-checkout Worker the moment
+// Stripe confirms payment. The Worker already verifies the Stripe signature, so
+// no second webhook endpoint is needed in the Stripe dashboard.
+//
+// Enriches the row with what the hourly reconciliation poller cannot know:
+// buyer email, language and line items. Sends the confirmation exactly once —
+// the guard is that email moves from empty to set, so a retry stays silent.
+// Pass send:false to repair a historic order without mailing the customer.
+// -----------------------------------------------------------------------------
+site.post('/paid', async (c) => {
+  if (!isTrustedIngest(c)) {
+    return fail(c, 403, [{ code: 'forbidden', message: 'ingest secret required' }]);
+  }
+  const body = await c.req.json<any>().catch(() => null);
+  if (!body || !body.order_number) {
+    return fail(c, 400, [{ code: 'bad_request', message: 'order_number required' }]);
+  }
+
+  const orderNumber = String(body.order_number);
+  const rawEmail = String(body.email ?? '').trim();
+  const email = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(rawEmail) ? rawEmail : null;
+  const lang = body.lang ? String(body.lang).slice(0, 5).toLowerCase() : null;
+  const items = parsePackedItems(body.items);
+  const goods = Number(body.goods_minor ?? 0) || null;
+  const fee = Number(body.fee_minor ?? 0) || null;
+  const wantSend = body.send !== false;
+  const now = Math.floor(Date.now() / 1000);
+
+  try {
+    const before = await c.env.DB.prepare(
+      `SELECT email FROM crm_orders WHERE source = 'website' AND order_number = ?`
+    )
+      .bind(orderNumber)
+      .first<{ email: string | null }>();
+    if (!before) {
+      return fail(c, 404, [{ code: 'not_found', message: 'order row not created yet' }]);
+    }
+    const hadEmail = !!(before.email && before.email.trim());
+
+    await c.env.DB.prepare(
+      `UPDATE crm_orders
+          SET email = COALESCE(?, email),
+              lang = COALESCE(?, lang),
+              items = CASE WHEN ? = '' THEN items ELSE ? END,
+              subtotal_cents = COALESCE(?, subtotal_cents),
+              shipping_cents = COALESCE(?, shipping_cents),
+              updated_at = ?
+        WHERE source = 'website' AND order_number = ?`
+    )
+      .bind(
+        email,
+        lang,
+        items.length ? 'x' : '',
+        JSON.stringify(items),
+        goods,
+        fee,
+        now,
+        orderNumber
+      )
+      .run();
+
+    if (email) {
+      await c.env.DB.prepare(
+        `UPDATE crm_customers SET email = COALESCE(email, ?), updated_at = ?
+          WHERE id = (SELECT customer_id FROM crm_orders
+                       WHERE source = 'website' AND order_number = ?)`
+      )
+        .bind(email, now, orderNumber)
+        .run();
+    }
+
+    let mailed = false;
+    if (wantSend && email && !hadEmail) {
+      const row = await c.env.DB.prepare(
+        `SELECT order_number, email, customer_name, currency, total_cents, subtotal_cents,
+                shipping_cents, lang, ship_country, ship_city, items
+           FROM crm_orders WHERE source = 'website' AND order_number = ?`
+      )
+        .bind(orderNumber)
+        .first<any>();
+      if (row) {
+        const data: OrderEmailData = { ...row, items: JSON.parse(row.items ?? '[]') };
+        c.executionCtx.waitUntil(sendNewOrderEmails(c.env, data));
+        mailed = true;
+      }
+    }
+
+    return ok(c, { order_number: orderNumber, email_set: !!email, items: items.length, mailed });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
     return fail(c, 500, [{ code: 'internal_error', message: msg }]);
   }
 });

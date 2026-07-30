@@ -611,7 +611,7 @@ export function mapPaymentIntent(pi: any): CanonicalOrder {
 }
 
 // Best-effort product-name enrichment from the ERP products table.
-async function enrichItemNames(env: Env, items: CanonicalItem[]): Promise<CanonicalItem[]> {
+export async function enrichItemNames(env: Env, items: CanonicalItem[]): Promise<CanonicalItem[]> {
   const skus = items.filter((i) => !i.name).map((i) => i.sku);
   if (!skus.length) return items;
   try {

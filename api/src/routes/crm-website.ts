@@ -33,6 +33,7 @@ import {
   upsertOrder,
   upsertCustomer,
   ingestPaymentIntentById,
+  enrichItemNames,
   type CanonicalOrder,
   type CanonicalCustomer,
 } from '../lib/crm-website';
@@ -306,6 +307,9 @@ site.post('/paid', async (c) => {
           items,
           placed_at: now,
         };
+        // A buyer must not read "DE201" — resolve catalog names before the row
+        // is written, the same way the Stripe path does.
+        fallback.items = await enrichItemNames(c.env, fallback.items);
         const up = await upsertOrder(c.env, fallback, { via: 'checkout-worker', body });
         order = fallback;
         created = up.action === 'created';
@@ -359,7 +363,7 @@ site.post('/paid', async (c) => {
     if (wantSend && email && !hadEmail) {
       const row = await c.env.DB.prepare(
         `SELECT order_number, email, customer_name, currency, total_cents, subtotal_cents,
-                shipping_cents, lang, ship_country, ship_city, items
+                shipping_cents, lang, ship_country, ship_city, items, placed_at
            FROM crm_orders WHERE source = 'website' AND order_number = ?`
       )
         .bind(orderNumber)

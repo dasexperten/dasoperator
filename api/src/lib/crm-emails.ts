@@ -22,7 +22,9 @@ import type { Env } from '../types';
 import { sendEmail, SENDERS } from '../services/email';
 
 export const ORDERS_INBOX = 'orders@dasexperten.com';
-const REPLY_TO = ORDERS_INBOX;
+// The buyer replies to a human mailbox; ORDERS_INBOX is where automation
+// notifications land and nobody answers customers there.
+const REPLY_TO = 'support@dasexperten.com';
 
 export interface OrderEmailData {
   order_number: string;
@@ -36,6 +38,7 @@ export interface OrderEmailData {
   ship_country?: string | null;
   ship_city?: string | null;
   items?: Array<{ sku: string; name?: string | null; qty: number }> | null;
+  placed_at?: number | null;
 }
 
 type Lang = 'en' | 'de' | 'ru' | 'vi';
@@ -51,6 +54,30 @@ function money(cents: number | null | undefined, currency: string | null | undef
   // JPY-style zero-decimal currencies aside, cents/100 is right for the
   // storefront's presentment set; this string is display-only.
   return `${(c / 100).toFixed(2)} ${cur}`;
+}
+
+// "AM" reads like a system glitch to a buyer. Intl carries full ICU data in
+// Workers, so the region name comes out correct in every locale we ship copy
+// for; an unknown code degrades to the code itself rather than throwing.
+function countryName(code: string | null | undefined, lang: Lang): string {
+  const c = String(code ?? '').trim().toUpperCase();
+  if (c.length !== 2) return c;
+  try {
+    const dn = new Intl.DisplayNames([lang], { type: 'region' });
+    return dn.of(c) ?? c;
+  } catch {
+    return c;
+  }
+}
+
+function orderDate(ts: number | null | undefined, lang: Lang): string {
+  const seconds = Number(ts ?? 0);
+  const d = seconds > 0 ? new Date(seconds * 1000) : new Date();
+  try {
+    return new Intl.DateTimeFormat(lang, { day: 'numeric', month: 'long', year: 'numeric' }).format(d);
+  } catch {
+    return d.toISOString().slice(0, 10);
+  }
 }
 
 function itemsLines(o: OrderEmailData): string {
@@ -92,6 +119,16 @@ const T = {
   totalLbl: { en: 'Total', de: 'Gesamt', ru: 'Итого', vi: 'Tổng cộng' },
   itemsLbl: { en: 'Items', de: 'Artikel', ru: 'Товары', vi: 'Sản phẩm' },
   shipToLbl: { en: 'Ship to', de: 'Lieferung an', ru: 'Доставка', vi: 'Giao đến' },
+  subtotalLbl: { en: 'Goods', de: 'Waren', ru: 'Товары', vi: 'Hàng hóa' },
+  shippingLbl: { en: 'Shipping', de: 'Versand', ru: 'Доставка', vi: 'Phí giao hàng' },
+  freeShip: { en: 'free', de: 'kostenlos', ru: 'бесплатно', vi: 'miễn phí' },
+  dateLbl: { en: 'Order date', de: 'Bestelldatum', ru: 'Дата заказа', vi: 'Ngày đặt hàng' },
+  helpLine: {
+    en: 'Questions about this order? Just reply to this email — we answer every one.',
+    de: 'Fragen zu dieser Bestellung? Antworte einfach auf diese E-Mail — wir antworten auf jede.',
+    ru: 'Есть вопрос по заказу? Просто ответьте на это письмо — мы отвечаем на каждое.',
+    vi: 'Có câu hỏi về đơn hàng? Chỉ cần trả lời email này — chúng tôi trả lời mọi thư.',
+  },
   signoff: { en: 'Das Experten', de: 'Das Experten', ru: 'Das Experten', vi: 'Das Experten' },
   trackSubject: {
     en: (n: string) => `Your Das Experten order ${n} has shipped`,
@@ -141,6 +178,13 @@ export async function sendNewOrderEmails(env: Env, o: OrderEmailData): Promise<v
   // 2) Customer confirmation — only if we have an address
   if (o.email) {
     const lang = pickLang(o.lang);
+    const placed = orderDate(o.placed_at, lang);
+    // Goods and shipping shown separately — a single total is the first thing
+    // customers write in about. Falls back to the total when the split is absent.
+    const goods = money(o.subtotal_cents ?? o.total_cents, o.currency);
+    const shipCents = Number(o.shipping_cents ?? 0);
+    const ship = shipCents > 0 ? money(shipCents, o.currency) : T.freeShip[lang];
+    const shipLine = [o.ship_city, countryName(o.ship_country, lang)].filter(Boolean).join(', ');
     await sendEmail(env, {
       to: o.email,
       from: SENDERS.orders,
@@ -149,17 +193,31 @@ export async function sendNewOrderEmails(env: Env, o: OrderEmailData): Promise<v
       text:
         `${T.confirmIntro[lang]}\n\n` +
         `${T.orderLbl[lang]}: ${o.order_number}\n` +
+        `${T.dateLbl[lang]}: ${placed}\n\n` +
         `${T.itemsLbl[lang]}:\n${itemsLines(o) || '  —'}\n\n` +
+        `${T.subtotalLbl[lang]}: ${goods}\n` +
+        `${T.shippingLbl[lang]}: ${ship}\n` +
         `${T.totalLbl[lang]}: ${total}\n` +
-        (shipTo ? `${T.shipToLbl[lang]}: ${shipTo}\n` : '') +
+        (shipLine ? `\n${T.shipToLbl[lang]}: ${shipLine}\n` : '') +
+        `\n${T.helpLine[lang]}\n` +
         `\n${T.signoff[lang]}\nhttps://dasexperten.com`,
       html:
-        `<div style="font-family:system-ui,Arial,sans-serif;max-width:560px">` +
+        `<div style="font-family:system-ui,Arial,sans-serif;max-width:560px;color:#1a1a1a">` +
         `<p>${escapeHtml(T.confirmIntro[lang])}</p>` +
-        `<p><strong>${escapeHtml(T.orderLbl[lang])}:</strong> ${escapeHtml(o.order_number)}</p>` +
+        `<p><strong>${escapeHtml(T.orderLbl[lang])}:</strong> ${escapeHtml(o.order_number)}<br>` +
+        `<strong>${escapeHtml(T.dateLbl[lang])}:</strong> ${escapeHtml(placed)}</p>` +
         `<table style="width:100%;border-collapse:collapse"><tbody>${itemsRows(o)}</tbody></table>` +
-        `<p><strong>${escapeHtml(T.totalLbl[lang])}:</strong> ${escapeHtml(total)}</p>` +
-        (shipTo ? `<p><strong>${escapeHtml(T.shipToLbl[lang])}:</strong> ${escapeHtml(shipTo)}</p>` : '') +
+        `<table style="width:100%;border-collapse:collapse;margin-top:12px">` +
+        `<tbody>` +
+        `<tr><td>${escapeHtml(T.subtotalLbl[lang])}</td>` +
+        `<td style="text-align:right">${escapeHtml(goods)}</td></tr>` +
+        `<tr><td>${escapeHtml(T.shippingLbl[lang])}</td>` +
+        `<td style="text-align:right">${escapeHtml(ship)}</td></tr>` +
+        `<tr><td style="padding-top:6px;border-top:1px solid #ddd"><strong>${escapeHtml(T.totalLbl[lang])}</strong></td>` +
+        `<td style="padding-top:6px;border-top:1px solid #ddd;text-align:right"><strong>${escapeHtml(total)}</strong></td></tr>` +
+        `</tbody></table>` +
+        (shipLine ? `<p><strong>${escapeHtml(T.shipToLbl[lang])}:</strong> ${escapeHtml(shipLine)}</p>` : '') +
+        `<p style="margin-top:20px;color:#555">${escapeHtml(T.helpLine[lang])}</p>` +
         `<p style="margin-top:24px">${escapeHtml(T.signoff[lang])}<br>` +
         `<a href="https://dasexperten.com">dasexperten.com</a></p></div>`,
     });

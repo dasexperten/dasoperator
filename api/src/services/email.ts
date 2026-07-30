@@ -108,6 +108,32 @@ function toApex(addr: string): string {
   return addr.replace(/@notify\.dasexperten\.com/gi, '@dasexperten.com');
 }
 
+// A silent fall-back is how a dead Resend key survived for months: the failure
+// only ever reached a console log nobody reads. When the primary transport
+// refuses, tell ourselves once — over the binding, which is by definition the
+// path still working. Throttled per isolate so a Resend outage cannot turn into
+// an inbox flood, and deliberately not routed through sendEmail(): the alarm
+// must never depend on the machinery it is reporting on.
+let lastResendAlertAt = 0;
+async function alertResendDown(env: Env, status: number, detail: string): Promise<void> {
+  const now = Date.now();
+  if (now - lastResendAlertAt < 15 * 60 * 1000) return;
+  lastResendAlertAt = now;
+  try {
+    await env.EMAIL.send({
+      from: SENDERS.notifications,
+      to: ['orders@dasexperten.com'],
+      subject: `Resend refused mail (HTTP ${status}) — customer mail is on the fallback`,
+      text:
+        `Resend rejected a send with HTTP ${status}.\n` +
+        `${detail}\n\n` +
+        `Mail is going out through the Cloudflare binding, which only reaches ` +
+        `verified destination addresses — real customers may not receive anything.\n` +
+        `Check RESEND_API_KEY on dasoperator-api and the domain status at resend.com.`,
+    });
+  } catch { /* the alarm must never break the send path */ }
+}
+
 async function deliver(
   env: Env,
   params: SendEmailParams,
@@ -137,8 +163,11 @@ async function deliver(
       const data = (await res.json().catch(() => ({}))) as { id?: string };
       return { messageId: data.id ?? '' };
     }
-    // Fall through to the binding, but leave a trace of why.
-    console.log('resend send failed', res.status, (await res.text()).slice(0, 200));
+    // Fall through to the binding, but leave a trace of why — and raise a flag
+    // a human actually sees.
+    const detail = (await res.text()).slice(0, 200);
+    console.log('resend send failed', res.status, detail);
+    await alertResendDown(env, res.status, detail);
   }
 
   return env.EMAIL.send({

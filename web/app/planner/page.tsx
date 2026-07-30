@@ -1076,7 +1076,7 @@ export default function PlannerPage() {
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-stone-500">Price:</span>
-                <ToggleGroup value={currency} options={[{ id: 'cny', label: 'CNY' }, { id: 'usd', label: 'USD' }]} onChange={(v) => setCurrency(v as 'cny' | 'usd')} disabledIds={['usd']} />
+                <ToggleGroup value={currency} options={[{ id: 'cny', label: 'CNY' }, { id: 'usd', label: 'USD' }]} onChange={(v) => setCurrency(v as 'cny' | 'usd')}  />
               </div>
               <div className="flex items-center gap-2" title="Free surplus at LBR/SRN/FLP can pack/unpack 1↔2↔4 before ordering from factory">
                 <span className="text-stone-500">Bundling:</span>

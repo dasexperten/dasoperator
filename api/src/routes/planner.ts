@@ -295,8 +295,38 @@ async function computeForGroup(
   // SINGLE SOURCE OF TRUTH: D1 product_prices.
   // R2 markdown pricelists kept as archival backup only; no code reads them.
   // To bulk-update prices: edit via UI or insert directly into product_prices.
-  const priceTypeId = currency === 'cny' ? 'purchase_cny' : 'export_usd';
-  const priceMapCurrency = priceTypeId === 'purchase_cny' ? 'CNY' : 'USD';
+  // ONE COST LIST, CONVERTED ON THE FLY (Owner 2026-07-30).
+  //
+  // Cost lived in two lists that drifted apart: 31 rows of export_usd were the
+  // same factory price at a stale 7.22 rate (6 % behind), five carried
+  // distributor prices — DE208 at 0.750 against a true 0.259 — and seventeen
+  // multipacks were missing outright. The five are reclassified to
+  // distr_base_usd; the rest is no longer read as cost.
+  //
+  // We pay the factory in CNY, so CNY is the truth. USD is a conversion at the
+  // CBR rate the FX namespace already refreshes daily. Nothing left to drift.
+  const priceTypeId = 'purchase_cny';
+  const priceMapCurrency = 'CNY';
+  let fxCnyPerUsd: number | null = null;
+  let fxDate: string | null = null;
+  if (currency === 'usd') {
+    try {
+      const latest = await env.FX.get('fx:latest');
+      if (latest) {
+        const raw = await env.FX.get(`fx:${latest}`);
+        if (raw) {
+          const parsed = JSON.parse(raw) as { date: string; rates: Record<string, { rate_to_usd_nano: number }> };
+          const nano = parsed?.rates?.CNY?.rate_to_usd_nano;
+          if (nano && nano > 0) {
+            fxCnyPerUsd = 1e9 / nano;   // CNY per 1 USD
+            fxDate = parsed.date;
+          }
+        }
+      }
+    } catch {
+      // fail soft — without a rate we simply keep CNY figures rather than invent one
+    }
+  }
   let priceMap: Record<string, number> = {};
 
   try {
@@ -315,7 +345,9 @@ async function computeForGroup(
     for (const row of pp.results) {
       if (seen.has(row.product_id)) continue;
       seen.add(row.product_id);
-      priceMap[row.product_id.toLowerCase()] = row.sell_price;
+      priceMap[row.product_id.toLowerCase()] = fxCnyPerUsd
+        ? Math.round((row.sell_price / fxCnyPerUsd) * 10000) / 10000
+        : row.sell_price;
     }
   } catch (e) {
     // fail soft — leave priceMap empty; UI will show — for unit_price

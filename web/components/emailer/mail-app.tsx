@@ -574,26 +574,19 @@ function useAgentDraft(
   const run = useCallback(
     async (item: MailItem | null, body: { text?: string; html?: string } | null) => {
       if (!item || drafting) return;
-      const source = (body?.text || plainFromHtml(body?.html)).slice(0, 4000).trim();
-      if (!source) {
-        toast('Текст письма ещё не загрузился — откройте его и повторите');
-        return;
-      }
       setDrafting(true);
       try {
-        const r = await draftAgentReply({
-          sender: item.org,
-          subject: item.subject,
-          body: source,
-          source_email_id: item.id,
-        });
+        // The agent reads the letter from the archive itself — we pass the key,
+        // not the body, so the agent works from the record and not from what
+        // the browser happens to have rendered.
+        const r = await draftAgentReply({ key: item.key });
         if (r.success && r.draft) {
           openCompose({
             to: item.org,
             subject: replySubject(item.subject),
             text: r.draft.trim(),
             from: replyFromFor(item),
-            title: 'Черновик агента — проверьте перед отправкой',
+            title: `Черновик агента${r.by ? ` — ${r.by}` : ''} — проверьте перед отправкой`,
           });
         } else {
           toast(r.error || 'Агент не смог составить ответ');

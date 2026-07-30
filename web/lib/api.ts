@@ -2872,21 +2872,22 @@ export async function sendReply(input: {
 }
 
 /**
- * Ask the agent engine for a reply draft. Returns text only — it NEVER sends.
+ * Ask the AGENT — on the agent's own Worker, with its charter, memory and name.
+ * Owner 2026-07-30: this used to call the shared drafting service, whose prompt
+ * names the Owner as the author, so Lauda's replies went out signed as Aram.
+ * Returns text only — it NEVER sends.
  * The draft lands in the reply field and the human decides (HARD_RULES §0).
  * Backend: POST /api/email-tasks/draft — pulls the approved canon, playbook
  * rules and stop-phrases from D1 and stores the task as `awaiting_ok`.
  */
 export async function draftAgentReply(input: {
-  sender: string;
-  subject: string;
-  body: string;
-  source_email_id?: string;
-}): Promise<{ success: boolean; draft?: string; brief?: string; error?: string }> {
+  /** The archived letter. The agent is resolved from the mailbox in this key. */
+  key: string;
+}): Promise<{ success: boolean; draft?: string; by?: string; error?: string }> {
   const token =
     typeof window !== 'undefined' ? window.localStorage.getItem('dx_auth_token') : null;
   try {
-    const res = await fetch(`${API_BASE}/api/email-tasks/draft`, {
+    const res = await fetch(`${API_BASE}/api/email-tasks/agent-draft`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2896,13 +2897,13 @@ export async function draftAgentReply(input: {
     });
     const json = (await res.json()) as {
       success?: boolean;
-      result?: { draft?: string; brief?: string };
+      result?: { draft?: string; by?: string };
       errors?: Array<{ message?: string }>;
     };
     if (!json.success || !json.result?.draft) {
       return { success: false, error: json.errors?.[0]?.message || `HTTP ${res.status}` };
     }
-    return { success: true, draft: json.result.draft, brief: json.result.brief };
+    return { success: true, draft: json.result.draft, by: json.result.by };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'network error' };
   }

@@ -17,6 +17,7 @@ import emailResendRoutes from './routes/email-resend';
 import emailArchiveRoutes from './routes/email-archive';
 import emailStateRoutes from './routes/email-state';
 import emailTasksRoutes from './routes/email-tasks';
+import emailAgentDraftRoutes from './routes/email-agent-draft';
 import partnersRoutes from './routes/partners';
 import partnersParseCreate from './routes/partners-parse-create';
 import sequencesRoutes from './routes/sequences';
@@ -182,6 +183,7 @@ app.route('/api/email', emailResendRoutes);  // adds /resend-send + /archive-sen
 app.route('/api/email', emailArchiveRoutes);  // adds /mailboxes* — R2 Inbox archive read API
 app.route('/api/email', emailStateRoutes);  // adds /read, /unread-count, /attention, /orders — dark UI v3
 app.route('/api/email-tasks', emailTasksRoutes);
+app.route('/api/email-tasks', emailAgentDraftRoutes);  // adds /agent-draft — the agent's own pen
 app.route('/api/sequences', sequencesRoutes);
 app.route('/', attachmentsRoutes);
 app.route('/api', attachmentFilesRoutes);  // /operations/:opId/files (POST) and /attachment-files/* (GET)

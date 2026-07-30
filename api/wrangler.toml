@@ -215,3 +215,56 @@ crons = ["0 3 * * *", "0 1 * * *", "0 12 * * *", "0 * * * *", "0 */4 * * *", "5 
 DRAFT_CONCURRENCY = "10"
 RETAIL_CRM_DOMAIN = "dasexperten"
 YANDEX_METRIKA_COUNTER = "107720199"
+
+
+# Agent seats (Owner 2026-07-30): the Emailer "Ответит агент" button now calls
+# the agent's own pen — its charter, its memory, its name — instead of the
+# shared drafting service that signed every letter as the Owner.
+# Same-account *.workers.dev is blocked; service bindings only.
+[[services]]
+binding = "LAUDA_COMMERCE"
+service = "lauda-commerce"
+
+[[services]]
+binding = "ROBERTA_CONTENT"
+service = "roberta-content"
+
+[[services]]
+binding = "JULIAN_GEO"
+service = "julian-geo"
+
+[[services]]
+binding = "ALEXANDRA_OBNORSKAYA"
+service = "alexandra-obnorskaya"
+
+[[services]]
+binding = "TAMARA_HAAR"
+service = "tamara-haar"
+
+[[services]]
+binding = "JUSTINA_FINANCE"
+service = "justina-finance"
+
+[[services]]
+binding = "MINA_SYSADMIN"
+service = "mina-sysadmin"
+
+[[services]]
+binding = "MARIKA_BRAND"
+service = "marika-brand"
+
+[[services]]
+binding = "MAYA_INTELLIGENCE"
+service = "maya-intelligence"
+
+[[services]]
+binding = "ZINA_LOGISTICS"
+service = "zina-logistics"
+
+[[services]]
+binding = "VALENTINA_LEGAL"
+service = "valentina-legal"
+
+[[services]]
+binding = "LENA_ORCHESTRATOR"
+service = "lena-orchestrator"

@@ -2875,10 +2875,10 @@ export async function sendReply(input: {
  * Ask the AGENT — on the agent's own Worker, with its charter, memory and name.
  * Owner 2026-07-30: this used to call the shared drafting service, whose prompt
  * names the Owner as the author, so Lauda's replies went out signed as Aram.
- * Returns text only — it NEVER sends.
- * The draft lands in the reply field and the human decides (HARD_RULES §0).
- * Backend: POST /api/email-tasks/draft — pulls the approved canon, playbook
- * rules and stop-phrases from D1 and stores the task as `awaiting_ok`.
+ * Backend: POST /api/email-tasks/agent-draft — session-authed, resolves the
+ * mailbox from the archive key and proxies to that seat through a service
+ * binding. Returns text only; the draft opens in the compose window and the
+ * human presses Отправить.
  */
 export async function draftAgentReply(input: {
   /** The archived letter. The agent is resolved from the mailbox in this key. */

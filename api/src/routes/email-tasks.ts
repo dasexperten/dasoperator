@@ -12,6 +12,19 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { draftReply, clearCanonCache } from '../lib/email-draft';
+import { validateSession } from '../lib/auth';
+
+// This route spends a model call per request and stood open to the internet:
+// POST /api/email-tasks/draft answered 200 with no credential at all (Owner
+// 2026-07-30). Nothing in the UI calls it any more — the Emailer button now
+// goes to /agent-draft, which reaches the agent's own pen — but the route stays
+// mounted for non-agent mailboxes, so it needs the same session everything else
+// in the Emailer needs.
+async function requireSession(c: import('hono').Context<{ Bindings: Env }>): Promise<boolean> {
+  const h = c.req.header('authorization') || '';
+  if (!h.toLowerCase().startsWith('bearer ')) return false;
+  return !!(await validateSession(c.env.DB, h.slice(7).trim()));
+}
 
 const r = new Hono<{ Bindings: Env }>();
 
@@ -271,6 +284,10 @@ r.post('/seed', async (c) => {
 
 
 r.post('/draft', async (c) => {
+  if (!(await requireSession(c))) {
+    return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+  }
+
   let b: any = {};
   try { b = await c.req.json(); } catch { return fail(c, 400, [{ code: 'invalid_json', message: 'JSON body required' }]); }
   if (!b.body && !b.subject) return fail(c, 422, [{ code: 'no_input', message: 'subject or body required' }]);

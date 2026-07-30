@@ -309,7 +309,7 @@ site.post('/paid', async (c) => {
         };
         // A buyer must not read "DE201" — resolve catalog names before the row
         // is written, the same way the Stripe path does.
-        fallback.items = await enrichItemNames(c.env, fallback.items);
+        fallback.items = await enrichItemNames(c.env, fallback.items, lang);
         const up = await upsertOrder(c.env, fallback, { via: 'checkout-worker', body });
         order = fallback;
         created = up.action === 'created';

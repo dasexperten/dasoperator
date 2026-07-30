@@ -611,18 +611,44 @@ export function mapPaymentIntent(pi: any): CanonicalOrder {
 }
 
 // Best-effort product-name enrichment from the ERP products table.
-export async function enrichItemNames(env: Env, items: CanonicalItem[]): Promise<CanonicalItem[]> {
+export async function enrichItemNames(
+  env: Env,
+  items: CanonicalItem[],
+  lang?: string | null
+): Promise<CanonicalItem[]> {
   const skus = items.filter((i) => !i.name).map((i) => i.sku);
   if (!skus.length) return items;
   try {
+    // The catalogue has no `sku` column — the article number is the primary key
+    // `id`, stored lower-case ('de201'), and the human name lives in
+    // product_name / invoice_label_*. The old query selected a column that does
+    // not exist, failed into the silent catch, and every buyer saw bare codes.
     const ph = skus.map(() => '?').join(',');
-    const rows = await env.DB.prepare(`SELECT sku, name FROM products WHERE sku IN (${ph})`)
-      .bind(...skus)
-      .all<{ sku: string; name: string }>();
-    const bySku = new Map((rows.results ?? []).map((r) => [r.sku, r.name]));
-    return items.map((i) => (i.name ? i : { ...i, name: bySku.get(i.sku) }));
+    const rows = await env.DB.prepare(
+      `SELECT id, product_name, invoice_label, invoice_label_ru, invoice_label_en
+         FROM products WHERE LOWER(id) IN (${ph})`
+    )
+      .bind(...skus.map((s) => s.toLowerCase()))
+      .all<{
+        id: string;
+        product_name: string | null;
+        invoice_label: string | null;
+        invoice_label_ru: string | null;
+        invoice_label_en: string | null;
+      }>();
+    const ru = String(lang ?? '').slice(0, 2).toLowerCase() === 'ru';
+    const bySku = new Map(
+      (rows.results ?? []).map((r) => {
+        const label = ru
+          ? r.invoice_label_ru || r.invoice_label_en || r.invoice_label
+          : r.invoice_label_en || r.invoice_label || r.invoice_label_ru;
+        const name = label || (r.product_name ? `Das Experten ${r.product_name}` : null);
+        return [String(r.id).toLowerCase(), name];
+      })
+    );
+    return items.map((i) => (i.name ? i : { ...i, name: bySku.get(i.sku.toLowerCase()) ?? undefined }));
   } catch {
-    return items; // products table shape drift must never break ingest
+    return items; // catalogue shape drift must never break ingest
   }
 }
 
@@ -641,7 +667,7 @@ export async function ingestPaymentIntent(
   }
   const order = mapPaymentIntent(pi);
   if (!order.order_number) return { action: 'skipped:no_order_number' };
-  order.items = await enrichItemNames(env, order.items);
+  order.items = await enrichItemNames(env, order.items, order.lang);
   const r = await upsertOrder(env, order, { stripe_payment_intent: pi });
   // Convert the matching abandoned-cart funnel row (no-op if none / already
   // converted). Runs for both webhook and poller — it only flips a status.

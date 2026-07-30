@@ -407,7 +407,69 @@ async function computeForGroup(
   `;
   const velocityRes = await db.prepare(velocitySql)
     .bind(windowDays, ...baseSkus).all<{ base_sku: string; units_60d: number }>();
-  const velocityMap = new Map(velocityRes.results.map(v => [v.base_sku, v.units_60d || 0]));
+  const rawVelocityMap = new Map(velocityRes.results.map(v => [v.base_sku, v.units_60d || 0]));
+
+  // ROBUST VELOCITY (Owner 2026-07-30).
+  //
+  // A raw 60-day sum cannot tell demand from a clearance. When Ozon storage fees
+  // pushed EVOLUTION out at knock-down prices, one month carried 66 % of seven
+  // months of volume and velocity read 69.3/day against a true ~11 — so the
+  // planner queued more of the very thing we were dumping. KINDER 3+ the same:
+  // 68 % in one month, 13.4/day against 7.6, ordered to 1 106 days of cover.
+  //
+  // Median month over the trailing six is immune to a single spike and still
+  // follows real growth, which by definition lasts longer than one month.
+  const monthlySql = `
+    WITH sales_per_row AS (
+      SELECT
+        CASE
+          WHEN p.category = 'Toothpaste' AND COALESCE(p.bundle_size, 1) > 1
+            THEN p.base_sku
+          ELSE p.id
+        END AS rollup_sku,
+        strftime('%Y-%m', o.operation_date, 'unixepoch') AS ym,
+        CASE
+          WHEN p.category = 'Toothpaste' AND COALESCE(p.bundle_size, 1) > 1
+            THEN li.qty * p.bundle_size
+          ELSE li.qty
+        END AS units
+      FROM operations o
+      JOIN line_items li ON li.operation_id = o.id
+      JOIN products p ON p.id = li.product_id
+      WHERE o.operation_type = 'sale'
+        AND o.status != 'cancelled'
+        AND o.deleted_at IS NULL
+        AND o.operation_date >= unixepoch('now', '-6 months')
+        AND o.partner_id != 'dasex_group'
+    )
+    SELECT rollup_sku AS base_sku, ym, SUM(units) AS units
+    FROM sales_per_row
+    WHERE rollup_sku IN (${baseSkuPlaceholders})
+    GROUP BY rollup_sku, ym
+  `;
+  const monthlyRes = await db.prepare(monthlySql)
+    .bind(...baseSkus).all<{ base_sku: string; ym: string; units: number }>();
+  const bySku = new Map<string, number[]>();
+  for (const r of monthlyRes.results) {
+    const arr = bySku.get(r.base_sku) || [];
+    arr.push(r.units || 0);
+    bySku.set(r.base_sku, arr);
+  }
+  const DAYS_PER_MONTH = 30.4;
+  const velocityMap = new Map<string, number>();
+  const rawVelocityDisplay = new Map<string, number>();
+  for (const sku of baseSkus) {
+    const raw = rawVelocityMap.get(sku) || 0;
+    rawVelocityDisplay.set(sku, raw);
+    const months = (bySku.get(sku) || []).slice().sort((a, b) => a - b);
+    if (months.length < 3) { velocityMap.set(sku, raw); continue; }
+    const mid = Math.floor(months.length / 2);
+    const median = months.length % 2
+      ? months[mid]
+      : (months[mid - 1] + months[mid]) / 2;
+    // express the median month back in the caller's window units
+    velocityMap.set(sku, (median / DAYS_PER_MONTH) * windowDays);
+  }
 
   // 4. available stock per base SKU — depends on stockZone
   //    russia:    ONLY warehouses with country = 'Russia' (LBR, SRN, FLP, Ozon FBO, WB FBO, …)
@@ -1138,6 +1200,52 @@ r.post('/create-draft', async (c) => {
     line_items_count: lineRows.length,
     total_units: lineRows.reduce((s: number, l: any) => s + l.qty, 0),
   });
+});
+
+// ============================================================================
+// LOCKS — persistence for the Law of the Lock (HARD_RULES §5b.1)
+//
+// A hand-entered figure is final and never recalculated, zero included. Before
+// this it lived in React state and died on reload, so the law held for one
+// browsing session. A manual zero is also how "do not reorder" is expressed —
+// Owner 2026-07-30 chose the lock over a separate lifecycle status.
+// ============================================================================
+r.get('/locks', async (c) => {
+  const group = c.req.query('group') || '';
+  const rows = await c.env.DB.prepare(
+    `SELECT base_sku, cartons, reason, locked_by, updated_at
+       FROM planner_locks WHERE group_name = ? ORDER BY base_sku`
+  ).bind(group).all<{ base_sku: string; cartons: number; reason: string | null; locked_by: string; updated_at: number }>();
+  const locks: Record<string, number> = {};
+  for (const r of rows.results || []) locks[r.base_sku] = r.cartons;
+  return c.json({ ok: true, group, locks, detail: rows.results || [] });
+});
+
+r.put('/locks', async (c) => {
+  const body = await c.req.json<{ group: string; base_sku: string; cartons: number | null; reason?: string }>();
+  if (!body?.group || !body?.base_sku) return c.json({ ok: false, error: 'group and base_sku required' }, 400);
+  const now = Math.floor(Date.now() / 1000);
+
+  // cartons === null releases the lock — only a human hand unlocks a cell.
+  if (body.cartons === null || body.cartons === undefined) {
+    await c.env.DB.prepare(`DELETE FROM planner_locks WHERE group_name = ? AND base_sku = ?`)
+      .bind(body.group, body.base_sku).run();
+    return c.json({ ok: true, released: true });
+  }
+
+  const n = Math.max(0, Math.round(body.cartons));
+  await c.env.DB.prepare(`
+    INSERT INTO planner_locks (id, group_name, base_sku, cartons, reason, locked_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 'owner', ?, ?)
+    ON CONFLICT (group_name, base_sku) DO UPDATE SET
+      cartons = excluded.cartons,
+      reason = COALESCE(excluded.reason, planner_locks.reason),
+      updated_at = excluded.updated_at
+  `).bind(
+    `lock_${body.base_sku}_${body.group}`.toLowerCase().replace(/[^a-z0-9_]/g, '_'),
+    body.group, body.base_sku, n, body.reason ?? null, now, now,
+  ).run();
+  return c.json({ ok: true, locked: n });
 });
 
 export default r;

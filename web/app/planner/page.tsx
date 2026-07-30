@@ -7,7 +7,7 @@ import { Loader2, Flame, AlertTriangle, Check, Flag, Lock, X, CheckCircle2, Down
 import * as XLSX from 'xlsx-js-style';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { apiGet, apiPost } from '@/lib/api';
+import { apiGet, apiPost, apiPut } from '@/lib/api';
 
 interface SummaryGroup {
   group_id: string;
@@ -327,9 +327,19 @@ export default function PlannerPage() {
       .then((res) => {
         if (res.success && res.result) {
           setDetail(res.result);
-          // Reset all overrides on group/zone change — fresh plan
-          setManualOverrides({});
-          setAutoOverrides(computeOverridesForMode(res.result.rows, mode, {}));
+          // Locks survive the reload — HARD_RULES §5b.1. A hand-entered figure is
+          // final, zero included; it is also how "do not reorder" is expressed.
+          const rowsNow = res.result.rows;
+          apiGet<{ locks: Record<string, number> }>(`/api/planner/locks?group=${encodeURIComponent(selectedGroup)}`)
+            .then((lr) => {
+              const saved = (lr.success && lr.result?.locks) ? lr.result.locks : {};
+              setManualOverrides(saved);
+              setAutoOverrides(computeOverridesForMode(rowsNow, mode, saved));
+            })
+            .catch(() => {
+              setManualOverrides({});
+              setAutoOverrides(computeOverridesForMode(rowsNow, mode, {}));
+            });
         } else {
           setError(res.errors[0]?.message ?? 'Failed to load suggestions');
         }
@@ -357,6 +367,7 @@ export default function PlannerPage() {
   function handleManualEdit(baseSku: string, value: number) {
     const newManual = { ...manualOverrides, [baseSku]: value };
     setManualOverrides(newManual);
+    void apiPut('/api/planner/locks', { group: selectedGroup, base_sku: baseSku, cartons: value });
     if (detail) {
       setAutoOverrides(computeOverridesForMode(detail.rows, mode, newManual));
     }
@@ -367,6 +378,7 @@ export default function PlannerPage() {
     const newManual = { ...manualOverrides };
     delete newManual[baseSku];
     setManualOverrides(newManual);
+    void apiPut('/api/planner/locks', { group: selectedGroup, base_sku: baseSku, cartons: null });
     if (detail) {
       setAutoOverrides(computeOverridesForMode(detail.rows, mode, newManual));
     }

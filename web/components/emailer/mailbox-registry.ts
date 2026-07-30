@@ -27,31 +27,29 @@ export function agentAvatarUrl(slug: string): string {
 
 /** Named agent mailboxes — always show avatar chip when present. */
 export const AGENT_MAILBOXES: UiMailbox[] = [
-  { address: 'lauda@dasexperten.com', kind: 'agent', slug: 'lauda-briana', label: 'Lauda Briana', role: 'Head of Commerce' },
+  { address: 'sales@dasexperten.com', kind: 'agent', slug: 'lauda-briana', label: 'Lauda Briana', role: 'Head of Commerce', aliases: ['lauda@dasexperten.com'] },
   { address: 'roberta@dasexperten.com', kind: 'agent', slug: 'roberta-di-maria', label: 'Roberta Di Maria', role: 'Head of Content' },
-  { address: 'marika@dasexperten.com', kind: 'agent', slug: 'marika-nowicka', label: 'Marika Nowicka', role: 'Head of Brand', aliases: ['maria@dasexperten.com'] },
-  { address: 'valentina@dasexperten.com', kind: 'agent', slug: 'valentina-korolyeva', label: 'Valentina Korolyeva', role: 'Head of Legal' },
-  { address: 'justina@dasexperten.com', kind: 'agent', slug: 'justina-timber', label: 'Justina Timber', role: 'Head of Finance' },
-  { address: 'julian@dasexperten.com', kind: 'agent', slug: 'julian-farah', label: 'Julian Farah', role: 'GEO Specialist' },
-  { address: 'lena@dasexperten.com', kind: 'agent', slug: 'lena-sergeeva', label: 'Lena Sergeeva', role: 'Central Executive Officer' },
-  { address: 'alexandra@dasexperten.com', kind: 'agent', slug: 'alexandra-obnorskaya', label: 'Alexandra Obnorskaya', role: 'Marketplaces' },
+  { address: 'support@dasexperten.com', kind: 'agent', slug: 'tamara-haar', label: 'Tamara Haar', role: 'Customer Support' },
+  { address: 'brand@dasexperten.com', kind: 'agent', slug: 'marika-nowicka', label: 'Marika Nowicka', role: 'Head of Brand', aliases: ['maria@dasexperten.com', 'marika@dasexperten.com'] },
+  { address: 'legal@dasexperten.com', kind: 'agent', slug: 'valentina-korolyeva', label: 'Valentina Korolyeva', role: 'Head of Legal', aliases: ['valentina@dasexperten.com'] },
+  { address: 'finance@dasexperten.com', kind: 'agent', slug: 'justina-timber', label: 'Justina Timber', role: 'Head of Finance', aliases: ['justina@dasexperten.com'] },
+  { address: 'partnerships@dasexperten.com', kind: 'agent', slug: 'julian-farah', label: 'Julian Farah', role: 'GEO Specialist', aliases: ['julian@dasexperten.com'] },
+  { address: 'hr@dasexperten.com', kind: 'agent', slug: 'lena-sergeeva', label: 'Lena Sergeeva', role: 'Central Executive Officer', aliases: ['lena@dasexperten.com'] },
+  { address: 'vetrova@dasexperten.com', kind: 'agent', slug: 'alexandra-obnorskaya', label: 'Alexandra Obnorskaya', role: 'Marketplaces', aliases: ['alexandra@dasexperten.com'] },
   // CDN file is mina-rutunya.png (alias mina.png also published). Prefer canonical slug.
   { address: 'mina@dasexperten.com', kind: 'agent', slug: 'mina-rutunya', label: 'Mina', role: 'Sysadmin' },
-  { address: 'zina@dasexperten.com', kind: 'agent', slug: 'zina-pevtsova', label: 'Zina Pevtsova', role: 'Logistics' },
+  { address: 'logistics@dasexperten.com', kind: 'agent', slug: 'zina-pevtsova', label: 'Zina Pevtsova', role: 'Logistics', aliases: ['zina@dasexperten.com'] },
   { address: 'maya@dasexperten.com', kind: 'agent', slug: 'maya-krasochkina', label: 'Maya Krasochkina', role: 'Operations' },
-  { address: 'dasha@dasexperten.com', kind: 'agent', slug: 'dasha-kozlovskaya', label: 'Dasha Kozlovskaya', role: 'Ozon Specialist' },
-  { address: 'arina@dasexperten.com', kind: 'agent', slug: 'arina-volkova', label: 'Arina Volkova', role: 'WB Specialist' },
+  { address: 'ozon@dasexperten.com', kind: 'agent', slug: 'dasha-kozlovskaya', label: 'Dasha Kozlovskaya', role: 'Ozon Specialist', aliases: ['dasha@dasexperten.com'] },
+  { address: 'wb@dasexperten.com', kind: 'agent', slug: 'arina-volkova', label: 'Arina Volkova', role: 'WB Specialist', aliases: ['arina@dasexperten.com'] },
 ];
 
 /** Functional department mailboxes (UI label: Departments — never "pipes"). */
 export const DEPARTMENT_MAILBOXES: UiMailbox[] = [
-  { address: 'sales@dasexperten.com', kind: 'department', label: 'Sales', role: 'B2B / wholesale' },
-  { address: 'support@dasexperten.com', kind: 'department', label: 'Support', role: 'Post-sale' },
   { address: 'eurasia@dasexperten.com', kind: 'department', label: 'Eurasia', role: 'RU / CIS' },
   { address: 'emea@dasexperten.com', kind: 'department', label: 'EMEA', role: 'EN/DE/IT/ES/AR' },
   { address: 'asean@dasexperten.com', kind: 'department', label: 'ASEAN', role: 'SE Asia' },
   { address: 'marketing@dasexperten.com', kind: 'department', label: 'Marketing', role: 'UGC / brand' },
-  { address: 'partnerships@dasexperten.com', kind: 'department', label: 'Partnerships', role: 'GEO / DA / outreach' },
   { address: 'hello@dasexperten.com', kind: 'department', label: 'Hello', role: 'Warm front' },
   { address: 'orders@dasexperten.com', kind: 'department', label: 'Orders', role: 'Orders' },
 ];

@@ -39,20 +39,21 @@ export function agentAvatarUrl(slug: string): string {
  */
 export const MAILBOX_REGISTRY: MailboxDef[] = [
   // ── Agents (named identities) ───────────────────────────────────────────
-  { address: 'lauda@dasexperten.com', kind: 'agent', slug: 'lauda-briana', label: 'Lauda Briana', role: 'Head of Commerce', showInUi: true, inbound: 'worker' },
+  { address: 'sales@dasexperten.com', kind: 'agent', slug: 'lauda-briana', label: 'Lauda Briana', role: 'Head of Commerce', showInUi: true, inbound: 'worker', aliases: ['lauda@dasexperten.com'] },
   { address: 'roberta@dasexperten.com', kind: 'agent', slug: 'roberta-di-maria', label: 'Roberta Di Maria', role: 'Head of Content', showInUi: true, inbound: 'worker' },
-  { address: 'marika@dasexperten.com', kind: 'agent', slug: 'marika-nowicka', label: 'Marika Nowicka', role: 'Head of Brand', showInUi: true, inbound: 'worker', aliases: ['maria@dasexperten.com'] },
-  { address: 'valentina@dasexperten.com', kind: 'agent', slug: 'valentina-korolyeva', label: 'Valentina Korolyeva', role: 'Head of Legal', showInUi: true, inbound: 'worker' },
-  { address: 'justina@dasexperten.com', kind: 'agent', slug: 'justina-timber', label: 'Justina Timber', role: 'Head of Finance', showInUi: true, inbound: 'worker' },
-  { address: 'julian@dasexperten.com', kind: 'agent', slug: 'julian-farah', label: 'Julian Farah', role: 'GEO Specialist', showInUi: true, inbound: 'worker' },
-  { address: 'lena@dasexperten.com', kind: 'agent', slug: 'lena-sergeeva', label: 'Lena Sergeeva', role: 'Central Executive Officer', showInUi: true, inbound: 'worker' },
-  { address: 'alexandra@dasexperten.com', kind: 'agent', slug: 'alexandra-obnorskaya', label: 'Alexandra Obnorskaya', role: 'Marketplaces', showInUi: true, inbound: 'worker' },
+  { address: 'support@dasexperten.com', kind: 'agent', slug: 'tamara-haar', label: 'Tamara Haar', role: 'Customer Support', showInUi: true, inbound: 'worker' },
+  { address: 'brand@dasexperten.com', kind: 'agent', slug: 'marika-nowicka', label: 'Marika Nowicka', role: 'Head of Brand', showInUi: true, inbound: 'worker', aliases: ['maria@dasexperten.com', 'marika@dasexperten.com'] },
+  { address: 'legal@dasexperten.com', kind: 'agent', slug: 'valentina-korolyeva', label: 'Valentina Korolyeva', role: 'Head of Legal', showInUi: true, inbound: 'worker', aliases: ['valentina@dasexperten.com'] },
+  { address: 'finance@dasexperten.com', kind: 'agent', slug: 'justina-timber', label: 'Justina Timber', role: 'Head of Finance', showInUi: true, inbound: 'worker', aliases: ['justina@dasexperten.com'] },
+  { address: 'partnerships@dasexperten.com', kind: 'agent', slug: 'julian-farah', label: 'Julian Farah', role: 'GEO Specialist', showInUi: true, inbound: 'worker', aliases: ['julian@dasexperten.com'] },
+  { address: 'hr@dasexperten.com', kind: 'agent', slug: 'lena-sergeeva', label: 'Lena Sergeeva', role: 'Central Executive Officer', showInUi: true, inbound: 'worker', aliases: ['lena@dasexperten.com'] },
+  { address: 'vetrova@dasexperten.com', kind: 'agent', slug: 'alexandra-obnorskaya', label: 'Alexandra Obnorskaya', role: 'Marketplaces', showInUi: true, inbound: 'worker', aliases: ['alexandra@dasexperten.com'] },
   // CDN: mina-rutunya.png (+ alias mina.png). Canonical slug = mina-rutunya.
   { address: 'mina@dasexperten.com', kind: 'agent', slug: 'mina-rutunya', label: 'Mina', role: 'Sysadmin', showInUi: true, inbound: 'worker' },
-  { address: 'zina@dasexperten.com', kind: 'agent', slug: 'zina-pevtsova', label: 'Zina Pevtsova', role: 'Logistics', showInUi: true, inbound: 'worker' },
+  { address: 'logistics@dasexperten.com', kind: 'agent', slug: 'zina-pevtsova', label: 'Zina Pevtsova', role: 'Logistics', showInUi: true, inbound: 'worker', aliases: ['zina@dasexperten.com'] },
   { address: 'maya@dasexperten.com', kind: 'agent', slug: 'maya-krasochkina', label: 'Maya Krasochkina', role: 'Operations', showInUi: true, inbound: 'worker' },
-  { address: 'dasha@dasexperten.com', kind: 'agent', slug: 'dasha-kozlovskaya', label: 'Dasha Kozlovskaya', role: 'Ozon Specialist', showInUi: true, inbound: 'worker' },
-  { address: 'arina@dasexperten.com', kind: 'agent', slug: 'arina-volkova', label: 'Arina Volkova', role: 'WB Specialist', showInUi: true, inbound: 'worker' },
+  { address: 'ozon@dasexperten.com', kind: 'agent', slug: 'dasha-kozlovskaya', label: 'Dasha Kozlovskaya', role: 'Ozon Specialist', showInUi: true, inbound: 'worker', aliases: ['dasha@dasexperten.com'] },
+  { address: 'wb@dasexperten.com', kind: 'agent', slug: 'arina-volkova', label: 'Arina Volkova', role: 'WB Specialist', showInUi: true, inbound: 'worker', aliases: ['arina@dasexperten.com'] },
 
   // ── Owner (NOT in Agents UI) ────────────────────────────────────────────
   {
@@ -65,13 +66,10 @@ export const MAILBOX_REGISTRY: MailboxDef[] = [
   },
 
   // ── Departments (functional mailboxes — not "pipes") ────────────────────
-  { address: 'sales@dasexperten.com', kind: 'department', label: 'Sales', role: 'B2B / wholesale', showInUi: true, inbound: 'worker' },
-  { address: 'support@dasexperten.com', kind: 'department', label: 'Support', role: 'Post-sale / retention', showInUi: true, inbound: 'worker' },
   { address: 'eurasia@dasexperten.com', kind: 'department', label: 'Eurasia', role: 'RU / CIS hub', showInUi: true, inbound: 'worker' },
   { address: 'emea@dasexperten.com', kind: 'department', label: 'EMEA', role: 'EN/DE/IT/ES/AR hub', showInUi: true, inbound: 'worker' },
   { address: 'asean@dasexperten.com', kind: 'department', label: 'ASEAN', role: 'SE Asia hub', showInUi: true, inbound: 'worker' },
   { address: 'marketing@dasexperten.com', kind: 'department', label: 'Marketing', role: 'UGC / brand collabs', showInUi: true, inbound: 'worker' },
-  { address: 'partnerships@dasexperten.com', kind: 'department', label: 'Partnerships', role: 'GEO / DA / outreach (Julian owns GEO)', showInUi: true, inbound: 'worker' },
   { address: 'hello@dasexperten.com', kind: 'department', label: 'Hello', role: 'Warm brand front', showInUi: true, inbound: 'worker' },
   { address: 'orders@dasexperten.com', kind: 'department', label: 'Orders', role: 'Order notifications', showInUi: true, inbound: 'worker' },
 ];

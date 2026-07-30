@@ -1522,6 +1522,9 @@ function SkuTable({
               Cartons<SortArrow k="cartons" />
             </th>
             <th className="text-right px-3 py-2">Units</th>
+            <th className="text-right px-3 py-2" title="Days of cover the position will have on the day the container lands — stock minus what sells during the 70-day lead time, plus what is ordered">
+              Cover on arrival
+            </th>
             <th className="text-right px-3 py-2">Volume</th>
             <th className="text-right px-3 py-2">Pallets</th>
             <th className="text-right px-3 py-2">Amount</th>
@@ -1606,6 +1609,11 @@ function SkuTable({
                   </div>
                 </td>
                 <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{units > 0 ? units.toLocaleString() : '—'}</td>
+                <td className="px-3 py-2.5 text-right" style={{ fontWeight: 600, color: '#0C447C' }}>
+                  {units > 0 && r.velocity_per_day > 0
+                    ? Math.round((r.available_stock + units) / r.velocity_per_day - 70) + 'd'
+                    : '—'}
+                </td>
                 <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{volume > 0 ? volume.toFixed(2) : '—'}</td>
                 <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{pallets > 0 ? pallets.toFixed(2) : '—'}</td>
                 <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{amount !== null ? fmtMoney(amount, currency) : '—'}</td>
@@ -1617,6 +1625,7 @@ function SkuTable({
             <td className="px-3 py-2.5" style={{ fontWeight: 700 }} colSpan={6}>TOTAL</td>
             <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{totals.cartons || '—'}</td>
             <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{totals.units > 0 ? totals.units.toLocaleString() : '—'}</td>
+            <td className="px-3 py-2.5 text-right" />
             <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{totals.volume.toFixed(2)}</td>
             <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{totals.pallets.toFixed(2)}</td>
             <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{totals.amount !== null ? fmtMoney(totals.amount, currency) : '—'}</td>

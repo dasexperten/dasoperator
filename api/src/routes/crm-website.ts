@@ -199,6 +199,19 @@ site.post('/tracking', async (c) => {
   const status = body.status === 'delivered' ? 'delivered' : 'shipped';
 
   try {
+    // Read the state BEFORE the write: the shipped mail must fire on the
+    // transition only. Without this an hourly reconciliation poll — or an NSS
+    // webhook retry — re-sends the same tracking mail to the buyer every pass.
+    const prior = await c.env.DB.prepare(
+      `SELECT fulfillment_status, tracking_number FROM crm_orders
+        WHERE source = 'website' AND order_number = ?`
+    )
+      .bind(orderNumber)
+      .first<{ fulfillment_status: string | null; tracking_number: string | null }>();
+    const alreadyAnnounced =
+      !!prior && (prior.fulfillment_status === 'shipped' || prior.fulfillment_status === 'delivered') &&
+      !!prior.tracking_number;
+
     const upd = await c.env.DB.prepare(
       `UPDATE crm_orders
          SET tracking_number = COALESCE(?, tracking_number),
@@ -220,7 +233,7 @@ site.post('/tracking', async (c) => {
       )
         .bind(orderNumber)
         .first<any>();
-      if (row && status === 'shipped') {
+      if (row && status === 'shipped' && !alreadyAnnounced) {
         const data: OrderEmailData = { ...row, items: JSON.parse(row.items ?? '[]') };
         c.executionCtx.waitUntil(
           sendTrackingEmails(c.env, data, {

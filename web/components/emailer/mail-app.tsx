@@ -19,6 +19,7 @@ import {
   FileText, Paperclip, Plus, Reply, Forward, ChevronLeft, ArrowLeft,
   MoreHorizontal, MoreVertical, Mail, AlertCircle, X, Undo2, Loader2,
   ChevronDown, Users, Building2, Menu, Wand2,
+  ArrowDownLeft, ArrowUpRight,
 } from 'lucide-react';
 import {
   getMailboxes,
@@ -1008,7 +1009,12 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                     <div className="rtime">{e.time}</div>
                   </div>
                   <div className={`rsub ${e.unread ? '' : 'read'}`}>{e.subject}</div>
-                  <div className="rprev">{e.direction === 'received' ? '→' : '←'} {e.preview}</div>
+                  <div className="rprev">
+                    {e.direction === 'received'
+                      ? <ArrowDownLeft className="dirarr in" size={13} strokeWidth={3} aria-label="Входящее" />
+                      : <ArrowUpRight className="dirarr out" size={13} strokeWidth={3} aria-label="Отправленное" />}
+                    <span className="rprev-t">{e.preview}</span>
+                  </div>
                   <div className="rtags">
                     <span className="pill" style={{ background: e.tagStyle.bg, color: e.tagStyle.fg }}>
                       <span className="pill-dot" style={{ background: e.tagStyle.dot }} />
@@ -1249,7 +1255,12 @@ function SwipeableRow({
             <div className="mb-rtime">{email.time}</div>
           </div>
           <div className={`mb-rsub ${email.unread ? '' : 'read'}`}>{email.subject}</div>
-          <div className="mb-rprev">{email.direction === 'received' ? '→' : '←'} {email.preview}</div>
+          <div className="mb-rprev">
+            {email.direction === 'received'
+              ? <ArrowDownLeft className="dirarr in" size={14} strokeWidth={3} aria-label="Входящее" />
+              : <ArrowUpRight className="dirarr out" size={14} strokeWidth={3} aria-label="Отправленное" />}
+            <span className="mb-rprev-t">{email.preview}</span>
+          </div>
           <div className="mb-rtags">
             <span className="pill" style={{ background: email.tagStyle.bg, color: email.tagStyle.fg }}>
               <span className="pill-dot" style={{ background: email.tagStyle.dot }} />

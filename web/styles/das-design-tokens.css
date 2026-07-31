@@ -665,7 +665,8 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
 .dxmail .rtime { font-size: 11px; font-weight: 700; color: var(--muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .dxmail .rsub { font-size: 13px; font-weight: 800; margin-top: 3px; color: var(--navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dxmail .rsub.read { font-weight: 700; color: var(--slate); }
-.dxmail .rprev { font-size: 12px; color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
+.dxmail .rprev { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 3px; display: flex; align-items: center; gap: 5px; min-width: 0; }
+.dxmail .rprev-t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .dxmail .rtags { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
 .dxmail .unread-dot { display: none; }
 
@@ -918,7 +919,14 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
 .dxmail .mb-rtime { font-size: 11px; font-weight: 700; color: var(--muted); flex-shrink: 0; }
 .dxmail .mb-rsub { font-size: 13px; font-weight: 800; margin-top: 3px; }
 .dxmail .mb-rsub.read { font-weight: 700; color: var(--slate); }
-.dxmail .mb-rprev { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.dxmail .mb-rprev { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 2px; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.dxmail .mb-rprev-t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* Direction arrows (Owner 2026-07-31): phone-log semantics.
+   Received = down-left, brand rot. Sent = up-right, apothecary green. */
+.dxmail .dirarr { flex-shrink: 0; }
+.dxmail .dirarr.in { color: var(--brand-rot); }
+.dxmail .dirarr.out { color: var(--status-success); }
+
 .dxmail .mb-rtags { display: flex; align-items: center; gap: 7px; margin-top: 8px; flex-wrap: wrap; }
 .dxmail .mb-unread-bar { position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--green); }
 .dxmail .phone .pill { font-size: 10px; padding: 3px 9px; }

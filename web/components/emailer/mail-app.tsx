@@ -815,27 +815,46 @@ function useAgentDraft(
  */
 function useLetterLearn(toast: (t: string, undo?: () => void) => void) {
   const [learning, setLearning] = useState(false);
-  const [report, setReport] = useState<LearnReport | null>(null);
+  // Studied letters are remembered by archive key. A second press on the same
+  // letter re-opens the report instead of spending another model call and
+  // writing a second line into knowledge/sources/log — re-study is explicit.
+  const [reports, setReports] = useState<Record<string, LearnReport>>({});
+  const [openKey, setOpenKey] = useState<string | null>(null);
 
   const run = useCallback(
-    async (item: MailItem | null) => {
+    async (item: MailItem | null, force = false) => {
       if (!item || learning) return;
+      if (!force && reports[item.key]) {
+        setOpenKey(item.key);
+        return;
+      }
       setLearning(true);
-      setReport(null);
+      setOpenKey(item.key);
       try {
         const r = await learnFromLetter({ key: item.key });
-        if (r.success && r.result) setReport(r.result);
-        else toast(r.error || 'Учи не удалось');
+        if (r.success && r.result) {
+          setReports((prev) => ({ ...prev, [item.key]: r.result as LearnReport }));
+        } else {
+          setOpenKey(null);
+          toast(r.error || 'Learn failed');
+        }
       } catch {
-        toast('Учи не удалось');
+        setOpenKey(null);
+        toast('Learn failed');
       } finally {
         setLearning(false);
       }
     },
-    [learning, toast]
+    [learning, reports, toast]
   );
 
-  return { learning, report, run, clear: () => setReport(null) };
+  return {
+    learning,
+    run,
+    studied: (key?: string) => !!(key && reports[key]),
+    reportFor: (key?: string) => (key && openKey === key ? reports[key] || null : null),
+    close: () => setOpenKey(null),
+  };
 }
 
 function mailboxUnread(items: MailItem[], m: UiMailbox): number {
@@ -1387,41 +1406,48 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                 </div>
               </div>
 
-              {letterLearn.report && (
+              {letterLearn.reportFor(selected.key) && (
                 <div className="learncard">
                   <div className="learncard-tri" />
                   <div className="learncard-body">
                     <div className="learncard-head">
-                      <span className="learncard-who">{letterLearn.report.agentName}</span>
-                      {letterLearn.report.ownerMail && <span className="learncard-tag">указание владельца</span>}
-                      <button className="learncard-x" onClick={letterLearn.clear} aria-label="Закрыть">
+                      <span className="learncard-who">{letterLearn.reportFor(selected.key)!.agentName}</span>
+                      {letterLearn.reportFor(selected.key)!.ownerMail && <span className="learncard-tag">указание владельца</span>}
+                      <button className="learncard-x" onClick={letterLearn.close} aria-label="Закрыть">
                         <X size={13} />
                       </button>
                     </div>
-                    {letterLearn.report.summary && (
-                      <div className="learncard-sum">{letterLearn.report.summary}</div>
+                    {letterLearn.reportFor(selected.key)!.summary && (
+                      <div className="learncard-sum">{letterLearn.reportFor(selected.key)!.summary}</div>
                     )}
-                    {letterLearn.report.newIntel.length > 0 && (
+                    {letterLearn.reportFor(selected.key)!.newIntel.length > 0 && (
                       <div className="learncard-sec">
                         <div className="learncard-lab">Новое для меня</div>
-                        <ul>{letterLearn.report.newIntel.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                        <ul>{letterLearn.reportFor(selected.key)!.newIntel.map((x, i) => <li key={i}>{x}</li>)}</ul>
                       </div>
                     )}
-                    {letterLearn.report.lessons.length > 0 && (
+                    {letterLearn.reportFor(selected.key)!.lessons.length > 0 && (
                       <div className="learncard-sec">
                         <div className="learncard-lab">В playbook</div>
-                        <ul>{letterLearn.report.lessons.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                        <ul>{letterLearn.reportFor(selected.key)!.lessons.map((x, i) => <li key={i}>{x}</li>)}</ul>
                       </div>
                     )}
-                    {letterLearn.report.alreadyKnew.length > 0 && (
+                    {letterLearn.reportFor(selected.key)!.alreadyKnew.length > 0 && (
                       <div className="learncard-sec learncard-dim">
                         <div className="learncard-lab">Уже знала</div>
-                        <ul>{letterLearn.report.alreadyKnew.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                        <ul>{letterLearn.reportFor(selected.key)!.alreadyKnew.map((x, i) => <li key={i}>{x}</li>)}</ul>
                       </div>
                     )}
-                    {letterLearn.report.nothingNew && (
+                    {letterLearn.reportFor(selected.key)!.nothingNew && (
                       <div className="learncard-none">Нового нет — источник ничего не добавил сверх устава и playbook.</div>
                     )}
+                    <button
+                      className="learncard-again"
+                      onClick={() => letterLearn.run(selected, true)}
+                      disabled={letterLearn.learning}
+                    >
+                      Изучить заново
+                    </button>
                   </div>
                 </div>
               )}
@@ -1435,12 +1461,13 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                   onKeyDown={(e) => { if (e.key === 'Enter') submitReply(); }}
                 />
                 <button
-                  className="learnb"
+                  className={letterLearn.studied(selected.key) ? "learnb learnb-done" : "learnb"}
                   onClick={() => letterLearn.run(selected)}
                   disabled={letterLearn.learning || agentDraft.drafting}
-                  title="Агент изучит письмо и скажет, что в нём для него нового"
+                  title={letterLearn.studied(selected.key) ? "Уже изучено — открыть отчёт" : "Агент изучит письмо и скажет, что в нём для него нового"}
                 >
-                  {letterLearn.learning ? <Loader2 size={13} className="dxmail-spin" /> : <GraduationCap size={13} />} Учи
+                  {letterLearn.learning ? <Loader2 size={13} className="dxmail-spin" /> : <GraduationCap size={13} />}
+                  {letterLearn.studied(selected.key) ? 'Learned' : 'Learn'}
                 </button>
                 <button
                   className="draftb"

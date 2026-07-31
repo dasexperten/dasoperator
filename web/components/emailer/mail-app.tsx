@@ -19,7 +19,7 @@ import {
   FileText, Paperclip, Plus, Reply, Forward, ChevronLeft, ArrowLeft,
   MoreHorizontal, MoreVertical, Mail, AlertCircle, X, Undo2, Loader2,
   ChevronDown, Users, Building2, Menu, Wand2,
-  ArrowDownLeft, ArrowUpRight, Languages,
+  ArrowDownLeft, ArrowUpRight, Languages, GraduationCap,
 } from 'lucide-react';
 import {
   getMailboxes,
@@ -30,7 +30,9 @@ import {
   sendReply,
   draftAgentReply,
   translateEmail,
+  learnFromLetter,
 } from '@/lib/api';
+import type { LearnReport } from '@/lib/api';
 import { correspondent, displayName, emailAddr } from './shared';
 import {
   AGENT_MAILBOXES,
@@ -694,6 +696,36 @@ function useAgentDraft(
   return { drafting, run };
 }
 
+/**
+ * Учи — the seat studies this letter and reports only what is NEW for it
+ * (Lena's novelty law, Owner 2026-07-19). Engine lives on the org board;
+ * this hook only hands over the archive key. Nothing is sent anywhere.
+ */
+function useLetterLearn(toast: (t: string, undo?: () => void) => void) {
+  const [learning, setLearning] = useState(false);
+  const [report, setReport] = useState<LearnReport | null>(null);
+
+  const run = useCallback(
+    async (item: MailItem | null) => {
+      if (!item || learning) return;
+      setLearning(true);
+      setReport(null);
+      try {
+        const r = await learnFromLetter({ key: item.key });
+        if (r.success && r.result) setReport(r.result);
+        else toast(r.error || 'Учи не удалось');
+      } catch {
+        toast('Учи не удалось');
+      } finally {
+        setLearning(false);
+      }
+    },
+    [learning, toast]
+  );
+
+  return { learning, report, run, clear: () => setReport(null) };
+}
+
 function mailboxUnread(items: MailItem[], m: UiMailbox): number {
   const set = new Set(addressesForMailbox(m));
   return items.filter((i) => i.folder === 'inbox' && i.unread && set.has(i.mailbox.toLowerCase())).length;
@@ -870,6 +902,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [compose, setCompose] = useState<ComposeInit | null>(null);
   const agentDraft = useAgentDraft(setCompose, toast);
+  const letterLearn = useLetterLearn(toast);
   const [replyText, setReplyText] = useState('');
   const [replySending, setReplySending] = useState(false);
   const replyRef = useRef<HTMLInputElement>(null);
@@ -1212,6 +1245,45 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                 </div>
               </div>
 
+              {letterLearn.report && (
+                <div className="learncard">
+                  <div className="learncard-tri" />
+                  <div className="learncard-body">
+                    <div className="learncard-head">
+                      <span className="learncard-who">{letterLearn.report.agentName}</span>
+                      {letterLearn.report.ownerMail && <span className="learncard-tag">указание владельца</span>}
+                      <button className="learncard-x" onClick={letterLearn.clear} aria-label="Закрыть">
+                        <X size={13} />
+                      </button>
+                    </div>
+                    {letterLearn.report.summary && (
+                      <div className="learncard-sum">{letterLearn.report.summary}</div>
+                    )}
+                    {letterLearn.report.newIntel.length > 0 && (
+                      <div className="learncard-sec">
+                        <div className="learncard-lab">Новое для меня</div>
+                        <ul>{letterLearn.report.newIntel.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                      </div>
+                    )}
+                    {letterLearn.report.lessons.length > 0 && (
+                      <div className="learncard-sec">
+                        <div className="learncard-lab">В playbook</div>
+                        <ul>{letterLearn.report.lessons.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                      </div>
+                    )}
+                    {letterLearn.report.alreadyKnew.length > 0 && (
+                      <div className="learncard-sec learncard-dim">
+                        <div className="learncard-lab">Уже знала</div>
+                        <ul>{letterLearn.report.alreadyKnew.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                      </div>
+                    )}
+                    {letterLearn.report.nothingNew && (
+                      <div className="learncard-none">Нового нет — источник ничего не добавил сверх устава и playbook.</div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="replybar">
                 <input
                   ref={replyRef}
@@ -1220,6 +1292,14 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                   onChange={(e) => setReplyText(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') submitReply(); }}
                 />
+                <button
+                  className="learnb"
+                  onClick={() => letterLearn.run(selected)}
+                  disabled={letterLearn.learning || agentDraft.drafting}
+                  title="Агент изучит письмо и скажет, что в нём для него нового"
+                >
+                  {letterLearn.learning ? <Loader2 size={13} className="dxmail-spin" /> : <GraduationCap size={13} />} Учи
+                </button>
                 <button
                   className="draftb"
                   onClick={() => agentDraft.run(selected, body)}
@@ -1400,6 +1480,7 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
   const [openedId, setOpenedId] = useState<string | null>(null);
   const [compose, setCompose] = useState<ComposeInit | null>(null);
   const agentDraft = useAgentDraft(setCompose, toast);
+  const letterLearn = useLetterLearn(toast);
   const [replyText, setReplyText] = useState('');
   const [replySending, setReplySending] = useState(false);
   // Left drawer = desktop agents/folders sidebar (Owner: burger opens side box)

@@ -3098,3 +3098,52 @@ export async function getEmailHealth() {
 export async function resyncPrices(apply: boolean = true) {
   return apiPost('/api/admin/resync-prices', { apply });
 }
+
+// -----------------------------------------------------------------------------
+// Учи — study one archived letter as the mailbox owner (Owner 2026-07-31).
+// The engine is the org board's learn-from-source; this only hands it the letter.
+// Reports only what is NEW for that seat vs its charter, skills and playbook.
+// -----------------------------------------------------------------------------
+export interface LearnReport {
+  agent: string;
+  agentName: string;
+  mailbox: string;
+  subject: string;
+  from: string;
+  ownerMail: boolean;
+  summary: string;
+  newIntel: string[];
+  alreadyKnew: string[];
+  lessons: string[];
+  nothingNew: boolean;
+  report: string;
+}
+
+export async function learnFromLetter(input: {
+  key: string;
+  note?: string;
+}): Promise<{ success: boolean; result?: LearnReport; error?: string }> {
+  const token =
+    typeof window !== 'undefined' ? window.localStorage.getItem('dx_auth_token') : null;
+  try {
+    const res = await fetch(`${API_BASE}/api/email/learn`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(input),
+    });
+    const json = (await res.json()) as {
+      success?: boolean;
+      result?: LearnReport;
+      errors?: Array<{ message?: string }>;
+    };
+    if (!json.success || !json.result) {
+      return { success: false, error: json.errors?.[0]?.message || 'Учи не удалось' };
+    }
+    return { success: true, result: json.result };
+  } catch {
+    return { success: false, error: 'Учи не удалось — сеть' };
+  }
+}

@@ -806,6 +806,49 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
 .dxmail .draftb:hover:not(:disabled) { border-color: var(--green); background: var(--mail-ring); }
 .dxmail .draftb:disabled { opacity: 0.55; cursor: default; }
 
+/* Учи — study, not send. Ink outline keeps it visually below both the draft
+   button and the send button: it changes nothing outside the agent's own head. */
+.dxmail .learnb {
+  background: transparent; color: var(--brand-schwarz, #282229);
+  border: 1px solid var(--line); border-radius: 9px;
+  padding: 11px 16px;
+  font-family: 'Manrope', sans-serif; font-weight: 700; font-size: 13px;
+  display: flex; align-items: center; gap: 7px;
+  cursor: pointer; white-space: nowrap;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.dxmail .learnb:hover:not(:disabled) { border-color: var(--brand-schwarz, #282229); background: var(--paper-sunk, #F3F0E8); }
+.dxmail .learnb:disabled { opacity: 0.55; cursor: default; }
+
+/* Report card — paper, hairline, tricolour rule on top (Marika, 2026-07-31). */
+.dxmail .learncard {
+  margin: 0 14px 10px; border-radius: 10px; overflow: hidden;
+  background: var(--paper-raised, #fff);
+  box-shadow: 0 4px 16px -6px rgba(26,21,25,.12), 0 0 0 1px rgba(26,21,25,.08);
+}
+.dxmail .learncard-tri {
+  height: 3px;
+  background: linear-gradient(90deg, #282229 0 33.33%, #E5202C 33.33% 66.66%, #FEF004 66.66% 100%);
+}
+.dxmail .learncard-body { padding: 14px 16px; }
+.dxmail .learncard-head { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; }
+.dxmail .learncard-who { font-family: 'Manrope', sans-serif; font-weight: 800; font-size: 15px; }
+.dxmail .learncard-tag {
+  font-size: 11px; font-weight: 700; color: #E5202C;
+  border: 1px solid rgba(229,32,44,.35); border-radius: 4px; padding: 2px 7px;
+}
+.dxmail .learncard-x {
+  margin-left: auto; background: transparent; border: 0; cursor: pointer;
+  color: var(--stone-300, #9C9384); display: flex; align-items: center;
+}
+.dxmail .learncard-sum { font-size: 14px; line-height: 1.5; margin-bottom: 10px; }
+.dxmail .learncard-sec { margin-top: 9px; padding-top: 9px; border-top: 1px solid rgba(26,21,25,.08); }
+.dxmail .learncard-lab { font-size: 12px; color: var(--stone-400, #6E6558); margin-bottom: 5px; }
+.dxmail .learncard-sec ul { margin: 0; padding-left: 18px; }
+.dxmail .learncard-sec li { font-size: 13.5px; line-height: 1.5; margin-bottom: 3px; }
+.dxmail .learncard-dim li { color: var(--stone-400, #6E6558); }
+.dxmail .learncard-none { font-size: 13.5px; color: var(--stone-400, #6E6558); margin-top: 8px; }
+
 .dxmail .nosel {
   flex: 1; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 12px;

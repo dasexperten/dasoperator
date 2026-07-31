@@ -223,6 +223,8 @@ interface MailItem {
   priority: 'high' | 'normal';
   folder: FolderId;      // resolved folder after local curation
   agent?: string;        // author slug — a letter belongs to the person, not only the mailbox
+  messageId?: string;    // this letter's own Message-ID
+  parentId?: string;     // Message-ID of the letter this one replies to
 }
 
 // ---- localStorage curation sets -------------------------------------------
@@ -261,6 +263,10 @@ function useMailData() {
     key: string; mailbox: string; direction: 'sent' | 'received'; timestamp: string;
     subject: string; from?: string; to?: string | string[]; origin?: 'human' | 'auto'; trigger?: string;
     agent?: string;   // roster slug of the person who wrote it, e.g. 'julian-farah'
+    // Both arrive from the archive index and were being dropped on the floor.
+    // threadId is NOT a conversation id — archiveEmail stores In-Reply-To in it,
+    // i.e. a pointer to the PARENT letter. See buildThreads().
+    messageId?: string; threadId?: string;
   }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -350,6 +356,8 @@ function useMailData() {
           priority: (e.direction === 'received' && attentionAddrs.has(bare) ? 'high' : 'normal') as 'high' | 'normal',
           folder,
           agent: e.agent,
+          messageId: e.messageId,
+          parentId: e.threadId,
         };
       })
       .filter(Boolean) as MailItem[];
@@ -569,6 +577,110 @@ function replySubject(subject: string): string {
 // Owner 2026-07-29: the agent drafts, the human sends. This hook has no send
 // path at all — it opens the compose window with the text filled in, and the
 // existing Отправить button stays the only way out (HARD_RULES §0).
+// =============================================================================
+// Threads (Owner 2026-07-31) — Gmail-style conversation grouping.
+//
+// The archive gives us two headers per letter: its own Message-ID and, in the
+// field named threadId, the In-Reply-To of its parent. That name is a lie: it
+// is a PARENT POINTER, not a conversation id. A four-letter exchange carries
+// three different values plus an empty one at the root, so grouping by it
+// directly shatters the conversation.
+//
+// So we union-find instead: every parent pointer is an edge, and letters with
+// no usable headers fall back to a key of normalised subject + counterparty.
+// That fallback is deliberately narrow — subject alone would happily merge two
+// unrelated "Заказ" letters from different companies.
+// =============================================================================
+
+interface Thread {
+  /** The newest letter — what the list row shows. */
+  head: MailItem;
+  /** Oldest → newest, always contains head. */
+  letters: MailItem[];
+  count: number;
+  unread: boolean;
+  starred: boolean;
+  /** Distinct counterparty names, oldest first — the Gmail participant line. */
+  people: string[];
+}
+
+const REPLY_PREFIX = /^\s*(?:(?:re|fwd|fw|ответ|отв|пересл|переслано)\s*(?:\[\d+\])?\s*:\s*)+/i;
+
+function normSubject(subject: string): string {
+  return subject.replace(REPLY_PREFIX, '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/** Disjoint-set over letter ids. */
+function makeUnionFind() {
+  const parent = new Map<string, string>();
+  const find = (x: string): string => {
+    let r = parent.get(x) ?? x;
+    if (r === x) { parent.set(x, x); return x; }
+    r = find(r);
+    parent.set(x, r);
+    return r;
+  };
+  const union = (a: string, b: string) => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+  return { find, union };
+}
+
+function buildThreads(items: MailItem[]): Thread[] {
+  const uf = makeUnionFind();
+  const byMessageId = new Map<string, string>();   // Message-ID → letter id
+  const bySubjectKey = new Map<string, string>();  // fallback key → letter id
+
+  for (const it of items) {
+    uf.find(it.id);
+    if (it.messageId && !byMessageId.has(it.messageId)) byMessageId.set(it.messageId, it.id);
+  }
+
+  for (const it of items) {
+    // Edge 1: this letter answers a letter we also hold.
+    if (it.parentId) {
+      const parentLetter = byMessageId.get(it.parentId);
+      if (parentLetter) uf.union(it.id, parentLetter);
+    }
+    // Edge 2: same normalised subject with the same counterparty.
+    const subj = normSubject(it.subject);
+    if (subj.length >= 4) {
+      const key = `${subj}::${it.org.toLowerCase()}`;
+      const seen = bySubjectKey.get(key);
+      if (seen) uf.union(it.id, seen);
+      else bySubjectKey.set(key, it.id);
+    }
+  }
+
+  const buckets = new Map<string, MailItem[]>();
+  for (const it of items) {
+    const root = uf.find(it.id);
+    const b = buckets.get(root);
+    if (b) b.push(it); else buckets.set(root, [it]);
+  }
+
+  const threads: Thread[] = [];
+  for (const letters of Array.from(buckets.values())) {
+    letters.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+    const head = letters[letters.length - 1]!;
+    const people: string[] = [];
+    for (const l of letters) if (!people.includes(l.from)) people.push(l.from);
+    threads.push({
+      head,
+      letters,
+      count: letters.length,
+      unread: letters.some((l) => l.unread),
+      starred: letters.some((l) => l.starred),
+      people,
+    });
+  }
+
+  // Newest conversation first — the list keeps behaving the way it always did.
+  threads.sort((a, b) => (b.head.timestamp || '').localeCompare(a.head.timestamp || ''));
+  return threads;
+}
+
 // =============================================================================
 // Foreign-letter detection (Owner 2026-07-31)
 // A letter that is neither Russian nor English offers a "Перевести" button.
@@ -924,6 +1036,12 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
     return list;
   }, [items, activeFolder, query, scope]);
 
+  const threads = useMemo(() => buildThreads(visible), [visible]);
+  const openThread = useMemo(
+    () => threads.find((t) => t.letters.some((l) => l.id === selectedId)) || null,
+    [threads, selectedId]
+  );
+
   const selected = items.find((e) => e.id === selectedId) || null;
   const { body, loading: bodyLoading } = useMailBody(selected);
   const sel = useSelection(visible);
@@ -1122,17 +1240,23 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
           <div className="rows">
             {loading && <div className="empty"><Loader2 className="dxmail-spin" size={18} /></div>}
             {!loading && error && <div className="empty">{error}</div>}
-            {!loading && !error && visible.length === 0 && <div className="empty">Здесь пока пусто</div>}
-            {visible.map((e) => (
-              <div key={e.id} className={`row ${selectedId === e.id ? 'selected' : ''} ${sel.checked.has(e.id) ? 'checked' : ''} ${e.unread ? 'unread' : ''}`} onClick={() => openEmail(e)}>
+            {!loading && !error && threads.length === 0 && <div className="empty">Здесь пока пусто</div>}
+            {threads.map((t) => {
+              const e = t.head;
+              const inThread = t.letters.some((l) => l.id === selectedId);
+              return (
+              <div key={e.id} className={`row ${inThread ? 'selected' : ''} ${sel.checked.has(e.id) ? 'checked' : ''} ${t.unread ? 'unread' : ''}`} onClick={() => openEmail(e)}>
                 <RowCheck on={sel.checked.has(e.id)} onToggle={() => sel.toggle(e.id)} />
                 <div className="ava" style={{ background: e.color }}>{e.initial}</div>
                 <div className="rmain">
                   <div className="rtop">
-                    <div className={`rfrom ${e.unread ? '' : 'read'}`}>{e.from}</div>
+                    <div className={`rfrom ${t.unread ? '' : 'read'}`}>
+                      {t.count > 1 ? t.people.join(', ') : e.from}
+                      {t.count > 1 && <span className="thcount">{t.count}</span>}
+                    </div>
                     <div className="rtime">{e.time}</div>
                   </div>
-                  <div className={`rsub ${e.unread ? '' : 'read'}`}>{e.subject}</div>
+                  <div className={`rsub ${t.unread ? '' : 'read'}`}>{e.subject}</div>
                   <div className="rprev">
                     {e.direction === 'received'
                       ? <ArrowDownLeft className="dirarr in" size={13} strokeWidth={3} aria-label="Входящее" />
@@ -1145,13 +1269,14 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                       {e.tag}
                     </span>
                     {e.priority === 'high' && <span className="prio">СРОЧНО</span>}
-                    <button className={`starb ${e.starred ? 'on' : ''}`} onClick={(ev) => { ev.stopPropagation(); toggleStar(e.id); }} aria-label="Пометить важным">
-                      <Star size={14} fill={e.starred ? '#FFB020' : 'none'} />
+                    <button className={`starb ${t.starred ? 'on' : ''}`} onClick={(ev) => { ev.stopPropagation(); toggleStar(e.id); }} aria-label="Пометить важным">
+                      <Star size={14} fill={t.starred ? '#FFB020' : 'none'} />
                     </button>
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -1227,6 +1352,23 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                   </div>
                 </div>
 
+                {openThread && openThread.count > 1 && (
+                  <div className="thstrip">
+                    {openThread.letters.map((l) => (
+                      <button
+                        key={l.id}
+                        className={`thline ${l.id === selectedId ? 'on' : ''} ${l.unread ? 'unread' : ''}`}
+                        onClick={() => { if (l.id !== selectedId) openEmail(l); }}
+                      >
+                        {l.direction === 'received'
+                          ? <ArrowDownLeft className="dirarr in" size={12} strokeWidth={3} />
+                          : <ArrowUpRight className="dirarr out" size={12} strokeWidth={3} />}
+                        <span className="thwho">{l.from}</span>
+                        <span className="thtime">{l.time}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <div className={`dbody ${body?.html && !(tr.text && !tr.showOriginal) ? 'is-html' : ''}`}>
                   <div className="dbody-inner">
                     {tr.err && <div className="tnote err">{tr.err}</div>}

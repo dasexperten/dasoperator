@@ -16,6 +16,7 @@ import emailReplyRoutes from './routes/email-reply';
 import emailResendRoutes from './routes/email-resend';
 import emailArchiveRoutes from './routes/email-archive';
 import emailStateRoutes from './routes/email-state';
+import emailTranslateRoutes from './routes/email-translate';
 import emailTasksRoutes from './routes/email-tasks';
 import emailAgentDraftRoutes from './routes/email-agent-draft';
 import partnersRoutes from './routes/partners';
@@ -182,6 +183,7 @@ app.route('/api/email', emailReplyRoutes);  // adds /reply — human replies via
 app.route('/api/email', emailResendRoutes);  // adds /resend-send + /archive-sent (Owner Emailer visibility)
 app.route('/api/email', emailArchiveRoutes);  // adds /mailboxes* — R2 Inbox archive read API
 app.route('/api/email', emailStateRoutes);  // adds /read, /unread-count, /attention, /orders — dark UI v3
+app.route('/api/email', emailTranslateRoutes);  // adds /translate — Sonnet, letters that are neither RU nor EN
 app.route('/api/email-tasks', emailTasksRoutes);
 app.route('/api/email-tasks', emailAgentDraftRoutes);  // adds /agent-draft — the agent's own pen
 app.route('/api/sequences', sequencesRoutes);

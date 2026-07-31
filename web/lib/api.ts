@@ -2872,6 +2872,54 @@ export async function sendReply(input: {
 }
 
 /**
+ * Translate a letter that is neither Russian nor English.
+ * Owner 2026-07-31: model is Sonnet, and Sonnet again on the retry — the API
+ * route pins prefer:'anthropic' then prefer:'openrouter', never DeepSeek.
+ * The source language comes back from the model, not from the client detector.
+ */
+export async function translateEmail(input: {
+  text?: string;
+  html?: string;
+  /** Defaults to Russian on the server. */
+  target?: string;
+}): Promise<{
+  success: boolean;
+  translation?: string;
+  sourceLanguage?: string;
+  truncated?: boolean;
+  error?: string;
+}> {
+  const token =
+    typeof window !== 'undefined' ? window.localStorage.getItem('dx_auth_token') : null;
+  try {
+    const res = await fetch(`${API_BASE}/api/email/translate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(input),
+    });
+    const j = (await res.json()) as {
+      success?: boolean;
+      result?: { translation?: string; sourceLanguage?: string; truncated?: boolean };
+      errors?: { message?: string }[];
+    };
+    if (!res.ok || !j.success) {
+      return { success: false, error: j.errors?.[0]?.message || `HTTP ${res.status}` };
+    }
+    return {
+      success: true,
+      translation: j.result?.translation ?? '',
+      sourceLanguage: j.result?.sourceLanguage ?? '',
+      truncated: j.result?.truncated ?? false,
+    };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : 'network error' };
+  }
+}
+
+/**
  * Ask the AGENT — on the agent's own Worker, with its charter, memory and name.
  * Owner 2026-07-30: this used to call the shared drafting service, whose prompt
  * names the Owner as the author, so Lauda's replies went out signed as Aram.

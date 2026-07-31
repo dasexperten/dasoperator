@@ -19,7 +19,7 @@ import {
   FileText, Paperclip, Plus, Reply, Forward, ChevronLeft, ArrowLeft,
   MoreHorizontal, MoreVertical, Mail, AlertCircle, X, Undo2, Loader2,
   ChevronDown, Users, Building2, Menu, Wand2,
-  ArrowDownLeft, ArrowUpRight,
+  ArrowDownLeft, ArrowUpRight, Languages,
 } from 'lucide-react';
 import {
   getMailboxes,
@@ -29,6 +29,7 @@ import {
   markMailRead,
   sendReply,
   draftAgentReply,
+  translateEmail,
 } from '@/lib/api';
 import { correspondent, displayName, emailAddr } from './shared';
 import {
@@ -566,6 +567,95 @@ function replySubject(subject: string): string {
 // Owner 2026-07-29: the agent drafts, the human sends. This hook has no send
 // path at all — it opens the compose window with the text filled in, and the
 // existing Отправить button stays the only way out (HARD_RULES §0).
+// =============================================================================
+// Foreign-letter detection (Owner 2026-07-31)
+// A letter that is neither Russian nor English offers a "Перевести" button.
+// This runs on the client only to decide whether the button appears; the real
+// source language is named by the model in the answer.
+// =============================================================================
+
+const EN_STOPWORDS = new Set([
+  'the','and','of','to','in','is','are','for','with','you','we','your','our','that','this',
+  'have','has','will','can','please','from','it','be','on','at','as','not','was','were','по',
+]);
+
+/** Cheap markup strip so the detector reads prose, not tags. */
+function plainish(src: string): string {
+  return src
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/\S+@\S+\.\S+/g, ' ')
+    .replace(/&[a-z#0-9]+;/gi, ' ');
+}
+
+/**
+ * True when the letter is worth offering a translation for.
+ * Cyrillic → treated as Russian, no button. Non-Latin scripts → always.
+ * Latin → button when the text carries diacritics or too few English stopwords.
+ * Short letters stay silent: under 12 words there is no statistic to trust.
+ */
+function isForeignLetter(raw: string): boolean {
+  const text = plainish(raw || '').trim();
+  if (text.length < 40) return false;
+
+  // No \p{L} here: the build target predates ES6 unicode regex flags.
+  const letters = text.replace(
+    /[^A-Za-z\u00C0-\u024F\u0370-\u03FF\u0400-\u04FF\u0590-\u05FF\u0600-\u06FF\u0900-\u097F\u0E00-\u0E7F\u1EA0-\u1EF9\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]/g,
+    ''
+  );
+  if (letters.length < 30) return false;
+
+  const cyr = (letters.match(/[\u0400-\u04FF]/g) || []).length;
+  if (cyr / letters.length > 0.15) return false;
+
+  // CJK, Arabic, Hebrew, Thai, Devanagari, Hangul, Kana — nothing to argue about.
+  if (/[\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF\u0600-\u06FF\u0590-\u05FF\u0E00-\u0E7F\u0900-\u097F]/.test(text)) {
+    return true;
+  }
+
+  // Latin with diacritics: Polish, German, Vietnamese, French, Turkish, Spanish…
+  if (/[\u00C0-\u017F\u01A0-\u01B0\u1EA0-\u1EF9\u0218-\u021B]/.test(text)) return true;
+
+  const words = text.toLowerCase().match(/[a-z']{2,}/g) || [];
+  if (words.length < 12) return false;
+  const hits = words.filter((w) => EN_STOPWORDS.has(w)).length;
+  return hits / words.length < 0.08;
+}
+
+/** Translation state for the открытое письмо — one letter at a time. */
+function useTranslation(letterId: string | null) {
+  const [text, setText] = useState<string | null>(null);
+  const [lang, setLang] = useState('');
+  const [truncated, setTruncated] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [showOriginal, setShowOriginal] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setText(null); setLang(''); setTruncated(false); setBusy(false); setShowOriginal(false); setErr(null);
+  }, [letterId]);
+
+  const run = useCallback(async (body: { text?: string; html?: string } | null) => {
+    if (!body) return;
+    if (text) { setShowOriginal((v) => !v); return; }
+    setBusy(true); setErr(null);
+    const payload: { text?: string; html?: string } = {};
+    if (body.text) payload.text = body.text;
+    else if (body.html) payload.html = body.html;
+    const r = await translateEmail(payload);
+    setBusy(false);
+    if (!r.success) { setErr(r.error || 'Не удалось перевести'); return; }
+    setText(r.translation || '');
+    setLang(r.sourceLanguage || '');
+    setTruncated(Boolean(r.truncated));
+    setShowOriginal(false);
+  }, [text]);
+
+  return { text, lang, truncated, busy, showOriginal, err, run };
+}
+
 function useAgentDraft(
   openCompose: (init: ComposeInit) => void,
   toast: (t: string, undo?: () => void) => void
@@ -787,6 +877,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
   const [agentsOpen, setAgentsOpen] = useState(true);
   const [deptsOpen, setDeptsOpen] = useState(true);
   const { listWidth, onSplitterDown } = useListPaneResize();
+  const tr = useTranslation(selectedId);
 
   const visible = useMemo(() => {
     let list = items.filter((e) => passesFolder(e, activeFolder, Boolean(scope)));
@@ -1062,6 +1153,17 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                     <div className="dmeta">{selected.from} · {selected.org} · {selected.time}</div>
                   </div>
                   <div className="dactions">
+                    {isForeignLetter(body?.text || body?.html || '') && (
+                      <button
+                        className={`ibtn tbtn ${tr.text && !tr.showOriginal ? 'on' : ''}`}
+                        onClick={() => tr.run(body)}
+                        disabled={tr.busy}
+                        title={tr.lang ? `Оригинал: ${tr.lang}` : 'Перевести письмо на русский'}
+                      >
+                        {tr.busy ? <Loader2 size={15} className="dxmail-spin" /> : <Languages size={15} />}
+                        <span>{tr.text && !tr.showOriginal ? 'Оригинал' : 'Перевести'}</span>
+                      </button>
+                    )}
                     <button className="ibtn" onClick={() => replyRef.current?.focus()} aria-label="Ответить"><Reply size={15} /></button>
                     <button
                       className="ibtn"
@@ -1092,8 +1194,21 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                   </div>
                 </div>
 
-                <div className="dbody">
-                  <BodyView item={selected} body={body} loading={bodyLoading} />
+                <div className={`dbody ${body?.html && !(tr.text && !tr.showOriginal) ? 'is-html' : ''}`}>
+                  <div className="dbody-inner">
+                    {tr.err && <div className="tnote err">{tr.err}</div>}
+                    {tr.text && !tr.showOriginal ? (
+                      <>
+                        <div className="tnote">
+                          Перевод с языка: {tr.lang || 'не определён'} · Sonnet
+                          {tr.truncated ? ' · длинное письмо переведено не полностью' : ''}
+                        </div>
+                        {linkifyText(tr.text)}
+                      </>
+                    ) : (
+                      <BodyView item={selected} body={body} loading={bodyLoading} />
+                    )}
+                  </div>
                 </div>
               </div>
 

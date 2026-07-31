@@ -709,14 +709,33 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
   box-shadow: 0 1px 2px rgba(14, 31, 46, 0.04);
 }
 .dxmail .ibtn:hover { border-color: var(--green); color: var(--green-dark); background: var(--green-soft); }
+/* Перевести / Оригинал — a labelled ibtn, active state while the translation
+   is on screen. Owner 2026-07-31. */
+.dxmail .tbtn { display: flex; align-items: center; gap: 6px; padding: 7px 11px; font-family: 'Manrope', sans-serif; font-size: 12px; font-weight: 800; letter-spacing: 0; }
+.dxmail .tbtn.on { border-color: var(--green); color: var(--green-dark); background: var(--green-soft); }
+.dxmail .tbtn:disabled { opacity: 0.6; cursor: default; }
+.dxmail .tnote { font-size: 12px; font-weight: 800; color: var(--slate); background: var(--panel); border-radius: 10px; padding: 8px 12px; margin-bottom: 18px; white-space: normal; }
+.dxmail .tnote.err { color: #E5484D; background: #FFEEEE; }
 
-/* Reading measure, not panel width — long letters stop being a wall. */
+/* The scroller owns the FULL panel width so its bar sits on the panel's own
+   right edge (Owner 2026-07-31). The 74ch reading measure moved down to the
+   inner wrapper — it shapes the text, it no longer shapes the scrollbar. */
 .dxmail .dbody {
-  flex: 1; overflow-y: auto;
+  flex: 1; overflow-y: auto; min-height: 0;
+  padding: 0;
+}
+.dxmail .dbody-inner {
   padding: 28px 30px 30px;
   max-width: 74ch;
   font-size: 15px; font-weight: 600; line-height: 1.75;
   color: var(--stone-500); white-space: pre-wrap;
+}
+/* An HTML letter carries its own layout, usually 600px+ wide. Squeezing it into
+   the plain-text measure broke sender markup and produced two nested scrollers.
+   It gets the whole panel and scrolls inside its own frame. */
+.dxmail .dbody.is-html { overflow: hidden; }
+.dxmail .dbody.is-html .dbody-inner {
+  max-width: none; padding: 0; height: 100%; white-space: normal;
 }
 /* Owner 2026-07-26: a link in a letter is clickable and opens in a new tab. */
 .dxmail .dbody a, .dxmail .dtext a {

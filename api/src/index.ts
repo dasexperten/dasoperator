@@ -15,6 +15,7 @@ import emailSendRoutes from './routes/email-send';
 import emailReplyRoutes from './routes/email-reply';
 import emailResendRoutes from './routes/email-resend';
 import emailArchiveRoutes from './routes/email-archive';
+import emailLearnRoutes from './routes/email-learn';
 import emailStateRoutes from './routes/email-state';
 import emailTranslateRoutes from './routes/email-translate';
 import emailTasksRoutes from './routes/email-tasks';
@@ -181,7 +182,8 @@ app.route('/api/email', emailRoutes);
 app.route('/api/email', emailSendRoutes);  // adds /test — Cloudflare Email Sending (notify.dasexperten.com)
 app.route('/api/email', emailReplyRoutes);  // adds /reply — human replies via Resend + R2 sent archive
 app.route('/api/email', emailResendRoutes);  // adds /resend-send + /archive-sent (Owner Emailer visibility)
-app.route('/api/email', emailArchiveRoutes);  // adds /mailboxes* — R2 Inbox archive read API
+app.route('/api/email', emailArchiveRoutes);
+app.route('/api/email', emailLearnRoutes);   // adds /learn — Учи on a letter (board engine, Owner 2026-07-31)  // adds /mailboxes* — R2 Inbox archive read API
 app.route('/api/email', emailStateRoutes);  // adds /read, /unread-count, /attention, /orders — dark UI v3
 app.route('/api/email', emailTranslateRoutes);  // adds /translate — Sonnet, letters that are neither RU nor EN
 app.route('/api/email-tasks', emailTasksRoutes);

@@ -61,6 +61,7 @@ export interface Env {
   BACKFILL_SECRET?: string;
   /** Shared secret for agent/harness → POST /api/email/resend-send | archive-sent */
   EMAILER_SERVICE_SECRET?: string;
+  DASORG_API_KEY?: string;   // org board — Учи engine (organizacia/api/learn-from-source.mjs)
 
   // Secrets (Phase 5.x — LLM integration)
   // Set via Cloudflare Workers secrets, never committed to repo.

@@ -174,6 +174,29 @@ async function storeAttachments(
   return out;
 }
 
+/**
+ * Sender authentication verdict, taken from the Authentication-Results header
+ * Cloudflare writes on inbound (HARD_RULES §6.0b, Owner 2026-08-01).
+ *
+ *  pass  — DMARC passed AND the envelope sender is aligned with the From domain
+ *  fail  — an explicit failure was reported
+ *  none  — no verdict was present (not a pass; the header may simply be absent)
+ *
+ * Only `pass` may unlock the Owner-mail privilege. The From header alone
+ * grants nothing: it is forgeable in a minute.
+ */
+export interface MailAuth {
+  dmarc: 'pass' | 'fail' | 'none';
+  spf: 'pass' | 'fail' | 'none';
+  dkim: 'pass' | 'fail' | 'none';
+  /** Envelope sender domain equals the From domain. */
+  aligned: boolean;
+  /** True only when dmarc === 'pass' && aligned. Nothing else is trusted. */
+  verified: boolean;
+  /** The raw header, kept so a verdict can always be re-read by a human. */
+  raw?: string | undefined;
+}
+
 export interface ArchiveEmailInput {
   to?: string | string[] | undefined;
   from?: string | undefined;
@@ -186,6 +209,7 @@ export interface ArchiveEmailInput {
   threadId?: string | undefined;
   origin?: MailOrigin | undefined;
   trigger?: string | undefined;
+  auth?: MailAuth | undefined;
   /** Raw parser output. Stripped before the record is written — bytes go to
    *  their own R2 objects, only metadata stays in the JSON. */
   attachments?: RawAttachment[] | undefined;
@@ -202,6 +226,9 @@ export interface IndexEntry {
   threadId?: string | undefined;
   origin?: MailOrigin | undefined;
   trigger?: string | undefined;
+  auth?: MailAuth | undefined;
+  /** Which agent wrote this — the Owner's rule of 2026-07-26. */
+  agent?: string | undefined;
   attachmentCount?: number | undefined;
 }
 
@@ -299,6 +326,7 @@ export async function archiveEmail(
       threadId: payload.threadId,
       origin: payload.origin,
       trigger: payload.trigger,
+      ...(payload.auth ? { auth: payload.auth } : {}),
       ...(stored.length ? { attachmentCount: stored.filter((a) => a.key).length } : {}),
     });
   } catch (err) {

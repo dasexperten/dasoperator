@@ -3111,6 +3111,8 @@ export interface LearnReport {
   subject: string;
   from: string;
   ownerMail: boolean;
+  /** Claims one of the Owner's addresses but the sender did not verify. */
+  unverifiedOwnerClaim: boolean;
   summary: string;
   newIntel: string[];
   alreadyKnew: string[];

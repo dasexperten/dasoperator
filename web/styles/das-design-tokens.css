@@ -840,6 +840,10 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
   text-underline-offset: 3px;
 }
 .dxmail .learncard-again:disabled { opacity: 0.5; cursor: default; }
+.dxmail .learncard-warn {
+  font-size: 11px; font-weight: 700; color: #C77A00;
+  border: 1px solid rgba(199,122,0,.4); border-radius: 4px; padding: 2px 7px;
+}
 .dxmail .learncard-scope {
   font-size: 11px; font-weight: 700; color: var(--stone-400, #6E6558);
   border: 1px solid rgba(26,21,25,.14); border-radius: 4px; padding: 2px 7px;

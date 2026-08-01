@@ -1417,6 +1417,9 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                     <div className="learncard-head">
                       <span className="learncard-who">{letterLearn.reportFor(selected.key)!.agentName}</span>
                       {letterLearn.reportFor(selected.key)!.ownerMail && <span className="learncard-tag">указание владельца</span>}
+                      {letterLearn.reportFor(selected.key)!.unverifiedOwnerClaim && (
+                        <span className="learncard-warn">отправитель не подтверждён</span>
+                      )}
                       {letterLearn.reportFor(selected.key)!.studied > 1 && (
                         <span className="learncard-scope">
                           вся переписка · {letterLearn.reportFor(selected.key)!.studied} писем

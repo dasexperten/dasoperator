@@ -17,6 +17,7 @@
 
 import PostalMime from 'postal-mime';
 import { archiveEmail } from './inbox-archive';
+import type { MailAuth } from './inbox-archive';
 import { isOwnerGmailOnly, OWNER_PERSONAL_ADDRESS, OWNER_GMAIL_FORWARD } from './mailbox-registry';
 import type { Env } from '../types';
 
@@ -32,6 +33,58 @@ function headerList(value: string | undefined): string[] | undefined {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+// =============================================================================
+// Sender authentication (HARD_RULES §6.0b, Owner 2026-08-01).
+//
+// Cloudflare writes Authentication-Results on inbound. We stored `parsed.from`
+// and dropped the verdict — so a forged From was indistinguishable from a real
+// one. That is tolerable for ordinary mail and NOT tolerable now: a letter from
+// the Owner's three addresses is an instruction that goes straight into an
+// agent's playbook. The lock has to exist before the privilege does.
+//
+// Fail closed: anything we cannot positively verify is 'none', never a pass.
+// =============================================================================
+function verdictFor(header: string, method: 'dmarc' | 'spf' | 'dkim'): 'pass' | 'fail' | 'none' {
+  // e.g. "... dmarc=pass header.from=gmail.com; spf=fail ..."
+  const m = new RegExp(`\\b${method}\\s*=\\s*([a-z]+)`, 'i').exec(header);
+  const v = m?.[1]?.toLowerCase();
+  if (v === 'pass') return 'pass';
+  if (v === 'fail' || v === 'softfail' || v === 'permerror' || v === 'temperror') return 'fail';
+  return 'none';
+}
+
+function domainOf(address: string | undefined): string {
+  const a = (address || '').toLowerCase();
+  const i = a.lastIndexOf('@');
+  return i >= 0 ? a.slice(i + 1).trim() : '';
+}
+
+function readAuth(
+  message: ForwardableEmailMessage,
+  fromAddress: string | undefined
+): MailAuth {
+  const raw = message.headers.get('authentication-results') || '';
+  const dmarc = verdictFor(raw, 'dmarc');
+  const spf = verdictFor(raw, 'spf');
+  const dkim = verdictFor(raw, 'dkim');
+
+  // Alignment: the envelope sender (SMTP MAIL FROM) must share the From domain.
+  // Without it, a DMARC pass earned by some other domain proves nothing about
+  // the address the reader actually sees.
+  const envelope = domainOf(message.from);
+  const header = domainOf(fromAddress);
+  const aligned = !!envelope && !!header && (envelope === header || envelope.endsWith('.' + header));
+
+  return {
+    dmarc,
+    spf,
+    dkim,
+    aligned,
+    verified: dmarc === 'pass' && aligned,
+    ...(raw ? { raw: raw.slice(0, 600) } : {}),
+  };
 }
 
 // Inbound origin: a human counterparty writing in is 'human' by default.
@@ -93,8 +146,12 @@ export async function handleInboundEmail(
     const toList = (parsed.to || []).map((a) => a.address).filter(Boolean) as string[];
     const ccList = (parsed.cc || []).map((a) => a.address).filter(Boolean) as string[];
 
+    const fromAddress = parsed.from?.address || message.from;
+    const auth = readAuth(message, fromAddress);
+
     await archiveEmail(env, 'received', mailbox || (toList[0] ?? 'unknown'), {
-      from: parsed.from?.address || message.from,
+      from: fromAddress,
+      auth,
       to: toList.length ? toList : (message.to || undefined),
       cc: ccList.length ? ccList : undefined,
       subject: parsed.subject || '(no subject)',

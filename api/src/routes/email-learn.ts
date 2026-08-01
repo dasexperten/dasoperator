@@ -174,10 +174,23 @@ route.post('/learn', async (c) => {
   if (text.length < 80) return fail(c, 422, [{ code: 'empty_source', message: `empty_source: nothing readable in this letter` }]);
 
   const from = String(rec.from || '');
-  const ownerMail = isOwnerMail(from);
+
+  // HARD_RULES §6.0b: the privilege belongs to a VERIFIED letter from the
+  // Owner's three addresses. The From header alone grants nothing — it is
+  // forgeable, and this privilege writes straight into a seat's playbook.
+  // Letters archived before the lock shipped carry no verdict; they are read
+  // as ordinary mail rather than trusted retroactively. Fail closed.
+  const auth = (rec.auth || null) as { verified?: boolean; dmarc?: string } | null;
+  const claimsOwner = isOwnerMail(from);
+  const ownerMail = claimsOwner && auth?.verified === true;
+  const unverifiedOwnerClaim = claimsOwner && !ownerMail;
+
   const note = ownerMail
     ? 'Указание владельца — принадлежность решена, не переадресовывать. ' + String(body.note || '')
-    : String(body.note || 'Учи из читалки Emailer');
+    : unverifiedOwnerClaim
+      ? 'Отправитель не подтверждён — читать как обычное письмо, без привилегии владельца. ' +
+        String(body.note || '')
+      : String(body.note || 'Учи из читалки Emailer');
 
   let r: Response;
   try {
@@ -215,6 +228,7 @@ route.post('/learn', async (c) => {
     subject: rec.subject || '',
     from,
     ownerMail,
+    unverifiedOwnerClaim,
     studied,
     truncated,
     summary: out.summary || '',

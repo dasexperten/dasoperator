@@ -152,7 +152,13 @@ route.post('/learn', async (c) => {
       const when = String(r2.timestamp || '').slice(0, 16).replace('T', ' ');
       const who = String(r2.from || '—');
       const dir = String(r2.direction || '') === 'sent' ? 'мы' : 'они';
-      parts.push(`--- ${when} · ${dir} · ${who}\n${b}`);
+      // Numbered so position can never be misread, whichever way it is skimmed.
+      // The transcript itself stays oldest-first: the model has to follow who
+      // asked what before who answered, and the LAST block sits nearest the
+      // question it is answering — which is the block that should weigh most.
+      const n = parts.length + 1;
+      const mark = n === threadKeys.length ? ' · самое новое' : '';
+      parts.push(`--- письмо ${n} из ${threadKeys.length}${mark} · ${when} · ${dir} · ${who}\n${b}`);
     }
     studied = parts.length;
     let joined = parts.join('\n\n');

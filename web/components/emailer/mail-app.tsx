@@ -1373,7 +1373,11 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
 
                 {openThread && openThread.count > 1 && (
                   <div className="thstrip">
-                    {openThread.letters.map((l) => (
+                    {/* Newest first (Owner 2026-08-01). The strip is capped at 168px:
+                        chronological order buried the latest letter below the fold,
+                        which is the one letter you always want first. The underlying
+                        array stays oldest-first — Learn reads it in sequence. */}
+                    {openThread.letters.slice().reverse().map((l) => (
                       <button
                         key={l.id}
                         className={`thline ${l.id === selectedId ? 'on' : ''} ${l.unread ? 'unread' : ''}`}

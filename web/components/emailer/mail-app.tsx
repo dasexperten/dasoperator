@@ -822,7 +822,7 @@ function useLetterLearn(toast: (t: string, undo?: () => void) => void) {
   const [openKey, setOpenKey] = useState<string | null>(null);
 
   const run = useCallback(
-    async (item: MailItem | null, force = false) => {
+    async (item: MailItem | null, threadKeys?: string[], force = false) => {
       if (!item || learning) return;
       if (!force && reports[item.key]) {
         setOpenKey(item.key);
@@ -831,7 +831,7 @@ function useLetterLearn(toast: (t: string, undo?: () => void) => void) {
       setLearning(true);
       setOpenKey(item.key);
       try {
-        const r = await learnFromLetter({ key: item.key });
+        const r = await learnFromLetter({ key: item.key, keys: threadKeys });
         if (r.success && r.result) {
           setReports((prev) => ({ ...prev, [item.key]: r.result as LearnReport }));
         } else {
@@ -1413,6 +1413,12 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                     <div className="learncard-head">
                       <span className="learncard-who">{letterLearn.reportFor(selected.key)!.agentName}</span>
                       {letterLearn.reportFor(selected.key)!.ownerMail && <span className="learncard-tag">указание владельца</span>}
+                      {letterLearn.reportFor(selected.key)!.studied > 1 && (
+                        <span className="learncard-scope">
+                          вся переписка · {letterLearn.reportFor(selected.key)!.studied} писем
+                          {letterLearn.reportFor(selected.key)!.truncated ? ' · ранние отсечены' : ''}
+                        </span>
+                      )}
                       <button className="learncard-x" onClick={letterLearn.close} aria-label="Закрыть">
                         <X size={13} />
                       </button>
@@ -1443,7 +1449,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                     )}
                     <button
                       className="learncard-again"
-                      onClick={() => letterLearn.run(selected, true)}
+                      onClick={() => letterLearn.run(selected, openThread?.letters.map((l) => l.key), true)}
                       disabled={letterLearn.learning}
                     >
                       Изучить заново
@@ -1462,7 +1468,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                 />
                 <button
                   className={letterLearn.studied(selected.key) ? "learnb learnb-done" : "learnb"}
-                  onClick={() => letterLearn.run(selected)}
+                  onClick={() => letterLearn.run(selected, openThread?.letters.map((l) => l.key))}
                   disabled={letterLearn.learning || agentDraft.drafting}
                   title={letterLearn.studied(selected.key) ? "Уже изучено — открыть отчёт" : "Агент изучит письмо и скажет, что в нём для него нового"}
                 >

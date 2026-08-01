@@ -3117,10 +3117,16 @@ export interface LearnReport {
   lessons: string[];
   nothingNew: boolean;
   report: string;
+  /** How many letters of the conversation were actually read. */
+  studied: number;
+  /** True when the oldest turns were dropped to stay within budget. */
+  truncated: boolean;
 }
 
 export async function learnFromLetter(input: {
   key: string;
+  /** The whole conversation, oldest first. Omit to study just `key`. */
+  keys?: string[];
   note?: string;
 }): Promise<{ success: boolean; result?: LearnReport; error?: string }> {
   const token =

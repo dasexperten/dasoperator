@@ -72,12 +72,41 @@ function readableBody(rec: Record<string, unknown>): string {
     .slice(0, 18000);
 }
 
+/** Drop quoted history and signature — a thread already supplies the earlier turns. */
+function stripQuoted(text: string): string {
+  const lines = text.split(/\r?\n/);
+  const out: string[] = [];
+  for (const raw of lines) {
+    const l = raw.trimEnd();
+    // Gmail / Outlook / Apple attribution lines, and the sig delimiter.
+    if (/^\s*[-—]{2,}\s*$/.test(l)) break;
+    if (/^\s*(On .+ wrote:|В .+ (написал|пишет).*:|From:\s|От:\s|-{3,}\s*(Original|Forwarded|Пересланное))/i.test(l)) break;
+    if (/^\s*>/.test(l)) continue;
+    out.push(l);
+  }
+  const body = out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  // If stripping ate almost everything, the heuristic was wrong — keep the original.
+  return body.length >= 40 ? body : text.trim();
+}
+
+/** Newest-last transcript of a conversation, capped so a long thread stays affordable. */
+const THREAD_MAX_LETTERS = 12;
+const THREAD_MAX_CHARS = 18000;
+
 // POST /learn  { key }  — study one archived letter as the mailbox owner.
 route.post('/learn', async (c) => {
   if (!(await requireSession(c))) return fail(c, 401, [{ code: 'unauthorized', message: `unauthorized` }]);
 
-  const body = await c.req.json<{ key?: string; note?: string }>().catch(() => ({}));
-  const key = String(body.key || '').trim();
+  const body = await c.req
+    .json<{ key?: string; keys?: string[]; note?: string }>()
+    .catch(() => ({} as { key?: string; keys?: string[]; note?: string }));
+  // `keys` = the whole conversation, oldest first (the reader groups it).
+  // `key`  = a single letter. The last key is always the one on screen.
+  const threadKeys = (Array.isArray(body.keys) ? body.keys : [])
+    .map((k) => String(k || '').trim())
+    .filter((k) => k.startsWith('Inbox/') && k.endsWith('.json'))
+    .slice(-THREAD_MAX_LETTERS);
+  const key = String(body.key || threadKeys[threadKeys.length - 1] || '').trim();
   if (!key.startsWith('Inbox/') || !key.endsWith('.json')) {
     return fail(c, 400, [{ code: 'bad_key', message: `bad_key: expected an Inbox/<address>/<dir>/<record>.json key` }]);
   }
@@ -102,7 +131,40 @@ route.post('/learn', async (c) => {
     return fail(c, 422, [{ code: 'no_agent_for_mailbox', message: `no_agent_for_mailbox: ${address} is not an agent mailbox` }]);
   }
 
-  const text = readableBody(rec);
+  // One letter or the whole conversation. Quoted history is stripped from each
+  // turn, so a four-letter thread costs four bodies, not ten copies of the first.
+  let text: string;
+  let studied = 1;
+  let truncated = false;
+  if (threadKeys.length > 1) {
+    const parts: string[] = [];
+    for (const k of threadKeys) {
+      const o = k === key ? obj : await c.env.ARCHIVE.get(k);
+      if (!o) continue;
+      let r2: Record<string, unknown>;
+      try {
+        r2 = JSON.parse(await o.text());
+      } catch {
+        continue;
+      }
+      const b = stripQuoted(readableBody(r2));
+      if (b.length < 20) continue;
+      const when = String(r2.timestamp || '').slice(0, 16).replace('T', ' ');
+      const who = String(r2.from || '—');
+      const dir = String(r2.direction || '') === 'sent' ? 'мы' : 'они';
+      parts.push(`--- ${when} · ${dir} · ${who}\n${b}`);
+    }
+    studied = parts.length;
+    let joined = parts.join('\n\n');
+    if (joined.length > THREAD_MAX_CHARS) {
+      // Keep the RECENT turns: the tail of a negotiation is what binds us.
+      joined = joined.slice(joined.length - THREAD_MAX_CHARS);
+      truncated = true;
+    }
+    text = joined;
+  } else {
+    text = readableBody(rec);
+  }
   if (text.length < 80) return fail(c, 422, [{ code: 'empty_source', message: `empty_source: nothing readable in this letter` }]);
 
   const from = String(rec.from || '');
@@ -118,8 +180,10 @@ route.post('/learn', async (c) => {
       headers: { 'X-API-Key': orgKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         text,
-        title: String(rec.subject || '(без темы)').slice(0, 300),
-        source_type: ownerMail ? 'owner-letter' : 'letter',
+        title:
+          (studied > 1 ? `Переписка (${studied} писем): ` : '') +
+          String(rec.subject || '(без темы)').slice(0, 260),
+        source_type: ownerMail ? 'owner-letter' : studied > 1 ? 'thread' : 'letter',
         ref: key,
         note: note.trim().slice(0, 500),
       }),
@@ -145,6 +209,8 @@ route.post('/learn', async (c) => {
     subject: rec.subject || '',
     from,
     ownerMail,
+    studied,
+    truncated,
     summary: out.summary || '',
     newIntel: out.new_intel || [],
     alreadyKnew: out.already_knew || [],

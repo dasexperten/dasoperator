@@ -341,6 +341,10 @@ const createPartnerSchema = z.object({
   email: emailFieldSchema,
   partner_language: z.enum(['EN', 'RU', 'EN-RU', 'EN-AR', 'EN-VI', 'EN-ZH']).optional(),
   notes: z.string().max(2000).nullable().optional(),
+  // Ownership (Owner 2026-08-03). Roster slug or 'owner'. created_by is history
+  // and never moves; owner_agent is the current desk and moves with the work.
+  created_by_agent: z.string().max(60).nullable().optional(),
+  owner_agent: z.string().max(60).nullable().optional(),
 }).refine((d) => d.kind !== undefined || d.partner_type !== undefined, {
   message: 'kind or partner_type is required',
 });
@@ -393,8 +397,9 @@ partners.post('/', async (c) => {
       INSERT INTO partners (
         id, trade_name, legal_name, country, email,
         status, crm_status, partner_type, kind, partner_language, notes,
+        created_by_agent, owner_agent, owner_assigned_at,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'pending', 'lead', ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, 'pending', 'lead', ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       slug,
       data.trade_name,
@@ -405,6 +410,10 @@ partners.post('/', async (c) => {
       kind,
       data.partner_language ?? 'EN',
       data.notes ?? null,
+      // History and current desk start equal and are free to diverge later.
+      data.created_by_agent ?? null,
+      data.owner_agent ?? data.created_by_agent ?? null,
+      (data.owner_agent ?? data.created_by_agent) ? now : null,
       now,
       now
     ).run();

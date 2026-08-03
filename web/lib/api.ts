@@ -2850,6 +2850,8 @@ export interface EmailContextPartner {
   id: string; slug: string; trade_name: string;
   country?: string | null; partner_type?: string | null;
   status?: string | null; email?: string | null;
+  created_by_agent?: string | null;
+  owner_agent?: string | null;
 }
 
 export interface EmailContextOperation {
@@ -2903,6 +2905,7 @@ export async function linkLetterToPartner(input: {
 
 export async function createPartnerQuick(input: {
   trade_name: string; email?: string; kind?: string; country?: string | null;
+  created_by_agent?: string | null; owner_agent?: string | null;
 }) {
   const token = typeof window !== 'undefined' ? window.localStorage.getItem('dx_auth_token') : null;
   const res = await fetch(`${API_BASE}/api/partners`, {

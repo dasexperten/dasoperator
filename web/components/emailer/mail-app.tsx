@@ -674,9 +674,18 @@ function guessTradeName(email: string | null | undefined): string {
   return core.toUpperCase();
 }
 
-function CounterpartyPanel({ ctx, events, loading, mailKey, onChanged }: {
+// Ownership is read off the registry, not guessed and not hard-coded here:
+// the letter landed in someone's box, and that someone is already talking to
+// this company. A department box has no owner — say so rather than invent one.
+function ownerOfMailbox(mailbox: string | undefined): { slug?: string; label: string } {
+  const mb = mailbox ? findUiMailbox(mailbox) : undefined;
+  if (mb?.kind === 'agent' && mb.slug) return { slug: mb.slug, label: mb.label };
+  return { label: 'не закреплён — назначит Лена' };
+}
+
+function CounterpartyPanel({ ctx, events, loading, mailKey, mailbox, onChanged }: {
   ctx: EmailContext | null; events: TimelineEvent[]; loading: boolean;
-  mailKey?: string; onChanged?: () => void;
+  mailKey?: string; mailbox?: string; onChanged?: () => void;
 }) {
   const party = ctx?.link?.counterpartyEmail || '';
   const [name, setName] = useState('');
@@ -689,7 +698,15 @@ function CounterpartyPanel({ ctx, events, loading, mailKey, onChanged }: {
     if (!name.trim() || !mailKey || busy) return;
     setBusy(true);
     try {
-      const created = await createPartnerQuick({ trade_name: name.trim(), email: party || undefined });
+      const owner = ownerOfMailbox(mailbox);
+      const created = await createPartnerQuick({
+        trade_name: name.trim(),
+        email: party || undefined,
+        // Who pressed the button is history; whose desk it lands on is the
+        // agent whose mailbox the letter came to.
+        created_by_agent: 'owner',
+        owner_agent: owner.slug ?? null,
+      });
       const id = created?.result?.partner?.id || created?.result?.id;
       if (id) {
         await linkLetterToPartner({ key: mailKey, partner_id: id, counterparty_email: party || undefined });
@@ -774,7 +791,7 @@ function CounterpartyPanel({ ctx, events, loading, mailKey, onChanged }: {
         </div>
 
         <div style={{ color: PANEL.meta, fontSize: 11, marginTop: 8 }}>
-          Заведётся как лид — тип, страну и реквизиты можно дописать в карточке
+          Заведётся как лид, закрепится за: <span style={{ color: PANEL.soft }}>{ownerOfMailbox(mailbox).label}</span>
         </div>
       </div>
     );
@@ -788,6 +805,12 @@ function CounterpartyPanel({ ctx, events, loading, mailKey, onChanged }: {
           style={{ color: PANEL.text, fontSize: 14, fontWeight: 600, textDecoration: 'none' }}
         >{p.trade_name}</a>
         {p.country && <span style={{ color: PANEL.meta, fontSize: 11 }}>{p.country}</span>}
+        {p.owner_agent && (
+          <span style={{
+            background: PANEL.body, color: PANEL.soft, fontSize: 11,
+            padding: '3px 8px', borderRadius: 20,
+          }}>ведёт {AGENT_MAILBOXES.find((m) => m.slug === p.owner_agent)?.label || p.owner_agent}</span>
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '8px 0 2px' }}>
@@ -1745,6 +1768,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                   events={letterCtx.events}
                   loading={letterCtx.loading}
                   mailKey={selected.key}
+                  mailbox={selected.mailbox}
                   onChanged={letterCtx.refresh}
                 />
 

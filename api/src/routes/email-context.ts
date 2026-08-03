@@ -64,7 +64,8 @@ route.get('/context', async (c) => {
 
     if (link.partner_id) {
       partner = await c.env.DB.prepare(
-        `SELECT id, slug, trade_name, country, partner_type, status, email
+        `SELECT id, slug, trade_name, country, partner_type, status, email,
+                created_by_agent, owner_agent
            FROM partners WHERE id = ?1 LIMIT 1`
       ).bind(link.partner_id).first();
 

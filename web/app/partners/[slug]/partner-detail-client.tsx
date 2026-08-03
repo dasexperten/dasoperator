@@ -9,6 +9,8 @@ import {
   getContractFileUrl,
   deleteOperation, updateOperationStatus,
   getPartnerBankAccounts,
+  getPartnerTimeline,
+  type TimelineEvent,
   type Partner, type Contract, type Operation, type Payment, type PartnerNetBalance,
   type PartnerBankAccount,
 } from '@/lib/api';
@@ -186,6 +188,23 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
   }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Correspondence lives in the R2 archive, not in D1, so it loads on its own
+  // and never delays the card. A partner card that waits for mail to render
+  // banking details is a worse card.
+  const [letters, setLetters] = useState<TimelineEvent[]>([]);
+  const [lettersLoaded, setLettersLoaded] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await getPartnerTimeline(slug, 25);
+        if (alive && r.success) setLetters((r.result?.events || []).filter((e) => e.kind === 'email'));
+      } catch { /* no correspondence is a state, not a failure */ }
+      finally { if (alive) setLettersLoaded(true); }
+    })();
+    return () => { alive = false; };
+  }, [slug]);
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -788,6 +807,59 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
         )}
       </SectionListBlock>
 
+      {/* CORRESPONDENCE SECTION
+          Owner 2026-08-03: the card knew the money and the shipments and not a
+          word of what was actually said. The summary line is computed from the
+          letters themselves — no model, no guessing: who spoke last, how long
+          ago, and whether the ball is on our side. That single line answers
+          "what is happening with this partner" faster than any list. */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 style={{
+            fontFamily: 'var(--font-accent-jakarta)', fontSize: '24px', fontWeight: 800,
+            textTransform: 'uppercase', color: 'var(--fg-1)', lineHeight: 1,
+          }}>Correspondence <span style={{ color: 'var(--fg-3)' }}>{letters.length}</span></h2>
+          <Link href="/emailer" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>Открыть почту →</Link>
+        </div>
+
+        <div style={{
+          border: '1px solid var(--border-hairline)', borderRadius: '8px',
+          backgroundColor: 'var(--paper)', overflow: 'hidden',
+        }}>
+          {!lettersLoaded ? (
+            <EmptyTable message="Загружаю переписку…" />
+          ) : letters.length === 0 ? (
+            <EmptyTable message="Писем нет — либо переписки не было, либо письма ещё не привязаны к этому контрагенту" />
+          ) : (
+            <>
+              <div className="px-4 py-3" style={{ borderBottom: '1px solid var(--border-hairline)', fontSize: '14px', color: 'var(--fg-2)' }}>
+                {correspondenceSummary(letters)}
+              </div>
+              <table className="w-full">
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                    <Th>Направление</Th><Th>Тема</Th><Th>Дата</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {letters.slice(0, 15).map((l, i) => (
+                    <tr key={`${l.at}-${i}`} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+                      <td className="px-4 py-3" style={{ fontSize: '14px', whiteSpace: 'nowrap', color: l.direction === 'sent' ? 'var(--brand-rot)' : 'var(--status-success)' }}>
+                        {l.direction === 'sent' ? '↑ мы' : '↓ они'}
+                      </td>
+                      <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-1)' }}>{l.title}</td>
+                      <td className="px-4 py-3" style={{ fontSize: '14px', color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
+                        {new Date(l.at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+        </div>
+      </div>
+
       {/* PAYMENTS SECTION */}
       <SectionListBlock
         label="Payments"
@@ -900,6 +972,23 @@ function SectionListBlock({
       </div>
     </div>
   );
+}
+
+// Plain arithmetic over the letters, deliberately not an LLM summary: this line
+// must be true every time it renders, and a model that is right nine times out
+// of ten is the wrong tool for a line people will trust without checking.
+function correspondenceSummary(letters: TimelineEvent[]): string {
+  if (letters.length === 0) return '';
+  const sorted = letters.slice().sort((a, b) => b.at - a.at);
+  const last = sorted[0]!;
+  const days = Math.floor((Date.now() - last.at) / 86400000);
+  const when = days === 0 ? 'сегодня' : days === 1 ? 'вчера' : `${days} дн. назад`;
+  const sent = letters.filter((l) => l.direction === 'sent').length;
+
+  if (last.direction === 'received') {
+    return `Последнее письмо ${when} — от них. Ответ за нами. Всего писем ${letters.length}, наших ${sent}.`;
+  }
+  return `Последнее письмо ${when} — наше. Ждём ответа. Всего писем ${letters.length}, наших ${sent}.`;
 }
 
 function Th({ children }: { children: React.ReactNode }) {

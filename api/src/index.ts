@@ -22,6 +22,7 @@ import emailTasksRoutes from './routes/email-tasks';
 import emailAgentDraftRoutes from './routes/email-agent-draft';
 import partnersRoutes from './routes/partners';
 import partnersParseCreate from './routes/partners-parse-create';
+import partnerTimeline from './routes/partner-timeline';
 import sequencesRoutes from './routes/sequences';
 import operationsRoutes from './routes/operations';
 import operationsImportRoutes from './routes/operations-import';
@@ -173,6 +174,7 @@ app.route('/api', directoriesRoutes);  // companies + manufacturers list
 app.route('/api/partners', partnersRoutes);
 app.route('/api/partners', netBalancePerPartner);   // adds :slug/net-balance
 app.route('/api/partners', partnersParseCreate);     // POST :slug/parse-and-create
+app.route('/api/partners', partnerTimeline);         // adds :slug/timeline
 app.route('/api/net-balance', netBalanceBulk);
 app.route('/api/contracts', contractsRoutes);
 app.route('/api/pricer', pricerRoutes);

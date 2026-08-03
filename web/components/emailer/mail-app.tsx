@@ -31,6 +31,8 @@ import {
   sendReply,
   getEmailContext,
   getPartnerTimeline,
+  linkLetterToPartner,
+  createPartnerQuick,
   type EmailContext,
   type TimelineEvent,
   draftAgentReply,
@@ -602,6 +604,7 @@ function useLetterContext(selected: MailItem | null) {
   const [ctx, setCtx] = useState<EmailContext | null>(null);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [loading, setLoading] = useState(false);
+  const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -629,9 +632,9 @@ function useLetterContext(selected: MailItem | null) {
       }
     })();
     return () => { alive = false; };
-  }, [selected?.key]);
+  }, [selected?.key, nonce]);
 
-  return { ctx, events, loading };
+  return { ctx, events, loading, refresh: () => setNonce((n) => n + 1) };
 }
 
 const PANEL = {
@@ -655,9 +658,48 @@ function eventIcon(e: TimelineEvent) {
     : <ArrowDownLeft size={13} color={PANEL.in} strokeWidth={3} />;
 }
 
-function CounterpartyPanel({ ctx, events, loading }: {
+// Owner 2026-08-03, on seeing it live: an unknown counterparty must ASK, not
+// report. The panel knows the directory is missing this company and the reader
+// is the one person who can fix it in two seconds — so it says so and offers
+// the button, instead of stating a fact and leaving.
+//
+// Marika, same review: the not-found state was dim text on a dark card and read
+// as broken UI. Contrast raised to the canon — white heading on #282229, gold
+// action, meta only for the address.
+function guessTradeName(email: string | null | undefined): string {
+  const at = (email || '').lastIndexOf('@');
+  if (at < 0) return '';
+  const domain = (email || '').slice(at + 1);
+  const core = domain.split('.')[0] || domain;
+  return core.toUpperCase();
+}
+
+function CounterpartyPanel({ ctx, events, loading, mailKey, onChanged }: {
   ctx: EmailContext | null; events: TimelineEvent[]; loading: boolean;
+  mailKey?: string; onChanged?: () => void;
 }) {
+  const party = ctx?.link?.counterpartyEmail || '';
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => { setName(guessTradeName(party)); setDismissed(false); }, [party, mailKey]);
+
+  async function addPartner() {
+    if (!name.trim() || !mailKey || busy) return;
+    setBusy(true);
+    try {
+      const created = await createPartnerQuick({ trade_name: name.trim(), email: party || undefined });
+      const id = created?.result?.partner?.id || created?.result?.id;
+      if (id) {
+        await linkLetterToPartner({ key: mailKey, partner_id: id, counterparty_email: party || undefined });
+        onChanged?.();
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (loading && !ctx) {
     return <div style={{ color: PANEL.meta, fontSize: 12, padding: '8px 0' }}>Ищу контрагента…</div>;
   }
@@ -669,11 +711,70 @@ function CounterpartyPanel({ ctx, events, loading }: {
   // No partner is a state worth showing, not an empty box: the letter is in
   // the queue nobody has claimed yet, and saying so out loud is the point.
   if (!p) {
+    // Three different truths used to look identical. They are not the same
+    // thing and the reader can only act on one of them.
+    if (!ctx.link) {
+      return (
+        <div style={{ color: PANEL.meta, fontSize: 11, margin: '8px 0' }}>
+          Письмо старше связывателя — связь не создавалась
+        </div>
+      );
+    }
+    if (!party) {
+      return (
+        <div style={{ background: PANEL.card, borderRadius: 8, padding: '11px 12px', margin: '10px 0' }}>
+          <div style={{ color: PANEL.text, fontSize: 13, fontWeight: 600 }}>Адрес отправителя не разобрался</div>
+          <div style={{ color: PANEL.meta, fontSize: 11, marginTop: 4 }}>Привязать можно вручную</div>
+        </div>
+      );
+    }
+    if (dismissed) {
+      return (
+        <div style={{ color: PANEL.meta, fontSize: 11, margin: '8px 0' }}>
+          {party} · нет в справочнике
+        </div>
+      );
+    }
     return (
-      <div style={{ background: PANEL.card, borderRadius: 8, padding: '10px 12px', margin: '10px 0' }}>
-        <div style={{ color: PANEL.soft, fontSize: 12 }}>Контрагент не определён</div>
-        <div style={{ color: PANEL.meta, fontSize: 11, marginTop: 4 }}>
-          {ctx.link?.counterpartyEmail || 'адрес не разобран'}
+      <div style={{
+        background: PANEL.card, borderRadius: 8, padding: '12px 13px', margin: '10px 0',
+        borderLeft: `3px solid ${PANEL.gold}`,
+      }}>
+        <div style={{ color: PANEL.text, fontSize: 13, fontWeight: 600 }}>
+          Этого контрагента нет в справочнике
+        </div>
+        <div style={{ color: PANEL.soft, fontSize: 12, marginTop: 4 }}>{party}</div>
+
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Название компании"
+            style={{
+              background: PANEL.body, color: PANEL.text, border: `0.5px solid #444441`,
+              borderRadius: 8, padding: '7px 10px', fontSize: 13, minWidth: 180, flex: '1 1 180px',
+            }}
+          />
+          <button
+            onClick={addPartner}
+            disabled={busy || !name.trim()}
+            style={{
+              background: PANEL.gold, color: '#1A1519', border: 'none', borderRadius: 8,
+              padding: '8px 16px', fontSize: 13, fontWeight: 500,
+              cursor: busy ? 'default' : 'pointer', opacity: busy || !name.trim() ? 0.6 : 1,
+            }}
+          >{busy ? 'Добавляю…' : 'Добавить'}</button>
+          <button
+            onClick={() => setDismissed(true)}
+            style={{
+              background: 'transparent', color: PANEL.soft, border: `0.5px solid #444441`,
+              borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer',
+            }}
+          >Не сейчас</button>
+        </div>
+
+        <div style={{ color: PANEL.meta, fontSize: 11, marginTop: 8 }}>
+          Заведётся как лид — тип, страну и реквизиты можно дописать в карточке
         </div>
       </div>
     );
@@ -1639,7 +1740,13 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                   </div>
                 </div>
 
-                <CounterpartyPanel ctx={letterCtx.ctx} events={letterCtx.events} loading={letterCtx.loading} />
+                <CounterpartyPanel
+                  ctx={letterCtx.ctx}
+                  events={letterCtx.events}
+                  loading={letterCtx.loading}
+                  mailKey={selected.key}
+                  onChanged={letterCtx.refresh}
+                />
 
                 {openThread && openThread.count > 1 && (
                   <div className="thstrip">

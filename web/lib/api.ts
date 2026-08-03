@@ -2888,6 +2888,31 @@ export async function getPartnerTimeline(slug: string, limit = 8) {
   }>(`/api/partners/${encodeURIComponent(slug)}/timeline?limit=${limit}`);
 }
 
+export async function linkLetterToPartner(input: {
+  key: string; partner_id?: string | null; operation_id?: string | null;
+  counterparty_email?: string;
+}) {
+  const token = typeof window !== 'undefined' ? window.localStorage.getItem('dx_auth_token') : null;
+  const res = await fetch(`${API_BASE}/api/email/context/link`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(input),
+  });
+  try { return await res.json(); } catch { return { success: false }; }
+}
+
+export async function createPartnerQuick(input: {
+  trade_name: string; email?: string; kind?: string; country?: string | null;
+}) {
+  const token = typeof window !== 'undefined' ? window.localStorage.getItem('dx_auth_token') : null;
+  const res = await fetch(`${API_BASE}/api/partners`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ kind: 'other', ...input }),
+  });
+  try { return await res.json(); } catch { return { success: false }; }
+}
+
 // 2-sentence AI summary of a message body (cached server-side).
 export async function getMailboxMessageSummary(address: string, key: string) {
   return apiGet<{ summary: string; cached: boolean }>(

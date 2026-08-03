@@ -105,4 +105,69 @@ route.get('/context', async (c) => {
   }
 });
 
+// -----------------------------------------------------------------------------
+// PATCH /context/link — attach this letter to a counterparty or an operation.
+//
+// The one door a human decision goes through, and the same one the router will
+// use later. A write from here sets locked = 1: LAW OF THE LOCK — once a person
+// decided, no algorithm gets a vote, not even a smarter one.
+//
+// Creates the row if the letter predates the linker, so an old letter can be
+// attached by hand instead of staying unreachable forever.
+// -----------------------------------------------------------------------------
+route.patch('/context/link', async (c) => {
+  if (!(await requireSession(c))) {
+    return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+  }
+
+  let body: { key?: string; partner_id?: string | null; operation_id?: string | null; mailbox?: string; direction?: string; counterparty_email?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return fail(c, 400, [{ code: 'invalid_json', message: 'body must be JSON' }]);
+  }
+
+  const key = (body.key || '').trim();
+  if (!key.startsWith('Inbox/')) {
+    return fail(c, 422, [{ code: 'bad_key', message: 'key must be an archive mail key' }]);
+  }
+
+  const now = Date.now();
+  try {
+    const existing = await c.env.DB.prepare(
+      `SELECT id FROM email_links WHERE mail_key = ?1 LIMIT 1`
+    ).bind(key).first<{ id: string }>();
+
+    if (existing) {
+      await c.env.DB.prepare(
+        `UPDATE email_links
+            SET partner_id = ?1, operation_id = ?2, source = 'manual',
+                confidence = 1, matched_on = 'manual', locked = 1,
+                linked_by = ?3, updated_at = ?4
+          WHERE mail_key = ?5`
+      ).bind(body.partner_id ?? null, body.operation_id ?? null, 'owner', now, key).run();
+    } else {
+      // Derive the mailbox from the key itself rather than trusting the caller:
+      // Inbox/<mailbox>/<direction>/<record>.json
+      const parts = key.split('/');
+      const mailbox = body.mailbox || parts[1] || 'unknown';
+      const direction = (body.direction === 'sent' || parts[2] === 'sent') ? 'sent' : 'received';
+      await c.env.DB.prepare(
+        `INSERT INTO email_links
+           (id, mail_key, mailbox, direction, counterparty_email, partner_id, operation_id,
+            source, confidence, matched_on, locked, linked_by, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'manual', 1, 'manual', 1, ?8, ?9, ?9)`
+      ).bind(
+        `elnk_${crypto.randomUUID()}`, key, mailbox, direction,
+        (body.counterparty_email || '').toLowerCase() || null,
+        body.partner_id ?? null, body.operation_id ?? null, 'owner', now
+      ).run();
+    }
+
+    return ok(c, { linked: true, key, partnerId: body.partner_id ?? null, locked: true });
+  } catch (err) {
+    return fail(c, 500, [{ code: 'link_write_error', message: err instanceof Error ? err.message : String(err) }]);
+  }
+});
+
 export default route;

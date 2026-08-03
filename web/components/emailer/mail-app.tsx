@@ -41,6 +41,8 @@ import {
   OWNER_PERSONAL,
   SUPPORT_ADDRESS,
   isTransactional,
+  signatureFor,
+  bodyWithoutSignature,
   agentAvatarUrl,
   addressesForMailbox,
   findUiMailbox,
@@ -977,12 +979,28 @@ function ComposeModal({
   );
   const [to, setTo] = useState(initial?.to || '');
   const [subject, setSubject] = useState(initial?.subject || '');
-  const [text, setText] = useState(initial?.text || '');
+  const [text, setText] = useState(
+    initial?.text ??
+      signatureFor(
+        initial?.from && APEX_SENDERS.includes(initial.from) ? initial.from : APEX_SENDERS[0]!
+      )
+  );
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // Switching the sender swaps the signature with it — otherwise a letter from
+  // Tamara could leave signed by Zina, which is worse than no signature at all.
+  function changeFrom(next: string) {
+    const old = signatureFor(from);
+    setText((prev) => (prev.endsWith(old) ? prev.slice(0, prev.length - old.length) + signatureFor(next) : prev));
+    setFrom(next);
+  }
+
   async function submit() {
-    if (!to || !subject || !text) { setErr('Заполните кому, тему и текст.'); return; }
+    if (!to || !subject || !bodyWithoutSignature(text, signatureFor(from))) {
+      setErr('Заполните кому, тему и текст.');
+      return;
+    }
     setSending(true);
     setErr(null);
     try {
@@ -1004,7 +1022,7 @@ function ComposeModal({
           <button className="abtn" onClick={onClose} aria-label="Закрыть"><X size={18} /></button>
         </div>
         <label className="cmodal-label">От кого
-          <select value={from} onChange={(e) => setFrom(e.target.value)}>
+          <select value={from} onChange={(e) => changeFrom(e.target.value)}>
             {APEX_SENDERS.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
         </label>
@@ -1115,21 +1133,27 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
 
   const openEmail = (it: MailItem) => {
     setSelectedId(it.id);
-    setReplyText('');
+    // Signature is prefilled, not appended at send: the person sees exactly
+    // what the customer will read before pressing Отправить (HARD_RULES §0).
+    setReplyText(signatureFor(replyFromFor(it)));
     markRead(it);
   };
 
   async function submitReply() {
-    if (!selected || !replyText.trim() || replySending) return;
+    if (!selected || replySending) return;
+    const fromAddr = replyFromFor(selected);
+    const sig = signatureFor(fromAddr);
+    // A letter that is nothing but the signature is not a letter.
+    if (!bodyWithoutSignature(replyText, sig)) return;
     setReplySending(true);
     try {
       const r = await sendReply({
         to: selected.org,
         subject: selected.subject.toLowerCase().startsWith('re:') ? selected.subject : `Re: ${selected.subject}`,
         text: replyText,
-        from: replyFromFor(selected),
+        from: fromAddr,
       });
-      if (r.success) { setReplyText(''); toast('Ответ отправлен'); }
+      if (r.success) { setReplyText(sig); toast('Ответ отправлен'); }
       else toast(r.error || 'Не удалось отправить');
     } catch {
       toast('Не удалось отправить');
@@ -1743,23 +1767,26 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
   const openEmail = (id: string) => {
     const it = items.find((e) => e.id === id);
     setOpenedId(id);
-    setReplyText('');
+    setReplyText(it ? signatureFor(replyFromFor(it)) : '');
     if (it) markRead(it);
   };
   const archiveEmail = (id: string) => { archive(id); toast('Перемещено в архив', () => unarchive(id)); };
   const deleteEmail = (id: string) => { remove(id); toast('Письмо удалено', () => restore(id)); };
 
   async function submitReply() {
-    if (!opened || !replyText.trim() || replySending) return;
+    if (!opened || replySending) return;
+    const fromAddr = replyFromFor(opened);
+    const sig = signatureFor(fromAddr);
+    if (!bodyWithoutSignature(replyText, sig)) return;
     setReplySending(true);
     try {
       const r = await sendReply({
         to: opened.org,
         subject: opened.subject.toLowerCase().startsWith('re:') ? opened.subject : `Re: ${opened.subject}`,
         text: replyText,
-        from: replyFromFor(opened),
+        from: fromAddr,
       });
-      if (r.success) { setReplyText(''); toast('Ответ отправлен'); }
+      if (r.success) { setReplyText(sig); toast('Ответ отправлен'); }
       else toast(r.error || 'Не удалось отправить');
     } catch {
       toast('Не удалось отправить');

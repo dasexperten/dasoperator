@@ -94,3 +94,23 @@ export function findUiMailbox(address: string): UiMailbox | undefined {
     DEPARTMENT_MAILBOXES.find((m) => addressesForMailbox(m).includes(a))
   );
 }
+
+// ---------------------------------------------------------------------------
+// Signatures (Owner 2026-08-03)
+//
+// Every outgoing letter is signed. A named mailbox signs with its owner's name
+// — the customer must know which human answered them. A department mailbox has
+// no owner, so it signs as the brand. The signature is PREFILLED into the reply
+// box, never appended silently at send: HARD_RULES §0 requires the person to
+// see the exact text before it leaves.
+// ---------------------------------------------------------------------------
+export function signatureFor(address: string): string {
+  const a = address.trim().toLowerCase();
+  const agent = AGENT_MAILBOXES.find((m) => addressesForMailbox(m).includes(a));
+  return agent ? `\n\n— ${agent.label}\nDas Experten` : `\n\n— Das Experten`;
+}
+
+/** Body with the signature removed — used to reject a letter that is signature only. */
+export function bodyWithoutSignature(text: string, signature: string): string {
+  return text.replace(signature, '').trim();
+}

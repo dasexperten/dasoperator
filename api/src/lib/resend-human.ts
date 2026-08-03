@@ -63,6 +63,10 @@ export interface HumanSendParams {
   cc?: string | string[];
   bcc?: string | string[];
   in_reply_to?: string;
+  /** Full ancestry, oldest first. Gmail and Outlook build the tree from
+   *  References, not from In-Reply-To — a chain of one collapses long threads
+   *  into loose letters once more than two people answer. */
+  references?: string[] | undefined;
   origin?: 'human' | 'auto';
   trigger?: string;
   /** When true, skip Resend and only write R2 archive (backfill). Requires messageId. */
@@ -194,9 +198,17 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
     if (ccList?.length) resendBody.cc = ccList;
     if (bccList?.length) resendBody.bcc = bccList;
     if (params.in_reply_to) {
+      // References = every ancestor we know, oldest first, parent last.
+      // Deduplicated because a chain that repeats an id makes some clients
+      // start a fresh thread — the exact failure we are fixing.
+      const chain: string[] = [];
+      for (const id of [...(params.references || []), params.in_reply_to]) {
+        const trimmed = (id || '').trim();
+        if (trimmed && !chain.includes(trimmed)) chain.push(trimmed);
+      }
       resendBody.headers = {
         'In-Reply-To': params.in_reply_to,
-        References: params.in_reply_to,
+        References: chain.join(' '),
       };
     }
 

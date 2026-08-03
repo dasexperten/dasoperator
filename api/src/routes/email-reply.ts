@@ -14,7 +14,7 @@
 // RESEND_API_KEY is a restricted (send-only) key stored as a Worker secret.
 //
 //   POST /api/email/reply
-//   Body: { to, subject, text, from?, cc?, in_reply_to? }
+//   Body: { to, subject, text, from?, cc?, in_reply_to?, references? }
 //   from must be a Resend-verified sender (apex / my. / legacy .ru) — enforced here.
 // =============================================================================
 
@@ -36,6 +36,9 @@ const replySchema = z.object({
   from: z.string().min(3).optional(),
   cc: z.string().email().or(z.array(z.string().email())).optional(),
   in_reply_to: z.string().optional(),
+  // Ancestry of the letter being answered, oldest first. Optional: a first
+  // contact has none, and a client that forgets it still threads by parent.
+  references: z.array(z.string()).max(50).optional(),
 });
 
 function bearer(c: import('hono').Context): string | null {
@@ -81,6 +84,7 @@ route.post('/reply', async (c) => {
     text: d.text,
     ...(d.cc !== undefined ? { cc: d.cc } : {}),
     ...(d.in_reply_to !== undefined ? { in_reply_to: d.in_reply_to } : {}),
+    ...(d.references !== undefined ? { references: d.references } : {}),
     origin: 'human',
     trigger: 'emailer-reply',
   });

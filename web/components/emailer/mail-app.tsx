@@ -559,6 +559,34 @@ function subjSizeClass(subject: string): string {
 // Owner 2026-08-03: orders@ and delivery@ are the brand's voice, not a person's.
 // A customer who writes to them is answered by Tamara from support@, signed by
 // her — never from the transactional address, which has no owner to sign it.
+
+// -----------------------------------------------------------------------------
+// Reply threading headers.
+//
+// Owner 2026-08-03: three call sites used to send a reply with no In-Reply-To
+// at all, so our answer arrived at the counterparty as a NEW letter sitting
+// beside their own. Harmless-looking while one agent answered; fatal once
+// several answer the same letter from their own boxes — the customer would get
+// three orphans instead of one conversation.
+//
+// In-Reply-To names the parent. References carries the whole ancestry, oldest
+// first, because Gmail and Outlook build the tree from References — a chain of
+// one collapses a long thread the moment a third person joins it.
+// -----------------------------------------------------------------------------
+function replyHeaders(
+  selected: MailItem,
+  threadLetters: MailItem[] | undefined
+): { in_reply_to?: string; references?: string[] } {
+  const parent = selected.messageId;
+  if (!parent) return {};
+  const chain = (threadLetters || [])
+    .slice()
+    .sort((a, b) => (a.timestamp < b.timestamp ? -1 : 1))
+    .map((l) => l.messageId)
+    .filter((id): id is string => !!id && id !== parent);
+  return chain.length ? { in_reply_to: parent, references: chain } : { in_reply_to: parent };
+}
+
 function replyFromFor(item: MailItem): string {
   const mb = item.mailbox.toLowerCase();
   if (isTransactional(mb)) return SUPPORT_ADDRESS;
@@ -1152,6 +1180,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
         subject: selected.subject.toLowerCase().startsWith('re:') ? selected.subject : `Re: ${selected.subject}`,
         text: replyText,
         from: fromAddr,
+        ...replyHeaders(selected, openThread?.letters),
       });
       if (r.success) { setReplyText(sig); toast('Ответ отправлен'); }
       else toast(r.error || 'Не удалось отправить');
@@ -1780,11 +1809,16 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
     if (!bodyWithoutSignature(replyText, sig)) return;
     setReplySending(true);
     try {
+      // The phone layout has no thread strip, so the ancestry is rebuilt from
+      // the same grouping the desktop uses. Without it a reply sent from a
+      // phone would break the thread that a reply from a laptop keeps.
+      const thread = buildThreads(items).find((t) => t.letters.some((l) => l.id === opened.id));
       const r = await sendReply({
         to: opened.org,
         subject: opened.subject.toLowerCase().startsWith('re:') ? opened.subject : `Re: ${opened.subject}`,
         text: replyText,
         from: fromAddr,
+        ...replyHeaders(opened, thread?.letters),
       });
       if (r.success) { setReplyText(sig); toast('Ответ отправлен'); }
       else toast(r.error || 'Не удалось отправить');

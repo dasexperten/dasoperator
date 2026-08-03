@@ -2853,6 +2853,7 @@ export async function sendReply(input: {
   from?: string;
   cc?: string | string[];
   in_reply_to?: string;
+  references?: string[];
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
   const token =
     typeof window !== 'undefined' ? window.localStorage.getItem('dx_auth_token') : null;

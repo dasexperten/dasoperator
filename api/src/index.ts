@@ -91,11 +91,15 @@ import analyticsRoutes from './routes/analytics';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
 import { handleInboundEmail } from './lib/email-inbound';
+import { authGate } from './lib/auth-gate';
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.use('*', corsMiddleware);
 app.use('*', requestLogger);
+// One door for /api/*. Ships in observe mode: logs unauthenticated calls,
+// blocks nothing. Flip with AUTH_GATE=enforce once the log is read.
+app.use('/api/*', authGate);
 app.onError(errorHandler);
 
 app.notFound((c) => {

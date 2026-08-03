@@ -214,6 +214,12 @@ crons = ["0 3 * * *", "0 1 * * *", "0 12 * * *", "0 * * * *", "0 */4 * * *", "5 
 # ~7 LLM gates of waiting, so this is the throughput dial, not CPU.
 DRAFT_CONCURRENCY = "10"
 RETAIL_CRM_DOMAIN = "dasexperten"
+
+# Owner 2026-08-03: the /api/* auth gate. "observe" logs every unauthenticated
+# call and blocks nothing; "enforce" returns 401. Flipped by editing this line
+# and redeploying — no code change, so locking the door is never bundled with
+# shipping something new.
+AUTH_GATE = "observe"
 YANDEX_METRIKA_COUNTER = "107720199"
 
 

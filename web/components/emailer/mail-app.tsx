@@ -272,6 +272,9 @@ function useMailData() {
     // threadId is NOT a conversation id — archiveEmail stores In-Reply-To in it,
     // i.e. a pointer to the PARENT letter. See buildThreads().
     messageId?: string; threadId?: string;
+    // Thread tag: issued by us in Reply-To, echoed back inside the recipient
+    // address of their answer. The one thread edge no provider can rewrite.
+    plusTag?: string;
   }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

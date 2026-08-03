@@ -211,6 +211,9 @@ export interface ArchiveEmailInput {
   origin?: MailOrigin | undefined;
   trigger?: string | undefined;
   auth?: MailAuth | undefined;
+  /** Thread tag: issued by us on send, echoed back inside the recipient
+   *  address on their reply. The one link that survives any mail provider. */
+  plusTag?: string | undefined;
   /** Raw parser output. Stripped before the record is written — bytes go to
    *  their own R2 objects, only metadata stays in the JSON. */
   attachments?: RawAttachment[] | undefined;
@@ -220,6 +223,8 @@ export interface IndexEntry {
   key: string;
   direction: MailDirection;
   timestamp: string;
+  /** Thread tag — see splitPlusTag. Present on both sides of a threaded pair. */
+  plusTag?: string | undefined;
   subject: string;
   from?: string | undefined;
   to?: string | string[] | undefined;
@@ -235,6 +240,35 @@ export interface IndexEntry {
 
 function normalizeAddress(address: string): string {
   return address.trim().toLowerCase();
+}
+
+// -----------------------------------------------------------------------------
+// Plus-addressing (Owner 2026-08-03).
+//
+// Measured that day on 23 real replies: our stored messageId is the Resend API
+// id, while a counterparty's In-Reply-To carries the Message-ID that Amazon SES
+// assigned in flight. Zero of 23 matched — the edge from our letter to their
+// answer never existed, it was only ever guessed from subject and address.
+//
+// So the thread carries its own name instead: we send with Reply-To
+// sales+t7f3k2@…, and the tag comes back inside the recipient address of their
+// reply. No provider has a vote in it.
+//
+// The tag must never become a folder: a reply to sales+t7f3k2@ belongs in
+// sales@, next to the letter it answers. Splitting here — the one place every
+// letter passes — keeps that true for both directions at once.
+// -----------------------------------------------------------------------------
+export function splitPlusTag(address: string): { base: string; tag?: string } {
+  const addr = normalizeAddress(address);
+  const at = addr.lastIndexOf('@');
+  if (at < 1) return { base: addr };
+  const local = addr.slice(0, at);
+  const domain = addr.slice(at + 1);
+  const plus = local.indexOf('+');
+  if (plus < 1) return { base: addr };
+  const tag = local.slice(plus + 1).trim();
+  const base = `${local.slice(0, plus)}@${domain}`;
+  return tag ? { base, tag } : { base };
 }
 
 async function readIndex(env: Env, indexKey: string): Promise<{ entries: IndexEntry[]; etag?: string }> {
@@ -281,8 +315,12 @@ export async function archiveEmail(
   address: string,
   payload: ArchiveEmailInput
 ): Promise<void> {
-  const addr = normalizeAddress(address);
+  const split = splitPlusTag(address);
+  const addr = split.base;
   if (!addr || SKIP_ADDRESSES.has(addr)) return;
+  // A tag riding on the address wins: it is the letter's own evidence.
+  // payload.plusTag is what we issued ourselves when sending.
+  const plusTag = split.tag || payload.plusTag;
 
   const timestamp = new Date().toISOString();
   const recordId = `${timestamp}-${crypto.randomUUID()}`;
@@ -308,6 +346,7 @@ export async function archiveEmail(
     direction,
     address: addr,
     timestamp,
+    ...(plusTag ? { plusTag } : {}),
     ...rest,
     ...(stored.length ? { attachments: stored } : {}),
   };
@@ -327,6 +366,7 @@ export async function archiveEmail(
       threadId: payload.threadId,
       origin: payload.origin,
       trigger: payload.trigger,
+      ...(plusTag ? { plusTag } : {}),
       ...(payload.auth ? { auth: payload.auth } : {}),
       ...(stored.length ? { attachmentCount: stored.filter((a) => a.key).length } : {}),
     });

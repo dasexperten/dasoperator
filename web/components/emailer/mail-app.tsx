@@ -229,6 +229,7 @@ interface MailItem {
   agent?: string;        // author slug — a letter belongs to the person, not only the mailbox
   messageId?: string;    // this letter's own Message-ID
   parentId?: string;     // Message-ID of the letter this one replies to
+  plusTag?: string;      // thread tag we issued, echoed back on their reply
 }
 
 // ---- localStorage curation sets -------------------------------------------
@@ -362,6 +363,7 @@ function useMailData() {
           agent: e.agent,
           messageId: e.messageId,
           parentId: e.threadId,
+          plusTag: e.plusTag,
         };
       })
       .filter(Boolean) as MailItem[];
@@ -576,15 +578,24 @@ function subjSizeClass(subject: string): string {
 function replyHeaders(
   selected: MailItem,
   threadLetters: MailItem[] | undefined
-): { in_reply_to?: string; references?: string[] } {
+): { in_reply_to?: string; references?: string[]; reply_to_tag?: string } {
+  // A thread keeps the name it was given. Reusing the existing tag is what
+  // makes the fifth letter of a conversation still recognisably the same one;
+  // a fresh tag per reply would name every letter and identify no thread.
+  const existingTag =
+    selected.plusTag || (threadLetters || []).map((l) => l.plusTag).find(Boolean);
+  const tag = existingTag ? { reply_to_tag: existingTag } : {};
+
   const parent = selected.messageId;
-  if (!parent) return {};
+  if (!parent) return tag;
   const chain = (threadLetters || [])
     .slice()
     .sort((a, b) => (a.timestamp < b.timestamp ? -1 : 1))
     .map((l) => l.messageId)
     .filter((id): id is string => !!id && id !== parent);
-  return chain.length ? { in_reply_to: parent, references: chain } : { in_reply_to: parent };
+  return chain.length
+    ? { in_reply_to: parent, references: chain, ...tag }
+    : { in_reply_to: parent, ...tag };
 }
 
 function replyFromFor(item: MailItem): string {
@@ -666,6 +677,7 @@ function makeUnionFind() {
 function buildThreads(items: MailItem[]): Thread[] {
   const uf = makeUnionFind();
   const byMessageId = new Map<string, string>();   // Message-ID → letter id
+  const byTag = new Map<string, string>();         // thread tag → letter id
   const bySubjectKey = new Map<string, string>();  // fallback key → letter id
 
   for (const it of items) {
@@ -679,7 +691,16 @@ function buildThreads(items: MailItem[]): Thread[] {
       const parentLetter = byMessageId.get(it.parentId);
       if (parentLetter) uf.union(it.id, parentLetter);
     }
-    // Edge 2: same normalised subject with the same counterparty.
+    // Edge 2: the thread's own tag, carried in the Reply-To we issued and
+    // echoed back inside the address of their answer. Strongest edge we have —
+    // it survives whatever the mail provider decides to write in Message-ID,
+    // and unlike the subject it cannot be shared by two different threads.
+    if (it.plusTag) {
+      const seen = byTag.get(it.plusTag);
+      if (seen) uf.union(it.id, seen);
+      else byTag.set(it.plusTag, it.id);
+    }
+    // Edge 3: same normalised subject with the same counterparty.
     const subj = normSubject(it.subject);
     if (subj.length >= 4) {
       const key = `${subj}::${it.org.toLowerCase()}`;

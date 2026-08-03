@@ -67,6 +67,10 @@ export interface HumanSendParams {
    *  References, not from In-Reply-To — a chain of one collapses long threads
    *  into loose letters once more than two people answer. */
   references?: string[] | undefined;
+  /** Thread tag to publish in Reply-To as box+<tag>@domain. Their answer comes
+   *  back carrying it, which is the only edge that does not depend on what the
+   *  provider decides to put in Message-ID. */
+  replyToTag?: string | undefined;
   origin?: 'human' | 'auto';
   trigger?: string;
   /** When true, skip Resend and only write R2 archive (backfill). Requires messageId. */
@@ -195,6 +199,14 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
       text: text || '(see html)',
     };
     if (html) resendBody.html = html;
+    // Reply-To names the thread, not just the box. Sent before the letter
+    // leaves, because there is no second chance to label it afterwards.
+    if (params.replyToTag) {
+      const at = fromAddr.lastIndexOf('@');
+      if (at > 0) {
+        resendBody.reply_to = `${fromAddr.slice(0, at)}+${params.replyToTag}@${fromAddr.slice(at + 1)}`;
+      }
+    }
     if (ccList?.length) resendBody.cc = ccList;
     if (bccList?.length) resendBody.bcc = bccList;
     if (params.in_reply_to) {
@@ -264,6 +276,7 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
     html: html,
     messageId,
     threadId: params.in_reply_to,
+    ...(params.replyToTag ? { plusTag: params.replyToTag } : {}),
     origin: params.origin ?? 'human',
     trigger: params.trigger,
   });
@@ -280,6 +293,7 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
       html: html,
       messageId,
       threadId: params.in_reply_to,
+      ...(params.replyToTag ? { plusTag: params.replyToTag } : {}),
       origin: params.origin ?? 'human',
       trigger: (params.trigger || 'emailer') + '+cc-partnerships',
     });

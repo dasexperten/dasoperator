@@ -28,6 +28,15 @@ const route = new Hono<{ Bindings: Env }>();
 
 const DEFAULT_FROM = 'sales@dasexperten.com';
 
+// Thread tag: short, lowercase, no ambiguous characters. Length is a balance —
+// long enough that two live threads never collide, short enough that a human
+// reading sales+t7f3k2@dasexperten.com in a header does not feel watched.
+const TAG_ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789';
+function newThreadTag(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  return Array.from(bytes, (b) => TAG_ALPHABET[b % TAG_ALPHABET.length]).join('');
+}
+
 const replySchema = z.object({
   to: z.string().email().or(z.array(z.string().email()).min(1)),
   subject: z.string().min(1).max(500),
@@ -39,6 +48,8 @@ const replySchema = z.object({
   // Ancestry of the letter being answered, oldest first. Optional: a first
   // contact has none, and a client that forgets it still threads by parent.
   references: z.array(z.string()).max(50).optional(),
+  // Continue an existing tagged thread instead of opening a new one.
+  reply_to_tag: z.string().regex(/^[a-z0-9]{4,16}$/).optional(),
 });
 
 function bearer(c: import('hono').Context): string | null {
@@ -85,6 +96,9 @@ route.post('/reply', async (c) => {
     ...(d.cc !== undefined ? { cc: d.cc } : {}),
     ...(d.in_reply_to !== undefined ? { in_reply_to: d.in_reply_to } : {}),
     ...(d.references !== undefined ? { references: d.references } : {}),
+    // Every human reply gets a tag, first contact included: the thread we most
+    // want to follow is the one that has not started yet.
+    replyToTag: d.reply_to_tag || newThreadTag(),
     origin: 'human',
     trigger: 'emailer-reply',
   });

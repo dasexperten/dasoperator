@@ -2771,6 +2771,8 @@ export interface MailboxIndexEntry {
   to?: string | string[];
   messageId?: string;
   threadId?: string;
+  /** Thread tag issued in Reply-To and echoed back on the counterparty's answer. */
+  plusTag?: string;
   origin?: 'human' | 'auto';
   trigger?: string;
 }
@@ -2854,6 +2856,7 @@ export async function sendReply(input: {
   cc?: string | string[];
   in_reply_to?: string;
   references?: string[];
+  reply_to_tag?: string;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
   const token =
     typeof window !== 'undefined' ? window.localStorage.getItem('dx_auth_token') : null;

@@ -26,6 +26,7 @@
 // =============================================================================
 
 import type { Env } from '../types';
+import { linkEmail } from './email-link';
 
 const SKIP_ADDRESSES = new Set(['dasexperten@gmail.com']);
 const INDEX_WRITE_ATTEMPTS = 3;
@@ -328,6 +329,20 @@ export async function archiveEmail(
       trigger: payload.trigger,
       ...(payload.auth ? { auth: payload.auth } : {}),
       ...(stored.length ? { attachmentCount: stored.filter((a) => a.key).length } : {}),
+    });
+
+    // The letter is safely stored — only now do we try to say who it belongs to.
+    // One choke point for both directions: a sent letter is as much part of a
+    // counterparty's history as a received one. Failure here is swallowed
+    // inside linkEmail; the letter is already on disk either way.
+    await linkEmail(env, {
+      mailKey: key,
+      mailbox: addr,
+      direction,
+      from: payload.from,
+      to: payload.to,
+      subject: payload.subject,
+      text: payload.text,
     });
   } catch (err) {
     console.log(JSON.stringify({

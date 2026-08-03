@@ -39,6 +39,8 @@ import {
   DEPARTMENT_MAILBOXES,
   COMPOSE_FROM_ADDRESSES,
   OWNER_PERSONAL,
+  SUPPORT_ADDRESS,
+  isTransactional,
   agentAvatarUrl,
   addressesForMailbox,
   findUiMailbox,
@@ -552,8 +554,12 @@ function subjSizeClass(subject: string): string {
   return '';
 }
 
+// Owner 2026-08-03: orders@ and delivery@ are the brand's voice, not a person's.
+// A customer who writes to them is answered by Tamara from support@, signed by
+// her — never from the transactional address, which has no owner to sign it.
 function replyFromFor(item: MailItem): string {
   const mb = item.mailbox.toLowerCase();
+  if (isTransactional(mb)) return SUPPORT_ADDRESS;
   if (mb === OWNER_PERSONAL) return 'sales@dasexperten.com';
   return APEX_SENDERS.includes(mb) ? mb : 'sales@dasexperten.com';
 }
@@ -1043,9 +1049,14 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
   const { listWidth, onSplitterDown } = useListPaneResize();
   const tr = useTranslation(selectedId);
 
-  const visible = useMemo(() => {
-    let list = items.filter((e) => passesFolder(e, activeFolder, Boolean(scope)));
-    list = list.filter((e) => matchesScope(e, scope));
+  // Owner 2026-08-03: a conversation is one object, not one per folder. The
+  // folder filter used to run BEFORE grouping, so a thread opened from
+  // Входящие could never contain our own answer — it had been cut away while
+  // it was still a loose letter. Group first over everything the scope and the
+  // search allow, then keep the threads that have at least one letter in the
+  // open folder. `visible` stays letter-shaped: the checkboxes act on letters.
+  const scoped = useMemo(() => {
+    let list = items.filter((e) => matchesScope(e, scope));
     if (query.trim()) {
       const q = query.toLowerCase();
       list = list.filter(
@@ -1053,9 +1064,20 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
       );
     }
     return list;
-  }, [items, activeFolder, query, scope]);
+  }, [items, query, scope]);
 
-  const threads = useMemo(() => buildThreads(visible), [visible]);
+  const visible = useMemo(
+    () => scoped.filter((e) => passesFolder(e, activeFolder, Boolean(scope))),
+    [scoped, activeFolder, scope]
+  );
+
+  const threads = useMemo(
+    () =>
+      buildThreads(scoped).filter((t) =>
+        t.letters.some((l) => passesFolder(l, activeFolder, Boolean(scope)))
+      ),
+    [scoped, activeFolder, scope]
+  );
   const openThread = useMemo(
     () => threads.find((t) => t.letters.some((l) => l.id === selectedId)) || null,
     [threads, selectedId]

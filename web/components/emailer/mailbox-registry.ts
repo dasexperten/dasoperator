@@ -58,11 +58,30 @@ export const DEPARTMENT_MAILBOXES: UiMailbox[] = [
 export const OWNER_PERSONAL = 'dr.badalyan@dasexperten.com';
 export const OWNER_GMAIL = 'dasexperten@gmail.com';
 
-/** Compose From options: agents + departments (not Owner personal). */
+// ---------------------------------------------------------------------------
+// Transactional mailboxes (Owner 2026-08-03)
+//
+// These speak as the brand: order confirmations and shipment notices carry no
+// agent name and are signed Das Experten. Nobody owns them, so nobody may
+// answer AS them — a customer who writes here is answered by Tamara from
+// support@, under her own name. The folder still exists (the letters must be
+// visible); only the right to send from the address is withdrawn.
+// ---------------------------------------------------------------------------
+export const TRANSACTIONAL_ADDRESSES = [
+  'orders@dasexperten.com',
+  'delivery@dasexperten.com',
+];
+export const SUPPORT_ADDRESS = 'support@dasexperten.com';
+
+export function isTransactional(address: string): boolean {
+  return TRANSACTIONAL_ADDRESSES.includes(address.trim().toLowerCase());
+}
+
+/** Compose From options: agents + departments (not Owner personal, not transactional). */
 export const COMPOSE_FROM_ADDRESSES: string[] = [
   ...DEPARTMENT_MAILBOXES.map((m) => m.address),
   ...AGENT_MAILBOXES.map((m) => m.address),
-];
+].filter((a) => !isTransactional(a));
 
 export function addressesForMailbox(m: UiMailbox): string[] {
   return [m.address, ...(m.aliases || [])].map((a) => a.toLowerCase());

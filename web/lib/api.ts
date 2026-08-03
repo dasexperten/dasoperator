@@ -2839,6 +2839,55 @@ export async function getMailboxMessage(address: string, key: string) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Counterparty context for one letter, and that counterparty's history.
+//
+// Two calls on purpose. The header renders as soon as we know WHO wrote; the
+// history fills in after. One merged call would make the panel appear later
+// and feel slower, even at the same total cost.
+// ---------------------------------------------------------------------------
+export interface EmailContextPartner {
+  id: string; slug: string; trade_name: string;
+  country?: string | null; partner_type?: string | null;
+  status?: string | null; email?: string | null;
+}
+
+export interface EmailContextOperation {
+  id: string; reference?: string | null; order_doc_ref?: string | null;
+  operation_type?: string | null; status?: string | null; operation_date?: number | null;
+}
+
+export interface EmailContext {
+  link: {
+    id: string; counterpartyEmail?: string | null; source: string;
+    confidence: number; matchedOn?: string | null; locked: boolean;
+  } | null;
+  partner: EmailContextPartner | null;
+  operation: EmailContextOperation | null;
+  stats: { letters?: number; operations?: number } | null;
+}
+
+export async function getEmailContext(key: string) {
+  return apiGet<EmailContext>(`/api/email/context?key=${encodeURIComponent(key)}`);
+}
+
+export interface TimelineEvent {
+  kind: 'email' | 'operation' | 'document' | 'payment';
+  at: number;
+  title: string;
+  subtitle?: string;
+  direction?: 'sent' | 'received';
+  status?: string;
+}
+
+export async function getPartnerTimeline(slug: string, limit = 8) {
+  return apiGet<{
+    partner: { id: string; slug: string; tradeName: string };
+    events: TimelineEvent[];
+    counts: Record<string, number>;
+  }>(`/api/partners/${encodeURIComponent(slug)}/timeline?limit=${limit}`);
+}
+
 // 2-sentence AI summary of a message body (cached server-side).
 export async function getMailboxMessageSummary(address: string, key: string) {
   return apiGet<{ summary: string; cached: boolean }>(

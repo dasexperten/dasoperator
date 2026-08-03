@@ -20,6 +20,7 @@ import {
   MoreHorizontal, MoreVertical, Mail, AlertCircle, X, Undo2, Loader2,
   ChevronDown, Users, Building2, Menu, Wand2,
   ArrowDownLeft, ArrowUpRight, Languages, GraduationCap,
+  Link2, Truck, Wallet, Pencil,
 } from 'lucide-react';
 import {
   getMailboxes,
@@ -28,6 +29,10 @@ import {
   getAttention,
   markMailRead,
   sendReply,
+  getEmailContext,
+  getPartnerTimeline,
+  type EmailContext,
+  type TimelineEvent,
   draftAgentReply,
   translateEmail,
   learnFromLetter,
@@ -578,6 +583,169 @@ function subjSizeClass(subject: string): string {
 // first, because Gmail and Outlook build the tree from References — a chain of
 // one collapses a long thread the moment a third person joins it.
 // -----------------------------------------------------------------------------
+
+// =============================================================================
+// Counterparty panel (Owner 2026-08-03)
+//
+// The letter screen used to know one thing about the sender: their address.
+// This is the corridor to the rest — who they are, what we are shipping them,
+// and what the auto-linker decided.
+//
+// Marika's two rulings on the mockup, applied here:
+//   · colour means DIRECTION and nothing else. A letter is green in / red out;
+//     a shipment or a payment is told apart by an ICON, never by a third colour,
+//     or the palette would carry two meanings and read as none.
+//   · the re-link pencil stays visible rather than appearing on hover — the
+//     phone has no hover, and an action nobody can find is not an action.
+// =============================================================================
+function useLetterContext(selected: MailItem | null) {
+  const [ctx, setCtx] = useState<EmailContext | null>(null);
+  const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    const key = selected?.key;
+    if (!key) { setCtx(null); setEvents([]); return; }
+    setLoading(true);
+    setCtx(null);
+    setEvents([]);
+    (async () => {
+      try {
+        const r = await getEmailContext(key);
+        if (!alive) return;
+        const data = r.success ? r.result : null;
+        setCtx(data ?? null);
+        const slug = data?.partner?.slug;
+        if (slug) {
+          const t = await getPartnerTimeline(slug, 6);
+          if (alive && t.success) setEvents(t.result?.events || []);
+        }
+      } catch {
+        // A missing panel must never take the letter down with it.
+        if (alive) { setCtx(null); setEvents([]); }
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [selected?.key]);
+
+  return { ctx, events, loading };
+}
+
+const PANEL = {
+  card: '#282229',
+  body: '#221D22',
+  line: '#1A1519',
+  text: '#FBFAF6',
+  soft: '#C9C1B0',
+  meta: '#6E6558',
+  gold: '#FEF004',
+  in: '#1D9E75',
+  out: '#E5202C',
+};
+
+function eventIcon(e: TimelineEvent) {
+  if (e.kind === 'operation') return <Truck size={13} color={PANEL.soft} />;
+  if (e.kind === 'payment') return <Wallet size={13} color={PANEL.soft} />;
+  if (e.kind === 'document') return <FileText size={13} color={PANEL.soft} />;
+  return e.direction === 'sent'
+    ? <ArrowUpRight size={13} color={PANEL.out} strokeWidth={3} />
+    : <ArrowDownLeft size={13} color={PANEL.in} strokeWidth={3} />;
+}
+
+function CounterpartyPanel({ ctx, events, loading }: {
+  ctx: EmailContext | null; events: TimelineEvent[]; loading: boolean;
+}) {
+  if (loading && !ctx) {
+    return <div style={{ color: PANEL.meta, fontSize: 12, padding: '8px 0' }}>Ищу контрагента…</div>;
+  }
+  if (!ctx) return null;
+
+  const p = ctx.partner;
+  const op = ctx.operation;
+
+  // No partner is a state worth showing, not an empty box: the letter is in
+  // the queue nobody has claimed yet, and saying so out loud is the point.
+  if (!p) {
+    return (
+      <div style={{ background: PANEL.card, borderRadius: 8, padding: '10px 12px', margin: '10px 0' }}>
+        <div style={{ color: PANEL.soft, fontSize: 12 }}>Контрагент не определён</div>
+        <div style={{ color: PANEL.meta, fontSize: 11, marginTop: 4 }}>
+          {ctx.link?.counterpartyEmail || 'адрес не разобран'}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: PANEL.card, borderRadius: 8, padding: '11px 12px', margin: '10px 0' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+        <a
+          href={`/partners/${p.slug}`}
+          style={{ color: PANEL.text, fontSize: 14, fontWeight: 600, textDecoration: 'none' }}
+        >{p.trade_name}</a>
+        {p.country && <span style={{ color: PANEL.meta, fontSize: 11 }}>{p.country}</span>}
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '8px 0 2px' }}>
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: 5, background: PANEL.body,
+          color: PANEL.soft, fontSize: 11, padding: '4px 9px', borderRadius: 20,
+        }}>
+          <Link2 size={13} />
+          {op ? (op.reference || op.order_doc_ref || 'операция') : 'операция не привязана'}
+          <Pencil size={12} color={PANEL.meta} />
+        </span>
+        {ctx.link && ctx.link.confidence < 1 && !ctx.link.locked && (
+          <span style={{
+            background: PANEL.body, color: PANEL.gold, fontSize: 11,
+            padding: '4px 9px', borderRadius: 20,
+          }}>требует проверки</span>
+        )}
+        {ctx.link?.locked && (
+          <span style={{
+            background: PANEL.body, color: PANEL.soft, fontSize: 11,
+            padding: '4px 9px', borderRadius: 20,
+          }}>привязано вручную</span>
+        )}
+      </div>
+
+      {ctx.stats && (
+        <div style={{ display: 'flex', gap: 16, margin: '10px 0 4px' }}>
+          <div>
+            <div style={{ color: PANEL.meta, fontSize: 11 }}>Писем</div>
+            <div style={{ color: PANEL.text, fontSize: 16 }}>{ctx.stats.letters ?? 0}</div>
+          </div>
+          <div>
+            <div style={{ color: PANEL.meta, fontSize: 11 }}>Операций</div>
+            <div style={{ color: PANEL.text, fontSize: 16 }}>{ctx.stats.operations ?? 0}</div>
+          </div>
+        </div>
+      )}
+
+      {events.length > 0 && (
+        <div style={{ marginTop: 8, borderTop: `0.5px solid ${PANEL.line}`, paddingTop: 8 }}>
+          <div style={{ color: PANEL.meta, fontSize: 11, letterSpacing: '.06em', marginBottom: 7 }}>ХРОНОЛОГИЯ</div>
+          {events.map((e, i) => (
+            <div key={`${e.kind}-${e.at}-${i}`} style={{ display: 'flex', gap: 8, marginBottom: 7 }}>
+              <span style={{ marginTop: 2, flex: 'none' }}>{eventIcon(e)}</span>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ color: PANEL.soft, fontSize: 12, lineHeight: 1.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.title}</div>
+                <div style={{ color: PANEL.meta, fontSize: 11 }}>
+                  {new Date(e.at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
+                  {e.subtitle ? ` · ${e.subtitle}` : ''}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function replyHeaders(
   selected: MailItem,
   threadLetters: MailItem[] | undefined
@@ -1155,6 +1323,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
 
   const selected = items.find((e) => e.id === selectedId) || null;
   const { body, loading: bodyLoading } = useMailBody(selected);
+  const letterCtx = useLetterContext(selected);
   const sel = useSelection(visible);
 
   // Bulk actions over the checked letters (Gmail-style checkboxes).
@@ -1469,6 +1638,8 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                     <button className="ibtn" aria-label="Ещё"><MoreHorizontal size={15} /></button>
                   </div>
                 </div>
+
+                <CounterpartyPanel ctx={letterCtx.ctx} events={letterCtx.events} loading={letterCtx.loading} />
 
                 {openThread && openThread.count > 1 && (
                   <div className="thstrip">

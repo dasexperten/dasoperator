@@ -83,12 +83,45 @@ function referenceCandidates(subject: string | undefined, text: string | undefin
   return out;
 }
 
+/** Every address a partner row carries, whatever shape the column is in. */
+function addressesOf(raw: string | null | undefined): string[] {
+  const value = (raw || '').trim();
+  if (!value) return [];
+  if (value.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.map((a) => String(a).trim().toLowerCase()).filter(Boolean);
+      }
+    } catch { /* a broken array is treated as a plain string below */ }
+  }
+  // Also covers the hand-typed "a@x.com, b@x.com" that a JSON parse would miss.
+  return value.split(/[,;\s]+/).map((a) => a.trim().toLowerCase()).filter((a) => a.includes('@'));
+}
+
+async function matchPartnerByEmail(env: Env, party: string): Promise<{ id: string } | null> {
+  const rows = await env.DB.prepare(
+    `SELECT id, email FROM partners
+      WHERE email IS NOT NULL AND lower(email) LIKE ?1 AND deleted_at IS NULL
+      LIMIT 5`
+  ).bind(`%${party}%`).all<{ id: string; email: string | null }>();
+
+  const hits = (rows.results || []).filter((r) => addressesOf(r.email).includes(party));
+  // Two partners answering to one address is a data problem, not a match.
+  return hits.length === 1 ? { id: hits[0]!.id } : null;
+}
+
 async function resolve(env: Env, input: LinkEmailInput, party: string): Promise<Resolution | null> {
   // 1 — exact partner address.
+  //
+  // partners.email is not one shape. Most rows hold a plain address, some hold
+  // a JSON array of them — a company with a mainland and a Hong Kong mailbox is
+  // normal, not an exception. The first version compared the whole column to a
+  // single address, so every multi-address partner was invisible to it forever.
+  // Match the substring first to keep the index useful, then confirm properly
+  // in JS: LIKE alone would attach mail@x.com to notmail@x.com.
   if (party) {
-    const exact = await env.DB.prepare(
-      `SELECT id FROM partners WHERE lower(email) = ?1 AND deleted_at IS NULL LIMIT 1`
-    ).bind(party).first<{ id: string }>();
+    const exact = await matchPartnerByEmail(env, party);
     if (exact?.id) {
       const op = await operationByReference(env, input, exact.id);
       return {
@@ -130,9 +163,12 @@ async function resolve(env: Env, input: LinkEmailInput, party: string): Promise<
   const domain = party.includes('@') ? party.slice(party.lastIndexOf('@') + 1) : '';
   if (domain && domain.length > 3) {
     const byDomain = await env.DB.prepare(
-      `SELECT id FROM partners WHERE lower(email) LIKE ?1 AND deleted_at IS NULL LIMIT 2`
-    ).bind(`%@${domain}`).all<{ id: string }>();
-    const rows = byDomain.results || [];
+      `SELECT id, email FROM partners
+        WHERE email IS NOT NULL AND lower(email) LIKE ?1 AND deleted_at IS NULL LIMIT 5`
+    ).bind(`%@${domain}%`).all<{ id: string; email: string | null }>();
+    const rows = (byDomain.results || []).filter((r) =>
+      addressesOf(r.email).some((a) => a.endsWith(`@${domain}`))
+    );
     // Two partners on one domain means the domain proves nothing.
     if (rows.length === 1) {
       return { partnerId: rows[0]!.id, confidence: 0.6, matchedOn: 'domain' };

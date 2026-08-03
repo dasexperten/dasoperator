@@ -1478,9 +1478,13 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
 
   const openEmail = (it: MailItem) => {
     setSelectedId(it.id);
-    // Signature is prefilled, not appended at send: the person sees exactly
-    // what the customer will read before pressing Отправить (HARD_RULES §0).
-    setReplyText(signatureFor(replyFromFor(it)));
+    // Owner 2026-08-03, corrected the same day: the reply field is a ONE-LINE
+    // input, so a two-line signature collapsed into "Zina PevtsovaDas Experten"
+    // — and would have left in that shape. The signature is now appended at
+    // send and shown, unchangeable, under the field. §0 is satisfied by the
+    // reader SEEING the exact text, not by it sitting inside an input that
+    // cannot hold it.
+    setReplyText('');
     markRead(it);
   };
 
@@ -1488,18 +1492,17 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
     if (!selected || replySending) return;
     const fromAddr = replyFromFor(selected);
     const sig = signatureFor(fromAddr);
-    // A letter that is nothing but the signature is not a letter.
-    if (!bodyWithoutSignature(replyText, sig)) return;
+    if (!replyText.trim()) return;
     setReplySending(true);
     try {
       const r = await sendReply({
         to: selected.org,
         subject: selected.subject.toLowerCase().startsWith('re:') ? selected.subject : `Re: ${selected.subject}`,
-        text: replyText,
+        text: replyText.trim() + sig,
         from: fromAddr,
         ...replyHeaders(selected, openThread?.letters),
       });
-      if (r.success) { setReplyText(sig); toast('Ответ отправлен'); }
+      if (r.success) { setReplyText(''); toast('Ответ отправлен'); }
       else toast(r.error || 'Не удалось отправить');
     } catch {
       toast('Не удалось отправить');
@@ -1874,6 +1877,10 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                   onChange={(e) => setReplyText(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') submitReply(); }}
                 />
+                <span
+                  title="Подпись добавится при отправке"
+                  style={{ color: '#6E6558', fontSize: 11, whiteSpace: 'nowrap', padding: '0 4px' }}
+                >{signatureFor(replyFromFor(selected)).trim().replace(/\n/g, ' · ')}</span>
                 <button
                   className={letterLearn.studied(selected.key) ? "learnb learnb-done" : "learnb"}
                   onClick={() => letterLearn.run(selected, openThread?.letters.map((l) => l.key))}
@@ -2122,7 +2129,7 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
   const openEmail = (id: string) => {
     const it = items.find((e) => e.id === id);
     setOpenedId(id);
-    setReplyText(it ? signatureFor(replyFromFor(it)) : '');
+    setReplyText('');
     if (it) markRead(it);
   };
   const archiveEmail = (id: string) => { archive(id); toast('Перемещено в архив', () => unarchive(id)); };
@@ -2132,7 +2139,7 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
     if (!opened || replySending) return;
     const fromAddr = replyFromFor(opened);
     const sig = signatureFor(fromAddr);
-    if (!bodyWithoutSignature(replyText, sig)) return;
+    if (!replyText.trim()) return;
     setReplySending(true);
     try {
       // The phone layout has no thread strip, so the ancestry is rebuilt from
@@ -2142,11 +2149,11 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
       const r = await sendReply({
         to: opened.org,
         subject: opened.subject.toLowerCase().startsWith('re:') ? opened.subject : `Re: ${opened.subject}`,
-        text: replyText,
+        text: replyText.trim() + sig,
         from: fromAddr,
         ...replyHeaders(opened, thread?.letters),
       });
-      if (r.success) { setReplyText(sig); toast('Ответ отправлен'); }
+      if (r.success) { setReplyText(''); toast('Ответ отправлен'); }
       else toast(r.error || 'Не удалось отправить');
     } catch {
       toast('Не удалось отправить');
@@ -2406,6 +2413,10 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
               onChange={(e) => setReplyText(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') submitReply(); }}
             />
+            <span
+              title="Подпись добавится при отправке"
+              style={{ color: '#6E6558', fontSize: 11, whiteSpace: 'nowrap', padding: '0 4px' }}
+            >{signatureFor(replyFromFor(opened)).trim().replace(/\n/g, ' · ')}</span>
             <button
               className="mdraftb"
               onClick={() => agentDraft.run(opened, body)}

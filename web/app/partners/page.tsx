@@ -331,6 +331,16 @@ export default function PartnersPage() {
             Recalculate statuses
           </button>
           <Link
+            href="/partners/correspondents"
+            className="inline-flex items-center gap-2 px-4 py-2"
+            style={{
+              border: '1px solid var(--border-hairline)', color: 'var(--fg-1)',
+              borderRadius: 'var(--radius-sm)', fontSize: 'var(--fs-body-sm)', fontWeight: 600,
+            }}
+          >
+            Correspondents
+          </Link>
+          <Link
             href="/partners/new"
             className="inline-flex items-center gap-2 px-4 py-2"
             style={{

@@ -2890,6 +2890,22 @@ export async function getPartnerTimeline(slug: string, limit = 8) {
   }>(`/api/partners/${encodeURIComponent(slug)}/timeline?limit=${limit}`);
 }
 
+export interface Correspondent {
+  address: string;
+  letters: number;
+  mailboxes: string[];
+  lastAt: string;
+  lastSubject: string;
+  partnerSlug?: string;
+  partnerName?: string;
+}
+
+export async function getCorrespondents(all = false) {
+  return apiGet<{ total: number; unknownCount: number; rows: Correspondent[] }>(
+    `/api/email/correspondents?limit=200${all ? '&all=1' : ''}`
+  );
+}
+
 export async function linkLetterToPartner(input: {
   key: string; partner_id?: string | null; operation_id?: string | null;
   counterparty_email?: string;

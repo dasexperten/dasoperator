@@ -2906,6 +2906,20 @@ export async function getCorrespondents(all = false) {
   );
 }
 
+export async function relinkArchive(offset = 0) {
+  const token = typeof window !== 'undefined' ? window.localStorage.getItem('dx_auth_token') : null;
+  const res = await fetch(`${API_BASE}/api/email/correspondents/relink?offset=${offset}&limit=120`, {
+    method: 'POST',
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  });
+  try {
+    return await res.json() as {
+      success: boolean;
+      result?: { total: number; processed: number; linked: number; nextOffset: number; remaining: number };
+    };
+  } catch { return { success: false }; }
+}
+
 export async function linkLetterToPartner(input: {
   key: string; partner_id?: string | null; operation_id?: string | null;
   counterparty_email?: string;

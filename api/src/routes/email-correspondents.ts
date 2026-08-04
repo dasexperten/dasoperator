@@ -23,6 +23,7 @@ import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { validateSession } from '../lib/auth';
 import type { IndexEntry } from '../lib/inbox-archive';
+import { linkEmail } from '../lib/email-link';
 
 const route = new Hono<{ Bindings: Env }>();
 
@@ -132,6 +133,91 @@ route.get('/correspondents', async (c) => {
     });
   } catch (err) {
     return fail(c, 500, [{ code: 'correspondents_error', message: err instanceof Error ? err.message : String(err) }]);
+  }
+});
+
+// -----------------------------------------------------------------------------
+// POST /correspondents/relink — run the linker over letters already archived.
+//
+// Not a cron and not automatic. The dry run that preceded this route found 287
+// letters and zero matches, because the directory was empty of the people we
+// actually write to. A pass in that state produces nothing but noise, so the
+// pass is a button: fill the directory, then press it, and the history falls
+// into place behind you.
+//
+// Batched on purpose. A Worker has a wall clock and the archive only grows;
+// a single sweep that works today would quietly start timing out later, and the
+// failure would look like "nothing happened". The caller walks it with offset
+// until `remaining` is zero, which also gives an honest progress number.
+//
+// Locked rows are untouched — linkEmail checks the lock before it looks at
+// anything else. A pass over history must never overrule a person.
+// -----------------------------------------------------------------------------
+route.post('/correspondents/relink', async (c) => {
+  if (!(await requireSession(c))) {
+    return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+  }
+
+  const offset = Math.max(Number(c.req.query('offset') || 0) || 0, 0);
+  const limit = Math.min(Math.max(Number(c.req.query('limit') || 120) || 120, 1), 200);
+
+  try {
+    const listed = await c.env.ARCHIVE.list({ prefix: 'Inbox/', delimiter: '/' });
+    const indexKeys = listed.objects
+      .map((o) => o.key)
+      .filter((k) => k.endsWith('.json'))
+      .sort();  // stable order, or paging over a moving list would skip letters
+
+    // Flatten every mailbox into one ordered list so offset means the same
+    // thing on every call.
+    const flat: Array<{ mailbox: string; entry: IndexEntry }> = [];
+    for (const key of indexKeys) {
+      const mailbox = key.slice('Inbox/'.length, -'.json'.length);
+      try {
+        const obj = await c.env.ARCHIVE.get(key);
+        if (!obj) continue;
+        const entries = JSON.parse(await obj.text());
+        if (!Array.isArray(entries)) continue;
+        for (const entry of entries as IndexEntry[]) {
+          if (entry?.key) flat.push({ mailbox, entry });
+        }
+      } catch { /* one broken index costs its own letters, not the sweep */ }
+    }
+
+    const slice = flat.slice(offset, offset + limit);
+    let linked = 0;
+
+    for (const { mailbox, entry } of slice) {
+      const before = await c.env.DB.prepare(
+        `SELECT partner_id, locked FROM email_links WHERE mail_key = ?1 LIMIT 1`
+      ).bind(entry.key).first<{ partner_id: string | null; locked: number }>();
+      if (before?.locked) continue;
+
+      await linkEmail(c.env, {
+        mailKey: entry.key,
+        mailbox,
+        direction: entry.direction === 'sent' ? 'sent' : 'received',
+        from: entry.from,
+        to: entry.to,
+        subject: entry.subject,
+      });
+
+      const after = await c.env.DB.prepare(
+        `SELECT partner_id FROM email_links WHERE mail_key = ?1 LIMIT 1`
+      ).bind(entry.key).first<{ partner_id: string | null }>();
+      if (!before?.partner_id && after?.partner_id) linked += 1;
+    }
+
+    const nextOffset = offset + slice.length;
+    return ok(c, {
+      total: flat.length,
+      processed: slice.length,
+      linked,
+      nextOffset,
+      remaining: Math.max(flat.length - nextOffset, 0),
+    });
+  } catch (err) {
+    return fail(c, 500, [{ code: 'relink_error', message: err instanceof Error ? err.message : String(err) }]);
   }
 });
 

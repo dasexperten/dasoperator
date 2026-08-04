@@ -19,7 +19,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Plus, Loader2, Check } from 'lucide-react';
-import { getCorrespondents, createPartnerQuick, type Correspondent } from '@/lib/api';
+import { getCorrespondents, createPartnerQuick, relinkArchive, type Correspondent } from '@/lib/api';
 import Breadcrumb from '@/components/layout/breadcrumb';
 
 function guessName(address: string): string {
@@ -37,6 +37,26 @@ export default function CorrespondentsClient() {
   const [names, setNames] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [done, setDone] = useState<Record<string, string>>({});
+  const [sweep, setSweep] = useState<{ running: boolean; linked: number; seen: number; total: number } | null>(null);
+
+  // Walks the archive in batches until it is finished. Batched because a single
+  // sweep would start timing out as the archive grows, and a timeout looks
+  // exactly like nothing happening.
+  async function runSweep() {
+    if (sweep?.running) return;
+    setSweep({ running: true, linked: 0, seen: 0, total: 0 });
+    let offset = 0;
+    let linked = 0;
+    for (let guard = 0; guard < 60; guard += 1) {
+      const r = await relinkArchive(offset);
+      if (!r.success || !r.result) break;
+      linked += r.result.linked;
+      offset = r.result.nextOffset;
+      setSweep({ running: r.result.remaining > 0, linked, seen: offset, total: r.result.total });
+      if (r.result.remaining <= 0) break;
+    }
+    setSweep((s) => (s ? { ...s, running: false } : null));
+  }
 
   useEffect(() => {
     let alive = true;
@@ -90,11 +110,34 @@ export default function CorrespondentsClient() {
             Кто нам пишет и кого нет в справочнике · без контрагента: {unknownCount}
           </p>
         </div>
-        <label className="inline-flex items-center gap-2" style={{ fontSize: '14px', color: 'var(--fg-2)', cursor: 'pointer' }}>
-          <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
-          Показать роботов и внутренние адреса
-        </label>
+        <div className="flex items-center gap-4 flex-wrap">
+          <label className="inline-flex items-center gap-2" style={{ fontSize: '14px', color: 'var(--fg-2)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
+            Показать роботов и внутренние адреса
+          </label>
+          <button
+            onClick={runSweep}
+            disabled={sweep?.running}
+            className="inline-flex items-center gap-2 px-4 py-2"
+            style={{
+              border: '1px solid var(--border-hairline)', color: 'var(--fg-1)',
+              borderRadius: 'var(--radius-sm)', fontSize: 'var(--fs-body-sm)', fontWeight: 600,
+              opacity: sweep?.running ? 0.6 : 1,
+            }}
+          >
+            {sweep?.running && <Loader2 className="h-4 w-4 animate-spin" />}
+            Разобрать архив
+          </button>
+        </div>
       </div>
+
+      {sweep && (
+        <p style={{ fontSize: '13px', color: 'var(--fg-2)', marginBottom: '8px' }}>
+          {sweep.running
+            ? `Разбираю: ${sweep.seen} из ${sweep.total || '…'} · привязано ${sweep.linked}`
+            : `Разбор закончен: просмотрено ${sweep.seen}, привязано ${sweep.linked}`}
+        </p>
+      )}
 
       <div className="dx-ribbon-rule" />
 

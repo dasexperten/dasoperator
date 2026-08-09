@@ -946,7 +946,11 @@ interface Thread {
   people: string[];
 }
 
-const REPLY_PREFIX = /^\s*(?:(?:re|fwd|fw|ответ|отв|пересл|переслано)\s*(?:\[\d+\])?\s*:\s*)+/i;
+// Reply/forward prefixes. Measured 2026-08-09: a German counterparty answers with
+// "AW:" and forwards with "WG:", neither of which was listed — so the subject edge
+// failed and a four-letter exchange fell apart into two threads of two. Every locale
+// we actually write to is listed here now; adding one is cheaper than losing a thread.
+const REPLY_PREFIX = /^\s*(?:(?:re|aw|antw|fwd|fw|wg|rv|rif|r|tr|rép|rep|sv|vs|vb|доб|ответ|отв|пересл|переслано|відп|перес)\s*(?:\[\d+\])?\s*:\s*)+/i;
 
 function normSubject(subject: string): string {
   return subject.replace(REPLY_PREFIX, '').replace(/\s+/g, ' ').trim().toLowerCase();

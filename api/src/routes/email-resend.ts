@@ -48,8 +48,20 @@ const sendSchema = z.object({
   cc: z.string().email().or(z.array(z.string().email())).optional(),
   bcc: z.string().email().or(z.array(z.string().email())).optional(),
   in_reply_to: z.string().optional(),
+  reply_to_tag: z.string().regex(/^[a-z0-9]{4,16}$/).optional(),
   trigger: z.string().max(120).optional(),
 });
+
+// Thread tag (Owner 2026-08-03 mechanism). Until 2026-08-09 this route issued none,
+// so every letter an AGENT sent started life without a thread name and the only edge
+// back to the answer was the subject line — which breaks the moment a counterparty
+// replies in a language whose prefix we had not listed. Agents' letters now carry a
+// tag exactly like the ones written in the Emailer UI.
+const TAG_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
+function newThreadTag(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  return Array.from(bytes, (b) => TAG_ALPHABET[b % TAG_ALPHABET.length]).join('');
+}
 
 route.post('/resend-send', async (c) => {
   if (!(await requireUserOrService(c))) {
@@ -78,6 +90,7 @@ route.post('/resend-send', async (c) => {
     ...(d.cc !== undefined ? { cc: d.cc } : {}),
     ...(d.bcc !== undefined ? { bcc: d.bcc } : {}),
     ...(d.in_reply_to !== undefined ? { in_reply_to: d.in_reply_to } : {}),
+    replyToTag: d.reply_to_tag || newThreadTag(),
     origin: 'human',
     trigger: d.trigger || 'emailer-resend-send',
   });

@@ -950,6 +950,9 @@ interface Thread {
 // "AW:" and forwards with "WG:", neither of which was listed — so the subject edge
 // failed and a four-letter exchange fell apart into two threads of two. Every locale
 // we actually write to is listed here now; adding one is cheaper than losing a thread.
+/** How many letters the thread strip shows before 'show all' (Owner 2026-08-09). */
+const THREAD_COLLAPSED = 5;
+
 const REPLY_PREFIX = /^\s*(?:(?:re|aw|antw|fwd|fw|wg|rv|rif|r|tr|rép|rep|sv|vs|vb|доб|ответ|отв|пересл|переслано|відп|перес)\s*(?:\[\d+\])?\s*:\s*)+/i;
 
 function normSubject(subject: string): string {
@@ -1403,6 +1406,10 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
   const [activeFolder, setActiveFolder] = useState<FolderId>('inbox');
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Thread strip: collapsed shows the five newest letters, a click opens the rest
+  // (Owner 2026-08-09). The old fixed 168px cap hid everything past the fifth
+  // behind a scroll nobody noticed, so a long thread read as a short one.
+  const [threadExpanded, setThreadExpanded] = useState(false);
   const [compose, setCompose] = useState<ComposeInit | null>(null);
   const agentDraft = useAgentDraft(setCompose, toast);
   const letterLearn = useLetterLearn(toast);
@@ -1448,6 +1455,11 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
     () => threads.find((t) => t.letters.some((l) => l.id === selectedId)) || null,
     [threads, selectedId]
   );
+
+  // Opening a different conversation collapses the strip again: expansion belongs
+  // to the thread you opened it on, not to the panel.
+  const openThreadKey = openThread?.head.id ?? null;
+  useEffect(() => { setThreadExpanded(false); }, [openThreadKey]);
 
   const selected = items.find((e) => e.id === selectedId) || null;
   const { body, loading: bodyLoading } = useMailBody(selected);
@@ -1780,12 +1792,15 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                 />
 
                 {openThread && openThread.count > 1 && (
-                  <div className="thstrip">
-                    {/* Newest first (Owner 2026-08-01). The strip is capped at 168px:
-                        chronological order buried the latest letter below the fold,
-                        which is the one letter you always want first. The underlying
-                        array stays oldest-first — Learn reads it in sequence. */}
-                    {openThread.letters.slice().reverse().map((l) => (
+                  <div className={`thstrip ${threadExpanded ? 'open' : ''}`}>
+                    {/* Newest first (Owner 2026-08-01). Collapsed the strip shows the
+                        five newest letters and a "show all" line; expanded it shows the
+                        whole thread (Owner 2026-08-09). The underlying array stays
+                        oldest-first — Learn reads it in sequence. */}
+                    {(threadExpanded
+                      ? openThread.letters.slice().reverse()
+                      : openThread.letters.slice().reverse().slice(0, THREAD_COLLAPSED)
+                    ).map((l) => (
                       <button
                         key={l.id}
                         className={`thline ${l.id === selectedId ? 'on' : ''} ${l.unread ? 'unread' : ''}`}
@@ -1798,6 +1813,16 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                         <span className="thtime">{l.time}</span>
                       </button>
                     ))}
+                    {openThread.count > THREAD_COLLAPSED && (
+                      <button
+                        className="thmore"
+                        onClick={() => setThreadExpanded((v) => !v)}
+                      >
+                        {threadExpanded
+                          ? 'Свернуть'
+                          : `Показать все ${openThread.count}`}
+                      </button>
+                    )}
                   </div>
                 )}
                 <div className={`dbody ${body?.html && !(tr.text && !tr.showOriginal) ? 'is-html' : ''}`}>

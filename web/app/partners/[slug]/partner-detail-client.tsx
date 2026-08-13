@@ -294,12 +294,32 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
     );
   }
 
+  // Price list on the counterparty card. The column and the API carried it all
+  // along; neither the card nor the edit form ever showed it, so most buyers sat
+  // with no list and an operation could not resolve a price for them.
+  // Owner 2026-08-13.
+  const PRICE_LIST_LABEL: Record<string, string> = {
+    distr_usd: 'International (USD)',
+    distr_rub: 'Russia Distr (RUB)',
+    distr_base_usd: 'Distributor base (USD)',
+    dasex_group: 'Dasex (USD)',
+    wb_ru: 'Russia RSP (RUB)',
+    export_usd: 'Purchasing (USD)',
+    purchase_cny: 'Purchasing (CNY)',
+    cogs_ru: 'COGS-RU',
+  };
+  const priceListName =
+    (partner as { price_type_code?: string | null }).price_type_code ??
+    (partner.price_type_id ? PRICE_LIST_LABEL[partner.price_type_id] ?? partner.price_type_id : null);
+
   const isPending = partner.status === 'pending';
   const statusStyle = STATUS_COLORS[partner.status];
 
   const generalFields = [
     { label: 'Country', value: partner.country },
     { label: 'Type', value: KIND_LABEL[partner.kind ?? ''] ?? partner.kind ?? partner.partner_type },
+    { label: 'Price list', value: priceListName },
+    { label: 'Currency', value: partner.currency },
     { label: 'Tax ID', value: partner.tax_id },
     { label: 'Email', value: partner.email },
     { label: 'Contact person', value: partner.contact_person },
@@ -378,6 +398,8 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
           <CopyableField label="Country" value={partner.country} />
           <CopyableField label="Type" value={KIND_LABEL[partner.kind ?? ""] ?? partner.kind ?? partner.partner_type} />
           <CopyableField label="Language" value={languageLabel(partner.partner_language)} />
+          <CopyableField label="Price list" value={priceListName} />
+          <CopyableField label="Currency" value={partner.currency} mono />
           <CopyableField label="Document mode" value={docModeLabel(partner.preferred_invoice_language)} />
           <CopyableField label="National language" value={nationalLanguageLabel((partner as { partner_local_language?: string | null }).partner_local_language)} />
           <CopyableField label="Tax ID" value={partner.tax_id} mono />

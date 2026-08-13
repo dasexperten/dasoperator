@@ -77,6 +77,8 @@ type FormState = {
   partner_local_language: typeof PARTNER_LOCAL_LANGUAGES[number]['value'] | '';
   preferred_incoterms: string;
   payment_terms: string;
+  price_type_id: string;
+  currency: string;
   iban: string;
   swift_bic: string;
   bank_name: string;
@@ -87,6 +89,20 @@ type FormState = {
   notes: string;
   acceptance_required: boolean;
 };
+
+// Mirrors price_types WHERE active = 1. Kept here rather than fetched so the
+// form works even when the pricing endpoint is slow; if a type is added, add it
+// here too — Justina owns the matrix.
+const PRICE_TYPES = [
+  { id: 'distr_usd',      code: 'International (USD)',    currency: 'USD', entity: 'DEI / DEASEAN / DEC' },
+  { id: 'distr_rub',      code: 'Russia Distr (RUB)',     currency: 'RUB', entity: 'DEE' },
+  { id: 'distr_base_usd', code: 'Distributor base (USD)', currency: 'USD', entity: 'DEI' },
+  { id: 'dasex_group',    code: 'Dasex (USD)',            currency: 'USD', entity: 'DEI' },
+  { id: 'wb_ru',          code: 'Russia RSP (RUB)',       currency: 'RUB', entity: 'DEE' },
+  { id: 'export_usd',     code: 'Purchasing (USD)',       currency: 'USD', entity: 'DEI' },
+  { id: 'purchase_cny',   code: 'Purchasing (CNY)',       currency: 'CNY', entity: 'DEC / DEI' },
+  { id: 'cogs_ru',        code: 'COGS-RU',                currency: 'RUB', entity: 'DEE' },
+] as const;
 
 function partnerToForm(p: Partner): FormState {
   return {
@@ -111,6 +127,8 @@ function partnerToForm(p: Partner): FormState {
     partner_local_language: ((p as { partner_local_language?: string }).partner_local_language as FormState['partner_local_language']) ?? '',
     preferred_incoterms: p.preferred_incoterms ?? '',
     payment_terms: p.payment_terms ?? '',
+    price_type_id: (p as { price_type_id?: string | null }).price_type_id ?? '',
+    currency: (p as { currency?: string | null }).currency ?? '',
     iban: p.iban ?? '',
     swift_bic: p.swift_bic ?? '',
     bank_name: p.bank_name ?? '',
@@ -444,6 +462,35 @@ export default function EditPartnerClient({ slug }: { slug: string }) {
             value={form.payment_terms}
             onChange={(e) => update('payment_terms', e.target.value)}
             placeholder="50% advance, 50% on delivery"
+            style={inputStyle}
+          />
+        </Field>
+        {/* Price list per counterparty. The column and the API accepted this all
+            along; the form never showed it, so 12 of 20 buyers carried no price
+            type and operations could not pick a list for them. Owner 2026-08-13. */}
+        <Field label="Price list">
+          <select
+            value={form.price_type_id}
+            onChange={(e) => {
+              const pt = PRICE_TYPES.find((x) => x.id === e.target.value);
+              update('price_type_id', e.target.value);
+              if (pt) update('currency', pt.currency);
+            }}
+            style={inputStyle}
+          >
+            <option value="">— not set —</option>
+            {PRICE_TYPES.map((pt) => (
+              <option key={pt.id} value={pt.id}>{pt.code} · {pt.currency} · {pt.entity}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Currency">
+          <input
+            type="text"
+            value={form.currency}
+            onChange={(e) => update('currency', e.target.value.toUpperCase().slice(0, 3))}
+            placeholder="USD"
+            maxLength={3}
             style={inputStyle}
           />
         </Field>

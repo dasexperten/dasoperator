@@ -37,7 +37,9 @@ export const AGENT_MAILBOXES: UiMailbox[] = [
   { address: 'hr@dasexperten.com', kind: 'agent', slug: 'lena-sergeeva', label: 'Lena Sergeeva', role: 'Central Executive Officer', aliases: ['lena@dasexperten.com'] },
   { address: 'vetrova@dasexperten.com', kind: 'agent', slug: 'alexandra-obnorskaya', label: 'Alexandra Obnorskaya', role: 'Marketplaces', aliases: ['alexandra@dasexperten.com'] },
   // CDN file is mina-rutunya.png (alias mina.png also published). Prefer canonical slug.
-  { address: 'mina@dasexperten.com', kind: 'agent', slug: 'mina-rutunya', label: 'Mina', role: 'Sysadmin' },
+  // Owner 2026-08-14: primary box is sysadmin@; mina@ stays as alias so its
+  // archived letters keep resolving to this agent.
+  { address: 'sysadmin@dasexperten.com', kind: 'agent', slug: 'mina-rutunya', label: 'Mina', role: 'Sysadmin', aliases: ['mina@dasexperten.com'] },
   { address: 'logistics@dasexperten.com', kind: 'agent', slug: 'zina-pevtsova', label: 'Zina Pevtsova', role: 'Logistics', aliases: ['zina@dasexperten.com'] },
   { address: 'maya@dasexperten.com', kind: 'agent', slug: 'maya-krasochkina', label: 'Maya Krasochkina', role: 'Operations' },
   { address: 'ozon@dasexperten.com', kind: 'agent', slug: 'dasha-kozlovskaya', label: 'Dasha Kozlovskaya', role: 'Ozon Specialist', aliases: ['dasha@dasexperten.com'] },

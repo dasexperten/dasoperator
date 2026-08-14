@@ -31,6 +31,7 @@ export const HUMAN_SENDERS = new Set([
   'valentina@dasexperten.com',
   'justina@dasexperten.com',
   'tamara@dasexperten.com',
+  'mina@dasexperten.com',
 ]);
 
 export function extractEmailAddr(raw: string): string {

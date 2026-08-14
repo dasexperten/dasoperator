@@ -49,7 +49,11 @@ export const MAILBOX_REGISTRY: MailboxDef[] = [
   { address: 'hr@dasexperten.com', kind: 'agent', slug: 'lena-sergeeva', label: 'Lena Sergeeva', role: 'Central Executive Officer', showInUi: true, inbound: 'worker', aliases: ['lena@dasexperten.com'] },
   { address: 'vetrova@dasexperten.com', kind: 'agent', slug: 'alexandra-obnorskaya', label: 'Alexandra Obnorskaya', role: 'Marketplaces', showInUi: true, inbound: 'worker', aliases: ['alexandra@dasexperten.com'] },
   // CDN: mina-rutunya.png (+ alias mina.png). Canonical slug = mina-rutunya.
-  { address: 'mina@dasexperten.com', kind: 'agent', slug: 'mina-rutunya', label: 'Mina', role: 'Sysadmin', showInUi: true, inbound: 'worker' },
+  // Owner 2026-08-14: sysadmin@ is the primary box; mina@ demoted to alias but
+  // kept sending (see HUMAN_SENDERS in resend-human.ts - that set reads
+  // m.address only, never aliases, so a demoted address loses From rights
+  // unless it is listed explicitly).
+  { address: 'sysadmin@dasexperten.com', kind: 'agent', slug: 'mina-rutunya', label: 'Mina', role: 'Sysadmin', showInUi: true, inbound: 'worker', aliases: ['mina@dasexperten.com'] },
   { address: 'logistics@dasexperten.com', kind: 'agent', slug: 'zina-pevtsova', label: 'Zina Pevtsova', role: 'Logistics', showInUi: true, inbound: 'worker', aliases: ['zina@dasexperten.com'] },
   { address: 'maya@dasexperten.com', kind: 'agent', slug: 'maya-krasochkina', label: 'Maya Krasochkina', role: 'Operations', showInUi: true, inbound: 'worker' },
   { address: 'ozon@dasexperten.com', kind: 'agent', slug: 'dasha-kozlovskaya', label: 'Dasha Kozlovskaya', role: 'Ozon Specialist', showInUi: true, inbound: 'worker', aliases: ['dasha@dasexperten.com'] },

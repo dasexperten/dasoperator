@@ -144,6 +144,24 @@ const T = {
   },
   trackLbl: { en: 'Track your parcel', de: 'Sendung verfolgen', ru: 'Отследить посылку', vi: 'Theo dõi đơn hàng' },
   trackNoLbl: { en: 'Tracking number', de: 'Sendungsnummer', ru: 'Трек-номер', vi: 'Mã vận đơn' },
+  packedSubject: {
+    en: (n: string) => `Your Das Experten order ${n} is packed`,
+    de: (n: string) => `Deine Das Experten Bestellung ${n} ist verpackt`,
+    ru: (n: string) => `Ваш заказ Das Experten ${n} собран`,
+    vi: (n: string) => `Đơn hàng Das Experten ${n} đã được đóng gói`,
+  },
+  packedIntro: {
+    en: 'Your order is packed and booked with the carrier. It leaves our warehouse within one working day, and this tracking number starts moving as soon as it does.',
+    de: 'Deine Bestellung ist verpackt und beim Versanddienstleister angemeldet. Sie verlässt unser Lager innerhalb eines Werktags — dann beginnt sich diese Sendungsnummer zu bewegen.',
+    ru: 'Заказ собран и передан перевозчику. Он покинет наш склад в течение одного рабочего дня — с этого момента трек-номер начнёт обновляться.',
+    vi: 'Đơn hàng của bạn đã được đóng gói và bàn giao cho đơn vị vận chuyển. Hàng rời kho trong vòng một ngày làm việc, và mã vận đơn sẽ bắt đầu cập nhật từ lúc đó.',
+  },
+  packedNote: {
+    en: 'No action is needed from you — we write again the moment it ships.',
+    de: 'Du musst nichts tun — wir melden uns wieder, sobald die Sendung unterwegs ist.',
+    ru: 'От вас ничего не требуется — мы напишем снова, как только посылка поедет.',
+    vi: 'Bạn không cần làm gì thêm — chúng tôi sẽ báo lại ngay khi hàng được gửi đi.',
+  },
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -273,6 +291,56 @@ export async function sendTrackingEmails(
       `<p><strong>${escapeHtml(T.orderLbl[lang])}:</strong> ${escapeHtml(o.order_number)}</p>` +
       (num ? `<p><strong>${escapeHtml(T.trackNoLbl[lang])}:</strong> ${escapeHtml(num)}</p>` : '') +
       linkHtml +
+      `<p style="margin-top:24px">${escapeHtml(T.signoff[lang])}<br>` +
+      `<a href="https://dasexperten.com">dasexperten.com</a></p></div>`,
+  });
+}
+
+
+// ---------------------------------------------------------------------------
+// Order packed — the parcel exists, the carrier has it, nothing moves yet.
+//
+// Owner 2026-08-15: this notice is automatic and it speaks as delivery@.
+// It fires once per order, guarded upstream by crm_orders.packed_notified_at,
+// on the NSS transition into 'scheduled'. No internal copy: orders@ already
+// heard about this order at payment, and a second inbox ping per parcel is
+// noise, not information.
+// ---------------------------------------------------------------------------
+export async function sendPackedEmails(
+  env: Env,
+  o: OrderEmailData,
+  tracking: { tracking_number?: string | null; tracking_url?: string | null; carrier?: string | null }
+): Promise<void> {
+  if (!o.email) return;
+  const lang = pickLang(o.lang);
+  const num = tracking.tracking_number ?? '';
+  const url = tracking.tracking_url ?? '';
+  const shipLine = [o.ship_city, countryName(o.ship_country, lang)].filter(Boolean).join(', ');
+  const linkHtml = url
+    ? `<p><a href="${escapeHtml(url)}" style="display:inline-block;padding:10px 18px;background:#111;color:#fff;border-radius:6px;text-decoration:none">${escapeHtml(T.trackLbl[lang])}</a></p>`
+    : '';
+  await sendEmail(env, {
+    to: o.email,
+    from: SENDERS.delivery,
+    replyTo: REPLY_TO,
+    subject: T.packedSubject[lang](o.order_number),
+    text:
+      `${T.packedIntro[lang]}\n\n` +
+      `${T.orderLbl[lang]}: ${o.order_number}\n` +
+      (num ? `${T.trackNoLbl[lang]}: ${num}\n` : '') +
+      (url ? `${T.trackLbl[lang]}: ${url}\n` : '') +
+      (shipLine ? `${T.shipToLbl[lang]}: ${shipLine}\n` : '') +
+      `\n${T.packedNote[lang]}\n` +
+      `\n${T.signoff[lang]}\nhttps://dasexperten.com`,
+    html:
+      `<div style="font-family:system-ui,Arial,sans-serif;max-width:560px;color:#1a1a1a">` +
+      `<p>${escapeHtml(T.packedIntro[lang])}</p>` +
+      `<p><strong>${escapeHtml(T.orderLbl[lang])}:</strong> ${escapeHtml(o.order_number)}` +
+      (num ? `<br><strong>${escapeHtml(T.trackNoLbl[lang])}:</strong> ${escapeHtml(num)}` : '') +
+      (shipLine ? `<br><strong>${escapeHtml(T.shipToLbl[lang])}:</strong> ${escapeHtml(shipLine)}` : '') +
+      `</p>` +
+      linkHtml +
+      `<p style="margin-top:20px;color:#555">${escapeHtml(T.packedNote[lang])}</p>` +
       `<p style="margin-top:24px">${escapeHtml(T.signoff[lang])}<br>` +
       `<a href="https://dasexperten.com">dasexperten.com</a></p></div>`,
   });

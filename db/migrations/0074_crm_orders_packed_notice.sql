@@ -1,0 +1,12 @@
+-- 0074 — packed notice stamp on website orders.
+--
+-- NextSmartShip walks open -> requested -> scheduled -> fulfilling -> fulfilled.
+-- The buyer only ever heard from us at 'paid' and at 'shipped', so the whole
+-- packing window (19h on the 2026-07-27 parcel) was silence with a tracking
+-- number already issued. Owner 2026-08-15: the packed notice is automatic and
+-- speaks from delivery@.
+--
+-- fulfillment_status is NOT touched: its CHECK list stays as migration 0060
+-- wrote it, and 'submitted' remains correct until the parcel physically ships.
+-- This column is the send-once guard for the packed mail, nothing else.
+ALTER TABLE crm_orders ADD COLUMN packed_notified_at INTEGER;

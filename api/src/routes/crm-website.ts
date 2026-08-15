@@ -38,7 +38,7 @@ import {
   type CanonicalCustomer,
 } from '../lib/crm-website';
 import { upsertCart, markCartAbandoned } from '../lib/crm-carts';
-import { sendNewOrderEmails, sendTrackingEmails, type OrderEmailData } from '../lib/crm-emails';
+import { sendNewOrderEmails, sendTrackingEmails, sendPackedEmails, type OrderEmailData } from '../lib/crm-emails';
 
 const site = new Hono<{ Bindings: Env }>();
 const ADMIN_SECRET = 'das-admin-2026-migrations';
@@ -250,6 +250,76 @@ site.post('/tracking', async (c) => {
     if (msg.includes('no such table')) {
       return fail(c, 503, [{ code: 'not_migrated', message: 'Run POST /admin/migrate/crm-website first' }]);
     }
+    return fail(c, 500, [{ code: 'internal_error', message: msg }]);
+  }
+});
+
+// -----------------------------------------------------------------------------
+// Packed notice — pushed by the checkout Worker's half-hour sweep the first
+// time NextSmartShip reports the order as 'scheduled': the parcel is built and
+// the carrier holds it, but nothing is moving yet.
+//
+// Owner 2026-08-15: automatic, from delivery@. Send-once is enforced here, not
+// in the Worker — the sweep re-reads the same scheduled orders every 30 minutes
+// and must stay silent after the first pass. fulfillment_status is deliberately
+// left alone: the order has not shipped, and 'submitted' is still the truth.
+// -----------------------------------------------------------------------------
+site.post('/packed', async (c) => {
+  if (!isTrustedIngest(c)) {
+    return fail(c, 403, [{ code: 'forbidden', message: 'ingest secret required' }]);
+  }
+  const body = await c.req.json<any>().catch(() => null);
+  if (!body || !body.order_number) {
+    return fail(c, 400, [{ code: 'bad_request', message: 'order_number required' }]);
+  }
+  const orderNumber = String(body.order_number);
+  const trackingNumber = body.tracking_number ? String(body.tracking_number) : null;
+  const trackingUrl = body.tracking_url ? String(body.tracking_url) : null;
+  const carrier = body.carrier ? String(body.carrier) : null;
+
+  try {
+    const row = await c.env.DB.prepare(
+      `SELECT order_number, email, customer_name, currency, total_cents, subtotal_cents,
+              shipping_cents, lang, ship_country, ship_city, items,
+              fulfillment_status, packed_notified_at, tracking_number, tracking_url
+       FROM crm_orders WHERE source = 'website' AND order_number = ?`
+    )
+      .bind(orderNumber)
+      .first<any>();
+    if (!row) return ok(c, { notified: false, reason: 'unknown_order', order_number: orderNumber });
+    if (row.packed_notified_at) return ok(c, { notified: false, reason: 'already_notified', order_number: orderNumber });
+    // A parcel that already shipped or landed gets the shipped mail, not this one.
+    if (row.fulfillment_status === 'shipped' || row.fulfillment_status === 'delivered' || row.fulfillment_status === 'cancelled') {
+      return ok(c, { notified: false, reason: `status_${row.fulfillment_status}`, order_number: orderNumber });
+    }
+    if (!row.email) return ok(c, { notified: false, reason: 'no_email', order_number: orderNumber });
+
+    // Stamp BEFORE sending: two overlapping sweeps must not both mail the buyer.
+    const upd = await c.env.DB.prepare(
+      `UPDATE crm_orders
+          SET packed_notified_at = ?,
+              tracking_number = COALESCE(tracking_number, ?),
+              tracking_url = COALESCE(tracking_url, ?),
+              updated_at = ?
+        WHERE source = 'website' AND order_number = ? AND packed_notified_at IS NULL`
+    )
+      .bind(Math.floor(Date.now() / 1000), trackingNumber, trackingUrl, Math.floor(Date.now() / 1000), orderNumber)
+      .run();
+    if ((upd.meta?.changes ?? 0) === 0) {
+      return ok(c, { notified: false, reason: 'raced', order_number: orderNumber });
+    }
+
+    const data: OrderEmailData = { ...row, items: JSON.parse(row.items ?? '[]') };
+    c.executionCtx.waitUntil(
+      sendPackedEmails(c.env, data, {
+        tracking_number: trackingNumber ?? row.tracking_number ?? null,
+        tracking_url: trackingUrl ?? row.tracking_url ?? null,
+        carrier,
+      })
+    );
+    return ok(c, { notified: true, order_number: orderNumber });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
     return fail(c, 500, [{ code: 'internal_error', message: msg }]);
   }
 });

@@ -21,6 +21,9 @@ export const SENDERS = {
   noReply: `no-reply@${SENDING_DOMAIN}`,
   notifications: `notifications@${SENDING_DOMAIN}`,
   orders: `orders@${SENDING_DOMAIN}`,
+  // Owner 2026-08-15: the packed notice speaks as delivery@, not as orders@ —
+  // orders@ is money and confirmation, delivery@ is the parcel's own voice.
+  delivery: `delivery@${SENDING_DOMAIN}`,
   forms: `forms@${SENDING_DOMAIN}`,
   system: `system@${SENDING_DOMAIN}`,
 } as const;

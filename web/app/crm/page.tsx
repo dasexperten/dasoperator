@@ -397,6 +397,44 @@ export default function CrmPage() {
     }
   }, [customersPage, customersLimit, customersActiveSearch, custSort, crmSource]);
 
+  // --------------------------------------------------------------------------
+  // Detail drawer (Owner 2026-08-15: order and customer rows were dead ends —
+  // the API already served /orders/:number and /customers/:id, the table just
+  // never called them). .com source only: the KIT (ru) side has no detail route.
+  // --------------------------------------------------------------------------
+  const [detail, setDetail] = useState<{ kind: 'order' | 'customer'; id: string } | null>(null);
+  const [detailData, setDetailData] = useState<any>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!detail) { setDetailData(null); setDetailError(null); return; }
+    let cancelled = false;
+    setDetailLoading(true);
+    setDetailError(null);
+    setDetailData(null);
+    const path = detail.kind === 'order'
+      ? `/api/crm/website/orders/${encodeURIComponent(detail.id)}`
+      : `/api/crm/website/customers/${encodeURIComponent(detail.id)}`;
+    fetch(`${API_BASE}${path}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        if (d.success && d.result) setDetailData(d.result);
+        else setDetailError(d.errors?.[0]?.message || 'Not found');
+      })
+      .catch((e) => { if (!cancelled) setDetailError(e instanceof Error ? e.message : 'Network error'); })
+      .finally(() => { if (!cancelled) setDetailLoading(false); });
+    return () => { cancelled = true; };
+  }, [detail]);
+
+  useEffect(() => {
+    if (!detail) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDetail(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [detail]);
+
   const [cartsSort, setCartsSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'date', dir: 'desc' });
   const sortCarts = (k: string) => {
     setCartsSort((prev) => (prev.key === k ? { key: k, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key: k, dir: 'desc' }));
@@ -669,7 +707,7 @@ export default function CrmPage() {
           page={ordersPage}
           setPage={setOrdersPage}
         >
-          <OrdersTable orders={orders} hasSearch={!!ordersActiveSearch} search={ordersActiveSearch} sort={ordersSort} onSort={sortOrders} variant={crmSource} />
+          <OrdersTable orders={orders} hasSearch={!!ordersActiveSearch} search={ordersActiveSearch} sort={ordersSort} onSort={sortOrders} variant={crmSource} onOpen={(n) => setDetail({ kind: 'order', id: n })} />
         </DataTablePanel>
       )}
 
@@ -690,7 +728,7 @@ export default function CrmPage() {
           page={customersPage}
           setPage={setCustomersPage}
         >
-          <CustomersTable customers={customers} hasSearch={!!customersActiveSearch} search={customersActiveSearch} sort={custSort} onSort={sortCustomers} variant={crmSource} />
+          <CustomersTable customers={customers} hasSearch={!!customersActiveSearch} search={customersActiveSearch} sort={custSort} onSort={sortCustomers} variant={crmSource} onOpen={(id) => setDetail({ kind: 'customer', id })} />
         </DataTablePanel>
       )}
 
@@ -720,6 +758,18 @@ export default function CrmPage() {
           Source: {stats.source} · synced {new Date(stats.synced_at * 1000).toLocaleString('ru-RU')}
         </div>
       )}
+      {detail && (
+        <CrmDetailDrawer
+          kind={detail.kind}
+          data={detailData}
+          loading={detailLoading}
+          error={detailError}
+          onClose={() => setDetail(null)}
+          onOpenOrder={(n) => setDetail({ kind: 'order', id: n })}
+          onOpenCustomer={(id) => setDetail({ kind: 'customer', id })}
+        />
+      )}
+
       {crmSource === 'com' && comStats && (
         <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>
           Source: {comStats.source} · customers: website {comStats.customers_by_source.website} /
@@ -734,6 +784,161 @@ export default function CrmPage() {
 // ============================================================================
 // Components
 // ============================================================================
+
+// ----------------------------------------------------------------------------
+// Detail drawer — the order / customer card behind a table row.
+// Reads /api/crm/website/orders/:number and /api/crm/website/customers/:id.
+// Owner 2026-08-15: a row you cannot open is a row you cannot work.
+// ----------------------------------------------------------------------------
+function DrawerRow({ label, value, mono = false }: { label: string; value: React.ReactNode; mono?: boolean }) {
+  if (value === null || value === undefined || value === '' ) return null;
+  return (
+    <div style={{ display: 'flex', gap: 16, padding: '7px 0', borderBottom: '1px solid var(--border-hairline)' }}>
+      <div style={{ width: 150, flexShrink: 0, fontSize: 13, color: 'var(--fg-3)' }}>{label}</div>
+      <div style={{ fontSize: 14, color: 'var(--fg-1)', wordBreak: 'break-word', fontFamily: mono ? 'ui-monospace, SFMono-Regular, monospace' : undefined }}>{value}</div>
+    </div>
+  );
+}
+
+function drawerMoney(cents: number | null | undefined, currency: string | null | undefined) {
+  if (cents === null || cents === undefined) return null;
+  return `${(Number(cents) / 100).toFixed(2)} ${(currency ?? 'USD').toUpperCase()}`;
+}
+
+function drawerDate(epoch: number | null | undefined) {
+  if (!epoch) return null;
+  return new Date(Number(epoch) * 1000).toLocaleString('ru-RU');
+}
+
+function CrmDetailDrawer({
+  kind, data, loading, error, onClose, onOpenOrder, onOpenCustomer,
+}: {
+  kind: 'order' | 'customer';
+  data: any;
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+  onOpenOrder: (orderNumber: string) => void;
+  onOpenCustomer: (customerId: string) => void;
+}) {
+  const title = kind === 'order'
+    ? (data?.order_number ? `Order ${data.order_number}` : 'Order')
+    : (data ? [data.first_name, data.last_name].filter(Boolean).join(' ') || data.email || 'Customer' : 'Customer');
+
+  const ship = data ? [data.ship_address1, data.ship_address2, data.ship_city, data.ship_state, data.ship_zip, data.ship_country].filter(Boolean).join(', ') : '';
+  const addr = data ? [data.address1, data.address2, data.city, data.state_code, data.zip, data.country_code].filter(Boolean).join(', ') : '';
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(26,21,25,.32)', zIndex: 60, display: 'flex', justifyContent: 'flex-end' }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: 'min(560px, 100%)', height: '100%', overflowY: 'auto', backgroundColor: 'var(--paper, #FFFFFF)', boxShadow: '-6px 0 24px rgba(26,21,25,.16)', padding: '24px 28px 40px' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 18 }}>
+          <div>
+            <div style={{ fontSize: 12, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--fg-3)' }}>
+              {kind === 'order' ? 'Order card' : 'Customer card'}
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--fg-1)', fontFamily: kind === 'order' ? 'ui-monospace, SFMono-Regular, monospace' : undefined }}>{title}</div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{ border: '1px solid var(--border-hairline)', backgroundColor: 'transparent', borderRadius: 8, padding: '6px 12px', fontSize: 13, color: 'var(--fg-3)', cursor: 'pointer' }}
+          >
+            Close
+          </button>
+        </div>
+
+        {loading && <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>Loading…</div>}
+        {error && <div style={{ fontSize: 14, color: '#B3261E' }}>{error}</div>}
+
+        {!loading && !error && data && kind === 'order' && (
+          <>
+            <DrawerRow label="Status" value={`${data.financial_status ?? '—'} · ${data.fulfillment_status ?? '—'}`} />
+            <DrawerRow label="Placed" value={drawerDate(data.placed_at) ?? drawerDate(data.created_at)} />
+            <DrawerRow label="Customer" value={data.customer_name} />
+            <DrawerRow label="Email" value={data.email} />
+            <DrawerRow label="Phone" value={data.phone} />
+            <DrawerRow label="Ship to" value={ship || null} />
+            <DrawerRow label="Shipping method" value={data.shipping_method} />
+            <DrawerRow
+              label="Tracking"
+              value={data.tracking_number ? (
+                data.tracking_url
+                  ? <a href={data.tracking_url} target="_blank" rel="noreferrer" style={{ color: 'var(--fg-1)', textDecoration: 'underline' }}>{data.tracking_number}</a>
+                  : data.tracking_number
+              ) : null}
+              mono
+            />
+            <DrawerRow label="Subtotal" value={drawerMoney(data.subtotal_cents, data.currency)} />
+            <DrawerRow label="Shipping" value={drawerMoney(data.shipping_cents, data.currency)} />
+            <DrawerRow label="Discount" value={data.discount_cents ? drawerMoney(data.discount_cents, data.currency) : null} />
+            <DrawerRow label="Tax" value={data.tax_cents ? drawerMoney(data.tax_cents, data.currency) : null} />
+            <DrawerRow label="Total" value={drawerMoney(data.total_cents, data.currency)} />
+            <DrawerRow label="Payment" value={data.payment_method} />
+            <DrawerRow label="Stripe PI" value={data.stripe_payment_intent} mono />
+            <DrawerRow label="Source" value={data.source} />
+            <DrawerRow label="Language" value={data.lang} />
+
+            <div style={{ marginTop: 22, marginBottom: 8, fontSize: 13, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--fg-3)' }}>Items</div>
+            {(data.items ?? []).length === 0 && <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>—</div>}
+            {(data.items ?? []).map((it: any, i: number) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '7px 0', borderBottom: '1px solid var(--border-hairline)' }}>
+                <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace', fontSize: 13, color: 'var(--fg-1)' }}>{it.sku}</span>
+                <span style={{ fontSize: 14, color: 'var(--fg-3)' }}>{it.name ? `${it.name} · ` : ''}×{it.qty}</span>
+              </div>
+            ))}
+
+            {data.customer_id && (
+              <button
+                onClick={() => onOpenCustomer(String(data.customer_id))}
+                style={{ marginTop: 22, border: '1px solid var(--border-hairline)', backgroundColor: 'transparent', borderRadius: 8, padding: '8px 14px', fontSize: 13, color: 'var(--fg-1)', cursor: 'pointer' }}
+              >
+                Open customer card
+              </button>
+            )}
+          </>
+        )}
+
+        {!loading && !error && data && kind === 'customer' && (
+          <>
+            <DrawerRow label="Email" value={data.email} />
+            <DrawerRow label="Phone" value={data.phone} />
+            <DrawerRow label="Company" value={data.company} />
+            <DrawerRow label="Address" value={addr || null} />
+            <DrawerRow label="Language" value={data.lang} />
+            <DrawerRow label="Source" value={data.source} />
+            <DrawerRow label="Orders" value={data.orders_count} />
+            <DrawerRow label="Total spent" value={drawerMoney(data.total_spent_cents, data.currency)} />
+            <DrawerRow label="First order" value={drawerDate(data.first_order_at)} />
+            <DrawerRow label="Last order" value={drawerDate(data.last_order_at)} />
+            <DrawerRow label="Registered" value={drawerDate(data.created_at)} />
+            <DrawerRow label="Marketing consent" value={data.marketing_consent ? 'yes' : 'no'} />
+            <DrawerRow label="Tags" value={(data.tags ?? []).length ? (data.tags ?? []).join(', ') : null} />
+
+            <div style={{ marginTop: 22, marginBottom: 8, fontSize: 13, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--fg-3)' }}>Orders</div>
+            {(data.orders ?? []).length === 0 && <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>—</div>}
+            {(data.orders ?? []).map((o: any) => (
+              <div
+                key={o.order_number}
+                onClick={() => onOpenOrder(String(o.order_number))}
+                style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '9px 0', borderBottom: '1px solid var(--border-hairline)', cursor: 'pointer' }}
+              >
+                <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace', fontSize: 13, color: 'var(--fg-1)' }}>{o.order_number}</span>
+                <span style={{ fontSize: 13, color: 'var(--fg-3)' }}>
+                  {drawerMoney(o.total_cents, o.currency)} · {o.fulfillment_status ?? '—'} · {drawerDate(o.placed_at) ?? '—'}
+                </span>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function LoyaltyFunnel({
   funnel,
@@ -1805,7 +2010,7 @@ function DataTablePanel({
   );
 }
 
-function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru' }: { orders: CrmOrder[]; hasSearch: boolean; search: string; sort: { key: string; dir: 'asc' | 'desc' }; onSort: (k: string) => void; variant?: CrmSource }) {
+function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', onOpen }: { orders: CrmOrder[]; hasSearch: boolean; search: string; sort: { key: string; dir: 'asc' | 'desc' }; onSort: (k: string) => void; variant?: CrmSource; onOpen?: (orderNumber: string) => void }) {
   if (variant === 'com') {
     // Website (.com/Stripe) orders — no loyalty columns; USD; SKU line items
     return (
@@ -1831,7 +2036,14 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru' }
             </tr>
           )}
           {orders.map((o) => (
-            <tr key={`${o.order_source ?? 'website'}-${o.number}`} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+            <tr
+              key={`${o.order_source ?? 'website'}-${o.number}`}
+              onClick={() => onOpen?.(String(o.number))}
+              title="Open order card"
+              style={{ borderBottom: '1px solid var(--border-hairline)', cursor: onOpen ? 'pointer' : 'default' }}
+              onMouseEnter={(e) => { if (onOpen) (e.currentTarget as HTMLTableRowElement).style.backgroundColor = 'var(--paper-sunk, #F3F0E8)'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.backgroundColor = 'transparent'; }}
+            >
               <Td bold style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace', fontSize: 12 }}>
                 {o.number}
                 {o.order_source && o.order_source !== 'website' && (
@@ -2019,7 +2231,7 @@ function CartsTable({ carts, hasSearch, search, sort, onSort }: { carts: CrmCart
   );
 }
 
-function CustomersTable({ customers, hasSearch, search, sort, onSort, variant = 'ru' }: { customers: CrmCustomer[]; hasSearch: boolean; search: string; sort: { key: string; dir: 'asc' | 'desc' }; onSort: (k: string) => void; variant?: CrmSource }) {
+function CustomersTable({ customers, hasSearch, search, sort, onSort, variant = 'ru', onOpen }: { customers: CrmCustomer[]; hasSearch: boolean; search: string; sort: { key: string; dir: 'asc' | 'desc' }; onSort: (k: string) => void; variant?: CrmSource; onOpen?: (customerId: string) => void }) {
   if (variant === 'com') {
     // Website (.com) customer database — no loyalty columns; USD; source tag
     return (
@@ -2045,7 +2257,14 @@ function CustomersTable({ customers, hasSearch, search, sort, onSort, variant = 
             </tr>
           )}
           {customers.map((cu) => (
-            <tr key={cu.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+            <tr
+              key={cu.id}
+              onClick={() => onOpen?.(String(cu.id))}
+              title="Open customer card"
+              style={{ borderBottom: '1px solid var(--border-hairline)', cursor: onOpen ? 'pointer' : 'default' }}
+              onMouseEnter={(e) => { if (onOpen) (e.currentTarget as HTMLTableRowElement).style.backgroundColor = 'var(--paper-sunk, #F3F0E8)'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.backgroundColor = 'transparent'; }}
+            >
               <Td bold>{cu.name}</Td>
               <Td muted>{cu.email || '—'}</Td>
               <Td muted>{cu.phone || '—'}</Td>

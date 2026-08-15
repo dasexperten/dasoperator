@@ -808,6 +808,13 @@ site.get('/customers', async (c) => {
       binds.push(sourceFilter);
       where.push(`source = ?${binds.length}`);
     }
+    // Probe addresses (resend.dev, example.com, test@…) stay in the table for
+    // reconciliation but never appear in the customer list — Owner 2026-08-15:
+    // delivered@resend.dev was outranking every real buyer by total spent.
+    // ?include_synthetic=1 shows them again for an audit.
+    if (c.req.query('include_synthetic') !== '1') {
+      where.push(`(tags IS NULL OR tags NOT LIKE '%\"synthetic\"%')`);
+    }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
     const total = await c.env.DB.prepare(`SELECT COUNT(*) AS n FROM crm_customers ${whereSql}`)

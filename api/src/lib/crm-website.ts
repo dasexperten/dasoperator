@@ -228,6 +228,31 @@ async function snapshotCustomer(env: Env, customerId: string): Promise<void> {
 // address fields; backfills (wix/retailcrm) only FILL GAPS on existing rows so
 // live checkout data always wins over historical imports.
 // -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// Synthetic address guard (Owner 2026-08-15).
+//
+// delivered@resend.dev sat at the TOP of the customer list by total spent — a
+// Resend delivery-simulator address that entered through the ingest path like a
+// human being. Probe addresses distort the average order value, outrank real
+// buyers in every sorted view, and would eventually receive a campaign.
+//
+// They are TAGGED, never deleted: payment history must still reconcile. The
+// tag is what the customer list filters on.
+// -----------------------------------------------------------------------------
+const SYNTHETIC_DOMAINS = [
+  'resend.dev', 'example.com', 'example.org', 'example.net',
+  'test.com', 'mailinator.com', 'tempmail.com', 'localhost',
+];
+
+export function isSyntheticEmail(email: string | null | undefined): boolean {
+  const e = String(email ?? '').trim().toLowerCase();
+  if (!e || !e.includes('@')) return false;
+  const domain = e.slice(e.lastIndexOf('@') + 1);
+  if (SYNTHETIC_DOMAINS.includes(domain)) return true;
+  const local = e.slice(0, e.indexOf('@'));
+  return local.startsWith('test') || local.includes('+probe') || local.includes('-probe');
+}
+
 export async function upsertCustomer(
   env: Env,
   cust: CanonicalCustomer,
@@ -250,7 +275,10 @@ export async function upsertCustomer(
   }
 
   const extIds = cust.external_ids ?? {};
-  const tags = cust.tags ?? [];
+  // A probe address is marked at the door, not swept up later.
+  const tags = isSyntheticEmail(email)
+    ? Array.from(new Set([...(cust.tags ?? []), 'synthetic']))
+    : (cust.tags ?? []);
 
   if (existing) {
     const mergedExt = { ...(safeJson<Record<string, unknown>>(existing.external_ids) ?? {}), ...extIds };

@@ -153,7 +153,7 @@ export default function DasOperatorInboxMP() {
         .brand-name { font-size: 17px; font-weight: 800; letter-spacing: -0.3px; }
         .brand-tag {
           background: var(--green-soft); color: var(--green-dark);
-          font-size: 10.5px; font-weight: 800; letter-spacing: 0.6px;
+          font-size: 10.5px; font-weight: 800; letter-spacing: 0;
           padding: 3px 9px; border-radius: 999px; text-transform: uppercase;
         }
         .stats-strip { margin-left: auto; display: flex; gap: 10px; }

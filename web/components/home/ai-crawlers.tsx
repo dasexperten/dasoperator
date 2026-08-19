@@ -111,7 +111,7 @@ export default function AiCrawlers() {
                 style={{
                   fontSize: '10px',
                   fontWeight: 800,
-                  letterSpacing: '0.08em',
+                  letterSpacing: '0',
                   textTransform: 'uppercase',
                   color: 'rgba(251,250,246,.55)',
                 }}

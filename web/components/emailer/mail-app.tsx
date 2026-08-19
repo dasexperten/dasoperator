@@ -851,7 +851,7 @@ function CounterpartyPanel({ ctx, events, loading, mailKey, mailbox, onChanged }
 
       {events.length > 0 && (
         <div style={{ marginTop: 8, borderTop: `0.5px solid ${PANEL.line}`, paddingTop: 8 }}>
-          <div style={{ color: PANEL.meta, fontSize: 11, letterSpacing: '.06em', marginBottom: 7 }}>ХРОНОЛОГИЯ</div>
+          <div style={{ color: PANEL.meta, fontSize: 11, letterSpacing: '0', marginBottom: 7 }}>ХРОНОЛОГИЯ</div>
           {events.map((e, i) => (
             <div key={`${e.kind}-${e.at}-${i}`} style={{ display: 'flex', gap: 8, marginBottom: 7 }}>
               <span style={{ marginTop: 2, flex: 'none' }}>{eventIcon(e)}</span>

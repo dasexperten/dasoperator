@@ -54,7 +54,7 @@ Das Experten's copy is a **two-register challenger voice** with a distinctive ca
 
 - **Product names** are always set in the brand lockup: lowercase `das experten`, with `innoWeiss`, `Detox`, etc. as their own marks. The ® is present on primary placements.
 - **Headlines** are generally sentence-case or title-case, never all-caps — echoing the lowercase wordmark.
-- **ALL CAPS** is reserved for micro labels (eyebrows, badges, category tags). Track them wide (`letter-spacing: 0.18em`).
+- **ALL CAPS** is reserved for micro labels (eyebrows, badges, category tags). Never track them wide: positive `letter-spacing` is forbidden on every surface (HARD_RULES §4h-1, Owner 2026-08-19). A small label earns its presence with size and weight, never with air between the letters.
 - **Em dashes** (—) are used liberally to set up the "old way vs. smart way" contrast.
 - **Check-and-X** (✅ / ❌) lists are a signature on-site. In premium execution, replace the emoji with custom glyphs (see *Iconography*).
 - **German tagline** *"innovativ und praktisch"* appears below the wordmark in **sentence-case, not title-case**.

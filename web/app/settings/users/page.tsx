@@ -289,7 +289,7 @@ export default function UsersSettingsPage() {
                   <RoleBadge role={u.role} />
                 </div>
                 <div style={{ fontSize: '13px', color: 'var(--fg-muted)', marginTop: '6px' }}>
-                  PIN <span style={{ fontWeight: 700, color: 'var(--fg-2)', letterSpacing: '2px' }}>● ● ● ●</span>
+                  PIN <span style={{ fontWeight: 700, color: 'var(--fg-2)', letterSpacing: '0' }}>● ● ● ●</span>
                 </div>
                 <div style={{ fontSize: '13px', color: 'var(--fg-muted)', marginTop: '4px' }}>
                   Last login: <span style={{ fontWeight: 700, color: 'var(--fg-2)' }}>{formatDate(u.last_login_at)}</span>

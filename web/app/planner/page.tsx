@@ -1282,7 +1282,7 @@ function ManufacturerPill({ group, selected, onClick }: { group: SummaryGroup; s
           {group.skus_to_order} to order · min cover {group.min_cover_days === null ? '—' : `${group.min_cover_days}d`} · {group.dearth_flags} dearth
         </div>
       </div>
-      <div style={{ fontSize: 10, color: badgeColor, background: badgeBg, padding: '2px 8px', borderRadius: 4, fontWeight: 500, marginLeft: 4, letterSpacing: '0.3px' }}>
+      <div style={{ fontSize: 10, color: badgeColor, background: badgeBg, padding: '2px 8px', borderRadius: 4, fontWeight: 500, marginLeft: 4, letterSpacing: '0' }}>
         {badgeLabel}
       </div>
     </button>
@@ -1356,14 +1356,14 @@ function SizingButtons({
           position: 'relative',
         }}
       >
-        <div style={{ position: 'absolute', top: 8, right: 12, fontSize: 10, color: '#0C447C', fontWeight: 500, letterSpacing: '0.3px', display: palletSelected ? 'block' : 'none' }}>
+        <div style={{ position: 'absolute', top: 8, right: 12, fontSize: 10, color: '#0C447C', fontWeight: 500, letterSpacing: '0', display: palletSelected ? 'block' : 'none' }}>
           SELECTED ★
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
           <div style={{ fontSize: 36, fontWeight: 500, color: palletSelected ? '#0C447C' : '#57534e', lineHeight: 1 }}>
             {baselinePallets.toFixed(1)}
           </div>
-          <div style={{ fontSize: 14, fontWeight: 500, color: palletSelected ? '#0C447C' : '#57534e', letterSpacing: '0.3px' }}>
+          <div style={{ fontSize: 14, fontWeight: 500, color: palletSelected ? '#0C447C' : '#57534e', letterSpacing: '0' }}>
             PALLETS
           </div>
         </div>
@@ -1390,10 +1390,10 @@ function SizingButtons({
           position: 'relative',
         }}
       >
-        <div style={{ position: 'absolute', top: 8, right: 12, fontSize: 10, color: '#0C447C', fontWeight: 500, letterSpacing: '0.3px', display: c20Selected ? 'block' : 'none' }}>
+        <div style={{ position: 'absolute', top: 8, right: 12, fontSize: 10, color: '#0C447C', fontWeight: 500, letterSpacing: '0', display: c20Selected ? 'block' : 'none' }}>
           SELECTED ★
         </div>
-        <div style={{ fontSize: 14, fontWeight: 500, color: c20Selected ? '#0C447C' : '#57534e', letterSpacing: '0.3px' }}>
+        <div style={{ fontSize: 14, fontWeight: 500, color: c20Selected ? '#0C447C' : '#57534e', letterSpacing: '0' }}>
           20FT CONTAINER
         </div>
         <div style={{ fontSize: 11, color: c20Selected ? '#185FA5' : '#78716c', marginTop: 8 }}>
@@ -1424,10 +1424,10 @@ function SizingButtons({
           position: 'relative',
         }}
       >
-        <div style={{ position: 'absolute', top: 8, right: 12, fontSize: 10, color: '#0C447C', fontWeight: 500, letterSpacing: '0.3px', display: c40Selected ? 'block' : 'none' }}>
+        <div style={{ position: 'absolute', top: 8, right: 12, fontSize: 10, color: '#0C447C', fontWeight: 500, letterSpacing: '0', display: c40Selected ? 'block' : 'none' }}>
           SELECTED ★
         </div>
-        <div style={{ fontSize: 14, fontWeight: 500, color: c40Selected ? '#0C447C' : '#57534e', letterSpacing: '0.3px' }}>
+        <div style={{ fontSize: 14, fontWeight: 500, color: c40Selected ? '#0C447C' : '#57534e', letterSpacing: '0' }}>
           40HQ CONTAINER
         </div>
         <div style={{ fontSize: 11, color: c40Selected ? '#185FA5' : '#78716c', marginTop: 8 }}>

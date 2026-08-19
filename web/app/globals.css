@@ -55,7 +55,7 @@
     font-family: var(--font-sans);
     font-size: 13px;
     font-weight: 800;
-    letter-spacing: 0.06em;
+    letter-spacing: 0;
     text-transform: uppercase;
     color: var(--fg-2);
   }
@@ -64,7 +64,7 @@
     font-family: var(--font-sans);
     font-size: 13px;
     font-weight: 800;
-    letter-spacing: 0.06em;
+    letter-spacing: 0;
     text-transform: uppercase;
     color: var(--brand-rot);
   }

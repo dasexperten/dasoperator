@@ -839,7 +839,7 @@ function CrmDetailDrawer({
       >
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 18 }}>
           <div>
-            <div style={{ fontSize: 12, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--fg-3)' }}>
+            <div style={{ fontSize: 12, letterSpacing: '0', textTransform: 'uppercase', color: 'var(--fg-3)' }}>
               {kind === 'order' ? 'Order card' : 'Customer card'}
             </div>
             <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--fg-1)', fontFamily: kind === 'order' ? 'ui-monospace, SFMono-Regular, monospace' : undefined }}>{title}</div>
@@ -883,7 +883,7 @@ function CrmDetailDrawer({
             <DrawerRow label="Source" value={data.source} />
             <DrawerRow label="Language" value={data.lang} />
 
-            <div style={{ marginTop: 22, marginBottom: 8, fontSize: 13, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--fg-3)' }}>Items</div>
+            <div style={{ marginTop: 22, marginBottom: 8, fontSize: 13, letterSpacing: '0', textTransform: 'uppercase', color: 'var(--fg-3)' }}>Items</div>
             {(data.items ?? []).length === 0 && <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>—</div>}
             {(data.items ?? []).map((it: any, i: number) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '7px 0', borderBottom: '1px solid var(--border-hairline)' }}>
@@ -919,7 +919,7 @@ function CrmDetailDrawer({
             <DrawerRow label="Marketing consent" value={data.marketing_consent ? 'yes' : 'no'} />
             <DrawerRow label="Tags" value={(data.tags ?? []).length ? (data.tags ?? []).join(', ') : null} />
 
-            <div style={{ marginTop: 22, marginBottom: 8, fontSize: 13, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--fg-3)' }}>Orders</div>
+            <div style={{ marginTop: 22, marginBottom: 8, fontSize: 13, letterSpacing: '0', textTransform: 'uppercase', color: 'var(--fg-3)' }}>Orders</div>
             {(data.orders ?? []).length === 0 && <div style={{ fontSize: 14, color: 'var(--fg-3)' }}>—</div>}
             {(data.orders ?? []).map((o: any) => (
               <div
@@ -1421,7 +1421,7 @@ function ComMetricBand({ stats }: { stats: ComStats }) {
         <div style={{
           fontSize: 14,
           fontWeight: 700,
-          letterSpacing: '0.04em',
+          letterSpacing: '0',
           textTransform: 'uppercase',
           color: 'var(--brand-gold)',
         }}>
@@ -1483,7 +1483,7 @@ function KpiTile({ label, value, sub, accent = false }: { label: string; value: 
         fontSize: 14,
         fontWeight: 700,
         textTransform: 'uppercase',
-        letterSpacing: '0.04em',
+        letterSpacing: '0',
         color: accent ? 'var(--stone-300)' : 'var(--fg-3)',
         marginBottom: 8,
       }}>

@@ -763,7 +763,7 @@ export default function FinanceTransactionsPage() {
         <div className="mb-6">
           <div style={{
             fontSize: '12px', fontWeight: 700, color: 'var(--fg-2)',
-            textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '10px',
+            textTransform: 'uppercase', letterSpacing: '0', marginBottom: '10px',
           }}>
             Our bank accounts
           </div>

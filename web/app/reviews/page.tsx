@@ -180,7 +180,7 @@ export default function ReviewsPage() {
         : visible.length === 0 ? <div style={{ textAlign: 'center', padding: '56px 16px', color: 'var(--fg-2)', fontFamily: 'var(--font-body)', fontSize: 16, fontWeight: 700 }}>Nothing here yet.</div>
         : (
           <>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--fg-2)', marginBottom: 14 }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0', color: 'var(--fg-2)', marginBottom: 14 }}>
               {visible.length} {tab.kind}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -229,7 +229,7 @@ function Card({ it }: { it: Item }) {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flex: '0 0 auto' }}>
           {it.kind === 'reviews' && <Stars n={it.rating || 0} />}
-          <span style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 900, color: '#fff', background: color, padding: '4px 11px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{badge}</span>
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 900, color: '#fff', background: color, padding: '4px 11px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '0' }}>{badge}</span>
         </div>
       </div>
 
@@ -238,7 +238,7 @@ function Card({ it }: { it: Item }) {
 
       {(it.answer || st) && (
         <div style={{ marginTop: 14, borderTop: '2px solid var(--stone-100)', paddingTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          {st && <span style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 900, color: st.fg, background: st.bg, padding: '4px 11px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{st.label}</span>}
+          {st && <span style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 900, color: st.fg, background: st.bg, padding: '4px 11px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '0' }}>{st.label}</span>}
           {it.answer && (
             <button onClick={() => setOpen(o => !o)} style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 800, color: 'var(--fg-link)' }}>
               {open ? (it.kind === 'reviews' ? 'Hide reply' : 'Hide answer') : (it.kind === 'reviews' ? 'Show reply' : 'Show answer')}

@@ -836,7 +836,7 @@ function ClusterItem({
                               borderRadius: 4,
                               padding: '1px 5px',
                               marginLeft: 8,
-                              letterSpacing: '0.04em',
+                              letterSpacing: '0',
                             }}
                           >
                             GLOBAL STOP

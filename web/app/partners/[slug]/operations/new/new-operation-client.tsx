@@ -1506,7 +1506,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
                             <Th>SKU</Th>
                             <Th>Name</Th>
                             {showStockColumn && <Th>In stock</Th>}
-                            <th style={{ textAlign: 'left', fontSize: '12px', fontWeight: 600, color: '#6B4A1F', textTransform: 'uppercase', letterSpacing: '0.04em', padding: '8px 12px', backgroundColor: '#F5EBDC', borderLeft: '1px solid #E8D7B5', borderRight: '1px solid #E8D7B5' }}>Cartons</th>
+                            <th style={{ textAlign: 'left', fontSize: '12px', fontWeight: 600, color: '#6B4A1F', textTransform: 'uppercase', letterSpacing: '0', padding: '8px 12px', backgroundColor: '#F5EBDC', borderLeft: '1px solid #E8D7B5', borderRight: '1px solid #E8D7B5' }}>Cartons</th>
                             <Th>Pieces</Th>
                             <Th>Price ({effectiveCurrency || '—'})</Th>
                             <Th>Total</Th>

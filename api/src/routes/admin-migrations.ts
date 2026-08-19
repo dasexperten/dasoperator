@@ -366,6 +366,41 @@ admin.post('/migrate/crm-website', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /admin/migrate/crm-shipped-notified  (2026-08-19)
+// Adds crm_orders.shipped_notified_at — the send-once stamp for the shipped
+// mail, twin of packed_notified_at.
+//
+// Why it exists: the guard used to read fulfillment_status. Any writer that
+// touched that column re-armed the mail, and the hourly Stripe poll did
+// exactly that — one buyer got the same notice 32 times. A stamp of what we
+// actually sent cannot be re-armed by a status writer.
+//
+// Backfill: every order already sitting at shipped/delivered with a tracking
+// number was told long ago. Stamp it so the fix does not mail them once more
+// on its first pass. Idempotent — the ALTER is skipped when the column exists.
+// ---------------------------------------------------------------------------
+admin.post('/migrate/crm-shipped-notified', async (c) => {
+  const cols = await c.env.DB.prepare(`PRAGMA table_info(crm_orders)`).all<{ name: string }>();
+  const names = (cols.results ?? []).map((r) => r.name);
+  const added: string[] = [];
+
+  if (!names.includes('shipped_notified_at')) {
+    await c.env.DB.prepare(`ALTER TABLE crm_orders ADD COLUMN shipped_notified_at INTEGER`).run();
+    added.push('shipped_notified_at');
+  }
+
+  const back = await c.env.DB.prepare(
+    `UPDATE crm_orders
+        SET shipped_notified_at = COALESCE(updated_at, created_at)
+      WHERE shipped_notified_at IS NULL
+        AND tracking_number IS NOT NULL
+        AND fulfillment_status IN ('shipped','delivered')`
+  ).run();
+
+  return ok(c, { added, backfilled: back.meta?.changes ?? 0 });
+});
+
+// ---------------------------------------------------------------------------
 // POST /admin/migrate/crm-carts — Phase 12.1 (2026-07-11)
 // Creates crm_carts (dasexperten.com abandoned-checkout capture).
 // Mirror of db/migrations/0061_crm_carts.sql — pure CREATE IF NOT EXISTS.

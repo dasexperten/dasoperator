@@ -19,6 +19,7 @@
 // =============================================================================
 
 import type { Env } from '../types';
+import { trackingLink } from './tracking-url';
 import { sendEmail, SENDERS } from '../services/email';
 
 export const ORDERS_INBOX = 'orders@dasexperten.com';
@@ -251,7 +252,8 @@ export async function sendTrackingEmails(
   tracking: { tracking_number?: string | null; tracking_url?: string | null; carrier?: string | null }
 ): Promise<void> {
   const num = tracking.tracking_number ?? '';
-  const url = tracking.tracking_url ?? '';
+  // Never reprint the fulfiller's link unchecked — see lib/tracking-url.ts.
+  const url = trackingLink(tracking.carrier, num, tracking.tracking_url) ?? '';
 
   // Internal copy → orders@
   await sendEmail(env, {
@@ -314,7 +316,7 @@ export async function sendPackedEmails(
   if (!o.email) return;
   const lang = pickLang(o.lang);
   const num = tracking.tracking_number ?? '';
-  const url = tracking.tracking_url ?? '';
+  const url = trackingLink(tracking.carrier, num, tracking.tracking_url) ?? '';
   const shipLine = [o.ship_city, countryName(o.ship_country, lang)].filter(Boolean).join(', ');
   const linkHtml = url
     ? `<p><a href="${escapeHtml(url)}" style="display:inline-block;padding:10px 18px;background:#111;color:#fff;border-radius:6px;text-decoration:none">${escapeHtml(T.trackLbl[lang])}</a></p>`

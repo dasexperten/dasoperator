@@ -98,6 +98,8 @@ export const CRM_WEBSITE_DDL: string[] = [
     tracking_url         TEXT,
     items                TEXT,
     raw_r2_key           TEXT,
+    packed_notified_at   INTEGER,
+    shipped_notified_at  INTEGER,
     placed_at            INTEGER,
     created_at           INTEGER NOT NULL,
     updated_at           INTEGER NOT NULL

@@ -17,6 +17,7 @@
 // POST /backfill/wix              ← 44 historical Wix orders + 35 members (admin)
 // POST /backfill/retailcrm        ← ~1507 RetailCRM customers (admin)
 // POST /import                    ← generic canonical {customers[],orders[]} (admin)
+import { trackingLink } from '../lib/tracking-url';
 //
 // Read endpoints are open like the rest of /api/crm/* (SSO is BACKLOG item M);
 // mutations use the same admin bearer as /admin/*.
@@ -194,23 +195,29 @@ site.post('/tracking', async (c) => {
   }
   const orderNumber = String(body.order_number);
   const trackingNumber = body.tracking_number ? String(body.tracking_number) : null;
-  const trackingUrl = body.tracking_url ? String(body.tracking_url) : null;
   const shippingMethod = body.shipping_method ?? body.carrier ?? null;
+  // Correct the link here, once, so the row, the ERP screen and the buyer's
+  // mail all show the same working address.
+  const trackingUrl = trackingLink(
+    shippingMethod ? String(shippingMethod) : null,
+    trackingNumber,
+    body.tracking_url ? String(body.tracking_url) : null
+  );
   const status = body.status === 'delivered' ? 'delivered' : 'shipped';
 
   try {
-    // Read the state BEFORE the write: the shipped mail must fire on the
-    // transition only. Without this an hourly reconciliation poll — or an NSS
-    // webhook retry — re-sends the same tracking mail to the buyer every pass.
+    // The send-once guard keys on shipped_notified_at — the stamp of what we
+    // actually sent — and never on fulfillment_status. Status is written by
+    // several parties (checkout, the Stripe poll, manual edits); a mail lock
+    // that any of them can re-arm is not a lock. It cost one buyer 32 copies
+    // of the same notice between 16 and 19 Aug 2026 before that was found.
     const prior = await c.env.DB.prepare(
-      `SELECT fulfillment_status, tracking_number FROM crm_orders
+      `SELECT shipped_notified_at FROM crm_orders
         WHERE source = 'website' AND order_number = ?`
     )
       .bind(orderNumber)
-      .first<{ fulfillment_status: string | null; tracking_number: string | null }>();
-    const alreadyAnnounced =
-      !!prior && (prior.fulfillment_status === 'shipped' || prior.fulfillment_status === 'delivered') &&
-      !!prior.tracking_number;
+      .first<{ shipped_notified_at: number | null }>();
+    const alreadyAnnounced = !!prior?.shipped_notified_at;
 
     const upd = await c.env.DB.prepare(
       `UPDATE crm_orders
@@ -234,14 +241,25 @@ site.post('/tracking', async (c) => {
         .bind(orderNumber)
         .first<any>();
       if (row && status === 'shipped' && !alreadyAnnounced) {
-        const data: OrderEmailData = { ...row, items: JSON.parse(row.items ?? '[]') };
-        c.executionCtx.waitUntil(
-          sendTrackingEmails(c.env, data, {
-            tracking_number: trackingNumber,
-            tracking_url: trackingUrl,
-            carrier: shippingMethod,
-          })
-        );
+        // Stamp BEFORE sending, and only if still unstamped: two sweeps landing
+        // in the same second must not both reach the buyer. Same order as the
+        // packed notice.
+        const claim = await c.env.DB.prepare(
+          `UPDATE crm_orders SET shipped_notified_at = ?
+            WHERE source = 'website' AND order_number = ? AND shipped_notified_at IS NULL`
+        )
+          .bind(Math.floor(Date.now() / 1000), orderNumber)
+          .run();
+        if ((claim.meta?.changes ?? 0) > 0) {
+          const data: OrderEmailData = { ...row, items: JSON.parse(row.items ?? '[]') };
+          c.executionCtx.waitUntil(
+            sendTrackingEmails(c.env, data, {
+              tracking_number: trackingNumber,
+              tracking_url: trackingUrl,
+              carrier: shippingMethod,
+            })
+          );
+        }
       }
     }
     return ok(c, { updated: changed, order_number: orderNumber });
@@ -274,8 +292,12 @@ site.post('/packed', async (c) => {
   }
   const orderNumber = String(body.order_number);
   const trackingNumber = body.tracking_number ? String(body.tracking_number) : null;
-  const trackingUrl = body.tracking_url ? String(body.tracking_url) : null;
   const carrier = body.carrier ? String(body.carrier) : null;
+  const trackingUrl = trackingLink(
+    carrier,
+    trackingNumber,
+    body.tracking_url ? String(body.tracking_url) : null
+  );
 
   try {
     const row = await c.env.DB.prepare(

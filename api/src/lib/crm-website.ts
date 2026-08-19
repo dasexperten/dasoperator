@@ -623,7 +623,12 @@ export function mapPaymentIntent(pi: any): CanonicalOrder {
     shipping_cents: shippingCents || Math.max(0, total - subtotal),
     total_cents: total,
     financial_status: financial,
-    fulfillment_status: 'submitted', // checkout Worker auto-submits NSS fulfillment
+    // Fulfillment is deliberately NOT set here. Stripe knows nothing about the
+    // parcel, and this mapper feeds an hourly poll with a 3-day overlap: a
+    // hardcoded 'submitted' walked every already-shipped order backwards once
+    // an hour, which defeated the send-once guard on /tracking and re-mailed
+    // the buyer every hour (praxisgoesche@web.de, 32 times, 2026-08-16..19).
+    // New orders still land as 'submitted' — that default lives on the INSERT.
     payment_method: paymentMethod,
     lang: md.lang ?? null,
     ship_name: ship?.name ?? null,

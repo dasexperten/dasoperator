@@ -224,7 +224,7 @@ function buildAggregate(total: number, orders: KitOrder[]): KitAggregate {
 }
 
 async function getKitAggregate(env: Env): Promise<KitAggregate> {
-  return withKvCache(env, cacheKey('crm:kit-agg', { v: 1 }), 300, async () => {
+  return withKvCache(env, cacheKey('crm:kit-agg', { v: 2 }), 300, async () => {   // v2 — источник сменён на витрину .ru, старый кэш недействителен
     const { total, orders } = await fetchAllKitOrders(env);
     return buildAggregate(total, orders);
   });
@@ -245,7 +245,7 @@ crm.get('/stats', async (c) => {
       loyaltyMemberCount(c.env),
     ]);
     return ok(c, {
-      source: 'kit:dasexperten.ru + d1:loyalty',
+      source: 'dasexperten.ru (обезличено) + d1:loyalty',
       customers_total: agg.customers_total,
       orders_total: agg.orders_total,
       orders_this_month: agg.orders_this_month,
@@ -302,7 +302,7 @@ crm.get('/orders', async (c) => {
       const mul = sortAsc ? 1 : -1;
       const full = await withKvCache(
         c.env,
-        'crm:orders-kit-full-v1',
+        'crm:orders-ru-feed-v1',
         120,
         async () => {
           const fetchKitPageFull = async (p: number) => {
@@ -392,7 +392,22 @@ crm.get('/orders', async (c) => {
       async () => {
         // KIT: per_page до 100; search/status в API заказов не фильтруют —
         // поиск делаем сами ограниченным сканом последних страниц.
+        // Витрина отдаёт весь список разом и обезличенным — постраничный обход
+        // чужого API больше не нужен, отсюда и уходили 429. Страницы режем сами.
         const fetchKitPage = async (p: number, perPage: number) => {
+          if (c.env.RU_FEED_TOKEN) {
+            const res = await fetch(
+              `https://dasexperten.ru/api/erp/orders.php?k=${c.env.RU_FEED_TOKEN}`,
+              { cf: { cacheTtl: 60, cacheEverything: false } },
+            );
+            if (res.ok) {
+              const data = (await res.json()) as { total_count?: number; orders?: any[] };
+              const all = data.orders ?? [];
+              const from = (p - 1) * perPage;
+              return { total_count: data.total_count ?? all.length, orders: all.slice(from, from + perPage) };
+            }
+            console.warn('витрина .ru ответила', res.status, '— падаю обратно на КИТ');
+          }
           const url = new URL('https://api.kit.yandex.net/v1/orders');
           url.searchParams.set('page', String(p));
           url.searchParams.set('per_page', String(perPage));
@@ -491,7 +506,7 @@ crm.get('/orders', async (c) => {
         });
 
         return {
-          source: 'kit:dasexperten.ru + d1:loyalty',
+          source: 'dasexperten.ru (обезличено) + d1:loyalty',
           pagination: {
             page,
             limit,
@@ -591,7 +606,7 @@ crm.get('/customers', async (c) => {
     });
 
     return ok(c, {
-      source: 'kit:dasexperten.ru + d1:loyalty',
+      source: 'dasexperten.ru (обезличено) + d1:loyalty',
       pagination: {
         page, limit,
         total_count: totalCount,
@@ -642,7 +657,7 @@ crm.get('/timeline', async (c) => {
     }));
 
     return ok(c, {
-      source: 'kit:dasexperten.ru + d1:loyalty',
+      source: 'dasexperten.ru (обезличено) + d1:loyalty',
       window_days: 30,
       timeline,
       synced_at: Math.floor(Date.now() / 1000),
@@ -666,7 +681,7 @@ crm.get('/funnel', async (c) => {
     const bought = agg.buyers_count;
     const repeat = agg.repeat_buyers;
     return ok(c, {
-      source: 'kit:dasexperten.ru + d1:loyalty',
+      source: 'dasexperten.ru (обезличено) + d1:loyalty',
       stages: {
         registered,
         loyalty_members: loyaltyMembers,

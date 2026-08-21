@@ -181,7 +181,8 @@ export default function CrmPage() {
   const [tab, setTab] = useState<TabId>('orders');
 
   // Which storefront feeds the Orders/Customers tabs:
-  // 'ru'  — dasexperten.ru via Yandex KIT (/api/crm/*, RUB)
+  // 'ru'  — dasexperten.ru, обезличенная выдача самой витрины (/api/crm/*, RUB).
+  //          Персональные поля остаются в России; в списке вместо имени номер заказа.
   // 'com' — dasexperten.com via Stripe   (/api/crm/website/*, USD)
   const [crmSource, setCrmSource] = useState<CrmSource>('ru');
   const [matrix, setMatrix] = useState<PricingMatrix | null>(null);
@@ -589,7 +590,7 @@ export default function CrmPage() {
           active={crmSource === 'ru'}
           onClick={() => switchSource('ru')}
           label="dasexperten.ru"
-          sublabel="Yandex KIT · ₽"
+          sublabel="Т-Касса · ₽ · база РФ"
         />
         <SourcePill
           active={crmSource === 'com'}

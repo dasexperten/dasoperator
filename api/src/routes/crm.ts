@@ -78,7 +78,43 @@ async function fetchKitOrdersPage(env: Env, page: number, perPage = 100) {
   return (await res.json()) as { total_count?: number; orders?: KitOrder[] };
 }
 
+/**
+ * Заказы русской витрины. Источник — сама витрина dasexperten.ru, не Яндекс КИТ.
+ *
+ * Почему сменили источник (2026-08-21, распоряжение Владельца):
+ *  1. КИТ отдавал 429 на каждой второй загрузке — экран показывал колесо вместо
+ *     заказов, потому что одна загрузка тянула девятнадцать страниц чужого API.
+ *  2. В ответе КИТ приходят фамилии, телефоны и почты россиян, и экран показывал
+ *     их в системе за пределами России — трансграничная передача без уведомления
+ *     по ст.12 152-ФЗ.
+ *
+ * Витрина отдаёт те же поля ОБЕЗЛИЧЕННЫМИ: вместо имени — номер заказа, вместо
+ * телефона — необратимый ключ (SHA-256 с солью), почты нет вовсе. Повторные
+ * покупки считаются, человек не восстанавливается.
+ *
+ * Форма ответа совпадает с формой КИТ, поэтому ниже по течению не переписано
+ * ничего. Имена и телефоны вернутся отдельным запросом по кнопке — после
+ * уведомления по ст.12, с записью в журнал.
+ */
+async function fetchStorefrontOrders(env: Env): Promise<{ total: number; orders: KitOrder[] }> {
+  const res = await fetch(`https://dasexperten.ru/api/erp/orders.php?k=${env.RU_FEED_TOKEN}`, {
+    cf: { cacheTtl: 60, cacheEverything: false },
+  });
+  if (!res.ok) throw new Error(`витрина .ru ответила ${res.status}`);
+  const data = (await res.json()) as { total_count?: number; orders?: KitOrder[] };
+  return { total: data.total_count ?? 0, orders: data.orders ?? [] };
+}
+
+// Прежний путь через КИТ оставлен как запасной: витрина и площадка новые,
+// и если они лягут, экран должен показать хоть что-то, а не пустоту.
 async function fetchAllKitOrders(env: Env): Promise<{ total: number; orders: KitOrder[] }> {
+  if (env.RU_FEED_TOKEN) {
+    try {
+      return await fetchStorefrontOrders(env);
+    } catch (e) {
+      console.warn('витрина .ru недоступна, падаю обратно на КИТ:', String(e));
+    }
+  }
   const first = await fetchKitOrdersPage(env, 1, 100);
   const total = first.total_count ?? (first.orders?.length ?? 0);
   let orders = first.orders ?? [];

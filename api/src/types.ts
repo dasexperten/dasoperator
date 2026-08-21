@@ -154,6 +154,10 @@ export interface Env {
   // Yandex KIT API (https://api.kit.yandex.net/v1) — Phase 10.0 loyalty engine.
   // Token issued in KIT cabinet (Настройки → API). See SECRETS/yandex-kit.md.
   YANDEX_KIT_TOKEN?: string;
+  // Ключ обезличенной выдачи заказов с витрины dasexperten.ru.
+  // Пока он задан, экран CRM берёт заказы у витрины, а не у КИТ:
+  // без лимитов и без персональных данных россиян за пределами России.
+  RU_FEED_TOKEN?: string;
 
   // Shared token in the KIT webhook URL (?token=...) — guards
   // POST /api/loyalty/webhook/kit against random hits.

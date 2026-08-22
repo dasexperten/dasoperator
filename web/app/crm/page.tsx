@@ -194,6 +194,24 @@ export default function CrmPage() {
 
   // Orders state
   const [orders, setOrders] = useState<CrmOrder[]>([]);
+  // Персональные данные показываются по кнопке в строке, по одному заказу.
+  // Список приходит обезличенным — в колонке номер заказа вместо имени.
+  // Каждый показ пишется в журнал на стороне России (pd_access_log).
+  const [pdShown, setPdShown] = useState<Record<string, { name?: string; phone?: string; email?: string; city?: string } | 'loading' | 'error'>>({});
+  const revealCustomer = async (number: string) => {
+    if (pdShown[number]) return;
+    setPdShown((m) => ({ ...m, [number]: 'loading' }));
+    try {
+      const res = await fetch(`${API_BASE}/api/crm/customer/${encodeURIComponent(number)}?who=erp-ui`);
+      const j = await res.json();
+      if (!j?.success) throw new Error('нет данных');
+      setPdShown((m) => ({ ...m, [number]: {
+        name: j.result?.customer?.name, phone: j.result?.customer?.phone,
+        email: j.result?.customer?.email, city: j.result?.delivery?.city } }));
+    } catch {
+      setPdShown((m) => ({ ...m, [number]: 'error' }));
+    }
+  };
   const [ordersMeta, setOrdersMeta] = useState<PageMeta | null>(null);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
@@ -2128,7 +2146,33 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
         {orders.map((o) => (
           <tr key={o.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
             <Td bold>{o.number}</Td>
-            <Td>{o.customer_name}</Td>
+            <Td>
+              {(() => {
+                const pd = pdShown[o.number];
+                if (pd === 'loading') return <span style={{ color: 'var(--fg-3)' }}>…</span>;
+                if (pd === 'error') return <span style={{ color: '#a83232' }}>не открылось</span>;
+                if (pd && typeof pd === 'object') return (
+                  <span>
+                    <b>{pd.name || '—'}</b>
+                    <span style={{ display: 'block', color: 'var(--fg-3)', fontSize: 12 }}>
+                      {[pd.phone, pd.city].filter(Boolean).join(' · ')}
+                    </span>
+                  </span>
+                );
+                return (
+                  <button
+                    type="button"
+                    onClick={() => revealCustomer(o.number)}
+                    title="Показать имя и телефон. Показ записывается в журнал."
+                    style={{ border: '1px solid var(--border-hairline)', background: 'transparent',
+                             borderRadius: 6, padding: '4px 9px', cursor: 'pointer',
+                             font: 'inherit', fontSize: 13, color: 'var(--fg-2)' }}
+                  >
+                    {o.customer_name} · показать
+                  </button>
+                );
+              })()}
+            </Td>
             <Td align="right" bold>{o.total.toLocaleString('ru-RU')} ₽</Td>
             <Td align="right" bold style={{ color: o.bonus_credited > 0 ? '#0a7a3b' : 'var(--fg-3)' }}>
               {o.bonus_credited > 0 ? `+${o.bonus_credited}` : '—'}

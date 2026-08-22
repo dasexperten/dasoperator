@@ -828,4 +828,35 @@ crm.post('/backfill-site-sales', async (c) => {
   return c.env.SELF.fetch(innerReq);
 });
 
+
+/**
+ * Персональные данные ОДНОГО покупателя — по кнопке, а не списком.
+ *
+ * Экран получает заказы обезличенными (см. fetchStorefrontOrders). Здесь витрина
+ * отдаёт имя, телефон и адрес пункта выдачи ровно по одному номеру заказа,
+ * и каждый показ пишется в журнал pd_access_log на стороне России: кто спросил,
+ * когда, по какому заказу, с какого адреса.
+ *
+ * Так и должно быть: единичный доступ по надобности и постоянная копия за
+ * границей — разные вещи, и журнал ровно эту разницу доказывает. Решение
+ * Владельца 22.08.2026: кнопка, а не выгрузка.
+ */
+crm.get('/customer/:number', async (c) => {
+  const number = c.req.param('number');
+  if (!c.env.RU_FEED_TOKEN) {
+    return c.json({ success: false, errors: [{ code: 'not_configured',
+      message: 'Витрина .ru не подключена' }] }, 503);
+  }
+  const who = c.req.query('who') ?? 'erp';
+  const res = await fetch(
+    `https://dasexperten.ru/api/erp/customer.php?k=${c.env.RU_FEED_TOKEN}` +
+    `&order=${encodeURIComponent(number)}&who=${encodeURIComponent(who)}`,
+    { cf: { cacheTtl: 0, cacheEverything: false } },
+  );
+  const data = await res.json();
+  return c.json({ success: res.ok, result: res.ok ? data : null,
+                  errors: res.ok ? [] : [{ code: 'not_found', message: 'Заказ не найден' }] },
+                res.ok ? 200 : 404);
+});
+
 export default crm;

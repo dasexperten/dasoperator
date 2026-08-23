@@ -22,10 +22,11 @@
 //           stock = 0, sales>0 -> 'stockout'   (priority alarm, ships)
 //           sales = 0          -> 'default', K undefined, ship 0
 //
-//   global stop-valve (approved 2026-07-04, option B): a SKU whose RAW global
-//   coefficient — total stock / total sales_30d across ALL clusters — exceeds
-//   K_GLOBAL_STOP ships NOWHERE, even into locally deficit/stockout clusters.
-//   No new money into a product the network already holds 3+ months of; local
+//   global stop-valve (approved 2026-07-04, option B; tightened 2026-08-23):
+//   a SKU whose RAW global coefficient — total stock / total sales_30d across
+//   ALL clusters — exceeds K_GLOBAL_STOP ships NOWHERE, even into locally
+//   deficit/stockout clusters.
+//   No new money into a product the network already holds 60+ days of; local
 //   gaps wait until the pile in slow clusters sells down or is redistributed.
 //   Raw (not velocity-normalized) on purpose: it is the same stock/sales
 //   number the operator sees in the UI, so the gate is auditable by eye.
@@ -87,7 +88,7 @@ export interface FboStatus {
 
 const K_DEFICIT = 0.8;
 const K_OVERSTOCK = 1.2;
-const K_GLOBAL_STOP = 3.0; // raw total-stock/total-sales gate; > this = SKU ships nowhere
+const K_GLOBAL_STOP = 2.0; // raw stock/sales_30d; >2 = more than 60 days — ships nowhere (Owner 2026-08-23; was 3.0 = 90 days)
 const TARGET_DAYS = 15;  // replenish to half a month of coverage (2026-07-04)
 const MIN_ACTIVE_DAYS = 10;   // velocity damper: a 1-2 day sales burst is not a
                               // sustained rate — first prod run had 1-day spans

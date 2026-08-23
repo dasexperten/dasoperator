@@ -827,7 +827,7 @@ function ClusterItem({
                         <span style={{ fontWeight: 700, color: skuColor }}>{s.sku}</span>
                         {s.flag === 'global_stop' && (
                           <span
-                            title="Global stop: network-wide stock exceeds 3 months of sales — no supply anywhere until it sells down"
+                            title="Global stop: network-wide stock exceeds 60 days of sales — no supply anywhere until it sells down"
                             style={{
                               fontSize: '11px',
                               fontWeight: 800,

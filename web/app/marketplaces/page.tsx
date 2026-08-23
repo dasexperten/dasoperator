@@ -456,6 +456,26 @@ function FboDashboard({ config }: { config: DashboardConfig }) {
         </button>
       </div>
 
+      <div
+        style={{
+          backgroundColor: 'var(--paper-sunk)',
+          border: '1px solid var(--border-hairline)',
+          borderRadius: 'var(--radius-sm)',
+          padding: '14px 18px',
+          fontSize: '14px',
+          color: 'var(--fg-1)',
+          lineHeight: 1.45,
+        }}
+      >
+        <div style={{ fontWeight: 800, marginBottom: 6 }}>
+          Закон поставок FBO · Ozon и WB одинаково
+        </div>
+        Долив в кластер — <b>15 дней</b> продаж этого кластера. Глобальный стоп —{' '}
+        <b>60 дней</b> по артикулу (остаток ÷ продажи за 30 дней &gt; 2): никуда не
+        везём, пока не распродадут. Гора в одном кластере дыру в другом не закрывает,
+        пока стоп не сработал. Канон: <code>docs/FBO_SUPPLY_LAW.md</code>.
+      </div>
+
       {/* OOS banner */}
       {status.oos_count > 0 && (
         <div

@@ -726,7 +726,7 @@ export default function CrmPage() {
           page={ordersPage}
           setPage={setOrdersPage}
         >
-          <OrdersTable orders={orders} hasSearch={!!ordersActiveSearch} search={ordersActiveSearch} sort={ordersSort} onSort={sortOrders} variant={crmSource} onOpen={(n) => setDetail({ kind: 'order', id: n })} />
+          <OrdersTable orders={orders} hasSearch={!!ordersActiveSearch} search={ordersActiveSearch} sort={ordersSort} onSort={sortOrders} variant={crmSource} onOpen={(n) => setDetail({ kind: 'order', id: n })} pdShown={pdShown} revealCustomer={revealCustomer} />
         </DataTablePanel>
       )}
 
@@ -2029,7 +2029,7 @@ function DataTablePanel({
   );
 }
 
-function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', onOpen }: { orders: CrmOrder[]; hasSearch: boolean; search: string; sort: { key: string; dir: 'asc' | 'desc' }; onSort: (k: string) => void; variant?: CrmSource; onOpen?: (orderNumber: string) => void }) {
+function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', onOpen, pdShown = {}, revealCustomer }: { orders: CrmOrder[]; hasSearch: boolean; search: string; sort: { key: string; dir: 'asc' | 'desc' }; onSort: (k: string) => void; variant?: CrmSource; onOpen?: (orderNumber: string) => void; pdShown?: Record<string, { name?: string; phone?: string; email?: string; city?: string } | 'loading' | 'error'>; revealCustomer?: (number: string) => void }) {
   if (variant === 'com') {
     // Website (.com/Stripe) orders — no loyalty columns; USD; SKU line items
     return (
@@ -2162,7 +2162,7 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
                 return (
                   <button
                     type="button"
-                    onClick={() => revealCustomer(o.number)}
+                    onClick={() => revealCustomer?.(o.number)}
                     title="Показать имя и телефон. Показ записывается в журнал."
                     style={{ border: '1px solid var(--border-hairline)', background: 'transparent',
                              borderRadius: 6, padding: '4px 9px', cursor: 'pointer',

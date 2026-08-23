@@ -43,6 +43,7 @@ dasoperator/
 - **Future custom domain:** `erp.dasexperten.com` (deferred)
 - **Architecture overview:** `docs/architecture.md`
 - **Schema documentation:** `db/README.md`
+- **FBO supply law (15-day fill, 60-day global stop):** `docs/FBO_SUPPLY_LAW.md`
 
 ## Decision records
 

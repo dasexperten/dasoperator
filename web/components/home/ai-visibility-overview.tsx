@@ -5,18 +5,21 @@ import { Loader2 } from 'lucide-react';
 
 // =============================================================================
 // GEO row — Julian Farah's four numbers (Owner 2026-08-24).
-// Replaces the duplicate Ubersuggest "Site authority" strip. Headline SEO
-// cards above stay Jurgen's. Source: same formula as the GEO letter
-// (geo_gsc_daily + geo_bot_status), served by jurgen-seo /home-geo.
+// Headline SEO cards above stay Jurgen's. Numbers match that 40px display size.
+// Dynamics: green if the count rose or position improved (lower is better);
+// red if the count fell or position worsened.
 // =============================================================================
 
 const GEO_PULSE = 'https://jurgen-seo.dasexperten.workers.dev/home-geo';
+
+type GeoTone = 'good' | 'bad' | 'neutral' | string;
 
 type GeoCard = {
   id: string;
   label: string;
   value: number;
   hint: string;
+  tone?: GeoTone;
 };
 
 type GeoPulse = {
@@ -29,6 +32,12 @@ type GeoPulse = {
 function fmt(n: number): string {
   if (!Number.isFinite(n)) return '—';
   return Math.round(n).toLocaleString('en-US');
+}
+
+function hintColor(tone?: GeoTone): string {
+  if (tone === 'good') return 'var(--status-success)';
+  if (tone === 'bad') return 'var(--brand-rot)';
+  return 'var(--fg-3)';
 }
 
 export default function AiVisibilityOverview() {
@@ -76,7 +85,7 @@ export default function AiVisibilityOverview() {
             </span>
           </div>
 
-          <div className="grid gap-3.5" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
+          <div className="grid gap-4" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
             {loading &&
               [0, 1, 2, 3].map((i) => (
                 <AuthCard key={i} label="…" value={null} hint="" />
@@ -88,6 +97,7 @@ export default function AiVisibilityOverview() {
                   label={c.label}
                   value={fmt(c.value)}
                   hint={c.hint}
+                  tone={c.tone}
                 />
               ))}
             {!loading && cards.length === 0 && (
@@ -106,34 +116,49 @@ function AuthCard({
   label,
   value,
   hint,
+  tone,
 }: {
   label: string;
   value: string | null;
   hint: string;
+  tone?: GeoTone;
 }) {
   return (
     <div
       style={{
-        background: 'var(--paper-raised)',
+        backgroundColor: 'var(--paper)',
         border: '1px solid var(--border-hairline)',
         borderRadius: 'var(--radius-md)',
-        padding: '14px',
-        boxShadow: 'var(--shadow-card)',
+        padding: '20px 22px',
+        position: 'relative',
+        overflow: 'hidden',
       }}
     >
-      <div className="dx-eyebrow" style={{ fontSize: '10px' }}>
-        {label}
-      </div>
-      <div className="flex items-baseline" style={{ gap: '4px', marginTop: '8px' }}>
+      <div style={{ color: 'var(--fg-2)' }}>{label}</div>
+      <div
+        style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: '40px',
+          fontWeight: 900,
+          lineHeight: 1.05,
+          color: 'var(--fg-1)',
+          marginTop: '12px',
+        }}
+      >
         {value === null ? (
-          <Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--fg-3)' }} />
+          <Loader2 className="h-7 w-7 animate-spin inline-block" style={{ color: 'var(--fg-3)' }} />
         ) : (
-          <span className="dx-mono" style={{ fontSize: '26px', fontWeight: 900 }}>
-            {value}
-          </span>
+          value
         )}
       </div>
-      <div style={{ fontSize: '11px', color: 'var(--fg-3)', marginTop: '6px' }}>{hint}</div>
+      {hint ? (
+        <div
+          className="mt-2"
+          style={{ fontSize: 'var(--fs-body-sm)', color: hintColor(tone), fontWeight: 600 }}
+        >
+          {hint}
+        </div>
+      ) : null}
     </div>
   );
 }

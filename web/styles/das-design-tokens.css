@@ -725,6 +725,9 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
    sixth letter onwards behind a scrollbar nobody looked for. */
 .dxmail .thstrip { flex-shrink: 0; display: flex; flex-direction: column; border-bottom: 1px solid var(--line); overflow-y: auto; }
 .dxmail .thstrip.open { max-height: 50vh; }
+.dxmail .thhead { padding: 10px 30px 8px; }
+.dxmail .thwith { font-size: 12px; font-weight: 700; color: var(--muted); }
+.dxmail .thsubj { font-size: 14px; font-weight: 800; color: var(--navy); line-height: 1.3; margin-top: 2px; }
 .dxmail .thmore { width: 100%; padding: 7px 30px; background: transparent; border: none; border-bottom: 1px solid var(--line-soft, rgba(26,21,25,0.06)); font-family: 'Manrope', sans-serif; font-size: 11.5px; font-weight: 800; letter-spacing: 0; color: var(--muted); text-align: left; cursor: pointer; }
 .dxmail .thmore:hover { background: var(--panel); color: var(--navy); }
 .dxmail .thline { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 30px; background: transparent; border: none; border-bottom: 1px solid var(--line-soft, rgba(26,21,25,0.06)); font-family: 'Manrope', sans-serif; text-align: left; cursor: pointer; }

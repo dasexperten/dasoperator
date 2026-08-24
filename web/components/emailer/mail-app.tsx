@@ -50,6 +50,7 @@ import {
   SUPPORT_ADDRESS,
   isTransactional,
   isAgentToAgentMail,
+  isHouseAddress,
   signatureFor,
   bodyWithoutSignature,
   agentAvatarUrl,
@@ -758,6 +759,8 @@ function CounterpartyPanel({ ctx, events, loading, mailKey, mailbox, onChanged }
     }
   }
 
+  if (isHouseAddress(party)) return null;
+
   if (loading && !ctx) {
     return <div style={{ color: PANEL.meta, fontSize: 12, padding: '8px 0' }}>Ищу контрагента…</div>;
   }
@@ -994,10 +997,27 @@ interface Thread {
 /** How many letters the thread strip shows before 'show all' (Owner 2026-08-09). */
 const THREAD_COLLAPSED = 5;
 
+function threadWith(letters: MailItem[]): string {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const l of letters) {
+    if (isHouseAddress(l.org)) continue;
+    const k = (l.org || l.from).toLowerCase();
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    names.push(l.from);
+  }
+  return names.join(', ');
+}
+
 const REPLY_PREFIX = /^\s*(?:(?:re|aw|antw|fwd|fw|wg|rv|rif|r|tr|rép|rep|sv|vs|vb|доб|ответ|отв|пересл|переслано|відп|перес)\s*(?:\[\d+\])?\s*:\s*)+/i;
 
 function normSubject(subject: string): string {
   return subject.replace(REPLY_PREFIX, '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function displaySubject(subject: string): string {
+  return String(subject || '').replace(REPLY_PREFIX, '').replace(/\s+/g, ' ').trim() || subject;
 }
 
 /** Disjoint-set over letter ids. */
@@ -1538,7 +1558,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
 
   const selected = items.find((e) => e.id === selectedId) || null;
   const { body, loading: bodyLoading } = useMailBody(selected);
-  const letterCtx = useLetterContext(selected);
+  const letterCtx = useLetterContext(selected && !isHouseAddress(selected.org) ? selected : null);
   const sel = useSelection(visible);
 
   // Bulk actions over the checked letters (Gmail-style checkboxes).
@@ -1756,18 +1776,12 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                 <div className="rmain">
                   <div className="rtop">
                     <div className={`rfrom ${t.unread ? '' : 'read'}`}>
-                      {t.count > 1 ? t.people.join(', ') : e.from}
+                      {threadWith(t.letters) || e.from}
                       {t.count > 1 && <span className="thcount">{t.count}</span>}
                     </div>
                     <div className="rtime">{e.time}</div>
                   </div>
-                  <div className={`rsub ${t.unread ? '' : 'read'}`}>{e.subject}</div>
-                  <div className="rprev">
-                    {e.direction === 'received'
-                      ? <ArrowDownLeft className="dirarr in" size={13} strokeWidth={3} aria-label="Входящее" />
-                      : <ArrowUpRight className="dirarr out" size={13} strokeWidth={3} aria-label="Отправленное" />}
-                    <span className="rprev-t">{e.preview}</span>
-                  </div>
+                  <div className={`rsub ${t.unread ? '' : 'read'}`}>{displaySubject(e.subject) || e.subject}</div>
                   <div className="rtags">
                     <span className="pill" style={{ background: e.tagStyle.bg, color: e.tagStyle.fg }}>
                       <span className="pill-dot" style={{ background: e.tagStyle.dot }} />
@@ -1812,8 +1826,12 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                     return <div className="ava" style={{ background: selected.color, width: 44, height: 44, fontSize: 14 }}>{selected.initial}</div>;
                   })()}
                   <div style={{ minWidth: 0 }}>
-                    <div className={`dsub ${subjSizeClass(selected.subject)}`}>{selected.subject}</div>
-                    <div className="dmeta">{selected.from} · {selected.org} · {selected.time}</div>
+                    <div className={`dsub ${subjSizeClass(selected.subject)}`}>{displaySubject(selected.subject) || selected.subject}</div>
+                    <div className="dmeta">
+                      {openThread ? `с ${threadWith(openThread.letters) || selected.from}` : selected.from}
+                      {selected.org && !isHouseAddress(selected.org) ? ` · ${selected.org}` : ''}
+                      {' · '}{selected.time}
+                    </div>
                   </div>
                   <div className="dactions">
                     {isForeignLetter(body?.text || body?.html || '') && (
@@ -1857,22 +1875,26 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                   </div>
                 </div>
 
-                <CounterpartyPanel
-                  ctx={letterCtx.ctx}
-                  events={letterCtx.events}
-                  loading={letterCtx.loading}
-                  mailKey={selected.key}
-                  mailbox={selected.mailbox}
-                  onChanged={letterCtx.refresh}
-                />
+                {!isHouseAddress(selected.org) && (
+                  <CounterpartyPanel
+                    ctx={letterCtx.ctx}
+                    events={letterCtx.events}
+                    loading={letterCtx.loading}
+                    mailKey={selected.key}
+                    mailbox={selected.mailbox}
+                    onChanged={letterCtx.refresh}
+                  />
+                )}
 
-                {openThread && openThread.count > 1 && (
+                {openThread && (
                   <div className={`thstrip ${threadExpanded ? 'open' : ''}`}>
-                    {/* Newest first (Owner 2026-08-01). Collapsed the strip shows the
-                        five newest letters and a "show all" line; expanded it shows the
-                        whole thread (Owner 2026-08-09). The underlying array stays
-                        oldest-first — Learn reads it in sequence. */}
-                    {(threadExpanded
+                    <div className="thhead">
+                      {threadWith(openThread.letters) ? (
+                        <div className="thwith">с {threadWith(openThread.letters)}</div>
+                      ) : null}
+                      <div className="thsubj">{displaySubject(openThread.head.subject) || openThread.head.subject}</div>
+                    </div>
+                    {openThread.count > 1 && (threadExpanded
                       ? openThread.letters.slice().reverse()
                       : openThread.letters.slice().reverse().slice(0, THREAD_COLLAPSED)
                     ).map((l) => (
@@ -1881,11 +1903,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                         className={`thline ${l.id === selectedId ? 'on' : ''} ${l.unread ? 'unread' : ''}`}
                         onClick={() => { if (l.id !== selectedId) openEmail(l); }}
                       >
-                        {l.direction === 'received'
-                          ? <ArrowDownLeft className="dirarr in" size={12} strokeWidth={3} />
-                          : <ArrowUpRight className="dirarr out" size={12} strokeWidth={3} />}
-                        <span className="thwho">{l.from}</span>
-                        <span className="thtime">{l.time}</span>
+                        <span className="thwho">{l.time}{l.unread ? ' · новое' : ''}</span>
                       </button>
                     ))}
                     {openThread.count > THREAD_COLLAPSED && (
@@ -2143,13 +2161,7 @@ function SwipeableRow({
             <div className={`mb-rfrom ${email.unread ? '' : 'read'}`}>{email.from}</div>
             <div className="mb-rtime">{email.time}</div>
           </div>
-          <div className={`mb-rsub ${email.unread ? '' : 'read'}`}>{email.subject}</div>
-          <div className="mb-rprev">
-            {email.direction === 'received'
-              ? <ArrowDownLeft className="dirarr in" size={14} strokeWidth={3} aria-label="Входящее" />
-              : <ArrowUpRight className="dirarr out" size={14} strokeWidth={3} aria-label="Отправленное" />}
-            <span className="mb-rprev-t">{email.preview}</span>
-          </div>
+          <div className={`mb-rsub ${email.unread ? '' : 'read'}`}>{displaySubject(email.subject) || email.subject}</div>
           <div className="mb-rtags">
             <span className="pill" style={{ background: email.tagStyle.bg, color: email.tagStyle.fg }}>
               <span className="pill-dot" style={{ background: email.tagStyle.dot }} />

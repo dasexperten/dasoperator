@@ -1605,7 +1605,6 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
 
   const selected = items.find((e) => e.id === selectedId) || null;
   const { body, loading: bodyLoading } = useMailBody(selected);
-  const letterCtx = useLetterContext(selected && !isHouseAddress(selected.org) ? selected : null);
   const sel = useSelection(visible);
 
   // Bulk actions over the checked letters (Gmail-style checkboxes).
@@ -1921,17 +1920,6 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                     <button className="ibtn" aria-label="Ещё"><MoreHorizontal size={15} /></button>
                   </div>
                 </div>
-
-                {!isHouseAddress(selected.org) && (
-                  <CounterpartyPanel
-                    ctx={letterCtx.ctx}
-                    events={letterCtx.events}
-                    loading={letterCtx.loading}
-                    mailKey={selected.key}
-                    mailbox={selected.mailbox}
-                    onChanged={letterCtx.refresh}
-                  />
-                )}
 
                 {openThread && (
                   <div className={`thstrip ${threadExpanded ? 'open' : ''}`}>

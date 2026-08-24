@@ -176,7 +176,7 @@ route.get('/mailboxes/:address', async (c) => {
     }
 
     entries.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1)); // newest first
-    return ok(c, { address, entries });
+    return ok(c, { address, entries: entries.slice(0, 100) });
   } catch (err) {
     return fail(c, 500, [{ code: 'r2_error', message: err instanceof Error ? err.message : String(err) }]);
   }

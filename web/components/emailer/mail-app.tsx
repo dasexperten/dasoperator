@@ -286,11 +286,11 @@ function cachedEntries(): RawEntry[] {
 
 const PRIORITY_BOXES = [
   'sales@dasexperten.com',
-  'support@dasexperten.com',
   'orders@dasexperten.com',
-  'hello@dasexperten.com',
+  'support@dasexperten.com',
   'partnerships@dasexperten.com',
   'logistics@dasexperten.com',
+  'sysadmin@dasexperten.com',
 ];
 
 function uiMailboxAddresses(): string[] {
@@ -303,17 +303,19 @@ function uiMailboxAddresses(): string[] {
       out.push(a);
     }
   }
+  for (const a of PRIORITY_BOXES) {
+    if (a === OWNER_PERSONAL || seen.has(a)) continue;
+    seen.add(a);
+    out.push(a);
+  }
   return out;
 }
 
 async function loadBox(address: string): Promise<RawEntry[]> {
   try {
-    const raced = await Promise.race([
-      getMailboxMessages(address),
-      new Promise<null>((resolve) => { window.setTimeout(() => resolve(null), 5000); }),
-    ]);
-    if (!raced || !raced.success || !raced.result) return [];
-    return (raced.result.entries || []).slice(0, 80).map((e) => ({ ...e, mailbox: address })) as RawEntry[];
+    const r = await getMailboxMessages(address);
+    if (!r.success || !r.result) return [];
+    return (r.result.entries || []).slice(0, 80).map((e) => ({ ...e, mailbox: address })) as RawEntry[];
   } catch {
     return [];
   }
@@ -353,13 +355,15 @@ function useMailData() {
       const boxes = uiMailboxAddresses();
       const first = PRIORITY_BOXES.filter((a) => boxes.includes(a));
       const rest = boxes.filter((a) => !first.includes(a));
-      const head = (await Promise.all(first.map(loadBox))).flat();
-      absorb(head);
-      setLoading(false);
-      const tail = (await Promise.all(rest.map(loadBox))).flat();
-      absorb(tail);
-      if (!head.length && !tail.length && !opts?.silent) {
-        setError((prev) => prev || 'Не удалось загрузить почту');
+      // One mailbox at a time for the head — six parallel index reads
+      // used to hit a 5s race and return an empty inbox.
+      for (const addr of first) {
+        absorb(await loadBox(addr));
+        setLoading(false);
+      }
+      for (let i = 0; i < rest.length; i += 2) {
+        const batch = await Promise.all(rest.slice(i, i + 2).map(loadBox));
+        absorb(batch.flat());
       }
     } catch (e) {
       setError((prev) => prev || (e instanceof Error ? e.message : 'Ошибка загрузки'));

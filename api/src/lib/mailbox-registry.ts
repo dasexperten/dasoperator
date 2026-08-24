@@ -115,7 +115,9 @@ export function isHouseAddress(raw?: string): boolean {
   return a.endsWith('@dasexperten.com') || a.endsWith('.dasexperten.com');
 }
 
-/** Letter is only agents/departments talking to each other — not shown in Emailer. */
+/** Letter is only agents/departments talking to each other — not shown in Emailer.
+ *  Do not guess `to` from the mailbox: every inbound letter's mailbox is house,
+ *  and that guess wiped the inbox. */
 export function isAgentToAgentMail(e: {
   from?: string;
   to?: string | string[];
@@ -126,7 +128,6 @@ export function isAgentToAgentMail(e: {
   const tos = (Array.isArray(e.to) ? e.to : e.to ? [e.to] : [])
     .map(extractEmail)
     .filter(Boolean);
-  if (e.mailbox && !tos.length) tos.push(extractEmail(e.mailbox));
   if (!from || !tos.length) return false;
   if (!isHouseAddress(from)) return false;
   return tos.every((addr) => isHouseAddress(addr));

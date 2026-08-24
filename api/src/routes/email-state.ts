@@ -294,28 +294,19 @@ route.get('/orders', async (c) => {
   }
 });
 
-const FEED_CACHE_KEY = 'email:feed:week:v4';
+const FEED_CACHE_KEY = 'email:feed:week:v5';
 const FEED_CACHE_TTL_S = 600;
-const FEED_MAX_ENTRIES = 500;
-const FEED_BOX_TIMEOUT_MS = 1500;
+const FEED_MAX_ENTRIES = 400;
 const FEED_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 type FeedEntry = IndexEntry & { mailbox: string };
 
-function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return new Promise((resolve) => {
-    const t = setTimeout(() => resolve(fallback), ms);
-    p.then((v) => { clearTimeout(t); resolve(v); }).catch(() => { clearTimeout(t); resolve(fallback); });
-  });
-}
-
-function inLastWeek(timestamp: string, now: number): boolean {
+function tsMs(timestamp: string): number {
   const t = Date.parse(timestamp);
-  if (!Number.isFinite(t)) return false;
-  return now - t <= FEED_WEEK_MS;
+  return Number.isFinite(t) ? t : 0;
 }
 
-/** Last 7 days of customer-facing mail. Agent-to-agent stays out of the list. */
+/** Prefer last 7 days. Never return empty if the archive has letters. */
 async function buildSlimFeed(env: Env): Promise<FeedEntry[]> {
   const now = Date.now();
   const listed = await env.ARCHIVE.list({ prefix: 'Inbox/', delimiter: '/', limit: 80 });
@@ -323,7 +314,7 @@ async function buildSlimFeed(env: Env): Promise<FeedEntry[]> {
     .filter((o) => o.key.endsWith('.json') && !o.key.slice('Inbox/'.length).includes('/'))
     .filter((o) => typeof o.size !== 'number' || o.size < 400_000);
 
-  const chunks = await Promise.all(objs.map((o) => withTimeout((async () => {
+  const chunks = await Promise.all(objs.map(async (o) => {
     const address = o.key.slice('Inbox/'.length, -'.json'.length);
     if (address.toLowerCase() === OWNER_PERSONAL_ADDRESS) return [] as FeedEntry[];
     try {
@@ -332,15 +323,21 @@ async function buildSlimFeed(env: Env): Promise<FeedEntry[]> {
       const parsed = JSON.parse(await obj.text());
       if (!Array.isArray(parsed)) return [] as FeedEntry[];
       return (parsed as IndexEntry[])
-        .filter((e) => inLastWeek(e.timestamp, now))
         .filter((e) => !isAgentToAgentMail({ ...e, mailbox: address }))
         .map((e) => ({ ...e, mailbox: address }));
     } catch {
       return [] as FeedEntry[];
     }
-  })(), FEED_BOX_TIMEOUT_MS, [] as FeedEntry[])));
+  }));
 
-  return chunks.flat().sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1)).slice(0, FEED_MAX_ENTRIES);
+  const all = chunks.flat().sort((a, b) => tsMs(b.timestamp) - tsMs(a.timestamp));
+  const week = all.filter((e) => {
+    const t = tsMs(e.timestamp);
+    if (!t) return true;
+    return now - t <= FEED_WEEK_MS;
+  });
+  const picked = week.length >= 20 ? week : all;
+  return picked.slice(0, FEED_MAX_ENTRIES);
 }
 
 route.get('/feed', async (c) => {
@@ -361,9 +358,11 @@ route.get('/feed', async (c) => {
   if (!entries) {
     try {
       entries = await buildSlimFeed(c.env);
-      try {
-        await c.env.CACHE.put(FEED_CACHE_KEY, JSON.stringify(entries), { expirationTtl: FEED_CACHE_TTL_S });
-      } catch { /* best-effort */ }
+      if (entries.length) {
+        try {
+          await c.env.CACHE.put(FEED_CACHE_KEY, JSON.stringify(entries), { expirationTtl: FEED_CACHE_TTL_S });
+        } catch { /* best-effort */ }
+      }
     } catch (err) {
       return fail(c, 500, [{ code: 'r2_error', message: err instanceof Error ? err.message : String(err) }]);
     }

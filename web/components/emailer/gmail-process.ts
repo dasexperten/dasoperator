@@ -41,7 +41,7 @@ export function withFwd(subject: string): string {
   return /^(fw|fwd)\s*:/i.test(s) ? s : `Fwd: ${s}`;
 }
 
-const CACHE_KEY = 'dx_mail_feed_v4';
+const CACHE_KEY = 'dx_mail_feed_v5';
 
 export function readFeedCache<T>(): T | null {
   if (typeof window === 'undefined') return null;

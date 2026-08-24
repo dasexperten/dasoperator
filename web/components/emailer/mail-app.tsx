@@ -311,8 +311,12 @@ function useMailData() {
         if (e.mailbox.toLowerCase() === OWNER_PERSONAL) return false;
         return !isAgentToAgentMail(e);
       }) as RawEntry[];
-      setRaw(entries);
-      writeFeedCache({ entries });
+      if (entries.length) {
+        setRaw(entries);
+        writeFeedCache({ entries });
+      } else if (!opts?.silent) {
+        setRaw([]);
+      }
       const mailboxOf = new Map(entries.map((e) => [e.key, e.mailbox]));
       const nextRead = new Set(loadSet(LS.read));
       const nextStar = new Set(loadSet(LS.star));

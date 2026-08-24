@@ -10,6 +10,9 @@ import { ok, fail } from '../lib/responses';
 //
 //   GET/POST /api/seo/site-metrics   — DA / backlinks (Ubersuggest)
 //   GET/POST /api/seo/ai-crawlers    — AI bot request counts (Cloudflare UA pull)
+//
+// Owner 2026-08-24: JW2 posts site-metrics after every live pull. TTL 90 days so
+// an overdue week does not silently revert the headline cards to seed.
 // =============================================================================
 
 const CACHE_KEY = 'seo:site:dasexperten.com';
@@ -108,7 +111,7 @@ seo.get('/site-metrics', async (c) => {
   // Persist seed so subsequent loads are fast and stable
   if (c.env.CACHE && domain === DOMAIN) {
     try {
-      await c.env.CACHE.put(CACHE_KEY, JSON.stringify(SEED), { expirationTtl: 60 * 60 * 24 * 30 });
+      await c.env.CACHE.put(CACHE_KEY, JSON.stringify(SEED), { expirationTtl: 60 * 60 * 24 * 90 });
     } catch { /* ignore */ }
   }
 
@@ -149,7 +152,7 @@ seo.post('/site-metrics', async (c) => {
 
   const key = domain === DOMAIN ? CACHE_KEY : `seo:site:${domain}`;
   if (c.env.CACHE) {
-    await c.env.CACHE.put(key, JSON.stringify(metrics), { expirationTtl: 60 * 60 * 24 * 30 });
+    await c.env.CACHE.put(key, JSON.stringify(metrics), { expirationTtl: 60 * 60 * 24 * 90 });
   }
 
   return ok(c, metrics);

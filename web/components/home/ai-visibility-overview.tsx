@@ -2,50 +2,52 @@
 
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { getSiteSeoMetrics, type SiteSeoMetrics } from '@/lib/api';
 
 // =============================================================================
-// Site authority row — real Ubersuggest snapshot via /api/seo/site-metrics
-// (same card chrome as the old AI Visibility authority row; no demo numbers)
+// GEO row — Julian Farah's four numbers (Owner 2026-08-24).
+// Replaces the duplicate Ubersuggest "Site authority" strip. Headline SEO
+// cards above stay Jurgen's. Source: same formula as the GEO letter
+// (geo_gsc_daily + geo_bot_status), served by jurgen-seo /home-geo.
 // =============================================================================
 
-const SEED: SiteSeoMetrics = {
-  domain: 'dasexperten.com',
-  domain_authority: 11,
-  backlinks: 1093,
-  ref_domains: 328,
-  organic_traffic: 124,
-  updated_at: 0,
-  source: 'seed',
+const GEO_PULSE = 'https://jurgen-seo.dasexperten.workers.dev/home-geo';
+
+type GeoCard = {
+  id: string;
+  label: string;
+  value: number;
+  hint: string;
+};
+
+type GeoPulse = {
+  ok: boolean;
+  day_gsc?: string | null;
+  day_bots?: string | null;
+  cards: GeoCard[];
 };
 
 function fmt(n: number): string {
   if (!Number.isFinite(n)) return '—';
-  if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (Math.abs(n) >= 10_000) return `${Math.round(n / 1_000)}k`;
   return Math.round(n).toLocaleString('en-US');
 }
 
 export default function AiVisibilityOverview() {
-  const [m, setM] = useState<SiteSeoMetrics | null>(null);
+  const [pulse, setPulse] = useState<GeoPulse | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getSiteSeoMetrics()
-      .then((res) => {
-        if (res.success && res.result) setM(res.result);
-        else setM(SEED);
+    fetch(GEO_PULSE)
+      .then((r) => r.json())
+      .then((j) => {
+        if (j && j.ok && Array.isArray(j.cards)) setPulse(j);
+        else setPulse({ ok: false, cards: [] });
       })
-      .catch(() => setM(SEED))
+      .catch(() => setPulse({ ok: false, cards: [] }))
       .finally(() => setLoading(false));
   }, []);
 
-  const d = m ?? SEED;
-  const asOf =
-    d.updated_at > 0
-      ? new Date(d.updated_at * 1000).toISOString().slice(0, 10)
-      : '—';
-  const sourceLabel = d.source === 'ubersuggest' ? 'Ubersuggest' : 'Ubersuggest (cached)';
+  const cards = pulse?.cards ?? [];
+  const asOf = pulse?.day_gsc || pulse?.day_bots || '—';
 
   return (
     <section>
@@ -64,9 +66,9 @@ export default function AiVisibilityOverview() {
         <div style={{ padding: '20px 24px 24px' }}>
           <div className="flex items-baseline justify-between" style={{ marginBottom: '16px' }}>
             <div>
-              <div className="dx-eyebrow-rot">Site authority</div>
+              <div className="dx-eyebrow-rot">GEO</div>
               <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginTop: '3px' }}>
-                dasexperten.com · {sourceLabel}
+                Julian Farah · Search Console + AI crawlers
               </div>
             </div>
             <span style={{ fontSize: '11px', color: 'var(--fg-3)' }}>
@@ -75,27 +77,24 @@ export default function AiVisibilityOverview() {
           </div>
 
           <div className="grid gap-3.5" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
-            <AuthCard
-              label="Domain authority"
-              value={loading ? null : String(d.domain_authority)}
-              hint="/ 100"
-              barPct={d.domain_authority}
-            />
-            <AuthCard
-              label="Linking sites"
-              value={loading ? null : fmt(d.ref_domains)}
-              hint="referring domains"
-            />
-            <AuthCard
-              label="Backlinks"
-              value={loading ? null : fmt(d.backlinks)}
-              hint="total external links"
-            />
-            <AuthCard
-              label="Organic traffic"
-              value={loading ? null : fmt(d.organic_traffic)}
-              hint="est. monthly visits"
-            />
+            {loading &&
+              [0, 1, 2, 3].map((i) => (
+                <AuthCard key={i} label="…" value={null} hint="" />
+              ))}
+            {!loading &&
+              cards.map((c) => (
+                <AuthCard
+                  key={c.id}
+                  label={c.label}
+                  value={fmt(c.value)}
+                  hint={c.hint}
+                />
+              ))}
+            {!loading && cards.length === 0 && (
+              <div style={{ gridColumn: '1 / -1', fontSize: '13px', color: 'var(--fg-3)' }}>
+                GEO pulse pending — Julian&apos;s snapshot has not landed a row yet.
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -107,12 +106,10 @@ function AuthCard({
   label,
   value,
   hint,
-  barPct,
 }: {
   label: string;
   value: string | null;
   hint: string;
-  barPct?: number;
 }) {
   return (
     <div
@@ -131,30 +128,12 @@ function AuthCard({
         {value === null ? (
           <Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--fg-3)' }} />
         ) : (
-          <>
-            <span className="dx-mono" style={{ fontSize: '26px', fontWeight: 900 }}>
-              {value}
-            </span>
-            {hint.startsWith('/') && (
-              <span style={{ fontSize: '12px', color: 'var(--fg-3)' }}>{hint}</span>
-            )}
-          </>
+          <span className="dx-mono" style={{ fontSize: '26px', fontWeight: 900 }}>
+            {value}
+          </span>
         )}
       </div>
-      {typeof barPct === 'number' ? (
-        <div style={{ height: '6px', background: 'var(--paper-sunk)', borderRadius: 'var(--radius-pill)', marginTop: '10px' }}>
-          <div
-            style={{
-              width: `${Math.min(100, Math.max(0, barPct))}%`,
-              height: '6px',
-              background: 'var(--brand-schwarz)',
-              borderRadius: 'var(--radius-pill)',
-            }}
-          />
-        </div>
-      ) : (
-        <div style={{ fontSize: '11px', color: 'var(--fg-3)', marginTop: '6px' }}>{hint}</div>
-      )}
+      <div style={{ fontSize: '11px', color: 'var(--fg-3)', marginTop: '6px' }}>{hint}</div>
     </div>
   );
 }

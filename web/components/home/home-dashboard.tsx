@@ -230,7 +230,7 @@ export default function HomeDashboard() {
 
       {/* SYSTEM HEALTH ============================================== */}
       <SystemHealth />
-      {/* Real Ubersuggest authority (via /api/seo/site-metrics). Fake AI demo removed. */}
+      {/* GEO four (Julian). Headline strip above is Jurgen SEO — do not duplicate. */}
       <AiVisibilityOverview />
 
       {/* RECENT OPERATIONS ========================================== */}

@@ -194,17 +194,53 @@ function hashIdx(seed: string, mod: number): number {
   return h % mod;
 }
 
-function fmtTime(iso: string): string {
+const YEREVAN = 'Asia/Yerevan';
+
+function yerevanParts(iso: string): Record<string, string> | null {
   const t = new Date(iso);
-  if (Number.isNaN(t.getTime())) return '';
-  const now = new Date();
-  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const DAY = 24 * 60 * 60 * 1000;
-  if (t.getTime() >= startToday) {
-    return t.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  if (Number.isNaN(t.getTime())) return null;
+  const map: Record<string, string> = {};
+  for (const p of new Intl.DateTimeFormat('en-GB', {
+    timeZone: YEREVAN,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(t)) {
+    if (p.type !== 'literal') map[p.type] = p.value;
   }
-  if (t.getTime() >= startToday - DAY) return 'Вчера';
-  return t.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+  return map;
+}
+
+function fmtTime(iso: string): string {
+  const p = yerevanParts(iso);
+  if (!p) return '';
+  const now = yerevanParts(new Date().toISOString());
+  const time = `${p.hour}:${p.minute}`;
+  if (now && p.year === now.year && p.month === now.month && p.day === now.day) return time;
+  const yday = yerevanParts(new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+  if (yday && p.year === yday.year && p.month === yday.month && p.day === yday.day) return `вчера ${time}`;
+  return `${p.day}.${p.month} ${time}`;
+}
+
+function firstNameOf(label: string): string {
+  return label.trim().split(/\s+/)[0] || label;
+}
+
+/** Who wrote this letter in the thread — our agent, or the counterparty. */
+function threadSender(l: MailItem): string {
+  if (l.direction === 'sent') {
+    if (l.agent) {
+      const bySlug = AGENT_MAILBOXES.find((m) => m.slug === l.agent);
+      if (bySlug) return firstNameOf(bySlug.label);
+    }
+    const mb = findUiMailbox(l.mailbox);
+    if (mb?.kind === 'agent') return firstNameOf(mb.label);
+    if (mb) return mb.label;
+  }
+  return l.from;
 }
 
 function initialsOf(name: string): string {
@@ -1938,7 +1974,8 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                         className={`thline ${l.id === selectedId ? 'on' : ''} ${l.unread ? 'unread' : ''}`}
                         onClick={() => { if (l.id !== selectedId) openEmail(l); }}
                       >
-                        <span className="thwho">{l.time}{l.unread ? ' · новое' : ''}</span>
+                        <span className="thwho">от {threadSender(l)}</span>
+                        <span className="thtime">{fmtTime(l.timestamp)}{l.unread ? ' · новое' : ''}</span>
                       </button>
                     ))}
                     {openThread.count > THREAD_COLLAPSED && (

@@ -3089,6 +3089,7 @@ export async function markMailUnread(keys: string[]) {
 
 export interface EmailFeedFlag {
   message_key: string;
+  mailbox?: string;
   starred: number;
   archived: number;
   trashed: number;

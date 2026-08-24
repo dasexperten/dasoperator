@@ -219,10 +219,11 @@ function fmtTime(iso: string): string {
   if (!p) return '';
   const now = yerevanParts(new Date().toISOString());
   const time = `${p.hour}:${p.minute}`;
-  if (now && p.year === now.year && p.month === now.month && p.day === now.day) return time;
+  if (now && p.year === now.year && p.month === now.month && p.day === now.day) return `сегодня ${time}`;
   const yday = yerevanParts(new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
   if (yday && p.year === yday.year && p.month === yday.month && p.day === yday.day) return `вчера ${time}`;
-  return `${p.day}.${p.month} ${time}`;
+  if (now && p.year === now.year) return `${p.day}.${p.month} ${time}`;
+  return `${p.day}.${p.month}.${p.year} ${time}`;
 }
 
 function firstNameOf(label: string): string {
@@ -1910,9 +1911,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                   <div style={{ minWidth: 0 }}>
                     <div className={`dsub ${subjSizeClass(selected.subject)}`}>{displaySubject(selected.subject) || selected.subject}</div>
                     <div className="dmeta">
-                      {openThread ? `с ${threadWith(openThread.letters) || selected.from}` : selected.from}
-                      {selected.org && !isHouseAddress(selected.org) ? ` · ${selected.org}` : ''}
-                      {' · '}{selected.time}
+                      от {threadSender(selected)} · {fmtTime(selected.timestamp)}
                     </div>
                   </div>
                   <div className="dactions">
@@ -1965,7 +1964,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                       ) : null}
                       <div className="thsubj">{displaySubject(openThread.head.subject) || openThread.head.subject}</div>
                     </div>
-                    {openThread.count > 1 && (threadExpanded
+                    {(threadExpanded || openThread.count <= THREAD_COLLAPSED
                       ? openThread.letters.slice().reverse()
                       : openThread.letters.slice().reverse().slice(0, THREAD_COLLAPSED)
                     ).map((l) => (
@@ -1974,8 +1973,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                         className={`thline ${l.id === selectedId ? 'on' : ''} ${l.unread ? 'unread' : ''}`}
                         onClick={() => { if (l.id !== selectedId) openEmail(l); }}
                       >
-                        <span className="thwho">от {threadSender(l)}</span>
-                        <span className="thtime">{fmtTime(l.timestamp)}{l.unread ? ' · новое' : ''}</span>
+                        <span className="thwho">от {threadSender(l)} · {fmtTime(l.timestamp)}{l.unread ? ' · новое' : ''}</span>
                       </button>
                     ))}
                     {openThread.count > THREAD_COLLAPSED && (

@@ -3083,6 +3083,63 @@ export async function markMailRead(keys: string[], mailbox: string) {
   return apiPost<{ marked: number }>('/api/email/read', { keys, mailbox });
 }
 
+export async function markMailUnread(keys: string[]) {
+  return apiPost<{ unmarked: number }>('/api/email/unread', { keys });
+}
+
+export interface EmailFeedFlag {
+  message_key: string;
+  starred: number;
+  archived: number;
+  trashed: number;
+}
+
+export interface EmailFeedDraft {
+  id: string;
+  mailbox: string;
+  to_addr: string;
+  cc_addr: string;
+  subject: string;
+  body: string;
+  in_reply_to: string | null;
+  updated_at: number;
+}
+
+export async function getEmailFeed(fresh = false) {
+  return apiGet<{
+    entries: Array<MailboxIndexEntry & { mailbox: string }>;
+    flags: EmailFeedFlag[];
+    read: string[];
+    drafts: EmailFeedDraft[];
+  }>(`/api/email/feed${fresh ? '?fresh=1' : ''}`);
+}
+
+export async function setMailFlags(items: Array<{
+  message_key: string;
+  mailbox: string;
+  starred: boolean;
+  archived: boolean;
+  trashed: boolean;
+}>) {
+  return apiPost<{ updated: number }>('/api/email/flags', { items });
+}
+
+export async function saveMailDraft(draft: {
+  id?: string;
+  mailbox: string;
+  to: string;
+  cc?: string;
+  subject: string;
+  body: string;
+  in_reply_to?: string;
+}) {
+  return apiPut<{ id: string }>('/api/email/drafts', draft);
+}
+
+export async function deleteMailDraft(id: string) {
+  return apiDelete<{ deleted: boolean }>(`/api/email/drafts/${encodeURIComponent(id)}`);
+}
+
 export async function getUnreadCount(group: 'human' | 'system') {
   return apiGet<{ group: string; count: number }>(`/api/email/unread-count?group=${group}`);
 }

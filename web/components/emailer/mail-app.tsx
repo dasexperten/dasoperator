@@ -23,8 +23,6 @@ import {
   Link2, Truck, Wallet, Pencil,
 } from 'lucide-react';
 import {
-  getMailboxes,
-  getMailboxMessages,
   getMailboxMessage,
   getAttention,
   markMailRead,
@@ -38,9 +36,12 @@ import {
   draftAgentReply,
   translateEmail,
   learnFromLetter,
+  getEmailFeed,
+  setMailFlags,
 } from '@/lib/api';
 import type { LearnReport } from '@/lib/api';
 import { correspondent, displayName, emailAddr } from './shared';
+import { readFeedCache, writeFeedCache } from './gmail-process';
 import {
   AGENT_MAILBOXES,
   DEPARTMENT_MAILBOXES,
@@ -270,62 +271,59 @@ function tagFor(mailbox: string, origin: 'human' | 'auto'): { tag: string; style
 // =============================================================================
 // Data hook — one merged, curated mail model shared by both layouts.
 // =============================================================================
+type RawEntry = {
+  key: string; mailbox: string; direction: 'sent' | 'received'; timestamp: string;
+  subject: string; from?: string; to?: string | string[]; origin?: 'human' | 'auto'; trigger?: string;
+  agent?: string;
+  messageId?: string; threadId?: string;
+  plusTag?: string;
+};
+
 function useMailData() {
-  const [raw, setRaw] = useState<Array<{
-    key: string; mailbox: string; direction: 'sent' | 'received'; timestamp: string;
-    subject: string; from?: string; to?: string | string[]; origin?: 'human' | 'auto'; trigger?: string;
-    agent?: string;   // roster slug of the person who wrote it, e.g. 'julian-farah'
-    // Both arrive from the archive index and were being dropped on the floor.
-    // threadId is NOT a conversation id — archiveEmail stores In-Reply-To in it,
-    // i.e. a pointer to the PARENT letter. See buildThreads().
-    messageId?: string; threadId?: string;
-    // Thread tag: issued by us in Reply-To, echoed back inside the recipient
-    // address of their answer. The one thread edge no provider can rewrite.
-    plusTag?: string;
-  }>>([]);
-  const [loading, setLoading] = useState(true);
+  const cached = typeof window !== 'undefined' ? readFeedCache<{ entries: RawEntry[] }>() : null;
+  const [raw, setRaw] = useState<RawEntry[]>(cached?.entries || []);
+  const [loading, setLoading] = useState(!cached?.entries?.length);
   const [error, setError] = useState<string | null>(null);
   const [attentionAddrs, setAttentionAddrs] = useState<Set<string>>(new Set());
-  const [readSet, setReadSet] = useState<Set<string>>(new Set());
-  const [starSet, setStarSet] = useState<Set<string>>(new Set());
-  const [archSet, setArchSet] = useState<Set<string>>(new Set());
-  const [delSet, setDelSet] = useState<Set<string>>(new Set());
+  const [readSet, setReadSet] = useState<Set<string>>(() => loadSet(LS.read));
+  const [starSet, setStarSet] = useState<Set<string>>(() => loadSet(LS.star));
+  const [archSet, setArchSet] = useState<Set<string>>(() => loadSet(LS.arch));
+  const [delSet, setDelSet] = useState<Set<string>>(() => loadSet(LS.del));
 
-  useEffect(() => {
-    setReadSet(loadSet(LS.read));
-    setStarSet(loadSet(LS.star));
-    setArchSet(loadSet(LS.arch));
-    setDelSet(loadSet(LS.del));
-  }, []);
-
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { silent?: boolean; fresh?: boolean }) => {
+    if (!opts?.silent) setLoading((was) => was);
     setError(null);
     try {
-      const mb = await getMailboxes();
-      if (!mb.success || !mb.result) {
-        setError(mb.errors?.[0]?.message || 'Не удалось загрузить почту');
-        setRaw([]);
+      const feed = await getEmailFeed(!!opts?.fresh);
+      if (!feed.success || !feed.result) {
+        setError((prev) => prev || feed.errors?.[0]?.message || 'Не удалось загрузить почту');
         return;
       }
-      // Skip Owner personal if any legacy R2 index still exists.
-      const addresses = mb.result.mailboxes
-        .map((m) => m.address)
-        .filter((a) => a.toLowerCase() !== OWNER_PERSONAL);
-      const lists = await Promise.all(
-        addresses.map(async (address) => {
-          try {
-            const r = await getMailboxMessages(address);
-            return r.success && r.result ? r.result.entries.map((e) => ({ ...e, mailbox: address })) : [];
-          } catch {
-            return [];
-          }
-        })
-      );
-      setRaw(lists.flat().sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || '')));
+      const entries = (feed.result.entries || []).filter((e) => e.mailbox.toLowerCase() !== OWNER_PERSONAL) as RawEntry[];
+      setRaw(entries);
+      writeFeedCache({ entries });
+      const mailboxOf = new Map(entries.map((e) => [e.key, e.mailbox]));
+      const nextRead = new Set(loadSet(LS.read));
+      const nextStar = new Set(loadSet(LS.star));
+      const nextArch = new Set(loadSet(LS.arch));
+      const nextDel = new Set(loadSet(LS.del));
+      for (const k of feed.result.read || []) {
+        const mb = mailboxOf.get(k);
+        nextRead.add(mb ? `${mb}:${k}` : k);
+      }
+      for (const f of feed.result.flags || []) {
+        const id = `${f.mailbox || mailboxOf.get(f.message_key) || ''}:${f.message_key}`;
+        if (f.starred) nextStar.add(id); else nextStar.delete(id);
+        if (f.archived) nextArch.add(id); else nextArch.delete(id);
+        if (f.trashed) nextDel.add(id); else nextDel.delete(id);
+      }
+      setReadSet(nextRead); saveSet(LS.read, nextRead);
+      setStarSet(nextStar); saveSet(LS.star, nextStar);
+      setArchSet(nextArch); saveSet(LS.arch, nextArch);
+      setDelSet(nextDel); saveSet(LS.del, nextDel);
+      setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Ошибка загрузки');
-      setRaw([]);
+      setError((prev) => prev || (e instanceof Error ? e.message : 'Ошибка загрузки'));
     } finally {
       setLoading(false);
     }
@@ -362,7 +360,7 @@ function useMailData() {
           initial: initialsOf(name),
           color: AVA_COLORS[hashIdx(bare, AVA_COLORS.length)]!,
           subject: e.subject || '(без темы)',
-          preview: e.mailbox,
+          preview: `${e.direction === 'received' ? name : 'Вы'} · ${e.subject || ''}`,
           time: fmtTime(e.timestamp),
           unread: e.direction === 'received' && !readSet.has(id),
           starred: starSet.has(id),
@@ -378,6 +376,18 @@ function useMailData() {
       })
       .filter(Boolean) as MailItem[];
   }, [raw, readSet, starSet, archSet, delSet, attentionAddrs]);
+
+  const pushFlag = useCallback((id: string, star: Set<string>, arch: Set<string>, del: Set<string>) => {
+    const cut = id.indexOf(':');
+    if (cut < 0) return;
+    setMailFlags([{
+      message_key: id.slice(cut + 1),
+      mailbox: id.slice(0, cut),
+      starred: star.has(id),
+      archived: arch.has(id),
+      trashed: del.has(id),
+    }]).catch(() => { /* local copy already updated */ });
+  }, []);
 
   const markRead = useCallback((it: MailItem) => {
     setReadSet((prev) => {
@@ -395,45 +405,50 @@ function useMailData() {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
       saveSet(LS.star, next);
+      pushFlag(id, next, archSet, delSet);
       return next;
     });
-  }, []);
+  }, [archSet, delSet, pushFlag]);
 
   const archive = useCallback((id: string) => {
     setArchSet((prev) => {
       const next = new Set(prev);
       next.add(id);
       saveSet(LS.arch, next);
+      pushFlag(id, starSet, next, delSet);
       return next;
     });
-  }, []);
+  }, [starSet, delSet, pushFlag]);
 
   const unarchive = useCallback((id: string) => {
     setArchSet((prev) => {
       const next = new Set(prev);
       next.delete(id);
       saveSet(LS.arch, next);
+      pushFlag(id, starSet, next, delSet);
       return next;
     });
-  }, []);
+  }, [starSet, delSet, pushFlag]);
 
   const remove = useCallback((id: string) => {
     setDelSet((prev) => {
       const next = new Set(prev);
       next.add(id);
       saveSet(LS.del, next);
+      pushFlag(id, starSet, archSet, next);
       return next;
     });
-  }, []);
+  }, [starSet, archSet, pushFlag]);
 
   const restore = useCallback((id: string) => {
     setDelSet((prev) => {
       const next = new Set(prev);
       next.delete(id);
       saveSet(LS.del, next);
+      pushFlag(id, starSet, archSet, next);
       return next;
     });
-  }, []);
+  }, [starSet, archSet, pushFlag]);
 
   // Bulk operations for the selection checkboxes ("клетка") — one state pass
   // per set, one read-sync call per mailbox.

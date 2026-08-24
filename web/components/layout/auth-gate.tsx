@@ -31,11 +31,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         return;
       }
       if (!token || !u) {
-        // Preserve deep link so Android mail PWA returns to /mail after PIN
         const next = pathname && pathname !== '/'
           ? `?next=${encodeURIComponent(pathname)}`
           : '';
-        router.replace(`/login${next}`);
+        if (typeof window !== 'undefined') {
+          window.location.replace(`/login${next}`);
+        } else {
+          router.replace(`/login${next}`);
+        }
         return;
       }
       setUser(u);

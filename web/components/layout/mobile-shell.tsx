@@ -61,8 +61,8 @@ export default function MobileShell({ children }: { children: React.ReactNode })
 
   const isMailApp = pathname === '/mail' || pathname.startsWith('/mail/');
 
-  // /login and standalone Android mail app — no ERP chrome
-  if (pathname === '/login' || isMailApp) {
+  // /login, standalone mail, and Emailer — full-bleed, no ERP chrome (Gmail process)
+  if (pathname === '/login' || isMailApp || isEmailer) {
     return <AuthGate>{children}</AuthGate>;
   }
 

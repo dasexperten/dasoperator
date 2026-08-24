@@ -14,8 +14,9 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
-import { validateSession } from '../lib/auth';
+import { validateSession, type AuthUser } from '../lib/auth';
 import type { IndexEntry, MailOrigin } from '../lib/inbox-archive';
+import { OWNER_PERSONAL_ADDRESS } from '../lib/mailbox-registry';
 
 const route = new Hono<{ Bindings: Env }>();
 
@@ -26,11 +27,38 @@ function bearer(c: import('hono').Context): string | null {
   return m?.[1] ? m[1].trim() : null;
 }
 
-async function requireSession(c: import('hono').Context<{ Bindings: Env }>): Promise<boolean> {
+async function requireUser(c: import('hono').Context<{ Bindings: Env }>): Promise<AuthUser | null> {
   const token = bearer(c);
-  if (!token) return false;
-  const user = await validateSession(c.env.DB, token);
-  return !!user;
+  if (!token) return null;
+  return validateSession(c.env.DB, token);
+}
+
+async function requireSession(c: import('hono').Context<{ Bindings: Env }>): Promise<boolean> {
+  return !!(await requireUser(c));
+}
+
+async function ensureGmailProcessTables(env: Env): Promise<void> {
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS email_flags (
+      message_key TEXT PRIMARY KEY,
+      mailbox TEXT NOT NULL,
+      starred INTEGER NOT NULL DEFAULT 0,
+      archived INTEGER NOT NULL DEFAULT 0,
+      trashed INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch()))`
+  ).run();
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS email_drafts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      mailbox TEXT NOT NULL,
+      to_addr TEXT NOT NULL DEFAULT '',
+      cc_addr TEXT NOT NULL DEFAULT '',
+      subject TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      in_reply_to TEXT,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch()))`
+  ).run();
 }
 
 // A mailbox is a system sender (notify./my. subdomain) vs a human-facing
@@ -263,6 +291,195 @@ route.get('/orders', async (c) => {
     return ok(c, { period, count: items.length, items });
   } catch (err) {
     return fail(c, 500, [{ code: 'r2_error', message: err instanceof Error ? err.message : String(err) }]);
+  }
+});
+
+const FEED_CACHE_KEY = 'email:feed:entries:v1';
+const FEED_CACHE_TTL_S = 20;
+
+// -----------------------------------------------------------------------------
+// GET /feed — one round-trip Gmail-style inbox: all mailbox indexes + flags +
+// drafts. Browser used to N+1 every Inbox/*.json; that is why Emailer felt
+// unlike Gmail. Transport (R2 / Resend) unchanged.
+// -----------------------------------------------------------------------------
+route.get('/feed', async (c) => {
+  if (!(await requireSession(c))) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+  const user = await requireUser(c);
+  const fresh = c.req.query('fresh') === '1';
+
+  try {
+    await ensureGmailProcessTables(c.env);
+  } catch { /* tables may already exist */ }
+
+  type FeedEntry = IndexEntry & { mailbox: string };
+  let entries: FeedEntry[] | null = null;
+  if (!fresh) {
+    try {
+      const cached = await c.env.CACHE.get(FEED_CACHE_KEY);
+      if (cached) entries = JSON.parse(cached) as FeedEntry[];
+    } catch { /* miss */ }
+  } else {
+    try { await c.env.CACHE.delete(FEED_CACHE_KEY); } catch { /* ignore */ }
+  }
+
+  if (!entries) {
+    try {
+      const mailboxes = await listAllMailboxIndices(c.env);
+      entries = [];
+      for (const mb of mailboxes) {
+        if (mb.address.toLowerCase() === OWNER_PERSONAL_ADDRESS) continue;
+        for (const e of mb.entries) entries.push({ ...e, mailbox: mb.address });
+      }
+      entries.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
+      try {
+        await c.env.CACHE.put(FEED_CACHE_KEY, JSON.stringify(entries), { expirationTtl: FEED_CACHE_TTL_S });
+      } catch { /* best-effort */ }
+    } catch (err) {
+      return fail(c, 500, [{ code: 'r2_error', message: err instanceof Error ? err.message : String(err) }]);
+    }
+  }
+
+  let flags: Array<{ message_key: string; starred: number; archived: number; trashed: number }> = [];
+  let readKeys: string[] = [];
+  let drafts: Array<{
+    id: string; mailbox: string; to_addr: string; cc_addr: string; subject: string; body: string;
+    in_reply_to: string | null; updated_at: number;
+  }> = [];
+  try {
+    const [flagRows, readRows, draftRows] = await Promise.all([
+      c.env.DB.prepare('SELECT message_key, starred, archived, trashed FROM email_flags').all<{
+        message_key: string; starred: number; archived: number; trashed: number;
+      }>(),
+      c.env.DB.prepare('SELECT message_key FROM email_read_state').all<{ message_key: string }>(),
+      user
+        ? c.env.DB.prepare(
+            'SELECT id, mailbox, to_addr, cc_addr, subject, body, in_reply_to, updated_at FROM email_drafts WHERE user_id = ? ORDER BY updated_at DESC'
+          ).bind(user.id).all<{
+            id: string; mailbox: string; to_addr: string; cc_addr: string; subject: string; body: string;
+            in_reply_to: string | null; updated_at: number;
+          }>()
+        : Promise.resolve({ results: [] as never[] }),
+    ]);
+    flags = flagRows.results || [];
+    readKeys = (readRows.results || []).map((r) => r.message_key);
+    drafts = draftRows.results || [];
+  } catch { /* flags/drafts optional until tables exist */ }
+
+  return ok(c, { entries, flags, read: readKeys, drafts });
+});
+
+route.post('/flags', async (c) => {
+  const user = await requireUser(c);
+  if (!user) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+
+  let body: unknown;
+  try { body = await c.req.json(); } catch {
+    return fail(c, 400, [{ code: 'invalid_json', message: 'invalid JSON body' }]);
+  }
+  const items = (body as { items?: unknown })?.items;
+  if (!Array.isArray(items) || items.length === 0) {
+    return fail(c, 422, [{ code: 'bad_items', message: 'items must be a non-empty array' }]);
+  }
+
+  try {
+    await ensureGmailProcessTables(c.env);
+    const stmts = [];
+    for (const raw of items.slice(0, 200)) {
+      const it = raw as { message_key?: unknown; mailbox?: unknown; starred?: unknown; archived?: unknown; trashed?: unknown };
+      const key = String(it.message_key || '');
+      const mailbox = String(it.mailbox || '');
+      if (!key || !mailbox) continue;
+      const starred = it.starred ? 1 : 0;
+      const archived = it.archived ? 1 : 0;
+      const trashed = it.trashed ? 1 : 0;
+      stmts.push(
+        c.env.DB.prepare(
+          `INSERT INTO email_flags (message_key, mailbox, starred, archived, trashed, updated_at)
+           VALUES (?, ?, ?, ?, ?, unixepoch())
+           ON CONFLICT(message_key) DO UPDATE SET
+             mailbox=excluded.mailbox,
+             starred=excluded.starred,
+             archived=excluded.archived,
+             trashed=excluded.trashed,
+             updated_at=unixepoch()`
+        ).bind(key, mailbox, starred, archived, trashed)
+      );
+    }
+    if (stmts.length) await c.env.DB.batch(stmts);
+    return ok(c, { updated: stmts.length });
+  } catch (err) {
+    return fail(c, 500, [{ code: 'd1_error', message: err instanceof Error ? err.message : String(err) }]);
+  }
+});
+
+route.post('/unread', async (c) => {
+  if (!(await requireSession(c))) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+  let body: unknown;
+  try { body = await c.req.json(); } catch {
+    return fail(c, 400, [{ code: 'invalid_json', message: 'invalid JSON body' }]);
+  }
+  const keys = (body as { keys?: unknown })?.keys;
+  if (!Array.isArray(keys) || keys.length === 0) {
+    return fail(c, 422, [{ code: 'bad_keys', message: 'keys must be a non-empty array' }]);
+  }
+  try {
+    await c.env.DB.batch(
+      keys.slice(0, 200).map((k) =>
+        c.env.DB.prepare('DELETE FROM email_read_state WHERE message_key = ?').bind(String(k))
+      )
+    );
+    return ok(c, { unmarked: Math.min(keys.length, 200) });
+  } catch (err) {
+    return fail(c, 500, [{ code: 'd1_error', message: err instanceof Error ? err.message : String(err) }]);
+  }
+});
+
+route.put('/drafts', async (c) => {
+  const user = await requireUser(c);
+  if (!user) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+  let body: unknown;
+  try { body = await c.req.json(); } catch {
+    return fail(c, 400, [{ code: 'invalid_json', message: 'invalid JSON body' }]);
+  }
+  const d = body as {
+    id?: unknown; mailbox?: unknown; to?: unknown; cc?: unknown; subject?: unknown; body?: unknown; in_reply_to?: unknown;
+  };
+  const id = String(d.id || crypto.randomUUID());
+  try {
+    await ensureGmailProcessTables(c.env);
+    await c.env.DB.prepare(
+      `INSERT INTO email_drafts (id, user_id, mailbox, to_addr, cc_addr, subject, body, in_reply_to, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+       ON CONFLICT(id) DO UPDATE SET
+         mailbox=excluded.mailbox, to_addr=excluded.to_addr, cc_addr=excluded.cc_addr,
+         subject=excluded.subject, body=excluded.body, in_reply_to=excluded.in_reply_to,
+         updated_at=unixepoch()`
+    ).bind(
+      id,
+      user.id,
+      String(d.mailbox || 'sales@dasexperten.com'),
+      String(d.to || ''),
+      String(d.cc || ''),
+      String(d.subject || ''),
+      String(d.body || ''),
+      d.in_reply_to ? String(d.in_reply_to) : null,
+    ).run();
+    return ok(c, { id });
+  } catch (err) {
+    return fail(c, 500, [{ code: 'd1_error', message: err instanceof Error ? err.message : String(err) }]);
+  }
+});
+
+route.delete('/drafts/:id', async (c) => {
+  const user = await requireUser(c);
+  if (!user) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+  const id = c.req.param('id');
+  try {
+    await ensureGmailProcessTables(c.env);
+    await c.env.DB.prepare('DELETE FROM email_drafts WHERE id = ? AND user_id = ?').bind(id, user.id).run();
+    return ok(c, { deleted: true });
+  } catch (err) {
+    return fail(c, 500, [{ code: 'd1_error', message: err instanceof Error ? err.message : String(err) }]);
   }
 });
 

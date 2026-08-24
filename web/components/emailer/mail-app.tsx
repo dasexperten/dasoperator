@@ -24,7 +24,6 @@ import {
 } from 'lucide-react';
 import {
   getMailboxMessage,
-  getAttention,
   markMailRead,
   sendReply,
   getEmailContext,
@@ -49,7 +48,6 @@ import {
   OWNER_PERSONAL,
   SUPPORT_ADDRESS,
   isTransactional,
-  isAgentToAgentMail,
   isHouseAddress,
   signatureFor,
   bodyWithoutSignature,
@@ -281,9 +279,14 @@ type RawEntry = {
   plusTag?: string;
 };
 
+function cachedEntries(): RawEntry[] {
+  const cached = readFeedCache<{ entries: RawEntry[] }>();
+  return Array.isArray(cached?.entries) ? cached.entries : [];
+}
+
 function useMailData() {
-  const [raw, setRaw] = useState<RawEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [raw, setRaw] = useState<RawEntry[]>(() => cachedEntries());
+  const [loading, setLoading] = useState(() => cachedEntries().length === 0);
   const [error, setError] = useState<string | null>(null);
   const [attentionAddrs, setAttentionAddrs] = useState<Set<string>>(new Set());
   const [readSet, setReadSet] = useState<Set<string>>(() => new Set());
@@ -307,15 +310,12 @@ function useMailData() {
         }
         return;
       }
-      const entries = (feed.result.entries || []).filter((e) => {
-        if (e.mailbox.toLowerCase() === OWNER_PERSONAL) return false;
-        return !isAgentToAgentMail(e);
-      }) as RawEntry[];
+      const entries = (feed.result.entries || []).filter(
+        (e) => e.mailbox.toLowerCase() !== OWNER_PERSONAL,
+      ) as RawEntry[];
       if (entries.length) {
         setRaw(entries);
         writeFeedCache({ entries });
-      } else if (!opts?.silent) {
-        setRaw([]);
       }
       const mailboxOf = new Map(entries.map((e) => [e.key, e.mailbox]));
       const nextRead = new Set(loadSet(LS.read));
@@ -345,27 +345,11 @@ function useMailData() {
   }, []);
 
   useEffect(() => {
-    const cached = readFeedCache<{ entries: RawEntry[] }>();
-    const cachedEntries = (cached?.entries || []).filter(
-      (e) => e.mailbox.toLowerCase() !== OWNER_PERSONAL && !isAgentToAgentMail(e),
-    );
-    if (cachedEntries.length) {
-      setRaw(cachedEntries);
-      setLoading(false);
-    }
     setReadSet(loadSet(LS.read));
     setStarSet(loadSet(LS.star));
     setArchSet(loadSet(LS.arch));
     setDelSet(loadSet(LS.del));
-    load({ silent: cachedEntries.length > 0 });
-    const later = window.setTimeout(() => {
-      getAttention()
-        .then((r) => {
-          if (r.success && r.result) setAttentionAddrs(new Set(r.result.waiting.map((w) => emailAddr(w.correspondent))));
-        })
-        .catch(() => { /* best-effort, never block the list */ });
-    }, 2500);
-    return () => window.clearTimeout(later);
+    load({ silent: cachedEntries().length > 0 });
   }, [load]);
 
   const items: MailItem[] = useMemo(() => {
@@ -373,7 +357,6 @@ function useMailData() {
       .map((e) => {
         const id = `${e.mailbox}:${e.key}`;
         if (delSet.has(id)) return null;
-        if (isAgentToAgentMail(e)) return null;
         const who = correspondent(e) || e.mailbox;
         const bare = emailAddr(who);
         const name = displayName(who);
@@ -585,19 +568,51 @@ function RowCheck({ on, onToggle, label }: { on: boolean; onToggle: () => void; 
 }
 
 // Full body of an opened letter (index has no bodies).
+function bodyCacheKey(mailbox: string, key: string): string {
+  return `dx_mail_body_v1:${mailbox}:${key}`;
+}
+
+function readBodyCache(mailbox: string, key: string): { text?: string; html?: string } | null {
+  try {
+    const raw = sessionStorage.getItem(bodyCacheKey(mailbox, key));
+    if (!raw || raw.length > 800_000) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed as { text?: string; html?: string };
+  } catch {
+    return null;
+  }
+}
+
+function writeBodyCache(mailbox: string, key: string, body: { text?: string; html?: string }): void {
+  try {
+    sessionStorage.setItem(bodyCacheKey(mailbox, key), JSON.stringify(body));
+  } catch { /* quota */ }
+}
+
 function useMailBody(item: MailItem | null) {
-  const [body, setBody] = useState<{ text?: string; html?: string } | null>(null);
-  const [loading, setLoading] = useState(false);
+  const cached = item ? readBodyCache(item.mailbox, item.key) : null;
+  const [body, setBody] = useState<{ text?: string; html?: string } | null>(cached);
+  const [loading, setLoading] = useState(!cached && !!item);
   useEffect(() => {
-    if (!item) { setBody(null); return; }
+    if (!item) { setBody(null); setLoading(false); return; }
+    const hit = readBodyCache(item.mailbox, item.key);
+    if (hit) {
+      setBody(hit);
+      setLoading(false);
+    } else {
+      setLoading(true);
+      setBody(null);
+    }
     let cancelled = false;
-    setLoading(true);
-    setBody(null);
     getMailboxMessage(item.mailbox, item.key)
       .then((r) => {
-        if (!cancelled && r.success && r.result) setBody({ text: r.result.record.text, html: r.result.record.html });
+        if (cancelled || !r.success || !r.result) return;
+        const next = { text: r.result.record.text, html: r.result.record.html };
+        setBody(next);
+        writeBodyCache(item.mailbox, item.key, next);
       })
-      .catch(() => { /* body stays empty, header still useful */ })
+      .catch(() => { /* header still useful */ })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [item?.id]); // eslint-disable-line react-hooks/exhaustive-deps

@@ -16,7 +16,7 @@ import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { validateSession, type AuthUser } from '../lib/auth';
 import type { IndexEntry, MailOrigin } from '../lib/inbox-archive';
-import { OWNER_PERSONAL_ADDRESS, isAgentToAgentMail } from '../lib/mailbox-registry';
+import { OWNER_PERSONAL_ADDRESS } from '../lib/mailbox-registry';
 
 const route = new Hono<{ Bindings: Env }>();
 
@@ -294,10 +294,9 @@ route.get('/orders', async (c) => {
   }
 });
 
-const FEED_CACHE_KEY = 'email:feed:week:v5';
-const FEED_CACHE_TTL_S = 600;
-const FEED_MAX_ENTRIES = 400;
-const FEED_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const FEED_CACHE_KEY = 'email:feed:fast:v6';
+const FEED_CACHE_TTL_S = 1800;
+const FEED_MAX_ENTRIES = 300;
 
 type FeedEntry = IndexEntry & { mailbox: string };
 
@@ -306,9 +305,25 @@ function tsMs(timestamp: string): number {
   return Number.isFinite(t) ? t : 0;
 }
 
-/** Prefer last 7 days. Never return empty if the archive has letters. */
+function slimEntry(e: IndexEntry, mailbox: string): FeedEntry {
+  return {
+    key: e.key,
+    direction: e.direction,
+    timestamp: e.timestamp,
+    subject: e.subject,
+    from: e.from,
+    to: e.to,
+    messageId: e.messageId,
+    threadId: e.threadId,
+    origin: e.origin,
+    plusTag: e.plusTag,
+    agent: e.agent,
+    mailbox,
+  };
+}
+
+/** Newest letters, cached. No filter that can return an empty inbox. */
 async function buildSlimFeed(env: Env): Promise<FeedEntry[]> {
-  const now = Date.now();
   const listed = await env.ARCHIVE.list({ prefix: 'Inbox/', delimiter: '/', limit: 80 });
   const objs = (listed.objects || [])
     .filter((o) => o.key.endsWith('.json') && !o.key.slice('Inbox/'.length).includes('/'))
@@ -322,22 +337,17 @@ async function buildSlimFeed(env: Env): Promise<FeedEntry[]> {
       if (!obj) return [] as FeedEntry[];
       const parsed = JSON.parse(await obj.text());
       if (!Array.isArray(parsed)) return [] as FeedEntry[];
-      return (parsed as IndexEntry[])
-        .filter((e) => !isAgentToAgentMail({ ...e, mailbox: address }))
-        .map((e) => ({ ...e, mailbox: address }));
+      const newest = (parsed as IndexEntry[])
+        .slice()
+        .sort((a, b) => tsMs(b.timestamp) - tsMs(a.timestamp))
+        .slice(0, 40);
+      return newest.map((e) => slimEntry(e, address));
     } catch {
       return [] as FeedEntry[];
     }
   }));
 
-  const all = chunks.flat().sort((a, b) => tsMs(b.timestamp) - tsMs(a.timestamp));
-  const week = all.filter((e) => {
-    const t = tsMs(e.timestamp);
-    if (!t) return true;
-    return now - t <= FEED_WEEK_MS;
-  });
-  const picked = week.length >= 20 ? week : all;
-  return picked.slice(0, FEED_MAX_ENTRIES);
+  return chunks.flat().sort((a, b) => tsMs(b.timestamp) - tsMs(a.timestamp)).slice(0, FEED_MAX_ENTRIES);
 }
 
 route.get('/feed', async (c) => {

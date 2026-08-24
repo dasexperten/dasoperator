@@ -230,7 +230,7 @@ function firstNameOf(label: string): string {
   return label.trim().split(/\s+/)[0] || label;
 }
 
-/** Who wrote this letter in the thread — our agent, or the counterparty. */
+/** Who wrote this letter — first name only: Lauda, Marika, Tetiana. */
 function threadSender(l: MailItem): string {
   if (l.direction === 'sent') {
     if (l.agent) {
@@ -238,10 +238,12 @@ function threadSender(l: MailItem): string {
       if (bySlug) return firstNameOf(bySlug.label);
     }
     const mb = findUiMailbox(l.mailbox);
-    if (mb?.kind === 'agent') return firstNameOf(mb.label);
-    if (mb) return mb.label;
+    if (mb) return firstNameOf(mb.label);
   }
-  return l.from;
+  const name = firstNameOf(l.from);
+  if (name && name !== '—') return name;
+  const local = (l.org || '').split('@')[0];
+  return local || '—';
 }
 
 function initialsOf(name: string): string {
@@ -1104,6 +1106,50 @@ function displaySubject(subject: string): string {
   return String(subject || '').replace(REPLY_PREFIX, '').replace(/\s+/g, ' ').trim() || subject;
 }
 
+function ThreadStrip({
+  thread,
+  selectedId,
+  expanded,
+  onOpen,
+  onToggle,
+}: {
+  thread: Thread;
+  selectedId: string | null;
+  expanded: boolean;
+  onOpen: (letter: MailItem) => void;
+  onToggle: () => void;
+}) {
+  const shown = expanded || thread.count <= THREAD_COLLAPSED
+    ? thread.letters.slice().reverse()
+    : thread.letters.slice().reverse().slice(0, THREAD_COLLAPSED);
+  return (
+    <div className={`thstrip ${expanded ? 'open' : ''}`}>
+      <div className="thhead">
+        {threadWith(thread.letters) ? (
+          <div className="thwith">с {threadWith(thread.letters)}</div>
+        ) : null}
+        <div className="thsubj">{displaySubject(thread.head.subject) || thread.head.subject}</div>
+      </div>
+      {shown.map((l) => (
+        <button
+          key={l.id}
+          type="button"
+          className={`thline ${l.id === selectedId ? 'on' : ''} ${l.unread ? 'unread' : ''}`}
+          onClick={() => { if (l.id !== selectedId) onOpen(l); }}
+        >
+          <span className="thwho">от {threadSender(l)}</span>
+          <span className="thtime">{fmtTime(l.timestamp)}</span>
+        </button>
+      ))}
+      {thread.count > THREAD_COLLAPSED && (
+        <button type="button" className="thmore" onClick={onToggle}>
+          {expanded ? 'Свернуть' : `Показать все ${thread.count}`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** Disjoint-set over letter ids. */
 function makeUnionFind() {
   const parent = new Map<string, string>();
@@ -1908,11 +1954,8 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                     }
                     return <div className="ava" style={{ background: selected.color, width: 44, height: 44, fontSize: 14 }}>{selected.initial}</div>;
                   })()}
-                  <div style={{ minWidth: 0 }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
                     <div className={`dsub ${subjSizeClass(selected.subject)}`}>{displaySubject(selected.subject) || selected.subject}</div>
-                    <div className="dmeta">
-                      от {threadSender(selected)} · {fmtTime(selected.timestamp)}
-                    </div>
                   </div>
                   <div className="dactions">
                     {isForeignLetter(body?.text || body?.html || '') && (
@@ -1955,38 +1998,19 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                     <button className="ibtn" aria-label="Ещё"><MoreHorizontal size={15} /></button>
                   </div>
                 </div>
+                <div className="dmeta">
+                  <span className="dmeta-who">от {threadSender(selected)}</span>
+                  <span className="dmeta-when">{fmtTime(selected.timestamp)}</span>
+                </div>
 
                 {openThread && (
-                  <div className={`thstrip ${threadExpanded ? 'open' : ''}`}>
-                    <div className="thhead">
-                      {threadWith(openThread.letters) ? (
-                        <div className="thwith">с {threadWith(openThread.letters)}</div>
-                      ) : null}
-                      <div className="thsubj">{displaySubject(openThread.head.subject) || openThread.head.subject}</div>
-                    </div>
-                    {(threadExpanded || openThread.count <= THREAD_COLLAPSED
-                      ? openThread.letters.slice().reverse()
-                      : openThread.letters.slice().reverse().slice(0, THREAD_COLLAPSED)
-                    ).map((l) => (
-                      <button
-                        key={l.id}
-                        className={`thline ${l.id === selectedId ? 'on' : ''} ${l.unread ? 'unread' : ''}`}
-                        onClick={() => { if (l.id !== selectedId) openEmail(l); }}
-                      >
-                        <span className="thwho">от {threadSender(l)} · {fmtTime(l.timestamp)}{l.unread ? ' · новое' : ''}</span>
-                      </button>
-                    ))}
-                    {openThread.count > THREAD_COLLAPSED && (
-                      <button
-                        className="thmore"
-                        onClick={() => setThreadExpanded((v) => !v)}
-                      >
-                        {threadExpanded
-                          ? 'Свернуть'
-                          : `Показать все ${openThread.count}`}
-                      </button>
-                    )}
-                  </div>
+                  <ThreadStrip
+                    thread={openThread}
+                    selectedId={selectedId}
+                    expanded={threadExpanded}
+                    onOpen={(l) => openEmail(l)}
+                    onToggle={() => setThreadExpanded((v) => !v)}
+                  />
                 )}
                 <div className={`dbody ${body?.html && !(tr.text && !tr.showOriginal) ? 'is-html' : ''}`}>
                   <div className="dbody-inner">
@@ -2264,6 +2288,7 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
   const [scope, setScope] = useState<MailboxScope>(null);
   const [agentsOpen, setAgentsOpen] = useState(true);
   const [deptsOpen, setDeptsOpen] = useState(true);
+  const [threadExpanded, setThreadExpanded] = useState(false);
 
   useEffect(() => {
     if (!drawerOpen) return;
@@ -2288,6 +2313,11 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
   const urgentCount = items.filter((e) => e.folder === 'inbox' && e.priority === 'high').length;
 
   const opened = items.find((e) => e.id === openedId) || null;
+  const openThread = useMemo(
+    () => (openedId ? buildThreads(items).find((t) => t.letters.some((l) => l.id === openedId)) || null : null),
+    [items, openedId]
+  );
+  useEffect(() => { setThreadExpanded(false); }, [openedId]);
   const { body, loading: bodyLoading } = useMailBody(opened);
   const scopeLabel = scope
     ? (findUiMailbox(scope.address)?.label || scope.address.split('@')[0])
@@ -2568,13 +2598,22 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
               <div className="dfrom">
                 <div className="ava" style={{ width: 42, height: 42, background: opened.color, fontSize: 13 }}>{opened.initial}</div>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div className="dname">{opened.from}</div>
-                  <div className="dorg">{opened.org} · {opened.time}</div>
+                  <div className="dname">от {threadSender(opened)}</div>
+                  <div className="dorg">{fmtTime(opened.timestamp)}</div>
                 </div>
                 <button className={`starb ${opened.starred ? 'on' : ''}`} onClick={(ev) => { ev.stopPropagation(); toggleStar(opened.id); }} aria-label="Пометить важным">
                   <Star size={19} fill={opened.starred ? '#FFB020' : 'none'} />
                 </button>
               </div>
+              {openThread && (
+                <ThreadStrip
+                  thread={openThread}
+                  selectedId={openedId}
+                  expanded={threadExpanded}
+                  onOpen={(l) => openEmail(l.id)}
+                  onToggle={() => setThreadExpanded((v) => !v)}
+                />
+              )}
               <div className="dtext">
                 <BodyView item={opened} body={body} loading={bodyLoading} />
               </div>

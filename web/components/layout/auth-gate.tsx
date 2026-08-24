@@ -1,50 +1,51 @@
 'use client';
 
-import { useEffect, useSyncExternalStore } from 'react';
-import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { getToken, getUser, refreshMe, setAuth, clearAuth, type AuthUser } from '@/lib/auth';
 
 /**
- * AuthGate — wraps the app, ensures user is authenticated before staying
- * on anything except /login.
+ * AuthGate — wraps the app, ensures user is authenticated before rendering
+ * anything except the /login page.
  *
- * Session lives in localStorage. useSyncExternalStore reads it on the first
- * client render — no "Loading…" gate. Parking the tree on Loading until
- * useEffect ran is what made /emailer look dead after hydrate.
+ * SSR always paints the same "Loading…" node so the tree hydrates. Children
+ * (ERP pages) mount only after a client check. Rendering children on the
+ * server crashed the whole ERP: localStorage-backed state did not match HTML.
  */
-function subscribeAuth(cb: () => void) {
-  window.addEventListener('dx-auth-change', cb);
-  window.addEventListener('storage', cb);
-  return () => {
-    window.removeEventListener('dx-auth-change', cb);
-    window.removeEventListener('storage', cb);
-  };
-}
-
-function getAuthSnapshot(): AuthUser | null {
-  return getToken() && getUser() ? getUser() : null;
-}
-
-function getServerAuthSnapshot(): AuthUser | null {
-  return null;
-}
-
 export default function AuthGate({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
   const pathname = usePathname();
-  const user = useSyncExternalStore(subscribeAuth, getAuthSnapshot, getServerAuthSnapshot);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    if (pathname === '/login') return;
-    const token = getToken();
-    const u = getUser();
-    if (!token || !u) {
-      if (token && !u) clearAuth();
-      const next = pathname && pathname !== '/'
-        ? `?next=${encodeURIComponent(pathname)}`
-        : '';
-      window.location.replace(`/login${next}`);
+    function check() {
+      const token = getToken();
+      const u = getUser();
+      if (pathname === '/login') {
+        setUser(null);
+        setReady(true);
+        return;
+      }
+      if (!token || !u) {
+        if (token && !u) clearAuth();
+        const next = pathname && pathname !== '/'
+          ? `?next=${encodeURIComponent(pathname)}`
+          : '';
+        router.replace(`/login${next}`);
+        return;
+      }
+      setUser(u);
+      setReady(true);
     }
-  }, [pathname]);
+    check();
+    window.addEventListener('dx-auth-change', check);
+    window.addEventListener('storage', check);
+    return () => {
+      window.removeEventListener('dx-auth-change', check);
+      window.removeEventListener('storage', check);
+    };
+  }, [pathname, router]);
 
   useEffect(() => {
     if (pathname === '/login') return;
@@ -61,6 +62,24 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   if (pathname === '/login') return <>{children}</>;
+
+  if (!ready) {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: 'var(--brand-schwarz)',
+          color: 'var(--paper)',
+          fontSize: '14px',
+        }}
+      >
+        Loading…
+      </div>
+    );
+  }
 
   if (typeof document !== 'undefined' && user) {
     document.body.dataset.role = user.role;

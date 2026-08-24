@@ -41,15 +41,15 @@ export function withFwd(subject: string): string {
   return /^(fw|fwd)\s*:/i.test(s) ? s : `Fwd: ${s}`;
 }
 
-const CACHE_KEY = 'dx_mail_feed_v2';
+const CACHE_KEY = 'dx_mail_feed_v3';
 
 export function readFeedCache<T>(): T | null {
   if (typeof window === 'undefined') return null;
   try {
     const raw = window.localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
+    if (!raw || raw.length > 400_000) return null;
     const parsed = JSON.parse(raw);
-    if (!parsed || !Array.isArray(parsed.entries)) return null;
+    if (!parsed || !Array.isArray(parsed.entries) || parsed.entries.length > 250) return null;
     return parsed as T;
   } catch {
     return null;

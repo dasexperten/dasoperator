@@ -280,15 +280,14 @@ type RawEntry = {
 };
 
 function useMailData() {
-  const cached = typeof window !== 'undefined' ? readFeedCache<{ entries: RawEntry[] }>() : null;
-  const [raw, setRaw] = useState<RawEntry[]>(cached?.entries || []);
-  const [loading, setLoading] = useState(!cached?.entries?.length);
+  const [raw, setRaw] = useState<RawEntry[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [attentionAddrs, setAttentionAddrs] = useState<Set<string>>(new Set());
-  const [readSet, setReadSet] = useState<Set<string>>(() => loadSet(LS.read));
-  const [starSet, setStarSet] = useState<Set<string>>(() => loadSet(LS.star));
-  const [archSet, setArchSet] = useState<Set<string>>(() => loadSet(LS.arch));
-  const [delSet, setDelSet] = useState<Set<string>>(() => loadSet(LS.del));
+  const [readSet, setReadSet] = useState<Set<string>>(() => new Set());
+  const [starSet, setStarSet] = useState<Set<string>>(() => new Set());
+  const [archSet, setArchSet] = useState<Set<string>>(() => new Set());
+  const [delSet, setDelSet] = useState<Set<string>>(() => new Set());
 
   const load = useCallback(async (opts?: { silent?: boolean; fresh?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -335,6 +334,15 @@ function useMailData() {
   }, []);
 
   useEffect(() => {
+    const cached = readFeedCache<{ entries: RawEntry[] }>();
+    if (cached?.entries?.length) {
+      setRaw(cached.entries);
+      setLoading(false);
+    }
+    setReadSet(loadSet(LS.read));
+    setStarSet(loadSet(LS.star));
+    setArchSet(loadSet(LS.arch));
+    setDelSet(loadSet(LS.del));
     load();
     const later = window.setTimeout(() => {
       getAttention()

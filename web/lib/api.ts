@@ -36,9 +36,7 @@ function handleAuthFailure(status: number): void {
     window.localStorage.removeItem('dx_auth_expires');
     // Skip redirect if we're already on the login page
     if (window.location.pathname !== '/login') {
-      const path = window.location.pathname || '/';
-      const next = path !== '/' ? `?next=${encodeURIComponent(path)}` : '';
-      window.location.replace(`/login${next}`);
+      window.location.href = '/login';
     }
   } catch { /* ignore */ }
 }

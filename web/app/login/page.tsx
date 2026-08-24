@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useState, useEffect, useCallback, useMemo } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { login, getToken, getUser } from '@/lib/auth';
 
 export const runtime = 'edge';
@@ -46,6 +46,7 @@ export default function LoginPage() {
  *  - Schwarz/rot/gold palette via CSS vars from globals.css
  */
 function LoginPageInner() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = useMemo(() => safeNextPath(searchParams.get('next')), [searchParams]);
   const [pin, setPin] = useState('');
@@ -55,8 +56,8 @@ function LoginPageInner() {
 
   // If already authenticated, bounce to intended destination
   useEffect(() => {
-    if (getToken() && getUser()) window.location.replace(nextPath);
-  }, [nextPath]);
+    if (getToken() && getUser()) router.replace(nextPath);
+  }, [router, nextPath]);
 
   const submit = useCallback(async (code: string) => {
     setBusy(true);
@@ -64,14 +65,14 @@ function LoginPageInner() {
     const res = await login(code);
     setBusy(false);
     if (res.ok) {
-      window.location.replace(nextPath);
+      router.replace(nextPath);
     } else {
       setError(res.error);
       setShake(true);
       setTimeout(() => setShake(false), 450);
       setPin('');
     }
-  }, [nextPath]);
+  }, [router, nextPath]);
 
   const onKey = useCallback((key: string) => {
     if (busy) return;

@@ -331,11 +331,14 @@ function useMailData() {
 
   useEffect(() => {
     load();
-    getAttention()
-      .then((r) => {
-        if (r.success && r.result) setAttentionAddrs(new Set(r.result.waiting.map((w) => emailAddr(w.correspondent))));
-      })
-      .catch(() => { /* best-effort priority signal */ });
+    const later = window.setTimeout(() => {
+      getAttention()
+        .then((r) => {
+          if (r.success && r.result) setAttentionAddrs(new Set(r.result.waiting.map((w) => emailAddr(w.correspondent))));
+        })
+        .catch(() => { /* best-effort, never block the list */ });
+    }, 2500);
+    return () => window.clearTimeout(later);
   }, [load]);
 
   const items: MailItem[] = useMemo(() => {

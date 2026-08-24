@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { getToken, getUser, refreshMe, setAuth, type AuthUser } from '@/lib/auth';
+import { getToken, getUser, refreshMe, setAuth, clearAuth, type AuthUser } from '@/lib/auth';
 
 /**
  * AuthGate — wraps the app, ensures user is authenticated before rendering
@@ -18,8 +18,11 @@ import { getToken, getUser, refreshMe, setAuth, type AuthUser } from '@/lib/auth
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [ready, setReady] = useState(false);
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(() => (typeof window === 'undefined' ? null : getUser()));
+  const [ready, setReady] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return pathname === '/login' || !!(getToken() && getUser());
+  });
 
   useEffect(() => {
     function check() {
@@ -31,14 +34,11 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         return;
       }
       if (!token || !u) {
+        if (token && !u) clearAuth();
         const next = pathname && pathname !== '/'
           ? `?next=${encodeURIComponent(pathname)}`
           : '';
-        if (typeof window !== 'undefined') {
-          window.location.replace(`/login${next}`);
-        } else {
-          router.replace(`/login${next}`);
-        }
+        router.replace(`/login${next}`);
         return;
       }
       setUser(u);

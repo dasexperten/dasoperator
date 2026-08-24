@@ -3107,12 +3107,39 @@ export interface EmailFeedDraft {
 }
 
 export async function getEmailFeed(fresh = false) {
-  return apiGet<{
-    entries: Array<MailboxIndexEntry & { mailbox: string }>;
-    flags: EmailFeedFlag[];
-    read: string[];
-    drafts: EmailFeedDraft[];
-  }>(`/api/email/feed${fresh ? '?fresh=1' : ''}`);
+  const token =
+    typeof window !== 'undefined' ? window.localStorage.getItem('dx_auth_token') : null;
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const t = ctrl ? setTimeout(() => ctrl.abort(), 8000) : null;
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/email/feed${fresh ? '?fresh=1' : ''}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        ...(ctrl ? { signal: ctrl.signal } : {}),
+      },
+    );
+    handleAuthFailure(res.status);
+    return await res.json() as ApiResponse<{
+      entries: Array<MailboxIndexEntry & { mailbox: string }>;
+      flags: EmailFeedFlag[];
+      read: string[];
+      drafts: EmailFeedDraft[];
+    }>;
+  } catch (e) {
+    return {
+      success: false,
+      result: null,
+      errors: [{ code: 'timeout', message: e instanceof Error ? e.message : 'feed timeout' }],
+      messages: [],
+    };
+  } finally {
+    if (t) clearTimeout(t);
+  }
 }
 
 export async function setMailFlags(items: Array<{

@@ -314,7 +314,7 @@ body {
 .dxmail-page.dxmail-standalone {
   margin: 0 !important;
   height: 100dvh !important;
-  height: 100svh !important;
+  min-height: 100vh;
   max-height: 100dvh;
   width: 100%;
   overflow: hidden;

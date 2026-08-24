@@ -294,24 +294,52 @@ route.get('/orders', async (c) => {
   }
 });
 
-const FEED_CACHE_KEY = 'email:feed:entries:v1';
-const FEED_CACHE_TTL_S = 20;
+const FEED_CACHE_KEY = 'email:feed:entries:v2';
+const FEED_CACHE_TTL_S = 30;
+const FEED_MAX_BOXES = 20;
+const FEED_PER_BOX = 40;
+const FEED_MAX_ENTRIES = 180;
 
-// -----------------------------------------------------------------------------
-// GET /feed — one round-trip Gmail-style inbox: all mailbox indexes + flags +
-// drafts. Browser used to N+1 every Inbox/*.json; that is why Emailer felt
-// unlike Gmail. Transport (R2 / Resend) unchanged.
-// -----------------------------------------------------------------------------
+type FeedEntry = IndexEntry & { mailbox: string };
+
+/** Newest slice only — dumping every mailbox index froze the tab. */
+async function buildSlimFeed(env: Env): Promise<FeedEntry[]> {
+  const listed = await env.ARCHIVE.list({ prefix: 'Inbox/', delimiter: '/', limit: 200 });
+  const objs = (listed.objects || [])
+    .filter((o) => o.key.endsWith('.json') && !o.key.slice('Inbox/'.length).includes('/'))
+    .sort((a, b) => {
+      const ta = a.uploaded ? new Date(a.uploaded).getTime() : 0;
+      const tb = b.uploaded ? new Date(b.uploaded).getTime() : 0;
+      return tb - ta;
+    })
+    .slice(0, FEED_MAX_BOXES);
+
+  const chunks = await Promise.all(objs.map(async (o) => {
+    const address = o.key.slice('Inbox/'.length, -'.json'.length);
+    if (address.toLowerCase() === OWNER_PERSONAL_ADDRESS) return [] as FeedEntry[];
+    try {
+      const obj = await env.ARCHIVE.get(o.key);
+      if (!obj) return [] as FeedEntry[];
+      const parsed = JSON.parse(await obj.text());
+      if (!Array.isArray(parsed)) return [] as FeedEntry[];
+      const newest = (parsed as IndexEntry[])
+        .slice()
+        .sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1))
+        .slice(0, FEED_PER_BOX);
+      return newest.map((e) => ({ ...e, mailbox: address }));
+    } catch {
+      return [] as FeedEntry[];
+    }
+  }));
+
+  return chunks.flat().sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1)).slice(0, FEED_MAX_ENTRIES);
+}
+
 route.get('/feed', async (c) => {
   if (!(await requireSession(c))) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
   const user = await requireUser(c);
   const fresh = c.req.query('fresh') === '1';
 
-  try {
-    await ensureGmailProcessTables(c.env);
-  } catch { /* tables may already exist */ }
-
-  type FeedEntry = IndexEntry & { mailbox: string };
   let entries: FeedEntry[] | null = null;
   if (!fresh) {
     try {
@@ -324,13 +352,7 @@ route.get('/feed', async (c) => {
 
   if (!entries) {
     try {
-      const mailboxes = await listAllMailboxIndices(c.env);
-      entries = [];
-      for (const mb of mailboxes) {
-        if (mb.address.toLowerCase() === OWNER_PERSONAL_ADDRESS) continue;
-        for (const e of mb.entries) entries.push({ ...e, mailbox: mb.address });
-      }
-      entries.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
+      entries = await buildSlimFeed(c.env);
       try {
         await c.env.CACHE.put(FEED_CACHE_KEY, JSON.stringify(entries), { expirationTtl: FEED_CACHE_TTL_S });
       } catch { /* best-effort */ }
@@ -339,29 +361,29 @@ route.get('/feed', async (c) => {
     }
   }
 
-  let flags: Array<{ message_key: string; starred: number; archived: number; trashed: number }> = [];
+  const keys = entries.map((e) => e.key);
+  let flags: Array<{ message_key: string; mailbox?: string; starred: number; archived: number; trashed: number }> = [];
   let readKeys: string[] = [];
   let drafts: Array<{
     id: string; mailbox: string; to_addr: string; cc_addr: string; subject: string; body: string;
     in_reply_to: string | null; updated_at: number;
   }> = [];
   try {
-    const [flagRows, readRows, draftRows] = await Promise.all([
-      c.env.DB.prepare('SELECT message_key, starred, archived, trashed FROM email_flags').all<{
-        message_key: string; starred: number; archived: number; trashed: number;
+    const [flagRows, draftRows] = await Promise.all([
+      c.env.DB.prepare('SELECT message_key, mailbox, starred, archived, trashed FROM email_flags LIMIT 400').all<{
+        message_key: string; mailbox: string; starred: number; archived: number; trashed: number;
       }>(),
-      c.env.DB.prepare('SELECT message_key FROM email_read_state').all<{ message_key: string }>(),
       user
         ? c.env.DB.prepare(
-            'SELECT id, mailbox, to_addr, cc_addr, subject, body, in_reply_to, updated_at FROM email_drafts WHERE user_id = ? ORDER BY updated_at DESC'
+            'SELECT id, mailbox, to_addr, cc_addr, subject, body, in_reply_to, updated_at FROM email_drafts WHERE user_id = ? ORDER BY updated_at DESC LIMIT 30'
           ).bind(user.id).all<{
             id: string; mailbox: string; to_addr: string; cc_addr: string; subject: string; body: string;
             in_reply_to: string | null; updated_at: number;
           }>()
         : Promise.resolve({ results: [] as never[] }),
     ]);
-    flags = flagRows.results || [];
-    readKeys = (readRows.results || []).map((r) => r.message_key);
+    const want = new Set(keys);
+    flags = (flagRows.results || []).filter((f) => want.has(f.message_key));
     drafts = draftRows.results || [];
   } catch { /* flags/drafts optional until tables exist */ }
 

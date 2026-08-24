@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { login, getToken } from '@/lib/auth';
+import { login, getToken, getUser } from '@/lib/auth';
 
 export const runtime = 'edge';
 
@@ -56,7 +56,7 @@ function LoginPageInner() {
 
   // If already authenticated, bounce to intended destination
   useEffect(() => {
-    if (getToken()) router.replace(nextPath);
+    if (getToken() && getUser()) router.replace(nextPath);
   }, [router, nextPath]);
 
   const submit = useCallback(async (code: string) => {

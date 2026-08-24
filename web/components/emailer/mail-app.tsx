@@ -13,7 +13,7 @@
 // /api/email/read endpoint.
 // =============================================================================
 
-import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback, useSyncExternalStore } from 'react';
 import {
   Search, Star, Archive, Trash2, Send, Inbox as InboxIcon,
   FileText, Paperclip, Plus, Reply, Forward, ChevronLeft, ArrowLeft,
@@ -291,9 +291,14 @@ function useMailData() {
   const [delSet, setDelSet] = useState<Set<string>>(() => loadSet(LS.del));
 
   const load = useCallback(async (opts?: { silent?: boolean; fresh?: boolean }) => {
-    if (!opts?.silent) setLoading((was) => was);
+    if (!opts?.silent) setLoading(true);
     setError(null);
     try {
+      const token = typeof window !== 'undefined' ? window.localStorage.getItem('dx_auth_token') : null;
+      if (!token) {
+        setLoading(false);
+        return;
+      }
       const feed = await getEmailFeed(!!opts?.fresh);
       if (!feed.success || !feed.result) {
         setError((prev) => prev || feed.errors?.[0]?.message || 'Не удалось загрузить почту');
@@ -1419,8 +1424,42 @@ function ComposeModal({
 // =============================================================================
 // DESKTOP — dasoperator-inbox-mpstats.jsx over live data
 // =============================================================================
+function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="empty">
+      <div>{message}</div>
+      <button type="button" className="ibtn" onClick={onRetry} style={{ marginTop: 12 }}>
+        Ещё раз
+      </button>
+    </div>
+  );
+}
+
+class MailCrashBoundary extends React.Component<
+  { children: React.ReactNode },
+  { err: string | null }
+> {
+  state = { err: null as string | null };
+  static getDerivedStateFromError(e: Error) {
+    return { err: e.message || 'render' };
+  }
+  render() {
+    if (this.state.err) {
+      return (
+        <div className="dxmail" style={{ padding: 32, color: 'var(--paper, #fff)' }}>
+          <p style={{ fontWeight: 700, marginBottom: 12 }}>Почта не открылась.</p>
+          <button type="button" className="ibtn" onClick={() => window.location.reload()}>
+            Ещё раз
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; toast: (t: string, undo?: () => void) => void }) {
-  const { items, loading, error, markRead, toggleStar, archive, unarchive, remove, restore } = data;
+  const { items, loading, error, reload, markRead, toggleStar, archive, unarchive, remove, restore } = data;
   const [activeFolder, setActiveFolder] = useState<FolderId>('inbox');
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -1687,7 +1726,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
 
           <div className="rows">
             {loading && <div className="empty"><Loader2 className="dxmail-spin" size={18} /></div>}
-            {!loading && error && <div className="empty">{error}</div>}
+            {!loading && error && <LoadError message={error} onRetry={() => reload({ fresh: true })} />}
             {!loading && !error && threads.length === 0 && <div className="empty">Здесь пока пусто</div>}
             {threads.map((t) => {
               const e = t.head;
@@ -2110,7 +2149,7 @@ function SwipeableRow({
 }
 
 function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toast: (t: string, undo?: () => void) => void }) {
-  const { items, loading, error, markRead, toggleStar, archive, unarchive, remove, restore } = data;
+  const { items, loading, error, reload, markRead, toggleStar, archive, unarchive, remove, restore } = data;
   const [activeFolder, setActiveFolder] = useState<FolderId>('inbox');
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -2374,7 +2413,7 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
       {/* Rows */}
       <div className="mrows">
         {loading && <div className="empty"><Loader2 className="dxmail-spin" size={18} /></div>}
-        {!loading && error && <div className="empty">{error}</div>}
+        {!loading && error && <LoadError message={error} onRetry={() => reload({ fresh: true })} />}
         {!loading && !error && visible.length === 0 && <div className="empty">Здесь пока пусто</div>}
         {visible.map((e) => (
           <SwipeableRow
@@ -2487,27 +2526,23 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
 // =============================================================================
 // Root: media-switch between the two approved layouts + shared undo snackbar.
 // =============================================================================
+function subscribeMobile(cb: () => void) {
+  const mq = window.matchMedia('(max-width: 960px)');
+  mq.addEventListener('change', cb);
+  return () => mq.removeEventListener('change', cb);
+}
+
+function getMobileSnapshot() {
+  const path = window.location.pathname;
+  if (path === '/mail' || path.startsWith('/mail/')) return true;
+  return window.matchMedia('(max-width: 960px)').matches;
+}
+
 export default function MailApp() {
   const data = useMailData();
-  const [isMobile, setIsMobile] = useState(false);
-  const [ready, setReady] = useState(false);
+  const isMobile = useSyncExternalStore(subscribeMobile, getMobileSnapshot, () => false);
   const [snackbar, setSnackbar] = useState<{ text: string; undo?: () => void } | null>(null);
   const snackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    // Narrow screen (incl. tablets) + standalone /mail Android app → phone UI with burger drawer.
-    // 960px so half-laptop / split view gets agents side-box via burger, not missing chrome.
-    const mq = window.matchMedia('(max-width: 960px)');
-    const apply = () => {
-      const standaloneMail =
-        window.location.pathname === '/mail' || window.location.pathname.startsWith('/mail/');
-      setIsMobile(standaloneMail || mq.matches);
-    };
-    apply();
-    setReady(true);
-    mq.addEventListener('change', apply);
-    return () => mq.removeEventListener('change', apply);
-  }, []);
 
   const toast = useCallback((text: string, undo?: () => void) => {
     if (snackTimer.current) clearTimeout(snackTimer.current);
@@ -2516,8 +2551,9 @@ export default function MailApp() {
   }, []);
 
   return (
+    <MailCrashBoundary>
     <div className="dxmail">
-      {ready && (isMobile ? <MobileMail data={data} toast={toast} /> : <DesktopMail data={data} toast={toast} />)}
+      {isMobile ? <MobileMail data={data} toast={toast} /> : <DesktopMail data={data} toast={toast} />}
 
       {snackbar && (
         <div className="snackbar">
@@ -2537,5 +2573,6 @@ export default function MailApp() {
         </div>
       )}
     </div>
+    </MailCrashBoundary>
   );
 }

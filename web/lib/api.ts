@@ -36,7 +36,9 @@ function handleAuthFailure(status: number): void {
     window.localStorage.removeItem('dx_auth_expires');
     // Skip redirect if we're already on the login page
     if (window.location.pathname !== '/login') {
-      window.location.href = '/login';
+      const path = window.location.pathname || '/';
+      const next = path !== '/' ? `?next=${encodeURIComponent(path)}` : '';
+      window.location.replace(`/login${next}`);
     }
   } catch { /* ignore */ }
 }
@@ -3134,7 +3136,7 @@ export async function getEmailFeed(fresh = false) {
     return {
       success: false,
       result: null,
-      errors: [{ code: 'timeout', message: e instanceof Error ? e.message : 'feed timeout' }],
+      errors: [{ code: 'timeout', message: 'Нет ответа от сервера — нажмите Ещё раз' }],
       messages: [],
     };
   } finally {

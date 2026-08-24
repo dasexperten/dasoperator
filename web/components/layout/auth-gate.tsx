@@ -1,60 +1,51 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { useEffect, useSyncExternalStore } from 'react';
+import { usePathname } from 'next/navigation';
 import { getToken, getUser, refreshMe, setAuth, clearAuth, type AuthUser } from '@/lib/auth';
 
 /**
- * AuthGate — wraps the app, ensures user is authenticated before rendering
- * anything except the /login page.
+ * AuthGate — wraps the app, ensures user is authenticated before staying
+ * on anything except /login.
  *
- * Behaviour:
- *  - On /login → render children directly (no gate)
- *  - Elsewhere → if no token, push to /login. Else render children.
- *  - On mount also calls /api/auth/me silently to keep permissions fresh
- *    after server-side changes (self-heals stale localStorage).
- *  - Listens to 'dx-auth-change' so logout in another tab kicks user out.
+ * Session lives in localStorage. useSyncExternalStore reads it on the first
+ * client render — no "Loading…" gate. Parking the tree on Loading until
+ * useEffect ran is what made /emailer look dead after hydrate.
  */
+function subscribeAuth(cb: () => void) {
+  window.addEventListener('dx-auth-change', cb);
+  window.addEventListener('storage', cb);
+  return () => {
+    window.removeEventListener('dx-auth-change', cb);
+    window.removeEventListener('storage', cb);
+  };
+}
+
+function getAuthSnapshot(): AuthUser | null {
+  return getToken() && getUser() ? getUser() : null;
+}
+
+function getServerAuthSnapshot(): AuthUser | null {
+  return null;
+}
+
 export default function AuthGate({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
   const pathname = usePathname();
-  const [user, setUser] = useState<AuthUser | null>(() => (typeof window === 'undefined' ? null : getUser()));
-  const [ready, setReady] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return pathname === '/login' || !!(getToken() && getUser());
-  });
+  const user = useSyncExternalStore(subscribeAuth, getAuthSnapshot, getServerAuthSnapshot);
 
   useEffect(() => {
-    function check() {
-      const token = getToken();
-      const u = getUser();
-      if (pathname === '/login') {
-        setUser(null);
-        setReady(true);
-        return;
-      }
-      if (!token || !u) {
-        if (token && !u) clearAuth();
-        const next = pathname && pathname !== '/'
-          ? `?next=${encodeURIComponent(pathname)}`
-          : '';
-        router.replace(`/login${next}`);
-        return;
-      }
-      setUser(u);
-      setReady(true);
+    if (pathname === '/login') return;
+    const token = getToken();
+    const u = getUser();
+    if (!token || !u) {
+      if (token && !u) clearAuth();
+      const next = pathname && pathname !== '/'
+        ? `?next=${encodeURIComponent(pathname)}`
+        : '';
+      window.location.replace(`/login${next}`);
     }
-    check();
-    window.addEventListener('dx-auth-change', check);
-    window.addEventListener('storage', check);
-    return () => {
-      window.removeEventListener('dx-auth-change', check);
-      window.removeEventListener('storage', check);
-    };
-  }, [pathname, router]);
+  }, [pathname]);
 
-  // Background self-heal: pull a fresh user from the server on each mount,
-  // merge new permissions into localStorage. Quietly noops if logged out.
   useEffect(() => {
     if (pathname === '/login') return;
     const token = getToken();
@@ -70,24 +61,6 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   if (pathname === '/login') return <>{children}</>;
-
-  if (!ready) {
-    return (
-      <div
-        style={{
-          minHeight: '100vh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: 'var(--brand-schwarz)',
-          color: 'var(--paper)',
-          fontSize: '14px',
-        }}
-      >
-        Loading…
-      </div>
-    );
-  }
 
   if (typeof document !== 'undefined' && user) {
     document.body.dataset.role = user.role;

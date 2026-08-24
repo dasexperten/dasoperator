@@ -294,19 +294,28 @@ route.get('/orders', async (c) => {
   }
 });
 
-const FEED_CACHE_KEY = 'email:feed:entries:v2';
-const FEED_CACHE_TTL_S = 30;
-const FEED_MAX_BOXES = 20;
-const FEED_PER_BOX = 40;
-const FEED_MAX_ENTRIES = 180;
+const FEED_CACHE_KEY = 'email:feed:entries:v3';
+const FEED_CACHE_TTL_S = 120;
+const FEED_MAX_BOXES = 16;
+const FEED_PER_BOX = 30;
+const FEED_MAX_ENTRIES = 120;
+const FEED_BOX_TIMEOUT_MS = 1200;
 
 type FeedEntry = IndexEntry & { mailbox: string };
 
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => resolve(fallback), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }).catch(() => { clearTimeout(t); resolve(fallback); });
+  });
+}
+
 /** Newest slice only — dumping every mailbox index froze the tab. */
 async function buildSlimFeed(env: Env): Promise<FeedEntry[]> {
-  const listed = await env.ARCHIVE.list({ prefix: 'Inbox/', delimiter: '/', limit: 200 });
+  const listed = await env.ARCHIVE.list({ prefix: 'Inbox/', delimiter: '/', limit: 80 });
   const objs = (listed.objects || [])
     .filter((o) => o.key.endsWith('.json') && !o.key.slice('Inbox/'.length).includes('/'))
+    .filter((o) => typeof o.size !== 'number' || o.size < 400_000)
     .sort((a, b) => {
       const ta = a.uploaded ? new Date(a.uploaded).getTime() : 0;
       const tb = b.uploaded ? new Date(b.uploaded).getTime() : 0;
@@ -314,7 +323,7 @@ async function buildSlimFeed(env: Env): Promise<FeedEntry[]> {
     })
     .slice(0, FEED_MAX_BOXES);
 
-  const chunks = await Promise.all(objs.map(async (o) => {
+  const chunks = await Promise.all(objs.map((o) => withTimeout((async () => {
     const address = o.key.slice('Inbox/'.length, -'.json'.length);
     if (address.toLowerCase() === OWNER_PERSONAL_ADDRESS) return [] as FeedEntry[];
     try {
@@ -330,14 +339,14 @@ async function buildSlimFeed(env: Env): Promise<FeedEntry[]> {
     } catch {
       return [] as FeedEntry[];
     }
-  }));
+  })(), FEED_BOX_TIMEOUT_MS, [] as FeedEntry[])));
 
   return chunks.flat().sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1)).slice(0, FEED_MAX_ENTRIES);
 }
 
 route.get('/feed', async (c) => {
-  if (!(await requireSession(c))) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
   const user = await requireUser(c);
+  if (!user) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
   const fresh = c.req.query('fresh') === '1';
 
   let entries: FeedEntry[] | null = null;

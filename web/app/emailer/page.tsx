@@ -8,7 +8,7 @@ import MailApp from '@/components/emailer/mail-app';
 // (docs/design/references/). The component itself switches desktop/mobile.
 export default function EmailerPage() {
   return (
-    <div className="dxmail-page dxmail-standalone">
+    <div className="dxmail-page">
       <MailApp />
     </div>
   );

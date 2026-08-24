@@ -61,8 +61,9 @@ export default function MobileShell({ children }: { children: React.ReactNode })
 
   const isMailApp = pathname === '/mail' || pathname.startsWith('/mail/');
 
-  // /login, standalone mail, and Emailer — full-bleed, no ERP chrome (Gmail process)
-  if (pathname === '/login' || isMailApp || isEmailer) {
+  // /login and the Android /mail PWA — full-bleed. /emailer stays in the ERP
+  // shell (header + sidebar); stripping that chrome left a blank viewport.
+  if (pathname === '/login' || isMailApp) {
     return <AuthGate>{children}</AuthGate>;
   }
 

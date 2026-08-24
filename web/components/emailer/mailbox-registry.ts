@@ -97,6 +97,36 @@ export function findUiMailbox(address: string): UiMailbox | undefined {
   );
 }
 
+function extractEmail(raw?: string): string {
+  if (!raw) return '';
+  const m = /<([^>]+)>/.exec(raw);
+  return (m ? m[1] : raw).trim().toLowerCase();
+}
+
+/** Company mailbox — agents, departments, notify/my. Not customer Gmail. */
+export function isHouseAddress(raw?: string): boolean {
+  const a = extractEmail(raw);
+  if (!a || !a.includes('@')) return false;
+  return a.endsWith('@dasexperten.com') || a.endsWith('.dasexperten.com');
+}
+
+/** Agents/departments writing only to each other — hidden in Emailer. */
+export function isAgentToAgentMail(e: {
+  from?: string;
+  to?: string | string[];
+  mailbox?: string;
+  direction?: string;
+}): boolean {
+  const from = extractEmail(e.from) || (e.direction === 'sent' ? extractEmail(e.mailbox) : '');
+  const tos = (Array.isArray(e.to) ? e.to : e.to ? [e.to] : [])
+    .map(extractEmail)
+    .filter(Boolean);
+  if (e.mailbox && !tos.length) tos.push(extractEmail(e.mailbox));
+  if (!from || !tos.length) return false;
+  if (!isHouseAddress(from)) return false;
+  return tos.every((addr) => isHouseAddress(addr));
+}
+
 // ---------------------------------------------------------------------------
 // Signatures (Owner 2026-08-03)
 //

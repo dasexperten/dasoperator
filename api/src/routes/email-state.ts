@@ -16,7 +16,7 @@ import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { validateSession, type AuthUser } from '../lib/auth';
 import type { IndexEntry, MailOrigin } from '../lib/inbox-archive';
-import { OWNER_PERSONAL_ADDRESS } from '../lib/mailbox-registry';
+import { OWNER_PERSONAL_ADDRESS, isAgentToAgentMail } from '../lib/mailbox-registry';
 
 const route = new Hono<{ Bindings: Env }>();
 
@@ -294,12 +294,11 @@ route.get('/orders', async (c) => {
   }
 });
 
-const FEED_CACHE_KEY = 'email:feed:entries:v3';
-const FEED_CACHE_TTL_S = 120;
-const FEED_MAX_BOXES = 16;
-const FEED_PER_BOX = 30;
-const FEED_MAX_ENTRIES = 120;
-const FEED_BOX_TIMEOUT_MS = 1200;
+const FEED_CACHE_KEY = 'email:feed:week:v4';
+const FEED_CACHE_TTL_S = 600;
+const FEED_MAX_ENTRIES = 500;
+const FEED_BOX_TIMEOUT_MS = 1500;
+const FEED_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 type FeedEntry = IndexEntry & { mailbox: string };
 
@@ -310,18 +309,19 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   });
 }
 
-/** Newest slice only — dumping every mailbox index froze the tab. */
+function inLastWeek(timestamp: string, now: number): boolean {
+  const t = Date.parse(timestamp);
+  if (!Number.isFinite(t)) return false;
+  return now - t <= FEED_WEEK_MS;
+}
+
+/** Last 7 days of customer-facing mail. Agent-to-agent stays out of the list. */
 async function buildSlimFeed(env: Env): Promise<FeedEntry[]> {
+  const now = Date.now();
   const listed = await env.ARCHIVE.list({ prefix: 'Inbox/', delimiter: '/', limit: 80 });
   const objs = (listed.objects || [])
     .filter((o) => o.key.endsWith('.json') && !o.key.slice('Inbox/'.length).includes('/'))
-    .filter((o) => typeof o.size !== 'number' || o.size < 400_000)
-    .sort((a, b) => {
-      const ta = a.uploaded ? new Date(a.uploaded).getTime() : 0;
-      const tb = b.uploaded ? new Date(b.uploaded).getTime() : 0;
-      return tb - ta;
-    })
-    .slice(0, FEED_MAX_BOXES);
+    .filter((o) => typeof o.size !== 'number' || o.size < 400_000);
 
   const chunks = await Promise.all(objs.map((o) => withTimeout((async () => {
     const address = o.key.slice('Inbox/'.length, -'.json'.length);
@@ -331,11 +331,10 @@ async function buildSlimFeed(env: Env): Promise<FeedEntry[]> {
       if (!obj) return [] as FeedEntry[];
       const parsed = JSON.parse(await obj.text());
       if (!Array.isArray(parsed)) return [] as FeedEntry[];
-      const newest = (parsed as IndexEntry[])
-        .slice()
-        .sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1))
-        .slice(0, FEED_PER_BOX);
-      return newest.map((e) => ({ ...e, mailbox: address }));
+      return (parsed as IndexEntry[])
+        .filter((e) => inLastWeek(e.timestamp, now))
+        .filter((e) => !isAgentToAgentMail({ ...e, mailbox: address }))
+        .map((e) => ({ ...e, mailbox: address }));
     } catch {
       return [] as FeedEntry[];
     }

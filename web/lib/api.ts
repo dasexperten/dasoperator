@@ -3110,7 +3110,7 @@ export async function getEmailFeed(fresh = false) {
   const token =
     typeof window !== 'undefined' ? window.localStorage.getItem('dx_auth_token') : null;
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const t = ctrl ? setTimeout(() => ctrl.abort(), 8000) : null;
+  const t = ctrl ? setTimeout(() => ctrl.abort(), 12000) : null;
   try {
     const res = await fetch(
       `${API_BASE}/api/email/feed${fresh ? '?fresh=1' : ''}`,

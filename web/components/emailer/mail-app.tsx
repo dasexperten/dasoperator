@@ -49,6 +49,7 @@ import {
   OWNER_PERSONAL,
   SUPPORT_ADDRESS,
   isTransactional,
+  isAgentToAgentMail,
   signatureFor,
   bodyWithoutSignature,
   agentAvatarUrl,
@@ -300,10 +301,15 @@ function useMailData() {
       }
       const feed = await getEmailFeed(!!opts?.fresh);
       if (!feed.success || !feed.result) {
-        setError((prev) => prev || feed.errors?.[0]?.message || 'Не удалось загрузить почту');
+        if (!opts?.silent) {
+          setError((prev) => prev || feed.errors?.[0]?.message || 'Не удалось загрузить почту');
+        }
         return;
       }
-      const entries = (feed.result.entries || []).filter((e) => e.mailbox.toLowerCase() !== OWNER_PERSONAL) as RawEntry[];
+      const entries = (feed.result.entries || []).filter((e) => {
+        if (e.mailbox.toLowerCase() === OWNER_PERSONAL) return false;
+        return !isAgentToAgentMail(e);
+      }) as RawEntry[];
       setRaw(entries);
       writeFeedCache({ entries });
       const mailboxOf = new Map(entries.map((e) => [e.key, e.mailbox]));
@@ -335,15 +341,18 @@ function useMailData() {
 
   useEffect(() => {
     const cached = readFeedCache<{ entries: RawEntry[] }>();
-    if (cached?.entries?.length) {
-      setRaw(cached.entries);
+    const cachedEntries = (cached?.entries || []).filter(
+      (e) => e.mailbox.toLowerCase() !== OWNER_PERSONAL && !isAgentToAgentMail(e),
+    );
+    if (cachedEntries.length) {
+      setRaw(cachedEntries);
       setLoading(false);
     }
     setReadSet(loadSet(LS.read));
     setStarSet(loadSet(LS.star));
     setArchSet(loadSet(LS.arch));
     setDelSet(loadSet(LS.del));
-    load();
+    load({ silent: cachedEntries.length > 0 });
     const later = window.setTimeout(() => {
       getAttention()
         .then((r) => {
@@ -359,6 +368,7 @@ function useMailData() {
       .map((e) => {
         const id = `${e.mailbox}:${e.key}`;
         if (delSet.has(id)) return null;
+        if (isAgentToAgentMail(e)) return null;
         const who = correspondent(e) || e.mailbox;
         const bare = emailAddr(who);
         const name = displayName(who);

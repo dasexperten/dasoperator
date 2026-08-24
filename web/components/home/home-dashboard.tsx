@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { ArrowUpRight, Loader2 } from 'lucide-react';
 import { getUser } from '@/lib/auth';
@@ -177,22 +177,13 @@ export default function HomeDashboard() {
         >
           {greetWord}{greetName ? <>{', '}<span style={{ color: 'var(--brand-rot)' }}>{greetName}</span></> : ''}
         </h1>
-        <p
-          className="mt-3"
-          style={{
-            fontSize: 'var(--fs-body-lg)',
-            color: 'var(--fg-2)',
-            maxWidth: '560px',
-          }}
-        >
-          Today's snapshot · {loading ? 'Loading SEO...' : `SEO as of ${seoAsOf}`}
-        </p>
       </div>
 
-      <div className="dx-ribbon-rule" />
-
-      {/* HEADLINE METRICS =========================================== */}
-      <section>
+      <HomePulseBlock
+        title="SEO"
+        kicker="Jurgen Witt · Ubersuggest"
+        asOf={loading ? 'Loading…' : `as of ${seoAsOf}`}
+      >
         <div className="grid grid-cols-4 gap-4 dx-metrics-grid">
           <MetricCard
             label="Domain authority"
@@ -223,15 +214,17 @@ export default function HomeDashboard() {
             loading={loading}
           />
         </div>
-      </section>
+      </HomePulseBlock>
+
+      <AiVisibilityOverview />
+
+      <div className="dx-eyebrow-rot">Остальные показатели</div>
 
       {/* MARKETPLACE PULSE ========================================== */}
       <MarketplacePulse />
 
       {/* SYSTEM HEALTH ============================================== */}
       <SystemHealth />
-      {/* GEO four (Julian). Headline strip above is Jurgen SEO — do not duplicate. */}
-      <AiVisibilityOverview />
 
       {/* RECENT OPERATIONS ========================================== */}
       <section>
@@ -376,6 +369,45 @@ export default function HomeDashboard() {
 // =============================================================================
 // Sub-components
 // =============================================================================
+function HomePulseBlock({
+  title,
+  kicker,
+  asOf,
+  children,
+}: {
+  title: string;
+  kicker: string;
+  asOf: string;
+  children: ReactNode;
+}) {
+  return (
+    <section>
+      <div
+        className="overflow-hidden"
+        style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', background: 'var(--paper)' }}
+      >
+        <div
+          style={{
+            height: '4px',
+            background:
+              'linear-gradient(90deg, var(--brand-schwarz) 0 33.33%, var(--brand-rot) 33.33% 66.66%, var(--brand-gold) 66.66% 100%)',
+          }}
+        />
+        <div style={{ padding: '20px 24px 24px' }}>
+          <div className="flex items-baseline justify-between" style={{ marginBottom: '16px' }}>
+            <div>
+              <div className="dx-eyebrow-rot">{title}</div>
+              <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginTop: '3px' }}>{kicker}</div>
+            </div>
+            <span style={{ fontSize: '11px', color: 'var(--fg-3)' }}>{asOf}</span>
+          </div>
+          {children}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function MetricCard({
   label,
   sublabel,

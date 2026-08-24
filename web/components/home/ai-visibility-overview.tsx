@@ -75,7 +75,7 @@ export default function AiVisibilityOverview() {
         <div style={{ padding: '20px 24px 24px' }}>
           <div className="flex items-baseline justify-between" style={{ marginBottom: '16px' }}>
             <div>
-              <div className="dx-eyebrow-rot">GEO</div>
+              <div className="dx-eyebrow-rot">Geo</div>
               <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginTop: '3px' }}>
                 Julian Farah · Search Console + AI crawlers
               </div>

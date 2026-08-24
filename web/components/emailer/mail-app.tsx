@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import {
   getMailboxMessage,
+  getMailboxMessages,
   markMailRead,
   sendReply,
   getEmailContext,
@@ -35,7 +36,6 @@ import {
   draftAgentReply,
   translateEmail,
   learnFromLetter,
-  getEmailFeed,
   setMailFlags,
 } from '@/lib/api';
 import type { LearnReport } from '@/lib/api';
@@ -284,6 +284,41 @@ function cachedEntries(): RawEntry[] {
   return Array.isArray(cached?.entries) ? cached.entries : [];
 }
 
+const PRIORITY_BOXES = [
+  'sales@dasexperten.com',
+  'support@dasexperten.com',
+  'orders@dasexperten.com',
+  'hello@dasexperten.com',
+  'partnerships@dasexperten.com',
+  'logistics@dasexperten.com',
+];
+
+function uiMailboxAddresses(): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const m of [...AGENT_MAILBOXES, ...DEPARTMENT_MAILBOXES]) {
+    for (const a of addressesForMailbox(m)) {
+      if (a === OWNER_PERSONAL || seen.has(a)) continue;
+      seen.add(a);
+      out.push(a);
+    }
+  }
+  return out;
+}
+
+async function loadBox(address: string): Promise<RawEntry[]> {
+  try {
+    const raced = await Promise.race([
+      getMailboxMessages(address),
+      new Promise<null>((resolve) => { window.setTimeout(() => resolve(null), 5000); }),
+    ]);
+    if (!raced || !raced.success || !raced.result) return [];
+    return (raced.result.entries || []).slice(0, 80).map((e) => ({ ...e, mailbox: address })) as RawEntry[];
+  } catch {
+    return [];
+  }
+}
+
 function useMailData() {
   const [raw, setRaw] = useState<RawEntry[]>(() => cachedEntries());
   const [loading, setLoading] = useState(() => cachedEntries().length === 0);
@@ -294,6 +329,18 @@ function useMailData() {
   const [archSet, setArchSet] = useState<Set<string>>(() => new Set());
   const [delSet, setDelSet] = useState<Set<string>>(() => new Set());
 
+  const absorb = useCallback((chunks: RawEntry[]) => {
+    if (!chunks.length) return;
+    setRaw((prev) => {
+      const map = new Map(prev.map((e) => [`${e.mailbox}:${e.key}`, e]));
+      for (const e of chunks) map.set(`${e.mailbox}:${e.key}`, e);
+      const entries = Array.from(map.values()).sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+      writeFeedCache({ entries });
+      return entries;
+    });
+    setError(null);
+  }, []);
+
   const load = useCallback(async (opts?: { silent?: boolean; fresh?: boolean }) => {
     if (!opts?.silent) setLoading(true);
     setError(null);
@@ -303,46 +350,23 @@ function useMailData() {
         setLoading(false);
         return;
       }
-      const feed = await getEmailFeed(!!opts?.fresh);
-      if (!feed.success || !feed.result) {
-        if (!opts?.silent) {
-          setError((prev) => prev || feed.errors?.[0]?.message || 'Не удалось загрузить почту');
-        }
-        return;
+      const boxes = uiMailboxAddresses();
+      const first = PRIORITY_BOXES.filter((a) => boxes.includes(a));
+      const rest = boxes.filter((a) => !first.includes(a));
+      const head = (await Promise.all(first.map(loadBox))).flat();
+      absorb(head);
+      setLoading(false);
+      const tail = (await Promise.all(rest.map(loadBox))).flat();
+      absorb(tail);
+      if (!head.length && !tail.length && !opts?.silent) {
+        setError((prev) => prev || 'Не удалось загрузить почту');
       }
-      const entries = (feed.result.entries || []).filter(
-        (e) => e.mailbox.toLowerCase() !== OWNER_PERSONAL,
-      ) as RawEntry[];
-      if (entries.length) {
-        setRaw(entries);
-        writeFeedCache({ entries });
-      }
-      const mailboxOf = new Map(entries.map((e) => [e.key, e.mailbox]));
-      const nextRead = new Set(loadSet(LS.read));
-      const nextStar = new Set(loadSet(LS.star));
-      const nextArch = new Set(loadSet(LS.arch));
-      const nextDel = new Set(loadSet(LS.del));
-      for (const k of feed.result.read || []) {
-        const mb = mailboxOf.get(k);
-        nextRead.add(mb ? `${mb}:${k}` : k);
-      }
-      for (const f of feed.result.flags || []) {
-        const id = `${f.mailbox || mailboxOf.get(f.message_key) || ''}:${f.message_key}`;
-        if (f.starred) nextStar.add(id); else nextStar.delete(id);
-        if (f.archived) nextArch.add(id); else nextArch.delete(id);
-        if (f.trashed) nextDel.add(id); else nextDel.delete(id);
-      }
-      setReadSet(nextRead); saveSet(LS.read, nextRead);
-      setStarSet(nextStar); saveSet(LS.star, nextStar);
-      setArchSet(nextArch); saveSet(LS.arch, nextArch);
-      setDelSet(nextDel); saveSet(LS.del, nextDel);
-      setError(null);
     } catch (e) {
       setError((prev) => prev || (e instanceof Error ? e.message : 'Ошибка загрузки'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [absorb]);
 
   useEffect(() => {
     setReadSet(loadSet(LS.read));

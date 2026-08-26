@@ -14,6 +14,7 @@ import {
 import MarketplacePulse from './marketplace-pulse';
 import SystemHealth from './system-health';
 import AiVisibilityOverview from './ai-visibility-overview';
+import AiPanelOverview from './ai-panel-overview';
 
 // =============================================================================
 // Helpers
@@ -217,6 +218,8 @@ export default function HomeDashboard() {
       </HomePulseBlock>
 
       <AiVisibilityOverview />
+
+      <AiPanelOverview />
 
       <div className="dx-eyebrow-rot">Остальные показатели</div>
 

@@ -7,13 +7,28 @@ on:
       - 'web/**'
       - '.github/workflows/deploy-pages-prod.yml'
   workflow_dispatch:
+    inputs:
+      skip_guard:
+        description: 'Emergency only: ship without the repo guard. Use when the guard ITSELF is broken, never to get past what it found.'
+        type: boolean
+        default: false
 
 concurrency:
   group: pages-prod
   cancel-in-progress: false
 
 jobs:
+  # The guard blocks. A push-triggered deploy can never skip it — skip_guard is
+  # null on a push, so this job always runs and the deploy always waits for it.
+  guard:
+    if: ${{ inputs.skip_guard != true }}
+    uses: ./.github/workflows/_guard.yml
+
   deploy:
+    needs: guard
+    # Runs only if the guard passed, or if a human explicitly chose to ship
+    # without it by hand — a bypass that is on the record, not a default.
+    if: ${{ always() && (needs.guard.result == 'success' || inputs.skip_guard == true) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

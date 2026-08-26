@@ -1,0 +1,36 @@
+# =============================================================================
+# Das Operator ERP — the repo guard, in one place.
+#
+# Called by Checks (on every PR and push) and by every production deploy, so a
+# red guard STOPS the shipping instead of running alongside it. Before
+# 2026-08-26 the guard was advisory: it sat red for sixteen consecutive runs
+# while production deployed green past it, which is a guard that has already
+# failed at its only job.
+#
+# One file, called by all. Copied into each workflow it would drift, and three
+# guards that disagree are worse than none.
+#
+# Add future checks as steps here — they inherit the block automatically.
+# =============================================================================
+
+name: Guard
+
+on:
+  workflow_call:
+
+jobs:
+  migration-numbers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history on purpose: the guard prints the day each colliding
+          # migration was written, and that comes from git log. At depth 1 the
+          # message would quietly degrade to "uncommitted" for every file and
+          # send the reader back to guesswork.
+          fetch-depth: 0
+
+      - name: Check migration number uniqueness
+        run: bash scripts/check-migration-numbers.sh

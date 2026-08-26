@@ -1,8 +1,9 @@
 # =============================================================================
 # Das Operator ERP — repo hygiene checks on every PR and push to main
 # =============================================================================
-# Currently guards:
-#   - db/migrations numeric prefixes must be unique (apply-order safety)
+# The checks themselves live in _guard.yml, which every production deploy also
+# calls. This workflow is the early warning; the deploys are the block. They
+# must run the same steps or the warning stops meaning anything.
 # =============================================================================
 
 name: Checks
@@ -14,12 +15,5 @@ on:
       - main
 
 jobs:
-  migration-numbers:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Check migration number uniqueness
-        run: bash scripts/check-migration-numbers.sh
+  guard:
+    uses: ./.github/workflows/_guard.yml

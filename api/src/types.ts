@@ -63,6 +63,14 @@ export interface Env {
   EMAILER_SERVICE_SECRET?: string;
   DASORG_API_KEY?: string;   // org board — Учи engine (organizacia/api/learn-from-source.mjs)
 
+  // GitHub read token for dasexperten/organizacia — the knowledge graph's only
+  // input. organizacia is a private repo, so without this the graph cannot
+  // sync and /api/knowledge/sync answers 503 by name rather than pretending.
+  // Read-only scope is enough; it is never used to write. Set with:
+  //   wrangler secret put ORG_SSOT_TOKEN
+  // Value lives in SECRETS/github.md in both stores — never in this file.
+  ORG_SSOT_TOKEN?: string;
+
   // Secrets (Phase 5.x — LLM integration)
   // Set via Cloudflare Workers secrets, never committed to repo.
   DEEPSEEK_API_KEY: string;

@@ -30,6 +30,7 @@ const MODULES: { key: string; label: string }[] = [
   { key: '/crm',          label: 'CRM' },
   { key: '/finance',      label: 'Finance' },
   { key: '/analytics',    label: 'Analytics' },
+  { key: '/knowledge',    label: 'Knowledge' },
   { key: '/settings',     label: 'Settings' },
 ];
 

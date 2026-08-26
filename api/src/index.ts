@@ -90,6 +90,7 @@ import chatRoutes from './routes/chat';
 import dailyDigestRoutes from './routes/daily-digest';
 import seoRoutes from './routes/seo';
 import analyticsRoutes from './routes/analytics';
+import knowledgeRoutes from './routes/knowledge';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
 import { handleInboundEmail } from './lib/email-inbound';
@@ -265,6 +266,7 @@ app.route('/api/chat', chatRoutes);
 app.route('/api/analytics', analyticsRoutes);
 app.route('/api/daily-digest', dailyDigestRoutes);
 app.route('/api/seo', seoRoutes);
+app.route('/api/knowledge', knowledgeRoutes);  // graph over the organizacia corpus (cache of GitHub, never a second truth)
 
 export default {
   fetch: app.fetch,

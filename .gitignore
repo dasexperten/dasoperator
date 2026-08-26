@@ -47,3 +47,6 @@ web/tsconfig.tsbuildinfo
 
 # Build output for direct wrangler deploys
 web/.vercel/
+
+# knowledge-graph parser check — transpiled output, rebuilt on every run
+api/.kg-build/

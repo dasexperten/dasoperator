@@ -1213,3 +1213,12 @@ input[type="number"] {
     box-shadow: var(--shadow-card) !important;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Knowledge graph — the only bespoke rule the page needs. Below 1100px the
+   detail panel stops sitting beside the graph and goes underneath it; two
+   columns at that width leave neither one readable.
+   --------------------------------------------------------------------------- */
+@media (max-width: 1100px) {
+  .dx-kg-grid { grid-template-columns: minmax(0, 1fr) !important; }
+}

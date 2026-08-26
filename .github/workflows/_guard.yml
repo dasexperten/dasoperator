@@ -34,3 +34,22 @@ jobs:
 
       - name: Check migration number uniqueness
         run: bash scripts/check-migration-numbers.sh
+
+  knowledge-parser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # The whole knowledge graph is built by one parser. A silent regression
+      # there produces a graph that looks complete and is not, which is the one
+      # failure the corpus rules exist to prevent — so it blocks, like the
+      # migration check beside it.
+      - name: Check knowledge-graph parser
+        run: bash scripts/check-knowledge-parser.sh

@@ -20,11 +20,16 @@ Cloudflare-native ERP system for Das Experten International.
 |---|---|---|
 | 1.0 | Repository skeleton (api / web / db / docs) | Done |
 | 1.0a | Cloudflare Pages Static Export fix | Done |
-| 1.1 | D1 schema initial migration (16 tables) | In review |
-| 1.2 | Reference data seed (companies, partners, products) | Planned |
-| 1.3 | R2 bucket + KV namespace setup | Planned |
-| 2.0 | Skills bridge (8 HTTP endpoints) | Planned |
-| 3.0 | UI shell (dashboards, forms) | Planned |
+| 1.1 | D1 schema initial migration | Done — 80 migration files |
+| 1.2 | Reference data seed (companies, partners, products) | Done |
+| 1.3 | R2 bucket + KV namespace setup | Done |
+| 2.0 | Skills bridge | Done |
+| 3.0 | UI shell (dashboards, forms) | Done — 44 pages under `web/app` |
+| 3.1 | Knowledge graph — [`docs/KNOWLEDGE_GRAPH.md`](./docs/KNOWLEDGE_GRAPH.md) | Shipped, sync needs `ORG_SSOT_TOKEN` |
+
+*Corrected 2026-08-27: rows 1.1–3.0 had read **Planned** since the skeleton
+commit while the code they describe was live. A status table that lags the repo
+teaches the next reader to rebuild what already exists.*
 
 ## Structure
 

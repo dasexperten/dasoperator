@@ -78,16 +78,21 @@ export const MAILBOX_REGISTRY: MailboxDef[] = [
   { address: 'orders@dasexperten.com', kind: 'department', label: 'Orders', role: 'Order notifications', showInUi: true, inbound: 'worker' },
 
   // ── Витрина dasexperten.ru (Owner 2026-08-27) ───────────────────────────
-  // Домен verified в Resend (17.08.2026, sending enabled) — отправка работает.
-  // inbound: 'none' — на апексе dasexperten.ru НЕТ ни одной MX-записи, письмо
-  // в эти ящики приземлиться не может. Значение честное: ящик показан, входящих
-  // нет и не будет, пока MX не заведут на reg.ru. Менять на 'worker' только
-  // после того, как MX реально стоит и приём проверен живым письмом.
-  // От-права: inbound !== 'worker' не попадает в HUMAN_SENDERS, поэтому все три
-  // адреса перечислены явным списком в lib/resend-human.ts.
-  { address: 'zakaz@dasexperten.ru', kind: 'department', label: 'Заказ', role: 'dasexperten.ru — приём заказа', showInUi: true, inbound: 'none' },
-  { address: 'oplata@dasexperten.ru', kind: 'department', label: 'Оплата', role: 'dasexperten.ru — подтверждение оплаты', showInUi: true, inbound: 'none' },
-  { address: 'dostavka@dasexperten.ru', kind: 'department', label: 'Доставка', role: 'dasexperten.ru — отправка, трек, ПВЗ', showInUi: true, inbound: 'none' },
+  // Отправка: домен verified в Resend с 17.08.2026.
+  // Приём: включён 27.08.2026 через Resend Receiving. Апекс держит
+  // MX inbound-smtp.eu-west-1.amazonaws.com (приоритет 10, verified), письмо
+  // приходит вебхуком email.received на /api/email/inbound/resend и ложится
+  // тем же archiveEmail, что и .com. Проверено живым письмом 27.08.2026:
+  // Inbox/zakaz@dasexperten.ru/received/ — запись с телом на месте.
+  // Поэтому inbound: 'worker' здесь такая же правда, как у .com — путь другой
+  // (вебхук, не Cloudflare Email Routing), назначение одно.
+  // ВНИМАНИЕ: апекс теперь catch-all Resend. Любой второй MX на домене уведёт
+  // приём себе. Ящик reg.ru на этом домене несовместим с этой схемой.
+  // От-права продублированы явным списком в lib/resend-human.ts — фильтр по
+  // inbound их теперь и так поднимает, но список переживёт смену inbound.
+  { address: 'zakaz@dasexperten.ru', kind: 'department', label: 'Заказ', role: 'dasexperten.ru — приём заказа', showInUi: true, inbound: 'worker' },
+  { address: 'oplata@dasexperten.ru', kind: 'department', label: 'Оплата', role: 'dasexperten.ru — подтверждение оплаты', showInUi: true, inbound: 'worker' },
+  { address: 'dostavka@dasexperten.ru', kind: 'department', label: 'Доставка', role: 'dasexperten.ru — отправка, трек, ПВЗ', showInUi: true, inbound: 'worker' },
 ];
 
 export const OWNER_GMAIL_FORWARD = 'dasexperten@gmail.com';

@@ -211,6 +211,9 @@ export interface Env {
   //   answers 503 and the hourly poller carries ingestion alone.
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
+  // whsec_* эндпоинта Resend на событие email.received. Без него маршрут
+  // /api/email/inbound/resend отвечает 503 и ничего не пишет в архив.
+  RESEND_INBOUND_WEBHOOK_SECRET?: string;
 
   // Wix REST API — one-shot historical backfill of the .com store
   // (44 orders + 35 members). See dasexperten.com repo SECRETS/wix.md.

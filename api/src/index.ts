@@ -21,6 +21,7 @@ import emailLearnRoutes from './routes/email-learn';
 import emailStateRoutes from './routes/email-state';
 import emailTranslateRoutes from './routes/email-translate';
 import emailTasksRoutes from './routes/email-tasks';
+import emailInboundResendRoutes from './routes/email-inbound-resend';
 import emailAgentDraftRoutes from './routes/email-agent-draft';
 import partnersRoutes from './routes/partners';
 import partnersParseCreate from './routes/partners-parse-create';
@@ -197,6 +198,7 @@ app.route('/api/email', emailCorrespondentsRoutes); // adds GET /correspondents
 app.route('/api/email', emailLearnRoutes);   // adds /learn — Учи on a letter (board engine, Owner 2026-07-31)  // adds /mailboxes* — R2 Inbox archive read API
 app.route('/api/email', emailStateRoutes);  // adds /read, /unread-count, /attention, /orders — dark UI v3
 app.route('/api/email', emailTranslateRoutes);  // adds /translate — Sonnet, letters that are neither RU nor EN
+app.route('/api/email/inbound', emailInboundResendRoutes);  // входящая .ru — вебхук Resend (домен не в Cloudflare)
 app.route('/api/email-tasks', emailTasksRoutes);
 app.route('/api/email-tasks', emailAgentDraftRoutes);  // adds /agent-draft — the agent's own pen
 app.route('/api/sequences', sequencesRoutes);

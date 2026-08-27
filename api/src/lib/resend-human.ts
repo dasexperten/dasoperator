@@ -32,6 +32,12 @@ export const HUMAN_SENDERS = new Set([
   'justina@dasexperten.com',
   'tamara@dasexperten.com',
   'mina@dasexperten.com',
+  // Витрина dasexperten.ru — домен verified в Resend, но inbound: 'none'
+  // (нет MX), поэтому фильтр по inbound === 'worker' их не поднимает.
+  // Перечислены явно, иначе Emailer откажет в отправке.
+  'zakaz@dasexperten.ru',
+  'oplata@dasexperten.ru',
+  'dostavka@dasexperten.ru',
 ]);
 
 export function extractEmailAddr(raw: string): string {

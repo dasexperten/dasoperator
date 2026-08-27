@@ -76,6 +76,18 @@ export const MAILBOX_REGISTRY: MailboxDef[] = [
   { address: 'marketing@dasexperten.com', kind: 'department', label: 'Marketing', role: 'UGC / brand collabs', showInUi: true, inbound: 'worker' },
   { address: 'hello@dasexperten.com', kind: 'department', label: 'Hello', role: 'Warm brand front', showInUi: true, inbound: 'worker' },
   { address: 'orders@dasexperten.com', kind: 'department', label: 'Orders', role: 'Order notifications', showInUi: true, inbound: 'worker' },
+
+  // ── Витрина dasexperten.ru (Owner 2026-08-27) ───────────────────────────
+  // Домен verified в Resend (17.08.2026, sending enabled) — отправка работает.
+  // inbound: 'none' — на апексе dasexperten.ru НЕТ ни одной MX-записи, письмо
+  // в эти ящики приземлиться не может. Значение честное: ящик показан, входящих
+  // нет и не будет, пока MX не заведут на reg.ru. Менять на 'worker' только
+  // после того, как MX реально стоит и приём проверен живым письмом.
+  // От-права: inbound !== 'worker' не попадает в HUMAN_SENDERS, поэтому все три
+  // адреса перечислены явным списком в lib/resend-human.ts.
+  { address: 'zakaz@dasexperten.ru', kind: 'department', label: 'Заказ', role: 'dasexperten.ru — приём заказа', showInUi: true, inbound: 'none' },
+  { address: 'oplata@dasexperten.ru', kind: 'department', label: 'Оплата', role: 'dasexperten.ru — подтверждение оплаты', showInUi: true, inbound: 'none' },
+  { address: 'dostavka@dasexperten.ru', kind: 'department', label: 'Доставка', role: 'dasexperten.ru — отправка, трек, ПВЗ', showInUi: true, inbound: 'none' },
 ];
 
 export const OWNER_GMAIL_FORWARD = 'dasexperten@gmail.com';

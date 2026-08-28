@@ -25,6 +25,8 @@ import {
 const knowledge = new Hono<{ Bindings: Env }>();
 
 const MAX_LIMIT = 1500;
+// D1 caps bound variables at 100 per statement; stay well under it.
+const D1_BIND_CHUNK = 90;
 
 function bearer(c: import('hono').Context): string | null {
   const h = c.req.header('Authorization');
@@ -118,17 +120,31 @@ knowledge.get('/graph', async (c) => {
     }
 
     // Step 2 — every edge touching a seed, then the nodes on the far end.
+    // D1 refuses more than 100 bound variables per statement (SQLITE_ERROR
+    // "too many SQL variables"), so every IN (...) below runs in slices of
+    // D1_BIND_CHUNK, and the edge query is one slice per side rather than
+    // both sides in one statement.
     const ids = seeds.map((n) => String(n.id));
-    const placeholders = ids.map(() => '?').join(',');
-    const edgeRows = await c.env.DB
-      .prepare(
-        `SELECT src, dst, kind, weight FROM kg_edges
-         WHERE src IN (${placeholders}) OR dst IN (${placeholders})`
-      )
-      .bind(...ids, ...ids)
-      .all();
-
-    const edges = (edgeRows.results ?? []) as Array<Record<string, unknown>>;
+    const edgeSeen = new Set<string>();
+    const edges: Array<Record<string, unknown>> = [];
+    for (const side of ['src', 'dst'] as const) {
+      for (let i = 0; i < ids.length; i += D1_BIND_CHUNK) {
+        const slice = ids.slice(i, i + D1_BIND_CHUNK);
+        const rows = await c.env.DB
+          .prepare(
+            `SELECT src, dst, kind, weight FROM kg_edges
+             WHERE ${side} IN (${slice.map(() => '?').join(',')})`
+          )
+          .bind(...slice)
+          .all();
+        for (const e of (rows.results ?? []) as Array<Record<string, unknown>>) {
+          const key = `${e.src}\u0000${e.dst}\u0000${e.kind}`;
+          if (edgeSeen.has(key)) continue;
+          edgeSeen.add(key);
+          edges.push(e);
+        }
+      }
+    }
     const need = new Set<string>(ids);
     for (const e of edges) { need.add(String(e.src)); need.add(String(e.dst)); }
     for (const id of ids) need.delete(id);
@@ -136,9 +152,8 @@ knowledge.get('/graph', async (c) => {
     let extra: Array<Record<string, unknown>> = [];
     if (need.size) {
       const list = [...need];
-      // Chunked: a single IN (...) with a few thousand parameters is refused.
-      for (let i = 0; i < list.length; i += 200) {
-        const slice = list.slice(i, i + 200);
+      for (let i = 0; i < list.length; i += D1_BIND_CHUNK) {
+        const slice = list.slice(i, i + D1_BIND_CHUNK);
         const rows = await c.env.DB
           .prepare(
             `SELECT id, kind, label, seat_slug, family, trigger_line, dated_on, source_file

@@ -242,6 +242,35 @@ knowledge.get('/search', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/knowledge/corpus — every entry under the filter, text only
+// ---------------------------------------------------------------------------
+// Feeds the near-duplicate finder on the page. Similarity is computed in the
+// browser on purpose: the ERP has no hands and no model, and a pairwise pass
+// over two thousand short texts is a second of client CPU, not a Worker budget.
+knowledge.get('/corpus', async (c) => {
+  try {
+    const seat = c.req.query('seat')?.trim() || null;
+    const kind = c.req.query('kind')?.trim() || null;
+    const where: string[] = [`kind = 'record'`];
+    const bind: unknown[] = [];
+    if (seat) { where.push(`seat_slug = ?`); bind.push(seat); }
+    if (kind) { where.push(`family = ?`); bind.push(kind); }
+    const rows = await c.env.DB
+      .prepare(
+        `SELECT id, seat_slug, family, label, trigger_line, dated_on, source_file,
+                substr(body, 1, 480) AS body_head
+         FROM kg_nodes WHERE ${where.join(' AND ')}
+         ORDER BY seat_slug, dated_on DESC NULLS LAST, label`
+      )
+      .bind(...bind)
+      .all();
+    return ok(c, { items: rows.results ?? [] });
+  } catch (err) {
+    return fail(c, 500, [fromError(err)]);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/knowledge/sync — one scope per call
 // ---------------------------------------------------------------------------
 knowledge.post('/sync', async (c) => {

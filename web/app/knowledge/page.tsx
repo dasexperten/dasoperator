@@ -11,11 +11,12 @@
 // =============================================================================
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Network, RefreshCw, Search, ExternalLink } from 'lucide-react';
+import { Network, RefreshCw, Search, ExternalLink, Copy } from 'lucide-react';
 import { apiGet, apiPost } from '@/lib/api';
 import { getUser } from '@/lib/auth';
 import GraphCanvas, { type GraphNode, type GraphEdge } from '@/components/knowledge/graph-canvas';
 import MdLite from '@/components/knowledge/md-lite';
+import { findSimilar, groupSimilar, type CorpusItem, type SimilarGroup } from '@/components/knowledge/similar';
 
 const ORG_BLOB = 'https://github.com/dasexperten/organizacia/blob/main';
 
@@ -67,6 +68,10 @@ export default function KnowledgePage() {
   const [syncing, setSyncing] = useState(false);
   const [syncLine, setSyncLine] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // near-duplicate finder
+  const [threshold, setThreshold] = useState(0.8);
+  const [similar, setSimilar] = useState<{ groups: SimilarGroup[]; items: Map<string, CorpusItem>; scanned: number } | null>(null);
+  const [similarBusy, setSimilarBusy] = useState(false);
 
   const isAdmin = useMemo(() => getUser()?.role === 'admin', []);
 
@@ -106,8 +111,38 @@ export default function KnowledgePage() {
     setLoading(false);
   }, [seat, family, queryTerm]);
 
+  const runSimilar = useCallback(async () => {
+    setSimilarBusy(true); setError(null); setSelected(null);
+    const params = new URLSearchParams();
+    if (seat) params.set('seat', seat);
+    if (family) params.set('kind', family);
+    const res = await apiGet<{ items: CorpusItem[] }>(`/api/knowledge/corpus?${params.toString()}`);
+    if (!res.success || !res.result) {
+      setError(res.errors[0]?.message ?? 'could not read the corpus'); setSimilarBusy(false); return;
+    }
+    const items = res.result.items;
+    const pairs = findSimilar(items, threshold);
+    const groups = groupSimilar(items, pairs);
+    const byId = new Map(items.map((it) => [it.id, it]));
+    // Draw the groups: their entries, their seats, and the similarity edges.
+    const member = new Set<string>(); groups.forEach((g) => g.ids.forEach((id) => member.add(id)));
+    const seatIds = new Set<string>();
+    const gnodes: GraphNode[] = [];
+    member.forEach((id) => {
+      const it = byId.get(id); if (!it) return;
+      gnodes.push({ id, kind: 'record', label: it.label, seat_slug: it.seat_slug, family: it.family, trigger_line: it.trigger_line, seed: true });
+      if (it.seat_slug) seatIds.add(it.seat_slug);
+    });
+    seatIds.forEach((s) => gnodes.push({ id: `seat:${s}`, kind: 'seat', label: s, seat_slug: s }));
+    const gedges: GraphEdge[] = pairs.map((pr) => ({ src: pr.a, dst: pr.b, kind: pr.cross ? 'similar_x' : 'similar', weight: pr.score }));
+    member.forEach((id) => { const it = byId.get(id); if (it?.seat_slug) gedges.push({ src: `seat:${it.seat_slug}`, dst: id, kind: 'authored', weight: 1 }); });
+    setNodes(gnodes); setEdges(gedges); setSeedCount(member.size); setTruncated(false);
+    setSimilar({ groups, items: byId, scanned: items.length });
+    setSimilarBusy(false);
+  }, [seat, family, threshold]);
+
   useEffect(() => { loadStats(); }, [loadStats]);
-  useEffect(() => { loadGraph(); }, [loadGraph]);
+  useEffect(() => { setSimilar(null); loadGraph(); }, [loadGraph]);
 
   useEffect(() => {
     if (!selected) { setDetail(null); return; }
@@ -299,8 +334,32 @@ export default function KnowledgePage() {
           </button>
         )}
 
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, color: 'var(--fg-3)' }}>
+            Similar from {Math.round(threshold * 100)}%
+            <input
+              type="range" min={60} max={95} step={5} value={Math.round(threshold * 100)}
+              onChange={(e) => setThreshold(Number(e.target.value) / 100)}
+              style={{ width: 120 }}
+              aria-label="Similarity threshold"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={runSimilar}
+            disabled={similarBusy}
+            style={{
+              background: 'var(--brand-schwarz)', color: 'var(--paper)', border: 'none',
+              borderRadius: 'var(--radius-sm)', padding: '9px 14px', cursor: 'pointer', fontSize: 15, fontWeight: 700,
+              display: 'flex', alignItems: 'center', gap: 6, opacity: similarBusy ? 0.6 : 1,
+            }}
+          >
+            <Copy className="h-4 w-4" /> {similarBusy ? 'comparing…' : 'Find similar'}
+          </button>
+        </div>
+
         <span style={{ marginLeft: 'auto', fontSize: 14, color: 'var(--fg-3)', paddingBottom: 10 }}>
-          {loading ? 'loading…' : `${seedCount} entries match`}
+          {loading ? 'loading…' : similar ? `${similar.groups.length} groups · ${seedCount} entries of ${similar.scanned}` : `${seedCount} entries match`}
           {truncated && (
             <em style={{ color: 'var(--status-warning)', fontStyle: 'normal', fontWeight: 700 }}> · capped at 400</em>
           )}
@@ -317,7 +376,44 @@ export default function KnowledgePage() {
             boxShadow: 'var(--shadow-card)', padding: 18, maxHeight: 'min(72vh, 720px)', overflow: 'auto',
           }}
         >
-          {!detail && (
+          {!detail && similar && (
+            <div>
+              <div style={{ fontSize: 13, color: 'var(--fg-3)', marginBottom: 6 }}>
+                NEAR-DUPLICATES · {Math.round(threshold * 100)}% · {similar.scanned} entries scanned
+              </div>
+              {similar.groups.length === 0 && (
+                <p style={{ color: 'var(--fg-3)', fontSize: 15 }}>No two entries under this filter repeat each other at this threshold.</p>
+              )}
+              {similar.groups.map((g, gi) => (
+                <div key={gi} style={{ borderTop: '1px solid var(--border-hairline)', padding: '10px 0' }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', marginBottom: 4 }}>
+                    <span style={{ fontWeight: 800, fontSize: 15, color: 'var(--fg-1)' }}>{g.ids.length} entries</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: g.cross ? 'var(--line-innoweiss)' : 'var(--status-warning)' }}>
+                      {g.cross ? `across ${g.seats.length} seats — one law, many copies` : `${g.seats[0]} — seam should fold these`}
+                    </span>
+                    <span style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--fg-3)' }}>{Math.round(g.score * 100)}%</span>
+                  </div>
+                  <div style={{ fontSize: 14, color: 'var(--fg-1)', marginBottom: 6 }}>
+                    {similar.items.get(g.ids[0] ?? '')?.trigger_line}
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {g.ids.map((id) => (
+                      <button
+                        key={id} type="button" onClick={() => setSelected(id)}
+                        style={{ fontSize: 12, fontWeight: 700, padding: '2px 6px', borderRadius: 4, cursor: 'pointer',
+                          background: 'var(--bg-muted, var(--stone-100))', border: '1px solid var(--border-subtle)', color: 'var(--fg-1)' }}
+                        title={id}
+                      >
+                        {similar.items.get(id)?.label ?? id.replace(/^record:[^/]+\//, '')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!detail && !similar && (
             <p style={{ color: 'var(--fg-3)', fontSize: 15 }}>
               Click a node. A seat shows what it wrote; an entry shows its condition, its body and
               what it cites; a law section shows who cites it.

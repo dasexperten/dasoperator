@@ -29,7 +29,7 @@ export interface GraphNode {
 export interface GraphEdge {
   src: string;
   dst: string;
-  kind: 'authored' | 'cites' | 'refers' | 'mentions' | 'about';
+  kind: 'authored' | 'cites' | 'refers' | 'mentions' | 'about' | 'similar' | 'similar_x';
   weight?: number;
 }
 
@@ -39,6 +39,8 @@ const ITERATIONS = 90;
 const W = 1000;
 const H = 720;
 
+// Families per HARD_RULES §9g (closed list, Owner 2026-08-28). Seat codices
+// (EV, SR, JW, AV, CS, LZ, AS) share one colour: they are one seat's own law.
 const FAMILY_COLOR: Record<string, string> = {
   LAW:   'var(--line-innoweiss)',
   HARD:  'var(--brand-rot)',
@@ -46,8 +48,12 @@ const FAMILY_COLOR: Record<string, string> = {
   CRAFT: 'var(--line-sensitive)',
   MEM:   'var(--stone-400)',
   LOG:   'var(--stone-300)',
-  FM:    'var(--line-kids)',
+  CASE:  'var(--line-kids)',
+  LEG:   'var(--line-kids)',
+  MN:    'var(--brand-gold)',
+  codex: 'var(--brand-schwarz)',
 };
+const CODEX = new Set(['EV', 'SR', 'JW', 'AV', 'CS', 'LZ', 'AS']);
 
 const EDGE_STYLE: Record<GraphEdge['kind'], { stroke: string; opacity: number; dash?: string }> = {
   authored: { stroke: 'var(--stone-300)', opacity: 0.35 },
@@ -55,12 +61,16 @@ const EDGE_STYLE: Record<GraphEdge['kind'], { stroke: string; opacity: number; d
   refers:   { stroke: 'var(--line-innoweiss)', opacity: 0.4, dash: '3 3' },
   mentions: { stroke: 'var(--stone-400)', opacity: 0.28, dash: '2 4' },
   about:    { stroke: 'var(--brand-gold)', opacity: 0.5 },
+  // near-duplicates: same seat = seam waste, cross seat = law in many copies
+  similar:   { stroke: 'var(--status-warning)', opacity: 0.85, dash: '5 3' },
+  similar_x: { stroke: 'var(--line-innoweiss)', opacity: 0.85, dash: '5 3' },
 };
 
 function nodeColor(n: GraphNode): string {
   if (n.kind === 'seat') return 'var(--brand-schwarz)';
   if (n.kind === 'law') return 'var(--brand-rot)';
   if (n.kind === 'topic') return 'var(--brand-gold)';
+  if (n.family && CODEX.has(n.family)) return FAMILY_COLOR.codex;
   return FAMILY_COLOR[n.family ?? ''] ?? 'var(--stone-400)';
 }
 
@@ -267,7 +277,7 @@ export default function GraphCanvas({
                 x1={a.x} y1={a.y} x2={b.x} y2={b.y}
                 stroke={style.stroke}
                 strokeOpacity={dim ? 0.06 : style.opacity}
-                strokeWidth={e.kind === 'authored' ? 0.7 : 1}
+                strokeWidth={e.kind === 'authored' ? 0.7 : e.kind === 'similar' || e.kind === 'similar_x' ? 1.6 : 1}
                 strokeDasharray={style.dash}
               />
             );

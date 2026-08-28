@@ -15,6 +15,7 @@ import { Network, RefreshCw, Search, ExternalLink } from 'lucide-react';
 import { apiGet, apiPost } from '@/lib/api';
 import { getUser } from '@/lib/auth';
 import GraphCanvas, { type GraphNode, type GraphEdge } from '@/components/knowledge/graph-canvas';
+import MdLite from '@/components/knowledge/md-lite';
 
 const ORG_BLOB = 'https://github.com/dasexperten/organizacia/blob/main';
 
@@ -353,15 +354,7 @@ export default function KnowledgePage() {
                 </a>
               )}
 
-              {detail.node.body && (
-                <pre style={{
-                  whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'var(--font-body)',
-                  fontSize: 14, lineHeight: 1.55, color: 'var(--fg-1)', background: 'transparent',
-                  margin: '0 0 16px', padding: 0,
-                }}>
-                  {detail.node.body}
-                </pre>
-              )}
+              {detail.node.body && <MdLite text={detail.node.body} />}
 
               {detail.neighbours.length > 0 && (
                 <>

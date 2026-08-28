@@ -20,8 +20,8 @@
  * A record address: `<FAMILY>-<YYYYMMDD>-<NN>`.
  *
  * The family is deliberately NOT a closed list. §9g names nine of them and then
- * says «или своя семья места, где она уже есть» — seats already carry EV, SR,
- * JW, L, M and §. A closed list silently demotes any entry whose family is not
+ * says «или своя семья места, где она уже есть» — seats carry TREV, TRSR,
+ * JW, AV, CS, LZ, AS, LEG, MN (renamed by Owner word 2026-08-28). A closed list silently demotes any entry whose family is not
  * on it: Mina's own `LEARN-20260819-01` parsed as familyless until this was
  * opened up, which is one entry lost from every family filter.
  */
@@ -34,7 +34,8 @@ const FAMILY_RE = /^([A-ZА-Я§]{1,8})-(\d{8})-(\d+)$/;
  * with a family and no date, not entries with no family. 78 of them across two
  * seats read as familyless until this was added.
  */
-const OWN_NUMBER_RE = /^([A-ZА-Я§]{1,8})-?(\d{1,4})$/;
+// Optional letter suffix: `LZ-2a` (a split kept on its number), `JW-010-A`.
+const OWN_NUMBER_RE = /^([A-ZА-Я§]{1,8})-?(\d{1,4})(?:[a-z]|-[A-Z])?$/;
 
 /** Legacy address: a bare date instead of an id. */
 const BARE_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -43,7 +44,8 @@ const BARE_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const LAW_CITE_RE = /§\s*([0-9]+[a-z]*(?:[-.][0-9a-z]+)*)/gi;
 
 /** A citation of another entry by its own address. */
-const RECORD_CITE_RE = /\b(HARD|LAW|RULE|CRAFT|MEM|LOG|FM|CASE|PB|EV|SR|JW)-(\d{8})-(\d+)\b/g;
+// Family list per HARD_RULES §9g, closed by Owner word 2026-08-28.
+const RECORD_CITE_RE = /\b(HARD|LAW|RULE|CRAFT|MEM|LOG|CASE|TREV|TRSR|JW|AV|CS|LZ|AS|LEG|MN)-(\d{8})-(\d+)\b/g;
 
 /**
  * A latin working term in a trigger line. §9d requires one: a Cyrillic-only

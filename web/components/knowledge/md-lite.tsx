@@ -14,8 +14,10 @@ function inline(text: string, keyBase: string): ReactNode[] {
   const out: ReactNode[] = [];
   let last = 0;
   let i = 0;
-  for (const m of text.matchAll(INLINE)) {
-    const idx = m.index ?? 0;
+  const re = new RegExp(INLINE.source, 'g');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const idx = m.index;
     if (idx > last) out.push(text.slice(last, idx));
     const tok = m[0];
     const k = `${keyBase}-${i++}`;

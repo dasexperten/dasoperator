@@ -127,6 +127,22 @@ export async function rosterNames(env: Env, tree: TreeEntry[]): Promise<RosterNa
   return parseRosterNames(await blobText(env, entry.sha));
 }
 
+/**
+ * Seat codes (`AS`, `JW`, `MI` …) from `fleet-workers.json` — the only registry
+ * of seats (§0g). A cited address `JW-LAW-260827-01` names its seat by the code,
+ * so a cross-seat citation resolves without guessing an author.
+ */
+export async function seatCodes(env: Env, tree: TreeEntry[]): Promise<Map<string, string>> {
+  const entry = tree.find((e) => e.path === 'fleet-workers.json');
+  const map = new Map<string, string>();
+  if (!entry) return map;
+  try {
+    const reg = JSON.parse(await blobText(env, entry.sha)) as { workers?: Array<{ agent_slug?: string; seat_code?: string }> };
+    for (const w of reg.workers ?? []) if (w.agent_slug && w.seat_code) map.set(w.seat_code, w.agent_slug);
+  } catch { /* unreadable registry → no cross-seat resolution, same-seat still works */ }
+  return map;
+}
+
 // ---------------------------------------------------------------------------
 // Graph assembly
 // ---------------------------------------------------------------------------
@@ -157,7 +173,8 @@ export async function buildSeat(
   env: Env,
   tree: TreeEntry[],
   slug: string,
-  roster: RosterName[]
+  roster: RosterName[],
+  codes: Map<string, string> = new Map()
 ): Promise<{ nodes: NodeRow[]; edges: EdgeRow[]; note: string }> {
   const nodes = new Map<string, NodeRow>();
   const edges = new Map<string, EdgeRow>();
@@ -225,11 +242,12 @@ export async function buildSeat(
       }
 
       for (const other of citedRecords(rec.body)) {
-        // Same-seat citation only. A cross-seat address cannot be resolved to a
-        // seat from the text alone, and guessing whose entry it is would put an
-        // invented author on the page.
-        const oid = recordId(slug, other);
-        addEdge(id, oid, 'refers');
+        // The seat code in front of the address names the author; a legacy
+        // address without one can only be the citing seat's own entry —
+        // guessing another author would put an invented one on the page.
+        const code = /^([A-Z]{2})-/.exec(other)?.[1];
+        const owner = (code && codes.get(code)) || slug;
+        addEdge(id, recordId(owner, other), 'refers');
       }
 
       for (const topic of topicsOf(rec.triggerLine)) {

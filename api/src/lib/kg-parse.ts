@@ -25,7 +25,11 @@
  * on it: Mina's own `LEARN-20260819-01` parsed as familyless until this was
  * opened up, which is one entry lost from every family filter.
  */
-const FAMILY_RE = /^([A-ZА-Я§]{1,8})-(\d{8})-(\d+)$/;
+// `MI-CRAFT-260824-02` — seat code, family, six-digit day, number (Owner
+// 2026-08-28, HARD_RULES §9g). The legacy `CRAFT-20260824-02` still parses so
+// a file that has not been touched since keeps its family; its seat comes from
+// the path either way.
+const FAMILY_RE = /^(?:([A-Z]{2})-)?([A-ZА-Я§]{1,8})-(\d{6}|\d{8})-(\d+)$/;
 
 /**
  * A seat's own numbering, with no date in it: `EV-01` (Taras), `M1` (Tamara),
@@ -35,7 +39,10 @@ const FAMILY_RE = /^([A-ZА-Я§]{1,8})-(\d{8})-(\d+)$/;
  * seats read as familyless until this was added.
  */
 // Optional letter suffix: `LZ-2a` (a split kept on its number), `JW-010-A`.
-const OWN_NUMBER_RE = /^([A-ZА-Я§]{1,8})-?(\d{1,4})(?:[a-z]|-[A-Z])?$/;
+// `TR-EV-12`, `JW-010-A`, `LZ-2a`, `CS-1`: the seat code, an optional family,
+// a number, an optional letter suffix. Family is the middle word when present
+// (EV / SR), otherwise the seat code itself is the codex.
+const OWN_NUMBER_RE = /^([A-Z]{2}|[A-ZА-Я§]{1,8})(?:-([A-Z]{2,8}))?-?(\d{1,4})(?:[a-z]|-[A-Z])?$/;
 
 /** Legacy address: a bare date instead of an id. */
 const BARE_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -45,7 +52,7 @@ const LAW_CITE_RE = /§\s*([0-9]+[a-z]*(?:[-.][0-9a-z]+)*)/gi;
 
 /** A citation of another entry by its own address. */
 // Family list per HARD_RULES §9g, closed by Owner word 2026-08-28.
-const RECORD_CITE_RE = /\b(HARD|LAW|RULE|CRAFT|MEM|LOG|CASE|TREV|TRSR|JW|AV|CS|LZ|AS|LEG|MN)-(\d{8})-(\d+)\b/g;
+const RECORD_CITE_RE = /\b(?:([A-Z]{2})-)?(HARD|LAW|RULE|CRAFT|MEM|LOG|CASE|LEG|MN|CS)-(\d{6}|\d{8})-(\d+)\b/g;
 
 /**
  * A latin working term in a trigger line. §9d requires one: a Cyrillic-only
@@ -147,15 +154,15 @@ export function parseSeatFile(text: string): KgRecord[] {
     let address = addressPart;
 
     const fam = FAMILY_RE.exec(addressPart);
-    if (fam && fam[1] && fam[2]) {
-      family = fam[1];
-      const d = fam[2];
+    if (fam && fam[2] && fam[3]) {
+      family = fam[2];
+      const d = fam[3].length === 6 ? `20${fam[3]}` : fam[3];
       dated = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
     } else {
       const own = OWN_NUMBER_RE.exec(addressPart);
       const bare = BARE_DATE_RE.exec(addressPart);
       if (own && own[1]) {
-        family = own[1];
+        family = own[2] || own[1];
         // No date in the address, and none is invented: these entries are
         // numbered by the seat, not dated by it.
       } else if (bare) {

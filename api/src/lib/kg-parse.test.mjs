@@ -153,3 +153,27 @@ test('a latin name is matched as written', () => {
 test('a seat is never linked to itself', () => {
   assert.deepEqual(mentionedSeats('Мина выкатила', ROSTER, 'mina-rutunya'), []);
 });
+
+test('the 2026-08-28 address form: seat code, family, six-digit day', () => {
+  // HARD_RULES §9g (Owner 2026-08-28): `МЕСТО-KIND-ГГММДД-NN`. The seat code is
+  // part of the address; family is the middle word; the day expands to a date.
+  const recs = parseSeatFile([
+    '## JW-LAW-260827-01 | если одна ошибка формы показана дважды — считай один раз',
+    '## CS-MEM-260828-03 | если WB отвечает 429 — это лимит площадки',
+    '## TR-EV-12 | если в брифе жидкости — непрерывны во времени',
+    '## TR-SR-01 | если генерируешь бренд-визуал — путь Higgsfield',
+    '## LZ-2a | если меняешь стиль — процедура та же',
+    '## JW-010-A | если ключ вроде бы выложен — дыра в ветке',
+    '## CS-1 | если заявляешь свойство продукта — только из product-skill',
+  ].join('\n'));
+  assert.deepEqual(recs.map((r) => r.family), ['LAW', 'MEM', 'EV', 'SR', 'LZ', 'JW', 'CS']);
+  assert.deepEqual(recs.map((r) => r.dated_on), ['2026-08-27', '2026-08-28', null, null, null, null, null]);
+  assert.deepEqual(recs.map((r) => r.address), ['JW-LAW-260827-01', 'CS-MEM-260828-03', 'TR-EV-12', 'TR-SR-01', 'LZ-2a', 'JW-010-A', 'CS-1']);
+});
+
+test('citations carry the seat code in the new form and still parse the legacy one', () => {
+  assert.deepEqual(
+    citedRecords('см. JW-LAW-260827-01, рядом MEM-20260101-02 и VL-LEG-260720-01'),
+    ['JW-LAW-260827-01', 'MEM-20260101-02', 'VL-LEG-260720-01']
+  );
+});

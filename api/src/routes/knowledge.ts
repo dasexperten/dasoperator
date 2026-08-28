@@ -20,6 +20,7 @@ import { validateSession } from '../lib/auth';
 import {
   headSha, orgTree, rosterFromTree, rosterNames, buildSeat, buildLaw,
   writeScope, recordScopeError, MissingTokenError,
+  seatCodes,
 } from '../lib/kg-ingest';
 
 const knowledge = new Hono<{ Bindings: Env }>();
@@ -282,7 +283,7 @@ knowledge.post('/sync', async (c) => {
       if (!roster.includes(seatSlug)) {
         return fail(c, 404, [{ code: 'unknown_seat', message: `${seatSlug} has no CHARTER.md in organizacia` }]);
       }
-      built = await buildSeat(c.env, tree, seatSlug, names);
+      built = await buildSeat(c.env, tree, seatSlug, names, await seatCodes(c.env, tree));
     } else {
       return fail(c, 400, [{ code: 'bad_scope', message: 'scope must be "law" or "seat:<slug>"' }]);
     }

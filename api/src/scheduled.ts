@@ -770,6 +770,11 @@ export async function handleScheduled(
         const { syncRuOrders } = await import('./lib/crm-orders-sync');
         const r = await syncRuOrders(env);
         console.log(`[cron:ru-orders-mirror] ${r.ok ? 'ok' : 'FAILED'} ${r.upserted}/${r.total} v${r.feed_version ?? '?'} ${r.ms}ms${r.error ? ' — ' + r.error : ''}`);
+        // Прогрев статистики/клиентов/графика по свежему зеркалу — экран
+        // никогда не платит за холодный расчёт.
+        const { warmKitAggregate } = await import('./routes/crm');
+        const w = await warmKitAggregate(env);
+        console.log(`[cron:ru-orders-mirror] agg warmed ${w.orders} orders ${w.ms}ms`);
       } catch (e) {
         console.error('[cron:ru-orders-mirror] failed:', e);
       }

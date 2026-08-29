@@ -244,11 +244,30 @@ function buildAggregate(total: number, orders: KitOrder[]): KitAggregate {
 }
 
 // v3 — обёртка сменилась на stale-tolerant, конверт другой, старый кэш недействителен.
+const KIT_AGG_KEY = cacheKey('crm:kit-agg', { v: 3 });
+const KIT_AGG_TTL_SEC = 20 * 60;   // крон греет каждые 15 минут — запас 5 минут
+
 async function getKitAggregate(env: Env) {
-  return withKvCacheStale(env, cacheKey('crm:kit-agg', { v: 3 }), 300, async () => {
+  return withKvCacheStale(env, KIT_AGG_KEY, KIT_AGG_TTL_SEC, async () => {
     const { total, orders } = await fetchAllKitOrders(env);
     return buildAggregate(total, orders);
   });
+}
+
+/**
+ * Прогрев агрегата статистики/клиентов/графика — вызывается кроном сразу
+ * после синка зеркала (слой 3, 29.08.2026). Холодный расчёт (~2.5 с по D1)
+ * делает машина раз в 15 минут, а не тот, кто открыл экран. Пишет в KV в том
+ * же конверте {at, data}, что withKvCacheStale, поэтому чтение не меняется.
+ */
+export async function warmKitAggregate(env: Env): Promise<{ orders: number; ms: number }> {
+  const t0 = Date.now();
+  const { total, orders } = await fetchAllKitOrders(env);
+  const data = buildAggregate(total, orders);
+  const envelope = JSON.stringify({ at: Math.floor(Date.now() / 1000), data });
+  await env.CACHE.put(KIT_AGG_KEY, envelope, { expirationTtl: KIT_AGG_TTL_SEC });
+  await env.CACHE.put(`${KIT_AGG_KEY}|lastgood`, envelope, { expirationTtl: 7 * 24 * 3600 });
+  return { orders: orders.length, ms: Date.now() - t0 };
 }
 
 /**

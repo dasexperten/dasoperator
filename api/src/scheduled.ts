@@ -758,6 +758,22 @@ export async function handleScheduled(
     } catch (e) {
       console.error('[cron:mp-pull-tick] failed:', e);
     }
+
+    // Зеркало заказов русской витрины → D1 (слой 3, Владелец 2026-08-29,
+    // BACKLOGS/2026-08-29_crm-orders-d1-mirror.md). Раз в 15 минут — одна
+    // лента ~1.4 МБ, для reg.ru это ничто; свежесть экрана Orders ≤ 15 мин.
+    // Сбой ленты не трогает старые строки; причина ложится в
+    // crm_sync_state ru_orders:last_error и в лог. Плашка stale на экране —
+    // от last_ok_at, не от этого лога.
+    if (env.RU_FEED_TOKEN) {
+      try {
+        const { syncRuOrders } = await import('./lib/crm-orders-sync');
+        const r = await syncRuOrders(env);
+        console.log(`[cron:ru-orders-mirror] ${r.ok ? 'ok' : 'FAILED'} ${r.upserted}/${r.total} v${r.feed_version ?? '?'} ${r.ms}ms${r.error ? ' — ' + r.error : ''}`);
+      } catch (e) {
+        console.error('[cron:ru-orders-mirror] failed:', e);
+      }
+    }
     return;
   }
 

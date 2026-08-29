@@ -77,3 +77,69 @@ export async function withKvCache<T>(
 
   return data;
 }
+
+// =============================================================================
+// Stale-tolerant variant.
+//
+// Same read-through/write-through as withKvCache, plus a second, long-lived
+// copy under `<key>|lastgood`. When the upstream fails — 429, timeout, or a
+// truncated body that will not parse — the caller gets the last copy that DID
+// parse, flagged stale, instead of an exception surfacing as a raw error
+// string on the Owner's screen.
+//
+// Only a total absence of any good copy still throws.
+// =============================================================================
+
+export interface StaleResult<T> {
+  data: T;
+  stale: boolean;
+  /** Unix seconds — when this payload was actually produced upstream. */
+  produced_at: number;
+}
+
+/** How long a last-known-good copy stays usable as a fallback. */
+const LAST_GOOD_TTL_SEC = 86400; // 24h
+
+export async function withKvCacheStale<T>(
+  env: Env,
+  key: string,
+  ttlSec: number,
+  fetcher: () => Promise<T>
+): Promise<StaleResult<T>> {
+  const lastGoodKey = `${key}|lastgood`;
+
+  // Fresh hit
+  try {
+    const hit = await env.CACHE.get(key);
+    if (hit !== null) {
+      const parsed = JSON.parse(hit) as { at: number; data: T };
+      return { data: parsed.data, stale: false, produced_at: parsed.at };
+    }
+  } catch {
+    // KV read failure — fall through to upstream
+  }
+
+  try {
+    const data = await fetcher();
+    const at = Math.floor(Date.now() / 1000);
+    const envelope = JSON.stringify({ at, data });
+    try {
+      await env.CACHE.put(key, envelope, { expirationTtl: Math.max(60, Math.floor(ttlSec)) });
+      await env.CACHE.put(lastGoodKey, envelope, { expirationTtl: LAST_GOOD_TTL_SEC });
+    } catch {
+      // Cache-write failures never break the response
+    }
+    return { data, stale: false, produced_at: at };
+  } catch (upstreamError) {
+    try {
+      const fallback = await env.CACHE.get(lastGoodKey);
+      if (fallback !== null) {
+        const parsed = JSON.parse(fallback) as { at: number; data: T };
+        return { data: parsed.data, stale: true, produced_at: parsed.at };
+      }
+    } catch {
+      // No usable copy — the original failure stands
+    }
+    throw upstreamError;
+  }
+}

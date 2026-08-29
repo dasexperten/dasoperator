@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
-import { withKvCache, cacheKey } from '../lib/kv-cache';
+import { withKvCacheStale, cacheKey } from '../lib/kv-cache';
 import { normalizePhone, tierFor } from '../lib/loyalty';
 
 const crm = new Hono<{ Bindings: Env }>();
@@ -61,6 +61,14 @@ interface KitAggregate {
   daily30: Array<{ date: string; orders: number }>;
   customers: CustomerAgg[];
 }
+
+/** Loyalty tier labels, RU. Module level: used by both the paged and ranked paths. */
+const TIER_LABEL_RU: Record<string, string> = {
+  svoy: 'Свой', tsenitel: 'Ценитель', expert: 'Эксперт', ambassador: 'Амбассадор',
+};
+
+/** KIT/витрина status → kebab-case, the shape the UI expects. */
+const statusKebab = (st: string) => st.toLowerCase().replace(/_/g, '-');
 
 function rub(v: string | undefined): number {
   const n = parseFloat(v ?? '0');
@@ -223,10 +231,71 @@ function buildAggregate(total: number, orders: KitOrder[]): KitAggregate {
   };
 }
 
-async function getKitAggregate(env: Env): Promise<KitAggregate> {
-  return withKvCache(env, cacheKey('crm:kit-agg', { v: 2 }), 300, async () => {   // v2 — источник сменён на витрину .ru, старый кэш недействителен
+// v3 — обёртка сменилась на stale-tolerant, конверт другой, старый кэш недействителен.
+async function getKitAggregate(env: Env) {
+  return withKvCacheStale(env, cacheKey('crm:kit-agg', { v: 3 }), 300, async () => {
     const { total, orders } = await fetchAllKitOrders(env);
     return buildAggregate(total, orders);
+  });
+}
+
+/**
+ * Весь список заказов витрины .ru, размеченный в форму строки таблицы.
+ *
+ * Раньше этим занимался обход тридцати страниц Яндекс.КИТ — он давал 429 на
+ * каждой сортировке, и колонки в шапке были мертвы. Источник тот же, что у
+ * постраничного пути: fetchAllKitOrders сначала пробует витрину и падает на
+ * КИТ только если витрина легла.
+ */
+async function buildRuOrderRows(env: Env): Promise<any[]> {
+  const { orders: all } = await fetchAllKitOrders(env);
+
+  const accByPhone = new Map<string, any>();
+  {
+    const rows = await env.DB.prepare(
+      'SELECT phone, balance, pending_balance, tier, lifetime_spent FROM loyalty_accounts'
+    ).all<any>();
+    for (const r of rows.results ?? []) accByPhone.set(r.phone, r);
+  }
+  const accrualByOrder = new Map<string, any>();
+  {
+    const rows = await env.DB.prepare(
+      "SELECT kit_order_id, points, status FROM loyalty_transactions WHERE type = 'accrual'"
+    ).all<any>();
+    for (const r of rows.results ?? []) accrualByOrder.set(r.kit_order_id, r);
+  }
+
+  return all.map((o: any) => {
+    const phone = normalizePhone(o?.client?.phone);
+    const acc = phone ? accByPhone.get(phone) : undefined;
+    const accrual = accrualByOrder.get(o.id);
+    let charged = 0;
+    for (const chunk of o.delivery_chunks ?? []) {
+      for (const it of chunk.items ?? []) {
+        charged +=
+          Math.round(parseFloat(it.promocode_discount ?? '0')) +
+          Math.round(parseFloat(it.loyalty_discount ?? '0')) +
+          Math.round(parseFloat(it.gift_card_discount ?? '0'));
+      }
+    }
+    const tierInfo = acc ? tierFor(acc.lifetime_spent) : null;
+    return {
+      id: o.order_number,
+      number: String(o.order_number ?? ''),
+      customer_name:
+        [o.client?.first_name, o.client?.last_name].filter(Boolean).join(' ') ||
+        o.client?.email || '—',
+      total: Math.round(parseFloat(o.total_final_price ?? o.purchased_price ?? '0')),
+      status: statusKebab(o.status ?? '—'),
+      created_at: o.created_at ?? '—',
+      bonus_credited: accrual ? accrual.points : 0,
+      bonus_credited_status: accrual ? accrual.status : null,
+      bonus_charged: charged,
+      loyalty_balance: acc ? acc.balance : null,
+      loyalty_pending: acc ? acc.pending_balance : null,
+      loyalty_level: acc ? (TIER_LABEL_RU[acc.tier] ?? acc.tier) : null,
+      loyalty_privilege_pct: tierInfo ? tierInfo.percent : null,
+    };
   });
 }
 
@@ -240,12 +309,15 @@ crm.get('/stats', async (c) => {
     return fail(c, 503, [{ code: 'kit_not_configured', message: 'YANDEX_KIT_TOKEN missing.' }]);
   }
   try {
-    const [agg, loyaltyMembers] = await Promise.all([
+    const [aggWrap, loyaltyMembers] = await Promise.all([
       getKitAggregate(c.env),
       loyaltyMemberCount(c.env),
     ]);
+    const agg = aggWrap.data;
     return ok(c, {
       source: 'dasexperten.ru (обезличено) + d1:loyalty',
+      stale: aggWrap.stale,
+      data_as_of: aggWrap.produced_at,
       customers_total: agg.customers_total,
       orders_total: agg.orders_total,
       orders_this_month: agg.orders_this_month,
@@ -262,10 +334,15 @@ crm.get('/stats', async (c) => {
         : 0,
       monthly: agg.monthly,
       synced_at: Math.floor(Date.now() / 1000),
-    });
+    }, aggWrap.stale ? ['stale'] : []);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Unknown error';
-    return fail(c, 502, [{ code: 'kit_upstream_error', message: msg }]);
+    // Наружу — человеческая строка; техническая причина уезжает в details,
+    // потому что раньше сырой текст исключения печатался Владельцу на экран.
+    return fail(c, 502, [{
+      code: 'orders_feed_unavailable',
+      message: 'Витрина .ru не ответила, и сохранённой копии нет.',
+      details: { reason: e instanceof Error ? e.message : String(e) },
+    }]);
   }
 });
 
@@ -300,70 +377,14 @@ crm.get('/orders', async (c) => {
     const sortAsc = (c.req.query('dir') ?? 'desc').toLowerCase() === 'asc';
     if (sortKey && !search) {
       const mul = sortAsc ? 1 : -1;
-      const full = await withKvCache(
+      // v2 — источник сменён с обхода тридцати страниц КИТ на витрину .ru.
+      const full = await withKvCacheStale(
         c.env,
-        'crm:orders-ru-feed-v1',
+        'crm:orders-ru-feed-v2',
         120,
-        async () => {
-          const fetchKitPageFull = async (p: number) => {
-            const url = new URL('https://api.kit.yandex.net/v1/orders');
-            url.searchParams.set('page', String(p));
-            url.searchParams.set('per_page', '100');
-            const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${c.env.YANDEX_KIT_TOKEN}` } });
-            if (!res.ok) throw new Error(`KIT API ${res.status}: ${(await res.text()).slice(0, 200)}`);
-            return (await res.json()) as { total_count?: number; orders?: any[] };
-          };
-          const all: any[] = [];
-          for (let p = 1; p <= 30; p++) {
-            const resp = await fetchKitPageFull(p);
-            const batch = resp.orders ?? [];
-            all.push(...batch);
-            if (batch.length < 100) break;
-          }
-          const accByPhone = new Map<string, any>();
-          {
-            const rows = await c.env.DB.prepare('SELECT phone, balance, pending_balance, tier, lifetime_spent FROM loyalty_accounts').all<any>();
-            for (const r of rows.results ?? []) accByPhone.set(r.phone, r);
-          }
-          const accrualByOrder = new Map<string, any>();
-          {
-            const rows = await c.env.DB.prepare("SELECT kit_order_id, points, status FROM loyalty_transactions WHERE type = 'accrual'").all<any>();
-            for (const r of rows.results ?? []) accrualByOrder.set(r.kit_order_id, r);
-          }
-          const mapped = all.map((o) => {
-            const phone = normalizePhone(o?.client?.phone);
-            const acc = phone ? accByPhone.get(phone) : undefined;
-            const accrual = accrualByOrder.get(o.id);
-            let charged = 0;
-            for (const chunk of o.delivery_chunks ?? []) {
-              for (const it of chunk.items ?? []) {
-                charged +=
-                  Math.round(parseFloat(it.promocode_discount ?? '0')) +
-                  Math.round(parseFloat(it.loyalty_discount ?? '0')) +
-                  Math.round(parseFloat(it.gift_card_discount ?? '0'));
-              }
-            }
-            const tierInfo = acc ? tierFor(acc.lifetime_spent) : null;
-            return {
-              id: o.order_number,
-              number: String(o.order_number ?? ''),
-              customer_name: [o.client?.first_name, o.client?.last_name].filter(Boolean).join(' ') || o.client?.email || '—',
-              total: Math.round(parseFloat(o.total_final_price ?? o.purchased_price ?? '0')),
-              status: STATUS_KEBAB(o.status ?? '—'),
-              created_at: o.created_at ?? '—',
-              bonus_credited: accrual ? accrual.points : 0,
-              bonus_credited_status: accrual ? accrual.status : null,
-              bonus_charged: charged,
-              loyalty_balance: acc ? acc.balance : null,
-              loyalty_pending: acc ? acc.pending_balance : null,
-              loyalty_level: acc ? (TIER_RU[acc.tier] ?? acc.tier) : null,
-              loyalty_privilege_pct: tierInfo ? tierInfo.percent : null,
-            };
-          });
-          return { orders: mapped };
-        },
+        async () => ({ orders: await buildRuOrderRows(c.env) }),
       );
-      const sorted = [...((full.orders ?? []) as any[])].sort((a, b) => {
+      const sorted = [...((full.data.orders ?? []) as any[])].sort((a, b) => {
         switch (sortKey) {
           case 'total': return (a.total - b.total) * mul;
           case 'credited': return (a.bonus_credited - b.bonus_credited) * mul;
@@ -377,17 +398,19 @@ crm.get('/orders', async (c) => {
       const totalCount = sorted.length;
       const pageRows = sorted.slice((page - 1) * limit, page * limit);
       return ok(c, {
-        source: 'kit-full+d1',
+        source: 'dasexperten.ru (обезличено) + d1:loyalty',
+        stale: full.stale,
+        data_as_of: full.produced_at,
         pagination: { page, limit, total_count: totalCount, total_pages: Math.max(1, Math.ceil(totalCount / limit)) },
         search: '',
         orders: pageRows,
         synced_at: Math.floor(Date.now() / 1000),
-      }, ['Orders ranked']);
+      }, full.stale ? ['Orders ranked', 'stale'] : ['Orders ranked']);
     }
 
-    const payload = await withKvCache(
+    const payload = await withKvCacheStale(
       c.env,
-      cacheKey('crm:orders-kit', { page, limit, search }),
+      cacheKey('crm:orders-ru', { v: 2, page, limit, search }),
       120,
       async () => {
         // KIT: per_page до 100; search/status в API заказов не фильтруют —
@@ -519,10 +542,19 @@ crm.get('/orders', async (c) => {
         };
       }
     );
-    return ok(c, payload);
+    return ok(
+      c,
+      { ...payload.data, stale: payload.stale, data_as_of: payload.produced_at },
+      payload.stale ? ['stale'] : [],
+    );
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Unknown error';
-    return fail(c, 502, [{ code: 'kit_upstream_error', message: msg }]);
+    // Сырой текст исключения на экран Владельцу больше не выходит: витрина
+    // умела оборваться посреди JSON, и ошибка парсера печаталась как есть.
+    return fail(c, 502, [{
+      code: 'orders_feed_unavailable',
+      message: 'Витрина .ru не ответила, и сохранённой копии нет.',
+      details: { reason: e instanceof Error ? e.message : String(e) },
+    }]);
   }
 });
 
@@ -547,7 +579,7 @@ crm.get('/customers', async (c) => {
   };
 
   try {
-    const agg = await getKitAggregate(c.env);
+    const agg = (await getKitAggregate(c.env)).data;
     let list = agg.customers;
     if (search) {
       list = list.filter((cu) =>
@@ -627,7 +659,7 @@ crm.get('/timeline', async (c) => {
     return fail(c, 503, [{ code: 'kit_not_configured', message: 'YANDEX_KIT_TOKEN missing.' }]);
   }
   try {
-    const agg = await getKitAggregate(c.env);
+    const agg = (await getKitAggregate(c.env)).data;
 
     // Registrations by day from the D1 loyalty ledger (registered_at, last 30d).
     const today = new Date();
@@ -677,9 +709,9 @@ crm.get('/funnel', async (c) => {
       getKitAggregate(c.env),
       loyaltyMemberCount(c.env),
     ]);
-    const registered = agg.customers_total;
-    const bought = agg.buyers_count;
-    const repeat = agg.repeat_buyers;
+    const registered = agg.data.customers_total;
+    const bought = agg.data.buyers_count;
+    const repeat = agg.data.repeat_buyers;
     return ok(c, {
       source: 'dasexperten.ru (обезличено) + d1:loyalty',
       stages: {

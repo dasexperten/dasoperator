@@ -213,6 +213,8 @@ export default function CrmPage() {
     }
   };
   const [ordersMeta, setOrdersMeta] = useState<PageMeta | null>(null);
+  // Заказы могут прийти из сохранённой копии, когда витрина .ru не ответила.
+  const [ordersStaleAt, setOrdersStaleAt] = useState<number | null>(null);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
   const [ordersPage, setOrdersPage] = useState(1);
@@ -361,6 +363,7 @@ export default function CrmPage() {
         );
         setOrders(rows);
         setOrdersMeta(data.result.pagination);
+        setOrdersStaleAt(data.result.stale ? (data.result.data_as_of ?? null) : null);
       } else {
         setOrdersError(data.errors?.[0]?.message || 'Failed to load orders');
       }
@@ -726,6 +729,22 @@ export default function CrmPage() {
           page={ordersPage}
           setPage={setOrdersPage}
         >
+          {ordersStaleAt !== null && (
+            <div
+              style={{
+                margin: '0 0 12px',
+                padding: '10px 14px',
+                borderRadius: 8,
+                background: '#FEF3C7',
+                color: '#7A4706',
+                fontWeight: 600,
+                fontSize: 14,
+              }}
+            >
+              Витрина .ru не ответила — показана сохранённая копия от{' '}
+              {new Date(ordersStaleAt * 1000).toLocaleString('ru-RU')}
+            </div>
+          )}
           <OrdersTable orders={orders} hasSearch={!!ordersActiveSearch} search={ordersActiveSearch} sort={ordersSort} onSort={sortOrders} variant={crmSource} onOpen={(n) => setDetail({ kind: 'order', id: n })} pdShown={pdShown} revealCustomer={revealCustomer} />
         </DataTablePanel>
       )}

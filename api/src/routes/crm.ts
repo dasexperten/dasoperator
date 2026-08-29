@@ -387,12 +387,9 @@ async function ordersFromMirror(
   if (search) { where.push('(order_number LIKE ?1 OR customer_key LIKE ?1)'); binds.push(`%${search}%`); }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-  const total = await env.DB.prepare(`SELECT COUNT(*) AS n FROM crm_orders_ru ${whereSql}`).bind(...binds).first<{ n: number }>();
-  const totalCount = total?.n ?? 0;
-  if (!totalCount && !search) return null;                // пустое зеркало — лента
-
   const cols = `order_number, storefront_id, status, storefront_status, created_at, paid, paid_at,
-                total_rub, loyalty_rub, customer_key, delivery_status, delivery_order_id, tracking_number, delivery_provider`;
+                total_rub, loyalty_rub, customer_key, delivery_status, delivery_order_id, tracking_number, delivery_provider,
+                COUNT(*) OVER () AS total_n`;
   const sqlOrder: Record<string, string> = {
     total: `total_rub ${dir}, created_at DESC`,
     date: `created_at ${dir}`,
@@ -401,30 +398,24 @@ async function ordersFromMirror(
   };
   const inMemory = sortKey === 'credited' || sortKey === 'balance';   // нужны данные лояльности
 
-  let rows: MirrorRow[];
-  if (inMemory) {
-    rows = (await env.DB.prepare(`SELECT ${cols} FROM crm_orders_ru ${whereSql} ORDER BY created_at DESC`).bind(...binds).all<MirrorRow>()).results ?? [];
-  } else {
-    const ob = sqlOrder[sortKey] ?? 'created_at DESC';
-    rows = (await env.DB.prepare(`SELECT ${cols} FROM crm_orders_ru ${whereSql} ORDER BY ${ob} LIMIT ?${binds.length + 1} OFFSET ?${binds.length + 2}`)
-      .bind(...binds, limit, (page - 1) * limit).all<MirrorRow>()).results ?? [];
-  }
-
-  // Лояльность: балансы по ключу покупателя, начисления по id заказа витрины.
-  const keys = Array.from(new Set(rows.map((r) => r.customer_key).filter(Boolean))) as string[];
-  const ids = rows.map((r) => r.storefront_id).filter(Boolean) as string[];
+  // Один запрос за страницей и счётчиком (оконная COUNT) + два запроса
+  // лояльности целиком, параллельно: три обращения к D1 вместо ~40.
+  const pageQuery = inMemory
+    ? env.DB.prepare(`SELECT ${cols} FROM crm_orders_ru ${whereSql} ORDER BY created_at DESC`).bind(...binds)
+    : env.DB.prepare(`SELECT ${cols} FROM crm_orders_ru ${whereSql} ORDER BY ${sqlOrder[sortKey] ?? 'created_at DESC'} LIMIT ?${binds.length + 1} OFFSET ?${binds.length + 2}`)
+        .bind(...binds, limit, (page - 1) * limit);
+  const [pageRes, accRes, accrualRes] = await Promise.all([
+    pageQuery.all<MirrorRow & { total_n: number }>(),
+    env.DB.prepare('SELECT phone, balance, pending_balance, tier, lifetime_spent FROM loyalty_accounts').all<any>(),
+    env.DB.prepare("SELECT kit_order_id, points, status FROM loyalty_transactions WHERE type = 'accrual'").all<any>(),
+  ]);
+  const rows = pageRes.results ?? [];
+  const totalCount = rows[0]?.total_n ?? 0;
+  if (!totalCount && !search) return null;                // пустое зеркало — лента
   const accByKey = new Map<string, any>();
-  for (let i = 0; i < keys.length; i += 90) {
-    const part = keys.slice(i, i + 90);
-    const r = await env.DB.prepare(`SELECT phone, balance, pending_balance, tier, lifetime_spent FROM loyalty_accounts WHERE phone IN (${part.map(() => '?').join(',')})`).bind(...part).all<any>();
-    for (const a of r.results ?? []) accByKey.set(a.phone, a);
-  }
+  for (const a of accRes.results ?? []) accByKey.set(a.phone, a);
   const accrualByOrder = new Map<string, any>();
-  for (let i = 0; i < ids.length; i += 90) {
-    const part = ids.slice(i, i + 90);
-    const r = await env.DB.prepare(`SELECT kit_order_id, points, status FROM loyalty_transactions WHERE type = 'accrual' AND kit_order_id IN (${part.map(() => '?').join(',')})`).bind(...part).all<any>();
-    for (const a of r.results ?? []) accrualByOrder.set(a.kit_order_id, a);
-  }
+  for (const a of accrualRes.results ?? []) accrualByOrder.set(a.kit_order_id, a);
 
   let orders = rows.map((r) => {
     const acc = r.customer_key ? accByKey.get(r.customer_key) : undefined;

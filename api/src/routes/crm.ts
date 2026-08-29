@@ -3,6 +3,7 @@ import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { withKvCacheStale, cacheKey } from '../lib/kv-cache';
 import { normalizePhone, tierFor } from '../lib/loyalty';
+import { fetchStorefrontOrders, syncRuOrders, readSyncState } from '../lib/crm-orders-sync';
 
 const crm = new Hono<{ Bindings: Env }>();
 
@@ -104,73 +105,15 @@ async function fetchKitOrdersPage(env: Env, page: number, perPage = 100) {
  * ничего. Имена и телефоны вернутся отдельным запросом по кнопке — после
  * уведомления по ст.12, с записью в журнал.
  */
-type StorefrontFeed = { total: number; orders: KitOrder[]; stale?: boolean };
-const RU_FEED_KEY = 'crm:ru-feed-raw|v1';          // одна лента на ВСЕ страницы и поиски, 120 с
-const RU_FEED_LAST_GOOD = 'crm:ru-feed-raw|v1|lastgood';
-
-// Закон MI-LAW-260816-05: тело читается один раз ТЕКСТОМ, разбирается после;
-// в ошибку идёт текст с размером, а не результат неудавшегося разбора. Именно
-// так экран 29.08 показывал «Unterminated string in JSON at position 218011»:
-// reg.ru оборвал передачу ~800 КБ на середине, res.json() упал, и никто не
-// назвал ни размер, ни причину.
-async function fetchStorefrontOnce(env: Env): Promise<{ feed: StorefrontFeed | null; why: string }> {
-  const res = await fetch(`https://dasexperten.ru/api/erp/orders.php?k=${env.RU_FEED_TOKEN}`, {
-    cf: { cacheTtl: 0, cacheEverything: false },
-  });
-  const text = await res.text();
-  if (!res.ok) return { feed: null, why: `витрина .ru ответила ${res.status} (${text.length} знаков)` };
-  const declared = Number(res.headers.get('content-length') ?? 0);
-  const bytes = new TextEncoder().encode(text).length;
-  if (declared && bytes < declared) return { feed: null, why: `лента оборвана: ${bytes} из ${declared} байт` };
-  try {
-    const data = JSON.parse(text) as { total_count?: number; orders?: KitOrder[] };
-    if (!Array.isArray(data.orders)) return { feed: null, why: 'лента без orders[]' };
-    return { feed: { total: data.total_count ?? data.orders.length, orders: data.orders }, why: '' };
-  } catch (e) {
-    const m = e instanceof Error ? e.message : String(e);
-    return { feed: null, why: `лента не разбирается (${bytes}${declared ? ` из ${declared}` : ''} байт): ${m}` };
-  }
-}
-
-/**
- * Лента витрины с одним общим кэшем. Раньше каждая страница экрана Orders
- * тянула все ~800 КБ заново — 37 тяжёлых запросов за одно пролистывание, и
- * любой обрыв связи с reg.ru становился красной строкой. Теперь: KV 120 с →
- * витрина (до двух попыток) → последняя целая копия за сутки с пометкой stale.
- */
-async function fetchStorefrontOrders(env: Env): Promise<StorefrontFeed> {
-  try {
-    const hit = await env.CACHE.get(RU_FEED_KEY);
-    if (hit !== null) return JSON.parse(hit) as StorefrontFeed;
-  } catch { /* KV read failure — идём на витрину */ }
-
-  const reasons: string[] = [];
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    const { feed, why } = await fetchStorefrontOnce(env);
-    if (feed) {
-      const body = JSON.stringify(feed);
-      try {
-        await env.CACHE.put(RU_FEED_KEY, body, { expirationTtl: 120 });
-        await env.CACHE.put(RU_FEED_LAST_GOOD, body, { expirationTtl: 86400 });
-      } catch { /* кэш не обязателен для ответа */ }
-      return feed;
-    }
-    reasons.push(`попытка ${attempt}: ${why}`);
-  }
-  console.warn('лента .ru:', reasons.join(' | '));
-  try {
-    const last = await env.CACHE.get(RU_FEED_LAST_GOOD);
-    if (last !== null) return { ...(JSON.parse(last) as StorefrontFeed), stale: true };
-  } catch { /* нет копии */ }
-  throw new Error(`лента заказов витрины недоступна — ${reasons.join(' | ')} — и целой копии за сутки нет`);
-}
-
+// Лента витрины и её кэш живут в lib/crm-orders-sync.ts (слой 3, 29.08) —
+// одна копия кода на экран и на синхронизатор.
 // Прежний путь через КИТ оставлен как запасной: витрина и площадка новые,
 // и если они лягут, экран должен показать хоть что-то, а не пустоту.
 async function fetchAllKitOrders(env: Env): Promise<{ total: number; orders: KitOrder[] }> {
   if (env.RU_FEED_TOKEN) {
     try {
-      return await fetchStorefrontOrders(env);
+      const f = await fetchStorefrontOrders(env);
+      return { total: f.total, orders: f.orders as unknown as KitOrder[] };
     } catch (e) {
       console.warn('витрина .ru недоступна, падаю обратно на КИТ:', String(e));
     }
@@ -396,6 +339,24 @@ crm.get('/stats', async (c) => {
       details: { reason: e instanceof Error ? e.message : String(e) },
     }]);
   }
+});
+
+// Ручной запуск синка зеркала .ru → D1 (слой 3). Тот же секрет, что у
+// checkout-воркера (X-Ingest-Secret = INGEST_SECRET / BACKFILL_SECRET).
+// Крон вызывает syncRuOrders напрямую из scheduled.ts; эта ручка — для рук.
+crm.post('/sync-ru-orders', async (c) => {
+  const h = c.req.header('X-Ingest-Secret');
+  const okSecret = Boolean(h) && (h === c.env.INGEST_SECRET || h === c.env.BACKFILL_SECRET);
+  if (!okSecret) return fail(c, 403, [{ code: 'forbidden', message: 'X-Ingest-Secret required.' }]);
+  const report = await syncRuOrders(c.env);
+  const state = await readSyncState(c.env);
+  return ok(c, { report, state }, [report.ok ? 'Синк зеркала .ru выполнен' : 'Синк зеркала .ru не выполнен']);
+});
+
+crm.get('/sync-ru-orders/state', async (c) => {
+  const state = await readSyncState(c.env);
+  const row = await c.env.DB.prepare('SELECT COUNT(*) AS n, MAX(synced_at) AS last FROM crm_orders_ru').first<{ n: number; last: number | null }>();
+  return ok(c, { state, mirror_rows: row?.n ?? 0, mirror_last_synced_at: row?.last ?? null });
 });
 
 crm.get('/orders', async (c) => {

@@ -72,6 +72,14 @@ interface CrmOrder {
   order_source?: string;
   fulfillment_status?: string | null;
   tracking_url?: string | null;
+  // слой 3 (зеркало .ru в D1, 29.08.2026): оплата Т-Кассы и доставка Ozon
+  storefront_status?: string | null;
+  paid?: boolean;
+  paid_at?: string | null;
+  delivery_provider?: string | null;
+  delivery_status?: string | null;
+  delivery_order_id?: string | null;
+  tracking_number?: string | null;
 }
 
 interface CrmCustomer {
@@ -215,6 +223,9 @@ export default function CrmPage() {
   const [ordersMeta, setOrdersMeta] = useState<PageMeta | null>(null);
   // Заказы могут прийти из сохранённой копии, когда витрина .ru не ответила.
   const [ordersStaleAt, setOrdersStaleAt] = useState<number | null>(null);
+  // слой 3: отметка последнего удачного синка зеркала и текст его последней ошибки
+  const [ordersAsOf, setOrdersAsOf] = useState<number | null>(null);
+  const [ordersSyncError, setOrdersSyncError] = useState<string | null>(null);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
   const [ordersPage, setOrdersPage] = useState(1);
@@ -364,6 +375,8 @@ export default function CrmPage() {
         setOrders(rows);
         setOrdersMeta(data.result.pagination);
         setOrdersStaleAt(data.result.stale ? (data.result.data_as_of ?? null) : null);
+        setOrdersAsOf(data.result.data_as_of ?? null);
+        setOrdersSyncError(data.result.sync_error ?? null);
       } else {
         setOrdersError(data.errors?.[0]?.message || 'Failed to load orders');
       }
@@ -741,8 +754,21 @@ export default function CrmPage() {
                 fontSize: 14,
               }}
             >
-              Витрина .ru не ответила — показана сохранённая копия от{' '}
+              Зеркало заказов не обновлялось больше 3 часов — данные на{' '}
               {new Date(ordersStaleAt * 1000).toLocaleString('ru-RU')}
+            </div>
+          )}
+          {ordersSyncError && (
+            <div
+              style={{ margin: '0 0 12px', padding: '10px 14px', borderRadius: 8,
+                       background: '#FDE2E2', color: '#7A1F1F', fontWeight: 600, fontSize: 14 }}
+            >
+              Синк зеркала не прошёл: {ordersSyncError}
+            </div>
+          )}
+          {ordersAsOf !== null && crmSource === 'ru' && (
+            <div style={{ margin: '0 0 10px', fontSize: 13, color: 'var(--fg-2)' }}>
+              Данные на {new Date(ordersAsOf * 1000).toLocaleString('ru-RU')} · зеркало витрины в ERP, обновляется каждые 15 минут
             </div>
           )}
           <OrdersTable orders={orders} hasSearch={!!ordersActiveSearch} search={ordersActiveSearch} sort={ordersSort} onSort={sortOrders} variant={crmSource} onOpen={(n) => setDetail({ kind: 'order', id: n })} pdShown={pdShown} revealCustomer={revealCustomer} />
@@ -2151,13 +2177,15 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
           <Th align="left">Level</Th>
           <SortTh label="Balance" sortKey="balance" current={sort} onSort={onSort} />
           <Th align="left">Status</Th>
+          <Th align="left">Оплата</Th>
+          <Th align="left">Отправление</Th>
           <SortTh label="Date" sortKey="date" current={sort} onSort={onSort} align="left" />
         </tr>
       </thead>
       <tbody>
         {orders.length === 0 && (
           <tr>
-            <td colSpan={9} className="px-6 py-8 text-center" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
+            <td colSpan={11} className="px-6 py-8 text-center" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
               {hasSearch ? `No orders matching "${search}"` : 'No orders'}
             </td>
           </tr>
@@ -2208,7 +2236,26 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
             <Td align="right" bold style={{ color: o.loyalty_balance === null ? 'var(--fg-3)' : 'var(--fg-1)' }}>
               {o.loyalty_balance === null ? '—' : o.loyalty_balance.toLocaleString('ru-RU')}
             </Td>
-            <Td muted>{o.status}</Td>
+            <Td muted>
+              {o.status}
+              {o.storefront_status && o.storefront_status !== o.status && (
+                <span style={{ display: 'block', fontSize: 12, color: 'var(--fg-3)' }}>{o.storefront_status}</span>
+              )}
+            </Td>
+            <Td>
+              {o.paid === undefined ? <span style={{ color: 'var(--fg-3)' }}>—</span>
+                : o.paid
+                  ? <span style={{ color: '#0a7a3b', fontWeight: 700 }}>оплачен<span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--fg-3)' }}>{o.paid_at ? new Date(o.paid_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}</span></span>
+                  : <span style={{ color: 'var(--fg-3)' }}>{o.storefront_status === 'awaiting_payment' ? 'ждёт оплаты' : o.storefront_status === 'cancelled' ? '—' : 'не оплачен'}</span>}
+            </Td>
+            <Td>
+              {o.paid === undefined ? <span style={{ color: 'var(--fg-3)' }}>—</span>
+                : o.delivery_order_id
+                  ? <span style={{ fontWeight: 700 }}>{o.delivery_order_id}<span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--fg-3)' }}>{[o.delivery_status, o.tracking_number].filter(Boolean).join(' · ')}</span></span>
+                  : o.paid && !['cancelled', 'refunded', 'delivered'].includes(o.storefront_status ?? '')
+                    ? <span style={{ color: '#a83232', fontWeight: 700 }}>нет отправления</span>
+                    : <span style={{ color: 'var(--fg-3)' }}>—</span>}
+            </Td>
             <Td muted>{o.created_at}</Td>
           </tr>
         ))}

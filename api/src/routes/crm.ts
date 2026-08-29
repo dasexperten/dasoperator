@@ -3,7 +3,7 @@ import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { withKvCacheStale, cacheKey } from '../lib/kv-cache';
 import { normalizePhone, tierFor } from '../lib/loyalty';
-import { fetchStorefrontOrders, syncRuOrders, readSyncState } from '../lib/crm-orders-sync';
+import { fetchStorefrontOrders, syncRuOrders, readSyncState, RU_SYNC_STALE_AFTER_SEC } from '../lib/crm-orders-sync';
 
 const crm = new Hono<{ Bindings: Env }>();
 
@@ -359,6 +359,124 @@ crm.get('/sync-ru-orders/state', async (c) => {
   return ok(c, { state, mirror_rows: row?.n ?? 0, mirror_last_synced_at: row?.last ?? null });
 });
 
+// -----------------------------------------------------------------------------
+// Экран Orders из зеркала. Форма строки — та же, что у пути через ленту
+// (web/app/crm/page.tsx без правок), плюс поля оплаты/доставки для файла 5.
+// -----------------------------------------------------------------------------
+type MirrorRow = {
+  order_number: string; storefront_id: string | null; status: string; storefront_status: string | null;
+  created_at: string; paid: number; paid_at: string | null; total_rub: number; loyalty_rub: number;
+  customer_key: string | null; delivery_status: string | null; delivery_order_id: string | null;
+  tracking_number: string | null; delivery_provider: string | null;
+};
+
+async function ordersFromMirror(
+  c: any, page: number, limit: number, search: string,
+  TIER_RU: Record<string, string>, STATUS_KEBAB: (s: string) => string,
+) {
+  const env = c.env as Env;
+  const state = await readSyncState(env);
+  const lastOk = Number(state['ru_orders:last_ok_at'] ?? 0);
+  if (!lastOk) return null;                               // синк ещё не бегал — лента
+
+  const sortKey = String(c.req.query('sort') ?? '').toLowerCase();
+  const sortAsc = String(c.req.query('dir') ?? 'desc').toLowerCase() === 'asc';
+  const dir = sortAsc ? 'ASC' : 'DESC';
+
+  const where: string[] = []; const binds: any[] = [];
+  if (search) { where.push('(order_number LIKE ?1 OR customer_key LIKE ?1)'); binds.push(`%${search}%`); }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+  const total = await env.DB.prepare(`SELECT COUNT(*) AS n FROM crm_orders_ru ${whereSql}`).bind(...binds).first<{ n: number }>();
+  const totalCount = total?.n ?? 0;
+  if (!totalCount && !search) return null;                // пустое зеркало — лента
+
+  const cols = `order_number, storefront_id, status, storefront_status, created_at, paid, paid_at,
+                total_rub, loyalty_rub, customer_key, delivery_status, delivery_order_id, tracking_number, delivery_provider`;
+  const sqlOrder: Record<string, string> = {
+    total: `total_rub ${dir}, created_at DESC`,
+    date: `created_at ${dir}`,
+    status: `status ${dir}, created_at DESC`,
+    charged: `loyalty_rub ${dir}, created_at DESC`,
+  };
+  const inMemory = sortKey === 'credited' || sortKey === 'balance';   // нужны данные лояльности
+
+  let rows: MirrorRow[];
+  if (inMemory) {
+    rows = (await env.DB.prepare(`SELECT ${cols} FROM crm_orders_ru ${whereSql} ORDER BY created_at DESC`).bind(...binds).all<MirrorRow>()).results ?? [];
+  } else {
+    const ob = sqlOrder[sortKey] ?? 'created_at DESC';
+    rows = (await env.DB.prepare(`SELECT ${cols} FROM crm_orders_ru ${whereSql} ORDER BY ${ob} LIMIT ?${binds.length + 1} OFFSET ?${binds.length + 2}`)
+      .bind(...binds, limit, (page - 1) * limit).all<MirrorRow>()).results ?? [];
+  }
+
+  // Лояльность: балансы по ключу покупателя, начисления по id заказа витрины.
+  const keys = Array.from(new Set(rows.map((r) => r.customer_key).filter(Boolean))) as string[];
+  const ids = rows.map((r) => r.storefront_id).filter(Boolean) as string[];
+  const accByKey = new Map<string, any>();
+  for (let i = 0; i < keys.length; i += 90) {
+    const part = keys.slice(i, i + 90);
+    const r = await env.DB.prepare(`SELECT phone, balance, pending_balance, tier, lifetime_spent FROM loyalty_accounts WHERE phone IN (${part.map(() => '?').join(',')})`).bind(...part).all<any>();
+    for (const a of r.results ?? []) accByKey.set(a.phone, a);
+  }
+  const accrualByOrder = new Map<string, any>();
+  for (let i = 0; i < ids.length; i += 90) {
+    const part = ids.slice(i, i + 90);
+    const r = await env.DB.prepare(`SELECT kit_order_id, points, status FROM loyalty_transactions WHERE type = 'accrual' AND kit_order_id IN (${part.map(() => '?').join(',')})`).bind(...part).all<any>();
+    for (const a of r.results ?? []) accrualByOrder.set(a.kit_order_id, a);
+  }
+
+  let orders = rows.map((r) => {
+    const acc = r.customer_key ? accByKey.get(r.customer_key) : undefined;
+    const accrual = r.storefront_id ? accrualByOrder.get(r.storefront_id) : undefined;
+    const tierInfo = acc ? tierFor(acc.lifetime_spent) : null;
+    return {
+      id: r.order_number,
+      number: r.order_number,
+      customer_name: '—',                                 // обезличено, как и раньше
+      total: r.total_rub,
+      status: STATUS_KEBAB(r.status ?? '—'),
+      created_at: r.created_at,
+      bonus_credited: accrual ? accrual.points : 0,
+      bonus_credited_status: accrual ? accrual.status : null,
+      bonus_charged: r.loyalty_rub,
+      loyalty_balance: acc ? acc.balance : null,
+      loyalty_pending: acc ? acc.pending_balance : null,
+      loyalty_level: acc ? (TIER_RU[acc.tier] ?? acc.tier) : null,
+      loyalty_privilege_pct: tierInfo ? tierInfo.percent : null,
+      // --- слой 3: оплата и доставка (файл 5 — плашка и колонки) ---
+      storefront_status: r.storefront_status,
+      paid: Boolean(r.paid),
+      paid_at: r.paid_at,
+      delivery_provider: r.delivery_provider,
+      delivery_status: r.delivery_status,
+      delivery_order_id: r.delivery_order_id,
+      tracking_number: r.tracking_number,
+    };
+  });
+
+  if (inMemory) {
+    const mul = sortAsc ? 1 : -1;
+    orders.sort((a, b) => sortKey === 'credited'
+      ? (a.bonus_credited - b.bonus_credited) * mul
+      : ((a.loyalty_balance ?? 0) - (b.loyalty_balance ?? 0)) * mul);
+    orders = orders.slice((page - 1) * limit, page * limit);
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const stale = now - lastOk > RU_SYNC_STALE_AFTER_SEC;
+  return ok(c, {
+    source: 'd1:crm_orders_ru (зеркало dasexperten.ru, обезличено) + d1:loyalty',
+    stale,
+    data_as_of: lastOk,
+    sync_error: state['ru_orders:last_error'] || null,
+    pagination: { page, limit, total_count: totalCount, total_pages: Math.max(1, Math.ceil(totalCount / limit)) },
+    search,
+    orders,
+    synced_at: now,
+  }, stale ? ['Orders from mirror', 'stale'] : ['Orders from mirror']);
+}
+
 crm.get('/orders', async (c) => {
   // ===========================================================================
   // Phase 10.x: orders feed = Yandex KIT (source of truth) + наш D1 loyalty
@@ -378,6 +496,21 @@ crm.get('/orders', async (c) => {
     svoy: 'Свой', tsenitel: 'Ценитель', expert: 'Эксперт', ambassador: 'Амбассадор',
   };
   const STATUS_KEBAB = (st: string) => st.toLowerCase().replace(/_/g, '-');
+
+  // ===========================================================================
+  // Слой 3 (Владелец 2026-08-29): экран читает зеркало crm_orders_ru в D1.
+  // Ни одного внешнего вызова при открытии; свежесть — синк */15 (файл 3).
+  // Флаг CRM_ORDERS_SOURCE=feed возвращает прежний путь через ленту одним
+  // пушем. Пустое зеркало (синк ещё не бегал) — тихий откат на ленту.
+  // ===========================================================================
+  if ((c.env.CRM_ORDERS_SOURCE ?? 'd1') !== 'feed') {
+    try {
+      const d1 = await ordersFromMirror(c, page, limit, search, TIER_RU, STATUS_KEBAB);
+      if (d1) return d1;
+    } catch (e) {
+      console.warn('[orders] зеркало D1 не ответило, падаю на ленту:', String(e));
+    }
+  }
 
   try {
     // -----------------------------------------------------------------------

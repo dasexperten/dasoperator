@@ -166,6 +166,8 @@ export interface Env {
   // Пока он задан, экран CRM берёт заказы у витрины, а не у КИТ:
   // без лимитов и без персональных данных россиян за пределами России.
   RU_FEED_TOKEN?: string;
+  /** Слой 3: источник экрана Orders — 'd1' (зеркало) | 'feed' (лента .ru). */
+  CRM_ORDERS_SOURCE?: string;
 
   // Shared token in the KIT webhook URL (?token=...) — guards
   // POST /api/loyalty/webhook/kit against random hits.

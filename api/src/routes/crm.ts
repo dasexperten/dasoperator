@@ -110,6 +110,23 @@ async function fetchKitOrdersPage(env: Env, page: number, perPage = 100) {
 // Прежний путь через КИТ оставлен как запасной: витрина и площадка новые,
 // и если они лягут, экран должен показать хоть что-то, а не пустоту.
 async function fetchAllKitOrders(env: Env): Promise<{ total: number; orders: KitOrder[] }> {
+  // Слой 3 (29.08.2026): статистика, клиенты и график дня считаются по этому
+  // списку. Если зеркало живо — список из D1 (raw_json = позиция ленты как
+  // пришла), ни одного вызова наружу; Владелец видел спиннер статистики на
+  // холодном кэше, когда лента в 1.4 МБ качалась заново. Флаг
+  // CRM_ORDERS_SOURCE=feed возвращает прежний путь.
+  if ((env.CRM_ORDERS_SOURCE ?? 'd1') !== 'feed') {
+    try {
+      const state = await readSyncState(env);
+      if (Number(state['ru_orders:last_ok_at'] ?? 0) > 0) {
+        const rows = await env.DB.prepare('SELECT raw_json FROM crm_orders_ru ORDER BY created_at DESC').all<{ raw_json: string }>();
+        const orders = (rows.results ?? []).map((r) => JSON.parse(r.raw_json) as KitOrder);
+        if (orders.length) return { total: orders.length, orders };
+      }
+    } catch (e) {
+      console.warn('[crm] зеркало D1 не ответило, падаю на ленту:', String(e));
+    }
+  }
   if (env.RU_FEED_TOKEN) {
     try {
       const f = await fetchStorefrontOrders(env);

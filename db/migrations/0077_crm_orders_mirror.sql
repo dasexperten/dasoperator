@@ -30,15 +30,10 @@ CREATE INDEX IF NOT EXISTS idx_crm_orders_ru_status   ON crm_orders_ru(status);
 CREATE INDEX IF NOT EXISTS idx_crm_orders_ru_total    ON crm_orders_ru(total_rub);
 CREATE INDEX IF NOT EXISTS idx_crm_orders_ru_customer ON crm_orders_ru(customer_key);
 
--- Состояние синка: одна строка на ленту. data_as_of на экране = last_ok_at,
--- никогда не Date.now(). Плашка stale — если last_ok_at старше 3 часов.
-CREATE TABLE IF NOT EXISTS crm_sync_state (
-  feed           TEXT PRIMARY KEY,   -- 'orders_ru'
-  last_ok_at     INTEGER,            -- unix последнего удачного синка
-  last_try_at    INTEGER,            -- unix последней попытки, удачной или нет
-  last_error     TEXT,               -- текст причины последнего сбоя; NULL после удачи
-  last_total     INTEGER,            -- total_count ленты при последнем удачном синке
-  last_upserted  INTEGER             -- сколько строк записано в последнем удачном синке
-);
-
-INSERT OR IGNORE INTO crm_sync_state (feed) VALUES ('orders_ru');
+-- Состояние синка: НЕ новая таблица. crm_sync_state уже существует с 0060 как
+-- хранилище ключ-значение (key · value · updated_at) для синка .com — и живая
+-- база это подтвердила 29.08: первая версия этой миграции упала на
+-- «has no column named feed». Состояние ленты .ru пишется туда же ключами:
+--   ru_orders:last_ok_at · ru_orders:last_try_at · ru_orders:last_error
+--   ru_orders:last_total · ru_orders:last_upserted
+-- Пишет их api/src/lib/crm-orders-sync.ts; миграции для них не нужно.

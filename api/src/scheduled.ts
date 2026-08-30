@@ -345,6 +345,22 @@ export async function handleScheduled(
   // Webhook /api/crm/website/webhook/stripe is the real-time path; this poll
   // catches anything it missed and sweeps refunds. No-op until
   // STRIPE_SECRET_KEY is set and /admin/migrate/crm-website has run.
+  // Owner 2026-08-30 (R1 "every box must reach the ERP"). sales@, asean@ and
+  // build@ are routed to a seat Worker, which archives into our own R2 bucket
+  // but writes no D1 at all — so those letters had no counterparty row. This
+  // sweeps them, and any letter of ours whose linkEmail failed silently.
+  // Reads R2, writes only email_links. Creates and deletes no mail.
+  // Rollback: delete this block and drop "35 * * * *" from wrangler.toml.
+  if (cron === '35 * * * *') {
+    try {
+      const { relinkUnlinked } = await import('./lib/email-relink');
+      const r = await relinkUnlinked(env);
+      console.log('[cron:email-relink] ' + JSON.stringify(r));
+    } catch (e) {
+      console.error('[cron:email-relink] failed:', e);
+    }
+  }
+
   if (cron === '7 * * * *') {
     try {
       const { pollStripeOrders } = await import('./lib/crm-website');

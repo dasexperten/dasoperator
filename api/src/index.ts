@@ -225,6 +225,19 @@ app.post('/api/cron/auto-delivery', async (c) => {
   const result = await runAutoDeliverySweep(c.env);
   return ok(c, result);
 });
+
+// Manual trigger for the email relink sweep (same code path as the "35 * * * *"
+// cron). Use it to clear a backlog without waiting for the hour — e.g. right
+// after a seat's mailbox is added to the registry. Reads R2, writes only
+// email_links; it never creates, moves or deletes a letter. `?limit=` caps one
+// run so a large backlog can be walked in deliberate steps.
+app.post('/api/cron/email-relink', async (c) => {
+  const { relinkUnlinked } = await import('./lib/email-relink');
+  const raw = Number(c.req.query('limit'));
+  const limit = Number.isFinite(raw) && raw > 0 ? Math.min(raw, 500) : undefined;
+  const result = await relinkUnlinked(c.env, limit);
+  return ok(c, result);
+});
 app.route('/api/payments', paymentsRoutes);
 app.route('/api/fx', fxRoutes);
 app.route('/api/documents', documentsRoutes);

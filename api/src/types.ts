@@ -166,6 +166,8 @@ export interface Env {
   // Пока он задан, экран CRM берёт заказы у витрины, а не у КИТ:
   // без лимитов и без персональных данных россиян за пределами России.
   RU_FEED_TOKEN?: string;
+  // Служебный токен витрины .ru (X-Sync-Token): опрос отправлений Ozon через track.php
+  RU_ADMIN_TOKEN?: string;
   /** Слой 3: источник экрана Orders — 'd1' (зеркало) | 'feed' (лента .ru). */
   CRM_ORDERS_SOURCE?: string;
 

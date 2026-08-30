@@ -775,6 +775,37 @@ export async function handleScheduled(
       console.error('[cron:mp-pull-tick] failed:', e);
     }
 
+    // Опрос Ozon по созданным отправлениям витрины .ru + письмо «Д»
+    // (Владелец 2026-08-30, инцидент DE260825-5106: посылка ехала с 29.08,
+    // покупатель молчал в неведении). ERP чужими руками не машет: POST идёт
+    // в НАШУ витрину (api/order/track.php), а уже она говорит с Ozon, пишет
+    // статус и трек себе в базу и один раз шлёт письмо «Д» — замок
+    // order_mails на её стороне. Стоит ПЕРЕД зеркалом, чтобы этот же тик
+    // забрал свежие статусы в D1.
+    if (env.RU_ADMIN_TOKEN) {
+      try {
+        const t0 = Date.now();
+        const res = await fetch('https://dasexperten.ru/api/order/track.php', {
+          method: 'POST',
+          headers: { 'X-Sync-Token': env.RU_ADMIN_TOKEN, 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        const j = await res.json().catch(() => null) as { checked?: number; results?: Array<{ mail_shipped?: boolean | null }> } | null;
+        const mails = (j?.results ?? []).filter(r => r.mail_shipped === true).length;
+        const now = Date.now();
+        const sql = `INSERT INTO crm_sync_state (key, value, updated_at) VALUES (?1, ?2, ?3)
+          ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`;
+        await env.DB.batch([
+          env.DB.prepare(sql).bind('ru_track:last_try_at', String(now), now),
+          env.DB.prepare(sql).bind('ru_track:last_status', res.ok ? `ok checked=${j?.checked ?? '?'} mails=${mails}` : `http_${res.status}`, now),
+          ...(res.ok ? [env.DB.prepare(sql).bind('ru_track:last_ok_at', String(now), now)] : []),
+        ]);
+        console.log(`[cron:ru-track] ${res.ok ? 'ok' : 'FAILED http_' + res.status} checked=${j?.checked ?? '?'} mails=${mails} ${Date.now() - t0}ms`);
+      } catch (e) {
+        console.error('[cron:ru-track] failed:', e);
+      }
+    }
+
     // Зеркало заказов русской витрины → D1 (слой 3, Владелец 2026-08-29,
     // BACKLOGS/2026-08-29_crm-orders-d1-mirror.md). Раз в 15 минут — одна
     // лента ~1.4 МБ, для reg.ru это ничто; свежесть экрана Orders ≤ 15 мин.

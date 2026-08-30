@@ -96,6 +96,11 @@ export const MAILBOX_REGISTRY: MailboxDef[] = [
   { address: 'marketing@dasexperten.com', kind: 'department', label: 'Marketing', role: 'UGC / brand collabs', showInUi: true, inbound: 'worker' },
   { address: 'hello@dasexperten.com', kind: 'department', label: 'Hello', role: 'Warm brand front', showInUi: true, inbound: 'worker' },
   { address: 'orders@dasexperten.com', kind: 'department', label: 'Orders', role: 'Order notifications', showInUi: true, inbound: 'worker' },
+  // Owner 2026-08-30: system box, no reader — same class as orders@. Its rule
+  // is enabled in Cloudflare and it is in the org registry
+  // (fleet/shared/mailboxes.json, kind "system"); without a row here its mail
+  // archived to R2 and the Emailer had nowhere to show it.
+  { address: 'delivery@dasexperten.com', kind: 'department', label: 'Delivery', role: 'Shipping notifications', showInUi: true, inbound: 'worker' },
 
   // ── Витрина dasexperten.ru (Owner 2026-08-27) ───────────────────────────
   // Отправка: домен verified в Resend с 17.08.2026.

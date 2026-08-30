@@ -27,7 +27,9 @@ export const HUMAN_SENDERS = new Set([
   'jurgen@dasexperten.com',
   'lauda@dasexperten.com',
   'marika@dasexperten.com',
-  'maria@dasexperten.com',
+  // maria@ removed 2026-08-30 (Owner R6): the address is retired and its
+  // routing rule is disabled, so a reply to it would land nowhere (§6.0e).
+  // Marika sends from brand@ (her primary) or marika@.
   'valentina@dasexperten.com',
   'justina@dasexperten.com',
   'tamara@dasexperten.com',

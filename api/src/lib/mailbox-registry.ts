@@ -41,8 +41,13 @@ export const MAILBOX_REGISTRY: MailboxDef[] = [
   // ── Agents (named identities) ───────────────────────────────────────────
   { address: 'sales@dasexperten.com', kind: 'agent', slug: 'lauda-briana', label: 'Lauda Briana', role: 'Head of Commerce', showInUi: true, inbound: 'worker', aliases: ['lauda@dasexperten.com'] },
   { address: 'roberta@dasexperten.com', kind: 'agent', slug: 'roberta-di-maria', label: 'Roberta Di Maria', role: 'Head of Content', showInUi: true, inbound: 'worker' },
-  { address: 'support@dasexperten.com', kind: 'agent', slug: 'tamara-haar', label: 'Tamara Haar', role: 'Customer Support', showInUi: true, inbound: 'worker' },
-  { address: 'brand@dasexperten.com', kind: 'agent', slug: 'marika-nowicka', label: 'Marika Nowicka', role: 'Head of Brand', showInUi: true, inbound: 'worker', aliases: ['maria@dasexperten.com', 'marika@dasexperten.com'] },
+  { address: 'support@dasexperten.com', kind: 'agent', slug: 'tamara-haar', label: 'Tamara Haar', role: 'Customer Support', showInUi: true, inbound: 'worker', aliases: ['tamara@dasexperten.com'] },
+  // Owner 2026-08-30 (R6): maria@ retired. It was Marika's own older address
+  // (CADENCE listed it as her From), it never received a single letter, and its
+  // routing rule is now disabled. Dropped from the aliases here and from the
+  // explicit HUMAN_SENDERS list in resend-human.ts, so nothing can send from an
+  // address whose reply lands nowhere (HARD_RULES §6.0e).
+  { address: 'brand@dasexperten.com', kind: 'agent', slug: 'marika-nowicka', label: 'Marika Nowicka', role: 'Head of Brand', showInUi: true, inbound: 'worker', aliases: ['marika@dasexperten.com'] },
   { address: 'legal@dasexperten.com', kind: 'agent', slug: 'valentina-korolyeva', label: 'Valentina Korolyeva', role: 'Head of Legal', showInUi: true, inbound: 'worker', aliases: ['valentina@dasexperten.com'] },
   { address: 'finance@dasexperten.com', kind: 'agent', slug: 'justina-timber', label: 'Justina Timber', role: 'Head of Finance', showInUi: true, inbound: 'worker', aliases: ['justina@dasexperten.com'] },
   { address: 'partnerships@dasexperten.com', kind: 'agent', slug: 'julian-farah', label: 'Julian Farah', role: 'GEO Specialist', showInUi: true, inbound: 'worker', aliases: ['julian@dasexperten.com'] },
@@ -53,11 +58,26 @@ export const MAILBOX_REGISTRY: MailboxDef[] = [
   // kept sending (see HUMAN_SENDERS in resend-human.ts - that set reads
   // m.address only, never aliases, so a demoted address loses From rights
   // unless it is listed explicitly).
-  { address: 'sysadmin@dasexperten.com', kind: 'agent', slug: 'mina-rutunya', label: 'Mina', role: 'Sysadmin', showInUi: true, inbound: 'worker', aliases: ['mina@dasexperten.com'] },
+  { address: 'sysadmin@dasexperten.com', kind: 'agent', slug: 'mina-rutunya', label: 'Mina', role: 'Sysadmin', showInUi: true, inbound: 'worker', aliases: ['mina@dasexperten.com', 'admin@dasexperten.com'] },
   { address: 'logistics@dasexperten.com', kind: 'agent', slug: 'zina-pevtsova', label: 'Zina Pevtsova', role: 'Logistics', showInUi: true, inbound: 'worker', aliases: ['zina@dasexperten.com'] },
-  { address: 'maya@dasexperten.com', kind: 'agent', slug: 'maya-krasochkina', label: 'Maya Krasochkina', role: 'Operations', showInUi: true, inbound: 'worker' },
+  { address: 'maya@dasexperten.com', kind: 'agent', slug: 'maya-krasochkina', label: 'Maya Krasochkina', role: 'Operations', showInUi: true, inbound: 'worker', aliases: ['tech@dasexperten.com'] },
   { address: 'ozon@dasexperten.com', kind: 'agent', slug: 'dasha-kozlovskaya', label: 'Dasha Kozlovskaya', role: 'Ozon Specialist', showInUi: true, inbound: 'worker', aliases: ['dasha@dasexperten.com'] },
   { address: 'wb@dasexperten.com', kind: 'agent', slug: 'arina-volkova', label: 'Arina Volkova', role: 'WB Specialist', showInUi: true, inbound: 'worker', aliases: ['arina@dasexperten.com'] },
+
+  // ── Seats that received mail but had no row here (Owner 2026-08-30) ──────
+  // Every one of these addresses has an enabled Cloudflare rule and has been
+  // archiving to R2 all along; without a row the Emailer could not show them,
+  // so the mail was stored and invisible. Slugs are the agent_slug values in
+  // organizacia/fleet-workers.json — never the worker name.
+  { address: 'webmaster@dasexperten.com', kind: 'agent', slug: 'jurgen-witt', label: 'Jurgen Witt', role: 'Webmaster · Technical SEO', showInUi: true, inbound: 'worker', aliases: ['jurgen@dasexperten.com'] },
+  { address: 'lisa@dasexperten.com', kind: 'agent', slug: 'lisa', label: 'Lisa', role: 'Brand Studio', showInUi: true, inbound: 'worker', aliases: ['image@dasexperten.com'] },
+  { address: 'taras@dasexperten.com', kind: 'agent', slug: 'taras-ryzhiy', label: 'Taras Ryzhiy', role: 'Video', showInUi: true, inbound: 'worker' },
+  { address: 'build@dasexperten.com', kind: 'agent', slug: 'alessandro-conti', label: 'Alessandro Conti', role: 'Architecture · Construction', showInUi: true, inbound: 'worker' },
+  // Owner 2026-08-30 (R8): social@ is Angela's, and only hers.
+  { address: 'social@dasexperten.com', kind: 'agent', slug: 'angela', label: 'Angela', role: 'Social Media', showInUi: true, inbound: 'worker' },
+  // Owner 2026-08-30 (R9): Viktor Palich's box is validation@, not viktor@.
+  // viktor@ has no routing rule and stays dead; it is deliberately not an alias.
+  { address: 'validation@dasexperten.com', kind: 'agent', slug: 'viktor-palich', label: 'Viktor Palich', role: 'General Director · quality gate', showInUi: true, inbound: 'worker' },
 
   // ── Owner (NOT in Agents UI) ────────────────────────────────────────────
   {

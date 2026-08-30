@@ -2172,10 +2172,6 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
           <Th align="left">Order</Th>
           <Th align="left">Customer</Th>
           <SortTh label="Total" sortKey="total" current={sort} onSort={onSort} />
-          <SortTh label="Credited" sortKey="credited" current={sort} onSort={onSort} />
-          <SortTh label="Charged" sortKey="charged" current={sort} onSort={onSort} />
-          <Th align="left">Level</Th>
-          <SortTh label="Balance" sortKey="balance" current={sort} onSort={onSort} />
           <Th align="left">Status</Th>
           <Th align="left">Оплата</Th>
           <Th align="left">Отправление</Th>
@@ -2185,7 +2181,7 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
       <tbody>
         {orders.length === 0 && (
           <tr>
-            <td colSpan={11} className="px-6 py-8 text-center" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
+            <td colSpan={7} className="px-6 py-8 text-center" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
               {hasSearch ? `No orders matching "${search}"` : 'No orders'}
             </td>
           </tr>
@@ -2221,21 +2217,6 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
               })()}
             </Td>
             <Td align="right" bold>{o.total.toLocaleString('ru-RU')} ₽</Td>
-            <Td align="right" bold style={{ color: o.bonus_credited > 0 ? '#0a7a3b' : 'var(--fg-3)' }}>
-              {o.bonus_credited > 0 ? `+${o.bonus_credited}` : '—'}
-            </Td>
-            <Td align="right" bold style={{ color: o.bonus_charged > 0 ? '#a83232' : 'var(--fg-3)' }}>
-              {o.bonus_charged > 0 ? `−${o.bonus_charged}` : '—'}
-            </Td>
-            <Td bold style={{ color: o.loyalty_level ? 'var(--fg-1)' : 'var(--fg-3)' }}>
-              {o.loyalty_level || '—'}
-              {o.loyalty_privilege_pct !== null && (
-                <span style={{ fontWeight: 400, color: 'var(--fg-3)', marginLeft: 6 }}>{o.loyalty_privilege_pct}%</span>
-              )}
-            </Td>
-            <Td align="right" bold style={{ color: o.loyalty_balance === null ? 'var(--fg-3)' : 'var(--fg-1)' }}>
-              {o.loyalty_balance === null ? '—' : o.loyalty_balance.toLocaleString('ru-RU')}
-            </Td>
             <Td muted>
               {o.status}
               {o.storefront_status && o.storefront_status !== o.status && (

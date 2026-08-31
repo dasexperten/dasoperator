@@ -365,6 +365,9 @@ export default function CrmPage() {
           crmSource === 'com'
             ? {
                 ...o,
+                // «Оплата» повторяет колонку зеркала .ru: у .com `placed_at` —
+                // это и есть момент успешной оплаты, он же paid_at.
+                paid_at: o.status === 'paid' ? String(o.created_at) : null,
                 created_at: String(o.created_at).slice(0, 10),
                 bonus_credited: 0,
                 bonus_charged: 0,
@@ -2090,14 +2093,15 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
             <SortTh label="Total" sortKey="total" current={sort} onSort={onSort} />
             <Th align="left">Country</Th>
             <SortTh label="Status" sortKey="status" current={sort} onSort={onSort} align="left" />
-            <Th align="left">Payment</Th>
+            <Th align="left">Оплата</Th>
+            <Th align="left">Отправление</Th>
             <SortTh label="Date" sortKey="date" current={sort} onSort={onSort} align="left" />
           </tr>
         </thead>
         <tbody>
           {orders.length === 0 && (
             <tr>
-              <td colSpan={8} className="px-6 py-8 text-center" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
+              <td colSpan={9} className="px-6 py-8 text-center" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
                 {hasSearch ? `No orders matching "${search}"` : 'No website orders yet'}
               </td>
             </tr>
@@ -2159,8 +2163,9 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
                   </span>
                 ) : '—'}
               </td>
-              <Td><OrderStatusPill financial={o.status} fulfillment={o.fulfillment_status} trackingUrl={o.tracking_url} /></Td>
-              <Td muted>{(o as any).payment_method || '—'}</Td>
+              <OrderStatusCell primary={o.status} secondary={o.fulfillment_status} />
+              <OrderPaymentCell {...comPayment(o)} />
+              <OrderShipmentCell {...comShipment(o)} />
               <Td muted>{o.created_at}</Td>
             </tr>
           ))}
@@ -2220,26 +2225,9 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
               })()}
             </Td>
             <Td align="right" bold>{o.total.toLocaleString('ru-RU')} ₽</Td>
-            <Td muted>
-              {o.status}
-              {o.storefront_status && o.storefront_status !== o.status && (
-                <span style={{ display: 'block', fontSize: 12, color: 'var(--fg-3)' }}>{o.storefront_status}</span>
-              )}
-            </Td>
-            <Td>
-              {o.paid === undefined ? <span style={{ color: 'var(--fg-3)' }}>—</span>
-                : o.paid
-                  ? <span style={{ color: '#0a7a3b', fontWeight: 700 }}>оплачен<span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--fg-3)' }}>{o.paid_at ? new Date(o.paid_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}</span></span>
-                  : <span style={{ color: 'var(--fg-3)' }}>{o.storefront_status === 'awaiting_payment' ? 'ждёт оплаты' : o.storefront_status === 'cancelled' ? '—' : 'не оплачен'}</span>}
-            </Td>
-            <Td>
-              {o.paid === undefined ? <span style={{ color: 'var(--fg-3)' }}>—</span>
-                : o.delivery_order_id
-                  ? <span style={{ fontWeight: 700 }}>{o.delivery_order_id}<span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--fg-3)' }}>{[o.delivery_status, o.tracking_number].filter(Boolean).join(' · ')}</span></span>
-                  : o.paid && !['cancelled', 'refunded', 'delivered'].includes(o.storefront_status ?? '')
-                    ? <span style={{ color: '#a83232', fontWeight: 700 }}>нет отправления</span>
-                    : <span style={{ color: 'var(--fg-3)' }}>—</span>}
-            </Td>
+            <OrderStatusCell primary={o.status} secondary={o.storefront_status} />
+            <OrderPaymentCell {...ruPayment(o)} />
+            <OrderShipmentCell {...ruShipment(o)} />
             <Td muted>{o.created_at}</Td>
           </tr>
         ))}
@@ -2248,26 +2236,99 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
   );
 }
 
-function OrderStatusPill({ financial, fulfillment, trackingUrl }: { financial: string; fulfillment?: string | null; trackingUrl?: string | null }) {
-  let label = 'Paid';
-  let fg = 'var(--fg-3)';
-  let bg = 'var(--paper-sunk, #F1EFE8)';
-  let strike = false;
-  if (fulfillment === 'cancelled') { label = 'Cancelled'; strike = true; }
-  else if (financial === 'refunded' || financial === 'partially_refunded') { label = 'Refunded'; fg = '#8A6D1F'; bg = '#FBF3D8'; }
-  else if (financial === 'failed') { label = 'Failed'; fg = '#B22222'; bg = '#FBE6E6'; }
-  else if (financial === 'pending') { label = 'Pending'; }
-  else if (fulfillment === 'delivered') { label = 'Delivered'; fg = '#0E7C66'; bg = '#E1F5EE'; }
-  else if (fulfillment === 'shipped') { label = 'Shipped'; fg = '#185FA5'; bg = '#E6F1FB'; }
-  const pill = (
-    <span style={{ fontSize: 12, fontWeight: 600, color: fg, background: bg, borderRadius: 999, padding: '3px 10px', textDecoration: strike ? 'line-through' : undefined, whiteSpace: 'nowrap' }}>
-      {label}
-    </span>
+// Статус · Оплата · Отправление — три общие ячейки обеих витрин (Владелец 2026-08-31):
+// у .com теперь та же колонка статуса и те же два столбца, что в зеркале .ru.
+// Компоненты рисуют, картирование полей витрины делают ru*/com* ниже.
+
+function OrderStatusCell({ primary, secondary }: { primary?: string | null; secondary?: string | null }) {
+  return (
+    <Td muted>
+      {primary || '—'}
+      {secondary && secondary !== primary && (
+        <span style={{ display: 'block', fontSize: 12, color: 'var(--fg-3)' }}>{secondary}</span>
+      )}
+    </Td>
   );
-  if (label === 'Shipped' && trackingUrl) {
-    return <a href={trackingUrl} target="_blank" rel="noreferrer">{pill}</a>;
+}
+
+type PayState = 'unknown' | 'paid' | 'awaiting' | 'unpaid' | 'refunded' | 'failed' | 'none';
+
+function OrderPaymentCell({ state, at, method }: { state: PayState; at?: string | null; method?: string | null }) {
+  const methodLine = method
+    ? <span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--fg-3)' }}>{method}</span>
+    : null;
+  if (state === 'paid') {
+    return (
+      <Td>
+        <span style={{ color: '#0a7a3b', fontWeight: 700 }}>оплачен<span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--fg-3)' }}>{at ? new Date(at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}</span></span>
+        {methodLine}
+      </Td>
+    );
   }
-  return pill;
+  if (state === 'refunded') {
+    return <Td><span style={{ color: '#8A6D1F', fontWeight: 700 }}>возврат</span>{methodLine}</Td>;
+  }
+  if (state === 'failed') {
+    return <Td><span style={{ color: '#a83232', fontWeight: 700 }}>оплата не прошла</span>{methodLine}</Td>;
+  }
+  const label = state === 'awaiting' ? 'ждёт оплаты' : state === 'unpaid' ? 'не оплачен' : '—';
+  return <Td><span style={{ color: 'var(--fg-3)' }}>{label}</span>{state === 'unknown' ? null : methodLine}</Td>;
+}
+
+function OrderShipmentCell({ id, detail, trackingUrl, missing }: { id?: string | null; detail?: string | null; trackingUrl?: string | null; missing?: boolean }) {
+  if (id) {
+    const body = (
+      <span style={{ fontWeight: 700 }}>{id}{detail ? <span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--fg-3)' }}>{detail}</span> : null}</span>
+    );
+    return (
+      <Td>
+        {trackingUrl
+          ? <a href={trackingUrl} target="_blank" rel="noreferrer" style={{ color: 'inherit' }} onClick={(e) => e.stopPropagation()}>{body}</a>
+          : body}
+      </Td>
+    );
+  }
+  if (missing) return <Td><span style={{ color: '#a83232', fontWeight: 700 }}>нет отправления</span></Td>;
+  return <Td><span style={{ color: 'var(--fg-3)' }}>—</span></Td>;
+}
+
+// Картирование зеркала .ru — поведение то же, что до выноса ячеек.
+function ruPayment(o: CrmOrder): { state: PayState; at?: string | null } {
+  if (o.paid === undefined) return { state: 'unknown' };
+  if (o.paid) return { state: 'paid', at: o.paid_at };
+  if (o.storefront_status === 'awaiting_payment') return { state: 'awaiting' };
+  if (o.storefront_status === 'cancelled') return { state: 'none' };
+  return { state: 'unpaid' };
+}
+
+function ruShipment(o: CrmOrder): { id?: string | null; detail?: string | null; missing?: boolean } {
+  if (o.paid === undefined) return {};
+  if (o.delivery_order_id) {
+    return { id: o.delivery_order_id, detail: [o.delivery_status, o.tracking_number].filter(Boolean).join(' · ') };
+  }
+  return { missing: !!o.paid && !['cancelled', 'refunded', 'delivered'].includes(o.storefront_status ?? '') };
+}
+
+// Картирование витрины .com: financial_status — деньги, fulfillment_status — отправление.
+function comPayment(o: CrmOrder): { state: PayState; at?: string | null; method?: string | null } {
+  const method = (o as any).payment_method as string | null | undefined;
+  if (o.status === 'paid') return { state: 'paid', at: o.paid_at, method };
+  if (o.status === 'refunded' || o.status === 'partially_refunded') return { state: 'refunded', method };
+  if (o.status === 'failed') return { state: 'failed', method };
+  if (o.status === 'pending') return { state: 'awaiting', method };
+  if (o.fulfillment_status === 'cancelled') return { state: 'none' };
+  return { state: 'unpaid', method };
+}
+
+function comShipment(o: CrmOrder): { id?: string | null; detail?: string | null; trackingUrl?: string | null; missing?: boolean } {
+  if (o.fulfillment_status === 'cancelled') return {};
+  const shipped = o.fulfillment_status === 'shipped' || o.fulfillment_status === 'delivered';
+  if (o.tracking_number) {
+    return { id: o.tracking_number, detail: o.fulfillment_status, trackingUrl: o.tracking_url };
+  }
+  if (shipped) return { id: o.fulfillment_status, trackingUrl: o.tracking_url };
+  const settled = o.status === 'refunded' || o.status === 'partially_refunded' || o.status === 'failed';
+  return { missing: o.status === 'paid' && !settled };
 }
 
 function CartStatusBadge({ status }: { status: CrmCart['status'] }) {

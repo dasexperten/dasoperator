@@ -40,6 +40,10 @@ export const HUMAN_SENDERS = new Set([
   'zakaz@dasexperten.ru',
   'oplata@dasexperten.ru',
   'dostavka@dasexperten.ru',
+  // Фактический отправитель всех писем витрины (mail.php, cfg.from) —
+  // «принят / оплата получена / отправлен» уходят с него, и покупатели
+  // отвечают на него. Нужен для archive_only-копий (Owner 2026-08-31).
+  'shop@dasexperten.ru',
 ]);
 
 export function extractEmailAddr(raw: string): string {

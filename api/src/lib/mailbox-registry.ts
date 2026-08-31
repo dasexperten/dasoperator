@@ -118,6 +118,9 @@ export const MAILBOX_REGISTRY: MailboxDef[] = [
   { address: 'zakaz@dasexperten.ru', kind: 'department', label: 'Заказ', role: 'dasexperten.ru — приём заказа', showInUi: true, inbound: 'worker' },
   { address: 'oplata@dasexperten.ru', kind: 'department', label: 'Оплата', role: 'dasexperten.ru — подтверждение оплаты', showInUi: true, inbound: 'worker' },
   { address: 'dostavka@dasexperten.ru', kind: 'department', label: 'Доставка', role: 'dasexperten.ru — отправка, трек, ПВЗ', showInUi: true, inbound: 'worker' },
+  // Фактический отправитель витрины (mail.php → cfg.from). Сюда приходят
+  // ответы покупателей на «ответьте на это письмо» (Owner 2026-08-31).
+  { address: 'shop@dasexperten.ru', kind: 'department', label: 'Магазин', role: 'dasexperten.ru — письма заказа и ответы на них', showInUi: true, inbound: 'worker' },
 ];
 
 export const OWNER_GMAIL_FORWARD = 'dasexperten@gmail.com';

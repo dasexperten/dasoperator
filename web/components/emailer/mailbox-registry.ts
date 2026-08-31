@@ -61,6 +61,7 @@ export const DEPARTMENT_MAILBOXES: UiMailbox[] = [
   { address: 'zakaz@dasexperten.ru', kind: 'department', label: 'Заказ .ru', role: 'dasexperten.ru — приём заказа' },
   { address: 'oplata@dasexperten.ru', kind: 'department', label: 'Оплата .ru', role: 'dasexperten.ru — оплата и возвраты' },
   { address: 'dostavka@dasexperten.ru', kind: 'department', label: 'Доставка .ru', role: 'dasexperten.ru — отправка, трек, ПВЗ' },
+  { address: 'shop@dasexperten.ru', kind: 'department', label: 'Магазин .ru', role: 'dasexperten.ru — письма заказа и ответы на них' },
 ];
 
 /** Owner personal — excluded from Agents accordion; CF forwards to Gmail. */
@@ -82,6 +83,7 @@ export const TRANSACTIONAL_ADDRESSES = [
   'zakaz@dasexperten.ru',
   'oplata@dasexperten.ru',
   'dostavka@dasexperten.ru',
+  'shop@dasexperten.ru',
 ];
 export const SUPPORT_ADDRESS = 'support@dasexperten.com';
 

@@ -33,6 +33,14 @@ async function requireUserOrService(c: import('hono').Context<{ Bindings: Env }>
   if (c.env.BACKFILL_SECRET && bf && bf === c.env.BACKFILL_SECRET) {
     return true;
   }
+  // Витрина dasexperten.ru кладёт копию каждого отправленного письма
+  // (Owner 2026-08-31): стучится тем же admin_token, которым ERP зовёт её
+  // track.php — одна пара систем, один ключ в обе стороны. Без копии
+  // письма «принят / оплата / отправлен» жили только у Resend, Emailer их не видел.
+  const ru = c.req.header('X-Ru-Admin-Token');
+  if (c.env.RU_ADMIN_TOKEN && ru && ru === c.env.RU_ADMIN_TOKEN) {
+    return true;
+  }
   const token = bearer(c);
   if (!token) return false;
   const user = await validateSession(c.env.DB, token);

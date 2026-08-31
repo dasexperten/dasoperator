@@ -365,9 +365,6 @@ export default function CrmPage() {
           crmSource === 'com'
             ? {
                 ...o,
-                // «Оплата» повторяет колонку зеркала .ru: у .com `placed_at` —
-                // это и есть момент успешной оплаты, он же paid_at.
-                paid_at: o.status === 'paid' ? String(o.created_at) : null,
                 created_at: String(o.created_at).slice(0, 10),
                 bonus_credited: 0,
                 bonus_charged: 0,
@@ -2260,7 +2257,7 @@ function OrderPaymentCell({ state, at, method }: { state: PayState; at?: string 
   if (state === 'paid') {
     return (
       <Td>
-        <span style={{ color: '#0a7a3b', fontWeight: 700 }}>оплачен<span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--fg-3)' }}>{at ? new Date(at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}</span></span>
+        <span style={{ color: '#0a7a3b', fontWeight: 700 }}>оплачен{at ? <span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--fg-3)' }}>{new Date(at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span> : null}</span>
         {methodLine}
       </Td>
     );
@@ -2310,9 +2307,14 @@ function ruShipment(o: CrmOrder): { id?: string | null; detail?: string | null; 
 }
 
 // Картирование витрины .com: financial_status — деньги, fulfillment_status — отправление.
+// Времени подтверждения платежа у .com нет: `placed_at` пишется из `pi.created`
+// (`mapPaymentIntent`, api/src/lib/crm-website.ts) — это момент создания
+// PaymentIntent, а не успеха оплаты. При отложенном подтверждении и ручном
+// списании он врёт, поэтому «Оплата» на .com показывается без времени, пока
+// бэкенд не отдаст настоящий paid_at.
 function comPayment(o: CrmOrder): { state: PayState; at?: string | null; method?: string | null } {
   const method = (o as any).payment_method as string | null | undefined;
-  if (o.status === 'paid') return { state: 'paid', at: o.paid_at, method };
+  if (o.status === 'paid') return { state: 'paid', method };
   if (o.status === 'refunded' || o.status === 'partially_refunded') return { state: 'refunded', method };
   if (o.status === 'failed') return { state: 'failed', method };
   if (o.status === 'pending') return { state: 'awaiting', method };

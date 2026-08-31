@@ -2198,7 +2198,7 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
               {(() => {
                 const pd = pdShown[o.number];
                 if (pd === 'loading') return <span style={{ color: 'var(--fg-3)' }}>…</span>;
-                if (pd === 'error') return <span style={{ color: '#a83232' }}>не открылось</span>;
+                if (pd === 'error') return <span style={{ color: 'var(--status-error)' }}>не открылось</span>;
                 if (pd && typeof pd === 'object') return (
                   <span>
                     <b>{pd.name || '—'}</b>
@@ -2257,16 +2257,16 @@ function OrderPaymentCell({ state, at, method }: { state: PayState; at?: string 
   if (state === 'paid') {
     return (
       <Td>
-        <span style={{ color: '#0a7a3b', fontWeight: 700 }}>оплачен{at ? <span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--fg-3)' }}>{new Date(at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span> : null}</span>
+        <span style={{ color: 'var(--status-success)', fontWeight: 700 }}>оплачен{at ? <span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--fg-3)' }}>{new Date(at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span> : null}</span>
         {methodLine}
       </Td>
     );
   }
   if (state === 'refunded') {
-    return <Td><span style={{ color: '#8A6D1F', fontWeight: 700 }}>возврат</span>{methodLine}</Td>;
+    return <Td><span style={{ color: 'var(--status-warning)', fontWeight: 700 }}>возврат</span>{methodLine}</Td>;
   }
   if (state === 'failed') {
-    return <Td><span style={{ color: '#a83232', fontWeight: 700 }}>оплата не прошла</span>{methodLine}</Td>;
+    return <Td><span style={{ color: 'var(--status-error)', fontWeight: 700 }}>оплата не прошла</span>{methodLine}</Td>;
   }
   const label = state === 'awaiting' ? 'ждёт оплаты' : state === 'unpaid' ? 'не оплачен' : '—';
   return <Td><span style={{ color: 'var(--fg-3)' }}>{label}</span>{state === 'unknown' ? null : methodLine}</Td>;
@@ -2285,7 +2285,17 @@ function OrderShipmentCell({ id, detail, trackingUrl, missing }: { id?: string |
       </Td>
     );
   }
-  if (missing) return <Td><span style={{ color: '#a83232', fontWeight: 700 }}>нет отправления</span></Td>;
+  if (missing) return (
+    <Td>
+      <span style={{
+        color: 'var(--status-error)', fontWeight: 700,
+        background: 'color-mix(in srgb, var(--status-error) 10%, transparent)',
+        borderRadius: 'var(--radius-pill, 999px)', padding: '3px 10px', whiteSpace: 'nowrap',
+      }}>
+        нет отправления
+      </span>
+    </Td>
+  );
   return <Td><span style={{ color: 'var(--fg-3)' }}>—</span></Td>;
 }
 
@@ -2335,10 +2345,10 @@ function comShipment(o: CrmOrder): { id?: string | null; detail?: string | null;
 
 function CartStatusBadge({ status }: { status: CrmCart['status'] }) {
   const map: Record<CrmCart['status'], { bg: string; fg: string; label: string }> = {
-    initiated: { bg: 'rgba(180,140,0,0.14)', fg: '#8a6d00', label: 'initiated' },
-    converted: { bg: 'rgba(10,122,59,0.14)', fg: '#0a7a3b', label: 'converted' },
-    abandoned: { bg: 'rgba(168,50,50,0.12)', fg: '#a83232', label: 'abandoned' },
-    recovered: { bg: 'rgba(40,90,180,0.14)', fg: '#2a5ab4', label: 'recovered' },
+    initiated: { bg: 'color-mix(in srgb, var(--status-warning) 12%, transparent)', fg: 'var(--status-warning)', label: 'initiated' },
+    converted: { bg: 'color-mix(in srgb, var(--status-success) 12%, transparent)', fg: 'var(--status-success)', label: 'converted' },
+    abandoned: { bg: 'color-mix(in srgb, var(--status-error) 10%, transparent)', fg: 'var(--status-error)', label: 'abandoned' },
+    recovered: { bg: 'color-mix(in srgb, var(--status-info) 12%, transparent)', fg: 'var(--status-info)', label: 'recovered' },
   };
   const s = map[status] ?? map.initiated;
   return (
@@ -2493,7 +2503,7 @@ function CustomersTable({ customers, hasSearch, search, sort, onSort, variant = 
             <Td bold>
               {!cu.depersonalized || !key ? cu.name
                 : r === 'loading' ? <span style={{ color: 'var(--fg-3)' }}>…</span>
-                : r === 'error' ? <span style={{ color: '#a83232' }}>не открылось</span>
+                : r === 'error' ? <span style={{ color: 'var(--status-error)' }}>не открылось</span>
                 : shown ? (shown.name || '—')
                 : (
                   <button

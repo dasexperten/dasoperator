@@ -22,6 +22,14 @@ const ga4 = new Hono<{ Bindings: Env }>();
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+// The one host this contour actually sells from. The GA4 property also receives
+// dasexperten.ru and the language subdomains left over from the previous storefront,
+// and nothing in the code separated them, so the file header's claim that this is the
+// "global contour" was an assumption about the GA4 console rather than something the
+// queries enforced. Named once here so every card that should be the storefront's can
+// say so out loud.
+const STOREFRONT_HOST = 'www.dasexperten.com';
+
 function windowDays(c: { req: { query: (k: string) => string | undefined } }, def = 30): number {
   return Math.min(Math.max(parseInt(c.req.query('days') ?? String(def), 10) || def, 1), 365);
 }
@@ -469,7 +477,7 @@ ga4.get('/snapshot', async (c) => {
   const days = windowDays(c, 28);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:snapshot', { days }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:snapshot', { days, v: 2 }), 3600, async () => {
       const metrics = [
         { name: 'activeUsers' },
         { name: 'addToCarts' },
@@ -477,18 +485,41 @@ ga4.get('/snapshot', async (c) => {
         { name: 'ecommercePurchases' },
       ];
 
-      const [current, previous] = await Promise.all([
+      // The property is not one shop. It also receives dasexperten.ru and thirteen
+      // language subdomains left from the storefront that stood before this one. In
+      // June–August 2026 vi.dasexperten.com alone reported 12,771 people, 2,940
+      // add-to-carts and 710 checkouts and produced no sale, so an unfiltered card
+      // showed mostly not our funnel — and the storefront's own numbers were buried
+      // inside it. This card is the storefront's, so it asks for the storefront.
+      const storefrontOnly = {
+        filter: {
+          fieldName: 'hostName',
+          stringFilter: { matchType: 'EXACT' as const, value: STOREFRONT_HOST },
+        },
+      };
+
+      // Both windows are `days` long. The card's own footnote promises equal lengths,
+      // and `${days}daysAgo → today` is days+1 and ends on a day still accumulating.
+      const currentRange = { startDate: `${days}daysAgo`, endDate: '1daysAgo' };
+      const previousRange = { startDate: `${days * 2}daysAgo`, endDate: `${days + 1}daysAgo` };
+
+      const [current, currentTotal, previous] = await Promise.all([
+        // the daily series for the chart
         ga4RunReport(c.env, {
-          dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+          dateRanges: [currentRange],
           dimensions: [{ name: 'date' }],
           metrics,
           orderBys: [{ dimension: { dimensionName: 'date' } }],
           limit: 366,
+          dimensionFilter: storefrontOnly,
         }),
-        ga4RunReport(c.env, {
-          dateRanges: [{ startDate: `${days * 2}daysAgo`, endDate: `${days + 1}daysAgo` }],
-          metrics,
-        }),
+        // the current totals, asked WITHOUT the date dimension. activeUsers does not
+        // add up: summing the daily rows counts a person once for every day they came,
+        // while the previous window is GA4's de-duplicated count. Comparing the two
+        // was comparing different quantities, which is how a flat month could read as
+        // growth.
+        ga4RunReport(c.env, { dateRanges: [currentRange], metrics, dimensionFilter: storefrontOnly }),
+        ga4RunReport(c.env, { dateRanges: [previousRange], metrics, dimensionFilter: storefrontOnly }),
       ]);
 
       const rows = (current.rows ?? []).map((r) => ({
@@ -499,23 +530,20 @@ ga4.get('/snapshot', async (c) => {
         purchases: Math.round(metricNum(r, 3)),
       }));
 
-      const sum = (k: 'active_users' | 'add_to_carts' | 'checkouts' | 'purchases') =>
-        rows.reduce((a, r) => a + r[k], 0);
-
-      const prevRow = previous.rows?.[0];
-      const prevTotals = {
-        active_users: Math.round(metricNum(prevRow ?? {}, 0)),
-        add_to_carts: Math.round(metricNum(prevRow ?? {}, 1)),
-        checkouts: Math.round(metricNum(prevRow ?? {}, 2)),
-        purchases: Math.round(metricNum(prevRow ?? {}, 3)),
+      // Both sides now come from an un-dimensioned report, so every metric on the card
+      // is measured the same way on the current window as on the one it is compared to.
+      const windowTotals = (rep: typeof previous) => {
+        const row = rep.rows?.[0];
+        return {
+          active_users: Math.round(metricNum(row ?? {}, 0)),
+          add_to_carts: Math.round(metricNum(row ?? {}, 1)),
+          checkouts: Math.round(metricNum(row ?? {}, 2)),
+          purchases: Math.round(metricNum(row ?? {}, 3)),
+        };
       };
 
-      const totals = {
-        active_users: sum('active_users'),
-        add_to_carts: sum('add_to_carts'),
-        checkouts: sum('checkouts'),
-        purchases: sum('purchases'),
-      };
+      const prevTotals = windowTotals(previous);
+      const totals = windowTotals(currentTotal);
 
       const deltaPct = (cur: number, prev: number) => (prev > 0 ? round2(((cur - prev) / prev) * 100) : null);
 

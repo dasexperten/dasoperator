@@ -54,6 +54,13 @@ export const DEPARTMENT_MAILBOXES: UiMailbox[] = [
   { address: 'marketing@dasexperten.com', kind: 'department', label: 'Marketing', role: 'UGC / brand' },
   { address: 'hello@dasexperten.com', kind: 'department', label: 'Hello', role: 'Warm front' },
   { address: 'orders@dasexperten.com', kind: 'department', label: 'Orders', role: 'Orders' },
+  // Витрина dasexperten.ru (Owner 2026-08-31). Те же три ящика, что в API-реестре
+  // (api/src/lib/mailbox-registry.ts) — до этого дня web-копия их не знала, и
+  // покупательский ответ на zakaz@ тонул в общем Входящих. Транзакционные:
+  // папка видна, отвечать ОТ них нельзя — Тамара отвечает с support@.
+  { address: 'zakaz@dasexperten.ru', kind: 'department', label: 'Заказ .ru', role: 'dasexperten.ru — приём заказа' },
+  { address: 'oplata@dasexperten.ru', kind: 'department', label: 'Оплата .ru', role: 'dasexperten.ru — оплата и возвраты' },
+  { address: 'dostavka@dasexperten.ru', kind: 'department', label: 'Доставка .ru', role: 'dasexperten.ru — отправка, трек, ПВЗ' },
 ];
 
 /** Owner personal — excluded from Agents accordion; CF forwards to Gmail. */
@@ -72,6 +79,9 @@ export const OWNER_GMAIL = 'dasexperten@gmail.com';
 export const TRANSACTIONAL_ADDRESSES = [
   'orders@dasexperten.com',
   'delivery@dasexperten.com',
+  'zakaz@dasexperten.ru',
+  'oplata@dasexperten.ru',
+  'dostavka@dasexperten.ru',
 ];
 export const SUPPORT_ADDRESS = 'support@dasexperten.com';
 
@@ -107,7 +117,7 @@ function extractEmail(raw?: string): string {
 export function isHouseAddress(raw?: string): boolean {
   const a = extractEmail(raw);
   if (!a || !a.includes('@')) return false;
-  return a.endsWith('@dasexperten.com') || a.endsWith('.dasexperten.com');
+  return a.endsWith('@dasexperten.com') || a.endsWith('.dasexperten.com') || a.endsWith('@dasexperten.ru');
 }
 
 /** Agents/departments writing only to each other — hidden in Emailer.

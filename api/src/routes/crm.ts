@@ -3,6 +3,17 @@ import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { withKvCacheStale, cacheKey } from '../lib/kv-cache';
 import { normalizePhone, tierFor } from '../lib/loyalty';
+
+// Ключ покупателя обезличенной ленты .ru — 12 hex-знаков sha256(соль+телефон).
+// До 31.08.2026 он прогонялся через normalizePhone, терял буквы и превращался в
+// «+4665692987»: назад его было не вернуть, кнопка показа по ключу была невозможна.
+// Ключ хранится целым; настоящий телефон нормализуется как раньше.
+const KEY_RE = /^[0-9a-f]{12}$/i;
+function custKey(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const t = raw.trim();
+  return KEY_RE.test(t) ? t.toLowerCase() : normalizePhone(t);
+}
 import { fetchStorefrontOrders, syncRuOrders, readSyncState, RU_SYNC_STALE_AFTER_SEC } from '../lib/crm-orders-sync';
 
 const crm = new Hono<{ Bindings: Env }>();
@@ -176,7 +187,7 @@ function buildAggregate(total: number, orders: KitOrder[]): KitAggregate {
     const isSale = SALE_STATUSES.has(o.status ?? '') && PAID_STATUSES.has(o.payment?.status ?? '');
     const isCancelled = (o.status ?? '') === 'CANCELLED';
     const net = Math.round(rub(o.total_final_price ?? o.purchased_price));
-    const phone = normalizePhone(o.client?.phone);
+    const phone = custKey(o.client?.phone);
 
     if (isCancelled) cancelled += 1;
 
@@ -797,11 +808,16 @@ crm.get('/customers', async (c) => {
     const customers = pageRows.map((cu) => {
       const acc = accByPhone.get(cu.phone);
       const tierInfo = acc ? tierFor(acc.lifetime_spent) : null;
+      const depersonalized = KEY_RE.test(cu.phone);
       return {
         id: cu.phone,
+        // Обезличенная строка: имя — «Заказ N», телефона и почты нет. Экран
+        // покажет кнопку; настоящие данные — по /customer-key/:key под запись.
+        depersonalized,
+        key: depersonalized ? cu.phone : null,
         name: cu.name,
         email: cu.email,
-        phone: cu.phone,
+        phone: depersonalized ? null : cu.phone,
         orders_count: cu.orders_count,
         total_spent: cu.total_spent,
         average_order: cu.sales_count ? Math.round(cu.total_spent / cu.sales_count) : 0,
@@ -1064,6 +1080,54 @@ crm.get('/customer/:number', async (c) => {
   return c.json({ success: res.ok, result: res.ok ? data : null,
                   errors: res.ok ? [] : [{ code: 'not_found', message: 'Заказ не найден' }] },
                 res.ok ? 200 : 404);
+});
+
+/**
+ * Персональные данные ОДНОГО покупателя по обезличенному ключу — экран Customers.
+ * Решение Владельца 31.08.2026: кнопка, а не выгрузка. Площадка .ru сама находит
+ * телефон по ключу и пишет показ в pd_access_log (order_number = key:<ключ>).
+ * Уровень и баланс бонусов подтягиваются здесь по раскрытому телефону из D1 —
+ * счёт лояльности ключа не знает, а телефон после показа уже на руках.
+ */
+crm.get('/customer-key/:key', async (c) => {
+  const key = (c.req.param('key') ?? '').toLowerCase();
+  if (!KEY_RE.test(key)) {
+    return c.json({ success: false, errors: [{ code: 'bad_key', message: 'ключ — 12 hex-знаков' }] }, 400);
+  }
+  if (!c.env.RU_FEED_TOKEN) {
+    return c.json({ success: false, errors: [{ code: 'not_configured',
+      message: 'Витрина .ru не подключена' }] }, 503);
+  }
+  const who = c.req.query('who') ?? 'erp';
+  const res = await fetch(
+    `https://dasexperten.ru/api/erp/customer.php?k=${c.env.RU_FEED_TOKEN}` +
+    `&key=${encodeURIComponent(key)}&who=${encodeURIComponent(who)}`,
+    { cf: { cacheTtl: 0, cacheEverything: false } },
+  );
+  const data: any = await res.json().catch(() => null);
+  if (!res.ok || !data?.ok) {
+    return c.json({ success: false, result: null,
+                    errors: [{ code: 'not_found', message: data?.error ?? 'Покупатель не найден' }] }, 404);
+  }
+  const TIER_RU: Record<string, string> = {
+    svoy: 'Свой', tsenitel: 'Ценитель', expert: 'Эксперт', ambassador: 'Амбассадор',
+  };
+  let loyalty: { balance: number | null; level: string | null; privilege_pct: number | null } =
+    { balance: null, level: null, privilege_pct: null };
+  const phone = normalizePhone(data.customer?.phone);
+  if (phone) {
+    try {
+      const acc = await c.env.DB.prepare(
+        'SELECT balance, tier, lifetime_spent FROM loyalty_accounts WHERE phone = ? LIMIT 1'
+      ).bind(phone).first<any>();
+      if (acc) {
+        const t = tierFor(acc.lifetime_spent);
+        loyalty = { balance: Number(acc.balance) || 0, level: TIER_RU[acc.tier] ?? acc.tier ?? null,
+                    privilege_pct: t ? t.percent : null };
+      }
+    } catch { /* нет счёта — нет уровня; показ имени от этого не зависит */ }
+  }
+  return c.json({ success: true, result: { customer: data.customer, loyalty }, errors: [] }, 200);
 });
 
 export default crm;

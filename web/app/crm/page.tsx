@@ -94,6 +94,9 @@ interface CrmCustomer {
   loyalty_balance: number | null;
   loyalty_level: string | null;
   loyalty_privilege_pct: number | null;
+  // .ru: строка обезличена — имени, телефона и почты нет, есть ключ для показа по кнопке
+  depersonalized?: boolean;
+  key?: string | null;
   // present only for the .com (website/Stripe) source
   currency?: string;
   country?: string | null;
@@ -2323,7 +2326,29 @@ function CartsTable({ carts, hasSearch, search, sort, onSort }: { carts: CrmCart
   );
 }
 
+type RevealedCustomer = { name?: string | null; phone?: string | null; email?: string | null;
+  loyalty?: { balance: number | null; level: string | null; privilege_pct: number | null } };
+
 function CustomersTable({ customers, hasSearch, search, sort, onSort, variant = 'ru', onOpen }: { customers: CrmCustomer[]; hasSearch: boolean; search: string; sort: { key: string; dir: 'asc' | 'desc' }; onSort: (k: string) => void; variant?: CrmSource; onOpen?: (customerId: string) => void }) {
+  // Список .ru приходит обезличенным: в колонке «Заказ N», телефона и почты нет.
+  // Имя, телефон, почта и бонусы — по кнопке в строке, по одному покупателю,
+  // с записью в журнал на стороне России (pd_access_log, key:<ключ>).
+  // Решение Владельца 31.08.2026: кнопка, а не выгрузка.
+  const [revealed, setRevealed] = useState<Record<string, RevealedCustomer | 'loading' | 'error'>>({});
+  const revealByKey = async (key: string) => {
+    if (revealed[key]) return;
+    setRevealed((m) => ({ ...m, [key]: 'loading' }));
+    try {
+      const res = await fetch(`${API_BASE}/api/crm/customer-key/${encodeURIComponent(key)}?who=erp-ui`);
+      const j = await res.json();
+      if (!j?.success) throw new Error('нет данных');
+      setRevealed((m) => ({ ...m, [key]: {
+        name: j.result?.customer?.name, phone: j.result?.customer?.phone,
+        email: j.result?.customer?.email, loyalty: j.result?.loyalty } }));
+    } catch {
+      setRevealed((m) => ({ ...m, [key]: 'error' }));
+    }
+  };
   if (variant === 'com') {
     // Website (.com) customer database — no loyalty columns; USD; source tag
     return (
@@ -2393,25 +2418,50 @@ function CustomersTable({ customers, hasSearch, search, sort, onSort, variant = 
             </td>
           </tr>
         )}
-        {customers.map((cu) => (
+        {customers.map((cu) => {
+          const key = cu.key ?? null;
+          const r = key ? revealed[key] : undefined;
+          const shown = r && typeof r === 'object' ? r : null;
+          const level = shown?.loyalty?.level ?? cu.loyalty_level;
+          const pct = shown?.loyalty ? shown.loyalty.privilege_pct : cu.loyalty_privilege_pct;
+          const balance = shown?.loyalty ? shown.loyalty.balance : cu.loyalty_balance;
+          return (
           <tr key={cu.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-            <Td bold>{cu.name}</Td>
-            <Td muted>{cu.email || '—'}</Td>
-            <Td muted>{cu.phone || '—'}</Td>
+            <Td bold>
+              {!cu.depersonalized || !key ? cu.name
+                : r === 'loading' ? <span style={{ color: 'var(--fg-3)' }}>…</span>
+                : r === 'error' ? <span style={{ color: '#a83232' }}>не открылось</span>
+                : shown ? (shown.name || '—')
+                : (
+                  <button
+                    type="button"
+                    onClick={() => revealByKey(key)}
+                    title="Показать имя, телефон и почту. Показ записывается в журнал."
+                    style={{ border: '1px solid var(--border-hairline)', background: 'transparent',
+                             borderRadius: 6, padding: '4px 9px', cursor: 'pointer',
+                             font: 'inherit', fontSize: 13, color: 'var(--fg-2)' }}
+                  >
+                    {cu.name} · показать
+                  </button>
+                )}
+            </Td>
+            <Td muted>{shown ? (shown.email || '—') : (cu.email || '—')}</Td>
+            <Td muted>{shown ? (shown.phone || '—') : (cu.phone || '—')}</Td>
             <Td align="right" bold>{cu.orders_count}</Td>
             <Td align="right" bold>{cu.total_spent.toLocaleString('ru-RU')} ₽</Td>
-            <Td bold style={{ color: cu.loyalty_level ? 'var(--fg-1)' : 'var(--fg-3)' }}>
-              {cu.loyalty_level || '—'}
-              {cu.loyalty_privilege_pct !== null && (
-                <span style={{ fontWeight: 400, color: 'var(--fg-3)', marginLeft: 6 }}>{cu.loyalty_privilege_pct}%</span>
+            <Td bold style={{ color: level ? 'var(--fg-1)' : 'var(--fg-3)' }}>
+              {level || '—'}
+              {pct !== null && pct !== undefined && (
+                <span style={{ fontWeight: 400, color: 'var(--fg-3)', marginLeft: 6 }}>{pct}%</span>
               )}
             </Td>
-            <Td align="right" bold style={{ color: cu.loyalty_balance === null ? 'var(--fg-3)' : 'var(--fg-1)' }}>
-              {cu.loyalty_balance === null ? '—' : cu.loyalty_balance.toLocaleString('ru-RU')}
+            <Td align="right" bold style={{ color: balance === null || balance === undefined ? 'var(--fg-3)' : 'var(--fg-1)' }}>
+              {balance === null || balance === undefined ? '—' : balance.toLocaleString('ru-RU')}
             </Td>
             <Td muted>{cu.created_at}</Td>
           </tr>
-        ))}
+          );
+        })}
       </tbody>
     </table>
   );

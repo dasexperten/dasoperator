@@ -945,6 +945,22 @@ export async function handleScheduled(
     return;
   }
 
+  // Сторож обвала заказов витрины .ru — 04:00 UTC (08:00 Ереван), раз в сутки.
+  // Утренний слот выбран намеренно: Владелец должен увидеть обвал за завтраком,
+  // а не через 75 дней, как это вышло с рекламой 18.06.2026.
+  if (cron === '0 4 * * *') {
+    console.log('[cron:orders-drop] проверяю вчерашние заказы витрины');
+    try {
+      const { runOrdersDropWatchdog } = await import('./lib/orders-drop-watchdog');
+      const итог = await runOrdersDropWatchdog(env);
+      console.log(`[cron:orders-drop] ${JSON.stringify(итог)}`);
+    } catch (e) {
+      console.error('[cron:orders-drop] упал:', e);
+      await reportCronFailure(env, 'orders_drop_watchdog', e, { cron: '0 4 * * *' });
+    }
+    return;
+  }
+
   // Daily marketplace PULSE cache — 01:00 UTC (04:00 MSK)
   // Pre-caches the three pulse endpoints in KV so the home page loads instantly at 5 AM.
   if (cron === '0 1 * * *') {

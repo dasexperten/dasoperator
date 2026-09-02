@@ -213,6 +213,9 @@ crons = ["35 * * * *", "0 3 * * *", "0 1 * * *", "0 12 * * *", "0 * * * *", "0 *
 # Слой 3 (Владелец 2026-08-29): экран CRM → Orders читает зеркало crm_orders_ru
 # в D1 ("d1"). Откат на живую ленту dasexperten.ru — "feed", один пуш.
 CRM_ORDERS_SOURCE = "d1"
+# Ход 1 почты (Владелец 2026-09-02): экран «Почта» читает зеркало описи
+# mail_index в D1 ("d1"). Откат на чтение описей из R2 — "r2", один пуш.
+MAIL_INDEX_SOURCE = "d1"
 # Owner 2026-07-27: how many Ozon reviews are drafted in parallel. One draft is
 # ~7 LLM gates of waiting, so this is the throughput dial, not CPU.
 DRAFT_CONCURRENCY = "10"

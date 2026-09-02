@@ -18,6 +18,15 @@ import { ok, fail } from '../lib/responses';
 import { validateSession } from '../lib/auth';
 import type { IndexEntry, ArchivedAttachment } from '../lib/inbox-archive';
 import { inlineCidImages } from '../lib/inbox-archive';
+import {
+  mirrorEnabled,
+  mailboxEntriesFromD1,
+  mailboxCountsFromD1,
+  feedFromD1,
+  indexSizes,
+  sweepMailIndex,
+  syncMailbox,
+} from '../lib/mail-index-sync';
 import { callFlash } from '../lib/llm';
 import {
   agentsForUi,
@@ -56,6 +65,26 @@ function normalizeAddress(raw: string): string {
 // -----------------------------------------------------------------------------
 route.get('/mailboxes', async (c) => {
   if (!(await requireSession(c))) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+
+  // Ход 1 (02.09): счётчики — одна выборка с GROUP BY вместо скачивания и
+  // разбора описи каждого ящика. Тот обход 02.09 не ответил за 13 минут.
+  if (mirrorEnabled(c.env)) {
+    try {
+      const counts = await mailboxCountsFromD1(c.env);
+      if (counts.size) {
+        const mailboxes = Array.from(counts.entries())
+          .map(([address, m]) => ({ address, count: m.count, last_activity: m.last_activity }))
+          .filter((m) => m.address !== OWNER_PERSONAL_ADDRESS);
+        mailboxes.sort((a, b) => (b.last_activity || '').localeCompare(a.last_activity || ''));
+        return ok(c, { mailboxes });
+      }
+    } catch (err) {
+      console.log(JSON.stringify({
+        scope: 'email-archive', success: false, stage: 'mirror_mailboxes',
+        error: err instanceof Error ? err.message : String(err),
+      }));
+    }
+  }
 
   try {
     const listed = await c.env.ARCHIVE.list({ prefix: 'Inbox/', delimiter: '/' });
@@ -103,12 +132,26 @@ route.get('/nav', async (c) => {
   if (!(await requireSession(c))) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
 
   try {
+    // Ход 1 (02.09): счётчики левой колонки — из зеркала. Прежний обход всех
+    // описей остаётся ниже как запасной путь и как поведение при флаге "r2".
+    let countBy = new Map<string, { count: number; last_activity: string | null }>();
+    if (mirrorEnabled(c.env)) {
+      try {
+        countBy = await mailboxCountsFromD1(c.env);
+      } catch (err) {
+        console.log(JSON.stringify({
+          scope: 'email-archive', success: false, stage: 'mirror_nav',
+          error: err instanceof Error ? err.message : String(err),
+        }));
+      }
+    }
+
+    if (!countBy.size) {
     const listed = await c.env.ARCHIVE.list({ prefix: 'Inbox/', delimiter: '/' });
     const indexKeys = listed.objects
       .map((o) => o.key)
       .filter((k) => k.endsWith('.json') && !k.slice('Inbox/'.length).includes('/'));
 
-    const countBy = new Map<string, { count: number; last_activity: string | null }>();
     await Promise.all(indexKeys.map(async (key) => {
       const address = key.slice('Inbox/'.length, -'.json'.length).toLowerCase();
       if (address === OWNER_PERSONAL_ADDRESS) return;
@@ -124,6 +167,7 @@ route.get('/nav', async (c) => {
         countBy.set(address, { count: entries.length, last_activity: last });
       } catch { /* skip corrupt */ }
     }));
+    }
 
     const mapEntry = (m: ReturnType<typeof agentsForUi>[number]) => {
       const meta = countBy.get(m.address.toLowerCase()) || { count: 0, last_activity: null };
@@ -157,11 +201,91 @@ route.get('/nav', async (c) => {
 // -----------------------------------------------------------------------------
 // GET /mailboxes/:address — index entries for one mailbox, newest first.
 // -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// GET /feed?limit=400 — вся лента одним запросом (ход 1, Владелец 2026-09-02).
+//
+// До сегодня экран собирал ленту сам: тридцать с лишним обходов хранилища, из
+// них шесть строго по очереди. Тяжёлый ящик держал весь экран, и открытое
+// письмо ждало вместе со списком. Здесь — одна выборка из зеркала.
+//
+// Пустое зеркало отвечает пустой лентой и признаком mirror:false: клиент по
+// нему возвращается на прежний путь и показывает письма, а не пустоту.
+// -----------------------------------------------------------------------------
+route.get('/feed', async (c) => {
+  if (!(await requireSession(c))) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+  if (!mirrorEnabled(c.env)) return ok(c, { mirror: false, entries: [] });
+
+  const limit = Number(c.req.query('limit') || 400);
+  try {
+    const entries = await feedFromD1(c.env, Number.isFinite(limit) ? limit : 400);
+    return ok(c, { mirror: entries.length > 0, entries });
+  } catch (err) {
+    console.log(JSON.stringify({
+      scope: 'email-archive', success: false, stage: 'mirror_feed',
+      error: err instanceof Error ? err.message : String(err),
+    }));
+    return ok(c, { mirror: false, entries: [] });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// POST /index-sync — наполнить зеркало из описей R2.
+//   ?mailbox=<адрес>  один ящик (первичная заливка тяжёлых — по одному)
+//   ?max=<n>          сколько ящиков взять за проход обхода (по умолчанию 6)
+//   ?force=1          разобрать опись, даже если она не менялась
+// Тот же код зовёт крон — руками и по часам путь один.
+// -----------------------------------------------------------------------------
+route.post('/index-sync', async (c) => {
+  if (!(await requireSession(c))) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+
+  const mailbox = c.req.query('mailbox');
+  const force = c.req.query('force') === '1';
+  try {
+    if (mailbox) {
+      const r = await syncMailbox(c.env, normalizeAddress(mailbox), { force: true });
+      return ok(c, r);
+    }
+    const max = Number(c.req.query('max') || 6);
+    const r = await sweepMailIndex(c.env, { max: Number.isFinite(max) ? max : 6, force });
+    return ok(c, r);
+  } catch (err) {
+    return fail(c, 500, [{ code: 'sync_failed', message: err instanceof Error ? err.message : String(err) }]);
+  }
+});
+
+// -----------------------------------------------------------------------------
+// GET /index-sizes — размеры описей без разбора (head, не get). Это ответ на
+// вопрос «какой ящик стоит поперёк»: измерение, а не догадка.
+// -----------------------------------------------------------------------------
+route.get('/index-sizes', async (c) => {
+  if (!(await requireSession(c))) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+  try {
+    const sizes = await indexSizes(c.env);
+    return ok(c, { total_bytes: sizes.reduce((s, x) => s + Math.max(0, x.bytes), 0), sizes });
+  } catch (err) {
+    return fail(c, 500, [{ code: 'r2_error', message: err instanceof Error ? err.message : String(err) }]);
+  }
+});
+
 route.get('/mailboxes/:address', async (c) => {
   if (!(await requireSession(c))) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
 
   const address = normalizeAddress(c.req.param('address'));
   if (!address) return fail(c, 422, [{ code: 'bad_address', message: 'address is required' }]);
+
+  // Ход 1 (02.09): опись ящика берётся из зеркала в D1. Пустое зеркало — не
+  // повод показать пустой ящик: тогда читаем описи из R2, как читали раньше.
+  if (mirrorEnabled(c.env)) {
+    try {
+      const entries = await mailboxEntriesFromD1(c.env, address, 100);
+      if (entries.length) return ok(c, { address, entries });
+    } catch (err) {
+      console.log(JSON.stringify({
+        scope: 'email-archive', success: false, stage: 'mirror_mailbox', address,
+        error: err instanceof Error ? err.message : String(err),
+      }));
+    }
+  }
 
   try {
     const obj = await c.env.ARCHIVE.get(`Inbox/${address}.json`);

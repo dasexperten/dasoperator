@@ -775,6 +775,19 @@ export async function handleScheduled(
       console.error('[cron:mp-pull-tick] failed:', e);
     }
 
+    // Зеркало почтовой описи (ход 1, Владелец 2026-09-02). Сквозная запись
+    // ловит письма, прошедшие через этот воркер; обход добирает то, что
+    // места записали в R2 со своих ключей. Ящик, чья опись не менялась,
+    // стоит одного head() — тик остаётся дешёвым. Своего расписания не
+    // завожу: слот */15 уже живёт, а расписания под заморозкой.
+    try {
+      const { sweepMailIndex } = await import('./lib/mail-index-sync');
+      const r = await sweepMailIndex(env, { max: 6 });
+      console.log(`[cron:mail-index] ${JSON.stringify({ ok: r.ok, boxes: r.boxes, changed: r.changed, upserted: r.upserted, cursor: r.cursor, ms: r.ms })}`);
+    } catch (e) {
+      console.error('[cron:mail-index] failed:', e);
+    }
+
     // Опрос Ozon по созданным отправлениям витрины .ru + письмо «Д»
     // (Владелец 2026-08-30, инцидент DE260825-5106: посылка ехала с 29.08,
     // покупатель молчал в неведении). ERP чужими руками не машет: POST идёт

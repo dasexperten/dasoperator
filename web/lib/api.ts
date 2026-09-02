@@ -2833,6 +2833,15 @@ export async function getMailboxMessages(address: string) {
   );
 }
 
+// Вся лента одним запросом — зеркало описи в D1 (ход 1, Владелец 2026-09-02).
+// mirror:false означает «зеркало ещё не наполнено»; экран тогда возвращается
+// на прежний обход ящиков и показывает письма, а не пустоту.
+export async function getMailFeed(limit = 400) {
+  return apiGet<{ mirror: boolean; entries: Array<MailboxIndexEntry & { mailbox: string }> }>(
+    `/api/email/feed?limit=${encodeURIComponent(String(limit))}`
+  );
+}
+
 export async function getMailboxMessage(address: string, key: string) {
   return apiGet<{ record: MailboxMessageRecord }>(
     `/api/email/mailboxes/${encodeURIComponent(address)}/message?key=${encodeURIComponent(key)}`

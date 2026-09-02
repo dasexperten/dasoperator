@@ -170,6 +170,8 @@ export interface Env {
   RU_ADMIN_TOKEN?: string;
   /** Слой 3: источник экрана Orders — 'd1' (зеркало) | 'feed' (лента .ru). */
   CRM_ORDERS_SOURCE?: string;
+  /** Ход 1 почты (02.09): источник экрана «Почта» — 'd1' (зеркало mail_index) | 'r2' (описи Inbox/*.json). */
+  MAIL_INDEX_SOURCE?: string;
 
   // Shared token in the KIT webhook URL (?token=...) — guards
   // POST /api/loyalty/webhook/kit against random hits.

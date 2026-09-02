@@ -25,6 +25,7 @@ import {
 import {
   getMailboxMessage,
   getMailboxMessages,
+  getMailFeed,
   markMailRead,
   sendReply,
   getEmailContext,
@@ -391,6 +392,18 @@ function useMailData() {
         setLoading(false);
         return;
       }
+      // Ход 1 (Владелец 02.09): лента приходит одним запросом из зеркала
+      // описи в D1. Прежний обход ящиков остаётся ниже — он работает, пока
+      // зеркало пустое, и он же путь возврата, если зеркало выключат.
+      try {
+        const feed = await getMailFeed(800);
+        if (feed.success && feed.result?.mirror && feed.result.entries.length) {
+          absorb(feed.result.entries as RawEntry[]);
+          setLoading(false);
+          return;
+        }
+      } catch { /* зеркало молчит — идём прежним путём, а не в пустоту */ }
+
       const boxes = uiMailboxAddresses();
       const first = PRIORITY_BOXES.filter((a) => boxes.includes(a));
       const rest = boxes.filter((a) => !first.includes(a));

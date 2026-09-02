@@ -27,6 +27,7 @@
 
 import type { Env } from '../types';
 import { linkEmail } from './email-link';
+import { recordMailIndexRow } from './mail-index-sync';
 
 const SKIP_ADDRESSES = new Set(['dasexperten@gmail.com']);
 const INDEX_WRITE_ATTEMPTS = 3;
@@ -355,7 +356,7 @@ export async function archiveEmail(
     await env.ARCHIVE.put(key, JSON.stringify(record), {
       httpMetadata: { contentType: 'application/json' },
     });
-    await appendToIndex(env, addr, {
+    const indexEntry: IndexEntry = {
       key,
       direction,
       timestamp,
@@ -369,7 +370,13 @@ export async function archiveEmail(
       ...(plusTag ? { plusTag } : {}),
       ...(payload.auth ? { auth: payload.auth } : {}),
       ...(stored.length ? { attachmentCount: stored.filter((a) => a.key).length } : {}),
-    });
+    };
+    await appendToIndex(env, addr, indexEntry);
+
+    // Зеркало описи в D1 (ход 1, 02.09): экран читает его, а не описи из R2.
+    // Лучшее усилие и ни строчкой больше — письмо уже лежит в архиве, а
+    // пропущенную строку доберёт обход через 15 минут.
+    await recordMailIndexRow(env, addr, indexEntry);
 
     // The letter is safely stored — only now do we try to say who it belongs to.
     // One choke point for both directions: a sent letter is as much part of a

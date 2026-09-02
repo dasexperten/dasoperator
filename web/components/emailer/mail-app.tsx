@@ -395,16 +395,22 @@ function useMailData() {
       // Ход 1 (Владелец 02.09): лента приходит одним запросом из зеркала
       // описи в D1. Прежний обход ящиков остаётся ниже — он работает, пока
       // зеркало пустое, и он же путь возврата, если зеркало выключат.
+      const boxes = uiMailboxAddresses();
       try {
         const feed = await getMailFeed(800);
-        if (feed.success && feed.result?.mirror && feed.result.entries.length) {
-          absorb(feed.result.entries as RawEntry[]);
+        const entries = feed.success && feed.result?.mirror ? (feed.result.entries ?? []) : [];
+        if (entries.length) {
+          absorb(entries as RawEntry[]);
           setLoading(false);
-          return;
+          // Зеркало наполняется обходом ящик за ящиком. Пока оно покрывает
+          // меньше половины ящиков, лента дорисовывается прежним путём —
+          // первый экран приходит мгновенно, а полнота не ждёт обхода.
+          // Наполненное зеркало сюда больше не пускает: обхода не будет.
+          const covered = new Set(entries.map((e) => e.mailbox)).size;
+          if (covered * 2 >= boxes.length) return;
         }
       } catch { /* зеркало молчит — идём прежним путём, а не в пустоту */ }
 
-      const boxes = uiMailboxAddresses();
       const first = PRIORITY_BOXES.filter((a) => boxes.includes(a));
       const rest = boxes.filter((a) => !first.includes(a));
       // One mailbox at a time for the head — six parallel index reads

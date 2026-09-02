@@ -253,9 +253,23 @@ export async function syncMailbox(env: Env, address: string, opts?: { force?: bo
     const parsed: unknown = JSON.parse(await obj.text());
     if (Array.isArray(parsed)) entries = parsed as IndexEntry[];
 
-    const rows = entries
+    let rows = entries
       .filter((e) => e && typeof e.key === 'string' && typeof e.timestamp === 'string')
       .map((e) => rowFromEntry(addr, e));
+
+    // Опись только дописывается, поэтому обходу хватает хвоста: пишем то,
+    // что новее последней строки зеркала. Иначе каждый тик переписывал бы
+    // ящик целиком — на тяжёлом это сотни батчей на ровном месте.
+    // force=1 (рука, первичная заливка) переписывает всё.
+    if (!opts?.force) {
+      const seen = await env.DB
+        .prepare('SELECT MAX(timestamp) AS last FROM mail_index WHERE mailbox = ?1')
+        .bind(addr)
+        .first<{ last: string | null }>();
+      const last = seen?.last ?? null;
+      if (last) rows = rows.filter((r) => r.timestamp > last);
+    }
+
     const upserted = await upsertMailRows(env, rows);
 
     const ms = Date.now() - t0;

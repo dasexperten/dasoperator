@@ -825,6 +825,22 @@ export async function handleScheduled(
       } catch (e) {
         console.error('[cron:ru-orders-mirror] failed:', e);
       }
+
+      // Связка ключа витрины со счётом лояльности — чтобы в CRM был виден
+      // остаток баллов (Владелец разрешил обход 02.09.2026). Идёт партиями:
+      // 1482 ключа разбираются за несколько тиков и дальше сами подхватывают
+      // новых покупателей. Свой try — обход не должен ронять синк зеркала.
+      try {
+        const { resolveLoyaltyKeys } = await import('./lib/loyalty-key-map');
+        const m = await resolveLoyaltyKeys(env);
+        if (m.asked || m.error) {
+          console.log(`[cron:loyalty-key-map] ${m.ok ? 'ok' : 'FAILED'} спрошено ${m.asked}: ` +
+                      `счёт найден ${m.matched}, нет ${m.missed}, не ответила ${m.failed}; ` +
+                      `осталось ${m.remaining} ${m.ms}ms${m.error ? ' — ' + m.error : ''}`);
+        }
+      } catch (e) {
+        console.error('[cron:loyalty-key-map] failed:', e);
+      }
     }
     return;
   }

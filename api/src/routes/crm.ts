@@ -891,6 +891,20 @@ crm.get('/customers', async (c) => {
       ]);
       for (const r of accRows.results ?? []) accByPhone.set(r.phone, r);
       for (const r of usedRows.results ?? []) usedByKey.set(r.customer_key, Number(r.used) || 0);
+
+      // Счёт по обезличенному ключу — через связку crm_loyalty_key_map, которую
+      // набивает крон (Владелец разрешил обход витрины 02.09.2026). Кладём в ту
+      // же карту: строка списка опознаётся ключом, и остальной код не меняется.
+      // Своё try: таблицы может ещё не быть, и это не повод ронять экран.
+      try {
+        const mapped = await c.env.DB.prepare(
+          `SELECT m.customer_key AS k, a.balance, a.pending_balance, a.tier, a.lifetime_spent
+             FROM crm_loyalty_key_map m
+             JOIN loyalty_accounts a ON a.id = m.account_id
+            WHERE m.customer_key IN (${ph})`
+        ).bind(...phones).all<any>();
+        for (const r of mapped.results ?? []) accByPhone.set(r.k, r);
+      } catch { /* связки ещё нет — покажем то, что знаем без неё */ }
     }
 
     const customers = pageRows.map((cu) => {

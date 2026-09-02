@@ -842,6 +842,22 @@ export async function handleScheduled(
         console.error('[cron:loyalty-key-map] failed:', e);
       }
     }
+
+    // Спасение истории заказов RetailCRM в R2 — аккаунт удаляют, срок два дня
+    // (Владелец 02.09.2026). Идёт партиями и сам замолкает, дойдя до конца:
+    // после этого в состоянии стоит 'done' и обращений к RetailCRM больше нет.
+    // Только чтение — в RetailCRM ничего не меняем.
+    try {
+      const { archiveRetailCrmOrders } = await import('./lib/retailcrm-orders-archive');
+      const a = await archiveRetailCrmOrders(env);
+      if (!a.skipped) {
+        console.log(`[cron:retailcrm-orders] ${a.ok ? 'ok' : 'FAILED'} страницы ${a.fromPage}+${a.pagesDone}/` +
+                    `${a.totalPages}, заказов ${a.orders}${a.file ? ' → ' + a.file : ''}` +
+                    `${a.done ? ' — ВЫГРУЗКА ЗАВЕРШЕНА' : ''} ${a.ms}ms${a.error ? ' — ' + a.error : ''}`);
+      }
+    } catch (e) {
+      console.error('[cron:retailcrm-orders] failed:', e);
+    }
     return;
   }
 

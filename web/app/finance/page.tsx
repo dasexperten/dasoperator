@@ -2,7 +2,7 @@
 
 export const runtime = 'edge';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   Loader2, ArrowDownLeft, ArrowUpRight, CheckCircle2, AlertCircle, Search,
@@ -616,37 +616,62 @@ export default function FinanceTransactionsPage() {
   const [addSourceOpen, setAddSourceOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [sourcesListOpen, setSourcesListOpen] = useState(false);
+  const [txLoading, setTxLoading] = useState(false);
 
   const reloadSources = async () => {
     const r = await getBankStatementSources();
     if (r.success && r.result) setSources(r.result.sources);
   };
 
+  const fetchTransactions = useCallback(async (accountId: string) => {
+    const params: { limit: number; account_id?: string } = { limit: 200 };
+    if (accountId !== 'all') params.account_id = accountId;
+    return getBankTransactions(params);
+  }, []);
+
   useEffect(() => {
     const load = async () => {
       try {
-        const [txRes, accRes, srcRes] = await Promise.all([
-          getBankTransactions({ limit: 200 }),
+        const [accRes, srcRes] = await Promise.all([
           getBankAccounts(),
           getBankStatementSources(),
         ]);
-        if (txRes.success && txRes.result) setTransactions(txRes.result.transactions);
         if (accRes.success && accRes.result) setAccounts(accRes.result.accounts);
         if (srcRes.success && srcRes.result) setSources(srcRes.result.sources);
         setError(null);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
-      } finally {
-        setLoading(false);
       }
     };
-    load();
+    void load();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadTx = async () => {
+      setTxLoading(true);
+      try {
+        const txRes = await fetchTransactions(accountFilter);
+        if (cancelled) return;
+        if (txRes.success && txRes.result) setTransactions(txRes.result.transactions);
+        setError(null);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Network error');
+      } finally {
+        if (!cancelled) {
+          setTxLoading(false);
+          setLoading(false);
+        }
+      }
+    };
+    void loadTx();
+    return () => { cancelled = true; };
+  }, [accountFilter, fetchTransactions]);
 
   const refreshAll = async () => {
     try {
       const [txRes, accRes] = await Promise.all([
-        getBankTransactions({ limit: 200 }),
+        fetchTransactions(accountFilter),
         getBankAccounts(),
       ]);
       if (txRes.success && txRes.result) setTransactions(txRes.result.transactions);
@@ -967,7 +992,7 @@ export default function FinanceTransactionsPage() {
         </div>
       </div>
 
-      {loading && (
+      {(loading || txLoading) && (
         <div className="flex items-center gap-2" style={{ color: 'var(--fg-2)' }}>
           <Loader2 className="h-4 w-4 animate-spin" />
           <span style={{ fontSize: '14px' }}>Loading transactions...</span>
@@ -976,7 +1001,7 @@ export default function FinanceTransactionsPage() {
 
       {error && <div style={{ color: 'var(--status-danger)', fontSize: '14px' }}>Error: {error}</div>}
 
-      {!loading && filtered.length > 0 && (
+      {!loading && !txLoading && filtered.length > 0 && (
         <div style={{
           border: '1px solid var(--line-1)', borderRadius: 'var(--radius-md)',
           backgroundColor: 'var(--paper)', overflow: 'hidden',
@@ -1080,11 +1105,11 @@ export default function FinanceTransactionsPage() {
         </div>
       )}
 
-      {!loading && filtered.length === 0 && transactions.length > 0 && (
+      {!loading && !txLoading && filtered.length === 0 && transactions.length > 0 && (
         <div style={{ fontSize: '14px', color: 'var(--fg-2)' }}>No transactions match your filters.</div>
       )}
 
-      {!loading && transactions.length === 0 && (
+      {!loading && !txLoading && transactions.length === 0 && (
         <div style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
           No transactions yet. Run a sync from Bank Reference page to pull history.
         </div>
@@ -1140,7 +1165,7 @@ export default function FinanceTransactionsPage() {
               onResolved={() => {
                 setAssignTx(null);
                 void (async () => {
-                  const r = await getBankTransactions();
+                  const r = await fetchTransactions(accountFilter);
                   if (r.success && r.result) setTransactions(r.result.transactions);
                 })();
               }}

@@ -38,20 +38,6 @@ interface CrmTimeline {
   synced_at: number;
 }
 
-interface CrmFunnel {
-  source: string;
-  stages: {
-    registered: number;
-    loyalty_members: number;
-    bought_at_least_once: number;
-    repeat_buyers: number;
-  };
-  conversion_to_buyer_pct: number;
-  repeat_rate_pct: number;
-  welcome_burnt_estimate: number;
-  synced_at: number;
-}
-
 interface CrmOrder {
   id: number;
   number: string;
@@ -186,9 +172,6 @@ export default function CrmPage() {
   const [timeline, setTimeline] = useState<CrmTimeline | null>(null);
   const [timelineLoading, setTimelineLoading] = useState(true);
 
-  const [funnel, setFunnel] = useState<CrmFunnel | null>(null);
-  const [funnelLoading, setFunnelLoading] = useState(true);
-
   const [tab, setTab] = useState<TabId>('orders');
 
   // Which storefront feeds the Orders/Customers tabs:
@@ -295,19 +278,6 @@ export default function CrmPage() {
       // Silent — chart simply doesn't render
     } finally {
       setTimelineLoading(false);
-    }
-  }, []);
-
-  const loadFunnel = useCallback(async () => {
-    setFunnelLoading(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/crm/funnel`);
-      const data = await res.json();
-      if (data.success && data.result) setFunnel(data.result);
-    } catch (e) {
-      // Silent
-    } finally {
-      setFunnelLoading(false);
     }
   }, []);
 
@@ -511,7 +481,6 @@ export default function CrmPage() {
   useEffect(() => { loadStats(); }, [loadStats]);
   useEffect(() => { loadMetrika(); }, [loadMetrika]);
   useEffect(() => { loadTimeline(); }, [loadTimeline]);
-  useEffect(() => { loadFunnel(); }, [loadFunnel]);
   useEffect(() => { if (tab === 'orders') loadOrders(); }, [tab, loadOrders]);
   useEffect(() => { if (tab === 'customers') loadCustomers(); }, [tab, loadCustomers]);
   useEffect(() => { if (tab === 'carts' && crmSource === 'com') loadCarts(); }, [tab, crmSource, loadCarts]);
@@ -551,7 +520,6 @@ export default function CrmPage() {
     loadStats();
     loadMetrika();
     loadTimeline();
-    loadFunnel();
     if (crmSource === 'com') loadComStats();
     if (crmSource === 'pricing') loadMatrix(); // Geo Price Matrix view — reload it too
     if (tab === 'orders') loadOrders();
@@ -559,7 +527,7 @@ export default function CrmPage() {
     else if (tab === 'carts') loadCarts();
   }
 
-  const isLoading = statsLoading || metrikaLoading || timelineLoading || funnelLoading || ordersLoading || customersLoading;
+  const isLoading = statsLoading || metrikaLoading || timelineLoading || ordersLoading || customersLoading;
 
   return (
     <div className="space-y-4 max-w-full crm-mock">
@@ -686,10 +654,7 @@ export default function CrmPage() {
         </div>
       )}
 
-      {/* Loyalty conversion funnel — .ru/KIT analytics */}
-      {crmSource === 'ru' && <LoyaltyFunnel funnel={funnel} loading={funnelLoading} />}
-
-      {/* Daily activity — visits behind, registrations middle, orders front */}
+      {/* Daily activity — visits behind, orders in front, one shared scale */}
       {crmSource === 'ru' && (
         <DailyActivityChart
           crmTimeline={timeline?.timeline ?? null}
@@ -1007,174 +972,6 @@ function CrmDetailDrawer({
   );
 }
 
-function LoyaltyFunnel({
-  funnel,
-  loading,
-}: {
-  funnel: CrmFunnel | null;
-  loading: boolean;
-}) {
-  if (loading && !funnel) {
-    return (
-      <div style={{
-        backgroundColor: 'var(--paper-raised)',
-        boxShadow: 'var(--shadow-raised)',
-        borderRadius: 'var(--radius-md)',
-        padding: '16px 20px',
-        height: 180,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}>
-        <Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--fg-muted)' }} />
-      </div>
-    );
-  }
-
-  if (!funnel) return null;
-
-  const { stages } = funnel;
-
-  // Normalize bar widths to the largest stage (registered)
-  const maxValue = Math.max(1, stages.registered);
-
-  const stagesData = [
-    {
-      key: 'registered',
-      label: 'Registered',
-      sublabel: 'Total customer accounts',
-      value: stages.registered,
-      color: '#CECBF6',
-      textColor: '#26215C',
-      pct: 100,
-    },
-    {
-      key: 'loyalty',
-      label: 'Loyalty members',
-      sublabel: 'Joined loyalty program',
-      value: stages.loyalty_members,
-      color: '#A8A0EE',
-      textColor: '#26215C',
-      pct: stages.registered > 0 ? Math.round((stages.loyalty_members / stages.registered) * 100) : 0,
-    },
-    {
-      key: 'bought',
-      label: 'Bought once',
-      sublabel: 'Made at least 1 order',
-      value: stages.bought_at_least_once,
-      color: '#9FE1CB',
-      textColor: '#04342C',
-      pct: stages.registered > 0 ? Math.round((stages.bought_at_least_once / stages.registered) * 100) : 0,
-    },
-    {
-      key: 'repeat',
-      label: 'Repeat buyers',
-      sublabel: 'Made 2+ orders',
-      value: stages.repeat_buyers,
-      color: '#5DCAA5',
-      textColor: '#04342C',
-      pct: stages.registered > 0 ? Math.round((stages.repeat_buyers / stages.registered) * 100) : 0,
-    },
-  ];
-
-  return (
-    <div style={{
-      backgroundColor: 'var(--paper-raised)',
-      boxShadow: 'var(--shadow-raised)',
-      borderRadius: 'var(--radius-md)',
-      padding: '16px 20px',
-    }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: 16,
-            fontWeight: 800,
-            color: 'var(--fg-1)',
-          }}>
-            Loyalty conversion funnel
-          </div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg-3)' }}>Where customers move from sign-up to repeat purchase</div>
-        </div>
-        <div style={{ display: 'flex', gap: 20, fontSize: 14, alignItems: 'baseline' }}>
-          <span style={{ color: 'var(--fg-3)', fontWeight: 600 }}>
-            Conversion{' '}
-            <span style={{
-              fontFamily: 'var(--font-display)',
-              fontWeight: 900,
-              fontSize: 22,
-              color: 'var(--brand-rot)',
-              marginLeft: 4,
-            }}>
-              {funnel.conversion_to_buyer_pct}%
-            </span>
-          </span>
-          <span style={{ color: 'var(--fg-3)', fontWeight: 600 }}>
-            Welcome burnt{' '}
-            <span style={{
-              fontFamily: 'var(--font-display)',
-              fontWeight: 900,
-              fontSize: 22,
-              color: 'var(--status-warning)',
-              marginLeft: 4,
-            }}>
-              ~{funnel.welcome_burnt_estimate.toLocaleString('ru-RU')}
-            </span>
-          </span>
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {stagesData.map((stage) => {
-          const widthPct = (stage.value / maxValue) * 100;
-          return (
-            <div key={stage.key} style={{ display: 'flex', alignItems: 'stretch', gap: 12 }}>
-              <div style={{ minWidth: 150, paddingTop: 4 }}>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 800, color: 'var(--fg-1)' }}>{stage.label}</div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg-3)' }}>{stage.sublabel}</div>
-              </div>
-              <div style={{ flex: 1, position: 'relative' }}>
-                <div style={{
-                  width: `${Math.max(widthPct, 4)}%`,
-                  minWidth: 110,
-                  backgroundColor: stage.color,
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-sm)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                  transition: 'width 300ms ease',
-                }}>
-                  <span style={{
-                    fontFamily: 'var(--font-display)',
-                    fontSize: 22,
-                    fontWeight: 900,
-                    lineHeight: 1,
-                    color: stage.textColor,
-                    fontVariantNumeric: 'tabular-nums',
-                  }}>
-                    {stage.value.toLocaleString('ru-RU')}
-                  </span>
-                  <span style={{
-                    fontFamily: 'var(--font-display)',
-                    fontSize: 15,
-                    fontWeight: 800,
-                    color: stage.textColor,
-                    opacity: 0.75,
-                  }}>
-                    {stage.pct}%
-                  </span>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 function DailyActivityChart({
   crmTimeline,
   metrikaTimeline,
@@ -1186,24 +983,29 @@ function DailyActivityChart({
 }) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
-  // Merge by date — CRM timeline drives the day list (always 30 entries),
-  // Metrika visits looked up per-day. If a Metrika day is missing, treat as 0.
-  const merged = (crmTimeline ?? []).map((d) => {
-    const m = metrikaTimeline?.find((x) => x.date === d.date);
-    return {
-      date: d.date,
-      visits: m?.visits ?? 0,
-      registrations: d.registrations,
-      orders: d.orders,
-    };
-  });
+  // Owner 2026-09-02: окно — 14 дней, не 30. На тридцати столбик тоньше волоса.
+  const WINDOW_DAYS = 14;
+
+  // Merge by date — CRM timeline drives the day list, Metrika visits looked up
+  // per-day. If a Metrika day is missing, treat as 0. Keep the last 14 days.
+  const merged = (crmTimeline ?? [])
+    .map((d) => {
+      const m = metrikaTimeline?.find((x) => x.date === d.date);
+      return {
+        date: d.date,
+        visits: m?.visits ?? 0,
+        orders: d.orders,
+      };
+    })
+    .slice(-WINDOW_DAYS);
 
   if (!loading && merged.length === 0) {
     return null;
   }
 
-  const maxVisits = Math.max(1, ...merged.map((d) => d.visits));
-  const maxActivity = Math.max(1, ...merged.map((d) => Math.max(d.registrations, d.orders)));
+  // Owner 2026-09-02: одна шкала на оба ряда — длина столбика абсолютная,
+  // визиты и заказы сравнимы между собой, а не каждый со своим максимумом.
+  const maxValue = Math.max(1, ...merged.map((d) => Math.max(d.visits, d.orders)));
 
   // SVG geometry
   const W = 600;
@@ -1211,23 +1013,19 @@ function DailyActivityChart({
   const padTop = 16;
   const padBottom = 24;
   const chartH = H - padTop - padBottom;
-  const days = merged.length || 30;
+  const days = merged.length || WINDOW_DAYS;
   const slot = W / days;
-  const wideBarW = slot * 0.66;
-  const narrowBarW = slot * 0.32;
+  const wideBarW = slot * 0.62;
+  const narrowBarW = slot * 0.3;
 
-  function visitsBar(value: number, idx: number) {
-    const h = (value / maxVisits) * chartH;
-    const x = idx * slot + (slot - wideBarW) / 2;
+  // Одна шкала для обоих рядов. Ненулевой день не исчезает: минимум 2 единицы
+  // высоты — иначе один заказ на фоне тысячи визитов не виден вовсе.
+  function bar(value: number, idx: number, w: number) {
+    const raw = (value / maxValue) * chartH;
+    const h = value > 0 ? Math.max(raw, 2) : 0;
+    const x = idx * slot + (slot - w) / 2;
     const y = padTop + (chartH - h);
-    return { x, y, w: wideBarW, h };
-  }
-
-  function activityBar(value: number, idx: number) {
-    const h = (value / maxActivity) * chartH;
-    const x = idx * slot + (slot - narrowBarW) / 2;
-    const y = padTop + (chartH - h);
-    return { x, y, w: narrowBarW, h };
+    return { x, y, w, h };
   }
 
   // Mouse handler — figure out which day the cursor is over
@@ -1250,7 +1048,6 @@ function DailyActivityChart({
   }
 
   const totalVisits = merged.reduce((s, d) => s + d.visits, 0);
-  const totalRegs = merged.reduce((s, d) => s + d.registrations, 0);
   const totalOrders = merged.reduce((s, d) => s + d.orders, 0);
 
   const hoverDay = hoverIdx !== null ? merged[hoverIdx] : null;
@@ -1272,7 +1069,7 @@ function DailyActivityChart({
           }}>
             Daily activity
           </div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg-3)' }}>Last 30 days · hover to inspect</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg-3)' }}>Last 14 days · one scale · hover to inspect</div>
         </div>
         {!loading && merged.length > 0 && (
           <div style={{ display: 'flex', gap: 18, fontSize: 14, alignItems: 'baseline' }}>
@@ -1283,6 +1080,8 @@ function DailyActivityChart({
                 fontSize: 20,
                 color: 'var(--fg-1)',
                 marginRight: 4,
+                fontVariantNumeric: 'tabular-nums',
+                whiteSpace: 'nowrap',
               }}>
                 {totalVisits.toLocaleString('ru-RU')}
               </span>
@@ -1293,20 +1092,10 @@ function DailyActivityChart({
                 fontFamily: 'var(--font-display)',
                 fontWeight: 900,
                 fontSize: 20,
-                color: 'var(--fg-1)',
-                marginRight: 4,
-              }}>
-                {totalRegs.toLocaleString('ru-RU')}
-              </span>
-              reg
-            </span>
-            <span style={{ color: 'var(--fg-3)', fontWeight: 600 }}>
-              <span style={{
-                fontFamily: 'var(--font-display)',
-                fontWeight: 900,
-                fontSize: 20,
                 color: 'var(--brand-rot)',
                 marginRight: 4,
+                fontVariantNumeric: 'tabular-nums',
+                whiteSpace: 'nowrap',
               }}>
                 {totalOrders.toLocaleString('ru-RU')}
               </span>
@@ -1344,32 +1133,20 @@ function DailyActivityChart({
 
               {/* Visits — gray, wide, behind */}
               {merged.map((d, i) => {
-                const r = visitsBar(d.visits, i);
-                if (r.h < 0.5) return null;
+                const r = bar(d.visits, i, wideBarW);
+                if (r.h <= 0) return null;
                 const isHover = hoverIdx === i;
                 return (
                   <rect key={`v${i}`} x={r.x} y={r.y} width={r.w} height={r.h} rx="2"
                         fill="#D3D1C7" fillOpacity={isHover ? 0.75 : 0.5} />
                 );
               })}
-              {/* Registrations — purple, narrow, middle */}
+              {/* Orders — teal, narrow, front. Та же шкала, что у визитов. */}
               {merged.map((d, i) => {
-                const r = activityBar(d.registrations, i);
-                if (r.h < 0.5) return null;
-                const isHover = hoverIdx === i;
+                const r = bar(d.orders, i, narrowBarW);
+                if (r.h <= 0) return null;
                 return (
-                  <rect key={`r${i}`} x={r.x} y={r.y} width={r.w} height={r.h} rx="2"
-                        fill="#7F77DD" fillOpacity={isHover ? 0.85 : 0.55} />
-                );
-              })}
-              {/* Orders — teal, even narrower, front */}
-              {merged.map((d, i) => {
-                const r = activityBar(d.orders, i);
-                const w = r.w * 0.6;
-                const x = r.x + (r.w - w) / 2;
-                if (r.h < 0.5) return null;
-                return (
-                  <rect key={`o${i}`} x={x} y={r.y} width={w} height={r.h} rx="1.5"
+                  <rect key={`o${i}`} x={r.x} y={r.y} width={r.w} height={r.h} rx="1.5"
                         fill="#1D9E75" />
                 );
               })}
@@ -1409,15 +1186,11 @@ function DailyActivityChart({
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)' }}>
                   <span style={{ width: 12, height: 10, backgroundColor: '#D3D1C7', opacity: 0.6, borderRadius: 2, display: 'inline-block' }} />
-                  Visits <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{hoverDay.visits.toLocaleString('ru-RU')}</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)' }}>
-                  <span style={{ width: 10, height: 10, backgroundColor: '#7F77DD', opacity: 0.7, borderRadius: 2, display: 'inline-block' }} />
-                  Registrations <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{hoverDay.registrations.toLocaleString('ru-RU')}</span>
+                  Visits <span style={{ fontWeight: 700, color: 'var(--fg-1)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{hoverDay.visits.toLocaleString('ru-RU')}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)' }}>
                   <span style={{ width: 8, height: 10, backgroundColor: '#1D9E75', borderRadius: 2, display: 'inline-block' }} />
-                  Orders <span style={{ fontWeight: 700, color: 'var(--fg-1)' }}>{hoverDay.orders.toLocaleString('ru-RU')}</span>
+                  Orders <span style={{ fontWeight: 700, color: 'var(--fg-1)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{hoverDay.orders.toLocaleString('ru-RU')}</span>
                 </div>
               </>
             ) : (
@@ -1432,12 +1205,11 @@ function DailyActivityChart({
               Visits (Yandex Metrika)
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)' }}>
-              <span style={{ width: 10, height: 10, backgroundColor: '#7F77DD', opacity: 0.55, borderRadius: 2, display: 'inline-block' }} />
-              Registrations
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)' }}>
               <span style={{ width: 8, height: 10, backgroundColor: '#1D9E75', borderRadius: 2, display: 'inline-block' }} />
               Orders
+            </span>
+            <span style={{ color: 'var(--fg-3)' }}>
+              Both series share one scale — bar lengths are directly comparable.
             </span>
           </div>
         </>

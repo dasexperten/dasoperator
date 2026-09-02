@@ -312,12 +312,14 @@ async function buildRuOrderRows(env: Env): Promise<any[]> {
     const acc = phone ? accByPhone.get(phone) : undefined;
     const accrual = accrualByOrder.get(o.id);
     let charged = 0;
+    let itemsCount = 0;
     for (const chunk of o.delivery_chunks ?? []) {
       for (const it of chunk.items ?? []) {
         charged +=
           Math.round(parseFloat(it.promocode_discount ?? '0')) +
           Math.round(parseFloat(it.loyalty_discount ?? '0')) +
           Math.round(parseFloat(it.gift_card_discount ?? '0'));
+        itemsCount += Number(it.quantity ?? 0) || 0;
       }
     }
     const tierInfo = acc ? tierFor(acc.lifetime_spent) : null;
@@ -330,6 +332,7 @@ async function buildRuOrderRows(env: Env): Promise<any[]> {
       total: Math.round(parseFloat(o.total_final_price ?? o.purchased_price ?? '0')),
       status: statusKebab(o.status ?? '—'),
       created_at: o.created_at ?? '—',
+      items_count: itemsCount,
       bonus_credited: accrual ? accrual.points : 0,
       bonus_credited_status: accrual ? accrual.status : null,
       bonus_charged: charged,
@@ -414,8 +417,28 @@ type MirrorRow = {
   order_number: string; storefront_id: string | null; status: string; storefront_status: string | null;
   created_at: string; paid: number; paid_at: string | null; total_rub: number; loyalty_rub: number;
   customer_key: string | null; delivery_status: string | null; delivery_order_id: string | null;
-  tracking_number: string | null; delivery_provider: string | null;
+  tracking_number: string | null; delivery_provider: string | null; raw_json: string | null;
 };
+
+/**
+ * Штук в заказе .ru. Лента витрины отдаёт позиции только количеством:
+ * delivery_chunks[].items[].quantity — ни артикула, ни названия там нет
+ * (проверено по всем 1850 строкам зеркала, 02.09.2026). Поэтому графа Items
+ * на русском экране показывает число штук и не обещает расшифровки, как .com.
+ */
+function ruItemsCount(raw: string | null | undefined): number {
+  if (!raw) return 0;
+  try {
+    const o = JSON.parse(raw) as { delivery_chunks?: Array<{ items?: Array<{ quantity?: number }> }> };
+    let n = 0;
+    for (const ch of o.delivery_chunks ?? []) {
+      for (const it of ch.items ?? []) n += Number(it.quantity ?? 0) || 0;
+    }
+    return n;
+  } catch {
+    return 0;
+  }
+}
 
 async function ordersFromMirror(
   c: any, page: number, limit: number, search: string,
@@ -436,6 +459,7 @@ async function ordersFromMirror(
 
   const cols = `order_number, storefront_id, status, storefront_status, created_at, paid, paid_at,
                 total_rub, loyalty_rub, customer_key, delivery_status, delivery_order_id, tracking_number, delivery_provider,
+                raw_json,
                 COUNT(*) OVER () AS total_n`;
   const sqlOrder: Record<string, string> = {
     total: `total_rub ${dir}, created_at DESC`,
@@ -475,6 +499,7 @@ async function ordersFromMirror(
       total: r.total_rub,
       status: STATUS_KEBAB(r.status ?? '—'),
       created_at: r.created_at,
+      items_count: ruItemsCount(r.raw_json),
       bonus_credited: accrual ? accrual.points : 0,
       bonus_credited_status: accrual ? accrual.status : null,
       bonus_charged: r.loyalty_rub,
@@ -787,7 +812,13 @@ crm.get('/customers', async (c) => {
     }
     list = [...list].sort((a, b) => {
       if (sortKey === 'orders') return (a.orders_count - b.orders_count) * mul;
-      if (sortKey === 'registered') return (a.last_order - b.last_order) * mul;
+      // last_order — строка ISO8601, а не число. Вычитание строк давало NaN,
+      // и сортировка по дате не работала вовсе (Владелец 02.09.2026).
+      // Ключ 'registered' оставлен ради старых ссылок: графа всегда несла
+      // дату последнего заказа, а не регистрации.
+      if (sortKey === 'last_order' || sortKey === 'registered') {
+        return String(a.last_order).localeCompare(String(b.last_order)) * mul;
+      }
       if (sortKey === 'name') return a.name.localeCompare(b.name) * mul;
       if (sortKey === 'balance') return ((balMap!.get(a.phone) ?? 0) - (balMap!.get(b.phone) ?? 0)) * mul;
       return (a.total_spent - b.total_spent) * mul;
@@ -821,6 +852,10 @@ crm.get('/customers', async (c) => {
         orders_count: cu.orders_count,
         total_spent: cu.total_spent,
         average_order: cu.sales_count ? Math.round(cu.total_spent / cu.sales_count) : 0,
+        // Лента .ru даты регистрации не отдаёт: и здесь, и в created_at лежит
+        // дата ПОСЛЕДНЕГО заказа. Поле названо своим именем; created_at
+        // сохранён, чтобы не ломать прежних читателей ответа.
+        last_order_at: cu.last_order,
         created_at: cu.last_order,
         loyalty_balance: acc ? acc.balance : null,
         loyalty_level: acc ? (TIER_RU[acc.tier] ?? acc.tier) : null,

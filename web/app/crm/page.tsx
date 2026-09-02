@@ -55,6 +55,9 @@ interface CrmOrder {
   email?: string | null;
   ship_country?: string | null;
   items?: Array<{ sku: string; name?: string; qty: number }>;
+  // .ru: витрина отдаёт позиции только количеством — артикулов и названий в
+  // ленте нет, поэтому здесь число штук, а не состав заказа, как у .com.
+  items_count?: number;
   order_source?: string;
   fulfillment_status?: string | null;
   tracking_url?: string | null;
@@ -77,6 +80,8 @@ interface CrmCustomer {
   total_spent: number;
   average_order: number;
   created_at: string;
+  // .ru: даты регистрации лента не отдаёт — здесь дата последнего заказа.
+  last_order_at?: string;
   loyalty_balance: number | null;
   loyalty_level: string | null;
   loyalty_privilege_pct: number | null;
@@ -160,6 +165,17 @@ interface PageMeta {
 const API_BASE = 'https://dasoperator-api.dasexperten.workers.dev';
 
 type TabId = 'orders' | 'customers' | 'carts';
+
+// Столбики визитов на «Daily activity». Значение — токен книги
+// --line-innoweiss (он же --status-info), взятый цифрой: var() в атрибуте
+// fill у SVG не раскрывается, а подбирать свой синий на глаз нельзя.
+const VISITS_FILL = '#0D199E';
+
+// Порядок покупателей по умолчанию. Обе витрины понимают ключ last_order:
+// у .ru это дата последнего заказа из ленты, у .com — графа last_order_at.
+function defaultCustSort(src: CrmSource): { key: string; dir: 'asc' | 'desc' } {
+  return src === 'com' ? { key: 'spent', dir: 'desc' } : { key: 'last_order', dir: 'desc' };
+}
 
 export default function CrmPage() {
   const [stats, setStats] = useState<CrmStats | null>(null);
@@ -360,7 +376,10 @@ export default function CrmPage() {
     }
   }, [ordersPage, ordersLimit, ordersActiveSearch, ordersSort, crmSource]);
 
-  const [custSort, setCustSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'spent', dir: 'desc' });
+  // Владелец 02.09.2026: на русском экране покупатели идут по дате последней
+  // покупки, свежие сверху. У .com графы «Last order» нет — там прежний порядок
+  // по сумме.
+  const [custSort, setCustSort] = useState<{ key: string; dir: 'asc' | 'desc' }>(defaultCustSort('ru'));
   const sortCustomers = (k: string) => {
     setCustSort((prev) => (prev.key === k ? { key: k, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key: k, dir: 'desc' }));
     setCustomersPage(1);
@@ -494,7 +513,7 @@ export default function CrmPage() {
     setCustomersPage(1);
     setCartsPage(1);
     setOrdersSort({ key: '', dir: 'desc' });
-    setCustSort({ key: 'spent', dir: 'desc' });
+    setCustSort(defaultCustSort(next));
     setCartsSort({ key: 'date', dir: 'desc' });
     // Carts only exist for the .com source — fall back to Orders when leaving it.
     if (next !== 'com' && tab === 'carts') setTab('orders');
@@ -1131,14 +1150,16 @@ function DailyActivityChart({
                 />
               )}
 
-              {/* Visits — gray, wide, behind */}
+              {/* Visits — синий книги (--line-innoweiss / --status-info), широкий,
+                  сзади. Владелец 02.09.2026: бледно-серый столбик на белой
+                  карточке не читался. Цвет взят из книги, не подобран на глаз. */}
               {merged.map((d, i) => {
                 const r = bar(d.visits, i, wideBarW);
                 if (r.h <= 0) return null;
                 const isHover = hoverIdx === i;
                 return (
                   <rect key={`v${i}`} x={r.x} y={r.y} width={r.w} height={r.h} rx="2"
-                        fill="#D3D1C7" fillOpacity={isHover ? 0.75 : 0.5} />
+                        fill={VISITS_FILL} fillOpacity={isHover ? 1 : 0.85} />
                 );
               })}
               {/* Orders — teal, narrow, front. Та же шкала, что у визитов. */}
@@ -1185,7 +1206,7 @@ function DailyActivityChart({
                   {hoverDay.date}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)' }}>
-                  <span style={{ width: 12, height: 10, backgroundColor: '#D3D1C7', opacity: 0.6, borderRadius: 2, display: 'inline-block' }} />
+                  <span style={{ width: 12, height: 10, backgroundColor: VISITS_FILL, opacity: 0.85, borderRadius: 2, display: 'inline-block' }} />
                   Visits <span style={{ fontWeight: 700, color: 'var(--fg-1)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{hoverDay.visits.toLocaleString('ru-RU')}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)' }}>
@@ -1201,7 +1222,7 @@ function DailyActivityChart({
           {/* Legend */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginTop: 12, fontSize: 14 }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)' }}>
-              <span style={{ width: 14, height: 10, backgroundColor: '#D3D1C7', opacity: 0.5, borderRadius: 2, display: 'inline-block' }} />
+              <span style={{ width: 14, height: 10, backgroundColor: VISITS_FILL, opacity: 0.85, borderRadius: 2, display: 'inline-block' }} />
               Visits (Yandex Metrika)
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)' }}>
@@ -1948,6 +1969,7 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
         <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
           <Th align="left">Order</Th>
           <Th align="left">Customer</Th>
+          <Th align="left">Items</Th>
           <SortTh label="Total" sortKey="total" current={sort} onSort={onSort} />
           <Th align="left">Status</Th>
           <Th align="left">Оплата</Th>
@@ -1958,7 +1980,7 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
       <tbody>
         {orders.length === 0 && (
           <tr>
-            <td colSpan={7} className="px-6 py-8 text-center" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
+            <td colSpan={8} className="px-6 py-8 text-center" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
               {hasSearch ? `No orders matching "${search}"` : 'No orders'}
             </td>
           </tr>
@@ -1992,6 +2014,16 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
                   </button>
                 );
               })()}
+            </Td>
+            {/* Штук в заказе. Лента .ru отдаёт позиции только количеством —
+                состава, как в подсказке у .com, здесь нет и обещать нечем. */}
+            <Td muted>
+              {o.items_count ? (
+                <span style={{ background: 'var(--paper-sunk, #F3F0E8)', borderRadius: 999, padding: '2px 10px',
+                               fontWeight: 500, color: 'var(--fg-1)', whiteSpace: 'nowrap' }}>
+                  {o.items_count} item{o.items_count === 1 ? '' : 's'}
+                </span>
+              ) : '—'}
             </Td>
             <Td align="right" bold>{o.total.toLocaleString('ru-RU')} ₽</Td>
             <OrderStatusCell primary={o.status} secondary={o.storefront_status} />
@@ -2252,7 +2284,10 @@ function CustomersTable({ customers, hasSearch, search, sort, onSort, variant = 
           <SortTh label="Total spent" sortKey="spent" current={sort} onSort={onSort} />
           <Th align="left">Level</Th>
           <SortTh label="Balance" sortKey="balance" current={sort} onSort={onSort} />
-          <Th align="left">Registered</Th>
+          {/* Лента .ru даты регистрации не отдаёт: в этой графе всегда стояла
+              дата последнего заказа. Теперь она названа своим именем и по ней
+              же идёт порядок по умолчанию — свежие сверху. */}
+          <SortTh label="Last order" sortKey="last_order" current={sort} onSort={onSort} align="left" />
         </tr>
       </thead>
       <tbody>
@@ -2303,7 +2338,7 @@ function CustomersTable({ customers, hasSearch, search, sort, onSort, variant = 
             <Td align="right" bold style={{ color: balance === null || balance === undefined ? 'var(--fg-3)' : 'var(--fg-1)' }}>
               {balance === null || balance === undefined ? '—' : balance.toLocaleString('ru-RU')}
             </Td>
-            <Td muted>{cu.created_at}</Td>
+            <Td muted>{cu.last_order_at ?? cu.created_at}</Td>
           </tr>
           );
         })}

@@ -75,6 +75,11 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.upd
 
 const INDEX_PREFIX = 'Inbox/';
 
+/** Опись, разбор которой занял больше этого, считается тяжёлой. */
+const HEAVY_MS = 20_000;
+/** Тяжёлую опись обход трогает не чаще раза в час. */
+const HEAVY_EVERY_S = 3600;
+
 export function rowFromEntry(mailbox: string, e: IndexEntry): MailRow {
   return {
     message_key: e.key,
@@ -253,12 +258,15 @@ export async function syncMailbox(env: Env, address: string, opts?: { force?: bo
       .map((e) => rowFromEntry(addr, e));
     const upserted = await upsertMailRows(env, rows);
 
+    const ms = Date.now() - t0;
     await putState(env, [
       [stateKey, obj.etag],
       [`mailbox:${addr}:rows`, String(rows.length)],
+      [`mailbox:${addr}:ms`, String(ms)],
+      [`mailbox:${addr}:at`, String(Math.floor(Date.now() / 1000))],
     ]);
 
-    return { address: addr, skipped: false, entries: entries.length, upserted, bytes: head.size, ms: Date.now() - t0 };
+    return { address: addr, skipped: false, entries: entries.length, upserted, bytes: head.size, ms };
   } catch (err) {
     return {
       address: addr, skipped: false, entries: 0, upserted: 0, bytes: 0, ms: Date.now() - t0,
@@ -290,23 +298,43 @@ export async function sweepMailIndex(env: Env, opts?: { max?: number; force?: bo
       return { ok: true, boxes: 0, changed: 0, upserted: 0, cursor: null, ms: Date.now() - t0, results: [] };
     }
 
-    const state = await readState(env, 'sweep:cursor');
+    const state = await readState(env, 'sweep:');
     const cursor = state['sweep:cursor'] ?? '';
     let start = addresses.findIndex((a) => a > cursor);
     if (start < 0) start = 0;
 
-    const results: MailboxSyncResult[] = [];
+    const plan: string[] = [];
     for (let i = 0; i < max; i++) {
       const addr = addresses[(start + i) % addresses.length];
-      if (!addr) continue;
-      results.push(await syncMailbox(env, addr, { force: opts?.force ?? false }));
+      if (addr) plan.push(addr);
     }
 
-    const last = results[results.length - 1]?.address ?? '';
+    // Курсор двигается ДО работы, а не после. Ящик, который убьёт этот тик
+    // (у тяжёлых описей это минуты), иначе встанет пробкой: следующий тик
+    // начал бы с него же, и лёгкие ящики за ним не обновились бы никогда.
+    const last = plan[plan.length - 1] ?? cursor;
     const now = Math.floor(Date.now() / 1000);
     await putState(env, [
       ['sweep:cursor', last],
-      ['sweep:last_ok_at', String(now)],
+      ['sweep:last_try_at', String(now)],
+    ]);
+
+    // Тяжёлая опись (разбор дольше HEAVY_MS) не читается чаще раза в час:
+    // такой ящик пишется постоянно, etag меняется каждый тик, и без этого
+    // правила обход занимался бы только им.
+    const results: MailboxSyncResult[] = [];
+    for (const addr of plan) {
+      const ms = Number(state[`mailbox:${addr}:ms`] ?? 0);
+      const at = Number(state[`mailbox:${addr}:at`] ?? 0);
+      if (!opts?.force && ms > HEAVY_MS && now - at < HEAVY_EVERY_S) {
+        results.push({ address: addr, skipped: true, entries: 0, upserted: 0, bytes: 0, ms: 0 });
+        continue;
+      }
+      results.push(await syncMailbox(env, addr, { force: opts?.force ?? false }));
+    }
+
+    await putState(env, [
+      ['sweep:last_ok_at', String(Math.floor(Date.now() / 1000))],
       ['sweep:last_error', ''],
     ]);
 

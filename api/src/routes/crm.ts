@@ -46,6 +46,7 @@ interface KitOrder {
   payment?: { status?: string; method?: string };
   client?: { phone?: string; email?: string; first_name?: string; last_name?: string };
   delivery_chunks?: Array<{ items?: Array<{ quantity?: number }> }>;
+  delivery_rub?: number | string;
 }
 
 interface CustomerAgg {
@@ -55,6 +56,10 @@ interface CustomerAgg {
   orders_count: number;
   sales_count: number;
   total_spent: number;
+  // Товары без доставки — по правилам клуба уровень считается именно от них
+  // («₽ товаров без доставки», lib/loyalty.ts). total_spent доставку включает
+  // и для уровня не годится: он завысил бы верхнего покупателя на её сумму.
+  goods_spent: number;
   last_order: string;
 }
 
@@ -219,10 +224,14 @@ function buildAggregate(total: number, orders: KitOrder[]): KitAggregate {
         o.client?.email || '—';
       const cu = custMap.get(phone) ?? {
         phone, name, email: o.client?.email ?? null,
-        orders_count: 0, sales_count: 0, total_spent: 0, last_order: created,
+        orders_count: 0, sales_count: 0, total_spent: 0, goods_spent: 0, last_order: created,
       };
       cu.orders_count += 1;
-      if (isSale) { cu.sales_count += 1; cu.total_spent += net; }
+      if (isSale) {
+        cu.sales_count += 1;
+        cu.total_spent += net;
+        cu.goods_spent += Math.max(0, net - Math.round(Number(o.delivery_rub ?? 0) || 0));
+      }
       if (created > cu.last_order) cu.last_order = created;
       if (cu.name === '—' && name !== '—') cu.name = name;
       custMap.set(phone, cu);
@@ -255,7 +264,9 @@ function buildAggregate(total: number, orders: KitOrder[]): KitAggregate {
 }
 
 // v3 — обёртка сменилась на stale-tolerant, конверт другой, старый кэш недействителен.
-const KIT_AGG_KEY = cacheKey('crm:kit-agg', { v: 3 });
+// v4 (02.09.2026) — в строке покупателя появилось goods_spent; на старом конверте
+// его нет, и уровень посчитался бы от нуля. Ключ сменён, кэш пересчитается сам.
+const KIT_AGG_KEY = cacheKey('crm:kit-agg', { v: 4 });
 const KIT_AGG_TTL_SEC = 20 * 60;   // крон греет каждые 15 минут — запас 5 минут
 
 async function getKitAggregate(env: Env) {
@@ -838,7 +849,16 @@ crm.get('/customers', async (c) => {
 
     const customers = pageRows.map((cu) => {
       const acc = accByPhone.get(cu.phone);
-      const tierInfo = acc ? tierFor(acc.lifetime_spent) : null;
+      // Счёт лояльности заведён на телефон, а обезличенная лента .ru отдаёт
+      // необратимый ключ — совпасть им нечем, и графа «Level» стояла пустой у
+      // всех 1482 покупателей (Владелец 02.09.2026). Уровень при этом известен:
+      // по правилам клуба это функция суммы покупок (lib/loyalty.ts), а счёт —
+      // лишь её хранимая копия. Поэтому без счёта считаем тем же tierFor по
+      // тратам самого покупателя. Баланс баллов так не выводится: это движение
+      // по счёту, вычислить его нельзя, и ставить ноль вместо «неизвестно»
+      // было бы выдумкой.
+      const tierInfo = acc ? tierFor(acc.lifetime_spent) : tierFor(cu.goods_spent);
+      const tierKey = acc ? acc.tier : tierInfo.key;
       const depersonalized = KEY_RE.test(cu.phone);
       return {
         id: cu.phone,
@@ -858,8 +878,13 @@ crm.get('/customers', async (c) => {
         last_order_at: cu.last_order,
         created_at: cu.last_order,
         loyalty_balance: acc ? acc.balance : null,
-        loyalty_level: acc ? (TIER_RU[acc.tier] ?? acc.tier) : null,
-        loyalty_privilege_pct: tierInfo ? tierInfo.percent : null,
+        loyalty_level: TIER_RU[tierKey] ?? tierKey,
+        loyalty_privilege_pct: tierInfo.percent,
+        // Откуда взят уровень: 'account' — из счёта в D1, 'spent' — посчитан по
+        // тратам, счёта нет. Экран этим не пользуется, но по ответу видно, чему
+        // верить, и подмены счёта расчётом не случится незаметно.
+        loyalty_level_basis: acc ? 'account' : 'spent',
+        goods_spent: cu.goods_spent,
       };
     });
 

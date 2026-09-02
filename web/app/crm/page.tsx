@@ -85,6 +85,9 @@ interface CrmCustomer {
   loyalty_balance: number | null;
   loyalty_level: string | null;
   loyalty_privilege_pct: number | null;
+  // Откуда уровень: 'account' — счёт лояльности в D1, 'spent' — посчитан по
+  // сумме покупок, счёта у этого покупателя нет.
+  loyalty_level_basis?: 'account' | 'spent';
   // .ru: строка обезличена — имени, телефона и почты нет, есть ключ для показа по кнопке
   depersonalized?: boolean;
   key?: string | null;
@@ -2303,8 +2306,10 @@ function CustomersTable({ customers, hasSearch, search, sort, onSort, variant = 
           const r = key ? revealed[key] : undefined;
           const shown = r && typeof r === 'object' ? r : null;
           const level = shown?.loyalty?.level ?? cu.loyalty_level;
-          const pct = shown?.loyalty ? shown.loyalty.privilege_pct : cu.loyalty_privilege_pct;
-          const balance = shown?.loyalty ? shown.loyalty.balance : cu.loyalty_balance;
+          // После показа по кнопке счёта может не оказаться — тогда процент
+          // берём из расчёта по тратам, а не гасим графу заодно с балансом.
+          const pct = shown?.loyalty?.privilege_pct ?? cu.loyalty_privilege_pct;
+          const balance = shown?.loyalty?.balance ?? cu.loyalty_balance;
           return (
           <tr key={cu.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
             <Td bold>
@@ -2329,13 +2334,25 @@ function CustomersTable({ customers, hasSearch, search, sort, onSort, variant = 
             <Td muted>{shown ? (shown.phone || '—') : (cu.phone || '—')}</Td>
             <Td align="right" bold>{cu.orders_count}</Td>
             <Td align="right" bold>{cu.total_spent.toLocaleString('ru-RU')} ₽</Td>
-            <Td bold style={{ color: level ? 'var(--fg-1)' : 'var(--fg-3)' }}>
+            {/* Уровень: из счёта, если он есть, иначе посчитан по сумме
+                покупок тем же правилом клуба. Подпись говорит, что это
+                расчёт, — чтобы расчёт не выдавали за счёт. */}
+            <Td bold style={{ color: level ? 'var(--fg-1)' : 'var(--fg-3)' }}
+                title={cu.loyalty_level_basis === 'spent'
+                  ? 'Уровень посчитан по сумме покупок: счёта в клубе у этого покупателя нет'
+                  : undefined}>
               {level || '—'}
               {pct !== null && pct !== undefined && (
                 <span style={{ fontWeight: 400, color: 'var(--fg-3)', marginLeft: 6 }}>{pct}%</span>
               )}
             </Td>
-            <Td align="right" bold style={{ color: balance === null || balance === undefined ? 'var(--fg-3)' : 'var(--fg-1)' }}>
+            {/* Баланс баллов — движение по счёту, из трат его не вывести.
+                Пустая клетка значит «неизвестно», а не «ноль», и подпись
+                называет причину. */}
+            <Td align="right" bold style={{ color: balance === null || balance === undefined ? 'var(--fg-3)' : 'var(--fg-1)' }}
+                title={balance === null || balance === undefined
+                  ? 'Баллов не видно: счёт лояльности заведён на телефон, а лента .ru отдаёт обезличенный ключ — связать их пока нечем'
+                  : undefined}>
               {balance === null || balance === undefined ? '—' : balance.toLocaleString('ru-RU')}
             </Td>
             <Td muted>{cu.last_order_at ?? cu.created_at}</Td>
@@ -2365,16 +2382,18 @@ function SortTh({ label, sortKey, current, onSort, align = 'right' }: { label: s
 }
 
 function Td({
-  children, align = 'left', bold = false, muted = false, style = {},
+  children, align = 'left', bold = false, muted = false, style = {}, title,
 }: {
   children: React.ReactNode;
   align?: 'left' | 'right';
   bold?: boolean;
   muted?: boolean;
   style?: React.CSSProperties;
+  // Подпись при наведении: клетка иногда должна объяснить, почему она пустая.
+  title?: string;
 }) {
   return (
-    <td className={`px-6 py-3 text-${align}`} style={{
+    <td className={`px-6 py-3 text-${align}`} title={title} style={{
       fontSize: 13,
       fontWeight: bold ? 700 : 400,
       color: muted ? 'var(--fg-3)' : 'var(--fg-1)',

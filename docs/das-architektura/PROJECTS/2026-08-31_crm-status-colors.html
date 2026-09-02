@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CRM · цвета состояний — Сейчас / Предложение</title>
+<style>
+:root{
+  --brand-rot:#E5202C; --brand-schwarz-ink:#1A1519;
+  --paper:#FBFAF6; --paper-raised:#FFFFFF; --paper-sunk:#F3F0E8;
+  --stone-300:#9C9384; --stone-400:#6E6558; --stone-500:#4A4238;
+  --fg-1:var(--brand-schwarz-ink); --fg-2:var(--stone-500); --fg-3:var(--stone-400);
+  --border-hairline:rgba(26,21,25,.08); --border-subtle:rgba(26,21,25,.14);
+  --status-success:#2E7D4F; --status-warning:#C77A00; --status-error:var(--brand-rot); --status-info:#0D199E;
+  --radius-pill:999px;
+  --font-body:'Archivo','Helvetica Neue',Arial,sans-serif;
+  --shadow-card:0 1px 2px rgba(26,21,25,.05),0 0 0 1px var(--border-hairline);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--fg-1);font-family:var(--font-body);
+     font-size:14px;line-height:1.5;letter-spacing:0}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 72px}
+.ribbon{height:4px;width:120px;background:linear-gradient(90deg,var(--brand-schwarz-ink) 0 33.3%,var(--brand-rot) 33.3% 66.6%,#FEF004 66.6% 100%);margin-bottom:16px}
+h1{font-size:28px;font-weight:800;margin:0 0 6px;letter-spacing:-.01em}
+.sub{color:var(--fg-2);margin:0 0 22px;max-width:70ch}
+.switch{display:inline-flex;gap:2px;background:var(--paper-sunk);border-radius:8px;padding:3px;margin-bottom:20px}
+.switch button{font:inherit;font-weight:700;border:0;background:transparent;color:var(--fg-2);
+  padding:8px 18px;border-radius:6px;cursor:pointer}
+.switch button[aria-pressed="true"]{background:var(--paper-raised);color:var(--fg-1);box-shadow:var(--shadow-card)}
+.panel{background:var(--paper-raised);border-radius:10px;box-shadow:var(--shadow-card);overflow:hidden}
+table{width:100%;border-collapse:collapse}
+th{font-size:12px;font-weight:400;color:#888780;text-align:left;padding:12px 18px;white-space:nowrap}
+td{padding:12px 18px;border-top:1px solid var(--border-hairline);font-size:13px;vertical-align:top}
+.num{font-weight:700;white-space:nowrap}
+.sec{display:block;font-size:12px;font-weight:400;color:var(--fg-3)}
+.muted{color:var(--fg-3)}
+.chip{display:inline-block;border-radius:var(--radius-pill);padding:3px 10px;font-weight:700;white-space:nowrap}
+/* --- Сейчас: самодельные значения, снятые с кода до правки --- */
+.now .ok{color:#0a7a3b;font-weight:700}
+.now .warn{color:#8A6D1F;font-weight:700}
+.now .err{color:#a83232;font-weight:700}
+.now .alarm{color:#a83232;font-weight:700}
+.now .c-init{background:rgba(180,140,0,.14);color:#8a6d00}
+.now .c-conv{background:rgba(10,122,59,.14);color:#0a7a3b}
+.now .c-aban{background:rgba(168,50,50,.12);color:#a83232}
+.now .c-reco{background:rgba(40,90,180,.14);color:#2a5ab4}
+/* --- Предложение: токены книги --- */
+.next .ok{color:var(--status-success);font-weight:700}
+.next .warn{color:var(--status-warning);font-weight:700}
+.next .err{color:var(--status-error);font-weight:700}
+.next .alarm{color:var(--status-error);font-weight:700;background:color-mix(in srgb,var(--status-error) 10%,transparent);border-radius:var(--radius-pill);padding:3px 10px;white-space:nowrap;display:inline-block}
+.next .c-init{background:color-mix(in srgb,var(--status-warning) 12%,transparent);color:var(--status-warning)}
+.next .c-conv{background:color-mix(in srgb,var(--status-success) 12%,transparent);color:var(--status-success)}
+.next .c-aban{background:color-mix(in srgb,var(--status-error) 10%,transparent);color:var(--status-error)}
+.next .c-reco{background:color-mix(in srgb,var(--status-info) 12%,transparent);color:var(--status-info)}
+h2{font-size:17px;font-weight:800;margin:34px 0 12px}
+.legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-top:14px}
+.card{background:var(--paper-raised);border-radius:10px;box-shadow:var(--shadow-card);padding:16px 18px}
+.card h3{font-size:14px;font-weight:800;margin:0 0 6px}
+.card p{margin:0;color:var(--fg-2);font-size:13px}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:6px;box-shadow:0 0 0 1px var(--border-subtle)}
+.meas{width:100%;border-collapse:collapse;margin-top:10px}
+.meas th{padding:8px 12px}
+.meas td{padding:8px 12px;font-size:13px}
+.meas .v{white-space:nowrap;font-weight:700}
+.flag{color:var(--status-error);font-weight:700}
+.note{background:var(--paper-sunk);border-radius:10px;padding:16px 18px;margin-top:16px;color:var(--fg-2);font-size:13px}
+.note b{color:var(--fg-1)}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="ribbon"></div>
+  <h1>CRM · цвета состояний</h1>
+  <p class="sub">Колонки «Статус · Оплата · Отправление» на обеих витринах. Слева то, что стоит в коде сейчас,
+  справа — те же строки на токенах книги бренда. Данные придуманы, одинаковые в обоих видах.
+  «Сейчас» собрано из значений самого кода, а не снимок экрана.</p>
+
+  <div class="switch" role="group">
+    <button id="b-now" aria-pressed="true">Сейчас</button>
+    <button id="b-next" aria-pressed="false">Предложение</button>
+  </div>
+
+  <div class="panel">
+    <table id="tbl" class="now">
+      <thead><tr>
+        <th>Order</th><th>Customer</th><th style="text-align:right">Total</th>
+        <th>Status</th><th>Оплата</th><th>Отправление</th><th>Date</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td class="num">DE260831-0275</td><td>Елена Лимонова<span class="sec">г. Учалы</span></td>
+          <td style="text-align:right" class="num">399&nbsp;₽</td>
+          <td class="muted">processing<span class="sec">packing</span></td>
+          <td><span class="ok">оплачен<span class="sec">31.08, 09:30</span></span></td>
+          <td><span class="num">66200123-0230<span class="sec">created</span></span></td>
+          <td class="muted">31.08</td>
+        </tr>
+        <tr>
+          <td class="num">DE260830-8459</td><td>Виктория Рудык<span class="sec">Севастополь</span></td>
+          <td style="text-align:right" class="num">1&nbsp;338&nbsp;₽</td>
+          <td class="muted">completed<span class="sec">paid</span></td>
+          <td><span class="ok">оплачен<span class="sec">30.08, 19:57</span></span></td>
+          <td><span class="alarm">нет отправления</span></td>
+          <td class="muted">30.08</td>
+        </tr>
+        <tr>
+          <td class="num">DE260827-9973</td><td>Денис Макаров<span class="sec">Тольятти</span></td>
+          <td style="text-align:right" class="num">894&nbsp;₽</td>
+          <td class="muted">new<span class="sec">awaiting_payment</span></td>
+          <td class="muted">ждёт оплаты</td>
+          <td class="muted">—</td>
+          <td class="muted">27.08</td>
+        </tr>
+        <tr>
+          <td class="num">3518259398</td><td>Richard Barnhart<span class="sec">barnhart.richard@gmail.com</span></td>
+          <td style="text-align:right" class="num">$56</td>
+          <td class="muted">paid<span class="sec">delivered</span></td>
+          <td><span class="ok">оплачен<span class="sec">card</span></span></td>
+          <td><span class="num">RS4471<span class="sec">delivered</span></span></td>
+          <td class="muted">24.08</td>
+        </tr>
+        <tr>
+          <td class="num">3507552127</td><td>Bianka Gösche<span class="sec">praxisgoesche@web.de</span></td>
+          <td style="text-align:right" class="num">$34</td>
+          <td class="muted">refunded<span class="sec">cancelled</span></td>
+          <td><span class="warn">возврат<span class="sec">card</span></span></td>
+          <td class="muted">—</td>
+          <td class="muted">16.08</td>
+        </tr>
+        <tr>
+          <td class="num">3506022391</td><td>Alfred Stahler<span class="sec">redr1al@yahoo.com</span></td>
+          <td style="text-align:right" class="num">$23</td>
+          <td class="muted">failed<span class="sec">unfulfilled</span></td>
+          <td><span class="err">оплата не прошла<span class="sec">card</span></span></td>
+          <td class="muted">—</td>
+          <td class="muted">15.08</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Бейджи корзин — та же семья</h2>
+  <div class="panel" style="padding:16px 18px">
+    <span class="chip c-init" id="ch1">initiated</span>
+    <span class="chip c-conv" id="ch2">converted</span>
+    <span class="chip c-aban" id="ch3">abandoned</span>
+    <span class="chip c-reco" id="ch4">recovered</span>
+  </div>
+
+  <h2>Что меняется и почему</h2>
+  <div class="legend">
+    <div class="card">
+      <h3>Пять самодельных цветов уходят</h3>
+      <p>В колонке стояли <span class="sw" style="background:#0a7a3b"></span>#0a7a3b,
+      <span class="sw" style="background:#a83232"></span>#a83232,
+      <span class="sw" style="background:#8A6D1F"></span>#8A6D1F,
+      <span class="sw" style="background:#8a6d00"></span>#8a6d00,
+      <span class="sw" style="background:#2a5ab4"></span>#2a5ab4 — ни одного из них нет в книге.
+      Единственный настоящий зелёный системы — <b>--status-success #2E7D4F</b>.</p>
+    </div>
+    <div class="card">
+      <h3>Берётся то, что уже есть</h3>
+      <p>Токены состояний живут в книге давно и уже работают на экране аналитики.
+      Новый компонент поверх существующего — второй способ показывать то же самое,
+      то есть трещина в системе. Ничего нового не нарисовано.</p>
+    </div>
+    <div class="card">
+      <h3>Одна строка получает чип</h3>
+      <p><b>«нет отправления»</b> — единственная строка, требующая действия: деньги пришли,
+      посылки нет. Она одна становится чипом на подложке 10 %. Остальные — состояния,
+      а не тревога, и остаются словом.</p>
+    </div>
+    <div class="card">
+      <h3>Подложка выводится из токена</h3>
+      <p>Подложки чипов считаются из самого токена (<code>color-mix</code> 10–12 %),
+      а не задаются вторым числом. Один источник цвета, второго hex не появляется.</p>
+    </div>
+  </div>
+
+  <h2>Замер контраста на бумаге #FBFAF6</h2>
+  <div class="panel" style="padding:4px 0 8px">
+    <table class="meas">
+      <thead><tr><th>Состояние</th><th>Было</th><th>Стало</th><th>Контраст было</th><th>Контраст стало</th></tr></thead>
+      <tbody>
+        <tr><td>оплачен</td><td>#0a7a3b</td><td>--status-success #2E7D4F</td><td class="v">5.21:1</td><td class="v">4.83:1</td></tr>
+        <tr><td>возврат</td><td>#8A6D1F</td><td>--status-warning #C77A00</td><td class="v">4.69:1</td><td class="v flag">3.24:1</td></tr>
+        <tr><td>оплата не прошла · нет отправления</td><td>#a83232</td><td>--status-error #E5202C</td><td class="v">6.35:1</td><td class="v flag">4.40:1</td></tr>
+        <tr><td>recovered</td><td>#2a5ab4</td><td>--status-info #0D199E</td><td class="v">6.24:1</td><td class="v">12.19:1</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <b>Говорю вслух, потому что цифра против меня.</b> Два токена книги на бумаге не добирают
+    порога 4.5:1 для мелкого набора: предупреждение даёт 3.24, ошибка — 4.40. Самодельные цвета,
+    которые я убираю, читались лучше. Я всё равно беру токены: один зелёный на весь ERP важнее,
+    чем удачный оттенок на одном экране, а слабый токен чинится один раз для всего строя, а не
+    двадцатью шестью частными числами в одном файле.<br><br>
+    <b>Решение за вами:</b> потемнить <code>--status-warning</code> и <code>--status-error</code>
+    до чернил, которые берут 4.5:1 на бумаге. Это правка палитры — по моему уставу палитру двигает
+    Владелец, не я. Скажете «темни» — сделаю одним коммитом на весь ERP.<br><br>
+    <b>Найдено попутно, не чинила:</b> на экране CRM живут 26 разных hex мимо токенов — графики,
+    ленты, плашки. Это отдельный проход, а не расширение этой правки.
+  </div>
+</div>
+<script>
+  var t=document.getElementById('tbl'), chips=['ch1','ch2','ch3','ch4'].map(function(i){return document.getElementById(i)});
+  var bn=document.getElementById('b-now'), bx=document.getElementById('b-next');
+  function set(mode){
+    t.className=mode;
+    chips.forEach(function(c){c.parentNode.className='panel '+mode;});
+    bn.setAttribute('aria-pressed', mode==='now');
+    bx.setAttribute('aria-pressed', mode==='next');
+  }
+  bn.onclick=function(){set('now')}; bx.onclick=function(){set('next')}; set('now');
+</script>
+</body>
+</html>

@@ -89,6 +89,8 @@ interface CrmCustomer {
   // Откуда уровень: 'account' — счёт лояльности в D1, 'spent' — посчитан по
   // сумме покупок, счёта у этого покупателя нет.
   loyalty_level_basis?: 'account' | 'spent';
+  // Баллов потрачено покупателем в заказах (не остаток счёта).
+  loyalty_used?: number;
   // .ru: строка обезличена — имени, телефона и почты нет, есть ключ для показа по кнопке
   depersonalized?: boolean;
   key?: string | null;
@@ -2369,14 +2371,24 @@ function CustomersTable({ customers, hasSearch, search, sort, onSort, variant = 
                 <span style={{ fontWeight: 400, color: 'var(--fg-3)', marginLeft: 6 }}>{pct}%</span>
               )}
             </Td>
-            {/* Баланс баллов — движение по счёту, из трат его не вывести.
-                Пустая клетка значит «неизвестно», а не «ноль», и подпись
-                называет причину. */}
+            {/* Баланс. Остаток счёта показываем, когда счёт найден. Когда не
+                найден — показываем то, что о баллах всё же известно: сколько
+                покупатель ими заплатил в заказах (Владелец 02.09.2026: «если
+                что-то есть — показывай, не надо прятать»). Прочерк остаётся
+                только там, где нет ни того, ни другого. */}
             <Td align="right" bold style={{ color: balance === null || balance === undefined ? 'var(--fg-3)' : 'var(--fg-1)' }}
                 title={balance === null || balance === undefined
-                  ? 'Баллов не видно: счёт лояльности заведён на телефон, а лента .ru отдаёт обезличенный ключ — связать их пока нечем'
+                  ? (cu.loyalty_used
+                    ? `Остаток счёта не виден: счёт заведён на телефон, а лента .ru отдаёт обезличенный ключ. Известно одно — баллами оплачено ${cu.loyalty_used} ₽`
+                    : 'Баллов не видно: счёт лояльности заведён на телефон, а лента .ru отдаёт обезличенный ключ — связать их пока нечем')
                   : undefined}>
-              {balance === null || balance === undefined ? '—' : balance.toLocaleString('ru-RU')}
+              {balance !== null && balance !== undefined
+                ? balance.toLocaleString('ru-RU')
+                : cu.loyalty_used
+                  ? <span style={{ fontWeight: 400, color: 'var(--fg-2)' }}>
+                      −{cu.loyalty_used.toLocaleString('ru-RU')}<span style={{ color: 'var(--fg-3)' }}> потрачено</span>
+                    </span>
+                  : '—'}
             </Td>
             <Td muted>{cu.last_order_at ?? cu.created_at}</Td>
           </tr>

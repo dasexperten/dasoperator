@@ -872,12 +872,25 @@ crm.get('/customers', async (c) => {
 
     const phones = pageRows.map((cu) => cu.phone);
     const accByPhone = new Map<string, any>();
+    // Баллы, потраченные покупателем в заказах. Это не остаток счёта, но это
+    // единственное, что о баллах известно по обезличенному ключу, — и прятать
+    // его за прочерком нельзя (Владелец 02.09.2026: «если что-то есть —
+    // показывай»). Считаем по зеркалу тем же ключом, что и строка списка.
+    const usedByKey = new Map<string, number>();
     if (phones.length) {
       const ph = phones.map(() => '?').join(',');
-      const rows = await c.env.DB.prepare(
-        `SELECT phone, balance, pending_balance, tier, lifetime_spent FROM loyalty_accounts WHERE phone IN (${ph})`
-      ).bind(...phones).all<any>();
-      for (const r of rows.results ?? []) accByPhone.set(r.phone, r);
+      const [accRows, usedRows] = await Promise.all([
+        c.env.DB.prepare(
+          `SELECT phone, balance, pending_balance, tier, lifetime_spent FROM loyalty_accounts WHERE phone IN (${ph})`
+        ).bind(...phones).all<any>(),
+        c.env.DB.prepare(
+          `SELECT customer_key, SUM(loyalty_rub) AS used FROM crm_orders_ru
+            WHERE customer_key IN (${ph}) GROUP BY customer_key`
+        ).bind(...phones).all<{ customer_key: string; used: number }>()
+          .catch(() => ({ results: [] as Array<{ customer_key: string; used: number }> })),
+      ]);
+      for (const r of accRows.results ?? []) accByPhone.set(r.phone, r);
+      for (const r of usedRows.results ?? []) usedByKey.set(r.customer_key, Number(r.used) || 0);
     }
 
     const customers = pageRows.map((cu) => {
@@ -917,6 +930,8 @@ crm.get('/customers', async (c) => {
         // тратам, счёта нет. Экран этим не пользуется, но по ответу видно, чему
         // верить, и подмены счёта расчётом не случится незаметно.
         loyalty_level_basis: acc ? 'account' : 'spent',
+        // Баллов потрачено в заказах — 0, если покупатель баллами не платил.
+        loyalty_used: usedByKey.get(cu.phone) ?? 0,
         goods_spent: cu.goods_spent,
       };
     });

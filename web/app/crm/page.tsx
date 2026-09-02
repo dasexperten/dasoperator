@@ -54,9 +54,10 @@ interface CrmOrder {
   currency?: string;
   email?: string | null;
   ship_country?: string | null;
-  items?: Array<{ sku: string; name?: string; qty: number }>;
+  items?: Array<{ sku: string | null; name?: string | null; qty: number }>;
   // .ru: витрина отдаёт позиции только количеством — артикулов и названий в
-  // ленте нет, поэтому здесь число штук, а не состав заказа, как у .com.
+  // ленте пока нет, поэтому здесь число штук. Как только orders.php начнёт
+  // класть в позицию sku и name, они приедут в items и подсказка оживёт сама.
   items_count?: number;
   order_source?: string;
   fulfillment_status?: string | null;
@@ -2018,16 +2019,38 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
                 );
               })()}
             </Td>
-            {/* Штук в заказе. Лента .ru отдаёт позиции только количеством —
-                состава, как в подсказке у .com, здесь нет и обещать нечем. */}
-            <Td muted>
+            {/* Штук в заказе, а при наведении — состав, как у .com.
+                Владелец 02.09.2026 просил названия товаров. Названий в ленте
+                .ru сегодня нет, и выдумывать их нечем: подсказка появляется
+                ровно тогда, когда витрина пришлёт в позиции sku или name.
+                Пока не прислала — одно число штук и подпись о причине. */}
+            <td className="px-6 py-3 text-left relative group" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
               {o.items_count ? (
-                <span style={{ background: 'var(--paper-sunk, #F3F0E8)', borderRadius: 999, padding: '2px 10px',
-                               fontWeight: 500, color: 'var(--fg-1)', whiteSpace: 'nowrap' }}>
-                  {o.items_count} item{o.items_count === 1 ? '' : 's'}
-                </span>
+                <>
+                  <span
+                    title={(o.items ?? []).length ? undefined
+                      : 'Состав не показан: лента витрины .ru отдаёт в позиции только количество, без названия и артикула'}
+                    style={{ background: 'var(--paper-sunk, #F3F0E8)', borderRadius: 999, padding: '2px 10px',
+                             fontWeight: 500, color: 'var(--fg-1)', cursor: 'default', whiteSpace: 'nowrap' }}>
+                    {o.items_count} item{o.items_count === 1 ? '' : 's'}
+                  </span>
+                  {(o.items ?? []).length > 0 && (
+                    <div className="hidden group-hover:block absolute z-30"
+                         style={{ top: '100%', left: 24, background: 'var(--paper, #FFFFFF)',
+                                  border: '1px solid var(--border-hairline)', borderRadius: 8, padding: '8px 12px',
+                                  whiteSpace: 'nowrap', boxShadow: '0 4px 14px rgba(26,21,25,.10)' }}>
+                      {(o.items ?? []).map((it, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 18,
+                                              fontSize: 12, padding: '2px 0' }}>
+                          <span style={{ fontFamily: 'ui-monospace, monospace' }}>{it.sku ?? '—'}</span>
+                          <span style={{ color: 'var(--fg-3)' }}>{it.name ? `${it.name} · ` : ''}×{it.qty}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               ) : '—'}
-            </Td>
+            </td>
             <Td align="right" bold>{o.total.toLocaleString('ru-RU')} ₽</Td>
             <OrderStatusCell primary={o.status} secondary={o.storefront_status} />
             <OrderPaymentCell {...ruPayment(o)} />

@@ -324,6 +324,9 @@ async function buildRuOrderRows(env: Env): Promise<any[]> {
     const accrual = accrualByOrder.get(o.id);
     let charged = 0;
     let itemsCount = 0;
+    // Состав читаем тем же ruItems, что и на пути зеркала: одно правило чтения
+    // позиции, чтобы запасной путь не показывал заказ иначе, чем основной.
+    const itemLines = ruItems(JSON.stringify(o)).filter((it) => it.sku || it.name);
     for (const chunk of o.delivery_chunks ?? []) {
       for (const it of chunk.items ?? []) {
         charged +=
@@ -344,6 +347,7 @@ async function buildRuOrderRows(env: Env): Promise<any[]> {
       status: statusKebab(o.status ?? '—'),
       created_at: o.created_at ?? '—',
       items_count: itemsCount,
+      items: itemLines,
       bonus_credited: accrual ? accrual.points : 0,
       bonus_credited_status: accrual ? accrual.status : null,
       bonus_charged: charged,
@@ -432,23 +436,49 @@ type MirrorRow = {
 };
 
 /**
- * Штук в заказе .ru. Лента витрины отдаёт позиции только количеством:
- * delivery_chunks[].items[].quantity — ни артикула, ни названия там нет
- * (проверено по всем 1850 строкам зеркала, 02.09.2026). Поэтому графа Items
- * на русском экране показывает число штук и не обещает расшифровки, как .com.
+ * Состав заказа .ru из сырой строки ленты.
+ *
+ * Владелец 02.09.2026 просил названия товаров, как на английском экране.
+ * Лента витрины их не отдаёт: в delivery_chunks[].items[] лежит одно
+ * quantity — ни артикула, ни названия (перепроверено по всем 1850 строкам
+ * зеркала: sku 0, name 0, title 0, offer 0, product 0, article 0). Выдумать
+ * состав из числа штук нельзя, и ERP тут ничего не решает — строку должна
+ * начать отдавать сама витрина, dasexperten.ru/api/erp/orders.php.
+ *
+ * Поэтому читаем состав наперёд: как только витрина положит в позицию имя
+ * и артикул, экран покажет их сам, без новой выкатки. Ждём такую позицию:
+ *   { "sku": "DE-TB-01", "name": "Зубная паста …", "quantity": 2 }
+ * Синонимы приняты ради живучести: article вместо sku, title вместо name.
+ * Ничего не подставляем: нет поля — нет и значения.
  */
-function ruItemsCount(raw: string | null | undefined): number {
-  if (!raw) return 0;
+type RuItem = { sku: string | null; name: string | null; qty: number };
+
+function ruItems(raw: string | null | undefined): RuItem[] {
+  if (!raw) return [];
   try {
-    const o = JSON.parse(raw) as { delivery_chunks?: Array<{ items?: Array<{ quantity?: number }> }> };
-    let n = 0;
+    const o = JSON.parse(raw) as {
+      delivery_chunks?: Array<{ items?: Array<Record<string, unknown>> }>;
+    };
+    const out: RuItem[] = [];
     for (const ch of o.delivery_chunks ?? []) {
-      for (const it of ch.items ?? []) n += Number(it.quantity ?? 0) || 0;
+      for (const it of ch.items ?? []) {
+        const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+        out.push({
+          sku: str(it.sku) ?? str(it.article),
+          name: str(it.name) ?? str(it.title),
+          qty: Number(it.quantity ?? 0) || 0,
+        });
+      }
     }
-    return n;
+    return out;
   } catch {
-    return 0;
+    return [];
   }
+}
+
+/** Штук в заказе — сумма количеств по позициям. */
+function ruItemsCount(raw: string | null | undefined): number {
+  return ruItems(raw).reduce((n, it) => n + it.qty, 0);
 }
 
 async function ordersFromMirror(
@@ -511,6 +541,9 @@ async function ordersFromMirror(
       status: STATUS_KEBAB(r.status ?? '—'),
       created_at: r.created_at,
       items_count: ruItemsCount(r.raw_json),
+      // Состав — только если он есть в ленте. Пустой список значит «витрина
+      // состава не прислала», и экран честно покажет одно число штук.
+      items: ruItems(r.raw_json).filter((it) => it.sku || it.name),
       bonus_credited: accrual ? accrual.points : 0,
       bonus_credited_status: accrual ? accrual.status : null,
       bonus_charged: r.loyalty_rub,

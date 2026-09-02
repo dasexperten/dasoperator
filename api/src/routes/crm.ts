@@ -877,6 +877,9 @@ crm.get('/customers', async (c) => {
     // его за прочерком нельзя (Владелец 02.09.2026: «если что-то есть —
     // показывай»). Считаем по зеркалу тем же ключом, что и строка списка.
     const usedByKey = new Map<string, number>();
+    // Город покупателя. В ленте витрины его нет — приходит из связки, которую
+    // набивает крон по карточке последнего заказа (Владелец 02.09.2026).
+    const cityByKey = new Map<string, string>();
     if (phones.length) {
       const ph = phones.map(() => '?').join(',');
       const [accRows, usedRows] = await Promise.all([
@@ -898,12 +901,17 @@ crm.get('/customers', async (c) => {
       // Своё try: таблицы может ещё не быть, и это не повод ронять экран.
       try {
         const mapped = await c.env.DB.prepare(
-          `SELECT m.customer_key AS k, a.balance, a.pending_balance, a.tier, a.lifetime_spent
+          `SELECT m.customer_key AS k, m.city, a.balance, a.pending_balance, a.tier, a.lifetime_spent
              FROM crm_loyalty_key_map m
-             JOIN loyalty_accounts a ON a.id = m.account_id
+             LEFT JOIN loyalty_accounts a ON a.id = m.account_id
             WHERE m.customer_key IN (${ph})`
         ).bind(...phones).all<any>();
-        for (const r of mapped.results ?? []) accByPhone.set(r.k, r);
+        for (const r of mapped.results ?? []) {
+          if (r.city) cityByKey.set(r.k, r.city);
+          // Счёт кладём в ту же карту, что и прямое совпадение по телефону:
+          // строка списка опознаётся ключом, остальной код не меняется.
+          if (r.balance !== null && r.balance !== undefined) accByPhone.set(r.k, r);
+        }
       } catch { /* связки ещё нет — покажем то, что знаем без неё */ }
     }
 
@@ -927,6 +935,9 @@ crm.get('/customers', async (c) => {
         depersonalized,
         key: depersonalized ? cu.phone : null,
         name: cu.name,
+        // Город — не персональные данные (населённый пункт пункта выдачи),
+        // поэтому виден без кнопки показа, как и просил Владелец.
+        city: cityByKey.get(cu.phone) ?? null,
         email: cu.email,
         phone: depersonalized ? null : cu.phone,
         orders_count: cu.orders_count,

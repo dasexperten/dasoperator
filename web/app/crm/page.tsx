@@ -75,6 +75,8 @@ interface CrmOrder {
 interface CrmCustomer {
   id: number | string;
   name: string;
+  // .ru: город пункта выдачи из связки ключей; в ленте витрины города нет.
+  city?: string | null;
   email: string | null;
   phone: string | null;
   orders_count: number;
@@ -2306,6 +2308,10 @@ function CustomersTable({ customers, hasSearch, search, sort, onSort, variant = 
       <thead>
         <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
           <Th align="left">Customer</Th>
+          {/* Город — второй графой (Владелец 02.09.2026). В ленте витрины его
+              нет: приходит из связки, которую набивает крон по карточке
+              последнего заказа. Прочерк значит «витрина города не назвала». */}
+          <Th align="left">City</Th>
           <Th align="left">Email</Th>
           <Th align="left">Phone</Th>
           <SortTh label="Orders" sortKey="orders" current={sort} onSort={onSort} />
@@ -2321,7 +2327,7 @@ function CustomersTable({ customers, hasSearch, search, sort, onSort, variant = 
       <tbody>
         {customers.length === 0 && (
           <tr>
-            <td colSpan={8} className="px-6 py-8 text-center" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
+            <td colSpan={9} className="px-6 py-8 text-center" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
               {hasSearch ? `No customers matching "${search}"` : 'No customers'}
             </td>
           </tr>
@@ -2355,6 +2361,7 @@ function CustomersTable({ customers, hasSearch, search, sort, onSort, variant = 
                   </button>
                 )}
             </Td>
+            <Td muted>{cu.city || '—'}</Td>
             <Td muted>{shown ? (shown.email || '—') : (cu.email || '—')}</Td>
             <Td muted>{shown ? (shown.phone || '—') : (cu.phone || '—')}</Td>
             <Td align="right" bold>{cu.orders_count}</Td>

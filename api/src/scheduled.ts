@@ -835,7 +835,7 @@ export async function handleScheduled(
         const m = await resolveLoyaltyKeys(env);
         if (m.asked || m.error) {
           console.log(`[cron:loyalty-key-map] ${m.ok ? 'ok' : 'FAILED'} спрошено ${m.asked}: ` +
-                      `счёт найден ${m.matched}, нет ${m.missed}, не ответила ${m.failed}; ` +
+                      `счёт найден ${m.matched}, город ${m.withCity}, не ответила ${m.failed}; ` +
                       `осталось ${m.remaining} ${m.ms}ms${m.error ? ' — ' + m.error : ''}`);
         }
       } catch (e) {

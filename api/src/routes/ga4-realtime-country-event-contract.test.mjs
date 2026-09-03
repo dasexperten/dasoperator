@@ -7,6 +7,7 @@ const types = fs.readFileSync(new URL('../../../web/app/analytics/shared.tsx', i
 
 const checks = [
   ['API requests the country and eventName dimensions together', /dimensions: \[\{ name: 'country' \}, \{ name: 'eventName' \}\]/.test(api)],
+  ['GA4 filters to commerce events before applying the row limit', api.includes("fieldName: 'eventName'") && api.includes('inListFilter: { values: commerceEventNames }')],
   ['API exposes the joined rows', api.includes('by_country_event: countryEventRows')],
   ['API keeps the paid landing signal', api.includes("'paid_locale_landing_vn'")],
   ['API keeps cart progression', api.includes("'add_to_cart'") && api.includes("'begin_checkout'")],

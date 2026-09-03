@@ -814,6 +814,13 @@ ga4.get('/realtime', async (c) => {
   if (!ga4Configured(c.env)) return notConfigured(c);
 
   try {
+    const commerceEventNames = [
+      'paid_locale_landing_vn', 'paid_locale_landing_th', 'paid_locale_landing_tl',
+      'paid_locale_landing_ms', 'paid_locale_landing_zh', 'view_item', 'add_to_cart',
+      'view_cart', 'shipping_preview_ready', 'shipping_bundle_offer',
+      'shipping_bundle_add', 'begin_checkout', 'checkout_loaded',
+      'shipping_quote_ready', 'add_payment_info', 'purchase', 'checkout_error',
+    ];
     const [perMinute, byCountry, fiveMin, byAudience, byPage, byEvent, byCountryEvent] = await Promise.all([
       ga4RunRealtimeReport(c.env, {
         dimensions: [{ name: 'minutesAgo' }],
@@ -854,6 +861,12 @@ ga4.get('/realtime', async (c) => {
       ga4RunRealtimeReport(c.env, {
         dimensions: [{ name: 'country' }, { name: 'eventName' }],
         metrics: [{ name: 'eventCount' }],
+        dimensionFilter: {
+          filter: {
+            fieldName: 'eventName',
+            inListFilter: { values: commerceEventNames },
+          },
+        },
         orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }],
         limit: 250,
       }),
@@ -879,13 +892,7 @@ ga4.get('/realtime', async (c) => {
         count: Math.round(metricNum(r, 0)),
       }));
 
-    const commerceEvents = new Set([
-      'paid_locale_landing_vn', 'paid_locale_landing_th', 'paid_locale_landing_tl',
-      'paid_locale_landing_ms', 'paid_locale_landing_zh', 'view_item', 'add_to_cart',
-      'view_cart', 'shipping_preview_ready', 'shipping_bundle_offer',
-      'shipping_bundle_add', 'begin_checkout', 'checkout_loaded',
-      'shipping_quote_ready', 'add_payment_info', 'purchase', 'checkout_error',
-    ]);
+    const commerceEvents = new Set(commerceEventNames);
     const countryEventRows = (byCountryEvent.rows ?? [])
       .map((r) => ({
         country: r.dimensionValues?.[0]?.value || '(not set)',

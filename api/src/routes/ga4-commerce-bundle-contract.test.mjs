@@ -10,7 +10,8 @@ const checks = [
   [ui.includes("shipping_bundle_offer: 'Saw two-tube shipping value'"), 'dashboard labels offer'],
   [ui.includes("shipping_bundle_add: 'Added second tube'"), 'dashboard labels add'],
   [ui.includes('bundleAdds / bundleOffers'), 'dashboard computes uptake from adds divided by offers'],
-  [ui.includes('DE bundle offers'), 'dashboard renders experiment KPIs'],
+  [ui.includes('Shipping bundle offers'), 'dashboard renders cross-market experiment KPIs'],
+  [ui.includes('DE · VN · PH'), 'dashboard names the measured market scope'],
   [ui.includes('Bundle uptake'), 'dashboard renders uptake KPI'],
 ];
 

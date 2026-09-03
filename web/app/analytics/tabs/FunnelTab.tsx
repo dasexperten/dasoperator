@@ -115,7 +115,7 @@ export default function FunnelTab() {
       <Panel title="After cart — progress, failures and handoffs" source="GA4 events · 30 days">
         {losses.data && (
           <div className="wa-kpis" style={{ marginBottom: 16 }}>
-            <Kpi label="DE bundle offers" value={fmtNum(bundleOffers)} delta="one tube in cart" />
+            <Kpi label="Shipping bundle offers" value={fmtNum(bundleOffers)} delta="DE · VN · PH" />
             <Kpi label="Second tubes added" value={fmtNum(bundleAdds)} delta="one-click action" />
             <Kpi accent label="Bundle uptake" value={fmtPct(bundleUptake)} delta="adds ÷ offers" />
           </div>

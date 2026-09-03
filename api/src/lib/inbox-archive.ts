@@ -12,13 +12,22 @@
 // excluded per Aram — that inbox stays in Gmail only, never archived here.
 //
 // Index file: one JSON array per mailbox, sitting next to (not inside) that
-// mailbox's subfolder, so a UI can list "all mail for X" in a single R2 GET
-// instead of paginating env.ARCHIVE.list() over every object. Each entry
-// points at its full-record key. Updated via an etag-conditional
-// read-modify-write loop (R2 has no atomic append) — a handful of retries
-// covers realistic concurrent-send volume for these mailboxes; if all
-// retries lose the race, the fallback write still lands the entry, just
-// with a small chance of clobbering a different concurrent entry.
+// mailbox's subfolder. Each entry points at its full-record key.
+//
+// Ход 2 (Владелец 2026-09-03) — КТО его теперь пишет. Раньше каждое письмо
+// переписывало этот файл целиком (etag-conditional read-modify-write, у R2
+// нет дописывания). У тяжёлых ящиков файл стал горячим настолько, что даже
+// чтение вставало в очередь за записями: замер 02.09 — sales@ 17 минут,
+// support@ 20 секунд и молчание, счётчики всех ящиков — 13 минут.
+//
+// Теперь письмо кладёт строку в зеркало D1 (mail_index), а этот файл раз в
+// две минуты пересобирается снимком из зеркала — только для ящиков, где
+// что-то прибавилось (lib/mail-index-sync.ts, snapshotPass).
+//
+// Файл остаётся живым и полным, потому что его читает не экран, а воркеры
+// мест (fleet/shared/mailbox.mjs). Ящик, который обход ещё не прочитал,
+// продолжает писаться прежним путём — снимок с неполного зеркала обрезал бы
+// его историю. Возврат целиком: MAIL_INDEX_WRITE="append".
 //
 // Archiving (both the full record and the index update) is always
 // best-effort: a failure here must never block or fail the actual
@@ -27,7 +36,7 @@
 
 import type { Env } from '../types';
 import { linkEmail } from './email-link';
-import { recordMailIndexRow } from './mail-index-sync';
+import { recordMailIndexRow, indexWriteMode, mailboxSnapshotReady } from './mail-index-sync';
 
 const SKIP_ADDRESSES = new Set(['dasexperten@gmail.com']);
 const INDEX_WRITE_ATTEMPTS = 3;
@@ -371,12 +380,24 @@ export async function archiveEmail(
       ...(payload.auth ? { auth: payload.auth } : {}),
       ...(stored.length ? { attachmentCount: stored.filter((a) => a.key).length } : {}),
     };
-    await appendToIndex(env, addr, indexEntry);
-
-    // Зеркало описи в D1 (ход 1, 02.09): экран читает его, а не описи из R2.
-    // Лучшее усилие и ни строчкой больше — письмо уже лежит в архиве, а
-    // пропущенную строку доберёт обход через 15 минут.
-    await recordMailIndexRow(env, addr, indexEntry);
+    // Ход 2 (Владелец 03.09): опись больше не переписывается на каждое
+    // письмо. Строка идёт в зеркало D1, а файл Inbox/<адрес>.json собирается
+    // снимком раз в две минуты — его всё ещё читают воркеры мест.
+    //
+    // Почему это стоило хода: read-modify-write целого файла на каждое
+    // письмо сделал описи тяжёлых ящиков горячими настолько, что даже
+    // чтение вставало в очередь за записями (замер 02.09: sales@ 17 минут).
+    //
+    // Зеркало не приняло строку — письмо не имеет права остаться вне списка:
+    // тогда идём прежним путём и дописываем опись сразу.
+    // Ящик, чью опись обход ещё не прочитал, остаётся на прежнем пути:
+    // снимок с неполного зеркала обрезал бы его историю, а место, читающее
+    // этот файл, не должно потерять ни строки. Переход на снимки каждый
+    // ящик делает сам, когда обход до него дошёл.
+    const written = await recordMailIndexRow(env, addr, indexEntry);
+    if (indexWriteMode(env) === 'append' || !written || !(await mailboxSnapshotReady(env, addr))) {
+      await appendToIndex(env, addr, indexEntry);
+    }
 
     // The letter is safely stored — only now do we try to say who it belongs to.
     // One choke point for both directions: a sent letter is as much part of a

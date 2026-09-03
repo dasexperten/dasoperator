@@ -172,6 +172,8 @@ export interface Env {
   CRM_ORDERS_SOURCE?: string;
   /** Ход 1 почты (02.09): источник экрана «Почта» — 'd1' (зеркало mail_index) | 'r2' (описи Inbox/*.json). */
   MAIL_INDEX_SOURCE?: string;
+  /** Ход 2 почты (03.09): как пишется опись — 'snapshot' (снимком раз в 2 мин) | 'append' (каждое письмо переписывает файл). */
+  MAIL_INDEX_WRITE?: string;
 
   // Shared token in the KIT webhook URL (?token=...) — guards
   // POST /api/loyalty/webhook/kit against random hits.

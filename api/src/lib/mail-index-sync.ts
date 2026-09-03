@@ -169,14 +169,34 @@ export async function upsertMailRows(env: Env, rows: MailRow[]): Promise<number>
 // Сквозная запись из archiveEmail(). Лучшее усилие: письмо уже в R2, и ошибка
 // здесь не имеет права всплыть выше — обход доберёт строку через 15 минут.
 // -----------------------------------------------------------------------------
-export async function recordMailIndexRow(env: Env, mailbox: string, entry: IndexEntry): Promise<void> {
+export async function recordMailIndexRow(env: Env, mailbox: string, entry: IndexEntry): Promise<boolean> {
   try {
     await upsertMailRows(env, [rowFromEntry(mailbox, entry)]);
+    return true;
   } catch (err) {
     console.log(JSON.stringify({
       scope: 'mail-index', success: false, stage: 'write_through',
       mailbox, error: err instanceof Error ? err.message : String(err),
     }));
+    return false;
+  }
+}
+
+/**
+ * Готов ли ящик к снимку: его опись хотя бы раз прочитал обход, то есть
+ * в зеркале лежит вся его история, а не только письма этого воркера.
+ * Пока не готов — письмо дописывает опись прежним путём. Никакого окна,
+ * в котором место не видит свою почту, не открывается.
+ */
+export async function mailboxSnapshotReady(env: Env, mailbox: string): Promise<boolean> {
+  try {
+    const row = await env.DB
+      .prepare('SELECT value FROM mail_index_state WHERE key = ?1')
+      .bind(`mailbox:${mailbox.toLowerCase()}:rows`)
+      .first<{ value: string }>();
+    return !!row?.value;
+  } catch {
+    return false;
   }
 }
 
@@ -411,4 +431,143 @@ export async function mailboxCountsFromD1(env: Env): Promise<Map<string, { count
 /** Флаг возврата: MAIL_INDEX_SOURCE="r2" — читаем описи, как читали до 02.09. */
 export function mirrorEnabled(env: Env): boolean {
   return (env.MAIL_INDEX_SOURCE ?? 'd1') !== 'r2';
+}
+
+/**
+ * Ход 2 (Владелец 03.09): как пишется опись.
+ *  "snapshot" — письмо кладёт строку в зеркало, а опись в R2 пересобирается
+ *               снимком раз в две минуты для ящиков, где что-то прибавилось;
+ *  "append"   — прежний путь: каждое письмо переписывает опись целиком.
+ */
+export function indexWriteMode(env: Env): 'snapshot' | 'append' {
+  return (env.MAIL_INDEX_WRITE ?? 'snapshot') === 'append' ? 'append' : 'snapshot';
+}
+
+// -----------------------------------------------------------------------------
+// Снимок описи: D1 → Inbox/<адрес>.json.
+//
+// Зачем вообще писать этот файл, если экран его больше не читает: его читают
+// САМИ МЕСТА со своих воркеров (fleet/shared/mailbox.mjs берёт Inbox/<адрес>.json
+// через своё связывание ARCHIVE). Пока их чтение не переведено, файл обязан
+// оставаться живым и полным — иначе место перестанет видеть свою почту.
+// Меняется только частота: не по письму, а по изменению, раз в две минуты.
+//
+// Три запрета в этой функции, и все три — про «не потерять чужое»:
+//  1. Файл никогда не становится короче, чем был (сверка со счётом прошлого
+//     обхода). Не сходится — снимок не пишется, и это докладывается.
+//  2. Пишем условно по etag. Кто-то дописал файл после нашего обхода —
+//     условие не выполнится, снимок пропускается, следующий тик сперва
+//     впитает чужую строку обходом, и только потом соберёт снимок.
+//  3. Свой же etag сохраняется в состояние — обход не станет перечитывать
+//     файл, который сам же и написал.
+// -----------------------------------------------------------------------------
+export interface SnapshotResult {
+  address: string;
+  wrote: boolean;
+  rows: number;
+  reason?: string;
+  ms: number;
+}
+
+export async function snapshotMailbox(env: Env, address: string): Promise<SnapshotResult> {
+  const t0 = Date.now();
+  const addr = address.toLowerCase();
+  const key = `${INDEX_PREFIX}${addr}.json`;
+
+  try {
+    const rows = await env.DB
+      .prepare('SELECT * FROM mail_index WHERE mailbox = ?1 ORDER BY timestamp ASC')
+      .bind(addr)
+      .all<Record<string, unknown>>();
+    const entries = (rows.results ?? []).map((r) => {
+      const { mailbox: _mailbox, ...rest } = entryFromRow(r);
+      return rest as IndexEntry;
+    });
+    if (!entries.length) return { address: addr, wrote: false, rows: 0, reason: 'mirror_empty', ms: Date.now() - t0 };
+
+    const state = await readState(env, `mailbox:${addr}:`);
+    const knownRows = Number(state[`mailbox:${addr}:rows`] ?? 0);
+    const knownEtag = state[`mailbox:${addr}:etag`] ?? '';
+
+    const head = await env.ARCHIVE.head(key);
+    if (head) {
+      // Ящик, который обход ещё ни разу не прочитал, снимком не трогаем:
+      // в зеркале лежит только то, что прошло через этот воркер, и снимок
+      // с такого зеркала обрезал бы чужую историю в файле. Сперва обход.
+      if (!state[`mailbox:${addr}:rows`]) {
+        return { address: addr, wrote: false, rows: entries.length, reason: 'not_synced_yet', ms: Date.now() - t0 };
+      }
+      if (entries.length < knownRows) {
+        return { address: addr, wrote: false, rows: entries.length, reason: `would_shrink:${knownRows}`, ms: Date.now() - t0 };
+      }
+      if (knownEtag && head.etag !== knownEtag) {
+        return { address: addr, wrote: false, rows: entries.length, reason: 'foreign_write', ms: Date.now() - t0 };
+      }
+    }
+
+    const put = await env.ARCHIVE.put(key, JSON.stringify(entries), {
+      httpMetadata: { contentType: 'application/json' },
+      ...(head ? { onlyIf: { etagMatches: head.etag } } : {}),
+    });
+    if (!put) return { address: addr, wrote: false, rows: entries.length, reason: 'lost_race', ms: Date.now() - t0 };
+
+    const last = entries[entries.length - 1]?.timestamp ?? '';
+    await putState(env, [
+      [`mailbox:${addr}:etag`, put.etag],
+      [`mailbox:${addr}:rows`, String(entries.length)],
+      [`mailbox:${addr}:snap_ts`, last],
+      [`mailbox:${addr}:snap_at`, String(Math.floor(Date.now() / 1000))],
+    ]);
+    return { address: addr, wrote: true, rows: entries.length, ms: Date.now() - t0 };
+  } catch (err) {
+    return {
+      address: addr, wrote: false, rows: 0, ms: Date.now() - t0,
+      reason: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+export interface SnapshotPassResult {
+  ok: boolean;
+  pending: number;
+  wrote: number;
+  ms: number;
+  results: SnapshotResult[];
+}
+
+/**
+ * Проход снимков: одна выборка по зеркалу находит ящики, где после прошлого
+ * снимка прибавились письма, и пересобирает их описи. Ящиков без прибавки
+ * проход не касается вовсе — тик остаётся дешёвым.
+ */
+export async function snapshotPass(env: Env, opts?: { max?: number }): Promise<SnapshotPassResult> {
+  const t0 = Date.now();
+  const max = Math.max(1, Math.min(20, opts?.max ?? 4));
+  try {
+    const counts = await mailboxCountsFromD1(env);
+    const state = await readState(env, 'mailbox:');
+    const pending: string[] = [];
+    for (const [addr, meta] of counts) {
+      const snapped = state[`mailbox:${addr}:snap_ts`] ?? '';
+      if (meta.last_activity && meta.last_activity > snapped) pending.push(addr);
+    }
+    pending.sort();
+
+    const results: SnapshotResult[] = [];
+    for (const addr of pending.slice(0, max)) results.push(await snapshotMailbox(env, addr));
+
+    return {
+      ok: true,
+      pending: pending.length,
+      wrote: results.filter((r) => r.wrote).length,
+      ms: Date.now() - t0,
+      results,
+    };
+  } catch (err) {
+    console.log(JSON.stringify({
+      scope: 'mail-index', success: false, stage: 'snapshot_pass',
+      error: err instanceof Error ? err.message : String(err),
+    }));
+    return { ok: false, pending: 0, wrote: 0, ms: Date.now() - t0, results: [] };
+  }
 }

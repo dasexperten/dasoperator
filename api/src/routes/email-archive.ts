@@ -26,6 +26,8 @@ import {
   indexSizes,
   sweepMailIndex,
   syncMailbox,
+  snapshotMailbox,
+  snapshotPass,
 } from '../lib/mail-index-sync';
 import { callFlash } from '../lib/llm';
 import {
@@ -241,6 +243,12 @@ route.post('/index-sync', async (c) => {
   const mailbox = c.req.query('mailbox');
   const force = c.req.query('force') === '1';
   try {
+    // ?snapshot=1 — собрать описи из зеркала (ход 2) вместо чтения описей.
+    if (c.req.query('snapshot') === '1') {
+      if (mailbox) return ok(c, await snapshotMailbox(c.env, normalizeAddress(mailbox)));
+      const max = Number(c.req.query('max') || 4);
+      return ok(c, await snapshotPass(c.env, { max: Number.isFinite(max) ? max : 4 }));
+    }
     if (mailbox) {
       const r = await syncMailbox(c.env, normalizeAddress(mailbox), { force: true });
       return ok(c, r);

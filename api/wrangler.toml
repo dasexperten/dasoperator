@@ -216,6 +216,10 @@ CRM_ORDERS_SOURCE = "d1"
 # Ход 1 почты (Владелец 2026-09-02): экран «Почта» читает зеркало описи
 # mail_index в D1 ("d1"). Откат на чтение описей из R2 — "r2", один пуш.
 MAIL_INDEX_SOURCE = "d1"
+# Ход 2 почты (Владелец 2026-09-03): опись Inbox/<адрес>.json собирается
+# снимком раз в две минуты для изменившихся ящиков ("snapshot"), а не
+# переписывается целиком на каждое письмо. Откат — "append", один пуш.
+MAIL_INDEX_WRITE = "snapshot"
 # Owner 2026-07-27: how many Ozon reviews are drafted in parallel. One draft is
 # ~7 LLM gates of waiting, so this is the throughput dial, not CPU.
 DRAFT_CONCURRENCY = "10"

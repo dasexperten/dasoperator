@@ -601,6 +601,21 @@ export async function handleScheduled(
   // Poll Performance API reports every 2 minutes
   if (cron === '*/2 * * * *') {
     await cronPollPerfReports(env);
+
+    // Снимок описи (ход 2, Владелец 2026-09-03). Опись больше не
+    // переписывается на каждое письмо; здесь она пересобирается из зеркала
+    // для ящиков, где после прошлого снимка что-то прибавилось. Ящиков без
+    // прибавки проход не касается — одна выборка и тишина.
+    // Файл нужен не экрану, а воркерам мест: они читают его напрямую.
+    try {
+      const { snapshotPass } = await import('./lib/mail-index-sync');
+      const r = await snapshotPass(env, { max: 4 });
+      if (r.pending) {
+        console.log(`[cron:mail-snapshot] ${JSON.stringify({ pending: r.pending, wrote: r.wrote, ms: r.ms, skipped: r.results.filter((x) => !x.wrote).map((x) => `${x.address}:${x.reason}`) })}`);
+      }
+    } catch (e) {
+      console.error('[cron:mail-snapshot] failed:', e);
+    }
     return;
   }
 

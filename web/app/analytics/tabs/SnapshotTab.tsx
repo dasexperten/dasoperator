@@ -165,6 +165,24 @@ export default function SnapshotTab() {
               </div>
             </div>
 
+            <div className="wa-table-scroll" style={{ maxHeight: 300, marginTop: 16 }}>
+              <table className="wa-table">
+                <thead><tr><th>Country</th><th>Commerce event</th><th className="right">Count</th></tr></thead>
+                <tbody>
+                  {(rt.by_country_event ?? []).map((r) => (
+                    <tr key={`${r.country}:${r.event}`}>
+                      <td style={{ fontWeight: 700 }}>{r.country}</td>
+                      <td>{r.event}</td>
+                      <td className="num right">{fmtNum(r.count)}</td>
+                    </tr>
+                  ))}
+                  {(rt.by_country_event ?? []).length === 0 && (
+                    <tr><td colSpan={3} style={{ color: 'var(--fg-3)' }}>No country-level commerce events right now.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
             <div className="wa-note" style={{ marginTop: 12 }}>
               Synced {timeAgo(rt.synced_at)} · minute bars run oldest (-29) to newest (0, now).
               GA4's "by First user source" realtime card has no Realtime-API dimension — cut,

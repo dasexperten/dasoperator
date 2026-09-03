@@ -814,7 +814,7 @@ ga4.get('/realtime', async (c) => {
   if (!ga4Configured(c.env)) return notConfigured(c);
 
   try {
-    const [perMinute, byCountry, fiveMin, byAudience, byPage, byEvent] = await Promise.all([
+    const [perMinute, byCountry, fiveMin, byAudience, byPage, byEvent, byCountryEvent] = await Promise.all([
       ga4RunRealtimeReport(c.env, {
         dimensions: [{ name: 'minutesAgo' }],
         metrics: [{ name: 'activeUsers' }],
@@ -851,6 +851,12 @@ ga4.get('/realtime', async (c) => {
         orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }],
         limit: 10,
       }),
+      ga4RunRealtimeReport(c.env, {
+        dimensions: [{ name: 'country' }, { name: 'eventName' }],
+        metrics: [{ name: 'eventCount' }],
+        orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }],
+        limit: 250,
+      }),
     ]);
 
     // minutesAgo comes back "0".."29" (0 = current minute); reverse so the
@@ -873,6 +879,21 @@ ga4.get('/realtime', async (c) => {
         count: Math.round(metricNum(r, 0)),
       }));
 
+    const commerceEvents = new Set([
+      'paid_locale_landing_vn', 'paid_locale_landing_th', 'paid_locale_landing_tl',
+      'paid_locale_landing_ms', 'paid_locale_landing_zh', 'view_item', 'add_to_cart',
+      'view_cart', 'shipping_preview_ready', 'shipping_bundle_offer',
+      'shipping_bundle_add', 'begin_checkout', 'checkout_loaded',
+      'shipping_quote_ready', 'add_payment_info', 'purchase', 'checkout_error',
+    ]);
+    const countryEventRows = (byCountryEvent.rows ?? [])
+      .map((r) => ({
+        country: r.dimensionValues?.[0]?.value || '(not set)',
+        event: r.dimensionValues?.[1]?.value || '(not set)',
+        count: Math.round(metricNum(r, 0)),
+      }))
+      .filter((r) => commerceEvents.has(r.event));
+
     return ok(c, {
       source: sourceLabel(c.env),
       active_users_now: countryRows.reduce((a, r) => a + r.active_users, 0),
@@ -882,6 +903,7 @@ ga4.get('/realtime', async (c) => {
       by_audience: dimRows(byAudience, 'audience'),
       by_page: dimRows(byPage, 'title'),
       by_event: dimRows(byEvent, 'event'),
+      by_country_event: countryEventRows,
       // NOTE for UI: GA4's realtime "by First user source" card has no
       // Realtime-API dimension — cut, never faked (audienceName is supported).
       synced_at: Math.floor(Date.now() / 1000),

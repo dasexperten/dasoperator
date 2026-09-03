@@ -9,6 +9,7 @@
 //   GET /overview  — sessions, users, purchases, revenue by day (+ returning split)
 //   GET /channels  — sessionDefaultChannelGroup breakdown
 //   GET /pages     — landing pages
+//   GET /acquisition-detail — channel + campaign + country + landing funnel
 //   GET /funnel    — page_view -> view_item -> add_to_cart -> begin_checkout -> purchase
 // =============================================================================
 
@@ -227,6 +228,90 @@ ga4.get('/pages', async (c) => {
         synced_at: Math.floor(Date.now() / 1000),
       };
     });
+    return ok(c, payload);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return fail(c, 502, [{ code: 'ga4_upstream_error', message: msg }]);
+  }
+});
+
+// =============================================================================
+// GET /api/ga4/acquisition-detail?days=7&limit=100
+// Actionable acquisition grain: one row ties the traffic source to its campaign,
+// visitor country, landing page and downstream commerce steps. The separate
+// /channels and /pages endpoints cannot reveal whether a high-volume landing is
+// organic, paid or concentrated in a country where its checkout mode differs.
+// KV cache: 1h
+// =============================================================================
+ga4.get('/acquisition-detail', async (c) => {
+  if (!ga4Configured(c.env)) return notConfigured(c);
+  const days = windowDays(c, 7);
+  const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '100', 10) || 100, 1), 250);
+
+  try {
+    const payload = await withKvCache(
+      c.env,
+      cacheKey('ga4:acquisition-detail', { days, limit }),
+      3600,
+      async () => {
+        const resp = await ga4RunReport(c.env, {
+          dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+          dimensions: [
+            { name: 'sessionDefaultChannelGroup' },
+            { name: 'sessionCampaignName' },
+            { name: 'country' },
+            { name: 'landingPage' },
+          ],
+          metrics: [
+            { name: 'sessions' },
+            { name: 'engagedSessions' },
+            { name: 'addToCarts' },
+            { name: 'checkouts' },
+            { name: 'ecommercePurchases' },
+            { name: 'purchaseRevenue' },
+          ],
+          orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+          limit,
+        });
+
+        const rows = (resp.rows ?? []).map((r) => {
+          const sessions = Math.round(metricNum(r, 0));
+          const engagedSessions = Math.round(metricNum(r, 1));
+          const purchases = Math.round(metricNum(r, 4));
+          return {
+            channel: r.dimensionValues?.[0]?.value || '(not set)',
+            campaign: r.dimensionValues?.[1]?.value || '(not set)',
+            country: r.dimensionValues?.[2]?.value || '(not set)',
+            landing_page: r.dimensionValues?.[3]?.value || '(not set)',
+            sessions,
+            engaged_sessions: engagedSessions,
+            engagement_rate_pct: sessions > 0 ? round2((engagedSessions / sessions) * 100) : 0,
+            add_to_carts: Math.round(metricNum(r, 2)),
+            checkouts: Math.round(metricNum(r, 3)),
+            purchases,
+            revenue: round2(metricNum(r, 5)),
+            cr: sessions > 0 ? round2((purchases / sessions) * 100) : 0,
+          };
+        });
+
+        return {
+          source: sourceLabel(c.env),
+          window_days: days,
+          method:
+            'GA4 session acquisition dimensions joined to aggregate ecommerce metrics; rows are acquisition segments, not user-level paths.',
+          totals: {
+            sessions: rows.reduce((a, r) => a + r.sessions, 0),
+            engaged_sessions: rows.reduce((a, r) => a + r.engaged_sessions, 0),
+            add_to_carts: rows.reduce((a, r) => a + r.add_to_carts, 0),
+            checkouts: rows.reduce((a, r) => a + r.checkouts, 0),
+            purchases: rows.reduce((a, r) => a + r.purchases, 0),
+            revenue: round2(rows.reduce((a, r) => a + r.revenue, 0)),
+          },
+          rows,
+          synced_at: Math.floor(Date.now() / 1000),
+        };
+      }
+    );
     return ok(c, payload);
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';

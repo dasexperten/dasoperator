@@ -25,6 +25,8 @@ const STEP_LABELS: Record<string, string> = {
 const SIGNAL_LABELS: Record<string, string> = {
   view_cart: 'Viewed cart',
   begin_checkout: 'Began checkout',
+  checkout_loaded: 'Checkout loaded',
+  shipping_quote_ready: 'Shipping quote ready',
   add_payment_info: 'Reached payment',
   checkout_error: 'Checkout error',
   shipping_unavailable: 'Shipping unavailable',

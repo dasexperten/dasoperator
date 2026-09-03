@@ -412,6 +412,8 @@ ga4.get('/funnel', async (c) => {
 const COMMERCE_LOSS_EVENTS = [
   'view_cart',
   'begin_checkout',
+  'checkout_loaded',
+  'shipping_quote_ready',
   'add_payment_info',
   'checkout_error',
   'shipping_unavailable',

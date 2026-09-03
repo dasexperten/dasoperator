@@ -43,6 +43,8 @@ const SIGNAL_LABELS: Record<string, string> = {
   paid_locale_landing_zh: 'Paid landing localized · Taiwan',
   shipping_unavailable: 'Shipping unavailable',
   shipping_quote_request: 'Requested shipping quote',
+  shipping_bundle_offer: 'Saw two-tube shipping value',
+  shipping_bundle_add: 'Added second tube',
   marketplace_open: 'Opened marketplace choices',
   marketplace_click: 'Clicked marketplace',
   purchase: 'Purchased',
@@ -55,6 +57,9 @@ export default function FunnelTab() {
   const rows = funnel.data?.rows ?? [];
   const base = rows[0]?.count ?? 0;
   const lowTraffic = (t?.purchases ?? 0) < 30;
+  const bundleOffers = losses.data?.totals.shipping_bundle_offer ?? 0;
+  const bundleAdds = losses.data?.totals.shipping_bundle_add ?? 0;
+  const bundleUptake = bundleOffers > 0 ? (bundleAdds / bundleOffers) * 100 : 0;
 
   return (
     <div className="space-y-4">
@@ -108,6 +113,13 @@ export default function FunnelTab() {
       </Panel>
 
       <Panel title="After cart — progress, failures and handoffs" source="GA4 events · 30 days">
+        {losses.data && (
+          <div className="wa-kpis" style={{ marginBottom: 16 }}>
+            <Kpi label="DE bundle offers" value={fmtNum(bundleOffers)} delta="one tube in cart" />
+            <Kpi label="Second tubes added" value={fmtNum(bundleAdds)} delta="one-click action" />
+            <Kpi accent label="Bundle uptake" value={fmtPct(bundleUptake)} delta="adds ÷ offers" />
+          </div>
+        )}
         {losses.data?.rows.length ? (
           <div className="wa-table-scroll">
             <table className="wa-table">

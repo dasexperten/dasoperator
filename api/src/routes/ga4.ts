@@ -430,6 +430,8 @@ const COMMERCE_LOSS_EVENTS = [
   'paid_locale_landing_zh',
   'shipping_unavailable',
   'shipping_quote_request',
+  'shipping_bundle_offer',
+  'shipping_bundle_add',
   'marketplace_open',
   'marketplace_click',
   'purchase',
@@ -443,7 +445,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses', { days, limit }),
+      cacheKey('ga4:commerce-losses:v2', { days, limit }),
       3600,
       async () => {
         const resp = await ga4RunReport(c.env, {

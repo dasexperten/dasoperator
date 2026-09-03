@@ -11,6 +11,7 @@
 //   GET /pages     — landing pages
 //   GET /acquisition-detail — channel + campaign + country + landing funnel
 //   GET /funnel    — page_view -> view_item -> add_to_cart -> begin_checkout -> purchase
+//   GET /commerce-losses — downstream progress, failures and marketplace handoffs
 // =============================================================================
 
 import { Hono } from 'hono';
@@ -393,6 +394,83 @@ ga4.get('/funnel', async (c) => {
         synced_at: Math.floor(Date.now() / 1000),
       };
     });
+    return ok(c, payload);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return fail(c, 502, [{ code: 'ga4_upstream_error', message: msg }]);
+  }
+});
+
+// =============================================================================
+// GET /api/ga4/commerce-losses?days=30&limit=250
+// Cart-to-payment observability. The headline funnel hides whether a checkout
+// stopped before payment, hit a technical/shipping failure, or deliberately left
+// for a marketplace. Keep those outcomes separate: a marketplace handoff is not
+// an on-site purchase and a checkout_error is not customer reluctance.
+// KV cache: 1h
+// =============================================================================
+const COMMERCE_LOSS_EVENTS = [
+  'view_cart',
+  'begin_checkout',
+  'add_payment_info',
+  'checkout_error',
+  'shipping_unavailable',
+  'shipping_quote_request',
+  'marketplace_open',
+  'marketplace_click',
+  'purchase',
+];
+
+ga4.get('/commerce-losses', async (c) => {
+  if (!ga4Configured(c.env)) return notConfigured(c);
+  const days = windowDays(c);
+  const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '250', 10) || 250, 1), 250);
+
+  try {
+    const payload = await withKvCache(
+      c.env,
+      cacheKey('ga4:commerce-losses', { days, limit }),
+      3600,
+      async () => {
+        const resp = await ga4RunReport(c.env, {
+          dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+          dimensions: [
+            { name: 'eventName' },
+            { name: 'country' },
+            { name: 'pagePath' },
+            { name: 'sessionCampaignName' },
+          ],
+          metrics: [{ name: 'eventCount' }],
+          dimensionFilter: {
+            filter: {
+              fieldName: 'eventName',
+              inListFilter: { values: COMMERCE_LOSS_EVENTS },
+            },
+          },
+          orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }],
+          limit,
+        });
+
+        const rows = (resp.rows ?? []).map((r) => ({
+          event: r.dimensionValues?.[0]?.value || '(not set)',
+          country: r.dimensionValues?.[1]?.value || '(not set)',
+          page: r.dimensionValues?.[2]?.value || '(not set)',
+          campaign: r.dimensionValues?.[3]?.value || '(not set)',
+          count: Math.round(metricNum(r, 0)),
+        }));
+        const totals = Object.fromEntries(COMMERCE_LOSS_EVENTS.map((event) => [event, 0])) as Record<string, number>;
+        for (const row of rows) totals[row.event] = (totals[row.event] ?? 0) + row.count;
+
+        return {
+          source: sourceLabel(c.env),
+          window_days: days,
+          method: 'GA4 event counts grouped by country, event page and session campaign; rows are aggregate signals, not user-level paths.',
+          totals,
+          rows,
+          synced_at: Math.floor(Date.now() / 1000),
+        };
+      }
+    );
     return ok(c, payload);
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';

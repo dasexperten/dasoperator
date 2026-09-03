@@ -40,6 +40,14 @@ export type Ga4Funnel = {
   rows: Array<{ step: string; count: number; rate_vs_prev_pct: number | null; rate_vs_sessions_pct: number | null }>;
   synced_at: number;
 };
+export type Ga4CommerceLosses = {
+  source: string;
+  window_days: number;
+  method: string;
+  totals: Record<string, number>;
+  rows: Array<{ event: string; country: string; page: string; campaign: string; count: number }>;
+  synced_at: number;
+};
 export type Ga4NavFlows = {
   source: string;
   window_days: number;

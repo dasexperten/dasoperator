@@ -79,6 +79,8 @@ const INDEX_PREFIX = 'Inbox/';
 const HEAVY_MS = 20_000;
 /** Тяжёлую опись обход трогает не чаще раза в час. */
 const HEAVY_EVERY_S = 3600;
+/** Сколько живёт замок прохода снимков, чтобы упавший тик не запер всё. */
+const SNAP_LOCK_S = 300;
 
 export function rowFromEntry(mailbox: string, e: IndexEntry): MailRow {
   return {
@@ -540,10 +542,24 @@ export interface SnapshotPassResult {
  * снимка прибавились письма, и пересобирает их описи. Ящиков без прибавки
  * проход не касается вовсе — тик остаётся дешёвым.
  */
-export async function snapshotPass(env: Env, opts?: { max?: number }): Promise<SnapshotPassResult> {
+export async function snapshotPass(env: Env, opts?: { max?: number; ignoreLock?: boolean }): Promise<SnapshotPassResult> {
   const t0 = Date.now();
   const max = Math.max(1, Math.min(20, opts?.max ?? 4));
   try {
+    // Замок от наложения. Запись в это хранилище бывает медленной (замер
+    // 03.09: проход по двум ящикам шёл больше минуты), а тик приходит раз в
+    // две минуты. Без замка проходы полезли бы друг на друга и стали бы
+    // сами себе очередью. Замок протухает, чтобы упавший тик не запер всё.
+    if (!opts?.ignoreLock) {
+      const lock = await readState(env, 'snap:lock_at');
+      const startedAt = Number(lock['snap:lock_at'] ?? 0);
+      const now = Math.floor(Date.now() / 1000);
+      if (startedAt && now - startedAt < SNAP_LOCK_S) {
+        return { ok: true, pending: 0, wrote: 0, ms: Date.now() - t0, results: [] };
+      }
+      await putState(env, [['snap:lock_at', String(now)]]);
+    }
+
     const counts = await mailboxCountsFromD1(env);
     const state = await readState(env, 'mailbox:');
     const pending: string[] = [];
@@ -556,6 +572,7 @@ export async function snapshotPass(env: Env, opts?: { max?: number }): Promise<S
     const results: SnapshotResult[] = [];
     for (const addr of pending.slice(0, max)) results.push(await snapshotMailbox(env, addr));
 
+    if (!opts?.ignoreLock) await putState(env, [['snap:lock_at', '0']]);
     return {
       ok: true,
       pending: pending.length,

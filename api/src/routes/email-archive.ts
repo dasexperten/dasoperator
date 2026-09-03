@@ -247,7 +247,8 @@ route.post('/index-sync', async (c) => {
     if (c.req.query('snapshot') === '1') {
       if (mailbox) return ok(c, await snapshotMailbox(c.env, normalizeAddress(mailbox)));
       const max = Number(c.req.query('max') || 4);
-      return ok(c, await snapshotPass(c.env, { max: Number.isFinite(max) ? max : 4 }));
+      // Рука замок не слушает: прогон по требованию должен идти сразу.
+      return ok(c, await snapshotPass(c.env, { max: Number.isFinite(max) ? max : 4, ignoreLock: true }));
     }
     if (mailbox) {
       const r = await syncMailbox(c.env, normalizeAddress(mailbox), { force: true });

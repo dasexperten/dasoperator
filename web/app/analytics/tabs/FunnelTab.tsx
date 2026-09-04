@@ -11,7 +11,7 @@ import React from 'react';
 import {
   useApi, fmtNum, fmtPct, timeAgo,
   Kpi, Panel, LoadState,
-  type Ga4Funnel, type Ga4CommerceLosses,
+  type AdsPriceTestExposure, type Ga4Funnel, type Ga4CommerceLosses,
 } from '../shared';
 
 const STEP_LABELS: Record<string, string> = {
@@ -66,6 +66,7 @@ function gaMinute(value: string) {
 export default function FunnelTab() {
   const funnel = useApi<Ga4Funnel>('/api/ga4/funnel?days=30');
   const losses = useApi<Ga4CommerceLosses>('/api/ga4/commerce-losses?days=30&limit=250');
+  const exposure = useApi<AdsPriceTestExposure>('/api/ga4/price-test-exposure');
   const t = funnel.data?.totals;
   const rows = funnel.data?.rows ?? [];
   const base = rows[0]?.count ?? 0;
@@ -87,6 +88,7 @@ export default function FunnelTab() {
     <div className="space-y-4">
       <LoadState loading={funnel.loading} error={funnel.error} />
       <LoadState loading={losses.loading} error={losses.error} />
+      <LoadState loading={exposure.loading} error={exposure.error} />
 
       {t && (
         <div className="wa-kpis">
@@ -134,7 +136,30 @@ export default function FunnelTab() {
         )}
       </Panel>
 
-      <Panel title="Paid landing through checkout — progress, failures and handoffs" source="GA4 events · 30 days">
+      <Panel title="Paid landing through checkout — progress, failures and handoffs" source="Google Ads calendar delivery + GA4 post-launch events">
+        {exposure.data && (
+          <>
+            <div className="wa-kpis" style={{ marginBottom: 16 }}>
+              {(['PH', 'MY', 'VN'] as const).map((code) => {
+                const market = exposure.data!.markets[code];
+                return (
+                  <Kpi
+                    key={code}
+                    accent={code === 'MY' && market.clicks === 0}
+                    label={`${code} Ads impressions`}
+                    value={fmtNum(market.impressions)}
+                    delta={`${fmtNum(market.clicks)} clicks · $${market.cost_usd.toFixed(2)}`}
+                  />
+                );
+              })}
+            </div>
+            <div className="wa-note" style={{ marginBottom: 16 }}>
+              Ads delivery covers calendar days {exposure.data.calendar_start} → {exposure.data.calendar_end};
+              launch day includes time before 09:46 UTC. The PH/MY price cards below use the exact GA4 release seam.
+              {' '}Synced {timeAgo(exposure.data.synced_at)}.
+            </div>
+          </>
+        )}
         {losses.data && (
           <>
             <div className="wa-kpis" style={{ marginBottom: 16 }}>

@@ -64,6 +64,22 @@ export type Ga4CommerceLosses = {
   rows: Array<{ event: string; country: string; page: string; campaign: string; event_minute: string; count: number }>;
   synced_at: number;
 };
+export type AdsPriceTestExposure = {
+  source: string;
+  campaign: string;
+  campaign_id: string;
+  calendar_start: string;
+  calendar_end: string;
+  launch_seam_caveat: string;
+  markets: Record<'PH' | 'MY' | 'VN', {
+    country: string;
+    impressions: number;
+    clicks: number;
+    cost_usd: number;
+    conversions: number;
+  }>;
+  synced_at: number;
+};
 export type Ga4NavFlows = {
   source: string;
   window_days: number;

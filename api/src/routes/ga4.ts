@@ -469,6 +469,24 @@ const COMMERCE_LOSS_EVENTS = [
 const PRICE_TEST_START_MINUTE = '202609040946';
 const PRICE_TEST_END_MINUTE = '202609110946';
 
+// Google Ads credentials stay on Jurgen's seat. This route only relays the
+// public bounded three-market aggregate; it cannot accept GAQL or mutate Ads.
+ga4.get('/price-test-exposure', async (c) => {
+  try {
+    const res = await fetch('https://jurgen-seo.dasexperten.com/ads-price-test-exposure', {
+      headers: { Accept: 'application/json' },
+    });
+    const payload = await res.json() as { ok?: boolean; error?: string };
+    if (!res.ok || !payload.ok) {
+      return fail(c, 502, [{ code: 'ads_exposure_upstream_error', message: payload.error || `HTTP ${res.status}` }]);
+    }
+    return ok(c, payload);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return fail(c, 502, [{ code: 'ads_exposure_upstream_error', message: msg }]);
+  }
+});
+
 ga4.get('/commerce-losses', async (c) => {
   if (!ga4Configured(c.env)) return notConfigured(c);
   const days = windowDays(c);

@@ -421,6 +421,7 @@ const COMMERCE_LOSS_EVENTS = [
   'view_cart',
   'begin_checkout',
   'checkout_loaded',
+  'checkout_address_complete',
   'shipping_quote_ready',
   'add_payment_info',
   'checkout_error',
@@ -456,7 +457,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v5', { days, limit }),
+      cacheKey('ga4:commerce-losses:v6', { days, limit }),
       decisionCacheTtl(days),
       async () => {
         const resp = await ga4RunReport(c.env, {
@@ -833,7 +834,7 @@ ga4.get('/realtime', async (c) => {
       'pdp_value_proof_view', 'pdp_price_view',
       'view_cart', 'shipping_preview_ready', 'shipping_bundle_offer',
       'shipping_bundle_unavailable',
-      'shipping_bundle_add', 'begin_checkout', 'checkout_loaded',
+      'shipping_bundle_add', 'begin_checkout', 'checkout_loaded', 'checkout_address_complete',
       'shipping_quote_ready', 'add_payment_info', 'purchase', 'checkout_error',
     ];
     const [perMinute, byCountry, fiveMin, byAudience, byPage, byEvent, byCountryEvent] = await Promise.all([

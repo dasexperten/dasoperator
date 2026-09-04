@@ -26,6 +26,7 @@ const SIGNAL_LABELS: Record<string, string> = {
   view_cart: 'Viewed cart',
   begin_checkout: 'Began checkout',
   checkout_loaded: 'Checkout loaded',
+  checkout_address_complete: 'Delivery address completed',
   shipping_quote_ready: 'Shipping quote ready',
   add_payment_info: 'Reached payment',
   checkout_error: 'Checkout error',
@@ -69,6 +70,11 @@ export default function FunnelTab() {
   const bundleOffers = losses.data?.totals.shipping_bundle_offer ?? 0;
   const bundleAdds = losses.data?.totals.shipping_bundle_add ?? 0;
   const bundleUptake = bundleOffers > 0 ? (bundleAdds / bundleOffers) * 100 : 0;
+  const checkoutLoads = losses.data?.totals.checkout_loaded ?? 0;
+  const addressCompletes = losses.data?.totals.checkout_address_complete ?? 0;
+  const shippingQuotes = losses.data?.totals.shipping_quote_ready ?? 0;
+  const addressCompletion = checkoutLoads > 0 ? (addressCompletes / checkoutLoads) * 100 : 0;
+  const quoteSuccess = addressCompletes > 0 ? (shippingQuotes / addressCompletes) * 100 : 0;
 
   return (
     <div className="space-y-4">
@@ -123,11 +129,18 @@ export default function FunnelTab() {
 
       <Panel title="After cart — progress, failures and handoffs" source="GA4 events · 30 days">
         {losses.data && (
-          <div className="wa-kpis" style={{ marginBottom: 16 }}>
-            <Kpi label="Shipping bundle offers" value={fmtNum(bundleOffers)} delta="DE · VN · PH" />
-            <Kpi label="Second tubes added" value={fmtNum(bundleAdds)} delta="one-click action" />
-            <Kpi accent label="Bundle uptake" value={fmtPct(bundleUptake)} delta="adds ÷ offers" />
-          </div>
+          <>
+            <div className="wa-kpis" style={{ marginBottom: 12 }}>
+              <Kpi label="Checkout loaded" value={fmtNum(checkoutLoads)} delta="form opened" />
+              <Kpi label="Address completed" value={fmtNum(addressCompletes)} delta={fmtPct(addressCompletion) + ' of loads'} />
+              <Kpi accent label="Shipping quote ready" value={fmtNum(shippingQuotes)} delta={fmtPct(quoteSuccess) + ' of completed addresses'} />
+            </div>
+            <div className="wa-kpis" style={{ marginBottom: 16 }}>
+              <Kpi label="Shipping bundle offers" value={fmtNum(bundleOffers)} delta="DE · VN · PH" />
+              <Kpi label="Second tubes added" value={fmtNum(bundleAdds)} delta="one-click action" />
+              <Kpi accent label="Bundle uptake" value={fmtPct(bundleUptake)} delta="adds ÷ offers" />
+            </div>
+          </>
         )}
         {losses.data?.rows.length ? (
           <div className="wa-table-scroll">

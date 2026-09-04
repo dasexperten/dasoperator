@@ -28,6 +28,14 @@ function windowDays(c: { req: { query: (k: string) => string | undefined } }, de
   return Math.min(Math.max(parseInt(c.req.query('days') ?? String(def), 10) || def, 1), 365);
 }
 
+// A one-day decision window is used immediately after commerce releases. Keeping
+// it for an hour makes a real post-release event indistinguishable from a stale
+// pre-release aggregate. Longer analytical windows remain hourly to avoid
+// unnecessary GA4 quota pressure.
+function decisionCacheTtl(days: number): number {
+  return days === 1 ? 300 : 3600;
+}
+
 function notConfigured(c: any) {
   return fail(c, 503, [
     {
@@ -253,7 +261,7 @@ ga4.get('/acquisition-detail', async (c) => {
     const payload = await withKvCache(
       c.env,
       cacheKey('ga4:acquisition-detail', { days, limit }),
-      3600,
+      decisionCacheTtl(days),
       async () => {
         const resp = await ga4RunReport(c.env, {
           dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
@@ -446,7 +454,7 @@ ga4.get('/commerce-losses', async (c) => {
     const payload = await withKvCache(
       c.env,
       cacheKey('ga4:commerce-losses:v2', { days, limit }),
-      3600,
+      decisionCacheTtl(days),
       async () => {
         const resp = await ga4RunReport(c.env, {
           dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],

@@ -438,10 +438,9 @@ export async function runFboSync(env: FboEnv, only?: 'ozon' | 'wb'): Promise<Fbo
     }
     if (only === 'ozon') return report;
 
-    // WB stocks and sales are INDEPENDENT blocks: the statistics-api
-    // throttling is shared with every other consumer in the account, so the
-    // stocks endpoint being contested must not cost us the sales snapshot.
-    await new Promise((res) => setTimeout(res, 5000));
+    // WB stocks and sales are independent blocks and now use different API
+    // families. A failure in one must not cost us the other snapshot.
+    await new Promise((res) => setTimeout(res, 1000));
     const wbErrors: string[] = [];
     let wbStocks = 0, wbSales = 0;
     const wbUnknown = new Set<string>();
@@ -454,7 +453,7 @@ export async function runFboSync(env: FboEnv, only?: 'ozon' | 'wb'): Promise<Fbo
       wbErrors.push(`stocks: ${e instanceof Error ? e.message : String(e)}`);
       console.error('[fbo-sync] wb stocks failed:', e);
     }
-    await new Promise((res) => setTimeout(res, 65_000)); // WB rate limit
+    await new Promise((res) => setTimeout(res, 1000));
     try {
       const sa = await syncWbSales(env, lookup);
       wbSales = sa.rows;

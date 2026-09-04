@@ -28,6 +28,14 @@ function windowDays(c: { req: { query: (k: string) => string | undefined } }, de
   return Math.min(Math.max(parseInt(c.req.query('days') ?? String(def), 10) || def, 1), 365);
 }
 
+function reportRange(days: number): { startDate: string; endDate: string } {
+  return { startDate: days === 1 ? 'today' : `${days - 1}daysAgo`, endDate: 'today' };
+}
+
+function previousReportRange(days: number): { startDate: string; endDate: string } {
+  return { startDate: `${days * 2 - 1}daysAgo`, endDate: `${days}daysAgo` };
+}
+
 // A one-day decision window is used immediately after commerce releases. Keeping
 // it for an hour makes a real post-release event indistinguishable from a stale
 // pre-release aggregate. Longer analytical windows remain hourly to avoid
@@ -59,9 +67,9 @@ ga4.get('/overview', async (c) => {
   const days = windowDays(c);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:overview', { days }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:overview', { days, calendar_window: 'exact-v2' }), 3600, async () => {
       const daily = await ga4RunReport(c.env, {
-        dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+        dateRanges: [reportRange(days)],
         dimensions: [{ name: 'date' }],
         metrics: [
           { name: 'sessions' },
@@ -97,7 +105,7 @@ ga4.get('/overview', async (c) => {
       };
       try {
         const nvr = await ga4RunReport(c.env, {
-          dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+          dateRanges: [reportRange(days)],
           dimensions: [{ name: 'newVsReturning' }],
           metrics: [{ name: 'ecommercePurchases' }],
         });
@@ -145,9 +153,9 @@ ga4.get('/channels', async (c) => {
   const days = windowDays(c);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:channels', { days }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:channels', { days, calendar_window: 'exact-v2' }), 3600, async () => {
       const resp = await ga4RunReport(c.env, {
-        dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+        dateRanges: [reportRange(days)],
         dimensions: [{ name: 'sessionDefaultChannelGroup' }],
         metrics: [
           { name: 'sessions' },
@@ -206,9 +214,9 @@ ga4.get('/pages', async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '50', 10) || 50, 1), 250);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:pages', { days, limit }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:pages', { days, limit, calendar_window: 'exact-v2' }), 3600, async () => {
       const resp = await ga4RunReport(c.env, {
-        dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+        dateRanges: [reportRange(days)],
         dimensions: [{ name: 'landingPage' }],
         metrics: [{ name: 'sessions' }, { name: 'ecommercePurchases' }],
         orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
@@ -260,16 +268,17 @@ ga4.get('/acquisition-detail', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:acquisition-detail:v2', { days, limit }),
+      cacheKey('ga4:acquisition-detail:v3', { days, limit, calendar_window: 'exact-v2' }),
       decisionCacheTtl(days),
       async () => {
         const resp = await ga4RunReport(c.env, {
-          dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+          dateRanges: [reportRange(days)],
           dimensions: [
             { name: 'sessionDefaultChannelGroup' },
             { name: 'sessionCampaignName' },
             { name: 'country' },
             { name: 'landingPage' },
+            { name: 'date' },
           ],
           metrics: [
             { name: 'sessions' },
@@ -292,6 +301,7 @@ ga4.get('/acquisition-detail', async (c) => {
             campaign: r.dimensionValues?.[1]?.value || '(not set)',
             country: r.dimensionValues?.[2]?.value || '(not set)',
             landing_page: r.dimensionValues?.[3]?.value || '(not set)',
+            date: ga4Date(r.dimensionValues?.[4]?.value ?? ''),
             sessions,
             engaged_sessions: engagedSessions,
             engagement_rate_pct: sessions > 0 ? round2((engagedSessions / sessions) * 100) : 0,
@@ -307,7 +317,7 @@ ga4.get('/acquisition-detail', async (c) => {
           source: sourceLabel(c.env),
           window_days: days,
           method:
-            'GA4 session acquisition dimensions joined to aggregate ecommerce metrics; rows are acquisition segments, not user-level paths.',
+            'GA4 session acquisition dimensions and date joined to aggregate ecommerce metrics; rows are acquisition segments, not user-level paths.',
           totals: {
             sessions: rows.reduce((a, r) => a + r.sessions, 0),
             engaged_sessions: rows.reduce((a, r) => a + r.engaged_sessions, 0),
@@ -341,14 +351,14 @@ ga4.get('/funnel', async (c) => {
   const days = windowDays(c);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:funnel', { days }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:funnel', { days, calendar_window: 'exact-v2' }), 3600, async () => {
       const [sessionsResp, eventsResp] = await Promise.all([
         ga4RunReport(c.env, {
-          dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+          dateRanges: [reportRange(days)],
           metrics: [{ name: 'sessions' }],
         }),
         ga4RunReport(c.env, {
-          dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+          dateRanges: [reportRange(days)],
           dimensions: [{ name: 'eventName' }],
           metrics: [{ name: 'eventCount' }],
           dimensionFilter: {
@@ -457,11 +467,11 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v7', { days, limit }),
+      cacheKey('ga4:commerce-losses:v7', { days, limit, calendar_window: 'exact-v2' }),
       decisionCacheTtl(days),
       async () => {
         const resp = await ga4RunReport(c.env, {
-          dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+          dateRanges: [reportRange(days)],
           dimensions: [
             { name: 'eventName' },
             { name: 'country' },
@@ -525,9 +535,9 @@ ga4.get('/geo', async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '50', 10) || 50, 1), 250);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:geo', { days, limit }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:geo', { days, limit, calendar_window: 'exact-v2' }), 3600, async () => {
       const resp = await ga4RunReport(c.env, {
-        dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+        dateRanges: [reportRange(days)],
         dimensions: [{ name: 'country' }, { name: 'countryId' }],
         metrics: [{ name: 'activeUsers' }],
         orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }],
@@ -545,7 +555,7 @@ ga4.get('/geo', async (c) => {
       let prevByCountry = new Map<string, number>();
       try {
         const prev = await ga4RunReport(c.env, {
-          dateRanges: [{ startDate: `${days * 2}daysAgo`, endDate: `${days + 1}daysAgo` }],
+          dateRanges: [previousReportRange(days)],
           dimensions: [{ name: 'country' }],
           metrics: [{ name: 'activeUsers' }],
           limit,
@@ -588,9 +598,9 @@ ga4.get('/languages', async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '15', 10) || 15, 1), 100);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:languages', { days, limit }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:languages', { days, limit, calendar_window: 'exact-v2' }), 3600, async () => {
       const resp = await ga4RunReport(c.env, {
-        dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+        dateRanges: [reportRange(days)],
         dimensions: [{ name: 'language' }],
         metrics: [{ name: 'activeUsers' }],
         orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }],
@@ -627,15 +637,15 @@ ga4.get('/content', async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '25', 10) || 25, 1), 250);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:content:v4', { days, limit }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:content:v4', { days, limit, calendar_window: 'exact-v2' }), 3600, async () => {
       const [resp, commerce] = await Promise.all([ga4RunReport(c.env, {
-        dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+        dateRanges: [reportRange(days)],
         dimensions: [{ name: 'unifiedScreenName' }, { name: 'pagePath' }],
         metrics: [{ name: 'screenPageViews' }],
         orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
         limit,
       }), ga4RunReport(c.env, {
-        dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+        dateRanges: [reportRange(days)],
         dimensions: [{ name: 'eventName' }, { name: 'unifiedScreenName' }, { name: 'pagePath' }],
         metrics: [{ name: 'eventCount' }],
         dimensionFilter: { filter: { fieldName: 'eventName', inListFilter: { values: [
@@ -689,7 +699,7 @@ ga4.get('/snapshot', async (c) => {
   const days = windowDays(c, 28);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:snapshot', { days }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:snapshot', { days, calendar_window: 'exact-v2' }), 3600, async () => {
       const metrics = [
         { name: 'activeUsers' },
         { name: 'addToCarts' },
@@ -699,14 +709,14 @@ ga4.get('/snapshot', async (c) => {
 
       const [current, previous] = await Promise.all([
         ga4RunReport(c.env, {
-          dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+          dateRanges: [reportRange(days)],
           dimensions: [{ name: 'date' }],
           metrics,
           orderBys: [{ dimension: { dimensionName: 'date' } }],
           limit: 366,
         }),
         ga4RunReport(c.env, {
-          dateRanges: [{ startDate: `${days * 2}daysAgo`, endDate: `${days + 1}daysAgo` }],
+          dateRanges: [previousReportRange(days)],
           metrics,
         }),
       ]);
@@ -775,17 +785,17 @@ ga4.get('/nav-flows', async (c) => {
   const days = windowDays(c);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:nav-flows', { days }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:nav-flows', { days, calendar_window: 'exact-v2' }), 3600, async () => {
       const [entriesResp, edgesResp] = await Promise.all([
         ga4RunReport(c.env, {
-          dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+          dateRanges: [reportRange(days)],
           dimensions: [{ name: 'landingPage' }],
           metrics: [{ name: 'sessions' }],
           orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
           limit: 10,
         }),
         ga4RunReport(c.env, {
-          dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+          dateRanges: [reportRange(days)],
           dimensions: [{ name: 'pageReferrer' }, { name: 'pagePath' }],
           metrics: [{ name: 'screenPageViews' }],
           // Internal navigation only — referrer on our own host.

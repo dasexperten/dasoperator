@@ -3,7 +3,7 @@
 // FBO supply planning — cluster-grain data sync.
 // Writes fbo_stocks_cluster / fbo_sales_cluster (migrations 0058 + 0059).
 //
-// Self-contained: no imports from the rest of the app. Wire-up:
+// Wire-up:
 //   scheduled.ts  -> '0 5 * * *' branch: ctx.waitUntil(runFboSync(env))
 //   routes        -> POST /api/marketplaces/fbo/sync -> runFboSync(env)
 //                    POST /api/marketplaces/fbo/ingest-wb -> ingestWb(env, ...)
@@ -22,12 +22,11 @@
 //   - Sales rows carry first_sale/last_sale per cell (migration 0059) — V2
 //     active-days velocity inputs for fbo-calc.ts; NULL -> calc falls back to /30.
 //   - Ozon paid-storage exclusions are NOT applied here — calc's job.
-//   - WB statistics-api throttles Cloudflare egress IPs far harder than the
-//     per-seller budget suggests (the same token answers 200 instantly from
-//     elsewhere while the worker gets 429 "Limited by global limiter" for
-//     many minutes). Hence: 5 retries x 70 s, stocks/sales as independent
-//     blocks, and ingestWb() as the bring-your-own-payload relay — fetch the
-//     two WB JSONs from any unthrottled IP and POST them to /fbo/ingest-wb.
+//   - WB stocks use the current Seller Analytics warehouse-stock report.
+//     Sales still use Statistics API and retain the bring-your-own-payload
+//     relay for throttled Cloudflare egress.
+
+import { fetchWbWarehouseStocks, loadWbStockMappings } from '../lib/wb-stock-report';
 
 export interface FboEnv {
   DB: D1Database;
@@ -350,16 +349,9 @@ function aggregateWbSales(rows: any[], lookup: ClusterLookup): {
 }
 
 async function syncWbStocks(env: FboEnv, lookup: ClusterLookup): Promise<{ rows: number; unknown: Set<string> }> {
-  const r = await fetchRetry(
-    // dateFrom is required but /stocks returns the full current snapshot
-    // regardless (proven by the hourly refresh in routes/marketplaces.ts).
-    `https://statistics-api.wildberries.ru/api/v1/supplier/stocks?dateFrom=${isoDaysAgo(60)}`,
-    { headers: wbHeaders(env) },
-    5,
-    70_000,
-  );
-  if (!r.ok) throw new Error(`wb supplier/stocks HTTP ${r.status}`);
-  const rows = (await r.json()) as any[];
+  const mappings = await loadWbStockMappings(env.DB);
+  const report = await fetchWbWarehouseStocks(env.WB_API_TOKEN, mappings);
+  const rows = report.rows;
   const { agg, unknown } = aggregateWbStocks(rows, lookup);
   const n = await writeSnapshot(env, 'fbo_stocks_cluster', 'wb', agg);
   return { rows: n, unknown };

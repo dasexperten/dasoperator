@@ -15,6 +15,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { parseMarketplaceArticle } from '../lib/marketplace-articles';
+import { fetchWbWarehouseStocks, loadWbStockMappings } from '../lib/wb-stock-report';
 
 const marketplaces = new Hono<{ Bindings: Env }>();
 
@@ -178,7 +179,8 @@ marketplaces.post('/sync/ozon', async (c) => {
 
 // ---------------------------------------------------------------------------
 // POST /api/marketplaces/sync/wb
-// Pulls stocks from Wildberries Statistics API and upserts into marketplace_stocks_wb.
+// Pulls sellable stocks from the current Wildberries Seller Analytics report
+// and upserts them into marketplace_stocks_wb.
 // Aggregates per supplierArticle (sums across all WB physical warehouses).
 // ---------------------------------------------------------------------------
 marketplaces.post('/sync/wb', async (c) => {
@@ -193,22 +195,9 @@ marketplaces.post('/sync/wb', async (c) => {
     const wbToken = c.env.WB_API_TOKEN;
     if (!wbToken) throw new Error('WB_API_TOKEN not configured');
 
-    // dateFrom is REQUIRED by WB API but it returns full snapshot regardless.
-    // We use 30 days back to cover any delayed warehouse updates.
-    const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
-    const url = `https://statistics-api.wildberries.ru/api/v1/supplier/stocks?dateFrom=${encodeURIComponent(since)}`;
-    const resp = await fetch(url, { headers: { Authorization: wbToken } });
-    if (!resp.ok) {
-      throw new Error(`WB API ${resp.status}: ${await resp.text()}`);
-    }
-    const rows = (await resp.json()) as Array<{
-      supplierArticle: string;
-      nmId: number;
-      quantity: number;
-      inWayToClient: number;
-      inWayFromClient: number;
-      quantityFull: number;
-    }>;
+    const mappings = await loadWbStockMappings(c.env.DB);
+    const report = await fetchWbWarehouseStocks(wbToken, mappings);
+    const rows = report.rows;
 
     // Aggregate per article (WB returns per-warehouse rows, we collapse to one row per article)
     type Agg = {
@@ -245,7 +234,10 @@ marketplaces.post('/sync/wb', async (c) => {
       a.quantity += r.quantity || 0;
       a.in_way_to_client += r.inWayToClient || 0;
       a.in_way_from_client += r.inWayFromClient || 0;
-      a.quantity_full += r.quantityFull || 0;
+      // The replacement API exposes current sellable quantity and transit
+      // counters separately. Keep quantity_full conservative and auditable:
+      // it is sellable stock, not an invented sum of unlike states.
+      a.quantity_full += r.quantity || 0;
     }
 
     const now = Math.floor(Date.now() / 1000);
@@ -278,7 +270,12 @@ marketplaces.post('/sync/wb', async (c) => {
       'UPDATE marketplace_sync_log SET finished_at = ?, status = ?, rows_synced = ? WHERE id = ?'
     ).bind(finishedAt, 'ok', stmts.length, logId).run();
 
-    return ok(c, { rows_synced: stmts.length, unmatched: Array.from(unmatched), finished_at: finishedAt });
+    return ok(c, {
+      rows_synced: stmts.length,
+      unmatched: Array.from(unmatched),
+      unmatched_nm_ids: report.unmatchedNmIds,
+      finished_at: finishedAt,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await c.env.DB.prepare(

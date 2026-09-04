@@ -844,7 +844,7 @@ ga4.get('/realtime', async (c) => {
       'shipping_bundle_add', 'begin_checkout', 'checkout_loaded',
       'shipping_quote_ready', 'add_payment_info', 'purchase', 'checkout_error',
     ];
-    const [perMinute, byCountry, fiveMin, byAudience, byPage, byEvent, byCountryEvent] = await Promise.all([
+    const [perMinute, byCountry, fiveMin, byAudience, byPage, byEvent, byScreenEvent] = await Promise.all([
       ga4RunRealtimeReport(c.env, {
         dimensions: [{ name: 'minutesAgo' }],
         metrics: [{ name: 'activeUsers' }],
@@ -883,10 +883,10 @@ ga4.get('/realtime', async (c) => {
       }),
       // Realtime cannot expose pagePath, but unifiedScreenName is supported and
       // keeps commerce signals attributable to a specific product page title.
-      // GA4 rejects unifiedScreenName combined with minutesAgo, so this table
+      // GA4 rejects unifiedScreenName combined with country or minutesAgo, so this table
       // reports the rolling 30-minute window without false minute precision.
       ga4RunRealtimeReport(c.env, {
-        dimensions: [{ name: 'country' }, { name: 'eventName' }, { name: 'unifiedScreenName' }],
+        dimensions: [{ name: 'eventName' }, { name: 'unifiedScreenName' }],
         metrics: [{ name: 'eventCount' }],
         dimensionFilter: {
           filter: {
@@ -920,19 +920,17 @@ ga4.get('/realtime', async (c) => {
       }));
 
     const commerceEvents = new Set(commerceEventNames);
-    const countryEventMap = new Map<string, { country: string; event: string; screen: string; count: number; last_seen_minutes_ago: null }>();
-    for (const r of byCountryEvent.rows ?? []) {
-      const country = r.dimensionValues?.[0]?.value || '(not set)';
-      const event = r.dimensionValues?.[1]?.value || '(not set)';
+    const screenEventMap = new Map<string, { event: string; screen: string; count: number; last_seen_minutes_ago: null }>();
+    for (const r of byScreenEvent.rows ?? []) {
+      const event = r.dimensionValues?.[0]?.value || '(not set)';
       if (!commerceEvents.has(event)) continue;
-      const screen = r.dimensionValues?.[2]?.value || '(not set)';
-      const key = `${country}\u0000${event}\u0000${screen}`;
-      const current = countryEventMap.get(key);
+      const screen = r.dimensionValues?.[1]?.value || '(not set)';
+      const key = `${event}\u0000${screen}`;
+      const current = screenEventMap.get(key);
       if (current) {
         current.count += Math.round(metricNum(r, 0));
       } else {
-        countryEventMap.set(key, {
-          country,
+        screenEventMap.set(key, {
           event,
           screen,
           count: Math.round(metricNum(r, 0)),
@@ -940,7 +938,7 @@ ga4.get('/realtime', async (c) => {
         });
       }
     }
-    const countryEventRows = [...countryEventMap.values()]
+    const screenEventRows = [...screenEventMap.values()]
       .sort((a, b) => b.count - a.count);
 
     return ok(c, {
@@ -952,7 +950,7 @@ ga4.get('/realtime', async (c) => {
       by_audience: dimRows(byAudience, 'audience'),
       by_page: dimRows(byPage, 'title'),
       by_event: dimRows(byEvent, 'event'),
-      by_country_event: countryEventRows,
+      by_screen_event: screenEventRows,
       // NOTE for UI: GA4's realtime "by First user source" card has no
       // Realtime-API dimension — cut, never faked (audienceName is supported).
       synced_at: Math.floor(Date.now() / 1000),

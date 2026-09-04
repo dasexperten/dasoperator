@@ -1,25 +1,28 @@
 'use client';
 
 // =============================================================================
-// GA4 Snapshot tab — direct parity with the six GA4 UI widgets Aram asked to
-// have inside the ERP: active users by country (map + table), ecommerce
-// snapshot (active users / add to carts / checkouts / purchases + trend),
-// views by page title & screen, sessions by channel, realtime (last 30 min +
-// by country), active users by language.
+// GA4 Snapshot tab — direct parity with the GA4 UI widgets Aram asked to have
+// inside the ERP: active users by country (map + table), ecommerce snapshot
+// (active users / add to carts / checkouts / purchases + trend), views by page
+// title & screen, sessions by channel, active users by language.
+//
+// The Realtime overview card was removed on Owner's word (2026-09-04). GA4's
+// Realtime API is metered per property per hour and this panel self-polled
+// every 60s while the tab stayed open, which is what exhausted the quota and
+// left the card showing HTTP 429 instead of numbers. Everything here now goes
+// through the same 1h server-side cache as the other GA4 tabs.
 //
 // Source: GA4 property 511756146 (dasexperten.com, global contour) only —
 // same rule as every other tab: never blended with Metrika or Clarity.
-// Realtime panel self-polls every 60s while this tab is mounted (GA4's own
-// realtime cards refresh on a similar cadence); everything else is the
-// standard 1h server-side cache other GA4 tabs already use.
+// Everything on this tab uses the standard 1h server-side cache.
 // =============================================================================
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { BarChart, AreaChart } from '@tremor/react';
 import {
   useApi, fmtNum, fmtPct, timeAgo,
   Kpi, Panel, LoadState, ChartLegend,
-  type Ga4Geo, type Ga4Languages, type Ga4Content, type Ga4Snapshot, type Ga4Realtime, type Ga4Channels,
+  type Ga4Geo, type Ga4Languages, type Ga4Content, type Ga4Snapshot, type Ga4Channels,
 } from '../shared';
 import { WorldMap } from '../WorldMap';
 
@@ -37,142 +40,15 @@ export default function SnapshotTab() {
   const snapshot = useApi<Ga4Snapshot>('/api/ga4/snapshot?days=28');
   const channels = useApi<Ga4Channels>('/api/ga4/channels?days=7');
 
-  // Realtime: self-polling — this is the one panel where "1h cache" would be
-  // pointless. Polls every 60s while the tab is mounted; stops on unmount.
-  const [realtime, setRealtime] = useState<{ data: Ga4Realtime | null; error: string | null; loading: boolean }>({
-    data: null,
-    error: null,
-    loading: true,
-  });
-  useEffect(() => {
-    let cancelled = false;
-    async function poll() {
-      try {
-        const res = await fetch('https://dasoperator-api.dasexperten.workers.dev/api/ga4/realtime');
-        const json = await res.json();
-        if (cancelled) return;
-        if (json?.success) setRealtime({ data: json.result, error: null, loading: false });
-        else setRealtime((s) => ({ ...s, error: json?.errors?.[0]?.message ?? 'API error', loading: false }));
-      } catch (e) {
-        if (!cancelled) setRealtime((s) => ({ ...s, error: e instanceof Error ? e.message : 'Unknown error', loading: false }));
-      }
-    }
-    poll();
-    const id = setInterval(poll, 60_000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, []);
-
   const geoMax = geo.data?.rows[0]?.active_users ?? 0;
   const snapDelta = snapshot.data?.deltas_pct;
-
-  const rt = realtime.data;
 
   return (
     <div className="space-y-4">
       <div className="wa-note">
-        Snapshot — same six cards as the GA4 UI's Reports snapshot + Realtime overview, rebuilt
-        here so the numbers live next to the rest of the ERP. Source: GA4 property 511756146.
+        Snapshot — the same six cards as the GA4 UI's Reports snapshot, rebuilt here so the
+        numbers live next to the rest of the ERP. Source: GA4 property 511756146.
       </div>
-
-      {/* ============ Realtime overview — GA4-style, self-refreshes 60s ============ */}
-      <Panel title="Realtime overview" source="GA4 realtime · self-refreshes 60s">
-        <LoadState loading={realtime.loading} error={realtime.error} />
-        {rt && (
-          <>
-            <div className="wa-grid2eq" style={{ alignItems: 'start' }}>
-              <div>
-                <div className="wa-kpis">
-                  <Kpi label="Active users in last 30 minutes" value={fmtNum(rt.active_users_now)} />
-                  <Kpi label="Active users in last 5 minutes" value={rt.active_users_5min === undefined ? '—' : fmtNum(rt.active_users_5min)} />
-                </div>
-                {rt.per_minute.length > 0 && (
-                  <div className="wa-chart" style={{ marginTop: 12 }}>
-                    <BarChart
-                      className="h-40"
-                      data={rt.per_minute.map((r) => ({ minute: `-${r.minutes_ago}`, 'active users': r.active_users }))}
-                      index="minute"
-                      categories={['active users']}
-                      colors={['stone']}
-                      valueFormatter={fmtNum}
-                      showAnimation={false}
-                      showLegend={false}
-                      showXAxis={false}
-                    />
-                  </div>
-                )}
-              </div>
-              <WorldMap
-                data={rt.by_country.map((r) => ({ country: r.country, value: r.active_users }))}
-                height={260}
-              />
-            </div>
-
-            <div className="wa-grid2eq" style={{ marginTop: 16 }}>
-              <div className="wa-table-scroll" style={{ maxHeight: 240 }}>
-                <table className="wa-table">
-                  <thead><tr><th>Audience</th><th className="right">Active users</th></tr></thead>
-                  <tbody>
-                    {(rt.by_audience ?? []).map((r) => (
-                      <tr key={r.audience}><td style={{ fontWeight: 700 }}>{r.audience}</td><td className="num right">{fmtNum(r.count)}</td></tr>
-                    ))}
-                    {(rt.by_audience ?? []).length === 0 && (
-                      <tr><td colSpan={2} style={{ color: 'var(--fg-3)' }}>No audience data right now.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              <div className="wa-table-scroll" style={{ maxHeight: 240 }}>
-                <table className="wa-table">
-                  <thead><tr><th>Country</th><th className="right">Active users</th></tr></thead>
-                  <tbody>
-                    {rt.by_country.map((r) => (
-                      <tr key={r.country}><td style={{ fontWeight: 700 }}>{r.country}</td><td className="num right">{fmtNum(r.active_users)}</td></tr>
-                    ))}
-                    {rt.by_country.length === 0 && (
-                      <tr><td colSpan={2} style={{ color: 'var(--fg-3)' }}>Nobody on-site right now.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="wa-grid2eq" style={{ marginTop: 16 }}>
-              <div className="wa-table-scroll" style={{ maxHeight: 240 }}>
-                <table className="wa-table">
-                  <thead><tr><th>Page title and screen name</th><th className="right">Views</th></tr></thead>
-                  <tbody>
-                    {(rt.by_page ?? []).map((r) => (
-                      <tr key={r.title}><td style={{ maxWidth: 320, wordBreak: 'break-word' }}>{r.title}</td><td className="num right">{fmtNum(r.count)}</td></tr>
-                    ))}
-                    {(rt.by_page ?? []).length === 0 && (
-                      <tr><td colSpan={2} style={{ color: 'var(--fg-3)' }}>No page views right now.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              <div className="wa-table-scroll" style={{ maxHeight: 240 }}>
-                <table className="wa-table">
-                  <thead><tr><th>Event name</th><th className="right">Event count</th></tr></thead>
-                  <tbody>
-                    {(rt.by_event ?? []).map((r) => (
-                      <tr key={r.event}><td style={{ fontWeight: 700 }}>{r.event}</td><td className="num right">{fmtNum(r.count)}</td></tr>
-                    ))}
-                    {(rt.by_event ?? []).length === 0 && (
-                      <tr><td colSpan={2} style={{ color: 'var(--fg-3)' }}>No events right now.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="wa-note" style={{ marginTop: 12 }}>
-              Synced {timeAgo(rt.synced_at)} · minute bars run oldest (-29) to newest (0, now).
-              GA4's "by First user source" realtime card has no Realtime-API dimension — cut,
-              never faked.
-            </div>
-          </>
-        )}
-      </Panel>
 
       {/* ============ Active users by country — map + table ============ */}
       <Panel

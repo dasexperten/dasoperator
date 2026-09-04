@@ -33,6 +33,16 @@ export type Ga4Pages = {
   rows: Array<{ page: string; sessions: number; purchases: number; cr: number }>;
   synced_at: number;
 };
+export type Ga4AcquisitionDetail = {
+  source: string;
+  window_days: number;
+  method: string;
+  totals: { sessions: number; engaged_sessions: number; add_to_carts: number; checkouts: number; purchases: number; revenue: number };
+  visible_row_totals: { sessions: number; engaged_sessions: number; add_to_carts: number; checkouts: number; purchases: number; revenue: number };
+  coverage: { returned_rows: number; available_rows: number; sessions_pct: number };
+  rows: Array<{ channel: string; campaign: string; country: string; landing_page: string; date: string; sessions: number; engaged_sessions: number; engagement_rate_pct: number; add_to_carts: number; checkouts: number; purchases: number; revenue: number; cr: number }>;
+  synced_at: number;
+};
 export type Ga4Funnel = {
   source: string;
   window_days: number;

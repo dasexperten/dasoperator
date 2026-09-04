@@ -268,10 +268,21 @@ ga4.get('/acquisition-detail', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:acquisition-detail:v3', { days, limit, calendar_window: 'exact-v2' }),
+      cacheKey('ga4:acquisition-detail:v4', { days, limit, calendar_window: 'exact-v2' }),
       decisionCacheTtl(days),
       async () => {
-        const resp = await ga4RunReport(c.env, {
+        const metrics = [
+          { name: 'sessions' },
+          { name: 'engagedSessions' },
+          { name: 'addToCarts' },
+          { name: 'checkouts' },
+          { name: 'ecommercePurchases' },
+          { name: 'purchaseRevenue' },
+        ];
+        // The dated acquisition grain can have thousands of rows. Its top-N sum
+        // is not an account total, so fetch the denominator separately instead of
+        // presenting a truncated sum as the whole funnel.
+        const [resp, exact] = await Promise.all([ga4RunReport(c.env, {
           dateRanges: [reportRange(days)],
           dimensions: [
             { name: 'sessionDefaultChannelGroup' },
@@ -280,17 +291,13 @@ ga4.get('/acquisition-detail', async (c) => {
             { name: 'landingPage' },
             { name: 'date' },
           ],
-          metrics: [
-            { name: 'sessions' },
-            { name: 'engagedSessions' },
-            { name: 'addToCarts' },
-            { name: 'checkouts' },
-            { name: 'ecommercePurchases' },
-            { name: 'purchaseRevenue' },
-          ],
+          metrics,
           orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
           limit,
-        });
+        }), ga4RunReport(c.env, {
+          dateRanges: [reportRange(days)],
+          metrics,
+        })]);
 
         const rows = (resp.rows ?? []).map((r) => {
           const sessions = Math.round(metricNum(r, 0));
@@ -313,18 +320,35 @@ ga4.get('/acquisition-detail', async (c) => {
           };
         });
 
+        const visibleTotals = {
+          sessions: rows.reduce((a, r) => a + r.sessions, 0),
+          engaged_sessions: rows.reduce((a, r) => a + r.engaged_sessions, 0),
+          add_to_carts: rows.reduce((a, r) => a + r.add_to_carts, 0),
+          checkouts: rows.reduce((a, r) => a + r.checkouts, 0),
+          purchases: rows.reduce((a, r) => a + r.purchases, 0),
+          revenue: round2(rows.reduce((a, r) => a + r.revenue, 0)),
+        };
+        const exactRow = exact.rows?.[0] ?? {};
+        const totals = {
+          sessions: Math.round(metricNum(exactRow, 0)),
+          engaged_sessions: Math.round(metricNum(exactRow, 1)),
+          add_to_carts: Math.round(metricNum(exactRow, 2)),
+          checkouts: Math.round(metricNum(exactRow, 3)),
+          purchases: Math.round(metricNum(exactRow, 4)),
+          revenue: round2(metricNum(exactRow, 5)),
+        };
+
         return {
           source: sourceLabel(c.env),
           window_days: days,
           method:
-            'GA4 session acquisition dimensions and date joined to aggregate ecommerce metrics; rows are acquisition segments, not user-level paths.',
-          totals: {
-            sessions: rows.reduce((a, r) => a + r.sessions, 0),
-            engaged_sessions: rows.reduce((a, r) => a + r.engaged_sessions, 0),
-            add_to_carts: rows.reduce((a, r) => a + r.add_to_carts, 0),
-            checkouts: rows.reduce((a, r) => a + r.checkouts, 0),
-            purchases: rows.reduce((a, r) => a + r.purchases, 0),
-            revenue: round2(rows.reduce((a, r) => a + r.revenue, 0)),
+            'Exact totals come from an unsegmented GA4 report. Rows are the highest-session dated acquisition segments and are not user-level paths.',
+          totals,
+          visible_row_totals: visibleTotals,
+          coverage: {
+            returned_rows: rows.length,
+            available_rows: resp.rowCount ?? rows.length,
+            sessions_pct: totals.sessions > 0 ? round2((visibleTotals.sessions / totals.sessions) * 100) : 100,
           },
           rows,
           synced_at: Math.floor(Date.now() / 1000),

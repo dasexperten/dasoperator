@@ -14,7 +14,7 @@ import { BarChart } from '@tremor/react';
 import {
   useApi, fmtNum, fmtPct, fmtMoney, timeAgo,
   Panel, LoadState, ChartLegend,
-  type Ga4Channels, type Ga4Pages, type MetrikaSources, type MetrikaPhrases,
+  type Ga4Channels, type Ga4Pages, type Ga4AcquisitionDetail, type MetrikaSources, type MetrikaPhrases,
 } from '../shared';
 
 // ----- intent classifier (das-adaptation §1 — ported from the original page) --
@@ -38,7 +38,7 @@ const INTENT_META: Record<Intent, { label: string; cls: string }> = {
   other: { label: 'Other', cls: 'off' },
 };
 
-// ----- money clusters without landings (audit debt, per Aram's decision) ------
+// ----- original money-cluster audit, retained as completion evidence ----------
 const MONEY_CLUSTERS = [
   { cluster: 'Энзимная паста', query_ru: 'ферментная зубная паста', query_en: 'enzyme toothpaste', sku: 'INNOWEISS' },
   { cluster: 'Пробиотическая паста', query_ru: 'пробиотическая зубная паста', query_en: 'probiotic toothpaste', sku: 'SYMBIOS' },
@@ -51,6 +51,7 @@ export default function TrafficTab() {
   const [win, setWin] = useState<'90' | '30'>('30');
   const channels = useApi<Ga4Channels>('/api/ga4/channels?days=30');
   const pages = useApi<Ga4Pages>('/api/ga4/pages?days=30&limit=25');
+  const acquisition = useApi<Ga4AcquisitionDetail>('/api/ga4/acquisition-detail?days=30&limit=250');
   const sources = useApi<MetrikaSources>(`/api/metrika/sources?days=${win}`);
   const phrases = useApi<MetrikaPhrases>(`/api/metrika/phrases?days=${win}&limit=100`);
 
@@ -144,6 +145,40 @@ export default function TrafficTab() {
               {!pages.loading && (pages.data?.rows ?? []).length === 0 && (
                 <tr><td colSpan={5} style={{ color: 'var(--fg-3)' }}>No landing-page data.</td></tr>
               )}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+
+      <Panel title="Acquisition segments — conversion path" source="GA4 · dasexperten.com" pad={false}>
+        <div className="wa-panel-body">
+          <LoadState loading={acquisition.loading} error={acquisition.error} />
+          {acquisition.data && (
+            <div className="wa-note">
+              The table shows {fmtNum(acquisition.data.coverage.returned_rows)} of {fmtNum(acquisition.data.coverage.available_rows)} dated segments,
+              covering {fmtPct(acquisition.data.coverage.sessions_pct)} of {fmtNum(acquisition.data.totals.sessions)} sessions.
+              Exact totals are calculated separately, so a display limit is never presented as the whole funnel.
+              Synced {timeAgo(acquisition.data.synced_at)}.
+            </div>
+          )}
+        </div>
+        <div className="wa-table-scroll">
+          <table className="wa-table">
+            <thead><tr><th>Date</th><th>Channel / campaign</th><th>Country</th><th>Landing</th><th className="right">Sessions</th><th className="right">Cart</th><th className="right">Checkout</th><th className="right">Purchase</th></tr></thead>
+            <tbody>
+              {(acquisition.data?.rows ?? []).slice(0, 25).map((r, i) => (
+                <tr key={`${r.date}-${r.channel}-${r.campaign}-${r.country}-${r.landing_page}-${i}`}>
+                  <td className="num soft">{r.date}</td>
+                  <td><strong>{r.channel}</strong><br /><span className="soft">{r.campaign}</span></td>
+                  <td>{r.country}</td>
+                  <td style={{ wordBreak: 'break-all', maxWidth: 320 }}>{r.landing_page}</td>
+                  <td className="num right">{fmtNum(r.sessions)}</td>
+                  <td className="num right">{fmtNum(r.add_to_carts)}</td>
+                  <td className="num right">{fmtNum(r.checkouts)}</td>
+                  <td className="num right">{fmtNum(r.purchases)}</td>
+                </tr>
+              ))}
+              {!acquisition.loading && (acquisition.data?.rows ?? []).length === 0 && <tr><td colSpan={8}>No acquisition detail.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -246,7 +281,7 @@ export default function TrafficTab() {
         )}
       </Panel>
 
-      <Panel title="Money clusters without landing pages" source="Audit 2026-06-11 → 2026-07-05" pad={false}>
+      <Panel title="Original money-cluster audit" source="Audit 2026-06-11 → 2026-07-05" pad={false}>
         <div className="wa-table-scroll">
           <table className="wa-table">
             <thead>
@@ -259,7 +294,7 @@ export default function TrafficTab() {
                   <td>{c.query_ru}</td>
                   <td style={{ color: 'var(--fg-2)' }}>{c.query_en}</td>
                   <td className="num soft">{c.sku}</td>
-                  <td><span className="wa-status rot"><span className="dot" />no landing</span></td>
+                  <td><span className="wa-status ok"><span className="dot" />landing shipped</span></td>
                 </tr>
               ))}
             </tbody>
@@ -267,8 +302,8 @@ export default function TrafficTab() {
         </div>
         <div className="wa-panel-body">
           <div className="wa-note">
-            5 high-intent non-brand clusters already receive organic visits but have no dedicated
-            landing (query = H1 = promise). Highest-leverage SEO action — doctrine: Jono Catliff method.
+            All five high-intent landing families are now published. Use the live acquisition table above
+            to judge traffic and downstream commerce; this historical audit is retained only as completion evidence.
           </div>
         </div>
       </Panel>

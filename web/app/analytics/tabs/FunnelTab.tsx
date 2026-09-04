@@ -84,6 +84,7 @@ export default function FunnelTab() {
   const paidMyLandings = losses.data?.price_test?.my_paid_landing ?? 0;
   const myCartAdds = losses.data?.price_test?.my_add_to_cart ?? 0;
   const myLandingToCart = paidMyLandings > 0 ? (myCartAdds / paidMyLandings) * 100 : null;
+  const postLaunchAds = exposure.data?.campaign_delivery?.post_launch_complete_hours;
 
   return (
     <div className="space-y-4">
@@ -154,9 +155,17 @@ export default function FunnelTab() {
                 );
               })}
             </div>
+            {postLaunchAds && (
+              <div className="wa-kpis" style={{ marginBottom: 16 }}>
+                <Kpi label="Ads after launch · impressions" value={fmtNum(postLaunchAds.impressions)} delta="complete account-time hours" />
+                <Kpi accent={postLaunchAds.clicks === 0} label="Ads after launch · clicks" value={fmtNum(postLaunchAds.clicks)} delta={`$${postLaunchAds.cost_usd.toFixed(4)} spend`} />
+                <Kpi label="Campaign delivery" value={exposure.data.campaign_delivery?.primary_status ?? '—'} delta={`$${exposure.data.campaign_delivery?.daily_budget_usd.toFixed(2)} daily · ${exposure.data.campaign_delivery?.serving_status ?? 'unknown'}`} />
+              </div>
+            )}
             <div className="wa-note" style={{ marginBottom: 16 }}>
               Ads delivery covers calendar days {exposure.data.calendar_start} → {exposure.data.calendar_end};
               launch day includes time before 09:46 UTC. The PH/MY price cards below use the exact GA4 release seam.
+              {exposure.data.campaign_delivery && <>{' '}Post-launch Ads totals conservatively exclude the partial launch hour ({exposure.data.campaign_delivery.launch_account_hour}:00) in {exposure.data.campaign_delivery.account_time_zone}.</>}
               {' '}Synced {timeAgo(exposure.data.synced_at)}.
             </div>
           </>

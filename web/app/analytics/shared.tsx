@@ -75,6 +75,30 @@ export type AdsPriceTestExposure = {
   calendar_start: string;
   calendar_end: string;
   launch_seam_caveat: string;
+  campaign_delivery?: {
+    account_time_zone: string;
+    launch_account_date: string;
+    launch_account_hour: number;
+    status: string | null;
+    serving_status: string | null;
+    primary_status: string | null;
+    primary_status_reasons: string[];
+    daily_budget_usd: number;
+    post_launch_complete_hours: {
+      impressions: number;
+      clicks: number;
+      cost_usd: number;
+      conversions: number;
+    };
+    hourly: Array<{
+      date: string;
+      hour: number;
+      impressions: number;
+      clicks: number;
+      cost_usd: number;
+      conversions: number;
+    }>;
+  };
   markets: Record<'PH' | 'MY' | 'VN', {
     country: string;
     impressions: number;

@@ -51,6 +51,8 @@ const checks = [
   [ui.includes('MY RM29.90 landing → cart') && ui.includes('losses.data?.price_test?.my_paid_landing') && ui.includes('myCartAdds / paidMyLandings'), 'dashboard renders bounded Malaysia discount-test conversion'],
   [ui.includes('paidPhLandings > 0 ?') && ui.includes(': null') && ui.includes('paidMyLandings > 0 ?'), 'zero exposure renders an unavailable rate instead of a false zero percent'],
   [ui.includes("useApi<AdsPriceTestExposure>('/api/ga4/price-test-exposure')") && ui.includes('PH/MY price cards below use the exact GA4 release seam'), 'dashboard separates Ads calendar delivery from exact GA4 price-test conversion'],
+  [types.includes('campaign_delivery?: {') && types.includes('post_launch_complete_hours:'), 'shared type carries bounded post-launch Ads delivery'],
+  [ui.includes('Ads after launch · clicks') && ui.includes('complete account-time hours'), 'dashboard names conservative post-launch Ads delivery'],
   [api.includes("{ name: 'dateHourMinute' }") && api.includes('event_minute:'), 'API dates each loss against release seams'],
   [api.includes('limit: 10000') && api.includes('rows: rows.slice(0, limit)'), 'totals use the full minute-grain response before display limit'],
   [ui.includes('Minute · GA4') && ui.includes('gaMinute(row.event_minute)'), 'dashboard shows the event occurrence minute'],

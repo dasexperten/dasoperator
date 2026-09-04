@@ -627,10 +627,10 @@ ga4.get('/content', async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '25', 10) || 25, 1), 250);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:content', { days, limit }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:content:v2', { days, limit }), 3600, async () => {
       const resp = await ga4RunReport(c.env, {
         dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
-        dimensions: [{ name: 'unifiedScreenName' }],
+        dimensions: [{ name: 'unifiedScreenName' }, { name: 'pagePath' }],
         metrics: [{ name: 'screenPageViews' }],
         orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
         limit,
@@ -638,6 +638,7 @@ ga4.get('/content', async (c) => {
 
       const rows = (resp.rows ?? []).map((r) => ({
         title: r.dimensionValues?.[0]?.value || '(not set)',
+        page: r.dimensionValues?.[1]?.value || '(not set)',
         views: Math.round(metricNum(r, 0)),
       }));
 
@@ -881,7 +882,7 @@ ga4.get('/realtime', async (c) => {
         limit: 10,
       }),
       ga4RunRealtimeReport(c.env, {
-        dimensions: [{ name: 'country' }, { name: 'eventName' }, { name: 'minutesAgo' }],
+        dimensions: [{ name: 'country' }, { name: 'eventName' }, { name: 'unifiedScreenName' }, { name: 'minutesAgo' }],
         metrics: [{ name: 'eventCount' }],
         dimensionFilter: {
           filter: {
@@ -915,13 +916,14 @@ ga4.get('/realtime', async (c) => {
       }));
 
     const commerceEvents = new Set(commerceEventNames);
-    const countryEventMap = new Map<string, { country: string; event: string; count: number; last_seen_minutes_ago: number }>();
+    const countryEventMap = new Map<string, { country: string; event: string; screen: string; count: number; last_seen_minutes_ago: number }>();
     for (const r of byCountryEvent.rows ?? []) {
       const country = r.dimensionValues?.[0]?.value || '(not set)';
       const event = r.dimensionValues?.[1]?.value || '(not set)';
       if (!commerceEvents.has(event)) continue;
-      const minutesAgo = parseInt(r.dimensionValues?.[2]?.value ?? '29', 10);
-      const key = `${country}\u0000${event}`;
+      const screen = r.dimensionValues?.[2]?.value || '(not set)';
+      const minutesAgo = parseInt(r.dimensionValues?.[3]?.value ?? '29', 10);
+      const key = `${country}\u0000${event}\u0000${screen}`;
       const current = countryEventMap.get(key);
       if (current) {
         current.count += Math.round(metricNum(r, 0));
@@ -930,6 +932,7 @@ ga4.get('/realtime', async (c) => {
         countryEventMap.set(key, {
           country,
           event,
+          screen,
           count: Math.round(metricNum(r, 0)),
           last_seen_minutes_ago: minutesAgo,
         });

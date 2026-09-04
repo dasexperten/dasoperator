@@ -167,18 +167,19 @@ export default function SnapshotTab() {
 
             <div className="wa-table-scroll" style={{ maxHeight: 300, marginTop: 16 }}>
               <table className="wa-table">
-                <thead><tr><th>Country</th><th>Commerce event</th><th className="right">Count</th><th className="right">Last seen</th></tr></thead>
+                <thead><tr><th>Country</th><th>Commerce event</th><th>Screen</th><th className="right">Count</th><th className="right">Last seen</th></tr></thead>
                 <tbody>
                   {(rt.by_country_event ?? []).map((r) => (
-                    <tr key={`${r.country}:${r.event}`}>
+                    <tr key={`${r.country}:${r.event}:${r.screen}`}>
                       <td style={{ fontWeight: 700 }}>{r.country}</td>
                       <td>{r.event}</td>
+                      <td>{r.screen}</td>
                       <td className="num right">{fmtNum(r.count)}</td>
                       <td className="num right">{r.last_seen_minutes_ago === 0 ? 'now' : `${r.last_seen_minutes_ago}m ago`}</td>
                     </tr>
                   ))}
                   {(rt.by_country_event ?? []).length === 0 && (
-                    <tr><td colSpan={4} style={{ color: 'var(--fg-3)' }}>No country-level commerce events right now.</td></tr>
+                    <tr><td colSpan={5} style={{ color: 'var(--fg-3)' }}>No country-level commerce events right now.</td></tr>
                   )}
                 </tbody>
               </table>

@@ -859,7 +859,7 @@ ga4.get('/realtime', async (c) => {
         limit: 10,
       }),
       ga4RunRealtimeReport(c.env, {
-        dimensions: [{ name: 'country' }, { name: 'eventName' }],
+        dimensions: [{ name: 'country' }, { name: 'eventName' }, { name: 'minutesAgo' }],
         metrics: [{ name: 'eventCount' }],
         dimensionFilter: {
           filter: {
@@ -893,13 +893,28 @@ ga4.get('/realtime', async (c) => {
       }));
 
     const commerceEvents = new Set(commerceEventNames);
-    const countryEventRows = (byCountryEvent.rows ?? [])
-      .map((r) => ({
-        country: r.dimensionValues?.[0]?.value || '(not set)',
-        event: r.dimensionValues?.[1]?.value || '(not set)',
-        count: Math.round(metricNum(r, 0)),
-      }))
-      .filter((r) => commerceEvents.has(r.event));
+    const countryEventMap = new Map<string, { country: string; event: string; count: number; last_seen_minutes_ago: number }>();
+    for (const r of byCountryEvent.rows ?? []) {
+      const country = r.dimensionValues?.[0]?.value || '(not set)';
+      const event = r.dimensionValues?.[1]?.value || '(not set)';
+      if (!commerceEvents.has(event)) continue;
+      const minutesAgo = parseInt(r.dimensionValues?.[2]?.value ?? '29', 10);
+      const key = `${country}\u0000${event}`;
+      const current = countryEventMap.get(key);
+      if (current) {
+        current.count += Math.round(metricNum(r, 0));
+        current.last_seen_minutes_ago = Math.min(current.last_seen_minutes_ago, minutesAgo);
+      } else {
+        countryEventMap.set(key, {
+          country,
+          event,
+          count: Math.round(metricNum(r, 0)),
+          last_seen_minutes_ago: minutesAgo,
+        });
+      }
+    }
+    const countryEventRows = [...countryEventMap.values()]
+      .sort((a, b) => b.count - a.count || a.last_seen_minutes_ago - b.last_seen_minutes_ago);
 
     return ok(c, {
       source: sourceLabel(c.env),

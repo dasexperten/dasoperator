@@ -11,7 +11,7 @@ const checks = [
   [api.includes("'shipping_bundle_unavailable'"), 'API requests missing bundle outcomes'],
   [api.includes("cacheKey('ga4:acquisition-detail:v3'"), 'acquisition cache key invalidates old hourly entry'],
   [api.includes("{ name: 'landingPage' },\n            { name: 'date' },") && api.includes("date: ga4Date(r.dimensionValues?.[4]?.value ?? ''),"), 'acquisition rows expose an exact GA4 date without shifting existing dimensions'],
-  [api.includes("cacheKey('ga4:commerce-losses:v12'"), 'commerce cache key invalidates the incorrect UTC price-test seam'],
+  [api.includes("cacheKey('ga4:commerce-losses:v13'"), 'commerce cache key invalidates every pre-timezone price-test response'],
   [api.includes('return days === 1 ? 300 : 3600;'), 'one-day decision reports refresh within five minutes'],
   [(api.match(/decisionCacheTtl\(days\)/g) || []).length === 2, 'both acquisition and commerce-loss reports use decision TTL'],
   [api.includes("'pdp_value_proof_view'"), 'API requests PDP value-proof visibility'],

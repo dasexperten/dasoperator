@@ -16,6 +16,7 @@ const checks = [
   ['API keeps PDP price visibility', api.includes("'pdp_price_view'")],
   ['API keeps cart progression', api.includes("'add_to_cart'") && api.includes("'begin_checkout'")],
   ['API keeps address completion', api.includes("'checkout_address_complete'")],
+  ['API keeps checkout interaction stages', api.includes("'checkout_email_complete'") && api.includes("'checkout_address_started'")],
   ['API keeps bundle outcomes', api.includes("'shipping_bundle_offer'") && api.includes("'shipping_bundle_unavailable'") && api.includes("'shipping_bundle_add'")],
   ['API keeps purchase outcome', api.includes("'purchase'")],
   ['UI does not claim realtime screen attribution', !ui.includes('rt.by_screen_event')],

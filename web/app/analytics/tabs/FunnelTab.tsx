@@ -68,6 +68,10 @@ function gaMinute(value: string) {
 export default function FunnelTab() {
   const funnel = useApi<Ga4Funnel>('/api/ga4/funnel?days=30');
   const losses = useApi<Ga4CommerceLosses>('/api/ga4/commerce-losses?days=30&limit=250');
+  // The 30-day loss report is intentionally cached for an hour. Price-test
+  // decisions need the API's five-minute one-day cache so a new PH/MY landing
+  // is visible while the seven-day test is still running.
+  const priceTestLosses = useApi<Ga4CommerceLosses>('/api/ga4/commerce-losses?days=1&limit=250');
   const exposure = useApi<AdsPriceTestExposure>('/api/ga4/price-test-exposure');
   const t = funnel.data?.totals;
   const rows = funnel.data?.rows ?? [];
@@ -81,11 +85,11 @@ export default function FunnelTab() {
   const paidVnLandings = losses.data?.market_totals.vn_paid_landing ?? 0;
   const vnCartAdds = losses.data?.market_totals.vn_add_to_cart ?? 0;
   const vnLandingToCart = paidVnLandings > 0 ? (vnCartAdds / paidVnLandings) * 100 : 0;
-  const paidPhLandings = losses.data?.price_test?.ph_paid_landing ?? 0;
-  const phCartAdds = losses.data?.price_test?.ph_add_to_cart ?? 0;
+  const paidPhLandings = priceTestLosses.data?.price_test?.ph_paid_landing ?? 0;
+  const phCartAdds = priceTestLosses.data?.price_test?.ph_add_to_cart ?? 0;
   const phLandingToCart = paidPhLandings > 0 ? (phCartAdds / paidPhLandings) * 100 : null;
-  const paidMyLandings = losses.data?.price_test?.my_paid_landing ?? 0;
-  const myCartAdds = losses.data?.price_test?.my_add_to_cart ?? 0;
+  const paidMyLandings = priceTestLosses.data?.price_test?.my_paid_landing ?? 0;
+  const myCartAdds = priceTestLosses.data?.price_test?.my_add_to_cart ?? 0;
   const myLandingToCart = paidMyLandings > 0 ? (myCartAdds / paidMyLandings) * 100 : null;
   const postLaunchAds = exposure.data?.campaign_delivery?.post_launch_complete_hours;
 
@@ -93,6 +97,7 @@ export default function FunnelTab() {
     <div className="space-y-4">
       <LoadState loading={funnel.loading} error={funnel.error} />
       <LoadState loading={losses.loading} error={losses.error} />
+      <LoadState loading={priceTestLosses.loading} error={priceTestLosses.error} />
       <LoadState loading={exposure.loading} error={exposure.error} />
 
       {t && (

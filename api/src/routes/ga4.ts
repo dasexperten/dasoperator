@@ -883,8 +883,10 @@ ga4.get('/realtime', async (c) => {
       }),
       // Realtime cannot expose pagePath, but unifiedScreenName is supported and
       // keeps commerce signals attributable to a specific product page title.
+      // GA4 rejects unifiedScreenName combined with minutesAgo, so this table
+      // reports the rolling 30-minute window without false minute precision.
       ga4RunRealtimeReport(c.env, {
-        dimensions: [{ name: 'country' }, { name: 'eventName' }, { name: 'unifiedScreenName' }, { name: 'minutesAgo' }],
+        dimensions: [{ name: 'country' }, { name: 'eventName' }, { name: 'unifiedScreenName' }],
         metrics: [{ name: 'eventCount' }],
         dimensionFilter: {
           filter: {
@@ -918,30 +920,28 @@ ga4.get('/realtime', async (c) => {
       }));
 
     const commerceEvents = new Set(commerceEventNames);
-    const countryEventMap = new Map<string, { country: string; event: string; screen: string; count: number; last_seen_minutes_ago: number }>();
+    const countryEventMap = new Map<string, { country: string; event: string; screen: string; count: number; last_seen_minutes_ago: null }>();
     for (const r of byCountryEvent.rows ?? []) {
       const country = r.dimensionValues?.[0]?.value || '(not set)';
       const event = r.dimensionValues?.[1]?.value || '(not set)';
       if (!commerceEvents.has(event)) continue;
       const screen = r.dimensionValues?.[2]?.value || '(not set)';
-      const minutesAgo = parseInt(r.dimensionValues?.[3]?.value ?? '29', 10);
       const key = `${country}\u0000${event}\u0000${screen}`;
       const current = countryEventMap.get(key);
       if (current) {
         current.count += Math.round(metricNum(r, 0));
-        current.last_seen_minutes_ago = Math.min(current.last_seen_minutes_ago, minutesAgo);
       } else {
         countryEventMap.set(key, {
           country,
           event,
           screen,
           count: Math.round(metricNum(r, 0)),
-          last_seen_minutes_ago: minutesAgo,
+          last_seen_minutes_ago: null,
         });
       }
     }
     const countryEventRows = [...countryEventMap.values()]
-      .sort((a, b) => b.count - a.count || a.last_seen_minutes_ago - b.last_seen_minutes_ago);
+      .sort((a, b) => b.count - a.count);
 
     return ok(c, {
       source: sourceLabel(c.env),

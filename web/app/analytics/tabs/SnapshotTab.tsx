@@ -175,7 +175,7 @@ export default function SnapshotTab() {
                       <td>{r.event}</td>
                       <td>{r.screen}</td>
                       <td className="num right">{fmtNum(r.count)}</td>
-                      <td className="num right">{r.last_seen_minutes_ago === 0 ? 'now' : `${r.last_seen_minutes_ago}m ago`}</td>
+                      <td className="num right">{r.last_seen_minutes_ago == null ? '≤30m' : r.last_seen_minutes_ago === 0 ? 'now' : `${r.last_seen_minutes_ago}m ago`}</td>
                     </tr>
                   ))}
                   {(rt.by_country_event ?? []).length === 0 && (

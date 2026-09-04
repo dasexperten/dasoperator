@@ -151,7 +151,7 @@ export type Ga4Realtime = {
   by_audience?: Array<{ audience: string; count: number }>;
   by_page?: Array<{ title: string; count: number }>;
   by_event?: Array<{ event: string; count: number }>;
-  by_country_event?: Array<{ country: string; event: string; screen: string; count: number; last_seen_minutes_ago: number }>;
+  by_country_event?: Array<{ country: string; event: string; screen: string; count: number; last_seen_minutes_ago: number | null }>;
   synced_at: number;
 };
 

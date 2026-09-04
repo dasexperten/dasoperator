@@ -101,7 +101,7 @@ const TAG_STYLES: Array<{ bg: string; fg: string; dot: string }> = [
 const TAG_SYSTEM = { bg: '#F1F3F5', fg: '#5B6B7A', dot: '#93A1AE' };
 /* CRM brand + product-line accents (no mock green) */
 // Avatars carry white initials — every ground here clears 4.5:1 against white.
-const AVA_COLORS = ['#E5202C', '#282229', '#0D199E', '#0E7C66', '#C2560E'];
+const AVA_COLORS = ['#C71926', '#282229', '#0D199E', '#0E7C66', '#C2560E'];
 
 // Compose From = departments + agents. Owner personal (dr.badalyan@) is
 // excluded — personal mail is Gmail-only, not an ERP agent folder.
@@ -937,7 +937,7 @@ const PANEL = {
   meta: '#6E6558',
   gold: '#FEF004',
   in: '#1D9E75',
-  out: '#E5202C',
+  out: '#C71926',
 };
 
 function eventIcon(e: TimelineEvent) {
@@ -2391,7 +2391,7 @@ function SwipeableRow({
       <div
         className="sw-bg"
         style={{
-          background: dir === 'right' ? '#E5202C' : dir === 'left' ? '#B81A24' : 'transparent',
+          background: dir === 'right' ? '#C71926' : dir === 'left' ? '#A6141F' : 'transparent',
           opacity: dir ? 0.15 + progress * 0.85 : 0,
         }}
       >

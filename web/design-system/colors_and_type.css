@@ -25,7 +25,13 @@
 :root {
   /* ---------------- BRAND — heritage flag palette ---------------- */
   --brand-schwarz:     #282229;  /* warm off-black, sampled from logomark */
-  --brand-rot:         #E5202C;  /* crimson red, sampled from logomark */
+  /* Owner 2026-09-04 — the working red. #E5202C, sampled straight off the
+     logomark, measures 4.4:1 both as type on paper and under white type:
+     a hair under the 4.5 law, on every page title, eyebrow and button in
+     the ERP. The accent moves one step deeper; the logomark keeps the
+     sampled value below and is the only place it may be drawn. */
+  --brand-rot:         #C71926;  /* working accent — type, fills, active states (5.7:1) */
+  --brand-rot-mark:    #E5202C;  /* logomark red — the three-colour rule ONLY */
   --brand-gold:        #FEF004;  /* sodium yellow, sampled from logomark */
   --brand-schwarz-ink: #1A1519;  /* deeper ink for long-form text */
 

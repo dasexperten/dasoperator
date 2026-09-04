@@ -1056,7 +1056,7 @@ export default function ProductDetailClient({ sku }: { sku: string }) {
                 fontSize: '14px',
                 fontWeight: 500,
                 color: '#FFFFFF',
-                backgroundColor: '#E5202C',
+                backgroundColor: 'var(--brand-rot)',
                 border: 'none',
                 borderRadius: '6px',
                 cursor: uploading ? 'not-allowed' : 'pointer',

@@ -34,7 +34,7 @@ const config: Config = {
         },
         rot: {
           DEFAULT: 'var(--brand-rot)',       // #E5202C signature red
-          deep: '#C71926',                    // hover/press
+          deep: '#A6141F',                    // hover/press — one step under the accent
         },
         gold: 'var(--brand-gold)',           // #FEF004
         paper: 'var(--paper)',

@@ -785,7 +785,7 @@ function EmailComposer({
             display: 'inline-flex', alignItems: 'center', gap: 6,
             padding: '8px 16px',
             borderRadius: 'var(--radius-sm)',
-            background: sending || !subject.trim() || !body.trim() ? 'var(--paper-sunk)' : 'var(--brand-rot, #E5202C)',
+            background: sending || !subject.trim() || !body.trim() ? 'var(--paper-sunk)' : 'var(--brand-rot, #C71926)',
             color: sending || !subject.trim() || !body.trim() ? 'var(--fg-3)' : 'white',
             fontSize: 14,
             fontWeight: 700,

@@ -112,8 +112,8 @@
       to right,
       var(--brand-schwarz) 0%,
       var(--brand-schwarz) 33.33%,
-      var(--brand-rot) 33.33%,
-      var(--brand-rot) 66.66%,
+      var(--brand-rot-mark) 33.33%,
+      var(--brand-rot-mark) 66.66%,
       var(--brand-gold) 66.66%,
       var(--brand-gold) 100%
     );
@@ -530,7 +530,7 @@ input[type="number"] {
     background: linear-gradient(
       90deg,
       var(--brand-schwarz) 0 33.33%,
-      var(--brand-rot) 33.33% 66.66%,
+      var(--brand-rot-mark) 33.33% 66.66%,
       var(--brand-gold) 66.66% 100%
     );
     pointer-events: none;
@@ -549,7 +549,7 @@ input[type="number"] {
   }
   .dx-bottom-nav-item[data-active="true"] {
     color: var(--paper, #fbfaf6);
-    background-color: var(--brand-rot, #e5202c);
+    background-color: var(--brand-rot, #c71926);
   }
   .dx-bottom-nav-item span {
     font-size: 11px !important;
@@ -1130,7 +1130,7 @@ input[type="number"] {
     background: linear-gradient(
       90deg,
       var(--brand-schwarz) 0 33.33%,
-      var(--brand-rot) 33.33% 66.66%,
+      var(--brand-rot-mark) 33.33% 66.66%,
       var(--brand-gold) 66.66% 100%
     );
   }
@@ -1156,7 +1156,7 @@ input[type="number"] {
     background: linear-gradient(
       90deg,
       var(--brand-schwarz) 0 33.33%,
-      var(--brand-rot) 33.33% 66.66%,
+      var(--brand-rot-mark) 33.33% 66.66%,
       var(--brand-gold) 66.66% 100%
     ) !important;
   }

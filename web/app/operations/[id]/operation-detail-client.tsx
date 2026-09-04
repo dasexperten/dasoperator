@@ -1287,7 +1287,7 @@ function DocumentsTab({
             className="inline-flex items-center gap-1.5"
             style={{
               padding: '6px 14px',
-              background: 'var(--brand-rot, #E5202C)',
+              background: 'var(--brand-rot, #C71926)',
               color: 'white',
               fontSize: 14,
               fontWeight: 600,
@@ -2117,7 +2117,7 @@ function AttachDocumentModal({
             className="inline-flex items-center gap-1.5"
             style={{
               padding: '8px 16px',
-              background: submitting ? 'var(--paper-sunk)' : 'var(--brand-rot, #E5202C)',
+              background: submitting ? 'var(--paper-sunk)' : 'var(--brand-rot, #C71926)',
               color: submitting ? 'var(--fg-3)' : 'white',
               fontSize: 14,
               fontWeight: 700,

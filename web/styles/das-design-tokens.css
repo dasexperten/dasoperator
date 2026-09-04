@@ -25,7 +25,13 @@
 :root {
   /* ---------------- BRAND — heritage flag palette ---------------- */
   --brand-schwarz:     #282229;  /* warm off-black, sampled from logomark */
-  --brand-rot:         #E5202C;  /* crimson red, sampled from logomark */
+  /* Owner 2026-09-04 — the working red. #E5202C, sampled straight off the
+     logomark, measures 4.4:1 both as type on paper and under white type:
+     a hair under the 4.5 law, on every page title, eyebrow and button in
+     the ERP. The accent moves one step deeper; the logomark keeps the
+     sampled value below and is the only place it may be drawn. */
+  --brand-rot:         #C71926;  /* working accent — type, fills, active states (5.7:1) */
+  --brand-rot-mark:    #E5202C;  /* logomark red — the three-colour rule ONLY */
   --brand-gold:        #FEF004;  /* sodium yellow, sampled from logomark */
   --brand-schwarz-ink: #1A1519;  /* deeper ink for long-form text */
 
@@ -261,7 +267,7 @@ body {
    ============================================================ */
 :root {
   --dx-transition-fast: 120ms ease-out;          /* feedback only — no decorative motion */
-  --dx-focus-ring: 0 0 0 2px var(--paper, #FBFAF6), 0 0 0 4px var(--brand-rot, #E5202C);
+  --dx-focus-ring: 0 0 0 2px var(--paper, #FBFAF6), 0 0 0 4px var(--brand-rot, #C71926);
   --dx-hover-lift: rgba(26, 21, 25, 0.06);       /* schwarz-ink @ 6% — hover fill on paper */
   --dx-hover-lift-dark: rgba(246, 243, 238, 0.10); /* paper @ 10% — hover fill on schwarz */
   --dx-tap-target-min: 44px;                     /* mobile tier floor, also desktop click comfort */
@@ -294,7 +300,7 @@ body {
    ========================================================================== */
 .dxmail {
   /* names kept; values = CRM brand tokens */
-  --green: var(--brand-rot);              /* primary = crimson #E5202C */
+  --green: var(--brand-rot);              /* primary = crimson, working accent */
   --green-dark: #B81A24;                  /* hover / pressed rot */
   --green-soft: rgba(229, 32, 44, 0.10);  /* selected / soft fill */
   --navy: var(--brand-schwarz-ink);       /* primary ink */
@@ -882,13 +888,13 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
 }
 .dxmail .learncard-tri {
   height: 3px;
-  background: linear-gradient(90deg, #282229 0 33.33%, #E5202C 33.33% 66.66%, #FEF004 66.66% 100%);
+  background: linear-gradient(90deg, #282229 0 33.33%, var(--brand-rot-mark) 33.33% 66.66%, #FEF004 66.66% 100%);
 }
 .dxmail .learncard-body { padding: 14px 16px; }
 .dxmail .learncard-head { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; }
 .dxmail .learncard-who { font-family: 'Manrope', sans-serif; font-weight: 800; font-size: 15px; }
 .dxmail .learncard-tag {
-  font-size: 11px; font-weight: 700; color: #E5202C;
+  font-size: 11px; font-weight: 700; color: var(--brand-rot);
   border: 1px solid rgba(229,32,44,.35); border-radius: 4px; padding: 2px 7px;
 }
 .dxmail .learncard-x {

@@ -77,6 +77,7 @@ export type Ga4CommerceLosses = {
     my_paid_landing: number;
     my_add_to_cart: number;
   };
+  row_coverage: { returned_rows: number; available_rows: number; failure_rows: number };
   rows: Array<{ event: string; country: string; page: string; campaign: string; event_minute: string; count: number }>;
   synced_at: number;
 };

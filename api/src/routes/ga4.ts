@@ -525,12 +525,13 @@ ga4.get('/commerce-losses', async (c) => {
   if (!ga4Configured(c.env)) return notConfigured(c);
   const days = windowDays(c);
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '250', 10) || 250, 1), 250);
+  const decision = c.req.query('decision') === '1';
 
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v16', { days, limit, calendar_window: 'exact-v2' }),
-      decisionCacheTtl(days),
+      cacheKey('ga4:commerce-losses:v17', { days, limit, decision, calendar_window: 'exact-v2' }),
+      decision ? 300 : decisionCacheTtl(days),
       async () => {
         const resp = await ga4RunReport(c.env, {
           dateRanges: [reportRange(days)],
@@ -598,6 +599,13 @@ ga4.get('/commerce-losses', async (c) => {
           my_paid_landing: priceTestEventTotal('paid_locale_landing_ms', 'Malaysia', '/ms/products/innoweiss'),
           my_add_to_cart: priceTestEventTotal('add_to_cart', 'Malaysia', '/ms/products/innoweiss'),
         };
+        const isFailure = (event: string) => event === 'shipping_unavailable' || event.startsWith('checkout_error');
+        // Keep every observed technical failure ahead of the bounded activity
+        // stream. A recent-events limit must never hide the rows needed to
+        // diagnose conversion loss.
+        const failureRows = rows.filter((row) => isFailure(row.event));
+        const activityRows = rows.filter((row) => !isFailure(row.event));
+        const visibleRows = [...failureRows, ...activityRows].slice(0, limit);
 
         return {
           source: sourceLabel(c.env),
@@ -606,7 +614,12 @@ ga4.get('/commerce-losses', async (c) => {
           totals,
           market_totals,
           price_test,
-          rows: rows.slice(0, limit),
+          row_coverage: {
+            returned_rows: visibleRows.length,
+            available_rows: rows.length,
+            failure_rows: failureRows.length,
+          },
+          rows: visibleRows,
           synced_at: Math.floor(Date.now() / 1000),
         };
       }

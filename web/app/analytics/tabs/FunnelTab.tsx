@@ -68,10 +68,9 @@ function gaMinute(value: string) {
 export default function FunnelTab() {
   const funnel = useApi<Ga4Funnel>('/api/ga4/funnel?days=30');
   const losses = useApi<Ga4CommerceLosses>('/api/ga4/commerce-losses?days=30&limit=250');
-  // The 30-day loss report is intentionally cached for an hour. Price-test
-  // decisions need the API's five-minute one-day cache so a new PH/MY landing
-  // is visible while the seven-day test is still running.
-  const priceTestLosses = useApi<Ga4CommerceLosses>('/api/ga4/commerce-losses?days=1&limit=250');
+  // The price_test block applies its own exact release seam. The outer window
+  // must cover the full experiment; days=1 silently discarded earlier test days.
+  const priceTestLosses = useApi<Ga4CommerceLosses>('/api/ga4/commerce-losses?days=30&limit=250&decision=1');
   const exposure = useApi<AdsPriceTestExposure>('/api/ga4/price-test-exposure');
   const t = funnel.data?.totals;
   const rows = funnel.data?.rows ?? [];
@@ -257,6 +256,7 @@ export default function FunnelTab() {
         <div className="wa-note" style={{ marginTop: 12 }}>
           Aggregate event counts, not a user-level sequence. Marketplace handoffs stay separate
           from on-site purchases; technical and shipping failures stay separate from abandonment.
+          {losses.data?.row_coverage && <>{' '}The bounded table shows {fmtNum(losses.data.row_coverage.returned_rows)} of {fmtNum(losses.data.row_coverage.available_rows)} aggregate rows; all {fmtNum(losses.data.row_coverage.failure_rows)} failure rows are pinned first.</>}
           {losses.data && <> Synced {timeAgo(losses.data.synced_at)}.</>}
         </div>
       </Panel>

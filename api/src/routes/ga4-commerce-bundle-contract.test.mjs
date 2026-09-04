@@ -14,7 +14,8 @@ const checks = [
   [api.includes("{ name: 'landingPage' },\n            { name: 'date' },") && api.includes("date: ga4Date(r.dimensionValues?.[4]?.value ?? ''),"), 'acquisition rows expose an exact GA4 date without shifting existing dimensions'],
   [api.includes('const [resp, exact] = await Promise.all') && api.includes('visible_row_totals: visibleTotals'), 'acquisition separates exact totals from display-limited row totals'],
   [api.includes('available_rows: resp.rowCount ?? rows.length') && api.includes('sessions_pct:'), 'acquisition reports row and session coverage'],
-  [api.includes("cacheKey('ga4:commerce-losses:v16'"), 'commerce cache key exposes the post-launch control cohort immediately'],
+  [api.includes("cacheKey('ga4:commerce-losses:v17'"), 'commerce cache key exposes failure-priority rows immediately'],
+  [api.includes('const visibleRows = [...failureRows, ...activityRows].slice(0, limit)') && api.includes('failure_rows: failureRows.length'), 'commerce losses pins every failure before the bounded activity stream'],
   [api.includes("'purchase_verified'"), 'API requests Stripe-verified purchase events'],
   [api.includes('return days === 1 ? 300 : 3600;'), 'one-day decision reports refresh within five minutes'],
   [(api.match(/decisionCacheTtl\(days\)/g) || []).length === 2, 'both acquisition and commerce-loss reports use decision TTL'],
@@ -54,7 +55,8 @@ const checks = [
   [ui.includes('priceTestLosses.data?.price_test?.vn_add_to_cart'), 'dashboard consumes the bounded Vietnam control cohort'],
   [ui.includes('vnCartAdds / paidVnLandings'), 'dashboard computes Vietnam landing-to-cart signal ratio'],
   [ui.includes('VN control landing → cart'), 'dashboard renders Vietnam control landing-to-cart KPI'],
-  [ui.includes("useApi<Ga4CommerceLosses>('/api/ga4/commerce-losses?days=1&limit=250')"), 'dashboard reads the five-minute one-day cache for active price-test decisions'],
+  [api.includes("const decision = c.req.query('decision') === '1'") && api.includes('decision ? 300 : decisionCacheTtl(days)'), 'decision report keeps five-minute freshness without truncating the cohort window'],
+  [ui.includes("const priceTestLosses = useApi<Ga4CommerceLosses>('/api/ga4/commerce-losses?days=30&limit=250&decision=1')") && !ui.includes("commerce-losses?days=1&limit=250"), 'dashboard report window covers the full exact price-test seam'],
   [ui.includes('PH ₱499 landing → cart') && ui.includes('priceTestLosses.data?.price_test?.ph_paid_landing') && ui.includes('phCartAdds / paidPhLandings'), 'dashboard renders bounded Philippines price-test conversion from the fresh report'],
   [ui.includes('MY RM29.90 landing → cart') && ui.includes('priceTestLosses.data?.price_test?.my_paid_landing') && ui.includes('myCartAdds / paidMyLandings'), 'dashboard renders bounded Malaysia discount-test conversion from the fresh report'],
   [ui.includes('paidPhLandings > 0 ?') && ui.includes(': null') && ui.includes('paidMyLandings > 0 ?'), 'zero exposure renders an unavailable rate instead of a false zero percent'],
@@ -65,7 +67,7 @@ const checks = [
   [ui.includes('legacy PMax impressions') && ui.includes('isolated campaign totals from their 5 September launch'), 'dashboard labels old PMax history separately from the Search test'],
   [ui.includes('Ads after launch · clicks') && ui.includes('complete account-time hours'), 'dashboard names conservative post-launch Ads delivery'],
   [api.includes("{ name: 'dateHourMinute' }") && api.includes('event_minute:'), 'API dates each loss against release seams'],
-  [api.includes('limit: 10000') && api.includes('rows: rows.slice(0, limit)'), 'totals use the full minute-grain response before display limit'],
+  [api.includes('limit: 10000') && api.includes('rows: visibleRows'), 'totals use the full minute-grain response before display limit'],
   [ui.includes('Minute · GA4') && ui.includes('gaMinute(row.event_minute)'), 'dashboard shows the event occurrence minute'],
 ];
 

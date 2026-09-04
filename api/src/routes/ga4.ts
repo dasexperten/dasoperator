@@ -881,6 +881,8 @@ ga4.get('/realtime', async (c) => {
         orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }],
         limit: 10,
       }),
+      // Realtime cannot expose pagePath, but unifiedScreenName is supported and
+      // keeps commerce signals attributable to a specific product page title.
       ga4RunRealtimeReport(c.env, {
         dimensions: [{ name: 'country' }, { name: 'eventName' }, { name: 'unifiedScreenName' }, { name: 'minutesAgo' }],
         metrics: [{ name: 'eventCount' }],

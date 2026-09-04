@@ -4,8 +4,9 @@
 # Triggers on push to main when files in api/ change.
 # Deploys via Cloudflare Wrangler using CLOUDFLARE_API_TOKEN secret.
 #
-# Note: npm cache disabled — repo doesn't have package-lock.json yet.
-# Cache will be enabled in a follow-up PR after first deploy generates lock.
+# The API has no package-lock yet, so installation remains network-bound. Keep
+# enough headroom for a slow registry response; five minutes already canceled
+# a healthy release before Wrangler could start.
 # =============================================================================
 
 name: Deploy Workers API
@@ -40,7 +41,7 @@ jobs:
     # without it by hand — a bypass that is on the record, not a default.
     if: ${{ always() && (needs.guard.result == 'success' || inputs.skip_guard == true) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     permissions:
       contents: read
@@ -56,7 +57,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: api
-        run: npm install --legacy-peer-deps
+        run: npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: Deploy Worker to Cloudflare
         working-directory: api
@@ -69,4 +70,3 @@ jobs:
         run: |
           echo "Worker deployed at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           echo "Commit: ${{ github.sha }}"
-

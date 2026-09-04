@@ -68,11 +68,14 @@ export function WorldMap({
 
   const colorFor = (name: string): string => {
     const v = byName.get(name);
-    if (!v) return 'var(--paper-sunk)';
+    if (!v) return 'var(--bone)'; // land must separate from the white panel it sits on
     const t = Math.sqrt(v / max); // sqrt scale — one dominant country shouldn't wash out the rest
     // interpolate between a light and a saturated brand-stone tone
-    const lightness = 82 - t * 50; // 82% (near-white) -> 32% (deep)
-    return `hsl(210, 45%, ${lightness}%)`;
+    // Contrast law: the lightest data step still has to read against unfilled
+    // land (--bone #EDE8DD). Floor moved up from 82% to 70% so a single-visitor
+    // country is visible, not a rumour.
+    const lightness = 70 - t * 40; // 70% -> 30% (deep)
+    return `hsl(210, 52%, ${lightness}%)`;
   };
 
   return (
@@ -101,7 +104,7 @@ export function WorldMap({
                 up as a stray horizontal line. Fill doesn't have this problem
                 (SVG needs the explicit close there); only the visible stroke
                 does, so we skip Z for stroke only. */}
-            <path d={c.d.replace(/Z/g, '')} fill="none" stroke="var(--paper)" strokeWidth={0.4} />
+            <path d={c.d.replace(/Z/g, '')} fill="none" stroke="var(--stone-300)" strokeWidth={0.4} />
           </g>
         );
       })}

@@ -63,6 +63,38 @@ const config: Config = {
         error: 'var(--status-error)',
         info: 'var(--status-info)',
 
+        // ===== TREMOR v3 TOKENS =====
+        // Tremor paints its charts, tooltips and legends with `*-tremor-*`
+        // utilities. Undefined here, they generated nothing — the tooltip came
+        // out with no plate and its ink landed on top of the dark bars. Pinned
+        // to the apothecary palette so every Tremor surface obeys the contrast
+        // law (Owner hard block · Marika 2026-09-04).
+        tremor: {
+          brand: {
+            faint: 'var(--paper-sunk)',
+            muted: '#F8D3D6',
+            subtle: '#EC6670',
+            DEFAULT: 'var(--brand-rot)',
+            emphasis: '#C71926',
+            inverted: 'var(--paper-raised)',
+          },
+          background: {
+            muted: 'var(--paper-sunk)',
+            subtle: 'var(--paper)',
+            DEFAULT: 'var(--paper-raised)',
+            emphasis: 'var(--fg-1)',
+          },
+          border: { DEFAULT: 'var(--border-subtle)' },
+          ring: { DEFAULT: 'var(--border-strong)' },
+          content: {
+            subtle: 'var(--fg-2)',
+            DEFAULT: 'var(--fg-2)',
+            emphasis: 'var(--fg-1)',
+            strong: 'var(--fg-1)',
+            inverted: 'var(--paper-raised)',
+          },
+        },
+
         // ===== PRODUCT LINE ACCENTS =====
         innoweiss: 'var(--line-innoweiss)',
         detox: 'var(--line-detox)',
@@ -79,6 +111,13 @@ const config: Config = {
         mono: ['var(--font-mono)'],
       },
 
+      fontSize: {
+        'tremor-label': ['13px', { lineHeight: '18px' }],
+        'tremor-default': ['14px', { lineHeight: '20px' }],
+        'tremor-title': ['16px', { lineHeight: '24px' }],
+        'tremor-metric': ['30px', { lineHeight: '36px' }],
+      },
+
       borderRadius: {
         // Restrained apothecary radii
         none: '0',
@@ -88,6 +127,9 @@ const config: Config = {
         md: 'var(--radius-md)',     // 6px
         lg: 'var(--radius-lg)',     // 10px
         full: 'var(--radius-pill)', // pill (only for tags/chips)
+        'tremor-small': 'var(--radius-xs)',
+        'tremor-default': 'var(--radius-sm)',
+        'tremor-full': 'var(--radius-pill)',
       },
 
       boxShadow: {
@@ -98,6 +140,9 @@ const config: Config = {
         raised: 'var(--shadow-raised)',
         float: 'var(--shadow-float)',
         DEFAULT: 'var(--shadow-card)',
+        'tremor-input': 'var(--shadow-hairline)',
+        'tremor-card': 'var(--shadow-card)',
+        'tremor-dropdown': 'var(--shadow-float)',
       },
 
       transitionTimingFunction: {

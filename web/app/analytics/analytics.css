@@ -120,7 +120,7 @@
 /* ---- Formula / confidence notes (HARD RULE 3: never blend silently) -------- */
 .wa-note {
   font-family: var(--font-mono);
-  color: var(--fg-3);
+  color: var(--fg-2);
   background: var(--paper-sunk);
   border-radius: var(--radius-sm);
   padding: 8px 12px;
@@ -134,7 +134,7 @@
   font-family: var(--font-narrow);
   font-weight: 700;
   text-transform: uppercase;
-  color: var(--fg-3);
+  color: var(--fg-2);
   padding: 12px 20px;
   border-bottom: 1px solid var(--border-hairline);
   background: var(--paper-sunk);
@@ -268,3 +268,49 @@
 .wa-chart .stroke-red-500 { stroke: var(--brand-rot); }
 .wa-chart .bg-red-500 { background-color: var(--brand-rot); }
 .wa-chart .text-red-500 { color: var(--brand-rot); }
+
+/* ---- CONTRAST LAW (Owner hard block · Marika 2026-09-04) ---------------------
+   Every text element must read against the layer it ACTUALLY sits on, not
+   against the page background. The Tremor tooltip was the breach: Tremor v3
+   paints it with `bg-tremor-background` / `text-tremor-content` utilities that
+   this project's Tailwind theme never defined, so the frame rendered with no
+   plate at all — dark tooltip text landing straight on top of the dark bars.
+   Two layers of defence below: the tremor-* tokens are pinned to brand values,
+   and the tooltip frame itself is given a solid plate no matter what Tremor
+   emits internally. Never let a floating label sit on bare marks again.
+   --------------------------------------------------------------------------- */
+
+/* Solid plate under every chart tooltip — structural, not token-dependent. */
+.wa-chart .recharts-tooltip-wrapper { z-index: 5; }
+.wa-chart .recharts-tooltip-wrapper > div {
+  background: var(--paper-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-float);
+  color: var(--fg-1);
+  overflow: hidden;
+}
+
+/* Tremor's own utility classes, pinned to brand ink and paper. */
+.wa-chart .bg-tremor-background,
+.wa-chart .bg-tremor-background-muted { background-color: var(--paper-raised) !important; }
+.wa-chart .border-tremor-border { border-color: var(--border-subtle) !important; }
+.wa-chart .text-tremor-content,
+.wa-chart .text-tremor-content-subtle { color: var(--fg-2) !important; }
+.wa-chart .text-tremor-content-emphasis,
+.wa-chart .text-tremor-content-strong { color: var(--fg-1) !important; font-weight: 700; }
+.wa-chart .fill-tremor-content,
+.wa-chart .fill-tremor-content-subtle { fill: var(--fg-2) !important; }
+
+/* Axis ticks and grid — readable ink, visible rules. */
+.wa-chart .recharts-cartesian-axis-tick-value {
+  fill: var(--fg-2);
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.wa-chart .recharts-cartesian-grid line { stroke: var(--border-subtle); }
+.wa-chart .recharts-cartesian-axis-line,
+.wa-chart .recharts-cartesian-axis-tick-line { stroke: var(--border-strong); }
+
+/* Legend text sits on paper — full secondary ink, never muted grey. */
+.wa-chart .recharts-legend-item-text { color: var(--fg-2) !important; }

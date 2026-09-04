@@ -45,7 +45,7 @@ export type Ga4CommerceLosses = {
   window_days: number;
   method: string;
   totals: Record<string, number>;
-  rows: Array<{ event: string; country: string; page: string; campaign: string; count: number }>;
+  rows: Array<{ event: string; country: string; page: string; campaign: string; event_minute: string; count: number }>;
   synced_at: number;
 };
 export type Ga4NavFlows = {

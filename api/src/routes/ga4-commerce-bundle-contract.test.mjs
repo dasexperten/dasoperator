@@ -8,7 +8,7 @@ const checks = [
   [api.includes("'shipping_bundle_add'"), 'API requests bundle add events'],
   [api.includes("'shipping_bundle_unavailable'"), 'API requests missing bundle outcomes'],
   [api.includes("cacheKey('ga4:acquisition-detail:v2'"), 'acquisition cache key invalidates old hourly entry'],
-  [api.includes("cacheKey('ga4:commerce-losses:v4'"), 'commerce cache key invalidates old entry after bundle outcome change'],
+  [api.includes("cacheKey('ga4:commerce-losses:v5'"), 'commerce cache key invalidates rows without occurrence minute'],
   [api.includes('return days === 1 ? 300 : 3600;'), 'one-day decision reports refresh within five minutes'],
   [(api.match(/decisionCacheTtl\(days\)/g) || []).length === 2, 'both acquisition and commerce-loss reports use decision TTL'],
   [api.includes("'pdp_value_proof_view'"), 'API requests PDP value-proof visibility'],
@@ -22,6 +22,9 @@ const checks = [
   [ui.includes('Shipping bundle offers'), 'dashboard renders cross-market experiment KPIs'],
   [ui.includes('DE · VN · PH'), 'dashboard names the measured market scope'],
   [ui.includes('Bundle uptake'), 'dashboard renders uptake KPI'],
+  [api.includes("{ name: 'dateHourMinute' }") && api.includes('event_minute:'), 'API dates each loss against release seams'],
+  [api.includes('limit: 10000') && api.includes('rows: rows.slice(0, limit)'), 'totals use the full minute-grain response before display limit'],
+  [ui.includes('Minute · GA4') && ui.includes('gaMinute(row.event_minute)'), 'dashboard shows the event occurrence minute'],
 ];
 
 const failures = checks.filter(([passed]) => !passed).map(([, label]) => label);

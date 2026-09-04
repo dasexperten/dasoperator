@@ -53,6 +53,12 @@ const SIGNAL_LABELS: Record<string, string> = {
   purchase: 'Purchased',
 };
 
+function gaMinute(value: string) {
+  return /^\d{12}$/.test(value)
+    ? `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)} ${value.slice(8, 10)}:${value.slice(10, 12)}`
+    : value || '—';
+}
+
 export default function FunnelTab() {
   const funnel = useApi<Ga4Funnel>('/api/ga4/funnel?days=30');
   const losses = useApi<Ga4CommerceLosses>('/api/ga4/commerce-losses?days=30&limit=250');
@@ -127,7 +133,7 @@ export default function FunnelTab() {
           <div className="wa-table-scroll">
             <table className="wa-table">
               <thead>
-                <tr><th>Signal</th><th>Count</th><th>Country</th><th>Page</th><th>Campaign</th></tr>
+                <tr><th>Signal</th><th>Minute · GA4</th><th>Count</th><th>Country</th><th>Page</th><th>Campaign</th></tr>
               </thead>
               <tbody>
                 {losses.data.rows.map((row, i) => {
@@ -137,6 +143,7 @@ export default function FunnelTab() {
                       <td style={isFailure ? { color: 'var(--status-warning)', fontWeight: 800 } : undefined}>
                         {SIGNAL_LABELS[row.event] ?? row.event}
                       </td>
+                      <td><time>{gaMinute(row.event_minute)}</time></td>
                       <td className="num">{fmtNum(row.count)}</td>
                       <td>{row.country}</td>
                       <td><code>{row.page}</code></td>

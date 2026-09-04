@@ -456,7 +456,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v4', { days, limit }),
+      cacheKey('ga4:commerce-losses:v5', { days, limit }),
       decisionCacheTtl(days),
       async () => {
         const resp = await ga4RunReport(c.env, {
@@ -466,6 +466,7 @@ ga4.get('/commerce-losses', async (c) => {
             { name: 'country' },
             { name: 'pagePath' },
             { name: 'sessionCampaignName' },
+            { name: 'dateHourMinute' },
           ],
           metrics: [{ name: 'eventCount' }],
           dimensionFilter: {
@@ -474,8 +475,8 @@ ga4.get('/commerce-losses', async (c) => {
               inListFilter: { values: COMMERCE_LOSS_EVENTS },
             },
           },
-          orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }],
-          limit,
+          orderBys: [{ dimension: { dimensionName: 'dateHourMinute' }, desc: true }],
+          limit: 10000,
         });
 
         const rows = (resp.rows ?? []).map((r) => ({
@@ -483,6 +484,7 @@ ga4.get('/commerce-losses', async (c) => {
           country: r.dimensionValues?.[1]?.value || '(not set)',
           page: r.dimensionValues?.[2]?.value || '(not set)',
           campaign: r.dimensionValues?.[3]?.value || '(not set)',
+          event_minute: r.dimensionValues?.[4]?.value || '',
           count: Math.round(metricNum(r, 0)),
         }));
         const totals = Object.fromEntries(COMMERCE_LOSS_EVENTS.map((event) => [event, 0])) as Record<string, number>;
@@ -491,9 +493,9 @@ ga4.get('/commerce-losses', async (c) => {
         return {
           source: sourceLabel(c.env),
           window_days: days,
-          method: 'GA4 event counts grouped by country, event page and session campaign; rows are aggregate signals, not user-level paths.',
+          method: 'GA4 event counts grouped by country, event page, session campaign and property-timezone minute; rows are aggregate signals, not user-level paths.',
           totals,
-          rows,
+          rows: rows.slice(0, limit),
           synced_at: Math.floor(Date.now() / 1000),
         };
       }

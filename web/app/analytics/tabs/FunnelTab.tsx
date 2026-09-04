@@ -82,9 +82,9 @@ export default function FunnelTab() {
   const bundleOffers = losses.data?.totals.shipping_bundle_offer ?? 0;
   const bundleAdds = losses.data?.totals.shipping_bundle_add ?? 0;
   const bundleUptake = bundleOffers > 0 ? (bundleAdds / bundleOffers) * 100 : 0;
-  const paidVnLandings = losses.data?.market_totals.vn_paid_landing ?? 0;
-  const vnCartAdds = losses.data?.market_totals.vn_add_to_cart ?? 0;
-  const vnLandingToCart = paidVnLandings > 0 ? (vnCartAdds / paidVnLandings) * 100 : 0;
+  const paidVnLandings = priceTestLosses.data?.price_test?.vn_paid_landing ?? 0;
+  const vnCartAdds = priceTestLosses.data?.price_test?.vn_add_to_cart ?? 0;
+  const vnLandingToCart = paidVnLandings > 0 ? (vnCartAdds / paidVnLandings) * 100 : null;
   const paidPhLandings = priceTestLosses.data?.price_test?.ph_paid_landing ?? 0;
   const phCartAdds = priceTestLosses.data?.price_test?.ph_add_to_cart ?? 0;
   const phLandingToCart = paidPhLandings > 0 ? (phCartAdds / paidPhLandings) * 100 : null;
@@ -182,9 +182,9 @@ export default function FunnelTab() {
         {losses.data && (
           <>
             <div className="wa-kpis" style={{ marginBottom: 16 }}>
-              <Kpi label="VN paid landings" value={fmtNum(paidVnLandings)} delta="localized paid traffic" />
-              <Kpi label="VN carts" value={fmtNum(vnCartAdds)} delta="add_to_cart events" />
-              <Kpi accent label="VN landing → cart" value={fmtPct(vnLandingToCart)} delta="aggregate signal ratio" />
+              <Kpi label="VN control landings" value={fmtNum(paidVnLandings)} delta="post-launch · exact PDP" />
+              <Kpi label="VN control carts" value={fmtNum(vnCartAdds)} delta="post-launch · exact PDP" />
+              <Kpi accent label="VN control landing → cart" value={fmtPct(vnLandingToCart)} delta="same Sep 4 09:46 UTC seam" />
             </div>
             <div className="wa-kpis" style={{ marginBottom: 16 }}>
               <Kpi label="PH ₱499 landings" value={fmtNum(paidPhLandings)} delta="post-launch · exact PDP" />

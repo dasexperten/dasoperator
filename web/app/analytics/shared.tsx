@@ -60,6 +60,8 @@ export type Ga4CommerceLosses = {
     boundary_source: string;
     start_minute: string;
     end_minute: string;
+    vn_paid_landing: number;
+    vn_add_to_cart: number;
     ph_paid_landing: number;
     ph_add_to_cart: number;
     my_paid_landing: number;

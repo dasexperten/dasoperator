@@ -11,7 +11,7 @@ const checks = [
   ['API exposes attributed commerce rows', api.includes('commerce_rows') && api.includes("event: r.dimensionValues?.[0]?.value" )],
   ['content cache invalidates partial-funnel rows', api.includes("cacheKey('ga4:content:v4'")],
   ['commerce attribution includes cart and bundle progression', api.includes("'view_cart'") && api.includes("'shipping_preview_ready'") && api.includes("'shipping_bundle_offer'") && api.includes("'shipping_bundle_add'")],
-  ['commerce attribution includes checkout progression', api.includes("'checkout_loaded'") && api.includes("'shipping_quote_ready'") && api.includes("'add_payment_info'")],
+  ['commerce attribution includes checkout progression', api.includes("'checkout_loaded'") && api.includes("'checkout_address_complete'") && api.includes("'shipping_quote_ready'") && api.includes("'add_payment_info'")],
   ['shared content type keeps page', types.includes('rows: Array<{ title: string; page: string; views: number }>')],
   ['shared content type includes commerce rows', types.includes('commerce_rows: Array<{ event: string; title: string; page: string; count: number }>')],
   ['UI renders page title and path', ui.includes('Page title and path') && ui.includes('{r.page}')],

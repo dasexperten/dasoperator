@@ -432,6 +432,7 @@ const COMMERCE_LOSS_EVENTS = [
   'view_cart',
   'begin_checkout',
   'checkout_loaded',
+  'checkout_address_complete',
   'shipping_quote_ready',
   'add_payment_info',
   'checkout_error',
@@ -467,7 +468,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v7', { days, limit, calendar_window: 'exact-v2' }),
+      cacheKey('ga4:commerce-losses:v8', { days, limit, calendar_window: 'exact-v2' }),
       decisionCacheTtl(days),
       async () => {
         const resp = await ga4RunReport(c.env, {
@@ -652,7 +653,7 @@ ga4.get('/content', async (c) => {
           'paid_locale_landing_vn', 'pdp_value_proof_view', 'pdp_price_view',
           'add_to_cart', 'view_cart', 'shipping_preview_ready',
           'shipping_bundle_offer', 'shipping_bundle_add', 'shipping_bundle_unavailable',
-          'begin_checkout', 'checkout_loaded', 'shipping_quote_ready',
+          'begin_checkout', 'checkout_loaded', 'checkout_address_complete', 'shipping_quote_ready',
           'add_payment_info', 'purchase', 'checkout_error',
         ] } } },
         orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }],
@@ -871,7 +872,7 @@ ga4.get('/realtime', async (c) => {
       'pdp_value_proof_view', 'pdp_price_view',
       'view_cart', 'shipping_preview_ready', 'shipping_bundle_offer',
       'shipping_bundle_unavailable',
-      'shipping_bundle_add', 'begin_checkout', 'checkout_loaded',
+      'shipping_bundle_add', 'begin_checkout', 'checkout_loaded', 'checkout_address_complete',
       'shipping_quote_ready', 'add_payment_info', 'purchase', 'checkout_error',
     ];
     const [perMinute, byCountry, fiveMin, byAudience, byPage, byEvent] = await Promise.all([

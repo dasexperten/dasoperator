@@ -332,8 +332,6 @@ const BODY_CACHE_MAX_BYTES = 900_000;
 
 route.get('/mailboxes/:address/message', async (c) => {
   const t0 = Date.now();
-  if (!(await requireSession(c))) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
-  const tAuth = Date.now() - t0;
 
   const address = normalizeAddress(c.req.param('address'));
   const key = c.req.query('key') || '';
@@ -344,12 +342,19 @@ route.get('/mailboxes/:address/message', async (c) => {
     return fail(c, 422, [{ code: 'bad_key', message: `key must start with ${expectedPrefix}` }]);
   }
 
+  // Проверка входа и чтение кэша идут ОДНОВРЕМЕННО: они не зависят друг от
+  // друга, а отдать письмо всё равно можно только после проверки. Ключ уже
+  // проверен на принадлежность ящику выше, так что раннее чтение ничего не
+  // открывает: без действительного входа ответ не уйдёт.
   const cacheKey = `${BODY_CACHE_PREFIX}${key}`;
   const tCache0 = Date.now();
-  let cached: string | null = null;
-  try {
-    cached = await c.env.CACHE.get(cacheKey);
-  } catch { /* кэш молчит — идём в архив, это не отказ */ }
+  const cachedPromise = c.env.CACHE.get(cacheKey).catch(() => null);
+  const sessionPromise = requireSession(c);
+
+  if (!(await sessionPromise)) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+  const tAuth = Date.now() - t0;
+
+  const cached = await cachedPromise;
   const tCache = Date.now() - tCache0;
 
   if (cached) {

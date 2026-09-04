@@ -801,6 +801,21 @@ function prefetchBodySoon(mailbox: string, key: string): void {
   pumpPrefetch();
 }
 
+// Страховка от зависшего запроса (замер 04.09). ERP отдаёт письмо за 86–159
+// мс — это видно по его собственному замеру в заголовке ответа. Браузер при
+// этом иногда ждёт двадцать секунд: запрос стоит в очереди по дороге, а не
+// готовится на той стороне. Ждать неподвижно нечего — через 2,5 секунды
+// посылаем второй такой же запрос и берём тот ответ, который придёт раньше.
+// Чтение письма ничего не меняет, поэтому второй запрос безопасен по сути,
+// а не по договорённости.
+const BODY_HEDGE_MS = 2500;
+
+function fetchBodyHedged(mailbox: string, key: string) {
+  const first = getMailboxMessage(mailbox, key);
+  const hedge = new Promise<void>((r) => setTimeout(r, BODY_HEDGE_MS)).then(() => getMailboxMessage(mailbox, key));
+  return Promise.race([first, hedge]);
+}
+
 function useMailBody(item: MailItem | null) {
   const cached = item ? readBodyCache(item.mailbox, item.key) : null;
   const [body, setBody] = useState<{ text?: string; html?: string } | null>(cached);
@@ -817,7 +832,7 @@ function useMailBody(item: MailItem | null) {
     }
     let cancelled = false;
     const release = holdPrefetch();
-    getMailboxMessage(item.mailbox, item.key)
+    fetchBodyHedged(item.mailbox, item.key)
       .then((r) => {
         if (cancelled || !r.success || !r.result) return;
         const next = { text: r.result.record.text, html: r.result.record.html };

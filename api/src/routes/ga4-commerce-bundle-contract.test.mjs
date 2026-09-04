@@ -6,12 +6,13 @@ const types = fs.readFileSync(new URL('../../../web/app/analytics/shared.tsx', i
 
 const checks = [
   [api.includes("'shipping_bundle_offer'"), 'API requests bundle offer events'],
+  [api.includes("'shipping_preview_ready'"), 'API requests delivery-preview visibility events'],
   [api.includes("'add_to_cart'"), 'API retains cart entry beyond realtime'],
   [api.includes("'shipping_bundle_add'"), 'API requests bundle add events'],
   [api.includes("'shipping_bundle_unavailable'"), 'API requests missing bundle outcomes'],
   [api.includes("cacheKey('ga4:acquisition-detail:v3'"), 'acquisition cache key invalidates old hourly entry'],
   [api.includes("{ name: 'landingPage' },\n            { name: 'date' },") && api.includes("date: ga4Date(r.dimensionValues?.[4]?.value ?? ''),"), 'acquisition rows expose an exact GA4 date without shifting existing dimensions'],
-  [api.includes("cacheKey('ga4:commerce-losses:v13'"), 'commerce cache key invalidates every pre-timezone price-test response'],
+  [api.includes("cacheKey('ga4:commerce-losses:v14'"), 'commerce cache key exposes delivery-preview visibility immediately'],
   [api.includes('return days === 1 ? 300 : 3600;'), 'one-day decision reports refresh within five minutes'],
   [(api.match(/decisionCacheTtl\(days\)/g) || []).length === 2, 'both acquisition and commerce-loss reports use decision TTL'],
   [api.includes("'pdp_value_proof_view'"), 'API requests PDP value-proof visibility'],
@@ -24,6 +25,7 @@ const checks = [
   [ui.includes("checkout_email_complete: 'Email completed'") && ui.includes("checkout_address_started: 'Address started'"), 'dashboard labels checkout interaction stages'],
   [ui.includes("checkout_address_complete: 'Address completed'"), 'dashboard labels checkout address completion'],
   [ui.includes("shipping_bundle_offer: 'Saw two-tube shipping value'"), 'dashboard labels offer'],
+  [ui.includes("shipping_preview_ready: 'Saw delivery price before checkout'"), 'dashboard labels delivery-preview visibility'],
   [ui.includes("shipping_bundle_add: 'Added second tube'"), 'dashboard labels add'],
   [ui.includes("shipping_bundle_unavailable: 'Two-tube shipping offer unavailable'"), 'dashboard labels missing offer'],
   [ui.includes('bundleAdds / bundleOffers'), 'dashboard computes uptake from adds divided by offers'],

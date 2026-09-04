@@ -454,6 +454,7 @@ const COMMERCE_LOSS_EVENTS = [
   'pdp_price_view',
   'shipping_unavailable',
   'shipping_quote_request',
+  'shipping_preview_ready',
   'shipping_bundle_offer',
   'shipping_bundle_unavailable',
   'shipping_bundle_add',
@@ -503,7 +504,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v13', { days, limit, calendar_window: 'exact-v2' }),
+      cacheKey('ga4:commerce-losses:v14', { days, limit, calendar_window: 'exact-v2' }),
       decisionCacheTtl(days),
       async () => {
         const resp = await ga4RunReport(c.env, {

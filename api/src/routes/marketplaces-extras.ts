@@ -1139,7 +1139,7 @@ async function fetchWbPrices(env: Env): Promise<Map<string, number>> {
  *
  * Pipeline:
  *   1. GET /adv/v1/promotion/count — list of all campaigns (active + paused).
- *   2. POST /adv/v1/promotion/adverts — fetch full campaign details to get nmIDs and advertId pairs.
+ *   2. GET /api/advert/v2/adverts — fetch full campaign details to get nmIDs and advertId pairs.
  *   3. POST /adv/v1/normquery/stats — actual stats per (advertId, nmId) for the period.
  *   4. Map nmId → article via marketplace_stocks_wb.nm_id (already in our DB).
  *
@@ -1160,7 +1160,7 @@ async function fetchWbAdvert(
   if (nmToArticle.size === 0) return out;
 
   // Step 2: fetch list of all active campaigns
-  let campaignsList: { advert_list: { advertId: number }[] }[] = [];
+  let campaignsList: { status: number; advert_list: { advertId: number }[] }[] = [];
   try {
     const r = await fetch('https://advert-api.wildberries.ru/adv/v1/promotion/count', {
       headers: { Authorization: env.WB_API_TOKEN },
@@ -1180,6 +1180,7 @@ async function fetchWbAdvert(
   // Type 8/9 are auto and auction (the ones that generate stats).
   const activeAdvertIds: number[] = [];
   for (const group of campaignsList) {
+    if (group.status !== 9 && group.status !== 11) continue;
     for (const c of (group as any).advert_list || []) {
       activeAdvertIds.push(c.advertId);
     }
@@ -1189,36 +1190,26 @@ async function fetchWbAdvert(
   await new Promise((r) => setTimeout(r, 1100));
 
   // Step 3: fetch campaign details in chunks of 50 to get nmID per advertId
-  // POST /adv/v1/promotion/adverts with body: array of advertIds. Returns nms[].nm per campaign.
+  // GET /api/advert/v2/adverts?ids=... returns adverts[].nm_settings[].nm_id.
+  // WB removed the former POST /adv/v1/promotion/adverts endpoint (404 in production).
   const advertToNm: Map<number, number[]> = new Map();
   for (let i = 0; i < activeAdvertIds.length; i += 50) {
     const chunk = activeAdvertIds.slice(i, i + 50);
     try {
-      const r = await fetch('https://advert-api.wildberries.ru/adv/v1/promotion/adverts', {
-        method: 'POST',
-        headers: { Authorization: env.WB_API_TOKEN, 'Content-Type': 'application/json' },
-        body: JSON.stringify(chunk),
+      const ids = chunk.join(',');
+      const r = await fetch(`https://advert-api.wildberries.ru/api/advert/v2/adverts?ids=${ids}`, {
+        headers: { Authorization: env.WB_API_TOKEN },
       });
       if (r.status === 429) { await new Promise((x) => setTimeout(x, 5000)); i -= 50; continue; }
-      if (!r.ok) { console.error(`[wb advert] /promotion/adverts HTTP ${r.status}`); continue; }
-      const data = await r.json<any[]>();
-      for (const camp of data || []) {
-        const advertId = camp.advertId as number;
-        const nms: number[] = [];
-        // Campaign types differ: type 8 has params[].nms[].nm, type 9 has autoParams.nms or unitedParams[].nms
-        const params = camp.params || camp.autoParams || camp.unitedParams || [];
-        const paramArr = Array.isArray(params) ? params : [params];
-        for (const p of paramArr) {
-          const nmList = p.nms || p.subject?.nms || [];
-          for (const item of nmList) {
-            const nm = typeof item === 'number' ? item : (item.nm ?? item.nmId);
-            if (typeof nm === 'number') nms.push(nm);
-          }
-        }
+      if (!r.ok) { console.error(`[wb advert] /api/advert/v2/adverts HTTP ${r.status}`); continue; }
+      const data = await r.json<{ adverts?: Array<{ id: number; nm_settings?: Array<{ nm_id: number }> }> }>();
+      for (const camp of data.adverts || []) {
+        const advertId = camp.id;
+        const nms = (camp.nm_settings || []).map((item) => item.nm_id).filter(Number.isFinite);
         if (nms.length) advertToNm.set(advertId, nms);
       }
     } catch (e) {
-      console.error('[wb advert] /promotion/adverts threw:', e);
+      console.error('[wb advert] /api/advert/v2/adverts threw:', e);
     }
     await new Promise((x) => setTimeout(x, 1100));
   }

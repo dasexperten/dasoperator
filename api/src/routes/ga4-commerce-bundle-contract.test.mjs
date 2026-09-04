@@ -10,7 +10,7 @@ const checks = [
   [api.includes("'shipping_bundle_add'"), 'API requests bundle add events'],
   [api.includes("'shipping_bundle_unavailable'"), 'API requests missing bundle outcomes'],
   [api.includes("cacheKey('ga4:acquisition-detail:v2'"), 'acquisition cache key invalidates old hourly entry'],
-  [api.includes("cacheKey('ga4:commerce-losses:v6'"), 'commerce cache key invalidates rows without cart entry'],
+  [api.includes("cacheKey('ga4:commerce-losses:v7'"), 'commerce cache key invalidates rows without complete market totals'],
   [api.includes('return days === 1 ? 300 : 3600;'), 'one-day decision reports refresh within five minutes'],
   [(api.match(/decisionCacheTtl\(days\)/g) || []).length === 2, 'both acquisition and commerce-loss reports use decision TTL'],
   [api.includes("'pdp_value_proof_view'"), 'API requests PDP value-proof visibility'],

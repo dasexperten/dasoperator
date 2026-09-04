@@ -457,7 +457,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v6', { days, limit }),
+      cacheKey('ga4:commerce-losses:v7', { days, limit }),
       decisionCacheTtl(days),
       async () => {
         const resp = await ga4RunReport(c.env, {

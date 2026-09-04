@@ -7,9 +7,13 @@ const types = fs.readFileSync(new URL('../../../web/app/analytics/shared.tsx', i
 const checks = [
   ['API requests page title and path together', api.includes("dimensions: [{ name: 'unifiedScreenName' }, { name: 'pagePath' }]")],
   ['API maps the page path', api.includes("page: r.dimensionValues?.[1]?.value || '(not set)'" )],
-  ['content cache invalidates title-only rows', api.includes("cacheKey('ga4:content:v2'")],
+  ['API requests commerce events by title and path', api.includes("dimensions: [{ name: 'eventName' }, { name: 'unifiedScreenName' }, { name: 'pagePath' }]")],
+  ['API exposes attributed commerce rows', api.includes('commerce_rows') && api.includes("event: r.dimensionValues?.[0]?.value" )],
+  ['content cache invalidates pre-attribution rows', api.includes("cacheKey('ga4:content:v3'")],
   ['shared content type keeps page', types.includes('rows: Array<{ title: string; page: string; views: number }>')],
+  ['shared content type includes commerce rows', types.includes('commerce_rows: Array<{ event: string; title: string; page: string; count: number }>')],
   ['UI renders page title and path', ui.includes('Page title and path') && ui.includes('{r.page}')],
+  ['UI renders attributed commerce rows', ui.includes('content.data?.commerce_rows') && ui.includes('Commerce event and page')],
 ];
 for (const [label, pass] of checks) assert.equal(pass, true, label);
 console.log(`GA4 content path contract passed: ${checks.length}/${checks.length} invariants.`);

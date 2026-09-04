@@ -627,19 +627,35 @@ ga4.get('/content', async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '25', 10) || 25, 1), 250);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:content:v2', { days, limit }), 3600, async () => {
-      const resp = await ga4RunReport(c.env, {
+    const payload = await withKvCache(c.env, cacheKey('ga4:content:v3', { days, limit }), 3600, async () => {
+      const [resp, commerce] = await Promise.all([ga4RunReport(c.env, {
         dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
         dimensions: [{ name: 'unifiedScreenName' }, { name: 'pagePath' }],
         metrics: [{ name: 'screenPageViews' }],
         orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
         limit,
-      });
+      }), ga4RunReport(c.env, {
+        dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+        dimensions: [{ name: 'eventName' }, { name: 'unifiedScreenName' }, { name: 'pagePath' }],
+        metrics: [{ name: 'eventCount' }],
+        dimensionFilter: { filter: { fieldName: 'eventName', inListFilter: { values: [
+          'paid_locale_landing_vn', 'pdp_value_proof_view', 'pdp_price_view',
+          'add_to_cart', 'begin_checkout', 'purchase', 'checkout_error',
+        ] } } },
+        orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }],
+        limit: 250,
+      })]);
 
       const rows = (resp.rows ?? []).map((r) => ({
         title: r.dimensionValues?.[0]?.value || '(not set)',
         page: r.dimensionValues?.[1]?.value || '(not set)',
         views: Math.round(metricNum(r, 0)),
+      }));
+      const commerce_rows = (commerce.rows ?? []).map((r) => ({
+        event: r.dimensionValues?.[0]?.value || '(not set)',
+        title: r.dimensionValues?.[1]?.value || '(not set)',
+        page: r.dimensionValues?.[2]?.value || '(not set)',
+        count: Math.round(metricNum(r, 0)),
       }));
 
       return {
@@ -647,6 +663,7 @@ ga4.get('/content', async (c) => {
         window_days: days,
         totals: { views: rows.reduce((a, r) => a + r.views, 0) },
         rows,
+        commerce_rows,
         synced_at: Math.floor(Date.now() / 1000),
       };
     });
@@ -844,7 +861,7 @@ ga4.get('/realtime', async (c) => {
       'shipping_bundle_add', 'begin_checkout', 'checkout_loaded',
       'shipping_quote_ready', 'add_payment_info', 'purchase', 'checkout_error',
     ];
-    const [perMinute, byCountry, fiveMin, byAudience, byPage, byEvent, byScreenEvent] = await Promise.all([
+    const [perMinute, byCountry, fiveMin, byAudience, byPage, byEvent] = await Promise.all([
       ga4RunRealtimeReport(c.env, {
         dimensions: [{ name: 'minutesAgo' }],
         metrics: [{ name: 'activeUsers' }],
@@ -881,22 +898,6 @@ ga4.get('/realtime', async (c) => {
         orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }],
         limit: 10,
       }),
-      // Realtime cannot expose pagePath, but unifiedScreenName is supported and
-      // keeps commerce signals attributable to a specific product page title.
-      // GA4 rejects unifiedScreenName combined with country or minutesAgo, so this table
-      // reports the rolling 30-minute window without false minute precision.
-      ga4RunRealtimeReport(c.env, {
-        dimensions: [{ name: 'eventName' }, { name: 'unifiedScreenName' }],
-        metrics: [{ name: 'eventCount' }],
-        dimensionFilter: {
-          filter: {
-            fieldName: 'eventName',
-            inListFilter: { values: commerceEventNames },
-          },
-        },
-        orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }],
-        limit: 250,
-      }),
     ]);
 
     // minutesAgo comes back "0".."29" (0 = current minute); reverse so the
@@ -919,28 +920,6 @@ ga4.get('/realtime', async (c) => {
         count: Math.round(metricNum(r, 0)),
       }));
 
-    const commerceEvents = new Set(commerceEventNames);
-    const screenEventMap = new Map<string, { event: string; screen: string; count: number; last_seen_minutes_ago: null }>();
-    for (const r of byScreenEvent.rows ?? []) {
-      const event = r.dimensionValues?.[0]?.value || '(not set)';
-      if (!commerceEvents.has(event)) continue;
-      const screen = r.dimensionValues?.[1]?.value || '(not set)';
-      const key = `${event}\u0000${screen}`;
-      const current = screenEventMap.get(key);
-      if (current) {
-        current.count += Math.round(metricNum(r, 0));
-      } else {
-        screenEventMap.set(key, {
-          event,
-          screen,
-          count: Math.round(metricNum(r, 0)),
-          last_seen_minutes_ago: null,
-        });
-      }
-    }
-    const screenEventRows = [...screenEventMap.values()]
-      .sort((a, b) => b.count - a.count);
-
     return ok(c, {
       source: sourceLabel(c.env),
       active_users_now: countryRows.reduce((a, r) => a + r.active_users, 0),
@@ -950,7 +929,6 @@ ga4.get('/realtime', async (c) => {
       by_audience: dimRows(byAudience, 'audience'),
       by_page: dimRows(byPage, 'title'),
       by_event: dimRows(byEvent, 'event'),
-      by_screen_event: screenEventRows,
       // NOTE for UI: GA4's realtime "by First user source" card has no
       // Realtime-API dimension — cut, never faked (audienceName is supported).
       synced_at: Math.floor(Date.now() / 1000),

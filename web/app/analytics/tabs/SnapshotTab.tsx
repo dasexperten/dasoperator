@@ -165,25 +165,6 @@ export default function SnapshotTab() {
               </div>
             </div>
 
-            <div className="wa-table-scroll" style={{ maxHeight: 300, marginTop: 16 }}>
-              <table className="wa-table">
-                <thead><tr><th>Commerce event</th><th>Screen</th><th className="right">Count</th><th className="right">Window</th></tr></thead>
-                <tbody>
-                  {(rt.by_screen_event ?? []).map((r) => (
-                    <tr key={`${r.event}:${r.screen}`}>
-                      <td>{r.event}</td>
-                      <td>{r.screen}</td>
-                      <td className="num right">{fmtNum(r.count)}</td>
-                      <td className="num right">{r.last_seen_minutes_ago == null ? '≤30m' : r.last_seen_minutes_ago === 0 ? 'now' : `${r.last_seen_minutes_ago}m ago`}</td>
-                    </tr>
-                  ))}
-                  {(rt.by_screen_event ?? []).length === 0 && (
-                    <tr><td colSpan={4} style={{ color: 'var(--fg-3)' }}>No screen-level commerce events right now.</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
             <div className="wa-note" style={{ marginTop: 12 }}>
               Synced {timeAgo(rt.synced_at)} · minute bars run oldest (-29) to newest (0, now).
               GA4's "by First user source" realtime card has no Realtime-API dimension — cut,
@@ -325,6 +306,26 @@ export default function SnapshotTab() {
                 ))}
                 {!content.loading && (content.data?.rows ?? []).length === 0 && (
                   <tr><td colSpan={2} style={{ color: 'var(--fg-3)' }}>No page-view data.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="wa-table-scroll" style={{ marginTop: 16 }}>
+            <table className="wa-table">
+              <thead><tr><th>Commerce event and page</th><th className="right">Count</th></tr></thead>
+              <tbody>
+                {(content.data?.commerce_rows ?? []).map((r) => (
+                  <tr key={`${r.event}:${r.page}:${r.title}`}>
+                    <td style={{ maxWidth: 320, wordBreak: 'break-word' }}>
+                      <div style={{ fontWeight: 700 }}>{r.event}</div>
+                      <div>{r.title}</div>
+                      <div className="num" style={{ color: 'var(--fg-3)', marginTop: 3 }}>{r.page}</div>
+                    </td>
+                    <td className="num right">{fmtNum(r.count)}</td>
+                  </tr>
+                ))}
+                {!content.loading && (content.data?.commerce_rows ?? []).length === 0 && (
+                  <tr><td colSpan={2} style={{ color: 'var(--fg-3)' }}>No page-attributed commerce events yet.</td></tr>
                 )}
               </tbody>
             </table>

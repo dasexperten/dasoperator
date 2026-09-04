@@ -131,6 +131,7 @@ export type Ga4Content = {
   window_days: number;
   totals: { views: number };
   rows: Array<{ title: string; page: string; views: number }>;
+  commerce_rows: Array<{ event: string; title: string; page: string; count: number }>;
   synced_at: number;
 };
 export type Ga4Snapshot = {
@@ -151,7 +152,6 @@ export type Ga4Realtime = {
   by_audience?: Array<{ audience: string; count: number }>;
   by_page?: Array<{ title: string; count: number }>;
   by_event?: Array<{ event: string; count: number }>;
-  by_screen_event?: Array<{ event: string; screen: string; count: number; last_seen_minutes_ago: number | null }>;
   synced_at: number;
 };
 

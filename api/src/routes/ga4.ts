@@ -463,11 +463,19 @@ const COMMERCE_LOSS_EVENTS = [
 ];
 
 // Owner-approved PH/MY DE210 price tests started at this exact release seam.
-// GA4 dateHourMinute is reported in the property timezone (UTC for this
-// property). Price-test cards must never absorb earlier carts from the same day
+// GA4 dateHourMinute is reported in the property timezone. The same runReport
+// response owns that timezone in metadata; price-test cards must never absorb earlier carts from the same day
 // or carts from another product page in the same country.
-const PRICE_TEST_START_MINUTE = '202609040946';
-const PRICE_TEST_END_MINUTE = '202609110946';
+const PRICE_TEST_START_UTC = '2026-09-04T09:46:00Z';
+const PRICE_TEST_END_UTC = '2026-09-11T09:46:00Z';
+
+function minuteInTimeZone(iso: string, timeZone: string): string {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(iso)).map((part) => [part.type, part.value]));
+  return `${parts.year}${parts.month}${parts.day}${parts.hour}${parts.minute}`;
+}
 
 // Google Ads credentials stay on Jurgen's seat. This route only relays the
 // public bounded three-market aggregate; it cannot accept GAQL or mutate Ads.
@@ -495,7 +503,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v11', { days, limit, calendar_window: 'exact-v2' }),
+      cacheKey('ga4:commerce-losses:v12', { days, limit, calendar_window: 'exact-v2' }),
       decisionCacheTtl(days),
       async () => {
         const resp = await ga4RunReport(c.env, {
@@ -526,6 +534,10 @@ ga4.get('/commerce-losses', async (c) => {
           event_minute: r.dimensionValues?.[4]?.value || '',
           count: Math.round(metricNum(r, 0)),
         }));
+        const propertyTimeZone = resp.metadata?.timeZone || 'UTC';
+        const boundarySource = resp.metadata?.timeZone ? 'ga4_run_report_metadata' : 'legacy_utc_fallback';
+        const priceTestStartMinute = minuteInTimeZone(PRICE_TEST_START_UTC, propertyTimeZone);
+        const priceTestEndMinute = minuteInTimeZone(PRICE_TEST_END_UTC, propertyTimeZone);
         const totals = Object.fromEntries(COMMERCE_LOSS_EVENTS.map((event) => [event, 0])) as Record<string, number>;
         for (const row of rows) totals[row.event] = (totals[row.event] ?? 0) + row.count;
         const marketEventTotal = (event: string, country: string) => rows
@@ -543,12 +555,16 @@ ga4.get('/commerce-losses', async (c) => {
           .filter((row) => row.event === event
             && row.country === country
             && row.page === page
-            && row.event_minute >= PRICE_TEST_START_MINUTE
-            && row.event_minute <= PRICE_TEST_END_MINUTE)
+            && row.event_minute >= priceTestStartMinute
+            && row.event_minute <= priceTestEndMinute)
           .reduce((sum, row) => sum + row.count, 0);
         const price_test = {
-          start_minute: PRICE_TEST_START_MINUTE,
-          end_minute: PRICE_TEST_END_MINUTE,
+          start_utc: PRICE_TEST_START_UTC,
+          end_utc: PRICE_TEST_END_UTC,
+          property_time_zone: propertyTimeZone,
+          boundary_source: boundarySource,
+          start_minute: priceTestStartMinute,
+          end_minute: priceTestEndMinute,
           ph_paid_landing: priceTestEventTotal('paid_locale_landing_tl', 'Philippines', '/tl/products/innoweiss'),
           ph_add_to_cart: priceTestEventTotal('add_to_cart', 'Philippines', '/tl/products/innoweiss'),
           my_paid_landing: priceTestEventTotal('paid_locale_landing_ms', 'Malaysia', '/ms/products/innoweiss'),

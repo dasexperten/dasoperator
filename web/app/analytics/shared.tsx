@@ -54,6 +54,10 @@ export type Ga4CommerceLosses = {
     my_add_to_cart: number;
   };
   price_test?: {
+    start_utc: string;
+    end_utc: string;
+    property_time_zone: string;
+    boundary_source: string;
     start_minute: string;
     end_minute: string;
     ph_paid_landing: number;

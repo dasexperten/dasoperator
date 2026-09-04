@@ -111,6 +111,7 @@ export async function getGa4AccessToken(env: Env): Promise<string> {
 // runReport wrapper
 // =============================================================================
 export interface Ga4Report {
+  metadata?: { currencyCode?: string; timeZone?: string };
   dimensionHeaders?: Array<{ name: string }>;
   metricHeaders?: Array<{ name: string; type?: string }>;
   rows?: Array<{

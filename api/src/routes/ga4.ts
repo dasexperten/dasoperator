@@ -470,7 +470,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v9', { days, limit, calendar_window: 'exact-v2' }),
+      cacheKey('ga4:commerce-losses:v10', { days, limit, calendar_window: 'exact-v2' }),
       decisionCacheTtl(days),
       async () => {
         const resp = await ga4RunReport(c.env, {
@@ -503,10 +503,16 @@ ga4.get('/commerce-losses', async (c) => {
         }));
         const totals = Object.fromEntries(COMMERCE_LOSS_EVENTS.map((event) => [event, 0])) as Record<string, number>;
         for (const row of rows) totals[row.event] = (totals[row.event] ?? 0) + row.count;
+        const marketEventTotal = (event: string, country: string) => rows
+          .filter((row) => row.event === event && row.country === country)
+          .reduce((sum, row) => sum + row.count, 0);
         const market_totals = {
-          vn_add_to_cart: rows
-            .filter((row) => row.event === 'add_to_cart' && row.country === 'Vietnam')
-            .reduce((sum, row) => sum + row.count, 0),
+          vn_paid_landing: marketEventTotal('paid_locale_landing_vn', 'Vietnam'),
+          vn_add_to_cart: marketEventTotal('add_to_cart', 'Vietnam'),
+          ph_paid_landing: marketEventTotal('paid_locale_landing_tl', 'Philippines'),
+          ph_add_to_cart: marketEventTotal('add_to_cart', 'Philippines'),
+          my_paid_landing: marketEventTotal('paid_locale_landing_ms', 'Malaysia'),
+          my_add_to_cart: marketEventTotal('add_to_cart', 'Malaysia'),
         };
 
         return {

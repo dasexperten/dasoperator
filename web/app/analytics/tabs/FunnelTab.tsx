@@ -73,9 +73,15 @@ export default function FunnelTab() {
   const bundleOffers = losses.data?.totals.shipping_bundle_offer ?? 0;
   const bundleAdds = losses.data?.totals.shipping_bundle_add ?? 0;
   const bundleUptake = bundleOffers > 0 ? (bundleAdds / bundleOffers) * 100 : 0;
-  const paidVnLandings = losses.data?.totals.paid_locale_landing_vn ?? 0;
+  const paidVnLandings = losses.data?.market_totals.vn_paid_landing ?? 0;
   const vnCartAdds = losses.data?.market_totals.vn_add_to_cart ?? 0;
   const vnLandingToCart = paidVnLandings > 0 ? (vnCartAdds / paidVnLandings) * 100 : 0;
+  const paidPhLandings = losses.data?.market_totals.ph_paid_landing ?? 0;
+  const phCartAdds = losses.data?.market_totals.ph_add_to_cart ?? 0;
+  const phLandingToCart = paidPhLandings > 0 ? (phCartAdds / paidPhLandings) * 100 : 0;
+  const paidMyLandings = losses.data?.market_totals.my_paid_landing ?? 0;
+  const myCartAdds = losses.data?.market_totals.my_add_to_cart ?? 0;
+  const myLandingToCart = paidMyLandings > 0 ? (myCartAdds / paidMyLandings) * 100 : 0;
 
   return (
     <div className="space-y-4">
@@ -135,6 +141,16 @@ export default function FunnelTab() {
               <Kpi label="VN paid landings" value={fmtNum(paidVnLandings)} delta="localized paid traffic" />
               <Kpi label="VN carts" value={fmtNum(vnCartAdds)} delta="add_to_cart events" />
               <Kpi accent label="VN landing → cart" value={fmtPct(vnLandingToCart)} delta="aggregate signal ratio" />
+            </div>
+            <div className="wa-kpis" style={{ marginBottom: 16 }}>
+              <Kpi label="PH ₱499 landings" value={fmtNum(paidPhLandings)} delta="Philippines visitors" />
+              <Kpi label="PH ₱499 carts" value={fmtNum(phCartAdds)} delta="add_to_cart events" />
+              <Kpi accent label="PH ₱499 landing → cart" value={fmtPct(phLandingToCart)} delta="7-day price test" />
+            </div>
+            <div className="wa-kpis" style={{ marginBottom: 16 }}>
+              <Kpi label="MY RM29.90 landings" value={fmtNum(paidMyLandings)} delta="Malaysia visitors" />
+              <Kpi label="MY RM29.90 carts" value={fmtNum(myCartAdds)} delta="add_to_cart events" />
+              <Kpi accent label="MY RM29.90 landing → cart" value={fmtPct(myLandingToCart)} delta="7-day discount test" />
             </div>
             <div className="wa-kpis" style={{ marginBottom: 16 }}>
               <Kpi label="Shipping bundle offers" value={fmtNum(bundleOffers)} delta="DE · VN · PH" />

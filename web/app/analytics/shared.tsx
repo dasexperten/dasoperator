@@ -129,7 +129,7 @@ export type Ga4Content = {
   source: string;
   window_days: number;
   totals: { views: number };
-  rows: Array<{ title: string; views: number }>;
+  rows: Array<{ title: string; page: string; views: number }>;
   synced_at: number;
 };
 export type Ga4Snapshot = {

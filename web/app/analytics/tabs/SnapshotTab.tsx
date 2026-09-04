@@ -311,12 +311,15 @@ export default function SnapshotTab() {
           <div className="wa-table-scroll">
             <table className="wa-table">
               <thead>
-                <tr><th>Page title and screen</th><th className="right">Views</th></tr>
+                <tr><th>Page title and path</th><th className="right">Views</th></tr>
               </thead>
               <tbody>
                 {(content.data?.rows ?? []).map((r) => (
-                  <tr key={r.title}>
-                    <td style={{ maxWidth: 320, wordBreak: 'break-word' }}>{r.title}</td>
+                  <tr key={`${r.title}:${r.page}`}>
+                    <td style={{ maxWidth: 320, wordBreak: 'break-word' }}>
+                      <div>{r.title}</div>
+                      <div className="num" style={{ color: 'var(--fg-3)', marginTop: 3 }}>{r.page}</div>
+                    </td>
                     <td className="num right">{fmtNum(r.views)}</td>
                   </tr>
                 ))}

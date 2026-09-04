@@ -612,7 +612,7 @@ ga4.get('/languages', async (c) => {
 });
 
 // =============================================================================
-// GET /api/ga4/content?days=7&limit=25 — views by page title & screen name.
+// GET /api/ga4/content?days=7&limit=25 — views by page title and path.
 // KV cache: 1h
 // =============================================================================
 ga4.get('/content', async (c) => {
@@ -621,10 +621,10 @@ ga4.get('/content', async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '25', 10) || 25, 1), 250);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:content', { days, limit }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:content:v2', { days, limit }), 3600, async () => {
       const resp = await ga4RunReport(c.env, {
         dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
-        dimensions: [{ name: 'unifiedScreenName' }],
+        dimensions: [{ name: 'unifiedScreenName' }, { name: 'pagePath' }],
         metrics: [{ name: 'screenPageViews' }],
         orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
         limit,
@@ -632,6 +632,7 @@ ga4.get('/content', async (c) => {
 
       const rows = (resp.rows ?? []).map((r) => ({
         title: r.dimensionValues?.[0]?.value || '(not set)',
+        page: r.dimensionValues?.[1]?.value || '(not set)',
         views: Math.round(metricNum(r, 0)),
       }));
 

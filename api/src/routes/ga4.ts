@@ -462,6 +462,13 @@ const COMMERCE_LOSS_EVENTS = [
   'purchase',
 ];
 
+// Owner-approved PH/MY DE210 price tests started at this exact release seam.
+// GA4 dateHourMinute is reported in the property timezone (UTC for this
+// property). Price-test cards must never absorb earlier carts from the same day
+// or carts from another product page in the same country.
+const PRICE_TEST_START_MINUTE = '202609040946';
+const PRICE_TEST_END_MINUTE = '202609110946';
+
 ga4.get('/commerce-losses', async (c) => {
   if (!ga4Configured(c.env)) return notConfigured(c);
   const days = windowDays(c);
@@ -470,7 +477,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v10', { days, limit, calendar_window: 'exact-v2' }),
+      cacheKey('ga4:commerce-losses:v11', { days, limit, calendar_window: 'exact-v2' }),
       decisionCacheTtl(days),
       async () => {
         const resp = await ga4RunReport(c.env, {
@@ -514,6 +521,21 @@ ga4.get('/commerce-losses', async (c) => {
           my_paid_landing: marketEventTotal('paid_locale_landing_ms', 'Malaysia'),
           my_add_to_cart: marketEventTotal('add_to_cart', 'Malaysia'),
         };
+        const priceTestEventTotal = (event: string, country: string, page: string) => rows
+          .filter((row) => row.event === event
+            && row.country === country
+            && row.page === page
+            && row.event_minute >= PRICE_TEST_START_MINUTE
+            && row.event_minute <= PRICE_TEST_END_MINUTE)
+          .reduce((sum, row) => sum + row.count, 0);
+        const price_test = {
+          start_minute: PRICE_TEST_START_MINUTE,
+          end_minute: PRICE_TEST_END_MINUTE,
+          ph_paid_landing: priceTestEventTotal('paid_locale_landing_tl', 'Philippines', '/tl/products/innoweiss'),
+          ph_add_to_cart: priceTestEventTotal('add_to_cart', 'Philippines', '/tl/products/innoweiss'),
+          my_paid_landing: priceTestEventTotal('paid_locale_landing_ms', 'Malaysia', '/ms/products/innoweiss'),
+          my_add_to_cart: priceTestEventTotal('add_to_cart', 'Malaysia', '/ms/products/innoweiss'),
+        };
 
         return {
           source: sourceLabel(c.env),
@@ -521,6 +543,7 @@ ga4.get('/commerce-losses', async (c) => {
           method: 'GA4 event counts grouped by country, event page, session campaign and property-timezone minute; rows are aggregate signals, not user-level paths.',
           totals,
           market_totals,
+          price_test,
           rows: rows.slice(0, limit),
           synced_at: Math.floor(Date.now() / 1000),
         };

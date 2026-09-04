@@ -53,6 +53,14 @@ export type Ga4CommerceLosses = {
     my_paid_landing: number;
     my_add_to_cart: number;
   };
+  price_test?: {
+    start_minute: string;
+    end_minute: string;
+    ph_paid_landing: number;
+    ph_add_to_cart: number;
+    my_paid_landing: number;
+    my_add_to_cart: number;
+  };
   rows: Array<{ event: string; country: string; page: string; campaign: string; event_minute: string; count: number }>;
   synced_at: number;
 };

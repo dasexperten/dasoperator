@@ -46,6 +46,7 @@ const SIGNAL_LABELS: Record<string, string> = {
   shipping_unavailable: 'Shipping unavailable',
   shipping_quote_request: 'Requested shipping quote',
   shipping_bundle_offer: 'Saw two-tube shipping value',
+  shipping_bundle_unavailable: 'Two-tube shipping offer unavailable',
   shipping_bundle_add: 'Added second tube',
   marketplace_open: 'Opened marketplace choices',
   marketplace_click: 'Clicked marketplace',

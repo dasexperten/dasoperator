@@ -11,6 +11,8 @@ const checks = [
   ['API exposes the joined rows', api.includes('by_country_event: countryEventRows')],
   ['API aggregates minute rows and retains the freshest minute', api.includes('countryEventMap') && api.includes('current.last_seen_minutes_ago = Math.min')],
   ['API keeps the paid landing signal', api.includes("'paid_locale_landing_vn'")],
+  ['API keeps PDP value-proof visibility', api.includes("'pdp_value_proof_view'")],
+  ['API keeps PDP price visibility', api.includes("'pdp_price_view'")],
   ['API keeps cart progression', api.includes("'add_to_cart'") && api.includes("'begin_checkout'")],
   ['API keeps bundle outcomes', api.includes("'shipping_bundle_offer'") && api.includes("'shipping_bundle_add'")],
   ['API keeps purchase outcome', api.includes("'purchase'")],

@@ -41,6 +41,8 @@ const SIGNAL_LABELS: Record<string, string> = {
   paid_locale_landing_tl: 'Paid landing localized · Philippines',
   paid_locale_landing_ms: 'Paid landing localized · Malaysia',
   paid_locale_landing_zh: 'Paid landing localized · Taiwan',
+  pdp_value_proof_view: 'Saw product value proof',
+  pdp_price_view: 'Saw product price',
   shipping_unavailable: 'Shipping unavailable',
   shipping_quote_request: 'Requested shipping quote',
   shipping_bundle_offer: 'Saw two-tube shipping value',

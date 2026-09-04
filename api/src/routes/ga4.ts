@@ -436,6 +436,8 @@ const COMMERCE_LOSS_EVENTS = [
   'paid_locale_landing_tl',
   'paid_locale_landing_ms',
   'paid_locale_landing_zh',
+  'pdp_value_proof_view',
+  'pdp_price_view',
   'shipping_unavailable',
   'shipping_quote_request',
   'shipping_bundle_offer',
@@ -825,6 +827,7 @@ ga4.get('/realtime', async (c) => {
     const commerceEventNames = [
       'paid_locale_landing_vn', 'paid_locale_landing_th', 'paid_locale_landing_tl',
       'paid_locale_landing_ms', 'paid_locale_landing_zh', 'view_item', 'add_to_cart',
+      'pdp_value_proof_view', 'pdp_price_view',
       'view_cart', 'shipping_preview_ready', 'shipping_bundle_offer',
       'shipping_bundle_add', 'begin_checkout', 'checkout_loaded',
       'shipping_quote_ready', 'add_payment_info', 'purchase', 'checkout_error',

@@ -1459,7 +1459,9 @@ function SourcePill({
       <div style={{
         fontSize: 14,
         fontWeight: 600,
-        color: active ? 'rgba(251,250,246,0.85)' : 'var(--fg-3)',
+        // Full paper, not 85% of it — a translucent sublabel on the rot tab
+        // reads 3.5:1. The hierarchy is carried by size and weight already.
+        color: active ? 'var(--fg-on-brand)' : 'var(--fg-3)',
       }}>
         {sublabel}
       </div>
@@ -1840,13 +1842,13 @@ function DataTablePanel({
               style={{
                 fontFamily: 'var(--font-display)',
                 fontSize: 14, fontWeight: 800,
-                color: page === 1 ? 'var(--fg-muted)' : 'var(--fg-on-brand)',
+                color: page === 1 ? 'var(--fg-3)' : 'var(--fg-on-brand)',
                 backgroundColor: page === 1 ? 'var(--paper-sunk)' : 'var(--brand-schwarz)',
                 border: 'none',
                 borderRadius: 'var(--radius-sm)',
                 boxShadow: page === 1 ? 'none' : 'var(--shadow-raised)',
                 cursor: page === 1 ? 'not-allowed' : 'pointer',
-                opacity: page === 1 ? 0.5 : 1,
+                /* Disabled reads by ground and cursor, never by faded ink. */
               }}
             >
               <ChevronLeft className="h-4 w-4" />
@@ -1859,13 +1861,13 @@ function DataTablePanel({
               style={{
                 fontFamily: 'var(--font-display)',
                 fontSize: 14, fontWeight: 800,
-                color: page >= totalPages ? 'var(--fg-muted)' : 'var(--fg-on-brand)',
+                color: page >= totalPages ? 'var(--fg-3)' : 'var(--fg-on-brand)',
                 backgroundColor: page >= totalPages ? 'var(--paper-sunk)' : 'var(--brand-schwarz)',
                 border: 'none',
                 borderRadius: 'var(--radius-sm)',
                 boxShadow: page >= totalPages ? 'none' : 'var(--shadow-raised)',
                 cursor: page >= totalPages ? 'not-allowed' : 'pointer',
-                opacity: page >= totalPages ? 0.5 : 1,
+                /* Disabled reads by ground and cursor, never by faded ink. */
               }}
             >
               Next

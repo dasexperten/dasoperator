@@ -559,9 +559,9 @@ function StockCell({
   // Use literal hex colors instead of CSS vars to avoid any variable
   // resolution issues in production bundles. These match apothecary tokens:
   //   --fg-1         = #1A1519 (brand-schwarz-ink)
-  //   --fg-muted     = stone-300 (~ #B6B6B6)
+  //   --fg-muted     = stone-400 (contrast law: stone-300 was 3.0:1 on white)
   const INK = '#1A1519';
-  const MUTED = '#B6B6B6';
+  const MUTED = 'var(--fg-muted)'; // was #B6B6B6 — 2.0:1 on white
 
   const totalColor = total > 0 ? INK : MUTED;
 

@@ -34,7 +34,7 @@ const MAX_BYTES = 5 * 1024 * 1024;
 
 // Apothecary tokens — literal hex for defensive rendering
 const INK = '#1A1519';
-const MUTED = '#B6B6B6';
+const MUTED = 'var(--fg-muted)'; // was #B6B6B6 — 2.0:1 on white
 
 // =============================================================================
 // Helpers

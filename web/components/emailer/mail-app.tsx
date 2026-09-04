@@ -733,21 +733,72 @@ function writeBodyCache(mailbox: string, key: string, body: { text?: string; htm
 // Два предохранителя: один и тот же ключ не тянется дважды (замок по ключу),
 // и предзагрузка молчит при любой ошибке — она обязана быть незаметной.
 // ---------------------------------------------------------------------------
+// Предзагрузка идёт ОЧЕРЕДЬЮ и уступает дорогу. Первая версия тянула все
+// письма открытого треда разом — на треде из десяти писем это восемь
+// запросов в одну секунду, и то письмо, которое человек открыл, ждало в
+// общей толпе дольше, чем ждало бы без всякой предзагрузки. Отсюда правила:
+// не больше двух фоновых запросов сразу и полная остановка, пока грузится
+// письмо, открытое рукой.
 const bodyInFlight = new Set<string>();
+const prefetchQueue: Array<{ mailbox: string; key: string }> = [];
+const PREFETCH_PARALLEL = 2;
+let prefetchRunning = 0;
+let foregroundLoads = 0;
+
+function pumpPrefetch(): void {
+  while (foregroundLoads === 0 && prefetchRunning < PREFETCH_PARALLEL) {
+    const next = prefetchQueue.shift();
+    if (!next) return;
+    const id = `${next.mailbox}:${next.key}`;
+    if (bodyInFlight.has(id) || readBodyCache(next.mailbox, next.key)) continue;
+    bodyInFlight.add(id);
+    prefetchRunning++;
+    getMailboxMessage(next.mailbox, next.key)
+      .then((r) => {
+        if (r.success && r.result) {
+          writeBodyCache(next.mailbox, next.key, { text: r.result.record.text, html: r.result.record.html });
+        }
+      })
+      .catch(() => { /* предзагрузка не имеет права шуметь */ })
+      .finally(() => {
+        bodyInFlight.delete(id);
+        prefetchRunning--;
+        pumpPrefetch();
+      });
+  }
+}
+
+/** Письмо, открытое рукой, останавливает фон на время своей загрузки. */
+function holdPrefetch(): () => void {
+  foregroundLoads++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    foregroundLoads--;
+    pumpPrefetch();
+  };
+}
 
 function prefetchBody(mailbox: string, key: string): void {
   if (!mailbox || !key) return;
   const id = `${mailbox}:${key}`;
   if (bodyInFlight.has(id) || readBodyCache(mailbox, key)) return;
-  bodyInFlight.add(id);
-  getMailboxMessage(mailbox, key)
-    .then((r) => {
-      if (r.success && r.result) {
-        writeBodyCache(mailbox, key, { text: r.result.record.text, html: r.result.record.html });
-      }
-    })
-    .catch(() => { /* предзагрузка не имеет права шуметь */ })
-    .finally(() => { bodyInFlight.delete(id); });
+  if (prefetchQueue.some((q) => `${q.mailbox}:${q.key}` === id)) return;
+  prefetchQueue.push({ mailbox, key });
+  pumpPrefetch();
+}
+
+/** Наведение и открытый тред двигают письмо в голову очереди. */
+function prefetchBodySoon(mailbox: string, key: string): void {
+  if (!mailbox || !key) return;
+  const id = `${mailbox}:${key}`;
+  if (bodyInFlight.has(id) || readBodyCache(mailbox, key)) return;
+  const at = prefetchQueue.findIndex((q) => `${q.mailbox}:${q.key}` === id);
+  if (at > 0) prefetchQueue.splice(at, 1);
+  else if (at === 0) return;
+  prefetchQueue.unshift({ mailbox, key });
+  pumpPrefetch();
 }
 
 function useMailBody(item: MailItem | null) {
@@ -765,6 +816,7 @@ function useMailBody(item: MailItem | null) {
       setBody(null);
     }
     let cancelled = false;
+    const release = holdPrefetch();
     getMailboxMessage(item.mailbox, item.key)
       .then((r) => {
         if (cancelled || !r.success || !r.result) return;
@@ -773,8 +825,8 @@ function useMailBody(item: MailItem | null) {
         writeBodyCache(item.mailbox, item.key, next);
       })
       .catch(() => { /* header still useful */ })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+      .finally(() => { release(); if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; release(); };
   }, [item?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   return { body, loading };
 }
@@ -1783,7 +1835,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
   }, [threads]);
   useEffect(() => {
     if (!openThread) return;
-    for (const l of openThread.letters) prefetchBody(l.mailbox, l.key);
+    for (const l of openThread.letters.slice(0, 4)) prefetchBody(l.mailbox, l.key);
   }, [openThread]);
 
   // Opening a different conversation collapses the strip again: expansion belongs
@@ -2008,8 +2060,8 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                 key={e.id}
                 className={`row ${inThread ? 'selected' : ''} ${sel.checked.has(e.id) ? 'checked' : ''} ${t.unread ? 'unread' : ''}`}
                 onClick={() => openEmail(e)}
-                onMouseEnter={() => prefetchBody(e.mailbox, e.key)}
-                onFocus={() => prefetchBody(e.mailbox, e.key)}
+                onMouseEnter={() => prefetchBodySoon(e.mailbox, e.key)}
+                onFocus={() => prefetchBodySoon(e.mailbox, e.key)}
               >
                 <RowCheck on={sel.checked.has(e.id)} onToggle={() => sel.toggle(e.id)} />
                 <div className="ava" style={{ background: e.color }}>{e.initial}</div>
@@ -2436,7 +2488,7 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
   }, [visible]);
   useEffect(() => {
     if (!openThread) return;
-    for (const l of openThread.letters) prefetchBody(l.mailbox, l.key);
+    for (const l of openThread.letters.slice(0, 4)) prefetchBody(l.mailbox, l.key);
   }, [openThread]);
   const scopeLabel = scope
     ? (findUiMailbox(scope.address)?.label || scope.address.split('@')[0])

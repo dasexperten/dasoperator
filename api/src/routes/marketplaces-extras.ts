@@ -1140,7 +1140,7 @@ async function fetchWbPrices(env: Env): Promise<Map<string, number>> {
  * Pipeline:
  *   1. GET /adv/v1/promotion/count — list of all campaigns (active + paused).
  *   2. GET /api/advert/v2/adverts — fetch full campaign details to get nmIDs and advertId pairs.
- *   3. POST /adv/v1/normquery/stats — actual stats per (advertId, nmId) for the period.
+ *   3. GET /adv/v3/fullstats — actual daily stats at app and nmID grain.
  *   4. Map nmId → article via marketplace_stocks_wb.nm_id (already in our DB).
  *
  * Throttling: advert-api allows ~1 req/sec on most endpoints. We sleep 1100ms between calls.
@@ -1216,49 +1216,41 @@ async function fetchWbAdvert(
 
   if (advertToNm.size === 0) return out;
 
-  // Step 4: pull stats per (advertId, nmId). Endpoint accepts up to 100 items per call.
-  // POST /adv/v1/normquery/stats — body { from, to, items: [{advertId, nmId}] }
-  const items: { advertId: number; nmId: number }[] = [];
-  for (const [advertId, nms] of advertToNm.entries()) {
-    for (const nm of nms) {
-      if (nmToArticle.has(nm)) items.push({ advertId, nmId: nm });
-    }
-  }
-
-  for (let i = 0; i < items.length; i += 100) {
-    const chunk = items.slice(i, i + 100);
+  // Step 4: pull campaign stats and aggregate the nested nm rows. Using the
+  // nested rows avoids assigning one campaign's whole spend to every product.
+  const statAdvertIds = [...advertToNm.keys()];
+  for (let i = 0; i < statAdvertIds.length; i += 50) {
+    const chunk = statAdvertIds.slice(i, i + 50);
     try {
-      const r = await fetch('https://advert-api.wildberries.ru/adv/v1/normquery/stats', {
-        method: 'POST',
-        headers: { Authorization: env.WB_API_TOKEN, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: dateFrom, to: dateTo, items: chunk }),
+      const ids = chunk.join(',');
+      const url = `https://advert-api.wildberries.ru/adv/v3/fullstats?ids=${ids}&beginDate=${dateFrom}&endDate=${dateTo}`;
+      const r = await fetch(url, {
+        headers: { Authorization: env.WB_API_TOKEN },
       });
-      if (r.status === 429) { await new Promise((x) => setTimeout(x, 5000)); i -= 100; continue; }
-      if (!r.ok) { console.error(`[wb advert] /normquery/stats HTTP ${r.status}: ${await r.text()}`); continue; }
-      const data = await r.json<any>();
-      const days = data?.days || [];
-      for (const day of days) {
-        for (const app of day.apps || []) {
-          const advertId = app.advertId as number;
-          const nmId = app.nmId as number;
-          const article = nmToArticle.get(nmId);
-          if (!article) continue;
-          const sumRub = (app.sum || 0) as number;
-          const views = (app.views || 0) as number;
-          const clicks = (app.clicks || 0) as number;
-          const atbs = (app.atbs || 0) as number;
-          const orders = (app.orders || 0) as number;
-          const e = out.get(article) || { spendKopecks: 0, views: 0, clicks: 0, tocart: 0, orders: 0 };
-          e.spendKopecks += Math.round(sumRub * 100);
-          e.views += views;
-          e.clicks += clicks;
-          e.tocart += atbs;
-          e.orders += orders;
-          out.set(article, e);
+      if (r.status === 429) { console.error('[wb advert] /fullstats HTTP 429'); continue; }
+      if (!r.ok) { console.error(`[wb advert] /fullstats HTTP ${r.status}: ${await r.text()}`); continue; }
+      const campaigns = await r.json<Array<{ days?: Array<{ apps?: Array<{ nms?: Array<{
+        nmId: number; sum?: number; views?: number; clicks?: number; atbs?: number; orders?: number;
+      }> }> }> }>>();
+      for (const campaign of campaigns || []) {
+        for (const day of campaign.days || []) {
+          for (const app of day.apps || []) {
+            for (const nm of app.nms || []) {
+              const article = nmToArticle.get(nm.nmId);
+              if (!article) continue;
+              const e = out.get(article) || { spendKopecks: 0, views: 0, clicks: 0, tocart: 0, orders: 0 };
+              e.spendKopecks += Math.round((nm.sum || 0) * 100);
+              e.views += nm.views || 0;
+              e.clicks += nm.clicks || 0;
+              e.tocart += nm.atbs || 0;
+              e.orders += nm.orders || 0;
+              out.set(article, e);
+            }
+          }
         }
       }
     } catch (e) {
-      console.error('[wb advert] /normquery/stats threw:', e);
+      console.error('[wb advert] /fullstats threw:', e);
     }
     await new Promise((x) => setTimeout(x, 1100));
   }

@@ -627,7 +627,7 @@ ga4.get('/content', async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '25', 10) || 25, 1), 250);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:content:v3', { days, limit }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:content:v4', { days, limit }), 3600, async () => {
       const [resp, commerce] = await Promise.all([ga4RunReport(c.env, {
         dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
         dimensions: [{ name: 'unifiedScreenName' }, { name: 'pagePath' }],
@@ -640,7 +640,10 @@ ga4.get('/content', async (c) => {
         metrics: [{ name: 'eventCount' }],
         dimensionFilter: { filter: { fieldName: 'eventName', inListFilter: { values: [
           'paid_locale_landing_vn', 'pdp_value_proof_view', 'pdp_price_view',
-          'add_to_cart', 'begin_checkout', 'purchase', 'checkout_error',
+          'add_to_cart', 'view_cart', 'shipping_preview_ready',
+          'shipping_bundle_offer', 'shipping_bundle_add', 'shipping_bundle_unavailable',
+          'begin_checkout', 'checkout_loaded', 'shipping_quote_ready',
+          'add_payment_info', 'purchase', 'checkout_error',
         ] } } },
         orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }],
         limit: 250,

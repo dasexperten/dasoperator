@@ -490,12 +490,18 @@ ga4.get('/commerce-losses', async (c) => {
         }));
         const totals = Object.fromEntries(COMMERCE_LOSS_EVENTS.map((event) => [event, 0])) as Record<string, number>;
         for (const row of rows) totals[row.event] = (totals[row.event] ?? 0) + row.count;
+        const market_totals = {
+          vn_add_to_cart: rows
+            .filter((row) => row.event === 'add_to_cart' && row.country === 'Vietnam')
+            .reduce((sum, row) => sum + row.count, 0),
+        };
 
         return {
           source: sourceLabel(c.env),
           window_days: days,
           method: 'GA4 event counts grouped by country, event page, session campaign and property-timezone minute; rows are aggregate signals, not user-level paths.',
           totals,
+          market_totals,
           rows: rows.slice(0, limit),
           synced_at: Math.floor(Date.now() / 1000),
         };

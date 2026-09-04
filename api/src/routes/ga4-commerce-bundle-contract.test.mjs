@@ -2,6 +2,7 @@ import fs from 'node:fs';
 
 const api = fs.readFileSync(new URL('./ga4.ts', import.meta.url), 'utf8');
 const ui = fs.readFileSync(new URL('../../../web/app/analytics/tabs/FunnelTab.tsx', import.meta.url), 'utf8');
+const types = fs.readFileSync(new URL('../../../web/app/analytics/shared.tsx', import.meta.url), 'utf8');
 
 const checks = [
   [api.includes("'shipping_bundle_offer'"), 'API requests bundle offer events'],
@@ -24,7 +25,9 @@ const checks = [
   [ui.includes('Shipping bundle offers'), 'dashboard renders cross-market experiment KPIs'],
   [ui.includes('DE · VN · PH'), 'dashboard names the measured market scope'],
   [ui.includes('Bundle uptake'), 'dashboard renders uptake KPI'],
-  [ui.includes("row.event === 'add_to_cart' && row.country === 'Vietnam'"), 'dashboard isolates Vietnam cart entries'],
+  [api.includes("row.event === 'add_to_cart' && row.country === 'Vietnam'") && api.includes('market_totals,'), 'API totals Vietnam cart entries before display limiting'],
+  [types.includes('market_totals: { vn_add_to_cart: number }'), 'shared response type exposes Vietnam cart total'],
+  [ui.includes('losses.data?.market_totals.vn_add_to_cart'), 'dashboard consumes the complete Vietnam cart total'],
   [ui.includes('vnCartAdds / paidVnLandings'), 'dashboard computes Vietnam landing-to-cart signal ratio'],
   [ui.includes('VN landing → cart'), 'dashboard renders Vietnam landing-to-cart KPI'],
   [api.includes("{ name: 'dateHourMinute' }") && api.includes('event_minute:'), 'API dates each loss against release seams'],

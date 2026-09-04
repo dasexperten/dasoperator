@@ -71,9 +71,7 @@ export default function FunnelTab() {
   const bundleAdds = losses.data?.totals.shipping_bundle_add ?? 0;
   const bundleUptake = bundleOffers > 0 ? (bundleAdds / bundleOffers) * 100 : 0;
   const paidVnLandings = losses.data?.totals.paid_locale_landing_vn ?? 0;
-  const vnCartAdds = (losses.data?.rows ?? [])
-    .filter((row) => row.event === 'add_to_cart' && row.country === 'Vietnam')
-    .reduce((sum, row) => sum + row.count, 0);
+  const vnCartAdds = losses.data?.market_totals.vn_add_to_cart ?? 0;
   const vnLandingToCart = paidVnLandings > 0 ? (vnCartAdds / paidVnLandings) * 100 : 0;
 
   return (

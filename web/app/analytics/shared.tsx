@@ -45,6 +45,7 @@ export type Ga4CommerceLosses = {
   window_days: number;
   method: string;
   totals: Record<string, number>;
+  market_totals: { vn_add_to_cart: number };
   rows: Array<{ event: string; country: string; page: string; campaign: string; event_minute: string; count: number }>;
   synced_at: number;
 };
@@ -129,7 +130,7 @@ export type Ga4Content = {
   source: string;
   window_days: number;
   totals: { views: number };
-  rows: Array<{ title: string; page: string; views: number }>;
+  rows: Array<{ title: string; views: number }>;
   synced_at: number;
 };
 export type Ga4Snapshot = {

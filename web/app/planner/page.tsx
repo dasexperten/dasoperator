@@ -1551,7 +1551,9 @@ function SkuTable({
             const amount = finalAmount(r);
             const convert = r.convertible_from_family ?? 0;
             const isStockout = r.available_stock === 0 && convert === 0 && !r.is_new_launch && r.velocity_per_day > 0;
-            const coverColor = r.cover_days === null ? 'text-stone-400' : r.cover_days <= 30 ? 'text-red-600' : r.cover_days <= 90 ? 'text-amber-600' : 'text-green-600';
+            // Tailwind's amber-600/green-600 are 3.1-3.3:1 on the tinted row grounds
+            // this table paints. Status ink tokens instead — same signal, readable.
+            const coverColor = r.cover_days === null ? 'text-stone-400' : r.cover_days <= 30 ? 'text-red-600' : r.cover_days <= 90 ? 'dx-ink-warn' : 'dx-ink-ok';
             const isLocked = Object.prototype.hasOwnProperty.call(manualOverrides, r.base_sku);
             const rowStripe = idx % 2 === 0 ? '#FFFEF9' : 'white';
             const rowBg = isLocked ? '#FAEEDA' : convert > 0 ? '#F0F7FF' : rowStripe;

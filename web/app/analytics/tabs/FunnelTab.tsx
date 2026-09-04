@@ -92,6 +92,7 @@ export default function FunnelTab() {
   const myCartAdds = priceTestLosses.data?.price_test?.my_add_to_cart ?? 0;
   const myLandingToCart = paidMyLandings > 0 ? (myCartAdds / paidMyLandings) * 100 : null;
   const postLaunchAds = exposure.data?.campaign_delivery?.post_launch_complete_hours;
+  const searchDelivery = exposure.data?.replacement_search_delivery;
 
   return (
     <div className="space-y-4">
@@ -150,6 +151,27 @@ export default function FunnelTab() {
       <Panel title="Paid landing through checkout — progress, failures and handoffs" source="Google Ads calendar delivery + GA4 post-launch events">
         {exposure.data && (
           <>
+            {searchDelivery && (
+              <div className="wa-kpis" style={{ marginBottom: 16 }}>
+                {(['PH', 'MY'] as const).map((code) => {
+                  const row = searchDelivery[code];
+                  return (
+                    <Kpi
+                      key={code}
+                      accent={row.impressions === 0}
+                      label={`${code} Search · impressions`}
+                      value={fmtNum(row.impressions)}
+                      delta={`${fmtNum(row.clicks)} clicks · $${row.cost_usd.toFixed(2)} · ${row.primary_status ?? row.status ?? 'unknown'}`}
+                    />
+                  );
+                })}
+                <Kpi
+                  label="Search test budget"
+                  value={`$${((searchDelivery.PH.daily_budget_usd ?? 0) + (searchDelivery.MY.daily_budget_usd ?? 0)).toFixed(2)}/day`}
+                  delta={`${searchDelivery.PH.serving_status ?? 'unknown'} · ${searchDelivery.MY.serving_status ?? 'unknown'}`}
+                />
+              </div>
+            )}
             <div className="wa-kpis" style={{ marginBottom: 16 }}>
               {(['PH', 'MY', 'VN'] as const).map((code) => {
                 const market = exposure.data!.markets[code];
@@ -157,7 +179,7 @@ export default function FunnelTab() {
                   <Kpi
                     key={code}
                     accent={code === 'MY' && market.clicks === 0}
-                    label={`${code} Ads impressions`}
+                    label={`${code} legacy PMax impressions`}
                     value={fmtNum(market.impressions)}
                     delta={`${fmtNum(market.clicks)} clicks · $${market.cost_usd.toFixed(2)}`}
                   />
@@ -172,6 +194,7 @@ export default function FunnelTab() {
               </div>
             )}
             <div className="wa-note" style={{ marginBottom: 16 }}>
+              The PH and MY Search cards are isolated campaign totals from their 5 September launch; the legacy cards retain the earlier PMax country history for comparison.{' '}
               Ads delivery covers calendar days {exposure.data.calendar_start} → {exposure.data.calendar_end};
               launch day includes time before 09:46 UTC. The PH/MY price cards below use the exact GA4 release seam.
               {exposure.data.campaign_delivery && <>{' '}Post-launch Ads totals conservatively exclude the partial launch hour ({exposure.data.campaign_delivery.launch_account_hour}:00) in {exposure.data.campaign_delivery.account_time_zone}.</>}

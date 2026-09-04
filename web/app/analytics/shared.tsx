@@ -101,6 +101,29 @@ export type AdsPriceTestExposure = {
       conversions: number;
     }>;
   };
+  replacement_search_delivery?: Record<'PH' | 'MY', {
+    campaign_id: string;
+    campaign: string | null;
+    country: string;
+    launch_date: string;
+    status: string | null;
+    serving_status: string | null;
+    primary_status: string | null;
+    primary_status_reasons: string[];
+    daily_budget_usd: number;
+    impressions: number;
+    clicks: number;
+    cost_usd: number;
+    conversions: number;
+    hourly: Array<{
+      date: string;
+      hour: number;
+      impressions: number;
+      clicks: number;
+      cost_usd: number;
+      conversions: number;
+    }>;
+  }>;
   markets: Record<'PH' | 'MY' | 'VN', {
     country: string;
     impressions: number;

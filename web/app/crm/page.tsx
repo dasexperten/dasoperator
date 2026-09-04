@@ -2408,7 +2408,7 @@ function CustomersTable({ customers, hasSearch, search, sort, onSort, variant = 
 
 function Th({ children, align = 'left' }: { children: React.ReactNode; align?: 'left' | 'right' }) {
   return (
-    <th className={`px-6 py-3 text-${align}`} style={{ fontSize: 12, fontWeight: 400, color: '#888780', whiteSpace: 'nowrap' }}>
+    <th className={`px-6 py-3 text-${align}`} style={{ fontSize: 12, fontWeight: 400, color: 'var(--fg-2)', whiteSpace: 'nowrap' }}>
       {children}
     </th>
   );
@@ -2417,7 +2417,7 @@ function Th({ children, align = 'left' }: { children: React.ReactNode; align?: '
 function SortTh({ label, sortKey, current, onSort, align = 'right' }: { label: string; sortKey: string; current: { key: string; dir: 'asc' | 'desc' }; onSort: (k: string) => void; align?: 'left' | 'right' }) {
   const activeCol = current.key === sortKey;
   return (
-    <th onClick={() => onSort(sortKey)} className={`px-6 py-3 text-${align}`} style={{ fontSize: 12, fontWeight: activeCol ? 600 : 400, color: activeCol ? 'var(--fg-1)' : '#888780', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>
+    <th onClick={() => onSort(sortKey)} className={`px-6 py-3 text-${align}`} style={{ fontSize: 12, fontWeight: activeCol ? 600 : 400, color: activeCol ? 'var(--fg-1)' : 'var(--fg-2)', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>
       {label}{activeCol ? (current.dir === 'asc' ? ' ↑' : ' ↓') : ''}
     </th>
   );

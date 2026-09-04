@@ -92,13 +92,16 @@ type FolderId = (typeof FOLDERS)[number]['id'];
 const TAG_STYLES: Array<{ bg: string; fg: string; dot: string }> = [
   { bg: 'rgba(229, 32, 44, 0.10)', fg: '#B81A24', dot: '#E5202C' },
   { bg: 'rgba(40, 34, 41, 0.08)', fg: '#282229', dot: '#282229' },
-  { bg: '#E8F4FF', fg: '#1B84FF', dot: '#1B84FF' },
-  { bg: '#FFF4E5', fg: '#F5920A', dot: '#F5920A' },
-  { bg: '#FFEDF3', fg: '#F0447C', dot: '#F0447C' },
+  // Pill ink is darkened against its own tinted ground (the dot keeps the
+  // bright hue). The tint is the signal; the label still has to be read.
+  { bg: '#E8F4FF', fg: '#0A4FA8', dot: '#1B84FF' },
+  { bg: '#FFF4E5', fg: '#8F5800', dot: '#F5920A' },
+  { bg: '#FFEDF3', fg: '#A3175A', dot: '#F0447C' },
 ];
 const TAG_SYSTEM = { bg: '#F1F3F5', fg: '#5B6B7A', dot: '#93A1AE' };
 /* CRM brand + product-line accents (no mock green) */
-const AVA_COLORS = ['#E5202C', '#282229', '#0D199E', '#0E7C66', '#FE7F2D'];
+// Avatars carry white initials — every ground here clears 4.5:1 against white.
+const AVA_COLORS = ['#E5202C', '#282229', '#0D199E', '#0E7C66', '#C2560E'];
 
 // Compose From = departments + agents. Owner personal (dr.badalyan@) is
 // excluded — personal mail is Gmail-only, not an ERP agent folder.

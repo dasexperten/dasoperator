@@ -25,7 +25,7 @@ const TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
   sale:     { bg: 'rgba(46,125,79,0.08)',  fg: 'var(--status-success)' },
   purchase: { bg: 'rgba(13,25,158,0.08)',  fg: 'var(--line-innoweiss)' },
   transfer: { bg: 'var(--paper-sunk)',     fg: 'var(--fg-2)' },
-  service:  { bg: 'rgba(255,159,64,0.12)', fg: '#C46B14' },
+  service:  { bg: 'rgba(255,159,64,0.12)', fg: '#8A4A0C' },
   tax:      { bg: 'rgba(122,31,31,0.10)',  fg: '#7A1F1F' },
 };
 

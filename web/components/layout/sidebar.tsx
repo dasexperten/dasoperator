@@ -170,7 +170,7 @@ export default function Sidebar({
               <div style={{ color: 'var(--paper)', fontSize: '15px', fontWeight: 700, lineHeight: 1.2 }}>
                 {user.name}
               </div>
-              <div style={{ color: 'var(--stone-400)', fontSize: '13px', marginTop: '2px' }}>
+              <div style={{ color: 'var(--fg-on-dark-2)', fontSize: '13px', marginTop: '2px' }}>
                 {ROLE_LABEL[user.role as Role] ?? user.role}
               </div>
             </div>

@@ -381,17 +381,19 @@ export default function PartnersPage() {
                 color: isActive
                   ? palette.fg
                   : (btn.key === 'all' ? 'var(--fg-2)' : palette.fg),
-                opacity: muted && btn.key !== 'all' ? 0.55 : 1,
+                /* Contrast law: de-emphasis never fades the ink. Inactive tiles
+                   lose their tint, not their legibility. */
+                opacity: 1,
                 border: `1px solid ${isActive ? (btn.key === 'all' ? '#1F2937' : palette.fg) : 'transparent'}`,
                 borderRadius: 'var(--radius-md)',
                 cursor: 'pointer',
                 textAlign: 'left',
                 transition: 'opacity 0.15s, border-color 0.15s',
               }}
-              onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.opacity = '1'; }}
-              onMouseLeave={(e) => { if (!isActive && btn.key !== 'all') e.currentTarget.style.opacity = '0.55'; }}
+              onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.filter = 'brightness(0.97)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.filter = 'none'; }}
             >
-              <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: 0, marginBottom: 4, opacity: 0.75 }}>
+              <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: 0, marginBottom: 4 }}>
                 {btn.label}
               </div>
               <div style={{ fontSize: '22px', fontWeight: 700 }}>

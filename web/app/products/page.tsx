@@ -42,8 +42,8 @@ function signalLabel(s: string): { text: string; color: string } {
     case 'critical':       return { text: 'критично — заказать срочно', color: '#C4302B' };
     case 'out_of_stock':   return { text: 'out of stock', color: '#C4302B' };
     case 'severe_surplus': return { text: 'сильный затар — стоп', color: '#C4302B' };
-    case 'warning':        return { text: 'на грани — следить', color: '#D4A017' };
-    case 'surplus':        return { text: 'избыток — притормозить', color: '#D4A017' };
+    case 'warning':        return { text: 'на грани — следить', color: 'var(--status-warning)' };
+    case 'surplus':        return { text: 'избыток — притормозить', color: 'var(--status-warning)' };
     case 'healthy':        return { text: 'здоровый', color: 'var(--fg-3)' };
     case 'dead':           return { text: 'мёртвый — продаж нет', color: 'var(--fg-muted)' };
     case 'inactive':       return { text: 'неактивный', color: 'var(--fg-muted)' };
@@ -54,9 +54,9 @@ function signalLabel(s: string): { text: string; color: string } {
 function coefColor(coef: number | null): string {
   if (coef === null) return 'var(--fg-muted)';
   if (coef < 2)  return '#C4302B';
-  if (coef < 3)  return '#D4A017';
+  if (coef < 3)  return 'var(--status-warning)';
   if (coef < 6)  return 'var(--fg-1)';
-  if (coef < 12) return '#D4A017';
+  if (coef < 12) return 'var(--status-warning)';
   return '#C4302B';
 }
 type SortDir = 'asc' | 'desc';

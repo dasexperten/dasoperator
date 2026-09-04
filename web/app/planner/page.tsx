@@ -1499,7 +1499,7 @@ function SkuTable({
   }, [rows, sortKey, sortDir, finalCartons]);
 
   function SortArrow({ k }: { k: SortKey }) {
-    if (sortKey !== k) return <span style={{ color: '#cbd5e1', marginLeft: 4 }}>↕</span>;
+    if (sortKey !== k) return <span style={{ color: 'var(--fg-3)', marginLeft: 4 }}>↕</span>;
     return <span style={{ marginLeft: 4 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>;
   }
 
@@ -1584,7 +1584,7 @@ function SkuTable({
                 </td>
                 <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{r.is_new_launch ? '—' : r.velocity_per_day.toFixed(1)}</td>
                 <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700 }}>{r.available_stock.toLocaleString()}</td>
-                <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700, color: convert > 0 ? '#0C447C' : '#a8a29e' }}>
+                <td className="px-3 py-2.5 text-right" style={{ fontWeight: 700, color: convert > 0 ? '#0C447C' : 'var(--fg-3)' }}>
                   {convert > 0 ? `+${convert.toLocaleString()}` : '—'}
                 </td>
                 <td className={`px-3 py-2.5 text-right ${coverColor}`} style={{ fontWeight: 700 }}>{r.cover_days === null ? '—' : r.cover_days + 'd'}</td>
@@ -1615,7 +1615,7 @@ function SkuTable({
                         fontWeight: 700,
                         fontSize: 14,
                         background: 'white',
-                        color: cartons > 0 ? undefined : '#a8a29e',
+                        color: cartons > 0 ? undefined : 'var(--fg-3)',
                       }}
                     />
                   </div>

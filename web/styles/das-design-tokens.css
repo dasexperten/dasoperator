@@ -54,8 +54,9 @@
   --fg-1:              var(--brand-schwarz-ink);   /* primary ink */
   --fg-2:              var(--stone-500);           /* secondary */
   --fg-3:              var(--stone-400);           /* tertiary / meta */
-  --fg-muted:          var(--stone-300);           /* captions, placeholder */
+  --fg-muted:          var(--stone-400);           /* captions, placeholder — stone-300 is 3.0:1 on white, below the law */
   --fg-on-dark:        var(--paper);
+  --fg-on-dark-2:      var(--stone-200);       /* meta text on schwarz surfaces (8.6:1) */
   --fg-on-brand:       var(--paper-raised);
   --fg-link:           var(--brand-rot);
 
@@ -73,8 +74,16 @@
   --border-ink:        var(--brand-schwarz-ink);
 
   /* ---------------- STATUS ---------------- */
-  --status-success:    #2E7D4F;
-  --status-warning:    #C77A00;
+  /* Status colours are used as TYPE far more than as fill (118 call sites vs 6),
+     so the token itself carries the ink value that clears 4.5:1 on paper and on
+     its own tinted ground. The bright variants stay available for dots, bars
+     and solid fills where the colour is a signal, not a word. */
+  --status-success:    #226644;
+  --status-warning:    #8F5800;
+  --status-success-ink: var(--status-success);
+  --status-warning-ink: var(--status-warning);
+  --status-success-bright: #2E7D4F;
+  --status-warning-bright: #C77A00;
   --status-error:      var(--brand-rot);
   --status-info:       var(--line-innoweiss);
 
@@ -290,7 +299,7 @@ body {
   --green-soft: rgba(229, 32, 44, 0.10);  /* selected / soft fill */
   --navy: var(--brand-schwarz-ink);       /* primary ink */
   --slate: var(--stone-500);              /* secondary text */
-  --muted: var(--stone-300);              /* meta */
+  --muted: var(--stone-400);              /* meta — stone-300 fails 4.5:1 on white */
   --line: rgba(26, 21, 25, 0.10);         /* hairlines */
   --panel: var(--paper-sunk);             /* trays */
   --white: var(--paper-raised);           /* cards */

@@ -63,7 +63,7 @@ export default function Header({
           <span style={{ color: 'var(--stone-300)', fontSize: '14px' }}>
             ERP Portal
           </span>
-          <span style={{ color: 'var(--stone-400)' }}>·</span>
+          <span style={{ color: 'var(--fg-on-dark-2)' }}>·</span>
           <span style={{ color: 'var(--stone-300)', fontSize: '14px' }}>
             Internal use only
           </span>

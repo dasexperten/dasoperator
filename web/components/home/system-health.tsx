@@ -135,7 +135,7 @@ export default function SystemHealth() {
                 {c.status === 'red' && <AlertTriangle size={12} />}
                 <span style={{ fontSize: 12, fontWeight: 700 }}>{c.label}</span>
               </div>
-              <div style={{ fontSize: 11, color: tone.fg, opacity: 0.9, marginTop: 2 }}>
+              <div style={{ fontSize: 11, color: tone.fg, marginTop: 2 }}>
                 {c.message}
               </div>
             </div>

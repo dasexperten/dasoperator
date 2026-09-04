@@ -30,7 +30,7 @@ const STATUS_STYLE: Record<string, { bg: string; fg: string; label: string }> = 
   auto_sent: { bg: '#E7F6EC', fg: '#1B7A3D', label: 'Auto-replied' },
   approved_sent: { bg: '#E7F6EC', fg: '#1B7A3D', label: 'Replied' },
   answered: { bg: '#E7F6EC', fg: '#1B7A3D', label: 'Answered' },
-  pending: { bg: '#FFF3D6', fg: '#9A6700', label: 'Pending' },
+  pending: { bg: '#FFF3D6', fg: 'var(--status-warning)', label: 'Pending' },
   failed: { bg: '#FBE3E4', fg: '#B42318', label: 'Failed' },
   rejected: { bg: '#FBE3E4', fg: '#B42318', label: 'Rejected' },
 };
@@ -204,7 +204,14 @@ function Spinner() {
 function Stars({ n }: { n: number }) {
   return (
     <span style={{ display: 'inline-flex', gap: 2 }}>
-      {[1, 2, 3, 4, 5].map(s => <span key={s} style={{ color: s <= n ? 'var(--brand-gold)' : 'var(--stone-200)', fontSize: 20, lineHeight: 1 }}>★</span>)}
+      {[1, 2, 3, 4, 5].map(s => <span key={s} style={{
+        // Sodium gold on white is 1.2:1 — the glyph disappeared. The fill stays
+        // brand gold; an ink stroke gives it an edge that reads on paper.
+        color: s <= n ? 'var(--brand-gold)' : 'var(--stone-400)',
+        WebkitTextStroke: s <= n ? '0.8px var(--stone-600)' : '0',
+        paintOrder: 'stroke fill',
+        fontSize: 20, lineHeight: 1,
+      }}>★</span>)}
     </span>
   );
 }

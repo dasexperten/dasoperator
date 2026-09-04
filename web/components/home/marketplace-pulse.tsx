@@ -298,7 +298,7 @@ function SalesTodayCard({ data, loading, refreshing, onRefresh }: { data: SalesT
                 {fmtRubFull(data.combined.revenue_rub)}
               </div>
               <div style={{ fontSize: '14px', color: COLOR_OZON, marginTop: '2px' }}>
-                {data.combined.units} ед · combined WB + Ozon + Site · <span style={{ opacity: 0.7 }}>{data.ozon.last_date ?? ''}</span>
+                {data.combined.units} ед · combined WB + Ozon + Site · <span style={{ color: 'var(--fg-2)' }}>{data.ozon.last_date ?? ''}</span>
               </div>
               {data.freshness && (
                 <div style={{
@@ -477,7 +477,7 @@ type BreakdownData = {
 };
 
 const SKU_COLORS = ['#C4302B', '#D4A017', '#1D9E75', '#534AB7', '#D4537E', '#378ADD', '#639922', '#D85A30', '#993556', '#0F6E56'];
-const OTHER_COLOR = '#888780';
+const OTHER_COLOR = 'var(--fg-2)';
 
 function buildPieSlices(values: number[], explode = 6, rx = 90, ry = 49.5) {
   const total = values.reduce((s, v) => s + v, 0);

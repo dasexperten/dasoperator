@@ -56,7 +56,7 @@ const OZON_THEME = {
   '--border-hairline': '#D6E3FF',
   '--fg-1': '#001A34',
   '--fg-2': '#4D6E8F',
-  '--fg-muted': '#7E99B3',
+  '--fg-muted': 'var(--fg-2)',
   '--radius-sm': '12px',
   '--radius-md': '16px',
   '--radius-pill': '999px',
@@ -1203,8 +1203,8 @@ function RefillHistoryBlock() {
   };
 
   const statusColor = (s: RefillEntry['status']) => {
-    if (s === 'refilled') return '#16a34a'; // green
-    if (s === 'rejected') return '#d97706'; // amber
+    if (s === 'refilled') return 'var(--status-success-ink)'; // green — ink variant, reads on tinted cells
+    if (s === 'rejected') return 'var(--status-warning-ink)'; // amber — ink variant
     return 'var(--brand-rot)'; // red
   };
   const statusLabel = (s: RefillEntry['status']) => {
@@ -1247,8 +1247,8 @@ function RefillHistoryBlock() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 16, fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>
-          <span style={{ color: '#16a34a', fontWeight: 700 }}>{stats.refilled} ok</span>
-          {stats.rejected > 0 && <span style={{ color: '#d97706', fontWeight: 700 }}>{stats.rejected} rejected</span>}
+          <span style={{ color: 'var(--status-success-ink)', fontWeight: 700 }}>{stats.refilled} ok</span>
+          {stats.rejected > 0 && <span style={{ color: 'var(--status-warning-ink)', fontWeight: 700 }}>{stats.rejected} rejected</span>}
           {stats.error > 0 && <span style={{ color: 'var(--brand-rot)', fontWeight: 700 }}>{stats.error} error</span>}
         </div>
         <span style={{ color: 'var(--fg-muted)', fontSize: '18px' }}>

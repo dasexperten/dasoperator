@@ -6,7 +6,8 @@ const ui = fs.readFileSync(new URL('../../../web/app/analytics/tabs/FunnelTab.ts
 const checks = [
   [api.includes("'shipping_bundle_offer'"), 'API requests bundle offer events'],
   [api.includes("'shipping_bundle_add'"), 'API requests bundle add events'],
-  [api.includes("cacheKey('ga4:commerce-losses:v2'"), 'API cache key invalidates old event list'],
+  [api.includes("cacheKey('ga4:acquisition-detail:v2'"), 'acquisition cache key invalidates old hourly entry'],
+  [api.includes("cacheKey('ga4:commerce-losses:v3'"), 'commerce cache key invalidates old hourly entry'],
   [api.includes('return days === 1 ? 300 : 3600;'), 'one-day decision reports refresh within five minutes'],
   [(api.match(/decisionCacheTtl\(days\)/g) || []).length === 2, 'both acquisition and commerce-loss reports use decision TTL'],
   [ui.includes("shipping_bundle_offer: 'Saw two-tube shipping value'"), 'dashboard labels offer'],

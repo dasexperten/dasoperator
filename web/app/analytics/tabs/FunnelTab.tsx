@@ -23,10 +23,10 @@ const STEP_LABELS: Record<string, string> = {
 };
 
 const SIGNAL_LABELS: Record<string, string> = {
+  add_to_cart: 'Added to cart',
   view_cart: 'Viewed cart',
   begin_checkout: 'Began checkout',
   checkout_loaded: 'Checkout loaded',
-  checkout_address_complete: 'Delivery address completed',
   shipping_quote_ready: 'Shipping quote ready',
   add_payment_info: 'Reached payment',
   checkout_error: 'Checkout error',
@@ -70,11 +70,11 @@ export default function FunnelTab() {
   const bundleOffers = losses.data?.totals.shipping_bundle_offer ?? 0;
   const bundleAdds = losses.data?.totals.shipping_bundle_add ?? 0;
   const bundleUptake = bundleOffers > 0 ? (bundleAdds / bundleOffers) * 100 : 0;
-  const checkoutLoads = losses.data?.totals.checkout_loaded ?? 0;
-  const addressCompletes = losses.data?.totals.checkout_address_complete ?? 0;
-  const shippingQuotes = losses.data?.totals.shipping_quote_ready ?? 0;
-  const addressCompletion = checkoutLoads > 0 ? (addressCompletes / checkoutLoads) * 100 : 0;
-  const quoteSuccess = addressCompletes > 0 ? (shippingQuotes / addressCompletes) * 100 : 0;
+  const paidVnLandings = losses.data?.totals.paid_locale_landing_vn ?? 0;
+  const vnCartAdds = (losses.data?.rows ?? [])
+    .filter((row) => row.event === 'add_to_cart' && row.country === 'Vietnam')
+    .reduce((sum, row) => sum + row.count, 0);
+  const vnLandingToCart = paidVnLandings > 0 ? (vnCartAdds / paidVnLandings) * 100 : 0;
 
   return (
     <div className="space-y-4">
@@ -127,13 +127,13 @@ export default function FunnelTab() {
         )}
       </Panel>
 
-      <Panel title="After cart — progress, failures and handoffs" source="GA4 events · 30 days">
+      <Panel title="Paid landing through checkout — progress, failures and handoffs" source="GA4 events · 30 days">
         {losses.data && (
           <>
-            <div className="wa-kpis" style={{ marginBottom: 12 }}>
-              <Kpi label="Checkout loaded" value={fmtNum(checkoutLoads)} delta="form opened" />
-              <Kpi label="Address completed" value={fmtNum(addressCompletes)} delta={fmtPct(addressCompletion) + ' of loads'} />
-              <Kpi accent label="Shipping quote ready" value={fmtNum(shippingQuotes)} delta={fmtPct(quoteSuccess) + ' of completed addresses'} />
+            <div className="wa-kpis" style={{ marginBottom: 16 }}>
+              <Kpi label="VN paid landings" value={fmtNum(paidVnLandings)} delta="localized paid traffic" />
+              <Kpi label="VN carts" value={fmtNum(vnCartAdds)} delta="add_to_cart events" />
+              <Kpi accent label="VN landing → cart" value={fmtPct(vnLandingToCart)} delta="aggregate signal ratio" />
             </div>
             <div className="wa-kpis" style={{ marginBottom: 16 }}>
               <Kpi label="Shipping bundle offers" value={fmtNum(bundleOffers)} delta="DE · VN · PH" />

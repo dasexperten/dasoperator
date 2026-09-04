@@ -13,10 +13,8 @@
 import type { Env } from '../types';
 
 const GA4_BASE = 'https://analyticsdata.googleapis.com/v1beta';
-const GA4_ADMIN_BASE = 'https://analyticsadmin.googleapis.com/v1beta';
 const GA4_SCOPE = 'https://www.googleapis.com/auth/analytics.readonly';
 const TOKEN_CACHE_KEY = 'ga4:access_token';
-const PROPERTY_TZ_CACHE_KEY = 'ga4:property_time_zone';
 const TOKEN_TTL_SEC = 55 * 60; // Google issues 1h tokens; refresh 5 min early
 
 interface ServiceAccountKey {
@@ -137,31 +135,6 @@ export async function ga4RunReport(env: Env, body: Record<string, unknown>): Pro
     throw new Error(`GA4 runReport HTTP ${res.status}: ${await res.text()}`);
   }
   return (await res.json()) as Ga4Report;
-}
-
-// dateHourMinute is expressed in the GA4 property's time zone, not UTC. Read
-// that setting from the owning Admin API instead of duplicating it in code.
-export async function getGa4PropertyTimeZone(env: Env): Promise<string> {
-  if (!env.GA4_PROPERTY_ID) throw new Error('GA4_PROPERTY_ID not configured');
-  try {
-    const hit = await env.CACHE.get(PROPERTY_TZ_CACHE_KEY);
-    if (hit) return hit;
-  } catch {
-    // KV is an optimization; property metadata remains authoritative.
-  }
-  const token = await getGa4AccessToken(env);
-  const res = await fetch(`${GA4_ADMIN_BASE}/properties/${env.GA4_PROPERTY_ID}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error(`GA4 property metadata HTTP ${res.status}: ${await res.text()}`);
-  const data = await res.json<{ timeZone?: string }>();
-  if (!data.timeZone) throw new Error('GA4 property metadata has no timeZone');
-  try {
-    await env.CACHE.put(PROPERTY_TZ_CACHE_KEY, data.timeZone, { expirationTtl: 86400 });
-  } catch {
-    // A cache-write failure does not invalidate the metadata response.
-  }
-  return data.timeZone;
 }
 
 // GA4 returns dates as "20260706" — normalize to "2026-07-06".

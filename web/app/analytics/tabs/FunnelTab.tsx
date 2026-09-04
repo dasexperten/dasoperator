@@ -55,6 +55,7 @@ const SIGNAL_LABELS: Record<string, string> = {
   shipping_bundle_add: 'Added second tube',
   marketplace_open: 'Opened marketplace choices',
   marketplace_click: 'Clicked marketplace',
+  purchase_verified: 'Stripe-verified purchase',
   purchase: 'Purchased',
 };
 
@@ -71,7 +72,9 @@ export default function FunnelTab() {
   const t = funnel.data?.totals;
   const rows = funnel.data?.rows ?? [];
   const base = rows[0]?.count ?? 0;
-  const lowTraffic = (t?.purchases ?? 0) < 30;
+  const verifiedPurchases = losses.data?.totals.purchase_verified ?? 0;
+  const verifiedCr = t?.sessions ? (verifiedPurchases / t.sessions) * 100 : 0;
+  const lowTraffic = verifiedPurchases < 30;
   const bundleOffers = losses.data?.totals.shipping_bundle_offer ?? 0;
   const bundleAdds = losses.data?.totals.shipping_bundle_add ?? 0;
   const bundleUptake = bundleOffers > 0 ? (bundleAdds / bundleOffers) * 100 : 0;
@@ -95,8 +98,9 @@ export default function FunnelTab() {
       {t && (
         <div className="wa-kpis">
           <Kpi label="Sessions · 30d" value={fmtNum(t.sessions)} delta="funnel base" />
-          <Kpi label="Purchases · 30d" value={fmtNum(t.purchases)} delta="purchase events" />
-          <Kpi accent label="Overall CR" value={fmtPct(t.overall_cr)} delta="purchase ÷ sessions" />
+          <Kpi label="GA4 purchase events · 30d" value={fmtNum(t.purchases)} delta="legacy + verified sources" />
+          <Kpi label="Stripe-verified purchases" value={fmtNum(verifiedPurchases)} delta="server-confirmed succeeded" />
+          <Kpi accent label="Verified CR" value={fmtPct(verifiedCr)} delta="verified purchases ÷ sessions" />
         </div>
       )}
 
@@ -188,7 +192,7 @@ export default function FunnelTab() {
               <Kpi accent label="MY RM29.90 landing → cart" value={fmtPct(myLandingToCart)} delta="Sep 4 09:46 UTC → Sep 11" />
             </div>
             <div className="wa-kpis" style={{ marginBottom: 16 }}>
-              <Kpi label="Shipping bundle offers" value={fmtNum(bundleOffers)} delta="DE · VN · PH" />
+              <Kpi label="Shipping bundle offers" value={fmtNum(bundleOffers)} delta="DE · VN · PH · MY" />
               <Kpi label="Second tubes added" value={fmtNum(bundleAdds)} delta="one-click action" />
               <Kpi accent label="Bundle uptake" value={fmtPct(bundleUptake)} delta="adds ÷ offers" />
             </div>

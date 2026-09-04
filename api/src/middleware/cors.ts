@@ -56,6 +56,10 @@ export const corsMiddleware: MiddlewareHandler = async (c, next) => {
     c.res.headers.set('Access-Control-Allow-Origin', origin);
     c.res.headers.set('Access-Control-Allow-Credentials', 'true');
     c.res.headers.set('Vary', 'Origin');
+    // Замер по шагам виден со страницы только явно открытым: без этого
+    // Server-Timing существует, но браузеру его не отдают, и «где ушло
+    // время» опять становится догадкой.
+    c.res.headers.set('Access-Control-Expose-Headers', 'Server-Timing, X-Mail-Body-Cache');
   }
 };
 

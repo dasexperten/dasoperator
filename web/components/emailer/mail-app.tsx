@@ -658,10 +658,38 @@ function bodyCacheKey(mailbox: string, key: string): string {
   return `dx_mail_body_v1:${mailbox}:${key}`;
 }
 
+// Кэш тела переехал из вкладки в браузер (Владелец 2026-09-04): перезагрузка
+// страницы больше не стирает прочитанное, и вчерашнее письмо открывается без
+// запроса вообще. Место не бесконечное, поэтому: не крупнее 300 КБ на письмо
+// и не больше сорока писем — переполнение выбрасывает самые старые. Крупные
+// письма с вклеенными картинками сюда не ложатся: за них отвечает кэш на
+// стороне ERP, там они тоже приходят готовыми.
+const BODY_CACHE_INDEX = 'dx_mail_body_idx_v1';
+const BODY_CACHE_MAX_ITEMS = 40;
+const BODY_CACHE_MAX_CHARS = 300_000;
+
+function bodyCacheIndex(): string[] {
+  try {
+    const raw = localStorage.getItem(BODY_CACHE_INDEX);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? (parsed as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function touchBodyCacheIndex(cacheKey: string): void {
+  try {
+    const idx = [cacheKey, ...bodyCacheIndex().filter((k) => k !== cacheKey)];
+    for (const stale of idx.slice(BODY_CACHE_MAX_ITEMS)) localStorage.removeItem(stale);
+    localStorage.setItem(BODY_CACHE_INDEX, JSON.stringify(idx.slice(0, BODY_CACHE_MAX_ITEMS)));
+  } catch { /* индекс — удобство, не условие работы */ }
+}
+
 function readBodyCache(mailbox: string, key: string): { text?: string; html?: string } | null {
   try {
-    const raw = sessionStorage.getItem(bodyCacheKey(mailbox, key));
-    if (!raw || raw.length > 800_000) return null;
+    const raw = localStorage.getItem(bodyCacheKey(mailbox, key));
+    if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return null;
     return parsed as { text?: string; html?: string };
@@ -671,9 +699,55 @@ function readBodyCache(mailbox: string, key: string): { text?: string; html?: st
 }
 
 function writeBodyCache(mailbox: string, key: string, body: { text?: string; html?: string }): void {
+  const cacheKey = bodyCacheKey(mailbox, key);
+  let raw: string;
   try {
-    sessionStorage.setItem(bodyCacheKey(mailbox, key), JSON.stringify(body));
-  } catch { /* quota */ }
+    raw = JSON.stringify(body);
+  } catch {
+    return;
+  }
+  if (raw.length > BODY_CACHE_MAX_CHARS) return;
+  try {
+    localStorage.setItem(cacheKey, raw);
+    touchBodyCacheIndex(cacheKey);
+  } catch {
+    // Место кончилось — выбрасываем половину самых старых и пробуем один раз.
+    try {
+      const idx = bodyCacheIndex();
+      for (const stale of idx.slice(Math.ceil(idx.length / 2))) localStorage.removeItem(stale);
+      localStorage.setItem(BODY_CACHE_INDEX, JSON.stringify(idx.slice(0, Math.ceil(idx.length / 2))));
+      localStorage.setItem(cacheKey, raw);
+      touchBodyCacheIndex(cacheKey);
+    } catch { /* и так бывает: письмо просто придёт запросом */ }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Предзагрузка тела (Владелец 2026-09-04: «нужно быстрее»).
+//
+// Быстрее запроса бывает только запрос, сделанный заранее. Тело письма
+// вытягивается ДО клика — когда лента отрисовалась (верхние письма), когда
+// курсор лёг на строку, и для всех писем открытого треда. К моменту клика
+// оно уже в кэше вкладки, и открытие происходит без единого запроса.
+//
+// Два предохранителя: один и тот же ключ не тянется дважды (замок по ключу),
+// и предзагрузка молчит при любой ошибке — она обязана быть незаметной.
+// ---------------------------------------------------------------------------
+const bodyInFlight = new Set<string>();
+
+function prefetchBody(mailbox: string, key: string): void {
+  if (!mailbox || !key) return;
+  const id = `${mailbox}:${key}`;
+  if (bodyInFlight.has(id) || readBodyCache(mailbox, key)) return;
+  bodyInFlight.add(id);
+  getMailboxMessage(mailbox, key)
+    .then((r) => {
+      if (r.success && r.result) {
+        writeBodyCache(mailbox, key, { text: r.result.record.text, html: r.result.record.html });
+      }
+    })
+    .catch(() => { /* предзагрузка не имеет права шуметь */ })
+    .finally(() => { bodyInFlight.delete(id); });
 }
 
 function useMailBody(item: MailItem | null) {
@@ -1700,6 +1774,18 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
     [threads, selectedId]
   );
 
+  // Тела верхних писем тянутся сразу за лентой, а тела открытого треда —
+  // целиком: в треде переключаются между письмами, и второе не должно
+  // ждать так же, как ждало первое. Верхних берём восемь: экран показывает
+  // примерно столько, а тянуть всю ленту — платить за то, что не откроют.
+  useEffect(() => {
+    for (const t of threads.slice(0, 8)) prefetchBody(t.head.mailbox, t.head.key);
+  }, [threads]);
+  useEffect(() => {
+    if (!openThread) return;
+    for (const l of openThread.letters) prefetchBody(l.mailbox, l.key);
+  }, [openThread]);
+
   // Opening a different conversation collapses the strip again: expansion belongs
   // to the thread you opened it on, not to the panel.
   const openThreadKey = openThread?.head.id ?? null;
@@ -1918,7 +2004,13 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
               const e = t.head;
               const inThread = t.letters.some((l) => l.id === selectedId);
               return (
-              <div key={e.id} className={`row ${inThread ? 'selected' : ''} ${sel.checked.has(e.id) ? 'checked' : ''} ${t.unread ? 'unread' : ''}`} onClick={() => openEmail(e)}>
+              <div
+                key={e.id}
+                className={`row ${inThread ? 'selected' : ''} ${sel.checked.has(e.id) ? 'checked' : ''} ${t.unread ? 'unread' : ''}`}
+                onClick={() => openEmail(e)}
+                onMouseEnter={() => prefetchBody(e.mailbox, e.key)}
+                onFocus={() => prefetchBody(e.mailbox, e.key)}
+              >
                 <RowCheck on={sel.checked.has(e.id)} onToggle={() => sel.toggle(e.id)} />
                 <div className="ava" style={{ background: e.color }}>{e.initial}</div>
                 <div className="rmain">
@@ -2338,6 +2430,14 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
   );
   useEffect(() => { setThreadExpanded(false); }, [openedId]);
   const { body, loading: bodyLoading } = useMailBody(opened);
+  // На телефоне наведения нет, поэтому тянем верх ленты и открытый тред.
+  useEffect(() => {
+    for (const e of visible.slice(0, 6)) prefetchBody(e.mailbox, e.key);
+  }, [visible]);
+  useEffect(() => {
+    if (!openThread) return;
+    for (const l of openThread.letters) prefetchBody(l.mailbox, l.key);
+  }, [openThread]);
   const scopeLabel = scope
     ? (findUiMailbox(scope.address)?.label || scope.address.split('@')[0])
     : null;

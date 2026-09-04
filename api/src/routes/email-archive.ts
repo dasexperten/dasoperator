@@ -321,8 +321,19 @@ route.get('/mailboxes/:address', async (c) => {
 // to fetch any other R2 key (defense against path traversal / cross-mailbox
 // reads via a crafted key param).
 // -----------------------------------------------------------------------------
+// Готовое тело письма живёт в KV семь дней (Владелец 2026-09-04: «нужно
+// быстрее»). Кэшируется РЕЗУЛЬТАТ — запись, в которой картинки уже вклеены:
+// у письма с картинками вклейка стоит отдельного чтения на каждую, и второй
+// раз платить за неё незачем. Письмо в архиве не меняется, поэтому ключ
+// кэша — сам ключ записи, а протухание нужно только чтобы кэш не рос вечно.
+const BODY_CACHE_PREFIX = 'mailbody:v1:';
+const BODY_CACHE_TTL_S = 7 * 24 * 3600;
+const BODY_CACHE_MAX_BYTES = 900_000;
+
 route.get('/mailboxes/:address/message', async (c) => {
+  const t0 = Date.now();
   if (!(await requireSession(c))) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+  const tAuth = Date.now() - t0;
 
   const address = normalizeAddress(c.req.param('address'));
   const key = c.req.query('key') || '';
@@ -333,7 +344,25 @@ route.get('/mailboxes/:address/message', async (c) => {
     return fail(c, 422, [{ code: 'bad_key', message: `key must start with ${expectedPrefix}` }]);
   }
 
+  const cacheKey = `${BODY_CACHE_PREFIX}${key}`;
+  const tCache0 = Date.now();
+  let cached: string | null = null;
   try {
+    cached = await c.env.CACHE.get(cacheKey);
+  } catch { /* кэш молчит — идём в архив, это не отказ */ }
+  const tCache = Date.now() - tCache0;
+
+  if (cached) {
+    try {
+      const record: unknown = JSON.parse(cached);
+      c.header('Server-Timing', `auth;dur=${tAuth}, kv;dur=${tCache}, total;dur=${Date.now() - t0}`);
+      c.header('X-Mail-Body-Cache', 'hit');
+      return ok(c, { record });
+    } catch { /* испорченная строка в кэше — перечитаем из архива */ }
+  }
+
+  try {
+    const tR2 = Date.now();
     const obj = await c.env.ARCHIVE.get(key);
     if (!obj) return fail(c, 404, [{ code: 'not_found', message: key }]);
 
@@ -343,8 +372,11 @@ route.get('/mailboxes/:address/message', async (c) => {
     } catch {
       return fail(c, 500, [{ code: 'corrupt_record', message: `${key} is not valid JSON` }]);
     }
+    const r2ms = Date.now() - tR2;
+
     // Inline images are stored as separate R2 objects; the sandboxed viewer
     // cannot fetch them, so swap cid: references for data: URIs on the way out.
+    const tInline = Date.now();
     const r = record as { html?: string; attachments?: ArchivedAttachment[] };
     if (r && typeof r === 'object' && r.html && r.attachments?.length) {
       try {
@@ -360,6 +392,21 @@ route.get('/mailboxes/:address/message', async (c) => {
         }));
       }
     }
+    const inlinems = Date.now() - tInline;
+
+    // Кладём готовую запись в кэш ПОСЛЕ ответа: письмо не должно ждать
+    // записи в кэш ни миллисекунды.
+    try {
+      const body = JSON.stringify(record);
+      if (body.length <= BODY_CACHE_MAX_BYTES) {
+        c.executionCtx.waitUntil(
+          c.env.CACHE.put(cacheKey, body, { expirationTtl: BODY_CACHE_TTL_S }).catch(() => { /* кэш не обязателен */ }),
+        );
+      }
+    } catch { /* не сериализовалось — значит и кэшировать нечего */ }
+
+    c.header('Server-Timing', `auth;dur=${tAuth}, kv;dur=${tCache}, r2;dur=${r2ms}, inline;dur=${inlinems}, total;dur=${Date.now() - t0}`);
+    c.header('X-Mail-Body-Cache', 'miss');
     return ok(c, { record });
   } catch (err) {
     return fail(c, 500, [{ code: 'r2_error', message: err instanceof Error ? err.message : String(err) }]);

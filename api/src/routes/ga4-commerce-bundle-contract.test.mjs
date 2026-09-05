@@ -4,6 +4,8 @@ const api = fs.readFileSync(new URL('./ga4.ts', import.meta.url), 'utf8');
 const ui = fs.readFileSync(new URL('../../../web/app/analytics/tabs/FunnelTab.tsx', import.meta.url), 'utf8');
 const types = fs.readFileSync(new URL('../../../web/app/analytics/shared.tsx', import.meta.url), 'utf8');
 const traffic = fs.readFileSync(new URL('../../../web/app/analytics/tabs/TrafficTab.tsx', import.meta.url), 'utf8');
+const campaigns = fs.readFileSync(new URL('../../../web/app/analytics/tabs/CampaignsTab.tsx', import.meta.url), 'utf8');
+const analyticsPage = fs.readFileSync(new URL('../../../web/app/analytics/page.tsx', import.meta.url), 'utf8');
 
 const checks = [
   [api.includes('sessions_pct: null') && api.includes('session counts are non-additive') && types.includes('sessions_pct: number | null') && traffic.includes('Session counts across these dimensions are non-additive'), 'acquisition rows cannot claim impossible session coverage'],
@@ -87,6 +89,10 @@ const checks = [
   [api.includes("{ name: 'dateHourMinute' }") && api.includes('event_minute:'), 'API dates each loss against release seams'],
   [api.includes('limit: 10000') && api.includes('rows: visibleRows'), 'totals use the full minute-grain response before display limit'],
   [ui.includes('Minute · GA4') && ui.includes('gaMinute(row.event_minute)'), 'dashboard shows the event occurrence minute'],
+  [campaigns.includes("useApi<AdsPriceTestExposure>('/api/ga4/price-test-exposure')") && campaigns.includes('Google Ads — active price-test delivery'), 'Campaigns tab consumes the live bounded Google Ads feed'],
+  [campaigns.includes("(['PH', 'MY'] as const)") && campaigns.includes('Legacy PMax'), 'Campaigns tab separates replacement Search from legacy PMax delivery'],
+  [!campaigns.toLowerCase().includes('pending google approval') && !analyticsPage.includes('Google Ads Basic-access approval'), 'analytics surface no longer claims the live Google Ads source is approval-pending'],
+  [campaigns.includes('ROAS remains withheld') && campaigns.includes('attributable order revenue'), 'Campaigns tab keeps ROAS gated to matched spend and revenue'],
 ];
 
 const failures = checks.filter(([passed]) => !passed).map(([, label]) => label);

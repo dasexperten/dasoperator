@@ -131,7 +131,7 @@ export default function AnalyticsPage() {
           nightly cache) · Metrika counter 107720199 · D1 web_analytics_daily /
           web_behavior_snapshots · SEO/GEO: Ubersuggest site-metrics + Cloudflare AI crawlers
           (KV via /api/seo/*). Spec: docs/analytics-parity.md — NONE-source metrics are cut,
-          never faked. Pending: Yandex Direct token · Google Ads Basic-access approval · home
+          never faked. Pending: Yandex Direct token · Google Ads revenue attribution join · home
           AI blocks only after Owner pick.
         </p>
       </div>

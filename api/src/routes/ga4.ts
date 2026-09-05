@@ -268,7 +268,7 @@ ga4.get('/acquisition-detail', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:acquisition-detail:v4', { days, limit, calendar_window: 'exact-v2' }),
+        cacheKey('ga4:acquisition-detail:v5', { days, limit, calendar_window: 'exact-v2' }),
       decisionCacheTtl(days),
       async () => {
         const metrics = [
@@ -342,13 +342,16 @@ ga4.get('/acquisition-detail', async (c) => {
           source: sourceLabel(c.env),
           window_days: days,
           method:
-            'Exact totals come from an unsegmented GA4 report. Rows are the highest-session dated acquisition segments and are not user-level paths.',
+            'Exact totals come from an unsegmented GA4 report. Rows are the highest-session dated acquisition segments and are not user-level paths; their session counts are non-additive.',
           totals,
           visible_row_totals: visibleTotals,
           coverage: {
             returned_rows: rows.length,
             available_rows: resp.rowCount ?? rows.length,
-            sessions_pct: totals.sessions > 0 ? round2((visibleTotals.sessions / totals.sessions) * 100) : 100,
+            // Landing-page and acquisition dimensions can assign the same GA4
+            // session to more than one aggregate row. A row-sum percentage can
+            // therefore exceed 100% and must not be presented as coverage.
+            sessions_pct: null,
           },
           rows,
           synced_at: Math.floor(Date.now() / 1000),

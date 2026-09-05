@@ -39,7 +39,7 @@ export type Ga4AcquisitionDetail = {
   method: string;
   totals: { sessions: number; engaged_sessions: number; add_to_carts: number; checkouts: number; purchases: number; revenue: number };
   visible_row_totals: { sessions: number; engaged_sessions: number; add_to_carts: number; checkouts: number; purchases: number; revenue: number };
-  coverage: { returned_rows: number; available_rows: number; sessions_pct: number };
+  coverage: { returned_rows: number; available_rows: number; sessions_pct: number | null };
   rows: Array<{ channel: string; campaign: string; country: string; landing_page: string; date: string; sessions: number; engaged_sessions: number; engagement_rate_pct: number; add_to_carts: number; checkouts: number; purchases: number; revenue: number; cr: number }>;
   synced_at: number;
 };

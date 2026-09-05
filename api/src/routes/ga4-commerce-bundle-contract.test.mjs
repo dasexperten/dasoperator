@@ -3,17 +3,19 @@ import fs from 'node:fs';
 const api = fs.readFileSync(new URL('./ga4.ts', import.meta.url), 'utf8');
 const ui = fs.readFileSync(new URL('../../../web/app/analytics/tabs/FunnelTab.tsx', import.meta.url), 'utf8');
 const types = fs.readFileSync(new URL('../../../web/app/analytics/shared.tsx', import.meta.url), 'utf8');
+const traffic = fs.readFileSync(new URL('../../../web/app/analytics/tabs/TrafficTab.tsx', import.meta.url), 'utf8');
 
 const checks = [
+  [api.includes('sessions_pct: null') && api.includes('session counts are non-additive') && types.includes('sessions_pct: number | null') && traffic.includes('Session counts across these dimensions are non-additive'), 'acquisition rows cannot claim impossible session coverage'],
   [api.includes("'shipping_bundle_offer'"), 'API requests bundle offer events'],
   [api.includes("'shipping_preview_ready'"), 'API requests delivery-preview visibility events'],
   [api.includes("'add_to_cart'"), 'API retains cart entry beyond realtime'],
   [api.includes("'shipping_bundle_add'"), 'API requests bundle add events'],
   [api.includes("'shipping_bundle_unavailable'"), 'API requests missing bundle outcomes'],
-  [api.includes("cacheKey('ga4:acquisition-detail:v4'"), 'acquisition cache key invalidates truncated totals'],
+  [api.includes("cacheKey('ga4:acquisition-detail:v5'"), 'acquisition cache key invalidates misleading session coverage'],
   [api.includes("{ name: 'landingPage' },\n            { name: 'date' },") && api.includes("date: ga4Date(r.dimensionValues?.[4]?.value ?? ''),"), 'acquisition rows expose an exact GA4 date without shifting existing dimensions'],
   [api.includes('const [resp, exact] = await Promise.all') && api.includes('visible_row_totals: visibleTotals'), 'acquisition separates exact totals from display-limited row totals'],
-  [api.includes('available_rows: resp.rowCount ?? rows.length') && api.includes('sessions_pct:'), 'acquisition reports row and session coverage'],
+  [api.includes('available_rows: resp.rowCount ?? rows.length'), 'acquisition reports bounded row availability'],
   [api.includes("cacheKey('ga4:commerce-losses:v20'"), 'commerce cache key exposes complete cart-view page aggregates immediately'],
   [api.includes('const visibleRows = [...failureRows, ...activityRows].slice(0, limit)') && api.includes('failure_rows: failureRows.length'), 'commerce losses pins every failure before the bounded activity stream'],
   [api.includes('const page_totals = [...pageMap.values()]') && api.includes('page_totals,'), 'commerce losses aggregates pages before applying the visible row limit'],

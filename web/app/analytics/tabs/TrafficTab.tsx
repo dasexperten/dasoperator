@@ -155,8 +155,8 @@ export default function TrafficTab() {
           <LoadState loading={acquisition.loading} error={acquisition.error} />
           {acquisition.data && (
             <div className="wa-note">
-              The table shows {fmtNum(acquisition.data.coverage.returned_rows)} of {fmtNum(acquisition.data.coverage.available_rows)} dated segments,
-              covering {fmtPct(acquisition.data.coverage.sessions_pct)} of {fmtNum(acquisition.data.totals.sessions)} sessions.
+              The table shows {fmtNum(acquisition.data.coverage.returned_rows)} of {fmtNum(acquisition.data.coverage.available_rows)} dated segments.
+              {' '}Session counts across these dimensions are non-additive; use the exact total of {fmtNum(acquisition.data.totals.sessions)} sessions above.
               Exact totals are calculated separately, so a display limit is never presented as the whole funnel.
               Synced {timeAgo(acquisition.data.synced_at)}.
             </div>

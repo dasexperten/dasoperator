@@ -469,6 +469,14 @@ const COMMERCE_LOSS_EVENTS = [
   'checkout_error_card_declined',
   'checkout_error_wallet_confirm_failed',
   'checkout_error_intent_failed',
+  'checkout_error_ru_phone',
+  'checkout_error_ru_email_missing',
+  'checkout_error_ru_email_invalid',
+  'checkout_error_ru_consent',
+  'checkout_error_ru_stock',
+  'checkout_error_ru_pickup',
+  'checkout_error_ru_empty_cart',
+  'checkout_error_ru_service',
   'paid_locale_landing_vn',
   'paid_locale_landing_th',
   'paid_locale_landing_tl',
@@ -530,7 +538,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v17', { days, limit, decision, calendar_window: 'exact-v2' }),
+      cacheKey('ga4:commerce-losses:v18', { days, limit, decision, calendar_window: 'exact-v2' }),
       decision ? 300 : decisionCacheTtl(days),
       async () => {
         const resp = await ga4RunReport(c.env, {

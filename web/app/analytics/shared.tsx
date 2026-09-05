@@ -58,6 +58,10 @@ export type Ga4CommerceLosses = {
   market_totals: {
     vn_paid_landing: number;
     vn_add_to_cart: number;
+    vn_delivery_preview_start_utc: string;
+    vn_delivery_preview_start_minute: string;
+    vn_delivery_preview: number;
+    vn_post_preview_add_to_cart: number;
     ph_paid_landing: number;
     ph_add_to_cart: number;
     my_paid_landing: number;

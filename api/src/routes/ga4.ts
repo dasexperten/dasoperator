@@ -487,6 +487,7 @@ const COMMERCE_LOSS_EVENTS = [
   'paid_locale_landing_zh',
   'pdp_value_proof_view',
   'pdp_price_view',
+  'pdp_delivery_preview_ready',
   'shipping_unavailable',
   'shipping_quote_request',
   'shipping_preview_ready',
@@ -505,6 +506,7 @@ const COMMERCE_LOSS_EVENTS = [
 // or carts from another product page in the same country.
 const PRICE_TEST_START_UTC = '2026-09-04T09:46:00Z';
 const PRICE_TEST_END_UTC = '2026-09-11T09:46:00Z';
+const VN_DELIVERED_PREVIEW_START_UTC = '2026-09-05T07:13:58Z';
 
 function minuteInTimeZone(iso: string, timeZone: string): string {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
@@ -541,7 +543,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v20', { days, limit, decision, calendar_window: 'exact-v2' }),
+      cacheKey('ga4:commerce-losses:v21', { days, limit, decision, calendar_window: 'exact-v2' }),
       decision ? 300 : decisionCacheTtl(days),
       async () => {
         const resp = await ga4RunReport(c.env, {
@@ -576,6 +578,7 @@ ga4.get('/commerce-losses', async (c) => {
         const boundarySource = resp.metadata?.timeZone ? 'ga4_run_report_metadata' : 'legacy_utc_fallback';
         const priceTestStartMinute = minuteInTimeZone(PRICE_TEST_START_UTC, propertyTimeZone);
         const priceTestEndMinute = minuteInTimeZone(PRICE_TEST_END_UTC, propertyTimeZone);
+        const vnDeliveredPreviewStartMinute = minuteInTimeZone(VN_DELIVERED_PREVIEW_START_UTC, propertyTimeZone);
         const totals = Object.fromEntries(COMMERCE_LOSS_EVENTS.map((event) => [event, 0])) as Record<string, number>;
         for (const row of rows) totals[row.event] = (totals[row.event] ?? 0) + row.count;
         const marketEventTotal = (event: string, country: string) => rows
@@ -605,6 +608,22 @@ ga4.get('/commerce-losses', async (c) => {
           end_minute: priceTestEndMinute,
           vn_paid_landing: priceTestEventTotal('paid_locale_landing_vn', 'Vietnam', '/vn/products/innoweiss'),
           vn_add_to_cart: priceTestEventTotal('add_to_cart', 'Vietnam', '/vn/products/innoweiss'),
+          vn_delivery_preview_start_utc: VN_DELIVERED_PREVIEW_START_UTC,
+          vn_delivery_preview_start_minute: vnDeliveredPreviewStartMinute,
+          vn_delivery_preview: rows
+            .filter((row) => row.event === 'pdp_delivery_preview_ready'
+              && row.country === 'Vietnam'
+              && row.page === '/vn/products/innoweiss'
+              && row.event_minute >= vnDeliveredPreviewStartMinute
+              && row.event_minute <= priceTestEndMinute)
+            .reduce((sum, row) => sum + row.count, 0),
+          vn_post_preview_add_to_cart: rows
+            .filter((row) => row.event === 'add_to_cart'
+              && row.country === 'Vietnam'
+              && row.page === '/vn/products/innoweiss'
+              && row.event_minute >= vnDeliveredPreviewStartMinute
+              && row.event_minute <= priceTestEndMinute)
+            .reduce((sum, row) => sum + row.count, 0),
           ph_paid_landing: priceTestEventTotal('paid_locale_landing_tl', 'Philippines', '/tl/products/innoweiss'),
           ph_add_to_cart: priceTestEventTotal('add_to_cart', 'Philippines', '/tl/products/innoweiss'),
           my_paid_landing: priceTestEventTotal('paid_locale_landing_ms', 'Malaysia', '/ms/products/innoweiss'),
@@ -1013,7 +1032,7 @@ ga4.get('/realtime', async (c) => {
     const commerceEventNames = [
       'paid_locale_landing_vn', 'paid_locale_landing_th', 'paid_locale_landing_tl',
       'paid_locale_landing_ms', 'paid_locale_landing_zh', 'view_item', 'add_to_cart',
-      'pdp_value_proof_view', 'pdp_price_view',
+      'pdp_value_proof_view', 'pdp_price_view', 'pdp_delivery_preview_ready',
       'view_cart', 'shipping_preview_ready', 'shipping_bundle_offer',
       'shipping_bundle_unavailable',
       'shipping_bundle_add', 'begin_checkout', 'checkout_loaded', 'checkout_email_complete',

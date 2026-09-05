@@ -55,6 +55,7 @@ const SIGNAL_LABELS: Record<string, string> = {
   paid_locale_landing_zh: 'Paid landing localized · Taiwan',
   pdp_value_proof_view: 'Saw product value proof',
   pdp_price_view: 'Saw product price',
+  pdp_delivery_preview_ready: 'Saw VN delivered-price preview',
   shipping_unavailable: 'Shipping unavailable',
   shipping_quote_request: 'Requested shipping quote',
   shipping_bundle_offer: 'Saw two-tube shipping value',
@@ -92,6 +93,9 @@ export default function FunnelTab() {
   const paidVnLandings = priceTestLosses.data?.price_test?.vn_paid_landing ?? 0;
   const vnCartAdds = priceTestLosses.data?.price_test?.vn_add_to_cart ?? 0;
   const vnLandingToCart = paidVnLandings > 0 ? (vnCartAdds / paidVnLandings) * 100 : null;
+  const vnDeliveryPreviews = priceTestLosses.data?.price_test?.vn_delivery_preview ?? 0;
+  const vnPostPreviewCarts = priceTestLosses.data?.price_test?.vn_post_preview_add_to_cart ?? 0;
+  const vnPreviewToCart = vnDeliveryPreviews > 0 ? (vnPostPreviewCarts / vnDeliveryPreviews) * 100 : null;
   const paidPhLandings = priceTestLosses.data?.price_test?.ph_paid_landing ?? 0;
   const phCartAdds = priceTestLosses.data?.price_test?.ph_add_to_cart ?? 0;
   const phLandingToCart = paidPhLandings > 0 ? (phCartAdds / paidPhLandings) * 100 : null;
@@ -216,6 +220,11 @@ export default function FunnelTab() {
               <Kpi label="VN control landings" value={fmtNum(paidVnLandings)} delta="post-launch · exact PDP" />
               <Kpi label="VN control carts" value={fmtNum(vnCartAdds)} delta="post-launch · exact PDP" />
               <Kpi accent label="VN control landing → cart" value={fmtPct(vnLandingToCart)} delta="same Sep 4 09:46 UTC seam" />
+            </div>
+            <div className="wa-kpis" style={{ marginBottom: 16 }}>
+              <Kpi label="VN delivered-price views" value={fmtNum(vnDeliveryPreviews)} delta="since live deployment" />
+              <Kpi label="VN carts after preview launch" value={fmtNum(vnPostPreviewCarts)} delta="same exact PDP and time seam" />
+              <Kpi accent label="VN preview → cart signal" value={fmtPct(vnPreviewToCart)} delta="aggregate events · direction only" />
             </div>
             <div className="wa-kpis" style={{ marginBottom: 16 }}>
               <Kpi label="PH ₱499 landings" value={fmtNum(paidPhLandings)} delta="post-launch · exact PDP" />

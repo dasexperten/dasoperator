@@ -238,11 +238,12 @@ export default function FunnelTab() {
           <div className="wa-table-scroll" style={{ marginBottom: 16 }}>
             <table className="wa-table">
               <thead>
-                <tr><th>Page · complete 30d aggregate</th><th>Country</th><th>Price views</th><th>Add to cart</th><th>Price → cart</th><th>Checkout</th><th>Errors</th></tr>
+                <tr><th>Page · complete 30d aggregate</th><th>Country</th><th>Price views</th><th>Add to cart</th><th>Price → cart</th><th>Viewed cart</th><th>Checkout</th><th>Cart → checkout</th><th>Errors</th></tr>
               </thead>
               <tbody>
                 {pageTotals.slice(0, 25).map((row) => {
                   const rate = row.price_views > 0 ? (row.add_to_cart / row.price_views) * 100 : null;
+                  const checkoutRate = row.view_cart > 0 ? (row.begin_checkout / row.view_cart) * 100 : null;
                   return (
                     <tr key={`${row.country}-${row.page}`}>
                       <td><code>{row.page}</code></td>
@@ -250,7 +251,9 @@ export default function FunnelTab() {
                       <td className="num">{fmtNum(row.price_views)}</td>
                       <td className="num">{fmtNum(row.add_to_cart)}</td>
                       <td className="num">{fmtPct(rate)}</td>
+                      <td className="num">{fmtNum(row.view_cart)}</td>
                       <td className="num">{fmtNum(row.begin_checkout)}</td>
+                      <td className="num">{fmtPct(checkoutRate)}</td>
                       <td className="num">{fmtNum(row.checkout_errors)}</td>
                     </tr>
                   );

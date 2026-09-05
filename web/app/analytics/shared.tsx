@@ -74,7 +74,13 @@ export type Ga4CommerceLosses = {
     vn_add_to_cart: number;
     vn_delivery_preview_start_utc: string;
     vn_delivery_preview_start_minute: string;
+    vn_delivery_preview_attempts: number;
     vn_delivery_preview: number;
+    vn_delivery_preview_unavailable: number;
+    vn_cta_product_views: number;
+    vn_cta_product_clicks: number;
+    vn_cta_total_views: number;
+    vn_cta_total_clicks: number;
     vn_post_preview_add_to_cart: number;
     ph_paid_landing: number;
     ph_add_to_cart: number;

@@ -4,8 +4,7 @@
 // Campaigns tab — paid media.
 //   Direct column: Yandex Direct Reports API. Ships in honest "not configured"
 //   state until DIRECT_OAUTH_TOKEN lands as a Worker secret (activates same day).
-//   Ads column: Google Ads API v21 — credentialed but BLOCKED on Google
-//   Basic-access approval (submitted 2026-06-11). [PENDING GOOGLE APPROVAL].
+//   Ads column: bounded live Google Ads delivery from the Jurgen worker.
 // HARD RULE 4: absent source = graceful empty state, never fabricated data.
 // =============================================================================
 
@@ -13,7 +12,7 @@ import React from 'react';
 import {
   useApi, fmtNum, fmtPct, timeAgo,
   Panel, LoadState,
-  type DirectCampaigns, type Ga4Overview,
+  type AdsPriceTestExposure, type DirectCampaigns, type Ga4Overview,
 } from '../shared';
 
 function fmtRub(n: number | null | undefined): string {
@@ -21,10 +20,20 @@ function fmtRub(n: number | null | undefined): string {
   return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(n);
 }
 
+function fmtUsd(n: number | null | undefined): string {
+  if (n === undefined || n === null || Number.isNaN(n)) return '—';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency', currency: 'USD', maximumFractionDigits: 2,
+  }).format(n);
+}
+
 export default function CampaignsTab() {
   const direct = useApi<DirectCampaigns>('/api/direct/campaigns?days=30');
   const ga4 = useApi<Ga4Overview>('/api/ga4/overview?days=30');
+  const ads = useApi<AdsPriceTestExposure>('/api/ga4/price-test-exposure');
   const d = direct.data;
+  const search = ads.data?.replacement_search_delivery;
+  const legacy = ads.data?.campaign_delivery;
 
   return (
     <div className="space-y-4">
@@ -98,17 +107,56 @@ export default function CampaignsTab() {
         </Panel>
 
         {/* ---------------- Google Ads column ---------------- */}
-        <Panel title="Google Ads — campaigns 30d" source="Google Ads API v21 · VN paid">
-          <span className="wa-status warn"><span className="dot" />pending google approval</span>
-          <p style={{ color: 'var(--fg-2)', marginTop: 12 }}>
-            All six credentials are stored (developer token, customer, MCC, OAuth client + secret +
-            refresh token). Google Basic-access approval was submitted 2026-06-11; until it is
-            granted the test-account restriction blocks real data.
-          </p>
-          <p style={{ color: 'var(--fg-3)', marginTop: 8 }}>
-            The column activates the day access is granted. Meanwhile the VN paid traffic is
-            visible in Traffic &amp; Sources as the GA4 “Paid Search” channel (~87% of .com sessions).
-          </p>
+        <Panel title="Google Ads — active price-test delivery" source="Google Ads API · bounded Jurgen feed" pad={false}>
+          <div className="wa-panel-body">
+            <LoadState loading={ads.loading} error={ads.error} />
+            {ads.data && (
+              <>
+                <span className="wa-status ok"><span className="dot" />live</span>
+                <p style={{ color: 'var(--fg-2)', marginTop: 12 }}>
+                  PH and MY Search delivery is isolated from the paused legacy PMax campaign.
+                  Budgets, auction status and spend below come directly from Google Ads.
+                </p>
+              </>
+            )}
+          </div>
+          {ads.data && (
+            <div className="wa-table-scroll">
+              <table className="wa-table">
+                <thead>
+                  <tr><th>Campaign</th><th>Status</th><th className="right">Budget/day</th><th className="right">Impr.</th><th className="right">Clicks</th><th className="right">Spend</th><th className="right">Conv.</th></tr>
+                </thead>
+                <tbody>
+                  {(['PH', 'MY'] as const).map((code) => {
+                    const row = search?.[code];
+                    return row ? (
+                      <tr key={row.campaign_id}>
+                        <td style={{ fontWeight: 700 }}>{code} Search</td>
+                        <td>{row.primary_status || row.status || '—'}</td>
+                        <td className="num right">{fmtUsd(row.daily_budget_usd)}</td>
+                        <td className="num right soft">{fmtNum(row.impressions)}</td>
+                        <td className="num right">{fmtNum(row.clicks)}</td>
+                        <td className="num right">{fmtUsd(row.cost_usd)}</td>
+                        <td className="num right">{fmtNum(row.conversions)}</td>
+                      </tr>
+                    ) : null;
+                  })}
+                  {legacy && (
+                    <tr>
+                      <td style={{ fontWeight: 700 }}>Legacy PMax</td>
+                      <td>{legacy.primary_status || legacy.status || '—'}</td>
+                      <td className="num right">{fmtUsd(legacy.daily_budget_usd)}</td>
+                      <td className="num right soft">{fmtNum(legacy.post_launch_complete_hours.impressions)}</td>
+                      <td className="num right">{fmtNum(legacy.post_launch_complete_hours.clicks)}</td>
+                      <td className="num right">{fmtUsd(legacy.post_launch_complete_hours.cost_usd)}</td>
+                      <td className="num right">{fmtNum(legacy.post_launch_complete_hours.conversions)}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+              <p style={{ color: 'var(--fg-3)', padding: '10px 14px' }}>Synced {timeAgo(ads.data.synced_at)}.</p>
+            </div>
+          )}
         </Panel>
       </div>
 
@@ -130,8 +178,8 @@ export default function CampaignsTab() {
         ) : (
           <div>
             <p style={{ color: 'var(--fg-2)' }}>
-              ROAS unlocks when a spend source is live: Direct (token pending) or Google Ads
-              (approval pending). Neither blocks the rest of the dashboard.
+              Google Ads spend is live, but ROAS remains withheld until campaign cost and
+              attributable order revenue are joined on the same contour. Direct remains token-pending.
             </p>
             <div className="wa-note" style={{ marginTop: 8 }}>
               Design rule: spend and revenue are only divided when both sides come from the same

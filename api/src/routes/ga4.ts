@@ -487,7 +487,13 @@ const COMMERCE_LOSS_EVENTS = [
   'paid_locale_landing_zh',
   'pdp_value_proof_view',
   'pdp_price_view',
+  'pdp_delivery_preview_attempt',
   'pdp_delivery_preview_ready',
+  'pdp_delivery_preview_unavailable',
+  'pdp_delivery_cta_product',
+  'pdp_delivery_cta_total',
+  'pdp_delivery_click_product',
+  'pdp_delivery_click_total',
   'shipping_unavailable',
   'shipping_quote_request',
   'shipping_preview_ready',
@@ -543,7 +549,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v21', { days, limit, decision, calendar_window: 'exact-v2' }),
+      cacheKey('ga4:commerce-losses:v22', { days, limit, decision, calendar_window: 'exact-v2' }),
       decision ? 300 : decisionCacheTtl(days),
       async () => {
         const resp = await ga4RunReport(c.env, {
@@ -610,6 +616,7 @@ ga4.get('/commerce-losses', async (c) => {
           vn_add_to_cart: priceTestEventTotal('add_to_cart', 'Vietnam', '/vn/products/innoweiss'),
           vn_delivery_preview_start_utc: VN_DELIVERED_PREVIEW_START_UTC,
           vn_delivery_preview_start_minute: vnDeliveredPreviewStartMinute,
+          vn_delivery_preview_attempts: priceTestEventTotal('pdp_delivery_preview_attempt', 'Vietnam', '/vn/products/innoweiss'),
           vn_delivery_preview: rows
             .filter((row) => row.event === 'pdp_delivery_preview_ready'
               && row.country === 'Vietnam'
@@ -617,6 +624,11 @@ ga4.get('/commerce-losses', async (c) => {
               && row.event_minute >= vnDeliveredPreviewStartMinute
               && row.event_minute <= priceTestEndMinute)
             .reduce((sum, row) => sum + row.count, 0),
+          vn_delivery_preview_unavailable: priceTestEventTotal('pdp_delivery_preview_unavailable', 'Vietnam', '/vn/products/innoweiss'),
+          vn_cta_product_views: priceTestEventTotal('pdp_delivery_cta_product', 'Vietnam', '/vn/products/innoweiss'),
+          vn_cta_product_clicks: priceTestEventTotal('pdp_delivery_click_product', 'Vietnam', '/vn/products/innoweiss'),
+          vn_cta_total_views: priceTestEventTotal('pdp_delivery_cta_total', 'Vietnam', '/vn/products/innoweiss'),
+          vn_cta_total_clicks: priceTestEventTotal('pdp_delivery_click_total', 'Vietnam', '/vn/products/innoweiss'),
           vn_post_preview_add_to_cart: rows
             .filter((row) => row.event === 'add_to_cart'
               && row.country === 'Vietnam'

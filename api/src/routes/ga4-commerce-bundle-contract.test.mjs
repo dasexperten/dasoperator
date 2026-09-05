@@ -4,6 +4,8 @@ const api = fs.readFileSync(new URL('./ga4.ts', import.meta.url), 'utf8');
 const ui = fs.readFileSync(new URL('../../../web/app/analytics/tabs/FunnelTab.tsx', import.meta.url), 'utf8');
 const types = fs.readFileSync(new URL('../../../web/app/analytics/shared.tsx', import.meta.url), 'utf8');
 const traffic = fs.readFileSync(new URL('../../../web/app/analytics/tabs/TrafficTab.tsx', import.meta.url), 'utf8');
+const campaigns = fs.readFileSync(new URL('../../../web/app/analytics/tabs/CampaignsTab.tsx', import.meta.url), 'utf8');
+const analyticsPage = fs.readFileSync(new URL('../../../web/app/analytics/page.tsx', import.meta.url), 'utf8');
 
 const checks = [
   [api.includes('sessions_pct: null') && api.includes('session counts are non-additive') && types.includes('sessions_pct: number | null') && traffic.includes('Session counts across these dimensions are non-additive'), 'acquisition rows cannot claim impossible session coverage'],
@@ -16,7 +18,7 @@ const checks = [
   [api.includes("{ name: 'landingPage' },\n            { name: 'date' },") && api.includes("date: ga4Date(r.dimensionValues?.[4]?.value ?? ''),"), 'acquisition rows expose an exact GA4 date without shifting existing dimensions'],
   [api.includes('const [resp, exact] = await Promise.all') && api.includes('visible_row_totals: visibleTotals'), 'acquisition separates exact totals from display-limited row totals'],
   [api.includes('available_rows: resp.rowCount ?? rows.length'), 'acquisition reports bounded row availability'],
-  [api.includes("cacheKey('ga4:commerce-losses:v21'"), 'commerce cache key exposes VN preview measurement immediately'],
+  [api.includes("cacheKey('ga4:commerce-losses:v22'"), 'commerce cache key exposes VN CTA measurement immediately'],
   [api.includes('const visibleRows = [...failureRows, ...activityRows].slice(0, limit)') && api.includes('failure_rows: failureRows.length'), 'commerce losses pins every failure before the bounded activity stream'],
   [api.includes('const page_totals = [...pageMap.values()]') && api.includes('page_totals,'), 'commerce losses aggregates pages before applying the visible row limit'],
   [types.includes('page_totals: Array<{') && ui.includes('Page · complete 30d aggregate'), 'dashboard renders complete page decision totals'],
@@ -29,9 +31,16 @@ const checks = [
   [ui.includes("pdp_value_proof_view: 'Saw product value proof'"), 'dashboard labels value-proof visibility'],
   [ui.includes("pdp_price_view: 'Saw product price'"), 'dashboard labels price visibility'],
   [api.includes("'pdp_delivery_preview_ready'") && ui.includes("pdp_delivery_preview_ready: 'Saw VN delivered-price preview'"), 'API and dashboard expose delivered-price preview visibility'],
+  [api.includes("'pdp_delivery_preview_attempt'") && api.includes("'pdp_delivery_preview_unavailable'") && ui.includes("pdp_delivery_preview_attempt: 'Started VN delivery preview'") && ui.includes("pdp_delivery_preview_unavailable: 'VN delivery preview unavailable'"), 'API and dashboard expose VN preview attempts and failures'],
   [api.includes("const VN_DELIVERED_PREVIEW_START_UTC = '2026-09-05T07:13:58Z'") && api.includes('vn_post_preview_add_to_cart:'), 'VN preview outcome uses the exact successful deployment seam'],
   [types.includes('price_test?: {') && types.indexOf('vn_delivery_preview: number;') > types.indexOf('price_test?: {') && types.indexOf('vn_delivery_preview: number;') < types.indexOf('row_coverage:'), 'price-test type carries VN preview exposure in the correct contract block'],
+  [types.includes('vn_delivery_preview_attempts: number;') && types.includes('vn_delivery_preview_unavailable: number;'), 'shared type carries VN delivery-preview diagnostic outcomes'],
+  [ui.includes('VN delivery-preview attempts') && ui.includes('VN preview completion') && ui.includes('vnDeliveryPreviews / vnDeliveryAttempts'), 'dashboard renders VN preview completion from attempts and ready outcomes'],
   [ui.includes('VN preview → cart signal') && ui.includes('vnPostPreviewCarts / vnDeliveryPreviews'), 'dashboard renders VN preview-to-cart directional signal'],
+  [api.includes("'pdp_delivery_cta_product'") && api.includes("'pdp_delivery_cta_total'") && api.includes("'pdp_delivery_click_product'") && api.includes("'pdp_delivery_click_total'"), 'API requests both VN CTA exposures and clicks'],
+  [api.includes("vn_cta_product_clicks: priceTestEventTotal('pdp_delivery_click_product'") && api.includes("vn_cta_total_clicks: priceTestEventTotal('pdp_delivery_click_total'"), 'VN CTA outcomes use the exact test cohort helper'],
+  [types.includes('vn_cta_product_views: number;') && types.includes('vn_cta_total_clicks: number;'), 'shared type carries VN CTA experiment outcomes'],
+  [ui.includes('VN product-price CTA') && ui.includes('VN delivered-total CTA') && ui.includes('30 clicks before message decision'), 'dashboard renders variant CTRs with a decision threshold'],
   [ui.includes("add_to_cart: 'Added to cart'"), 'dashboard labels cart entry'],
   [api.includes("'checkout_address_complete'"), 'API requests checkout address completion'],
   [api.includes("'checkout_error_ru_phone'") && api.includes("'checkout_error_ru_pickup'") && api.includes("'checkout_error_ru_service'"), 'API requests bounded RU checkout failure reasons'],
@@ -80,6 +89,10 @@ const checks = [
   [api.includes("{ name: 'dateHourMinute' }") && api.includes('event_minute:'), 'API dates each loss against release seams'],
   [api.includes('limit: 10000') && api.includes('rows: visibleRows'), 'totals use the full minute-grain response before display limit'],
   [ui.includes('Minute · GA4') && ui.includes('gaMinute(row.event_minute)'), 'dashboard shows the event occurrence minute'],
+  [campaigns.includes("useApi<AdsPriceTestExposure>('/api/ga4/price-test-exposure')") && campaigns.includes('Google Ads — active price-test delivery'), 'Campaigns tab consumes the live bounded Google Ads feed'],
+  [campaigns.includes("(['PH', 'MY'] as const)") && campaigns.includes('Legacy PMax'), 'Campaigns tab separates replacement Search from legacy PMax delivery'],
+  [!campaigns.toLowerCase().includes('pending google approval') && !analyticsPage.includes('Google Ads Basic-access approval'), 'analytics surface no longer claims the live Google Ads source is approval-pending'],
+  [campaigns.includes('ROAS remains withheld') && campaigns.includes('attributable order revenue'), 'Campaigns tab keeps ROAS gated to matched spend and revenue'],
 ];
 
 const failures = checks.filter(([passed]) => !passed).map(([, label]) => label);

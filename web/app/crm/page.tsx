@@ -2145,9 +2145,10 @@ function OrderShipmentCell({ id, detail, trackingUrl, missing, waiting }: { id?:
       <span style={{
         color: 'var(--status-error)', fontWeight: 700,
         background: 'color-mix(in srgb, var(--status-error) 10%, transparent)',
-        borderRadius: 'var(--radius-pill, 999px)', padding: '3px 10px', whiteSpace: 'nowrap',
+        borderRadius: 'var(--radius-pill, 999px)', padding: '3px 10px', display: 'inline-block',
       }}>
         нет отправления
+        {detail ? <span style={{ display: 'block', marginTop: 2, fontSize: 12, fontWeight: 700 }}>{detail}</span> : null}
       </span>
     </Td>
   );
@@ -2180,7 +2181,15 @@ function ruShipment(o: CrmOrder): { id?: string | null; detail?: string | null; 
       waiting: o.delivery_parts_at_point ?? 0,
     };
   }
-  return { missing: !!o.paid && !['cancelled', 'refunded', 'delivered'].includes(o.storefront_status ?? '') };
+  const failure = o.delivery_substatus === 'shipment_out_of_stock'
+    ? 'Ozon: нет товара'
+    : o.delivery_substatus === 'shipment_creation_failed'
+      ? 'Ozon: ошибка создания'
+      : null;
+  return {
+    missing: !!o.paid && !['cancelled', 'refunded', 'delivered'].includes(o.storefront_status ?? ''),
+    detail: failure,
+  };
 }
 
 // Картирование витрины .com: financial_status — деньги, fulfillment_status — отправление.

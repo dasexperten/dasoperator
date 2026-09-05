@@ -56,6 +56,10 @@ const SIGNAL_LABELS: Record<string, string> = {
   pdp_value_proof_view: 'Saw product value proof',
   pdp_price_view: 'Saw product price',
   pdp_delivery_preview_ready: 'Saw VN delivered-price preview',
+  pdp_delivery_cta_product: 'Saw VN product-price CTA',
+  pdp_delivery_cta_total: 'Saw VN delivered-total CTA',
+  pdp_delivery_click_product: 'Clicked VN product-price CTA',
+  pdp_delivery_click_total: 'Clicked VN delivered-total CTA',
   shipping_unavailable: 'Shipping unavailable',
   shipping_quote_request: 'Requested shipping quote',
   shipping_bundle_offer: 'Saw two-tube shipping value',
@@ -96,6 +100,12 @@ export default function FunnelTab() {
   const vnDeliveryPreviews = priceTestLosses.data?.price_test?.vn_delivery_preview ?? 0;
   const vnPostPreviewCarts = priceTestLosses.data?.price_test?.vn_post_preview_add_to_cart ?? 0;
   const vnPreviewToCart = vnDeliveryPreviews > 0 ? (vnPostPreviewCarts / vnDeliveryPreviews) * 100 : null;
+  const vnProductViews = priceTestLosses.data?.price_test?.vn_cta_product_views ?? 0;
+  const vnProductClicks = priceTestLosses.data?.price_test?.vn_cta_product_clicks ?? 0;
+  const vnTotalViews = priceTestLosses.data?.price_test?.vn_cta_total_views ?? 0;
+  const vnTotalClicks = priceTestLosses.data?.price_test?.vn_cta_total_clicks ?? 0;
+  const vnProductCtr = vnProductViews > 0 ? (vnProductClicks / vnProductViews) * 100 : null;
+  const vnTotalCtr = vnTotalViews > 0 ? (vnTotalClicks / vnTotalViews) * 100 : null;
   const paidPhLandings = priceTestLosses.data?.price_test?.ph_paid_landing ?? 0;
   const phCartAdds = priceTestLosses.data?.price_test?.ph_add_to_cart ?? 0;
   const phLandingToCart = paidPhLandings > 0 ? (phCartAdds / paidPhLandings) * 100 : null;
@@ -225,6 +235,11 @@ export default function FunnelTab() {
               <Kpi label="VN delivered-price views" value={fmtNum(vnDeliveryPreviews)} delta="since live deployment" />
               <Kpi label="VN carts after preview launch" value={fmtNum(vnPostPreviewCarts)} delta="same exact PDP and time seam" />
               <Kpi accent label="VN preview → cart signal" value={fmtPct(vnPreviewToCart)} delta="aggregate events · direction only" />
+            </div>
+            <div className="wa-kpis" style={{ marginBottom: 16 }}>
+              <Kpi label="VN product-price CTA" value={fmtPct(vnProductCtr)} delta={`${fmtNum(vnProductClicks)} clicks ÷ ${fmtNum(vnProductViews)} views`} />
+              <Kpi label="VN delivered-total CTA" value={fmtPct(vnTotalCtr)} delta={`${fmtNum(vnTotalClicks)} clicks ÷ ${fmtNum(vnTotalViews)} views`} />
+              <Kpi accent label="VN CTA test status" value={(vnProductClicks + vnTotalClicks) < 30 ? 'Collecting' : 'Decision ready'} delta="30 clicks before message decision" />
             </div>
             <div className="wa-kpis" style={{ marginBottom: 16 }}>
               <Kpi label="PH ₱499 landings" value={fmtNum(paidPhLandings)} delta="post-launch · exact PDP" />

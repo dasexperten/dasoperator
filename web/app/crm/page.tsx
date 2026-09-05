@@ -70,6 +70,11 @@ interface CrmOrder {
   delivery_status?: string | null;
   delivery_order_id?: string | null;
   tracking_number?: string | null;
+  // слой 4 (05.09.2026): подстатус Ozon и разбивка заказа на посылки
+  delivery_substatus?: string | null;
+  delivery_parts_total?: number;
+  delivery_parts_at_point?: number;
+  delivery_parts_received?: number;
 }
 
 interface CrmCustomer {
@@ -2108,10 +2113,24 @@ function OrderPaymentCell({ state, at, method }: { state: PayState; at?: string 
   return <Td><span style={{ color: 'var(--fg-3)' }}>{label}</span>{state === 'unknown' ? null : methodLine}</Td>;
 }
 
-function OrderShipmentCell({ id, detail, trackingUrl, missing }: { id?: string | null; detail?: string | null; trackingUrl?: string | null; missing?: boolean }) {
+function OrderShipmentCell({ id, detail, trackingUrl, missing, waiting }: { id?: string | null; detail?: string | null; trackingUrl?: string | null; missing?: boolean; waiting?: number }) {
   if (id) {
+    // «Ждёт в пункте выдачи» — деньги, которые уже уедут назад, если покупатель
+    // не придёт: срок хранения идёт, а Ozon об этом сам не напоминает. Поэтому
+    // предупреждающим цветом, а не строкой мелким шрифтом.
     const body = (
-      <span style={{ fontWeight: 700 }}>{id}{detail ? <span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--fg-3)' }}>{detail}</span> : null}</span>
+      <span style={{ fontWeight: 700 }}>
+        {id}
+        {waiting ? (
+          <span style={{
+            display: 'block', marginTop: 3, fontSize: 12, fontWeight: 700,
+            color: 'var(--status-warning)', whiteSpace: 'nowrap',
+          }}>
+            ждёт в пункте выдачи{waiting > 1 ? ` · ${waiting} посылки` : ''}
+          </span>
+        ) : null}
+        {detail ? <span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--fg-3)' }}>{detail}</span> : null}
+      </span>
     );
     return (
       <Td>
@@ -2144,10 +2163,22 @@ function ruPayment(o: CrmOrder): { state: PayState; at?: string | null } {
   return { state: 'unpaid' };
 }
 
-function ruShipment(o: CrmOrder): { id?: string | null; detail?: string | null; missing?: boolean } {
+function ruShipment(o: CrmOrder): { id?: string | null; detail?: string | null; missing?: boolean; waiting?: number } {
   if (o.paid === undefined) return {};
   if (o.delivery_order_id) {
-    return { id: o.delivery_order_id, detail: [o.delivery_status, o.tracking_number].filter(Boolean).join(' · ') };
+    // Разбивку показываем только когда посылок больше одной: Ozon режет заказ по
+    // своим складам, части приезжают в разные дни, и «забрал две трети» иначе с
+    // экрана не читается вовсе.
+    const parts = o.delivery_parts_total ?? 0;
+    const partsLine = parts > 1
+      ? `${parts} посылки · получено ${o.delivery_parts_received ?? 0}`
+      : null;
+    return {
+      id: o.delivery_order_id,
+      detail: [o.delivery_status, partsLine, o.tracking_number].filter(Boolean).join(' · '),
+      // Не статус, а отдельная ось: посылка в пункте всё ещё delivering.
+      waiting: o.delivery_parts_at_point ?? 0,
+    };
   }
   return { missing: !!o.paid && !['cancelled', 'refunded', 'delivered'].includes(o.storefront_status ?? '') };
 }

@@ -43,6 +43,11 @@ export interface StorefrontOrder {
     provider?: string; method?: string; status?: string;
     provider_order_id?: string | null; tracking_number?: string | null;
     cost_rub?: number; updated_at?: string | null;
+    // Подстатус и разбивка приходят с ленты готовыми — витрина считает их при
+    // опросе Ozon. Поля появились 05.09.2026; у старой ленты их нет, поэтому всё
+    // необязательное и падает в null/0, а не ломает синк.
+    substatus?: string | null;
+    parts_total?: number; parts_at_point?: number; parts_received?: number;
   } | null;
 }
 
@@ -167,6 +172,10 @@ export function rowFromOrder(o: StorefrontOrder, now: number) {
     tracking_number: d?.tracking_number ?? null,
     delivery_cost_rub: Math.round(d?.cost_rub ?? 0),
     delivery_updated_at: d?.updated_at ?? null,
+    delivery_substatus: d?.substatus ?? null,
+    delivery_parts_total: Math.round(d?.parts_total ?? 0),
+    delivery_parts_at_point: Math.round(d?.parts_at_point ?? 0),
+    delivery_parts_received: Math.round(d?.parts_received ?? 0),
     raw_json: JSON.stringify(o),
     synced_at: now,
   };
@@ -177,8 +186,10 @@ INSERT INTO crm_orders_ru (
   order_number, storefront_id, status, storefront_status, source, created_at, updated_at,
   paid, paid_at, total_rub, subtotal_rub, discount_rub, loyalty_rub, delivery_rub, units, customer_key,
   delivery_provider, delivery_method, delivery_status, delivery_order_id, tracking_number,
-  delivery_cost_rub, delivery_updated_at, raw_json, first_seen_at, synced_at
-) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?25)
+  delivery_cost_rub, delivery_updated_at,
+  delivery_substatus, delivery_parts_total, delivery_parts_at_point, delivery_parts_received,
+  raw_json, first_seen_at, synced_at
+) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?29)
 ON CONFLICT(order_number) DO UPDATE SET
   storefront_id = excluded.storefront_id, status = excluded.status, storefront_status = excluded.storefront_status,
   source = excluded.source, created_at = excluded.created_at, updated_at = excluded.updated_at,
@@ -188,7 +199,10 @@ ON CONFLICT(order_number) DO UPDATE SET
   delivery_provider = excluded.delivery_provider, delivery_method = excluded.delivery_method,
   delivery_status = excluded.delivery_status, delivery_order_id = excluded.delivery_order_id,
   tracking_number = excluded.tracking_number, delivery_cost_rub = excluded.delivery_cost_rub,
-  delivery_updated_at = excluded.delivery_updated_at, raw_json = excluded.raw_json, synced_at = excluded.synced_at`;
+  delivery_updated_at = excluded.delivery_updated_at,
+  delivery_substatus = excluded.delivery_substatus, delivery_parts_total = excluded.delivery_parts_total,
+  delivery_parts_at_point = excluded.delivery_parts_at_point, delivery_parts_received = excluded.delivery_parts_received,
+  raw_json = excluded.raw_json, synced_at = excluded.synced_at`;
 
 const STATE_SQL = `INSERT INTO crm_sync_state (key, value, updated_at) VALUES (?1, ?2, ?3)
   ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`;
@@ -268,7 +282,9 @@ export async function syncRuOrders(env: Env): Promise<SyncReport> {
       r.order_number, r.storefront_id, r.status, r.storefront_status, r.source, r.created_at, r.updated_at,
       r.paid, r.paid_at, r.total_rub, r.subtotal_rub, r.discount_rub, r.loyalty_rub, r.delivery_rub, r.units, r.customer_key,
       r.delivery_provider, r.delivery_method, r.delivery_status, r.delivery_order_id, r.tracking_number,
-      r.delivery_cost_rub, r.delivery_updated_at, r.raw_json, r.synced_at,
+      r.delivery_cost_rub, r.delivery_updated_at,
+      r.delivery_substatus, r.delivery_parts_total, r.delivery_parts_at_point, r.delivery_parts_received,
+      r.raw_json, r.synced_at,
     )));
     batches++;
   }

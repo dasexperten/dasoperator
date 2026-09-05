@@ -30,7 +30,7 @@ const checks = [
   [ui.includes("pdp_price_view: 'Saw product price'"), 'dashboard labels price visibility'],
   [api.includes("'pdp_delivery_preview_ready'") && ui.includes("pdp_delivery_preview_ready: 'Saw VN delivered-price preview'"), 'API and dashboard expose delivered-price preview visibility'],
   [api.includes("const VN_DELIVERED_PREVIEW_START_UTC = '2026-09-05T07:13:58Z'") && api.includes('vn_post_preview_add_to_cart:'), 'VN preview outcome uses the exact successful deployment seam'],
-  [types.includes('vn_delivery_preview: number;') && types.includes('vn_post_preview_add_to_cart: number;'), 'shared type carries VN preview exposure and post-launch carts'],
+  [types.includes('price_test?: {') && types.indexOf('vn_delivery_preview: number;') > types.indexOf('price_test?: {') && types.indexOf('vn_delivery_preview: number;') < types.indexOf('row_coverage:'), 'price-test type carries VN preview exposure in the correct contract block'],
   [ui.includes('VN preview → cart signal') && ui.includes('vnPostPreviewCarts / vnDeliveryPreviews'), 'dashboard renders VN preview-to-cart directional signal'],
   [ui.includes("add_to_cart: 'Added to cart'"), 'dashboard labels cart entry'],
   [api.includes("'checkout_address_complete'"), 'API requests checkout address completion'],

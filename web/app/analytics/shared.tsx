@@ -78,6 +78,16 @@ export type Ga4CommerceLosses = {
     my_add_to_cart: number;
   };
   row_coverage: { returned_rows: number; available_rows: number; failure_rows: number };
+  page_totals: Array<{
+    country: string;
+    page: string;
+    price_views: number;
+    value_proof_views: number;
+    add_to_cart: number;
+    begin_checkout: number;
+    purchases: number;
+    checkout_errors: number;
+  }>;
   rows: Array<{ event: string; country: string; page: string; campaign: string; event_minute: string; count: number }>;
   synced_at: number;
 };

@@ -538,7 +538,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v18', { days, limit, decision, calendar_window: 'exact-v2' }),
+      cacheKey('ga4:commerce-losses:v19', { days, limit, decision, calendar_window: 'exact-v2' }),
       decision ? 300 : decisionCacheTtl(days),
       async () => {
         const resp = await ga4RunReport(c.env, {
@@ -608,6 +608,30 @@ ga4.get('/commerce-losses', async (c) => {
           my_add_to_cart: priceTestEventTotal('add_to_cart', 'Malaysia', '/ms/products/innoweiss'),
         };
         const isFailure = (event: string) => event === 'shipping_unavailable' || event.startsWith('checkout_error');
+        // Decision table over the complete GA4 response, not the bounded recent
+        // rows below. Group by country + page so one locale cannot borrow another
+        // locale's denominator. This is aggregate event evidence, not a user path.
+        const pageMap = new Map<string, {
+          country: string; page: string; price_views: number; value_proof_views: number;
+          add_to_cart: number; begin_checkout: number; purchases: number; checkout_errors: number;
+        }>();
+        for (const row of rows) {
+          const key = `${row.country}\u0000${row.page}`;
+          const page = pageMap.get(key) ?? {
+            country: row.country, page: row.page, price_views: 0, value_proof_views: 0,
+            add_to_cart: 0, begin_checkout: 0, purchases: 0, checkout_errors: 0,
+          };
+          if (row.event === 'pdp_price_view') page.price_views += row.count;
+          else if (row.event === 'pdp_value_proof_view') page.value_proof_views += row.count;
+          else if (row.event === 'add_to_cart') page.add_to_cart += row.count;
+          else if (row.event === 'begin_checkout') page.begin_checkout += row.count;
+          else if (row.event === 'purchase') page.purchases += row.count;
+          else if (row.event === 'checkout_error') page.checkout_errors += row.count;
+          pageMap.set(key, page);
+        }
+        const page_totals = [...pageMap.values()]
+          .filter((page) => page.price_views > 0 || page.add_to_cart > 0 || page.begin_checkout > 0 || page.purchases > 0 || page.checkout_errors > 0)
+          .sort((a, b) => b.price_views - a.price_views || b.add_to_cart - a.add_to_cart || a.page.localeCompare(b.page));
         // Keep every observed technical failure ahead of the bounded activity
         // stream. A recent-events limit must never hide the rows needed to
         // diagnose conversion loss.
@@ -622,6 +646,7 @@ ga4.get('/commerce-losses', async (c) => {
           totals,
           market_totals,
           price_test,
+          page_totals,
           row_coverage: {
             returned_rows: visibleRows.length,
             available_rows: rows.length,

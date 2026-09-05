@@ -100,6 +100,7 @@ export default function FunnelTab() {
   const myLandingToCart = paidMyLandings > 0 ? (myCartAdds / paidMyLandings) * 100 : null;
   const postLaunchAds = exposure.data?.campaign_delivery?.post_launch_complete_hours;
   const searchDelivery = exposure.data?.replacement_search_delivery;
+  const pageTotals = losses.data?.page_totals ?? [];
 
   return (
     <div className="space-y-4">
@@ -233,6 +234,31 @@ export default function FunnelTab() {
             </div>
           </>
         )}
+        {pageTotals.length > 0 && (
+          <div className="wa-table-scroll" style={{ marginBottom: 16 }}>
+            <table className="wa-table">
+              <thead>
+                <tr><th>Page · complete 30d aggregate</th><th>Country</th><th>Price views</th><th>Add to cart</th><th>Price → cart</th><th>Checkout</th><th>Errors</th></tr>
+              </thead>
+              <tbody>
+                {pageTotals.slice(0, 25).map((row) => {
+                  const rate = row.price_views > 0 ? (row.add_to_cart / row.price_views) * 100 : null;
+                  return (
+                    <tr key={`${row.country}-${row.page}`}>
+                      <td><code>{row.page}</code></td>
+                      <td>{row.country}</td>
+                      <td className="num">{fmtNum(row.price_views)}</td>
+                      <td className="num">{fmtNum(row.add_to_cart)}</td>
+                      <td className="num">{fmtPct(rate)}</td>
+                      <td className="num">{fmtNum(row.begin_checkout)}</td>
+                      <td className="num">{fmtNum(row.checkout_errors)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
         {losses.data?.rows.length ? (
           <div className="wa-table-scroll">
             <table className="wa-table">
@@ -241,7 +267,7 @@ export default function FunnelTab() {
               </thead>
               <tbody>
                 {losses.data.rows.map((row, i) => {
-                  const isFailure = row.event === 'checkout_error' || row.event === 'shipping_unavailable';
+                  const isFailure = row.event.startsWith('checkout_error') || row.event === 'shipping_unavailable';
                   return (
                     <tr key={`${row.event}-${row.country}-${row.page}-${row.campaign}-${i}`}>
                       <td style={isFailure ? { color: 'var(--status-warning)', fontWeight: 800 } : undefined}>

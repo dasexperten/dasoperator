@@ -55,7 +55,9 @@ const SIGNAL_LABELS: Record<string, string> = {
   paid_locale_landing_zh: 'Paid landing localized · Taiwan',
   pdp_value_proof_view: 'Saw product value proof',
   pdp_price_view: 'Saw product price',
+  pdp_delivery_preview_attempt: 'Started VN delivery preview',
   pdp_delivery_preview_ready: 'Saw VN delivered-price preview',
+  pdp_delivery_preview_unavailable: 'VN delivery preview unavailable',
   pdp_delivery_cta_product: 'Saw VN product-price CTA',
   pdp_delivery_cta_total: 'Saw VN delivered-total CTA',
   pdp_delivery_click_product: 'Clicked VN product-price CTA',
@@ -98,6 +100,9 @@ export default function FunnelTab() {
   const vnCartAdds = priceTestLosses.data?.price_test?.vn_add_to_cart ?? 0;
   const vnLandingToCart = paidVnLandings > 0 ? (vnCartAdds / paidVnLandings) * 100 : null;
   const vnDeliveryPreviews = priceTestLosses.data?.price_test?.vn_delivery_preview ?? 0;
+  const vnDeliveryAttempts = priceTestLosses.data?.price_test?.vn_delivery_preview_attempts ?? 0;
+  const vnDeliveryUnavailable = priceTestLosses.data?.price_test?.vn_delivery_preview_unavailable ?? 0;
+  const vnDeliveryCompletion = vnDeliveryAttempts > 0 ? (vnDeliveryPreviews / vnDeliveryAttempts) * 100 : null;
   const vnPostPreviewCarts = priceTestLosses.data?.price_test?.vn_post_preview_add_to_cart ?? 0;
   const vnPreviewToCart = vnDeliveryPreviews > 0 ? (vnPostPreviewCarts / vnDeliveryPreviews) * 100 : null;
   const vnProductViews = priceTestLosses.data?.price_test?.vn_cta_product_views ?? 0;
@@ -230,6 +235,11 @@ export default function FunnelTab() {
               <Kpi label="VN control landings" value={fmtNum(paidVnLandings)} delta="post-launch · exact PDP" />
               <Kpi label="VN control carts" value={fmtNum(vnCartAdds)} delta="post-launch · exact PDP" />
               <Kpi accent label="VN control landing → cart" value={fmtPct(vnLandingToCart)} delta="same Sep 4 09:46 UTC seam" />
+            </div>
+            <div className="wa-kpis" style={{ marginBottom: 16 }}>
+              <Kpi label="VN delivery-preview attempts" value={fmtNum(vnDeliveryAttempts)} delta="instrumented PDP starts" />
+              <Kpi label="VN preview unavailable" value={fmtNum(vnDeliveryUnavailable)} delta="pricing or shipping outcome" />
+              <Kpi accent label="VN preview completion" value={fmtPct(vnDeliveryCompletion)} delta="ready previews ÷ attempts" />
             </div>
             <div className="wa-kpis" style={{ marginBottom: 16 }}>
               <Kpi label="VN delivered-price views" value={fmtNum(vnDeliveryPreviews)} delta="since live deployment" />

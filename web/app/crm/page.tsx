@@ -2188,7 +2188,11 @@ function ruStockExplanation(o: CrmOrder): string {
     .filter((v): v is number => Boolean(v)).sort((a, b) => b - a)[0] ?? null;
 
   if (eta) {
-    return `Запас Ozon закончился · пополнение ${Math.max(supply, inTransit)} шт. ожидается ${shortFactDate(eta)} · отправим сразу после приёмки`;
+    return `Запас для выбранного ПВЗ временно закончился · новая партия ${Math.max(supply, inTransit)} шт. уже в пути на склады Ozon и ожидается ${shortFactDate(eta)} · просим немного терпения: после приёмки заказ сразу упакуют и отправят`;
+  }
+
+  if (Math.max(supply, inTransit) > 0) {
+    return `Запас для выбранного ПВЗ временно закончился · новая партия ${Math.max(supply, inTransit)} шт. уже в пути на склады Ozon${supplyAt ? ` · статус обновлён ${shortFactDate(supplyAt)}` : ''} · просим немного терпения: в ближайшие несколько дней после приёмки заказ сразу упакуют и отправят`;
   }
 
   const lines: string[] = [];
@@ -2196,11 +2200,7 @@ function ruStockExplanation(o: CrmOrder): string {
     ? `Ozon не выдаёт товар для выбранного ПВЗ · по стране ${ozon} шт.`
     : 'Запас Ozon закончился');
   if (own > 0) lines.push(`На наших складах РФ учтено ${own} шт.${ownAt ? ` на ${shortFactDate(ownAt)}` : ''}`);
-  if (Math.max(supply, inTransit) > 0) {
-    lines.push(`В поставке числится ${Math.max(supply, inTransit)} шт.${supplyAt ? ` · данные ${shortFactDate(supplyAt)}` : ''} · срок не подтверждён`);
-  } else {
-    lines.push('Поставка в Ozon не подтверждена');
-  }
+  lines.push('Поставка в Ozon не подтверждена');
   return lines.join(' · ');
 }
 

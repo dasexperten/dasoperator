@@ -1328,11 +1328,13 @@ function ComMetricBand({ stats }: { stats: ComStats }) {
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
           <span style={{
             fontFamily: "'Fraunces', serif",
-            fontSize: 40,
+            fontSize: 'clamp(28px, 9vw, 40px)',
             fontWeight: 700,
-            lineHeight: 1,
+            lineHeight: 1.05,
             fontVariantNumeric: 'tabular-nums',
             color: 'var(--paper-raised)',
+            whiteSpace: 'nowrap',
+            wordBreak: 'keep-all',
           }}>
             {fmt(sales30)}
           </span>
@@ -1390,11 +1392,16 @@ function KpiTile({ label, value, sub, accent = false }: { label: string; value: 
       <div style={{
         fontFamily: "'Fraunces', serif",
         fontWeight: 700,
-        fontSize: 34,
-        lineHeight: 1,
+        fontSize:
+          value.length > 7 ? 'clamp(18px, 5vw, 26px)'
+          : value.length > 5 ? 'clamp(20px, 6vw, 30px)'
+          : 'clamp(22px, 7vw, 34px)',
+        lineHeight: 1.05,
         fontVariantNumeric: 'tabular-nums',
         color: accent ? 'var(--brand-gold)' : 'var(--brand-rot)',
-        wordBreak: 'break-word',
+        whiteSpace: 'nowrap',
+        overflowWrap: 'normal',
+        wordBreak: 'keep-all',
       }}>
         {value}
       </div>

@@ -54,7 +54,21 @@ function notConfigured(c: any) {
 }
 
 function sourceLabel(env: Env): string {
-  return `GA4 property ${env.GA4_PROPERTY_ID} (dasexperten.com, global contour)`;
+  return `GA4 property ${env.GA4_PROPERTY_ID}`;
+}
+
+function comSourceLabel(env: Env): string {
+  return `GA4 property ${env.GA4_PROPERTY_ID} (www.dasexperten.com host only)`;
+}
+
+const COM_HOSTS = ['www.dasexperten.com', 'dasexperten.com'];
+
+function comHostFilter() {
+  return { filter: { fieldName: 'hostName', inListFilter: { values: COM_HOSTS } } };
+}
+
+function withComHostFilter(expression: Record<string, unknown>) {
+  return { andGroup: { expressions: [comHostFilter(), expression] } };
 }
 
 // =============================================================================
@@ -67,7 +81,7 @@ ga4.get('/overview', async (c) => {
   const days = windowDays(c);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:overview', { days, calendar_window: 'exact-v2' }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:overview:v2', { days, calendar_window: 'exact-v2', host: 'com' }), 3600, async () => {
       const daily = await ga4RunReport(c.env, {
         dateRanges: [reportRange(days)],
         dimensions: [{ name: 'date' }],
@@ -77,6 +91,7 @@ ga4.get('/overview', async (c) => {
           { name: 'ecommercePurchases' },
           { name: 'purchaseRevenue' },
         ],
+        dimensionFilter: comHostFilter(),
         orderBys: [{ dimension: { dimensionName: 'date' } }],
         limit: 366,
       });
@@ -108,6 +123,7 @@ ga4.get('/overview', async (c) => {
           dateRanges: [reportRange(days)],
           dimensions: [{ name: 'newVsReturning' }],
           metrics: [{ name: 'ecommercePurchases' }],
+          dimensionFilter: comHostFilter(),
         });
         for (const r of nvr.rows ?? []) {
           const label = r.dimensionValues?.[0]?.value ?? '';
@@ -122,7 +138,7 @@ ga4.get('/overview', async (c) => {
       }
 
       return {
-        source: sourceLabel(c.env),
+        source: comSourceLabel(c.env),
         window_days: days,
         totals: {
           sessions,
@@ -268,7 +284,7 @@ ga4.get('/acquisition-detail', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-        cacheKey('ga4:acquisition-detail:v5', { days, limit, calendar_window: 'exact-v2' }),
+        cacheKey('ga4:acquisition-detail:v6', { days, limit, calendar_window: 'exact-v2', host: 'com' }),
       decisionCacheTtl(days),
       async () => {
         const metrics = [
@@ -292,11 +308,13 @@ ga4.get('/acquisition-detail', async (c) => {
             { name: 'date' },
           ],
           metrics,
+          dimensionFilter: comHostFilter(),
           orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
           limit,
         }), ga4RunReport(c.env, {
           dateRanges: [reportRange(days)],
           metrics,
+          dimensionFilter: comHostFilter(),
         })]);
 
         const rows = (resp.rows ?? []).map((r) => {
@@ -339,7 +357,7 @@ ga4.get('/acquisition-detail', async (c) => {
         };
 
         return {
-          source: sourceLabel(c.env),
+          source: comSourceLabel(c.env),
           window_days: days,
           method:
             'Exact totals come from an unsegmented GA4 report. Rows are the highest-session dated acquisition segments and are not user-level paths; their session counts are non-additive.',
@@ -378,22 +396,23 @@ ga4.get('/funnel', async (c) => {
   const days = windowDays(c);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:funnel', { days, calendar_window: 'exact-v2' }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:funnel:v2', { days, calendar_window: 'exact-v2', host: 'com' }), 3600, async () => {
       const [sessionsResp, eventsResp] = await Promise.all([
         ga4RunReport(c.env, {
           dateRanges: [reportRange(days)],
           metrics: [{ name: 'sessions' }],
+          dimensionFilter: comHostFilter(),
         }),
         ga4RunReport(c.env, {
           dateRanges: [reportRange(days)],
           dimensions: [{ name: 'eventName' }],
           metrics: [{ name: 'eventCount' }],
-          dimensionFilter: {
+          dimensionFilter: withComHostFilter({
             filter: {
               fieldName: 'eventName',
               inListFilter: { values: FUNNEL_EVENTS },
             },
-          },
+          }),
         }),
       ]);
 
@@ -425,7 +444,7 @@ ga4.get('/funnel', async (c) => {
       });
 
       return {
-        source: sourceLabel(c.env),
+        source: comSourceLabel(c.env),
         window_days: days,
         // NOTE for UI: step units differ — sessions vs event counts. A session
         // can fire an event multiple times; rates are indicative, labelled.
@@ -549,7 +568,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v22', { days, limit, decision, calendar_window: 'exact-v2' }),
+      cacheKey('ga4:commerce-losses:v23', { days, limit, decision, calendar_window: 'exact-v2', host: 'com' }),
       decision ? 300 : decisionCacheTtl(days),
       async () => {
         const resp = await ga4RunReport(c.env, {
@@ -562,12 +581,12 @@ ga4.get('/commerce-losses', async (c) => {
             { name: 'dateHourMinute' },
           ],
           metrics: [{ name: 'eventCount' }],
-          dimensionFilter: {
+          dimensionFilter: withComHostFilter({
             filter: {
               fieldName: 'eventName',
               inListFilter: { values: COMMERCE_LOSS_EVENTS },
             },
-          },
+          }),
           orderBys: [{ dimension: { dimensionName: 'dateHourMinute' }, desc: true }],
           limit: 10000,
         });
@@ -675,7 +694,7 @@ ga4.get('/commerce-losses', async (c) => {
         const visibleRows = [...failureRows, ...activityRows].slice(0, limit);
 
         return {
-          source: sourceLabel(c.env),
+          source: comSourceLabel(c.env),
           window_days: days,
           method: 'GA4 event counts grouped by country, event page, session campaign and property-timezone minute; rows are aggregate signals, not user-level paths.',
           totals,

@@ -455,6 +455,21 @@ type MirrorRow = {
  */
 type RuItem = { sku: string | null; name: string | null; qty: number };
 
+type RuStockFact = {
+  sku: string;
+  our_stock: number;
+  assembleable: number;
+  our_stock_at: number | null;
+  in_transit: number;
+  in_transit_at: number | null;
+  ozon_available: number | null;
+  ozon_stock_at: number | null;
+  supply_qty: number;
+  supply_stage: string | null;
+  supply_eta: number | null;
+  supply_updated_at: number | null;
+};
+
 function ruItems(raw: string | null | undefined): RuItem[] {
   if (!raw) return [];
   try {
@@ -481,6 +496,108 @@ function ruItems(raw: string | null | undefined): RuItem[] {
 /** Штук в заказе — сумма количеств по позициям. */
 function ruItemsCount(raw: string | null | undefined): number {
   return ruItems(raw).reduce((n, it) => n + it.qty, 0);
+}
+
+/**
+ * Живой ответ Зины + Даши для позиций оплаченного заказа без отправления.
+ *
+ * Зина: склад РФ, сборка мультипака из одиночного SKU, товар в пути и активная
+ * операция поставки. Даша: свежий остаток конкретного offer_id внутри Ozon.
+ * Никаких обещаний из одного флага "in_transit": срок показывается только
+ * когда у активной операции есть lead_time_days и расчётная дата ещё впереди.
+ */
+async function ruStockFacts(env: Env, itemGroups: RuItem[][]): Promise<Map<string, RuStockFact>> {
+  const skus = Array.from(new Set(itemGroups.flatMap((items) => items)
+    .map((it) => String(it.sku ?? '').trim().toLowerCase()).filter(Boolean)));
+  const out = new Map<string, RuStockFact>();
+  if (!skus.length) return out;
+
+  const marks = skus.map(() => '?').join(',');
+  const now = Math.floor(Date.now() / 1000);
+  const [stockRes, ozonRes, supplyRes] = await Promise.all([
+    env.DB.prepare(`
+      SELECT lower(p.id) AS sku,
+        COALESCE((SELECT SUM(MAX(s.on_hand, 0))
+                  FROM stocks s JOIN warehouses w ON w.id = s.warehouse_id
+                  WHERE s.product_id = p.id AND s.stock_state = 'on_hand'
+                    AND lower(COALESCE(w.country, '')) = 'russia'
+                    AND s.warehouse_id NOT IN ('ozon','wb')), 0) AS our_stock,
+        COALESCE((SELECT SUM(MAX(s.on_hand, 0))
+                  FROM stocks s JOIN warehouses w ON w.id = s.warehouse_id
+                  WHERE s.product_id = p.base_sku AND s.stock_state = 'on_hand'
+                    AND lower(COALESCE(w.country, '')) = 'russia'
+                    AND s.warehouse_id NOT IN ('ozon','wb')), 0) AS base_stock,
+        MAX(1, COALESCE(p.bundle_size, 1)) AS bundle_size,
+        (SELECT MAX(s.updated_at) FROM stocks s JOIN warehouses w ON w.id = s.warehouse_id
+         WHERE (s.product_id = p.id OR s.product_id = p.base_sku)
+           AND s.stock_state = 'on_hand' AND lower(COALESCE(w.country, '')) = 'russia'
+           AND s.warehouse_id NOT IN ('ozon','wb')) AS our_stock_at,
+        COALESCE((SELECT SUM(MAX(s.on_hand, 0)) FROM stocks s
+                  WHERE s.product_id = p.id AND s.stock_state = 'in_transit'), 0) AS in_transit_exact,
+        COALESCE((SELECT SUM(MAX(s.on_hand, 0)) FROM stocks s
+                  WHERE s.product_id = p.base_sku AND s.stock_state = 'in_transit'), 0) AS base_in_transit,
+        COALESCE((SELECT SUM(MAX(s.on_hand, 0)) FROM stocks s
+                  WHERE s.product_id = p.id AND s.stock_state = 'in_production'), 0) AS in_production_exact,
+        COALESCE((SELECT SUM(MAX(s.on_hand, 0)) FROM stocks s
+                  WHERE s.product_id = p.base_sku AND s.stock_state = 'in_production'), 0) AS base_in_production,
+        (SELECT MAX(s.updated_at) FROM stocks s
+         WHERE (s.product_id = p.id OR s.product_id = p.base_sku)
+           AND s.stock_state = 'in_transit') AS in_transit_at
+      FROM products p WHERE lower(p.id) IN (${marks})
+    `).bind(...skus).all<any>(),
+    env.DB.prepare(`
+      SELECT lower(offer_id) AS sku,
+             MAX(0, fbo_available - fbo_reserved) AS ozon_available,
+             synced_at AS ozon_stock_at
+      FROM marketplace_stocks_ozon WHERE lower(offer_id) IN (${marks})
+    `).bind(...skus).all<any>(),
+    env.DB.prepare(`
+      SELECT lower(p.id) AS sku,
+             GROUP_CONCAT(DISTINCT o.status) AS supply_stage,
+             MIN(CASE WHEN o.lead_time_days > 0
+                           AND o.operation_date + o.lead_time_days * 86400 >= ?
+                      THEN o.operation_date + o.lead_time_days * 86400 END) AS supply_eta,
+             MAX(o.updated_at) AS supply_updated_at
+      FROM products p
+      JOIN line_items li ON lower(li.product_id) = lower(p.id)
+                         OR (p.base_sku IS NOT NULL AND lower(li.product_id) = lower(p.base_sku))
+      JOIN operations o ON o.id = li.operation_id
+      WHERE lower(p.id) IN (${marks}) AND o.deleted_at IS NULL
+        AND o.operation_type IN ('purchase','transfer')
+        AND o.status IN ('production','stocked','shipped')
+      GROUP BY lower(p.id)
+    `).bind(now, ...skus).all<any>(),
+  ]);
+
+  const ozon = new Map((ozonRes.results ?? []).map((r: any) => [String(r.sku), r]));
+  const supply = new Map((supplyRes.results ?? []).map((r: any) => [String(r.sku), r]));
+  for (const r of stockRes.results ?? []) {
+    const key = String(r.sku);
+    const o = ozon.get(key) as any;
+    const sp = supply.get(key) as any;
+    const bundle = Math.max(1, Number(r.bundle_size ?? 1));
+    const baseStock = Math.max(0, Number(r.base_stock ?? 0));
+    out.set(key, {
+      sku: key.toUpperCase(),
+      our_stock: Math.max(0, Number(r.our_stock ?? 0)),
+      assembleable: bundle > 1 ? Math.floor(baseStock / bundle) : 0,
+      our_stock_at: r.our_stock_at == null ? null : Number(r.our_stock_at),
+      in_transit: Math.max(0, Number(r.in_transit_exact ?? 0))
+        + (bundle > 1 ? Math.floor(Math.max(0, Number(r.base_in_transit ?? 0)) / bundle) : 0),
+      in_transit_at: r.in_transit_at == null ? null : Number(r.in_transit_at),
+      ozon_available: o == null ? null : Math.max(0, Number(o.ozon_available ?? 0)),
+      ozon_stock_at: o?.ozon_stock_at == null ? null : Number(o.ozon_stock_at),
+      // Количество берём из балансов stock_state, а не суммой line_items:
+      // одна физическая поставка может иметь две связанные операции и иначе
+      // удваивается (F4-WH-R + MP-WH-R).
+      supply_qty: Math.max(0, Number(r.in_production_exact ?? 0))
+        + (bundle > 1 ? Math.floor(Math.max(0, Number(r.base_in_production ?? 0)) / bundle) : 0),
+      supply_stage: sp?.supply_stage ? String(sp.supply_stage) : null,
+      supply_eta: sp?.supply_eta == null ? null : Number(sp.supply_eta),
+      supply_updated_at: sp?.supply_updated_at == null ? null : Number(sp.supply_updated_at),
+    });
+  }
+  return out;
 }
 
 async function ordersFromMirror(
@@ -532,6 +649,11 @@ async function ordersFromMirror(
   const accrualByOrder = new Map<string, any>();
   for (const a of accrualRes.results ?? []) accrualByOrder.set(a.kit_order_id, a);
 
+  // Позиции читаются один раз: ими питаются и подсказка Items, и проверка
+  // наличия Зина + Даша. До feed v3 массив будет пустым — без догадок.
+  const itemsByOrder = new Map(rows.map((r) => [r.order_number, ruItems(r.raw_json).filter((it) => it.sku || it.name)]));
+  const stockFacts = await ruStockFacts(env, Array.from(itemsByOrder.values()));
+
   let orders = rows.map((r) => {
     const acc = r.customer_key ? accByKey.get(r.customer_key) : undefined;
     const accrual = r.storefront_id ? accrualByOrder.get(r.storefront_id) : undefined;
@@ -544,9 +666,10 @@ async function ordersFromMirror(
       status: STATUS_KEBAB(r.status ?? '—'),
       created_at: r.created_at,
       items_count: ruItemsCount(r.raw_json),
-      // Состав — только если он есть в ленте. Пустой список значит «витрина
-      // состава не прислала», и экран честно покажет одно число штук.
-      items: ruItems(r.raw_json).filter((it) => it.sku || it.name),
+      items: itemsByOrder.get(r.order_number) ?? [],
+      stock_facts: (itemsByOrder.get(r.order_number) ?? [])
+        .map((it) => stockFacts.get(String(it.sku ?? '').toLowerCase()))
+        .filter(Boolean),
       bonus_credited: accrual ? accrual.points : 0,
       bonus_credited_status: accrual ? accrual.status : null,
       bonus_charged: r.loyalty_rub,

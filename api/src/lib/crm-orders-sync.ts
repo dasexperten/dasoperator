@@ -38,7 +38,9 @@ export interface StorefrontOrder {
   delivery_rub?: number;
   payment?: { status?: string };
   client?: { phone?: string; email?: string | null; first_name?: string; last_name?: string };
-  delivery_chunks?: Array<{ items?: Array<{ quantity?: number }> }>;
+  delivery_chunks?: Array<{ items?: Array<{
+    sku?: string; article?: string; name?: string; title?: string; quantity?: number;
+  }> }>;
   delivery?: {
     provider?: string; method?: string; status?: string;
     provider_order_id?: string | null; tracking_number?: string | null;

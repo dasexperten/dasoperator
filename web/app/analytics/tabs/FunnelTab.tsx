@@ -26,6 +26,8 @@ const SIGNAL_LABELS: Record<string, string> = {
   add_to_cart: 'Added to cart',
   view_cart: 'Viewed cart',
   begin_checkout: 'Began checkout',
+  checkout_opened: 'Checkout shell opened',
+  checkout_stripe_ready: 'Stripe form ready',
   checkout_loaded: 'Checkout loaded',
   checkout_email_complete: 'Email completed',
   checkout_address_started: 'Address started',

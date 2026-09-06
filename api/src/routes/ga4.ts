@@ -477,6 +477,8 @@ const COMMERCE_LOSS_EVENTS = [
   'add_to_cart',
   'view_cart',
   'begin_checkout',
+  'checkout_opened',
+  'checkout_stripe_ready',
   'checkout_loaded',
   'checkout_email_complete',
   'checkout_address_started',

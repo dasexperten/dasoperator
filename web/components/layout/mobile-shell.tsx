@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { Home, ArrowLeftRight, Warehouse, MessageSquare, Mail } from 'lucide-react';
+import { Home, ArrowLeftRight, Warehouse, MessageSquare, Mail, Headphones, BarChart3 } from 'lucide-react';
 import Sidebar from './sidebar';
 import Header from './header';
 import AuthGate from './auth-gate';
@@ -112,11 +112,18 @@ interface BottomNavItem {
 }
 
 // Candidate items, ordered by priority. We pick the first 5 the role can see.
+// The bar is a five-column grid (globals.css) — the top five are the phone
+// screens: glance-and-act. Stock and Operations are desk work and live in the
+// sidebar; they stay here as fallbacks so a role without CRM or Analytics
+// permission still gets a full bar instead of a half-empty one.
 const BOTTOM_NAV_CANDIDATES: BottomNavItem[] = [
   { name: 'Pulse',      icon: Home,           href: '/' },
-  { name: 'Stock',      icon: Warehouse,      href: '/warehouses' },
+  { name: 'CRM',        icon: Headphones,     href: '/crm' },
   { name: 'Reviews',    icon: MessageSquare,  href: '/reviews' },
   { name: 'Emailer',    icon: Mail,           href: '/emailer' },
+  { name: 'Analytics',  icon: BarChart3,      href: '/analytics' },
+  // Fallbacks — only surface when one of the five above is not permitted.
+  { name: 'Stock',      icon: Warehouse,      href: '/warehouses' },
   { name: 'Operations', icon: ArrowLeftRight, href: '/operations' },
 ];
 

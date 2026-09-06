@@ -1212,8 +1212,10 @@ function Kpi({ label, value, sub, highlight = false }: {
         {label}
       </div>
       <div style={{
-        fontSize: '24px',
+        fontSize: 'clamp(18px, 5vw, 24px)',
         fontWeight: 500,
+        whiteSpace: 'nowrap',
+        wordBreak: 'keep-all',
         color: highlight ? INK : '#6B6B6B',
         // Inherit Manrope from page default — KPI value should match the
         // rest of the body text, not look like ledger monospace.
@@ -1262,7 +1264,8 @@ function DefList({ rows }: { rows: Array<{ label: string; value: string; mono?: 
             color: INK,
             fontWeight: r.regular ? 400 : 500,
             fontVariantNumeric: r.mono ? 'tabular-nums' : 'normal',
-            wordBreak: 'break-word',
+            whiteSpace: r.mono ? 'nowrap' : 'normal',
+            wordBreak: r.mono ? 'keep-all' : 'break-word',
           }}>
             {r.value}
           </dd>

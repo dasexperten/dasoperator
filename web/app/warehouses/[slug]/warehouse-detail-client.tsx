@@ -368,7 +368,7 @@ function KpiCard({ label, value, suffix }: { label: string; value: string; suffi
   return (
     <div className="bg-card p-4" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
       <div className="mb-2" style={{ fontSize: '14px', color: 'var(--fg-3)' }}>{label}</div>
-      <div style={{ fontSize: '28px', fontWeight: 700, color: 'var(--fg-1)', lineHeight: 1 }}>
+      <div style={{ fontSize: 'clamp(20px, 5.5vw, 28px)', fontWeight: 700, color: 'var(--fg-1)', lineHeight: 1.05, whiteSpace: 'nowrap', wordBreak: 'keep-all' }}>
         {value}
         {suffix && <span style={{ fontSize: '14px', color: 'var(--fg-3)', fontWeight: 400, marginLeft: '6px' }}>{suffix}</span>}
       </div>

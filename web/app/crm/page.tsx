@@ -72,6 +72,7 @@ interface CrmOrder {
   tracking_number?: string | null;
   // слой 4 (05.09.2026): подстатус Ozon и разбивка заказа на посылки
   delivery_substatus?: string | null;
+  delivery_updated_at?: string | null;
   delivery_parts_total?: number;
   delivery_parts_at_point?: number;
   delivery_parts_received?: number;
@@ -1921,8 +1922,8 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
             <SortTh label="Total" sortKey="total" current={sort} onSort={onSort} />
             <Th align="left">Country</Th>
             <SortTh label="Status" sortKey="status" current={sort} onSort={onSort} align="left" />
-            <Th align="left">Оплата</Th>
-            <Th align="left">Отправление</Th>
+            <Th align="left">Paid</Th>
+            <Th align="left">Shipped</Th>
             <SortTh label="Date" sortKey="date" current={sort} onSort={onSort} align="left" />
           </tr>
         </thead>
@@ -2009,9 +2010,9 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
           <Th align="left">Customer</Th>
           <Th align="left">Items</Th>
           <SortTh label="Total" sortKey="total" current={sort} onSort={onSort} />
-          <Th align="left">Status</Th>
-          <Th align="left">Оплата</Th>
-          <Th align="left">Отправление</Th>
+          <Th align="left">Paid</Th>
+          <Th align="left">Shipped</Th>
+          <Th align="left">Delivered</Th>
           <SortTh label="Date" sortKey="date" current={sort} onSort={onSort} align="left" />
         </tr>
       </thead>
@@ -2091,9 +2092,9 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
               ) : '—'}
             </td>
             <Td align="right" bold>{o.total.toLocaleString('ru-RU')} ₽</Td>
-            <OrderStatusCell primary={o.status} secondary={o.storefront_status} />
             <OrderPaymentCell {...ruPayment(o)} />
             <OrderShipmentCell {...ruShipment(o)} />
+            <OrderDeliveryCell {...ruDelivery(o)} />
             <Td muted>{o.created_at}</Td>
           </tr>
         ))}
@@ -2181,6 +2182,54 @@ function OrderShipmentCell({ id, detail, trackingUrl, missing, waiting }: { id?:
     </Td>
   );
   return <Td><span style={{ color: 'var(--fg-3)' }}>—</span></Td>;
+}
+
+// Доставлено — конец пути заказа. Витрина отдельного поля «вручено в» не
+// отдаёт: для delivered время вручения — это delivery_updated_at, момент
+// последней смены статуса доставки. Отменённый заказ до этой графы не
+// доезжает, и она говорит об этом прямо, а не молчит прочерком.
+type DeliveryState = 'delivered' | 'transit' | 'cancelled' | 'none';
+
+function OrderDeliveryCell({ state, at, parts }: { state: DeliveryState; at?: string | null; parts?: string | null }) {
+  const partsLine = parts
+    ? <span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--fg-3)' }}>{parts}</span>
+    : null;
+  if (state === 'delivered') {
+    return (
+      <Td>
+        <span style={{ color: 'var(--status-success)', fontWeight: 700 }}>
+          доставлен
+          {at ? <span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--fg-3)' }}>
+            {new Date(at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+          </span> : null}
+        </span>
+        {partsLine}
+      </Td>
+    );
+  }
+  if (state === 'transit') {
+    return <Td><span style={{ fontWeight: 700 }}>в пути</span>{partsLine}</Td>;
+  }
+  if (state === 'cancelled') {
+    return <Td><span style={{ color: 'var(--fg-2)', fontWeight: 700 }}>отменён</span></Td>;
+  }
+  return <Td><span style={{ color: 'var(--fg-3)' }}>—</span></Td>;
+}
+
+function ruDelivery(o: CrmOrder): { state: DeliveryState; at?: string | null; parts?: string | null } {
+  if (o.paid === undefined) return { state: 'none' };
+  const store = o.storefront_status ?? '';
+  const total = o.delivery_parts_total ?? 0;
+  const received = o.delivery_parts_received ?? 0;
+  const parts = total > 1 ? `получено ${received} из ${total}` : null;
+  if (o.delivery_status === 'delivered' || store === 'delivered') {
+    return { state: 'delivered', at: o.delivery_updated_at ?? null, parts };
+  }
+  if (store === 'cancelled' || store === 'refunded') return { state: 'cancelled' };
+  if (o.delivery_status === 'delivering' || store === 'wait_for_delivery') {
+    return { state: 'transit', parts };
+  }
+  return { state: 'none' };
 }
 
 function shortFactDate(epoch: number | null | undefined): string | null {

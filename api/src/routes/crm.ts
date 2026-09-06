@@ -433,7 +433,7 @@ type MirrorRow = {
   created_at: string; paid: number; paid_at: string | null; total_rub: number; loyalty_rub: number;
   customer_key: string | null; delivery_status: string | null; delivery_order_id: string | null;
   tracking_number: string | null; delivery_provider: string | null; raw_json: string | null;
-  delivery_substatus: string | null; delivery_parts_total: number;
+  delivery_substatus: string | null; delivery_updated_at: string | null; delivery_parts_total: number;
   delivery_parts_at_point: number; delivery_parts_received: number;
 };
 
@@ -697,7 +697,7 @@ async function ordersFromMirror(
 
   const cols = `order_number, storefront_id, status, storefront_status, created_at, paid, paid_at,
                 total_rub, loyalty_rub, customer_key, delivery_status, delivery_order_id, tracking_number, delivery_provider,
-                delivery_substatus, delivery_parts_total, delivery_parts_at_point, delivery_parts_received,
+                delivery_substatus, delivery_updated_at, delivery_parts_total, delivery_parts_at_point, delivery_parts_received,
                 raw_json,
                 COUNT(*) OVER () AS total_n`;
   const sqlOrder: Record<string, string> = {
@@ -766,6 +766,9 @@ async function ordersFromMirror(
       // Подстатус Ozon: статус остаётся delivering и когда посылка едет, и когда
       // она уже лежит в пункте. Невыкупленную видно только по этому полю.
       delivery_substatus: r.delivery_substatus,
+      // Момент последней смены статуса доставки. Для delivered это и есть
+      // время вручения — своего поля «доставлено в» витрина не отдаёт.
+      delivery_updated_at: r.delivery_updated_at,
       delivery_parts_total: r.delivery_parts_total,
       delivery_parts_at_point: r.delivery_parts_at_point,
       delivery_parts_received: r.delivery_parts_received,

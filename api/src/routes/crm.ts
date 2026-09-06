@@ -498,10 +498,11 @@ async function ozonSupplyFacts(env: Env): Promise<Map<string, OzonSupplyFact> | 
       'Client-Id': String(env.OZON_CLIENT_ID),
       'Api-Key': String(env.OZON_API_KEY),
       'Content-Type': 'application/json',
+      'User-Agent': 'dasoperator/ru-stock-context (+dasexperten)',
     };
     const call = async (path: string, body: unknown) => {
       const r = await fetch(`https://api-seller.ozon.ru${path}`, {
-        method: 'POST', headers, body: JSON.stringify(body),
+        method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(25_000),
       });
       if (!r.ok) throw new Error(`Ozon supply ${path}: ${r.status}`);
       return r.json<any>();

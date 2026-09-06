@@ -481,6 +481,7 @@ const COMMERCE_LOSS_EVENTS = [
   'checkout_opened',
   'checkout_stripe_ready',
   'checkout_loaded',
+  'checkout_email_started',
   'checkout_email_complete',
   'checkout_address_started',
   'checkout_address_complete',
@@ -571,7 +572,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v25', { days, limit, decision, calendar_window: 'exact-v2', host: 'com' }),
+      cacheKey('ga4:commerce-losses:v26', { days, limit, decision, calendar_window: 'exact-v2', host: 'com' }),
       decision ? 300 : decisionCacheTtl(days),
       async () => {
         const [resp, actorsResp] = await Promise.all([ga4RunReport(c.env, {
@@ -887,7 +888,7 @@ ga4.get('/content', async (c) => {
           'paid_locale_landing_vn', 'pdp_value_proof_view', 'pdp_price_view',
           'add_to_cart', 'view_cart', 'shipping_preview_ready',
           'shipping_bundle_offer', 'shipping_bundle_add', 'shipping_bundle_unavailable',
-          'begin_checkout', 'checkout_loaded', 'checkout_email_complete',
+          'begin_checkout', 'checkout_loaded', 'checkout_email_started', 'checkout_email_complete',
           'checkout_address_started', 'checkout_address_complete', 'shipping_quote_ready',
           'add_payment_info', 'purchase', 'checkout_error',
         ] } } },
@@ -1107,7 +1108,7 @@ ga4.get('/realtime', async (c) => {
       'pdp_value_proof_view', 'pdp_price_view', 'pdp_delivery_preview_ready',
       'view_cart', 'shipping_preview_ready', 'shipping_bundle_offer',
       'shipping_bundle_unavailable',
-      'shipping_bundle_add', 'begin_checkout', 'checkout_loaded', 'checkout_email_complete',
+      'shipping_bundle_add', 'begin_checkout', 'checkout_loaded', 'checkout_email_started', 'checkout_email_complete',
       'checkout_address_started', 'checkout_address_complete',
       'shipping_quote_ready', 'add_payment_info', 'purchase', 'checkout_error',
     ];

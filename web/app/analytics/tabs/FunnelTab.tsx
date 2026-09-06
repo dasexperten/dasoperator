@@ -30,6 +30,7 @@ const SIGNAL_LABELS: Record<string, string> = {
   checkout_opened: 'Checkout shell opened',
   checkout_stripe_ready: 'Stripe form ready',
   checkout_loaded: 'Checkout loaded',
+  checkout_email_started: 'Email started',
   checkout_email_complete: 'Email completed',
   checkout_address_started: 'Address started',
   checkout_address_complete: 'Address completed',

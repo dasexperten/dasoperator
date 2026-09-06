@@ -450,9 +450,9 @@ type MirrorRow = {
  * Синонимы приняты ради живучести: article вместо sku, title вместо name.
  * Ничего не подставляем: нет поля — нет и значения.
  */
-type RuItem = { sku: string | null; name: string | null; qty: number };
+export type RuItem = { sku: string | null; name: string | null; qty: number };
 
-type RuStockFact = {
+export type RuStockFact = {
   sku: string;
   our_stock: number;
   assembleable: number;
@@ -503,7 +503,7 @@ function ruItemsCount(raw: string | null | undefined): number {
  * Никаких обещаний из одного флага "in_transit": срок показывается только
  * когда у активной операции есть lead_time_days и расчётная дата ещё впереди.
  */
-async function ruStockFacts(env: Env, itemGroups: RuItem[][]): Promise<Map<string, RuStockFact>> {
+export async function ruStockFacts(env: Env, itemGroups: RuItem[][]): Promise<Map<string, RuStockFact>> {
   const skus = Array.from(new Set(itemGroups.flatMap((items) => items)
     .map((it) => String(it.sku ?? '').trim().toLowerCase()).filter(Boolean)));
   const out = new Map<string, RuStockFact>();

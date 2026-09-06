@@ -11,7 +11,7 @@ import React from 'react';
 import {
   useApi, fmtNum, fmtPct, timeAgo,
   Kpi, Panel, LoadState,
-  type AdsPriceTestExposure, type Ga4Funnel, type Ga4CommerceLosses,
+  type AdsPriceTestExposure, type Ga4Funnel, type Ga4CommerceLosses, type MetrikaSources,
 } from '../shared';
 
 const STEP_LABELS: Record<string, string> = {
@@ -85,6 +85,9 @@ function gaMinute(value: string) {
 
 export default function FunnelTab() {
   const funnel = useApi<Ga4Funnel>('/api/ga4/funnel?days=30');
+  // Контур .ru отдельной панелью: своя витрина, свой счётчик, свои заказы.
+  // Смешивать с GA4 нельзя — два счётчика видят разные объёмы (Владелец 06.09.2026).
+  const ru = useApi<MetrikaSources>('/api/metrika/sources?days=30');
   const losses = useApi<Ga4CommerceLosses>('/api/ga4/commerce-losses?days=30&limit=250');
   // The price_test block applies its own exact release seam. The outer window
   // must cover the full experiment; days=1 silently discarded earlier test days.
@@ -179,6 +182,8 @@ export default function FunnelTab() {
           </div>
         )}
       </Panel>
+
+      <RuTrafficFunnel data={ru.data} loading={ru.loading} error={ru.error} />
 
       <Panel title="Paid landing through checkout — progress, failures and handoffs" source="Google Ads calendar delivery + GA4 post-launch events">
         {exposure.data && (
@@ -361,5 +366,65 @@ export default function FunnelTab() {
         </div>
       </Panel>
     </div>
+  );
+}
+
+
+// =============================================================================
+// Контур .ru — простая воронка визитов в заказы (Владелец 06.09.2026).
+// Органика и реклама — доли тех же визитов, а не ступени под ними: поэтому
+// они с отступом, а знаменатель у процентов один — все визиты за окно.
+// =============================================================================
+function RuTrafficFunnel({ data, loading, error }: { data: MetrikaSources | null; loading: boolean; error: string | null }) {
+  const rows = data?.rows ?? [];
+  const visits = data?.totals.visits ?? 0;
+  const orders = data?.totals.purchases ?? 0;
+  const organic = rows.find((r) => /search engine|поиск/i.test(r.source));
+  const paid = rows.find((r) => /^ad traffic|реклам/i.test(r.source));
+  const pct = (n: number) => (visits > 0 ? (n / visits) * 100 : 0);
+
+  const steps: Array<{ label: string; note: string; count: number; indent?: boolean; last?: boolean }> = [
+    { label: 'Visits', note: 'all sources', count: visits },
+    { label: 'Organic', note: 'search', count: organic?.visits ?? 0, indent: true },
+    { label: 'Paid', note: 'Yandex Direct', count: paid?.visits ?? 0, indent: true },
+    { label: 'Orders', note: 'purchase goal', count: orders, last: true },
+  ];
+
+  return (
+    <Panel title="Traffic to orders — 30 days" source="Yandex Metrika counter 107720199 · dasexperten.ru">
+      <LoadState loading={loading} error={error} />
+      {data && (
+        <>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+            <Kpi label="Conversion" value={fmtPct(data.totals.cr)} accent />
+            <Kpi label="Orders" value={fmtNum(orders)} />
+          </div>
+          {steps.map((st) => (
+            <div className="wa-funnel-row" key={st.label}>
+              <div style={{ fontWeight: 700, paddingLeft: st.indent ? 16 : 0 }}>
+                {st.label}
+                <span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--fg-3)' }}>{st.note}</span>
+              </div>
+              <div className="wa-funnel-bar">
+                <div
+                  className={`wa-funnel-fill${st.last ? ' rot' : ''}`}
+                  style={{ width: `${Math.max(pct(st.count), 0.5)}%` }}
+                />
+              </div>
+              <div className="meta" style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-2)', whiteSpace: 'nowrap' }}>
+                <strong style={{ color: 'var(--brand-rot)', fontWeight: 800 }}>{fmtNum(st.count)}</strong>
+                {' · '}{fmtPct(pct(st.count))} of visits
+              </div>
+            </div>
+          ))}
+          <div className="wa-note" style={{ marginTop: 12 }}>
+            Organic and Paid are slices of the same visits, not steps below them — the rest is
+            direct and referral traffic, counted in Visits but without its own bar. Orders is the
+            Metrika purchase goal on the .ru storefront, so this panel never blends with the GA4
+            .com funnel above. Synced {timeAgo(data.synced_at)}.
+          </div>
+        </>
+      )}
+    </Panel>
   );
 }

@@ -89,6 +89,10 @@ interface CrmOrder {
     supply_stage: string | null;
     supply_eta: number | null;
     supply_updated_at: number | null;
+    // Живой снимок Seller API: только он даёт право назвать поставку «в пути».
+    ozon_supply_qty: number | null;
+    ozon_supply_states: string[] | null;
+    ozon_in_transit: number | null;
   }>;
 }
 
@@ -2189,21 +2193,17 @@ function ruStockExplanation(o: CrmOrder): string {
   if (!facts.length) return 'Ozon: товар недоступен · состав заказа ещё не пришёл в зеркало';
 
   const own = facts.reduce((n, f) => n + f.our_stock + f.assembleable, 0);
-  const inTransit = facts.reduce((n, f) => n + f.in_transit, 0);
-  const supply = facts.reduce((n, f) => n + f.supply_qty, 0);
+  const inTransit = facts.reduce((n, f) => n + (f.ozon_in_transit ?? 0), 0);
+  const supply = facts.reduce((n, f) => n + (f.ozon_supply_qty ?? 0), 0);
   const ozonKnown = facts.every((f) => f.ozon_available !== null);
   const ozon = facts.reduce((n, f) => n + (f.ozon_available ?? 0), 0);
-  const eta = facts.map((f) => f.supply_eta).filter((v): v is number => Boolean(v)).sort((a, b) => a - b)[0] ?? null;
   const ownAt = facts.map((f) => f.our_stock_at).filter((v): v is number => Boolean(v)).sort((a, b) => b - a)[0] ?? null;
-  const supplyAt = facts.map((f) => f.supply_updated_at ?? f.in_transit_at)
-    .filter((v): v is number => Boolean(v)).sort((a, b) => b - a)[0] ?? null;
-
-  if (eta) {
-    return `Запас для выбранного ПВЗ временно закончился · новая партия ${Math.max(supply, inTransit)} шт. уже в пути на склады Ozon и ожидается ${shortFactDate(eta)} · приносим извинения за задержку и просим немного терпения: после приёмки заказ сразу упакуют и отправят`;
+  if (inTransit > 0) {
+    return `Запас для выбранного ПВЗ временно закончился · Ozon подтверждает: ${inTransit} шт. уже в пути на склад · приносим извинения за задержку: после приёмки заказ сразу упакуют и отправят`;
   }
 
-  if (Math.max(supply, inTransit) > 0) {
-    return `Запас для выбранного ПВЗ временно закончился · новая партия ${Math.max(supply, inTransit)} шт. уже в пути на склады Ozon${supplyAt ? ` · статус обновлён ${shortFactDate(supplyAt)}` : ''} · приносим извинения за задержку и просим немного терпения: в ближайшие несколько дней после приёмки заказ сразу упакуют и отправят`;
+  if (supply > 0) {
+    return `Запас для выбранного ПВЗ временно закончился · Ozon подтверждает пополнение: ${supply} шт. в активной поставке · приносим извинения за задержку: после приёмки заказ сразу упакуют и отправят`;
   }
 
   const lines: string[] = [];

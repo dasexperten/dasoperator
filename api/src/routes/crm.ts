@@ -465,7 +465,82 @@ export type RuStockFact = {
   supply_stage: string | null;
   supply_eta: number | null;
   supply_updated_at: number | null;
+  /** Direct Seller API snapshot, never inferred from our internal operation. */
+  ozon_supply_qty: number | null;
+  ozon_supply_states: string[] | null;
+  ozon_in_transit: number | null;
 };
+
+type OzonSupplyFact = {
+  qty: number;
+  states: string[];
+  in_transit: number;
+};
+
+const OZON_ACTIVE_SUPPLY_STATES = [
+  'DATA_FILLING', 'READY_TO_SUPPLY', 'ACCEPTED_AT_SUPPLY_WAREHOUSE',
+  'IN_TRANSIT', 'ACCEPTANCE_AT_STORAGE_WAREHOUSE', 'REPORTS_CONFIRMATION_AWAITING',
+] as const;
+
+/**
+ * Seller's supply screen is the source for the phrase “already in transit”.
+ * Internal warehouse movements only show our intent or movement, not Ozon's
+ * current leg. A short KV snapshot keeps the paid-order poll within its SLA.
+ */
+async function ozonSupplyFacts(env: Env): Promise<Map<string, OzonSupplyFact> | null> {
+  const cacheKey = 'ru-stock-context:ozon-supplies:v1';
+  try {
+    const cached = await env.CACHE.get(cacheKey, 'json') as Record<string, OzonSupplyFact> | null;
+    if (cached && typeof cached === 'object') return new Map(Object.entries(cached));
+
+    if (!env.OZON_CLIENT_ID || !env.OZON_API_KEY) return null;
+    const headers = {
+      'Client-Id': String(env.OZON_CLIENT_ID),
+      'Api-Key': String(env.OZON_API_KEY),
+      'Content-Type': 'application/json',
+    };
+    const call = async (path: string, body: unknown) => {
+      const r = await fetch(`https://api-seller.ozon.ru${path}`, {
+        method: 'POST', headers, body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error(`Ozon supply ${path}: ${r.status}`);
+      return r.json<any>();
+    };
+    const listed = await call('/v3/supply-order/list', {
+      filter: { states: [...OZON_ACTIVE_SUPPLY_STATES] }, limit: 100,
+      sort_by: 'ORDER_CREATION', sort_dir: 'DESC',
+    });
+    const orderIds = Array.isArray(listed?.order_ids) ? listed.order_ids.slice(0, 100) : [];
+    const orders: any[] = [];
+    for (let i = 0; i < orderIds.length; i += 50) {
+      const part = await call('/v3/supply-order/get', { order_ids: orderIds.slice(i, i + 50) });
+      orders.push(...(Array.isArray(part?.orders) ? part.orders : []));
+    }
+
+    const bundles = orders.flatMap((order) => (Array.isArray(order?.supplies) ? order.supplies : [])
+      .map((supply: any) => ({ bundleId: String(supply?.bundle_id ?? ''), state: String(supply?.state ?? order?.state ?? '') }))
+      .filter((supply: { bundleId: string; state: string }) => supply.bundleId && (OZON_ACTIVE_SUPPLY_STATES as readonly string[]).includes(supply.state)));
+    const result = new Map<string, OzonSupplyFact>();
+    for (const supply of bundles) {
+      const bundle = await call('/v1/supply-order/bundle', { bundle_ids: [supply.bundleId], limit: 100 });
+      for (const item of Array.isArray(bundle?.items) ? bundle.items : []) {
+        const offer = String(item?.offer_id ?? '').trim().toLowerCase();
+        if (!offer) continue;
+        const current = result.get(offer) ?? { qty: 0, states: [], in_transit: 0 };
+        const quantity = Math.max(0, Number(item?.quantity ?? 0));
+        current.qty += quantity;
+        if (!current.states.includes(supply.state)) current.states.push(supply.state);
+        if (supply.state === 'IN_TRANSIT') current.in_transit += quantity;
+        result.set(offer, current);
+      }
+    }
+    await env.CACHE.put(cacheKey, JSON.stringify(Object.fromEntries(result)), { expirationTtl: 600 });
+    return result;
+  } catch (error) {
+    console.warn('ru stock context: Ozon supply snapshot unavailable', error);
+    return null;
+  }
+}
 
 function ruItems(raw: string | null | undefined): RuItem[] {
   if (!raw) return [];
@@ -511,7 +586,7 @@ export async function ruStockFacts(env: Env, itemGroups: RuItem[][]): Promise<Ma
 
   const marks = skus.map(() => '?').join(',');
   const now = Math.floor(Date.now() / 1000);
-  const [stockRes, ozonRes, supplyRes] = await Promise.all([
+  const [stockRes, ozonRes, supplyRes, ozonSupplies] = await Promise.all([
     env.DB.prepare(`
       SELECT lower(p.id) AS sku,
         COALESCE((SELECT SUM(MAX(s.on_hand, 0))
@@ -564,6 +639,7 @@ export async function ruStockFacts(env: Env, itemGroups: RuItem[][]): Promise<Ma
         AND o.status IN ('production','stocked','shipped')
       GROUP BY lower(p.id)
     `).bind(now, ...skus).all<any>(),
+    ozonSupplyFacts(env),
   ]);
 
   const ozon = new Map((ozonRes.results ?? []).map((r: any) => [String(r.sku), r]));
@@ -572,6 +648,7 @@ export async function ruStockFacts(env: Env, itemGroups: RuItem[][]): Promise<Ma
     const key = String(r.sku);
     const o = ozon.get(key) as any;
     const sp = supply.get(key) as any;
+    const ozonSupply = ozonSupplies?.get(key) ?? null;
     const bundle = Math.max(1, Number(r.bundle_size ?? 1));
     const baseStock = Math.max(0, Number(r.base_stock ?? 0));
     out.set(key, {
@@ -592,6 +669,9 @@ export async function ruStockFacts(env: Env, itemGroups: RuItem[][]): Promise<Ma
       supply_stage: sp?.supply_stage ? String(sp.supply_stage) : null,
       supply_eta: sp?.supply_eta == null ? null : Number(sp.supply_eta),
       supply_updated_at: sp?.supply_updated_at == null ? null : Number(sp.supply_updated_at),
+      ozon_supply_qty: ozonSupplies === null ? null : (ozonSupply?.qty ?? 0),
+      ozon_supply_states: ozonSupplies === null ? null : (ozonSupply?.states ?? []),
+      ozon_in_transit: ozonSupplies === null ? null : (ozonSupply?.in_transit ?? 0),
     });
   }
   return out;

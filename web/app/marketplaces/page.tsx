@@ -641,11 +641,12 @@ function MetricCard({
       }}
     >
       <div
+        className="dx-num"
         style={{
           fontFamily: 'var(--font-display)',
-          fontSize: '32px',
+          fontSize: 'clamp(22px, 6vw, 32px)',
           fontWeight: 900,
-          lineHeight: 1,
+          lineHeight: 1.05,
           color: valueColor,
           fontVariantNumeric: 'tabular-nums',
         }}
@@ -764,11 +765,12 @@ function ClusterItem({
         </div>
         <div style={{ minWidth: 130, flexShrink: 0 }}>
           <div
+            className="dx-num"
             style={{
               fontFamily: 'var(--font-display)',
-              fontSize: '26px',
+              fontSize: 'clamp(20px, 5.5vw, 26px)',
               fontWeight: 900,
-              lineHeight: 1,
+              lineHeight: 1.05,
               color: 'var(--fg-1)',
               fontVariantNumeric: 'tabular-nums',
             }}
@@ -2048,12 +2050,13 @@ function PromoMetric({
       }}
     >
       <div
+        className="dx-num"
         style={{
           fontFamily: 'var(--font-display)',
-          fontSize: '24px',
+          fontSize: 'clamp(19px, 5.5vw, 24px)',
           fontWeight: 900,
           color,
-          lineHeight: 1,
+          lineHeight: 1.05,
           fontVariantNumeric: 'tabular-nums',
         }}
       >

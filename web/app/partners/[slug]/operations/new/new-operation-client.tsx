@@ -1660,7 +1660,7 @@ export default function NewOperationClient({ partnerSlug }: { partnerSlug: strin
             </div>
             <div className="text-right">
               <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--fg-3)' }}>Subtotal: {formatMoney(subtotal, effectiveCurrency)} {effectiveCurrency}{hasMissingPrice && (<span style={{ color: 'var(--brand-rot)' }}> ({missingPriceLines.length} line{missingPriceLines.length === 1 ? '' : 's'} excluded)</span>)}</div>
-              <div className="mt-1" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--fg-1)' }}>
+              <div className="mt-1 dx-num" style={{ fontSize: 'clamp(18px, 5vw, 24px)', fontWeight: 700, lineHeight: 1.05, color: 'var(--fg-1)' }}>
                 {formatMoney(grandTotal, effectiveCurrency)} {effectiveCurrency}
               </div>
             </div>

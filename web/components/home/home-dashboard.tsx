@@ -447,9 +447,10 @@ function MetricCard({
         {label}
       </div>
       <div
+        className="dx-num"
         style={{
           fontFamily: 'var(--font-display)',
-          fontSize: '40px',
+          fontSize: 'clamp(24px, 7vw, 40px)',
           fontWeight: 900,
           lineHeight: 1.05,
           color: valueColor,

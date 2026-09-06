@@ -1360,7 +1360,7 @@ function SizingButtons({
           SELECTED ★
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-          <div style={{ fontSize: 36, fontWeight: 500, color: palletSelected ? '#0C447C' : '#57534e', lineHeight: 1 }}>
+          <div className="dx-num" style={{ fontSize: 'clamp(24px, 7vw, 36px)', fontWeight: 500, color: palletSelected ? '#0C447C' : '#57534e', lineHeight: 1.05 }}>
             {baselinePallets.toFixed(1)}
           </div>
           <div style={{ fontSize: 14, fontWeight: 500, color: palletSelected ? '#0C447C' : '#57534e', letterSpacing: '0' }}>

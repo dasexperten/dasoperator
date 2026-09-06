@@ -356,7 +356,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
             Edit Partner
           </Link>
         </div>
-        <h1 className="dx-product-name" style={{ fontSize: '40px', color: 'var(--fg-1)', lineHeight: 1.05 }}>
+        <h1 className="dx-product-name" style={{ fontSize: 'clamp(26px, 7vw, 40px)', color: 'var(--fg-1)', lineHeight: 1.05 }}>
           {partner.trade_name}
         </h1>
         {partner.legal_name && !isMissing(partner.legal_name) && (

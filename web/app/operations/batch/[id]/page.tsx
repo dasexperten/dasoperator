@@ -123,10 +123,10 @@ export default function BatchDetailPage() {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '20px', marginBottom: '4px' }}>
-        <h1 style={{ fontSize: '32px', fontWeight: 800, color: 'var(--fg-1)', margin: 0 }}>
+        <h1 style={{ fontSize: 'clamp(20px, 5.5vw, 32px)', fontWeight: 800, color: 'var(--fg-1)', margin: 0, lineHeight: 1.1 }}>
           {batch.batch_reference}
         </h1>
-        <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--fg-1)' }}>
+        <div className="dx-num" style={{ fontSize: '18px', fontWeight: 700, color: 'var(--fg-1)' }}>
           {cluster_count} {cluster_count === 1 ? 'cluster' : 'clusters'}
         </div>
       </div>

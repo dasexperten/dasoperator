@@ -101,7 +101,7 @@ export default function NetBalance({ usd, currencies, fxDate, size = 'compact' }
             backgroundColor: colors.dot,
           }}
         />
-        <span style={{ fontSize: '40px', color: colors.fg, fontWeight: 700, lineHeight: 1, whiteSpace: 'nowrap' }}>
+        <span className="dx-num" style={{ fontSize: 'clamp(26px, 7vw, 40px)', color: colors.fg, fontWeight: 700, lineHeight: 1.05 }}>
           {sign}${usdFmt}
         </span>
       </div>

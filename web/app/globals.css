@@ -744,12 +744,11 @@ input[type="number"] {
   }
 }
 
-/* ---- 22. Metric card value: smaller font on mobile ---- */
-@media (max-width: 767px) {
-  [style*="font-size: 40px"] {
-    font-size: 28px !important;
-  }
-}
+/* ---- 22. RETIRED 2026-09-06. Was: [style*="font-size: 40px"] → 28px !important.
+   It matched on the literal text of a style attribute, so it silently stopped
+   working whenever anyone changed a size by a pixel, and never applied at all
+   before hydration. Every site it covered now clamps its own font size.
+   See "Numbers never wrap" at the foot of this file. ---- */
 
 /* ---- 23. Status chips: prevent wrapping ---- */
 @media (max-width: 767px) {
@@ -1023,10 +1022,6 @@ input[type="number"] {
   .dx-metrics-grid > div {
     padding: 14px 16px !important;
   }
-  .dx-metrics-grid [style*="font-size: 40px"],
-  .dx-metrics-grid [style*="fontSize: '40px'"] {
-    font-size: 28px !important;
-  }
 }
 
 /* ---- 36. Home: Marketplace Pulse — reflow so nothing overflows ---- */
@@ -1227,3 +1222,20 @@ input[type="number"] {
    tinted table rows the planner paints. These carry the ink tokens instead. */
 .dx-ink-warn { color: var(--status-warning); }
 .dx-ink-ok   { color: var(--status-success); }
+
+/* ---------------------------------------------------------------------------
+   Numbers never wrap — the law, stated once.
+   A figure that will not fit its column shrinks; it never breaks in half.
+   Two hooks, both semantic: the explicit .dx-num class, and the tabular-nums
+   marker every ledger figure in this app already carries. Neither depends on a
+   pixel value, so neither goes quiet when a size changes — which is exactly how
+   the retired section 22 failed.
+   Table cells are excluded: they set their own column widths and are allowed to
+   wrap as the table needs.
+   --------------------------------------------------------------------------- */
+.dx-num,
+[style*="tabular-nums"]:not(td):not(th) {
+  white-space: nowrap;
+  word-break: keep-all;
+  min-width: 0;
+}

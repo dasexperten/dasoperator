@@ -136,7 +136,7 @@ export default function WarehouseDetailClient({ warehouseId }: { warehouseId: st
               </span>
             )}
           </div>
-          <h1 className="dx-product-name" style={{ fontSize: '40px', color: 'var(--fg-1)', lineHeight: 1.05 }}>
+          <h1 className="dx-product-name" style={{ fontSize: 'clamp(26px, 7vw, 40px)', color: 'var(--fg-1)', lineHeight: 1.05 }}>
             {warehouse.name}
           </h1>
           <p className="mt-3" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
@@ -602,7 +602,7 @@ function MiniStat({ label, value, color }: { label: string; value: number; color
   return (
     <div className="bg-card p-3" style={{ border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)' }}>
       <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginBottom: '4px' }}>{label}</div>
-      <div style={{ fontSize: '24px', fontWeight: 700, color: color ?? 'var(--fg-1)' }}>{value}</div>
+      <div className="dx-num" style={{ fontSize: 'clamp(19px, 5.5vw, 24px)', fontWeight: 700, lineHeight: 1.05, color: color ?? 'var(--fg-1)' }}>{value}</div>
     </div>
   );
 }

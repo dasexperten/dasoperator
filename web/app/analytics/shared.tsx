@@ -155,6 +155,14 @@ export type AdsPriceTestExposure = {
       cost_usd: number;
       conversions: number;
     }>;
+    keyword_delivery: Array<{
+      text: string;
+      match_type: string;
+      status: string | null;
+      primary_status: string | null;
+      impressions: number;
+      clicks: number;
+    }>;
   }>;
   markets: Record<'PH' | 'MY' | 'VN', {
     country: string;

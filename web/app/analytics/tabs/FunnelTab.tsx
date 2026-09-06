@@ -181,25 +181,41 @@ export default function FunnelTab() {
         {exposure.data && (
           <>
             {searchDelivery && (
-              <div className="wa-kpis" style={{ marginBottom: 16 }}>
-                {(['PH', 'MY'] as const).map((code) => {
-                  const row = searchDelivery[code];
-                  return (
-                    <Kpi
-                      key={code}
-                      accent={row.impressions === 0}
-                      label={`${code} Search · impressions`}
-                      value={fmtNum(row.impressions)}
-                      delta={`${fmtNum(row.clicks)} clicks · $${row.cost_usd.toFixed(2)} · ${row.primary_status ?? row.status ?? 'unknown'}`}
-                    />
-                  );
-                })}
-                <Kpi
-                  label="Search test budget"
-                  value={`$${((searchDelivery.PH.daily_budget_usd ?? 0) + (searchDelivery.MY.daily_budget_usd ?? 0)).toFixed(2)}/day`}
-                  delta={`${searchDelivery.PH.serving_status ?? 'unknown'} · ${searchDelivery.MY.serving_status ?? 'unknown'}`}
-                />
-              </div>
+              <>
+                <div className="wa-kpis" style={{ marginBottom: 16 }}>
+                  {(['PH', 'MY'] as const).map((code) => {
+                    const row = searchDelivery[code];
+                    return (
+                      <Kpi
+                        key={code}
+                        accent={row.impressions === 0}
+                        label={`${code} Search · impressions`}
+                        value={fmtNum(row.impressions)}
+                        delta={`${fmtNum(row.clicks)} clicks · $${row.cost_usd.toFixed(2)} · ${row.primary_status ?? row.status ?? 'unknown'}`}
+                      />
+                    );
+                  })}
+                  <Kpi
+                    label="Search test budget"
+                    value={`$${((searchDelivery.PH.daily_budget_usd ?? 0) + (searchDelivery.MY.daily_budget_usd ?? 0)).toFixed(2)}/day`}
+                    delta={`${searchDelivery.PH.serving_status ?? 'unknown'} · ${searchDelivery.MY.serving_status ?? 'unknown'}`}
+                  />
+                </div>
+                <div className="wa-table-scroll" style={{ marginBottom: 16 }}>
+                  <table className="wa-table">
+                    <thead><tr><th>Market</th><th>Search keyword</th><th>Match</th><th>Status</th><th>Impressions</th><th>Clicks</th></tr></thead>
+                    <tbody>
+                      {(['PH', 'MY'] as const).flatMap((code) => searchDelivery[code].keyword_delivery.map((keyword) => (
+                        <tr key={`${code}-${keyword.text}-${keyword.match_type}`}>
+                          <td>{code}</td><td>{keyword.text}</td><td>{keyword.match_type}</td>
+                          <td>{keyword.primary_status ?? keyword.status ?? '—'}</td>
+                          <td className="num">{fmtNum(keyword.impressions)}</td><td className="num">{fmtNum(keyword.clicks)}</td>
+                        </tr>
+                      )))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
             <div className="wa-kpis" style={{ marginBottom: 16 }}>
               {(['PH', 'MY', 'VN'] as const).map((code) => {

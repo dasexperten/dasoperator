@@ -118,6 +118,8 @@ export default function FunnelTab() {
   const myCartAdds = priceTestLosses.data?.price_test?.my_add_to_cart ?? 0;
   const myLandingToCart = paidMyLandings > 0 ? (myCartAdds / paidMyLandings) * 100 : null;
   const postLaunchAds = exposure.data?.campaign_delivery?.post_launch_complete_hours;
+  const vnAdsClicks = postLaunchAds?.clicks ?? 0;
+  const vnAttributionMismatch = paidVnLandings >= 10 && paidVnLandings > Math.max(vnAdsClicks * 3, vnAdsClicks + 10);
   const searchDelivery = exposure.data?.replacement_search_delivery;
   const pageTotals = losses.data?.page_totals ?? [];
 
@@ -227,6 +229,13 @@ export default function FunnelTab() {
               {exposure.data.campaign_delivery && <>{' '}Post-launch Ads totals conservatively exclude the partial launch hour ({exposure.data.campaign_delivery.launch_account_hour}:00) in {exposure.data.campaign_delivery.account_time_zone}.</>}
               {' '}Synced {timeAgo(exposure.data.synced_at)}.
             </div>
+            {vnAttributionMismatch && (
+              <div className="wa-note" style={{ marginBottom: 16, color: 'var(--status-warning)', fontWeight: 700 }}>
+                Attribution integrity warning: GA4 records {fmtNum(paidVnLandings)} VN paid landings after the release seam,
+                while Google Ads records {fmtNum(vnAdsClicks)} clicks in complete post-launch hours. Do not read the GA4 landing count
+                as unique buyers or use its landing-to-cart rate for a page decision until attribution is reconciled.
+              </div>
+            )}
           </>
         )}
         {losses.data && (

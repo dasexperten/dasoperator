@@ -476,6 +476,7 @@ ga4.get('/funnel', async (c) => {
 const COMMERCE_LOSS_EVENTS = [
   'add_to_cart',
   'view_cart',
+  'checkout_cta_click',
   'begin_checkout',
   'checkout_opened',
   'checkout_stripe_ready',
@@ -694,20 +695,21 @@ ga4.get('/commerce-losses', async (c) => {
         // locale's denominator. This is aggregate event evidence, not a user path.
         const pageMap = new Map<string, {
           country: string; page: string; price_views: number; value_proof_views: number;
-          add_to_cart: number; view_cart: number; begin_checkout: number; purchases: number; checkout_errors: number;
+          add_to_cart: number; view_cart: number; checkout_cta_click: number; begin_checkout: number; purchases: number; checkout_errors: number;
           add_to_cart_users: number; view_cart_users: number; begin_checkout_users: number; purchase_users: number;
         }>();
         for (const row of rows) {
           const key = `${row.country}\u0000${row.page}`;
           const page = pageMap.get(key) ?? {
             country: row.country, page: row.page, price_views: 0, value_proof_views: 0,
-            add_to_cart: 0, view_cart: 0, begin_checkout: 0, purchases: 0, checkout_errors: 0,
+            add_to_cart: 0, view_cart: 0, checkout_cta_click: 0, begin_checkout: 0, purchases: 0, checkout_errors: 0,
             add_to_cart_users: 0, view_cart_users: 0, begin_checkout_users: 0, purchase_users: 0,
           };
           if (row.event === 'pdp_price_view') page.price_views += row.count;
           else if (row.event === 'pdp_value_proof_view') page.value_proof_views += row.count;
           else if (row.event === 'add_to_cart') page.add_to_cart += row.count;
           else if (row.event === 'view_cart') page.view_cart += row.count;
+          else if (row.event === 'checkout_cta_click') page.checkout_cta_click += row.count;
           else if (row.event === 'begin_checkout') page.begin_checkout += row.count;
           else if (row.event === 'purchase') page.purchases += row.count;
           else if (row.event === 'checkout_error') page.checkout_errors += row.count;
@@ -722,7 +724,7 @@ ga4.get('/commerce-losses', async (c) => {
           else if (row.event === 'purchase') page.purchase_users = row.users;
         }
         const page_totals = [...pageMap.values()]
-          .filter((page) => page.price_views > 0 || page.add_to_cart > 0 || page.view_cart > 0 || page.begin_checkout > 0 || page.purchases > 0 || page.checkout_errors > 0)
+          .filter((page) => page.price_views > 0 || page.add_to_cart > 0 || page.view_cart > 0 || page.checkout_cta_click > 0 || page.begin_checkout > 0 || page.purchases > 0 || page.checkout_errors > 0)
           .sort((a, b) => b.price_views - a.price_views || b.add_to_cart - a.add_to_cart || a.page.localeCompare(b.page));
         // Keep every observed technical failure ahead of the bounded activity
         // stream. A recent-events limit must never hide the rows needed to

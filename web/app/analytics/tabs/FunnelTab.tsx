@@ -25,6 +25,7 @@ const STEP_LABELS: Record<string, string> = {
 const SIGNAL_LABELS: Record<string, string> = {
   add_to_cart: 'Added to cart',
   view_cart: 'Viewed cart',
+  checkout_cta_click: 'Pressed checkout CTA',
   begin_checkout: 'Began checkout',
   checkout_opened: 'Checkout shell opened',
   checkout_stripe_ready: 'Stripe form ready',
@@ -299,7 +300,7 @@ export default function FunnelTab() {
           <div className="wa-table-scroll" style={{ marginBottom: 16 }}>
             <table className="wa-table">
               <thead>
-                <tr><th>Page · complete 30d aggregate</th><th>Country</th><th>Price views</th><th>Add to cart</th><th>Price → cart</th><th>Viewed cart</th><th>Checkout</th><th>People: cart → checkout</th><th>Errors</th></tr>
+                <tr><th>Page · complete 30d aggregate</th><th>Country</th><th>Price views</th><th>Add to cart</th><th>Price → cart</th><th>Viewed cart</th><th>Pressed checkout</th><th>Checkout opened</th><th>People: cart → checkout</th><th>Errors</th></tr>
               </thead>
               <tbody>
                 {pageTotals.slice(0, 25).map((row) => {
@@ -313,6 +314,7 @@ export default function FunnelTab() {
                       <td className="num">{fmtNum(row.add_to_cart)}</td>
                       <td className="num">{fmtPct(rate)}</td>
                       <td className="num">{fmtNum(row.view_cart)} events · {fmtNum(row.view_cart_users)} people</td>
+                      <td className="num">{fmtNum(row.checkout_cta_click)}</td>
                       <td className="num">{fmtNum(row.begin_checkout)} events · {fmtNum(row.begin_checkout_users)} people</td>
                       <td className="num">{fmtPct(checkoutRate)}</td>
                       <td className="num">{fmtNum(row.checkout_errors)}</td>

@@ -1922,9 +1922,9 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
             <Th align="left">Items</Th>
             <SortTh label="Total" sortKey="total" current={sort} onSort={onSort} />
             <Th align="left">Country</Th>
-            <SortTh label="Status" sortKey="status" current={sort} onSort={onSort} align="left" />
             <Th align="left">Paid</Th>
             <Th align="left">Shipped</Th>
+            <Th align="left">Delivered</Th>
             <SortTh label="Date" sortKey="date" current={sort} onSort={onSort} align="left" />
           </tr>
         </thead>
@@ -1993,9 +1993,9 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
                   </span>
                 ) : '—'}
               </td>
-              <OrderStatusCell primary={o.status} secondary={o.fulfillment_status} />
               <OrderPaymentCell {...comPayment(o)} />
               <OrderShipmentCell {...comShipment(o)} />
+              <OrderDeliveryCell {...comDelivery(o)} />
               <Td muted>{o.created_at}</Td>
             </tr>
           ))}
@@ -2108,16 +2108,6 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
 // у .com теперь та же колонка статуса и те же два столбца, что в зеркале .ru.
 // Компоненты рисуют, картирование полей витрины делают ru*/com* ниже.
 
-function OrderStatusCell({ primary, secondary }: { primary?: string | null; secondary?: string | null }) {
-  return (
-    <Td muted>
-      {primary || '—'}
-      {secondary && secondary !== primary && (
-        <span style={{ display: 'block', fontSize: 12, color: 'var(--fg-3)' }}>{secondary}</span>
-      )}
-    </Td>
-  );
-}
 
 type PayState = 'unknown' | 'paid' | 'awaiting' | 'unpaid' | 'refunded' | 'failed' | 'none';
 
@@ -2234,6 +2224,17 @@ function ruDelivery(o: CrmOrder): { state: DeliveryState; at?: string | null; pa
   if (o.delivery_status === 'delivering' || store === 'wait_for_delivery') {
     return { state: 'transit', parts };
   }
+  return { state: 'none' };
+}
+
+// Витрина .com времени вручения не хранит вовсе: в crm_orders есть только
+// fulfillment_status и updated_at, который меняется от любой правки. Поэтому
+// графа говорит «доставлен» без времени — дата тут была бы выдумкой.
+function comDelivery(o: CrmOrder): { state: DeliveryState; at?: string | null; parts?: string | null } {
+  const ful = o.fulfillment_status ?? '';
+  if (ful === 'delivered') return { state: 'delivered', at: null };
+  if (ful === 'cancelled' || o.status === 'refunded') return { state: 'cancelled' };
+  if (ful === 'shipped') return { state: 'transit' };
   return { state: 'none' };
 }
 

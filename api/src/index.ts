@@ -65,7 +65,7 @@ import agentSettlementsRoutes from './routes/agent-settlements';
 import bankMatchRulesRoutes from './routes/bank-match-rules';
 import financeCategoriesRoutes from './routes/finance-categories';
 import documentExtractionsRoutes from './routes/document-extractions';
-import crmRoutes from './routes/crm';
+import crmRoutes, { ruStockFacts, type RuItem } from './routes/crm';
 import crmWebsiteRoutes from './routes/crm-website';
 import metrikaRoutes from './routes/metrika';
 import ga4Routes from './routes/ga4';
@@ -119,6 +119,34 @@ app.notFound((c) => {
 });
 
 app.get('/', (c) => ok(c, { name: 'dasoperator-api', version: '1.8.0', phase: '7.0-bank-integration' }));
+
+// Machine-only stock context for the Russian storefront. The storefront asks
+// this before writing to a paid buyer: a confirmed lot in transit gets an
+// honest waiting message, while replacement/refund remains the fallback when
+// there is no confirmed replenishment. No customer or order data crosses this
+// endpoint.
+app.post('/internal/ru-stock-context', async (c) => {
+  const expected = String(c.env.RU_ADMIN_TOKEN ?? '');
+  const given = String(c.req.header('X-Sync-Token') ?? '');
+  if (!expected || !given || given !== expected) return c.json({ ok: false }, 404);
+
+  let body: { skus?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ ok: false, error: 'invalid_json' }, 400);
+  }
+  const skus = Array.from(new Set((Array.isArray(body.skus) ? body.skus : [])
+    .map((v) => String(v ?? '').trim())
+    .filter((v) => v.length > 0 && v.length <= 80)));
+  if (!skus.length || skus.length > 50) {
+    return c.json({ ok: false, error: 'skus_required' }, 400);
+  }
+
+  const items: RuItem[] = skus.map((sku) => ({ sku, name: null, qty: 1 }));
+  const facts = await ruStockFacts(c.env, [items]);
+  return c.json({ ok: true, facts: Array.from(facts.values()) });
+});
 
 // =============================================================================
 // LLM diagnostic — verifies which provider actually serves traffic.

@@ -438,11 +438,16 @@ function MetricCard({
         padding: '20px 22px',
         position: 'relative',
         overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
       }}
     >
+      {/* Two lines are reserved for the label whether it needs them or not, so
+          every figure in the row starts at the same height. A one-line label
+          next to a two-line one is what knocked the numbers out of line. */}
       <div
-       
-        style={{ color: 'var(--fg-2)' }}
+        style={{ color: 'var(--fg-2)', lineHeight: 1.25, minHeight: '2.5em' }}
       >
         {label}
       </div>
@@ -460,8 +465,7 @@ function MetricCard({
         {loading ? <Loader2 className="h-7 w-7 animate-spin inline-block" style={{ color: 'var(--fg-3)' }} /> : value}
       </div>
       <div
-        className="mt-2"
-        style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-3)' }}
+        style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-3)', marginTop: 'auto', paddingTop: '8px' }}
       >
         {sublabel}
       </div>

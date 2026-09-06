@@ -132,9 +132,14 @@ function AuthCard({
         padding: '20px 22px',
         position: 'relative',
         overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
       }}
     >
-      <div style={{ color: 'var(--fg-2)' }}>{label}</div>
+      {/* Same reserved two-line label as the SEO tiles above — the figures in
+          both blocks must sit on one line across the row. */}
+      <div style={{ color: 'var(--fg-2)', lineHeight: 1.25, minHeight: '2.5em' }}>{label}</div>
       <div
         className="dx-num"
         style={{
@@ -154,8 +159,7 @@ function AuthCard({
       </div>
       {hint ? (
         <div
-          className="mt-2"
-          style={{ fontSize: 'var(--fs-body-sm)', color: hintColor(tone), fontWeight: 600 }}
+          style={{ fontSize: 'var(--fs-body-sm)', color: hintColor(tone), fontWeight: 600, marginTop: 'auto', paddingTop: '8px' }}
         >
           {hint}
         </div>

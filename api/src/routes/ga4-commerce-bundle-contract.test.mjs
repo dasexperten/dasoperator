@@ -28,6 +28,7 @@ const checks = [
   [api.includes("'purchase_verified'"), 'API requests Stripe-verified purchase events'],
   [api.includes("'checkout_opened'") && api.includes("'checkout_stripe_ready'"), 'API separates checkout shell opening from Stripe readiness'],
   [api.includes("'checkout_cta_click'") && api.includes("row.event === 'checkout_cta_click'") && types.includes('checkout_cta_click: number;') && ui.includes("checkout_cta_click: 'Pressed checkout CTA'"), 'cart CTA intent is separated from checkout opening'],
+  [api.includes("cacheKey('ga4:commerce-losses:v25'"), 'commerce cache invalidates for the checkout CTA schema'],
   [api.includes('return days === 1 ? 300 : 3600;'), 'one-day decision reports refresh within five minutes'],
   [(api.match(/decisionCacheTtl\(days\)/g) || []).length === 2, 'both acquisition and commerce-loss reports use decision TTL'],
   [api.includes("'pdp_value_proof_view'"), 'API requests PDP value-proof visibility'],

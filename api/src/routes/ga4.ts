@@ -571,7 +571,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v24', { days, limit, decision, calendar_window: 'exact-v2', host: 'com' }),
+      cacheKey('ga4:commerce-losses:v25', { days, limit, decision, calendar_window: 'exact-v2', host: 'com' }),
       decision ? 300 : decisionCacheTtl(days),
       async () => {
         const [resp, actorsResp] = await Promise.all([ga4RunReport(c.env, {

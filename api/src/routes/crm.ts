@@ -429,7 +429,7 @@ crm.get('/sync-ru-orders/state', async (c) => {
 // (web/app/crm/page.tsx без правок), плюс поля оплаты/доставки для файла 5.
 // -----------------------------------------------------------------------------
 type MirrorRow = {
-  order_number: string; storefront_id: string | null; status: string; storefront_status: string | null;
+  order_number: string; storefront_id: string | null; status: string; storefront_status: string | null; source: string | null;
   created_at: string; paid: number; paid_at: string | null; total_rub: number; loyalty_rub: number;
   customer_key: string | null; delivery_status: string | null; delivery_order_id: string | null;
   tracking_number: string | null; delivery_provider: string | null; raw_json: string | null;
@@ -695,7 +695,7 @@ async function ordersFromMirror(
   if (search) { where.push('(order_number LIKE ?1 OR customer_key LIKE ?1)'); binds.push(`%${search}%`); }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-  const cols = `order_number, storefront_id, status, storefront_status, created_at, paid, paid_at,
+  const cols = `order_number, storefront_id, status, storefront_status, source, created_at, paid, paid_at,
                 total_rub, loyalty_rub, customer_key, delivery_status, delivery_order_id, tracking_number, delivery_provider,
                 delivery_substatus, delivery_updated_at, delivery_parts_total, delivery_parts_at_point, delivery_parts_received,
                 raw_json,
@@ -757,6 +757,10 @@ async function ordersFromMirror(
       loyalty_privilege_pct: tierInfo ? tierInfo.percent : null,
       // --- слой 3: оплата и доставка (файл 5 — плашка и колонки) ---
       storefront_status: r.storefront_status,
+      // Откуда строка: 'site' — живая синхронизация витрины, 'kit' — разовый
+      // импорт старой базы. У импорта delivery_updated_at равен моменту
+      // заливки, а не вручения: 1463 заказа с одним и тем же временем.
+      mirror_source: r.source,
       paid: Boolean(r.paid),
       paid_at: r.paid_at,
       delivery_provider: r.delivery_provider,

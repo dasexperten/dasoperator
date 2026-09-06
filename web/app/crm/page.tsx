@@ -73,6 +73,7 @@ interface CrmOrder {
   // слой 4 (05.09.2026): подстатус Ozon и разбивка заказа на посылки
   delivery_substatus?: string | null;
   delivery_updated_at?: string | null;
+  mirror_source?: string | null;
   delivery_parts_total?: number;
   delivery_parts_at_point?: number;
   delivery_parts_received?: number;
@@ -2223,7 +2224,11 @@ function ruDelivery(o: CrmOrder): { state: DeliveryState; at?: string | null; pa
   const received = o.delivery_parts_received ?? 0;
   const parts = total > 1 ? `получено ${received} из ${total}` : null;
   if (o.delivery_status === 'delivered' || store === 'delivered') {
-    return { state: 'delivered', at: o.delivery_updated_at ?? null, parts };
+    // Время вручения показываем только по живой синхронизации витрины. У строк
+    // разового импорта старой базы ('kit') delivery_updated_at — это момент
+    // заливки 17.08, один на 1463 заказа; выдавать его за дату вручения нельзя.
+    const trusted = o.mirror_source === 'site';
+    return { state: 'delivered', at: trusted ? (o.delivery_updated_at ?? null) : null, parts };
   }
   if (store === 'cancelled' || store === 'refunded') return { state: 'cancelled' };
   if (o.delivery_status === 'delivering' || store === 'wait_for_delivery') {

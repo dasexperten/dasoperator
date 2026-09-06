@@ -75,6 +75,21 @@ interface CrmOrder {
   delivery_parts_total?: number;
   delivery_parts_at_point?: number;
   delivery_parts_received?: number;
+  // Проверка наличия двумя местами: Зина — наши склады/поставки, Даша — Ozon.
+  stock_facts?: Array<{
+    sku: string;
+    our_stock: number;
+    assembleable: number;
+    our_stock_at: number | null;
+    in_transit: number;
+    in_transit_at: number | null;
+    ozon_available: number | null;
+    ozon_stock_at: number | null;
+    supply_qty: number;
+    supply_stage: string | null;
+    supply_eta: number | null;
+    supply_updated_at: number | null;
+  }>;
 }
 
 interface CrmCustomer {
@@ -2030,31 +2045,29 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
                 );
               })()}
             </Td>
-            {/* Штук в заказе, а при наведении — состав, как у .com.
-                Владелец 02.09.2026 просил названия товаров. Названий в ленте
-                .ru сегодня нет, и выдумывать их нечем: подсказка появляется
-                ровно тогда, когда витрина пришлёт в позиции sku или name.
-                Пока не прислала — одно число штук и подпись о причине. */}
+            {/* Штук в заказе; состав раскрывается мышью и с клавиатуры. */}
             <td className="px-6 py-3 text-left relative group" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
               {o.items_count ? (
                 <>
                   <span
+                    tabIndex={0}
+                    aria-label={`${o.items_count} товаров в заказе. Наведите или нажмите Tab, чтобы увидеть состав.`}
                     title={(o.items ?? []).length ? undefined
                       : 'Состав не показан: лента витрины .ru отдаёт в позиции только количество, без названия и артикула'}
-                    style={{ background: 'var(--paper-sunk, #F3F0E8)', borderRadius: 999, padding: '2px 10px',
-                             fontWeight: 500, color: 'var(--fg-1)', cursor: 'default', whiteSpace: 'nowrap' }}>
+                    style={{ background: 'var(--paper-sunk)', borderRadius: 'var(--radius-pill)', padding: '2px 10px',
+                             fontWeight: 500, color: 'var(--fg-1)', cursor: 'help', whiteSpace: 'nowrap' }}>
                     {o.items_count} item{o.items_count === 1 ? '' : 's'}
                   </span>
                   {(o.items ?? []).length > 0 && (
-                    <div className="hidden group-hover:block absolute z-30"
-                         style={{ top: '100%', left: 24, background: 'var(--paper, #FFFFFF)',
+                    <div className="hidden group-hover:block group-focus-within:block absolute z-30" role="tooltip"
+                         style={{ top: '100%', left: 24, background: 'var(--paper)',
                                   border: '1px solid var(--border-hairline)', borderRadius: 8, padding: '8px 12px',
-                                  whiteSpace: 'nowrap', boxShadow: '0 4px 14px rgba(26,21,25,.10)' }}>
+                                  minWidth: 250, maxWidth: 420, boxShadow: 'var(--shadow-card)' }}>
                       {(o.items ?? []).map((it, i) => (
                         <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 18,
                                               fontSize: 12, padding: '2px 0' }}>
-                          <span style={{ fontFamily: 'ui-monospace, monospace' }}>{it.sku ?? '—'}</span>
-                          <span style={{ color: 'var(--fg-3)' }}>{it.name ? `${it.name} · ` : ''}×{it.qty}</span>
+                          <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{it.sku ?? '—'}</span>
+                          <span style={{ color: 'var(--fg-3)', textAlign: 'right' }}>{it.name ? `${it.name} · ` : ''}×{it.qty}</span>
                         </div>
                       ))}
                     </div>
@@ -2145,7 +2158,7 @@ function OrderShipmentCell({ id, detail, trackingUrl, missing, waiting }: { id?:
       <span style={{
         color: 'var(--status-error)', fontWeight: 700,
         background: 'color-mix(in srgb, var(--status-error) 10%, transparent)',
-        borderRadius: 'var(--radius-pill, 999px)', padding: '3px 10px', display: 'inline-block',
+        borderRadius: 'var(--radius-pill)', padding: '3px 10px', display: 'inline-block', maxWidth: 360,
       }}>
         нет отправления
         {detail ? <span style={{ display: 'block', marginTop: 2, fontSize: 12, fontWeight: 700 }}>{detail}</span> : null}
@@ -2153,6 +2166,42 @@ function OrderShipmentCell({ id, detail, trackingUrl, missing, waiting }: { id?:
     </Td>
   );
   return <Td><span style={{ color: 'var(--fg-3)' }}>—</span></Td>;
+}
+
+function shortFactDate(epoch: number | null | undefined): string | null {
+  if (!epoch) return null;
+  return new Date(epoch * 1000).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+}
+
+function ruStockExplanation(o: CrmOrder): string {
+  const facts = o.stock_facts ?? [];
+  if (!facts.length) return 'Ozon: товар недоступен · состав заказа ещё не пришёл в зеркало';
+
+  const own = facts.reduce((n, f) => n + f.our_stock + f.assembleable, 0);
+  const inTransit = facts.reduce((n, f) => n + f.in_transit, 0);
+  const supply = facts.reduce((n, f) => n + f.supply_qty, 0);
+  const ozonKnown = facts.every((f) => f.ozon_available !== null);
+  const ozon = facts.reduce((n, f) => n + (f.ozon_available ?? 0), 0);
+  const eta = facts.map((f) => f.supply_eta).filter((v): v is number => Boolean(v)).sort((a, b) => a - b)[0] ?? null;
+  const ownAt = facts.map((f) => f.our_stock_at).filter((v): v is number => Boolean(v)).sort((a, b) => b - a)[0] ?? null;
+  const supplyAt = facts.map((f) => f.supply_updated_at ?? f.in_transit_at)
+    .filter((v): v is number => Boolean(v)).sort((a, b) => b - a)[0] ?? null;
+
+  if (eta) {
+    return `Запас Ozon закончился · пополнение ${Math.max(supply, inTransit)} шт. ожидается ${shortFactDate(eta)} · отправим сразу после приёмки`;
+  }
+
+  const lines: string[] = [];
+  lines.push(ozonKnown && ozon > 0
+    ? `Ozon не выдаёт товар для выбранного ПВЗ · по стране ${ozon} шт.`
+    : 'Запас Ozon закончился');
+  if (own > 0) lines.push(`На наших складах РФ учтено ${own} шт.${ownAt ? ` на ${shortFactDate(ownAt)}` : ''}`);
+  if (Math.max(supply, inTransit) > 0) {
+    lines.push(`В поставке числится ${Math.max(supply, inTransit)} шт.${supplyAt ? ` · данные ${shortFactDate(supplyAt)}` : ''} · срок не подтверждён`);
+  } else {
+    lines.push('Поставка в Ozon не подтверждена');
+  }
+  return lines.join(' · ');
 }
 
 // Картирование зеркала .ru — поведение то же, что до выноса ячеек.
@@ -2182,7 +2231,7 @@ function ruShipment(o: CrmOrder): { id?: string | null; detail?: string | null; 
     };
   }
   const failure = o.delivery_substatus === 'shipment_out_of_stock'
-    ? 'Ozon: нет товара'
+    ? ruStockExplanation(o)
     : o.delivery_substatus === 'shipment_creation_failed'
       ? 'Ozon: ошибка создания'
       : null;

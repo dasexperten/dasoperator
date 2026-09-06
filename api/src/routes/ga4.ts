@@ -568,10 +568,10 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v23', { days, limit, decision, calendar_window: 'exact-v2', host: 'com' }),
+      cacheKey('ga4:commerce-losses:v24', { days, limit, decision, calendar_window: 'exact-v2', host: 'com' }),
       decision ? 300 : decisionCacheTtl(days),
       async () => {
-        const resp = await ga4RunReport(c.env, {
+        const [resp, actorsResp] = await Promise.all([ga4RunReport(c.env, {
           dateRanges: [reportRange(days)],
           dimensions: [
             { name: 'eventName' },
@@ -589,7 +589,22 @@ ga4.get('/commerce-losses', async (c) => {
           }),
           orderBys: [{ dimension: { dimensionName: 'dateHourMinute' }, desc: true }],
           limit: 10000,
-        });
+        }), ga4RunReport(c.env, {
+          dateRanges: [reportRange(days)],
+          dimensions: [
+            { name: 'eventName' },
+            { name: 'country' },
+            { name: 'pagePath' },
+          ],
+          metrics: [{ name: 'totalUsers' }],
+          dimensionFilter: withComHostFilter({
+            filter: {
+              fieldName: 'eventName',
+              inListFilter: { values: COMMERCE_LOSS_EVENTS },
+            },
+          }),
+          limit: 10000,
+        })]);
 
         const rows = (resp.rows ?? []).map((r) => ({
           event: r.dimensionValues?.[0]?.value || '(not set)',
@@ -606,6 +621,17 @@ ga4.get('/commerce-losses', async (c) => {
         const vnDeliveredPreviewStartMinute = minuteInTimeZone(VN_DELIVERED_PREVIEW_START_UTC, propertyTimeZone);
         const totals = Object.fromEntries(COMMERCE_LOSS_EVENTS.map((event) => [event, 0])) as Record<string, number>;
         for (const row of rows) totals[row.event] = (totals[row.event] ?? 0) + row.count;
+        const actorRows = (actorsResp.rows ?? []).map((r) => ({
+          event: r.dimensionValues?.[0]?.value || '(not set)',
+          country: r.dimensionValues?.[1]?.value || '(not set)',
+          page: r.dimensionValues?.[2]?.value || '(not set)',
+          users: Math.round(metricNum(r, 0)),
+        }));
+        // Distinct people are non-additive across pages and countries. Keep the exact
+        // GA4 slices instead of summing them into a fake global funnel.
+        const user_totals = actorRows
+          .filter((row) => row.users > 0)
+          .sort((a, b) => b.users - a.users || a.event.localeCompare(b.event));
         const marketEventTotal = (event: string, country: string) => rows
           .filter((row) => row.event === event && row.country === country)
           .reduce((sum, row) => sum + row.count, 0);
@@ -667,12 +693,14 @@ ga4.get('/commerce-losses', async (c) => {
         const pageMap = new Map<string, {
           country: string; page: string; price_views: number; value_proof_views: number;
           add_to_cart: number; view_cart: number; begin_checkout: number; purchases: number; checkout_errors: number;
+          add_to_cart_users: number; view_cart_users: number; begin_checkout_users: number; purchase_users: number;
         }>();
         for (const row of rows) {
           const key = `${row.country}\u0000${row.page}`;
           const page = pageMap.get(key) ?? {
             country: row.country, page: row.page, price_views: 0, value_proof_views: 0,
             add_to_cart: 0, view_cart: 0, begin_checkout: 0, purchases: 0, checkout_errors: 0,
+            add_to_cart_users: 0, view_cart_users: 0, begin_checkout_users: 0, purchase_users: 0,
           };
           if (row.event === 'pdp_price_view') page.price_views += row.count;
           else if (row.event === 'pdp_value_proof_view') page.value_proof_views += row.count;
@@ -682,6 +710,14 @@ ga4.get('/commerce-losses', async (c) => {
           else if (row.event === 'purchase') page.purchases += row.count;
           else if (row.event === 'checkout_error') page.checkout_errors += row.count;
           pageMap.set(key, page);
+        }
+        for (const row of actorRows) {
+          const page = pageMap.get(`${row.country}\u0000${row.page}`);
+          if (!page) continue;
+          if (row.event === 'add_to_cart') page.add_to_cart_users = row.users;
+          else if (row.event === 'view_cart') page.view_cart_users = row.users;
+          else if (row.event === 'begin_checkout') page.begin_checkout_users = row.users;
+          else if (row.event === 'purchase') page.purchase_users = row.users;
         }
         const page_totals = [...pageMap.values()]
           .filter((page) => page.price_views > 0 || page.add_to_cart > 0 || page.view_cart > 0 || page.begin_checkout > 0 || page.purchases > 0 || page.checkout_errors > 0)
@@ -696,8 +732,9 @@ ga4.get('/commerce-losses', async (c) => {
         return {
           source: comSourceLabel(c.env),
           window_days: days,
-          method: 'GA4 event counts grouped by country, event page, session campaign and property-timezone minute; rows are aggregate signals, not user-level paths.',
+          method: 'GA4 event counts grouped by country, event page, session campaign and property-timezone minute; user_totals are distinct GA4 totalUsers within each exact event + country + page slice and must not be added across slices.',
           totals,
+          user_totals,
           market_totals,
           price_test,
           page_totals,

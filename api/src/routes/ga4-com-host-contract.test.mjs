@@ -35,5 +35,5 @@ test('host correction busts every affected cache key', () => {
   assert.match(source, /ga4:overview:v2[\s\S]*?host: 'com'/);
   assert.match(source, /ga4:acquisition-detail:v6[\s\S]*?host: 'com'/);
   assert.match(source, /ga4:funnel:v2[\s\S]*?host: 'com'/);
-  assert.match(source, /ga4:commerce-losses:v23[\s\S]*?host: 'com'/);
+  assert.match(source, /ga4:commerce-losses:v24[\s\S]*?host: 'com'/);
 });

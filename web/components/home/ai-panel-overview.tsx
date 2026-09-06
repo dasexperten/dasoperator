@@ -212,13 +212,19 @@ function PanelCardView({
         padding: '20px 22px',
         position: 'relative',
         overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
       }}
     >
-      <div style={{ color: 'var(--fg-2)' }}>{label}</div>
+      {/* Same reserved two-line label as the SEO and AI-visibility tiles — the
+          three blocks sit one under another on Pulse and must agree. */}
+      <div style={{ color: 'var(--fg-2)', lineHeight: 1.25, minHeight: '2.5em' }}>{label}</div>
       <div
+        className="dx-num"
         style={{
           fontFamily: 'var(--font-display)',
-          fontSize: small ? '28px' : '40px',
+          fontSize: small ? 'clamp(20px, 5.5vw, 28px)' : 'clamp(24px, 7vw, 40px)',
           fontWeight: 900,
           lineHeight: 1.05,
           color: 'var(--fg-1)',
@@ -232,7 +238,7 @@ function PanelCardView({
         )}
       </div>
       {hint ? (
-        <div className="mt-2" style={{ fontSize: 'var(--fs-body-sm)', color: hintColor(tone), fontWeight: 600 }}>
+        <div style={{ fontSize: 'var(--fs-body-sm)', color: hintColor(tone), fontWeight: 600, marginTop: 'auto', paddingTop: '8px' }}>
           {hint}
         </div>
       ) : null}

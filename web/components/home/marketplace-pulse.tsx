@@ -864,8 +864,8 @@ function SkuFunnelModal({ sku, onClose }: { sku: string; onClose: () => void }) 
 function FunnelStat({ label, value, format }: { label: string; value: number; format?: 'rub' }) {
   return (
     <div>
-      <div style={{ fontSize: '14px', color: 'var(--fg-3)', textTransform: 'uppercase' }}>{label}</div>
-      <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--fg-1)', marginTop: '2px' }}>
+      <div style={{ fontSize: '14px', color: 'var(--fg-3)', textTransform: 'uppercase', lineHeight: 1.25, minHeight: '2.5em' }}>{label}</div>
+      <div className="dx-num" style={{ fontSize: 'clamp(16px, 4.5vw, 20px)', fontWeight: 700, color: 'var(--fg-1)', marginTop: '2px', lineHeight: 1.05 }}>
         {format === 'rub' ? fmtRubFull(value) : new Intl.NumberFormat('ru-RU').format(value)}
       </div>
     </div>

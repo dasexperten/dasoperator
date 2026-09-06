@@ -455,9 +455,11 @@ export default function CrmPage() {
   // --------------------------------------------------------------------------
   // Detail drawer (Owner 2026-08-15: order and customer rows were dead ends —
   // the API already served /orders/:number and /customers/:id, the table just
-  // never called them). .com source only: the KIT (ru) side has no detail route.
+  // never called them). Заказы .ru получили свой адрес 06.09.2026 — до того
+  // щелчок по русской строке открывал ящик, который шёл по адресу .com и не
+  // находил ничего. Карточки покупателей .ru своего адреса всё ещё не имеют.
   // --------------------------------------------------------------------------
-  const [detail, setDetail] = useState<{ kind: 'order' | 'customer'; id: string } | null>(null);
+  const [detail, setDetail] = useState<{ kind: 'order' | 'customer'; id: string; src?: CrmSource } | null>(null);
   const [detailData, setDetailData] = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -469,7 +471,9 @@ export default function CrmPage() {
     setDetailError(null);
     setDetailData(null);
     const path = detail.kind === 'order'
-      ? `/api/crm/website/orders/${encodeURIComponent(detail.id)}`
+      ? (detail.src === 'ru'
+          ? `/api/crm/order/${encodeURIComponent(detail.id)}`
+          : `/api/crm/website/orders/${encodeURIComponent(detail.id)}`)
       : `/api/crm/website/customers/${encodeURIComponent(detail.id)}`;
     fetch(`${API_BASE}${path}`)
       .then((r) => r.json())
@@ -786,7 +790,7 @@ export default function CrmPage() {
               Данные на {new Date(ordersAsOf * 1000).toLocaleString('ru-RU')} · зеркало витрины в ERP, обновляется каждые 15 минут
             </div>
           )}
-          <OrdersTable orders={orders} hasSearch={!!ordersActiveSearch} search={ordersActiveSearch} sort={ordersSort} onSort={sortOrders} variant={crmSource} onOpen={(n) => setDetail({ kind: 'order', id: n })} pdShown={pdShown} revealCustomer={revealCustomer} />
+          <OrdersTable orders={orders} hasSearch={!!ordersActiveSearch} search={ordersActiveSearch} sort={ordersSort} onSort={sortOrders} variant={crmSource} onOpen={(n) => setDetail({ kind: 'order', id: n, src: crmSource })} pdShown={pdShown} revealCustomer={revealCustomer} />
         </DataTablePanel>
       )}
 
@@ -807,7 +811,7 @@ export default function CrmPage() {
           page={customersPage}
           setPage={setCustomersPage}
         >
-          <CustomersTable customers={customers} hasSearch={!!customersActiveSearch} search={customersActiveSearch} sort={custSort} onSort={sortCustomers} variant={crmSource} onOpen={(id) => setDetail({ kind: 'customer', id })} />
+          <CustomersTable customers={customers} hasSearch={!!customersActiveSearch} search={customersActiveSearch} sort={custSort} onSort={sortCustomers} variant={crmSource} onOpen={(id) => setDetail({ kind: 'customer', id, src: crmSource })} />
         </DataTablePanel>
       )}
 
@@ -844,8 +848,8 @@ export default function CrmPage() {
           loading={detailLoading}
           error={detailError}
           onClose={() => setDetail(null)}
-          onOpenOrder={(n) => setDetail({ kind: 'order', id: n })}
-          onOpenCustomer={(id) => setDetail({ kind: 'customer', id })}
+          onOpenOrder={(n) => setDetail({ kind: 'order', id: n, src: detail.src ?? crmSource })}
+          onOpenCustomer={(id) => setDetail({ kind: 'customer', id, src: detail.src ?? crmSource })}
         />
       )}
 
@@ -2016,7 +2020,14 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
           </tr>
         )}
         {orders.map((o) => (
-          <tr key={o.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+          <tr
+            key={o.id}
+            onClick={() => onOpen?.(String(o.number))}
+            title="Открыть карточку заказа"
+            style={{ borderBottom: '1px solid var(--border-hairline)', cursor: onOpen ? 'pointer' : 'default' }}
+            onMouseEnter={(e) => { if (onOpen) (e.currentTarget as HTMLTableRowElement).style.backgroundColor = 'var(--paper-sunk, #F3F0E8)'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.backgroundColor = 'transparent'; }}
+          >
             <Td bold>{o.number}</Td>
             <Td>
               {(() => {
@@ -2034,7 +2045,7 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
                 return (
                   <button
                     type="button"
-                    onClick={() => revealCustomer?.(o.number)}
+                    onClick={(e) => { e.stopPropagation(); revealCustomer?.(o.number); }}
                     title="Показать имя и телефон. Показ записывается в журнал."
                     style={{ border: '1px solid var(--border-hairline)', background: 'transparent',
                              borderRadius: 6, padding: '4px 9px', cursor: 'pointer',

@@ -1315,6 +1315,65 @@ crm.post('/backfill-site-sales', async (c) => {
 
 
 /**
+ * Карточка ОДНОГО заказа .ru — то, что открывается щелчком по строке.
+ *
+ * До 06.09.2026 щелчок по строке .ru не открывал ничего: ящик карточки умел
+ * ходить только по адресу .com (/api/crm/website/orders/:number), а у зеркала
+ * .ru своего адреса не было. Здесь он появляется и читает ту же строку зеркала,
+ * что и список, плюс состав из raw_json.
+ *
+ * Персональных данных карточка не отдаёт — ни имени, ни телефона, ни почты, ни
+ * адреса пункта выдачи. Они по-прежнему открываются только кнопкой в списке,
+ * через /customer/:number, под запись в pd_access_log на стороне России.
+ * Карточка ничего в этом режиме не смягчает.
+ *
+ * Форма ответа намеренно повторяет форму .com — ящик карточки на экране один,
+ * второй писать незачем: суммы в копейках с валютой, даты unix-секундами.
+ */
+crm.get('/order/:number', async (c) => {
+  const number = c.req.param('number');
+  const r = await c.env.DB.prepare(
+    `SELECT order_number, storefront_id, status, storefront_status, source,
+            created_at, paid, paid_at, total_rub, subtotal_rub, discount_rub,
+            loyalty_rub, delivery_rub, units, delivery_provider, delivery_method,
+            delivery_status, delivery_substatus, delivery_order_id, tracking_number,
+            raw_json
+       FROM crm_orders_ru WHERE order_number = ?`,
+  ).bind(number).first<any>();
+  if (!r) {
+    return c.json({ success: false, errors: [{ code: 'not_found', message: `нет заказа ${number}` }] }, 404);
+  }
+  const сек = (iso: string | null) => {
+    if (!iso) return null;
+    const t = Date.parse(iso);
+    return Number.isFinite(t) ? Math.round(t / 1000) : null;
+  };
+  return c.json({ success: true, errors: [], result: {
+    order_number: r.order_number,
+    // Обезличено по построению — ящик карточки прячет пустые строки сам.
+    customer_name: null, email: null, phone: null,
+    financial_status: r.paid ? 'оплачен' : 'не оплачен',
+    fulfillment_status: r.delivery_status ?? r.storefront_status ?? r.status ?? null,
+    created_at: сек(r.created_at),
+    placed_at: сек(r.created_at),
+    shipping_method: [r.delivery_provider, r.delivery_method, r.delivery_substatus]
+                       .filter(Boolean).join(' · ') || null,
+    tracking_number: r.tracking_number ?? r.delivery_order_id ?? null,
+    tracking_url: null,
+    currency: 'RUB',
+    subtotal_cents: Math.round((r.subtotal_rub ?? 0) * 100),
+    shipping_cents: r.delivery_rub ? Math.round(r.delivery_rub * 100) : null,
+    discount_cents: r.discount_rub ? Math.round(r.discount_rub * 100) : null,
+    tax_cents: null,
+    total_cents: Math.round((r.total_rub ?? 0) * 100),
+    payment_method: r.paid_at ? 'Т-Касса' : null,
+    source: r.source ?? 'dasexperten.ru',
+    // Состав — из ленты, как в списке. Пусто, пока витрина не пришлёт позиции.
+    items: ruItems(r.raw_json).filter((it) => it.sku || it.name),
+  } });
+});
+
+/**
  * Персональные данные ОДНОГО покупателя — по кнопке, а не списком.
  *
  * Экран получает заказы обезличенными (см. fetchStorefrontOrders). Здесь витрина

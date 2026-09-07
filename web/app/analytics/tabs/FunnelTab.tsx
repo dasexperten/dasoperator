@@ -1,7 +1,7 @@
 'use client';
 
 // =============================================================================
-// Funnel tab — sessions → view_item → add_to_cart → begin_checkout → purchase.
+// Funnel tab — sessions → view_item → add_to_cart → begin_checkout → verified purchase.
 // Source: GA4 event counts (global .com contour). Absolute counts + step rates.
 // Includes the low-traffic confidence note and the units caveat (sessions vs
 // event counts — a session can fire an event more than once).
@@ -19,6 +19,7 @@ const STEP_LABELS: Record<string, string> = {
   view_item: 'View item',
   add_to_cart: 'Add to cart',
   begin_checkout: 'Begin checkout',
+  purchase_verified: 'Stripe-verified purchase',
   purchase: 'Purchase',
 };
 
@@ -141,8 +142,8 @@ export default function FunnelTab() {
       {t && (
         <div className="wa-kpis">
           <Kpi label="Sessions · 30d" value={fmtNum(t.sessions)} delta="funnel base" />
-          <Kpi label="GA4 purchase events · 30d" value={fmtNum(t.purchases)} delta="legacy + verified sources" />
-          <Kpi label="Stripe-verified purchases" value={fmtNum(verifiedPurchases)} delta="server-confirmed succeeded" />
+          <Kpi label="Legacy GA4 purchase events · 30d" value={fmtNum(t.legacy_purchase_events)} delta="audit only · not revenue" />
+          <Kpi label="Stripe-verified purchases" value={fmtNum(t.verified_purchases)} delta="server-confirmed succeeded" />
           <Kpi accent label="Verified CR" value={fmtPct(verifiedCr)} delta="verified purchases ÷ sessions" />
         </div>
       )}
@@ -157,7 +158,7 @@ export default function FunnelTab() {
                   <div style={{ fontWeight: 700 }}>{STEP_LABELS[r.step] ?? r.step}</div>
                   <div className="wa-funnel-bar">
                     <div
-                      className={`wa-funnel-fill${r.step === 'purchase' ? ' rot' : ''}`}
+                      className={`wa-funnel-fill${r.step === 'purchase_verified' ? ' rot' : ''}`}
                       style={{ width: `${width}%` }}
                     />
                   </div>
@@ -179,7 +180,7 @@ export default function FunnelTab() {
         </div>
         {lowTraffic && !funnel.loading && (
           <div className="wa-note" style={{ marginTop: 8, color: 'var(--status-warning)' }}>
-            Low-traffic confidence note: fewer than 30 purchases in the window — step rates swing
+            Low-traffic confidence note: fewer than 30 Stripe-verified purchases in the window — step rates swing
             hard on single orders. Read direction, not decimals.
           </div>
         )}

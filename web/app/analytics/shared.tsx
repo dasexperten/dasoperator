@@ -46,7 +46,7 @@ export type Ga4AcquisitionDetail = {
 export type Ga4Funnel = {
   source: string;
   window_days: number;
-  totals: { sessions: number; page_view_events: number; purchases: number; overall_cr: number };
+  totals: { sessions: number; page_view_events: number; purchases: number; verified_purchases: number; legacy_purchase_events: number; overall_cr: number };
   rows: Array<{ step: string; count: number; rate_vs_prev_pct: number | null; rate_vs_sessions_pct: number | null }>;
   synced_at: number;
 };

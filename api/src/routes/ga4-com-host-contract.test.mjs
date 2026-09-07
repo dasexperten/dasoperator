@@ -34,6 +34,6 @@ test('commercial GA4 reports are bounded to the .com host', () => {
 test('host correction busts every affected cache key', () => {
   assert.match(source, /ga4:overview:v2[\s\S]*?host: 'com'/);
   assert.match(source, /ga4:acquisition-detail:v6[\s\S]*?host: 'com'/);
-  assert.match(source, /ga4:funnel:v2[\s\S]*?host: 'com'/);
-  assert.match(source, /ga4:commerce-losses:v24[\s\S]*?host: 'com'/);
+  assert.match(source, /ga4:funnel:v3[\s\S]*?host: 'com'/);
+  assert.match(source, /ga4:commerce-losses:v27[\s\S]*?host: 'com'/);
 });

@@ -385,18 +385,20 @@ ga4.get('/acquisition-detail', async (c) => {
 
 // =============================================================================
 // GET /api/ga4/funnel?days=30 — e-commerce funnel event counts.
-// Steps: sessions (base) -> view_item -> add_to_cart -> begin_checkout -> purchase.
+// Steps: sessions (base) -> view_item -> add_to_cart -> begin_checkout ->
+// Stripe-verified purchase. Generic purchase is retained only as a legacy audit
+// total: it predates server verification and must not be presented as revenue.
 // Step rates are computed vs the previous step; overall rate vs sessions.
 // KV cache: 1h
 // =============================================================================
-const FUNNEL_EVENTS = ['page_view', 'view_item', 'add_to_cart', 'begin_checkout', 'purchase'];
+const FUNNEL_EVENTS = ['page_view', 'view_item', 'add_to_cart', 'begin_checkout', 'purchase', 'purchase_verified'];
 
 ga4.get('/funnel', async (c) => {
   if (!ga4Configured(c.env)) return notConfigured(c);
   const days = windowDays(c);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:funnel:v2', { days, calendar_window: 'exact-v2', host: 'com' }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:funnel:v3', { days, calendar_window: 'exact-v2', host: 'com' }), 3600, async () => {
       const [sessionsResp, eventsResp] = await Promise.all([
         ga4RunReport(c.env, {
           dateRanges: [reportRange(days)],
@@ -422,15 +424,15 @@ ga4.get('/funnel', async (c) => {
         counts.set(r.dimensionValues?.[0]?.value ?? '', Math.round(metricNum(r, 0)));
       }
 
-      // Funnel per brief 4.3: session -> view_item -> add_to_cart ->
-      // begin_checkout -> purchase (page_view kept as reference row).
-      const stepNames = ['sessions', 'view_item', 'add_to_cart', 'begin_checkout', 'purchase'];
+      // Finance-safe funnel: only the companion event emitted after the checkout
+      // Worker confirms Stripe status=succeeded is allowed to close the sale.
+      const stepNames = ['sessions', 'view_item', 'add_to_cart', 'begin_checkout', 'purchase_verified'];
       const stepCounts = [
         sessions,
         counts.get('view_item') ?? 0,
         counts.get('add_to_cart') ?? 0,
         counts.get('begin_checkout') ?? 0,
-        counts.get('purchase') ?? 0,
+        counts.get('purchase_verified') ?? 0,
       ];
       const rows = stepNames.map((step, i) => {
         const count = stepCounts[i] ?? 0;
@@ -451,8 +453,10 @@ ga4.get('/funnel', async (c) => {
         totals: {
           sessions,
           page_view_events: counts.get('page_view') ?? 0,
-          purchases: counts.get('purchase') ?? 0,
-          overall_cr: sessions > 0 ? round2(((counts.get('purchase') ?? 0) / sessions) * 100) : 0,
+          purchases: counts.get('purchase_verified') ?? 0,
+          verified_purchases: counts.get('purchase_verified') ?? 0,
+          legacy_purchase_events: counts.get('purchase') ?? 0,
+          overall_cr: sessions > 0 ? round2(((counts.get('purchase_verified') ?? 0) / sessions) * 100) : 0,
         },
         rows,
         synced_at: Math.floor(Date.now() / 1000),

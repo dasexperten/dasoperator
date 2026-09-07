@@ -85,6 +85,7 @@ const checks = [
   [ui.includes('PH ₱499 landing → cart') && ui.includes('priceTestLosses.data?.price_test?.ph_paid_landing') && ui.includes('phCartAdds / paidPhLandings'), 'dashboard renders bounded Philippines price-test conversion from the fresh report'],
   [ui.includes('MY RM29.90 landing → cart') && ui.includes('priceTestLosses.data?.price_test?.my_paid_landing') && ui.includes('myCartAdds / paidMyLandings'), 'dashboard renders bounded Malaysia discount-test conversion from the fresh report'],
   [types.includes('homepage_product_selections: number;') && ui.includes('Homepage formula selections') && ui.includes('losses.data?.homepage_product_selections'), 'dashboard exposes homepage product selections as a measured KPI'],
+  [types.includes('search_terms: Array<{') && ui.includes('Actual search term') && ui.includes('searchDelivery[code].search_terms.map'), 'dashboard exposes actual PH/MY search-term delivery from the bounded feed'],
   [ui.includes('paidPhLandings > 0 ?') && ui.includes(': null') && ui.includes('paidMyLandings > 0 ?'), 'zero exposure renders an unavailable rate instead of a false zero percent'],
   [ui.includes("useApi<AdsPriceTestExposure>('/api/ga4/price-test-exposure')") && ui.includes('PH/MY price cards below use the exact GA4 release seam'), 'dashboard separates Ads calendar delivery from exact GA4 price-test conversion'],
   [types.includes('campaign_delivery?: {') && types.includes('post_launch_complete_hours:'), 'shared type carries bounded post-launch Ads delivery'],

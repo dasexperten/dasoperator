@@ -170,6 +170,12 @@ export type AdsPriceTestExposure = {
       impressions: number;
       clicks: number;
     }>;
+    search_terms: Array<{
+      term: string;
+      status: string | null;
+      impressions: number;
+      clicks: number;
+    }>;
   }>;
   markets: Record<'PH' | 'MY' | 'VN', {
     country: string;

@@ -225,6 +225,19 @@ export default function FunnelTab() {
                     </tbody>
                   </table>
                 </div>
+                <div className="wa-table-scroll" style={{ marginBottom: 16 }}>
+                  <table className="wa-table">
+                    <thead><tr><th>Market</th><th>Actual search term</th><th>Google status</th><th>Impressions</th><th>Clicks</th></tr></thead>
+                    <tbody>
+                      {(['PH', 'MY'] as const).flatMap((code) => searchDelivery[code].search_terms.map((term) => (
+                        <tr key={`${code}-${term.term}`}>
+                          <td>{code}</td><td>{term.term}</td><td>{term.status ?? '—'}</td>
+                          <td className="num">{fmtNum(term.impressions)}</td><td className="num">{fmtNum(term.clicks)}</td>
+                        </tr>
+                      )))}
+                    </tbody>
+                  </table>
+                </div>
               </>
             )}
             <div className="wa-kpis" style={{ marginBottom: 16 }}>

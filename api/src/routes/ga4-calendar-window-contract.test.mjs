@@ -19,7 +19,8 @@ test('all standard GA4 report calls use the shared window contract', () => {
 });
 
 test('corrected semantics cannot read stale inclusive-window cache entries', () => {
-  assert.match(source, /calendar_window: 'exact-v2'/);
+  assert.match(source, /calendar_window: 'exact-v3'/);
+  assert.doesNotMatch(source, /calendar_window: 'exact-v2'/);
 });
 
 test('every cached calendar report refreshes a one-day decision window within five minutes', () => {

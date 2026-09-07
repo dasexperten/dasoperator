@@ -33,7 +33,7 @@ const checks = [
   [api.includes("'checkout_opened'") && api.includes("'checkout_stripe_ready'"), 'API separates checkout shell opening from Stripe readiness'],
   [api.includes("'checkout_cta_click'") && api.includes("row.event === 'checkout_cta_click'") && types.includes('checkout_cta_click: number;') && ui.includes("checkout_cta_click: 'Pressed checkout CTA'"), 'cart CTA intent is separated from checkout opening'],
   [api.includes('return days === 1 ? 300 : 3600;'), 'one-day decision reports refresh within five minutes'],
-  [(api.match(/decisionCacheTtl\(days\)/g) || []).length === 2, 'both acquisition and commerce-loss reports use decision TTL'],
+  [(api.match(/decisionCacheTtl\(days\)/g) || []).length === 11, 'all cached calendar reports use the adaptive decision TTL'],
   [api.includes("'pdp_value_proof_view'"), 'API requests PDP value-proof visibility'],
   [api.includes("'pdp_price_view'"), 'API requests PDP price visibility'],
   [ui.includes("pdp_value_proof_view: 'Saw product value proof'"), 'dashboard labels value-proof visibility'],

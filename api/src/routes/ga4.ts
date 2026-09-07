@@ -81,7 +81,7 @@ ga4.get('/overview', async (c) => {
   const days = windowDays(c);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:overview:v2', { days, calendar_window: 'exact-v2', host: 'com' }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:overview:v2', { days, calendar_window: 'exact-v2', host: 'com' }), decisionCacheTtl(days), async () => {
       const daily = await ga4RunReport(c.env, {
         dateRanges: [reportRange(days)],
         dimensions: [{ name: 'date' }],
@@ -169,7 +169,7 @@ ga4.get('/channels', async (c) => {
   const days = windowDays(c);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:channels', { days, calendar_window: 'exact-v2' }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:channels', { days, calendar_window: 'exact-v2' }), decisionCacheTtl(days), async () => {
       const resp = await ga4RunReport(c.env, {
         dateRanges: [reportRange(days)],
         dimensions: [{ name: 'sessionDefaultChannelGroup' }],
@@ -230,7 +230,7 @@ ga4.get('/pages', async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '50', 10) || 50, 1), 250);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:pages', { days, limit, calendar_window: 'exact-v2' }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:pages', { days, limit, calendar_window: 'exact-v2' }), decisionCacheTtl(days), async () => {
       const resp = await ga4RunReport(c.env, {
         dateRanges: [reportRange(days)],
         dimensions: [{ name: 'landingPage' }],
@@ -398,7 +398,7 @@ ga4.get('/funnel', async (c) => {
   const days = windowDays(c);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:funnel:v3', { days, calendar_window: 'exact-v2', host: 'com' }), 3600, async () => {
+      const payload = await withKvCache(c.env, cacheKey('ga4:funnel:v3', { days, calendar_window: 'exact-v2', host: 'com' }), decisionCacheTtl(days), async () => {
       const [sessionsResp, eventsResp] = await Promise.all([
         ga4RunReport(c.env, {
           dateRanges: [reportRange(days)],
@@ -780,7 +780,7 @@ ga4.get('/geo', async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '50', 10) || 50, 1), 250);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:geo', { days, limit, calendar_window: 'exact-v2' }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:geo', { days, limit, calendar_window: 'exact-v2' }), decisionCacheTtl(days), async () => {
       const resp = await ga4RunReport(c.env, {
         dateRanges: [reportRange(days)],
         dimensions: [{ name: 'country' }, { name: 'countryId' }],
@@ -843,7 +843,7 @@ ga4.get('/languages', async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '15', 10) || 15, 1), 100);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:languages', { days, limit, calendar_window: 'exact-v2' }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:languages', { days, limit, calendar_window: 'exact-v2' }), decisionCacheTtl(days), async () => {
       const resp = await ga4RunReport(c.env, {
         dateRanges: [reportRange(days)],
         dimensions: [{ name: 'language' }],
@@ -882,7 +882,7 @@ ga4.get('/content', async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '25', 10) || 25, 1), 250);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:content:v4', { days, limit, calendar_window: 'exact-v2' }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:content:v4', { days, limit, calendar_window: 'exact-v2' }), decisionCacheTtl(days), async () => {
       const [resp, commerce] = await Promise.all([ga4RunReport(c.env, {
         dateRanges: [reportRange(days)],
         dimensions: [{ name: 'unifiedScreenName' }, { name: 'pagePath' }],
@@ -945,7 +945,7 @@ ga4.get('/snapshot', async (c) => {
   const days = windowDays(c, 28);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:snapshot', { days, calendar_window: 'exact-v2' }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:snapshot', { days, calendar_window: 'exact-v2' }), decisionCacheTtl(days), async () => {
       const metrics = [
         { name: 'activeUsers' },
         { name: 'addToCarts' },
@@ -1031,7 +1031,7 @@ ga4.get('/nav-flows', async (c) => {
   const days = windowDays(c);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:nav-flows', { days, calendar_window: 'exact-v2' }), 3600, async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:nav-flows', { days, calendar_window: 'exact-v2' }), decisionCacheTtl(days), async () => {
       const [entriesResp, edgesResp] = await Promise.all([
         ga4RunReport(c.env, {
           dateRanges: [reportRange(days)],

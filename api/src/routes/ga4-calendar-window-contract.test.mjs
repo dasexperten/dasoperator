@@ -14,10 +14,19 @@ test('GA4 day windows contain exactly the requested calendar dates', () => {
 test('all standard GA4 report calls use the shared window contract', () => {
   const reportRanges = source.match(/dateRanges: \[reportRange\(days\)\]/g) ?? [];
   const previousRanges = source.match(/dateRanges: \[previousReportRange\(days\)\]/g) ?? [];
-  assert.equal(reportRanges.length, 16);
+  assert.equal(reportRanges.length, 17);
   assert.equal(previousRanges.length, 2);
 });
 
 test('corrected semantics cannot read stale inclusive-window cache entries', () => {
   assert.match(source, /calendar_window: 'exact-v2'/);
+});
+
+test('every cached calendar report refreshes a one-day decision window within five minutes', () => {
+  const cachedRoutes = source.match(/withKvCache\(/g) ?? [];
+  const adaptiveTtls = source.match(/decisionCacheTtl\(days\)/g) ?? [];
+  assert.equal(cachedRoutes.length, 11);
+  assert.equal(adaptiveTtls.length, 11);
+  assert.match(source, /return days === 1 \? 300 : 3600/);
+  assert.doesNotMatch(source, /\), 3600, async \(\) =>/);
 });

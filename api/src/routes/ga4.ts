@@ -490,6 +490,7 @@ const COMMERCE_LOSS_EVENTS = [
   'checkout_email_complete',
   'checkout_address_started',
   'checkout_address_complete',
+  'checkout_pay_blocked_click',
   'shipping_quote_ready',
   'add_payment_info',
   'checkout_error',
@@ -585,7 +586,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v28', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
+      cacheKey('ga4:commerce-losses:v29', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
       decision ? 300 : decisionCacheTtl(days),
       async () => {
         const [resp, actorsResp] = await Promise.all([ga4RunReport(c.env, {
@@ -1127,7 +1128,7 @@ ga4.get('/realtime', async (c) => {
       'shipping_bundle_unavailable',
       'shipping_bundle_add', 'begin_checkout', 'checkout_loaded', 'checkout_email_started', 'checkout_email_complete',
       'checkout_address_started', 'checkout_address_complete',
-      'shipping_quote_ready', 'add_payment_info', 'purchase', 'checkout_error',
+      'checkout_pay_blocked_click', 'shipping_quote_ready', 'add_payment_info', 'purchase', 'checkout_error',
       'frontend_error_script_first_party', 'frontend_error_script_third_party',
       'frontend_error_script_inline', 'frontend_error_script_unknown',
       'frontend_error_resource_first_party', 'frontend_error_resource_third_party',

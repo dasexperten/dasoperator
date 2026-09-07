@@ -508,6 +508,14 @@ const COMMERCE_LOSS_EVENTS = [
   'checkout_error_ru_pickup',
   'checkout_error_ru_empty_cart',
   'checkout_error_ru_service',
+  'frontend_error_script_first_party',
+  'frontend_error_script_third_party',
+  'frontend_error_script_inline',
+  'frontend_error_script_unknown',
+  'frontend_error_resource_first_party',
+  'frontend_error_resource_third_party',
+  'frontend_error_resource_unknown',
+  'frontend_error_promise_runtime',
   'paid_locale_landing_vn',
   'paid_locale_landing_th',
   'paid_locale_landing_tl',
@@ -577,7 +585,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v27', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
+      cacheKey('ga4:commerce-losses:v28', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
       decision ? 300 : decisionCacheTtl(days),
       async () => {
         const [resp, actorsResp] = await Promise.all([ga4RunReport(c.env, {
@@ -1120,6 +1128,10 @@ ga4.get('/realtime', async (c) => {
       'shipping_bundle_add', 'begin_checkout', 'checkout_loaded', 'checkout_email_started', 'checkout_email_complete',
       'checkout_address_started', 'checkout_address_complete',
       'shipping_quote_ready', 'add_payment_info', 'purchase', 'checkout_error',
+      'frontend_error_script_first_party', 'frontend_error_script_third_party',
+      'frontend_error_script_inline', 'frontend_error_script_unknown',
+      'frontend_error_resource_first_party', 'frontend_error_resource_third_party',
+      'frontend_error_resource_unknown', 'frontend_error_promise_runtime',
     ];
     const [perMinute, byCountry, fiveMin, byAudience, byPage, byEvent] = await Promise.all([
       ga4RunRealtimeReport(c.env, {

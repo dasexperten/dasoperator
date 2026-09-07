@@ -97,12 +97,14 @@ export type Ga4CommerceLosses = {
     value_proof_views: number;
     add_to_cart: number;
     view_cart: number;
+    cart_exit_before_checkout: number;
     checkout_cta_click: number;
     begin_checkout: number;
     purchases: number;
     checkout_errors: number;
     add_to_cart_users: number;
     view_cart_users: number;
+    cart_exit_before_checkout_users: number;
     begin_checkout_users: number;
     purchase_users: number;
   }>;

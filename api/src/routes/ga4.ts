@@ -481,6 +481,7 @@ const COMMERCE_LOSS_EVENTS = [
   'select_item',
   'add_to_cart',
   'view_cart',
+  'cart_exit_before_checkout',
   'checkout_cta_click',
   'begin_checkout',
   'checkout_opened',
@@ -586,7 +587,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v29', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
+      cacheKey('ga4:commerce-losses:v30', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
       decision ? 300 : decisionCacheTtl(days),
       async () => {
         const [resp, actorsResp] = await Promise.all([ga4RunReport(c.env, {
@@ -720,13 +721,14 @@ ga4.get('/commerce-losses', async (c) => {
           const key = `${row.country}\u0000${row.page}`;
           const page = pageMap.get(key) ?? {
             country: row.country, page: row.page, price_views: 0, value_proof_views: 0,
-            add_to_cart: 0, view_cart: 0, checkout_cta_click: 0, begin_checkout: 0, purchases: 0, checkout_errors: 0,
-            add_to_cart_users: 0, view_cart_users: 0, begin_checkout_users: 0, purchase_users: 0,
+            add_to_cart: 0, view_cart: 0, cart_exit_before_checkout: 0, checkout_cta_click: 0, begin_checkout: 0, purchases: 0, checkout_errors: 0,
+            add_to_cart_users: 0, view_cart_users: 0, cart_exit_before_checkout_users: 0, begin_checkout_users: 0, purchase_users: 0,
           };
           if (row.event === 'pdp_price_view') page.price_views += row.count;
           else if (row.event === 'pdp_value_proof_view') page.value_proof_views += row.count;
           else if (row.event === 'add_to_cart') page.add_to_cart += row.count;
           else if (row.event === 'view_cart') page.view_cart += row.count;
+          else if (row.event === 'cart_exit_before_checkout') page.cart_exit_before_checkout += row.count;
           else if (row.event === 'checkout_cta_click') page.checkout_cta_click += row.count;
           else if (row.event === 'begin_checkout') page.begin_checkout += row.count;
           else if (row.event === 'purchase') page.purchases += row.count;
@@ -738,6 +740,7 @@ ga4.get('/commerce-losses', async (c) => {
           if (!page) continue;
           if (row.event === 'add_to_cart') page.add_to_cart_users = row.users;
           else if (row.event === 'view_cart') page.view_cart_users = row.users;
+          else if (row.event === 'cart_exit_before_checkout') page.cart_exit_before_checkout_users = row.users;
           else if (row.event === 'begin_checkout') page.begin_checkout_users = row.users;
           else if (row.event === 'purchase') page.purchase_users = row.users;
         }
@@ -1124,7 +1127,7 @@ ga4.get('/realtime', async (c) => {
       'paid_locale_landing_vn', 'paid_locale_landing_th', 'paid_locale_landing_tl',
       'paid_locale_landing_ms', 'paid_locale_landing_zh', 'view_item', 'add_to_cart',
       'pdp_value_proof_view', 'pdp_price_view', 'pdp_delivery_preview_ready',
-      'view_cart', 'shipping_preview_ready', 'shipping_bundle_offer',
+      'view_cart', 'cart_exit_before_checkout', 'shipping_preview_ready', 'shipping_bundle_offer',
       'shipping_bundle_unavailable',
       'shipping_bundle_add', 'begin_checkout', 'checkout_loaded', 'checkout_email_started', 'checkout_email_complete',
       'checkout_address_started', 'checkout_address_complete',

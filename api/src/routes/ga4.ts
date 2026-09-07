@@ -474,6 +474,7 @@ ga4.get('/funnel', async (c) => {
 // KV cache: 1h
 // =============================================================================
 const COMMERCE_LOSS_EVENTS = [
+  'select_item',
   'add_to_cart',
   'view_cart',
   'checkout_cta_click',
@@ -572,7 +573,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v26', { days, limit, decision, calendar_window: 'exact-v2', host: 'com' }),
+      cacheKey('ga4:commerce-losses:v27', { days, limit, decision, calendar_window: 'exact-v2', host: 'com' }),
       decision ? 300 : decisionCacheTtl(days),
       async () => {
         const [resp, actorsResp] = await Promise.all([ga4RunReport(c.env, {
@@ -647,6 +648,9 @@ ga4.get('/commerce-losses', async (c) => {
           my_paid_landing: marketEventTotal('paid_locale_landing_ms', 'Malaysia'),
           my_add_to_cart: marketEventTotal('add_to_cart', 'Malaysia'),
         };
+        const homepage_product_selections = rows
+          .filter((row) => row.event === 'select_item' && row.page === '/')
+          .reduce((sum, row) => sum + row.count, 0);
         const priceTestEventTotal = (event: string, country: string, page: string) => rows
           .filter((row) => row.event === event
             && row.country === country
@@ -741,6 +745,7 @@ ga4.get('/commerce-losses', async (c) => {
           totals,
           user_totals,
           market_totals,
+          homepage_product_selections,
           price_test,
           page_totals,
           row_coverage: {

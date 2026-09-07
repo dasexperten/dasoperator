@@ -88,6 +88,7 @@ export type Ga4CommerceLosses = {
     my_paid_landing: number;
     my_add_to_cart: number;
   };
+  homepage_product_selections: number;
   row_coverage: { returned_rows: number; available_rows: number; failure_rows: number };
   page_totals: Array<{
     country: string;

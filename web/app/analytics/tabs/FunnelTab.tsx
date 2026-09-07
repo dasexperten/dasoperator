@@ -103,6 +103,7 @@ export default function FunnelTab() {
   const bundleOffers = losses.data?.totals.shipping_bundle_offer ?? 0;
   const bundleAdds = losses.data?.totals.shipping_bundle_add ?? 0;
   const bundleUptake = bundleOffers > 0 ? (bundleAdds / bundleOffers) * 100 : 0;
+  const homepageProductSelections = losses.data?.homepage_product_selections ?? 0;
   const paidVnLandings = priceTestLosses.data?.price_test?.vn_paid_landing ?? 0;
   const vnCartAdds = priceTestLosses.data?.price_test?.vn_add_to_cart ?? 0;
   const vnLandingToCart = paidVnLandings > 0 ? (vnCartAdds / paidVnLandings) * 100 : null;
@@ -265,6 +266,14 @@ export default function FunnelTab() {
         )}
         {losses.data && (
           <>
+            <div className="wa-kpis" style={{ marginBottom: 16 }}>
+              <Kpi
+                accent
+                label="Homepage formula selections"
+                value={fmtNum(homepageProductSelections)}
+                delta="select_item · homepage only · 30d"
+              />
+            </div>
             <div className="wa-kpis" style={{ marginBottom: 16 }}>
               <Kpi label="VN control landings" value={fmtNum(paidVnLandings)} delta="post-launch · exact PDP" />
               <Kpi label="VN control carts" value={fmtNum(vnCartAdds)} delta="post-launch · exact PDP" />

@@ -108,6 +108,8 @@ const checks = [
   [ui.includes('Minute · GA4') && ui.includes('gaMinute(row.event_minute)'), 'dashboard shows the event occurrence minute'],
   [campaigns.includes("useApi<AdsPriceTestExposure>('/api/ga4/price-test-exposure')") && campaigns.includes('Google Ads — active price-test delivery'), 'Campaigns tab consumes the live bounded Google Ads feed'],
   [campaigns.includes("(['PH', 'MY'] as const)") && campaigns.includes('Legacy PMax'), 'Campaigns tab separates replacement Search from legacy PMax delivery'],
+  [types.includes('search_rank_lost_impression_share: number | null') && campaigns.includes('Price-test read: no click sample yet.') && campaigns.includes('The current bottleneck is ad entry, before the price page.'), 'Campaigns tab blocks price conclusions when Ads has impressions but no clicks'],
+  [campaigns.includes('row.clicks / row.impressions') && campaigns.includes('row.search_impression_share') && campaigns.includes('row.search_rank_lost_impression_share'), 'Campaigns tab exposes CTR, impression share and rank loss for Search delivery'],
   [!campaigns.toLowerCase().includes('pending google approval') && !analyticsPage.includes('Google Ads Basic-access approval'), 'analytics surface no longer claims the live Google Ads source is approval-pending'],
   [campaigns.includes('ROAS remains withheld') && campaigns.includes('attributable order revenue'), 'Campaigns tab keeps ROAS gated to matched spend and revenue'],
 ];

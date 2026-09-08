@@ -163,6 +163,10 @@ export type AdsPriceTestExposure = {
     clicks: number;
     cost_usd: number;
     conversions: number;
+    search_impression_share: number | null;
+    search_budget_lost_impression_share: number | null;
+    search_rank_lost_impression_share: number | null;
+    delivery_diagnosis: string | null;
     hourly: Array<{
       date: string;
       hour: number;

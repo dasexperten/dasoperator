@@ -34,6 +34,11 @@ export default function CampaignsTab() {
   const d = direct.data;
   const search = ads.data?.replacement_search_delivery;
   const legacy = ads.data?.campaign_delivery;
+  const searchRows = (['PH', 'MY'] as const)
+    .map((code) => ({ code, row: search?.[code] }))
+    .filter((item): item is { code: 'PH' | 'MY'; row: NonNullable<typeof item.row> } => Boolean(item.row));
+  const searchImpressions = searchRows.reduce((sum, item) => sum + item.row.impressions, 0);
+  const searchClicks = searchRows.reduce((sum, item) => sum + item.row.clicks, 0);
 
   return (
     <div className="space-y-4">
@@ -117,6 +122,13 @@ export default function CampaignsTab() {
                   PH and MY Search delivery is isolated from the paused legacy PMax campaign.
                   Budgets, auction status and spend below come directly from Google Ads.
                 </p>
+                {searchImpressions > 0 && searchClicks === 0 && (
+                  <div className="wa-note" style={{ marginTop: 10 }}>
+                    <strong>Price-test read: no click sample yet.</strong>{' '}
+                    {fmtNum(searchImpressions)} impressions produced 0 clicks, so PH ₱499 and MY RM29.90
+                    landing conversion cannot be judged yet. The current bottleneck is ad entry, before the price page.
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -124,7 +136,7 @@ export default function CampaignsTab() {
             <div className="wa-table-scroll">
               <table className="wa-table">
                 <thead>
-                  <tr><th>Campaign</th><th>Status</th><th className="right">Budget/day</th><th className="right">Impr.</th><th className="right">Clicks</th><th className="right">Spend</th><th className="right">Conv.</th></tr>
+                  <tr><th>Campaign</th><th>Status</th><th className="right">Budget/day</th><th className="right">Impr.</th><th className="right">CTR</th><th className="right">Impr. share</th><th className="right">Rank lost</th><th className="right">Spend</th><th className="right">Conv.</th></tr>
                 </thead>
                 <tbody>
                   {(['PH', 'MY'] as const).map((code) => {
@@ -135,7 +147,9 @@ export default function CampaignsTab() {
                         <td>{row.primary_status || row.status || '—'}</td>
                         <td className="num right">{fmtUsd(row.daily_budget_usd)}</td>
                         <td className="num right soft">{fmtNum(row.impressions)}</td>
-                        <td className="num right">{fmtNum(row.clicks)}</td>
+                        <td className="num right">{row.impressions > 0 ? fmtPct(row.clicks / row.impressions) : '—'}</td>
+                        <td className="num right">{row.search_impression_share == null ? '—' : fmtPct(row.search_impression_share)}</td>
+                        <td className="num right">{row.search_rank_lost_impression_share == null ? '—' : fmtPct(row.search_rank_lost_impression_share)}</td>
                         <td className="num right">{fmtUsd(row.cost_usd)}</td>
                         <td className="num right">{fmtNum(row.conversions)}</td>
                       </tr>
@@ -147,7 +161,9 @@ export default function CampaignsTab() {
                       <td>{legacy.primary_status || legacy.status || '—'}</td>
                       <td className="num right">{fmtUsd(legacy.daily_budget_usd)}</td>
                       <td className="num right soft">{fmtNum(legacy.post_launch_complete_hours.impressions)}</td>
-                      <td className="num right">{fmtNum(legacy.post_launch_complete_hours.clicks)}</td>
+                      <td className="num right">{legacy.post_launch_complete_hours.impressions > 0 ? fmtPct(legacy.post_launch_complete_hours.clicks / legacy.post_launch_complete_hours.impressions) : '—'}</td>
+                      <td className="num right">—</td>
+                      <td className="num right">—</td>
                       <td className="num right">{fmtUsd(legacy.post_launch_complete_hours.cost_usd)}</td>
                       <td className="num right">{fmtNum(legacy.post_launch_complete_hours.conversions)}</td>
                     </tr>

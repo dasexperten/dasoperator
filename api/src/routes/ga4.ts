@@ -169,20 +169,25 @@ ga4.get('/channels', async (c) => {
   const days = windowDays(c);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:channels:v2', { days, calendar_window: 'exact-v3', host: 'com' }), decisionCacheTtl(days), async () => {
-      const resp = await ga4RunReport(c.env, {
+    const payload = await withKvCache(c.env, cacheKey('ga4:channels:v3', { days, calendar_window: 'exact-v3', host: 'com' }), decisionCacheTtl(days), async () => {
+      const metrics = [
+        { name: 'sessions' },
+        { name: 'totalUsers' },
+        { name: 'ecommercePurchases' },
+        { name: 'purchaseRevenue' },
+      ];
+      const [resp, exact] = await Promise.all([ga4RunReport(c.env, {
         dateRanges: [reportRange(days)],
         dimensions: [{ name: 'sessionDefaultChannelGroup' }],
-        metrics: [
-          { name: 'sessions' },
-          { name: 'totalUsers' },
-          { name: 'ecommercePurchases' },
-          { name: 'purchaseRevenue' },
-        ],
+        metrics,
         dimensionFilter: comHostFilter(),
         orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
         limit: 50,
-      });
+      }), ga4RunReport(c.env, {
+        dateRanges: [reportRange(days)],
+        metrics,
+        dimensionFilter: comHostFilter(),
+      })]);
 
       const rows = (resp.rows ?? []).map((r) => {
         const sessions = Math.round(metricNum(r, 0));
@@ -197,17 +202,18 @@ ga4.get('/channels', async (c) => {
         };
       });
 
-      const tSessions = rows.reduce((a, r) => a + r.sessions, 0);
-      const tPurchases = rows.reduce((a, r) => a + r.purchases, 0);
+      const exactRow = exact.rows?.[0] ?? {};
+      const tSessions = Math.round(metricNum(exactRow, 0));
+      const tPurchases = Math.round(metricNum(exactRow, 2));
 
       return {
         source: comSourceLabel(c.env),
         window_days: days,
         totals: {
           sessions: tSessions,
-          users: rows.reduce((a, r) => a + r.users, 0),
+          users: Math.round(metricNum(exactRow, 1)),
           purchases: tPurchases,
-          revenue: round2(rows.reduce((a, r) => a + r.revenue, 0)),
+          revenue: round2(metricNum(exactRow, 3)),
           cr: tSessions > 0 ? round2((tPurchases / tSessions) * 100) : 0,
         },
         rows,

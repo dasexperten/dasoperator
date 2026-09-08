@@ -39,7 +39,8 @@ test('commercial GA4 reports are bounded to the .com host', () => {
   assert.match(content, /dimensionFilter: withComHostFilter\(/);
 
   const channels = route('/channels', '/pages');
-  assert.match(channels, /dimensionFilter: comHostFilter\(\)/);
+  assert.equal((channels.match(/dimensionFilter: comHostFilter\(\)/g) || []).length, 2);
+  assert.match(channels, /const \[resp, exact\] = await Promise\.all/);
 
   const geo = route('/geo', '/languages');
   assert.equal((geo.match(/dimensionFilter: comHostFilter\(\)/g) || []).length, 3);
@@ -65,7 +66,7 @@ test('host correction busts every affected cache key', () => {
   assert.match(source, /ga4:funnel:v3[\s\S]*?host: 'com'/);
   assert.match(source, /ga4:commerce-losses:v32[\s\S]*?host: 'com'/);
   assert.match(source, /ga4:content:v5[\s\S]*?host: 'com'/);
-  assert.match(source, /ga4:channels:v2[\s\S]*?host: 'com'/);
+  assert.match(source, /ga4:channels:v3[\s\S]*?host: 'com'/);
   assert.match(source, /ga4:geo:v2[\s\S]*?host: 'com'/);
   assert.match(source, /ga4:languages:v2[\s\S]*?host: 'com'/);
   assert.match(source, /ga4:snapshot:v2[\s\S]*?host: 'com'/);

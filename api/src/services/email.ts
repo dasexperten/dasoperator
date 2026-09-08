@@ -14,6 +14,7 @@
 
 import type { Env } from '../types';
 import { archiveEmail } from '../lib/inbox-archive';
+import { heldRecipients, mailHoldRefusal } from '../lib/mail-holds';
 
 export const SENDING_DOMAIN = 'notify.dasexperten.com';
 
@@ -200,6 +201,14 @@ export async function sendEmail(env: Env, params: SendEmailParams): Promise<Send
     }
 
     assertAllowedSender(params.from);
+
+    // The do-not-contact register (lib/mail-holds.ts). Transactional mail is
+    // still mail: an order confirmation to a held address breaks the hold just
+    // as a reply does.
+    const held = heldRecipients(recipients, params.cc, params.bcc);
+    if (held.length) {
+      throw new EmailValidationError(`mail hold: ${mailHoldRefusal(held)}`);
+    }
 
     // Built via conditional spread (not plain keys) so unset optional fields
     // are omitted entirely rather than assigned `undefined` — the workers-types

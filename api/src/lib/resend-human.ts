@@ -8,6 +8,7 @@
 import type { Env } from '../types';
 import { archiveEmail } from './inbox-archive';
 import { MAILBOX_REGISTRY } from './mailbox-registry';
+import { heldRecipients, mailHoldRefusal } from './mail-holds';
 
 /** Apex addresses allowed for human/agent brand mail (Resend-verified). */
 export const HUMAN_SENDERS = new Set([
@@ -197,6 +198,15 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
   let html = params.html;
 
   if (!params.archive_only) {
+    // A hold beats every other test. Checked here, at the last door before the
+    // letter leaves, because a lock further up is a lock somebody can walk past:
+    // the reply route, a seat worker and a fleet job all end in this function.
+    // Archiving is untouched — recording a message is not writing to a contact.
+    const held = heldRecipients(params.to, params.cc, params.bcc);
+    if (held.length) {
+      return { success: false, error: `mail hold: ${mailHoldRefusal(held)}` };
+    }
+
     if (!env.RESEND_API_KEY) {
       return { success: false, error: 'RESEND_API_KEY not configured' };
     }

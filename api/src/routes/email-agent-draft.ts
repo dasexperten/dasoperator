@@ -14,6 +14,7 @@ import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { validateSession } from '../lib/auth';
 import { MAILBOX_REGISTRY } from '../lib/mailbox-registry';
+import { heldRecipients, mailHoldRefusal } from '../lib/mail-holds';
 
 function bearer(c: import('hono').Context<{ Bindings: Env }>): string | null {
   const h = c.req.header('authorization') || '';
@@ -24,6 +25,35 @@ async function requireSession(c: import('hono').Context<{ Bindings: Env }>): Pro
   const token = bearer(c);
   if (!token) return false;
   return !!(await validateSession(c.env.DB, token));
+}
+
+/**
+ * Who the letter is with — the address a reply to this record would reach.
+ * Read from the archive itself, not from the browser: the record is what the
+ * seat drafts against, so the record is what the hold is tested on.
+ */
+async function counterpartyOf(env: Env, key: string): Promise<string[]> {
+  try {
+    const obj = await env.ARCHIVE.get(key);
+    if (!obj) return [];
+    const rec = (await obj.json()) as {
+      direction?: string;
+      from?: string;
+      to?: string | string[];
+      cc?: string | string[];
+    };
+    const asList = (v: string | string[] | undefined): string[] =>
+      !v ? [] : Array.isArray(v) ? v : [v];
+    // An inbound letter is answered to its sender; an outbound one to whoever
+    // it was addressed to. Cc counts either way — a hold covers cc as well.
+    return rec.direction === 'sent'
+      ? [...asList(rec.to), ...asList(rec.cc)]
+      : [...(rec.from ? [rec.from] : []), ...asList(rec.cc)];
+  } catch {
+    // The archive is unreadable — say nothing about holds rather than invent a
+    // clearance. The send gate downstream still stands.
+    return [];
+  }
 }
 
 const route = new Hono<{ Bindings: Env }>();
@@ -71,6 +101,15 @@ route.post('/agent-draft', async (c) => {
   const mailbox = key.split('/')[1] || '';
   const agent = ownerOf(mailbox);
   if (!agent) return fail(c, 404, [{ code: 'no_owner', message: `no agent owns ${mailbox}` }]);
+
+  // A held counterparty gets no draft at all. The send is already locked in
+  // lib/resend-human.ts, but a draft sitting in the compose window with the
+  // right address in `to` is a letter one click from the wire — and on
+  // 2026-09-04 that click was made. Refuse at the pen, not only at the door.
+  const held = heldRecipients(await counterpartyOf(c.env, key));
+  if (held.length) {
+    return fail(c, 409, [{ code: 'mail_hold', message: mailHoldRefusal(held) }]);
+  }
 
   const bindingName = SEAT_BINDING[agent.slug || ''];
   const seat = bindingName ? (c.env as unknown as Record<string, Fetcher>)[bindingName] : undefined;

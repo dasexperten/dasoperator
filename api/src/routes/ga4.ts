@@ -531,6 +531,14 @@ const COMMERCE_LOSS_EVENTS = [
   'frontend_error_resource_first_party',
   'frontend_error_resource_third_party',
   'frontend_error_resource_unknown',
+  'frontend_error_image_first_party',
+  'frontend_error_image_third_party',
+  'frontend_error_style_first_party',
+  'frontend_error_style_third_party',
+  'frontend_error_font_first_party',
+  'frontend_error_font_third_party',
+  'frontend_error_media_first_party',
+  'frontend_error_media_third_party',
   'frontend_error_promise_runtime',
   'paid_locale_landing_vn',
   'paid_locale_landing_th',
@@ -1167,7 +1175,11 @@ ga4.get('/realtime', async (c) => {
       'frontend_error_script_first_party', 'frontend_error_script_third_party',
       'frontend_error_script_inline', 'frontend_error_script_unknown',
       'frontend_error_resource_first_party', 'frontend_error_resource_third_party',
-      'frontend_error_resource_unknown', 'frontend_error_promise_runtime',
+      'frontend_error_resource_unknown', 'frontend_error_image_first_party',
+      'frontend_error_image_third_party', 'frontend_error_style_first_party',
+      'frontend_error_style_third_party', 'frontend_error_font_first_party',
+      'frontend_error_font_third_party', 'frontend_error_media_first_party',
+      'frontend_error_media_third_party', 'frontend_error_promise_runtime',
     ];
     const [perMinute, byCountry, fiveMin, byAudience, byPage, byEvent] = await Promise.all([
       ga4RunRealtimeReport(c.env, {

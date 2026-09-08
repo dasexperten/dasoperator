@@ -50,6 +50,13 @@ export type Ga4Funnel = {
   rows: Array<{ step: string; count: number; rate_vs_prev_pct: number | null; rate_vs_sessions_pct: number | null }>;
   synced_at: number;
 };
+export type WebsiteOrderStats = {
+  source: string;
+  currency: string;
+  orders_30d: number;
+  sales_30d_cents: number;
+  synced_at: number;
+};
 export type Ga4CommerceLosses = {
   source: string;
   window_days: number;

@@ -11,7 +11,7 @@ import React from 'react';
 import {
   useApi, fmtNum, fmtPct, timeAgo,
   Kpi, Panel, LoadState,
-  type AdsPriceTestExposure, type Ga4Funnel, type Ga4CommerceLosses, type MetrikaSources,
+  type AdsPriceTestExposure, type Ga4Funnel, type Ga4CommerceLosses, type MetrikaSources, type WebsiteOrderStats,
 } from '../shared';
 
 const STEP_LABELS: Record<string, string> = {
@@ -89,6 +89,7 @@ function gaMinute(value: string) {
 
 export default function FunnelTab() {
   const funnel = useApi<Ga4Funnel>('/api/ga4/funnel?days=30');
+  const websiteOrders = useApi<WebsiteOrderStats>('/api/crm/website/stats');
   // Контур .ru отдельной панелью: своя витрина, свой счётчик, свои заказы.
   // Смешивать с GA4 нельзя — два счётчика видят разные объёмы (Владелец 06.09.2026).
   const ru = useApi<MetrikaSources>('/api/metrika/sources?days=30');
@@ -137,6 +138,7 @@ export default function FunnelTab() {
   return (
     <div className="space-y-4">
       <LoadState loading={funnel.loading} error={funnel.error} />
+      <LoadState loading={websiteOrders.loading} error={websiteOrders.error} />
       <LoadState loading={losses.loading} error={losses.error} />
       <LoadState loading={priceTestLosses.loading} error={priceTestLosses.error} />
       <LoadState loading={exposure.loading} error={exposure.error} />
@@ -145,8 +147,14 @@ export default function FunnelTab() {
         <div className="wa-kpis">
           <Kpi label="Sessions · 30d" value={fmtNum(t.sessions)} delta="funnel base" />
           <Kpi label="Legacy GA4 purchase events · 30d" value={fmtNum(t.legacy_purchase_events)} delta="audit only · not revenue" />
-          <Kpi label="Stripe-verified purchases" value={fmtNum(t.verified_purchases)} delta="server-confirmed succeeded" />
-          <Kpi accent label="Verified CR" value={fmtPct(verifiedCr)} delta="verified purchases ÷ sessions" />
+          <Kpi label="GA4 verified events · 30d" value={fmtNum(t.verified_purchases)} delta="tracking signal · may have partial history" />
+          <Kpi
+            accent
+            label="Paid website orders · 30d"
+            value={websiteOrders.data ? fmtNum(websiteOrders.data.orders_30d) : '—'}
+            delta={websiteOrders.data ? `$${(websiteOrders.data.sales_30d_cents / 100).toFixed(2)} · D1/Stripe ledger` : 'D1/Stripe ledger'}
+          />
+          <Kpi label="GA4 event CR" value={fmtPct(verifiedCr)} delta="verified event signals ÷ sessions" />
         </div>
       )}
 
@@ -184,6 +192,14 @@ export default function FunnelTab() {
           <div className="wa-note" style={{ marginTop: 8, color: 'var(--status-warning)' }}>
             Low-traffic confidence note: fewer than 30 Stripe-verified purchases in the window — step rates swing
             hard on single orders. Read direction, not decimals.
+          </div>
+        )}
+        {websiteOrders.data && websiteOrders.data.orders_30d !== t?.verified_purchases && (
+          <div className="wa-note" style={{ marginTop: 8, color: 'var(--status-warning)' }}>
+            Measurement gap: the D1/Stripe ledger records {fmtNum(websiteOrders.data.orders_30d)} paid or partially
+            refunded website orders (${(websiteOrders.data.sales_30d_cents / 100).toFixed(2)}) in its rolling 30-day
+            window, while GA4 records {fmtNum(t?.verified_purchases ?? 0)} verified event signals. Use D1 for actual
+            order and revenue totals; use GA4 for directional funnel behavior until event coverage catches up.
           </div>
         )}
       </Panel>

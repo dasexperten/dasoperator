@@ -15,7 +15,7 @@ test('commercial GA4 reports are bounded to the .com host', () => {
   assert.match(source, /const COM_HOSTS = \['www\.dasexperten\.com', 'dasexperten\.com'\]/);
   assert.match(source, /fieldName: 'hostName'/);
   assert.match(source, /www\.dasexperten\.com host only/);
-  assert.equal((source.match(/source: comSourceLabel\(c\.env\)/g) || []).length, 6);
+  assert.equal((source.match(/source: comSourceLabel\(c\.env\)/g) || []).length, 11);
 
   const overview = route('/overview', '/channels');
   assert.equal((overview.match(/dimensionFilter: comHostFilter\(\)/g) || []).length, 2);
@@ -37,6 +37,25 @@ test('commercial GA4 reports are bounded to the .com host', () => {
   const content = route('/content', '/snapshot');
   assert.match(content, /dimensionFilter: comHostFilter\(\)/);
   assert.match(content, /dimensionFilter: withComHostFilter\(/);
+
+  const channels = route('/channels', '/pages');
+  assert.match(channels, /dimensionFilter: comHostFilter\(\)/);
+
+  const geo = route('/geo', '/languages');
+  assert.equal((geo.match(/dimensionFilter: comHostFilter\(\)/g) || []).length, 3);
+  assert.match(geo, /const \[resp, exact\] = await Promise\.all/);
+
+  const languages = route('/languages', '/content');
+  assert.equal((languages.match(/dimensionFilter: comHostFilter\(\)/g) || []).length, 2);
+  assert.match(languages, /const \[resp, exact\] = await Promise\.all/);
+
+  const snapshot = route('/snapshot', '/nav-flows');
+  assert.equal((snapshot.match(/dimensionFilter: comHostFilter\(\)/g) || []).length, 3);
+  assert.match(snapshot, /const \[current, currentExact, previous\] = await Promise\.all/);
+
+  const flows = route('/nav-flows', '/realtime');
+  assert.match(flows, /dimensionFilter: comHostFilter\(\)/);
+  assert.match(flows, /dimensionFilter: withComHostFilter\(/);
 });
 
 test('host correction busts every affected cache key', () => {
@@ -46,4 +65,9 @@ test('host correction busts every affected cache key', () => {
   assert.match(source, /ga4:funnel:v3[\s\S]*?host: 'com'/);
   assert.match(source, /ga4:commerce-losses:v32[\s\S]*?host: 'com'/);
   assert.match(source, /ga4:content:v5[\s\S]*?host: 'com'/);
+  assert.match(source, /ga4:channels:v2[\s\S]*?host: 'com'/);
+  assert.match(source, /ga4:geo:v2[\s\S]*?host: 'com'/);
+  assert.match(source, /ga4:languages:v2[\s\S]*?host: 'com'/);
+  assert.match(source, /ga4:snapshot:v2[\s\S]*?host: 'com'/);
+  assert.match(source, /ga4:nav-flows:v2[\s\S]*?host: 'com'/);
 });

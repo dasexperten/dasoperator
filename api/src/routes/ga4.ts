@@ -169,7 +169,7 @@ ga4.get('/channels', async (c) => {
   const days = windowDays(c);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:channels', { days, calendar_window: 'exact-v3' }), decisionCacheTtl(days), async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:channels:v2', { days, calendar_window: 'exact-v3', host: 'com' }), decisionCacheTtl(days), async () => {
       const resp = await ga4RunReport(c.env, {
         dateRanges: [reportRange(days)],
         dimensions: [{ name: 'sessionDefaultChannelGroup' }],
@@ -179,6 +179,7 @@ ga4.get('/channels', async (c) => {
           { name: 'ecommercePurchases' },
           { name: 'purchaseRevenue' },
         ],
+        dimensionFilter: comHostFilter(),
         orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
         limit: 50,
       });
@@ -200,7 +201,7 @@ ga4.get('/channels', async (c) => {
       const tPurchases = rows.reduce((a, r) => a + r.purchases, 0);
 
       return {
-        source: sourceLabel(c.env),
+        source: comSourceLabel(c.env),
         window_days: days,
         totals: {
           sessions: tSessions,
@@ -799,14 +800,19 @@ ga4.get('/geo', async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '50', 10) || 50, 1), 250);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:geo', { days, limit, calendar_window: 'exact-v3' }), decisionCacheTtl(days), async () => {
-      const resp = await ga4RunReport(c.env, {
+    const payload = await withKvCache(c.env, cacheKey('ga4:geo:v2', { days, limit, calendar_window: 'exact-v3', host: 'com' }), decisionCacheTtl(days), async () => {
+      const [resp, exact] = await Promise.all([ga4RunReport(c.env, {
         dateRanges: [reportRange(days)],
         dimensions: [{ name: 'country' }, { name: 'countryId' }],
         metrics: [{ name: 'activeUsers' }],
+        dimensionFilter: comHostFilter(),
         orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }],
         limit,
-      });
+      }), ga4RunReport(c.env, {
+        dateRanges: [reportRange(days)],
+        metrics: [{ name: 'activeUsers' }],
+        dimensionFilter: comHostFilter(),
+      })]);
 
       const rows = (resp.rows ?? []).map((r) => ({
         country: r.dimensionValues?.[0]?.value || '(not set)',
@@ -822,6 +828,7 @@ ga4.get('/geo', async (c) => {
           dateRanges: [previousReportRange(days)],
           dimensions: [{ name: 'country' }],
           metrics: [{ name: 'activeUsers' }],
+          dimensionFilter: comHostFilter(),
           limit,
         });
         for (const r of prev.rows ?? []) {
@@ -838,9 +845,9 @@ ga4.get('/geo', async (c) => {
       });
 
       return {
-        source: sourceLabel(c.env),
+        source: comSourceLabel(c.env),
         window_days: days,
-        totals: { active_users: rows.reduce((a, r) => a + r.active_users, 0) },
+        totals: { active_users: Math.round(metricNum(exact.rows?.[0] ?? {}, 0)) },
         rows: rowsWithDelta,
         synced_at: Math.floor(Date.now() / 1000),
       };
@@ -862,14 +869,19 @@ ga4.get('/languages', async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '15', 10) || 15, 1), 100);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:languages', { days, limit, calendar_window: 'exact-v3' }), decisionCacheTtl(days), async () => {
-      const resp = await ga4RunReport(c.env, {
+    const payload = await withKvCache(c.env, cacheKey('ga4:languages:v2', { days, limit, calendar_window: 'exact-v3', host: 'com' }), decisionCacheTtl(days), async () => {
+      const [resp, exact] = await Promise.all([ga4RunReport(c.env, {
         dateRanges: [reportRange(days)],
         dimensions: [{ name: 'language' }],
         metrics: [{ name: 'activeUsers' }],
+        dimensionFilter: comHostFilter(),
         orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }],
         limit,
-      });
+      }), ga4RunReport(c.env, {
+        dateRanges: [reportRange(days)],
+        metrics: [{ name: 'activeUsers' }],
+        dimensionFilter: comHostFilter(),
+      })]);
 
       const rows = (resp.rows ?? []).map((r) => ({
         language: r.dimensionValues?.[0]?.value || '(not set)',
@@ -877,9 +889,9 @@ ga4.get('/languages', async (c) => {
       }));
 
       return {
-        source: sourceLabel(c.env),
+        source: comSourceLabel(c.env),
         window_days: days,
-        totals: { active_users: rows.reduce((a, r) => a + r.active_users, 0) },
+        totals: { active_users: Math.round(metricNum(exact.rows?.[0] ?? {}, 0)) },
         rows,
         synced_at: Math.floor(Date.now() / 1000),
       };
@@ -965,7 +977,7 @@ ga4.get('/snapshot', async (c) => {
   const days = windowDays(c, 28);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:snapshot', { days, calendar_window: 'exact-v3' }), decisionCacheTtl(days), async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:snapshot:v2', { days, calendar_window: 'exact-v3', host: 'com' }), decisionCacheTtl(days), async () => {
       const metrics = [
         { name: 'activeUsers' },
         { name: 'addToCarts' },
@@ -973,17 +985,24 @@ ga4.get('/snapshot', async (c) => {
         { name: 'ecommercePurchases' },
       ];
 
-      const [current, previous] = await Promise.all([
+      const [current, currentExact, previous] = await Promise.all([
         ga4RunReport(c.env, {
           dateRanges: [reportRange(days)],
           dimensions: [{ name: 'date' }],
           metrics,
+          dimensionFilter: comHostFilter(),
           orderBys: [{ dimension: { dimensionName: 'date' } }],
           limit: 366,
         }),
         ga4RunReport(c.env, {
+          dateRanges: [reportRange(days)],
+          metrics,
+          dimensionFilter: comHostFilter(),
+        }),
+        ga4RunReport(c.env, {
           dateRanges: [previousReportRange(days)],
           metrics,
+          dimensionFilter: comHostFilter(),
         }),
       ]);
 
@@ -995,9 +1014,6 @@ ga4.get('/snapshot', async (c) => {
         purchases: Math.round(metricNum(r, 3)),
       }));
 
-      const sum = (k: 'active_users' | 'add_to_carts' | 'checkouts' | 'purchases') =>
-        rows.reduce((a, r) => a + r[k], 0);
-
       const prevRow = previous.rows?.[0];
       const prevTotals = {
         active_users: Math.round(metricNum(prevRow ?? {}, 0)),
@@ -1006,17 +1022,18 @@ ga4.get('/snapshot', async (c) => {
         purchases: Math.round(metricNum(prevRow ?? {}, 3)),
       };
 
+      const exactRow = currentExact.rows?.[0] ?? {};
       const totals = {
-        active_users: sum('active_users'),
-        add_to_carts: sum('add_to_carts'),
-        checkouts: sum('checkouts'),
-        purchases: sum('purchases'),
+        active_users: Math.round(metricNum(exactRow, 0)),
+        add_to_carts: Math.round(metricNum(exactRow, 1)),
+        checkouts: Math.round(metricNum(exactRow, 2)),
+        purchases: Math.round(metricNum(exactRow, 3)),
       };
 
       const deltaPct = (cur: number, prev: number) => (prev > 0 ? round2(((cur - prev) / prev) * 100) : null);
 
       return {
-        source: sourceLabel(c.env),
+        source: comSourceLabel(c.env),
         window_days: days,
         totals,
         previous_totals: prevTotals,
@@ -1051,12 +1068,13 @@ ga4.get('/nav-flows', async (c) => {
   const days = windowDays(c);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:nav-flows', { days, calendar_window: 'exact-v3' }), decisionCacheTtl(days), async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:nav-flows:v2', { days, calendar_window: 'exact-v3', host: 'com' }), decisionCacheTtl(days), async () => {
       const [entriesResp, edgesResp] = await Promise.all([
         ga4RunReport(c.env, {
           dateRanges: [reportRange(days)],
           dimensions: [{ name: 'landingPage' }],
           metrics: [{ name: 'sessions' }],
+          dimensionFilter: comHostFilter(),
           orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
           limit: 10,
         }),
@@ -1065,12 +1083,12 @@ ga4.get('/nav-flows', async (c) => {
           dimensions: [{ name: 'pageReferrer' }, { name: 'pagePath' }],
           metrics: [{ name: 'screenPageViews' }],
           // Internal navigation only — referrer on our own host.
-          dimensionFilter: {
+          dimensionFilter: withComHostFilter({
             filter: {
               fieldName: 'pageReferrer',
               stringFilter: { matchType: 'CONTAINS', value: 'dasexperten.com' },
             },
-          },
+          }),
           orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
           limit: 250,
         }),
@@ -1105,7 +1123,7 @@ ga4.get('/nav-flows', async (c) => {
       const edgeViews = edges.reduce((a, e) => a + e.views, 0);
 
       return {
-        source: sourceLabel(c.env),
+        source: comSourceLabel(c.env),
         window_days: days,
         method:
           'GA4 pairwise transitions (pageReferrer → pagePath, internal only) — not full session paths; those require the BigQuery export.',

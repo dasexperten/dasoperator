@@ -14,7 +14,7 @@ test('GA4 day windows contain exactly the requested calendar dates', () => {
 test('all standard GA4 report calls use the shared window contract', () => {
   const reportRanges = source.match(/dateRanges: \[reportRange\(days\)\]/g) ?? [];
   const previousRanges = source.match(/dateRanges: \[previousReportRange\(days\)\]/g) ?? [];
-  assert.equal(reportRanges.length, 18);
+  assert.equal(reportRanges.length, 21);
   assert.equal(previousRanges.length, 2);
 });
 

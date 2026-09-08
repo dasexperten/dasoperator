@@ -479,6 +479,7 @@ ga4.get('/funnel', async (c) => {
 // =============================================================================
 const COMMERCE_LOSS_EVENTS = [
   'select_item',
+  'guide_hero_product_click',
   'add_to_cart',
   'view_cart',
   'cart_exit_before_checkout',
@@ -587,7 +588,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v30', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
+      cacheKey('ga4:commerce-losses:v31', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
       decision ? 300 : decisionCacheTtl(days),
       async () => {
         const [resp, actorsResp] = await Promise.all([ga4RunReport(c.env, {
@@ -906,7 +907,7 @@ ga4.get('/content', async (c) => {
         dimensions: [{ name: 'eventName' }, { name: 'unifiedScreenName' }, { name: 'pagePath' }],
         metrics: [{ name: 'eventCount' }],
         dimensionFilter: { filter: { fieldName: 'eventName', inListFilter: { values: [
-          'paid_locale_landing_vn', 'pdp_value_proof_view', 'pdp_price_view',
+          'paid_locale_landing_vn', 'guide_hero_product_click', 'pdp_value_proof_view', 'pdp_price_view',
           'add_to_cart', 'view_cart', 'shipping_preview_ready',
           'shipping_bundle_offer', 'shipping_bundle_add', 'shipping_bundle_unavailable',
           'begin_checkout', 'checkout_loaded', 'checkout_email_started', 'checkout_email_complete',
@@ -1125,7 +1126,7 @@ ga4.get('/realtime', async (c) => {
   try {
     const commerceEventNames = [
       'paid_locale_landing_vn', 'paid_locale_landing_th', 'paid_locale_landing_tl',
-      'paid_locale_landing_ms', 'paid_locale_landing_zh', 'view_item', 'add_to_cart',
+      'paid_locale_landing_ms', 'paid_locale_landing_zh', 'view_item', 'guide_hero_product_click', 'add_to_cart',
       'pdp_value_proof_view', 'pdp_price_view', 'pdp_delivery_preview_ready',
       'view_cart', 'cart_exit_before_checkout', 'shipping_preview_ready', 'shipping_bundle_offer',
       'shipping_bundle_unavailable',

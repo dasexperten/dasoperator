@@ -24,6 +24,7 @@ const STEP_LABELS: Record<string, string> = {
 };
 
 const SIGNAL_LABELS: Record<string, string> = {
+  guide_hero_product_click: 'Clicked guide hero product CTA',
   add_to_cart: 'Added to cart',
   view_cart: 'Viewed cart',
   cart_exit_before_checkout: 'Exited cart before checkout',

@@ -230,14 +230,19 @@ ga4.get('/pages', async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '50', 10) || 50, 1), 250);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:pages', { days, limit, calendar_window: 'exact-v3' }), decisionCacheTtl(days), async () => {
-      const resp = await ga4RunReport(c.env, {
+    const payload = await withKvCache(c.env, cacheKey('ga4:pages:v2', { days, limit, calendar_window: 'exact-v3', host: 'com' }), decisionCacheTtl(days), async () => {
+      const [resp, exact] = await Promise.all([ga4RunReport(c.env, {
         dateRanges: [reportRange(days)],
         dimensions: [{ name: 'landingPage' }],
         metrics: [{ name: 'sessions' }, { name: 'ecommercePurchases' }],
+        dimensionFilter: comHostFilter(),
         orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
         limit,
-      });
+      }), ga4RunReport(c.env, {
+        dateRanges: [reportRange(days)],
+        metrics: [{ name: 'sessions' }, { name: 'ecommercePurchases' }],
+        dimensionFilter: comHostFilter(),
+      })]);
 
       const rows = (resp.rows ?? []).map((r) => {
         const sessions = Math.round(metricNum(r, 0));
@@ -251,11 +256,11 @@ ga4.get('/pages', async (c) => {
       });
 
       return {
-        source: sourceLabel(c.env),
+        source: comSourceLabel(c.env),
         window_days: days,
         totals: {
-          sessions: rows.reduce((a, r) => a + r.sessions, 0),
-          purchases: rows.reduce((a, r) => a + r.purchases, 0),
+          sessions: Math.round(metricNum(exact.rows?.[0], 0)),
+          purchases: Math.round(metricNum(exact.rows?.[0], 1)),
         },
         rows,
         synced_at: Math.floor(Date.now() / 1000),

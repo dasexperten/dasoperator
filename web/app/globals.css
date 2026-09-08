@@ -682,29 +682,32 @@ input[type="number"] {
   }
 }
 
-/* ---- 17. Filter row: two selects side-by-side on mobile ---- */
+/* ---- 17. Filter row: two selects side-by-side on mobile ----
+   Written for rows of <select> filters. It matches on shape, not intent, so it
+   also caught rows of chips and buttons and stretched them to half the screen.
+   Opt out with .dx-keep-flex when the row is buttons, not filters. ---- */
 @media (max-width: 767px) {
   /* On products / partners / operations pages, filter selects sit inside
      <div class="flex gap-3 items-center"> rows. We want them side-by-side
      (2 columns) on phone instead of stacked. */
-  .flex.gap-2.items-center,
-  .flex.gap-3.items-center,
-  .flex.gap-4.items-center {
+  .flex.gap-2.items-center:not(.dx-keep-flex),
+  .flex.gap-3.items-center:not(.dx-keep-flex),
+  .flex.gap-4.items-center:not(.dx-keep-flex) {
     display: grid !important;
     grid-template-columns: 1fr 1fr;
     gap: 8px !important;
     align-items: stretch;
   }
   /* If there's an odd third item (a button) it spans both columns */
-  .flex.gap-2.items-center > *:nth-child(odd):last-child,
-  .flex.gap-3.items-center > *:nth-child(odd):last-child,
-  .flex.gap-4.items-center > *:nth-child(odd):last-child {
+  .flex.gap-2.items-center:not(.dx-keep-flex) > *:nth-child(odd):last-child,
+  .flex.gap-3.items-center:not(.dx-keep-flex) > *:nth-child(odd):last-child,
+  .flex.gap-4.items-center:not(.dx-keep-flex) > *:nth-child(odd):last-child {
     grid-column: 1 / -1;
   }
   /* Selects inside become full-width within their grid cell */
-  .flex.gap-2.items-center > select,
-  .flex.gap-3.items-center > select,
-  .flex.gap-4.items-center > select {
+  .flex.gap-2.items-center:not(.dx-keep-flex) > select,
+  .flex.gap-3.items-center:not(.dx-keep-flex) > select,
+  .flex.gap-4.items-center:not(.dx-keep-flex) > select {
     width: 100% !important;
     min-width: 0 !important;
   }

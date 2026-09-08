@@ -647,7 +647,7 @@ export default function CrmPage() {
       </div>
 
       {/* Storefront source switcher: .ru (Yandex KIT) ↔ .com (Stripe) */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap dx-keep-flex">
         <SourcePill
           active={crmSource === 'ru'}
           onClick={() => switchSource('ru')}
@@ -722,7 +722,7 @@ export default function CrmPage() {
 
       {/* Tabs — filled chips (brighter: fill, not underline) */}
       {crmSource !== 'pricing' && (
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap dx-keep-flex">
         <TabButton
           active={tab === 'orders'}
           onClick={() => setTab('orders')}
@@ -1437,8 +1437,8 @@ function TabButton({
         fontSize: 14,
         fontWeight: 800,
         color: active ? 'var(--fg-on-brand)' : 'var(--fg-2)',
-        backgroundColor: active ? 'var(--brand-rot)' : 'var(--paper-sunk)',
-        border: 'none',
+        backgroundColor: active ? 'var(--brand-rot)' : 'var(--paper-raised)',
+        border: active ? '1px solid var(--brand-rot)' : '1px solid var(--border-hairline)',
         borderRadius: 'var(--radius-sm)',
         boxShadow: active ? 'var(--shadow-raised)' : 'none',
         cursor: 'pointer',
@@ -1478,8 +1478,8 @@ function SourcePill({
       className="px-4 py-2.5"
       style={{
         textAlign: 'left',
-        backgroundColor: active ? 'var(--brand-rot)' : 'var(--paper-sunk)',
-        border: 'none',
+        backgroundColor: active ? 'var(--brand-rot)' : 'var(--paper-raised)',
+        border: active ? '1px solid var(--brand-rot)' : '1px solid var(--border-hairline)',
         borderRadius: 'var(--radius-sm)',
         boxShadow: active ? 'var(--shadow-raised)' : 'none',
         cursor: 'pointer',

@@ -15,7 +15,7 @@ test('commercial GA4 reports are bounded to the .com host', () => {
   assert.match(source, /const COM_HOSTS = \['www\.dasexperten\.com', 'dasexperten\.com'\]/);
   assert.match(source, /fieldName: 'hostName'/);
   assert.match(source, /www\.dasexperten\.com host only/);
-  assert.equal((source.match(/source: comSourceLabel\(c\.env\)/g) || []).length, 4);
+  assert.equal((source.match(/source: comSourceLabel\(c\.env\)/g) || []).length, 5);
 
   const overview = route('/overview', '/channels');
   assert.equal((overview.match(/dimensionFilter: comHostFilter\(\)/g) || []).length, 2);
@@ -29,11 +29,16 @@ test('commercial GA4 reports are bounded to the .com host', () => {
 
   const losses = route('/commerce-losses', '/geo');
   assert.match(losses, /dimensionFilter: withComHostFilter\(/);
+
+  const content = route('/content', '/snapshot');
+  assert.match(content, /dimensionFilter: comHostFilter\(\)/);
+  assert.match(content, /dimensionFilter: withComHostFilter\(/);
 });
 
 test('host correction busts every affected cache key', () => {
   assert.match(source, /ga4:overview:v2[\s\S]*?host: 'com'/);
   assert.match(source, /ga4:acquisition-detail:v6[\s\S]*?host: 'com'/);
   assert.match(source, /ga4:funnel:v3[\s\S]*?host: 'com'/);
-  assert.match(source, /ga4:commerce-losses:v30[\s\S]*?host: 'com'/);
+  assert.match(source, /ga4:commerce-losses:v32[\s\S]*?host: 'com'/);
+  assert.match(source, /ga4:content:v5[\s\S]*?host: 'com'/);
 });

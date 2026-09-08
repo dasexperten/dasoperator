@@ -896,25 +896,26 @@ ga4.get('/content', async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '25', 10) || 25, 1), 250);
 
   try {
-    const payload = await withKvCache(c.env, cacheKey('ga4:content:v4', { days, limit, calendar_window: 'exact-v3' }), decisionCacheTtl(days), async () => {
+    const payload = await withKvCache(c.env, cacheKey('ga4:content:v5', { days, limit, calendar_window: 'exact-v3', host: 'com' }), decisionCacheTtl(days), async () => {
       const [resp, commerce] = await Promise.all([ga4RunReport(c.env, {
         dateRanges: [reportRange(days)],
         dimensions: [{ name: 'unifiedScreenName' }, { name: 'pagePath' }],
         metrics: [{ name: 'screenPageViews' }],
+        dimensionFilter: comHostFilter(),
         orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
         limit,
       }), ga4RunReport(c.env, {
         dateRanges: [reportRange(days)],
         dimensions: [{ name: 'eventName' }, { name: 'unifiedScreenName' }, { name: 'pagePath' }],
         metrics: [{ name: 'eventCount' }],
-        dimensionFilter: { filter: { fieldName: 'eventName', inListFilter: { values: [
+        dimensionFilter: withComHostFilter({ filter: { fieldName: 'eventName', inListFilter: { values: [
           'paid_locale_landing_vn', 'guide_hero_product_click', 'article_product_click', 'pdp_value_proof_view', 'pdp_price_view',
           'add_to_cart', 'view_cart', 'shipping_preview_ready',
           'shipping_bundle_offer', 'shipping_bundle_add', 'shipping_bundle_unavailable',
           'begin_checkout', 'checkout_loaded', 'checkout_email_started', 'checkout_email_complete',
           'checkout_address_started', 'checkout_address_complete', 'shipping_quote_ready',
           'add_payment_info', 'purchase', 'checkout_error',
-        ] } } },
+        ] } } }),
         orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }],
         limit: 250,
       })]);
@@ -932,7 +933,7 @@ ga4.get('/content', async (c) => {
       }));
 
       return {
-        source: sourceLabel(c.env),
+        source: comSourceLabel(c.env),
         window_days: days,
         totals: { views: rows.reduce((a, r) => a + r.views, 0) },
         rows,

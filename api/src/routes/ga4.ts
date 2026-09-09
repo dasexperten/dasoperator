@@ -743,6 +743,18 @@ ga4.get('/commerce-losses', async (c) => {
         const completeTestEventTotal = (event: string, country: string, page: string) => completeTestRows
           .filter((row) => row.event === event && row.country === country && row.page === page)
           .reduce((sum, row) => sum + row.count, 0);
+        // The dedicated complete-date query is the preferred low-volume path,
+        // but GA4 can occasionally return an empty aggregate while the primary
+        // report still carries the same complete dates. Never turn that upstream
+        // omission into a false zero. Use the larger independently observed
+        // count rather than adding both views of the same events.
+        const datedCompleteEventTotal = (event: string, country: string, page: string) => rows
+          .filter((row) => row.event === event
+            && row.country === country
+            && row.page === page
+            && row.event_date >= PRICE_TEST_COMPLETE_START_DATE.replaceAll('-', '')
+            && row.event_date <= PRICE_TEST_COMPLETE_END_DATE.replaceAll('-', ''))
+          .reduce((sum, row) => sum + row.count, 0);
         const boundaryEventTotal = (event: string, country: string, page: string) => rows
           .filter((row) => row.event === event
             && row.country === country
@@ -753,13 +765,16 @@ ga4.get('/commerce-losses', async (c) => {
             && row.event_minute <= priceTestEndMinute)
           .reduce((sum, row) => sum + row.count, 0);
         const priceTestEventTotal = (event: string, country: string, page: string) =>
-          completeTestEventTotal(event, country, page) + boundaryEventTotal(event, country, page);
+          Math.max(
+            completeTestEventTotal(event, country, page),
+            datedCompleteEventTotal(event, country, page),
+          ) + boundaryEventTotal(event, country, page);
         const price_test = {
           start_utc: PRICE_TEST_START_UTC,
           end_utc: PRICE_TEST_END_UTC,
           property_time_zone: propertyTimeZone,
           boundary_source: boundarySource,
-          suppressed_minute_policy: 'complete_property_dates_plus_exact_boundaries',
+          suppressed_minute_policy: 'complete_property_dates_with_dated_fallback_plus_exact_boundaries',
           complete_start_date: PRICE_TEST_COMPLETE_START_DATE,
           complete_end_date: PRICE_TEST_COMPLETE_END_DATE,
           start_minute: priceTestStartMinute,

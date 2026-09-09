@@ -146,12 +146,16 @@ export default function FunnelTab() {
   const phExactOfferCartViews = priceTestLosses.data?.price_test?.ph_exact_offer_cart_views ?? 0;
   const phExactOfferCheckoutClicks = priceTestLosses.data?.price_test?.ph_exact_offer_checkout_clicks ?? 0;
   const phExactCartToCheckout = phExactOfferCartViews > 0 ? (phExactOfferCheckoutClicks / phExactOfferCartViews) * 100 : null;
+  const phExactOfferPurchases = priceTestLosses.data?.price_test?.ph_exact_offer_purchases ?? 0;
+  const phExactOfferPurchaseRate = phExactOfferViews > 0 ? (phExactOfferPurchases / phExactOfferViews) * 100 : null;
   const myExactOfferViews = priceTestLosses.data?.price_test?.my_exact_offer_views ?? 0;
   const myExactOfferAdds = priceTestLosses.data?.price_test?.my_exact_offer_adds ?? 0;
   const myExactOfferRate = myExactOfferViews > 0 ? (myExactOfferAdds / myExactOfferViews) * 100 : null;
   const myExactOfferCartViews = priceTestLosses.data?.price_test?.my_exact_offer_cart_views ?? 0;
   const myExactOfferCheckoutClicks = priceTestLosses.data?.price_test?.my_exact_offer_checkout_clicks ?? 0;
   const myExactCartToCheckout = myExactOfferCartViews > 0 ? (myExactOfferCheckoutClicks / myExactOfferCartViews) * 100 : null;
+  const myExactOfferPurchases = priceTestLosses.data?.price_test?.my_exact_offer_purchases ?? 0;
+  const myExactOfferPurchaseRate = myExactOfferViews > 0 ? (myExactOfferPurchases / myExactOfferViews) * 100 : null;
   const phUnattributedViews = priceTestLosses.data?.price_test?.ph_unattributed_price_views ?? 0;
   const phUnattributedCarts = priceTestLosses.data?.price_test?.ph_unattributed_add_to_cart ?? 0;
   const phUnattributedRate = phUnattributedViews > 0 ? (phUnattributedCarts / phUnattributedViews) * 100 : null;
@@ -443,6 +447,11 @@ export default function FunnelTab() {
               <Kpi label="PH exact cart → checkout" value={fmtPct(phExactCartToCheckout)} delta={`${fmtNum(phExactOfferCheckoutClicks)} checkout clicks ÷ ${fmtNum(phExactOfferCartViews)} verified ₱499 cart views`} />
               <Kpi label="MY exact cart → checkout" value={fmtPct(myExactCartToCheckout)} delta={`${fmtNum(myExactOfferCheckoutClicks)} checkout clicks ÷ ${fmtNum(myExactOfferCartViews)} verified RM29.90 cart views`} />
               <Kpi accent label="Exact checkout boundary" value={(phExactOfferCartViews + myExactOfferCartViews) > 0 ? 'Live' : 'Collecting'} delta="deduplicated per page session · no synthetic events" />
+            </div>
+            <div className="wa-kpis" style={{ marginBottom: 16 }}>
+              <Kpi label="PH exact offer → paid" value={fmtPct(phExactOfferPurchaseRate)} delta={`${fmtNum(phExactOfferPurchases)} Stripe-verified purchases ÷ ${fmtNum(phExactOfferViews)} verified ₱499 views`} />
+              <Kpi label="MY exact offer → paid" value={fmtPct(myExactOfferPurchaseRate)} delta={`${fmtNum(myExactOfferPurchases)} Stripe-verified purchases ÷ ${fmtNum(myExactOfferViews)} verified RM29.90 views`} />
+              <Kpi accent label="Verified price-test sales" value={fmtNum(phExactOfferPurchases + myExactOfferPurchases)} delta="DE210-only · exact goods price · shipping excluded" />
             </div>
             {(phUnattributedViews > 0 || myUnattributedViews > 0) && (
               <div className="wa-kpis" style={{ marginBottom: 16 }}>

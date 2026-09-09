@@ -18,7 +18,7 @@ import type { Env } from '../types';
 const CLARITY_BASE = 'https://www.clarity.ms/export-data/api/v1';
 
 export function clarityCacheKey(days: number): string {
-  return `clarity:behavior:v4|days=${days}`;
+  return `clarity:behavior:v5|days=${days}`;
 }
 
 // The API returns an array of metric blocks:
@@ -136,13 +136,13 @@ export function normalizeClarity(blocks: ClarityBlock[], windowDays: number): Cl
     if (signalKey) {
       const pct = numOrNull(first['sessionsWithMetricPercentage']);
       const reportedCount = numOrNull(first['sessionsCount']);
-      const affectedCount = numOrNull(first['subTotal']);
       out.signals[signalKey] = {
-        // In project-live-insights signal rows, sessionsCount is the examined
-        // denominator and subTotal is the exact number of affected sessions.
-        // Derive from the percentage only when Clarity omits subTotal.
-        sessions_count: affectedCount
-          ?? (pct !== null && totalSessions > 0 ? Math.round(totalSessions * pct / 100) : reportedCount ?? 0),
+        // sessionsCount is the examined denominator; subTotal/pagesViews are
+        // signal occurrences and can exceed the number of affected sessions.
+        // sessionsWithMetricPercentage is the only session-grain numerator.
+        sessions_count: pct !== null && totalSessions > 0
+          ? Math.round(totalSessions * pct / 100)
+          : reportedCount ?? 0,
         sessions_pct: pct,
       };
       continue;

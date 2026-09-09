@@ -4,11 +4,11 @@ import { clarityCacheKey, normalizeClarity } from './clarity.ts';
 const normalized = normalizeClarity([
   {
     metricName: 'DeadClickCount',
-    information: [{ sessionsCount: 137, subTotal: 9, sessionsWithMetricPercentage: 6.57 }],
+    information: [{ sessionsCount: 137, subTotal: 23, pagesViews: 12, sessionsWithMetricPercentage: 6.57 }],
   },
   {
     metricName: 'QuickbackClick',
-    information: [{ sessionsCount: 137, subTotal: 15, sessionsWithMetricPercentage: 10.95 }],
+    information: [{ sessionsCount: 137, subTotal: 43, pagesViews: 43, sessionsWithMetricPercentage: 10.95 }],
   },
   {
     metricName: 'Traffic',
@@ -29,6 +29,6 @@ assert.equal(normalized.signals.dead_click?.sessions_count, 9);
 assert.equal(normalized.signals.quickback?.sessions_count, 15);
 assert.equal(normalized.signals.rage_click?.sessions_count, 0);
 assert.equal(normalized.signals.error_click?.sessions_count, 2);
-assert.equal(clarityCacheKey(3), 'clarity:behavior:v4|days=3');
+assert.equal(clarityCacheKey(3), 'clarity:behavior:v5|days=3');
 
 console.log('PASS 6/6 Clarity signal-count normalization checks');

@@ -248,6 +248,18 @@ export type ClarityBehavior = {
   dimensions: Record<string, Array<{ name: string; sessions: number }>>;
   synced_at: number;
 };
+export type ClarityBehaviorByUrl = {
+  source: string;
+  window_days: number;
+  method: string;
+  rows: Array<{
+    url: string; sessions: number;
+    dead_click_sessions: number; dead_click_pct: number | null;
+    quickback_sessions: number; quickback_pct: number | null;
+    rage_click_sessions: number; rage_click_pct: number | null;
+  }>;
+  synced_at: number;
+};
 export type DirectCampaigns = {
   configured: boolean;
   pending?: boolean;

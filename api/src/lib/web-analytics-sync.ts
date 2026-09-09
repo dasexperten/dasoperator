@@ -5,8 +5,8 @@
 //   web_analytics_daily     (date, source) — ga4 / metrika / direct
 //   web_behavior_snapshots  (date)         — Clarity daily snapshot
 //
-// Quota discipline: Clarity gets EXACTLY ONE call per night (10/day hard
-// limit); the normalized payload is also written to the KV key that
+// Quota discipline: Clarity gets exactly TWO calls per night (10/day hard
+// limit): one global snapshot and one URL signal breakdown. Both normalized payloads are written to the KV keys that
 // /api/clarity/behavior serves, so dashboard traffic stays off the API.
 //
 // Failure policy: each leg is independent; a failed leg reports through the
@@ -16,7 +16,7 @@
 
 import type { Env } from '../types';
 import { ga4Configured, ga4RunReport, metricNum } from './ga4';
-import { fetchClarityBehavior, clarityCacheKey } from './clarity';
+import { fetchClarityBehavior, fetchClarityBehaviorByUrl, clarityCacheKey, clarityUrlCacheKey } from './clarity';
 import { directConfigured, fetchDirectCampaigns } from './direct';
 import { reportCronFailure } from './auto-healer';
 
@@ -158,16 +158,25 @@ async function syncMetrika(env: Env, date: string): Promise<string> {
   return `metrika: ${sessions} visits, ${purchases} purchases`;
 }
 
-// ----- Clarity: one call, snapshot + KV pre-warm ------------------------------
+// ----- Clarity: two calls, global snapshot + URL signal breakdown ------------
 async function syncClarity(env: Env, date: string): Promise<string> {
   if (!env.CLARITY_API_TOKEN) return 'clarity: skipped (not configured)';
 
-  // THE one nightly call (numOfDays=1 = trailing 24h ≈ yesterday).
+  // Two bounded nightly calls (numOfDays=1 = trailing 24h ≈ yesterday).
   const behavior = await fetchClarityBehavior(env, 1);
+  let byUrl: Awaited<ReturnType<typeof fetchClarityBehaviorByUrl>> | null = null;
+  try {
+    byUrl = await fetchClarityBehaviorByUrl(env, 1);
+  } catch (error) {
+    // The decision drill-down must never erase the finance/behavior archive.
+    // Leave its cache cold so the dedicated endpoint reports or retries it.
+    console.error('[web-analytics-sync] Clarity URL breakdown failed (non-fatal):', error);
+  }
 
   // Pre-warm the dashboard cache so /api/clarity/behavior never re-calls.
   try {
     await env.CACHE.put(clarityCacheKey(1), JSON.stringify(behavior), { expirationTtl: 86400 });
+    if (byUrl) await env.CACHE.put(clarityUrlCacheKey(1), JSON.stringify(byUrl), { expirationTtl: 86400 });
   } catch {
     // non-fatal
   }

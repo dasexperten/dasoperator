@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { clarityCacheKey, normalizeClarity } from './clarity.ts';
+import { clarityCacheKey, clarityUrlCacheKey, normalizeClarity, normalizeClarityByUrl } from './clarity.ts';
 
 const normalized = normalizeClarity([
   {
@@ -31,4 +31,21 @@ assert.equal(normalized.signals.rage_click?.sessions_count, 0);
 assert.equal(normalized.signals.error_click?.sessions_count, 2);
 assert.equal(clarityCacheKey(3), 'clarity:behavior:v5|days=3');
 
-console.log('PASS 6/6 Clarity signal-count normalization checks');
+const byUrl = normalizeClarityByUrl([
+  { metricName: 'QuickbackClick', information: [
+    { Url: 'https://www.dasexperten.com/de/?utm_source=x', sessionsCount: 3, sessionsWithMetricPercentage: 66.67 },
+    { Url: 'https://dasexperten.ru/', sessionsCount: 12, sessionsWithMetricPercentage: 25 },
+  ] },
+  { metricName: 'DeadClickCount', information: [
+    { Url: 'https://www.dasexperten.com/de/', sessionsCount: 3, sessionsWithMetricPercentage: 33.33 },
+    { Url: 'https://example.com/', sessionsCount: 99, sessionsWithMetricPercentage: 100 },
+  ] },
+], 3);
+
+assert.equal(clarityUrlCacheKey(3), 'clarity:behavior-by-url:v1|days=3');
+assert.deepEqual(byUrl.rows.map((row) => [row.url, row.sessions, row.quickback_sessions, row.dead_click_sessions]), [
+  ['dasexperten.ru/', 12, 3, 0],
+  ['dasexperten.com/de/', 3, 2, 1],
+]);
+
+console.log('PASS 8/8 Clarity signal and URL normalization checks');

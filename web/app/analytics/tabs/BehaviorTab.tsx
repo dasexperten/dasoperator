@@ -4,8 +4,8 @@
 // Behavior tab — Microsoft Clarity live insight (1-day window, API max 3d) +
 // the D1 nightly archive trend. Deep-links to clarity.microsoft.com for
 // recordings/heatmaps (not embeddable).
-// Quota note: the API allows 10 calls/day; this tab reads the KV cache the
-// nightly cron pre-warms, so browsing never burns quota.
+// Quota note: the API allows 10 calls/day; this tab reads two KV caches the
+// nightly cron pre-warms with one global and one URL-dimension call.
 // =============================================================================
 
 import React from 'react';
@@ -13,7 +13,7 @@ import { AreaChart } from '@tremor/react';
 import {
   useApi, fmtNum, fmtPct, fmtSec, timeAgo,
   Kpi, Panel, LoadState, ChartLegend,
-  type ClarityBehavior, type BehaviorHistory, type Ga4NavFlows,
+  type ClarityBehavior, type ClarityBehaviorByUrl, type BehaviorHistory, type Ga4NavFlows,
 } from '../shared';
 
 const CLARITY_PROJECT_URL = 'https://clarity.microsoft.com/projects';
@@ -87,6 +87,7 @@ function NavFlows({ data }: { data: Ga4NavFlows }) {
 
 export default function BehaviorTab() {
   const behavior = useApi<ClarityBehavior>('/api/clarity/behavior?days=1');
+  const behaviorByUrl = useApi<ClarityBehaviorByUrl>('/api/clarity/behavior-by-url?days=1');
   const history = useApi<BehaviorHistory>('/api/analytics/behavior-history?days=30');
   const flows = useApi<Ga4NavFlows>('/api/ga4/nav-flows?days=30');
 
@@ -152,7 +153,7 @@ export default function BehaviorTab() {
 
           <div className="wa-note">
             Source: {b.source} · {b.window_days}-day live window (API max 3d) · synced{' '}
-            {timeAgo(b.synced_at)} · refreshed nightly (1 API call — 10/day hard limit).{' '}
+            {timeAgo(b.synced_at)} · refreshed nightly (2 API calls — 10/day hard limit).{' '}
             <a
               href={CLARITY_PROJECT_URL}
               target="_blank"
@@ -162,6 +163,32 @@ export default function BehaviorTab() {
               Open recordings &amp; heatmaps in Clarity →
             </a>
           </div>
+
+          <Panel title="Behavior friction by page" source="Clarity · URL dimension · affected sessions">
+            <LoadState loading={behaviorByUrl.loading} error={behaviorByUrl.error} />
+            {behaviorByUrl.data && (
+              <>
+                <div className="wa-table-scroll">
+                  <table className="wa-table">
+                    <thead><tr><th>Page</th><th className="right">Sessions</th><th className="right">Quickback</th><th className="right">Dead click</th><th className="right">Rage click</th></tr></thead>
+                    <tbody>
+                      {behaviorByUrl.data.rows.slice(0, 12).map((row) => (
+                        <tr key={row.url}>
+                          <td style={{ maxWidth: 440, wordBreak: 'break-all' }}>{row.url}</td>
+                          <td className="num right">{fmtNum(row.sessions)}</td>
+                          <td className="num right">{fmtNum(row.quickback_sessions)} · {fmtPct(row.quickback_pct)}</td>
+                          <td className="num right">{fmtNum(row.dead_click_sessions)} · {fmtPct(row.dead_click_pct)}</td>
+                          <td className="num right">{fmtNum(row.rage_click_sessions)} · {fmtPct(row.rage_click_pct)}</td>
+                        </tr>
+                      ))}
+                      {behaviorByUrl.data.rows.length === 0 && <tr><td colSpan={5} style={{ color: 'var(--fg-3)' }}>No affected pages in this window.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="wa-note" style={{ marginTop: 12 }}>{behaviorByUrl.data.method} Synced {timeAgo(behaviorByUrl.data.synced_at)}.</p>
+              </>
+            )}
+          </Panel>
 
           <div className="wa-grid2eq">
             <DimTable title="Popular pages" rows={b.dimensions['PopularPages'] ?? []} />

@@ -12,7 +12,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
-import { fetchClarityBehavior, clarityCacheKey } from '../lib/clarity';
+import { fetchClarityBehavior, fetchClarityBehaviorByUrl, clarityCacheKey, clarityUrlCacheKey } from '../lib/clarity';
 
 const clarity = new Hono<{ Bindings: Env }>();
 
@@ -45,6 +45,28 @@ clarity.get('/behavior', async (c) => {
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
     return fail(c, 502, [{ code: 'clarity_upstream_error', message: msg }]);
+  }
+});
+
+clarity.get('/behavior-by-url', async (c) => {
+  if (!c.env.CLARITY_API_TOKEN) {
+    return fail(c, 503, [{ code: 'clarity_not_configured', message: 'Clarity not configured. Set CLARITY_API_TOKEN.' }]);
+  }
+  const days = Math.min(Math.max(parseInt(c.req.query('days') ?? '1', 10) || 1, 1), 3);
+  try {
+    const key = clarityUrlCacheKey(days);
+    try {
+      const hit = await c.env.CACHE.get(key);
+      if (hit !== null) return ok(c, JSON.parse(hit));
+    } catch {}
+    const payload = await fetchClarityBehaviorByUrl(c.env, days);
+    try {
+      await c.env.CACHE.put(key, JSON.stringify(payload), { expirationTtl: 86400 });
+    } catch {}
+    return ok(c, payload);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return fail(c, 502, [{ code: 'clarity_url_breakdown_upstream_error', message: msg }]);
   }
 });
 

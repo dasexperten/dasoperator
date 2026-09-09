@@ -621,7 +621,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v36', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
+      cacheKey('ga4:commerce-losses:v37', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
       decision ? 300 : decisionCacheTtl(days),
       async () => {
         const [resp, actorsResp, completeTestResp] = await Promise.all([ga4RunReport(c.env, {
@@ -711,6 +711,9 @@ ga4.get('/commerce-losses', async (c) => {
         const marketEventTotal = (event: string, country: string) => rows
           .filter((row) => row.event === event && row.country === country)
           .reduce((sum, row) => sum + row.count, 0);
+        const marketPageEventTotal = (event: string, country: string, page: string) => rows
+          .filter((row) => row.event === event && row.country === country && row.page === page)
+          .reduce((sum, row) => sum + row.count, 0);
         const market_totals = {
           vn_paid_landing: marketEventTotal('paid_locale_landing_vn', 'Vietnam'),
           vn_add_to_cart: marketEventTotal('add_to_cart', 'Vietnam'),
@@ -782,6 +785,18 @@ ga4.get('/commerce-losses', async (c) => {
           my_price_views: priceTestEventTotal('pdp_price_view', 'Malaysia', '/ms/products/innoweiss'),
           my_paid_landing: priceTestEventTotal('paid_locale_landing_ms', 'Malaysia', '/ms/products/innoweiss'),
           my_add_to_cart: priceTestEventTotal('add_to_cart', 'Malaysia', '/ms/products/innoweiss'),
+          ph_unattributed_price_views: Math.max(0,
+            marketPageEventTotal('pdp_price_view', 'Philippines', '/tl/products/innoweiss')
+              - priceTestEventTotal('pdp_price_view', 'Philippines', '/tl/products/innoweiss')),
+          ph_unattributed_add_to_cart: Math.max(0,
+            marketPageEventTotal('add_to_cart', 'Philippines', '/tl/products/innoweiss')
+              - priceTestEventTotal('add_to_cart', 'Philippines', '/tl/products/innoweiss')),
+          my_unattributed_price_views: Math.max(0,
+            marketPageEventTotal('pdp_price_view', 'Malaysia', '/ms/products/innoweiss')
+              - priceTestEventTotal('pdp_price_view', 'Malaysia', '/ms/products/innoweiss')),
+          my_unattributed_add_to_cart: Math.max(0,
+            marketPageEventTotal('add_to_cart', 'Malaysia', '/ms/products/innoweiss')
+              - priceTestEventTotal('add_to_cart', 'Malaysia', '/ms/products/innoweiss')),
         };
         const isFailure = (event: string) => event === 'shipping_unavailable' || event.startsWith('checkout_error');
         // Decision table over the complete GA4 response, not the bounded recent

@@ -130,6 +130,12 @@ export default function FunnelTab() {
   const myPriceViews = priceTestLosses.data?.price_test?.my_price_views ?? 0;
   const myCartAdds = priceTestLosses.data?.price_test?.my_add_to_cart ?? 0;
   const myPriceToCart = myPriceViews > 0 ? (myCartAdds / myPriceViews) * 100 : null;
+  const phUnattributedViews = priceTestLosses.data?.price_test?.ph_unattributed_price_views ?? 0;
+  const phUnattributedCarts = priceTestLosses.data?.price_test?.ph_unattributed_add_to_cart ?? 0;
+  const phUnattributedRate = phUnattributedViews > 0 ? (phUnattributedCarts / phUnattributedViews) * 100 : null;
+  const myUnattributedViews = priceTestLosses.data?.price_test?.my_unattributed_price_views ?? 0;
+  const myUnattributedCarts = priceTestLosses.data?.price_test?.my_unattributed_add_to_cart ?? 0;
+  const myUnattributedRate = myUnattributedViews > 0 ? (myUnattributedCarts / myUnattributedViews) * 100 : null;
   const postLaunchAds = exposure.data?.campaign_delivery?.post_launch_complete_hours;
   const vnAdsClicks = postLaunchAds?.clicks ?? 0;
   const vnAttributionMismatch = paidVnLandings >= 10 && paidVnLandings > Math.max(vnAdsClicks * 3, vnAdsClicks + 10);
@@ -337,6 +343,13 @@ export default function FunnelTab() {
               <Kpi label="MY RM29.90 carts" value={fmtNum(myCartAdds)} delta="post-launch · exact PDP" />
               <Kpi accent label="MY RM29.90 price → cart" value={fmtPct(myPriceToCart)} delta="Sep 4 09:46 UTC → Sep 11" />
             </div>
+            {(phUnattributedViews > 0 || myUnattributedViews > 0) && (
+              <div className="wa-kpis" style={{ marginBottom: 16 }}>
+                <Kpi label="PH date-suppressed signal" value={fmtPct(phUnattributedRate)} delta={`${fmtNum(phUnattributedCarts)} carts ÷ ${fmtNum(phUnattributedViews)} price views · directional only`} />
+                <Kpi label="MY date-suppressed signal" value={fmtPct(myUnattributedRate)} delta={`${fmtNum(myUnattributedCarts)} carts ÷ ${fmtNum(myUnattributedViews)} price views · directional only`} />
+                <Kpi accent label="Price-test verdict" value="Not attributable" delta="GA4 withheld event dates; do not call this uplift" />
+              </div>
+            )}
             <div className="wa-kpis" style={{ marginBottom: 16 }}>
               <Kpi label="Shipping bundle offers" value={fmtNum(bundleOffers)} delta="DE · VN · PH · MY" />
               <Kpi label="Second tubes added" value={fmtNum(bundleAdds)} delta="one-click action" />

@@ -99,6 +99,10 @@ export type Ga4CommerceLosses = {
     my_price_views: number;
     my_paid_landing: number;
     my_add_to_cart: number;
+    ph_unattributed_price_views: number;
+    ph_unattributed_add_to_cart: number;
+    my_unattributed_price_views: number;
+    my_unattributed_add_to_cart: number;
   };
   homepage_product_selections: number;
   row_coverage: { returned_rows: number; available_rows: number; failure_rows: number };

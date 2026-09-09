@@ -154,6 +154,20 @@ export default function FunnelTab() {
     .sort((a, b) => b[1] - a[1]);
   const checkoutExits = checkoutExitStages.reduce((sum, [, count]) => sum + count, 0);
   const leadingCheckoutExit = checkoutExitStages.find(([, count]) => count > 0);
+  const basketEconomics = websiteOrders.data?.basket_economics_30d;
+  const singleAov = basketEconomics?.single_unit_orders
+    ? basketEconomics.single_sales_cents / basketEconomics.single_unit_orders
+    : 0;
+  const multiAov = basketEconomics?.multi_unit_orders
+    ? basketEconomics.multi_sales_cents / basketEconomics.multi_unit_orders
+    : 0;
+  const multiAovLift = singleAov > 0 ? ((multiAov / singleAov) - 1) * 100 : null;
+  const singleShippingShare = basketEconomics?.single_sales_cents
+    ? (basketEconomics.single_shipping_cents / basketEconomics.single_sales_cents) * 100
+    : null;
+  const multiShippingShare = basketEconomics?.multi_sales_cents
+    ? (basketEconomics.multi_shipping_cents / basketEconomics.multi_sales_cents) * 100
+    : null;
 
   return (
     <div className="space-y-4">
@@ -188,6 +202,17 @@ export default function FunnelTab() {
               value={fmtNum(websiteOrders.data.multi_unit_orders_30d)}
               delta={`${websiteOrders.data.orders_30d ? ((websiteOrders.data.multi_unit_orders_30d / websiteOrders.data.orders_30d) * 100).toFixed(1) : '0.0'}% of paid orders`}
             />
+            <Kpi
+              label="Single-unit AOV"
+              value={`$${(singleAov / 100).toFixed(2)}`}
+              delta={singleShippingShare === null ? 'shipping share unavailable' : `${singleShippingShare.toFixed(1)}% shipping share`}
+            />
+            <Kpi
+              accent
+              label="Multi-unit AOV"
+              value={`$${(multiAov / 100).toFixed(2)}`}
+              delta={`${multiAovLift === null ? '—' : `${multiAovLift.toFixed(1)}% vs single`} · ${multiShippingShare === null ? 'shipping share unavailable' : `${multiShippingShare.toFixed(1)}% shipping share`}`}
+            />
           </div>
           <div className="wa-grid2eq">
             <div className="wa-table-scroll">
@@ -212,7 +237,7 @@ export default function FunnelTab() {
             </div>
           </div>
           <div className="wa-note" style={{ marginTop: 12 }}>
-            This panel uses only paid or partially refunded orders placed inside the rolling 30-day window. It does not mix in historical SKU volume.
+            This panel uses only paid or partially refunded orders placed inside the rolling 30-day window. Shipping share is a delivery-cost ratio, not net margin; COGS is not inferred.
           </div>
         </Panel>
       )}

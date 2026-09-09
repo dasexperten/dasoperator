@@ -676,9 +676,14 @@ site.get('/stats', async (c) => {
     const baskets30d = await c.env.DB.prepare(
       `SELECT COUNT(*) AS orders,
               COALESCE(SUM(total_units), 0) AS units,
-              COALESCE(SUM(CASE WHEN total_units >= 2 THEN 1 ELSE 0 END), 0) AS multi_unit_orders
+              COALESCE(SUM(CASE WHEN total_units = 1 THEN 1 ELSE 0 END), 0) AS single_unit_orders,
+              COALESCE(SUM(CASE WHEN total_units >= 2 THEN 1 ELSE 0 END), 0) AS multi_unit_orders,
+              COALESCE(SUM(CASE WHEN total_units = 1 THEN total_cents ELSE 0 END), 0) AS single_sales_cents,
+              COALESCE(SUM(CASE WHEN total_units >= 2 THEN total_cents ELSE 0 END), 0) AS multi_sales_cents,
+              COALESCE(SUM(CASE WHEN total_units = 1 THEN shipping_cents ELSE 0 END), 0) AS single_shipping_cents,
+              COALESCE(SUM(CASE WHEN total_units >= 2 THEN shipping_cents ELSE 0 END), 0) AS multi_shipping_cents
        FROM (
-         SELECT crm_orders.id,
+         SELECT crm_orders.id, crm_orders.total_cents, crm_orders.shipping_cents,
                 SUM(CAST(COALESCE(json_extract(je.value, '$.qty'), 1) AS INTEGER)) AS total_units
          FROM crm_orders, json_each(crm_orders.items) je
          WHERE crm_orders.financial_status IN ('paid','partially_refunded')
@@ -724,6 +729,14 @@ site.get('/stats', async (c) => {
       countries_30d: countries30d.results ?? [],
       units_30d: Number(baskets30d?.units ?? 0),
       multi_unit_orders_30d: Number(baskets30d?.multi_unit_orders ?? 0),
+      basket_economics_30d: {
+        single_unit_orders: Number(baskets30d?.single_unit_orders ?? 0),
+        multi_unit_orders: Number(baskets30d?.multi_unit_orders ?? 0),
+        single_sales_cents: Number(baskets30d?.single_sales_cents ?? 0),
+        multi_sales_cents: Number(baskets30d?.multi_sales_cents ?? 0),
+        single_shipping_cents: Number(baskets30d?.single_shipping_cents ?? 0),
+        multi_shipping_cents: Number(baskets30d?.multi_shipping_cents ?? 0),
+      },
       monthly: monthly.results ?? [],
       stripe_poller: lastSync
         ? { cursor: Number(lastSync.value), last_run_at: lastSync.updated_at }

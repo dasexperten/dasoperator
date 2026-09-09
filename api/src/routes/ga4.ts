@@ -619,7 +619,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v34', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
+      cacheKey('ga4:commerce-losses:v35', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
       decision ? 300 : decisionCacheTtl(days),
       async () => {
         const [resp, actorsResp] = await Promise.all([ga4RunReport(c.env, {
@@ -629,6 +629,7 @@ ga4.get('/commerce-losses', async (c) => {
             { name: 'country' },
             { name: 'pagePath' },
             { name: 'sessionCampaignName' },
+            { name: 'date' },
             { name: 'dateHourMinute' },
           ],
           metrics: [{ name: 'eventCount' }],
@@ -662,13 +663,16 @@ ga4.get('/commerce-losses', async (c) => {
           country: r.dimensionValues?.[1]?.value || '(not set)',
           page: r.dimensionValues?.[2]?.value || '(not set)',
           campaign: r.dimensionValues?.[3]?.value || '(not set)',
-          event_minute: r.dimensionValues?.[4]?.value || '',
+          event_date: r.dimensionValues?.[4]?.value || '',
+          event_minute: r.dimensionValues?.[5]?.value || '',
           count: Math.round(metricNum(r, 0)),
         }));
         const propertyTimeZone = resp.metadata?.timeZone || 'UTC';
         const boundarySource = resp.metadata?.timeZone ? 'ga4_run_report_metadata' : 'legacy_utc_fallback';
         const priceTestStartMinute = minuteInTimeZone(PRICE_TEST_START_UTC, propertyTimeZone);
         const priceTestEndMinute = minuteInTimeZone(PRICE_TEST_END_UTC, propertyTimeZone);
+        const priceTestStartDate = priceTestStartMinute.slice(0, 8);
+        const priceTestEndDate = priceTestEndMinute.slice(0, 8);
         const vnDeliveredPreviewStartMinute = minuteInTimeZone(VN_DELIVERED_PREVIEW_START_UTC, propertyTimeZone);
         const totals = Object.fromEntries(COMMERCE_LOSS_EVENTS.map((event) => [event, 0])) as Record<string, number>;
         for (const row of rows) totals[row.event] = (totals[row.event] ?? 0) + row.count;
@@ -697,18 +701,25 @@ ga4.get('/commerce-losses', async (c) => {
         const homepage_product_selections = rows
           .filter((row) => row.event === 'select_item' && row.page === '/')
           .reduce((sum, row) => sum + row.count, 0);
+        // GA4 can privacy-suppress dateHourMinute on low-volume country/page rows
+        // while still returning their event counts. Keep exact minutes when present;
+        // for suppressed minutes include only complete property-calendar days strictly
+        // inside the approved seam. Partial boundary days remain excluded.
+        const rowInsidePriceTest = (row: typeof rows[number]) => /^\d{12}$/.test(row.event_minute)
+          ? row.event_minute >= priceTestStartMinute && row.event_minute <= priceTestEndMinute
+          : row.event_date > priceTestStartDate && row.event_date < priceTestEndDate;
         const priceTestEventTotal = (event: string, country: string, page: string) => rows
           .filter((row) => row.event === event
             && row.country === country
             && row.page === page
-            && row.event_minute >= priceTestStartMinute
-            && row.event_minute <= priceTestEndMinute)
+            && rowInsidePriceTest(row))
           .reduce((sum, row) => sum + row.count, 0);
         const price_test = {
           start_utc: PRICE_TEST_START_UTC,
           end_utc: PRICE_TEST_END_UTC,
           property_time_zone: propertyTimeZone,
           boundary_source: boundarySource,
+          suppressed_minute_policy: 'complete_property_dates_only',
           start_minute: priceTestStartMinute,
           end_minute: priceTestEndMinute,
           vn_paid_landing: priceTestEventTotal('paid_locale_landing_vn', 'Vietnam', '/vn/products/innoweiss'),

@@ -76,6 +76,7 @@ export type Ga4CommerceLosses = {
     end_utc: string;
     property_time_zone: string;
     boundary_source: string;
+    suppressed_minute_policy: 'complete_property_dates_only';
     start_minute: string;
     end_minute: string;
     vn_paid_landing: number;
@@ -117,7 +118,7 @@ export type Ga4CommerceLosses = {
     begin_checkout_users: number;
     purchase_users: number;
   }>;
-  rows: Array<{ event: string; country: string; page: string; campaign: string; event_minute: string; count: number }>;
+  rows: Array<{ event: string; country: string; page: string; campaign: string; event_date: string; event_minute: string; count: number }>;
   synced_at: number;
 };
 export type AdsPriceTestExposure = {

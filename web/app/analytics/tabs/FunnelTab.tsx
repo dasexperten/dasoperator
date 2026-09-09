@@ -328,12 +328,12 @@ export default function FunnelTab() {
               <Kpi accent label="VN CTA test status" value={(vnProductClicks + vnTotalClicks) < 30 ? 'Collecting' : 'Decision ready'} delta="30 clicks before message decision" />
             </div>
             <div className="wa-kpis" style={{ marginBottom: 16 }}>
-              <Kpi label="PH ₱499 price views" value={fmtNum(phPriceViews)} delta="saw the tested price · exact PDP" />
+              <Kpi label="PH ₱499 price views" value={fmtNum(phPriceViews)} delta="exact minute or complete GA4 day · exact PDP" />
               <Kpi label="PH ₱499 carts" value={fmtNum(phCartAdds)} delta="post-launch · exact PDP" />
               <Kpi accent label="PH ₱499 price → cart" value={fmtPct(phPriceToCart)} delta="Sep 4 09:46 UTC → Sep 11" />
             </div>
             <div className="wa-kpis" style={{ marginBottom: 16 }}>
-              <Kpi label="MY RM29.90 price views" value={fmtNum(myPriceViews)} delta="saw the discounted price · exact PDP" />
+              <Kpi label="MY RM29.90 price views" value={fmtNum(myPriceViews)} delta="exact minute or complete GA4 day · exact PDP" />
               <Kpi label="MY RM29.90 carts" value={fmtNum(myCartAdds)} delta="post-launch · exact PDP" />
               <Kpi accent label="MY RM29.90 price → cart" value={fmtPct(myPriceToCart)} delta="Sep 4 09:46 UTC → Sep 11" />
             </div>

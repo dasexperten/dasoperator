@@ -76,7 +76,9 @@ export type Ga4CommerceLosses = {
     end_utc: string;
     property_time_zone: string;
     boundary_source: string;
-    suppressed_minute_policy: 'complete_property_dates_only';
+    suppressed_minute_policy: 'complete_property_dates_plus_exact_boundaries';
+    complete_start_date: string;
+    complete_end_date: string;
     start_minute: string;
     end_minute: string;
     vn_paid_landing: number;

@@ -582,6 +582,8 @@ const COMMERCE_LOSS_EVENTS = [
 // or carts from another product page in the same country.
 const PRICE_TEST_START_UTC = '2026-09-04T09:46:00Z';
 const PRICE_TEST_END_UTC = '2026-09-11T09:46:00Z';
+const PRICE_TEST_COMPLETE_START_DATE = '2026-09-05';
+const PRICE_TEST_COMPLETE_END_DATE = '2026-09-10';
 const VN_DELIVERED_PREVIEW_START_UTC = '2026-09-05T07:13:58Z';
 
 function minuteInTimeZone(iso: string, timeZone: string): string {
@@ -619,10 +621,10 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v35', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
+      cacheKey('ga4:commerce-losses:v36', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
       decision ? 300 : decisionCacheTtl(days),
       async () => {
-        const [resp, actorsResp] = await Promise.all([ga4RunReport(c.env, {
+        const [resp, actorsResp, completeTestResp] = await Promise.all([ga4RunReport(c.env, {
           dateRanges: [reportRange(days)],
           dimensions: [
             { name: 'eventName' },
@@ -649,6 +651,25 @@ ga4.get('/commerce-losses', async (c) => {
             { name: 'pagePath' },
           ],
           metrics: [{ name: 'totalUsers' }],
+          dimensionFilter: withComHostFilter({
+            filter: {
+              fieldName: 'eventName',
+              inListFilter: { values: COMMERCE_LOSS_EVENTS },
+            },
+          }),
+          limit: 10000,
+        }), ga4RunReport(c.env, {
+          // Low-volume GA4 country/page slices can suppress both `date` and
+          // `dateHourMinute`. A separate query over only the complete property
+          // dates inside the approved seam retains those counts without
+          // absorbing either partial boundary day.
+          dateRanges: [{ startDate: PRICE_TEST_COMPLETE_START_DATE, endDate: PRICE_TEST_COMPLETE_END_DATE }],
+          dimensions: [
+            { name: 'eventName' },
+            { name: 'country' },
+            { name: 'pagePath' },
+          ],
+          metrics: [{ name: 'eventCount' }],
           dimensionFilter: withComHostFilter({
             filter: {
               fieldName: 'eventName',
@@ -701,25 +722,34 @@ ga4.get('/commerce-losses', async (c) => {
         const homepage_product_selections = rows
           .filter((row) => row.event === 'select_item' && row.page === '/')
           .reduce((sum, row) => sum + row.count, 0);
-        // GA4 can privacy-suppress dateHourMinute on low-volume country/page rows
-        // while still returning their event counts. Keep exact minutes when present;
-        // for suppressed minutes include only complete property-calendar days strictly
-        // inside the approved seam. Partial boundary days remain excluded.
-        const rowInsidePriceTest = (row: typeof rows[number]) => /^\d{12}$/.test(row.event_minute)
-          ? row.event_minute >= priceTestStartMinute && row.event_minute <= priceTestEndMinute
-          : row.event_date > priceTestStartDate && row.event_date < priceTestEndDate;
-        const priceTestEventTotal = (event: string, country: string, page: string) => rows
+        const completeTestRows = (completeTestResp.rows ?? []).map((r) => ({
+          event: r.dimensionValues?.[0]?.value || '(not set)',
+          country: r.dimensionValues?.[1]?.value || '(not set)',
+          page: r.dimensionValues?.[2]?.value || '(not set)',
+          count: Math.round(metricNum(r, 0)),
+        }));
+        const completeTestEventTotal = (event: string, country: string, page: string) => completeTestRows
+          .filter((row) => row.event === event && row.country === country && row.page === page)
+          .reduce((sum, row) => sum + row.count, 0);
+        const boundaryEventTotal = (event: string, country: string, page: string) => rows
           .filter((row) => row.event === event
             && row.country === country
             && row.page === page
-            && rowInsidePriceTest(row))
+            && /^\d{12}$/.test(row.event_minute)
+            && (row.event_date === priceTestStartDate || row.event_date === priceTestEndDate)
+            && row.event_minute >= priceTestStartMinute
+            && row.event_minute <= priceTestEndMinute)
           .reduce((sum, row) => sum + row.count, 0);
+        const priceTestEventTotal = (event: string, country: string, page: string) =>
+          completeTestEventTotal(event, country, page) + boundaryEventTotal(event, country, page);
         const price_test = {
           start_utc: PRICE_TEST_START_UTC,
           end_utc: PRICE_TEST_END_UTC,
           property_time_zone: propertyTimeZone,
           boundary_source: boundarySource,
-          suppressed_minute_policy: 'complete_property_dates_only',
+          suppressed_minute_policy: 'complete_property_dates_plus_exact_boundaries',
+          complete_start_date: PRICE_TEST_COMPLETE_START_DATE,
+          complete_end_date: PRICE_TEST_COMPLETE_END_DATE,
           start_minute: priceTestStartMinute,
           end_minute: priceTestEndMinute,
           vn_paid_landing: priceTestEventTotal('paid_locale_landing_vn', 'Vietnam', '/vn/products/innoweiss'),

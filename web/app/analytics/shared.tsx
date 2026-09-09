@@ -88,7 +88,7 @@ export type Ga4CommerceLosses = {
     end_utc: string;
     property_time_zone: string;
     boundary_source: string;
-    suppressed_minute_policy: 'complete_property_dates_plus_exact_boundaries';
+    suppressed_minute_policy: 'complete_property_dates_with_dated_fallback_plus_exact_boundaries';
     complete_start_date: string;
     complete_end_date: string;
     start_minute: string;
@@ -111,6 +111,10 @@ export type Ga4CommerceLosses = {
     my_price_views: number;
     my_paid_landing: number;
     my_add_to_cart: number;
+    ph_exact_offer_views: number;
+    ph_exact_offer_adds: number;
+    my_exact_offer_views: number;
+    my_exact_offer_adds: number;
     ph_unattributed_price_views: number;
     ph_unattributed_add_to_cart: number;
     my_unattributed_price_views: number;

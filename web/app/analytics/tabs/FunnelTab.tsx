@@ -140,6 +140,12 @@ export default function FunnelTab() {
   const myPriceViews = priceTestLosses.data?.price_test?.my_price_views ?? 0;
   const myCartAdds = priceTestLosses.data?.price_test?.my_add_to_cart ?? 0;
   const myPriceToCart = myPriceViews > 0 ? (myCartAdds / myPriceViews) * 100 : null;
+  const phExactOfferViews = priceTestLosses.data?.price_test?.ph_exact_offer_views ?? 0;
+  const phExactOfferAdds = priceTestLosses.data?.price_test?.ph_exact_offer_adds ?? 0;
+  const phExactOfferRate = phExactOfferViews > 0 ? (phExactOfferAdds / phExactOfferViews) * 100 : null;
+  const myExactOfferViews = priceTestLosses.data?.price_test?.my_exact_offer_views ?? 0;
+  const myExactOfferAdds = priceTestLosses.data?.price_test?.my_exact_offer_adds ?? 0;
+  const myExactOfferRate = myExactOfferViews > 0 ? (myExactOfferAdds / myExactOfferViews) * 100 : null;
   const phUnattributedViews = priceTestLosses.data?.price_test?.ph_unattributed_price_views ?? 0;
   const phUnattributedCarts = priceTestLosses.data?.price_test?.ph_unattributed_add_to_cart ?? 0;
   const phUnattributedRate = phUnattributedViews > 0 ? (phUnattributedCarts / phUnattributedViews) * 100 : null;
@@ -421,6 +427,11 @@ export default function FunnelTab() {
               <Kpi label="MY RM29.90 price views" value={fmtNum(myPriceViews)} delta="exact minute or complete GA4 day · exact PDP" />
               <Kpi label="MY RM29.90 carts" value={fmtNum(myCartAdds)} delta="post-launch · exact PDP" />
               <Kpi accent label="MY RM29.90 price → cart" value={fmtPct(myPriceToCart)} delta="Sep 4 09:46 UTC → Sep 11" />
+            </div>
+            <div className="wa-kpis" style={{ marginBottom: 16 }}>
+              <Kpi label="PH exact-offer signal" value={fmtPct(phExactOfferRate)} delta={`${fmtNum(phExactOfferAdds)} carts ÷ ${fmtNum(phExactOfferViews)} verified ₱499 views`} />
+              <Kpi label="MY exact-offer signal" value={fmtPct(myExactOfferRate)} delta={`${fmtNum(myExactOfferAdds)} carts ÷ ${fmtNum(myExactOfferViews)} verified RM29.90 views`} />
+              <Kpi accent label="Price-coded telemetry" value={(phExactOfferViews + myExactOfferViews) > 0 ? 'Live' : 'Collecting'} delta="exact price + country + PDP · date suppression safe" />
             </div>
             {(phUnattributedViews > 0 || myUnattributedViews > 0) && (
               <div className="wa-kpis" style={{ marginBottom: 16 }}>

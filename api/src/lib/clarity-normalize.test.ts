@@ -16,7 +16,7 @@ const normalized = normalizeClarity([
   },
   {
     metricName: 'RageClickCount',
-    information: [{ sessionsCount: 4, subTotal: 137, sessionsWithMetricPercentage: 2.92 }],
+    information: [{ sessionsCount: 137, subTotal: 137, sessionsWithMetricPercentage: 2.92 }],
   },
 ], 3);
 
@@ -24,6 +24,6 @@ assert.equal(normalized.totals.sessions, 137);
 assert.equal(normalized.signals.dead_click?.sessions_count, 9);
 assert.equal(normalized.signals.quickback?.sessions_count, 15);
 assert.equal(normalized.signals.rage_click?.sessions_count, 4);
-assert.equal(clarityCacheKey(3), 'clarity:behavior:v2|days=3');
+assert.equal(clarityCacheKey(3), 'clarity:behavior:v3|days=3');
 
 console.log('PASS 5/5 Clarity signal-count normalization checks');

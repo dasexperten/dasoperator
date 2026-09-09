@@ -18,7 +18,7 @@ import type { Env } from '../types';
 const CLARITY_BASE = 'https://www.clarity.ms/export-data/api/v1';
 
 export function clarityCacheKey(days: number): string {
-  return `clarity:behavior|days=${days}`;
+  return `clarity:behavior:v2|days=${days}`;
 }
 
 // The API returns an array of metric blocks:
@@ -92,10 +92,16 @@ const DIMENSION_BLOCKS = new Set([
 ]);
 
 export function normalizeClarity(blocks: ClarityBlock[], windowDays: number): ClarityBehavior {
+  // Clarity's behavioral blocks expose `subTotal` as the denominator (all
+  // sessions), not the number of sessions that exhibited the signal. Resolve
+  // Traffic first so a missing explicit sessionsCount can be reconstructed
+  // from the percentage without depending on block order.
+  const traffic = (blocks ?? []).find((block) => block.metricName === 'Traffic')?.information?.[0] ?? {};
+  const totalSessions = num(traffic['totalSessionCount']);
   const out: ClarityBehavior = {
     source: 'Microsoft Clarity (Data Export API, dasexperten.com project)',
     window_days: windowDays,
-    totals: { sessions: 0, bot_sessions: 0, distinct_users: 0, pages_per_session: null },
+    totals: { sessions: totalSessions, bot_sessions: 0, distinct_users: 0, pages_per_session: null },
     engagement: { total_time_sec: null, active_time_sec: null, avg_scroll_depth_pct: null },
     signals: {},
     dimensions: {},
@@ -128,9 +134,11 @@ export function normalizeClarity(blocks: ClarityBlock[], windowDays: number): Cl
 
     const signalKey = SIGNAL_KEYS[name];
     if (signalKey) {
+      const pct = numOrNull(first['sessionsWithMetricPercentage']);
+      const explicitCount = numOrNull(first['sessionsCount']);
       out.signals[signalKey] = {
-        sessions_count: num(first['sessionsCount'] ?? first['subTotal']),
-        sessions_pct: numOrNull(first['sessionsWithMetricPercentage']),
+        sessions_count: explicitCount ?? (pct !== null && totalSessions > 0 ? Math.round(totalSessions * pct / 100) : 0),
+        sessions_pct: pct,
       };
       continue;
     }

@@ -4,11 +4,11 @@ import { clarityCacheKey, normalizeClarity } from './clarity.ts';
 const normalized = normalizeClarity([
   {
     metricName: 'DeadClickCount',
-    information: [{ subTotal: 137, sessionsWithMetricPercentage: 6.57 }],
+    information: [{ sessionsCount: 137, subTotal: 9, sessionsWithMetricPercentage: 6.57 }],
   },
   {
     metricName: 'QuickbackClick',
-    information: [{ subTotal: 137, sessionsWithMetricPercentage: 10.95 }],
+    information: [{ sessionsCount: 137, subTotal: 15, sessionsWithMetricPercentage: 10.95 }],
   },
   {
     metricName: 'Traffic',
@@ -16,14 +16,19 @@ const normalized = normalizeClarity([
   },
   {
     metricName: 'RageClickCount',
-    information: [{ sessionsCount: 137, subTotal: 137, sessionsWithMetricPercentage: 2.92 }],
+    information: [{ sessionsCount: 137, subTotal: 0, sessionsWithMetricPercentage: 0 }],
+  },
+  {
+    metricName: 'ErrorClickCount',
+    information: [{ sessionsCount: 137, sessionsWithMetricPercentage: 1.46 }],
   },
 ], 3);
 
 assert.equal(normalized.totals.sessions, 137);
 assert.equal(normalized.signals.dead_click?.sessions_count, 9);
 assert.equal(normalized.signals.quickback?.sessions_count, 15);
-assert.equal(normalized.signals.rage_click?.sessions_count, 4);
-assert.equal(clarityCacheKey(3), 'clarity:behavior:v3|days=3');
+assert.equal(normalized.signals.rage_click?.sessions_count, 0);
+assert.equal(normalized.signals.error_click?.sessions_count, 2);
+assert.equal(clarityCacheKey(3), 'clarity:behavior:v4|days=3');
 
-console.log('PASS 5/5 Clarity signal-count normalization checks');
+console.log('PASS 6/6 Clarity signal-count normalization checks');

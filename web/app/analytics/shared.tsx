@@ -90,8 +90,10 @@ export type Ga4CommerceLosses = {
     vn_cta_total_views: number;
     vn_cta_total_clicks: number;
     vn_post_preview_add_to_cart: number;
+    ph_price_views: number;
     ph_paid_landing: number;
     ph_add_to_cart: number;
+    my_price_views: number;
     my_paid_landing: number;
     my_add_to_cart: number;
   };

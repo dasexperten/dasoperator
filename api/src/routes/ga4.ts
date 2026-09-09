@@ -619,7 +619,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v33', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
+      cacheKey('ga4:commerce-losses:v34', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
       decision ? 300 : decisionCacheTtl(days),
       async () => {
         const [resp, actorsResp] = await Promise.all([ga4RunReport(c.env, {
@@ -735,8 +735,10 @@ ga4.get('/commerce-losses', async (c) => {
               && row.event_minute >= vnDeliveredPreviewStartMinute
               && row.event_minute <= priceTestEndMinute)
             .reduce((sum, row) => sum + row.count, 0),
+          ph_price_views: priceTestEventTotal('pdp_price_view', 'Philippines', '/tl/products/innoweiss'),
           ph_paid_landing: priceTestEventTotal('paid_locale_landing_tl', 'Philippines', '/tl/products/innoweiss'),
           ph_add_to_cart: priceTestEventTotal('add_to_cart', 'Philippines', '/tl/products/innoweiss'),
+          my_price_views: priceTestEventTotal('pdp_price_view', 'Malaysia', '/ms/products/innoweiss'),
           my_paid_landing: priceTestEventTotal('paid_locale_landing_ms', 'Malaysia', '/ms/products/innoweiss'),
           my_add_to_cart: priceTestEventTotal('add_to_cart', 'Malaysia', '/ms/products/innoweiss'),
         };

@@ -124,12 +124,12 @@ export default function FunnelTab() {
   const vnTotalClicks = priceTestLosses.data?.price_test?.vn_cta_total_clicks ?? 0;
   const vnProductCtr = vnProductViews > 0 ? (vnProductClicks / vnProductViews) * 100 : null;
   const vnTotalCtr = vnTotalViews > 0 ? (vnTotalClicks / vnTotalViews) * 100 : null;
-  const paidPhLandings = priceTestLosses.data?.price_test?.ph_paid_landing ?? 0;
+  const phPriceViews = priceTestLosses.data?.price_test?.ph_price_views ?? 0;
   const phCartAdds = priceTestLosses.data?.price_test?.ph_add_to_cart ?? 0;
-  const phLandingToCart = paidPhLandings > 0 ? (phCartAdds / paidPhLandings) * 100 : null;
-  const paidMyLandings = priceTestLosses.data?.price_test?.my_paid_landing ?? 0;
+  const phPriceToCart = phPriceViews > 0 ? (phCartAdds / phPriceViews) * 100 : null;
+  const myPriceViews = priceTestLosses.data?.price_test?.my_price_views ?? 0;
   const myCartAdds = priceTestLosses.data?.price_test?.my_add_to_cart ?? 0;
-  const myLandingToCart = paidMyLandings > 0 ? (myCartAdds / paidMyLandings) * 100 : null;
+  const myPriceToCart = myPriceViews > 0 ? (myCartAdds / myPriceViews) * 100 : null;
   const postLaunchAds = exposure.data?.campaign_delivery?.post_launch_complete_hours;
   const vnAdsClicks = postLaunchAds?.clicks ?? 0;
   const vnAttributionMismatch = paidVnLandings >= 10 && paidVnLandings > Math.max(vnAdsClicks * 3, vnAdsClicks + 10);
@@ -328,14 +328,14 @@ export default function FunnelTab() {
               <Kpi accent label="VN CTA test status" value={(vnProductClicks + vnTotalClicks) < 30 ? 'Collecting' : 'Decision ready'} delta="30 clicks before message decision" />
             </div>
             <div className="wa-kpis" style={{ marginBottom: 16 }}>
-              <Kpi label="PH ₱499 landings" value={fmtNum(paidPhLandings)} delta="post-launch · exact PDP" />
+              <Kpi label="PH ₱499 price views" value={fmtNum(phPriceViews)} delta="saw the tested price · exact PDP" />
               <Kpi label="PH ₱499 carts" value={fmtNum(phCartAdds)} delta="post-launch · exact PDP" />
-              <Kpi accent label="PH ₱499 landing → cart" value={fmtPct(phLandingToCart)} delta="Sep 4 09:46 UTC → Sep 11" />
+              <Kpi accent label="PH ₱499 price → cart" value={fmtPct(phPriceToCart)} delta="Sep 4 09:46 UTC → Sep 11" />
             </div>
             <div className="wa-kpis" style={{ marginBottom: 16 }}>
-              <Kpi label="MY RM29.90 landings" value={fmtNum(paidMyLandings)} delta="post-launch · exact PDP" />
+              <Kpi label="MY RM29.90 price views" value={fmtNum(myPriceViews)} delta="saw the discounted price · exact PDP" />
               <Kpi label="MY RM29.90 carts" value={fmtNum(myCartAdds)} delta="post-launch · exact PDP" />
-              <Kpi accent label="MY RM29.90 landing → cart" value={fmtPct(myLandingToCart)} delta="Sep 4 09:46 UTC → Sep 11" />
+              <Kpi accent label="MY RM29.90 price → cart" value={fmtPct(myPriceToCart)} delta="Sep 4 09:46 UTC → Sep 11" />
             </div>
             <div className="wa-kpis" style={{ marginBottom: 16 }}>
               <Kpi label="Shipping bundle offers" value={fmtNum(bundleOffers)} delta="DE · VN · PH · MY" />

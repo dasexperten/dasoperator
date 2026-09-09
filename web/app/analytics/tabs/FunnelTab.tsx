@@ -80,7 +80,8 @@ const SIGNAL_LABELS: Record<string, string> = {
   pdp_delivery_click_total: 'Clicked VN delivered-total CTA',
   shipping_unavailable: 'Shipping unavailable',
   shipping_quote_request: 'Requested shipping quote',
-  shipping_bundle_offer: 'Saw two-tube shipping value',
+  shipping_bundle_offer: 'Rendered two-tube shipping value',
+  shipping_bundle_view: 'Saw two-tube shipping value',
   shipping_preview_ready: 'Saw delivery price before checkout',
   shipping_bundle_unavailable: 'Two-tube shipping offer unavailable',
   shipping_bundle_add: 'Added second tube',
@@ -114,8 +115,9 @@ export default function FunnelTab() {
   const verifiedCr = t?.sessions ? (verifiedPurchases / t.sessions) * 100 : 0;
   const lowTraffic = verifiedPurchases < 30;
   const bundleOffers = losses.data?.totals.shipping_bundle_offer ?? 0;
+  const bundleViews = losses.data?.totals.shipping_bundle_view ?? 0;
   const bundleAdds = losses.data?.totals.shipping_bundle_add ?? 0;
-  const bundleUptake = bundleOffers > 0 ? (bundleAdds / bundleOffers) * 100 : 0;
+  const bundleUptake = bundleViews > 0 ? (bundleAdds / bundleViews) * 100 : null;
   const homepageProductSelections = losses.data?.homepage_product_selections ?? 0;
   const paidVnLandings = priceTestLosses.data?.price_test?.vn_paid_landing ?? 0;
   const vnCartAdds = priceTestLosses.data?.price_test?.vn_add_to_cart ?? 0;
@@ -428,9 +430,10 @@ export default function FunnelTab() {
               </div>
             )}
             <div className="wa-kpis" style={{ marginBottom: 16 }}>
-              <Kpi label="Shipping bundle offers" value={fmtNum(bundleOffers)} delta="DE · VN · PH · MY" />
+              <Kpi label="Shipping bundle rendered" value={fmtNum(bundleOffers)} delta="availability · not a view" />
+              <Kpi label="Shipping bundle seen" value={fmtNum(bundleViews)} delta="at least 50% visible" />
               <Kpi label="Second tubes added" value={fmtNum(bundleAdds)} delta="one-click action" />
-              <Kpi accent label="Bundle uptake" value={fmtPct(bundleUptake)} delta="adds ÷ offers" />
+              <Kpi accent label="Bundle uptake" value={fmtPct(bundleUptake)} delta="adds ÷ visible offers" />
             </div>
             <div className="wa-kpis" style={{ marginBottom: 16 }}>
               <Kpi label="Checkout exits" value={fmtNum(checkoutExits)} delta="explicit modal closes · no personal data" />

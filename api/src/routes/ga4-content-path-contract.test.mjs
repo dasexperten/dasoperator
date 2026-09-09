@@ -12,7 +12,7 @@ const checks = [
   ['content cache invalidates host-corrected rows', api.includes("cacheKey('ga4:content:v5'") && api.includes("host: 'com'")],
   ['content page views are restricted to the .com host', api.includes("metrics: [{ name: 'screenPageViews' }],\r\n        dimensionFilter: comHostFilter(),") || api.includes("metrics: [{ name: 'screenPageViews' }],\n        dimensionFilter: comHostFilter(),")],
   ['content commerce events are restricted to the .com host', api.includes("dimensionFilter: withComHostFilter({ filter: { fieldName: 'eventName'")],
-  ['commerce attribution includes cart and bundle progression', api.includes("'view_cart'") && api.includes("'shipping_preview_ready'") && api.includes("'shipping_bundle_offer'") && api.includes("'shipping_bundle_add'")],
+  ['commerce attribution includes cart and bundle progression', api.includes("'view_cart'") && api.includes("'shipping_preview_ready'") && api.includes("'shipping_bundle_offer'") && api.includes("'shipping_bundle_view'") && api.includes("'shipping_bundle_add'")],
   ['commerce attribution includes checkout progression', api.includes("'checkout_loaded'") && api.includes("'checkout_email_started'") && api.includes("'checkout_email_complete'") && api.includes("'checkout_address_started'") && api.includes("'checkout_address_complete'") && api.includes("'shipping_quote_ready'") && api.includes("'add_payment_info'")],
   ['shared content type keeps page', types.includes('rows: Array<{ title: string; page: string; views: number }>')],
   ['shared content type includes commerce rows', types.includes('commerce_rows: Array<{ event: string; title: string; page: string; count: number }>')],

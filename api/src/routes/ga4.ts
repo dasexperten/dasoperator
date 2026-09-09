@@ -505,6 +505,14 @@ const COMMERCE_LOSS_EVENTS = [
   'checkout_email_complete',
   'checkout_address_started',
   'checkout_address_complete',
+  'checkout_exit_before_loaded',
+  'checkout_exit_before_contact',
+  'checkout_exit_email_started',
+  'checkout_exit_email_complete',
+  'checkout_exit_address_started',
+  'checkout_exit_address_complete',
+  'checkout_exit_quote_ready',
+  'checkout_exit_payment_started',
   'checkout_pay_blocked_click',
   'shipping_quote_ready',
   'add_payment_info',
@@ -621,7 +629,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v38', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
+      cacheKey('ga4:commerce-losses:v39', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
       decision ? 300 : decisionCacheTtl(days),
       async () => {
         const [resp, actorsResp, completeTestResp] = await Promise.all([ga4RunReport(c.env, {

@@ -38,6 +38,14 @@ const SIGNAL_LABELS: Record<string, string> = {
   checkout_email_complete: 'Email completed',
   checkout_address_started: 'Address started',
   checkout_address_complete: 'Address completed',
+  checkout_exit_before_loaded: 'Exited before checkout loaded',
+  checkout_exit_before_contact: 'Exited before contact',
+  checkout_exit_email_started: 'Exited while entering email',
+  checkout_exit_email_complete: 'Exited after email',
+  checkout_exit_address_started: 'Exited while entering address',
+  checkout_exit_address_complete: 'Exited after address',
+  checkout_exit_quote_ready: 'Exited after delivery quote',
+  checkout_exit_payment_started: 'Exited during payment',
   shipping_quote_ready: 'Shipping quote ready',
   add_payment_info: 'Reached payment',
   checkout_error: 'Checkout error',
@@ -141,6 +149,11 @@ export default function FunnelTab() {
   const vnAttributionMismatch = paidVnLandings >= 10 && paidVnLandings > Math.max(vnAdsClicks * 3, vnAdsClicks + 10);
   const searchDelivery = exposure.data?.replacement_search_delivery;
   const pageTotals = losses.data?.page_totals ?? [];
+  const checkoutExitStages = Object.entries(losses.data?.totals ?? {})
+    .filter(([event]) => event.startsWith('checkout_exit_'))
+    .sort((a, b) => b[1] - a[1]);
+  const checkoutExits = checkoutExitStages.reduce((sum, [, count]) => sum + count, 0);
+  const leadingCheckoutExit = checkoutExitStages.find(([, count]) => count > 0);
 
   return (
     <div className="space-y-4">
@@ -354,6 +367,15 @@ export default function FunnelTab() {
               <Kpi label="Shipping bundle offers" value={fmtNum(bundleOffers)} delta="DE · VN · PH · MY" />
               <Kpi label="Second tubes added" value={fmtNum(bundleAdds)} delta="one-click action" />
               <Kpi accent label="Bundle uptake" value={fmtPct(bundleUptake)} delta="adds ÷ offers" />
+            </div>
+            <div className="wa-kpis" style={{ marginBottom: 16 }}>
+              <Kpi label="Checkout exits" value={fmtNum(checkoutExits)} delta="explicit modal closes · no personal data" />
+              <Kpi
+                accent={checkoutExits > 0}
+                label="Leading checkout exit"
+                value={leadingCheckoutExit ? (SIGNAL_LABELS[leadingCheckoutExit[0]] ?? leadingCheckoutExit[0]) : 'Collecting'}
+                delta={leadingCheckoutExit ? `${fmtNum(leadingCheckoutExit[1])} exits` : 'new bounded stage signal'}
+              />
             </div>
           </>
         )}

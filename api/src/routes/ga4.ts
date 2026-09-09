@@ -532,6 +532,16 @@ const COMMERCE_LOSS_EVENTS = [
   'frontend_error_resource_third_party',
   'frontend_error_resource_unknown',
   'frontend_error_image_first_party',
+  'frontend_error_image_fp_product',
+  'frontend_error_image_fp_visual',
+  'frontend_error_image_fp_flag',
+  'frontend_error_image_fp_brand',
+  'frontend_error_image_fp_other',
+  'frontend_error_resource_fp_product',
+  'frontend_error_resource_fp_visual',
+  'frontend_error_resource_fp_flag',
+  'frontend_error_resource_fp_brand',
+  'frontend_error_resource_fp_other',
   'frontend_error_image_third_party',
   'frontend_error_style_first_party',
   'frontend_error_style_third_party',
@@ -609,7 +619,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v32', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
+      cacheKey('ga4:commerce-losses:v33', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
       decision ? 300 : decisionCacheTtl(days),
       async () => {
         const [resp, actorsResp] = await Promise.all([ga4RunReport(c.env, {
@@ -1176,6 +1186,11 @@ ga4.get('/realtime', async (c) => {
       'frontend_error_script_inline', 'frontend_error_script_unknown',
       'frontend_error_resource_first_party', 'frontend_error_resource_third_party',
       'frontend_error_resource_unknown', 'frontend_error_image_first_party',
+      'frontend_error_image_fp_product', 'frontend_error_image_fp_visual',
+      'frontend_error_image_fp_flag', 'frontend_error_image_fp_brand',
+      'frontend_error_image_fp_other', 'frontend_error_resource_fp_product',
+      'frontend_error_resource_fp_visual', 'frontend_error_resource_fp_flag',
+      'frontend_error_resource_fp_brand', 'frontend_error_resource_fp_other',
       'frontend_error_image_third_party', 'frontend_error_style_first_party',
       'frontend_error_style_third_party', 'frontend_error_font_first_party',
       'frontend_error_font_third_party', 'frontend_error_media_first_party',

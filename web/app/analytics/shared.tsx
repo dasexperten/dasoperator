@@ -113,8 +113,12 @@ export type Ga4CommerceLosses = {
     my_add_to_cart: number;
     ph_exact_offer_views: number;
     ph_exact_offer_adds: number;
+    ph_exact_offer_cart_views: number;
+    ph_exact_offer_checkout_clicks: number;
     my_exact_offer_views: number;
     my_exact_offer_adds: number;
+    my_exact_offer_cart_views: number;
+    my_exact_offer_checkout_clicks: number;
     ph_unattributed_price_views: number;
     ph_unattributed_add_to_cart: number;
     my_unattributed_price_views: number;

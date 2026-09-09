@@ -651,6 +651,42 @@ site.get('/stats', async (c) => {
        GROUP BY sku ORDER BY units DESC LIMIT 5`
     ).all<any>();
 
+    // Keep the decision window separate from the all-time catalogue leaders.
+    // Growth work needs to know what generated paid orders now, not which SKU
+    // accumulated the most units over the entire imported history.
+    const topSkus30d = await c.env.DB.prepare(
+      `SELECT json_extract(je.value, '$.sku') AS sku,
+              COALESCE(json_extract(je.value, '$.name'), json_extract(je.value, '$.sku')) AS name,
+              SUM(CAST(COALESCE(json_extract(je.value, '$.qty'), 1) AS INTEGER)) AS units
+       FROM crm_orders, json_each(crm_orders.items) je
+       WHERE crm_orders.financial_status IN ('paid','partially_refunded')
+         AND crm_orders.placed_at >= ?1
+       GROUP BY sku ORDER BY units DESC, sku LIMIT 10`
+    ).bind(d30).all<any>();
+
+    const countries30d = await c.env.DB.prepare(
+      `SELECT COALESCE(NULLIF(TRIM(ship_country), ''), 'Unknown') AS country,
+              COUNT(*) AS orders,
+              COALESCE(SUM(total_cents), 0) AS sales_cents
+       FROM crm_orders
+       WHERE financial_status IN ('paid','partially_refunded') AND placed_at >= ?1
+       GROUP BY country ORDER BY sales_cents DESC, orders DESC, country LIMIT 10`
+    ).bind(d30).all<any>();
+
+    const baskets30d = await c.env.DB.prepare(
+      `SELECT COUNT(*) AS orders,
+              COALESCE(SUM(total_units), 0) AS units,
+              COALESCE(SUM(CASE WHEN total_units >= 2 THEN 1 ELSE 0 END), 0) AS multi_unit_orders
+       FROM (
+         SELECT crm_orders.id,
+                SUM(CAST(COALESCE(json_extract(je.value, '$.qty'), 1) AS INTEGER)) AS total_units
+         FROM crm_orders, json_each(crm_orders.items) je
+         WHERE crm_orders.financial_status IN ('paid','partially_refunded')
+           AND crm_orders.placed_at >= ?1
+         GROUP BY crm_orders.id
+       ) recent_baskets`
+    ).bind(d30).first<any>();
+
     const monthly = await c.env.DB.prepare(
       `SELECT strftime('%Y-%m', placed_at, 'unixepoch') AS month,
               COUNT(*) AS orders, COALESCE(SUM(total_cents), 0) AS revenue_cents
@@ -684,6 +720,10 @@ site.get('/stats', async (c) => {
         retailcrm: Number(custTotals?.from_retailcrm ?? 0),
       },
       top_skus: topSkus.results ?? [],
+      top_skus_30d: topSkus30d.results ?? [],
+      countries_30d: countries30d.results ?? [],
+      units_30d: Number(baskets30d?.units ?? 0),
+      multi_unit_orders_30d: Number(baskets30d?.multi_unit_orders ?? 0),
       monthly: monthly.results ?? [],
       stripe_poller: lastSync
         ? { cursor: Number(lastSync.value), last_run_at: lastSync.updated_at }

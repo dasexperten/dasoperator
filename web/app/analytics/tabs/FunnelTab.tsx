@@ -178,6 +178,45 @@ export default function FunnelTab() {
         </div>
       )}
 
+      {websiteOrders.data && (
+        <Panel title="Paid order mix — 30 days" source="D1 / Stripe ledger · dasexperten.com">
+          <div className="wa-kpis" style={{ marginBottom: 16 }}>
+            <Kpi label="Paid units · 30d" value={fmtNum(websiteOrders.data.units_30d)} delta="paid or partially refunded orders" />
+            <Kpi
+              accent
+              label="Multi-unit orders · 30d"
+              value={fmtNum(websiteOrders.data.multi_unit_orders_30d)}
+              delta={`${websiteOrders.data.orders_30d ? ((websiteOrders.data.multi_unit_orders_30d / websiteOrders.data.orders_30d) * 100).toFixed(1) : '0.0'}% of paid orders`}
+            />
+          </div>
+          <div className="wa-grid2eq">
+            <div className="wa-table-scroll">
+              <table className="wa-table">
+                <thead><tr><th>Country</th><th>Orders</th><th>Sales</th></tr></thead>
+                <tbody>
+                  {websiteOrders.data.countries_30d.map((row) => (
+                    <tr key={row.country}><td>{row.country}</td><td>{fmtNum(row.orders)}</td><td>${(row.sales_cents / 100).toFixed(2)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="wa-table-scroll">
+              <table className="wa-table">
+                <thead><tr><th>SKU · current window</th><th>Units</th></tr></thead>
+                <tbody>
+                  {websiteOrders.data.top_skus_30d.map((row) => (
+                    <tr key={row.sku}><td><strong>{row.sku}</strong> · {row.name}</td><td>{fmtNum(row.units)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="wa-note" style={{ marginTop: 12 }}>
+            This panel uses only paid or partially refunded orders placed inside the rolling 30-day window. It does not mix in historical SKU volume.
+          </div>
+        </Panel>
+      )}
+
       <Panel title="E-commerce funnel — 30 days" source="GA4 events · dasexperten.com">
         {rows.length > 0 ? (
           <div>

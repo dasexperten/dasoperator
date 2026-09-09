@@ -6,6 +6,7 @@ const types = fs.readFileSync(new URL('../../../web/app/analytics/shared.tsx', i
 const traffic = fs.readFileSync(new URL('../../../web/app/analytics/tabs/TrafficTab.tsx', import.meta.url), 'utf8');
 const campaigns = fs.readFileSync(new URL('../../../web/app/analytics/tabs/CampaignsTab.tsx', import.meta.url), 'utf8');
 const analyticsPage = fs.readFileSync(new URL('../../../web/app/analytics/page.tsx', import.meta.url), 'utf8');
+const websiteOrdersApi = fs.readFileSync(new URL('./crm-website.ts', import.meta.url), 'utf8');
 
 const checks = [
   [api.includes('sessions_pct: null') && api.includes('session counts are non-additive') && types.includes('sessions_pct: number | null') && traffic.includes('Session counts across these dimensions are non-additive'), 'acquisition rows cannot claim impossible session coverage'],
@@ -37,6 +38,10 @@ const checks = [
   [ui.includes("purchase_verified: 'Stripe-verified purchase'") && ui.includes('audit only · not revenue'), 'dashboard labels the finance-safe final step and legacy audit count'],
   [types.includes('export type WebsiteOrderStats') && ui.includes("useApi<WebsiteOrderStats>('/api/crm/website/stats')"), 'funnel reads authoritative D1 website-order totals beside GA4 signals'],
   [ui.includes('Paid website orders · 30d') && ui.includes('Use D1 for actual') && ui.includes('tracking signal · may have partial history'), 'dashboard exposes and explains the D1 versus GA4 purchase-measurement gap'],
+  [websiteOrdersApi.includes('top_skus_30d:') && websiteOrdersApi.includes('countries_30d:') && websiteOrdersApi.includes('multi_unit_orders_30d:'), 'D1 website-order stats expose current-window product, country and basket mix'],
+  [websiteOrdersApi.includes("AND crm_orders.placed_at >= ?1") && websiteOrdersApi.includes("AND placed_at >= ?1"), 'current order-mix queries are bounded to the rolling 30-day window'],
+  [types.includes('top_skus_30d: Array<') && types.includes('countries_30d: Array<') && types.includes('multi_unit_orders_30d: number;'), 'shared order-stats contract carries current-window mix'],
+  [ui.includes('Paid order mix — 30 days') && ui.includes('SKU · current window') && ui.includes('Multi-unit orders · 30d'), 'dashboard renders revenue, product and multi-unit order mix without historical contamination'],
   [api.includes("'checkout_opened'") && api.includes("'checkout_stripe_ready'"), 'API separates checkout shell opening from Stripe readiness'],
   [api.includes("'checkout_cta_click'") && api.includes("row.event === 'checkout_cta_click'") && types.includes('checkout_cta_click: number;') && ui.includes("checkout_cta_click: 'Pressed checkout CTA'"), 'cart CTA intent is separated from checkout opening'],
   [api.includes('return days === 1 ? 300 : 3600;'), 'one-day decision reports refresh within five minutes'],

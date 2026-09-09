@@ -55,6 +55,10 @@ export type WebsiteOrderStats = {
   currency: string;
   orders_30d: number;
   sales_30d_cents: number;
+  units_30d: number;
+  multi_unit_orders_30d: number;
+  top_skus_30d: Array<{ sku: string; name: string; units: number }>;
+  countries_30d: Array<{ country: string; orders: number; sales_cents: number }>;
   synced_at: number;
 };
 export type Ga4CommerceLosses = {

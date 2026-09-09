@@ -621,7 +621,7 @@ ga4.get('/commerce-losses', async (c) => {
   try {
     const payload = await withKvCache(
       c.env,
-      cacheKey('ga4:commerce-losses:v37', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
+      cacheKey('ga4:commerce-losses:v38', { days, limit, decision, calendar_window: 'exact-v3', host: 'com' }),
       decision ? 300 : decisionCacheTtl(days),
       async () => {
         const [resp, actorsResp, completeTestResp] = await Promise.all([ga4RunReport(c.env, {
@@ -798,7 +798,12 @@ ga4.get('/commerce-losses', async (c) => {
             marketPageEventTotal('add_to_cart', 'Malaysia', '/ms/products/innoweiss')
               - priceTestEventTotal('add_to_cart', 'Malaysia', '/ms/products/innoweiss')),
         };
-        const isFailure = (event: string) => event === 'shipping_unavailable' || event.startsWith('checkout_error');
+        const isFailure = (event: string) =>
+          event.startsWith('frontend_error')
+          || event.startsWith('checkout_error')
+          || event === 'shipping_unavailable'
+          || event === 'pdp_delivery_preview_unavailable'
+          || event === 'shipping_bundle_unavailable';
         // Decision table over the complete GA4 response, not the bounded recent
         // rows below. Group by country + page so one locale cannot borrow another
         // locale's denominator. This is aggregate event evidence, not a user path.

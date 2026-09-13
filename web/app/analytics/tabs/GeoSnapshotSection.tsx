@@ -47,6 +47,12 @@ export type GeoSnapshot = {
     failed?: number;
     failed_pct?: number | null;
   };
+  /**
+   * Дверь по-прежнему отдаёт битые адреса, а страница их не показывает
+   * (Владелец 13.09.2026: «это надо решать»). Тип остаётся: утренний прогон
+   * читает то же поле и закрывает каждый адрес — переездом на живого владельца
+   * или ответом 410, если страницы больше нет.
+   */
   broken: Block & {
     total_hits?: number;
     moved_hits?: number;
@@ -88,7 +94,6 @@ export default function GeoSnapshotSection() {
 
   const nightOk = (d?.run?.halves ?? []).slice(0, 2).every((h) => h.ok);
   const families = d?.bots?.families ?? [];
-  const broken = d?.broken?.paths ?? [];
   const crawled = d?.paths?.paths ?? [];
   const countries = d?.search?.countries ?? [];
 
@@ -100,25 +105,33 @@ export default function GeoSnapshotSection() {
         Nightly snapshot, written 00:45 UTC into the organization database and read here on request —
         no copy is stored in the ERP. Cloudflare keeps only 8 days of edge data, so this series is the
         only long record of it. Search Console ripens 2–4 days later than the edge, so each block
-        states its own day.
+        states its own day. Broken addresses are not listed here on purpose (Owner 2026-09-13): a
+        repair list is work, not a view — each one is redirected to its live owner or answered 410
+        when the page is gone, in the morning run.
       </div>
 
-      {/* Did the night run at all. Without this line "no errors" and "no snapshot" look identical. */}
-      {d?.run && (
-        <Panel title="Last night" source="julian-geo · run log">
-          {d.run.last ? (
-            <>
-              <div className="wa-kpis">
-                <Kpi label="Snapshot" value={nightOk ? 'OK' : 'FAILED'} delta={d.run.last} accent={!nightOk} />
-              </div>
-              <p style={{ color: 'var(--fg-3)', marginTop: 8, fontSize: 12 }}>
-                {(d.run.halves ?? []).map((h) => `${h.half}: ${h.ok ? 'ok' : 'failed'} · ${h.detail}`).join(' — ')}
-              </p>
-            </>
-          ) : (
-            <p style={{ color: 'var(--status-warning)' }}>{d.run.reason || 'no run log'}</p>
-          )}
-        </Panel>
+      {/* Владелец 13.09.2026: «этот OK... целый огромный блок ты даёшь под это —
+          не нужно». Плитка снята. Строка остаётся ТОЛЬКО когда ночь не прошла:
+          молчание — правильный отчёт спокойной ночи, а вот молчание о сорванном
+          снимке превратило бы пустую страницу в спокойную.
+
+          Форма — по решению Марики, второй заход приёмки. Плашка `wa-status`
+          сюда не годится: она `nowrap` и капсом, то есть на два слова вроде OK,
+          а тревога здесь — предложение с деталями половин, и на 390 px она уехала
+          бы за край. Плита `wa-note` с тушью ошибки переносится и не капсит;
+          прецедент на этой же странице — предупреждения FunnelTab, там та же плита
+          с жёлтой тушью. Цвет только токеном (§4j): --status-error по --paper-sunk
+          даёт 5.09:1 при пороге 4.5. Новых строк оформления 0.
+
+          Условие смотрит на загруженный ответ, а не на наличие поля run: если поле
+          пропадёт, блок обязан закричать, а не промолчать как в спокойную ночь. */}
+      {d && !(d.run?.last && nightOk) && (
+        <div className="wa-note" style={{ color: 'var(--status-error)', fontWeight: 700 }}>
+          Snapshot did not complete —{' '}
+          {d.run?.last
+            ? (d.run.halves ?? []).filter((h) => !h.ok).map((h) => `${h.half}: ${h.detail}`).join(' · ')
+            : d.run?.reason || 'no run log'}
+        </div>
       )}
 
       {/* The edge: how much came, and how much of it we answered badly. */}
@@ -185,44 +198,6 @@ export default function GeoSnapshotSection() {
           <DayNote day={null} reason={d?.bots?.reason} />
         )}
         {d?.bots?.day && <DayNote day={d.bots.day} extra="bold = engines we are measured on" />}
-      </Panel>
-
-      {/* Tomorrow's repair list. Intentional redirects are counted apart — a move is an answer, not a refusal. */}
-      <Panel title="Broken for machines" source="julian-geo · geo_bot_broken">
-        {broken.length ? (
-          <>
-            <div className="wa-table-scroll">
-              <table className="wa-table">
-                <thead>
-                  <tr>
-                    <th>Path</th>
-                    <th className="right">Status</th>
-                    <th className="right">Hits</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {broken.map((p) => (
-                    <tr key={`${p.path}-${p.status}`}>
-                      <td>{p.path}</td>
-                      <td className="num right">{p.status}</td>
-                      <td className="num right">{fmtNum(p.hits)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <DayNote
-              day={d?.broken?.day ?? null}
-              extra={`${fmtNum(d?.broken?.total_hits ?? 0)} failed hits · ${fmtNum(
-                d?.broken?.moved_hits ?? 0,
-              )} redirects counted apart, they are healthy`}
-            />
-          </>
-        ) : (
-          <p style={{ color: 'var(--fg-3)' }}>
-            {d?.broken?.day ? 'Nothing broken on the last measured day.' : d?.broken?.reason || 'No series yet.'}
-          </p>
-        )}
       </Panel>
 
       {/* What they actually read. */}

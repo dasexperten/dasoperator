@@ -11,6 +11,7 @@ import pricerRoutes from './routes/pricer';
 // !! KEEP — registered route for /api/price-types — DO NOT REMOVE on parallel edits
 import priceTypesRoutes from './routes/price-types';
 import emailRoutes from './routes/email';
+import emailWorkspaceRoutes from './routes/email-workspace';
 import emailSendRoutes from './routes/email-send';
 import emailReplyRoutes from './routes/email-reply';
 import emailResendRoutes from './routes/email-resend';
@@ -216,6 +217,7 @@ app.route('/api/contracts', contractsRoutes);
 app.route('/api/pricer', pricerRoutes);
 // !! KEEP — /api/price-types CRUD (GET, POST, PATCH) — see api/src/routes/price-types.ts
 app.route('/api/price-types', priceTypesRoutes);
+app.route('/api/email/workspace', emailWorkspaceRoutes);
 app.route('/api/email', emailRoutes);
 app.route('/api/email', emailSendRoutes);  // adds /test — Cloudflare Email Sending (notify.dasexperten.com)
 app.route('/api/email', emailReplyRoutes);  // adds /reply — human replies via Resend + R2 sent archive

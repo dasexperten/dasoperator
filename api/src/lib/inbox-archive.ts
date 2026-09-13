@@ -299,7 +299,7 @@ async function appendToIndex(env: Env, addr: string, entry: IndexEntry): Promise
 
   for (let attempt = 0; attempt < INDEX_WRITE_ATTEMPTS; attempt++) {
     const { entries, etag } = await readIndex(env, indexKey);
-    entries.push(entry);
+    if (!entries.some(e => e.key === entry.key)) entries.push(entry);
     const putOptions = etag
       ? { onlyIf: { etagMatches: etag }, httpMetadata: { contentType: 'application/json' } }
       : { httpMetadata: { contentType: 'application/json' } };
@@ -313,7 +313,7 @@ async function appendToIndex(env: Env, addr: string, entry: IndexEntry): Promise
   // Final best-effort attempt, unconditional — may lose a concurrent write,
   // but never drops this entry outright.
   const { entries } = await readIndex(env, indexKey);
-  entries.push(entry);
+  if (!entries.some(e => e.key === entry.key)) entries.push(entry);
   await env.ARCHIVE.put(indexKey, JSON.stringify(entries), { httpMetadata: { contentType: 'application/json' } });
 }
 
@@ -323,8 +323,9 @@ export async function archiveEmail(
   env: Env,
   direction: MailDirection,
   address: string,
-  payload: ArchiveEmailInput
-): Promise<void> {
+  payload: ArchiveEmailInput,
+  options: { strict?: boolean; recordId?: string; timestamp?: string } = {}
+): Promise<string | undefined> {
   const split = splitPlusTag(address);
   const addr = split.base;
   if (!addr || SKIP_ADDRESSES.has(addr)) return;
@@ -332,8 +333,9 @@ export async function archiveEmail(
   // payload.plusTag is what we issued ourselves when sending.
   const plusTag = split.tag || payload.plusTag;
 
-  const timestamp = new Date().toISOString();
-  const recordId = `${timestamp}-${crypto.randomUUID()}`;
+  const timestamp = options.timestamp || new Date().toISOString();
+  if (options.recordId && !/^[a-zA-Z0-9_-]+$/.test(options.recordId)) throw new Error("Invalid archive record identifier");
+  const recordId = options.recordId || `${timestamp}-${crypto.randomUUID()}`;
   const key = `Inbox/${addr}/${direction}/${recordId}.json`;
 
   // Bytes never enter the record: strip the raw attachments, store them as
@@ -343,6 +345,7 @@ export async function archiveEmail(
   try {
     stored = await storeAttachments(env, `Inbox/${addr}/${direction}/${recordId}`, rawAttachments);
   } catch (err) {
+    if (options.strict) throw err;
     console.log(JSON.stringify({
       scope: 'inbox-archive',
       success: false,
@@ -351,6 +354,8 @@ export async function archiveEmail(
       error: err instanceof Error ? err.message : String(err),
     }));
   }
+
+  if (options.strict && stored.some(a => a.skipped)) throw new Error("Attachment archive incomplete");
 
   const record = {
     direction,
@@ -399,6 +404,8 @@ export async function archiveEmail(
       await appendToIndex(env, addr, indexEntry);
     }
 
+    if (options.strict && !written) throw new Error("ERP mail index write failed");
+
     // The letter is safely stored — only now do we try to say who it belongs to.
     // One choke point for both directions: a sent letter is as much part of a
     // counterparty's history as a received one. Failure here is swallowed
@@ -412,7 +419,9 @@ export async function archiveEmail(
       subject: payload.subject,
       text: payload.text,
     });
+    return key;
   } catch (err) {
+    if (options.strict) throw err;
     console.log(JSON.stringify({
       scope: 'inbox-archive',
       success: false,
@@ -420,6 +429,7 @@ export async function archiveEmail(
       direction,
       error: err instanceof Error ? err.message : String(err),
     }));
+    return undefined;
   }
 }
 

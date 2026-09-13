@@ -42,6 +42,13 @@ export interface Env {
   DASHA_OZON: Fetcher;
   /** Fleet Worker arina-wb — WB stocks+sales craft (Owner 2026-07-21) */
   ARINA_WB: Fetcher;
+  /**
+   * Fleet Worker julian-geo — GEO seat. The nightly snapshot writes six tables
+   * into the ORGANIZATION database, not into the ERP one, so the analytics page
+   * relays through the seat instead of holding a copy: a second set of the same
+   * numbers drifts from the first in silence (Owner 2026-09-12).
+   */
+  JULIAN_GEO: Fetcher;
 
   // Cloudflare Email Sending (Beta) binding — outbound transactional email
   // from notify.dasexperten.com. See src/services/email.ts for the allowed

@@ -10,6 +10,7 @@ import React from 'react';
 import {
   useApi, fmtNum, timeAgo, Panel, LoadState, SourceChip, Kpi,
 } from '../shared';
+import GeoSnapshotSection from './GeoSnapshotSection';
 
 export type AiCrawlerTile = {
   operator: string;
@@ -77,6 +78,12 @@ export default function AiGeoTab() {
 
   return (
     <div className="space-y-4">
+      {/* Our own nightly measurement comes first: it is the only source here that
+          reports what happened rather than what an outside tool estimates, and it
+          needs nobody's approval to run (Owner 2026-09-12). Ubersuggest authority
+          and the KV crawler drop stay below as the outside view. */}
+      <GeoSnapshotSection />
+
       <LoadState loading={crawlers.loading || authority.loading} error={crawlers.error || authority.error} />
 
       <div className="wa-note">

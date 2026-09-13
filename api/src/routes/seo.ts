@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
-import { ok, fail } from '../lib/responses';
+import { ok, fail, fromError } from '../lib/responses';
 
 // =============================================================================
 // SEO / GEO site pulse — dasexperten.com snapshots in KV
@@ -242,6 +242,42 @@ seo.post('/ai-crawlers', async (c) => {
   }
 
   return ok(c, snap);
+});
+
+/**
+ * GET /api/seo/geo-snapshot — ночной снимок GEO для вкладки AI / GEO.
+ *
+ * Владелец 12.09.2026: «why you do not add these last measurements in our
+ * analytics page in erp — do it». Снимок пишет шесть таблиц в базу ОРГАНИЗАЦИИ,
+ * а у ERP своя база — поэтому цифры и не доходили до страницы.
+ *
+ * Реле, а не копия. Хранилище остаётся одно: сиденье считает на запрос, ERP
+ * показывает. Копия тех же чисел в базе ERP расходилась бы с первоисточником
+ * молча, и через неделю никто бы не знал, какая правда настоящая.
+ *
+ * Связка `JULIAN_GEO` объявлена в wrangler.toml давно; публичный адрес воркера
+ * тут не годится — Cloudflare рвёт вызов воркер-в-воркер по своему домену (1042).
+ */
+seo.get('/geo-snapshot', async (c) => {
+  const limit = Number(c.req.query('limit') || 10);
+  if (!c.env.JULIAN_GEO) {
+    return fail(c, 503, [{ code: 'seat_binding_missing', message: 'julian-geo service binding is not wired' }]);
+  }
+  try {
+    const res = await c.env.JULIAN_GEO.fetch(
+      new Request(`https://julian-geo/geo-analytics?limit=${encodeURIComponent(String(limit))}`),
+    );
+    const body = (await res.json()) as Record<string, unknown>;
+    // Отказ сиденья возвращается как отказ, а не как пустая страница: молчаливый
+    // ноль читался бы как спокойная ночь, а это ровно тот случай, когда тревога.
+    if (!res.ok || body?.ok !== true) {
+      const message = String((body as { error?: string })?.error || `julian-geo answered ${res.status}`);
+      return fail(c, 502, [{ code: 'seat_unavailable', message }]);
+    }
+    return ok(c, body);
+  } catch (err) {
+    return fail(c, 502, [fromError(err)]);
+  }
 });
 
 export default seo;

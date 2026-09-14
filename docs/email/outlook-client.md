@@ -1,62 +1,76 @@
 # ERP mail client acceptance
 
-Owner direction, 2026-09-14: ERP must work as an Outlook-like mail aggregator.
-Daily mail work stays inside `/emailer`; Google Workspace is a mail provider.
-A link to Gmail or a connection dashboard does not satisfy this requirement.
+Owner direction, updated 2026-09-15: Google Workspace is the main and only
+permanent mail store; ERP is the Outlook-like interface. Google Drive is the
+chosen document service. R2 is separate from email. Earlier requirements to
+archive every new email in ERP/R2 are superseded. Existing legacy records must
+remain available until their Google copies are verified; this does not authorize
+deleting the legacy archive.
 
-Required end state:
+Daily mail work stays inside `/emailer`. A Gmail link or a connection dashboard
+alone does not satisfy this requirement.
 
-- Unified inbox and individual business mailboxes, including all registry departments,
-  the .ru addresses, and GEO for Julian; preserve existing correspondence.
-- Read messages and complete threads, including sent replies, with attachment preview/download.
-- Compose, reply, reply all and forward inside ERP, with From, To, CC, BCC and attachments.
-- Persistent editable drafts, safe close/recovery, explicit send status and protection from duplicate sends.
-- Search across complete history and bodies, with mailbox/folder filters and pagination.
+## Required end state
+
+- Unified inbox and individual business mailbox views, including every registry
+  department, the .ru addresses, and GEO for Julian. Preserve existing correspondence.
+- Read complete conversations, including sent replies, and preview/download attachments.
+- Compose, reply, reply all and forward inside ERP with From, To, CC, BCC and attachments.
+- Google-backed editable drafts, automatic save/recovery, explicit send status and
+  protection against duplicate sends. Authentication errors must preserve composed mail.
+- Search full Google history and bodies, with mailbox/folder filters and pagination.
 - Inbox, sent, drafts, archive, trash, unread and starred state on desktop and mobile;
-  supported actions synchronize with the connected provider and across devices.
-- Google Workspace receive/send and continuous synchronization, while preserving ERP/R2 records,
-  original message metadata and attachments. Existing Resend flows remain accounted for during migration.
-- Correspondence stays linked to customers, orders and business documents.
-- Connection/authentication failures have actionable recovery, without losing composed mail.
+  actions and incoming messages synchronize across devices without manual reloads.
+- New incoming and outgoing business mail lives in Google. Reconcile prior Resend
+  and legacy archive history, preserving dates, recipients, content and attachments.
+- Correspondence remains linked to customers, orders and business documents in ERP;
+  ERP references Google records instead of becoming a second permanent mail store.
+- Graphite styling, Gmail font weights and compact inline replies. Only correspondent
+  display names are bold in the list; addresses and dates use regular weight.
+- Opening Emailer defaults to the full-width mail workspace with ERP navigation
+  collapsed. Folders and department views show provider-backed counters.
+
+## Current evidence and remaining work
+
+The active implementation is `web/components/emailer/google-mail-app.tsx` and
+`api/src/routes/email-gmail.ts`, not the legacy Resend MailApp.
+
+Implemented and deployed: Google-backed message listing/body reads, paginated
+search, sender identities, compose/reply/reply-all/forward, attachment downloads,
+explicit draft save/resume, send and folder actions. Graphite layout, folder and
+mailbox counters, readable sender content and inline replies were checked in the
+production UI. Sender-name emphasis was deployed separately; its final browser
+check timed out and remains pending.
+
+These observations do **not** establish complete acceptance:
+
+- The reading pane currently fetches one message; complete conversation navigation
+  is still missing even though outgoing replies retain thread headers.
+- Draft saving is explicit or on close; automatic saving and crash recovery are
+  not implemented in the active composer.
+- Refresh is manual; automatic incoming-mail/state synchronization remains incomplete.
+- Attachments download, but an in-app attachment preview remains unimplemented.
+- The active Google mail UI has no customer/order/document linking workflow.
+- Gmail-level inbox loading speed has not been demonstrated. The loader now refills
+  its five concurrent request slots without waiting for fixed groups to finish;
+  concurrency/order/failure tests pass, but live latency must still be measured.
+- Mail-history migration is incomplete. Earlier batch jobs ended with failures,
+  not a completed migration. Existing Google IDs must be reconciled before any retry
+  that could create a duplicate. Folded migration-marker verification has a regression
+  test and passed three live readbacks; broader reconciliation is running separately.
 
 ## Evidence required before completion
 
-Exercise real authenticated ERP workflows on desktop (1440px) and mobile (390px).
-Verify provider receipt/sent records AND ERP/R2 archive records for the authorized test messages.
-Test send, reply-all, forward, attachments, draft resume, state synchronization and history search.
-Use existing private credentials through their vault references only. Never commit tokens or PINs.
-Do not send test messages without the user's explicit message-send authorization.
+Exercise authenticated ERP workflows at desktop and mobile widths. Verify Google
+receipt/sent records for the specifically authorized test message and attachment,
+then verify draft resume, reply-all recipients, forwarding fidelity, search,
+state synchronization, department access and complete conversation reading.
+Do not send additional test messages without message-send authorization.
 
-## Current increment: drafts
+Migration receipts alone are not proof of full archive coverage. Reconcile the
+source inventory, known Google IDs and per-message readback results; preserve all
+original content and attachment bytes. Never treat a failed verification as
+permission to overwrite a message, import another copy or delete the source.
 
-The server now supports paginated per-user draft reads and rejects cross-user draft overwrites.
-The route integration test uses real in-memory SQLite and the real session validator;
-`node api/scripts/test-mail-drafts.mjs` requires Node with `node:sqlite` (tested on Node 24).
-It covers save/read/edit, CC and parent metadata, pagination, unauthenticated access,
-invalid payloads, cross-user reads/updates/deletes, and owner deletion.
-
-UI work is separate and remains under verification: draft listing/resume, save-and-close,
-CC field and keyboard support. This increment does not implement Gmail draft synchronization,
-autosave/recovery, attachments, BCC, or complete Outlook functionality.
-
-## Current increment: attachments and send results
-
-The API supports private draft-file upload/list/removal, BCC persistence, and downloads
-resolved through the archived message metadata. Draft-file IDs are scoped to the current
-user and draft. Limits are 20 files, 10 MB per file, and 20 MB total.
-
-The existing Resend send path now sends attachment bytes and archives them in R2.
-A durable pre-send copy under `MailOutbox/` remains when archiving fails; the response
-distinguishes accepted delivery from completed archive storage. Stable send IDs have
-per-user receipts and a lease under `MailSendRequests/`; accepted requests are replayed
-without sending another email. Ambiguous old attempts are not resent automatically.
-
-`node api/scripts/test-mail-attachments.mjs` exercises binary and empty attachments,
-provider payloads, protected downloads, archival failure after acceptance, pre-send
-storage failure, duplicate archive avoidance, stable request receipts and concurrent retries.
-These tests use fake provider responses; no real email is sent by them.
-
-Remaining work includes automated repair/reconciliation of pending outbox records,
-Google Workspace outbound transport and provider state synchronization, complete history
-pagination/search, Reply All/forward fidelity, real delivery tests and authenticated UI
-acceptance. Prepared UI changes are not a completed or deployed Outlook replacement.
+Credentials are loaded only through private vault references. No credentials,
+mail bodies or private attachments belong in this acceptance document.

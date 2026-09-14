@@ -1,5 +1,5 @@
 import { gmailCount, type CountQuery } from '../lib/gmail-counts';
-import { gmailMap } from '../lib/gmail-map';
+import { gmailMetadataBatch } from '../lib/gmail-metadata-batch';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { gmailDraftSchema, composeGmailRaw } from '../lib/gmail-compose';
@@ -46,11 +46,8 @@ route.get('/:account/messages', async c => {
   if (search) query.set('q',search);
   if (label) query.set('labelIds',label);
   const page=await gmailRequest<{messages?:{id:string}[];nextPageToken?:string;resultSizeEstimate?:number}>(token,`messages?${query}`);
-  // Refill each available slot immediately; preserve Google's message order.
-  const messages=await gmailMap(page.messages || [],async ({id}) => {
-      const message=await gmailRequest<GmailMessage>(token,`messages/${encodeURIComponent(id)}?format=metadata`);
-      return gmailSummary(account,message);
-  });
+  // One transport for the page, preserving the order returned by Gmail.
+  const messages=(await gmailMetadataBatch(token,(page.messages || []).map(m=>m.id))).map(m=>gmailSummary(account,m));
   return ok(c,{provider:'gmail',account,messages,nextPageToken:page.nextPageToken || null,resultSizeEstimate:page.resultSizeEstimate || 0});
 });
 route.get('/:account/messages/:id', async c => {
@@ -94,7 +91,9 @@ route.get('/:account/drafts',async c=>{
   const {token,account}=await gmailSession(c.env,c.req.param('account'));
   const query=new URLSearchParams({maxResults:'25'});if(pageToken)query.set('pageToken',pageToken);
   const page=await gmailRequest<{drafts?:{id:string;message:{id:string}}[];nextPageToken?:string}>(token,`drafts?${query}`);
-  const drafts=await gmailMap(page.drafts || [],async d=>({id:d.id,message:gmailSummary(account,await gmailRequest<GmailMessage>(token,`messages/${encodeURIComponent(d.message.id)}?format=metadata`))}));
+  const source=page.drafts || [];
+  const metadata=await gmailMetadataBatch(token,source.map(d=>d.message.id));
+  const drafts=source.map((d,i)=>({id:d.id,message:gmailSummary(account,metadata[i])}));
   return ok(c,{drafts,nextPageToken:page.nextPageToken || null});
 });
 route.get('/:account/drafts/:id',async c=>{

@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {build} from '../../web/node_modules/esbuild/lib/main.js';
+const built=await build({entryPoints:['api/src/lib/gmail-metadata-batch.ts'],bundle:true,platform:'node',format:'esm',write:false});
+const {gmailMetadataBatch}=await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`);
+const part=(i,id,status=200)=>`--response_boundary\r\nContent-Type: application/http\r\nContent-ID: <response-mail-${i}>\r\n\r\nHTTP/1.1 ${status} OK\r\nContent-Type: application/json\r\n\r\n${JSON.stringify({id,payload:{headers:[{name:'From',value:'Sender <sender@example.com>'}]}})}\r\n`;
+let wire='',calls=0;
+const serve=(parts,quoted=true)=>{globalThis.fetch=async(url,options)=>{calls++;wire=options.body;assert.equal(url,'https://gmail.googleapis.com/batch/gmail/v1');return new Response(parts+'--response_boundary--\r\n',{headers:{'content-type':`multipart/mixed; boundary=${quoted?'"response_boundary"':'response_boundary'}`}});};};
+serve(part(1,'b')+part(0,'a'));
+assert.deepEqual((await gmailMetadataBatch('test',['a','b'])).map(m=>m.id),['a','b']);assert.equal(calls,1);assert.ok(wire.includes('format=metadata'));assert.ok(!wire.includes('format=full'));
+serve(part(0,'a'),false);assert.equal((await gmailMetadataBatch('test',['a']))[0].id,'a');
+serve(part(0,'a'));await assert.rejects(gmailMetadataBatch('test',['a','b']),/Missing/);
+serve(part(0,'a')+part(0,'a'));await assert.rejects(gmailMetadataBatch('test',['a','b']),/identity/);
+serve(part(0,'wrong'));await assert.rejects(gmailMetadataBatch('test',['a']),/identity/);
+serve(part(0,'a',429));await assert.rejects(gmailMetadataBatch('test',['a']),e=>e.status===429);
+const before=calls;assert.deepEqual(await gmailMetadataBatch('test',[]),[]);assert.equal(calls,before);
+await assert.rejects(gmailMetadataBatch('test',Array(26).fill('a')),/page size/);
+console.log('PASS: single transport, response reordering, boundary quoting, missing/duplicate/wrong IDs, provider error, empty and oversized pages.');

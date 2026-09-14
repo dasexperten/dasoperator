@@ -121,3 +121,8 @@
 .gmail-client .gm-compose-actions .gm-primary{min-width:120px;font-weight:500}
 @media(max-width:768px){.gmail-client .gm-inline-composer{margin:0 12px 16px}.gmail-client .gm-compose-surface{max-height:calc(100dvh - 24px)}.gmail-client .gm-compose-inline{max-height:none}.gmail-client .gm-compose-surface .gm-compose-line input,.gmail-client .gm-compose-surface .gm-compose-line select,.gmail-client .gm-compose-surface .gm-compose-editor{font-size:16px}.gmail-client .gm-compose-surface .gm-compose-actions>button{min-height:44px}.gmail-client .gm-compose-surface .gm-compose-actions{padding:10px}}
 .gmail-client .gm-compose-surface>fieldset{min-height:0}
+
+/* Sender emphasis: only the display name is bold, including read messages. */
+.gmail-client .gm-row-top .gm-correspondent{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:400}
+.gmail-client .gm-row-top .gm-correspondent b{font-weight:700}
+.gmail-client .gm-row-top .gm-correspondent span{font-weight:400}

@@ -27,6 +27,13 @@ function readableSnippet(value?: string): string {
 }
 
 
+function Correspondent({ value }: { value: string }) {
+  const match = /^(.*?)\s*(<[^<>]+>.*)$/.exec(value.trim());
+  const name = (match ? match[1] : value.includes('@') ? '' : value).trim().replace(/^"|"$/g, '');
+  const address = match ? match[2] : name ? '' : value;
+  return <span className="gm-correspondent" title={value}>{name && <b>{name}</b>}{name && address ? ' ' : ''}{address && <span>{address}</span>}</span>;
+}
+
 export default function GoogleMailApp() {
   const [accounts, setAccounts] = useState<string[]>([]);
   const [account, setAccount] = useState('');
@@ -184,7 +191,7 @@ export default function GoogleMailApp() {
       </aside>
       <section className={`gm-list ${selected || inlineCompose ? 'gm-mobile-hidden' : ''}`} aria-label="Список писем"><form className="gm-search" onSubmit={e => { e.preventDefault(); setSearch(query); }}><input aria-label="Поиск писем" placeholder={folder === 'DRAFT' ? 'Поиск в загруженных черновиках' : 'Поиск в Gmail'} value={query} onChange={e => setQuery(e.target.value)}/><button aria-label="Искать"><Search size={18}/></button></form><div className="gm-list-title"><strong>{label}</strong><small>{visibleRows.length} загружено</small><button className="gm-mobile" disabled={!identities.length || !!compose} onClick={() => setCompose({ mode: 'new' })} aria-label="Написать письмо"><PenLine size={20}/></button></div>
         <div className="gm-rows">{error && <div className="gm-error" role="alert">{error}<button onClick={() => void load(failedPage)}>Повторить</button></div>}{busy && !rows.length && <div className="gm-empty" role="status"><Loader2 className="dxmail-spin"/>Загрузка…</div>}{!busy && !error && !visibleRows.length && <div className="gm-empty">Писем не найдено</div>}
-          {visibleRows.map(m => <button disabled={!!compose && !!m.draftId} key={m.id} className={`gm-row ${m.labelIds?.includes('UNREAD') ? 'gm-unread' : ''} ${selected?.id === m.id ? 'gm-selected' : ''}`} onClick={() => { setAutomaticPreview(false); m.draftId ? setCompose({ mode: 'draft', draftId: m.draftId }) : setSelected(m); }}><span className="gm-row-top"><b>{m.labelIds?.includes('SENT') ? m.to : m.from}</b><time>{date(m.timestamp)}</time></span><strong>{m.subject || '(Без темы)'}</strong><span className="gm-snippet">{readableSnippet(m.snippet)}</span>{m.labelIds?.includes('STARRED') && <span aria-label="Важное">★</span>}</button>)}
+          {visibleRows.map(m => <button disabled={!!compose && !!m.draftId} key={m.id} className={`gm-row ${m.labelIds?.includes('UNREAD') ? 'gm-unread' : ''} ${selected?.id === m.id ? 'gm-selected' : ''}`} onClick={() => { setAutomaticPreview(false); m.draftId ? setCompose({ mode: 'draft', draftId: m.draftId }) : setSelected(m); }}><span className="gm-row-top"><Correspondent value={m.labelIds?.includes('SENT') ? m.to : m.from}/><time>{date(m.timestamp)}</time></span><strong>{m.subject || '(Без темы)'}</strong><span className="gm-snippet">{readableSnippet(m.snippet)}</span>{m.labelIds?.includes('STARRED') && <span aria-label="Важное">★</span>}</button>)}
           {next && <button className="gm-more" disabled={busy} onClick={() => void load(next)}>{busy ? 'Загрузка…' : 'Загрузить ещё'}</button>}
         </div>
       </section>

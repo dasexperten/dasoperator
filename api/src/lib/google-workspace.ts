@@ -20,9 +20,12 @@ export async function workspaceToken(env: Env, account: WorkspaceAccount): Promi
   if (!response.ok || !data.access_token) throw new Error(`Workspace authorization failed (${response.status}); reconnect this account`);
   return data.access_token;
 }
+export class GmailError extends Error {
+  constructor(public status: number) { super(`Gmail request failed (${status})`); }
+}
 export async function gmailRequest<T>(token: string, path: string): Promise<T> {
   const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`, { headers: { Authorization: `Bearer ${token}` } });
-  if (!response.ok) throw new Error(`Gmail request failed (${response.status})`);
+  if (!response.ok) throw new GmailError(response.status);
   return response.json() as Promise<T>;
 }
 export async function workspaceStatus(env: Env) {
@@ -33,8 +36,8 @@ export async function workspaceStatus(env: Env) {
       const token = await workspaceToken(env, account);
       const profile = await gmailRequest<{ emailAddress: string; messagesTotal: number }>(token, 'profile');
       if (profile.emailAddress.toLowerCase() !== account.email) throw new Error('Connected Google account does not match the configured business mailbox');
-      const identities = await gmailRequest<{ sendAs: { sendAsEmail: string; verificationStatus: string }[] }>(token, 'settings/sendAs');
-      results.push({ email: account.email, connected: true, messageCount: profile.messagesTotal, sendAs: identities.sendAs.filter(s => s.verificationStatus === 'accepted').map(s => s.sendAsEmail.toLowerCase()), error: null });
+      const identities = await gmailRequest<{ sendAs: { sendAsEmail: string; verificationStatus?: string; isPrimary?: boolean }[] }>(token, 'settings/sendAs');
+      results.push({ email: account.email, connected: true, messageCount: profile.messagesTotal, sendAs: identities.sendAs.filter(s => s.verificationStatus === 'accepted' || (s.isPrimary === true && s.sendAsEmail.toLowerCase() === account.email)).map(s => s.sendAsEmail.toLowerCase()), error: null });
     } catch (error) {
       results.push({ email: account.email, connected: false, messageCount: null, sendAs: [] as string[], error: error instanceof Error ? error.message : 'Connection failed' });
     }
@@ -43,6 +46,11 @@ export async function workspaceStatus(env: Env) {
     checkedAt: new Date().toISOString(),
     oauthConfigured: !!(env.GOOGLE_WORKSPACE_CLIENT_ID && env.GOOGLE_WORKSPACE_CLIENT_SECRET),
     accounts: results,
+    synchronization: await Promise.all(accounts.map(async account => {
+      const object = env.ARCHIVE ? await env.ARCHIVE.get(`Workspace/sync/${account.email}.json`) : null;
+      const state: WorkspaceSyncState | null = object ? await object.json() : null;
+      return { email: account.email, mode: state?.mode || 'pending', lastSuccessAt: state?.lastSuccessAt || null, error: state?.lastError || null };
+    })),
     addresses: WORKSPACE_ADDRESSES.map(address => ({ address, owner: address.startsWith('geo@') ? 'Julian' : 'Aram', connectedMailbox: results.find(a => a.connected && a.sendAs.includes(address))?.email || null })),
     // Identity access proves neither MX delivery nor forwarding/ERP durability.
     replacementReady: false,
@@ -61,15 +69,27 @@ export async function syncWorkspacePage(env: Env, email: string, pageToken?: str
   const query = new URLSearchParams({ maxResults: '20', q: '-in:drafts -in:spam -in:trash' });
   if (pageToken) query.set('pageToken', pageToken);
   const page = await gmailRequest<{ messages?: { id: string }[]; nextPageToken?: string }>(token, `messages?${query}`);
+  const receipts = await archiveWorkspaceMessages(env, email, token, page.messages || []);
+  return { email, receipts, nextPageToken: page.nextPageToken || null, complete: !page.nextPageToken };
+}
+
+async function archiveWorkspaceMessages(env: Env, email: string, token: string, messages: { id: string }[]) {
   const { default: PostalMime } = await import('postal-mime');
   const { archiveEmail } = await import('./inbox-archive');
   const receipts = [];
-  for (const message of page.messages || []) {
+  for (const message of messages) {
     if (!/^[a-z0-9]+$/i.test(message.id)) throw new Error('Invalid Gmail message identifier');
     const receiptKey = `Workspace/receipts/${email}/${message.id}.json`;
     const receipt = await env.ARCHIVE.get(receiptKey);
     if (receipt) { receipts.push(await receipt.json()); continue; }
-    const raw = await gmailRequest<{ raw: string; threadId: string; internalDate: string; labelIds?: string[] }>(token, `messages/${message.id}?format=raw`);
+    let raw: { raw: string; threadId: string; internalDate: string; labelIds?: string[] };
+    try { raw = await gmailRequest(token, `messages/${message.id}?format=raw`); }
+    catch (error) {
+      // Mail permanently deleted between listing and fetch has no body to import.
+      if (error instanceof GmailError && error.status === 404) continue;
+      throw error;
+    }
+    if (raw.labelIds?.includes('DRAFT')) continue;
     const encoded = raw.raw.replace(/-/g, '+').replace(/_/g, '/');
     const bytes = Uint8Array.from(atob(encoded), c => c.charCodeAt(0));
     const direction = raw.labelIds?.includes('SENT') ? 'sent' : 'received';
@@ -96,5 +116,94 @@ export async function syncWorkspacePage(env: Env, email: string, pageToken?: str
     await env.ARCHIVE.put(receiptKey, JSON.stringify(result));
     receipts.push(result);
   }
-  return { email, receipts, nextPageToken: page.nextPageToken || null, complete: !page.nextPageToken };
+  return receipts;
+}
+
+interface WorkspaceSyncState {
+  mode: 'full' | 'history';
+  historyId?: string;
+  pageToken?: string;
+  pendingIds?: string[];
+  pendingNextPage?: string;
+  pendingHistoryId?: string;
+  leaseUntil?: number;
+  lastSuccessAt?: string;
+  lastError?: string | null;
+}
+
+// A conditional R2 write owns both the lease and cursor. A worker whose lease
+// expires cannot overwrite a newer worker's progress. Every tick is bounded.
+export async function syncWorkspaceAccount(env: Env, account: WorkspaceAccount) {
+  const key = `Workspace/sync/${account.email}.json`;
+  const object = await env.ARCHIVE.get(key);
+  const previous: WorkspaceSyncState = object ? await object.json() : { mode: 'full' };
+  if ((previous.leaseUntil || 0) > Date.now()) return { email: account.email, busy: true };
+  const claimed = await env.ARCHIVE.put(key, JSON.stringify({ ...previous, leaseUntil: Date.now() + 90_000 }), {
+    onlyIf: object ? { etagMatches: object.etag } : { etagDoesNotMatch: '*' },
+  });
+  if (!claimed) return { email: account.email, busy: true };
+  const state = { ...previous };
+  try {
+    const token = await workspaceToken(env, account);
+    const profile = await gmailRequest<{ emailAddress: string; historyId: string }>(token, 'profile');
+    if (profile.emailAddress.toLowerCase() !== account.email) throw new Error('Connected mailbox identity mismatch');
+    if (!profile.historyId) throw new Error('Gmail history cursor missing');
+    let count = 0;
+    if (state.mode === 'full') {
+      // Capture the starting history BEFORE listing, so arrivals during initial
+      // import are replayed by the next history pass rather than missed.
+      state.historyId ||= profile.historyId;
+      const query = new URLSearchParams({ maxResults: '20', q: '-in:drafts', includeSpamTrash: 'true' });
+      if (state.pageToken) query.set('pageToken', state.pageToken);
+      const page = await gmailRequest<{ messages?: { id: string }[]; nextPageToken?: string }>(token, `messages?${query}`);
+      count = (await archiveWorkspaceMessages(env, account.email, token, page.messages || [])).length;
+      state.pageToken = page.nextPageToken;
+      if (!page.nextPageToken) state.mode = 'history';
+    } else {
+      if (!state.pendingIds) {
+        const query = new URLSearchParams({ startHistoryId: state.historyId!, maxResults: '20', historyTypes: 'messageAdded' });
+        if (state.pageToken) query.set('pageToken', state.pageToken);
+        try {
+          const page = await gmailRequest<{ history?: { messagesAdded?: { message: { id: string } }[] }[]; historyId: string; nextPageToken?: string }>(token, `history?${query}`);
+          state.pendingIds = [...new Set((page.history || []).flatMap(h => (h.messagesAdded || []).map(m => m.message.id)))];
+          state.pendingNextPage = page.nextPageToken;
+          state.pendingHistoryId = page.historyId;
+        } catch (error) {
+          if (!(error instanceof GmailError) || error.status !== 404) throw error;
+          // Expired Google history is recovered by a complete receipt-aware scan.
+          state.mode = 'full';
+          state.historyId = profile.historyId;
+          delete state.pageToken;
+        }
+      }
+      if (state.pendingIds) {
+        count = (await archiveWorkspaceMessages(env, account.email, token, state.pendingIds.slice(0, 20).map(id => ({ id })))).length;
+        state.pendingIds = state.pendingIds.slice(20);
+        if (!state.pendingIds.length) {
+          state.pageToken = state.pendingNextPage;
+          if (!state.pageToken) state.historyId = state.pendingHistoryId || state.historyId;
+          delete state.pendingIds;
+          delete state.pendingNextPage;
+          delete state.pendingHistoryId;
+        }
+      }
+    }
+    state.leaseUntil = 0;
+    state.lastSuccessAt = new Date().toISOString();
+    state.lastError = null;
+    const committed = await env.ARCHIVE.put(key, JSON.stringify(state), { onlyIf: { etagMatches: claimed.etag } });
+    if (!committed) throw new Error('Workspace sync lease changed');
+    return { email: account.email, archived: count, mode: state.mode };
+  } catch {
+    // Retain the committed cursor on every failure; archive receipts make retries
+    // safe even if some messages succeeded before an attachment or index failed.
+    await env.ARCHIVE.put(key, JSON.stringify({ ...previous, leaseUntil: 0, lastError: 'Sync failed; progress retained for retry' }), { onlyIf: { etagMatches: claimed.etag } });
+    return { email: account.email, error: 'Sync failed; progress retained for retry' };
+  }
+}
+
+export async function syncConnectedWorkspace(env: Env) {
+  const results = [];
+  for (const account of workspaceAccounts(env)) results.push(await syncWorkspaceAccount(env, account));
+  return results;
 }

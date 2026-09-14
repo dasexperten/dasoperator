@@ -1,4 +1,6 @@
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
+import { gmailDraftSchema, composeGmailRaw } from '../lib/gmail-compose';
 import type { Env } from '../types';
 import { validateSession } from '../lib/auth';
 import { ok, fail } from '../lib/responses';
@@ -15,8 +17,8 @@ route.use('*', async (c, next) => {
   return next();
 });
 route.onError((error, c) => {
-  const status = error instanceof GmailError && error.status === 404 ? 404 : 502;
-  return fail(c, status, [{code:'gmail_unavailable',message:status === 404 ? 'Connected mailbox or message not found' : 'Google mail request failed. Reconnect the mailbox or retry.'}]);
+  const status = error instanceof GmailError && error.status === 404 ? 404 : error instanceof GmailError && error.status === 403 ? 403 : 502;
+  return fail(c, status, [{code:'gmail_unavailable',message:status === 404 ? 'Connected mailbox or message not found' : status === 403 ? 'Google permission required. Reconnect Workspace with mail management access.' : 'Google mail request failed. Reconnect the mailbox or retry.'}]);
 });
 route.get('/accounts', c => ok(c, {accounts:workspaceAccounts(c.env).map(a => ({email:a.email})), provider:'gmail'}));
 route.get('/:account/messages', async c => {
@@ -60,5 +62,65 @@ route.get('/:account/messages/:id/attachment', async c => {
   c.header('X-Content-Type-Options','nosniff');
   c.header('Content-Disposition',`attachment; filename*=UTF-8''${encodeURIComponent(filename).replace(/'/g,'%27')}`);
   return c.body(bytes.buffer as ArrayBuffer);
+});
+async function writeGoogle<T>(token: string, path: string, method: string, body?: unknown): Promise<T> {
+  const response=await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`, {method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},...(body === undefined ? {} : {body:JSON.stringify(body)})});
+  if(!response.ok)throw new GmailError(response.status);
+  return (response.status === 204 ? {} : await response.json()) as T;
+}
+async function identities(token: string, account: string) {
+  const response=await gmailRequest<{sendAs:{sendAsEmail:string;verificationStatus?:string;isPrimary?:boolean}[]}>(token,'settings/sendAs');
+  return response.sendAs.filter(s=>s.verificationStatus === 'accepted' || (s.isPrimary && s.sendAsEmail.toLowerCase() === account)).map(s=>s.sendAsEmail.toLowerCase());
+}
+route.get('/:account/identities',async c=>{
+  const {token,account}=await gmailSession(c.env,c.req.param('account'));
+  return ok(c,{identities:await identities(token,account)});
+});
+route.get('/:account/drafts',async c=>{
+  const pageToken=c.req.query('pageToken');
+  if((pageToken?.length || 0)>2048)return fail(c,400,[{code:'invalid_query',message:'Invalid page token'}]);
+  const {token,account}=await gmailSession(c.env,c.req.param('account'));
+  const query=new URLSearchParams({maxResults:'25'});if(pageToken)query.set('pageToken',pageToken);
+  const page=await gmailRequest<{drafts?:{id:string;message:{id:string}}[];nextPageToken?:string}>(token,`drafts?${query}`);
+  const drafts=[];
+  for(let i=0;i<(page.drafts?.length || 0);i+=5) drafts.push(...await Promise.all(page.drafts!.slice(i,i+5).map(async d=>({id:d.id,message:gmailSummary(account,await gmailRequest<GmailMessage>(token,`messages/${encodeURIComponent(d.message.id)}?format=metadata`))}))));
+  return ok(c,{drafts,nextPageToken:page.nextPageToken || null});
+});
+route.get('/:account/drafts/:id',async c=>{
+  const {token,account}=await gmailSession(c.env,c.req.param('account'));
+  const draft=await gmailRequest<{id:string;message:GmailMessage}>(token,`drafts/${encodeURIComponent(c.req.param('id'))}?format=full`);
+  return ok(c,{draft:{id:draft.id,message:{...gmailSummary(account,draft.message),...await gmailBody(token,draft.message)}}});
+});
+route.put('/:account/drafts',bodyLimit({maxSize:30*1024*1024}),async c=>{
+  const parsed=gmailDraftSchema.safeParse(await c.req.json().catch(()=>null));
+  if(!parsed.success)return fail(c,422,[{code:'invalid_draft',message:'Invalid draft fields or attachment limits'}]);
+  let raw: string;
+  try{raw=composeGmailRaw(parsed.data);}catch{return fail(c,422,[{code:'invalid_attachment',message:'Invalid attachment; maximum 10 MB each and 20 MB total'}]);}
+  const {token,account}=await gmailSession(c.env,c.req.param('account'));
+  if(!(await identities(token,account)).includes(parsed.data.from.toLowerCase()))return fail(c,403,[{code:'sender_unverified',message:'Sender is not a verified identity of this Google mailbox'}]);
+  const {id,gmailThreadId}=parsed.data;
+  const draft=await writeGoogle(token,id?`drafts/${encodeURIComponent(id)}`:'drafts',id?'PUT':'POST',{...(id?{id}:{}),message:{raw,...(gmailThreadId?{threadId:gmailThreadId}:{})}});
+  return ok(c,{draft});
+});
+route.delete('/:account/drafts/:id',async c=>{
+  const {token}=await gmailSession(c.env,c.req.param('account'));
+  await writeGoogle(token,`drafts/${encodeURIComponent(c.req.param('id'))}`,'DELETE');
+  return ok(c,{deleted:true});
+});
+route.post('/:account/drafts/:id/send',async c=>{
+  const {token}=await gmailSession(c.env,c.req.param('account'));
+  const message=await writeGoogle(token,'drafts/send','POST',{id:c.req.param('id')});
+  return ok(c,{message});
+});
+route.post('/:account/messages/:id/action',async c=>{
+  const body=await c.req.json<{action?:string}>().catch(()=>null);
+  const actions:Record<string,{addLabelIds?:string[];removeLabelIds?:string[]}>= {
+    read:{removeLabelIds:['UNREAD']},unread:{addLabelIds:['UNREAD']},star:{addLabelIds:['STARRED']},unstar:{removeLabelIds:['STARRED']},archive:{removeLabelIds:['INBOX']},inbox:{addLabelIds:['INBOX']},
+  };
+  const action=body?.action;
+  if(!action || (!actions[action] && action!=='trash' && action!=='untrash'))return fail(c,422,[{code:'invalid_action',message:'Unsupported mail action'}]);
+  const {token}=await gmailSession(c.env,c.req.param('account'));
+  const message=await writeGoogle(token,`messages/${encodeURIComponent(c.req.param('id'))}/${action==='trash'||action==='untrash'?action:'modify'}`,'POST',actions[action] || {});
+  return ok(c,{message});
 });
 export default route;

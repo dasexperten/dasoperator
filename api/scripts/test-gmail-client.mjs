@@ -18,7 +18,7 @@ try {
   const env={DB,GOOGLE_WORKSPACE_CLIENT_ID:'fixture-client',GOOGLE_WORKSPACE_CLIENT_SECRET:'fixture-secret',GOOGLE_WORKSPACE_ACCOUNTS:JSON.stringify([{email:'sales@dasexperten.com',refreshToken:'fixture-refresh'}])};
   Object.defineProperty(env,'ARCHIVE',{get(){throw new Error('R2 must not be used');}});
   const b64=s=>Buffer.from(s).toString('base64url');
-  const calls=[];
+  const calls=[]; const writes=[];
   let mismatch=false,fail=false;
   const message={id:'abc123',threadId:'thread999',labelIds:['INBOX','STARRED'],internalDate:'1780000000000',snippet:'Hello',payload:{mimeType:'multipart/mixed',headers:[{name:'Subject',value:'Привет'},{name:'Message-ID',value:'<rfc@example.com>'}],parts:[{partId:'0',mimeType:'multipart/alternative',parts:[{partId:'0.0',mimeType:'text/plain',body:{data:b64('Привет\nBody')}},{partId:'0.1',mimeType:'text/html',body:{attachmentId:'html-body'}}]},{partId:'1',filename:'тест.bin',mimeType:'application/octet-stream',body:{attachmentId:'file-1',size:4}},{partId:'2',filename:'empty.txt',body:{data:'',size:0}}]}};
   globalThis.fetch=async (url,init)=>{
@@ -27,6 +27,16 @@ try {
     assert.equal(init.headers.Authorization,'Bearer fixture-access');
     const u=new URL(url);
     if(u.pathname.endsWith('/profile')) return Response.json({emailAddress:mismatch?'wrong@dasexperten.com':'sales@dasexperten.com'});
+    if(u.pathname.endsWith('/settings/sendAs')) return Response.json({sendAs:[{sendAsEmail:'sales@dasexperten.com',isPrimary:true},{sendAsEmail:'geo@dasexperten.com',verificationStatus:'accepted'},{sendAsEmail:'unverified@dasexperten.com',verificationStatus:'pending'}]});
+    if(init.method && init.method!=='GET') {
+      const body=init.body?JSON.parse(init.body):null;writes.push({path:u.pathname,method:init.method,body});
+      if(u.pathname.endsWith('/drafts/send'))return Response.json({id:'sent-id',threadId:'thread999'});
+      if(u.pathname.endsWith('/modify'))return Response.json({id:'abc123',labelIds:['INBOX']});
+      if(init.method==='DELETE')return new Response(null,{status:204});
+      return Response.json({id:'draft-1',message:{id:'abc123',threadId:'thread999'}});
+    }
+    if(u.pathname.endsWith('/drafts/draft-1'))return Response.json({id:'draft-1',message});
+    if(u.pathname.endsWith('/drafts'))return Response.json({drafts:[{id:'draft-1',message:{id:'abc123'}}],nextPageToken:'draft-next'});
     if(fail) return new Response('provider-private-details',{status:500});
     if(u.pathname.endsWith('/messages')) {assert.equal(u.searchParams.get('q'),'from:client@example.com');assert.equal(u.searchParams.get('pageToken'),'cursor-one');assert.equal(u.searchParams.get('labelIds'),'INBOX');return Response.json({messages:[{id:'abc123'}],nextPageToken:'cursor-two',resultSizeEstimate:200});}
     if(u.pathname.endsWith('/attachments/file-1')) return Response.json({data:Buffer.from([0,255,12,13]).toString('base64url')});
@@ -51,7 +61,21 @@ try {
   assert.deepEqual([...new Uint8Array(await download.arrayBuffer())],[0,255,12,13]);assert.match(download.headers.get('Cache-Control'),/no-store/);
   download=await request('/sales@dasexperten.com/messages/abc123/attachment?partId=2');assert.equal((await download.arrayBuffer()).byteLength,0);
   assert.equal((await request('/sales@dasexperten.com/messages/abc123/attachment?partId=missing')).status,404);
-  mismatch=true;assert.equal((await request('/sales@dasexperten.com/messages/abc123')).status,502);mismatch=false;
+  const mutate=(path,method,body,token='alice-gmail-test-token')=>route.request(`http://local${path}`,{method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})},env);
+  assert.equal((await mutate('/sales@dasexperten.com/drafts/draft-1/send','POST',{},'bob-gmail-test-token')).status,403);
+  const draft={from:'sales@dasexperten.com',to:'client@example.com',subject:'Draft',text:'Body',attachments:[]};
+  assert.equal((await mutate('/sales@dasexperten.com/drafts','PUT',{...draft,to:'bad\r\nBcc: injected@example.com'})).status,422);
+  assert.equal(writes.length,0);
+  assert.equal((await mutate('/sales@dasexperten.com/drafts','PUT',{...draft,from:'unverified@dasexperten.com'})).status,403);assert.equal(writes.length,0);
+  assert.equal((await mutate('/sales@dasexperten.com/drafts','PUT',draft)).status,200);assert.equal(writes.at(-1).method,'POST');assert.ok(writes.at(-1).body.message.raw);
+  assert.equal((await mutate('/sales@dasexperten.com/drafts','PUT',{...draft,id:'draft-1',gmailThreadId:'thread999'})).status,200);assert.equal(writes.at(-1).method,'PUT');assert.equal(writes.at(-1).body.message.threadId,'thread999');
+  assert.equal((await (await request('/sales@dasexperten.com/drafts')).json()).result.nextPageToken,'draft-next');
+  assert.equal((await (await request('/sales@dasexperten.com/drafts/draft-1')).json()).result.draft.message.text,'Привет\nBody');
+  assert.equal((await mutate('/sales@dasexperten.com/messages/abc123/action','POST',{action:'archive'})).status,200);assert.deepEqual(writes.at(-1).body,{removeLabelIds:['INBOX']});
+  assert.equal((await mutate('/sales@dasexperten.com/messages/abc123/action','POST',{action:'deleteForever'})).status,422);
+  assert.equal((await mutate('/sales@dasexperten.com/drafts/draft-1/send','POST',{})).status,200);assert.deepEqual(writes.at(-1).body,{id:'draft-1'});
+  assert.equal((await mutate('/sales@dasexperten.com/drafts/draft-1','DELETE')).status,200);
+  mismatch=true;assert.equal((await request('/sales@dasexperten.com/messages/abc123')).status,403);mismatch=false;
   fail=true;const failure=await request('/sales@dasexperten.com/messages/abc123');assert.equal(failure.status,502);assert.ok(!(await failure.text()).includes('provider-private-details'));
   console.log('PASS Gmail direct client: authenticated account, native search/pagination/labels, MIME bodies, exact binary downloads, no R2 access, sanitized failures');
 }finally{globalThis.fetch=originalFetch;sqlite.close();await rm(dir,{recursive:true,force:true});}

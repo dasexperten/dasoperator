@@ -6,6 +6,7 @@ export interface Env {
   // D1 Database — operational source of truth (Phase 1.1, 1.2)
   DB: D1Database;
   // Business Gmail OAuth credentials only; provision as Worker secrets.
+  GOOGLE_WORKSPACE_FORWARD_MAILBOXES?: string; // Explicit staged inbound recipients
   GOOGLE_WORKSPACE_CLIENT_ID?: string;
   GOOGLE_WORKSPACE_CLIENT_SECRET?: string;
   GOOGLE_WORKSPACE_ACCOUNTS?: string; // JSON [{email, refreshToken}], never returned to clients

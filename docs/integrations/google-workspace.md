@@ -33,3 +33,9 @@ Rollback: revert the integration commit and redeploy through normal Worker/Pages
 Validation: node api/scripts/test-google-workspace.mjs; web TypeScript; repo migration and knowledge-parser guards. Repository API TypeScript currently reports existing errors outside these changed modules; do not present that as a clean global type check.
 
 Owner clarification September14: the complete Departments tree must remain accessible and readable, including Eurasia, EMEA, ASEAN, Marketing, Hello, Orders, and zakaz/oplata/dostavka/shop at dasexperten.ru. The connector uses the ERP registry rather than an eight-address allowlist, including canonical alias routing. Google delivery and historical import for these mailboxes remain migration work; registry inclusion is not proof of delivery.
+
+## Staged incoming delivery
+
+Cloudflare verified `sales@dasexperten.com.test-google-a.com` as a destination on September14. The verification message arrived in Workspace Gmail. The primary Google domain remains verified with Activate Gmail pending; the Google test domain alias is active. The .ru domain uses REG.RU nameservers and Resend inbound MX and is not yet added to Workspace.
+
+`GOOGLE_WORKSPACE_FORWARD_MAILBOXES` explicitly selects migrated .com recipients. For those routed to the ERP Worker, the incoming handler saves original MIME and SMTP envelope metadata under Workspace/ingress, forwards to Workspace and dasexperten@gmail.com, and records both outcomes. Gmail history sync creates the ERP correspondence records, avoiding a second legacy archive copy. Unknown and personal recipients do not enter this path. Migration also requires updating the corresponding Cloudflare routing rules; deployment alone changes only addresses already pointing to the Worker. Rollback: restore the backed-up routing rules and remove recipients from the configuration. Failure originals and delivery outcomes remain in R2 for recovery.

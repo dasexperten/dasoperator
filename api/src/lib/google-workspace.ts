@@ -102,7 +102,8 @@ async function archiveWorkspaceMessages(env: Env, email: string, token: string, 
     const parsed = await PostalMime.parse(bytes);
     const address = (a: { name?: string; address?: string }) => a.address || '';
     const to = (parsed.to || []).map(address).filter(Boolean);
-    const identities = direction === 'sent' ? [parsed.from?.address || email] : [...to, ...(parsed.cc || []).map(address)];
+    const envelope = parsed.headers.filter(h => h.key?.toLowerCase() === 'x-das-erp-recipient').map(h => h.value).filter((value): value is string => typeof value === 'string');
+    const identities = direction === 'sent' ? [parsed.from?.address || email] : [...to, ...(parsed.cc || []).map(address), ...envelope];
     const boxes = [...new Set(identities.map(a => { const normalized = a.toLowerCase().replace(/\+[^@]+(?=@)/, ''); return findMailbox(normalized)?.address || normalized; }).filter(a => WORKSPACE_ADDRESSES.includes(a)))];
     if (!boxes.length) boxes.push(email);
     const keys = [];
@@ -125,11 +126,11 @@ async function archiveWorkspaceMessages(env: Env, email: string, token: string, 
 
 interface WorkspaceSyncState {
   mode: 'full' | 'history';
-  historyId?: string;
-  pageToken?: string;
+  historyId?: string | undefined;
+  pageToken?: string | undefined;
   pendingIds?: string[];
-  pendingNextPage?: string;
-  pendingHistoryId?: string;
+  pendingNextPage?: string | undefined;
+  pendingHistoryId?: string | undefined;
   leaseUntil?: number;
   lastSuccessAt?: string;
   lastError?: string | null;

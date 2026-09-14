@@ -210,6 +210,8 @@ crons = ["35 * * * *", "0 3 * * *", "0 1 * * *", "0 12 * * *", "0 * * * *", "0 *
 # Token is RETAIL_CRM_TOKEN, set as Worker secret separately.
 # -----------------------------------------------------------------------------
 [vars]
+# Staged Workspace ingress; owner copy retained. Main MX stays on Cloudflare.
+GOOGLE_WORKSPACE_FORWARD_MAILBOXES = "sales@dasexperten.com,sysadmin@dasexperten.com,webmaster@dasexperten.com,asean@dasexperten.com,geo@dasexperten.com,logistics@dasexperten.com,legal@dasexperten.com,eurasia@dasexperten.com,emea@dasexperten.com,marketing@dasexperten.com,hello@dasexperten.com,orders@dasexperten.com,delivery@dasexperten.com"
 # Слой 3 (Владелец 2026-08-29): экран CRM → Orders читает зеркало crm_orders_ru
 # в D1 ("d1"). Откат на живую ленту dasexperten.ru — "feed", один пуш.
 CRM_ORDERS_SOURCE = "d1"

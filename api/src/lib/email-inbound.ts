@@ -20,6 +20,7 @@ import { archiveEmail } from './inbox-archive';
 import type { MailAuth } from './inbox-archive';
 import { isOwnerGmailOnly, OWNER_PERSONAL_ADDRESS, OWNER_GMAIL_FORWARD } from './mailbox-registry';
 import type { Env } from '../types';
+import { forwardWorkspaceInbound } from './workspace-forward';
 
 // ForwardableEmailMessage is a global type from @cloudflare/workers-types.
 //
@@ -138,6 +139,8 @@ export async function handleInboundEmail(
     );
     return;
   }
+
+  if (await forwardWorkspaceInbound(message, env)) return;
 
   try {
     const raw = await readRaw(message.raw, message.rawSize);

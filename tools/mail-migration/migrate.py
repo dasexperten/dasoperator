@@ -22,6 +22,13 @@ from email.utils import format_datetime
 from pathlib import Path
 
 
+def business_addresses():
+    registry = (Path(__file__).resolve().parents[2] / 'api/src/lib/mailbox-registry.ts').read_text()
+    # Read actual UI registry entries, never addresses mentioned in comments.
+    entries = [line for line in registry.splitlines() if re.match(r'\s*\{ address:', line) and 'showInUi: true' in line]
+    return set(re.findall(r'[a-z0-9._+-]+@dasexperten\.(?:com|ru)', '\n'.join(entries)))
+
+
 def request(url, token=None, data=None, method=None, form=False):
     headers = {}
     if token:
@@ -99,8 +106,7 @@ def main():
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
     key = args.record_key
-    registry = (Path(__file__).resolve().parents[2] / 'api/src/lib/mailbox-registry.ts').read_text()
-    allowed = set(re.findall(r"[a-z0-9._+-]+@dasexperten\.(?:com|ru)", registry)) - {'dr.badalyan@dasexperten.com'}
+    allowed = business_addresses()
     match = re.fullmatch(r'Inbox/([^/]+)/(sent|received)/[^/]+\.json', key)
     if not match or match[1] not in allowed:
         raise ValueError('Source is not a registered business mailbox')
@@ -139,6 +145,8 @@ def main():
             raise ValueError('Google readback date mismatch')
     if receipt and receipt[2]:
         verify(receipt[2], receipt[1] != 'existing')
+        if receipt[1] == 'pending':
+            db.execute("UPDATE receipts SET status='verified' WHERE source=?", (key,)); db.commit()
         print(json.dumps({'verified': True, 'reused': True, 'gmailId': receipt[2]}))
         return
     found = gmail('messages?' + urllib.parse.urlencode({'q': 'rfc822msgid:' + message_id, 'includeSpamTrash': 'true', 'maxResults': 100}))

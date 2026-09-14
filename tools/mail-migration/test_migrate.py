@@ -1,12 +1,19 @@
 import unittest
 from email import policy
 from email.parser import BytesParser
-from migrate import compose, fingerprint
+from migrate import compose, fingerprint, business_addresses
 
 class MigrationTests(unittest.TestCase):
     def setUp(self):
         self.key='Inbox/sales@dasexperten.com/received/test.json'
         self.record={'address':'sales@dasexperten.com','direction':'received','timestamp':'2026-08-01T14:36:59.336Z','from':'Sender <sender@example.com>','to':['sales@dasexperten.com'],'cc':['cc@example.com'],'replyTo':'reply@example.com','subject':'Проверка 📬','text':'line 1\nline 2','html':'<p>Привет</p>','messageId':'<original@example.com>','threadId':'<parent@example.com>','attachments':[{'key':self.key[:-5]+'/att/0-file','size':4,'filename':'договор.pdf','mimeType':'application/pdf','inline':True,'contentId':'cid@example.com'}]}
+    def test_business_scope(self):
+        allowed=business_addresses()
+        self.assertIn('geo@dasexperten.com',allowed)
+        self.assertIn('julian@dasexperten.com',allowed)
+        self.assertIn('shop@dasexperten.ru',allowed)
+        self.assertNotIn('dr.badalyan@dasexperten.com',allowed)
+        self.assertNotIn('viktor@dasexperten.com',allowed)
     def test_roundtrip(self):
         raw,mid,date=compose(self.record,self.key,lambda k:bytes([0,255,1,2]))
         parsed=BytesParser(policy=policy.default).parsebytes(raw)

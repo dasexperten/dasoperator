@@ -39,3 +39,6 @@ export async function gmailFile(blob: Blob, filename: string, mimeType: string):
   for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...Array.from(bytes.subarray(i, i + 8192)));
   return { filename, mimeType: mimeType || 'application/octet-stream', content: btoa(binary) };
 }
+
+export type MailCount = { value: number; more: boolean };
+export const gmailCounts = (account: string, queries: { key: string; label?: string; unread?: boolean; q?: string }[]) => result(apiPost<{counts: Record<string, MailCount | null>}>(`${accountPath(account)}/counts`, {queries}));

@@ -1,3 +1,4 @@
+import { gmailCount, type CountQuery } from '../lib/gmail-counts';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { gmailDraftSchema, composeGmailRaw } from '../lib/gmail-compose';
@@ -21,6 +22,19 @@ route.onError((error, c) => {
   return fail(c, status, [{code:'gmail_unavailable',message:status === 404 ? 'Connected mailbox or message not found' : status === 403 ? 'Google permission required. Reconnect Workspace with mail management access.' : 'Google mail request failed. Reconnect the mailbox or retry.'}]);
 });
 route.get('/accounts', c => ok(c, {accounts:workspaceAccounts(c.env).map(a => ({email:a.email})), provider:'gmail'}));
+route.post('/:account/counts', bodyLimit({maxSize:20000}), async c => {
+  const body = await c.req.json<{queries?:CountQuery[]}>().catch(() => null);
+  const queries = body?.queries;
+  if (!Array.isArray(queries) || !queries.length || queries.length > 8 || queries.some(q => !q || typeof q.key !== 'string' || q.key.length > 160 || (q.label !== undefined && (typeof q.label !== 'string' || !/^[A-Z_]{1,32}$/.test(q.label))) || (q.q !== undefined && (typeof q.q !== 'string' || q.q.length > 2048)) || (q.unread !== undefined && typeof q.unread !== 'boolean'))) return fail(c,400,[{code:'invalid_counts',message:'Invalid folder count request'}]);
+  const {token}=await gmailSession(c.env,c.req.param('account'));
+  const counts:Record<string,Awaited<ReturnType<typeof gmailCount>> | null>=Object.create(null);
+  for (let i=0;i<queries.length;i+=4) {
+    await Promise.all(queries.slice(i,i+4).map(async q => {
+      try { counts[q.key]=await gmailCount(token,q); } catch { counts[q.key]=null; }
+    }));
+  }
+  return ok(c,{counts});
+});
 route.get('/:account/messages', async c => {
   const pageToken=c.req.query('pageToken'), search=c.req.query('q') || '', label=c.req.query('label');
   if ((pageToken?.length || 0)>2048 || search.length>2048 || (label && !/^[a-zA-Z0-9_-]{1,128}$/.test(label))) return fail(c,400,[{code:'invalid_query',message:'Invalid mail query'}]);

@@ -17,12 +17,11 @@ import { getUser, hasModuleAccess } from '@/lib/auth';
  *
  * Sidebar + Header + BottomNav are filtered by role.
  */
-const LS_EMAILER_NAV = 'dx_emailer_erp_nav_collapsed_v1';
 
 export default function MobileShell({ children }: { children: React.ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Desktop ERP left nav collapse — used on /emailer for more reading space.
-  const [emailerNavCollapsed, setEmailerNavCollapsed] = useState(false);
+  const [emailerNavCollapsed, setEmailerNavCollapsed] = useState(true);
   const pathname = usePathname();
   const isEmailer = pathname === '/emailer' || pathname.startsWith('/emailer/');
 
@@ -31,11 +30,8 @@ export default function MobileShell({ children }: { children: React.ReactNode })
   }, [pathname]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      setEmailerNavCollapsed(window.localStorage.getItem(LS_EMAILER_NAV) === '1');
-    } catch { /* ignore */ }
-  }, []);
+    if (isEmailer) setEmailerNavCollapsed(true);
+  }, [isEmailer]);
 
   useEffect(() => {
     if (drawerOpen) {
@@ -46,15 +42,7 @@ export default function MobileShell({ children }: { children: React.ReactNode })
     return () => { document.body.style.overflow = ''; };
   }, [drawerOpen]);
 
-  const toggleEmailerNav = () => {
-    setEmailerNavCollapsed((prev) => {
-      const next = !prev;
-      try {
-        window.localStorage.setItem(LS_EMAILER_NAV, next ? '1' : '0');
-      } catch { /* ignore */ }
-      return next;
-    });
-  };
+  const toggleEmailerNav = () => setEmailerNavCollapsed(prev => !prev);
 
   // Only collapse the ERP sidebar while on emailer (desktop). Other routes stay full nav.
   const desktopNavCollapsed = isEmailer && emailerNavCollapsed;
@@ -71,6 +59,7 @@ export default function MobileShell({ children }: { children: React.ReactNode })
     <AuthGate>
       <div
         className="flex h-screen"
+        data-mail-theme={pathname === '/emailer' || pathname === '/emailer/google' ? 'graphite' : undefined}
         data-emailer-nav-collapsed={desktopNavCollapsed ? 'true' : 'false'}
       >
         <Sidebar mobileOpen={drawerOpen} desktopCollapsed={desktopNavCollapsed} />

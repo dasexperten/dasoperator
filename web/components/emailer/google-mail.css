@@ -51,3 +51,28 @@
 @media(max-width:768px){.gmail-client .gm-sidebar .gm-close{display:flex}}
 
 .gmail-client .gm-legacy{display:block;padding:12px 10px;color:inherit;font-size:12px;text-decoration:underline;line-height:1.5;}
+
+.gmail-client .gm-format{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0}.gmail-client .gm-format button{min-height:44px;font-size:12px}.gmail-client .gm-format small{color:var(--navy)}
+/* Owner-selected 05 / Graphite. Sender content remains on a white canvas. */
+.gmail-client{--gm-rail:#E3DDCF;--gm-list:#FBFAF6;--gm-selected:#C9C1B0;--navy:#282229;--muted:#4A4238;--white:#fff;--panel:#F3F0E8;--line:rgba(40,34,41,.14)}
+.gmail-client .gm-header,.gmail-client .gm-list,.gmail-client .gm-tools{background:var(--gm-list)}
+.gmail-client .gm-sidebar{background:var(--gm-rail)}
+.gmail-client .gm-sidebar button,.gmail-client .gm-row{background:transparent}
+.gmail-client .gm-sidebar .gm-active,.gmail-client .gm-selected{background:var(--gm-selected)}
+.gmail-client .gm-sidebar button:hover,.gmail-client .gm-row:hover{background:#EDE8DD}
+.gmail-client .gm-sidebar .gm-primary{background:#C71926;color:#fff}
+.gmail-client .gm-primary:hover{background:#A6141F}
+.gmail-client button{border-radius:6px;min-height:44px}
+.gmail-client .gm-sidebar button>span:first-of-type{min-width:0}
+.gmail-client .gm-sidebar button svg{flex-shrink:0}
+.gmail-client .gm-count{margin-left:auto;flex-shrink:0;font-size:12px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.5;padding:2px 5px;min-width:24px;text-align:right;color:#282229}
+.gmail-client .gm-count-note{padding:10px 8px;line-height:1.5}
+.gmail-client .gm-sidebar small{color:#4A4238}
+.gmail-client .gm-row-top b,.gmail-client .gm-row strong{font-weight:600}
+.gmail-client .gm-unread strong,.gmail-client .gm-unread b,.gmail-client .gm-header strong,.gmail-client .gm-message h2{font-weight:800}
+.gmail-client .gm-detail,.gmail-client .gm-message{background:#fff;color:#282229}
+[data-mail-theme="graphite"] .dx-header-main{background:#282229!important;color:#FBFAF6}
+[data-mail-theme="graphite"] .dx-header-main .dx-header-entities,[data-mail-theme="graphite"] .dx-header-main .dx-show-mobile{color:#FBFAF6!important}
+[data-mail-theme="graphite"] .dx-emailer-nav-toggle,[data-mail-theme="graphite"] .dx-emailer-nav-toggle[aria-pressed="true"]{background:#FBFAF6;color:#282229;border-color:#C9C1B0;border-radius:6px}
+[data-mail-theme="graphite"] .dx-emailer-nav-toggle:hover{background:#EDE8DD}
+@media(max-width:768px){.gmail-client .gm-sidebar.gm-drawer-open{background:var(--gm-rail)}}

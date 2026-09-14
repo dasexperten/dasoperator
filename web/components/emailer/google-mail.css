@@ -54,7 +54,7 @@
 
 .gmail-client .gm-format{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0}.gmail-client .gm-format button{min-height:44px;font-size:12px}.gmail-client .gm-format small{color:var(--navy)}
 /* Owner-selected 05 / Graphite. Sender content remains on a white canvas. */
-.gmail-client{--gm-rail:#E3DDCF;--gm-list:#FBFAF6;--gm-selected:#C9C1B0;--navy:#282229;--muted:#4A4238;--white:#fff;--panel:#F3F0E8;--line:rgba(40,34,41,.14)}
+.gmail-client{--brand-rot:#C71926;--gm-rail:#E3DDCF;--gm-list:#FBFAF6;--gm-selected:#C9C1B0;--navy:#282229;--muted:#4A4238;--white:#fff;--panel:#F3F0E8;--line:rgba(40,34,41,.14)}
 .gmail-client .gm-header,.gmail-client .gm-list,.gmail-client .gm-tools{background:var(--gm-list)}
 .gmail-client .gm-sidebar{background:var(--gm-rail)}
 .gmail-client .gm-sidebar button,.gmail-client .gm-row{background:transparent}
@@ -99,3 +99,25 @@
 @media(min-width:769px){.gmail-client .gm-sidebar>button:not(.gm-primary){min-height:32px}.gmail-client .gm-sidebar .gm-primary{min-height:48px;margin-bottom:8px}.gmail-client .gm-sidebar details button{min-height:48px}}
 [data-mail-theme='graphite'] .dx-header-main{font-family:'Google Sans',Arial,sans-serif;font-weight:400;letter-spacing:normal}
 .gmail-client .gm-header>div{flex-shrink:0}.gmail-client .gm-header>div small{white-space:nowrap}
+/* Gmail-style replies: a compact editor inside the reading pane. */
+.gmail-client .gm-inline-composer{margin:0 20px 24px}
+.gmail-client .gm-compose-surface{padding:0;border:1px solid var(--line);border-radius:8px;display:flex;flex-direction:column;overflow:hidden}
+.gmail-client .gm-compose-inline{width:100%;max-height:none;box-shadow:none}
+.gmail-client .gm-compose-surface .gm-compose-header{padding:8px 16px;margin:0;background:#FBFAF6;border-bottom:1px solid var(--line);flex-shrink:0}
+.gmail-client .gm-compose-surface .gm-compose-header h2{font-size:14px;line-height:20px;font-weight:500;overflow-wrap:anywhere}
+.gmail-client .gm-compose-surface>fieldset{padding:0 16px;overflow:auto}
+.gmail-client .gm-compose-surface .gm-compose-line{display:flex;align-items:center;gap:10px;margin:0;min-height:40px;border-bottom:1px solid var(--line);font-size:14px;font-weight:400}
+.gmail-client .gm-compose-line>span{color:#4A4238;flex-shrink:0}
+.gmail-client .gm-compose-surface .gm-compose-line input,.gmail-client .gm-compose-surface .gm-compose-line select{margin:0;border:0;border-radius:0;background:#fff;padding:8px 0;font-size:14px;font-weight:400;min-width:0}
+.gmail-client .gm-recipient-line{display:flex;align-items:center;gap:6px}
+.gmail-client .gm-recipient-line label{flex:1;min-width:0}
+.gmail-client .gm-recipient-line>button,.gmail-client .gm-subject-toggle{border:0;background:#fff;font-size:12px;color:#4A4238;padding:4px;min-height:36px}
+.gmail-client .gm-compose-surface .gm-compose-editor{border:0;border-radius:0;background:#fff;box-shadow:none;padding:16px 0;margin:0;min-height:180px;font-size:14px;font-weight:400;line-height:20px;resize:vertical}
+.gmail-client .gm-quoted-history{margin:0 0 16px;font-size:13px}
+.gmail-client .gm-quoted-history summary{width:44px;min-height:32px;cursor:pointer;color:#4A4238;list-style:none;font-weight:700}
+.gmail-client .gm-quoted-history pre{border-left:2px solid #C9C1B0;padding-left:12px;white-space:pre-wrap;font:inherit;overflow-wrap:anywhere}
+.gmail-client .gm-compose-surface .gm-file-input{display:none}
+.gmail-client .gm-compose-surface .gm-compose-actions{padding:12px 16px;margin:0;background:#fff;border-top:1px solid var(--line);flex-shrink:0;gap:8px;align-items:center}
+.gmail-client .gm-compose-actions .gm-primary{min-width:120px;font-weight:500}
+@media(max-width:768px){.gmail-client .gm-inline-composer{margin:0 12px 16px}.gmail-client .gm-compose-surface{max-height:calc(100dvh - 24px)}.gmail-client .gm-compose-inline{max-height:none}.gmail-client .gm-compose-surface .gm-compose-line input,.gmail-client .gm-compose-surface .gm-compose-line select,.gmail-client .gm-compose-surface .gm-compose-editor{font-size:16px}.gmail-client .gm-compose-surface .gm-compose-actions>button{min-height:44px}.gmail-client .gm-compose-surface .gm-compose-actions{padding:10px}}
+.gmail-client .gm-compose-surface>fieldset{min-height:0}

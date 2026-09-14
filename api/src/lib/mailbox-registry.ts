@@ -50,7 +50,7 @@ export const MAILBOX_REGISTRY: MailboxDef[] = [
   { address: 'brand@dasexperten.com', kind: 'agent', slug: 'marika-nowicka', label: 'Marika Nowicka', role: 'Head of Brand', showInUi: true, inbound: 'worker', aliases: ['marika@dasexperten.com'] },
   { address: 'legal@dasexperten.com', kind: 'agent', slug: 'valentina-korolyeva', label: 'Valentina Korolyeva', role: 'Head of Legal', showInUi: true, inbound: 'worker', aliases: ['valentina@dasexperten.com'] },
   { address: 'finance@dasexperten.com', kind: 'agent', slug: 'justina-timber', label: 'Justina Timber', role: 'Head of Finance', showInUi: true, inbound: 'worker', aliases: ['justina@dasexperten.com'] },
-  { address: 'partnerships@dasexperten.com', kind: 'agent', slug: 'julian-farah', label: 'Julian Farah', role: 'GEO Specialist', showInUi: true, inbound: 'worker', aliases: ['julian@dasexperten.com'] },
+  { address: 'geo@dasexperten.com', kind: 'agent', slug: 'julian-farah', label: 'Julian Farah', role: 'GEO Specialist', showInUi: true, inbound: 'worker', aliases: ['partnerships@dasexperten.com', 'julian@dasexperten.com'] },
   { address: 'hr@dasexperten.com', kind: 'agent', slug: 'lena-sergeeva', label: 'Lena Sergeeva', role: 'Central Executive Officer', showInUi: true, inbound: 'worker', aliases: ['lena@dasexperten.com'] },
   { address: 'vetrova@dasexperten.com', kind: 'agent', slug: 'alexandra-obnorskaya', label: 'Alexandra Obnorskaya', role: 'Marketplaces', showInUi: true, inbound: 'worker', aliases: ['alexandra@dasexperten.com'] },
   // CDN: mina-rutunya.png (+ alias mina.png). Canonical slug = mina-rutunya.

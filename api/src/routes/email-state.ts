@@ -12,6 +12,7 @@
 // =============================================================================
 
 import { Hono } from 'hono';
+import { z } from 'zod';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { validateSession, type AuthUser } from '../lib/auth';
@@ -473,6 +474,35 @@ route.post('/unread', async (c) => {
   }
 });
 
+route.get('/drafts', async (c) => {
+  const user = await requireUser(c);
+  if (!user) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+  const offset = Number(c.req.query('offset') || 0);
+  if (!Number.isSafeInteger(offset) || offset < 0) {
+    return fail(c, 400, [{ code: 'invalid_offset', message: 'offset must be a non-negative integer' }]);
+  }
+  try {
+    await ensureGmailProcessTables(c.env);
+    const rows = await c.env.DB.prepare(
+      'SELECT id, mailbox, to_addr, cc_addr, subject, body, in_reply_to, updated_at FROM email_drafts WHERE user_id = ? ORDER BY updated_at DESC, id DESC LIMIT 51 OFFSET ?'
+    ).bind(user.id, offset).all();
+    const drafts = rows.results || [];
+    return ok(c, { drafts: drafts.slice(0, 50), nextOffset: drafts.length > 50 ? offset + 50 : null });
+  } catch {
+    return fail(c, 500, [{ code: 'drafts_unavailable', message: 'Could not load drafts. Please retry.' }]);
+  }
+});
+
+const mailDraftSchema = z.object({
+  id: z.string().min(1).max(128).optional(),
+  mailbox: z.string().email().max(254).default('sales@dasexperten.com'),
+  to: z.string().max(10000).default(''),
+  cc: z.string().max(10000).default(''),
+  subject: z.string().max(2000).default(''),
+  body: z.string().max(1000000).default(''),
+  in_reply_to: z.string().max(1000).optional(),
+});
+
 route.put('/drafts', async (c) => {
   const user = await requireUser(c);
   if (!user) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
@@ -480,19 +510,20 @@ route.put('/drafts', async (c) => {
   try { body = await c.req.json(); } catch {
     return fail(c, 400, [{ code: 'invalid_json', message: 'invalid JSON body' }]);
   }
-  const d = body as {
-    id?: unknown; mailbox?: unknown; to?: unknown; cc?: unknown; subject?: unknown; body?: unknown; in_reply_to?: unknown;
-  };
+  const parsed = mailDraftSchema.safeParse(body);
+  if (!parsed.success) return fail(c, 400, [{ code: 'invalid_draft', message: 'Invalid draft fields' }]);
+  const d = parsed.data;
   const id = String(d.id || crypto.randomUUID());
   try {
     await ensureGmailProcessTables(c.env);
-    await c.env.DB.prepare(
+    const saved = await c.env.DB.prepare(
       `INSERT INTO email_drafts (id, user_id, mailbox, to_addr, cc_addr, subject, body, in_reply_to, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
        ON CONFLICT(id) DO UPDATE SET
          mailbox=excluded.mailbox, to_addr=excluded.to_addr, cc_addr=excluded.cc_addr,
          subject=excluded.subject, body=excluded.body, in_reply_to=excluded.in_reply_to,
-         updated_at=unixepoch()`
+         updated_at=unixepoch()
+       WHERE email_drafts.user_id = excluded.user_id`
     ).bind(
       id,
       user.id,
@@ -503,6 +534,7 @@ route.put('/drafts', async (c) => {
       String(d.body || ''),
       d.in_reply_to ? String(d.in_reply_to) : null,
     ).run();
+    if (!saved.meta.changes) return fail(c, 403, [{ code: 'draft_access', message: 'Draft belongs to another user' }]);
     return ok(c, { id });
   } catch (err) {
     return fail(c, 500, [{ code: 'd1_error', message: err instanceof Error ? err.message : String(err) }]);

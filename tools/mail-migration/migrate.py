@@ -44,9 +44,11 @@ def request(url, token=None, data=None, method=None, form=False):
         raise RuntimeError('Provider HTTP ' + str(error.code)) from None
 
 
-def fingerprint(raw):
+def fingerprint(raw, ignore_message_id=False):
     message = BytesParser(policy=policy.default).parsebytes(raw)
     headers = {h: str(message.get(h, '')) for h in ['From', 'To', 'Cc', 'Bcc', 'Reply-To', 'Subject', 'Message-ID', 'In-Reply-To', 'References']}
+    if ignore_message_id:
+        headers.pop('Message-ID')
     parts = []
     for part in message.walk():
         if part.is_multipart():
@@ -110,6 +112,25 @@ def workspace_original(record, key):
     return account, match[2]
 
 
+def normalize_record(record, key):
+    match = re.fullmatch(r'Inbox/([^/]+)/(sent|received)/[^/]+\.json', key)
+    if not match:
+        raise ValueError('Invalid source key')
+    value = dict(record)
+    # Older sent-mail writers used box/sentAt and omitted direction/address.
+    if 'address' not in value and value.get('box') in (match[1], match[1].split('@')[0]):
+        value['address'] = match[1]
+    if 'direction' not in value and value.get('sentAt') and match[2] == 'sent':
+        value['direction'] = 'sent'
+    if 'timestamp' not in value and value.get('sentAt') and match[2] == 'sent':
+        value['timestamp'] = value['sentAt']
+    if value.get('address') != match[1] or value.get('direction') != match[2]:
+        raise ValueError('Source key and record disagree')
+    if not value.get('timestamp'):
+        raise ValueError('Original date missing')
+    return value
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--workspace-config', required=True)
@@ -125,9 +146,7 @@ def main():
     cfbase = 'https://api.cloudflare.com/client/v4/accounts/' + os.environ['CLOUDFLARE_ACCOUNT_ID'] + '/r2/buckets/self-learning/objects/'
     def read_object(object_key):
         return request(cfbase + urllib.parse.quote(object_key, safe='/'), os.environ['CLOUDFLARE_API_TOKEN'])
-    record = json.loads(read_object(key))
-    if record['address'] != match[1] or record['direction'] != match[2]:
-        raise ValueError('Source key and record disagree')
+    record = normalize_record(json.loads(read_object(key)), key)
     original = workspace_original(record, key)
     if original:
         raw = read_object('Workspace/raw/' + original[0] + '/' + original[1] + '.eml')
@@ -172,7 +191,15 @@ def main():
         stored = gmail('messages/' + gmail_id + '?format=raw')
         restored = base64.urlsafe_b64decode(stored['raw'] + '===')
         if fingerprint(restored) != digest:
-            raise ValueError('Google readback content mismatch')
+            # Historical Resend records sometimes stored a provider UUID in
+            # Message-ID. Google necessarily replaces that invalid RFC header.
+            # Accept only our known migration marker plus equality of every
+            # other checked header and decoded body/attachment byte.
+            parsed = BytesParser(policy=policy.default).parsebytes(restored)
+            invalid_id = not re.fullmatch(r'<[^<>\s]+@[^<>\s]+>', message_id)
+            our_marker = parsed.get('X-Das-ERP-Migration') == hashlib.sha256(key.encode()).hexdigest()
+            if not (invalid_id and our_marker and fingerprint(restored, True) == fingerprint(raw, True)):
+                raise ValueError('Google readback content mismatch')
         if check_date and abs(int(stored['internalDate']) // 1000 - date) > 1:
             raise ValueError('Google readback date mismatch')
     if receipt and receipt[2]:
@@ -181,7 +208,8 @@ def main():
             db.execute("UPDATE receipts SET status='verified' WHERE source=?", (key,)); db.commit()
         print(json.dumps({'verified': True, 'reused': True, 'gmailId': receipt[2]}))
         return
-    found = gmail('messages?' + urllib.parse.urlencode({'q': 'rfc822msgid:' + message_id, 'includeSpamTrash': 'true', 'maxResults': 100}))
+    lookup_id = message_id if re.fullmatch(r'<[^<>\s]+@[^<>\s]+>', message_id) else '<erp-migration-' + hashlib.sha256(key.encode()).hexdigest() + '@dasexperten.com>'
+    found = gmail('messages?' + urllib.parse.urlencode({'q': 'rfc822msgid:' + lookup_id, 'includeSpamTrash': 'true', 'maxResults': 100}))
     if found.get('nextPageToken'):
         raise ValueError('Too many duplicate candidates')
     if found.get('messages'):
@@ -195,8 +223,13 @@ def main():
     if receipt:
         raise ValueError('Uncertain prior import: do not retry until reconciled in Google')
     db.execute('INSERT INTO receipts VALUES (?,?,?,NULL)', (key, digest, 'pending')); db.commit()
+    wire_raw = raw
+    if not re.fullmatch(r'<[^<>\s]+@[^<>\s]+>', message_id):
+        wire_message = BytesParser(policy=policy.default).parsebytes(raw)
+        wire_message.replace_header('Message-ID', '<erp-migration-' + hashlib.sha256(key.encode()).hexdigest() + '@dasexperten.com>')
+        wire_raw = wire_message.as_bytes(policy=policy.SMTP)
     # Import, never send. Disable calendar side effects; preserve original date.
-    result = gmail('messages/import?internalDateSource=dateHeader&processForCalendar=false', {'raw': base64.urlsafe_b64encode(raw).decode(), 'labelIds': ['SENT'] if record['direction'] == 'sent' else []})
+    result = gmail('messages/import?internalDateSource=dateHeader&processForCalendar=false', {'raw': base64.urlsafe_b64encode(wire_raw).decode(), 'labelIds': ['SENT'] if record['direction'] == 'sent' else []})
     db.execute('UPDATE receipts SET gmail_id=? WHERE source=?', (result['id'], key)); db.commit()
     verify(result['id'], True)
     db.execute("UPDATE receipts SET status='verified' WHERE source=?", (key,)); db.commit()

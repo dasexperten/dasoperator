@@ -1,7 +1,7 @@
 import unittest
 from email import policy
 from email.parser import BytesParser
-from migrate import compose, fingerprint, business_addresses, workspace_original
+from migrate import compose, fingerprint, business_addresses, workspace_original, normalize_record
 
 class MigrationTests(unittest.TestCase):
     def setUp(self):
@@ -20,6 +20,14 @@ class MigrationTests(unittest.TestCase):
         self.assertIsNone(workspace_original({},key))
         with self.assertRaises(ValueError):workspace_original({'trigger':'workspace-sync'},self.key)
         with self.assertRaises(ValueError):workspace_original({'trigger':'workspace-sync'},key.replace('c2FsZXNAZGFzZXhwZXJ0ZW4uY29t','eEBleGFtcGxlLmNvbQ'))
+    def test_old_sent_record(self):
+        key='Inbox/sales@dasexperten.com/sent/old.json'
+        old={'box':'sales','sentAt':'2026-08-01T14:36:59Z','from':'sales@dasexperten.com'}
+        result=normalize_record(old,key)
+        self.assertEqual(result['timestamp'],old['sentAt'])
+        self.assertEqual(result['direction'],'sent')
+        with self.assertRaises(ValueError):normalize_record({**old,'box':'other'},key)
+        with self.assertRaises(ValueError):normalize_record(old,key.replace('/sent/','/received/'))
     def test_roundtrip(self):
         raw,mid,date=compose(self.record,self.key,lambda k:bytes([0,255,1,2]))
         parsed=BytesParser(policy=policy.default).parsebytes(raw)
@@ -34,6 +42,9 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(fingerprint(raw),fingerprint(parsed.as_bytes(policy=policy.default)))
         changed=raw.replace(b'parent@example.com',b'other@example.com')
         self.assertNotEqual(fingerprint(raw),fingerprint(changed))
+        self.assertNotEqual(fingerprint(raw,True),fingerprint(changed,True))
+        changed_id=raw.replace(b'original@example.com',b'new-id@example.com')
+        self.assertEqual(fingerprint(raw,True),fingerprint(changed_id,True))
     def test_fail_closed(self):
         for change in [{'skipped':'too_large'}, {'key':'Other/secret'}, {'size':10}]:
             with self.subTest(change=change):

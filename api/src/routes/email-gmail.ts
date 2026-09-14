@@ -7,7 +7,7 @@ import type { Env } from '../types';
 import { validateSession } from '../lib/auth';
 import { ok, fail } from '../lib/responses';
 import { GmailError, gmailRequest, workspaceAccounts } from '../lib/google-workspace';
-import { gmailSession, gmailMessage, gmailSummary, gmailBody, gmailParts, gmailBytes, type GmailMessage } from '../lib/gmail-client';
+import { invalidateGmailSessions, gmailSession, gmailMessage, gmailSummary, gmailBody, gmailParts, gmailBytes, type GmailMessage } from '../lib/gmail-client';
 
 const route = new Hono<{ Bindings: Env }>();
 route.use('*', async (c, next) => {
@@ -19,6 +19,7 @@ route.use('*', async (c, next) => {
   return next();
 });
 route.onError((error, c) => {
+  if (error instanceof GmailError && error.status === 401) invalidateGmailSessions();
   const status = error instanceof GmailError && error.status === 404 ? 404 : error instanceof GmailError && error.status === 403 ? 403 : 502;
   return fail(c, status, [{code:'gmail_unavailable',message:status === 404 ? 'Connected mailbox or message not found' : status === 403 ? 'Google permission required. Reconnect Workspace with mail management access.' : 'Google mail request failed. Reconnect the mailbox or retry.'}]);
 });

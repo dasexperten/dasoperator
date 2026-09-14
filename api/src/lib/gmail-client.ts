@@ -1,5 +1,5 @@
 import type { Env } from '../types';
-import { GmailError, gmailRequest, workspaceAccounts, workspaceToken } from './google-workspace';
+import { GmailError, gmailRequest, workspaceAccounts, workspaceGrant } from './google-workspace';
 
 export interface GmailPart {
   partId?: string; mimeType?: string; filename?: string;
@@ -30,13 +30,31 @@ export function gmailSummary(account: string, message: GmailMessage) {
     replyTo: header('Reply-To'), messageId: header('Message-ID'), inReplyTo: header('In-Reply-To'), references: header('References'),
   };
 }
+// Isolate-local, short-lived authentication only. No mail or attachments are cached.
+const sessions = new Map<string, {until: number; pending: boolean; promise: Promise<{token: string; account: string}>}>();
+export function invalidateGmailSessions() { sessions.clear(); }
 export async function gmailSession(env: Env, email: string) {
   const account = workspaceAccounts(env).find(a => a.email === email.toLowerCase());
   if (!account) throw new GmailError(404);
-  const token = await workspaceToken(env, account);
-  const profile = await gmailRequest<{emailAddress: string}>(token, 'profile');
-  if (profile.emailAddress.toLowerCase() !== account.email) throw new GmailError(403);
-  return { token, account: account.email };
+  const key=JSON.stringify([account.email,account.refreshToken,env.GOOGLE_WORKSPACE_CLIENT_ID,env.GOOGLE_WORKSPACE_CLIENT_SECRET]);
+  const existing=sessions.get(key);
+  if (existing && (existing.pending || existing.until>Date.now())) return existing.promise;
+  sessions.delete(key);
+  while (sessions.size>=16) sessions.delete(sessions.keys().next().value!);
+  const entry={until:0,pending:true,promise:Promise.resolve({token:'',account:account.email})};
+  entry.promise=(async()=>{
+    try {
+      const started=Date.now();
+      const grant=await workspaceGrant(env,account);
+      const profile=await gmailRequest<{emailAddress:string}>(grant.token,'profile');
+      if(profile.emailAddress.toLowerCase()!==account.email) throw new GmailError(403);
+      entry.until=started+Math.max(0,Math.min(120,grant.expiresIn-30))*1000;
+      return {token:grant.token,account:account.email};
+    } catch(error) { if(sessions.get(key)===entry)sessions.delete(key);throw error; }
+    finally {entry.pending=false;}
+  })();
+  sessions.set(key,entry);
+  return entry.promise;
 }
 export async function gmailMessage(token: string, id: string) {
   return gmailRequest<GmailMessage>(token, `messages/${encodeURIComponent(id)}?format=full`);

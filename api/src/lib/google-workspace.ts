@@ -14,15 +14,18 @@ export function workspaceAccounts(env: Env): WorkspaceAccount[] {
   }
   return accounts.map(a => ({ email: a.email.toLowerCase(), refreshToken: a.refreshToken }));
 }
-export async function workspaceToken(env: Env, account: WorkspaceAccount): Promise<string> {
+export async function workspaceGrant(env: Env, account: WorkspaceAccount): Promise<{token: string; expiresIn: number}> {
   if (!env.GOOGLE_WORKSPACE_CLIENT_ID || !env.GOOGLE_WORKSPACE_CLIENT_SECRET) throw new Error('Workspace OAuth client is not configured');
   const response = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST', body: new URLSearchParams({ grant_type: 'refresh_token', client_id: env.GOOGLE_WORKSPACE_CLIENT_ID, client_secret: env.GOOGLE_WORKSPACE_CLIENT_SECRET, refresh_token: account.refreshToken }),
   });
-  const data = await response.json() as { access_token?: string };
+  const data = await response.json() as { access_token?: string; expires_in?: number };
   // Never surface Google's response body: it may contain credential material.
   if (!response.ok || !data.access_token) throw new Error(`Workspace authorization failed (${response.status}); reconnect this account`);
-  return data.access_token;
+  return {token:data.access_token,expiresIn:typeof data.expires_in === 'number' ? data.expires_in : 0};
+}
+export async function workspaceToken(env: Env, account: WorkspaceAccount): Promise<string> {
+  return (await workspaceGrant(env,account)).token;
 }
 export class GmailError extends Error {
   constructor(public status: number) { super(`Gmail request failed (${status})`); }

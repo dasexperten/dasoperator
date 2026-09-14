@@ -40,6 +40,7 @@ export default function GoogleMailApp() {
   const [counts, setCounts] = useState<Record<string, MailCount | null>>({});
   const [countRefresh, setCountRefresh] = useState(0);
   const [countsFailed, setCountsFailed] = useState(false);
+  const [listReadyAccount,setListReadyAccount] = useState('');
   const [identities, setIdentities] = useState<string[]>([]);
   const [accountError, setAccountError] = useState('');
   const [accountsLoading, setAccountsLoading] = useState(true);
@@ -60,6 +61,8 @@ export default function GoogleMailApp() {
   const [bodyError, setBodyError] = useState('');
   const [readError, setReadError] = useState('');
   const [bodyRetry, setBodyRetry] = useState(0);
+  const bodyCache = useRef(new Map<string,{message:GmailMessage;until:number}>());
+  useEffect(() => { bodyCache.current.clear(); }, [account,refresh,bodyRetry]);
   const [originalFormatting, setOriginalFormatting] = useState(false);
   useEffect(() => { setOriginalFormatting(false); }, [selected?.id]);
   const renderedHtml = useMemo(() => body?.html ? mailDocument(body.html, originalFormatting) : '', [body?.html, originalFormatting]);
@@ -81,7 +84,7 @@ export default function GoogleMailApp() {
 
   useEffect(() => {
     setCounts({}); setCountsFailed(false);
-    if (!account) return;
+    if (!account || listReadyAccount !== account) return;
     let current = true;
     const queries = [
       ...folders.map(f => ['archive','all'].includes(f.id) ? {key:f.id,q:f.id === 'archive' ? '-in:inbox -in:sent -in:drafts -in:trash -in:spam' : ''} : {key:f.id,label:f.id,unread:f.id === 'INBOX'}),
@@ -96,7 +99,7 @@ export default function GoogleMailApp() {
       }
     })();
     return () => { current=false; };
-  }, [account,refresh,countRefresh]);
+  }, [account,refresh,countRefresh,listReadyAccount]);
   const countBadge = (key: string, unread = false) => {
     const count=counts[key];
     const value=count ? `${count.value}${count.more ? '+' : ''}` : '—';
@@ -143,7 +146,7 @@ export default function GoogleMailApp() {
         }
       }
     } catch(e) { if (ticket === request.current) setError(errorText(e)); }
-    finally { if (ticket === request.current) { pageBusy.current = false; setBusy(false); } }
+    finally { if (ticket === request.current) { pageBusy.current = false; setBusy(false); setListReadyAccount(account); } }
   }, [account, folder, scope, search]);
   useEffect(() => { setRows([]); setNext(undefined); setSelected(null); setBody(null); void load(); return () => { request.current++; pageBusy.current = false; }; }, [load]);
   useEffect(() => { if (refresh) void load(); }, [refresh]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -151,10 +154,22 @@ export default function GoogleMailApp() {
   useEffect(() => {
     setBody(null); setBodyError(''); setReadError(''); if (!selected || !account) return;
     let current = true;
-    gmailBody(account, selected.id).then(r => { if (current) setBody(r.message); }).catch(e => { if (current) setBodyError(errorText(e)); });
+    const cacheKey=`${account}:${selected.id}`;
+    const cached=bodyCache.current.get(cacheKey);
+    if (cached && cached.until>Date.now()) setBody(cached.message);
+    else gmailBody(account, selected.id).then(r => {
+      if (!current) return;
+      setBody(r.message);
+      // Bounded tab-memory cache only; Google remains the permanent store.
+      if ((r.message.html?.length || 0)+(r.message.text?.length || 0)<500000) {
+        bodyCache.current.delete(cacheKey);
+        while(bodyCache.current.size>=16)bodyCache.current.delete(bodyCache.current.keys().next().value!);
+        bodyCache.current.set(cacheKey,{message:r.message,until:Date.now()+60000});
+      }
+    }).catch(e => { if (current) setBodyError(errorText(e)); });
     if (!automaticPreview && selected.labelIds?.includes('UNREAD')) gmailAction(account, selected.id, 'read').then(() => { if (current) { setRows(prev => prev.map(m => m.id === selected.id ? { ...m, labelIds: m.labelIds.filter(l => l !== 'UNREAD') } : m)); setCountRefresh(v => v + 1); } }).catch(() => { if (current) setReadError('Не удалось отметить письмо прочитанным. Содержимое письма доступно.'); });
     return () => { current = false; };
-  }, [account, selected?.id, bodyRetry, automaticPreview]);
+  }, [account, selected?.id, bodyRetry, automaticPreview, refresh]);
 
   const action = async (name: GmailAction) => {
     if (!selected || actionBusy) return;

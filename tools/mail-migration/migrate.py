@@ -60,6 +60,18 @@ def fingerprint(raw, ignore_message_id=False):
     return hashlib.sha256(json.dumps([headers, parts], sort_keys=True).encode()).hexdigest()
 
 
+def verified_content_equal(raw, restored, key):
+    if fingerprint(raw) == fingerprint(restored):
+        return True
+    source = BytesParser(policy=policy.default).parsebytes(raw)
+    parsed = BytesParser(policy=policy.default).parsebytes(restored)
+    invalid_id = not re.fullmatch(r'<[^<>\s]+@[^<>\s]+>', str(source.get('Message-ID', '')))
+    # MIME folding can leave whitespace around this unstructured header value.
+    # Only normalize that marker, never the compared message content.
+    our_marker = str(parsed.get('X-Das-ERP-Migration', '')).strip() == hashlib.sha256(key.encode()).hexdigest()
+    return bool(invalid_id and our_marker and fingerprint(restored, True) == fingerprint(raw, True))
+
+
 def compose(record, key, read_object):
     message = EmailMessage(policy=policy.SMTP)
     for header, field in [('From', 'from'), ('To', 'to'), ('Cc', 'cc'), ('Bcc', 'bcc'), ('Subject', 'subject'), ('Reply-To', 'replyTo')]:
@@ -190,16 +202,8 @@ def main():
     def verify(gmail_id, check_date):
         stored = gmail('messages/' + gmail_id + '?format=raw')
         restored = base64.urlsafe_b64decode(stored['raw'] + '===')
-        if fingerprint(restored) != digest:
-            # Historical Resend records sometimes stored a provider UUID in
-            # Message-ID. Google necessarily replaces that invalid RFC header.
-            # Accept only our known migration marker plus equality of every
-            # other checked header and decoded body/attachment byte.
-            parsed = BytesParser(policy=policy.default).parsebytes(restored)
-            invalid_id = not re.fullmatch(r'<[^<>\s]+@[^<>\s]+>', message_id)
-            our_marker = parsed.get('X-Das-ERP-Migration') == hashlib.sha256(key.encode()).hexdigest()
-            if not (invalid_id and our_marker and fingerprint(restored, True) == fingerprint(raw, True)):
-                raise ValueError('Google readback content mismatch')
+        if not verified_content_equal(raw, restored, key):
+            raise ValueError('Google readback content mismatch')
         if check_date and abs(int(stored['internalDate']) // 1000 - date) > 1:
             raise ValueError('Google readback date mismatch')
     if receipt and receipt[2]:

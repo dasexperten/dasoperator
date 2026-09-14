@@ -1,7 +1,7 @@
 import unittest
 from email import policy
 from email.parser import BytesParser
-from migrate import compose, fingerprint, business_addresses, workspace_original, normalize_record
+from migrate import compose, fingerprint, business_addresses, workspace_original, normalize_record, verified_content_equal
 
 class MigrationTests(unittest.TestCase):
     def setUp(self):
@@ -53,5 +53,20 @@ class MigrationTests(unittest.TestCase):
     def test_missing_id_is_stable(self):
         record={**self.record,'messageId':None}
         self.assertEqual(compose(record,self.key,lambda k:b'1234')[1],compose(record,self.key,lambda k:b'1234')[1])
+
+    def test_folded_marker_with_replaced_invalid_id(self):
+        raw,_,_=compose({**self.record,'messageId':'legacy-provider-uuid'},self.key,lambda k:b'1234')
+        parsed=BytesParser(policy=policy.default).parsebytes(raw)
+        parsed.replace_header('Message-ID','<valid-google-id@example.com>')
+        restored=parsed.as_bytes(policy=policy.SMTP)
+        self.assertRegex(restored,br'X-Das-ERP-Migration:[ \t]*\r\n[ \t]+')
+        self.assertTrue(verified_content_equal(raw,restored,self.key))
+        self.assertFalse(verified_content_equal(raw,restored,self.key+'wrong'))
+        self.assertFalse(verified_content_equal(raw,restored.replace(b'parent@example.com',b'other@example.com'),self.key))
+        self.assertFalse(verified_content_equal(raw,restored.replace(b'line 1',b'changed'),self.key))
+        parsed.replace_header('X-Das-ERP-Migration','wrong')
+        self.assertFalse(verified_content_equal(raw,parsed.as_bytes(),self.key))
+        valid,_,_=compose(self.record,self.key,lambda k:b'1234')
+        self.assertFalse(verified_content_equal(valid,restored,self.key),'A valid original Message-ID must remain identical')
 
 if __name__=='__main__': unittest.main()

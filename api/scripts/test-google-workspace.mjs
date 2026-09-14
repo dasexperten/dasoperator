@@ -152,11 +152,11 @@ try {
   assert.equal(races.filter(r => r.busy).length, 1);
   await build({ entryPoints: ['api/src/lib/workspace-forward.ts'], bundle: true, platform: 'node', format: 'esm', outfile: join(dir, 'forward.mjs') });
   const { forwardWorkspaceInbound } = await import(join(dir, 'forward.mjs'));
-  const forwardingEnv = { ...scheduledEnv, GOOGLE_WORKSPACE_FORWARD_MAILBOXES: 'sales@dasexperten.com' };
+  const forwardingEnv = { ...scheduledEnv, GOOGLE_WORKSPACE_FORWARD_MAILBOXES: 'sales@dasexperten.com', get ARCHIVE() { throw new Error('Google ingress must not access R2'); } };
   const forwarded = [];
   const message = (to = 'sales@dasexperten.com', fails = false) => ({
     to, from: 'customer@example.com', headers: new Headers({ 'message-id': '<forward-test@example.com>' }),
-    raw: new Response(mime).body,
+    get raw() { throw new Error('Forwarding must not consume MIME'); },
     forward: async (destination, headers) => {
       forwarded.push({ destination, recipient: headers?.get('X-Das-ERP-Recipient') });
       if (fails && destination.endsWith('test-google-a.com')) throw new Error('delivery unavailable');
@@ -169,14 +169,14 @@ try {
   assert.equal(await forwardWorkspaceInbound(message(), forwardingEnv), true);
   assert.deepEqual(forwarded.map(f => f.destination), ['sales@dasexperten.com.test-google-a.com', 'dasexperten@gmail.com']);
   assert.equal(forwarded[0].recipient, 'sales@dasexperten.com');
-  assert([...objects.keys()].some(k => k.startsWith('Workspace/ingress/sales@dasexperten.com/') && k.endsWith('.eml')));
+  assert(![...objects.keys()].some(k => k.startsWith('Workspace/ingress/')));
   forwarded.length = 0;
   await assert.rejects(() => forwardWorkspaceInbound(message('sales@dasexperten.com', true), forwardingEnv), /dual delivery incomplete/);
   assert.equal(forwarded.length, 2);
   forwarded.length = 0;
-  await assert.rejects(() => forwardWorkspaceInbound(message(), { ...forwardingEnv, ARCHIVE: { put: async () => { throw new Error('backup unavailable'); } } }), /backup unavailable/);
-  assert.equal(forwarded.length, 0);
-  console.log('PASS: staged dual delivery, personal and unknown exclusions, original MIME backup, delivery and storage failures');
+  assert.equal(await forwardWorkspaceInbound(message('lauda@dasexperten.com'), forwardingEnv), true);
+  assert.equal(forwarded[0].recipient, 'lauda@dasexperten.com');
+  console.log('PASS: Google-only ingress, dual delivery, aliases, personal/unknown exclusions, untouched MIME and delivery failure propagation');
   console.log('PASS: scheduled bootstrap, history, failure cursor retention, expiry recovery, concurrent lease');
   console.log('PASS: paginated Gmail MIME import, body and attachment archive, receipt replay without duplicate fetch');
   console.log('PASS: business identity, OAuth/redaction, aliases, strict R2/index/attachment failures, retry deduplication and original date');

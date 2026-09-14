@@ -1,6 +1,10 @@
 import type { Env } from '../types';
+import { MAILBOX_REGISTRY, findMailbox } from './mailbox-registry';
 
-export const WORKSPACE_ADDRESSES = ['sysadmin', 'webmaster', 'sales', 'asean', 'geo', 'logistics', 'legal', 'support'].map(n => `${n}@dasexperten.com`);
+// Migration covers every visible ERP mailbox, including the .ru departments.
+// geo is the Owner-requested replacement identity for Julian; retain the old
+// partnerships archive until historical mail has been migrated.
+export const WORKSPACE_ADDRESSES = [...new Set([...MAILBOX_REGISTRY.filter(m => m.showInUi && m.inbound === 'worker').map(m => m.address), 'geo@dasexperten.com'])];
 export interface WorkspaceAccount { email: string; refreshToken: string }
 export function workspaceAccounts(env: Env): WorkspaceAccount[] {
   if (!env.GOOGLE_WORKSPACE_ACCOUNTS) return [];
@@ -99,7 +103,7 @@ async function archiveWorkspaceMessages(env: Env, email: string, token: string, 
     const address = (a: { name?: string; address?: string }) => a.address || '';
     const to = (parsed.to || []).map(address).filter(Boolean);
     const identities = direction === 'sent' ? [parsed.from?.address || email] : [...to, ...(parsed.cc || []).map(address)];
-    const boxes = [...new Set(identities.map(a => a.toLowerCase().replace(/\+[^@]+(?=@)/, '')).filter(a => WORKSPACE_ADDRESSES.includes(a)))];
+    const boxes = [...new Set(identities.map(a => { const normalized = a.toLowerCase().replace(/\+[^@]+(?=@)/, ''); return findMailbox(normalized)?.address || normalized; }).filter(a => WORKSPACE_ADDRESSES.includes(a)))];
     if (!boxes.length) boxes.push(email);
     const keys = [];
     for (const mailbox of boxes) {

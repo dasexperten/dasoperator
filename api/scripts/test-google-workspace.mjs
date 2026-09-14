@@ -17,7 +17,8 @@ try {
   let status = await workspaceStatus(env);
   assert.equal(status.accounts[0].connected, false);
   assert.equal(status.replacementReady, false);
-  assert.equal(status.addresses.length, 8);
+  for (const address of ['eurasia@dasexperten.com', 'emea@dasexperten.com', 'marketing@dasexperten.com', 'hello@dasexperten.com', 'orders@dasexperten.com', 'zakaz@dasexperten.ru', 'oplata@dasexperten.ru', 'dostavka@dasexperten.ru', 'shop@dasexperten.ru', 'geo@dasexperten.com']) assert(status.addresses.some(a => a.address === address));
+  assert(!status.addresses.some(a => a.address === 'dr.badalyan@dasexperten.com'));
   await assert.rejects(() => syncWorkspacePage(env, 'sales@dasexperten.com'), /mismatch/);
   globalThis.fetch = async () => new Response('{"access_token":"secret-that-must-not-leak"}', { status: 401 });
   status = await workspaceStatus(env);
@@ -108,7 +109,7 @@ try {
       data = { messages: [{ id: 'abc123' }], ...(path.searchParams.has('pageToken') ? {} : { nextPageToken: 'page2' }) };
     } else {
       if (failMessage) return new Response('{}', { status: 503 });
-      data = { raw: Buffer.from(mime.replace('fixture@example.com', 'new@example.com')).toString('base64url'), threadId: 'thread123', internalDate: '1789257600000', labelIds: ['SENT'] };
+      data = { raw: Buffer.from(mime.replace('fixture@example.com', 'new@example.com').replace('customer@example.com', 'shop@dasexperten.ru')).toString('base64url'), threadId: 'thread123', internalDate: '1789257600000', labelIds: ['SENT'] };
     }
     return new Response(JSON.stringify(data));
   };
@@ -138,6 +139,7 @@ try {
   assert.equal(secondBatch.archived, 5);
   assert.equal(historyReads, historyReadsBeforeResume);
   assert.equal(readState().historyId, '200');
+  assert(JSON.parse(objects.get(`Workspace/receipts/${account.email}/bulk0.json`)).keys[0].startsWith('Inbox/shop@dasexperten.ru/sent/'));
   historyExpired = true;
   await syncWorkspaceAccount(scheduledEnv, account);
   assert.equal(readState().mode, 'full');

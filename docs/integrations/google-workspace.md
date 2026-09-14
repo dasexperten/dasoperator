@@ -4,7 +4,7 @@ Requested outcome: Google Workspace Gmail replaces the custom ERP mail client fo
 
 ## Implemented
 
-- `/emailer/workspace`: admin test page listing the eight identities, live Google connection checks, and paginated mailbox import.
+- `/emailer/workspace`: admin test page listing every visible ERP mailbox from the shared mailbox registry, live Google connection checks, and paginated mailbox import.
 - `/api/email/workspace/status`: independently authenticated admin endpoint. Checks Google profile against the configured business account and accepted send-as identities. Does not expose tokens or claim delivery from identity configuration.
 - `/api/email/workspace/sync`: imports20 messages per request. Pass returned nextPageToken to continue. Original MIME and parsed body/attachments go to R2 and existing ERP mail index. Deterministic archive keys and success receipts permit retry without duplicate archive entries. Source dates are preserved. Cursor is returned only after all messages on a page finish. Attachment, R2 and D1 failures fail the import.
 - The existing two-minute Worker cron automatically imports connected Gmail accounts, then follows Gmail history. Initial scan includes sent, received, spam and trash (not drafts); it captures the history baseline before scanning. Each tick archives at most20 messages, with page and pending-message cursors persisted in R2. Expired history starts a receipt-aware full scan. Conditional R2 leases prevent concurrent workers from overwriting progress. Failures retain the last committed cursor; the status API reports last successful tick and retry errors.
@@ -31,3 +31,5 @@ Google scopes for planned full integration: gmail.readonly, gmail.send, gmail.se
 Rollback: revert the integration commit and redeploy through normal Worker/Pages workflows. No DNS changes are part of this commit; Gmail source messages are never deleted.
 
 Validation: node api/scripts/test-google-workspace.mjs; web TypeScript; repo migration and knowledge-parser guards. Repository API TypeScript currently reports existing errors outside these changed modules; do not present that as a clean global type check.
+
+Owner clarification September14: the complete Departments tree must remain accessible and readable, including Eurasia, EMEA, ASEAN, Marketing, Hello, Orders, and zakaz/oplata/dostavka/shop at dasexperten.ru. The connector uses the ERP registry rather than an eight-address allowlist, including canonical alias routing. Google delivery and historical import for these mailboxes remain migration work; registry inclusion is not proof of delivery.

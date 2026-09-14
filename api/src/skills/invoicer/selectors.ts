@@ -12,6 +12,11 @@ import type {
 
 const RU_LIKE_JURISDICTIONS = new Set(['Russia', 'Russian Federation', 'RU']);
 
+// Accounts that must never appear on a commercial document.
+// DEASEAN VietinBank IRC: charter-capital account under Vietnamese capital controls
+// (contacts dasean.md · migration 0087). Same currency as the operating USD face.
+export const RESTRICTED_BANK_ACCOUNT_IDS = new Set(['cba_dasean_vietin_usd_irc']);
+
 function isRussiaSide(s: string | null | undefined): boolean {
   if (!s) return false;
   return RU_LIKE_JURISDICTIONS.has(s);
@@ -195,6 +200,7 @@ export function selectBankAccount(
   documentCurrency: string,
   bankAccounts: CompanyBankAccountRow[]
 ): BankAccountSelection | null {
+  bankAccounts = bankAccounts.filter((a) => !RESTRICTED_BANK_ACCOUNT_IDS.has(a.id));
   if (bankAccounts.length > 0) {
     let chosen: CompanyBankAccountRow | undefined;
     if (company.abbreviation === 'DEE') {

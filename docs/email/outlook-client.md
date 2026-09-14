@@ -51,9 +51,10 @@ These observations do **not** establish complete acceptance:
 - Refresh is manual; automatic incoming-mail/state synchronization remains incomplete.
 - Attachments download, but an in-app attachment preview remains unimplemented.
 - The active Google mail UI has no customer/order/document linking workflow.
-- Gmail-level inbox loading speed has not been demonstrated. The loader now refills
-  its five concurrent request slots without waiting for fixed groups to finish;
-  concurrency/order/failure tests pass, but live latency must still be measured.
+- Gmail-level inbox loading speed has not been demonstrated. The loader now retrieves
+  message summaries in one Google metadata batch, shares verified authorization,
+  and prepares hovered messages in temporary memory. See `opening-performance.md`
+  for the live transport comparison and outstanding end-to-end measurements.
 - Mail-history migration is incomplete. Earlier batch jobs ended with failures,
   not a completed migration. Existing Google IDs must be reconciled before any retry
   that could create a duplicate. Folded migration-marker verification has a regression

@@ -2833,6 +2833,16 @@ export async function getMailboxMessages(address: string) {
   );
 }
 
+export async function downloadMailAttachment(mailbox: string, messageKey: string, attachmentId: string): Promise<Blob> {
+  const query = new URLSearchParams({ key: messageKey, id: attachmentId });
+  const response = await fetch(`${API_BASE}/api/email/mailboxes/${encodeURIComponent(mailbox)}/attachment?${query}`, {
+    headers: authHeaders(),
+  });
+  handleAuthFailure(response.status);
+  if (!response.ok) throw new Error(response.status === 404 ? 'Вложение недоступно в архиве' : 'Не удалось скачать вложение. Повторите попытку.');
+  return response.blob();
+}
+
 // Вся лента одним запросом — зеркало описи в D1 (ход 1, Владелец 2026-09-02).
 // mirror:false означает «зеркало ещё не наполнено»; экран тогда возвращается
 // на прежний обход ящиков и показывает письма, а не пустоту.
@@ -2970,10 +2980,14 @@ export async function sendReply(input: {
   text: string;
   from?: string;
   cc?: string | string[];
+  bcc?: string | string[];
+  draft_id?: string;
+  attachment_ids?: string[];
+  send_id?: string;
   in_reply_to?: string;
   references?: string[];
   reply_to_tag?: string;
-}): Promise<{ success: boolean; messageId?: string; error?: string }> {
+}): Promise<{ success: boolean; messageId?: string; archived?: boolean; error?: string }> {
   const token =
     typeof window !== 'undefined' ? window.localStorage.getItem('dx_auth_token') : null;
   const res = await fetch(`${API_BASE}/api/email/reply`, {
@@ -3109,6 +3123,7 @@ export interface EmailFeedDraft {
   mailbox: string;
   to_addr: string;
   cc_addr: string;
+  bcc_addr?: string;
   subject: string;
   body: string;
   in_reply_to: string | null;
@@ -3166,11 +3181,16 @@ export async function saveMailDraft(draft: {
   mailbox: string;
   to: string;
   cc?: string;
+  bcc?: string;
   subject: string;
   body: string;
   in_reply_to?: string;
 }) {
   return apiPut<{ id: string }>('/api/email/drafts', draft);
+}
+
+export async function getMailDrafts(offset = 0) {
+  return apiGet<{ drafts: EmailFeedDraft[]; nextOffset: number | null }>(`/api/email/drafts?offset=${offset}`);
 }
 
 export async function deleteMailDraft(id: string) {
@@ -3359,4 +3379,22 @@ export async function learnFromLetter(input: {
   } catch {
     return { success: false, error: 'Учи не удалось — сеть' };
   }
+}
+
+export interface DraftFile { id: string; filename: string; mimeType: string; size: number }
+export async function getDraftFiles(draftId: string) {
+  return apiGet<{ files: DraftFile[] }>(`/api/email/drafts/${encodeURIComponent(draftId)}/attachments`);
+}
+export async function uploadDraftFile(draftId: string, file: File): Promise<ApiResponse<{ file: DraftFile }>> {
+  const body = new FormData(); body.append('file', file);
+  const response = await fetch(`${API_BASE}/api/email/drafts/${encodeURIComponent(draftId)}/attachments`, {
+    method: 'POST', headers: authHeaders(), body,
+  });
+  handleAuthFailure(response.status);
+  if (response.status === 413) throw new Error('Максимальный размер файла — 10 МБ');
+  if (!response.ok) throw new Error('Файл не сохранён. Максимум 20 вложений и 20 МБ на письмо.');
+  return response.json();
+}
+export async function removeDraftFile(draftId: string, fileId: string) {
+  return apiDelete<{ deleted: boolean }>(`/api/email/drafts/${encodeURIComponent(draftId)}/attachments/${encodeURIComponent(fileId)}`);
 }

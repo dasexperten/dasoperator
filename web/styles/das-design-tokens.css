@@ -1169,3 +1169,45 @@ body:has(.dxmail-standalone) button[title="Das-Kompanion"] { display: none !impo
 /* The mail screen brings its own FAB + bottom folder nav; the global
    Das-Kompanion launcher lands exactly on top of them — hide it here only. */
 body:has(.dxmail) button[title="Das-Kompanion"] { display: none !important; }
+
+/* Saved drafts reuse message rows as native keyboard-operable buttons. */
+.dxmail button.row { width:100%; text-align:left; color:inherit; font:inherit; }
+.dxmail button.row > svg { flex-shrink:0; }
+.dxmail button.row .rtime { white-space:normal; overflow-wrap:anywhere; font-weight:500; }
+.dxmail button.row:focus-visible { outline:2px solid var(--brand-rot); outline-offset:-2px; }
+.dxmail .cmodal { overscroll-behavior:contain; }
+.dxmail .cmodal-actions { flex-wrap:wrap; }
+@media(max-width:767px) {
+  .dxmail .cmodal-backdrop { padding:12px; }
+  .dxmail .cmodal { max-height:calc(100dvh - 24px); }
+  .dxmail .cmodal-label input,
+  .dxmail .cmodal-label select,
+  .dxmail .cmodal-label textarea { font-size:16px; }
+}
+
+/* Archived files: download controls are outside the message HTML sandbox. */
+.dxmail .mail-attachments { margin-top:20px; padding-top:14px; border-top:1px solid var(--line); white-space:normal; }
+.dxmail .mail-attachments h3 { margin:0 0 8px; font:700 14px/1.4 'Manrope',sans-serif; color:var(--navy); }
+.dxmail .mail-attachments ul { margin:0; padding:0; list-style:none; }
+.dxmail .mail-attachments li { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--line); }
+.dxmail .mail-attachments li > svg { flex-shrink:0; color:var(--slate); }
+.dxmail .mail-attachments li > div { min-width:0; flex:1; }
+.dxmail .mail-attachment-name { display:block; overflow-wrap:anywhere; font-size:13px; line-height:1.4; font-weight:700; }
+.dxmail .mail-attachment-meta { display:block; margin-top:3px; font-size:12px; line-height:1.4; color:var(--slate); }
+.dxmail .mail-attachments button { flex-shrink:0; min-height:40px; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--navy); font:600 12px/1.3 'Manrope',sans-serif; cursor:pointer; }
+.dxmail .mail-attachments button:disabled { opacity:.55; cursor:default; }
+.dxmail .mail-attachments button:focus-visible { outline:2px solid var(--brand-rot); outline-offset:2px; }
+.dxmail .mail-attachments p[role="alert"] { color:var(--status-error); font-size:13px; }
+
+.dxmail .compose-files { margin:12px 0; padding:12px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.dxmail .compose-files-hint,.dxmail .compose-files p[role="status"] { margin:6px 0; font-size:12px; line-height:1.4; color:var(--slate); }
+.dxmail .compose-files ul { list-style:none; margin:8px 0 0; padding:0; }
+.dxmail .compose-files li { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--line); }
+.dxmail .compose-files li > span { flex:1; min-width:0; overflow-wrap:anywhere; font-size:13px; }
+.dxmail .compose-files small { display:block; color:var(--slate); margin-top:3px; }
+.dxmail .compose-files button { min-height:40px; padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--navy); font-size:12px; cursor:pointer; }
+.dxmail .compose-files button:disabled { opacity:.5; cursor:default; }
+.dxmail .compose-files button:focus-visible { outline:2px solid var(--brand-rot); outline-offset:2px; }
+
+.dxmail .mdrawer-panel button.folder { width:100%; text-align:left; }
+.dxmail .mdrawer-panel button.folder:focus-visible { outline:2px solid var(--brand-rot); outline-offset:-2px; }

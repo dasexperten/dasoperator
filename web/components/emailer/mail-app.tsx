@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import {
   getMailboxMessage,
+  downloadMailAttachment,
   getMailboxMessages,
   getMailFeed,
   markMailRead,
@@ -38,6 +39,11 @@ import {
   translateEmail,
   learnFromLetter,
   setMailFlags,
+  saveMailDraft,
+  deleteMailDraft,
+  getMailDrafts,
+  getDraftFiles, uploadDraftFile, removeDraftFile, type DraftFile,
+  type EmailFeedDraft,
 } from '@/lib/api';
 import type { LearnReport } from '@/lib/api';
 import { correspondent, displayName, emailAddr } from './shared';
@@ -79,8 +85,8 @@ const FOLDERS = [
   { id: 'archive', label: 'Архив', icon: Archive },
 ] as const;
 
-// Mobile bottom nav: the four folders in the mockup's order; Отправленные
-// stays desktop-sidebar-only.
+// Mobile bottom nav keeps four shortcuts; all folders, including Sent,
+// remain available in the mobile mailbox drawer.
 const MOBILE_FOLDERS = (['inbox', 'starred', 'archive', 'drafts'] as const).map(
   (id) => FOLDERS.find((f) => f.id === id)!
 );
@@ -656,9 +662,69 @@ function RowCheck({ on, onToggle, label }: { on: boolean; onToggle: () => void; 
   );
 }
 
+type MailAttachment = { id: string; filename: string; mimeType: string; size: number; inline: boolean; skipped?: boolean; key?: string };
+type MailBody = { text?: string; html?: string; attachments?: MailAttachment[] };
+
+function normalizeMailBody(record: { text?: string; html?: string; attachments?: unknown }): MailBody {
+  const attachments: MailAttachment[] = [];
+  if (Array.isArray(record.attachments)) for (const value of record.attachments) {
+    if (!value || typeof value !== 'object' || typeof value.id !== 'string') continue;
+    attachments.push({
+      id: value.id, filename: typeof value.filename === 'string' && value.filename ? value.filename : 'Вложение',
+      mimeType: typeof value.mimeType === 'string' ? value.mimeType : 'application/octet-stream',
+      size: typeof value.size === 'number' && Number.isFinite(value.size) ? Math.max(0, value.size) : 0,
+      inline: value.inline === true, skipped: Boolean(value.skipped),
+      ...(typeof value.key === 'string' ? { key: value.key } : {}),
+    });
+  }
+  return { text: record.text, html: record.html, attachments };
+}
+
+function AttachmentList({ item, attachments }: { item: MailItem; attachments?: MailAttachment[] }) {
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const objectUrls = useRef(new Set<string>());
+  const active = useRef(true);
+  useEffect(() => {
+    active.current = true;
+    const urls = objectUrls.current;
+    return () => { active.current = false; urls.forEach(url => URL.revokeObjectURL(url)); urls.clear(); };
+  }, []);
+  if (!attachments?.length) return null;
+  async function download(file: MailAttachment) {
+    setPending(file.id); setError('');
+    try {
+      const blob = await downloadMailAttachment(item.mailbox, item.key, file.id);
+      if (!active.current) return;
+      const url = URL.createObjectURL(blob);
+      objectUrls.current.add(url);
+      const link = document.createElement('a');
+      link.href = url; link.download = file.filename.replace(/[\\/\u0000-\u001f]/g, '_');
+      document.body.appendChild(link); link.click(); link.remove();
+      window.setTimeout(() => { URL.revokeObjectURL(url); objectUrls.current.delete(url); }, 30_000);
+    } catch {
+      if (active.current) setError('Не удалось скачать вложение. Попробуйте ещё раз.');
+    } finally { if (active.current) setPending(null); }
+  }
+  function sizeLabel(size: number) {
+    return size >= 1024 * 1024 ? `${(size / (1024 * 1024)).toFixed(1)} МБ` : size >= 1024 ? `${Math.ceil(size / 1024)} КБ` : `${size} Б`;
+  }
+  return <section className="mail-attachments" aria-label="Вложения">
+    <h3>Вложения · {attachments.length}</h3>
+    <ul>{attachments.map(file => <li key={file.id}>
+      <Paperclip size={16} aria-hidden="true" />
+      <div><span className="mail-attachment-name">{file.filename}</span><span className="mail-attachment-meta">{sizeLabel(file.size)}{file.inline ? ' · встроенное' : ''}{file.skipped ? ' · не сохранено в архиве' : ''}</span></div>
+      <button type="button" disabled={file.skipped || pending !== null} onClick={() => { void download(file); }} aria-label={`Скачать ${file.filename}`}>
+        {pending === file.id ? 'Загрузка…' : file.skipped ? 'Недоступно' : 'Скачать'}
+      </button>
+    </li>)}</ul>
+    {error && <p role="alert">{error}</p>}
+  </section>;
+}
+
 // Full body of an opened letter (index has no bodies).
 function bodyCacheKey(mailbox: string, key: string): string {
-  return `dx_mail_body_v1:${mailbox}:${key}`;
+  return `dx_mail_body_v2:${mailbox}:${key}`;
 }
 
 // Кэш тела переехал из вкладки в браузер (Владелец 2026-09-04): перезагрузка
@@ -667,7 +733,7 @@ function bodyCacheKey(mailbox: string, key: string): string {
 // и не больше сорока писем — переполнение выбрасывает самые старые. Крупные
 // письма с вклеенными картинками сюда не ложатся: за них отвечает кэш на
 // стороне ERP, там они тоже приходят готовыми.
-const BODY_CACHE_INDEX = 'dx_mail_body_idx_v1';
+const BODY_CACHE_INDEX = 'dx_mail_body_idx_v2';
 const BODY_CACHE_MAX_ITEMS = 40;
 const BODY_CACHE_MAX_CHARS = 300_000;
 
@@ -689,19 +755,19 @@ function touchBodyCacheIndex(cacheKey: string): void {
   } catch { /* индекс — удобство, не условие работы */ }
 }
 
-function readBodyCache(mailbox: string, key: string): { text?: string; html?: string } | null {
+function readBodyCache(mailbox: string, key: string): MailBody | null {
   try {
     const raw = localStorage.getItem(bodyCacheKey(mailbox, key));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return null;
-    return parsed as { text?: string; html?: string };
+    return normalizeMailBody(parsed);
   } catch {
     return null;
   }
 }
 
-function writeBodyCache(mailbox: string, key: string, body: { text?: string; html?: string }): void {
+function writeBodyCache(mailbox: string, key: string, body: MailBody): void {
   const cacheKey = bodyCacheKey(mailbox, key);
   let raw: string;
   try {
@@ -759,7 +825,7 @@ function pumpPrefetch(): void {
     getMailboxMessage(next.mailbox, next.key)
       .then((r) => {
         if (r.success && r.result) {
-          writeBodyCache(next.mailbox, next.key, { text: r.result.record.text, html: r.result.record.html });
+          writeBodyCache(next.mailbox, next.key, normalizeMailBody(r.result.record));
         }
       })
       .catch(() => { /* предзагрузка не имеет права шуметь */ })
@@ -821,9 +887,11 @@ function fetchBodyHedged(mailbox: string, key: string) {
 
 function useMailBody(item: MailItem | null) {
   const cached = item ? readBodyCache(item.mailbox, item.key) : null;
-  const [body, setBody] = useState<{ text?: string; html?: string } | null>(cached);
+  const [body, setBody] = useState<MailBody | null>(cached);
+  const [bodyId, setBodyId] = useState(item?.id);
   const [loading, setLoading] = useState(!cached && !!item);
   useEffect(() => {
+    setBodyId(item?.id);
     if (!item) { setBody(null); setLoading(false); return; }
     const hit = readBodyCache(item.mailbox, item.key);
     if (hit) {
@@ -838,7 +906,7 @@ function useMailBody(item: MailItem | null) {
     fetchBodyHedged(item.mailbox, item.key)
       .then((r) => {
         if (cancelled || !r.success || !r.result) return;
-        const next = { text: r.result.record.text, html: r.result.record.html };
+        const next = normalizeMailBody(r.result.record);
         setBody(next);
         writeBodyCache(item.mailbox, item.key, next);
       })
@@ -846,7 +914,7 @@ function useMailBody(item: MailItem | null) {
       .finally(() => { release(); if (!cancelled) setLoading(false); });
     return () => { cancelled = true; release(); };
   }, [item?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  return { body, loading };
+  return { body: bodyId === item?.id ? body : cached, loading: bodyId === item?.id ? loading : !cached };
 }
 
 // Long subjects shrink instead of wrapping into 3-4 lines (owner's acceptance
@@ -1193,7 +1261,7 @@ function replyFromFor(item: MailItem): string {
   return APEX_SENDERS.includes(mb) ? mb : 'sales@dasexperten.com';
 }
 
-type ComposeInit = { to?: string; subject?: string; text?: string; from?: string; title?: string };
+type ComposeInit = { to?: string; cc?: string; bcc?: string; subject?: string; text?: string; from?: string; title?: string; draftId?: string; in_reply_to?: string };
 
 function plainFromHtml(html: string | undefined): string {
   if (!html) return '';
@@ -1670,12 +1738,67 @@ function folderCounts(items: MailItem[]) {
 // =============================================================================
 // Shared compose modal (Написать письмо / FAB) — dcard styling from mockups.
 // =============================================================================
+function DraftList({ scope, query, onOpen }: {
+  scope: MailboxScope; query: string; onOpen: (initial: ComposeInit) => void;
+}) {
+  const [drafts, setDrafts] = useState<EmailFeedDraft[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const generation = useRef(0);
+  const load = useCallback(async (offset = 0) => {
+    const request = ++generation.current;
+    setLoading(true);
+    setError('');
+    try {
+      const result = await getMailDrafts(offset);
+      if (request !== generation.current) return;
+      if (!result.success || !result.result) throw new Error(result.errors?.[0]?.message || 'Не удалось загрузить черновики');
+      const page = result.result;
+      setDrafts((previous) => offset ? [...previous, ...page.drafts] : page.drafts);
+      setNextOffset(page.nextOffset);
+    } catch (err) {
+      if (request === generation.current) setError(err instanceof Error ? err.message : 'Не удалось загрузить черновики');
+    } finally { if (request === generation.current) setLoading(false); }
+  }, []);
+  useEffect(() => {
+    const refresh = () => { void load(); };
+    refresh();
+    window.addEventListener('dx-mail-drafts-changed', refresh);
+    return () => { generation.current++; window.removeEventListener('dx-mail-drafts-changed', refresh); };
+  }, [load]);
+  const rows = drafts.filter((draft) => {
+    const mailbox = scope ? findUiMailbox(scope.address) : undefined;
+    const addresses = mailbox ? addressesForMailbox(mailbox) : scope ? [scope.address] : null;
+    return (!addresses || addresses.includes(draft.mailbox)) &&
+      [draft.subject, draft.to_addr, draft.cc_addr, draft.bcc_addr, draft.body].join(' ').toLowerCase().includes(query.trim().toLowerCase());
+  });
+  return <div aria-label="Черновики">
+    {rows.map((draft) => <button type="button" className="row" key={draft.id} onClick={() => onOpen({
+      draftId: draft.id, from: draft.mailbox, to: draft.to_addr, cc: draft.cc_addr, bcc: draft.bcc_addr,
+      subject: draft.subject, text: draft.body, title: 'Черновик',
+      ...(draft.in_reply_to ? { in_reply_to: draft.in_reply_to } : {}),
+    })}>
+      <FileText size={18} />
+      <div className="rmain">
+        <div className="rfrom">{draft.to_addr || 'Получатель не указан'}</div>
+        <div className="rsub">{draft.subject || 'Без темы'}</div>
+        <div className="rtime">{draft.mailbox} · {new Date(draft.updated_at * 1000).toLocaleString()}</div>
+      </div>
+    </button>)}
+    {loading && <div className="empty">Загрузка черновиков…</div>}
+    {error && <LoadError message={error} onRetry={() => { void load(); }} />}
+    {!loading && !error && rows.length === 0 && <div className="empty">Черновиков пока нет</div>}
+    {nextOffset !== null && <button type="button" disabled={loading} className="cmodal-cancel" onClick={() => { void load(nextOffset); }}>Загрузить ещё черновики</button>}
+  </div>;
+}
+
 function ComposeModal({
   initial,
   onClose,
   onSent,
 }: {
-  initial?: { to?: string; subject?: string; text?: string; from?: string; title?: string };
+  initial?: ComposeInit;
   onClose: () => void;
   onSent: (msg: string) => void;
 }) {
@@ -1683,6 +1806,18 @@ function ComposeModal({
     initial?.from && APEX_SENDERS.includes(initial.from) ? initial.from : APEX_SENDERS[0]!
   );
   const [to, setTo] = useState(initial?.to || '');
+  const [cc, setCc] = useState(initial?.cc || '');
+  const [bcc, setBcc] = useState(initial?.bcc || '');
+  const [draftId] = useState(() => initial?.draftId || crypto.randomUUID());
+  const [saving, setSaving] = useState(false);
+  const [draftExists, setDraftExists] = useState(Boolean(initial?.draftId));
+  const [files, setFiles] = useState<DraftFile[]>([]);
+  const [filesReady, setFilesReady] = useState(!initial?.draftId);
+  const [filesLoading, setFilesLoading] = useState(Boolean(initial?.draftId));
+  const [fileBusy, setFileBusy] = useState(false);
+  const [sentUnarchived, setSentUnarchived] = useState(false);
+  const operation = useRef(false);
+
   const [subject, setSubject] = useState(initial?.subject || '');
   const [text, setText] = useState(
     initial?.text ??
@@ -1692,6 +1827,110 @@ function ComposeModal({
   );
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<() => void>(() => {});
+  closeRef.current = () => { void saveAndClose(); };
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    const controls = () => Array.from(dialog?.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]'
+    ) || []).filter((element) => element.offsetParent !== null);
+    (dialog?.querySelector<HTMLInputElement>('input:not(:disabled)') || controls()[0] || dialog)?.focus();
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); closeRef.current(); }
+      if (event.key !== 'Tab') return;
+      const list = controls();
+      const first = list[0];
+      const last = list[list.length - 1];
+      if (!first) { event.preventDefault(); return; }
+      if (document.activeElement === dialog) { event.preventDefault(); (event.shiftKey ? last : first)?.focus(); return; }
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    dialog?.addEventListener('keydown', keydown);
+    return () => { dialog?.removeEventListener('keydown', keydown); previous?.focus(); };
+  }, []);
+
+  const busy = sending || saving || fileBusy || filesLoading;
+  const frozen = busy || sentUnarchived;
+  const refreshFiles = useCallback(async () => {
+    setFilesLoading(true); setFilesReady(false);
+    try {
+      const result = await getDraftFiles(draftId);
+      if (!result.success || !result.result) throw new Error('Не удалось загрузить вложения. Повторите проверку перед отправкой.');
+      setFiles(result.result.files); setFilesReady(true); setErr(null);
+    } catch (error) { setErr(error instanceof Error ? error.message : 'Не удалось загрузить вложения'); }
+    finally { setFilesLoading(false); }
+  }, [draftId]);
+  useEffect(() => { if (initial?.draftId) void refreshFiles(); }, [initial?.draftId, refreshFiles]);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!filesLoading && dialog && document.activeElement === dialog) {
+      dialog.querySelector<HTMLInputElement>('input:not(:disabled)')?.focus();
+    }
+  }, [filesLoading]);
+
+  async function persistDraft() {
+    const result = await saveMailDraft({ id: draftId, mailbox: from, to, cc, bcc, subject, body: text,
+      ...(initial?.in_reply_to ? { in_reply_to: initial.in_reply_to } : {}) });
+    if (!result.success) throw new Error(result.errors?.[0]?.message || 'Не удалось сохранить черновик');
+    setDraftExists(true);
+    window.dispatchEvent(new Event('dx-mail-drafts-changed'));
+  }
+  async function saveAndClose() {
+    if (operation.current || busy) return;
+    if (sentUnarchived) { onClose(); return; }
+    if (!draftExists && !to.trim() && !cc.trim() && !bcc.trim() && !subject.trim() && !files.length &&
+        !bodyWithoutSignature(text, signatureFor(from))) { onClose(); return; }
+    operation.current = true; setSaving(true); setErr(null);
+    try { await persistDraft(); onSent('Черновик сохранён'); onClose(); }
+    catch (error) { setErr(error instanceof Error ? error.message : 'Не удалось сохранить черновик'); }
+    finally { operation.current = false; setSaving(false); }
+  }
+  async function addFiles(selected: File[]) {
+    if (operation.current || frozen || !filesReady || !selected.length) return;
+    if (files.length + selected.length > 20 || selected.some(file => file.size > 10 * 1024 * 1024) ||
+        [...files, ...selected].reduce((total, file) => total + file.size, 0) > 20 * 1024 * 1024) {
+      setErr('Не более 20 файлов: до 10 МБ на файл и 20 МБ всего.'); return;
+    }
+    operation.current = true; setFileBusy(true); setErr(null);
+    let uploadStarted = false;
+    try {
+      await persistDraft();
+      uploadStarted = true;
+      for (const file of selected) {
+        const result = await uploadDraftFile(draftId, file);
+        if (!result.success || !result.result) throw new Error(result.errors?.[0]?.message || 'Загрузка вложения не завершена. Черновик сохранён.');
+        const uploaded = result.result.file;
+        setFiles(previous => [...previous, uploaded]);
+      }
+    } catch (error) {
+      if (uploadStarted) setFilesReady(false); // A timed-out upload may already exist on the server: reconcile before sending.
+      setErr(error instanceof Error ? error.message : 'Загрузка не завершена. Текст сохранён в черновике.');
+    } finally { operation.current = false; setFileBusy(false); }
+  }
+  async function removeFile(file: DraftFile) {
+    if (operation.current || frozen || !filesReady) return;
+    operation.current = true; setFileBusy(true); setErr(null);
+    try {
+      const result = await removeDraftFile(draftId, file.id);
+      if (!result.success) throw new Error('Не удалось удалить вложение. Проверьте список ещё раз.');
+      setFiles(previous => previous.filter(candidate => candidate.id !== file.id));
+    } catch (error) { setFilesReady(false); setErr(error instanceof Error ? error.message : 'Не удалось удалить вложение'); }
+    finally { operation.current = false; setFileBusy(false); }
+  }
+
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (to.trim() || cc.trim() || bcc.trim() || files.length || subject.trim() || bodyWithoutSignature(text, signatureFor(from))) {
+        event.preventDefault();
+        event.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [to, cc, bcc, subject, text, from, files.length]);
 
   // Switching the sender swaps the signature with it — otherwise a letter from
   // Tamara could leave signed by Zina, which is worse than no signature at all.
@@ -1702,50 +1941,80 @@ function ComposeModal({
   }
 
   async function submit() {
+    if (operation.current || frozen || !filesReady) return;
     if (!to || !subject || !bodyWithoutSignature(text, signatureFor(from))) {
-      setErr('Заполните кому, тему и текст.');
-      return;
+      setErr('Заполните кому, тему и текст.'); return;
     }
-    setSending(true);
-    setErr(null);
+    operation.current = true; setSending(true); setErr(null);
     try {
-      const r = await sendReply({ to, subject, text, from });
-      if (r.success) { onSent('Письмо отправлено'); onClose(); }
-      else setErr(r.error || 'Не удалось отправить');
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Не удалось отправить');
-    } finally {
-      setSending(false);
-    }
+      await persistDraft();
+      const recipients = (value: string) => value.split(/[;,]/).map(v => v.trim()).filter(Boolean);
+      const r = await sendReply({ to: recipients(to), cc: recipients(cc), bcc: recipients(bcc), subject, text, from,
+        draft_id: draftId, send_id: draftId, attachment_ids: files.map(file => file.id),
+        ...(initial?.in_reply_to ? { in_reply_to: initial.in_reply_to } : {}) });
+      if (r.success) {
+        if (r.archived === false) {
+          setSentUnarchived(true);
+          setErr('Письмо отправлено, но архив ERP не подтверждён. Черновик сохранён. Не отправляйте его повторно.');
+          return;
+        }
+        let cleanupFailed = false;
+        try { cleanupFailed = !(await deleteMailDraft(draftId)).success; } catch { cleanupFailed = true; }
+        window.dispatchEvent(new Event('dx-mail-drafts-changed'));
+        onSent(cleanupFailed ? 'Письмо отправлено. Черновик удалить не удалось — не отправляйте его повторно.' : 'Письмо отправлено');
+        onClose();
+      } else setErr(r.error || 'Не удалось отправить');
+    } catch (error) { setErr(error instanceof Error ? error.message : 'Не удалось отправить'); }
+    finally { operation.current = false; setSending(false); }
   }
 
   return (
-    <div className="cmodal-backdrop" onClick={onClose}>
-      <div className="cmodal" onClick={(e) => e.stopPropagation()}>
+    <div className="cmodal-backdrop">
+      <div ref={dialogRef} tabIndex={-1} className="cmodal" role="dialog" aria-modal="true" aria-label={initial?.title || 'Новое письмо'}>
         <div className="cmodal-head">
           <div className="cmodal-title">{initial?.title || 'Новое письмо'}</div>
-          <button className="abtn" onClick={onClose} aria-label="Закрыть"><X size={18} /></button>
+          <button className="abtn" disabled={busy} onClick={saveAndClose} aria-label="Сохранить черновик и закрыть"><X size={18} /></button>
         </div>
         <label className="cmodal-label">От кого
-          <select value={from} onChange={(e) => changeFrom(e.target.value)}>
+          <select disabled={frozen} value={from} onChange={(e) => changeFrom(e.target.value)}>
             {APEX_SENDERS.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
         </label>
         <label className="cmodal-label">Кому
-          <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="partner@company.com" />
+          <input disabled={frozen} value={to} onChange={(e) => setTo(e.target.value)} placeholder="partner@company.com" />
+        </label>
+        <label className="cmodal-label">Копия (CC)
+          <input disabled={frozen} value={cc} onChange={(e) => setCc(e.target.value)} placeholder="Адреса через запятую" />
+        </label>
+        <label className="cmodal-label">Скрытая копия (BCC)
+          <input disabled={frozen} value={bcc} onChange={e => setBcc(e.target.value)} placeholder="Адреса через запятую" />
         </label>
         <label className="cmodal-label">Тема
-          <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Тема письма" />
+          <input disabled={frozen} value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Тема письма" />
         </label>
         <label className="cmodal-label">Текст
-          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={7} placeholder="Текст письма…" />
+          <textarea disabled={frozen} value={text} onChange={(e) => setText(e.target.value)} rows={7} placeholder="Текст письма…" />
         </label>
-        {err && <div className="cmodal-err"><AlertCircle size={14} /> {err}</div>}
+        <section className="compose-files" aria-label="Вложения черновика">
+          <label className="cmodal-label">Прикрепить файлы
+            <input type="file" multiple disabled={frozen || !filesReady} onChange={event => {
+              const selected = Array.from(event.target.files || []); event.target.value = ''; void addFiles(selected);
+            }} />
+          </label>
+          <p className="compose-files-hint">До 20 файлов · 10 МБ на файл · 20 МБ всего</p>
+          {filesLoading && <p role="status">Проверяем вложения…</p>}
+          {fileBusy && <p role="status">Сохраняем изменения вложений…</p>}
+          <ul>{files.map(file => <li key={file.id}><span>{file.filename}<small>{(file.size / 1024).toFixed(1)} КБ</small></span>
+            <button type="button" disabled={frozen || !filesReady} onClick={() => { void removeFile(file); }} aria-label={`Удалить вложение ${file.filename}`}>Удалить</button>
+          </li>)}</ul>
+          {!filesReady && !filesLoading && <button type="button" disabled={frozen} onClick={() => { void refreshFiles(); }}>Повторить проверку вложений</button>}
+        </section>
+        {err && <div className="cmodal-err" role="alert"><AlertCircle size={14} /> {err}</div>}
         <div className="cmodal-actions">
-          <button className="sendb" onClick={submit} disabled={sending}>
+          <button className="sendb" onClick={submit} disabled={frozen || !filesReady}>
             {sending ? <Loader2 size={14} className="dxmail-spin" /> : <Send size={13} />} Отправить
           </button>
-          <button className="cmodal-cancel" onClick={onClose}>Отмена</button>
+          <button className="cmodal-cancel" onClick={saveAndClose} disabled={busy}>{sentUnarchived ? 'Закрыть' : saving ? 'Сохраняю…' : 'Сохранить и закрыть'}</button>
         </div>
       </div>
     </div>
@@ -1789,7 +2058,7 @@ class MailCrashBoundary extends React.Component<
   }
 }
 
-function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; toast: (t: string, undo?: () => void) => void }) {
+function DesktopMail({ data, toast, initialScope }: { initialScope: MailboxScope; data: ReturnType<typeof useMailData>; toast: (t: string, undo?: () => void) => void }) {
   const { items, loading, error, reload, markRead, toggleStar, archive, unarchive, remove, restore } = data;
   const [activeFolder, setActiveFolder] = useState<FolderId>('inbox');
   const [query, setQuery] = useState('');
@@ -1804,7 +2073,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
   const [replyText, setReplyText] = useState('');
   const [replySending, setReplySending] = useState(false);
   const replyRef = useRef<HTMLInputElement>(null);
-  const [scope, setScope] = useState<MailboxScope>(null);
+  const [scope, setScope] = useState<MailboxScope>(initialScope);
   const [agentsOpen, setAgentsOpen] = useState(true);
   const [deptsOpen, setDeptsOpen] = useState(true);
   const { listWidth, onSplitterDown } = useListPaneResize();
@@ -2067,9 +2336,10 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
           </div>
 
           <div className="rows">
-            {loading && <div className="empty"><Loader2 className="dxmail-spin" size={18} /></div>}
-            {!loading && error && <LoadError message={error} onRetry={() => reload({ fresh: true })} />}
-            {!loading && !error && threads.length === 0 && <div className="empty">Здесь пока пусто</div>}
+            {activeFolder === 'drafts' && <DraftList scope={scope} query={query} onOpen={setCompose} />}
+            {activeFolder !== 'drafts' && loading && <div className="empty"><Loader2 className="dxmail-spin" size={18} /></div>}
+            {activeFolder !== 'drafts' && !loading && error && <LoadError message={error} onRetry={() => reload({ fresh: true })} />}
+            {activeFolder !== 'drafts' && !loading && !error && threads.length === 0 && <div className="empty">Здесь пока пусто</div>}
             {threads.map((t) => {
               const e = t.head;
               const inThread = t.letters.some((l) => l.id === selectedId);
@@ -2207,6 +2477,7 @@ function DesktopMail({ data, toast }: { data: ReturnType<typeof useMailData>; to
                     ) : (
                       <BodyView item={selected} body={body} loading={bodyLoading} />
                     )}
+                    <AttachmentList key={selected.key} item={selected} attachments={body?.attachments} />
                   </div>
                 </div>
               </div>
@@ -2453,7 +2724,7 @@ function SwipeableRow({
   );
 }
 
-function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toast: (t: string, undo?: () => void) => void }) {
+function MobileMail({ data, toast, initialScope }: { initialScope: MailboxScope; data: ReturnType<typeof useMailData>; toast: (t: string, undo?: () => void) => void }) {
   const { items, loading, error, reload, markRead, toggleStar, archive, unarchive, remove, restore } = data;
   const [activeFolder, setActiveFolder] = useState<FolderId>('inbox');
   const [query, setQuery] = useState('');
@@ -2466,7 +2737,7 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
   const [replySending, setReplySending] = useState(false);
   // Left drawer = desktop agents/folders sidebar (Owner: burger opens side box)
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [scope, setScope] = useState<MailboxScope>(null);
+  const [scope, setScope] = useState<MailboxScope>(initialScope);
   const [agentsOpen, setAgentsOpen] = useState(true);
   const [deptsOpen, setDeptsOpen] = useState(true);
   const [threadExpanded, setThreadExpanded] = useState(false);
@@ -2602,7 +2873,7 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
             </button>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="title">Почта</div>
-              <div className="sub">{folderLabel} · {visible.length}</div>
+              <div className="sub">{folderLabel}{activeFolder !== 'drafts' && <> · {visible.length}</>}</div>
             </div>
             <button className="abtn" onClick={() => setSearchOpen(true)} aria-label="Поиск"><Search size={20} /></button>
           </>
@@ -2631,7 +2902,8 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
               const active = activeFolder === f.id && !scope;
               const count = f.id === 'inbox' ? inboxUnread : 0;
               return (
-                <div
+                <button
+                  type="button"
                   key={f.id}
                   className={`folder ${active ? 'active' : ''}`}
                   onClick={() => {
@@ -2645,7 +2917,7 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
                   <Icon size={16} strokeWidth={2.4} />
                   {f.label}
                   {count > 0 && <span className="fcount">{count}</span>}
-                </div>
+                </button>
               );
             })}
 
@@ -2731,9 +3003,10 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
 
       {/* Rows */}
       <div className="mrows">
-        {loading && <div className="empty"><Loader2 className="dxmail-spin" size={18} /></div>}
-        {!loading && error && <LoadError message={error} onRetry={() => reload({ fresh: true })} />}
-        {!loading && !error && visible.length === 0 && <div className="empty">Здесь пока пусто</div>}
+        {activeFolder === 'drafts' && <DraftList scope={scope} query={query} onOpen={setCompose} />}
+        {activeFolder !== 'drafts' && loading && <div className="empty"><Loader2 className="dxmail-spin" size={18} /></div>}
+        {activeFolder !== 'drafts' && !loading && error && <LoadError message={error} onRetry={() => reload({ fresh: true })} />}
+        {activeFolder !== 'drafts' && !loading && !error && visible.length === 0 && <div className="empty">Здесь пока пусто</div>}
         {visible.map((e) => (
           <SwipeableRow
             key={e.id}
@@ -2805,6 +3078,7 @@ function MobileMail({ data, toast }: { data: ReturnType<typeof useMailData>; toa
               )}
               <div className="dtext">
                 <BodyView item={opened} body={body} loading={bodyLoading} />
+                <AttachmentList key={opened.key} item={opened} attachments={body?.attachments} />
               </div>
               <div className="actions">
                 <button className="action" onClick={() => { const el = document.querySelector<HTMLInputElement>('.dxmail .mreplybar input'); el?.focus(); }}>
@@ -2866,7 +3140,16 @@ function getMobileSnapshot() {
   return window.matchMedia('(max-width: 960px)').matches;
 }
 
-export default function MailApp() {
+export default function MailApp({ initialMailbox }: { initialMailbox?: string | undefined } = {}) {
+  const initialScope = useMemo<MailboxScope>(() => {
+    if (!initialMailbox) return null;
+    const address = initialMailbox.trim().toLowerCase();
+    const mailbox = findUiMailbox(address);
+    if (mailbox) return { kind: mailbox.kind, address: mailbox.address };
+    // Julian's new identity is live while his historical partnerships mailbox
+    // stays available separately during migration.
+    return address === 'geo@dasexperten.com' ? { kind: 'agent', address } : null;
+  }, [initialMailbox]);
   const data = useMailData();
   const isMobile = useSyncExternalStore(subscribeMobile, getMobileSnapshot, () => false);
   const [snackbar, setSnackbar] = useState<{ text: string; undo?: () => void } | null>(null);
@@ -2881,7 +3164,7 @@ export default function MailApp() {
   return (
     <MailCrashBoundary>
     <div className="dxmail">
-      {isMobile ? <MobileMail data={data} toast={toast} /> : <DesktopMail data={data} toast={toast} />}
+      {isMobile ? <MobileMail key={initialScope?.address || "all"} data={data} toast={toast} initialScope={initialScope} /> : <DesktopMail key={initialScope?.address || "all"} data={data} toast={toast} initialScope={initialScope} />}
 
       {snackbar && (
         <div className="snackbar">

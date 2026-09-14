@@ -29,37 +29,37 @@ export function agentAvatarUrl(slug: string): string {
 export const AGENT_MAILBOXES: UiMailbox[] = [
   { address: 'sales@dasexperten.com', kind: 'agent', slug: 'lauda-briana', label: 'Lauda Briana', role: 'Head of Commerce', aliases: ['lauda@dasexperten.com'] },
   { address: 'roberta@dasexperten.com', kind: 'agent', slug: 'roberta-di-maria', label: 'Roberta Di Maria', role: 'Head of Content' },
-  { address: 'support@dasexperten.com', kind: 'agent', slug: 'tamara-haar', label: 'Tamara Haar', role: 'Customer Support' },
+  { address: 'support@dasexperten.com', kind: 'agent', slug: 'tamara-haar', label: 'Tamara Haar', role: 'Customer Support', aliases: ['tamara@dasexperten.com'] },
   { address: 'brand@dasexperten.com', kind: 'agent', slug: 'marika-nowicka', label: 'Marika Nowicka', role: 'Head of Brand', aliases: ['maria@dasexperten.com', 'marika@dasexperten.com'] },
   { address: 'legal@dasexperten.com', kind: 'agent', slug: 'valentina-korolyeva', label: 'Valentina Korolyeva', role: 'Head of Legal', aliases: ['valentina@dasexperten.com'] },
   { address: 'finance@dasexperten.com', kind: 'agent', slug: 'justina-timber', label: 'Justina Timber', role: 'Head of Finance', aliases: ['justina@dasexperten.com'] },
   { address: 'partnerships@dasexperten.com', kind: 'agent', slug: 'julian-farah', label: 'Julian Farah', role: 'GEO Specialist', aliases: ['julian@dasexperten.com'] },
   { address: 'hr@dasexperten.com', kind: 'agent', slug: 'lena-sergeeva', label: 'Lena Sergeeva', role: 'Central Executive Officer', aliases: ['lena@dasexperten.com'] },
   { address: 'vetrova@dasexperten.com', kind: 'agent', slug: 'alexandra-obnorskaya', label: 'Alexandra Obnorskaya', role: 'Marketplaces', aliases: ['alexandra@dasexperten.com'] },
-  // CDN file is mina-rutunya.png (alias mina.png also published). Prefer canonical slug.
-  // Owner 2026-08-14: primary box is sysadmin@; mina@ stays as alias so its
-  // archived letters keep resolving to this agent.
-  { address: 'sysadmin@dasexperten.com', kind: 'agent', slug: 'mina-rutunya', label: 'Mina', role: 'Sysadmin', aliases: ['mina@dasexperten.com'] },
+  { address: 'sysadmin@dasexperten.com', kind: 'agent', slug: 'mina-rutunya', label: 'Mina', role: 'Sysadmin', aliases: ['mina@dasexperten.com', 'admin@dasexperten.com'] },
   { address: 'logistics@dasexperten.com', kind: 'agent', slug: 'zina-pevtsova', label: 'Zina Pevtsova', role: 'Logistics', aliases: ['zina@dasexperten.com'] },
-  { address: 'maya@dasexperten.com', kind: 'agent', slug: 'maya-krasochkina', label: 'Maya Krasochkina', role: 'Operations' },
+  { address: 'maya@dasexperten.com', kind: 'agent', slug: 'maya-krasochkina', label: 'Maya Krasochkina', role: 'Operations', aliases: ['tech@dasexperten.com'] },
   { address: 'ozon@dasexperten.com', kind: 'agent', slug: 'dasha-kozlovskaya', label: 'Dasha Kozlovskaya', role: 'Ozon Specialist', aliases: ['dasha@dasexperten.com'] },
   { address: 'wb@dasexperten.com', kind: 'agent', slug: 'arina-volkova', label: 'Arina Volkova', role: 'WB Specialist', aliases: ['arina@dasexperten.com'] },
+  { address: 'webmaster@dasexperten.com', kind: 'agent', slug: 'jurgen-witt', label: 'Jurgen Witt', role: 'Webmaster · Technical SEO', aliases: ['jurgen@dasexperten.com'] },
+  { address: 'lisa@dasexperten.com', kind: 'agent', slug: 'lisa', label: 'Lisa', role: 'Brand Studio', aliases: ['image@dasexperten.com'] },
+  { address: 'taras@dasexperten.com', kind: 'agent', slug: 'taras-ryzhiy', label: 'Taras Ryzhiy', role: 'Video' },
+  { address: 'build@dasexperten.com', kind: 'agent', slug: 'alessandro-conti', label: 'Alessandro Conti', role: 'Architecture · Construction' },
+  { address: 'social@dasexperten.com', kind: 'agent', slug: 'angela', label: 'Angela', role: 'Social Media' },
+  { address: 'validation@dasexperten.com', kind: 'agent', slug: 'viktor-palich', label: 'Viktor Palich', role: 'General Director · quality gate' },
 ];
 
 /** Functional department mailboxes (UI label: Departments — never "pipes"). */
 export const DEPARTMENT_MAILBOXES: UiMailbox[] = [
-  { address: 'eurasia@dasexperten.com', kind: 'department', label: 'Eurasia', role: 'RU / CIS' },
-  { address: 'emea@dasexperten.com', kind: 'department', label: 'EMEA', role: 'EN/DE/IT/ES/AR' },
-  { address: 'asean@dasexperten.com', kind: 'department', label: 'ASEAN', role: 'SE Asia' },
-  { address: 'marketing@dasexperten.com', kind: 'department', label: 'Marketing', role: 'UGC / brand' },
-  { address: 'hello@dasexperten.com', kind: 'department', label: 'Hello', role: 'Warm front' },
-  { address: 'orders@dasexperten.com', kind: 'department', label: 'Orders', role: 'Orders' },
-  // Витрина dasexperten.ru (Owner 2026-08-31). Те же три ящика, что в API-реестре
-  // (api/src/lib/mailbox-registry.ts) — до этого дня web-копия их не знала, и
-  // покупательский ответ на zakaz@ тонул в общем Входящих. Транзакционные:
-  // папка видна, отвечать ОТ них нельзя — Тамара отвечает с support@.
+  { address: 'eurasia@dasexperten.com', kind: 'department', label: 'Eurasia', role: 'RU / CIS hub' },
+  { address: 'emea@dasexperten.com', kind: 'department', label: 'EMEA', role: 'EN/DE/IT/ES/AR hub' },
+  { address: 'asean@dasexperten.com', kind: 'department', label: 'ASEAN', role: 'SE Asia hub' },
+  { address: 'marketing@dasexperten.com', kind: 'department', label: 'Marketing', role: 'UGC / brand collabs' },
+  { address: 'hello@dasexperten.com', kind: 'department', label: 'Hello', role: 'Warm brand front' },
+  { address: 'orders@dasexperten.com', kind: 'department', label: 'Orders', role: 'Order notifications' },
+  { address: 'delivery@dasexperten.com', kind: 'department', label: 'Delivery', role: 'Shipping notifications' },
   { address: 'zakaz@dasexperten.ru', kind: 'department', label: 'Заказ .ru', role: 'dasexperten.ru — приём заказа' },
-  { address: 'oplata@dasexperten.ru', kind: 'department', label: 'Оплата .ru', role: 'dasexperten.ru — оплата и возвраты' },
+  { address: 'oplata@dasexperten.ru', kind: 'department', label: 'Оплата .ru', role: 'dasexperten.ru — подтверждение оплаты' },
   { address: 'dostavka@dasexperten.ru', kind: 'department', label: 'Доставка .ru', role: 'dasexperten.ru — отправка, трек, ПВЗ' },
   { address: 'shop@dasexperten.ru', kind: 'department', label: 'Магазин .ru', role: 'dasexperten.ru — письма заказа и ответы на них' },
 ];

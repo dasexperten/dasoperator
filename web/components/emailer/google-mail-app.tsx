@@ -6,6 +6,7 @@ import { AGENT_MAILBOXES, DEPARTMENT_MAILBOXES, type UiMailbox } from './mailbox
 import { gmailCounts, type MailCount, gmailAccounts, gmailAction, gmailBody, gmailDownload, gmailDraft, gmailDrafts, gmailFile, gmailIdentities, gmailList, gmailSave, gmailSend, type GmailAction, type GmailDraftInput, type GmailFile, type GmailMessage } from '@/lib/gmail-api';
 import './google-mail.css';
 import { mailDocument } from './mail-document';
+import { MailBodyCache } from './mail-body-cache';
 
 type Row = GmailMessage & { draftId?: string };
 type Compose = { draftId?: string; message?: GmailMessage; mode: 'new' | 'reply' | 'all' | 'forward' | 'draft' };
@@ -61,8 +62,17 @@ export default function GoogleMailApp() {
   const [bodyError, setBodyError] = useState('');
   const [readError, setReadError] = useState('');
   const [bodyRetry, setBodyRetry] = useState(0);
-  const bodyCache = useRef(new Map<string,{message:GmailMessage;until:number}>());
-  useEffect(() => { bodyCache.current.clear(); }, [account,refresh,bodyRetry]);
+  const bodyCache = useRef(new MailBodyCache((account,id)=>gmailBody(account,id).then(r=>r.message)));
+  const hoverTimer = useRef<ReturnType<typeof setTimeout>>();
+  const cancelWarm = () => {if(hoverTimer.current)clearTimeout(hoverTimer.current);};
+  useEffect(() => {bodyCache.current.clear();return ()=>{cancelWarm();bodyCache.current.clear();};},[account,refresh,bodyRetry]);
+  const warmMessage = (message:Row) => {
+    cancelWarm();
+    if(message.draftId || !account)return;
+    hoverTimer.current=setTimeout(()=>{
+      if(bodyCache.current.pendingCount===0)void bodyCache.current.read(account,message.id).catch(()=>{});
+    },120);
+  };
   const [originalFormatting, setOriginalFormatting] = useState(false);
   useEffect(() => { setOriginalFormatting(false); }, [selected?.id]);
   const renderedHtml = useMemo(() => body?.html ? mailDocument(body.html, originalFormatting) : '', [body?.html, originalFormatting]);
@@ -154,19 +164,7 @@ export default function GoogleMailApp() {
   useEffect(() => {
     setBody(null); setBodyError(''); setReadError(''); if (!selected || !account) return;
     let current = true;
-    const cacheKey=`${account}:${selected.id}`;
-    const cached=bodyCache.current.get(cacheKey);
-    if (cached && cached.until>Date.now()) setBody(cached.message);
-    else gmailBody(account, selected.id).then(r => {
-      if (!current) return;
-      setBody(r.message);
-      // Bounded tab-memory cache only; Google remains the permanent store.
-      if ((r.message.html?.length || 0)+(r.message.text?.length || 0)<500000) {
-        bodyCache.current.delete(cacheKey);
-        while(bodyCache.current.size>=16)bodyCache.current.delete(bodyCache.current.keys().next().value!);
-        bodyCache.current.set(cacheKey,{message:r.message,until:Date.now()+60000});
-      }
-    }).catch(e => { if (current) setBodyError(errorText(e)); });
+    bodyCache.current.read(account,selected.id).then(message=>{if(current)setBody(message);}).catch(e=>{if(current)setBodyError(errorText(e));});
     if (!automaticPreview && selected.labelIds?.includes('UNREAD')) gmailAction(account, selected.id, 'read').then(() => { if (current) { setRows(prev => prev.map(m => m.id === selected.id ? { ...m, labelIds: m.labelIds.filter(l => l !== 'UNREAD') } : m)); setCountRefresh(v => v + 1); } }).catch(() => { if (current) setReadError('Не удалось отметить письмо прочитанным. Содержимое письма доступно.'); });
     return () => { current = false; };
   }, [account, selected?.id, bodyRetry, automaticPreview, refresh]);
@@ -206,7 +204,7 @@ export default function GoogleMailApp() {
       </aside>
       <section className={`gm-list ${selected || inlineCompose ? 'gm-mobile-hidden' : ''}`} aria-label="Список писем"><form className="gm-search" onSubmit={e => { e.preventDefault(); setSearch(query); }}><input aria-label="Поиск писем" placeholder={folder === 'DRAFT' ? 'Поиск в загруженных черновиках' : 'Поиск в Gmail'} value={query} onChange={e => setQuery(e.target.value)}/><button aria-label="Искать"><Search size={18}/></button></form><div className="gm-list-title"><strong>{label}</strong><small>{visibleRows.length} загружено</small><button className="gm-mobile" disabled={!identities.length || !!compose} onClick={() => setCompose({ mode: 'new' })} aria-label="Написать письмо"><PenLine size={20}/></button></div>
         <div className="gm-rows">{error && <div className="gm-error" role="alert">{error}<button onClick={() => void load(failedPage)}>Повторить</button></div>}{busy && !rows.length && <div className="gm-empty" role="status"><Loader2 className="dxmail-spin"/>Загрузка…</div>}{!busy && !error && !visibleRows.length && <div className="gm-empty">Писем не найдено</div>}
-          {visibleRows.map(m => <button disabled={!!compose && !!m.draftId} key={m.id} className={`gm-row ${m.labelIds?.includes('UNREAD') ? 'gm-unread' : ''} ${selected?.id === m.id ? 'gm-selected' : ''}`} onClick={() => { setAutomaticPreview(false); m.draftId ? setCompose({ mode: 'draft', draftId: m.draftId }) : setSelected(m); }}><span className="gm-row-top"><Correspondent value={m.labelIds?.includes('SENT') ? m.to : m.from}/><time>{date(m.timestamp)}</time></span><strong>{m.subject || '(Без темы)'}</strong><span className="gm-snippet">{readableSnippet(m.snippet)}</span>{m.labelIds?.includes('STARRED') && <span aria-label="Важное">★</span>}</button>)}
+          {visibleRows.map(m => <button onPointerEnter={e=>{if(e.pointerType==='mouse')warmMessage(m);}} onPointerLeave={cancelWarm} onFocus={()=>warmMessage(m)} onBlur={cancelWarm} disabled={!!compose && !!m.draftId} key={m.id} className={`gm-row ${m.labelIds?.includes('UNREAD') ? 'gm-unread' : ''} ${selected?.id === m.id ? 'gm-selected' : ''}`} onClick={() => { setAutomaticPreview(false); m.draftId ? setCompose({ mode: 'draft', draftId: m.draftId }) : setSelected(m); }}><span className="gm-row-top"><Correspondent value={m.labelIds?.includes('SENT') ? m.to : m.from}/><time>{date(m.timestamp)}</time></span><strong>{m.subject || '(Без темы)'}</strong><span className="gm-snippet">{readableSnippet(m.snippet)}</span>{m.labelIds?.includes('STARRED') && <span aria-label="Важное">★</span>}</button>)}
           {next && <button className="gm-more" disabled={busy} onClick={() => void load(next)}>{busy ? 'Загрузка…' : 'Загрузить ещё'}</button>}
         </div>
       </section>

@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import {build} from '../../web/node_modules/esbuild/lib/main.js';
+const built=await build({entryPoints:['web/components/emailer/mail-body-cache.ts'],bundle:true,platform:'node',format:'esm',write:false});
+const {MailBodyCache}=await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`);
+let calls=0;const waiting=[];
+const cache=new MailBodyCache((account,id)=>{calls++;return new Promise((resolve,reject)=>waiting.push({resolve,reject,account,id}));});
+const a=cache.read('one','a'),b=cache.read('one','a');assert.equal(a,b);assert.equal(calls,1);
+waiting[0].resolve({id:'a',text:'Original'});await a;
+assert.equal((await cache.read('one','a')).text,'Original');assert.equal(calls,1,'Hover and click must share one download');
+const other=cache.read('two','a');assert.equal(calls,2);waiting[1].resolve({id:'a',text:'Other account'});await other;
+const stale=cache.read('one','old');cache.clear();const fresh=cache.read('one','old');
+waiting[3].resolve({id:'old',text:'Fresh'});await fresh;waiting[2].resolve({id:'old',text:'Stale'});await stale;
+assert.equal((await cache.read('one','old')).text,'Fresh','A pre-refresh response must not overwrite fresh content');
+const failure=cache.read('one','fail');waiting[4].reject(new Error('offline'));await assert.rejects(failure);
+const retry=cache.read('one','fail');waiting[5].resolve({id:'fail',text:'Recovered'});await retry;assert.equal(cache.pendingCount,0);
+let reads=0;const bounded=new MailBodyCache(async(account,id)=>{reads++;return {id,text:id==='large'?'x'.repeat(500000):'small'};});
+await bounded.read('one','large');await bounded.read('one','large');assert.equal(reads,2);
+for(let i=0;i<17;i++)await bounded.read('one',String(i));
+const before=reads;await bounded.read('one','0');assert.equal(reads,before+1);
+const now=Date.now;Date.now=()=>now()+61000;
+try {const before=reads;await bounded.read('one','0');assert.equal(reads,before+1);} finally {Date.now=now;}
+console.log('PASS: hover/click deduplication, account isolation, refresh race, retry, size bound, eviction and expiry.');

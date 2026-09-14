@@ -7,6 +7,7 @@ export function mailDocument(html: string, originalFormatting = false): string {
     // Inline !important declarations outrank our stylesheet: remove just the
     // paint properties, keeping the sender's layout and semantic content.
     for (const el of Array.from(doc.querySelectorAll<HTMLElement>('[style]'))) {
+      if (!el.style) continue;
       for (const name of Array.from(el.style)) {
         if (/^(color|background(?:-.+)?|-webkit-text-fill-color|text-shadow|opacity|filter|mix-blend-mode)$/.test(name)) el.style.removeProperty(name);
       }

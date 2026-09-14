@@ -419,6 +419,41 @@ route.get('/mailboxes/:address/message', async (c) => {
 });
 
 // -----------------------------------------------------------------------------
+// Downloads resolve through the archived message's attachment list. The caller
+// cannot name an arbitrary R2 object or bypass the message's mailbox boundary.
+route.get('/mailboxes/:address/attachment', async (c) => {
+  if (!(await requireSession(c))) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+  const address = normalizeAddress(c.req.param('address'));
+  const key = c.req.query('key') || '';
+  const id = c.req.query('id') || '';
+  const prefix = `Inbox/${address}/`;
+  if (!address || !key.startsWith(prefix) || !key.endsWith('.json') || !id) {
+    return fail(c, 422, [{ code: 'bad_attachment', message: 'A message and attachment in this mailbox are required' }]);
+  }
+  try {
+    const message = await c.env.ARCHIVE.get(key);
+    if (!message) return fail(c, 404, [{ code: 'not_found', message: 'Message not found' }]);
+    const record = JSON.parse(await message.text()) as { attachments?: ArchivedAttachment[] };
+    const attachment = record.attachments?.find((item) => item.id === id);
+    if (!attachment || attachment.skipped || !attachment.key?.startsWith(`${key.slice(0, -5)}/att/`)) {
+      return fail(c, 404, [{ code: 'not_found', message: 'Attachment is unavailable' }]);
+    }
+    const object = await c.env.ARCHIVE.get(attachment.key);
+    if (!object) return fail(c, 404, [{ code: 'not_found', message: 'Attachment file is missing' }]);
+    const name = (attachment.filename || 'attachment').replace(/[\r\n\x00]/g, '');
+    const encoded = encodeURIComponent(name).replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+    return new Response(object.body, { headers: {
+      'Content-Type': 'application/octet-stream',
+      'Content-Disposition': `attachment; filename="attachment"; filename*=UTF-8''${encoded}`,
+      'Content-Length': String(object.size),
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+    } });
+  } catch {
+    return fail(c, 500, [{ code: 'attachment_unavailable', message: 'Could not download the attachment. Please retry.' }]);
+  }
+});
+
 // GET /mailboxes/:address/summary?key=... — a 2-sentence AI summary of the
 // message body, so the inbox list can show the gist instead of raw first lines.
 // Cached in D1 (email_summaries) keyed by the R2 record key, so each message is

@@ -38,3 +38,25 @@ invalid payloads, cross-user reads/updates/deletes, and owner deletion.
 UI work is separate and remains under verification: draft listing/resume, save-and-close,
 CC field and keyboard support. This increment does not implement Gmail draft synchronization,
 autosave/recovery, attachments, BCC, or complete Outlook functionality.
+
+## Current increment: attachments and send results
+
+The API supports private draft-file upload/list/removal, BCC persistence, and downloads
+resolved through the archived message metadata. Draft-file IDs are scoped to the current
+user and draft. Limits are 20 files, 10 MB per file, and 20 MB total.
+
+The existing Resend send path now sends attachment bytes and archives them in R2.
+A durable pre-send copy under `MailOutbox/` remains when archiving fails; the response
+distinguishes accepted delivery from completed archive storage. Stable send IDs have
+per-user receipts and a lease under `MailSendRequests/`; accepted requests are replayed
+without sending another email. Ambiguous old attempts are not resent automatically.
+
+`node api/scripts/test-mail-attachments.mjs` exercises binary and empty attachments,
+provider payloads, protected downloads, archival failure after acceptance, pre-send
+storage failure, duplicate archive avoidance, stable request receipts and concurrent retries.
+These tests use fake provider responses; no real email is sent by them.
+
+Remaining work includes automated repair/reconciliation of pending outbox records,
+Google Workspace outbound transport and provider state synchronization, complete history
+pagination/search, Reply All/forward fidelity, real delivery tests and authenticated UI
+acceptance. Prepared UI changes are not a completed or deployed Outlook replacement.

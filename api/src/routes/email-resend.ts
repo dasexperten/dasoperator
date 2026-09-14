@@ -167,8 +167,8 @@ route.post('/archive-sent', async (c) => {
       origin: 'human',
       trigger: item.trigger || 'archive-backfill',
     });
-    if (result.success) ok++;
-    else errors.push({ messageId: item.messageId, error: result.error });
+    if (result.success && result.archived) ok++;
+    else errors.push({ messageId: item.messageId, error: result.success ? 'Archive storage did not complete; retry archiving only' : result.error });
   }
 
   return c.json({ success: true, archived: ok, failed: errors.length, errors });

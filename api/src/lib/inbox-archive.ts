@@ -110,7 +110,7 @@ function bareContentId(cid: string | undefined): string | undefined {
 
 function attachmentBytes(a: RawAttachment): Uint8Array | null {
   const c = a.content;
-  if (!c) return null;
+  if (c === undefined || c === null) return null;
   if (typeof c === 'string') {
     if (a.encoding === 'base64') {
       try {

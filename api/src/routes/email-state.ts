@@ -13,6 +13,8 @@
 
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { bodyLimit } from 'hono/body-limit';
+import { draftFiles, ownsDraft, removeDraftFile, storeDraftFile, DRAFT_FILE_MAX_BYTES } from '../lib/mail-draft-files';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { validateSession, type AuthUser } from '../lib/auth';
@@ -60,6 +62,8 @@ async function ensureGmailProcessTables(env: Env): Promise<void> {
       in_reply_to TEXT,
       updated_at INTEGER NOT NULL DEFAULT (unixepoch()))`
   ).run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS email_draft_envelopes (
+    draft_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, bcc_addr TEXT NOT NULL DEFAULT '')`).run();
 }
 
 // A mailbox is a system sender (notify./my. subdomain) vs a human-facing
@@ -484,7 +488,7 @@ route.get('/drafts', async (c) => {
   try {
     await ensureGmailProcessTables(c.env);
     const rows = await c.env.DB.prepare(
-      'SELECT id, mailbox, to_addr, cc_addr, subject, body, in_reply_to, updated_at FROM email_drafts WHERE user_id = ? ORDER BY updated_at DESC, id DESC LIMIT 51 OFFSET ?'
+      `SELECT d.id, d.mailbox, d.to_addr, d.cc_addr, COALESCE(e.bcc_addr, '') AS bcc_addr, d.subject, d.body, d.in_reply_to, d.updated_at FROM email_drafts d LEFT JOIN email_draft_envelopes e ON e.draft_id = d.id AND e.user_id = d.user_id WHERE d.user_id = ? ORDER BY d.updated_at DESC, d.id DESC LIMIT 51 OFFSET ?`
     ).bind(user.id, offset).all();
     const drafts = rows.results || [];
     return ok(c, { drafts: drafts.slice(0, 50), nextOffset: drafts.length > 50 ? offset + 50 : null });
@@ -493,11 +497,43 @@ route.get('/drafts', async (c) => {
   }
 });
 
+route.get('/drafts/:id/attachments', async (c) => {
+  const user = await requireUser(c);
+  if (!user) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+  if (!(await ownsDraft(c.env, user.id, c.req.param('id')))) return fail(c, 404, [{ code: 'not_found', message: 'Draft not found' }]);
+  return ok(c, { files: await draftFiles(c.env, user.id, c.req.param('id')) });
+});
+
+route.post('/drafts/:id/attachments', bodyLimit({ maxSize: DRAFT_FILE_MAX_BYTES + 65536 }), async (c) => {
+  const user = await requireUser(c);
+  if (!user) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+  const id = c.req.param('id');
+  if (!(await ownsDraft(c.env, user.id, id))) return fail(c, 404, [{ code: 'not_found', message: 'Draft not found' }]);
+  let file: unknown;
+  try { file = (await c.req.formData()).get('file'); }
+  catch { return fail(c, 400, [{ code: 'invalid_file', message: 'Multipart file required' }]); }
+  if (!(file instanceof File)) return fail(c, 400, [{ code: 'invalid_file', message: 'File required' }]);
+  if (file.size > DRAFT_FILE_MAX_BYTES) return fail(c, 413, [{ code: 'file_too_large', message: 'Maximum file size is 10 MB' }]);
+  try { return ok(c, { file: await storeDraftFile(c.env, user.id, id, file) }); }
+  catch { return fail(c, 422, [{ code: 'file_not_saved', message: 'Could not save the file. Maximum 20 attachments and 20 MB total.' }]); }
+});
+
+route.delete('/drafts/:id/attachments/:fileId', async (c) => {
+  const user = await requireUser(c);
+  if (!user) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+  const id = c.req.param('id');
+  if (!(await ownsDraft(c.env, user.id, id))) return fail(c, 404, [{ code: 'not_found', message: 'Draft not found' }]);
+  try { await removeDraftFile(c.env, user.id, id, c.req.param('fileId')); }
+  catch { return fail(c, 422, [{ code: 'file_not_removed', message: 'Could not remove the file' }]); }
+  return ok(c, { deleted: true });
+});
+
 const mailDraftSchema = z.object({
   id: z.string().min(1).max(128).optional(),
   mailbox: z.string().email().max(254).default('sales@dasexperten.com'),
   to: z.string().max(10000).default(''),
   cc: z.string().max(10000).default(''),
+  bcc: z.string().max(10000).optional(),
   subject: z.string().max(2000).default(''),
   body: z.string().max(1000000).default(''),
   in_reply_to: z.string().max(1000).optional(),
@@ -516,7 +552,7 @@ route.put('/drafts', async (c) => {
   const id = String(d.id || crypto.randomUUID());
   try {
     await ensureGmailProcessTables(c.env);
-    const saved = await c.env.DB.prepare(
+    const statement = c.env.DB.prepare(
       `INSERT INTO email_drafts (id, user_id, mailbox, to_addr, cc_addr, subject, body, in_reply_to, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
        ON CONFLICT(id) DO UPDATE SET
@@ -533,8 +569,14 @@ route.put('/drafts', async (c) => {
       String(d.subject || ''),
       String(d.body || ''),
       d.in_reply_to ? String(d.in_reply_to) : null,
-    ).run();
-    if (!saved.meta.changes) return fail(c, 403, [{ code: 'draft_access', message: 'Draft belongs to another user' }]);
+    );
+    const saved = await c.env.DB.batch([statement,
+      c.env.DB.prepare(`INSERT INTO email_draft_envelopes (draft_id, user_id, bcc_addr)
+        SELECT id, user_id, COALESCE(?, '') FROM email_drafts WHERE id = ? AND user_id = ?
+        ON CONFLICT(draft_id) DO UPDATE SET bcc_addr=COALESCE(?, email_draft_envelopes.bcc_addr) WHERE email_draft_envelopes.user_id=excluded.user_id`)
+        .bind(d.bcc ?? null, id, user.id, d.bcc ?? null),
+    ]);
+    if (!saved[0]?.meta.changes) return fail(c, 403, [{ code: 'draft_access', message: 'Draft belongs to another user' }]);
     return ok(c, { id });
   } catch (err) {
     return fail(c, 500, [{ code: 'd1_error', message: err instanceof Error ? err.message : String(err) }]);
@@ -547,7 +589,14 @@ route.delete('/drafts/:id', async (c) => {
   const id = c.req.param('id');
   try {
     await ensureGmailProcessTables(c.env);
-    await c.env.DB.prepare('DELETE FROM email_drafts WHERE id = ? AND user_id = ?').bind(id, user.id).run();
+    if (await ownsDraft(c.env, user.id, id)) {
+      const files = await draftFiles(c.env, user.id, id);
+      for (const file of files) await removeDraftFile(c.env, user.id, id, file.id);
+    }
+    await c.env.DB.batch([
+      c.env.DB.prepare('DELETE FROM email_drafts WHERE id = ? AND user_id = ?').bind(id, user.id),
+      c.env.DB.prepare('DELETE FROM email_draft_envelopes WHERE draft_id = ? AND user_id = ?').bind(id, user.id),
+    ]);
     return ok(c, { deleted: true });
   } catch (err) {
     return fail(c, 500, [{ code: 'd1_error', message: err instanceof Error ? err.message : String(err) }]);

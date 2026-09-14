@@ -6,7 +6,8 @@
 // =============================================================================
 
 import type { Env } from '../types';
-import { archiveEmail } from './inbox-archive';
+import { archiveEmail, type RawAttachment } from './inbox-archive';
+import { outgoingAttachments } from './outgoing-attachments';
 import { MAILBOX_REGISTRY } from './mailbox-registry';
 import { heldRecipients, mailHoldRefusal } from './mail-holds';
 
@@ -90,6 +91,8 @@ export interface HumanSendParams {
   /** When true, skip Resend and only write R2 archive (backfill). Requires messageId. */
   archive_only?: boolean;
   messageId?: string;
+  attachments?: RawAttachment[];
+  idempotencyKey?: string;
 }
 
 export type HumanSendResult =
@@ -168,10 +171,14 @@ export async function fetchResendEmailBody(
 /**
  * Send human brand mail via Resend and archive under Inbox/<from-addr>/sent/.
  *
- * Emailer always gets full **text** (and html if present). Attachments are not
- * re-uploaded to R2 — keep files on Resend / public links inside the body.
+ * Emailer retains text, HTML and attachment bytes. A delivery success with
+ * archive failure is reported separately so callers do not resend the message.
  */
 export async function sendHumanResend(env: Env, params: HumanSendParams): Promise<HumanSendResult> {
+  let files: ReturnType<typeof outgoingAttachments>;
+  try { files = outgoingAttachments(params.attachments); }
+  catch (error) { return { success: false, error: error instanceof Error ? error.message : 'Invalid attachments' }; }
+  const archivedFiles: RawAttachment[] = files.map((file) => ({ ...file, encoding: 'base64', disposition: 'attachment' }));
   const fromRaw = params.from.trim();
   if (!isAllowedHumanFrom(fromRaw)) {
     return {
@@ -193,6 +200,7 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
     return { success: false, error: '`text` or `html` required' };
   }
 
+  const outboxId = crypto.randomUUID();
   let messageId = params.messageId;
   let text = params.text || '';
   let html = params.html;
@@ -222,6 +230,7 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
       text: text || '(see html)',
     };
     if (html) resendBody.html = html;
+    if (files.length) resendBody.attachments = files.map(({ filename, content }) => ({ filename, content }));
     // Reply-To names the thread, not just the box. Sent before the letter
     // leaves, because there is no second chance to label it afterwards.
     if (params.replyToTag) {
@@ -248,11 +257,15 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
     }
 
     try {
+      {
+        await env.ARCHIVE.put(`MailOutbox/${outboxId}.json`, JSON.stringify({ status: 'prepared', from: fromRaw, payload: resendBody }));
+      }
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${env.RESEND_API_KEY}`,
           'Content-Type': 'application/json',
+          ...(params.idempotencyKey ? { 'Idempotency-Key': params.idempotencyKey } : {}),
         },
         body: JSON.stringify(resendBody),
         signal: AbortSignal.timeout(30_000),
@@ -262,6 +275,11 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
         return { success: false, error: json.message || `Resend HTTP ${res.status}` };
       }
       messageId = json.id;
+      {
+        // Delivery already succeeded. A receipt write failure must never tell
+        // the caller to send again; the prepared copy remains recoverable.
+        await env.ARCHIVE.put(`MailOutbox/${outboxId}.json`, JSON.stringify({ status: 'accepted', messageId, from: fromRaw, payload: resendBody })).catch(() => {});
+      }
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) };
     }
@@ -289,11 +307,19 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
     };
   }
 
+  let archived = true;
+  try {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(messageId));
+  const recordId = 'outbox-' + Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  const previous = await env.ARCHIVE.get(`Inbox/${fromAddr}/sent/${recordId}.json`);
+  const previousRecord = previous ? await previous.json<{ timestamp?: string }>() : null;
+  const timestamp = previousRecord?.timestamp || new Date().toISOString();
   await archiveEmail(env, 'sent', fromAddr, {
     from: fromRaw,
     to: toList,
     cc: ccList,
     bcc: bccList,
+    attachments: archivedFiles,
     subject: params.subject,
     text: text || undefined,
     html: html,
@@ -302,7 +328,7 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
     ...(params.replyToTag ? { plusTag: params.replyToTag } : {}),
     origin: params.origin ?? 'human',
     trigger: params.trigger,
-  });
+  }, { strict: true, recordId, timestamp });
 
   // Also index under partnerships@ when it was CC'd so GEO team mailbox sees the send.
   if (ccList?.some((a) => extractEmailAddr(a) === 'partnerships@dasexperten.com') && fromAddr !== 'partnerships@dasexperten.com') {
@@ -311,6 +337,7 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
       to: toList,
       cc: ccList,
       bcc: bccList,
+      attachments: archivedFiles,
       subject: params.subject,
       text: text || undefined,
       html: html,
@@ -319,8 +346,12 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
       ...(params.replyToTag ? { plusTag: params.replyToTag } : {}),
       origin: params.origin ?? 'human',
       trigger: (params.trigger || 'emailer') + '+cc-partnerships',
-    });
+    }, { strict: true, recordId, timestamp });
   }
 
-  return { success: true, messageId, archived: true };
+  } catch {
+    archived = false;
+  }
+  if (archived && !params.archive_only) await env.ARCHIVE.delete(`MailOutbox/${outboxId}.json`).catch(() => {});
+  return { success: true, messageId, archived };
 }

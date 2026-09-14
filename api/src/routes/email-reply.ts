@@ -23,6 +23,9 @@ import { z } from 'zod';
 import type { Env } from '../types';
 import { validateSession } from '../lib/auth';
 import { sendHumanResend, isAllowedHumanFrom, extractEmailAddr } from '../lib/resend-human';
+import { mailRequestHash, withMailSendReceipt } from '../lib/mail-send-receipt';
+import { loadDraftAttachments } from '../lib/mail-draft-files';
+import type { RawAttachment } from '../lib/inbox-archive';
 
 const route = new Hono<{ Bindings: Env }>();
 
@@ -44,13 +47,17 @@ const replySchema = z.object({
   // Allow "Name <sales@…>" display form
   from: z.string().min(3).optional(),
   cc: z.string().email().or(z.array(z.string().email())).optional(),
+  bcc: z.string().email().or(z.array(z.string().email())).optional(),
+  draft_id: z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/).optional(),
+  attachment_ids: z.array(z.string().uuid()).max(20).default([]),
+  send_id: z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/).optional(),
   in_reply_to: z.string().optional(),
   // Ancestry of the letter being answered, oldest first. Optional: a first
   // contact has none, and a client that forgets it still threads by parent.
   references: z.array(z.string()).max(50).optional(),
   // Continue an existing tagged thread instead of opening a new one.
   reply_to_tag: z.string().regex(/^[a-z0-9]{4,16}$/).optional(),
-});
+}).refine((value) => !value.attachment_ids.length || Boolean(value.draft_id), 'Attachments require a saved draft');
 
 function bearer(c: import('hono').Context): string | null {
   const h = c.req.header('Authorization');
@@ -88,20 +95,31 @@ route.post('/reply', async (c) => {
     );
   }
 
-  const result = await sendHumanResend(c.env, {
+  let attachments: RawAttachment[] = [];
+  if (d.attachment_ids.length && d.draft_id) {
+    try { attachments = await loadDraftAttachments(c.env, user.id, d.draft_id, d.attachment_ids); }
+    catch { return c.json({ success: false, error: 'Attachments are missing or inaccessible. Reload the draft before sending.' }, 422); }
+  }
+  const requestHash = d.send_id ? await mailRequestHash(`${user.id}:${d.send_id}`) : undefined;
+  const dispatch = () => sendHumanResend(c.env, {
     from,
     to: d.to,
     subject: d.subject,
     text: d.text,
     ...(d.cc !== undefined ? { cc: d.cc } : {}),
+    ...(d.bcc !== undefined ? { bcc: d.bcc } : {}),
+    attachments,
+    ...(requestHash ? { idempotencyKey: `erp-reply/${requestHash}` } : {}),
     ...(d.in_reply_to !== undefined ? { in_reply_to: d.in_reply_to } : {}),
     ...(d.references !== undefined ? { references: d.references } : {}),
     // Every human reply gets a tag, first contact included: the thread we most
     // want to follow is the one that has not started yet.
-    replyToTag: d.reply_to_tag || newThreadTag(),
+    replyToTag: d.reply_to_tag || requestHash?.slice(0, 8) || newThreadTag(),
     origin: 'human',
     trigger: 'emailer-reply',
   });
+
+  const result = requestHash ? await withMailSendReceipt(c.env, requestHash, d, dispatch) : await dispatch();
 
   if (!result.success) {
     return c.json({ success: false, error: result.error }, 502);

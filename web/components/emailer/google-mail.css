@@ -76,3 +76,26 @@
 [data-mail-theme="graphite"] .dx-emailer-nav-toggle,[data-mail-theme="graphite"] .dx-emailer-nav-toggle[aria-pressed="true"]{background:#FBFAF6;color:#282229;border-color:#C9C1B0;border-radius:6px}
 [data-mail-theme="graphite"] .dx-emailer-nav-toggle:hover{background:#EDE8DD}
 @media(max-width:768px){.gmail-client .gm-sidebar.gm-drawer-open{background:var(--gm-rail)}}
+/* Owner requested Gmail typography: Google Sans 400/500/700, normal width. */
+@font-face{font-family:'Google Sans';font-style:normal;font-weight:400;font-display:swap;src:url('/fonts/google-sans/regular.woff') format('woff')}
+@font-face{font-family:'Google Sans';font-style:normal;font-weight:500;font-display:swap;src:url('/fonts/google-sans/medium.woff') format('woff')}
+@font-face{font-family:'Google Sans';font-style:normal;font-weight:700;font-display:swap;src:url('/fonts/google-sans/bold.woff') format('woff')}
+.gmail-client{font-family:'Google Sans',Arial,sans-serif;font-size:14px;font-weight:400;line-height:20px;letter-spacing:normal;font-stretch:normal}
+.gmail-client button,.gmail-client input,.gmail-client select,.gmail-client textarea{font-family:inherit;font-weight:400;letter-spacing:normal}
+.gmail-client .gm-header strong{font-weight:400;font-size:20px}
+.gmail-client .gm-primary,.gmail-client .gm-sidebar summary,.gmail-client .gm-list-title strong{font-weight:500}
+.gmail-client .gm-sidebar .gm-active,.gmail-client .gm-count{font-weight:700}
+.gmail-client .gm-sidebar button{padding:6px 10px;margin-bottom:0;line-height:20px}
+.gmail-client .gm-sidebar details button{padding:7px 10px}
+.gmail-client .gm-sidebar small{font-size:12px;line-height:16px}
+.gmail-client .gm-row{padding:12px;gap:4px;line-height:20px}
+.gmail-client .gm-row-top b,.gmail-client .gm-row strong{font-size:14px;font-weight:400}
+.gmail-client .gm-unread b,.gmail-client .gm-unread strong{font-weight:700}
+.gmail-client .gm-snippet{font-size:13px;font-weight:400;line-height:20px}
+.gmail-client .gm-row-top time{font-size:12px;font-weight:400}
+.gmail-client .gm-message h2{font-size:22px;line-height:28px;font-weight:400;letter-spacing:normal}
+.gmail-client .gm-message b{font-weight:700}
+.gmail-client .gm-message small{font-size:12px}
+@media(min-width:769px){.gmail-client .gm-sidebar>button:not(.gm-primary){min-height:32px}.gmail-client .gm-sidebar .gm-primary{min-height:48px;margin-bottom:8px}.gmail-client .gm-sidebar details button{min-height:48px}}
+[data-mail-theme='graphite'] .dx-header-main{font-family:'Google Sans',Arial,sans-serif;font-weight:400;letter-spacing:normal}
+.gmail-client .gm-header>div{flex-shrink:0}.gmail-client .gm-header>div small{white-space:nowrap}

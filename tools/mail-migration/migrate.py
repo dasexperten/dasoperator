@@ -98,6 +98,18 @@ def compose(record, key, read_object):
     return message.as_bytes(), str(message['Message-ID']), int(timestamp.timestamp())
 
 
+def workspace_original(record, key):
+    if record.get('trigger') != 'workspace-sync':
+        return None
+    match = re.search(r'/workspace-([A-Za-z0-9_-]+)-([a-f0-9]+)\.json$', key)
+    if not match:
+        raise ValueError('Invalid Workspace source identifier')
+    account = base64.urlsafe_b64decode(match[1] + '===').decode()
+    if account != 'sales@dasexperten.com':
+        raise ValueError('Workspace source belongs to another account')
+    return account, match[2]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--workspace-config', required=True)
@@ -116,7 +128,13 @@ def main():
     record = json.loads(read_object(key))
     if record['address'] != match[1] or record['direction'] != match[2]:
         raise ValueError('Source key and record disagree')
-    raw, message_id, date = compose(record, key, read_object)
+    original = workspace_original(record, key)
+    if original:
+        raw = read_object('Workspace/raw/' + original[0] + '/' + original[1] + '.eml')
+        message_id = str(BytesParser(policy=policy.default).parsebytes(raw).get('Message-ID', ''))
+        date = int(datetime.datetime.fromisoformat(record['timestamp'].replace('Z', '+00:00')).timestamp())
+    else:
+        raw, message_id, date = compose(record, key, read_object)
     digest = fingerprint(raw)
     if not args.apply:
         print(json.dumps({'prepared': True, 'sourceKey': key, 'bytes': len(raw), 'attachments': len(record.get('attachments', [])), 'fingerprint': digest}))
@@ -136,6 +154,20 @@ def main():
     receipt = db.execute('SELECT fingerprint,status,gmail_id FROM receipts WHERE source=?', (key,)).fetchone()
     if receipt and receipt[0] != digest:
         raise ValueError('Source changed after migration attempt')
+    if original:
+        stored = gmail('messages/' + original[1] + '?format=raw')
+        restored = base64.urlsafe_b64decode(stored['raw'] + '===')
+        # The old Gmail mirror stripped sender names and MIME layout. Its full
+        # raw backup is the stronger evidence; compare every byte, not just the
+        # lossy reconstructed record. Missing/deleted originals are not restored
+        # automatically, and this path can never call import or send.
+        if restored != raw:
+            raise ValueError('Original Gmail MIME differs from its backup')
+        if abs(int(stored['internalDate']) // 1000 - date) > 1:
+            raise ValueError('Original Gmail date mismatch')
+        db.execute('INSERT OR REPLACE INTO receipts VALUES (?,?,?,?)', (key, digest, 'existing', original[1])); db.commit()
+        print(json.dumps({'verified': True, 'existing': True, 'exactOriginal': True, 'gmailId': original[1]}))
+        return
     def verify(gmail_id, check_date):
         stored = gmail('messages/' + gmail_id + '?format=raw')
         restored = base64.urlsafe_b64decode(stored['raw'] + '===')

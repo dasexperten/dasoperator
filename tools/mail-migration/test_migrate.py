@@ -1,7 +1,7 @@
 import unittest
 from email import policy
 from email.parser import BytesParser
-from migrate import compose, fingerprint, business_addresses
+from migrate import compose, fingerprint, business_addresses, workspace_original
 
 class MigrationTests(unittest.TestCase):
     def setUp(self):
@@ -14,6 +14,12 @@ class MigrationTests(unittest.TestCase):
         self.assertIn('shop@dasexperten.ru',allowed)
         self.assertNotIn('dr.badalyan@dasexperten.com',allowed)
         self.assertNotIn('viktor@dasexperten.com',allowed)
+    def test_workspace_original_provenance(self):
+        key='Inbox/sales@dasexperten.com/received/workspace-c2FsZXNAZGFzZXhwZXJ0ZW4uY29t-19f525800d3740d4.json'
+        self.assertEqual(workspace_original({'trigger':'workspace-sync'},key),('sales@dasexperten.com','19f525800d3740d4'))
+        self.assertIsNone(workspace_original({},key))
+        with self.assertRaises(ValueError):workspace_original({'trigger':'workspace-sync'},self.key)
+        with self.assertRaises(ValueError):workspace_original({'trigger':'workspace-sync'},key.replace('c2FsZXNAZGFzZXhwZXJ0ZW4uY29t','eEBleGFtcGxlLmNvbQ'))
     def test_roundtrip(self):
         raw,mid,date=compose(self.record,self.key,lambda k:bytes([0,255,1,2]))
         parsed=BytesParser(policy=policy.default).parsebytes(raw)

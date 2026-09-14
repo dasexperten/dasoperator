@@ -4,7 +4,7 @@ export const gmailDraftSchema = z.object({
   id: header(256).optional(), from: z.string().email().max(254), to: header(10000), cc: header(10000).optional(), bcc: header(10000).optional(),
   subject: header(2000), text: z.string().max(1000000), html: z.string().max(2000000).optional(),
   gmailThreadId: header(256).optional(), inReplyTo: header(1000).optional(), references: z.union([header(10000),z.array(header(1000)).max(100)]).optional(),
-  attachments: z.array(z.object({filename:header(256).refine(s=>s.length>0),mimeType:header(256),content:z.string().max(13981016)})).max(20).default([]),
+  attachments: z.array(z.object({filename:header(256).refine(s=>s.length>0),mimeType:header(256),content:z.string().max(13981016),contentId:header(256).optional(),inline:z.boolean().optional()})).max(20).default([]),
 });
 export type GmailDraftInput = z.infer<typeof gmailDraftSchema>;
 function base64(bytes: Uint8Array) {
@@ -38,7 +38,7 @@ export function composeGmailRaw(input: GmailDraftInput): string {
     if(bytes>10*1024*1024 || total>20*1024*1024)throw new Error('Attachment limits exceeded');
     const filename=encodeURIComponent(file.filename).replace(/'/g,'%27');
     const mime=/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(file.mimeType)?file.mimeType:'application/octet-stream';
-    parts.push(`Content-Type: ${mime}\r\nContent-Disposition: attachment; filename*=UTF-8''${filename}\r\nContent-Transfer-Encoding: base64\r\n\r\n${lines(file.content)}`);
+    parts.push(`Content-Type: ${mime}\r\nContent-Disposition: ${file.inline ? 'inline' : 'attachment'}; filename*=UTF-8''${filename}\r\n${file.contentId ? `Content-ID: <${file.contentId.replace(/[<>]/g,'')}>\r\n` : ''}Content-Transfer-Encoding: base64\r\n\r\n${lines(file.content)}`);
   }
   const raw=`${headers.join('\r\n')}\r\n\r\n${parts.map(p=>`--${boundary}\r\n${p}`).join('\r\n')}\r\n--${boundary}--\r\n`;
   return encoded(raw).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');

@@ -341,14 +341,7 @@ export async function handleScheduled(
   const cron = event.cron;
   console.log(`[cron] tick: ${cron}`);
 
-  if (cron === '*/2 * * * *' && env.GOOGLE_WORKSPACE_ACCOUNTS) {
-    try {
-      const { syncConnectedWorkspace } = await import('./lib/google-workspace');
-      console.log('[cron:workspace] ' + JSON.stringify(await syncConnectedWorkspace(env)));
-    } catch {
-      console.error('[cron:workspace] failed; retry on next tick');
-    }
-  }
+  // Gmail is the permanent mail store. Do not mirror Gmail content into R2.
 
   // Website CRM — hourly Stripe reconciliation (Phase 12.0, dasexperten.com).
   // Webhook /api/crm/website/webhook/stripe is the real-time path; this poll

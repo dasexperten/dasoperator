@@ -27,7 +27,7 @@ export function agentAvatarUrl(slug: string): string {
 
 /** Named agent mailboxes — always show avatar chip when present. */
 export const AGENT_MAILBOXES: UiMailbox[] = [
-  { address: 'sales@dasexperten.com', kind: 'agent', slug: 'lauda-briana', label: 'Lauda Briana', role: 'Head of Commerce', aliases: ['lauda@dasexperten.com'] },
+  { address: 'sales@dasexperten.com', kind: 'agent', slug: 'lauda-briana', label: 'Lauda Briana', role: 'Head of Commerce', aliases: ['lauda@dasexperten.com', 'sales@my.dasexperten.com'] },
   { address: 'roberta@dasexperten.com', kind: 'agent', slug: 'roberta-di-maria', label: 'Roberta Di Maria', role: 'Head of Content' },
   { address: 'support@dasexperten.com', kind: 'agent', slug: 'tamara-haar', label: 'Tamara Haar', role: 'Customer Support', aliases: ['tamara@dasexperten.com'] },
   { address: 'brand@dasexperten.com', kind: 'agent', slug: 'marika-nowicka', label: 'Marika Nowicka', role: 'Head of Brand', aliases: ['maria@dasexperten.com', 'marika@dasexperten.com'] },
@@ -56,8 +56,8 @@ export const DEPARTMENT_MAILBOXES: UiMailbox[] = [
   { address: 'asean@dasexperten.com', kind: 'department', label: 'ASEAN', role: 'SE Asia hub' },
   { address: 'marketing@dasexperten.com', kind: 'department', label: 'Marketing', role: 'UGC / brand collabs' },
   { address: 'hello@dasexperten.com', kind: 'department', label: 'Hello', role: 'Warm brand front' },
-  { address: 'orders@dasexperten.com', kind: 'department', label: 'Orders', role: 'Order notifications' },
-  { address: 'delivery@dasexperten.com', kind: 'department', label: 'Delivery', role: 'Shipping notifications' },
+  { address: 'orders@dasexperten.com', kind: 'department', label: 'Orders', role: 'Order notifications', aliases: ['orders@notify.dasexperten.com'] },
+  { address: 'delivery@dasexperten.com', kind: 'department', label: 'Delivery', role: 'Shipping notifications', aliases: ['delivery@notify.dasexperten.com'] },
   { address: 'zakaz@dasexperten.ru', kind: 'department', label: 'Заказ .ru', role: 'dasexperten.ru — приём заказа' },
   { address: 'oplata@dasexperten.ru', kind: 'department', label: 'Оплата .ru', role: 'dasexperten.ru — подтверждение оплаты' },
   { address: 'dostavka@dasexperten.ru', kind: 'department', label: 'Доставка .ru', role: 'dasexperten.ru — отправка, трек, ПВЗ' },

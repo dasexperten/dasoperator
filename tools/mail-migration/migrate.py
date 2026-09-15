@@ -26,7 +26,7 @@ def business_addresses():
     registry = (Path(__file__).resolve().parents[2] / 'api/src/lib/mailbox-registry.ts').read_text()
     # Read actual UI registry entries, never addresses mentioned in comments.
     entries = [line for line in registry.splitlines() if re.match(r'\s*\{ address:', line) and 'showInUi: true' in line]
-    return set(re.findall(r'[a-z0-9._+-]+@dasexperten\.(?:com|ru)', '\n'.join(entries)))
+    return set(re.findall(r'[a-z0-9._+-]+@(?:[a-z0-9-]+\.)*dasexperten\.(?:com|ru)', '\n'.join(entries)))
 
 
 def request(url, token=None, data=None, method=None, form=False):

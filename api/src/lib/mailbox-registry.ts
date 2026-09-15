@@ -39,7 +39,7 @@ export function agentAvatarUrl(slug: string): string {
  */
 export const MAILBOX_REGISTRY: MailboxDef[] = [
   // ── Agents (named identities) ───────────────────────────────────────────
-  { address: 'sales@dasexperten.com', kind: 'agent', slug: 'lauda-briana', label: 'Lauda Briana', role: 'Head of Commerce', showInUi: true, inbound: 'worker', aliases: ['lauda@dasexperten.com'] },
+  { address: 'sales@dasexperten.com', kind: 'agent', slug: 'lauda-briana', label: 'Lauda Briana', role: 'Head of Commerce', showInUi: true, inbound: 'worker', aliases: ['lauda@dasexperten.com', 'sales@my.dasexperten.com'] },
   { address: 'roberta@dasexperten.com', kind: 'agent', slug: 'roberta-di-maria', label: 'Roberta Di Maria', role: 'Head of Content', showInUi: true, inbound: 'worker' },
   { address: 'support@dasexperten.com', kind: 'agent', slug: 'tamara-haar', label: 'Tamara Haar', role: 'Customer Support', showInUi: true, inbound: 'worker', aliases: ['tamara@dasexperten.com'] },
   // Owner 2026-08-30 (R6): maria@ retired. It was Marika's own older address
@@ -95,12 +95,12 @@ export const MAILBOX_REGISTRY: MailboxDef[] = [
   { address: 'asean@dasexperten.com', kind: 'department', label: 'ASEAN', role: 'SE Asia hub', showInUi: true, inbound: 'worker' },
   { address: 'marketing@dasexperten.com', kind: 'department', label: 'Marketing', role: 'UGC / brand collabs', showInUi: true, inbound: 'worker' },
   { address: 'hello@dasexperten.com', kind: 'department', label: 'Hello', role: 'Warm brand front', showInUi: true, inbound: 'worker' },
-  { address: 'orders@dasexperten.com', kind: 'department', label: 'Orders', role: 'Order notifications', showInUi: true, inbound: 'worker' },
+  { address: 'orders@dasexperten.com', kind: 'department', label: 'Orders', role: 'Order notifications', aliases: ['orders@notify.dasexperten.com'], showInUi: true, inbound: 'worker' },
   // Owner 2026-08-30: system box, no reader — same class as orders@. Its rule
   // is enabled in Cloudflare and it is in the org registry
   // (fleet/shared/mailboxes.json, kind "system"); without a row here its mail
   // archived to R2 and the Emailer had nowhere to show it.
-  { address: 'delivery@dasexperten.com', kind: 'department', label: 'Delivery', role: 'Shipping notifications', showInUi: true, inbound: 'worker' },
+  { address: 'delivery@dasexperten.com', kind: 'department', label: 'Delivery', role: 'Shipping notifications', aliases: ['delivery@notify.dasexperten.com'], showInUi: true, inbound: 'worker' },
 
   // ── Витрина dasexperten.ru (Owner 2026-08-27) ───────────────────────────
   // Отправка: домен verified в Resend с 17.08.2026.

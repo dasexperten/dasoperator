@@ -12,6 +12,10 @@ class MigrationTests(unittest.TestCase):
         self.assertIn('geo@dasexperten.com',allowed)
         self.assertIn('julian@dasexperten.com',allowed)
         self.assertIn('shop@dasexperten.ru',allowed)
+        self.assertIn('orders@notify.dasexperten.com',allowed)
+        self.assertIn('delivery@notify.dasexperten.com',allowed)
+        self.assertIn('sales@my.dasexperten.com',allowed)
+        self.assertNotIn('unknown@notify.dasexperten.com',allowed)
         self.assertNotIn('dr.badalyan@dasexperten.com',allowed)
         self.assertNotIn('viktor@dasexperten.com',allowed)
     def test_workspace_original_provenance(self):

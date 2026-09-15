@@ -19,6 +19,9 @@
  *   transfer  → DOC · SHP
  *   tax       → DOC · PAY  (no service stage)
  *
+ * A purchase without an incoming supplier invoice (the seller's stamped
+ * original) shows DOC in red: our own generated invoice is only a draft.
+ *
  * Lit logic mirrors the detail-page ServiceStatusBar for service ops
  * (acceptance / invoice attachments + payment), and derives goods stages
  * from status / delivery_status / payment_state.
@@ -28,7 +31,7 @@ import { Check, FileText, Coins, Truck } from 'lucide-react';
 import type { Operation } from '@/lib/api';
 
 type SlotKey = 'SRV' | 'DOC' | 'PAY' | 'SHP';
-type SlotState = 'lit' | 'dim' | 'off';
+type SlotState = 'lit' | 'dim' | 'off' | 'missing';
 
 const SLOT_ORDER: SlotKey[] = ['SRV', 'DOC', 'PAY', 'SHP'];
 
@@ -73,7 +76,12 @@ function computeSlots(op: Operation): Record<SlotKey, SlotState> {
     // (status beyond draft), not only when a file is attached.
     slots.DOC = ld(hasInv || issued);
     slots.PAY = ld(paid);
-  } else if (type === 'sale' || type === 'purchase') {
+  } else if (type === 'purchase') {
+    const missingOriginal = status !== 'cancelled' && op.has_supplier_invoice === false;
+    slots.DOC = missingOriginal ? 'missing' : ld(issued);
+    slots.PAY = ld(paid);
+    slots.SHP = ld(shipped);
+  } else if (type === 'sale') {
     slots.DOC = ld(issued);
     slots.PAY = ld(paid);
     slots.SHP = ld(shipped);
@@ -95,6 +103,27 @@ export default function StatusStages({ op }: { op: Operation }) {
           return <span key={key} style={{ width: '30px', height: '30px' }} />;
         }
         const meta = SLOT_META[key];
+        if (state === 'missing') {
+          return (
+            <span
+              key={key}
+              title="No stamped supplier invoice attached — our invoice is only a draft"
+              style={{
+                width: '30px',
+                height: '30px',
+                borderRadius: '8px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: 'rgba(199,25,38,0.10)',
+                border: '1px solid var(--brand-rot)',
+                color: 'var(--brand-rot)',
+              }}
+            >
+              {meta.icon}
+            </span>
+          );
+        }
         const lit = state === 'lit';
         return (
           <span

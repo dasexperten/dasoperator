@@ -755,7 +755,12 @@ operations.get('/', async (c) => {
       (SELECT CASE WHEN SUM(CASE WHEN oa.kind IN ('acceptance','act') THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END
          FROM operation_attachments oa WHERE oa.operation_id = o.id AND oa.deleted_at IS NULL) AS has_acceptance_attachment,
       (SELECT CASE WHEN SUM(CASE WHEN oa.kind IN ('invoice','service_invoice','freight_invoice') THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END
-         FROM operation_attachments oa WHERE oa.operation_id = o.id AND oa.deleted_at IS NULL) AS has_invoice_attachment
+         FROM operation_attachments oa WHERE oa.operation_id = o.id AND oa.deleted_at IS NULL) AS has_invoice_attachment,
+      -- Supplier original: an incoming invoice file (stamped and signed by the seller).
+      -- Invoices we generate ourselves live in documents and never count here.
+      (SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END
+         FROM operation_attachments oa WHERE oa.operation_id = o.id AND oa.deleted_at IS NULL
+           AND oa.direction = 'incoming' AND oa.kind IN ('invoice','service_invoice','freight_invoice')) AS has_supplier_invoice
     ${fromJoin}
     LEFT JOIN v_operation_payment_status vps ON vps.operation_id = o.id
     WHERE o.deleted_at IS NULL
@@ -801,6 +806,7 @@ operations.get('/', async (c) => {
       partner_acceptance_required: row.partner_acceptance_required as 0 | 1 | null,
       has_acceptance_attachment: Number(row.has_acceptance_attachment) > 0,
       has_invoice_attachment: Number(row.has_invoice_attachment) > 0,
+      has_supplier_invoice: Number(row.has_supplier_invoice) > 0,
     };
   });
 

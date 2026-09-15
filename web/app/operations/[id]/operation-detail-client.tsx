@@ -339,6 +339,18 @@ export default function OperationDetailClient({
               </>
             )}
           </p>
+          {/* Purchase without the seller's stamped original — our generated invoice is only a draft */}
+          {operation.operation_type === 'purchase' &&
+            operation.status !== 'cancelled' &&
+            !attachments.some(
+              (a) =>
+                a.direction === 'incoming' &&
+                ['invoice', 'service_invoice', 'freight_invoice'].includes(a.kind),
+            ) && (
+              <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--brand-rot)', marginTop: '6px' }}>
+                Нет инвойса поставщика с печатью и подписью. Наш инвойс — черновик: прикрепите оригинал к этой операции.
+              </p>
+            )}
           {/* Attached docs summary — invoice + payment refs as a passport line */}
           {attachments.length > 0 && (
             <p style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '6px', display: 'flex', flexWrap: 'wrap', gap: '14px' }}>

@@ -1192,6 +1192,8 @@ export interface Operation {
   // Service-track signals (set by GET /api/operations/:id when operation_track='service')
   has_acceptance_attachment?: boolean;
   has_invoice_attachment?: boolean;
+  // Purchase ops: an incoming supplier invoice (stamped original) is attached (list endpoint)
+  has_supplier_invoice?: boolean;
   partner_acceptance_required?: 0 | 1 | null;
 }
 

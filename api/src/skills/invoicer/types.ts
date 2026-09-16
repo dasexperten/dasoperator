@@ -198,6 +198,9 @@ export interface LineItemRow {
   country_of_origin: string | null;
   category: string;
   subcategory: string | null;
+  // 0089 — name and notification number registered in Vietnam
+  vn_registered_name: string | null;
+  vn_notification_no: string | null;
 }
 
 // =============================================================================

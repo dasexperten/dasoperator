@@ -25,7 +25,7 @@
 
 import {
   AlignmentType, BorderStyle, Document, Packer, PageOrientation, Paragraph,
-  ShadingType, Table, TableCell, TableLayoutType, TableRow, TextRun,
+  ImageRun, ShadingType, Table, TableCell, TableLayoutType, TableRow, TextRun,
   VerticalAlign, WidthType,
 } from 'docx';
 
@@ -74,6 +74,8 @@ export interface RenderSignature {
   name: string | null;
   titleEn: string | null;
   titleRu: string | null;
+  // Scanned hand signature over the company stamp; replaces the blank line.
+  stamp?: { png: Uint8Array; width: number; height: number } | null;
 }
 
 // =============================================================================
@@ -602,7 +604,20 @@ export function buildSignature(sig: RenderSignature, language: Language): Paragr
     : (language === 'BILINGUAL' ? `${titleEn} / ${titleRu} / 盖章` : titleEn);
   const out: Paragraph[] = [];
   out.push(p('', { spaceAfter: 200 }));
-  out.push(p('_______________________', { align: AlignmentType.RIGHT, size: 16 }));
+  if (sig.stamp) {
+    // 300 px wide: the stamp circle prints at about 3.5 cm, close to the real stamp.
+    const w = 300;
+    out.push(new Paragraph({
+      alignment: AlignmentType.RIGHT,
+      children: [new ImageRun({
+        type: 'png',
+        data: sig.stamp.png,
+        transformation: { width: w, height: Math.round(sig.stamp.height * w / sig.stamp.width) },
+      })],
+    }));
+  } else {
+    out.push(p('_______________________', { align: AlignmentType.RIGHT, size: 16 }));
+  }
   out.push(p(titleLine, { bold: true, size: 18, align: AlignmentType.RIGHT }));
   if (sig.name) out.push(p(sig.name, { size: 16, align: AlignmentType.RIGHT }));
   return out;

@@ -101,7 +101,8 @@ const LINE_ITEM_COLS = `
   p.invoice_label_ru, p.invoice_label_en, p.invoice_label_cn,
   p.hs_code,
   p.ctn_qty, p.ctn_weight_gross_kg, p.unit_net_weight_g, p.country_of_origin,
-  p.category, p.subcategory
+  p.category, p.subcategory,
+  p.vn_registered_name, p.vn_notification_no
 `;
 
 // =============================================================================

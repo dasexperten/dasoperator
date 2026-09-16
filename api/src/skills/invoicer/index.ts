@@ -36,6 +36,7 @@ import type {
   ManufacturerBankRouteRow, PartnerRow, ValidationStop,
   LineItemRow,
 } from './types';
+import { STAMP_SIGNATURE } from './renderers/stamps';
 import type {
   RenderBank, RenderParty, RenderSignature,
 } from './renderers/shared';
@@ -197,10 +198,12 @@ function bankFromRoute(r: ManufacturerBankRouteRow): RenderBank {
 }
 
 function signatureFromCompany(c: CompanyRow): RenderSignature {
+  const scan = STAMP_SIGNATURE[c.id];
   return {
     name: c.signing_authority_name,
     titleEn: c.signing_authority_title_en,
     titleRu: c.signing_authority_title_ru,
+    stamp: scan ? { png: scan.png(), width: scan.width, height: scan.height } : null,
   };
 }
 
@@ -579,7 +582,18 @@ export async function issueDocuments(
     // carries DEI's markup; every other document shows the operation prices.
     const markupPct = input.operation.dei_layer === 1 && r.spec.sellerKind === 'company'
       && r.spec.sellerId === 'dei' ? (input.operation.dei_markup_pct ?? 0) : 0;
-    const docLineItems = markupPct > 0 ? priceLineItems(input.lineItems, markupPct) : input.lineItems;
+    const pricedItems = markupPct > 0 ? priceLineItems(input.lineItems, markupPct) : input.lineItems;
+    // Goods for a Vietnamese buyer carry the names registered in Vietnam (Owner: mandatory).
+    const buyerCountry = r.spec.buyerKind === 'company'
+      ? (input.companiesById[r.spec.buyerId]?.jurisdiction ?? null)
+      : (input.partner?.country ?? null);
+    const docLineItems = /viet\s*nam/i.test(buyerCountry ?? '')
+      ? pricedItems.map((li) => li.vn_registered_name
+          ? { ...li, invoice_label_en: li.vn_notification_no
+              ? `${li.vn_registered_name} (Notification No. ${li.vn_notification_no})`
+              : li.vn_registered_name }
+          : li)
+      : pricedItems;
     const goodsTotal = markupPct > 0
       ? round3(docLineItems.reduce((sum, li) => sum + li.line_amount, 0))
       : (input.operation.total_amount ?? 0);

@@ -13,8 +13,7 @@
 import type {
   CompanyBankAccountRow, CompanyRow, ContractRow, InvoicerInput,
   LineItemRow, ManufacturerBankRouteRow, ManufacturerRow, OperationRow,
-  PartnerRow,
-} from './types';
+  PartnerRow, InvoiceCharge } from './types';
 
 export class OperationNotFoundError extends Error {
   constructor(public operationId: string) {
@@ -250,6 +249,21 @@ export async function loadInvoicerInput(
   for (const c of extraCompaniesRes.results ?? []) companiesById[c.id] = c;
   companiesById[ourCompany.id] = ourCompany;
 
+  // Freight rebilled to the buyer of a sale (see InvoicerInput.extraCharges).
+  let extraCharges: InvoiceCharge[] = [];
+  if (operation.operation_type === 'sale') {
+    const chargesRes = await db.prepare(
+      `SELECT reference, total_amount FROM operations
+        WHERE operation_type = 'service' AND service_subtype = 'freight'
+          AND related_purchase_id = ? AND currency = ?
+          AND status != 'cancelled' AND deleted_at IS NULL
+        ORDER BY created_at ASC`
+    ).bind(operationId, operation.currency).all<{ reference: string | null; total_amount: number | null }>();
+    extraCharges = (chargesRes.results ?? [])
+      .filter((r) => (r.total_amount ?? 0) > 0)
+      .map((r) => ({ reference: r.reference, label: 'Freight', amount: r.total_amount as number }));
+  }
+
   return {
     operation,
     ourCompany,
@@ -260,6 +274,7 @@ export async function loadInvoicerInput(
     companyBankAccounts: companyBankAccountsRes.results ?? [],
     manufacturerBankRoutes,
     lineItems,
+    extraCharges,
     companiesById,
   };
 }

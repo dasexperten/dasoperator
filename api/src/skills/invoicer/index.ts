@@ -512,6 +512,12 @@ export async function issueDocuments(
   const origin = originFromRequest(reqUrl);
   const isInternational = isInternationalDeal(input.ourCompany, input.partner);
   let lastCiReference: string | null = null;
+  // CI total = goods + charges billed to the buyer (freight). Rounded to the
+  // thousandth like line amounts, so float sums do not print a stray digit.
+  const ciTotal = Math.round(
+    ((input.operation.total_amount ?? 0)
+      + input.extraCharges.reduce((sum, c) => sum + c.amount, 0)) * 1000
+  ) / 1000;
 
   // Soft-delete prior documents of the same types — re-issue replaces them.
   // We only mark deleted_at; R2 objects of old documents remain (orphan but harmless).
@@ -571,7 +577,8 @@ export async function issueDocuments(
           incoterms: selectIncoterms(input.ourCompany, input.partner, input.contract, isInternational),
           paymentTerms: input.partner?.payment_terms ?? null,
           lineItems: input.lineItems,
-          totalMinor: input.operation.total_amount ?? 0,
+          extraCharges: input.extraCharges,
+          totalMinor: ciTotal,
         });
         lastCiReference = reference;
       } else if (r.spec.type === 'PL') {
@@ -683,7 +690,8 @@ export async function issueDocuments(
     }
 
     const docId = genDocId();
-    const totalForDoc = r.spec.type === 'PL' ? null : (input.operation.total_amount ?? 0);
+    const totalForDoc = r.spec.type === 'PL' ? null
+      : r.spec.type === 'CI' ? ciTotal : (input.operation.total_amount ?? 0);
     try {
       await env.DB.prepare(`
         INSERT INTO documents (

@@ -29,6 +29,8 @@ export interface RenderCiInput {
   incoterms: string;
   paymentTerms: string | null;
   lineItems: LineItemRow[];
+  // Freight and similar charges billed to the buyer; totalMinor includes them.
+  extraCharges?: Array<{ label: string; amount: number }>;
   totalMinor: number;
 }
 
@@ -118,6 +120,20 @@ export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uin
       { text: formatMoney(li.line_amount, input.currency), align: 'right' },
     ];
   });
+
+  for (const charge of input.extraCharges ?? []) {
+    rows.push([
+      { text: String(rows.length + 1), align: 'center' },
+      { text: '', align: 'left' },
+      { text: charge.label, align: 'left' },
+      { text: '', align: 'center' },
+      { text: '', align: 'center' },
+      { text: '', align: 'right' },
+      { text: '', align: 'center' },
+      { text: '', align: 'right' },
+      { text: formatMoney(charge.amount, input.currency), align: 'right' },
+    ]);
+  }
 
   // TOTAL row: merge first 7 cells into the label, leaving the last 2 cols
   // for blank Unit Price + Total Amount.

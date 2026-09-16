@@ -34,6 +34,7 @@ import { renderInvoiceSpecPastes } from './renderers/is-variant2';
 import type {
   CompanyRow, DocumentSpec, IssueOutcome, IssuedDocument, ManufacturerRow,
   ManufacturerBankRouteRow, PartnerRow, ValidationStop,
+  LineItemRow,
 } from './types';
 import type {
   RenderBank, RenderParty, RenderSignature,
@@ -239,6 +240,24 @@ function fail(stop: ValidationStop, status: 422 | 404 | 409 | 500, warnings: str
 
 function genDocId(): string { return `doc_${crypto.randomUUID()}`; }
 function originFromRequest(reqUrl: string): string { return new URL(reqUrl).origin; }
+
+function round3(n: number): number {
+  return Math.round(n * 1000) / 1000;
+}
+
+// Unit prices and line amounts lifted by a percentage (DEI resale leg).
+function priceLineItems(items: LineItemRow[], markupPct: number): LineItemRow[] {
+  const k = 1 + markupPct / 100;
+  return items.map((li) => {
+    const unit = round3(li.unit_price_after_disc * k);
+    return {
+      ...li,
+      unit_price: round3(li.unit_price * k),
+      unit_price_after_disc: unit,
+      line_amount: round3(unit * li.qty),
+    };
+  });
+}
 
 export async function issueDocuments(
   operationId: string, env: Env, reqUrl: string,
@@ -512,12 +531,6 @@ export async function issueDocuments(
   const origin = originFromRequest(reqUrl);
   const isInternational = isInternationalDeal(input.ourCompany, input.partner);
   let lastCiReference: string | null = null;
-  // CI total = goods + charges billed to the buyer (freight). Rounded to the
-  // thousandth like line amounts, so float sums do not print a stray digit.
-  const ciTotal = Math.round(
-    ((input.operation.total_amount ?? 0)
-      + input.extraCharges.reduce((sum, c) => sum + c.amount, 0)) * 1000
-  ) / 1000;
 
   // Soft-delete prior documents of the same types — re-issue replaces them.
   // We only mark deleted_at; R2 objects of old documents remain (orphan but harmless).
@@ -560,6 +573,18 @@ export async function issueDocuments(
       return rollback((e as Error).message);
     }
 
+    // Pricing of this document. The DEI -> buyer leg of a dei_layer operation
+    // carries DEI's markup; every other document shows the operation prices.
+    const markupPct = input.operation.dei_layer === 1 && r.spec.sellerKind === 'company'
+      && r.spec.sellerId === 'dei' ? (input.operation.dei_markup_pct ?? 0) : 0;
+    const docLineItems = markupPct > 0 ? priceLineItems(input.lineItems, markupPct) : input.lineItems;
+    const goodsTotal = markupPct > 0
+      ? round3(docLineItems.reduce((sum, li) => sum + li.line_amount, 0))
+      : (input.operation.total_amount ?? 0);
+    const freight = input.operation.freight_amount ?? 0;
+    const extraCharges = freight > 0 ? [{ label: 'Freight', amount: freight }] : [];
+    const ciTotal = round3(goodsTotal + freight);
+
     let bytes: Uint8Array;
     try {
       if (r.spec.type === 'CI') {
@@ -576,8 +601,8 @@ export async function issueDocuments(
           contract: input.contract,
           incoterms: selectIncoterms(input.ourCompany, input.partner, input.contract, isInternational),
           paymentTerms: input.partner?.payment_terms ?? null,
-          lineItems: input.lineItems,
-          extraCharges: input.extraCharges,
+          lineItems: docLineItems,
+          extraCharges,
           totalMinor: ciTotal,
         });
         lastCiReference = reference;
@@ -587,7 +612,7 @@ export async function issueDocuments(
           shipper: r.seller.party,
           consignee: r.buyer.party,
           ciReference: lastCiReference,
-          lineItems: input.lineItems,
+          lineItems: docLineItems,
         });
       } else if (r.spec.type === 'UPD') {
         // УПД — Russian B2B sale document.
@@ -599,8 +624,8 @@ export async function issueDocuments(
             ? signatureFromCompany(r.seller.row as CompanyRow)
             : signatureFromManufacturer(r.seller.row as ManufacturerRow),
           contract: input.contract,
-          lineItems: input.lineItems,
-          totalMinor: input.operation.total_amount ?? 0,
+          lineItems: docLineItems,
+          totalMinor: goodsTotal,
           vatRatePct: input.operation.vat_rate ?? 5,
         });
       } else if (r.spec.type === 'TN') {
@@ -613,7 +638,7 @@ export async function issueDocuments(
             ? signatureFromCompany(r.seller.row as CompanyRow)
             : signatureFromManufacturer(r.seller.row as ManufacturerRow),
           contract: input.contract,
-          lineItems: input.lineItems,
+          lineItems: docLineItems,
           upcomingUpdRef: null, // populated below if we already issued the UPD this run
         });
       } else {
@@ -631,8 +656,8 @@ export async function issueDocuments(
             bank, signature, contract: input.contract,
             incoterms: selectIncoterms(input.ourCompany, input.partner, input.contract, isInternational) || 'CNF Guangzhou',
             container: null, countryStation: null,
-            lineItems: input.lineItems,
-            totalMinor: input.operation.total_amount ?? 0,
+            lineItems: docLineItems,
+            totalMinor: goodsTotal,
           });
         } else {
           // For V1 the third "Seller" party block defaults to the seller (mfr)
@@ -658,8 +683,8 @@ export async function issueDocuments(
             bank, signature, contract: input.contract,
             incoterms: selectIncoterms(input.ourCompany, input.partner, input.contract, isInternational) || 'FOB Shanghai',
             consigneeAtTerminal: null,
-            lineItems: input.lineItems,
-            totalMinor: input.operation.total_amount ?? 0,
+            lineItems: docLineItems,
+            totalMinor: goodsTotal,
           });
         }
       }
@@ -691,7 +716,7 @@ export async function issueDocuments(
 
     const docId = genDocId();
     const totalForDoc = r.spec.type === 'PL' ? null
-      : r.spec.type === 'CI' ? ciTotal : (input.operation.total_amount ?? 0);
+      : r.spec.type === 'CI' ? ciTotal : goodsTotal;
     try {
       await env.DB.prepare(`
         INSERT INTO documents (

@@ -38,6 +38,11 @@ export interface OperationRow {
   // Added by 0009
   dei_layer: number;
   legal_seller_id: string | null;
+  // Added by 0088. dei_markup_pct lifts unit prices on the DEI -> buyer leg of
+  // a dei_layer operation (factory leg stays at cost). freight_amount prints
+  // as a Freight row on every CI of the operation and counts in its total.
+  dei_markup_pct: number;
+  freight_amount: number;
 }
 
 export interface CompanyRow {
@@ -199,12 +204,6 @@ export interface LineItemRow {
 // Composite shape returned by the loader and consumed by selectors.
 // =============================================================================
 
-export interface InvoiceCharge {
-  reference: string | null;
-  label: string;
-  amount: number;
-}
-
 export interface InvoicerInput {
   operation: OperationRow;
   ourCompany: CompanyRow;
@@ -219,10 +218,6 @@ export interface InvoicerInput {
   companyBankAccounts: CompanyBankAccountRow[];
   manufacturerBankRoutes: ManufacturerBankRouteRow[];
   lineItems: LineItemRow[];
-  // Charges billed on the CI next to the goods: freight service operations of
-  // a sale, linked by operations.related_purchase_id = the sale id. The buyer
-  // pays them, so they are separate invoice rows and part of the CI total.
-  extraCharges: InvoiceCharge[];
   // Companies the engine may need beyond ourCompany (e.g. DEE/DEI lookups
   // for the dei_layer chain) — keyed by company id.
   companiesById: Record<string, CompanyRow>;

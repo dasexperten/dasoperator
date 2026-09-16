@@ -135,6 +135,12 @@ export function minorFactor(currency: string): number {
   return currency === 'VND' ? 1 : 100;
 }
 
+// Unit prices keep up to three decimals (0.462 must not print as 0.46), never fewer than two.
+export function formatUnitPrice(amount: number, currency: string): string {
+  if (['VND', 'JPY', 'KRW'].includes(currency)) return formatMoney(amount, currency);
+  return `${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 3 })} ${currency}`;
+}
+
 export function formatMoney(amount: number, currency: string): string {
   // amount is now a decimal major-unit value (e.g. 1234.56). VND/JPY/KRW
   // have no subdivision so we render with 0 fraction digits, others with 2.

@@ -10,7 +10,7 @@ import {
   Document, Packer, PORTRAIT_PAGE, PORTRAIT_USABLE_DXA, RenderBank, RenderParty,
   RenderSignature, blank, buildBrandBar, buildDeliveryBankTable, buildMetaRow, buildPartyTable,
   buildProductTable, buildSignature, buildTitle, formatDate, formatMoney,
-  pickLineLabel,
+  formatUnitPrice, pickLineLabel,
   type ProductCell,
 } from './shared';
 
@@ -95,7 +95,7 @@ export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uin
 
   // Product table — 9 cols, sum to 10500 DXA.
   // [#, SKU, Description, HS Code, Origin, Qty, Unit, Unit Price, Total]
-  const widths = [350, 800, 3300, 850, 750, 700, 600, 1100, 2050];
+  const widths = [350, 700, 3000, 1150, 700, 650, 550, 1300, 2100];
   const headers = [
     { text: '#', align: 'center' as const },
     { text: 'SKU', align: 'left' as const },
@@ -118,7 +118,7 @@ export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uin
       { text: li.country_of_origin ?? '', align: 'center' },
       { text: String(li.qty), align: 'right' },
       { text: translate('col.unit_pcs'), align: 'center' },
-      { text: formatMoney(li.unit_price_after_disc, input.currency), align: 'right' },
+      { text: formatUnitPrice(li.unit_price_after_disc, input.currency), align: 'right' },
       { text: formatMoney(li.line_amount, input.currency), align: 'right' },
     ];
   });

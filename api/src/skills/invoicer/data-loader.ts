@@ -251,6 +251,22 @@ export async function loadInvoicerInput(
   for (const c of extraCompaniesRes.results ?? []) companiesById[c.id] = c;
   companiesById[ourCompany.id] = ourCompany;
 
+  let shipperLine: string | null = null;
+  if (operation.shipper_id) {
+    const sh = await db.prepare(
+      `SELECT legal_name_en, legal_name, trade_name, registered_address_en, address
+         FROM partners WHERE id = ? AND deleted_at IS NULL`
+    ).bind(operation.shipper_id).first<{
+      legal_name_en: string | null; legal_name: string | null; trade_name: string;
+      registered_address_en: string | null; address: string | null;
+    }>();
+    if (sh) {
+      const name = sh.legal_name_en ?? sh.legal_name ?? sh.trade_name;
+      const addr = sh.registered_address_en ?? sh.address;
+      shipperLine = addr ? `${name}, ${addr}` : name;
+    }
+  }
+
   return {
     operation,
     ourCompany,
@@ -261,6 +277,7 @@ export async function loadInvoicerInput(
     companyBankAccounts: companyBankAccountsRes.results ?? [],
     manufacturerBankRoutes,
     lineItems,
+    shipperLine,
     companiesById,
   };
 }

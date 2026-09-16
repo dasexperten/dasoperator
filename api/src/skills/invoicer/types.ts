@@ -218,6 +218,9 @@ export interface InvoicerInput {
   companyBankAccounts: CompanyBankAccountRow[];
   manufacturerBankRoutes: ManufacturerBankRouteRow[];
   lineItems: LineItemRow[];
+  // Physical shipper from operations.shipper_id (e.g. the factory exporting
+  // goods sold by DEI). Printed on the CI; null when not set.
+  shipperLine: string | null;
   // Companies the engine may need beyond ourCompany (e.g. DEE/DEI lookups
   // for the dei_layer chain) — keyed by company id.
   companiesById: Record<string, CompanyRow>;

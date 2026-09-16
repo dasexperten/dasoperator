@@ -604,6 +604,7 @@ export async function issueDocuments(
           incoterms: selectIncoterms(input.ourCompany, input.partner, input.contract, isInternational),
           paymentTerms: input.partner?.payment_terms ?? null,
           lineItems: docLineItems,
+          shipperLine: input.shipperLine,
           extraCharges,
           totalMinor: ciTotal,
         });

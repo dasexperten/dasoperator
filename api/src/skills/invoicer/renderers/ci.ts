@@ -29,6 +29,7 @@ export interface RenderCiInput {
   incoterms: string;
   paymentTerms: string | null;
   lineItems: LineItemRow[];
+  shipperLine?: string | null;
   // Freight and similar charges billed to the buyer; totalMinor includes them.
   extraCharges?: Array<{ label: string; amount: number }>;
   totalMinor: number;
@@ -79,6 +80,7 @@ export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uin
   const deliveryLines: string[] = [
     `${translate('misc.terms')}: ${input.incoterms}`,
   ];
+  if (input.shipperLine) deliveryLines.push(`Shipper: ${input.shipperLine}`);
   if (input.paymentTerms) {
     deliveryLines.push(`${translate('misc.payment')}: ${input.paymentTerms}`);
   }

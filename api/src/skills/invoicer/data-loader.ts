@@ -190,8 +190,10 @@ export async function loadInvoicerInput(
     ).bind(operationId).all<LineItemRow>(),
 
     db.prepare(
+      // DEI's own accounts too: in the dei_layer chain DEI is the seller on
+      // the resale documents and must print its bank, not the buyer's.
       `SELECT ${CBA_COLS} FROM company_bank_accounts
-        WHERE company_id = ? AND deleted_at IS NULL`
+        WHERE company_id IN (?, 'dei') AND deleted_at IS NULL`
     ).bind(operation.our_company_id).all<CompanyBankAccountRow>(),
   ]);
 

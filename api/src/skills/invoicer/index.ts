@@ -460,7 +460,9 @@ export async function issueDocuments(
 
     if (needsBank) {
       if (spec.sellerKind === 'company') {
-        bankSelection = selectBankAccount(seller.row as CompanyRow, currency, input.companyBankAccounts);
+        const sellerCompany = seller.row as CompanyRow;
+        bankSelection = selectBankAccount(sellerCompany, currency,
+          input.companyBankAccounts.filter((a) => a.company_id === sellerCompany.id));
       } else {
         // Manufacturer-led document — pick a bank route. Payer is the buyer
         // when buyer is a company; when buyer is a partner the payer is

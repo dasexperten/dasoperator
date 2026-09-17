@@ -62,6 +62,10 @@ export function isAllowedHumanFrom(from: string): boolean {
   return HUMAN_SENDERS.has(addr) || /@(my\.dasexperten\.com)$/i.test(addr);
 }
 
+export const OWNER_GMAIL = 'dasexperten@gmail.com';
+/** Ящик, чья переписка всегда идёт Владельцу скрытой копией (Owner 2026-09-17). */
+export const OWNER_BCC_FROM = 'support@dasexperten.com';
+
 /** Strip personal Gmail from to/cc/bcc for brand sends (Owner 2026-07-21). */
 export function stripPersonalGmail(list: string[] | undefined): string[] | undefined {
   if (!list?.length) return list;
@@ -190,7 +194,12 @@ export async function sendHumanResend(env: Env, params: HumanSendParams): Promis
   const fromAddr = extractEmailAddr(fromRaw);
   const toList = asList(params.to).filter((a) => extractEmailAddr(a) !== 'dasexperten@gmail.com');
   const ccList = stripPersonalGmail(asList(params.cc));
-  const bccList = stripPersonalGmail(asList(params.bcc));
+  // Владелец 17.09.2026: «please send support@ correspondence to me as bcc».
+  // Всё, что уходит с ящика заботы, получает его Gmail скрытой копией — это
+  // единственное исключение из правила 21.07 о личном Gmail в брендовых письмах.
+  const bccList = fromAddr === OWNER_BCC_FROM
+    ? [...(stripPersonalGmail(asList(params.bcc)) || []), OWNER_GMAIL]
+    : stripPersonalGmail(asList(params.bcc));
 
   if (!toList.length) {
     return { success: false, error: '`to` required (and must not be only personal Gmail)' };

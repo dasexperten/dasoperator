@@ -1,7 +1,7 @@
 // =============================================================================
 // Cron handler — dispatches by cron expression (wrangler.toml [triggers])
 //
-// "0 12 * * *"   — daily FX refresh from CBR (Phase 2.0c-2b)
+// "0 12 * * *"   — partner status recount (FX moved to worker erp-fx-rates)
 // "0 * * * *"    — hourly marketplace stock refresh from Ozon + WB (Phase 6.0b)
 //
 // Marketplace sync calls go through self-fetch to the worker's own POST
@@ -9,8 +9,6 @@
 // =============================================================================
 
 import type { Env } from './types';
-import { todayUtcDate, refreshFxFromCbr } from './lib/fx-cbr';
-import { storeSnapshot } from './lib/fx-store';
 import { runInboxIngestion } from './lib/inbox-ingestion';
 import { runEmailRetention } from './lib/email-retention';
 import { runBankStatementIngestion } from './lib/bank-statement-ingestion';
@@ -468,17 +466,8 @@ export async function handleScheduled(
   // automatically. The manual /api/pricing/sync-ozon endpoint still exists for a
   // deliberate one-off pull, but it runs on no schedule.
 
+  // CBR + storefront pricing rates run in worker erp-fx-rates (workers/erp-fx-rates).
   if (cron === '0 12 * * *') {
-    await runFxRefresh();
-    // Storefront zonal pricing rates (EUR-based, 18 currencies) — separate keys
-    // from the CBR store above. See lib/fx-pricing.ts.
-    try {
-      const { refreshPricingRates } = await import('./lib/fx-pricing');
-      const r = await refreshPricingRates(env);
-      console.log('[cron:fx-pricing] ' + JSON.stringify(r));
-    } catch (e) {
-      console.error('[cron:fx-pricing] failed:', e);
-    }
     await runPartnerStatusRecalc(env);
     return;
   }
@@ -1060,18 +1049,6 @@ export async function handleScheduled(
 
     console.warn(`[cron] no handler for cron expression: ${cron}`);
 
-  // FX refresh — daily, internal libs, no self-fetch needed
-  async function runFxRefresh(): Promise<void> {
-    const date = todayUtcDate();
-    console.log(`[cron] FX refresh starting for ${date}`);
-    const snapshot = await refreshFxFromCbr(date);
-    if (!snapshot) {
-      console.error(`[cron] FX refresh FAILED for ${date} — CBR unreachable. Stale snapshot retained.`);
-      return;
-    }
-    await storeSnapshot(env.FX, snapshot);
-    console.log(`[cron] FX refresh complete for ${date}, ${Object.keys(snapshot.rates).length} rates cached`);
-  }
 }
 
 // =============================================================================

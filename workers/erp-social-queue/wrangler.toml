@@ -1,0 +1,30 @@
+# erp-social-queue — Angela's article and offer posts to Meta (Facebook / Instagram), daytime.
+# Timer moved from the agent seat angela-social ("*/5 4-19 * * *") on 2026-09-18; code in workers/_social.
+name = "erp-social-queue"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "081ddb85cb399ad62a70210328d744fc"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+[[d1_databases]]
+binding = "ORG_DB"
+database_name = "das_org"
+database_id = "56cd51f7-6502-4754-bcc6-23da52a34b0d"
+
+[[r2_buckets]]
+binding = "ARCHIVE"
+bucket_name = "self-learning"
+
+# Keys (secrets): META_SYSTEM_USER_TOKEN (SECRETS/meta.md), GITHUB_TOKEN (claude-ops PAT, read).
+[vars]
+# Dry until the angela-social timer is off: a post must never go out twice.
+DRY_RUN = "1"
+
+[triggers]
+crons = ["*/5 4-19 * * *"]

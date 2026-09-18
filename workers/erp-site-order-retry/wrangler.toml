@@ -12,10 +12,6 @@ binding = "DB"
 database_name = "das_erp_dev"
 database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
 
-[vars]
-# Dry until the dasha-ozon timer is off, so the two never act on the same orders.
-DRY_RUN = "1"
-
 [[services]]
 binding = "ERP"
 service = "dasoperator-api"

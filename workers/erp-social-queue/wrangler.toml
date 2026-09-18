@@ -22,9 +22,5 @@ binding = "ARCHIVE"
 bucket_name = "self-learning"
 
 # Keys (secrets): META_SYSTEM_USER_TOKEN (SECRETS/meta.md), GITHUB_TOKEN (claude-ops PAT, read).
-[vars]
-# Dry until the angela-social timer is off: a post must never go out twice.
-DRY_RUN = "1"
-
 [triggers]
 crons = ["*/5 4-19 * * *"]

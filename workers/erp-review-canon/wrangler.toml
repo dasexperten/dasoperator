@@ -1,0 +1,22 @@
+# erp-review-canon — pending review-answer drafts: figures rewritten to Maya's canon.
+# Timer moved from the stray worker care-canon ("45 */3 * * *") on 2026-09-18; code in workers/_care.
+name = "erp-review-canon"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "081ddb85cb399ad62a70210328d744fc"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+[[d1_databases]]
+binding = "ERP_DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+# Keys (secrets): GITHUB_TOKEN (claude-ops PAT, read of organizacia contents).
+[triggers]
+crons = ["45 */3 * * *"]

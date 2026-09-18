@@ -5,5 +5,8 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250109.0",
     "wrangler": "^3.99.0"
+  },
+  "dependencies": {
+    "postal-mime": "2.4.3"
   }
 }

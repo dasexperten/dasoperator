@@ -20,7 +20,7 @@ interface RunReport extends RunOutcome {
   error?: string;
 }
 
-async function runLogged<E extends BaseEnv>(env: E, worker: string, cron: string, job: Job<E>): Promise<RunReport> {
+export async function runLogged<E extends BaseEnv>(env: E, worker: string, cron: string, job: Job<E>): Promise<RunReport> {
   const dry = env.DRY_RUN === '1';
   let id: number | null = null;
   try {

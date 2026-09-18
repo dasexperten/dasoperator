@@ -20,6 +20,7 @@
   "erp-inbox-reconcile": [
     "40 0 * * *"
   ],
+  "erp-inventory": [],
   "erp-loyalty-keys": [
     "4,19,34,49 * * * *"
   ],

@@ -246,6 +246,8 @@ export interface Env {
   // registered in operation_document_sources with source_type='telegram_contact'.
   // Bearer token shared with telegramer-bridge Worker.
   TELEGRAMER_BRIDGE_SECRET?: string;
+  // Service binding to telegramer-bridge (worker-to-worker; workers.dev fetch gives 1042).
+  TELEGRAMER?: Fetcher;
 }
 
 // =============================================================================

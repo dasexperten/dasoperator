@@ -24,6 +24,7 @@
 // =============================================================================
 
 import type { Env } from '../types';
+import { sendOwnerTelegram } from './owner-telegram';
 
 const ОКНО_ДНЕЙ = 14;          // с чем сравниваем вчерашний день
 const ПОРОГ = 1 / 3;           // ниже трети среднего — сигнал
@@ -69,18 +70,7 @@ async function послатьВTelegram(env: Env, текст: string): Promise<v
     console.warn('[orders-drop] TELEGRAMER_BRIDGE_SECRET не задан, сигнал не ушёл');
     return;
   }
-  try {
-    const resp = await fetch('https://telegramer-bridge.dasexperten.workers.dev/send', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to: 'me', text: текст, first_message_confirmation: 'ok' }),
-    });
-    if (!resp.ok) {
-      console.warn(`[orders-drop] Telegram HTTP ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
-    }
-  } catch (e) {
-    console.warn('[orders-drop] Telegram не ответил:', e);
-  }
+  await sendOwnerTelegram(env, текст);
 }
 
 export async function runOrdersDropWatchdog(env: Env): Promise<РезультатСторожа> {

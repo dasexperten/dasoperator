@@ -1,0 +1,22 @@
+# erp-inventory — inventory@dasexperten.com: stock lists by mail (Saransk, no API) read by DeepSeek into an inventory session.
+# Mail worker, not a timer (Owner 2026-09-18). Email Routing sends inventory@ here.
+name = "erp-inventory"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "081ddb85cb399ad62a70210328d744fc"
+workers_dev = true
+
+# DB = run log + product and warehouse lists (das_erp_dev).
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+[[services]]
+binding = "ERP"
+service = "dasoperator-api"
+
+# Keys (secrets): ERP_RUN_SECRET, DEEPSEEK_API_KEY (Owner: the worker holds its own).
+[triggers]
+crons = []

@@ -23,6 +23,11 @@ const KEY_LITERAL = [
   /['"]Api-Key['"]\s*:\s*['"][^'"$`]{10,}['"]/,
 ];
 
+// Owner-approved exceptions to "timer, no model" — each with the Owner's word.
+const MODEL_ALLOWED = {
+  'erp-inventory': 'Owner 2026-09-18: inventory@ stock lists read by DeepSeek inside this worker ("put it inside that worker", "the best model for identification")',
+};
+
 const SPEC = /(?:import|export)\s[^'"`;]*?from\s*['"]([^'"]+)['"]|import\s*\(\s*['"]([^'"]+)['"]\s*\)|^\s*import\s+['"]([^'"]+)['"]/gm;
 const EXTS = ['', '.ts', '.mts', '.mjs', '.js', '.json', '/index.ts', '/index.mjs', '/index.js'];
 
@@ -123,15 +128,17 @@ for (const d of dirs) {
   const toml = readFileSync(tomlPath, 'utf8');
   const name = tomlField(toml, 'name');
   if (name !== d) findings.push(`${d}: wrangler name "${name}" differs from folder`);
-  if (!crons(toml).length) findings.push(`${d}: no [triggers] crons — a timer worker without a timer`);
+  const isMail = /\basync\s+email\s*\(/.test(readFileSync(entry, 'utf8'));
+  if (!crons(toml).length && !isMail) findings.push(`${d}: no [triggers] crons and no email handler — a worker with nothing to wake it`);
   if (tomlField(toml, 'main') !== 'src/index.ts') findings.push(`${d}: main must be src/index.ts`);
 
   for (const f of graph(entry)) {
     const rel = relative(ROOT, f);
-    if (MODEL_PATH.test(rel.replace(/\.[a-z]+$/, ''))) findings.push(`${d}: imports a model client ${rel}`);
+    const modelOk = Boolean(MODEL_ALLOWED[d]);
+    if (!modelOk && MODEL_PATH.test(rel.replace(/\.[a-z]+$/, ''))) findings.push(`${d}: imports a model client ${rel}`);
     if (f.endsWith('.json')) continue;
     const src = readFileSync(f, 'utf8');
-    if (MODEL_HOST.test(src)) findings.push(`${d}: ${rel} calls a model host`);
+    if (!modelOk && MODEL_HOST.test(src)) findings.push(`${d}: ${rel} calls a model host`);
     for (const re of KEY_LITERAL) if (re.test(src)) findings.push(`${d}: ${rel} holds a key literal (${re.source.slice(0, 20)}…)`);
   }
 }

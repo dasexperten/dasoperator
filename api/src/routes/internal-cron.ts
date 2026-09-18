@@ -46,6 +46,16 @@ route.post('/:worker', async (c) => {
 
   const worker = c.req.param('worker');
   const started = Date.now();
+  // erp-inventory hands over one letter (JSON body) instead of starting a timer job.
+  if (worker === 'erp-inventory') {
+    try {
+      const { receiveInventoryMail } = await import('../lib/inventory-mail');
+      const r = await receiveInventoryMail(c.env, await c.req.json());
+      return c.json({ ok: r.status !== 'failed', cron: 'mail', note: `${r.status}: ${r.note}`, ms: Date.now() - started });
+    } catch (e) {
+      return c.json({ ok: false, cron: 'mail', error: e instanceof Error ? e.message : String(e) }, 500);
+    }
+  }
   const step = STEPS[worker];
   if (step) {
     try {

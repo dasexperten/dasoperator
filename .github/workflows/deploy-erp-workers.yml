@@ -75,6 +75,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      # Workers import ERP code from api/src (hono, zod, xlsx, postal-mime): install the api workspace too.
+      - name: Install api workspace
+        run: npm ci --workspace api --no-audit --no-fund
       - name: Install
         working-directory: workers
         run: npm ci --no-audit --no-fund

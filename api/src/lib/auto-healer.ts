@@ -15,6 +15,7 @@
 
 import type { Env } from '../types';
 import { executeHealAction } from './healer-actions';
+import { sendOwnerTelegram } from './owner-telegram';
 
 interface ReportContext {
   cron?: string;
@@ -52,31 +53,7 @@ function classifyError(msg: string): string {
 }
 
 async function sendTelegram(env: Env, text: string): Promise<void> {
-  const secret = env.TELEGRAMER_BRIDGE_SECRET;
-  if (!secret) {
-    console.warn('[auto-healer] TELEGRAMER_BRIDGE_SECRET not set, skipping TG alert');
-    return;
-  }
-  try {
-    const resp = await fetch('https://telegramer-bridge.dasexperten.workers.dev/send', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${secret}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        to: 'me',
-        text,
-        first_message_confirmation: 'ok',
-      }),
-    });
-    if (!resp.ok) {
-      const body = await resp.text();
-      console.warn(`[auto-healer] TG alert HTTP ${resp.status}: ${body.slice(0, 200)}`);
-    }
-  } catch (e) {
-    console.warn('[auto-healer] TG alert failed:', e);
-  }
+  await sendOwnerTelegram(env, text);
 }
 
 async function findMatchingRecipe(env: Env, errMsg: string): Promise<Recipe | null> {

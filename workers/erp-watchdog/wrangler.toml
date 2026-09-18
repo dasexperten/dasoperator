@@ -1,4 +1,4 @@
-# erp-watchdog — integration watchdog + report of failed erp-* runs to Telegram
+# erp-watchdog — integration watchdog + report of failed erp-* runs to Telegram. Every 3 h (Owner 2026-09-18: "each 3 hours not less").
 # Timer moved out of dasoperator-api "*/10 * * * *" on 2026-09-18; the job runs in the ERP on its keys.
 name = "erp-watchdog"
 main = "src/index.ts"
@@ -17,4 +17,4 @@ binding = "ERP"
 service = "dasoperator-api"
 
 [triggers]
-crons = ["*/10 * * * *"]
+crons = ["20 */3 * * *"]

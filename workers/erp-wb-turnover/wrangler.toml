@@ -1,6 +1,5 @@
 # erp-wb-turnover — WB day turnover from the ERP → Arina's board cell
 # Timer moved from the agent seat arina-wb on 2026-09-18; code in workers/_marketplace/seat-reports.mjs.
-# DRY_RUN stays "1" until the seat's timer is off, so the board cell is never written twice.
 name = "erp-wb-turnover"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
@@ -30,7 +29,6 @@ service = "organizacia"
 
 # Keys (secrets): WB_API_TOKEN (Arina's personal token).
 [vars]
-DRY_RUN = "1"
 
 [triggers]
 crons = ["5 20 * * *"]

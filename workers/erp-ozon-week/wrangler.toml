@@ -1,6 +1,5 @@
 # erp-ozon-week — Ozon weekly roll-up → Dasha's weekly board cell
 # Timer moved from the agent seat dasha-ozon on 2026-09-18; code in workers/_marketplace/seat-reports.mjs.
-# DRY_RUN stays "1" until the seat's timer is off, so the board cell is never written twice.
 name = "erp-ozon-week"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
@@ -31,7 +30,6 @@ service = "organizacia"
 # Keys (secrets): OZON_API_KEY.
 [vars]
 OZON_CLIENT_ID = "374116"
-DRY_RUN = "1"
 
 [triggers]
 crons = ["6 20 * * 1"]

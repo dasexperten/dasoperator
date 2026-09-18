@@ -1,0 +1,22 @@
+# erp-promozon — Ozon promo guard (elastic-stock guard, zero-bid restore); dry mode lives in its config table.
+# Timer moved from the stray worker promozon ("0 */4 * * *") on 2026-09-18; code in workers/_promozon.
+name = "erp-promozon"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "081ddb85cb399ad62a70210328d744fc"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+[[d1_databases]]
+binding = "PROMO_DB"
+database_name = "promozon_db"
+database_id = "f36a8f2b-99b9-49b8-9dc4-fb98181f23c2"
+
+# Keys (secrets): OZON_SELLER_API_KEY, OZON_SELLER_CLIENT_ID, OZON_PERF_CLIENT_ID, OZON_PERF_CLIENT_SECRET.
+[triggers]
+crons = ["0 */4 * * *"]

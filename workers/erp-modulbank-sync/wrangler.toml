@@ -16,5 +16,13 @@ database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
 binding = "ERP"
 service = "dasoperator-api"
 
+[vars]
+# Dry since 2026-09-18: api.modulbank.ru serves a certificate from the Russian Ministry of
+# Digital Development CA (Russian Trusted Sub CA). Cloudflare does not trust it — every
+# call got HTTP 526 (since 2026-06-23; nothing at all since 2026-08-18). Owner chose the
+# Modulbank webhook instead; this timer goes once the webhook is proven live.
+DRY_RUN = "1"
+DRY_NOTE = "сухо: Модульбанк недоступен из Cloudflare (сертификат Минцифры, 526) — ждём вебхук"
+
 [triggers]
 crons = ["15 * * * *"]

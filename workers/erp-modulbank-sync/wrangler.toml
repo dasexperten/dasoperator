@@ -1,0 +1,20 @@
+# erp-modulbank-sync — Modulbank: last 3 days of DEE account transactions (safety net for missed webhooks)
+# Timer moved out of dasoperator-api "15 * * * *" on 2026-09-18; the job runs in the ERP on its keys.
+name = "erp-modulbank-sync"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "081ddb85cb399ad62a70210328d744fc"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+[[services]]
+binding = "ERP"
+service = "dasoperator-api"
+
+[triggers]
+crons = ["15 * * * *"]

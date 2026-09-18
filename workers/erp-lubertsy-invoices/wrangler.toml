@@ -1,0 +1,16 @@
+# erp-lubertsy-invoices — F4 Lyubertsy invoices into ERP operations + payment matching.
+# Timer moved from the stray worker lubertsy-invoice-cron ("15 * * * *") on 2026-09-18; code in workers/_f4.
+name = "erp-lubertsy-invoices"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "081ddb85cb399ad62a70210328d744fc"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+[triggers]
+crons = ["15 * * * *"]

@@ -86,6 +86,7 @@ import { fboRoutes } from './marketplaces/fbo-routes';
 import skillsRoutes from './routes/skills';
 import integrationsRoutes from './routes/integrations';
 import cronRunsRoutes from './routes/cron-runs';
+import internalCronRoutes from './routes/internal-cron';
 import loyaltyRoutes from './routes/loyalty';
 import plannerRoutes from './routes/planner';
 import authRoutes from './routes/auth';
@@ -201,6 +202,7 @@ app.get('/api/_llm-diag', async (c) => {
 });
 
 app.route('/health', healthRoutes);
+app.route('/internal/cron', internalCronRoutes);  // erp-* timer workers start their ERP job (ERP_RUN_SECRET)
 app.route('/geo-price', geoPriceRoutes);  // public zonal price feed for dasexperten.com storefront
 app.route('/api/pricing', pricingMatrixRoutes);  // ERP: zonal pricing matrix for /crm
 app.route('/api/products', productsRoutes);

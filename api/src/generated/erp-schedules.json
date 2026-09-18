@@ -1,0 +1,148 @@
+{
+  "erp-auto-delivery": [
+    "0 */4 * * *"
+  ],
+  "erp-bank-match": [
+    "0 2 * * *"
+  ],
+  "erp-daily-digest": [
+    "0 3 * * *"
+  ],
+  "erp-fbo-sync": [
+    "0 5 * * *"
+  ],
+  "erp-fx-rates": [
+    "0 12 * * *"
+  ],
+  "erp-geo-snapshot": [
+    "45 0 * * *"
+  ],
+  "erp-inbox-reconcile": [
+    "40 0 * * *"
+  ],
+  "erp-loyalty-keys": [
+    "4,19,34,49 * * * *"
+  ],
+  "erp-lubertsy-invoices": [
+    "15 * * * *"
+  ],
+  "erp-mail-index": [
+    "*/15 * * * *"
+  ],
+  "erp-mail-relink": [
+    "35 * * * *"
+  ],
+  "erp-mail-retention": [
+    "0 3 1 * *"
+  ],
+  "erp-mail-scenarios": [
+    "23 */3 * * *"
+  ],
+  "erp-mail-snapshot": [
+    "*/2 * * * *"
+  ],
+  "erp-marketplace-fifo": [
+    "50 0 * * *"
+  ],
+  "erp-marketplace-pull": [
+    "*/15 * * * *"
+  ],
+  "erp-modulbank-sync": [
+    "15 * * * *"
+  ],
+  "erp-orders-drop-watch": [
+    "0 4 * * *"
+  ],
+  "erp-ozon-ads-poll": [
+    "*/2 * * * *"
+  ],
+  "erp-ozon-ads-reports": [
+    "5 */6 * * *"
+  ],
+  "erp-ozon-monthly-report": [
+    "0 3 5 * *"
+  ],
+  "erp-ozon-notices": [
+    "4 4 * * *",
+    "4 12 * * *"
+  ],
+  "erp-ozon-sales": [
+    "0 22 * * *"
+  ],
+  "erp-ozon-stocks": [
+    "0 0,4,10,12,16,20 * * *"
+  ],
+  "erp-ozon-turnover": [
+    "4 20 * * *"
+  ],
+  "erp-ozon-week": [
+    "6 20 * * 1"
+  ],
+  "erp-partner-status": [
+    "0 12 * * *"
+  ],
+  "erp-promo-refill": [
+    "*/15 * * * *"
+  ],
+  "erp-promozon": [
+    "0 */4 * * *"
+  ],
+  "erp-pulse-warm": [
+    "0 1 * * *"
+  ],
+  "erp-review-canon": [
+    "45 */3 * * *"
+  ],
+  "erp-ru-orders": [
+    "2,17,32,47 * * * *"
+  ],
+  "erp-ru-track": [
+    "*/15 * * * *"
+  ],
+  "erp-site-order-retry": [
+    "7,22,37,52 * * * *"
+  ],
+  "erp-site-orders": [
+    "7 * * * *"
+  ],
+  "erp-site-sales-rebuild": [
+    "0 4 1-7 * 3"
+  ],
+  "erp-site-stock": [
+    "10 */3 * * *"
+  ],
+  "erp-skladbot-sync": [
+    "30 */6 * * *"
+  ],
+  "erp-social-queue": [
+    "*/5 4-19 * * *"
+  ],
+  "erp-watchdog": [
+    "*/10 * * * *"
+  ],
+  "erp-wb-news": [
+    "5 4 * * *",
+    "5 12 * * *"
+  ],
+  "erp-wb-ryazan-watch": [
+    "35 10 * * *"
+  ],
+  "erp-wb-sales": [
+    "15 22 * * *"
+  ],
+  "erp-wb-stocks": [
+    "15 0,4,10,12,16,20 * * *"
+  ],
+  "erp-wb-turnover": [
+    "5 20 * * *"
+  ],
+  "erp-wb-week": [
+    "7 20 * * 1"
+  ],
+  "erp-wb-weekly-report": [
+    "0 4 * * 4"
+  ],
+  "erp-web-analytics": [
+    "30 2 * * *"
+  ]
+}

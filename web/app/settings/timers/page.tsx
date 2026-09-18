@@ -30,6 +30,57 @@ interface Data {
   last_24h: Day[];
   recent: Run[];
 }
+interface GuardRow {
+  worker: string;
+  expected: number;
+  ran: number;
+  ok: number;
+  failed: number;
+  dry: number;
+  missed: number;
+  last_ok: string | null;
+  last_error: string | null;
+  verdict: 'green' | 'yellow' | 'red' | 'quiet';
+}
+interface Guard {
+  totals: { workers: number; green: number; yellow: number; red: number; quiet: number };
+  workers: GuardRow[];
+}
+
+const VERDICT: Record<GuardRow['verdict'], { label: string; color: string }> = {
+  red: { label: 'не работает', color: '#C71926' },
+  yellow: { label: 'под вопросом', color: '#A86A00' },
+  green: { label: 'в порядке', color: '#1D7A5A' },
+  quiet: { label: 'не было часа', color: 'var(--fg-2)' },
+};
+
+function GuardBlock({ g }: { g: Guard }) {
+  const bad = g.workers.filter((w) => w.verdict === 'red' || w.verdict === 'yellow')
+    .sort((a, b) => (a.verdict === b.verdict ? a.worker.localeCompare(b.worker) : a.verdict === 'red' ? -1 : 1));
+  const t = g.totals;
+  return (
+    <div style={{ border: '1px solid var(--line-1)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--paper)', padding: '16px 20px', marginBottom: '28px' }}>
+      <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--fg-1)', marginBottom: '8px' }}>Проверка Палыча — сутки</div>
+      <div style={{ fontSize: '14px', color: 'var(--fg-1)', marginBottom: bad.length ? '12px' : 0 }}>
+        <span style={{ whiteSpace: 'nowrap' }}>всего <b>{t.workers}</b></span>
+        {' · '}<span style={{ whiteSpace: 'nowrap', color: VERDICT.green.color }}>в порядке <b>{t.green}</b></span>
+        {' · '}<span style={{ whiteSpace: 'nowrap', color: VERDICT.yellow.color }}>под вопросом <b>{t.yellow}</b></span>
+        {' · '}<span style={{ whiteSpace: 'nowrap', color: VERDICT.red.color }}>не работает <b>{t.red}</b></span>
+        {' · '}<span style={{ whiteSpace: 'nowrap', color: VERDICT.quiet.color }}>не было часа <b>{t.quiet}</b></span>
+      </div>
+      {bad.map((w) => (
+        <div key={w.worker} style={{ fontSize: '13px', color: 'var(--fg-1)', padding: '6px 0', borderTop: '1px solid var(--line-1)' }}>
+          <b>{w.worker}</b>{' — '}<span style={{ color: VERDICT[w.verdict].color, fontWeight: 600 }}>{VERDICT[w.verdict].label}</span>
+          {' · '}<span style={{ whiteSpace: 'nowrap' }}>ждали <b>{w.expected}</b></span>
+          {', '}<span style={{ whiteSpace: 'nowrap' }}>было <b>{w.ran}</b></span>
+          {', '}<span style={{ whiteSpace: 'nowrap' }}>ошибок <b>{w.failed}</b></span>
+          {w.dry ? <>{', '}<span style={{ whiteSpace: 'nowrap' }}>сухих <b>{w.dry}</b></span></> : null}
+          {w.last_error ? <div style={{ color: '#C71926', marginTop: '2px' }}>{w.last_error.slice(0, 200)}</div> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function yerevan(iso: string | null): string {
   if (!iso) return '—';
@@ -91,6 +142,7 @@ function Table({ runs, day }: { runs: Run[]; day?: Map<string, Day> }) {
 export default function TimersPage() {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [guard, setGuard] = useState<Guard | null>(null);
 
   useEffect(() => {
     apiGet<Data>('/api/cron-runs')
@@ -99,6 +151,9 @@ export default function TimersPage() {
         else setError(r.errors?.[0]?.message ?? 'Не удалось загрузить');
       })
       .catch((e) => setError(String(e?.message ?? e)));
+    apiGet<Guard>('/api/cron-runs/guard')
+      .then((r) => { if (r.success && r.result) setGuard(r.result); })
+      .catch(() => {});
   }, []);
 
   const day = new Map((data?.last_24h ?? []).map((d) => [d.worker, d]));
@@ -121,6 +176,8 @@ export default function TimersPage() {
 
       {error && <div style={{ color: '#C71926', fontSize: '14px' }}>{error}</div>}
       {!data && !error && <div style={{ color: 'var(--fg-2)', fontSize: '14px' }}>Загрузка…</div>}
+
+      {guard && <GuardBlock g={guard} />}
 
       {data && (
         <>

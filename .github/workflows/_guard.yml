@@ -70,3 +70,11 @@ jobs:
       # in its code does not ship (Owner 2026-09-18: model-free timers only).
       - name: Check erp-* timer workers
         run: node scripts/check-erp-workers.mjs
+
+      # The ERP guard's expected-fires calculator (Viktor Palich, Owner 2026-09-18).
+      - name: Install workers toolchain (esbuild)
+        working-directory: workers
+        run: npm ci --no-audit --no-fund
+
+      - name: Test cron-expect
+        run: node --test api/src/lib/cron-expect.test.mjs

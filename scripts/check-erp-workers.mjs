@@ -3,7 +3,9 @@
 //   node scripts/check-erp-workers.mjs                    → check all, exit 1 on any finding
 //   node scripts/check-erp-workers.mjs --affected a b c   → print JSON list of erp-* workers whose
 //                                                           import tree contains any of the given files
-import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
+//   node scripts/check-erp-workers.mjs --write-schedules  → rewrite api/src/generated/erp-schedules.json
+//                                                           (the guard's expected timers; checked for drift)
+import { readFileSync, readdirSync, existsSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -78,7 +80,26 @@ if (args[0] === '--affected') {
   process.exit(0);
 }
 
+const SCHEDULES = join(ROOT, 'api', 'src', 'generated', 'erp-schedules.json');
+function schedules() {
+  const out = {};
+  for (const d of dirs) {
+    const t = join(WORKERS, d, 'wrangler.toml');
+    if (existsSync(t)) out[d] = crons(readFileSync(t, 'utf8'));
+  }
+  return JSON.stringify(out, null, 2) + '\n';
+}
+if (args[0] === '--write-schedules') {
+  mkdirSync(dirname(SCHEDULES), { recursive: true });
+  writeFileSync(SCHEDULES, schedules());
+  console.log(`wrote ${relative(ROOT, SCHEDULES)}`);
+  process.exit(0);
+}
+
 const findings = [];
+if (!existsSync(SCHEDULES) || readFileSync(SCHEDULES, 'utf8') !== schedules()) {
+  findings.push(`${relative(ROOT, SCHEDULES)} differs from workers/erp-*/wrangler.toml — run: node scripts/check-erp-workers.mjs --write-schedules`);
+}
 for (const d of dirs) {
   const tomlPath = join(WORKERS, d, 'wrangler.toml');
   const entry = join(WORKERS, d, 'src', 'index.ts');

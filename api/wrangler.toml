@@ -201,7 +201,7 @@ name = "EMAIL"
 # here) -> :40 publish. ERP stays host + storage, no timers of its own.
 # Removed: "20 */3" (already a no-op), "30 */3" (draft-prep), "10 */3" (WB
 # auto-reply — ERP has no WB token since the reissue, it was dead weight).
-crons = ["*/2 * * * *", "0 0 * * *", "*/15 * * * *"]
+crons = ["0 0 * * *", "*/15 * * * *"]
 
 
 # -----------------------------------------------------------------------------

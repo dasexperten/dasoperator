@@ -9,12 +9,14 @@ export interface TriggerEnv extends BaseEnv {
 export function erpTriggerWorker(worker: string): ExportedHandler<TriggerEnv> {
   return erpWorker<TriggerEnv>(worker, async (env, dry) => {
     if (dry) return { note: 'dry · ERP job not started' };
+    // A fresh deploy runs before its key is set: record the skip instead of alerting.
+    if (!env.ERP_RUN_SECRET) return { note: 'SKIPPED — no ERP_RUN_SECRET on this worker yet' };
     const res = await env.ERP.fetch(`https://internal/internal/cron/${worker}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${env.ERP_RUN_SECRET ?? ''}` },
     });
-    const body = (await res.json().catch(() => null)) as { ok?: boolean; cron?: string; ms?: number; error?: string } | null;
+    const body = (await res.json().catch(() => null)) as { ok?: boolean; cron?: string; ms?: number; note?: string; error?: string } | null;
     if (!res.ok || !body?.ok) throw new Error(`ERP job ${worker}: HTTP ${res.status} ${body?.error ?? ''}`.trim());
-    return { note: `ERP job "${body.cron}" done in ${body.ms} ms` };
+    return { note: body.note ? `${body.note} · ${body.ms} ms` : `ERP job "${body.cron}" done in ${body.ms} ms` };
   });
 }

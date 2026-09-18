@@ -1,0 +1,20 @@
+# erp-mail-index — mail index mirror: R2 Inbox → D1 mail_index
+# Step split out of a mixed dasoperator-api timer ("*/2", "*/15" or "0 0") on 2026-09-18; runs in the ERP on its keys (api/src/cron-steps.ts).
+name = "erp-mail-index"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "081ddb85cb399ad62a70210328d744fc"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+[[services]]
+binding = "ERP"
+service = "dasoperator-api"
+
+[triggers]
+crons = ["*/15 * * * *"]

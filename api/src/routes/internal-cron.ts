@@ -10,6 +10,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { handleScheduled } from '../scheduled';
+import { STEPS } from '../cron-steps';
 
 const MOVED: Record<string, string> = {
   'erp-skladbot-sync': '30 */6 * * *',
@@ -44,10 +45,19 @@ route.post('/:worker', async (c) => {
   if (!secret || !sameSecret(given, secret)) return c.json({ ok: false, error: 'unauthorized' }, 401);
 
   const worker = c.req.param('worker');
+  const started = Date.now();
+  const step = STEPS[worker];
+  if (step) {
+    try {
+      const note = await step(c.env);
+      return c.json({ ok: true, cron: 'step', note, ms: Date.now() - started });
+    } catch (e) {
+      return c.json({ ok: false, cron: 'step', error: e instanceof Error ? e.message : String(e) }, 500);
+    }
+  }
   const cron = MOVED[worker];
   if (!cron) return c.json({ ok: false, error: `no ERP job for ${worker}` }, 404);
 
-  const started = Date.now();
   const event = { cron, scheduledTime: started, type: 'scheduled', noRetry() {} } as unknown as ScheduledEvent;
   try {
     await handleScheduled(event, c.env, c.executionCtx as ExecutionContext);

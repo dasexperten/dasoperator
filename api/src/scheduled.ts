@@ -11,7 +11,7 @@ import type { Env } from './types';
 import { runInboxIngestion } from './lib/inbox-ingestion';
 import { runEmailRetention } from './lib/email-retention';
 import { runBankStatementIngestion } from './lib/bank-statement-ingestion';
-import { scheduleWbWeekly, scheduleOzonMonthly, tickMarketplacePull, rebuildPriorMonthSite, rebuildPriorMonthDasexpertenCom } from './lib/marketplace-pull';
+import { scheduleWbWeekly, scheduleOzonMonthly, rebuildPriorMonthSite, rebuildPriorMonthDasexpertenCom } from './lib/marketplace-pull';
 import { runFboSync } from './marketplaces/fbo-sync';
 import { reportCronFailure } from './lib/auto-healer';
 
@@ -85,7 +85,7 @@ async function cronCreatePerfReport(env: Env) {
 // =============================================================================
 // CRON: Poll Performance API reports (every 2 minutes)
 // =============================================================================
-async function cronPollPerfReports(env: Env) {
+export async function cronPollPerfReports(env: Env) {
   try {
     if (!env.OZON_PERF_CLIENT_ID || !env.OZON_PERF_CLIENT_SECRET) {
       return;
@@ -512,19 +512,6 @@ export async function handleScheduled(
       console.error('[cron:inbox] failed:', e);
     }
 
-    // Nightly three-way reconcile: turn waiting F4 service invoices / acts into
-    // operations (create if none, attach if exists). Anchored on invoice number
-    // so it never duplicates the bank-created deal. Runs after ingestion so the
-    // freshest docs are considered. (Aram spec, 2026-06-30.)
-    console.log('[cron:inbox-reconcile] starting nightly deal reconcile');
-    try {
-      const { runInboxReconcile } = await import('./lib/inbox-reconcile');
-      const rec = await runInboxReconcile(env);
-      console.log(`[cron:inbox-reconcile] complete: ${JSON.stringify(rec)}`);
-    } catch (e) {
-      console.error('[cron:inbox-reconcile] failed:', e);
-    }
-
     // Also run bank statement ingestion for active sources
     console.log('[cron:bank-statements] starting daily bank statement ingestion');
     try {
@@ -534,16 +521,8 @@ export async function handleScheduled(
       console.error('[cron:bank-statements] failed:', e);
     }
 
-    // After fresh bank tx are pulled, run FIFO allocator across all marketplace partners
-    console.log('[cron:mp-fifo] starting daily marketplace FIFO allocator');
-    try {
-      const { runMarketplaceFifoAll } = await import('./lib/marketplace-fifo-allocator');
-      const fifoResults = await runMarketplaceFifoAll(env);
-      const summary = fifoResults.map(r => `${r.partner_id}: ${r.payments_processed} pmts → ${r.allocations_created} allocs (${r.ops_fully_closed.length} closed)`).join('; ');
-      console.log(`[cron:mp-fifo] complete: ${summary}`);
-    } catch (e) {
-      console.error('[cron:mp-fifo] failed:', e);
-    }
+    // Reconcile (00:40, erp-inbox-reconcile) and marketplace FIFO (00:50, erp-marketplace-fifo)
+    // run after this slot in their own workers.
     return;
   }
 
@@ -556,25 +535,7 @@ export async function handleScheduled(
   }
 
   // Poll Performance API reports every 2 minutes
-  if (cron === '*/2 * * * *') {
-    await cronPollPerfReports(env);
-
-    // Снимок описи (ход 2, Владелец 2026-09-03). Опись больше не
-    // переписывается на каждое письмо; здесь она пересобирается из зеркала
-    // для ящиков, где после прошлого снимка что-то прибавилось. Ящиков без
-    // прибавки проход не касается — одна выборка и тишина.
-    // Файл нужен не экрану, а воркерам мест: они читают его напрямую.
-    try {
-      const { snapshotPass } = await import('./lib/mail-index-sync');
-      const r = await snapshotPass(env, { max: 4 });
-      if (r.pending) {
-        console.log(`[cron:mail-snapshot] ${JSON.stringify({ pending: r.pending, wrote: r.wrote, ms: r.ms, skipped: r.results.filter((x) => !x.wrote).map((x) => `${x.address}:${x.reason}`) })}`);
-      }
-    } catch (e) {
-      console.error('[cron:mail-snapshot] failed:', e);
-    }
-    return;
-  }
+  // "*/2": Ozon ads poll and mail snapshot run in erp-ozon-ads-poll / erp-mail-snapshot.
 
   // Marketplace STOCKS — Owner 2026-07-21/22 CUTOVER: Ozon+WB stock pulls are
   // owned exclusively by fleet Workers dasha-ozon / arina-wb (write
@@ -724,118 +685,9 @@ export async function handleScheduled(
       console.error('[cron:tg-inbox] failed:', e);
     }
 
-    console.log('[cron:promo-refill] starting Ozon promo auto-refill sweep');
-    try {
-      const { runPromoRefillSweep } = await import('./routes/marketplaces-promos');
-      const stats = await runPromoRefillSweep(env);
-      console.log(`[cron:promo-refill] complete: ${JSON.stringify(stats)}`);
-    } catch (e) {
-      console.error('[cron:promo-refill] failed:', e);
-    }
-    // Also tick marketplace pull pipeline (process 1 pending task)
-    try {
-      const r = await tickMarketplacePull(env);
-      if (r) console.log(`[cron:mp-pull-tick] ${JSON.stringify(r)}`);
-    } catch (e) {
-      console.error('[cron:mp-pull-tick] failed:', e);
-    }
-
-    // Зеркало почтовой описи (ход 1, Владелец 2026-09-02). Сквозная запись
-    // ловит письма, прошедшие через этот воркер; обход добирает то, что
-    // места записали в R2 со своих ключей. Ящик, чья опись не менялась,
-    // стоит одного head() — тик остаётся дешёвым. Своего расписания не
-    // завожу: слот */15 уже живёт, а расписания под заморозкой.
-    try {
-      const { sweepMailIndex } = await import('./lib/mail-index-sync');
-      const r = await sweepMailIndex(env, { max: 6 });
-      console.log(`[cron:mail-index] ${JSON.stringify({ ok: r.ok, boxes: r.boxes, changed: r.changed, upserted: r.upserted, cursor: r.cursor, ms: r.ms })}`);
-    } catch (e) {
-      console.error('[cron:mail-index] failed:', e);
-    }
-
-    // Опрос Ozon по созданным отправлениям витрины .ru + письмо «Д»
-    // (Владелец 2026-08-30, инцидент DE260825-5106: посылка ехала с 29.08,
-    // покупатель молчал в неведении). ERP чужими руками не машет: POST идёт
-    // в НАШУ витрину (api/order/track.php), а уже она говорит с Ozon, пишет
-    // статус и трек себе в базу и один раз шлёт письмо «Д» — замок
-    // order_mails на её стороне. Стоит ПЕРЕД зеркалом, чтобы этот же тик
-    // забрал свежие статусы в D1.
-    if (env.RU_ADMIN_TOKEN) {
-      try {
-        const t0 = Date.now();
-        const res = await fetch('https://dasexperten.ru/api/order/track.php', {
-          method: 'POST',
-          headers: { 'X-Sync-Token': env.RU_ADMIN_TOKEN, 'Content-Type': 'application/json' },
-          body: '{}',
-        });
-        const j = await res.json().catch(() => null) as { checked?: number; results?: Array<{ mail_shipped?: boolean | null }> } | null;
-        const mails = (j?.results ?? []).filter(r => r.mail_shipped === true).length;
-        const now = Date.now();
-        const sql = `INSERT INTO crm_sync_state (key, value, updated_at) VALUES (?1, ?2, ?3)
-          ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`;
-        await env.DB.batch([
-          env.DB.prepare(sql).bind('ru_track:last_try_at', String(now), now),
-          env.DB.prepare(sql).bind('ru_track:last_status', res.ok ? `ok checked=${j?.checked ?? '?'} mails=${mails}` : `http_${res.status}`, now),
-          ...(res.ok ? [env.DB.prepare(sql).bind('ru_track:last_ok_at', String(now), now)] : []),
-        ]);
-        console.log(`[cron:ru-track] ${res.ok ? 'ok' : 'FAILED http_' + res.status} checked=${j?.checked ?? '?'} mails=${mails} ${Date.now() - t0}ms`);
-      } catch (e) {
-        console.error('[cron:ru-track] failed:', e);
-      }
-    }
-
-    // Зеркало заказов русской витрины → D1 (слой 3, Владелец 2026-08-29,
-    // BACKLOGS/2026-08-29_crm-orders-d1-mirror.md). Раз в 15 минут — одна
-    // лента ~1.4 МБ, для reg.ru это ничто; свежесть экрана Orders ≤ 15 мин.
-    // Сбой ленты не трогает старые строки; причина ложится в
-    // crm_sync_state ru_orders:last_error и в лог. Плашка stale на экране —
-    // от last_ok_at, не от этого лога.
-    if (env.RU_FEED_TOKEN) {
-      try {
-        const { syncRuOrders } = await import('./lib/crm-orders-sync');
-        const r = await syncRuOrders(env);
-        console.log(`[cron:ru-orders-mirror] ${r.ok ? 'ok' : 'FAILED'} ${r.upserted}/${r.total} v${r.feed_version ?? '?'} ${r.ms}ms${r.error ? ' — ' + r.error : ''}`);
-        // Прогрев статистики/клиентов/графика по свежему зеркалу — экран
-        // никогда не платит за холодный расчёт.
-        const { warmKitAggregate } = await import('./routes/crm');
-        const w = await warmKitAggregate(env);
-        console.log(`[cron:ru-orders-mirror] agg warmed ${w.orders} orders ${w.ms}ms`);
-      } catch (e) {
-        console.error('[cron:ru-orders-mirror] failed:', e);
-      }
-
-      // Связка ключа витрины со счётом лояльности — чтобы в CRM был виден
-      // остаток баллов (Владелец разрешил обход 02.09.2026). Идёт партиями:
-      // 1482 ключа разбираются за несколько тиков и дальше сами подхватывают
-      // новых покупателей. Свой try — обход не должен ронять синк зеркала.
-      try {
-        const { resolveLoyaltyKeys } = await import('./lib/loyalty-key-map');
-        const m = await resolveLoyaltyKeys(env);
-        if (m.asked || m.error) {
-          console.log(`[cron:loyalty-key-map] ${m.ok ? 'ok' : 'FAILED'} спрошено ${m.asked}: ` +
-                      `счёт найден ${m.matched}, город ${m.withCity}, не ответила ${m.failed}; ` +
-                      `осталось ${m.remaining} ${m.ms}ms${m.error ? ' — ' + m.error : ''}`);
-        }
-      } catch (e) {
-        console.error('[cron:loyalty-key-map] failed:', e);
-      }
-    }
-
-    // Спасение истории заказов RetailCRM в R2 — аккаунт удаляют, срок два дня
-    // (Владелец 02.09.2026). Идёт партиями и сам замолкает, дойдя до конца:
-    // после этого в состоянии стоит 'done' и обращений к RetailCRM больше нет.
-    // Только чтение — в RetailCRM ничего не меняем.
-    try {
-      const { archiveRetailCrmOrders } = await import('./lib/retailcrm-orders-archive');
-      const a = await archiveRetailCrmOrders(env);
-      if (!a.skipped) {
-        console.log(`[cron:retailcrm-orders] ${a.ok ? 'ok' : 'FAILED'} страницы ${a.fromPage}+${a.pagesDone}/` +
-                    `${a.totalPages}, заказов ${a.orders}${a.file ? ' → ' + a.file : ''}` +
-                    `${a.done ? ' — ВЫГРУЗКА ЗАВЕРШЕНА' : ''} ${a.ms}ms${a.error ? ' — ' + a.error : ''}`);
-      }
-    } catch (e) {
-      console.error('[cron:retailcrm-orders] failed:', e);
-    }
+    // The model-free steps of this slot run in their own erp-* workers (api/src/cron-steps.ts):
+    // promo refill, marketplace pull, mail index, .ru track, .ru orders, loyalty keys.
+    // The RetailCRM export finished (crm_sync_state retailcrm:orders_page = done) and was removed.
     return;
   }
 

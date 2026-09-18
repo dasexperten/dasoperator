@@ -1,0 +1,16 @@
+# erp-partner-status — partner CRM status recount (active / sleeping / potential)
+# Moved out of dasoperator-api "0 12 * * *" on 2026-09-18.
+name = "erp-partner-status"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "081ddb85cb399ad62a70210328d744fc"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+[triggers]
+crons = ["0 12 * * *"]

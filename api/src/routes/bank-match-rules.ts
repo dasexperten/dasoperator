@@ -261,7 +261,7 @@ bankMatchRules.post('/suggest', async (c) => {
       ).bind(op.partner_id).first();
     }
 
-    const { suggestRuleFromAssignment } = await import('../lib/bank-match-rules');
+    const { suggestRuleFromAssignment } = await import('../lib/bank-match-rule-suggest');
     const suggestion = await suggestRuleFromAssignment(c.env, {
       tx,
       operation: op,

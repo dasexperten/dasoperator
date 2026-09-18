@@ -67,7 +67,7 @@ async function generateServiceReference(
 }
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
-import { suggestRuleFromAssignment } from '../lib/bank-match-rules';
+import { suggestRuleFromAssignment } from '../lib/bank-match-rule-suggest';
 
 const inboxBanking = new Hono<{ Bindings: Env }>();
 

@@ -1,0 +1,20 @@
+# erp-mail-relink — links archived letters that have no counterparty row (reads R2, writes email_links)
+# Moved out of dasoperator-api "35 * * * *" on 2026-09-18.
+name = "erp-mail-relink"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "081ddb85cb399ad62a70210328d744fc"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+[[r2_buckets]]
+binding = "ARCHIVE"
+bucket_name = "self-learning"
+
+[triggers]
+crons = ["35 * * * *"]

@@ -1,7 +1,6 @@
 // =============================================================================
 // Cron handler — dispatches by cron expression (wrangler.toml [triggers])
 //
-// "0 12 * * *"   — partner status recount (FX moved to worker erp-fx-rates)
 // "0 * * * *"    — hourly marketplace stock refresh from Ozon + WB (Phase 6.0b)
 //
 // Marketplace sync calls go through self-fetch to the worker's own POST
@@ -341,26 +340,11 @@ export async function handleScheduled(
 
   // Gmail is the permanent mail store. Do not mirror Gmail content into R2.
 
+
   // Website CRM — hourly Stripe reconciliation (Phase 12.0, dasexperten.com).
   // Webhook /api/crm/website/webhook/stripe is the real-time path; this poll
   // catches anything it missed and sweeps refunds. No-op until
   // STRIPE_SECRET_KEY is set and /admin/migrate/crm-website has run.
-  // Owner 2026-08-30 (R1 "every box must reach the ERP"). sales@, asean@ and
-  // build@ are routed to a seat Worker, which archives into our own R2 bucket
-  // but writes no D1 at all — so those letters had no counterparty row. This
-  // sweeps them, and any letter of ours whose linkEmail failed silently.
-  // Reads R2, writes only email_links. Creates and deletes no mail.
-  // Rollback: delete this block and drop "35 * * * *" from wrangler.toml.
-  if (cron === '35 * * * *') {
-    try {
-      const { relinkUnlinked } = await import('./lib/email-relink');
-      const r = await relinkUnlinked(env);
-      console.log('[cron:email-relink] ' + JSON.stringify(r));
-    } catch (e) {
-      console.error('[cron:email-relink] failed:', e);
-    }
-  }
-
   if (cron === '7 * * * *') {
     try {
       const { pollStripeOrders } = await import('./lib/crm-website');
@@ -442,23 +426,10 @@ export async function handleScheduled(
     return;
   }
 
-  // Email scenario tick — every 3h at :23 UTC ("Pochtalon Pechkin").
-  // Marks run timestamps for enabled scenarios and is the hook where the
-  // worker/hermes drafting pipeline plugs in (reads inbox -> playbook ->
-  // drafts -> queues for Safety Gate). Drafting itself is wired separately.
-  if (cron === '23 */3 * * *') {
-    try {
-      const n = Math.floor(Date.now() / 1000);
-      const next = n + 3 * 3600;
-      const res = await env.DB.prepare(
-        'UPDATE email_scenarios SET last_run_at = ?, next_run_at = ?, updated_at = ? WHERE enabled = 1'
-      ).bind(n, next, n).run();
-      console.log(`[cron:email-scenarios] ticked ${res.meta.changes ?? 0} enabled scenarios`);
-    } catch (e) {
-      console.error('[cron:email-scenarios] failed:', e);
-    }
-    return;
-  }
+
+  // Moved to their own erp-* workers (workers/, Owner 2026-09-18): FX + pricing rates
+  // (erp-fx-rates), partner status (erp-partner-status), mail relink (erp-mail-relink),
+  // mail scenario stamps (erp-mail-scenarios), nightly bank match (erp-bank-match).
 
   // NOTE: the automatic Ozon → RUB price sync cron was removed by owner request.
   // RUB prices are OWNER-MANAGED and static — like every other currency, the
@@ -466,11 +437,6 @@ export async function handleScheduled(
   // automatically. The manual /api/pricing/sync-ozon endpoint still exists for a
   // deliberate one-off pull, but it runs on no schedule.
 
-  // CBR + storefront pricing rates run in worker erp-fx-rates (workers/erp-fx-rates).
-  if (cron === '0 12 * * *') {
-    await runPartnerStatusRecalc(env);
-    return;
-  }
 
   // WB weekly realization schedule — Thursday 04:00 UTC (07:00 МСК)
   // WB publishes Mon-Sun reports for the previous week on Thursdays.
@@ -628,13 +594,6 @@ export async function handleScheduled(
     return;
   }
 
-  if (cron === '0 * * * *') {
-    // Owner 2026-07-23: DO NOT hit WB feedbacks here.
-    // Was: hourly POST /api/reviews/sweep-retries (up to 50 posts/hour) → "too many requests".
-    // WB review answers run ONLY on 10 */3 (every 3h full backlog). Failed posts wait for next 3h tick.
-    console.log('[cron:hourly] reviews-sweep DISABLED (Owner: WB care only every 3h)');
-    return;
-  }
 
   // F4 Lyubertsy fulfillment / Skladbot WMS — stock snapshot + requests mirror sync.
   // Runs every 6 hours at :30 (03:30, 09:30, 15:30, 21:30 МСК), offset from
@@ -897,24 +856,6 @@ export async function handleScheduled(
     return;
   }
 
-  // Nightly rematch sweep — 2:00 UTC (6:00 Yerevan).
-  // Re-runs auto-match on all unmatched bank_transactions from last 180 days.
-  // Catches old transactions that became matchable after new partners,
-  // operations, or classifier rules were added during the day.
-  if (cron === '0 2 * * *') {
-    console.log('[cron:bank-rematch-nightly] starting nightly auto-match retry + rebalance');
-    try {
-      const { retryUnmatchedTransactions, rebalanceMisattributedMatches } =
-        await import('./lib/bank-auto-match');
-      const retryStats = await retryUnmatchedTransactions(env);
-      console.log(`[cron:bank-rematch-nightly] retry: ${JSON.stringify(retryStats)}`);
-      const rebalanceStats = await rebalanceMisattributedMatches(env);
-      console.log(`[cron:bank-rematch-nightly] rebalance: ${JSON.stringify(rebalanceStats)}`);
-    } catch (e) {
-      console.error('[cron:bank-rematch-nightly] failed:', e);
-    }
-    return;
-  }
 
   // WB review auto-reply — Tamara lane every 3 hours (Owner 2026-07-20).
   // Was */20 — caused feedbacks-api rate limits. Craft owner = Tamara only;
@@ -1114,38 +1055,3 @@ async function runMarketplaceSalesSync(env: Env): Promise<void> {
 // Skips partners with crm_status='lead'. Lead is set only on UI creation,
 // and survives until the partner gets its first contract or operation.
 // =============================================================================
-async function runPartnerStatusRecalc(env: Env): Promise<void> {
-  const oneYearAgo = Math.floor(Date.now() / 1000) - 31_536_000;
-  console.log(`[cron] partner status recalc starting (threshold ${new Date(oneYearAgo * 1000).toISOString()})`);
-
-  try {
-    const result = await env.DB.prepare(`
-      UPDATE partners
-      SET crm_status = CASE
-        WHEN EXISTS (
-          SELECT 1 FROM operations o
-          WHERE o.partner_id = partners.id
-            AND o.deleted_at IS NULL
-            AND o.operation_date >= ?
-        ) THEN 'active'
-        WHEN EXISTS (
-          SELECT 1 FROM operations o
-          WHERE o.partner_id = partners.id
-            AND o.deleted_at IS NULL
-        ) THEN 'sleeping'
-        WHEN EXISTS (
-          SELECT 1 FROM contracts c
-          WHERE c.partner_id = partners.id
-            AND c.deleted_at IS NULL
-        ) THEN 'potential'
-        ELSE 'sleeping'
-      END
-      WHERE deleted_at IS NULL
-        AND crm_status != 'lead'
-    `).bind(oneYearAgo).run();
-
-    console.log(`[cron] partner status recalc done — ${result.meta.changes ?? 0} partners updated`);
-  } catch (e) {
-    console.error('[cron] partner status recalc FAILED:', e);
-  }
-}

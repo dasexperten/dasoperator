@@ -1,5 +1,5 @@
 # erp-site-order-retry — .ru storefront: retry paid orders without shipment, shipment statuses, buyer letters (sent by the storefront)
-# Timer moved from the agent seat dasha-ozon on 2026-09-18; code in workers/_site.
+# Timer moved from the agent seat dasha-ozon on 2026-09-18; the job runs in the ERP (api/src/cron-steps.ts) on its .ru token and Ozon key.
 name = "erp-site-order-retry"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
@@ -12,10 +12,13 @@ binding = "DB"
 database_name = "das_erp_dev"
 database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
 
-# Keys (secrets): SITE_SYNC_TOKEN (SECRETS/dasexperten-ru-admin-token.md).
 [vars]
 # Dry until the dasha-ozon timer is off, so the two never act on the same orders.
 DRY_RUN = "1"
+
+[[services]]
+binding = "ERP"
+service = "dasoperator-api"
 
 [triggers]
 crons = ["7,22,37,52 * * * *"]

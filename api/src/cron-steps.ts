@@ -32,7 +32,27 @@ async function ruTrack(env: Env): Promise<string> {
   return `checked=${j?.checked ?? '?'} mails=${mails}`;
 }
 
+// Dasha's storefront jobs (moved 2026-09-18) run on the ERP's own .ru admin token and
+// Ozon seller key: the vault copy of the storefront token is stale (403).
+function storefrontEnv(env: Env): Record<string, unknown> {
+  return { ...env, SITE_SYNC_TOKEN: env.RU_ADMIN_TOKEN };
+}
+
 export const STEPS: Record<string, Step> = {
+  'erp-site-stock': async (env) => {
+    // @ts-expect-error plain JS module
+    const { syncOzonStocksToSite } = await import('./lib/site-stock-sync.mjs');
+    const r = await syncOzonStocksToSite(storefrontEnv(env));
+    if (!r || r.ok === false) throw new Error(String(r?.error ?? 'no result'));
+    return JSON.stringify(r).slice(0, 600);
+  },
+  'erp-site-order-retry': async (env) => {
+    // @ts-expect-error plain JS module
+    const { syncOzonOrdersOnSite } = await import('./lib/site-order-sync.mjs');
+    const r = await syncOzonOrdersOnSite(storefrontEnv(env));
+    if (!r || r.ok === false) throw new Error(String(r?.error ?? 'no result'));
+    return JSON.stringify(r).slice(0, 600);
+  },
   'erp-ozon-ads-poll': async (env) => {
     await cronPollPerfReports(env);
     return 'Ozon Performance reports polled';

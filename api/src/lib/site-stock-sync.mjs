@@ -20,7 +20,7 @@
  * (pricing.js: flipVariants) и возвращается к упаковке, когда одноштучный
  * кончился. Отказ любого шага не роняет сиденье — возвращается error.
  */
-import { ozonClientId } from "../_marketplace/marketplace-api.mjs";
+import { ozonClientId } from "../../../workers/_marketplace/marketplace-api.mjs";
 
 const OZ_STOCKS = "https://api-seller.ozon.ru/v4/product/info/stocks";
 // Живой замер 24.08.2026: v4/product/info/prices отдаёт 404 page not found —

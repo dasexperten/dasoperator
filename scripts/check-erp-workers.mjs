@@ -89,16 +89,31 @@ function schedules() {
   }
   return JSON.stringify(out, null, 2) + '\n';
 }
+// When each worker joined: the guard does not expect runs from before its birth.
+// New workers get the moment they are added; existing dates are never rewritten.
+const BORN = join(ROOT, 'api', 'src', 'generated', 'erp-born.json');
+function born(now) {
+  const cur = existsSync(BORN) ? JSON.parse(readFileSync(BORN, 'utf8')) : {};
+  const out = {};
+  for (const d of dirs) out[d] = cur[d] ?? now;
+  return out;
+}
 if (args[0] === '--write-schedules') {
   mkdirSync(dirname(SCHEDULES), { recursive: true });
   writeFileSync(SCHEDULES, schedules());
-  console.log(`wrote ${relative(ROOT, SCHEDULES)}`);
+  writeFileSync(BORN, JSON.stringify(born(args[1] ?? new Date().toISOString().slice(0, 16) + ':00Z'), null, 2) + '\n');
+  console.log(`wrote ${relative(ROOT, SCHEDULES)} and ${relative(ROOT, BORN)}`);
   process.exit(0);
 }
 
 const findings = [];
 if (!existsSync(SCHEDULES) || readFileSync(SCHEDULES, 'utf8') !== schedules()) {
   findings.push(`${relative(ROOT, SCHEDULES)} differs from workers/erp-*/wrangler.toml — run: node scripts/check-erp-workers.mjs --write-schedules`);
+}
+{
+  const b = existsSync(BORN) ? JSON.parse(readFileSync(BORN, 'utf8')) : {};
+  const missing = dirs.filter((d) => !b[d]);
+  if (missing.length) findings.push(`${relative(ROOT, BORN)} has no birth for ${missing.join(', ')} — run --write-schedules`);
 }
 for (const d of dirs) {
   const tomlPath = join(WORKERS, d, 'wrangler.toml');

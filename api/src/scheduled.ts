@@ -979,6 +979,13 @@ export async function handleScheduled(
     } catch (e) {
       console.error('[cron:watchdog] failed:', e);
     }
+    try {
+      const { notifyErpCronFailures } = await import('./lib/erp-cron-failures');
+      const n = await notifyErpCronFailures(env);
+      if (n) console.log(`[cron:erp-cron-failures] reported ${n}`);
+    } catch (e) {
+      console.error('[cron:erp-cron-failures] failed:', e);
+    }
     return;
   }
 

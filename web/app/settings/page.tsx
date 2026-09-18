@@ -3,7 +3,7 @@
 export const runtime = 'edge';
 
 import Link from 'next/link';
-import { Tag, FileSliders, Settings as SettingsIcon, ArrowRight, Users, Activity } from 'lucide-react';
+import { Tag, FileSliders, Settings as SettingsIcon, ArrowRight, Users, Activity, Timer } from 'lucide-react';
 
 const SECTIONS = [
   {
@@ -17,6 +17,12 @@ const SECTIONS = [
     title: 'Team Activity',
     description: 'Logins, time in system and activity % per employee. Working window 10:00-18:00, weekdays. Admin only.',
     icon: Activity,
+  },
+  {
+    href: '/settings/timers',
+    title: 'Timers',
+    description: 'Every automatic ERP task without a model: its last run, result and rows written. Failures go to Telegram once.',
+    icon: Timer,
   },
   {
     href: '/settings/finance-categories',

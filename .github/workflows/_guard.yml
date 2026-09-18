@@ -53,3 +53,20 @@ jobs:
       # migration check beside it.
       - name: Check knowledge-graph parser
         run: bash scripts/check-knowledge-parser.sh
+
+  erp-workers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # workers/erp-*: a timer worker that imports a model client or holds a key
+      # in its code does not ship (Owner 2026-09-18: model-free timers only).
+      - name: Check erp-* timer workers
+        run: node scripts/check-erp-workers.mjs

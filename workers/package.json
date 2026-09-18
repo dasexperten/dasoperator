@@ -1,0 +1,9 @@
+{
+  "name": "dasoperator-erp-workers",
+  "private": true,
+  "description": "erp-* timer workers: one model-free action per worker. Deployed by .github/workflows/deploy-erp-workers.yml",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "wrangler": "^3.99.0"
+  }
+}

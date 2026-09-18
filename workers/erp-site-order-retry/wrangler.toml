@@ -1,0 +1,21 @@
+# erp-site-order-retry — .ru storefront: retry paid orders without shipment, shipment statuses, buyer letters (sent by the storefront)
+# Timer moved from the agent seat dasha-ozon on 2026-09-18; code in workers/_site.
+name = "erp-site-order-retry"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "081ddb85cb399ad62a70210328d744fc"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+# Keys (secrets): SITE_SYNC_TOKEN (SECRETS/dasexperten-ru-admin-token.md).
+[vars]
+# Dry until the dasha-ozon timer is off, so the two never act on the same orders.
+DRY_RUN = "1"
+
+[triggers]
+crons = ["7,22,37,52 * * * *"]

@@ -1,0 +1,24 @@
+# erp-wb-sales — Wildberries sales (last 7 days) into the ERP
+# Timer moved from the agent seat (arina-wb) on 2026-09-18; code in workers/_marketplace.
+name = "erp-wb-sales"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "081ddb85cb399ad62a70210328d744fc"
+workers_dev = true
+
+# DB = run log, ERP_DB = the marketplace tables; both are das_erp_dev.
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+[[d1_databases]]
+binding = "ERP_DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+# Keys (secrets): WB_API_TOKEN (Arina's personal token, SECRETS/wb-arina.md).
+
+[triggers]
+crons = ["15 22 * * *"]

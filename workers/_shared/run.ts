@@ -12,7 +12,7 @@ export interface BaseEnv {
   ERP_RUN_SECRET?: string;
 }
 
-type Job<E> = (env: E, dry: boolean) => Promise<RunOutcome>;
+type Job<E> = (env: E, dry: boolean, cron: string) => Promise<RunOutcome>;
 
 interface RunReport extends RunOutcome {
   ok: boolean;
@@ -34,7 +34,7 @@ async function runLogged<E extends BaseEnv>(env: E, worker: string, cron: string
 
   let report: RunReport;
   try {
-    const out = await job(env, dry);
+    const out = await job(env, dry, cron);
     report = { ok: true, dry, ...out };
   } catch (e) {
     report = { ok: false, dry, error: e instanceof Error ? e.message : String(e) };

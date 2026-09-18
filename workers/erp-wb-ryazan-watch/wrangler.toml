@@ -1,0 +1,36 @@
+# erp-wb-ryazan-watch — Ryazan warehouse: do WB orders against its stock ship?
+# Timer moved from the agent seat arina-wb on 2026-09-18; code in workers/_marketplace/seat-reports.mjs.
+# DRY_RUN stays "1" until the seat's timer is off, so the board cell is never written twice.
+name = "erp-wb-ryazan-watch"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "081ddb85cb399ad62a70210328d744fc"
+workers_dev = true
+
+# DB = run log (das_erp_dev). ERP_DB = marketplace tables. ORG_DB = the board database.
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+[[d1_databases]]
+binding = "ERP_DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+[[d1_databases]]
+binding = "ORG_DB"
+database_name = "das_org"
+database_id = "56cd51f7-6502-4754-bcc6-23da52a34b0d"
+
+[[services]]
+binding = "BOARD"
+service = "organizacia"
+
+# Keys (secrets): WB_API_TOKEN (Arina's personal token).
+[vars]
+DRY_RUN = "1"
+
+[triggers]
+crons = ["35 10 * * *"]

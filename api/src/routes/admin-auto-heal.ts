@@ -12,8 +12,22 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { reportCronFailure } from '../lib/auto-healer';
+import { sendOwnerTelegram } from '../lib/owner-telegram';
+import { validateSession } from '../lib/auth';
 
 const route = new Hono<{ Bindings: Env }>();
+
+// Explicit admin authentication: the global auth gate can run in observe mode.
+// Fixed recipient and text; no synthetic sync failure or repair action is created.
+route.post('/test-notification', async (c) => {
+  const token = c.req.header('Authorization')?.replace(/^Bearer\s+/i, '') || '';
+  const user = await validateSession(c.env.DB, token);
+  if (!user) return c.json({ success: false, error: 'unauthorized' }, 401);
+  if (user.role !== 'admin') return c.json({ success: false, error: 'forbidden' }, 403);
+  const sent = await sendOwnerTelegram(c.env,
+    'Проверка доставки: уведомления ERP теперь приходят в этот чат через dasexpertenbot. В «Избранное» они больше не отправляются.');
+  return c.json({ success: sent, destination: '@dasexpertenbot' }, sent ? 200 : 502);
+});
 
 route.get('/status', async (c) => {
   const recent = await c.env.DB.prepare(

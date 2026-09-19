@@ -97,11 +97,14 @@ id = "43f2004892714cbb919e5174ce2a8556"
 # Cloudflare blocks Workerâ†’same-account-Worker via *.workers.dev (error 1042),
 # so the inbox cron must use this binding to reach emailer.
 # -----------------------------------------------------------------------------
-# Telegram to the Owner goes through the bridge by binding: a fetch to its *.workers.dev
-# address from this Worker is refused by Cloudflare (1042), so alerts never arrived.
+# Userbot remains for inbox ingestion. Owner alerts use the organization bot below.
 [[services]]
 binding = "TELEGRAMER"
 service = "telegramer-bridge"
+
+[[services]]
+binding = "ORGANIZATION"
+service = "organizacia"
 
 [[services]]
 binding = "EMAILER"

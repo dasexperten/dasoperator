@@ -76,7 +76,8 @@ export interface Env {
   BACKFILL_SECRET?: string;
   /** Shared secret for agent/harness → POST /api/email/resend-send | archive-sent */
   EMAILER_SERVICE_SECRET?: string;
-  DASORG_API_KEY?: string;   // org board — Учи engine (organizacia/api/learn-from-source.mjs)
+  DASORG_API_KEY?: string;   // org board — learning and Owner bot notifications
+  ORGANIZATION?: Fetcher;   // authenticated @dasexpertenbot delivery through organizacia
 
   // GitHub read token for dasexperten/organizacia — the knowledge graph's only
   // input. organizacia is a private repo, so without this the graph cannot
@@ -291,4 +292,3 @@ export interface HealthStatus {
 export type BindingStatus =
   | { status: 'ok'; latency_ms: number }
   | { status: 'error'; error: string };
-

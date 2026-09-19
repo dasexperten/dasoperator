@@ -23,4 +23,5 @@ database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
 OZON_CLIENT_ID = "374116"
 
 [triggers]
-crons = ["0 22 * * *"]
+# 01:00 Yerevan (21:00 UTC on the previous calendar day).
+crons = ["0 21 * * *"]

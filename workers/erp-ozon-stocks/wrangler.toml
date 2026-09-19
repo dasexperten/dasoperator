@@ -23,4 +23,5 @@ database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
 OZON_CLIENT_ID = "374116"
 
 [triggers]
-crons = ["0 0,4,10,12,16,20 * * *"]
+# Once daily at 00:30 Yerevan (20:30 UTC), before the 01:00 sales pulls.
+crons = ["30 20 * * *"]

@@ -80,3 +80,8 @@ test('WB FBO requests cannot touch a database or network',async(t)=>{
  t.mock.method(globalThis,'fetch',()=>{throw new Error('unexpected network');});
  const report=await runFboSync({},'wb');assert.equal(report.wb.skipped,true);
 });
+
+test('FBS-only WB denies every warehouse-stock API before network', async(t)=>{
+  t.mock.method(globalThis,'fetch',()=>{throw new Error('unexpected network');});
+  for (const path of ['https://seller-analytics-api.wildberries.ru/api/v1/warehouse_remains', 'https://seller-analytics-api.wildberries.ru/api/analytics/v1/stocks-report/wb-warehouses', 'https://statistics-api.wildberries.ru/api/v1/supplier/stocks']) await assert.rejects(()=>wbRequest({},path),/FBS-only/);
+});

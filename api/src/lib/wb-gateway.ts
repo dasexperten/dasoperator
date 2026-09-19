@@ -10,6 +10,8 @@ const HOSTS = new Set(['statistics-api.wildberries.ru', 'seller-analytics-api.wi
 export function wbPolicy(url: URL) {
   if (url.protocol !== 'https:' || !HOSTS.has(url.hostname) || url.port || url.username || url.password)
     throw new Error('WB gateway destination denied');
+  if (/warehouse_remains|stocks-report\/wb-warehouses|\/supplier\/stocks/.test(url.pathname))
+    throw new Error('WB warehouse-stock APIs are retired; FBS-only');
   const host = url.hostname;
   let group = url.pathname;
   let interval = 1000;
@@ -20,7 +22,6 @@ export function wbPolicy(url: URL) {
     if (url.pathname.endsWith('/warehouse_remains')) interval = 65000;
   }
   if (host.startsWith('discounts-prices-')) { interval = 6500; group = 'prices'; }
-  if (host.startsWith('feedbacks-')) group = 'care';
   return { key: `${host}:${group}`, interval };
 }
 export function retryMilliseconds(headers: Headers, fallback = 65000, now = Date.now()) {

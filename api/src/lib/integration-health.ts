@@ -46,7 +46,6 @@ interface MpRule {
 const MP_RULES: MpRule[] = [
   { key: 'ozon_stocks', label: 'Ozon \u00b7 stocks', log_name: 'ozon',       expects: 'every 1h',          degraded_after_h: 2, broken_after_h: 4 },
   { key: 'ozon_sales',  label: 'Ozon \u00b7 sales',  log_name: 'ozon-sales', expects: 'every 1h (429 ok)', degraded_after_h: 4, broken_after_h: 12 },
-  { key: 'wb_stocks',   label: 'WB \u00b7 stocks',   log_name: 'wb',         expects: 'every ~4h (WB limit)', degraded_after_h: 6, broken_after_h: 10 },
   { key: 'wb_sales',    label: 'WB \u00b7 sales',    log_name: 'wb-sales',   expects: 'every 1h (429 ok)', degraded_after_h: 6, broken_after_h: 24 },
   // Tamara care lane (Owner 2026-07-20): every 3h — not 20m / not company-wide spam
   { key: 'ozon_reviews',   label: 'Ozon \u00b7 reviews (Tamara)',   log_name: 'ozon-reviews',   expects: 'every 3h',   degraded_after_h: 6,  broken_after_h: 12 },
@@ -290,7 +289,7 @@ export async function computeIntegrationHealth(env: Env): Promise<HealthReport> 
     checkWebAnalytics(env, now),
   ]);
 
-  const order = ['ozon_stocks', 'ozon_sales', 'wb_stocks', 'wb_sales', 'ozon_reviews', 'wb_reviews', 'ozon_questions', 'wb_questions', 'wb_backfill', 'modulbank', 'web_analytics'];
+  const order = ['ozon_stocks', 'ozon_sales', 'wb_sales', 'ozon_reviews', 'wb_reviews', 'ozon_questions', 'wb_questions', 'wb_backfill', 'modulbank', 'web_analytics'];
   checks.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
 
   const needsYou = checks.filter((c) => c.status === 'broken').length;

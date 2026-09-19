@@ -24,6 +24,8 @@ const KEY_LITERAL = [
 ];
 
 // Owner-approved exceptions to "timer, no model" — each with the Owner's word.
+const RETIRED = { 'erp-wb-stocks': 'Owner 2026-09-19: WB is FBS-only; no warehouse stock sync' };
+
 const MODEL_ALLOWED = {
   'erp-inventory': 'Owner 2026-09-18: inventory@ stock lists read by DeepSeek inside this worker ("put it inside that worker", "the best model for identification")',
 };
@@ -129,7 +131,8 @@ for (const d of dirs) {
   const name = tomlField(toml, 'name');
   if (name !== d) findings.push(`${d}: wrangler name "${name}" differs from folder`);
   const isMail = /\basync\s+email\s*\(/.test(readFileSync(entry, 'utf8'));
-  if (!crons(toml).length && !isMail) findings.push(`${d}: no [triggers] crons and no email handler — a worker with nothing to wake it`);
+  if (!crons(toml).length && !isMail && !RETIRED[d]) findings.push(`${d}: no [triggers] crons and no email handler — a worker with nothing to wake it`);
+  if (RETIRED[d] && crons(toml).length) findings.push(`${d}: retired worker must have no cron`);
   if (tomlField(toml, 'main') !== 'src/index.ts') findings.push(`${d}: main must be src/index.ts`);
 
   for (const f of graph(entry)) {

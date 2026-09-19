@@ -123,3 +123,7 @@ No repairs or deployments are claimed in this report.
 Deployment order: gateway/schema first, then ERP clients and Arina/legacy retirement, then remove duplicate secrets. Schema is additive. Rollback: revert affected source commits through main and redeploy; keep the additive tables. Restore timer credentials from Arina vault only if rolling the clients back to direct egress; do not touch Tamara.
 
 Validation before deployment: gateway concurrency, persisted cooldown, destination allowlist, bounded retry, duplicate cron/manual exclusion, and retired WB FBO tests pass; ERP API bundles successfully. Live results will be recorded after rollout.
+
+### Final Owner clarification: WB is FBS-only
+
+All WB warehouse-stock sync is retired, including `erp-wb-stocks` cron and manual `/run`, ERP `/sync/wb`, FBO sync and ingest. The private gateway also refuses warehouse-stock API paths. The stale-stock integration alarm is removed. Historical stock records are preserved, not presented as newly synced. WB sales stays active through ERP with Arina's credential. Tamara remains unchanged.

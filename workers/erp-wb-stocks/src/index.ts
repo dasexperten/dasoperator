@@ -1,14 +1,8 @@
-import { erpWorker, type BaseEnv } from '../../_shared/run';
-// @ts-expect-error plain JS module
-import { syncWbStocksToErp } from '../../_marketplace/erp-stocks-sync.mjs';
-
-interface Env extends BaseEnv {
-  ERP_DB: D1Database;
-}
-
-export default erpWorker<Env>('erp-wb-stocks', async (env, dry) => {
-  if (dry) return { note: 'dry · sync skipped' };
-  const r = await syncWbStocksToErp(env);
-  if (r?.error) throw new Error(String(r.error));
-  return { rows: r?.rows_synced ?? 0, note: JSON.stringify(r).slice(0, 500) };
-});
+// Owner 2026-09-19: WB is FBS-only. No warehouse-stock API calls.
+export default {
+  fetch(request: Request) {
+    if (new URL(request.url).pathname === '/health') return Response.json({ ok: true, retired: true, reason: 'WB is FBS-only; warehouse-stock sync disabled' });
+    return Response.json({ ok: false, error: 'WB warehouse-stock sync retired; FBS-only' }, { status: 410 });
+  },
+  scheduled() { console.log('WB warehouse-stock sync retired; no outbound requests'); },
+};

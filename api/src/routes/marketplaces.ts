@@ -16,7 +16,6 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { parseMarketplaceArticle } from '../lib/marketplace-articles';
-import { fetchWbWarehouseStocks, loadWbStockMappings } from '../lib/wb-stock-report';
 
 const marketplaces = new Hono<{ Bindings: Env }>();
 
@@ -180,111 +179,8 @@ marketplaces.post('/sync/ozon', async (c) => {
 
 // ---------------------------------------------------------------------------
 // POST /api/marketplaces/sync/wb
-// Pulls sellable stocks from the current Wildberries Seller Analytics report
-// and upserts them into marketplace_stocks_wb.
-// Aggregates per supplierArticle (sums across all WB physical warehouses).
-// ---------------------------------------------------------------------------
-marketplaces.post('/sync/wb', async (c) => {
-  const startedAt = Math.floor(Date.now() / 1000);
-
-  const logResult = await c.env.DB.prepare(
-    'INSERT INTO marketplace_sync_log (marketplace, started_at, status) VALUES (?, ?, ?)'
-  ).bind('wb', startedAt, 'running').run();
-  const logId = logResult.meta.last_row_id;
-
-  try {
-    const wbToken = c.env.WB_API_TOKEN;
-    if (!wbToken) throw new Error('WB_API_TOKEN not configured');
-
-    const mappings = await loadWbStockMappings(c.env.DB);
-    const report = await fetchWbWarehouseStocks(wbToken, c.env, mappings);
-    const rows = report.rows;
-
-    // Aggregate per article (WB returns per-warehouse rows, we collapse to one row per article)
-    type Agg = {
-      nm_id: number;
-      base_sku: string;
-      pack_factor: 1 | 2 | 4;
-      quantity: number;
-      in_way_to_client: number;
-      in_way_from_client: number;
-      quantity_full: number;
-    };
-    const byArticle: Map<string, Agg> = new Map();
-    const unmatched: Set<string> = new Set();
-
-    for (const r of rows) {
-      const { baseSku, packFactor } = parseMarketplaceArticle(r.supplierArticle);
-      if (!baseSku) {
-        unmatched.add(r.supplierArticle);
-        continue;
-      }
-      let a = byArticle.get(r.supplierArticle);
-      if (!a) {
-        a = {
-          nm_id: r.nmId,
-          base_sku: baseSku,
-          pack_factor: packFactor,
-          quantity: 0,
-          in_way_to_client: 0,
-          in_way_from_client: 0,
-          quantity_full: 0,
-        };
-        byArticle.set(r.supplierArticle, a);
-      }
-      a.quantity += r.quantity || 0;
-      a.in_way_to_client += r.inWayToClient || 0;
-      a.in_way_from_client += r.inWayFromClient || 0;
-      // The replacement API exposes current sellable quantity and transit
-      // counters separately. Keep quantity_full conservative and auditable:
-      // it is sellable stock, not an invented sum of unlike states.
-      a.quantity_full += r.quantity || 0;
-    }
-
-    const now = Math.floor(Date.now() / 1000);
-    const stmts = [];
-    for (const [article, v] of byArticle) {
-      stmts.push(
-        c.env.DB.prepare(`
-          INSERT INTO marketplace_stocks_wb
-            (supplier_article, nm_id, base_sku, pack_factor, quantity, in_way_to_client, in_way_from_client, quantity_full, synced_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(supplier_article) DO UPDATE SET
-            nm_id = excluded.nm_id,
-            base_sku = excluded.base_sku,
-            pack_factor = excluded.pack_factor,
-            quantity = excluded.quantity,
-            in_way_to_client = excluded.in_way_to_client,
-            in_way_from_client = excluded.in_way_from_client,
-            quantity_full = excluded.quantity_full,
-            synced_at = excluded.synced_at
-        `).bind(
-          article, v.nm_id, v.base_sku, v.pack_factor,
-          v.quantity, v.in_way_to_client, v.in_way_from_client, v.quantity_full, now
-        )
-      );
-    }
-    if (stmts.length > 0) await c.env.DB.batch(stmts);
-
-    const finishedAt = Math.floor(Date.now() / 1000);
-    await c.env.DB.prepare(
-      'UPDATE marketplace_sync_log SET finished_at = ?, status = ?, rows_synced = ? WHERE id = ?'
-    ).bind(finishedAt, 'ok', stmts.length, logId).run();
-
-    return ok(c, {
-      rows_synced: stmts.length,
-      unmatched: Array.from(unmatched),
-      unmatched_nm_ids: report.unmatchedNmIds,
-      finished_at: finishedAt,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    await c.env.DB.prepare(
-      'UPDATE marketplace_sync_log SET finished_at = ?, status = ?, error_message = ? WHERE id = ?'
-    ).bind(Math.floor(Date.now() / 1000), 'error', message, logId).run();
-    return fail(c, 500, [{ code: 'wb_sync_failed', message }]);
-  }
-});
+// Owner 2026-09-19: WB is FBS-only; this manual warehouse-stock path is retired.
+marketplaces.post('/sync/wb', c => c.json({ ok: false, error: 'WB warehouse-stock sync retired; FBS-only' }, 410));
 
 // ===========================================================================
 // HOME / PULSE ENDPOINTS — Phase 9.x marketplace pulse cards

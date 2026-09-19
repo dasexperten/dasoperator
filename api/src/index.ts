@@ -80,6 +80,7 @@ import freightRfqRoutes from './routes/freight-rfq';
 import marketplacePullRoutes from './routes/marketplace-pull';
 import salesBreakdownRoutes from './routes/sales-breakdown';
 import reviewsRoutes from './routes/reviews';
+import marketplaceChats from './routes/marketplace-chats';
 import mpFeedsRoutes from './routes/mp-feeds';
 import wbHealthRoutes from './routes/wb-health';
 import { fboRoutes } from './marketplaces/fbo-routes';
@@ -245,6 +246,7 @@ app.route('/api/operations', operationsImportRoutes);  // adds /parse-excel
 app.route('/api/marketplace-pull', marketplacePullRoutes);
 app.route('/api/dashboard', salesBreakdownRoutes);
 app.route('/api/reviews', reviewsRoutes);
+app.route('/api/marketplace-chats', marketplaceChats);
 app.route('/api/mp', mpFeedsRoutes);
 app.route('/api/wb/health', wbHealthRoutes);
 app.route('/api/skills', skillsRoutes);

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import MarketplaceChats from '../../components/reviews/marketplace-chats';
 
 // =============================================================================
 // /reviews — marketplace reviews & questions, 4 live feeds from das_erp_dev D1.
@@ -10,7 +11,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 const API_BASE = 'https://dasoperator-api.dasexperten.workers.dev';
 
 type Channel = 'ozon' | 'wb';
-type Kind = 'reviews' | 'questions';
+type Kind = 'reviews' | 'questions' | 'chats';
 
 type Item = {
   id: string; kind: Kind; channel: Channel;
@@ -23,6 +24,8 @@ const TABS: { key: string; channel: Channel; kind: Kind; label: string }[] = [
   { key: 'ozon-questions', channel: 'ozon', kind: 'questions', label: 'Ozon questions' },
   { key: 'wb-reviews', channel: 'wb', kind: 'reviews', label: 'WB reviews' },
   { key: 'wb-questions', channel: 'wb', kind: 'questions', label: 'WB questions' },
+  { key: 'wb-chats', channel: 'wb', kind: 'chats', label: 'WB chat' },
+  { key: 'ozon-chats', channel: 'ozon', kind: 'chats', label: 'Ozon chat' },
 ];
 
 const CHANNEL_COLOR: Record<Channel, string> = { ozon: '#005BFF', wb: '#CB11AB' };
@@ -65,6 +68,7 @@ export default function ReviewsPage() {
   const tab = TABS.find(t => t.key === active)!;
 
   const load = useCallback(async () => {
+    if (tab.kind === 'chats') return;
     setLoading(true); setError(null);
     try {
       let mapped: Item[] = [];
@@ -117,8 +121,8 @@ export default function ReviewsPage() {
           <span style={{ width: 44, height: 6, background: 'var(--brand-rot)', borderRadius: 3 }} />
           <span style={{ width: 22, height: 6, background: 'var(--brand-gold)', borderRadius: 3 }} />
         </div>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 42, fontWeight: 900, lineHeight: 1.05, color: 'var(--fg-1)', margin: 0, letterSpacing: '-0.01em' }}>
-          Reviews &amp; questions
+        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 42, fontWeight: 900, lineHeight: 1.05, color: 'var(--fg-1)', margin: 0, letterSpacing: '0' }}>
+          Reviews, questions &amp; chats
         </h1>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 16, fontWeight: 600, color: 'var(--fg-2)', marginTop: 8 }}>
           Customer feedback across marketplaces
@@ -149,6 +153,7 @@ export default function ReviewsPage() {
       </div>
 
       {/* Toolbar */}
+      {tab.kind === 'chats' ? <MarketplaceChats key={tab.channel} channel={tab.channel} /> : <>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 22 }}>
         <input value={search} onChange={e => setSearch(e.target.value)}
           placeholder={tab.kind === 'reviews' ? 'Search reviews, products…' : 'Search questions, products…'}
@@ -188,6 +193,7 @@ export default function ReviewsPage() {
             </div>
           </>
         )}
+      </>}
     </div>
   );
 }

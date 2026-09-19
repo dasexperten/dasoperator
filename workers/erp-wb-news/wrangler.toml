@@ -32,3 +32,9 @@ service = "organizacia"
 
 [triggers]
 crons = ["5 4 * * *", "5 12 * * *"]
+
+# Only dasoperator-api holds WB credentials or calls WB.
+[[services]]
+binding = "WB_GATEWAY"
+service = "dasoperator-api"
+entrypoint = "WbGateway"

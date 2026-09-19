@@ -20,8 +20,26 @@ interface RunReport extends RunOutcome {
   error?: string;
 }
 
-export async function runLogged<E extends BaseEnv>(env: E, worker: string, cron: string, job: Job<E>): Promise<RunReport> {
+export async function runLogged<E extends BaseEnv>(env: E, worker: string, cron: string, job: Job<E>, scheduledTime?: number): Promise<RunReport> {
   const dry = env.DRY_RUN === '1';
+  const guarded = worker.startsWith('erp-wb-') && !dry;
+  const lock = `lock:${worker}`;
+  const now = Date.now();
+  const lease = crypto.randomUUID();
+  if (guarded) {
+    const got = await env.DB.prepare(`INSERT INTO erp_job_claims (worker, slot, lease_until) VALUES (?, ?, ?)
+      ON CONFLICT(worker) DO UPDATE SET slot=excluded.slot, lease_until=excluded.lease_until WHERE erp_job_claims.lease_until<=?
+      RETURNING worker`).bind(lock, lease, now + 15 * 60_000, now).first();
+    if (!got) return { ok: true, dry, note: 'SKIPPED — WB sync already running' };
+    if (scheduledTime !== undefined) {
+      const slot = await env.DB.prepare(`INSERT OR IGNORE INTO erp_job_claims (worker, slot, lease_until) VALUES (?, ?, ?) RETURNING worker`)
+        .bind(`slot:${worker}:${scheduledTime}`, String(scheduledTime), now).first();
+      if (!slot) {
+        await env.DB.prepare('DELETE FROM erp_job_claims WHERE worker=? AND slot=?').bind(lock, lease).run();
+        return { ok: true, dry, note: 'SKIPPED — scheduled WB slot already handled' };
+      }
+    }
+  }
   let id: number | null = null;
   try {
     const row = await env.DB.prepare(
@@ -56,6 +74,7 @@ export async function runLogged<E extends BaseEnv>(env: E, worker: string, cron:
       console.error(`[${worker}] run log update failed`, e);
     }
   }
+  if (guarded) await env.DB.prepare('DELETE FROM erp_job_claims WHERE worker=? AND slot=?').bind(lock, lease).run();
   console.log(`[${worker}] ${JSON.stringify(report)}`);
   return report;
 }
@@ -71,7 +90,7 @@ export function erpWorker<E extends BaseEnv>(worker: string, job: Job<E>): Expor
   return {
     async scheduled(event, env, ctx) {
       ctx.waitUntil(
-        runLogged(env, worker, event.cron, job).then((r) => {
+        runLogged(env, worker, event.cron, job, event.scheduledTime).then((r) => {
           if (!r.ok) throw new Error(r.error);
         }),
       );

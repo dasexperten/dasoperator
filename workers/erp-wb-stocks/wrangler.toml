@@ -22,3 +22,9 @@ database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
 
 [triggers]
 crons = ["15 0,4,10,12,16,20 * * *"]
+
+# Only dasoperator-api holds WB credentials or calls WB.
+[[services]]
+binding = "WB_GATEWAY"
+service = "dasoperator-api"
+entrypoint = "WbGateway"

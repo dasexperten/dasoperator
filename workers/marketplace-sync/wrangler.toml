@@ -1,0 +1,9 @@
+name = "marketplace-sync"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+account_id = "081ddb85cb399ad62a70210328d744fc"
+workers_dev = true
+[triggers]
+crons = []
+[observability]
+enabled = true

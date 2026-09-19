@@ -1,3 +1,4 @@
+import { wbRead } from "./wb-egress.mjs";
 /**
  * Marketplace stocks craft → ERP D1 (Owner 2026-07-21).
  *
@@ -400,7 +401,7 @@ export async function syncWbStocksToErp(env) {
   }
   const { logId } = await beginLog(env, "wb");
   try {
-    const token = String(env.WB_API_TOKEN || env.ARINA_WB_API_TOKEN || "").trim();
+    const token = env.WB_GATEWAY ? "erp-managed" : String(env.WB_API_TOKEN || env.ARINA_WB_API_TOKEN || "").trim();
     if (!token) throw new Error("Arina WB credentials missing (WB_API_TOKEN)");
 
     const headers = {
@@ -418,7 +419,7 @@ export async function syncWbStocksToErp(env) {
       groupByBarcode: "false",
       groupBySize: "false",
     });
-    const create = await fetch(`${WB_WH_CREATE}?${createQs}`, {
+    const create = await wbRead(env, `${WB_WH_CREATE}?${createQs}`, {
       method: "GET",
       headers,
       signal: AbortSignal.timeout(28000),
@@ -442,12 +443,12 @@ export async function syncWbStocksToErp(env) {
     let ready = false;
     for (let i = 0; i < 24; i++) {
       await sleep(4000);
-      const st = await fetch(`${WB_WH_CREATE}/tasks/${encodeURIComponent(taskId)}/status`, {
+      const st = await wbRead(env, `${WB_WH_CREATE}/tasks/${encodeURIComponent(taskId)}/status`, {
         headers,
         signal: AbortSignal.timeout(20000),
       });
       if (!st.ok) {
-        const st2 = await fetch(`${WB_WH_CREATE}/tasks?taskId=${encodeURIComponent(taskId)}`, {
+        const st2 = await wbRead(env, `${WB_WH_CREATE}/tasks?taskId=${encodeURIComponent(taskId)}`, {
           headers,
           signal: AbortSignal.timeout(20000),
         });
@@ -477,7 +478,7 @@ export async function syncWbStocksToErp(env) {
     }
     if (!ready) throw new Error(`WB warehouse_remains task ${taskId} not ready after polling`);
 
-    const dl = await fetch(`${WB_WH_CREATE}/tasks/${encodeURIComponent(taskId)}/download`, {
+    const dl = await wbRead(env, `${WB_WH_CREATE}/tasks/${encodeURIComponent(taskId)}/download`, {
       headers,
       signal: AbortSignal.timeout(28000),
     });

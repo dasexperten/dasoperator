@@ -1,3 +1,4 @@
+import { wbRead } from "./wb-egress.mjs";
 /**
  * Marketplace SALES craft → ERP D1 (Owner 2026-07-21).
  *
@@ -116,6 +117,7 @@ function ozHeaders(env) {
 }
 
 function wbToken(env) {
+  if (env.WB_GATEWAY) return "erp-managed";
   const t = String(env.WB_API_TOKEN || env.ARINA_WB_API_TOKEN || "").trim();
   if (!t) throw new Error("Arina WB credentials missing");
   return t;
@@ -549,17 +551,17 @@ export async function syncOzonSalesToErp(env, periodDays = 7) {
 // WB helpers
 // ---------------------------------------------------------------------------
 
-async function fetchWbNmReport(token, dateFrom, dateTo) {
+async function fetchWbNmReport(env, token, dateFrom, dateTo) {
   const map = new Map();
   let offset = 0;
   const limit = 1000;
   while (true) {
-    const resp = await fetch("https://seller-analytics-api.wildberries.ru/api/analytics/v3/sales-funnel/products", {
+    const resp = await wbRead(env, "https://seller-analytics-api.wildberries.ru/api/analytics/v3/sales-funnel/products", {
       method: "POST",
       headers: {
         Authorization: token,
         "Content-Type": "application/json",
-        "User-Agent": "arina-wb/sales (+dasexperten fleet)",
+        "User-Agent": "erp-wb-sales",
       },
       body: JSON.stringify({
         selectedPeriod: { start: dateFrom, end: dateTo },
@@ -574,10 +576,6 @@ async function fetchWbNmReport(token, dateFrom, dateTo) {
       }),
       signal: AbortSignal.timeout(28000),
     });
-    if (resp.status === 429) {
-      await sleep(15000);
-      continue;
-    }
     if (!resp.ok) {
       throw new Error(`WB nm-report HTTP ${resp.status}: ${(await resp.text()).slice(0, 180)}`);
     }
@@ -610,26 +608,20 @@ async function fetchWbNmReport(token, dateFrom, dateTo) {
     if (cards.length < limit) break;
     offset += limit;
     if (offset >= 50_000) break;
-    await sleep(1100);
+    await sleep(21000);
   }
   return map;
 }
 
-async function fetchWbPrices(token) {
+async function fetchWbPrices(env, token) {
   const map = new Map();
   let offset = 0;
   for (let page = 0; page < 11; page++) {
     const url = `https://discounts-prices-api.wildberries.ru/api/v2/list/goods/filter?limit=1000&offset=${offset}`;
-    let resp = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      resp = await fetch(url, {
-        headers: { Authorization: token, "User-Agent": "arina-wb/sales (+dasexperten fleet)" },
-        signal: AbortSignal.timeout(28000),
-      });
-      if (resp.status !== 429) break;
-      await sleep(7000 * (attempt + 1));
-    }
-    if (!resp || !resp.ok) break;
+    const resp = await wbRead(env, url, {
+      headers: { Authorization: token, "User-Agent": "erp-wb-sales" },
+    });
+    if (!resp || !resp.ok) throw new Error(`WB prices HTTP ${resp?.status}`);
     const data = await resp.json();
     const goods = data.data?.listGoods || [];
     for (const g of goods) {
@@ -683,8 +675,8 @@ export async function syncWbSalesToErp(env, periodDays = 7) {
     out.period = { from: dateFromStr, to: dateToStr, days, previous_from: previousFromStr };
 
     const salesUrl = `https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=${encodeURIComponent(dateFromIso)}`;
-    const salesResp = await fetch(salesUrl, {
-      headers: { Authorization: token, "User-Agent": "arina-wb/sales (+dasexperten fleet)" },
+    const salesResp = await wbRead(env, salesUrl, {
+      headers: { Authorization: token, "User-Agent": "erp-wb-sales" },
       signal: AbortSignal.timeout(28000),
     });
     if (salesResp.status === 429) throw new Error("WB rate limited (429)");
@@ -699,13 +691,13 @@ export async function syncWbSalesToErp(env, periodDays = 7) {
 
     let funnelMap = new Map();
     try {
-      funnelMap = await fetchWbNmReport(token, dateFromStr, dateToStr);
+      funnelMap = await fetchWbNmReport(env, token, dateFromStr, dateToStr);
     } catch (e) {
       out.source_warnings.push(`funnel: ${String(e?.message || e)}`);
     }
     let priceMap = new Map();
     try {
-      priceMap = await fetchWbPrices(token);
+      priceMap = await fetchWbPrices(env, token);
     } catch (e) {
       out.source_warnings.push(`prices: ${String(e?.message || e)}`);
     }

@@ -1,10 +1,11 @@
+import { wbRead } from "./wb-egress.mjs";
 /**
  * Read-only marketplace API helpers for fleet craft Workers.
  * Secrets stay in Worker env (wrangler secret) — never hardcode.
  */
 
 export function hasWbSecrets(env) {
-  return Boolean(String(env.WB_API_TOKEN || "").trim());
+  return Boolean(env.WB_GATEWAY || String(env.WB_API_TOKEN || "").trim());
 }
 
 /** Ozon client id may be number-like string */
@@ -13,10 +14,10 @@ export function ozonClientId(env) {
 }
 
 export async function wbFetch(env, base, path, { method = "GET", query = "" } = {}) {
-  const token = String(env.WB_API_TOKEN || "").trim();
+  const token = env.WB_GATEWAY ? "erp-managed" : String(env.WB_API_TOKEN || "").trim();
   if (!token) throw new Error("WB_API_TOKEN missing");
   const url = `${base}${path}${query ? (path.includes("?") ? "&" : "?") + query : ""}`;
-  const res = await fetch(url, {
+  const res = await wbRead(env, url, {
     method,
     headers: {
       Authorization: token,

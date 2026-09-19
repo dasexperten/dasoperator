@@ -78,3 +78,6 @@ jobs:
 
       - name: Test cron-expect
         run: node --test api/src/lib/cron-expect.test.mjs
+
+      - name: Test WB gateway, concurrency and retired FBO sync
+        run: node --test api/src/lib/wb-gateway.test.mjs

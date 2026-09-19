@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
+import { validateSession } from '../lib/auth';
 import { autoMatchBankTransaction } from '../lib/bank-auto-match';
 import { tryMarketplaceMatchForTx, isMarketplaceInn } from '../lib/marketplace-match';
 
@@ -531,6 +532,11 @@ banksModulbank.get('/transactions/:id', async (c) => {
 // happens client-side based on bank_provider_id / auth_method.
 // =============================================================================
 banksModulbank.get('/accounts', async (c) => {
+  const authz = c.req.header('Authorization') || '';
+  const token = authz.startsWith('Bearer ') ? authz.slice(7) : '';
+  const user = await validateSession(c.env.DB, token);
+  if (!user) return fail(c, 401, [{ code: 'unauthorized', message: 'valid session required' }]);
+
   // Unified bank reference: every visible company_bank_accounts row with a
   // provider (Modulbank DEE, Wio DEI, Chase HK DEI, …). Per-account bank_*
   // columns (0065+) win over bank_providers when both are set.

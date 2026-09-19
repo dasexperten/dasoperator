@@ -33,7 +33,7 @@ app.get('/', async (c) => {
         (SELECT text FROM care_chat_messages WHERE thread_id=t.id ORDER BY datetime(created_at) DESC, id DESC LIMIT 1) AS latest_text,
         (SELECT status FROM care_chat_replies WHERE thread_id=t.id ORDER BY datetime(created_at) DESC, id DESC LIMIT 1) AS reply_status
         FROM care_chat_threads t WHERE ${where}
-        ORDER BY datetime(COALESCE(t.last_buyer_at,t.updated_at)) DESC, t.id DESC LIMIT ? OFFSET ?`).bind(...params, limit, offset),
+        ORDER BY t.last_buyer_at IS NULL, datetime(COALESCE(t.last_buyer_at,t.updated_at)) DESC, t.id DESC LIMIT ? OFFSET ?`).bind(...params, limit, offset),
       c.env.DB.prepare(`SELECT COUNT(*) AS total FROM care_chat_threads t WHERE ${where}`).bind(...params),
       c.env.DB.prepare(`SELECT status, rows_synced, started_at, finished_at FROM care_chat_sync_log
         WHERE marketplace=? ORDER BY id DESC LIMIT 1`).bind(`${channel}-chats`),

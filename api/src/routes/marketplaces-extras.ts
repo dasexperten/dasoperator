@@ -1,3 +1,4 @@
+import { wbRequest } from '../lib/wb-gateway';
 /**
  * Marketplace extras — endpoints layered on top of routes/marketplaces.ts.
  *
@@ -379,7 +380,7 @@ marketplacesExtras.post('/sync/sales/wb', async (c) => {
 
     // Step 1 — raw sales feed
     const salesUrl = `https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=${encodeURIComponent(dateFromIso)}`;
-    const salesResp = await fetch(salesUrl, { headers: { 'Authorization': c.env.WB_API_TOKEN } });
+    const salesResp = await wbRequest(c.env, salesUrl, { headers: { 'Authorization': c.env.WB_API_TOKEN } });
     if (salesResp.status === 429) throw new Error('WB rate limited (429)');
     if (!salesResp.ok) throw new Error(`WB sales HTTP ${salesResp.status}: ${await salesResp.text()}`);
     const rows = await salesResp.json<any[]>();
@@ -1059,7 +1060,7 @@ async function fetchWbNmReport(
   const map = new Map<string, { views: number; tocart: number; position: number | null }>();
   let page = 1;
   while (true) {
-    const resp = await fetch('https://seller-analytics-api.wildberries.ru/api/v2/nm-report/detail', {
+    const resp = await wbRequest(env, 'https://seller-analytics-api.wildberries.ru/api/v2/nm-report/detail', {
       method: 'POST',
       headers: {
         'Authorization': env.WB_API_TOKEN,
@@ -1109,7 +1110,7 @@ async function fetchWbPrices(env: Env): Promise<Map<string, number>> {
     const url = `https://discounts-prices-api.wildberries.ru/api/v2/list/goods/filter?limit=1000&offset=${offset}`;
     let resp: Response | null = null;
     for (let attempt = 0; attempt < 3; attempt++) {
-      resp = await fetch(url, { headers: { 'Authorization': env.WB_API_TOKEN } });
+      resp = await wbRequest(env, url, { headers: { 'Authorization': env.WB_API_TOKEN } });
       if (resp.status !== 429) break;
       await new Promise((r) => setTimeout(r, 7000 * (attempt + 1)));
     }
@@ -1162,7 +1163,7 @@ async function fetchWbAdvert(
   // Step 2: fetch list of all active campaigns
   let campaignsList: { status: number; advert_list: { advertId: number }[] }[] = [];
   try {
-    const r = await fetch('https://advert-api.wildberries.ru/adv/v1/promotion/count', {
+    const r = await wbRequest(env, 'https://advert-api.wildberries.ru/adv/v1/promotion/count', {
       headers: { Authorization: env.WB_API_TOKEN },
     });
     if (!r.ok) {
@@ -1197,7 +1198,7 @@ async function fetchWbAdvert(
     const chunk = activeAdvertIds.slice(i, i + 50);
     try {
       const ids = chunk.join(',');
-      const r = await fetch(`https://advert-api.wildberries.ru/api/advert/v2/adverts?ids=${ids}`, {
+      const r = await wbRequest(env, `https://advert-api.wildberries.ru/api/advert/v2/adverts?ids=${ids}`, {
         headers: { Authorization: env.WB_API_TOKEN },
       });
       if (r.status === 429) { await new Promise((x) => setTimeout(x, 5000)); i -= 50; continue; }
@@ -1224,7 +1225,7 @@ async function fetchWbAdvert(
     try {
       const ids = chunk.join(',');
       const url = `https://advert-api.wildberries.ru/adv/v3/fullstats?ids=${ids}&beginDate=${dateFrom}&endDate=${dateTo}`;
-      const r = await fetch(url, {
+      const r = await wbRequest(env, url, {
         headers: { Authorization: env.WB_API_TOKEN },
       });
       if (r.status === 429) { console.error('[wb advert] /fullstats HTTP 429'); continue; }

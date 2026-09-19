@@ -110,3 +110,16 @@ Times below are Yerevan. “Logged OK” means the wrapper returned success; it 
 5. Recheck weekly/monthly jobs on their first real slots. Keep the bank dry mode and promotion dry mode until their existing operating decisions are resolved.
 
 No repairs or deployments are claimed in this report.
+
+## WB repair, Owner scope clarified 19 September
+
+- `dasoperator-api` owns stock/sales WB egress using the existing Arina credential (`SECRETS/wb-arina.md`). Its private `WbGateway` entrypoint is not a public proxy.
+- Tamara has a distinct care function and credential: her code, bindings and care calls remain unchanged.
+- Retire WB FBO sync (including manual sync and ingest); preserve historical snapshots and continue Ozon FBO. Await Ozon results before reporting success.
+- ERP timers use shared WB cooldowns and bounded retries; scheduled duplicates and overlapping WB runs are suppressed.
+- Close Arina's obsolete public sync endpoints and retire the old unscheduled `marketplace-sync`. Remove redundant WB bindings after deployment.
+- Manual pulse refresh goes to ERP sales timers, including Ozon.
+
+Deployment order: gateway/schema first, then ERP clients and Arina/legacy retirement, then remove duplicate secrets. Schema is additive. Rollback: revert affected source commits through main and redeploy; keep the additive tables. Restore timer credentials from Arina vault only if rolling the clients back to direct egress; do not touch Tamara.
+
+Validation before deployment: gateway concurrency, persisted cooldown, destination allowlist, bounded retry, duplicate cron/manual exclusion, and retired WB FBO tests pass; ERP API bundles successfully. Live results will be recorded after rollout.

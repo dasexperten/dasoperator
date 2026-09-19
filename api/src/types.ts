@@ -46,6 +46,9 @@ export interface Env {
   /** Fleet Worker dasha-ozon — Ozon stocks+sales craft (Owner 2026-07-21) */
   DASHA_OZON: Fetcher;
   /** Fleet Worker arina-wb — WB stocks+sales craft (Owner 2026-07-21) */
+  ERP_WB_SALES: Fetcher;
+  ERP_OZON_SALES: Fetcher;
+  ERP_RUN_SECRET?: string;
   ARINA_WB: Fetcher;
   /**
    * Fleet Worker julian-geo — GEO seat. The nightly snapshot writes six tables

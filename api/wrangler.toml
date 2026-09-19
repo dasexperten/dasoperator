@@ -292,3 +292,12 @@ service = "valentina-legal"
 [[services]]
 binding = "LENA_ORCHESTRATOR"
 service = "lena-orchestrator"
+
+# Manual refresh uses the same ERP jobs as cron.
+[[services]]
+binding = "ERP_WB_SALES"
+service = "erp-wb-sales"
+
+[[services]]
+binding = "ERP_OZON_SALES"
+service = "erp-ozon-sales"

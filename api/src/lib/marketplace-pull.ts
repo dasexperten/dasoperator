@@ -1,3 +1,4 @@
+import { wbRequest } from '../lib/wb-gateway';
 // =============================================================================
 // Marketplace auto-pull pipeline — Phase 8.0
 //
@@ -161,7 +162,7 @@ async function tickWbRealization(env: Env, task: any): Promise<{ taskId: string;
     url.searchParams.set('rrdid', task.pagination_token);
   }
 
-  const resp = await fetch(url.toString(), {
+  const resp = await wbRequest(env, url.toString(), {
     headers: { 'Authorization': token },
   });
 

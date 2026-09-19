@@ -1,3 +1,4 @@
+import { wbRequest, type WbEnv } from './wb-gateway';
 export interface WbStockMapping {
   nmId: number;
   supplierArticle: string;
@@ -46,6 +47,7 @@ export async function loadWbStockMappings(db: D1Database): Promise<WbStockMappin
 
 export async function fetchWbWarehouseStocks(
   token: string,
+  env: WbEnv,
   mappings: WbStockMapping[],
 ): Promise<WbWarehouseStockReport> {
   const byNmId = new Map<number, WbStockMapping>();
@@ -55,7 +57,7 @@ export async function fetchWbWarehouseStocks(
   const nmIds = [...byNmId.keys()];
   if (!nmIds.length) return { rows: [], unmatchedNmIds: [] };
 
-  const response = await fetch(WB_STOCK_REPORT_URL, {
+  const response = await wbRequest(env, WB_STOCK_REPORT_URL, {
     method: 'POST',
     headers: {
       Authorization: token,

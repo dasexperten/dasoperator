@@ -325,3 +325,5 @@ export default {
   email: (message, env: Env) => handleInboundEmail(message, env),
 } satisfies ExportedHandler<Env>;
 
+// Private service entrypoint: no public proxy URL.
+export { WbGateway } from './wb-entrypoint';

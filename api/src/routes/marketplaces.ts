@@ -1,3 +1,4 @@
+import { wbRequest } from '../lib/wb-gateway';
 /**
  * Marketplace stocks routes.
  *
@@ -196,7 +197,7 @@ marketplaces.post('/sync/wb', async (c) => {
     if (!wbToken) throw new Error('WB_API_TOKEN not configured');
 
     const mappings = await loadWbStockMappings(c.env.DB);
-    const report = await fetchWbWarehouseStocks(wbToken, mappings);
+    const report = await fetchWbWarehouseStocks(wbToken, c.env, mappings);
     const rows = report.rows;
 
     // Aggregate per article (WB returns per-warehouse rows, we collapse to one row per article)
@@ -615,32 +616,22 @@ marketplaces.get('/pulse/sales-today', async (c) => {
 // POST /api/marketplaces/pulse/refresh
 // Manual on-demand refresh of sales feeds (home Marketplace Pulse "refresh").
 //
-// Owner 2026-07-21 cutover: Ozon + WB marketplace sales are owned by fleet
-// Workers dasha-ozon / arina-wb — NOT by this Worker's /sync/sales/* routes.
-// UI Refresh → signals specialists → they write marketplace_sales_* into ERP.
-// Site CRM sales stay local. Returns freshness from marketplace_sync_log.
-// ---------------------------------------------------------------------------
-
-/**
- * Call specialist Worker /sync-sales via service binding.
- * Same-account *.workers.dev is blocked (1042/404); custom DNS for
- * dasha-ozon.dasexperten.com is not provisioned — bindings only.
- */
+// Model-free jobs belong to ERP timers, including manual UI refresh.
 async function specialistSalesSync(
   fetcher: Fetcher | undefined,
-  path: string
+  secret: string | undefined
 ): Promise<number> {
-  if (!fetcher) return 0;
+  if (!fetcher || !secret) return 0;
   try {
     const r = await fetcher.fetch(
-      new Request(`https://internal${path}`, {
-        method: 'GET',
-        headers: { 'User-Agent': 'dasoperator-api/pulse-refresh (+specialist-cutover)' },
+      new Request('https://internal/run', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${secret}` },
       })
     );
     if (r.ok) {
-      const body = (await r.json().catch(() => null)) as { error?: string | null } | null;
-      if (body && body.error) return 502;
+      const body = (await r.json().catch(() => null)) as { ok?: boolean; error?: string | null } | null;
+      if (!body?.ok || body.error) return 502;
     }
     return r.status;
   } catch {
@@ -662,7 +653,7 @@ marketplaces.get('/diag/wb-day/:date', async (c) => {
   const wbToken = c.env.WB_API_TOKEN;
   if (!wbToken) return c.json({ success: false, error: 'no token' });
   const url = `https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=${date}T00:00:00`;
-  const resp = await fetch(url, { headers: { Authorization: wbToken } });
+  const resp = await wbRequest(c.env, url, { headers: { Authorization: wbToken } });
   if (!resp.ok) return c.json({ success: false, http: resp.status, body: (await resp.text()).slice(0, 120) });
   const rows = await resp.json() as any[];
   const d = rows.filter((r) => String(r.date || '').slice(0, 10) === date);
@@ -685,8 +676,8 @@ marketplaces.post('/pulse/refresh', async (c) => {
   // Ozon (Dasha) + WB (Arina) via service bindings + site CRM in parallel.
   // Specialists write marketplace_sales_* into this ERP D1; we only trigger + read log.
   const [ozonStatus, wbStatus, siteStatus] = await Promise.all([
-    specialistSalesSync(c.env.DASHA_OZON, '/sync-sales?days=7'),
-    specialistSalesSync(c.env.ARINA_WB, '/sync-sales?days=7'),
+    specialistSalesSync(c.env.ERP_OZON_SALES, c.env.ERP_RUN_SECRET),
+    specialistSalesSync(c.env.ERP_WB_SALES, c.env.ERP_RUN_SECRET),
     c.env.SELF.fetch(new Request('https://internal/api/crm/sync-site-sales', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -708,7 +699,7 @@ marketplaces.post('/pulse/refresh', async (c) => {
       ozon: ozonStatus,
       wb: wbStatus,
       site: siteStatus,
-      owners: { ozon: 'dasha-ozon', wb: 'arina-wb', site: 'dasoperator-crm' },
+      owners: { ozon: 'erp-ozon-sales', wb: 'erp-wb-sales', site: 'dasoperator-crm' },
     },
     freshness: {
       last_success_at: freshRow?.last_ok ?? null,
@@ -749,7 +740,7 @@ marketplaces.post('/backfill-sales', async (c) => {
     if (!wbToken) throw new Error('WB_API_TOKEN not configured');
 
     const url = `https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=${from}T00:00:00`;
-    const resp = await fetch(url, { headers: { Authorization: wbToken } });
+    const resp = await wbRequest(c.env, url, { headers: { Authorization: wbToken } });
     if (!resp.ok) throw new Error(`WB HTTP ${resp.status}: ${await resp.text()}`);
     const sales: any[] = await resp.json();
 
@@ -870,7 +861,7 @@ marketplaces.post('/backfill-wb-missing', async (c) => {
     if (!wbToken) throw new Error('WB_API_TOKEN not configured');
 
     const url = `https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=${from}T00:00:00`;
-    const resp = await fetch(url, { headers: { Authorization: wbToken } });
+    const resp = await wbRequest(c.env, url, { headers: { Authorization: wbToken } });
     if (!resp.ok) throw new Error(`WB HTTP ${resp.status}`);
     const sales: any[] = await resp.json();
 

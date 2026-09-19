@@ -791,7 +791,8 @@ export async function handleScheduled(
   // Ozon/WB marketplace sales NO LONGER run here (Owner 2026-07-21 cutover →
   // dasha-ozon 22:00 UTC / arina-wb 22:15 UTC write marketplace_sales_*).
   if (cron === '0 5 * * *') {
-    _ctx.waitUntil(runFboSync(env));
+    const report = await runFboSync(env);
+    if ('error' in report.ozon) throw new Error(`Ozon FBO sync incomplete: ${report.ozon.error}`);
     await runMarketplaceSalesSync(env); // site CRM only; MP sales no-op inside
     return;
   }

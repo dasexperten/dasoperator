@@ -1,40 +1,9 @@
-// api/src/marketplaces/fbo-routes.ts
-//
-// HTTP layer for FBO supply planning. Mount in the main app:
-//
-//   import { fboRoutes } from './marketplaces/fbo-routes';
-//   app.route('/api/marketplaces/fbo', fboRoutes);
-//
-// Endpoints:
-//   GET  /api/marketplaces/fbo/ozon   -> status JSON (replaces the dead
-//   GET  /api/marketplaces/fbo/wb        raw.githubusercontent *-fbo-status.json)
-//   POST /api/marketplaces/fbo/sync   -> pull fresh cluster-grain data from
-//                                        Ozon + WB APIs (60-90s: WB throttle),
-//                                        then recalc both. Manual trigger for
-//                                        the "recalculate" button; the daily
-//                                        cron calls runFboSync directly.
-//   GET  /api/marketplaces/fbo/runs   -> last 10 calc runs per marketplace
-//                                        (feeds the status panel that replaces
-//                                        the old GitHub Actions runs block).
-//
-// Calc is cheap (pure D1 read + math), so GET endpoints recalc on every hit:
-// the screen always reflects the latest synced data, no staleness, and the
-// run log doubles as an access log. If that ever gets heavy, add KV caching.
-//
-// SHAPE ADAPTER: the deployed frontend (web/app/marketplaces/page.tsx)
-// consumes a different shape than fbo-calc emits — clusters as a Record of
-// {to_ship, sku_count, oos, deficit}, a FLAT skus list with cluster on each
-// row, UPPERCASE zone labels (DEFICIT/OVERSTOCK checked at page.tsx:637/744),
-// total_skus / unknown_pack field names, and runs consumed strictly via
-// data.workflow_runs (page.tsx:258). toFrontendShape() below is the single
-// place the two shapes meet — evolve the frontend contract here, not in calc.
-// /runs returns BOTH keys: workflow_runs (current frontend) + runs (raw rows
-// for the future native status panel).
-
+// Ozon FBO sync and historical supply-planning views.
+// WB sync and ingest endpoints return 410 (Owner 2026-09-19).
 import { Hono } from 'hono';
 import { runFboCalc } from './fbo-calc';
 import type { FboStatus, Zone } from './fbo-calc';
-import { runFboSync, ingestWb, type FboEnv } from './fbo-sync';
+import { runFboSync, type FboEnv } from './fbo-sync';
 
 type Env = { Bindings: FboEnv };
 
@@ -116,27 +85,17 @@ fboRoutes.get('/wb', async (c) => {
 fboRoutes.post('/sync', async (c) => {
   try {
     const mp = c.req.query('mp');
-    const only = mp === 'ozon' || mp === 'wb' ? mp : undefined;
+    if (mp === 'wb') return c.json({ ok: false, error: 'WB FBO sync is retired' }, 410);
+    const only = 'ozon';
     const report = await runFboSync(c.env, only);
-    return c.json({ ok: true, report });
+    return c.json({ ok: !('error' in report.ozon), report }, 'error' in report.ozon ? 502 : 200);
   } catch (e) {
     return c.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 500);
   }
 });
 
-// Bring-your-own-payload WB ingest: when WB throttles Cloudflare egress,
-// fetch supplier/stocks + supplier/sales JSON from any unthrottled IP and
-// POST {stocks: [...], sales: [...]} here (either key optional). The data
-// flows through the same aggregation + snapshot code as the live sync.
-fboRoutes.post('/ingest-wb', async (c) => {
-  try {
-    const body = (await c.req.json()) as { stocks?: any[]; sales?: any[] };
-    const result = await ingestWb(c.env, body.stocks ?? null, body.sales ?? null);
-    return c.json({ ok: true, result });
-  } catch (e) {
-    return c.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 500);
-  }
-});
+// Retired together with the WB FBO API sync; historical data is preserved.
+fboRoutes.post('/ingest-wb', c => c.json({ ok: false, error: 'WB FBO sync is retired' }, 410));
 
 fboRoutes.get('/runs', async (c) => {
   const mp = c.req.query('marketplace');

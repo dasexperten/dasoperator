@@ -95,7 +95,40 @@ async function modulbankPost(path: string, token: string, payload: unknown): Pro
   const body = JSON.stringify(payload);
   return new Promise((resolve, reject) => {
     const chunks: Uint8Array[] = [];
-    const socket = connect({
+    let settled = false;
+    let socket: ReturnType<typeof connect>;
+    const finish = (error?: unknown, value?: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket?.destroy();
+      if (error) reject(error);
+      else resolve(value);
+    };
+    const parseCompleteResponse = (): unknown | undefined => {
+      const raw = concat(chunks);
+      const splitAt = indexOfBytes(raw, [13, 10, 13, 10]);
+      if (splitAt < 0) return undefined;
+      const head = new TextDecoder().decode(raw.slice(0, splitAt));
+      const responseBytes = raw.slice(splitAt + 4);
+      let responseBody: Uint8Array;
+      if (/transfer-encoding:\s*chunked/i.test(head)) {
+        if (indexOfBytes(responseBytes, [13, 10, 48, 13, 10]) < 0) return undefined;
+        responseBody = decodeChunked(responseBytes);
+      } else {
+        const length = Number(/content-length:\s*(\d+)/i.exec(head)?.[1] ?? -1);
+        if (length < 0 || responseBytes.byteLength < length) return undefined;
+        responseBody = responseBytes.slice(0, length);
+      }
+      const status = Number(head.split('\r\n', 1)[0].split(' ')[1]);
+      const responseText = new TextDecoder().decode(responseBody);
+      if (status < 200 || status >= 300) {
+        throw new Error(`Modulbank HTTP ${status}: ${responseText.slice(0, 200)}`);
+      }
+      return JSON.parse(responseText);
+    };
+    const timer = setTimeout(() => finish(new Error('Modulbank TLS request timed out')), 15_000);
+    socket = connect({
       host: 'api.modulbank.ru',
       port: 443,
       servername: 'api.modulbank.ru',
@@ -104,7 +137,7 @@ async function modulbankPost(path: string, token: string, payload: unknown): Pro
     }, () => {
       if (!socket.authorized) {
         socket.destroy();
-        reject(new Error(`Modulbank TLS rejected: ${socket.authorizationError ?? 'unknown error'}`));
+        finish(new Error(`Modulbank TLS rejected: ${socket.authorizationError ?? 'unknown error'}`));
         return;
       }
       socket.end([
@@ -120,25 +153,23 @@ async function modulbankPost(path: string, token: string, payload: unknown): Pro
         body,
       ].join('\r\n'));
     });
-    socket.on('data', (chunk: Uint8Array) => chunks.push(new Uint8Array(chunk)));
-    socket.on('error', reject);
+    socket.on('data', (chunk: Uint8Array) => {
+      chunks.push(new Uint8Array(chunk));
+      try {
+        const value = parseCompleteResponse();
+        if (value !== undefined) finish(undefined, value);
+      } catch (error) {
+        finish(error);
+      }
+    });
+    socket.on('error', (error: unknown) => finish(error));
     socket.on('end', () => {
       try {
-        const raw = concat(chunks);
-        const splitAt = indexOfBytes(raw, [13, 10, 13, 10]);
-        if (splitAt < 0) throw new Error('Modulbank returned malformed HTTP');
-        const head = new TextDecoder().decode(raw.slice(0, splitAt));
-        const status = Number(head.split('\r\n', 1)[0].split(' ')[1]);
-        const responseBody = /transfer-encoding:\s*chunked/i.test(head)
-          ? decodeChunked(raw.slice(splitAt + 4))
-          : raw.slice(splitAt + 4);
-        const responseText = new TextDecoder().decode(responseBody);
-        if (status < 200 || status >= 300) {
-          throw new Error(`Modulbank HTTP ${status}: ${responseText.slice(0, 200)}`);
-        }
-        resolve(JSON.parse(responseText));
+        const value = parseCompleteResponse();
+        if (value === undefined) throw new Error('Modulbank returned incomplete HTTP');
+        finish(undefined, value);
       } catch (error) {
-        reject(error);
+        finish(error);
       }
     });
   });

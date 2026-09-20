@@ -283,6 +283,17 @@ export interface FboSyncReport {
   wb: { skipped: true; reason: string };
 }
 
+// Canonical Ozon sales timer calls this after the normal sales tables are
+// refreshed. It keeps the FBO cluster view current without a second cron that
+// repeats the stock pull.
+export async function syncOzonFboSalesOnly(env: FboEnv): Promise<{ sales: number; unknown_warehouses: number }> {
+  await refreshOzonClusterMap(env);
+  const lookup = await loadClusterMap(env, 'ozon');
+  const sales = await syncOzonSales(env, lookup);
+  await registerUnknown(env, 'ozon', sales.unknown);
+  return { sales: sales.rows, unknown_warehouses: sales.unknown.size };
+}
+
 // Owner 2026-09-19: WB FBO sync is retired; Ozon continues.
 export async function runFboSync(env: FboEnv, only?: 'ozon' | 'wb'): Promise<FboSyncReport> {
   const report: FboSyncReport = { ozon: { error: 'not run' }, wb: { skipped: true, reason: 'WB FBO sync retired by Owner 2026-09-19' } };
@@ -303,12 +314,9 @@ export async function runFboSync(env: FboEnv, only?: 'ozon' | 'wb'): Promise<Fbo
     {
       try {
         await refreshOzonClusterMap(env); // needed by sales (postings carry warehouse_name only)
-        const lookup = await loadClusterMap(env, 'ozon');
         const st = await syncOzonStocks(env);
-        const sa = await syncOzonSales(env, lookup);
-        const unk = new Set([...st.unknown, ...sa.unknown]);
-        await registerUnknown(env, 'ozon', unk);
-        report.ozon = { stocks: st.rows, sales: sa.rows, unknown_warehouses: unk.size };
+        const sa = await syncOzonFboSalesOnly(env);
+        report.ozon = { stocks: st.rows, sales: sa.sales, unknown_warehouses: sa.unknown_warehouses };
       } catch (e) {
         report.ozon = { error: e instanceof Error ? e.message : String(e) };
         console.error('[fbo-sync] ozon failed:', e);

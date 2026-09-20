@@ -3,7 +3,7 @@
 import { Hono } from 'hono';
 import { runFboCalc } from './fbo-calc';
 import type { FboStatus, Zone } from './fbo-calc';
-import { runFboSync, type FboEnv } from './fbo-sync';
+import type { FboEnv } from './fbo-sync';
 
 type Env = { Bindings: FboEnv };
 
@@ -83,15 +83,8 @@ fboRoutes.get('/wb', async (c) => {
 });
 
 fboRoutes.post('/sync', async (c) => {
-  try {
-    const mp = c.req.query('mp');
-    if (mp === 'wb') return c.json({ ok: false, error: 'WB FBO sync is retired' }, 410);
-    const only = 'ozon';
-    const report = await runFboSync(c.env, only);
-    return c.json({ ok: !('error' in report.ozon), report }, 'error' in report.ozon ? 502 : 200);
-  } catch (e) {
-    return c.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 500);
-  }
+  const mp = c.req.query('mp');
+  return c.json({ ok: false, error: `${mp === 'wb' ? 'WB' : 'Ozon'} FBO manual sync is retired; use the canonical daily ERP cycle` }, 410);
 });
 
 // Retired together with the WB FBO API sync; historical data is preserved.

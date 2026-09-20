@@ -18,7 +18,6 @@ const MOVED: Record<string, string> = {
   'erp-daily-digest': '0 3 * * *',
   'erp-pulse-warm': '0 1 * * *',
   'erp-web-analytics': '30 2 * * *',
-  'erp-fbo-sync': '0 5 * * *',
   'erp-wb-weekly-report': '0 4 * * 4',
   'erp-ozon-monthly-report': '0 3 5 * *',
   'erp-site-sales-rebuild': '0 4 1-7 * 3',

@@ -1,5 +1,6 @@
-# erp-fbo-sync — FBO stock sync + site CRM sales
-# Timer moved out of dasoperator-api "0 5 * * *" on 2026-09-18; the job runs in the ERP on its keys.
+# erp-fbo-sync — retired duplicate marketplace pull.
+# Ozon cluster stock is refreshed by erp-ozon-stocks and cluster sales by
+# erp-ozon-sales in their single daily cycles. WB FBO is retired.
 name = "erp-fbo-sync"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
@@ -17,4 +18,4 @@ binding = "ERP"
 service = "dasoperator-api"
 
 [triggers]
-crons = ["0 5 * * *"]
+crons = []

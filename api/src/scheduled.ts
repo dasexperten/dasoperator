@@ -12,7 +12,6 @@ import { runInboxIngestion } from './lib/inbox-ingestion';
 import { runEmailRetention } from './lib/email-retention';
 import { runBankStatementIngestion } from './lib/bank-statement-ingestion';
 import { scheduleWbWeekly, scheduleOzonMonthly, rebuildPriorMonthSite, rebuildPriorMonthDasexpertenCom } from './lib/marketplace-pull';
-import { runFboSync } from './marketplaces/fbo-sync';
 import { reportCronFailure } from './lib/auto-healer';
 
 
@@ -784,16 +783,6 @@ export async function handleScheduled(
     } catch (e) {
       console.error('[cron:daily-digest] failed:', e);
     }
-    return;
-  }
-
-  // 05:00 UTC slot: FBO cluster calc + site CRM sales.
-  // Ozon/WB marketplace sales NO LONGER run here (Owner 2026-07-21 cutover →
-  // dasha-ozon 22:00 UTC / arina-wb 22:15 UTC write marketplace_sales_*).
-  if (cron === '0 5 * * *') {
-    const report = await runFboSync(env);
-    if ('error' in report.ozon) throw new Error(`Ozon FBO sync incomplete: ${report.ozon.error}`);
-    await runMarketplaceSalesSync(env); // site CRM only; MP sales no-op inside
     return;
   }
 

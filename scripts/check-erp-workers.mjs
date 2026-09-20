@@ -24,7 +24,10 @@ const KEY_LITERAL = [
 ];
 
 // Owner-approved exceptions to "timer, no model" — each with the Owner's word.
-const RETIRED = { 'erp-wb-stocks': 'Owner 2026-09-19: WB is FBS-only; no warehouse stock sync' };
+const RETIRED = {
+  'erp-wb-stocks': 'Owner 2026-09-19: WB is FBS-only; no warehouse stock sync',
+  'erp-fbo-sync': 'Owner 2026-09-20: marketplace stock once daily and sales at 01:00 Yerevan; duplicate FBO timer retired',
+};
 
 const MODEL_ALLOWED = {
   'erp-inventory': 'Owner 2026-09-18: inventory@ stock lists read by DeepSeek inside this worker ("put it inside that worker", "the best model for identification")',

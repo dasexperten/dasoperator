@@ -11,11 +11,12 @@ import { wbRead } from "./wb-egress.mjs";
  *   marketplace_stocks_ozon / marketplace_stocks_wb
  *   marketplace_sync_log (marketplace = 'ozon' | 'wb')
  *
- * Controlled cadence only (default every 4h). No standing firehose.
+ * Controlled cadence only (daily at 00:30 Yerevan). No standing firehose.
  */
 import { parseMarketplaceArticle } from "./marketplace-articles.mjs";
 import { ozonClientId } from "./marketplace-api.mjs";
 import { beginLog, finishOk, finishErr } from "./marketplace-sync-log.mjs";
+import { fetchOzonRead, retryAfterMilliseconds } from "./ozon-read-retry.mjs";
 
 const OZ_STOCKS = "https://api-seller.ozon.ru/v4/product/info/stocks";
 // Old statistics-api supplier/stocks is DEAD (WB PLUG-404-20260720).
@@ -57,14 +58,14 @@ export async function syncOzonStocksToErp(env) {
     const unmatched = [];
 
     while (true) {
-      const resp = await fetch(OZ_STOCKS, {
+      const { response: resp, attempts } = await fetchOzonRead(OZ_STOCKS, {
         method: "POST",
         headers,
         body: JSON.stringify({ filter: { visibility: "ALL" }, limit: 200, cursor }),
-        signal: AbortSignal.timeout(28000),
-      });
+      }, { timeoutMs: 28000 });
       if (!resp.ok) {
-        throw new Error(`Ozon stocks HTTP ${resp.status}: ${(await resp.text()).slice(0, 400)}`);
+        const retryAfter = retryAfterMilliseconds(resp.headers);
+        throw new Error(`Ozon stocks HTTP ${resp.status} after ${attempts} attempt(s)${retryAfter === null ? "" : `; retry-after ${retryAfter}ms`}: ${(await resp.text()).slice(0, 400)}`);
       }
       const data = await resp.json();
       const items = Array.isArray(data.items) ? data.items : [];
@@ -175,15 +176,15 @@ export function aggregateOzonClusterRows(items) {
 }
 
 async function ozonJson(url, headers, body, timeout = 28000) {
-  const r = await fetch(url, {
+  const { response: r, attempts } = await fetchOzonRead(url, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(timeout),
-  });
+  }, { timeoutMs: timeout });
   if (!r.ok) {
     const path = url.replace("https://api-seller.ozon.ru", "");
-    throw new Error(`Ozon ${path} HTTP ${r.status}: ${(await r.text()).slice(0, 300)}`);
+    const retryAfter = retryAfterMilliseconds(r.headers);
+    throw new Error(`Ozon ${path} HTTP ${r.status} after ${attempts} attempt(s)${retryAfter === null ? "" : `; retry-after ${retryAfter}ms`}: ${(await r.text()).slice(0, 300)}`);
   }
   return r.json();
 }

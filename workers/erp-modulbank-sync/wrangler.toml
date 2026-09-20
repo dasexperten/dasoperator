@@ -1,8 +1,7 @@
-# erp-modulbank-sync — Modulbank: last 3 days of DEE account transactions (safety net for missed webhooks)
-# Timer moved out of dasoperator-api "15 * * * *" on 2026-09-18; the job runs in the ERP on its keys.
+# erp-modulbank-sync — hourly Modulbank API history import for DEE accounts.
 name = "erp-modulbank-sync"
 main = "src/index.ts"
-compatibility_date = "2025-01-01"
+compatibility_date = "2026-09-20"
 compatibility_flags = ["nodejs_compat"]
 account_id = "081ddb85cb399ad62a70210328d744fc"
 workers_dev = true
@@ -15,14 +14,6 @@ database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
 [[services]]
 binding = "ERP"
 service = "dasoperator-api"
-
-[vars]
-# Dry since 2026-09-18: api.modulbank.ru serves a certificate from the Russian Ministry of
-# Digital Development CA (Russian Trusted Sub CA). Cloudflare does not trust it — every
-# call got HTTP 526 (since 2026-06-23; nothing at all since 2026-08-18). Owner chose the
-# Modulbank webhook instead; this timer goes once the webhook is proven live.
-DRY_RUN = "1"
-DRY_NOTE = "сухо: Модульбанк недоступен из Cloudflare (сертификат Минцифры, 526) — ждём вебхук"
 
 [triggers]
 crons = ["15 * * * *"]

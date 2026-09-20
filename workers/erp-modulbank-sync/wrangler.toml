@@ -1,4 +1,4 @@
-# erp-modulbank-sync — hourly Modulbank API history import for DEE accounts.
+# erp-modulbank-sync — Modulbank API history import at 08:00 and 17:00 Yerevan (UTC+4).
 name = "erp-modulbank-sync"
 main = "src/index.ts"
 compatibility_date = "2026-09-20"
@@ -16,4 +16,4 @@ binding = "ERP"
 service = "dasoperator-api"
 
 [triggers]
-crons = ["15 * * * *"]
+crons = ["0 4,13 * * *"]

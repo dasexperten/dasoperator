@@ -216,7 +216,7 @@ async function checkModulbank(env: Env, now: number): Promise<IntegrationHealth>
   }
 
   const err24 = lastFail && lastFail.occurred_at >= now - 86400 ? 1 : 0;
-  return { key: 'modulbank', label: 'Modulbank', status, last_success_at: lastTxAt, age_minutes: txAgeMin, detail, expects: `every 1h \u00b7 degraded >${MODULBANK_DEGRADED_AFTER_H}h \u00b7 broken >${MODULBANK_BROKEN_AFTER_H}h silent`, ok_24h: 0, err_24h: err24 };
+  return { key: 'modulbank', label: 'Modulbank', status, last_success_at: lastTxAt, age_minutes: txAgeMin, detail, expects: `08:00 + 17:00 Yerevan \u00b7 degraded >${MODULBANK_DEGRADED_AFTER_H}h \u00b7 broken >${MODULBANK_BROKEN_AFTER_H}h silent`, ok_24h: 0, err_24h: err24 };
 }
 
 // -----------------------------------------------------------------------------

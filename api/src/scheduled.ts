@@ -625,11 +625,11 @@ export async function handleScheduled(
     return;
   }
 
-  // Hourly Modulbank pull-sync — safety net against missed webhooks.
+  // Twice-daily Modulbank pull-sync — 08:00 and 17:00 Yerevan (UTC+4).
   // Pulls last 3 days of transactions across all DEE accounts; idempotent
   // (UNIQUE constraint on company_bank_account_id + external_id treats
   // duplicates as updates, not inserts).
-  if (cron === '15 * * * *') {
+  if (cron === '0 4,13 * * *') {
     console.log('[cron:modulbank-pull] starting hourly safety-net sync');
     try {
       const today = new Date();
@@ -657,19 +657,19 @@ export async function handleScheduled(
               env,
               `modulbank_sync:${item.account_id ?? 'unknown'}`,
               new Error(item.error ?? 'unknown error'),
-              { cron: '15 * * * *', payload: item },
+              { cron: '0 4,13 * * *', payload: item },
             );
           }
         } catch (parseErr) {
           // Non-JSON body — likely 5xx from worker itself
-          await reportCronFailure(env, 'modulbank_sync', new Error(`sync-history HTTP ${r.status}: ${text.slice(0, 300)}`), { cron: '15 * * * *' });
+          await reportCronFailure(env, 'modulbank_sync', new Error(`sync-history HTTP ${r.status}: ${text.slice(0, 300)}`), { cron: '0 4,13 * * *' });
         }
       } else {
-        await reportCronFailure(env, 'modulbank_sync', new Error(`sync-history HTTP ${r.status}: ${text.slice(0, 300)}`), { cron: '15 * * * *' });
+        await reportCronFailure(env, 'modulbank_sync', new Error(`sync-history HTTP ${r.status}: ${text.slice(0, 300)}`), { cron: '0 4,13 * * *' });
       }
     } catch (e) {
       console.error('[cron:modulbank-pull] failed:', e);
-      await reportCronFailure(env, 'modulbank_sync', e, { cron: '15 * * * *' });
+      await reportCronFailure(env, 'modulbank_sync', e, { cron: '0 4,13 * * *' });
     }
     return;
   }

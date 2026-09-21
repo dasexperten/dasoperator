@@ -99,7 +99,17 @@ export function erpWorker<E extends BaseEnv>(worker: string, job: Job<E>): Expor
     async fetch(req, env) {
       const url = new URL(req.url);
       if (url.pathname === '/health') {
-        return Response.json({ ok: true, worker, dry_run: env.DRY_RUN === '1' });
+        // Freshness without a token: an audit reads the last logged run here.
+        // If D1 is slow or down, health stays green and last_run reads null.
+        let last_run = null;
+        try {
+          last_run = await env.DB.prepare(
+            'SELECT cron, started_at, finished_at, ok, rows, error FROM erp_cron_runs WHERE worker = ? ORDER BY id DESC LIMIT 1',
+          ).bind(worker).first();
+        } catch {
+          // health must never fail because of the freshness probe
+        }
+        return Response.json({ ok: true, worker, dry_run: env.DRY_RUN === '1', last_run });
       }
       if (url.pathname === '/run' && req.method === 'POST') {
         const secret = env.ERP_RUN_SECRET ?? '';

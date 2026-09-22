@@ -1168,6 +1168,7 @@ export interface Operation {
   notes: string | null;
   incoterms: string | null;
   shipment_details?: string | null;
+  packing_details?: string | null;
   vat_rate: 0 | 5 | 20;
   paid_amount?: number;
   payment_state?: 'neutral' | 'unpaid' | 'partial' | 'paid';

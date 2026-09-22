@@ -2,7 +2,7 @@ import fontkit from '@pdf-lib/fontkit';
 import {
   PDFDocument, PDFPage, PDFFont, PDFImage, rgb,
 } from 'pdf-lib';
-import type { LineItemRow } from '../types';
+import type { LineItemRow, PackingDetails } from '../types';
 import type { RenderCiInput } from './ci';
 import type { RenderIsV1Input } from './is-variant1';
 import type { RenderIsV2Input } from './is-variant2';
@@ -37,6 +37,7 @@ interface PdfModel {
   total: number | null;
   extraCharges: Array<{ label: string; amount: number }>;
   signature: RenderSignature;
+  packingDetails?: PackingDetails;
   vatRatePct?: number;
 }
 
@@ -314,16 +315,42 @@ function tableDefinition(model: PdfModel, usable: number): { columns: TableColum
   if (model.kind === 'PL') {
     const columns: TableColumn[] = [
       { label: '#', width: 0.04, align: 'center' }, { label: 'SKU', width: 0.10 },
-      { label: 'Description', width: 0.34 }, { label: 'Qty/ctn', width: 0.09, align: 'right' },
-      { label: 'Qty', width: 0.08, align: 'right' }, { label: 'Cartons', width: 0.09, align: 'right' },
-      { label: 'Net kg', width: 0.12, align: 'right' }, { label: 'Gross kg', width: 0.14, align: 'right' },
+      { label: 'Description', width: 0.30 }, { label: 'Qty/ctn', width: 0.08, align: 'right' },
+      { label: 'Qty', width: 0.08, align: 'right' }, { label: 'Cartons', width: 0.08, align: 'right' },
+      { label: 'Net kg', width: 0.10, align: 'right' }, { label: 'CBM', width: 0.10, align: 'right' },
+      { label: 'Gross kg', width: 0.12, align: 'right' },
     ];
-    return { columns: columns.map((col) => ({ ...col, width: col.width * usable })), rows: model.lineItems.map((li, i) => {
-      const cartons = li.cartons > 0 ? li.cartons : (li.ctn_qty ? Math.ceil(li.qty / li.ctn_qty) : 0);
-      const net = li.unit_net_weight_g === null ? 'TBD' : ((li.qty * li.unit_net_weight_g) / 1000).toFixed(3);
-      const gross = li.ctn_weight_gross_kg === null ? 'TBD' : (cartons * li.ctn_weight_gross_kg).toFixed(3);
-      return [String(i + 1), li.product_id, pickLineLabel(li, { kind: 'PL', partnerLang: isRussian(model.language, model.kind) ? 'RU' : 'EN' }), String(li.ctn_qty ?? ''), String(li.qty), String(cartons), net, gross];
-    }) };
+    let totalQty = 0, totalCartons = 0, totalNet = 0, totalVolume = 0, totalGross = 0;
+    let allNetKnown = true, allVolumeKnown = true, allGrossKnown = true;
+    const rows = model.lineItems.map((li, i) => {
+      const override = model.packingDetails?.lines?.[li.product_id];
+      const qtyPerCarton = override?.qty_per_carton ?? li.ctn_qty ?? 0;
+      const cartons = override?.cartons ?? (li.cartons > 0 ? li.cartons : (qtyPerCarton ? Math.ceil(li.qty / qtyPerCarton) : 0));
+      const netValue = override?.net_weight_kg
+        ?? (li.unit_net_weight_g === null ? null : (li.qty * li.unit_net_weight_g) / 1000);
+      const volumeValue = override?.volume_cbm ?? null;
+      const grossValue = override?.gross_weight_kg
+        ?? (li.ctn_weight_gross_kg === null ? null : cartons * li.ctn_weight_gross_kg);
+      totalQty += li.qty;
+      totalCartons += cartons;
+      if (netValue === null) allNetKnown = false; else totalNet += netValue;
+      if (volumeValue === null) allVolumeKnown = false; else totalVolume += volumeValue;
+      if (grossValue === null) allGrossKnown = false; else totalGross += grossValue;
+      const net = netValue === null ? 'TBD' : (override?.net_weight_kg !== undefined ? String(netValue) : netValue.toFixed(3));
+      const volume = volumeValue === null ? 'TBD' : String(volumeValue);
+      const gross = grossValue === null ? 'TBD' : (override?.gross_weight_kg !== undefined ? String(grossValue) : grossValue.toFixed(3));
+      return [String(i + 1), li.product_id, pickLineLabel(li, { kind: 'PL', partnerLang: isRussian(model.language, model.kind) ? 'RU' : 'EN' }), String(qtyPerCarton || ''), String(li.qty), String(cartons), net, volume, gross];
+    });
+    const totals = model.packingDetails?.totals;
+    rows.push([
+      '', '', 'TOTAL', '',
+      String(totals?.qty ?? totalQty),
+      String(totals?.cartons ?? totalCartons),
+      totals?.net_weight_kg !== undefined ? String(totals.net_weight_kg) : (allNetKnown ? totalNet.toFixed(3) : 'TBD'),
+      totals?.volume_cbm !== undefined ? String(totals.volume_cbm) : (allVolumeKnown ? totalVolume.toFixed(4) : 'TBD'),
+      totals?.gross_weight_kg !== undefined ? String(totals.gross_weight_kg) : (allGrossKnown ? totalGross.toFixed(3) : 'TBD'),
+    ]);
+    return { columns: columns.map((col) => ({ ...col, width: col.width * usable })), rows };
   }
   if (model.kind === 'TN') {
     const columns: TableColumn[] = [
@@ -516,9 +543,13 @@ export function renderPackingListPdf(input: RenderPlInput): Promise<Uint8Array> 
     details: [
       `Incoterms: ${input.incoterms}`,
       ...(input.ciReference ? [`Related invoice: ${input.ciReference}`] : []),
+      ...(input.packingDetails?.package_description
+        ? [`Packing: ${input.packingDetails.package_description}`]
+        : []),
       ...(input.shipmentDetails ?? []),
     ], bank: null,
     lineItems: input.lineItems, total: null, extraCharges: [], signature: input.signature,
+    packingDetails: input.packingDetails,
   });
 }
 

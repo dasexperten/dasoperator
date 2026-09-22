@@ -33,6 +33,7 @@ export interface OperationRow {
   total_amount: number | null;
   incoterms: string | null;
   shipment_details: string | null;
+  packing_details: string | null;
   hs_code: string | null;
   reference: string | null;
   contract_id: string | null;
@@ -204,6 +205,26 @@ export interface LineItemRow {
   // 0089 — name and notification number registered in Vietnam
   vn_registered_name: string | null;
   vn_notification_no: string | null;
+}
+
+export interface PackingLineOverride {
+  qty_per_carton?: number;
+  cartons?: number;
+  net_weight_kg?: number;
+  volume_cbm?: number;
+  gross_weight_kg?: number;
+}
+
+export interface PackingDetails {
+  package_description?: string;
+  lines?: Record<string, PackingLineOverride>;
+  totals?: {
+    qty?: number;
+    cartons?: number;
+    net_weight_kg?: number;
+    volume_cbm?: number;
+    gross_weight_kg?: number;
+  };
 }
 
 // =============================================================================

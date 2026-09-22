@@ -1010,6 +1010,7 @@ const documentSettingsSchema = z.object({
   shipper_id: z.string().min(1).nullable().optional(),
   incoterms: z.string().min(1).nullable().optional(),
   shipment_details: z.string().max(5000).nullable().optional(),
+  packing_details: z.string().max(10000).nullable().optional(),
   freight_amount: z.number().nonnegative().optional(),
   operation_date: z.number().int().positive().optional(),
 }).refine((value) => Object.keys(value).length > 0, {
@@ -1029,12 +1030,12 @@ operations.patch('/:id/document-settings', async (c) => {
 
   const operation = await c.env.DB.prepare(
     `SELECT id, status, operation_date, shipper_id, incoterms,
-            shipment_details, freight_amount
+            shipment_details, packing_details, freight_amount
        FROM operations WHERE id = ? AND deleted_at IS NULL`
   ).bind(operationId).first<{
     id: string; status: string; operation_date: number;
     shipper_id: string | null; incoterms: string | null;
-    shipment_details: string | null; freight_amount: number;
+    shipment_details: string | null; packing_details: string | null; freight_amount: number;
   }>();
   if (!operation) {
     return fail(c, 404, [{ code: 'operation_not_found', message: `Operation ${operationId} not found` }]);
@@ -1054,7 +1055,7 @@ operations.patch('/:id/document-settings', async (c) => {
 
   const fields: string[] = [];
   const binds: Array<string | number | null> = [];
-  for (const key of ['shipper_id', 'incoterms', 'shipment_details', 'freight_amount', 'operation_date'] as const) {
+  for (const key of ['shipper_id', 'incoterms', 'shipment_details', 'packing_details', 'freight_amount', 'operation_date'] as const) {
     if (parsed.data[key] !== undefined) {
       fields.push(`${key} = ?`);
       binds.push(parsed.data[key] ?? null);

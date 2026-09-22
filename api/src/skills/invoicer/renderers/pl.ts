@@ -3,7 +3,7 @@
 // beyond a short shipper-signature line.
 // =============================================================================
 
-import type { DocumentLanguage, LineItemRow } from '../types';
+import type { DocumentLanguage, LineItemRow, PackingDetails } from '../types';
 import {
   Document, Packer, PORTRAIT_PAGE, PORTRAIT_USABLE_DXA, RenderParty, RenderSignature, blank,
   buildBrandBar, buildDeliveryBankTable, buildMetaRow, buildPartyTable, buildProductTable,
@@ -26,6 +26,7 @@ export interface RenderPlInput {
   ciReference: string | null;
   incoterms: string;
   shipmentDetails?: string[];
+  packingDetails?: PackingDetails;
   lineItems: LineItemRow[];
 }
 
@@ -76,16 +77,22 @@ export async function renderPackingList(input: RenderPlInput): Promise<Uint8Arra
       })
     : null;
 
-  let totalCartons = 0, totalQty = 0, totalNet = 0, totalGross = 0, allWeightsKnown = true;
+  let totalCartons = 0, totalQty = 0, totalNet = 0, totalVolume = 0, totalGross = 0;
+  let allNetKnown = true, allVolumeKnown = true, allGrossKnown = true;
 
   const rows: ProductCell[][] = input.lineItems.map((li, idx) => {
     const desc = pickLineLabel(li, { kind: 'PL', partnerLang: lineLabelLang });
-    const qtyPerCtn = li.ctn_qty ?? 0;
-    const cartons = li.cartons > 0 ? li.cartons : (qtyPerCtn > 0 ? Math.ceil(li.qty / qtyPerCtn) : 0);
-    const lineNetKg = li.unit_net_weight_g !== null ? (li.qty * li.unit_net_weight_g) / 1000 : null;
-    const lineGrossKg = (li.ctn_weight_gross_kg !== null && cartons > 0) ? cartons * li.ctn_weight_gross_kg : null;
-    if (lineNetKg !== null) totalNet += lineNetKg; else allWeightsKnown = false;
-    if (lineGrossKg !== null) totalGross += lineGrossKg; else allWeightsKnown = false;
+    const override = input.packingDetails?.lines?.[li.product_id];
+    const qtyPerCtn = override?.qty_per_carton ?? li.ctn_qty ?? 0;
+    const cartons = override?.cartons ?? (li.cartons > 0 ? li.cartons : (qtyPerCtn > 0 ? Math.ceil(li.qty / qtyPerCtn) : 0));
+    const lineNetKg = override?.net_weight_kg
+      ?? (li.unit_net_weight_g !== null ? (li.qty * li.unit_net_weight_g) / 1000 : null);
+    const lineVolume = override?.volume_cbm ?? null;
+    const lineGrossKg = override?.gross_weight_kg
+      ?? ((li.ctn_weight_gross_kg !== null && cartons > 0) ? cartons * li.ctn_weight_gross_kg : null);
+    if (lineNetKg !== null) totalNet += lineNetKg; else allNetKnown = false;
+    if (lineVolume !== null) totalVolume += lineVolume; else allVolumeKnown = false;
+    if (lineGrossKg !== null) totalGross += lineGrossKg; else allGrossKnown = false;
     totalCartons += cartons;
     totalQty += li.qty;
     return [
@@ -95,21 +102,26 @@ export async function renderPackingList(input: RenderPlInput): Promise<Uint8Arra
       { text: String(qtyPerCtn || ''), align: 'right' },
       { text: String(li.qty), align: 'right' },
       { text: String(cartons), align: 'right' },
-      { text: lineNetKg !== null ? lineNetKg.toFixed(3) : 'TBD', align: 'right' },
-      { text: lineGrossKg !== null ? lineGrossKg.toFixed(3) : 'TBD', align: 'right' },
+      { text: lineNetKg !== null ? (override?.net_weight_kg !== undefined ? String(lineNetKg) : lineNetKg.toFixed(3)) : 'TBD', align: 'right' },
+      { text: lineVolume !== null ? String(lineVolume) : 'TBD', align: 'right' },
+      { text: lineGrossKg !== null ? (override?.gross_weight_kg !== undefined ? String(lineGrossKg) : lineGrossKg.toFixed(3)) : 'TBD', align: 'right' },
     ];
   });
 
+  const totals = input.packingDetails?.totals;
+  const displayQty = totals?.qty ?? totalQty;
+  const displayCartons = totals?.cartons ?? totalCartons;
+  const displayNet = totals?.net_weight_kg ?? (allNetKnown ? totalNet : null);
+  const displayVolume = totals?.volume_cbm ?? (allVolumeKnown ? totalVolume : null);
+  const displayGross = totals?.gross_weight_kg ?? (allGrossKnown ? totalGross : null);
+
   const summaryLines: string[] = [
-    `${translate('summary.cartons')}: ${totalCartons}`,
-    `${translate('summary.qty')}: ${totalQty}`,
+    `${translate('summary.cartons')}: ${displayCartons}`,
+    `${translate('summary.qty')}: ${displayQty}`,
   ];
-  if (allWeightsKnown) {
-    summaryLines.push(`${translate('summary.net')}: ${totalNet.toFixed(3)}`);
-    summaryLines.push(`${translate('summary.gross')}: ${totalGross.toFixed(3)}`);
-  } else {
-    summaryLines.push(`${translate('summary.weights_tbd')}: TBD`);
-  }
+  summaryLines.push(`${translate('summary.net')}: ${displayNet !== null ? String(displayNet) : 'TBD'}`);
+  summaryLines.push(`Volume (CBM): ${displayVolume !== null ? String(displayVolume) : 'TBD'}`);
+  summaryLines.push(`${translate('summary.gross')}: ${displayGross !== null ? String(displayGross) : 'TBD'}`);
 
   const summaryTable = buildDeliveryBankTable({
     language: partyTableLang,
@@ -118,13 +130,16 @@ export async function renderPackingList(input: RenderPlInput): Promise<Uint8Arra
     deliveryLines: [
       `${translate('misc.terms')}: ${input.incoterms}`,
       `${translate('summary.for_invoice')}: ${input.ciReference ?? '—'}`,
+      ...(input.packingDetails?.package_description
+        ? [`Packing: ${input.packingDetails.package_description}`]
+        : []),
       ...(input.shipmentDetails ?? []),
     ],
     rightHeader: translate('section.summary'),
     rightLines: summaryLines,
   });
 
-  const widths = [350, 800, 3500, 900, 900, 800, 1000, 2250];
+  const widths = [300, 700, 4150, 800, 800, 750, 900, 900, 1200];
   const headers = [
     { text: '#', align: 'center' as const },
     { text: 'SKU', align: 'left' as const },
@@ -133,6 +148,7 @@ export async function renderPackingList(input: RenderPlInput): Promise<Uint8Arra
     { text: translate('col.qty_total'), align: 'right' as const },
     { text: translate('col.cartons'), align: 'right' as const },
     { text: translate('col.net_kg'), align: 'right' as const },
+    { text: 'CBM', align: 'right' as const },
     { text: translate('col.gross_kg'), align: 'right' as const },
   ];
 
@@ -142,10 +158,11 @@ export async function renderPackingList(input: RenderPlInput): Promise<Uint8Arra
     totalLabel: translate('total.label'),
     totalLabelSpan: 4,
     totalValues: [
-      { text: String(totalQty), align: 'right' },
-      { text: String(totalCartons), align: 'right' },
-      { text: allWeightsKnown ? totalNet.toFixed(3) : 'TBD', align: 'right' },
-      { text: allWeightsKnown ? totalGross.toFixed(3) : 'TBD', align: 'right' },
+      { text: String(displayQty), align: 'right' },
+      { text: String(displayCartons), align: 'right' },
+      { text: displayNet !== null ? String(displayNet) : 'TBD', align: 'right' },
+      { text: displayVolume !== null ? String(displayVolume) : 'TBD', align: 'right' },
+      { text: displayGross !== null ? String(displayGross) : 'TBD', align: 'right' },
     ],
   });
 

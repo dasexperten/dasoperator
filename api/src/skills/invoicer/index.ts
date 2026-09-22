@@ -38,7 +38,7 @@ import {
 import type {
   CompanyRow, DocumentSpec, IssueOutcome, IssuedDocument, ManufacturerRow,
   ManufacturerBankRouteRow, PartnerRow, ValidationStop,
-  LineItemRow,
+  LineItemRow, PackingDetails, PackingLineOverride,
 } from './types';
 import { STAMP_SIGNATURE } from './renderers/stamps';
 import type {
@@ -79,6 +79,69 @@ const ISSUER_ABBR: Record<string, string> = {
   meizhiyuan: 'MZHN',
   jinxia: 'YZJX',
 };
+
+function packingNumber(value: unknown, field: string): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`Invalid packing_details.${field}`);
+  }
+  return value;
+}
+
+function parsePackingDetails(raw: string | null): PackingDetails | undefined {
+  if (!raw?.trim()) return undefined;
+  let source: unknown;
+  try {
+    source = JSON.parse(raw);
+  } catch {
+    throw new Error('Invalid packing_details JSON');
+  }
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    throw new Error('Invalid packing_details object');
+  }
+  const input = source as Record<string, unknown>;
+  const result: PackingDetails = {};
+  if (input.package_description !== undefined) {
+    if (typeof input.package_description !== 'string' || input.package_description.length > 500) {
+      throw new Error('Invalid packing_details.package_description');
+    }
+    result.package_description = input.package_description.trim();
+  }
+  if (input.lines !== undefined) {
+    if (!input.lines || typeof input.lines !== 'object' || Array.isArray(input.lines)) {
+      throw new Error('Invalid packing_details.lines');
+    }
+    result.lines = {};
+    for (const [productId, rawLine] of Object.entries(input.lines as Record<string, unknown>)) {
+      if (!rawLine || typeof rawLine !== 'object' || Array.isArray(rawLine)) {
+        throw new Error(`Invalid packing_details.lines.${productId}`);
+      }
+      const line = rawLine as Record<string, unknown>;
+      const parsed: PackingLineOverride = {
+        qty_per_carton: packingNumber(line.qty_per_carton, `lines.${productId}.qty_per_carton`),
+        cartons: packingNumber(line.cartons, `lines.${productId}.cartons`),
+        net_weight_kg: packingNumber(line.net_weight_kg, `lines.${productId}.net_weight_kg`),
+        volume_cbm: packingNumber(line.volume_cbm, `lines.${productId}.volume_cbm`),
+        gross_weight_kg: packingNumber(line.gross_weight_kg, `lines.${productId}.gross_weight_kg`),
+      };
+      result.lines[productId] = parsed;
+    }
+  }
+  if (input.totals !== undefined) {
+    if (!input.totals || typeof input.totals !== 'object' || Array.isArray(input.totals)) {
+      throw new Error('Invalid packing_details.totals');
+    }
+    const totals = input.totals as Record<string, unknown>;
+    result.totals = {
+      qty: packingNumber(totals.qty, 'totals.qty'),
+      cartons: packingNumber(totals.cartons, 'totals.cartons'),
+      net_weight_kg: packingNumber(totals.net_weight_kg, 'totals.net_weight_kg'),
+      volume_cbm: packingNumber(totals.volume_cbm, 'totals.volume_cbm'),
+      gross_weight_kg: packingNumber(totals.gross_weight_kg, 'totals.gross_weight_kg'),
+    };
+  }
+  return result;
+}
 
 function issuerAbbr(sellerKind: 'company' | 'manufacturer', sellerId: string): string {
   const abbr = ISSUER_ABBR[sellerId];
@@ -652,6 +715,7 @@ export async function issueDocuments(
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean);
+    const packingDetails = parsePackingDetails(input.operation.packing_details);
     let docxBytes: Uint8Array;
     let pdfBytes: Uint8Array;
     try {
@@ -688,6 +752,7 @@ export async function issueDocuments(
           ciReference: lastCiReference,
           incoterms,
           shipmentDetails,
+          packingDetails,
           lineItems: docLineItems,
         };
         [docxBytes, pdfBytes] = await Promise.all([

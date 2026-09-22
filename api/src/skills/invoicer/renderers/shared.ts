@@ -651,8 +651,8 @@ export function buildSignature(sig: RenderSignature, language: Language): Paragr
   const out: Paragraph[] = [];
   out.push(p('', { spaceAfter: 200 }));
   if (sig.stamp) {
-    // 300 px wide: the stamp circle prints at about 3.5 cm, close to the real stamp.
-    const w = 300;
+    // Owner requested the authorised combined scan at twice the former size.
+    const w = 600;
     out.push(new Paragraph({
       alignment: AlignmentType.RIGHT,
       children: [new ImageRun({

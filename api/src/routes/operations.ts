@@ -1010,6 +1010,7 @@ const documentSettingsSchema = z.object({
   shipper_id: z.string().min(1).nullable().optional(),
   incoterms: z.string().min(1).nullable().optional(),
   freight_amount: z.number().nonnegative().optional(),
+  operation_date: z.number().int().positive().optional(),
 }).refine((value) => Object.keys(value).length > 0, {
   message: 'At least one document setting is required',
 });
@@ -1026,8 +1027,8 @@ operations.patch('/:id/document-settings', async (c) => {
   }
 
   const operation = await c.env.DB.prepare(
-    'SELECT id, status FROM operations WHERE id = ? AND deleted_at IS NULL'
-  ).bind(operationId).first<{ id: string; status: string }>();
+    'SELECT id, status, operation_date FROM operations WHERE id = ? AND deleted_at IS NULL'
+  ).bind(operationId).first<{ id: string; status: string; operation_date: number }>();
   if (!operation) {
     return fail(c, 404, [{ code: 'operation_not_found', message: `Operation ${operationId} not found` }]);
   }
@@ -1046,7 +1047,7 @@ operations.patch('/:id/document-settings', async (c) => {
 
   const fields: string[] = [];
   const binds: Array<string | number | null> = [];
-  for (const key of ['shipper_id', 'incoterms', 'freight_amount'] as const) {
+  for (const key of ['shipper_id', 'incoterms', 'freight_amount', 'operation_date'] as const) {
     if (parsed.data[key] !== undefined) {
       fields.push(`${key} = ?`);
       binds.push(parsed.data[key] ?? null);
@@ -1055,15 +1056,29 @@ operations.patch('/:id/document-settings', async (c) => {
   const now = Math.floor(Date.now() / 1000);
   fields.push('updated_at = ?');
   binds.push(now, operationId);
-  await c.env.DB.prepare(
-    `UPDATE operations SET ${fields.join(', ')} WHERE id = ?`
-  ).bind(...binds).run();
+  const dateChanged = parsed.data.operation_date !== undefined
+    && parsed.data.operation_date !== operation.operation_date;
+  const statements: D1PreparedStatement[] = [
+    c.env.DB.prepare(
+      `UPDATE operations SET ${fields.join(', ')} WHERE id = ?`
+    ).bind(...binds),
+  ];
+  if (dateChanged) {
+    statements.push(c.env.DB.prepare(
+      `UPDATE documents SET status = 'cancelled', updated_at = ?
+       WHERE operation_id = ? AND status != 'cancelled'`
+    ).bind(now, operationId));
+  }
+  await c.env.DB.batch(statements);
 
   return ok(c, {
     id: operationId,
     ...parsed.data,
+    docs_cancelled: dateChanged,
     updated_at: now,
-  }, ['Document settings updated']);
+  }, dateChanged
+    ? ['Document settings updated', 'Existing documents marked cancelled — re-issue when ready']
+    : ['Document settings updated']);
 });
 
 // =============================================================================

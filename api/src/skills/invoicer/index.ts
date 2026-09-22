@@ -636,6 +636,9 @@ export async function issueDocuments(
     const extraCharges = freight > 0 ? [{ label: 'Freight', amount: freight }] : [];
     const ciTotal = round3(goodsTotal + freight);
 
+    // Commercial documents carry the operation's business date, not the
+    // moment when an ERP worker happened to press Issue documents.
+    const documentDateSec = input.operation.operation_date;
     let docxBytes: Uint8Array;
     let pdfBytes: Uint8Array;
     try {
@@ -643,7 +646,7 @@ export async function issueDocuments(
         const ciBank = r.manufacturerRoute ? bankFromRoute(r.manufacturerRoute)
           : (r.bankSelection ? bankFromSelection(r.bankSelection) : null);
         const renderInput = {
-          reference, issuedAt: nowSec, language: r.language, issuerLanguage: r.issuerLanguage, partnerLanguage: r.partnerLanguage, currency: r.currency,
+          reference, issuedAt: documentDateSec, language: r.language, issuerLanguage: r.issuerLanguage, partnerLanguage: r.partnerLanguage, currency: r.currency,
           seller: r.seller.party,
           buyer: r.buyer.party,
           bank: ciBank!,
@@ -663,7 +666,7 @@ export async function issueDocuments(
         lastCiReference = reference;
       } else if (r.spec.type === 'PL') {
         const renderInput = {
-          reference, issuedAt: nowSec, language: r.language, issuerLanguage: r.issuerLanguage, partnerLanguage: r.partnerLanguage,
+          reference, issuedAt: documentDateSec, language: r.language, issuerLanguage: r.issuerLanguage, partnerLanguage: r.partnerLanguage,
           shipper: r.seller.party,
           physicalShipperLine: input.shipperLine,
           consignee: r.buyer.party,
@@ -678,7 +681,7 @@ export async function issueDocuments(
       } else if (r.spec.type === 'UPD') {
         // УПД — Russian B2B sale document.
         const renderInput = {
-          reference, issuedAt: nowSec, currency: r.currency,
+          reference, issuedAt: documentDateSec, currency: r.currency,
           seller: r.seller.party,
           buyer: r.buyer.party,
           signature: r.signature,
@@ -694,7 +697,7 @@ export async function issueDocuments(
       } else if (r.spec.type === 'TN') {
         // Транспортная накладная.
         const renderInput = {
-          reference, issuedAt: nowSec,
+          reference, issuedAt: documentDateSec,
           shipper: r.seller.party,
           consignee: r.buyer.party,
           signature: r.signature,
@@ -777,7 +780,7 @@ export async function issueDocuments(
           variant: r.spec.variant ?? '',
           reference,
           language: r.language,
-          issued_at: String(nowSec),
+          issued_at: String(documentDateSec),
         },
       });
       uploadedR2Keys.push(r2Key);
@@ -789,7 +792,7 @@ export async function issueDocuments(
           variant: r.spec.variant ?? '',
           reference,
           language: r.language,
-          issued_at: String(nowSec),
+          issued_at: String(documentDateSec),
           renderer: 'dasoperator-pdf-lib',
           source_docx: r2Key,
         },
@@ -815,7 +818,7 @@ export async function issueDocuments(
       `).bind(
         docId, reference, r.spec.type, operationId,
         input.ourCompany.id, input.operation.partner_id,
-        input.contract?.contract_no ?? null, nowSec,
+        input.contract?.contract_no ?? null, documentDateSec,
         r.currency, totalForDoc, r2Key, pdfR2Key,
         JSON.stringify({
           variant: r.spec.variant, language: r.language, format: r.spec.format,

@@ -56,13 +56,14 @@ export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uin
 
   const titleText = translate('title.commercial_invoice');
 
-  // Meta row — labels stay bilingual EN/RU for clarity even on RU-only docs.
+  // Meta row follows the selected document language. International documents
+  // must not acquire Russian labels merely because the renderer supports RU.
   const meta = [
-    { label: '№ / No.', value: input.reference },
-    { label: 'Date / Дата', value: formatDate(input.issuedAt) },
+    { label: translate('meta.number_short'), value: input.reference },
+    { label: translate('meta.date'), value: formatDate(input.issuedAt) },
   ];
   if (input.contract) {
-    meta.push({ label: 'Contract / Договор', value: input.contract.contract_no });
+    meta.push({ label: isRu ? 'Договор' : 'Contract', value: input.contract.contract_no });
   }
   if (input.contract?.unk_reference) {
     meta.push({ label: 'УНК', value: input.contract.unk_reference });

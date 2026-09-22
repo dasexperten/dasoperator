@@ -226,7 +226,7 @@ function drawHeader(c: PdfCanvas, model: PdfModel, continued = false): void {
   const width = c.page.getWidth() - MARGIN * 2;
   c.drawText(continued ? `${model.title} · CONTINUED` : model.title,
     MARGIN, c.y - 21, continued ? 14 : 18, { bold: true });
-  c.drawText('DAS EXPERTEN · ERP DOCUMENT', MARGIN, c.y - 37, 8, { color: BRAND, bold: true });
+  c.drawText('DAS EXPERTEN', MARGIN, c.y - 37, 8, { color: BRAND, bold: true });
   c.page.drawLine({ start: { x: MARGIN, y: c.y - 44 }, end: { x: MARGIN + width, y: c.y - 44 }, thickness: 1.3, color: BRAND });
   c.y -= 55;
   if (!continued) {
@@ -408,9 +408,9 @@ async function embedSignatureImage(
 
 async function drawSignature(c: PdfCanvas, model: PdfModel): Promise<void> {
   const sig = model.signature;
-  const requiredHeight = 142;
+  const requiredHeight = 238;
   c.ensure(requiredHeight, () => drawHeader(c, model, true));
-  const rightWidth = Math.min(250, c.page.getWidth() - MARGIN * 2);
+  const rightWidth = Math.min(320, c.page.getWidth() - MARGIN * 2);
   const x = c.page.getWidth() - MARGIN - rightWidth;
   if (model.total !== null && model.currency) {
     c.drawText(isRussian(model.language, model.kind) ? 'ИТОГО' : 'TOTAL', MARGIN, c.y - 18, 10, { bold: true });
@@ -422,27 +422,27 @@ async function drawSignature(c: PdfCanvas, model: PdfModel): Promise<void> {
   c.drawText(isRussian(model.language, model.kind) ? 'Уполномоченная подпись' : 'Authorised signature', x, c.y - 14, 8, { bold: true });
   const stamp = sig.stamp ? await embedSignatureImage(c.doc, sig.stamp) : null;
   if (stamp && sig.stamp) {
-    const maxW = 145;
-    const maxH = 90;
+    const maxW = 290;
+    const maxH = 180;
     const scale = Math.min(maxW / stamp.width, maxH / stamp.height);
     const w = stamp.width * scale;
     const h = stamp.height * scale;
-    c.page.drawImage(stamp, { x: x + rightWidth - w, y: c.y - 108, width: w, height: h });
+    c.page.drawImage(stamp, { x: x + rightWidth - w, y: c.y - 194, width: w, height: h });
   }
   if (sig.handSignature) {
     const hand = await embedSignatureImage(c.doc, sig.handSignature);
-    const maxW = 150;
-    const maxH = 45;
+    const maxW = 300;
+    const maxH = 90;
     const scale = Math.min(maxW / hand.width, maxH / hand.height);
     const w = hand.width * scale;
     const h = hand.height * scale;
-    c.page.drawImage(hand, { x: x + rightWidth - w - 8, y: c.y - 74, width: w, height: h });
+    c.page.drawImage(hand, { x: x + rightWidth - w - 8, y: c.y - 148, width: w, height: h });
   }
   const title = isRussian(model.language, model.kind)
     ? (sig.titleRu ?? sig.titleEn ?? 'Генеральный директор')
     : (sig.titleEn ?? sig.titleRu ?? 'General Manager');
-  c.drawText(title, x, c.y - 120, 8, { bold: true });
-  if (sig.name) c.drawText(sig.name, x, c.y - 134, 8);
+  c.drawText(title, x, c.y - 212, 8, { bold: true });
+  if (sig.name) c.drawText(sig.name, x, c.y - 226, 8);
   c.y -= requiredHeight;
 }
 
@@ -477,13 +477,17 @@ async function createPdf(model: PdfModel): Promise<Uint8Array> {
 }
 
 export function renderCommercialInvoicePdf(input: RenderCiInput): Promise<Uint8Array> {
+  const ru = isRussian(input.language, 'CI');
   return createPdf({
     kind: 'CI', title: input.language === 'RU' ? 'КОММЕРЧЕСКИЙ ИНВОЙС' : 'COMMERCIAL INVOICE',
     reference: input.reference, issuedAt: input.issuedAt, language: input.language,
     currency: input.currency,
-    parties: [{ label: 'SELLER / ПРОДАВЕЦ', party: input.seller }, { label: 'BUYER / ПОКУПАТЕЛЬ', party: input.buyer }],
+    parties: [
+      { label: ru ? 'ПРОДАВЕЦ' : 'SELLER', party: input.seller },
+      { label: ru ? 'ПОКУПАТЕЛЬ' : 'BUYER', party: input.buyer },
+    ],
     highlightedParties: input.shipperLine
-      ? [{ label: 'SHIPPER / ГРУЗООТПРАВИТЕЛЬ', lines: [input.shipperLine] }]
+      ? [{ label: ru ? 'ГРУЗООТПРАВИТЕЛЬ' : 'SHIPPER', lines: [input.shipperLine] }]
       : [],
     details: [
       `Incoterms: ${input.incoterms}`,
@@ -496,13 +500,17 @@ export function renderCommercialInvoicePdf(input: RenderCiInput): Promise<Uint8A
 }
 
 export function renderPackingListPdf(input: RenderPlInput): Promise<Uint8Array> {
+  const ru = isRussian(input.language, 'PL');
   return createPdf({
     kind: 'PL', title: input.language === 'RU' ? 'УПАКОВОЧНЫЙ ЛИСТ' : 'PACKING LIST',
     reference: input.reference, issuedAt: input.issuedAt, language: input.language,
     currency: null,
-    parties: [{ label: 'SELLER / ПРОДАВЕЦ', party: input.shipper }, { label: 'CONSIGNEE / ГРУЗОПОЛУЧАТЕЛЬ', party: input.consignee }],
+    parties: [
+      { label: ru ? 'ПРОДАВЕЦ' : 'SELLER', party: input.shipper },
+      { label: ru ? 'ГРУЗОПОЛУЧАТЕЛЬ' : 'CONSIGNEE', party: input.consignee },
+    ],
     highlightedParties: input.physicalShipperLine
-      ? [{ label: 'SHIPPER / ГРУЗООТПРАВИТЕЛЬ', lines: [input.physicalShipperLine] }]
+      ? [{ label: ru ? 'ГРУЗООТПРАВИТЕЛЬ' : 'SHIPPER', lines: [input.physicalShipperLine] }]
       : [],
     details: [
       ...(input.ciReference ? [`Related invoice: ${input.ciReference}`] : []),

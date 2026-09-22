@@ -39,7 +39,7 @@ export class MixedManufacturerError extends Error {
 }
 
 const OPERATION_COLS = `
-  id, operation_date, operation_type, partner_id, our_company_id,
+  id, operation_date, operation_type, partner_id, our_company_id, receiving_company_id,
   manufacturer_id, warehouse_from_id, warehouse_to_id, shipper_id,
   status, currency, total_amount, incoterms, hs_code,
   reference, contract_id, default_document_language,
@@ -241,7 +241,8 @@ export async function loadInvoicerInput(
   // For dei_layer flows the entry point also needs DEE + DEI on hand.
   // Cheap to fetch: pull the small set of well-known company ids in one shot.
   const extraCompanyIds = Array.from(new Set(
-    ['dee', 'dei', operation.our_company_id]
+    ['dee', 'dei', operation.our_company_id, operation.receiving_company_id]
+      .filter((id): id is string => !!id)
   ));
   const placeholders = extraCompanyIds.map(() => '?').join(',');
   const extraCompaniesRes = await db.prepare(

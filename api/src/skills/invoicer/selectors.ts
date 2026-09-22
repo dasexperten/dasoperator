@@ -140,7 +140,23 @@ export function selectDocumentsToIssue(input: InvoicerInput): DocumentSpec[] {
     return ciPl;
   }
 
-  // Transfers don't currently produce customer-facing documents.
+  // CASE 4 — transfer between our legal entities. The sending company is the
+  // seller of record and the receiving company is the buyer. The physical
+  // factory remains the shipper through operation.shipper_id (HH, YZH, etc.).
+  if (operation.operation_type === 'transfer') {
+    if (!operation.receiving_company_id) {
+      throw new Error('Transfer operation has no receiving_company_id');
+    }
+    return [
+      { type: 'CI', variant: null, format: 'CI',
+        sellerKind: 'company', sellerId: ourCompany.id,
+        buyerKind: 'company', buyerId: operation.receiving_company_id },
+      { type: 'PL', variant: null, format: 'PL',
+        sellerKind: 'company', sellerId: ourCompany.id,
+        buyerKind: 'company', buyerId: operation.receiving_company_id },
+    ];
+  }
+
   throw new Error(`operation_type=${operation.operation_type} is not supported by the invoicer engine`);
 }
 

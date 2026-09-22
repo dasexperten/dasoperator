@@ -23,6 +23,7 @@ export interface OperationRow {
   operation_type: 'sale' | 'purchase' | 'transfer';
   partner_id: string | null;
   our_company_id: string;
+  receiving_company_id: string | null;
   manufacturer_id: string | null;
   warehouse_from_id: string | null;
   warehouse_to_id: string | null;

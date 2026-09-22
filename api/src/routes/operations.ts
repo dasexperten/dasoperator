@@ -1002,6 +1002,71 @@ operations.get('/:id', async (c) => {
 });
 
 // =============================================================================
+// PATCH /api/operations/:id/document-settings
+// Narrow document-facing correction route. The physical factory shipper is
+// independent from the legal seller (for example DEI seller + HH/YZH shipper).
+// =============================================================================
+const documentSettingsSchema = z.object({
+  shipper_id: z.string().min(1).nullable().optional(),
+  incoterms: z.string().min(1).nullable().optional(),
+  freight_amount: z.number().nonnegative().optional(),
+}).refine((value) => Object.keys(value).length > 0, {
+  message: 'At least one document setting is required',
+});
+
+operations.patch('/:id/document-settings', async (c) => {
+  const operationId = c.req.param('id');
+  const parsed = documentSettingsSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return fail(c, 422, [{
+      code: 'invalid_document_settings',
+      message: 'Document settings validation failed',
+      details: { issues: parsed.error.issues },
+    }]);
+  }
+
+  const operation = await c.env.DB.prepare(
+    'SELECT id, status FROM operations WHERE id = ? AND deleted_at IS NULL'
+  ).bind(operationId).first<{ id: string; status: string }>();
+  if (!operation) {
+    return fail(c, 404, [{ code: 'operation_not_found', message: `Operation ${operationId} not found` }]);
+  }
+  if (operation.status === 'cancelled') {
+    return fail(c, 409, [{ code: 'operation_cancelled', message: 'Cancelled operation cannot be edited' }]);
+  }
+
+  if (parsed.data.shipper_id) {
+    const shipper = await c.env.DB.prepare(
+      'SELECT id FROM partners WHERE id = ? AND deleted_at IS NULL'
+    ).bind(parsed.data.shipper_id).first<{ id: string }>();
+    if (!shipper) {
+      return fail(c, 422, [{ code: 'shipper_not_found', message: `Shipper ${parsed.data.shipper_id} not found` }]);
+    }
+  }
+
+  const fields: string[] = [];
+  const binds: Array<string | number | null> = [];
+  for (const key of ['shipper_id', 'incoterms', 'freight_amount'] as const) {
+    if (parsed.data[key] !== undefined) {
+      fields.push(`${key} = ?`);
+      binds.push(parsed.data[key] ?? null);
+    }
+  }
+  const now = Math.floor(Date.now() / 1000);
+  fields.push('updated_at = ?');
+  binds.push(now, operationId);
+  await c.env.DB.prepare(
+    `UPDATE operations SET ${fields.join(', ')} WHERE id = ?`
+  ).bind(...binds).run();
+
+  return ok(c, {
+    id: operationId,
+    ...parsed.data,
+    updated_at: now,
+  }, ['Document settings updated']);
+});
+
+// =============================================================================
 // =============================================================================
 // PATCH /api/operations/:id/status — advance operation through lifecycle
 //
@@ -2567,5 +2632,4 @@ operations.post('/_tick-marketplace-pull', async (c) => {
 
 
 export default operations;
-
 

@@ -107,6 +107,12 @@ function parsePackingDetails(raw: string | null): PackingDetails | undefined {
     }
     result.package_description = input.package_description.trim();
   }
+  if (input.line_order !== undefined) {
+    if (!Array.isArray(input.line_order) || input.line_order.some((id) => typeof id !== 'string')) {
+      throw new Error('Invalid packing_details.line_order');
+    }
+    result.line_order = input.line_order;
+  }
   if (input.lines !== undefined) {
     if (!input.lines || typeof input.lines !== 'object' || Array.isArray(input.lines)) {
       throw new Error('Invalid packing_details.lines');

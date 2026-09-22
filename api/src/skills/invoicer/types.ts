@@ -217,6 +217,7 @@ export interface PackingLineOverride {
 
 export interface PackingDetails {
   package_description?: string;
+  line_order?: string[];
   lines?: Record<string, PackingLineOverride>;
   totals?: {
     qty?: number;

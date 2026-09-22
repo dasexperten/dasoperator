@@ -322,7 +322,10 @@ function tableDefinition(model: PdfModel, usable: number): { columns: TableColum
     ];
     let totalQty = 0, totalCartons = 0, totalNet = 0, totalVolume = 0, totalGross = 0;
     let allNetKnown = true, allVolumeKnown = true, allGrossKnown = true;
-    const rows = model.lineItems.map((li, i) => {
+    const order = new Map((model.packingDetails?.line_order ?? []).map((id, index) => [id, index]));
+    const orderedLineItems = [...model.lineItems].sort((a, b) =>
+      (order.get(a.product_id) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.product_id) ?? Number.MAX_SAFE_INTEGER));
+    const rows = orderedLineItems.map((li, i) => {
       const override = model.packingDetails?.lines?.[li.product_id];
       const qtyPerCarton = override?.qty_per_carton ?? li.ctn_qty ?? 0;
       const cartons = override?.cartons ?? (li.cartons > 0 ? li.cartons : (qtyPerCarton ? Math.ceil(li.qty / qtyPerCarton) : 0));

@@ -80,7 +80,10 @@ export async function renderPackingList(input: RenderPlInput): Promise<Uint8Arra
   let totalCartons = 0, totalQty = 0, totalNet = 0, totalVolume = 0, totalGross = 0;
   let allNetKnown = true, allVolumeKnown = true, allGrossKnown = true;
 
-  const rows: ProductCell[][] = input.lineItems.map((li, idx) => {
+  const order = new Map((input.packingDetails?.line_order ?? []).map((id, index) => [id, index]));
+  const orderedLineItems = [...input.lineItems].sort((a, b) =>
+    (order.get(a.product_id) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.product_id) ?? Number.MAX_SAFE_INTEGER));
+  const rows: ProductCell[][] = orderedLineItems.map((li, idx) => {
     const desc = pickLineLabel(li, { kind: 'PL', partnerLang: lineLabelLang });
     const override = input.packingDetails?.lines?.[li.product_id];
     const qtyPerCtn = override?.qty_per_carton ?? li.ctn_qty ?? 0;

@@ -41,7 +41,7 @@ export class MixedManufacturerError extends Error {
 const OPERATION_COLS = `
   id, operation_date, operation_type, partner_id, our_company_id, receiving_company_id,
   manufacturer_id, warehouse_from_id, warehouse_to_id, shipper_id,
-  status, currency, total_amount, incoterms, hs_code,
+  status, currency, total_amount, incoterms, shipment_details, hs_code,
   reference, contract_id, default_document_language,
   dei_layer, legal_seller_id, dei_markup_pct, freight_amount
 `;

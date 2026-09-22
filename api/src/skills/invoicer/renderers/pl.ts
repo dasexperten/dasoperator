@@ -24,6 +24,8 @@ export interface RenderPlInput {
   consignee: RenderParty;
   signature: RenderSignature;
   ciReference: string | null;
+  incoterms: string;
+  shipmentDetails?: string[];
   lineItems: LineItemRow[];
 }
 
@@ -114,7 +116,9 @@ export async function renderPackingList(input: RenderPlInput): Promise<Uint8Arra
     totalWidthDxa: PORTRAIT_USABLE_DXA,
     deliveryHeader: translate('section.shipment'),
     deliveryLines: [
+      `${translate('misc.terms')}: ${input.incoterms}`,
       `${translate('summary.for_invoice')}: ${input.ciReference ?? '—'}`,
+      ...(input.shipmentDetails ?? []),
     ],
     rightHeader: translate('section.summary'),
     rightLines: summaryLines,

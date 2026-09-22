@@ -639,6 +639,19 @@ export async function issueDocuments(
     // Commercial documents carry the operation's business date, not the
     // moment when an ERP worker happened to press Issue documents.
     const documentDateSec = input.operation.operation_date;
+    // An operation-level term is the shipment truth. Company/partner/contract
+    // defaults are only fallbacks and must never turn the seller's country
+    // into the physical delivery origin.
+    const configuredIncoterms = input.contract?.incoterms
+      || input.partner?.preferred_incoterms
+      || (input.ourCompany.id === 'dei' && isInternational
+        ? 'FOB Guangzhou'
+        : selectIncoterms(input.ourCompany, input.partner, input.contract, isInternational));
+    const incoterms = input.operation.incoterms?.trim() || configuredIncoterms;
+    const shipmentDetails = (input.operation.shipment_details ?? '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
     let docxBytes: Uint8Array;
     let pdfBytes: Uint8Array;
     try {
@@ -652,7 +665,8 @@ export async function issueDocuments(
           bank: ciBank!,
           signature: r.signature,
           contract: input.contract,
-          incoterms: selectIncoterms(input.ourCompany, input.partner, input.contract, isInternational),
+          incoterms,
+          shipmentDetails,
           paymentTerms: input.partner?.payment_terms ?? null,
           lineItems: docLineItems,
           shipperLine: input.shipperLine,
@@ -672,6 +686,8 @@ export async function issueDocuments(
           consignee: r.buyer.party,
           signature: r.signature,
           ciReference: lastCiReference,
+          incoterms,
+          shipmentDetails,
           lineItems: docLineItems,
         };
         [docxBytes, pdfBytes] = await Promise.all([
@@ -720,7 +736,7 @@ export async function issueDocuments(
             shipperSeller: r.seller.party,
             consigneeBuyer: r.buyer.party,
             bank, signature, contract: input.contract,
-            incoterms: selectIncoterms(input.ourCompany, input.partner, input.contract, isInternational) || 'CNF Guangzhou',
+            incoterms: incoterms || 'CNF Guangzhou',
             container: null, countryStation: null,
             lineItems: docLineItems,
             totalMinor: goodsTotal,
@@ -751,7 +767,7 @@ export async function issueDocuments(
             // Factory→buyer case shipper and seller are the same row.
             sellerDistinctFromShipper: r.spec.sellerKind === 'company',
             bank, signature, contract: input.contract,
-            incoterms: selectIncoterms(input.ourCompany, input.partner, input.contract, isInternational) || 'FOB Shanghai',
+            incoterms: incoterms || 'FOB Shanghai',
             consigneeAtTerminal: null,
             lineItems: docLineItems,
             totalMinor: goodsTotal,

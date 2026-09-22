@@ -27,6 +27,7 @@ export interface RenderCiInput {
   signature: RenderSignature;
   contract: ContractRow | null;
   incoterms: string;
+  shipmentDetails?: string[];
   paymentTerms: string | null;
   lineItems: LineItemRow[];
   shipperLine?: string | null;
@@ -88,6 +89,7 @@ export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uin
 
   const deliveryLines: string[] = [
     `${translate('misc.terms')}: ${input.incoterms}`,
+    ...(input.shipmentDetails ?? []),
   ];
   if (input.paymentTerms) {
     deliveryLines.push(`${translate('misc.payment')}: ${input.paymentTerms}`);

@@ -491,6 +491,7 @@ export function renderCommercialInvoicePdf(input: RenderCiInput): Promise<Uint8A
       : [],
     details: [
       `Incoterms: ${input.incoterms}`,
+      ...(input.shipmentDetails ?? []),
       ...(input.paymentTerms ? [`Payment: ${input.paymentTerms}`] : []),
       ...(input.contract ? [`Contract: ${input.contract.contract_no}`] : []),
     ],
@@ -513,7 +514,9 @@ export function renderPackingListPdf(input: RenderPlInput): Promise<Uint8Array> 
       ? [{ label: ru ? 'ГРУЗООТПРАВИТЕЛЬ' : 'SHIPPER', lines: [input.physicalShipperLine] }]
       : [],
     details: [
+      `Incoterms: ${input.incoterms}`,
       ...(input.ciReference ? [`Related invoice: ${input.ciReference}`] : []),
+      ...(input.shipmentDetails ?? []),
     ], bank: null,
     lineItems: input.lineItems, total: null, extraCharges: [], signature: input.signature,
   });

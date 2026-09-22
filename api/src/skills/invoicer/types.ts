@@ -32,6 +32,7 @@ export interface OperationRow {
   currency: string | null;
   total_amount: number | null;
   incoterms: string | null;
+  shipment_details: string | null;
   hs_code: string | null;
   reference: string | null;
   contract_id: string | null;

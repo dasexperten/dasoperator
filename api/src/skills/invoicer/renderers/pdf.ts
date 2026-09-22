@@ -476,8 +476,11 @@ export function renderPackingListPdf(input: RenderPlInput): Promise<Uint8Array> 
     kind: 'PL', title: input.language === 'RU' ? 'УПАКОВОЧНЫЙ ЛИСТ' : 'PACKING LIST',
     reference: input.reference, issuedAt: input.issuedAt, language: input.language,
     currency: null,
-    parties: [{ label: 'SHIPPER / ГРУЗООТПРАВИТЕЛЬ', party: input.shipper }, { label: 'CONSIGNEE / ГРУЗОПОЛУЧАТЕЛЬ', party: input.consignee }],
-    details: input.ciReference ? [`Related invoice: ${input.ciReference}`] : [], bank: null,
+    parties: [{ label: 'SELLER / ПРОДАВЕЦ', party: input.shipper }, { label: 'CONSIGNEE / ГРУЗОПОЛУЧАТЕЛЬ', party: input.consignee }],
+    details: [
+      ...(input.physicalShipperLine ? [`Shipper: ${input.physicalShipperLine}`] : []),
+      ...(input.ciReference ? [`Related invoice: ${input.ciReference}`] : []),
+    ], bank: null,
     lineItems: input.lineItems, total: null, extraCharges: [], signature: input.signature,
   });
 }

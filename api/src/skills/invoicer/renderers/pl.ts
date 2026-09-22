@@ -20,6 +20,7 @@ export interface RenderPlInput {
   issuerLanguage?: RenderLanguage;
   partnerLanguage?: RenderLanguage;
   shipper: RenderParty;
+  physicalShipperLine: string | null;
   consignee: RenderParty;
   signature: RenderSignature;
   ciReference: string | null;
@@ -59,7 +60,7 @@ export async function renderPackingList(input: RenderPlInput): Promise<Uint8Arra
   const partyTable = buildPartyTable({
     language: partyTableLang,
     totalWidthDxa: PORTRAIT_USABLE_DXA,
-    shipperLabel: translate('party.shipper'),
+    shipperLabel: translate('party.seller'),
     shipper: input.shipper,
     consigneeLabel: translate('party.consignee'),
     consignee: input.consignee,
@@ -104,7 +105,10 @@ export async function renderPackingList(input: RenderPlInput): Promise<Uint8Arra
     language: partyTableLang,
     totalWidthDxa: PORTRAIT_USABLE_DXA,
     deliveryHeader: translate('section.shipment'),
-    deliveryLines: [`${translate('summary.for_invoice')}: ${input.ciReference ?? '—'}`],
+    deliveryLines: [
+      ...(input.physicalShipperLine ? [`${translate('party.shipper')}: ${input.physicalShipperLine}`] : []),
+      `${translate('summary.for_invoice')}: ${input.ciReference ?? '—'}`,
+    ],
     rightHeader: translate('section.summary'),
     rightLines: summaryLines,
   });

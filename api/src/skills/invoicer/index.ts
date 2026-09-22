@@ -665,6 +665,7 @@ export async function issueDocuments(
         const renderInput = {
           reference, issuedAt: nowSec, language: r.language, issuerLanguage: r.issuerLanguage, partnerLanguage: r.partnerLanguage,
           shipper: r.seller.party,
+          physicalShipperLine: input.shipperLine,
           consignee: r.buyer.party,
           signature: r.signature,
           ciReference: lastCiReference,

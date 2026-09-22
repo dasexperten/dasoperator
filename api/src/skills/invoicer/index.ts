@@ -431,6 +431,7 @@ export async function issueDocuments(
     needsBank: boolean;
     bankSelection: import('./types').BankAccountSelection | null;
     manufacturerRoute: ManufacturerBankRouteRow | null;
+    signature: RenderSignature;
   };
 
   const resolved: Resolved[] = [];
@@ -457,6 +458,19 @@ export async function issueDocuments(
       ?? issuerLanguage) as import('./renderers/shared').RenderLanguage;
     const currency = selectCurrency(input.ourCompany, input.partner, input.contract, spec.sellerKind);
     const needsBank = spec.type !== 'PL';
+    const signature = spec.sellerKind === 'company'
+      ? signatureFromCompany(seller.row as CompanyRow)
+      : signatureFromManufacturer(seller.row as ManufacturerRow);
+    if (!signature.stamp || !signature.name?.trim()) {
+      const sellerName = spec.sellerKind === 'company'
+        ? ((seller.row as CompanyRow).legal_name_en ?? spec.sellerId)
+        : ((seller.row as ManufacturerRow).legal_name_en ?? spec.sellerId);
+      return fail({
+        code: 'AUTHORIZED_SIGNATURE_REQUIRED',
+        message: `Cannot issue ${spec.type} for ${sellerName}: the seller has no authorised stamp/signature asset and signatory identity.`,
+        missing: ['authorised seller stamp/signature asset', 'signatory identity'],
+      }, 422, warnings);
+    }
 
     let bankSelection: import('./types').BankAccountSelection | null = null;
     let manufacturerRoute: ManufacturerBankRouteRow | null = null;
@@ -524,7 +538,7 @@ export async function issueDocuments(
     const descCheck = validateProductDescriptions(spec.format, input.lineItems);
     if (!descCheck.ok) return fail(descCheck.stop, 422, warnings);
 
-    resolved.push({ spec, seller, buyer, language, issuerLanguage, partnerLanguage, currency, needsBank, bankSelection, manufacturerRoute });
+    resolved.push({ spec, seller, buyer, language, issuerLanguage, partnerLanguage, currency, needsBank, bankSelection, manufacturerRoute, signature });
   }
 
   // ---------------------------------------------------------------------------
@@ -611,9 +625,7 @@ export async function issueDocuments(
           seller: r.seller.party,
           buyer: r.buyer.party,
           bank: ciBank!,
-          signature: r.spec.sellerKind === 'company'
-            ? signatureFromCompany(r.seller.row as CompanyRow)
-            : signatureFromManufacturer(r.seller.row as ManufacturerRow),
+          signature: r.signature,
           contract: input.contract,
           incoterms: selectIncoterms(input.ourCompany, input.partner, input.contract, isInternational),
           paymentTerms: input.partner?.payment_terms ?? null,
@@ -628,6 +640,7 @@ export async function issueDocuments(
           reference, issuedAt: nowSec, language: r.language, issuerLanguage: r.issuerLanguage, partnerLanguage: r.partnerLanguage,
           shipper: r.seller.party,
           consignee: r.buyer.party,
+          signature: r.signature,
           ciReference: lastCiReference,
           lineItems: docLineItems,
         });
@@ -637,9 +650,7 @@ export async function issueDocuments(
           reference, issuedAt: nowSec, currency: r.currency,
           seller: r.seller.party,
           buyer: r.buyer.party,
-          signature: r.spec.sellerKind === 'company'
-            ? signatureFromCompany(r.seller.row as CompanyRow)
-            : signatureFromManufacturer(r.seller.row as ManufacturerRow),
+          signature: r.signature,
           contract: input.contract,
           lineItems: docLineItems,
           totalMinor: goodsTotal,
@@ -651,9 +662,7 @@ export async function issueDocuments(
           reference, issuedAt: nowSec,
           shipper: r.seller.party,
           consignee: r.buyer.party,
-          signature: r.spec.sellerKind === 'company'
-            ? signatureFromCompany(r.seller.row as CompanyRow)
-            : signatureFromManufacturer(r.seller.row as ManufacturerRow),
+          signature: r.signature,
           contract: input.contract,
           lineItems: docLineItems,
           upcomingUpdRef: null, // populated below if we already issued the UPD this run
@@ -662,9 +671,7 @@ export async function issueDocuments(
         // IS-V1 or IS-V2
         const bank = r.manufacturerRoute ? bankFromRoute(r.manufacturerRoute)
           : (r.bankSelection ? bankFromSelection(r.bankSelection) : null);
-        const signature = r.spec.sellerKind === 'company'
-          ? signatureFromCompany(r.seller.row as CompanyRow)
-          : signatureFromManufacturer(r.seller.row as ManufacturerRow);
+        const signature = r.signature;
         if (r.spec.variant === 'V2') {
           bytes = await renderInvoiceSpecPastes({
             reference, issuedAt: nowSec, currency: r.currency,
@@ -763,7 +770,7 @@ export async function issueDocuments(
     issued.push({
       document_id: docId, type: r.spec.type, variant: r.spec.variant,
       reference, language: r.language, format: r.spec.format,
-      r2_key: r2Key, download_url: `${origin}/api/documents/${docId}/download`,
+      r2_key: r2Key, download_url: `${origin}/api/documents/${docId}/pdf`,
     });
   }
 

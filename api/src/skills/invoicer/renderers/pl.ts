@@ -5,9 +5,9 @@
 
 import type { DocumentLanguage, LineItemRow } from '../types';
 import {
-  Document, Packer, PORTRAIT_PAGE, PORTRAIT_USABLE_DXA, RenderParty, blank,
+  Document, Packer, PORTRAIT_PAGE, PORTRAIT_USABLE_DXA, RenderParty, RenderSignature, blank,
   buildBrandBar, buildDeliveryBankTable, buildMetaRow, buildPartyTable, buildProductTable,
-  buildTitle, formatDate, p, pickLineLabel,
+  buildSignature, buildTitle, formatDate, p, pickLineLabel,
   t, tBilingual, type RenderLanguage,
   type ProductCell,
 } from './shared';
@@ -21,6 +21,7 @@ export interface RenderPlInput {
   partnerLanguage?: RenderLanguage;
   shipper: RenderParty;
   consignee: RenderParty;
+  signature: RenderSignature;
   ciReference: string | null;
   lineItems: LineItemRow[];
 }
@@ -150,7 +151,7 @@ export async function renderPackingList(input: RenderPlInput): Promise<Uint8Arra
         blank(),
         p(translate('sig.shipper'),
           { bold: true, size: 18, align: AlignmentType.RIGHT, spaceBefore: 200 }),
-        p('_______________________', { align: AlignmentType.RIGHT, size: 16 }),
+        ...buildSignature(input.signature, input.language),
       ],
     }],
   });

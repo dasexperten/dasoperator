@@ -1923,6 +1923,9 @@ export interface DocumentsListResponse {
   count: number;
 }
 
+export interface IssuedOperationDocument { document_id: string; reference: string; type: string; format: string; download_url: string; }
+export interface IssueDocumentsResponse { operation_id: string; operation_status_after: string; documents: IssuedOperationDocument[]; warnings: string[]; }
+
 export async function getDocuments(filters: { operation_id?: string; partner_id?: string }) {
   const params = new URLSearchParams();
   if (filters.operation_id) params.set('operation_id', filters.operation_id);
@@ -1933,7 +1936,7 @@ export async function getDocuments(filters: { operation_id?: string; partner_id?
 export async function issueDocuments(operation_id: string, types?: Array<'CI' | 'PL' | 'IS-V1' | 'IS-V2' | 'UPD' | 'TN'>) {
   const body: { operation_id: string; types?: string[] } = { operation_id };
   if (types && types.length > 0) body.types = types;
-  return apiPost<{ issued: string[]; skipped: string[] }>('/api/documents/issue', body);
+  return apiPost<IssueDocumentsResponse>('/api/documents/issue', body);
 }
 
 export async function deleteDocument(id: string) {

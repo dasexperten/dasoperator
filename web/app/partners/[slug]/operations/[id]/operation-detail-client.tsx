@@ -1648,11 +1648,11 @@ function DocumentsTab({ operationId, operation, attachments, onOperationRefresh 
     try {
       const res = await issueDocuments(operationId);
       if (res.success && res.result) {
-        const { issued, skipped } = res.result;
+        const issued = res.result.documents.map((document) => document.reference);
         setIssueSuccess(
           issued.length > 0
-            ? `Issued: ${issued.join(', ')}${skipped.length > 0 ? ` · Already existed: ${skipped.join(', ')}` : ''}`
-            : `Already up to date — ${skipped.join(', ')}`
+            ? `Issued PDF documents: ${issued.join(', ')}`
+            : 'No documents needed — the operation is already up to date'
         );
         await fetchDocs();
       } else {
@@ -1806,12 +1806,12 @@ function DocumentsTab({ operationId, operation, attachments, onOperationRefresh 
                   <td className="px-4 py-3 text-right">
                     {doc.pdf_r2_url ? (
                       <a
-                        href={`${process.env.NEXT_PUBLIC_API_URL ?? 'https://dasoperator-api.dasexperten.workers.dev'}/api/documents/${doc.id}/download`}
+                        href={`${process.env.NEXT_PUBLIC_API_URL ?? 'https://dasoperator-api.dasexperten.workers.dev'}/api/documents/${doc.id}/pdf`}
                         target="_blank"
                         rel="noopener noreferrer"
                         style={{ fontSize: '14px', fontWeight: 600, color: 'var(--brand-rot)', textDecoration: 'none' }}
                       >
-                        Download
+                        PDF
                       </a>
                     ) : (
                       <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>—</span>

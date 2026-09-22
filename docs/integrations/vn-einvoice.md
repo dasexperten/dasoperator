@@ -88,13 +88,15 @@ Non-secret configuration:
 - `EASYINVOICE_SERIAL`
 - `EASYINVOICE_ENABLED`
 
-Activation requires a valid HTTPS provider endpoint, an initialized tenant, an
-assigned serial, HSM signing enabled by SoftDreams, and a successful zero-risk
-status check. Only then may `EASYINVOICE_ENABLED` change from `0` to `1`.
+Activation requires a valid HTTPS provider endpoint, an initialized tenant,
+HSM signing enabled by SoftDreams, and a successful zero-risk status check.
+For the supplied Circular 78 pattern `1C26TAA`, the v8 specification requires
+an explicitly empty `Serial`; a separate serial is not missing. Only after the
+provider-side checks pass may `EASYINVOICE_ENABLED` change from `0` to `1`.
 
 ## Current readiness
 
 The connector is intentionally deployed disabled. The supplied sandbox host
-does not present a certificate valid for its hostname, the shared HTTPS API
-reports that this tenant is not initialized, and no serial was supplied. No
-invoice may be issued until SoftDreams resolves those provider-side items.
+does not present a certificate valid for its hostname, and the shared HTTPS API
+reports that this tenant is not initialized. No invoice may be issued until
+SoftDreams resolves those provider-side items.

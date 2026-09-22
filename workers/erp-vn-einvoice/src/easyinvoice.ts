@@ -72,6 +72,10 @@ export function endpointFor(action: InvoiceAction | 'status' | 'download'): stri
   return ENDPOINTS[action];
 }
 
+export function isCircular78Pattern(pattern: string): boolean {
+  return /^\dC\d{2}[A-Z0-9]{3}$/i.test(pattern.trim());
+}
+
 export function extractXmlIkey(xml: string): string | null {
   const match = xml.match(/<Ikey>\s*([^<]+?)\s*<\/Ikey>/i);
   return match?.[1]?.trim() || null;
@@ -79,7 +83,10 @@ export function extractXmlIkey(xml: string): string | null {
 
 export function submitBody(input: SubmitInput): Record<string, unknown> {
   if (!input.pattern) throw new Error('pattern_required');
-  if (!input.serial) throw new Error('serial_required');
+  // Circular 78 combines the old template number and symbol in Pattern.
+  // EasyInvoice v8 explicitly requires Serial to be the empty string for
+  // values such as 1C26TAA. Legacy Circular 32 patterns still need Serial.
+  if (!input.serial && !isCircular78Pattern(input.pattern)) throw new Error('serial_required');
   if (input.action === 'cancel') {
     const target = input.originalIkey || input.ikey;
     if (!target) throw new Error('original_ikey_required');

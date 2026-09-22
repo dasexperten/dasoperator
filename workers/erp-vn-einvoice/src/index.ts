@@ -6,6 +6,7 @@ import {
   codeOf,
   downloadInvoice,
   invoiceFacts,
+  isCircular78Pattern,
   isConfigurationBlock,
   isMissingIkey,
   isProviderSuccess,
@@ -111,7 +112,10 @@ function readiness(env: Env): { ready: boolean; blockers: string[]; config: Easy
   if (!env.EASYINVOICE_PASSWORD) blockers.push('password_missing');
   if (!env.EASYINVOICE_TAX_CODE) blockers.push('tax_code_missing');
   if (!env.EASYINVOICE_PATTERN) blockers.push('pattern_missing');
-  if (!env.EASYINVOICE_SERIAL) blockers.push('serial_missing');
+  if (env.EASYINVOICE_SERIAL === undefined) blockers.push('serial_missing');
+  if (env.EASYINVOICE_SERIAL === '' && !isCircular78Pattern(env.EASYINVOICE_PATTERN || '')) {
+    blockers.push('serial_required_for_legacy_pattern');
+  }
   const ready = blockers.length === 0;
   return {
     ready,
@@ -122,7 +126,7 @@ function readiness(env: Env): { ready: boolean; blockers: string[]; config: Easy
       password: env.EASYINVOICE_PASSWORD!,
       taxCode: env.EASYINVOICE_TAX_CODE!,
       pattern: env.EASYINVOICE_PATTERN!,
-      serial: env.EASYINVOICE_SERIAL!,
+      serial: env.EASYINVOICE_SERIAL ?? '',
     } : null,
   };
 }
@@ -459,7 +463,10 @@ async function health(env: Env): Promise<Response> {
     transport: ready.blockers.includes('easyinvoice_https_required') ? 'blocked_non_https' : 'https_only',
     credentials_configured: Boolean(env.EASYINVOICE_USERNAME && env.EASYINVOICE_PASSWORD && env.EASYINVOICE_TAX_CODE),
     pattern_configured: Boolean(env.EASYINVOICE_PATTERN),
-    serial_configured: Boolean(env.EASYINVOICE_SERIAL),
+    serial_configured: env.EASYINVOICE_SERIAL !== undefined,
+    serial_mode: env.EASYINVOICE_SERIAL === '' && isCircular78Pattern(env.EASYINVOICE_PATTERN || '')
+      ? 'circular_78_empty'
+      : 'explicit',
     ingress_configured: Boolean(env.SWIFTHUB_INGEST_SECRET),
     last_run: lastRun,
     documents: counts,

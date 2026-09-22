@@ -52,6 +52,29 @@ test('issue request requires the XML Ikey to equal the ERP idempotency key', () 
   }), /xml_ikey_mismatch/);
 });
 
+test('Circular 78 accepts the documented empty Serial while legacy patterns do not', () => {
+  assert.equal(client.isCircular78Pattern('1C26TAA'), true);
+  assert.equal(client.isCircular78Pattern('01GTKT0/001'), false);
+  assert.deepEqual(client.submitBody({
+    action: 'issue',
+    ikey: 'order-123',
+    xmlData: '<Invoices><Inv><Invoice><Ikey>order-123</Ikey></Invoice></Inv></Invoices>',
+    pattern: '1C26TAA',
+    serial: '',
+  }), {
+    XmlData: '<Invoices><Inv><Invoice><Ikey>order-123</Ikey></Invoice></Inv></Invoices>',
+    Pattern: '1C26TAA',
+    Serial: '',
+  });
+  assert.throws(() => client.submitBody({
+    action: 'issue',
+    ikey: 'order-123',
+    xmlData: '<Invoices><Inv><Invoice><Ikey>order-123</Ikey></Invoice></Inv></Invoices>',
+    pattern: '01GTKT0/001',
+    serial: '',
+  }), /serial_required/);
+});
+
 test('uncertain duplicate responses are verified, while setup errors block', () => {
   assert.equal(client.needsVerification({ Status: 5, ErrorCode: 193 }), true);
   assert.equal(client.needsVerification({ Status: 4, ErrorCode: 169 }), true);
@@ -69,4 +92,3 @@ test('invoice number and lookup code are extracted for the matching Ikey', () =>
     },
   }, 'swh-42'), { invoiceNo: '0000042', lookupCode: 'ABC' });
 });
-

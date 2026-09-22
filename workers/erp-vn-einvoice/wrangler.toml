@@ -1,0 +1,28 @@
+# Vietnam retail e-invoices: SwiftHub completion event -> ERP outbox -> EasyInvoice HSM API.
+name = "erp-vn-einvoice"
+main = "src/index.ts"
+compatibility_date = "2026-09-20"
+compatibility_flags = ["nodejs_compat"]
+account_id = "081ddb85cb399ad62a70210328d744fc"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+[[r2_buckets]]
+binding = "DOCS"
+bucket_name = "das-erp-docs-dev"
+
+[vars]
+# The provider's documented shared domain has a valid public certificate.
+# The supplied sandbox domain is intentionally not used: its certificate has
+# the wrong hostname and the API header carries the raw username/password.
+EASYINVOICE_BASE_URL = "https://api.easyinvoice.vn"
+EASYINVOICE_ENABLED = "0"
+EASYINVOICE_PATTERN = "1C26TAA"
+
+[triggers]
+crons = ["*/5 * * * *"]
+

@@ -84,3 +84,6 @@ jobs:
 
       - name: Test Ozon retry and marketplace health SLAs
         run: node --test workers/_marketplace/ozon-read-retry.test.mjs api/src/lib/integration-health.test.mjs
+
+      - name: Test Vietnam EasyInvoice transport and idempotency contract
+        run: node --test workers/erp-vn-einvoice/src/easyinvoice.test.mjs

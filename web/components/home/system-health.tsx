@@ -68,6 +68,25 @@ export default function SystemHealth() {
             status: 'unknown',
             message: 'Probe failed',
           })),
+        // Vietnam retail invoice issue/sign/archive chain.
+        fetch(`${API_BASE}/api/integrations/vn-einvoice`)
+          .then((r) => r.json())
+          .then((data): HealthCheck => {
+            const r = data?.result;
+            if (!r) return { label: 'VN e-invoices', status: 'unknown', message: 'No data' };
+            return {
+              label: 'VN e-invoices',
+              status: r.status,
+              message: r.message,
+              detail: r.detail || undefined,
+              href: '/finance',
+            };
+          })
+          .catch((): HealthCheck => ({
+            label: 'VN e-invoices',
+            status: 'unknown',
+            message: 'Probe failed',
+          })),
       ];
 
       const results = await Promise.all(probes);

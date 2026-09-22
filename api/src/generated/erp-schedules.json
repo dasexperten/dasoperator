@@ -116,6 +116,9 @@
   "erp-social-queue": [
     "*/5 4-19 * * *"
   ],
+  "erp-vn-einvoice": [
+    "*/5 * * * *"
+  ],
   "erp-watchdog": [
     "20 */3 * * *"
   ],

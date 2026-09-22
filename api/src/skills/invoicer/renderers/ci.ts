@@ -9,7 +9,7 @@ import {
   t, tBilingual, type RenderLanguage,
   Document, Packer, PORTRAIT_PAGE, PORTRAIT_USABLE_DXA, RenderBank, RenderParty,
   RenderSignature, blank, buildBrandBar, buildDeliveryBankTable, buildMetaRow, buildPartyTable,
-  buildProductTable, buildSignature, buildTitle, formatDate, formatMoney,
+  buildPartyLineBlock, buildProductTable, buildSignature, buildTitle, formatDate, formatMoney,
   formatUnitPrice, pickLineLabel,
   type ProductCell,
 } from './shared';
@@ -77,10 +77,17 @@ export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uin
     consignee: input.buyer,
   });
 
+  const physicalShipperBlock = input.shipperLine
+    ? buildPartyLineBlock({
+        totalWidthDxa: PORTRAIT_USABLE_DXA,
+        label: translate('party.shipper'),
+        lines: [input.shipperLine],
+      })
+    : null;
+
   const deliveryLines: string[] = [
     `${translate('misc.terms')}: ${input.incoterms}`,
   ];
-  if (input.shipperLine) deliveryLines.push(`Shipper: ${input.shipperLine}`);
   if (input.paymentTerms) {
     deliveryLines.push(`${translate('misc.payment')}: ${input.paymentTerms}`);
   }
@@ -162,6 +169,7 @@ export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uin
         buildBrandBar(),
         buildMetaRow(meta),
         partyTable,
+        ...(physicalShipperBlock ? [blank(), physicalShipperBlock] : []),
         blank(),
         deliveryBankTable,
         blank(),

@@ -420,6 +420,44 @@ export function buildPartyTable(spec: PartyTableSpec): Table {
 }
 
 // =============================================================================
+// Full-width party line — used when the physical shipper is distinct from the
+// seller but the operation currently stores the shipper as one verified legal
+// name/address line. Its hierarchy deliberately matches SELLER / BUYER blocks:
+// a 9 pt bold label followed by 8 pt body copy.
+// =============================================================================
+
+export interface PartyLineBlockSpec {
+  totalWidthDxa: number;
+  label: string;
+  lines: string[];
+}
+
+export function buildPartyLineBlock(spec: PartyLineBlockSpec): Table {
+  return new Table({
+    width: { size: spec.totalWidthDxa, type: WidthType.DXA },
+    columnWidths: [spec.totalWidthDxa],
+    layout: TableLayoutType.FIXED,
+    borders: NO_BORDERS,
+    rows: [
+      new TableRow({
+        children: [
+          new TableCell({
+            width: { size: spec.totalWidthDxa, type: WidthType.DXA },
+            verticalAlign: VerticalAlign.TOP,
+            margins: CELL_MARGINS_PARTY,
+            borders: NO_BORDERS,
+            children: [
+              p(spec.label, { bold: true, size: 18, spaceAfter: 60 }),
+              ...spec.lines.map((line) => p(line, { size: 16 })),
+            ],
+          }),
+        ],
+      }),
+    ],
+  });
+}
+
+// =============================================================================
 // Delivery + Bank table — 2 cells side-by-side, full page width.
 // Either side may be empty (e.g. PL has no bank block on most flows).
 // =============================================================================

@@ -7,7 +7,7 @@ import type { DocumentLanguage, LineItemRow } from '../types';
 import {
   Document, Packer, PORTRAIT_PAGE, PORTRAIT_USABLE_DXA, RenderParty, RenderSignature, blank,
   buildBrandBar, buildDeliveryBankTable, buildMetaRow, buildPartyTable, buildProductTable,
-  buildSignature, buildTitle, formatDate, p, pickLineLabel,
+  buildPartyLineBlock, buildSignature, buildTitle, formatDate, p, pickLineLabel,
   t, tBilingual, type RenderLanguage,
   type ProductCell,
 } from './shared';
@@ -66,6 +66,14 @@ export async function renderPackingList(input: RenderPlInput): Promise<Uint8Arra
     consignee: input.consignee,
   });
 
+  const physicalShipperBlock = input.physicalShipperLine
+    ? buildPartyLineBlock({
+        totalWidthDxa: PORTRAIT_USABLE_DXA,
+        label: translate('party.shipper'),
+        lines: [input.physicalShipperLine],
+      })
+    : null;
+
   let totalCartons = 0, totalQty = 0, totalNet = 0, totalGross = 0, allWeightsKnown = true;
 
   const rows: ProductCell[][] = input.lineItems.map((li, idx) => {
@@ -106,7 +114,6 @@ export async function renderPackingList(input: RenderPlInput): Promise<Uint8Arra
     totalWidthDxa: PORTRAIT_USABLE_DXA,
     deliveryHeader: translate('section.shipment'),
     deliveryLines: [
-      ...(input.physicalShipperLine ? [`${translate('party.shipper')}: ${input.physicalShipperLine}`] : []),
       `${translate('summary.for_invoice')}: ${input.ciReference ?? '—'}`,
     ],
     rightHeader: translate('section.summary'),
@@ -148,6 +155,7 @@ export async function renderPackingList(input: RenderPlInput): Promise<Uint8Arra
         buildBrandBar(),
         buildMetaRow(meta),
         partyTable,
+        ...(physicalShipperBlock ? [blank(), physicalShipperBlock] : []),
         blank(),
         summaryTable,
         blank(),

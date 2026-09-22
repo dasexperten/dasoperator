@@ -1994,13 +1994,24 @@ operations.patch('/api/line-items/:id', async (c) => {
 
   const stmts: D1PreparedStatement[] = [
     c.env.DB.prepare(sql).bind(...binds),
+    // Keep the document-facing monetary fields in sync with the editable base
+    // price and quantity. CI/IS renderers intentionally read
+    // unit_price_after_disc + line_amount, so updating only unit_price leaves
+    // an apparently discounted operation and reissues stale document values.
+    c.env.DB.prepare(`
+      UPDATE line_items SET
+        unit_price_after_disc = ROUND(unit_price * (100 - COALESCE(discount_pct, 0)) / 100, 3),
+        line_amount = ROUND(qty * ROUND(unit_price * (100 - COALESCE(discount_pct, 0)) / 100, 3), 2),
+        updated_at = ?
+      WHERE id = ?
+    `).bind(now, id),
   ];
 
   // Recompute total_amount on parent operation
   stmts.push(
     c.env.DB.prepare(`
       UPDATE operations SET
-        total_amount = COALESCE((SELECT SUM(qty * unit_price) FROM line_items WHERE operation_id = ?), 0),
+        total_amount = COALESCE((SELECT SUM(line_amount) FROM line_items WHERE operation_id = ?), 0),
         updated_at = ?
       WHERE id = ?
     `).bind(op.id, now, op.id)
@@ -2632,4 +2643,3 @@ operations.post('/_tick-marketplace-pull', async (c) => {
 
 
 export default operations;
-

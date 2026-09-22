@@ -30,6 +30,7 @@ interface PdfModel {
   language: string;
   currency: string | null;
   parties: PdfPartyBlock[];
+  highlightedParties?: Array<{ label: string; lines: string[] }>;
   details: string[];
   bank: RenderBank | null;
   lineItems: LineItemRow[];
@@ -262,6 +263,26 @@ function drawPartyGrid(c: PdfCanvas, model: PdfModel): void {
   c.y -= height + 9;
 }
 
+function drawHighlightedParties(c: PdfCanvas, model: PdfModel): void {
+  const blocks = model.highlightedParties ?? [];
+  if (blocks.length === 0) return;
+  const width = c.page.getWidth() - MARGIN * 2;
+  for (const block of blocks) {
+    const lines = block.lines.flatMap((line) => wrap(c.fonts, line, 8, width - 14));
+    const height = 28 + Math.max(1, lines.length) * 10;
+    c.ensure(height + 9, () => drawHeader(c, model, true));
+    c.page.drawRectangle({ x: MARGIN, y: c.y - height, width, height, borderColor: LINE, borderWidth: 0.7 });
+    c.page.drawRectangle({ x: MARGIN, y: c.y - 18, width, height: 18, color: SHADE });
+    c.drawText(block.label, MARGIN + 7, c.y - 12, 7.5, { bold: true, color: MUTED });
+    let lineY = c.y - 29;
+    for (const line of lines) {
+      c.drawText(line, MARGIN + 7, lineY, 8);
+      lineY -= 10;
+    }
+    c.y -= height + 9;
+  }
+}
+
 function drawInfo(c: PdfCanvas, model: PdfModel): void {
   const bank = bankLines(model.bank);
   const blocks: Array<{ label: string; lines: string[] }> = [];
@@ -448,6 +469,7 @@ async function createPdf(model: PdfModel): Promise<Uint8Array> {
   const canvas = new PdfCanvas(doc, fonts, model.kind === 'IS-V1' || model.kind === 'IS-V2' || model.kind === 'UPD' || model.kind === 'TN');
   drawHeader(canvas, model);
   drawPartyGrid(canvas, model);
+  drawHighlightedParties(canvas, model);
   drawInfo(canvas, model);
   drawTable(canvas, model);
   await drawSignature(canvas, model);
@@ -460,9 +482,11 @@ export function renderCommercialInvoicePdf(input: RenderCiInput): Promise<Uint8A
     reference: input.reference, issuedAt: input.issuedAt, language: input.language,
     currency: input.currency,
     parties: [{ label: 'SELLER / ПРОДАВЕЦ', party: input.seller }, { label: 'BUYER / ПОКУПАТЕЛЬ', party: input.buyer }],
+    highlightedParties: input.shipperLine
+      ? [{ label: 'SHIPPER / ГРУЗООТПРАВИТЕЛЬ', lines: [input.shipperLine] }]
+      : [],
     details: [
       `Incoterms: ${input.incoterms}`,
-      ...(input.shipperLine ? [`Shipper: ${input.shipperLine}`] : []),
       ...(input.paymentTerms ? [`Payment: ${input.paymentTerms}`] : []),
       ...(input.contract ? [`Contract: ${input.contract.contract_no}`] : []),
     ],
@@ -477,8 +501,10 @@ export function renderPackingListPdf(input: RenderPlInput): Promise<Uint8Array> 
     reference: input.reference, issuedAt: input.issuedAt, language: input.language,
     currency: null,
     parties: [{ label: 'SELLER / ПРОДАВЕЦ', party: input.shipper }, { label: 'CONSIGNEE / ГРУЗОПОЛУЧАТЕЛЬ', party: input.consignee }],
+    highlightedParties: input.physicalShipperLine
+      ? [{ label: 'SHIPPER / ГРУЗООТПРАВИТЕЛЬ', lines: [input.physicalShipperLine] }]
+      : [],
     details: [
-      ...(input.physicalShipperLine ? [`Shipper: ${input.physicalShipperLine}`] : []),
       ...(input.ciReference ? [`Related invoice: ${input.ciReference}`] : []),
     ], bank: null,
     lineItems: input.lineItems, total: null, extraCharges: [], signature: input.signature,

@@ -1247,7 +1247,7 @@ function DocumentsTab({
         const issued = res.result.documents.map((document) => document.reference);
         setIssueSuccess(
           issued.length > 0
-            ? `Issued PDF documents: ${issued.join(', ')}`
+            ? `Issued signed documents: ${issued.join(', ')}`
             : 'No documents needed — the operation is already up to date'
         );
         await fetchDocs();
@@ -1356,9 +1356,16 @@ function DocumentsTab({
                   <td className="px-4 py-3" style={{ color: 'var(--fg-3)', fontSize: '14px' }}>invoicer</td>
                   <td className="px-4 py-3 text-right">
                     {doc.pdf_r2_url ? (
-                      <a href={`https://dasoperator-api.dasexperten.workers.dev/api/documents/${doc.id}/pdf`} target="_blank" rel="noopener noreferrer" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--brand-rot)', textDecoration: 'none' }}>
-                        PDF
-                      </a>
+                      <span className="inline-flex items-center gap-3">
+                        <a href={`https://dasoperator-api.dasexperten.workers.dev/api/documents/${doc.id}/download`} target="_blank" rel="noopener noreferrer" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--brand-rot)', textDecoration: 'none' }}>
+                          Word
+                        </a>
+                        {doc.pdf_converted_r2_url ? (
+                          <a href={`https://dasoperator-api.dasexperten.workers.dev/api/documents/${doc.id}/pdf`} target="_blank" rel="noopener noreferrer" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)', textDecoration: 'none' }}>
+                            PDF
+                          </a>
+                        ) : null}
+                      </span>
                     ) : (
                       <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>—</span>
                     )}

@@ -1911,6 +1911,7 @@ export interface OperationDocument {
   currency: string | null;
   total_amount: number | null;
   pdf_r2_url: string | null;
+  pdf_converted_r2_url: string | null;
   status: string;
   issuer_name: string | null;
   partner_name: string | null;

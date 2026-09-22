@@ -6,7 +6,7 @@
 
 import type {
   BankAccountSelection, BankRouteSelection, CompanyBankAccountRow, CompanyRow,
-  ContractRow, DocumentLanguage, DocumentSpec, InvoicerInput, LineItemRow,
+  ContractRow, DocumentFormat, DocumentLanguage, DocumentSpec, InvoicerInput, LineItemRow,
   ManufacturerBankRouteRow, ManufacturerRow, PartnerRow,
 } from './types';
 
@@ -149,7 +149,7 @@ export function selectDocumentsToIssue(input: InvoicerInput): DocumentSpec[] {
 // =============================================================================
 
 export function selectLanguage(
-  format: 'CI' | 'PL' | 'IS-V1' | 'IS-V2',
+  format: DocumentFormat,
   ourCompany: CompanyRow,
   partner: PartnerRow | null,
   contract: ContractRow | null
@@ -170,7 +170,7 @@ export function selectLanguage(
   // Legacy 'RU' value reused as "render in partner's national language only".
   // For service-track (Russian ИП, банки, ФНС), this returns the partner's local language code.
   if (partner?.preferred_invoice_language === 'RU') {
-    return (partner.partner_local_language as string | null) || 'RU';
+    return partner.partner_local_language ?? 'RU';
   }
   if (ourCompany.default_document_language) return ourCompany.default_document_language;
   if (ourCompany.default_invoice_language) return ourCompany.default_invoice_language;

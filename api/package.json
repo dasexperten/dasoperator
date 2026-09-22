@@ -9,8 +9,10 @@
     "tail": "wrangler tail"
   },
   "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
     "docx": "^9.6.1",
     "hono": "^4.6.13",
+    "pdf-lib": "^1.17.1",
     "postal-mime": "2.4.3",
     "unpdf": "^0.12.1",
     "xlsx": "^0.18.5",

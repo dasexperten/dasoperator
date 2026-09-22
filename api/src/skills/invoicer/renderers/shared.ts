@@ -74,8 +74,11 @@ export interface RenderSignature {
   name: string | null;
   titleEn: string | null;
   titleRu: string | null;
-  // Scanned hand signature over the company stamp; replaces the blank line.
-  stamp?: { png: Uint8Array; width: number; height: number } | null;
+  // Issuer-owned stamp. Some scans already include the hand signature.
+  stamp?: { data: Uint8Array; format: 'png' | 'jpg'; width: number; height: number } | null;
+  // Separate authorised hand-signature scan when it is not part of stamp.
+  handSignature?: { data: Uint8Array; format: 'png' | 'jpg'; width: number; height: number } | null;
+  stampIncludesHandSignature?: boolean;
 }
 
 // =============================================================================
@@ -88,7 +91,6 @@ const SHADE_GRAY = 'F2F2F2';
 export const BRAND_ANTHRACITE = '1A1A1A';
 export const BRAND_ROT = 'E5202C';
 const SUBTLE_GRAY = '707070';
-const HAIRLINE_GRAY = 'BFBFBF';
 const BRAND_FONT = 'Calibri';  // safe sans-serif, available on all Office installs
 
 const NO_BORDER = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
@@ -616,13 +618,27 @@ export function buildSignature(sig: RenderSignature, language: Language): Paragr
     out.push(new Paragraph({
       alignment: AlignmentType.RIGHT,
       children: [new ImageRun({
-        type: 'png',
-        data: sig.stamp.png,
+        type: sig.stamp.format,
+        data: sig.stamp.data,
         transformation: { width: w, height: Math.round(sig.stamp.height * w / sig.stamp.width) },
       })],
     }));
   } else {
     out.push(p('_______________________', { align: AlignmentType.RIGHT, size: 16 }));
+  }
+  if (sig.handSignature) {
+    const w = 220;
+    out.push(new Paragraph({
+      alignment: AlignmentType.RIGHT,
+      children: [new ImageRun({
+        type: sig.handSignature.format,
+        data: sig.handSignature.data,
+        transformation: {
+          width: w,
+          height: Math.round(sig.handSignature.height * w / sig.handSignature.width),
+        },
+      })],
+    }));
   }
   out.push(p(titleLine, { bold: true, size: 18, align: AlignmentType.RIGHT }));
   if (sig.name) out.push(p(sig.name, { size: 16, align: AlignmentType.RIGHT }));

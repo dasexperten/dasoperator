@@ -1651,7 +1651,7 @@ function DocumentsTab({ operationId, operation, attachments, onOperationRefresh 
         const issued = res.result.documents.map((document) => document.reference);
         setIssueSuccess(
           issued.length > 0
-            ? `Issued PDF documents: ${issued.join(', ')}`
+            ? `Issued signed documents: ${issued.join(', ')}`
             : 'No documents needed — the operation is already up to date'
         );
         await fetchDocs();
@@ -1769,7 +1769,7 @@ function DocumentsTab({ operationId, operation, attachments, onOperationRefresh 
               <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Type</th>
               <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Date</th>
               <th className="text-left px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Status</th>
-              <th className="text-right px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>PDF</th>
+              <th className="text-right px-4 py-3" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)' }}>Files</th>
             </tr>
           </thead>
           <tbody>
@@ -1805,14 +1805,26 @@ function DocumentsTab({ operationId, operation, attachments, onOperationRefresh 
                   </td>
                   <td className="px-4 py-3 text-right">
                     {doc.pdf_r2_url ? (
-                      <a
-                        href={`${process.env.NEXT_PUBLIC_API_URL ?? 'https://dasoperator-api.dasexperten.workers.dev'}/api/documents/${doc.id}/pdf`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ fontSize: '14px', fontWeight: 600, color: 'var(--brand-rot)', textDecoration: 'none' }}
-                      >
-                        PDF
-                      </a>
+                      <span className="inline-flex items-center gap-3">
+                        <a
+                          href={`${process.env.NEXT_PUBLIC_API_URL ?? 'https://dasoperator-api.dasexperten.workers.dev'}/api/documents/${doc.id}/download`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ fontSize: '14px', fontWeight: 600, color: 'var(--brand-rot)', textDecoration: 'none' }}
+                        >
+                          Word
+                        </a>
+                        {doc.pdf_converted_r2_url ? (
+                          <a
+                            href={`${process.env.NEXT_PUBLIC_API_URL ?? 'https://dasoperator-api.dasexperten.workers.dev'}/api/documents/${doc.id}/pdf`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ fontSize: '14px', fontWeight: 600, color: 'var(--fg-2)', textDecoration: 'none' }}
+                          >
+                            PDF
+                          </a>
+                        ) : null}
+                      </span>
                     ) : (
                       <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>—</span>
                     )}

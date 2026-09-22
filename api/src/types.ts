@@ -124,10 +124,6 @@ export interface Env {
   CODEX_BRIDGE_URL?: string;
   CODEX_BRIDGE_HMAC_SECRET?: string;
 
-  // CloudConvert — docx → PDF conversion (Phase PDF)
-  // Optional — if missing, PDF endpoint returns 503.
-  CLOUDCONVERT_API_KEY?: string;
-
   // Marketplace API credentials (Phase 6.0 — marketplace integrations)
   // Ozon Seller API (https://api-seller.ozon.ru) — Client-Id + Api-Key headers
   OZON_CLIENT_ID: string;

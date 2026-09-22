@@ -43,6 +43,7 @@ export interface OperationRow {
   // as a Freight row on every CI of the operation and counts in its total.
   dei_markup_pct: number;
   freight_amount: number;
+  vat_rate?: number;
 }
 
 export interface CompanyRow {

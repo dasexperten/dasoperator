@@ -31,6 +31,10 @@ import { renderUpd } from './renderers/upd';
 import { renderTn } from './renderers/tn';
 import { renderInvoiceSpecBrushes } from './renderers/is-variant1';
 import { renderInvoiceSpecPastes } from './renderers/is-variant2';
+import {
+  renderCommercialInvoicePdf, renderInvoiceSpecBrushesPdf,
+  renderInvoiceSpecPastesPdf, renderPackingListPdf, renderTnPdf, renderUpdPdf,
+} from './renderers/pdf';
 import type {
   CompanyRow, DocumentSpec, IssueOutcome, IssuedDocument, ManufacturerRow,
   ManufacturerBankRouteRow, PartnerRow, ValidationStop,
@@ -90,7 +94,7 @@ function issuerAbbr(sellerKind: 'company' | 'manufacturer', sellerId: string): s
 function operationNumericTail(reference: string | null | undefined): string {
   if (!reference) return '0000';
   const parts = reference.split('-');
-  const last = parts[parts.length - 1];
+  const last = parts[parts.length - 1] ?? '';
   const n = parseInt(last, 10);
   if (!Number.isFinite(n) || n < 0) return '0000';
   return String(n).padStart(4, '0');
@@ -203,7 +207,11 @@ function signatureFromCompany(c: CompanyRow): RenderSignature {
     name: c.signing_authority_name,
     titleEn: c.signing_authority_title_en,
     titleRu: c.signing_authority_title_ru,
-    stamp: scan ? { png: scan.png(), width: scan.width, height: scan.height } : null,
+    stamp: scan ? { data: scan.stamp.data(), format: scan.stamp.format, width: scan.stamp.width, height: scan.stamp.height } : null,
+    handSignature: scan?.handSignature
+      ? { data: scan.handSignature.data(), format: scan.handSignature.format, width: scan.handSignature.width, height: scan.handSignature.height }
+      : null,
+    stampIncludesHandSignature: scan?.stampIncludesHandSignature ?? false,
   };
 }
 
@@ -213,10 +221,16 @@ function signatureFromManufacturer(m: ManufacturerRow): RenderSignature {
   // signatory (manufacturers.signing_authority_*). If the factory has no
   // registered signatory the name line stays blank for a hand signature —
   // NEVER the buyer's General Manager.
+  const scan = STAMP_SIGNATURE[m.slug ?? ''] ?? STAMP_SIGNATURE[m.id];
   return {
     name: m.signing_authority_name ?? '',
     titleEn: m.signing_authority_title_en ?? 'General Manager',
     titleRu: m.signing_authority_title_ru ?? 'Генеральный директор',
+    stamp: scan ? { data: scan.stamp.data(), format: scan.stamp.format, width: scan.stamp.width, height: scan.stamp.height } : null,
+    handSignature: scan?.handSignature
+      ? { data: scan.handSignature.data(), format: scan.handSignature.format, width: scan.handSignature.width, height: scan.handSignature.height }
+      : null,
+    stampIncludesHandSignature: scan?.stampIncludesHandSignature ?? false,
   };
 }
 
@@ -264,7 +278,7 @@ function priceLineItems(items: LineItemRow[], markupPct: number): LineItemRow[] 
 
 export async function issueDocuments(
   operationId: string, env: Env, reqUrl: string,
-  filterTypes?: Array<'CI' | 'PL' | 'IS-V1' | 'IS-V2'>,
+  filterTypes?: Array<'CI' | 'PL' | 'IS-V1' | 'IS-V2' | 'UPD' | 'TN'>,
 ): Promise<IssueOutcome> {
   // 1. Load
   let input: Awaited<ReturnType<typeof loadInvoicerInput>>;
@@ -394,7 +408,7 @@ export async function issueDocuments(
     return fail({
       code: 'already_exists',
       message: skipped.length === 1
-        ? `${skipped[0].document_number} already exists. Delete it first to re-issue.`
+        ? `${skipped[0]?.document_number ?? 'Document'} already exists. Delete it first to re-issue.`
         : `All requested documents already exist: ${skipped.map((s) => s.document_number).join(', ')}. Delete to re-issue.`,
       details: { existing: skipped },
     }, 409, warnings);
@@ -426,7 +440,9 @@ export async function issueDocuments(
     spec: DocumentSpec;
     seller: ReturnType<typeof partyForSpec>;
     buyer: ReturnType<typeof partyForSpec>;
-    language: 'EN' | 'RU' | 'BILINGUAL';
+    language: import('./types').DocumentLanguage;
+    issuerLanguage: import('./renderers/shared').RenderLanguage;
+    partnerLanguage: import('./renderers/shared').RenderLanguage;
     currency: string;
     needsBank: boolean;
     bankSelection: import('./types').BankAccountSelection | null;
@@ -461,14 +477,19 @@ export async function issueDocuments(
     const signature = spec.sellerKind === 'company'
       ? signatureFromCompany(seller.row as CompanyRow)
       : signatureFromManufacturer(seller.row as ManufacturerRow);
-    if (!signature.stamp || !signature.name?.trim()) {
+    const hasHandSignature = signature.stampIncludesHandSignature || Boolean(signature.handSignature);
+    if (!signature.stamp || !hasHandSignature || !signature.name?.trim()) {
       const sellerName = spec.sellerKind === 'company'
-        ? ((seller.row as CompanyRow).legal_name_en ?? spec.sellerId)
+        ? ((seller.row as CompanyRow).legal_name ?? spec.sellerId)
         : ((seller.row as ManufacturerRow).legal_name_en ?? spec.sellerId);
       return fail({
         code: 'AUTHORIZED_SIGNATURE_REQUIRED',
         message: `Cannot issue ${spec.type} for ${sellerName}: the seller has no authorised stamp/signature asset and signatory identity.`,
-        missing: ['authorised seller stamp/signature asset', 'signatory identity'],
+        missing: [
+          ...(!signature.stamp ? ['authorised seller stamp asset'] : []),
+          ...(!hasHandSignature ? ['authorised hand-signature asset'] : []),
+          ...(!signature.name?.trim() ? ['signatory identity'] : []),
+        ],
       }, 422, warnings);
     }
 
@@ -615,12 +636,13 @@ export async function issueDocuments(
     const extraCharges = freight > 0 ? [{ label: 'Freight', amount: freight }] : [];
     const ciTotal = round3(goodsTotal + freight);
 
-    let bytes: Uint8Array;
+    let docxBytes: Uint8Array;
+    let pdfBytes: Uint8Array;
     try {
       if (r.spec.type === 'CI') {
         const ciBank = r.manufacturerRoute ? bankFromRoute(r.manufacturerRoute)
           : (r.bankSelection ? bankFromSelection(r.bankSelection) : null);
-        bytes = await renderCommercialInvoice({
+        const renderInput = {
           reference, issuedAt: nowSec, language: r.language, issuerLanguage: r.issuerLanguage, partnerLanguage: r.partnerLanguage, currency: r.currency,
           seller: r.seller.party,
           buyer: r.buyer.party,
@@ -633,20 +655,28 @@ export async function issueDocuments(
           shipperLine: input.shipperLine,
           extraCharges,
           totalMinor: ciTotal,
-        });
+        };
+        [docxBytes, pdfBytes] = await Promise.all([
+          renderCommercialInvoice(renderInput),
+          renderCommercialInvoicePdf(renderInput),
+        ]);
         lastCiReference = reference;
       } else if (r.spec.type === 'PL') {
-        bytes = await renderPackingList({
+        const renderInput = {
           reference, issuedAt: nowSec, language: r.language, issuerLanguage: r.issuerLanguage, partnerLanguage: r.partnerLanguage,
           shipper: r.seller.party,
           consignee: r.buyer.party,
           signature: r.signature,
           ciReference: lastCiReference,
           lineItems: docLineItems,
-        });
+        };
+        [docxBytes, pdfBytes] = await Promise.all([
+          renderPackingList(renderInput),
+          renderPackingListPdf(renderInput),
+        ]);
       } else if (r.spec.type === 'UPD') {
         // УПД — Russian B2B sale document.
-        bytes = await renderUpd({
+        const renderInput = {
           reference, issuedAt: nowSec, currency: r.currency,
           seller: r.seller.party,
           buyer: r.buyer.party,
@@ -655,10 +685,14 @@ export async function issueDocuments(
           lineItems: docLineItems,
           totalMinor: goodsTotal,
           vatRatePct: input.operation.vat_rate ?? 5,
-        });
+        };
+        [docxBytes, pdfBytes] = await Promise.all([
+          renderUpd(renderInput),
+          renderUpdPdf(renderInput),
+        ]);
       } else if (r.spec.type === 'TN') {
         // Транспортная накладная.
-        bytes = await renderTn({
+        const renderInput = {
           reference, issuedAt: nowSec,
           shipper: r.seller.party,
           consignee: r.buyer.party,
@@ -666,14 +700,18 @@ export async function issueDocuments(
           contract: input.contract,
           lineItems: docLineItems,
           upcomingUpdRef: null, // populated below if we already issued the UPD this run
-        });
+        };
+        [docxBytes, pdfBytes] = await Promise.all([
+          renderTn(renderInput),
+          renderTnPdf(renderInput),
+        ]);
       } else {
         // IS-V1 or IS-V2
         const bank = r.manufacturerRoute ? bankFromRoute(r.manufacturerRoute)
           : (r.bankSelection ? bankFromSelection(r.bankSelection) : null);
         const signature = r.signature;
         if (r.spec.variant === 'V2') {
-          bytes = await renderInvoiceSpecPastes({
+          const renderInput = {
             reference, issuedAt: nowSec, currency: r.currency,
             shipperSeller: r.seller.party,
             consigneeBuyer: r.buyer.party,
@@ -682,7 +720,11 @@ export async function issueDocuments(
             container: null, countryStation: null,
             lineItems: docLineItems,
             totalMinor: goodsTotal,
-          });
+          };
+          [docxBytes, pdfBytes] = await Promise.all([
+            renderInvoiceSpecPastes(renderInput),
+            renderInvoiceSpecPastesPdf(renderInput),
+          ]);
         } else {
           // For V1 the third "Seller" party block defaults to the seller (mfr)
           // when no separate selling-side company is in play; for the
@@ -691,7 +733,7 @@ export async function issueDocuments(
           const sellerSideParty = r.spec.sellerKind === 'manufacturer'
             ? r.seller.party
             : partyFromCompany(input.ourCompany);
-          bytes = await renderInvoiceSpecBrushes({
+          const renderInput = {
             reference, issuedAt: nowSec, currency: r.currency,
             shipper: r.spec.sellerKind === 'manufacturer'
               ? r.seller.party
@@ -709,7 +751,11 @@ export async function issueDocuments(
             consigneeAtTerminal: null,
             lineItems: docLineItems,
             totalMinor: goodsTotal,
-          });
+          };
+          [docxBytes, pdfBytes] = await Promise.all([
+            renderInvoiceSpecBrushes(renderInput),
+            renderInvoiceSpecBrushesPdf(renderInput),
+          ]);
         }
       }
     } catch (err) {
@@ -718,8 +764,9 @@ export async function issueDocuments(
     }
 
     const r2Key = `documents/${yearForKey}/${r.spec.type}/${reference}.docx`;
+    const pdfR2Key = `documents/${yearForKey}/${r.spec.type}/${reference}.pdf`;
     try {
-      await env.DOCS.put(r2Key, bytes, {
+      await env.DOCS.put(r2Key, docxBytes, {
         httpMetadata: {
           contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         },
@@ -733,8 +780,22 @@ export async function issueDocuments(
         },
       });
       uploadedR2Keys.push(r2Key);
+      await env.DOCS.put(pdfR2Key, pdfBytes, {
+        httpMetadata: { contentType: 'application/pdf' },
+        customMetadata: {
+          operation_id: operationId,
+          document_type: r.spec.type,
+          variant: r.spec.variant ?? '',
+          reference,
+          language: r.language,
+          issued_at: String(nowSec),
+          renderer: 'dasoperator-pdf-lib',
+          source_docx: r2Key,
+        },
+      });
+      uploadedR2Keys.push(pdfR2Key);
     } catch (err) {
-      return rollback(`R2 upload failed for ${r2Key}: ` +
+      return rollback(`R2 upload failed for ${reference}: ` +
         (err instanceof Error ? err.message : String(err)));
     }
 
@@ -746,15 +807,15 @@ export async function issueDocuments(
         INSERT INTO documents (
           id, document_number, document_type, operation_id,
           issuer_id, partner_id, contract_ref, document_date,
-          currency, total_amount, pdf_r2_url, owner_name,
+          currency, total_amount, pdf_r2_url, pdf_converted_r2_url, owner_name,
           mandatory_level, when_ready, status, metadata,
           created_at, updated_at, deleted_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'mandatory', NULL, 'issued', ?, ?, ?, NULL)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'mandatory', NULL, 'issued', ?, ?, ?, NULL)
       `).bind(
         docId, reference, r.spec.type, operationId,
         input.ourCompany.id, input.operation.partner_id,
         input.contract?.contract_no ?? null, nowSec,
-        r.currency, totalForDoc, r2Key,
+        r.currency, totalForDoc, r2Key, pdfR2Key,
         JSON.stringify({
           variant: r.spec.variant, language: r.language, format: r.spec.format,
           seller_kind: r.spec.sellerKind, seller_id: r.spec.sellerId,
@@ -770,7 +831,7 @@ export async function issueDocuments(
     issued.push({
       document_id: docId, type: r.spec.type, variant: r.spec.variant,
       reference, language: r.language, format: r.spec.format,
-      r2_key: r2Key, download_url: `${origin}/api/documents/${docId}/pdf`,
+      r2_key: r2Key, download_url: `${origin}/api/documents/${docId}/download`,
     });
   }
 

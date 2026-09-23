@@ -9,6 +9,7 @@ import FunnelTab from './tabs/FunnelTab';
 import BehaviorTab from './tabs/BehaviorTab';
 import CampaignsTab from './tabs/CampaignsTab';
 import AiGeoTab from './tabs/AiGeoTab';
+import SeoPulseTab from './tabs/SeoPulseTab';
 
 // =============================================================================
 // /analytics — Web Analytics Command Center.
@@ -20,6 +21,7 @@ import AiGeoTab from './tabs/AiGeoTab';
 //   Behavior          Microsoft Clarity (+ D1 nightly archive)
 //   Campaigns         Yandex Direct (token pending) + Google Ads (approval pending)
 //   AI / GEO          Cloudflare AI crawlers + Ubersuggest authority (Owner 2026-07-23)
+//   Search & Sales RU Jurgen's daily run: D1 seo_daily_pulse + agent_questions (Owner 2026-09-23)
 //
 // RULES: every tab labels its data source; three trackers see three different
 // volumes (geo + consent + sampling) and are never blended without a formula
@@ -39,6 +41,7 @@ const TABS = [
   { id: 'behavior', label: 'Behavior', src: 'Clarity' },
   { id: 'campaigns', label: 'Campaigns', src: 'Direct + Ads' },
   { id: 'ai-geo', label: 'AI / GEO', src: 'Cloudflare crawlers + Ubersuggest' },
+  { id: 'seo-pulse', label: 'Search & Sales RU', src: 'Jurgen daily run · Yandex Webmaster + Metrika' },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -54,7 +57,7 @@ export default function AnalyticsPage() {
   }, []);
 
   // Desktop tier (design-system interaction principles): keyboard shortcuts
-  // for the high-frequency action — keys 1-5 switch tabs. Documented in-UI
+  // for the high-frequency action — keys 1-8 switch tabs. Documented in-UI
   // via the hint next to the tab bar; ignored while typing in a field.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -97,7 +100,7 @@ export default function AnalyticsPage() {
           </button>
         ))}
         <span className="wa-kbd-hint" aria-hidden="true">
-          <kbd>1</kbd>–<kbd>7</kbd> switch tabs
+          <kbd>1</kbd>–<kbd>8</kbd> switch tabs
         </span>
       </div>
 
@@ -123,6 +126,9 @@ export default function AnalyticsPage() {
       <div style={{ display: active === 'ai-geo' ? 'block' : 'none' }}>
         {visited.has('ai-geo') && <AiGeoTab />}
       </div>
+      <div style={{ display: active === 'seo-pulse' ? 'block' : 'none' }}>
+        {visited.has('seo-pulse') && <SeoPulseTab />}
+      </div>
 
       {/* ============================ FOOTER ============================ */}
       <div style={{ paddingTop: 16, borderTop: '1px solid var(--border-hairline)' }}>
@@ -130,7 +136,7 @@ export default function AnalyticsPage() {
           Sources: GA4 property 511756146 · Clarity Data Export (10 calls/day cap — served from
           nightly cache) · Metrika counter 107720199 · D1 web_analytics_daily /
           web_behavior_snapshots · SEO/GEO: Ubersuggest site-metrics + Cloudflare AI crawlers
-          (KV via /api/seo/*). Spec: docs/analytics-parity.md — NONE-source metrics are cut,
+          (KV via /api/seo/*) · Search & Sales RU: D1 seo_daily_pulse + agent_questions, written by Jurgen's daily run. Spec: docs/analytics-parity.md — NONE-source metrics are cut,
           never faked. Pending: Yandex Direct token · Google Ads revenue attribution join · home
           AI blocks only after Owner pick.
         </p>

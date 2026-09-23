@@ -280,4 +280,79 @@ seo.get('/geo-snapshot', async (c) => {
   }
 });
 
+// -----------------------------------------------------------------------------
+// Jurgen's daily run — seo_daily_pulse + agent_questions (read-only)
+//
+// Owner 2026-09-23. The job `jurgen-daily-marketplaces` (organizacia
+// jobs/jurgen-daily-marketplaces/_JOB.md) writes both tables straight into this
+// D1 since 2026-08-25, but no ERP screen read them — so under HARD_RULES §0i the
+// work could never count as done. These routes only SHOW what the seat wrote:
+// the ERP never writes here (display and storage; the hands stay on the seat).
+//
+// The tables were created by the job, not by a migration; 0096 records their
+// shape. Rows go out as stored (SELECT *) with the live column list, so a
+// column added by the seat shows up instead of being silently dropped.
+// -----------------------------------------------------------------------------
+
+type D1Rows = {
+  table_exists: boolean;
+  columns: string[];
+  rows: Array<Record<string, unknown>>;
+};
+
+async function tableColumns(db: D1Database, table: string): Promise<string[] | null> {
+  const found = await db
+    .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?1`)
+    .bind(table)
+    .first<{ name: string }>();
+  if (!found) return null;
+  const info = await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
+  return (info.results ?? []).map((r) => r.name);
+}
+
+/** GET /api/seo/daily-pulse?days=30 — one row per day, newest first. */
+seo.get('/daily-pulse', async (c) => {
+  const days = Math.min(Math.max(Number(c.req.query('days') || 30) || 30, 1), 366);
+  try {
+    const columns = await tableColumns(c.env.DB, 'seo_daily_pulse');
+    if (!columns) return ok<D1Rows>(c, { table_exists: false, columns: [], rows: [] });
+    const res = await c.env.DB
+      .prepare(`SELECT * FROM seo_daily_pulse ORDER BY day DESC LIMIT ?1`)
+      .bind(days)
+      .all<Record<string, unknown>>();
+    return ok<D1Rows>(c, { table_exists: true, columns, rows: res.results ?? [] });
+  } catch (err) {
+    return fail(c, 500, [fromError(err)]);
+  }
+});
+
+/** GET /api/seo/agent-questions?agent=jurgen-witt&status=open — questions to the Owner. */
+seo.get('/agent-questions', async (c) => {
+  const agent = c.req.query('agent') || '';
+  const status = c.req.query('status') || '';
+  const limit = Math.min(Math.max(Number(c.req.query('limit') || 100) || 100, 1), 500);
+  try {
+    const columns = await tableColumns(c.env.DB, 'agent_questions');
+    if (!columns) return ok<D1Rows>(c, { table_exists: false, columns: [], rows: [] });
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (agent && columns.includes('agent_slug')) {
+      params.push(agent);
+      where.push(`agent_slug = ?${params.length}`);
+    }
+    if (status && columns.includes('status')) {
+      params.push(status);
+      where.push(`status = ?${params.length}`);
+    }
+    params.push(limit);
+    const order = columns.includes('day') ? 'day DESC, rowid DESC' : 'rowid DESC';
+    const sql = `SELECT * FROM agent_questions${where.length ? ` WHERE ${where.join(' AND ')}` : ''}`
+      + ` ORDER BY ${order} LIMIT ?${params.length}`;
+    const res = await c.env.DB.prepare(sql).bind(...params).all<Record<string, unknown>>();
+    return ok<D1Rows>(c, { table_exists: true, columns, rows: res.results ?? [] });
+  } catch (err) {
+    return fail(c, 500, [fromError(err)]);
+  }
+});
+
 export default seo;

@@ -35,6 +35,12 @@ export function validatePayload(payload, article, destinations = LOCALES) {
     if (p.intrigue?.passed !== true || !p.intrigue?.evidence) throw new Error(`Missing ${lang} intrigue gate`);
     if (!httpsUrl(p.link, SITE_HOSTS)) throw new Error(`Invalid ${lang} article link`);
     if (!p.preview?.title || !p.preview?.description || !httpsUrl(p.preview?.image) || p.preview?.verified !== true || !p.preview?.evidence) throw new Error(`Missing verified ${lang} preview`);
+    if (p.creative) {
+      const c = p.creative;
+      if (c.kind !== 'otto-infographic' || c.source !== 'article-inline' || !httpsUrl(c.image, SITE_HOSTS) || typeof c.alt !== 'string' || !c.alt.trim()) throw new Error(`Invalid ${lang} creative`);
+      if (c.acceptance?.by !== 'marika-nowicka' || c.acceptance?.accepted !== true || !c.acceptance?.evidence) throw new Error(`Missing Marika acceptance for ${lang} creative`);
+      if (c.verified !== true || !c.evidence) throw new Error(`Missing live verification for ${lang} creative`);
+    }
     if (p.sourceId !== article.id) throw new Error(`Wrong ${lang} source article`);
   }
   return copy(payload);

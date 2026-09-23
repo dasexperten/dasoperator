@@ -35,6 +35,19 @@ async function livePreview(url) {
   if (!im.ok || !im.headers.get('content-type')?.startsWith('image/')) throw Error('Article preview image unavailable');
   return { ...p, verified: true, evidence: `Live article and image checked ${new Date().toISOString()}` };
 }
+export async function liveCreative(articleUrl, creative) {
+  if (!creative) return null;
+  const article = safeUrl(articleUrl);
+  const image = safeUrl(creative.image);
+  const r = await fetch(article, { redirect: 'error', headers: cacheHeaders, signal: AbortSignal.timeout(25000) });
+  if (!r.ok || !r.headers.get('content-type')?.includes('text/html')) throw Error(`Article unavailable (${r.status})`);
+  const html = await r.text();
+  const escapedPath = image.pathname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (!new RegExp(`(?:href|src)=["']${escapedPath}["']`).test(html)) throw Error('Creative is not an inline image in the article');
+  const im = await fetch(image, { method:'HEAD', redirect:'error', signal:AbortSignal.timeout(25000) });
+  if (!im.ok || !im.headers.get('content-type')?.startsWith('image/')) throw Error('Creative image unavailable');
+  return { ...creative, verified: true, evidence: `Inline article creative and image checked ${new Date().toISOString()}` };
+}
 export async function graph(path, token, init = {}) {
   const r = await fetch(`${GRAPH}/${path}`, { ...init, signal: AbortSignal.timeout(25000), headers: { Authorization: `Bearer ${token}`, ...init.headers } });
   const b = await r.json();
@@ -53,7 +66,7 @@ export async function publicationAccess(env) {
   }
   return result;
 }
-export async function publish(env, input) {
+export async function publish(env, input, { now = Date.now } = {}) {
   // Nothing has been submitted before these checks; failures here are safe to retry.
   let token;
   try {
@@ -61,16 +74,23 @@ export async function publish(env, input) {
     if (!token) return { status:'not_sent', definitive:true };
     const p = await livePreview(input.link);
     if (p.title !== input.preview.title || p.description !== input.preview.description || p.image !== input.preview.image) return { status:'not_sent', definitive:true };
+    if (input.creative) await liveCreative(input.link, input.creative);
   } catch { return {status:'not_sent',definitive:true}; }
-  if (!allowedNow(Date.now())) return {status:'not_sent',definitive:true};
+  if (!allowedNow(now())) return {status:'not_sent',definitive:true};
   const summary = cleanAiMarks(input.summary).text;
-  // Link posts preserve Facebook's own preview. Never fabricate a preview image attachment.
-  const result = await graph(`${input.pageId}/feed`, token, {method:'POST',body:new URLSearchParams({message:summary,link:input.link,published:'true'})});
+  // A verified, art-accepted inline creative is published as the photo itself. The article
+  // URL stays in the caption; preview metadata remains truthful and is never overwritten.
+  const photo = input.creative?.image;
+  const path = photo ? `${input.pageId}/photos` : `${input.pageId}/feed`;
+  const body = photo
+    ? new URLSearchParams({url:photo,caption:`${summary}\n\n${input.link}`,published:'true'})
+    : new URLSearchParams({message:summary,link:input.link,published:'true'});
+  const result = await graph(path, token, {method:'POST',body});
   if (!result.ok) {
     if ([400, 401, 403, 404, 429].includes(result.status) && result.body.error && result.body.error.is_transient !== true) return {status:'not_sent',definitive:true};
     return {status:'unknown'};
   }
-  const id = result.body.id;
+  const id = photo ? (result.body.post_id || result.body.id) : result.body.id;
   if (!id) return {status:'unknown'};
   try {
     const verified = await graph(`${id}?fields=id,permalink_url,is_published`,token);
@@ -120,7 +140,8 @@ export async function syncOutbox(env, queue = articleQueue(env)) {
         if (!p) throw Error(`Missing ${lang} editorial copy`);
         const preview=await livePreview(p.link);
         if (preview.title!==p.preview?.title || preview.image!==p.preview?.image || preview.description!==p.preview?.description) throw Error(`Changed ${lang} preview requires editorial check`);
-        payload[lang]={...p,sourceId:id,preview,summary:cleanAiMarks(p.summary).text};
+        const creative=p.creative ? await liveCreative(p.link,p.creative) : undefined;
+        payload[lang]={...p,sourceId:id,preview,...(creative ? {creative} : {}),summary:cleanAiMarks(p.summary).text};
       }
       await queue.discover([{id,url:manifest.url,title:manifest.title,author:'kobayashi',publishedAt:manifest.publishedAt,backfillVerified}]);
       await queue.approve(id,payload);

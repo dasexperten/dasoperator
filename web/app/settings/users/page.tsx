@@ -28,6 +28,7 @@ const MODULES: { key: string; label: string }[] = [
   { key: '/marketplaces', label: 'Marketplaces' },
   { key: '/reviews',      label: 'Reviews' },
   { key: '/crm',          label: 'CRM' },
+  { key: '/whatsapp',     label: 'WhatsApp' },
   { key: '/finance',      label: 'Finance' },
   { key: '/analytics',    label: 'Analytics' },
   { key: '/knowledge',    label: 'Knowledge' },

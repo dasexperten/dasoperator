@@ -3,6 +3,9 @@
 // =============================================================================
 
 export interface Env {
+  OPENWA_BASE_URL?: string;
+  OPENWA_API_KEY?: string;
+  OPENWA_SESSION_ID?: string;
   // D1 Database — operational source of truth (Phase 1.1, 1.2)
   DB: D1Database;
   // Business Gmail OAuth credentials only; provision as Worker secrets.

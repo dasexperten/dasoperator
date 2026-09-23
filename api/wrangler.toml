@@ -242,6 +242,8 @@ RETAIL_CRM_DOMAIN = "dasexperten"
 # shipping something new.
 AUTH_GATE = "observe"
 YANDEX_METRIKA_COUNTER = "107720199"
+OPENWA_BASE_URL = "https://openwa.dasexperten.com"
+OPENWA_SESSION_ID = "e931f974-4d05-4954-916a-ab4d744b876a"
 
 
 # Agent seats (Owner 2026-07-30): the Emailer "Ответит агент" button now calls

@@ -104,7 +104,7 @@ export function clearAuth(): void {
 
 export const ALL_MODULES = [
   '/', '/partners', '/operations', '/planner', '/products', '/warehouses',
-  '/marketplaces', '/reviews', '/crm', '/emailer', '/finance', '/analytics',
+  '/marketplaces', '/reviews', '/crm', '/emailer', '/whatsapp', '/finance', '/analytics',
   '/knowledge', '/settings',
 ] as const;
 
@@ -198,4 +198,3 @@ export async function refreshMe(): Promise<AuthUser | null> {
     return null;
   }
 }
-

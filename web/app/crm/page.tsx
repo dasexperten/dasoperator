@@ -970,6 +970,10 @@ function CrmDetailDrawer({
             <DrawerRow label="Payment" value={data.payment_method} />
             <DrawerRow label="Stripe PI" value={data.stripe_payment_intent} mono />
             <DrawerRow label="Source" value={data.source} />
+            <DrawerRow
+              label="Attribution"
+              value={data.traffic_source ? [data.traffic_source, data.traffic_medium, data.traffic_campaign].filter(Boolean).join(' · ') : null}
+            />
             <DrawerRow label="Language" value={data.lang} />
 
             <div style={{ marginTop: 22, marginBottom: 8, fontSize: 13, letterSpacing: '0', textTransform: 'uppercase', color: 'var(--fg-3)' }}>Items</div>

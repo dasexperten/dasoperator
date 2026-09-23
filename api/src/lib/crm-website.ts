@@ -68,6 +68,9 @@ export const CRM_WEBSITE_DDL: string[] = [
     id                   TEXT PRIMARY KEY,
     source               TEXT NOT NULL DEFAULT 'website'
                          CHECK (source IN ('website','wix','manual')),
+    traffic_source       TEXT,
+    traffic_medium       TEXT,
+    traffic_campaign     TEXT,
     order_number         TEXT NOT NULL,
     stripe_payment_intent TEXT,
     customer_id          TEXT REFERENCES crm_customers(id),
@@ -141,6 +144,9 @@ export interface CanonicalItem {
 
 export interface CanonicalOrder {
   source: 'website' | 'wix' | 'manual';
+  traffic_source?: string | null;
+  traffic_medium?: string | null;
+  traffic_campaign?: string | null;
   order_number: string;
   stripe_payment_intent?: string | null;
   customer_name?: string | null;
@@ -425,28 +431,40 @@ export async function upsertOrder(
 
   const existing = await env.DB.prepare(
     order.stripe_payment_intent
-      ? 'SELECT id, financial_status, fulfillment_status FROM crm_orders WHERE stripe_payment_intent = ?'
-      : 'SELECT id, financial_status, fulfillment_status FROM crm_orders WHERE source = ? AND order_number = ?'
+      ? 'SELECT id, financial_status, fulfillment_status, traffic_source, traffic_medium, traffic_campaign FROM crm_orders WHERE stripe_payment_intent = ?'
+      : 'SELECT id, financial_status, fulfillment_status, traffic_source, traffic_medium, traffic_campaign FROM crm_orders WHERE source = ? AND order_number = ?'
   )
     .bind(...(order.stripe_payment_intent ? [order.stripe_payment_intent] : [order.source, order.order_number]))
-    .first<{ id: string; financial_status: string; fulfillment_status: string }>();
+    .first<{ id: string; financial_status: string; fulfillment_status: string; traffic_source: string | null; traffic_medium: string | null; traffic_campaign: string | null }>();
 
   let action: 'created' | 'updated' | 'unchanged';
   let orderId: string;
 
   if (existing) {
     orderId = existing.id;
-    if (
-      existing.financial_status === order.financial_status &&
-      (!order.fulfillment_status || existing.fulfillment_status === order.fulfillment_status)
-    ) {
+    const statusChanged = existing.financial_status !== order.financial_status ||
+      (!!order.fulfillment_status && existing.fulfillment_status !== order.fulfillment_status);
+    const attributionChanged = !!order.traffic_source && (
+      existing.traffic_source !== order.traffic_source ||
+      existing.traffic_medium !== (order.traffic_medium ?? null) ||
+      existing.traffic_campaign !== (order.traffic_campaign ?? null)
+    );
+    if (!statusChanged && !attributionChanged) {
       action = 'unchanged';
     } else {
       await env.DB.prepare(
         `UPDATE crm_orders SET financial_status = ?, fulfillment_status = COALESCE(?, fulfillment_status),
-                customer_id = COALESCE(customer_id, ?), updated_at = ? WHERE id = ?`
+                customer_id = COALESCE(customer_id, ?),
+                traffic_source = COALESCE(?, traffic_source),
+                traffic_medium = COALESCE(?, traffic_medium),
+                traffic_campaign = COALESCE(?, traffic_campaign),
+                updated_at = ? WHERE id = ?`
       )
-        .bind(order.financial_status, order.fulfillment_status ?? null, customerId, ts, orderId)
+        .bind(
+          order.financial_status, order.fulfillment_status ?? null, customerId,
+          order.traffic_source ?? null, order.traffic_medium ?? null, order.traffic_campaign ?? null,
+          ts, orderId,
+        )
         .run();
       action = 'updated';
     }
@@ -454,16 +472,18 @@ export async function upsertOrder(
     orderId = 'ord_' + crypto.randomUUID();
     await env.DB.prepare(
       `INSERT INTO crm_orders
-         (id, source, order_number, stripe_payment_intent, customer_id, customer_name,
+         (id, source, traffic_source, traffic_medium, traffic_campaign,
+          order_number, stripe_payment_intent, customer_id, customer_name,
           email, phone, currency, subtotal_cents, shipping_cents, discount_cents,
           tax_cents, total_cents, financial_status, fulfillment_status, payment_method,
           lang, ship_name, ship_country, ship_state, ship_city, ship_zip,
           ship_address1, ship_address2, shipping_method, items, placed_at,
           created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
       .bind(
-        orderId, order.source, order.order_number, order.stripe_payment_intent ?? null,
+        orderId, order.source, order.traffic_source ?? null, order.traffic_medium ?? null,
+        order.traffic_campaign ?? null, order.order_number, order.stripe_payment_intent ?? null,
         customerId, order.customer_name ?? order.ship_name ?? null,
         email, phone, order.currency.toUpperCase(),
         order.subtotal_cents, order.shipping_cents, order.discount_cents ?? 0,
@@ -615,6 +635,9 @@ export function mapPaymentIntent(pi: any): CanonicalOrder {
 
   return {
     source: 'website',
+    traffic_source: md.traffic_source === 'pinterest' ? 'pinterest' : null,
+    traffic_medium: md.traffic_source === 'pinterest' ? String(md.traffic_medium || 'referral') : null,
+    traffic_campaign: md.traffic_source === 'pinterest' ? String(md.traffic_campaign || '') || null : null,
     order_number: String(md.order_number ?? md.nss_order_number ?? md.order ?? pi?.id ?? ''),
     stripe_payment_intent: pi?.id ?? null,
     customer_name: ship?.name ?? null,

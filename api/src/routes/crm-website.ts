@@ -398,6 +398,9 @@ site.post('/paid', async (c) => {
       if (!order) {
         const fallback: CanonicalOrder = {
           source: 'website',
+          traffic_source: body.traffic_source === 'pinterest' ? 'pinterest' : null,
+          traffic_medium: body.traffic_source === 'pinterest' ? String(body.traffic_medium || 'referral') : null,
+          traffic_campaign: body.traffic_source === 'pinterest' ? String(body.traffic_campaign || '') || null : null,
           order_number: orderNumber,
           stripe_payment_intent: piId,
           email,
@@ -790,7 +793,8 @@ site.get('/orders', async (c) => {
       `SELECT id, source, order_number, stripe_payment_intent, customer_id, customer_name,
               email, currency, subtotal_cents, shipping_cents, total_cents,
               financial_status, fulfillment_status, tracking_number, tracking_url, payment_method, lang,
-              ship_country, ship_city, items, placed_at
+              ship_country, ship_city, items, placed_at,
+              traffic_source, traffic_medium, traffic_campaign
        FROM crm_orders ${whereSql}
        ORDER BY ${orderCol} ${dir} LIMIT ? OFFSET ?`
     )
@@ -802,6 +806,9 @@ site.get('/orders', async (c) => {
       id: o.order_number,
       number: String(o.order_number),
       source: o.source,
+      traffic_source: o.traffic_source ?? null,
+      traffic_medium: o.traffic_medium ?? null,
+      traffic_campaign: o.traffic_campaign ?? null,
       customer_name: o.customer_name ?? o.email ?? '—',
       customer_id: o.customer_id,
       email: o.email,

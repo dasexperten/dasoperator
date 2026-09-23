@@ -23,6 +23,7 @@ test('detects clear login and challenge pages without marking ordinary HTML rest
 
 test('keeps ambiguous 200 unavailable shells unknown', () => {
   assert.equal(classifyUgcLink(200, 'https://www.youtube.com/watch?v=x', 'This video is unavailable'), 'unknown');
+  assert.equal(classifyUgcLink(200, 'https://www.instagram.com/reel/x/', '<title>Page not found · Instagram</title>'), 'unknown');
 });
 
 test('only permits public-looking HTTP URLs', () => {

@@ -2,7 +2,7 @@ export const UGC_LINK_STATUSES = ['active', 'missing', 'restricted', 'unknown', 
 
 const RESTRICTED_PATH = /\/(?:accounts\/login|login|challenge|checkpoint|sorry)(?:\/|\?|$)/i;
 const RESTRICTED_BODY = /(?:log in to instagram|challenge_required|verify you are human|security check required|unusual traffic|captcha challenge|access denied)/i;
-const AMBIGUOUS_UNAVAILABLE_BODY = /(?:page isn['’]t available|content isn['’]t available|this video is unavailable|video unavailable|post is unavailable)/i;
+const AMBIGUOUS_UNAVAILABLE_BODY = /(?:page not found|page isn['’]t available|content isn['’]t available|this video is unavailable|video unavailable|post is unavailable)/i;
 
 export function isSafePublicHttpUrl(raw) {
   try {

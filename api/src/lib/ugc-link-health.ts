@@ -87,7 +87,11 @@ async function inspectLink(row: DueLink): Promise<CheckResult> {
       checkedAt,
       httpStatus: response.status,
       finalUrl,
-      note: status === 'restricted' ? 'Login, challenge, rate limit or access restriction' : `HTTP ${response.status}`,
+      note: status === 'restricted'
+        ? 'Login, challenge, rate limit or access restriction'
+        : status === 'unknown' && response.status >= 200 && response.status < 400
+          ? `Ambiguous unavailable page returned HTTP ${response.status}`
+          : `HTTP ${response.status}`,
       responseMs: Date.now() - started,
     };
   } catch (reason) {

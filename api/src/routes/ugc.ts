@@ -131,11 +131,13 @@ ugc.get('/', async (c) => {
   ).bind(usePlatform, search, stage).all<Record<string, any>>();
 
   const metricRows = await c.env.DB.prepare(
-    `SELECT creator_id, creator_platform_id, views, comments
+    `SELECT id, creator_id, creator_platform_id, content_url, content_type,
+            published_at, views, comments, product_codes, source_sheet,
+            source_row, imported_at
      FROM ugc_content
-     WHERE views IS NOT NULL OR comments IS NOT NULL
-     ORDER BY source_sheet, source_row`
-  ).all<{ creator_id: string; creator_platform_id: string; views: number | null; comments: number | null }>();
+     ORDER BY COALESCE(published_at, '') DESC, imported_at DESC,
+              source_sheet DESC, source_row DESC`
+  ).all<Record<string, any>>();
 
   const contentCounts = await c.env.DB.prepare(
     `SELECT creator_id, creator_platform_id, COUNT(*) content_count
@@ -146,15 +148,33 @@ ugc.get('/', async (c) => {
     `SELECT * FROM ugc_collaborations ORDER BY updated_at DESC`
   ).all<Record<string, any>>();
 
-  const byProfile = new Map<string, { views: number[]; comments: number[]; content_count: number }>();
+  const byProfile = new Map<string, { views: number[]; comments: number[]; content_count: number; content: Record<string, unknown>[] }>();
   for (const row of metricRows.results ?? []) {
-    const entry = byProfile.get(row.creator_platform_id) ?? { views: [], comments: [], content_count: 0 };
+    const entry = byProfile.get(row.creator_platform_id) ?? { views: [], comments: [], content_count: 0, content: [] };
     if (row.views != null) entry.views.push(Number(row.views));
     if (row.comments != null) entry.comments.push(Number(row.comments));
+    let productCodes: string[] = [];
+    if (row.product_codes) {
+      try {
+        const parsed = JSON.parse(String(row.product_codes));
+        if (Array.isArray(parsed)) productCodes = parsed.map(String);
+      } catch { /* preserve an empty list for malformed legacy values */ }
+    }
+    entry.content.push({
+      id: row.id,
+      content_url: row.content_url,
+      content_type: row.content_type,
+      published_at: row.published_at,
+      views: row.views,
+      comments: row.comments,
+      product_codes: productCodes,
+      source_sheet: row.source_sheet,
+      source_row: row.source_row,
+    });
     byProfile.set(row.creator_platform_id, entry);
   }
   for (const row of contentCounts.results ?? []) {
-    const entry = byProfile.get(row.creator_platform_id) ?? { views: [], comments: [], content_count: 0 };
+    const entry = byProfile.get(row.creator_platform_id) ?? { views: [], comments: [], content_count: 0, content: [] };
     entry.content_count = Number(row.content_count || 0);
     byProfile.set(row.creator_platform_id, entry);
   }
@@ -166,7 +186,7 @@ ugc.get('/', async (c) => {
 
   const creators = new Map<string, Record<string, any>>();
   for (const row of profiles.results ?? []) {
-    const metrics = byProfile.get(String(row.profile_id)) ?? { views: [], comments: [], content_count: 0 };
+    const metrics = byProfile.get(String(row.profile_id)) ?? { views: [], comments: [], content_count: 0, content: [] };
     const profile = {
       id: row.profile_id,
       platform: row.platform,
@@ -192,6 +212,7 @@ ugc.get('/', async (c) => {
       metrics_as_of: row.metrics_as_of,
       source: row.source,
       content_count: metrics.content_count,
+      content: metrics.content,
       updated_at: row.profile_updated_at,
     };
     const creatorId = String(row.creator_id);

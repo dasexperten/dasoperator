@@ -1,7 +1,7 @@
 'use client';
 
 import { ChangeEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpDown, FileSpreadsheet, Loader2, Search, Users, Video, X } from 'lucide-react';
+import { ArrowUpDown, ExternalLink, FileSpreadsheet, FileText, ImageIcon, Link, Link2Off, Loader2, Search, Users, Video, X } from 'lucide-react';
 import PageHeader from '@/components/ui/page-header';
 import { apiGet, apiPatch, apiPost } from '@/lib/api';
 import { parseUgcWorkbook } from '@/lib/ugc-import';
@@ -20,7 +20,20 @@ type PlatformMetric = {
   commerce_clicks: number | null;
   commerce_orders: number | null;
   content_count: number;
+  content: ContentObservation[];
   metrics_as_of: string | null;
+};
+
+type ContentObservation = {
+  id: string;
+  content_url: string | null;
+  content_type: string | null;
+  published_at: string | null;
+  views: number | null;
+  comments: number | null;
+  product_codes: string[];
+  source_sheet: string | null;
+  source_row: number | null;
 };
 
 type Collaboration = {
@@ -73,6 +86,35 @@ function formatNumber(value: number | null | undefined): string {
 function primaryProfile(creator: Creator, activePlatform: string): PlatformMetric {
   return creator.profiles.find((profile) => profile.platform === activePlatform)
     ?? [...creator.profiles].sort((a, b) => (b.followers ?? -1) - (a.followers ?? -1))[0];
+}
+
+function contentHref(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function latestLinkedContent(profile: PlatformMetric): { item: ContentObservation; href: string } | null {
+  for (const item of profile.content) {
+    const href = contentHref(item.content_url);
+    if (href) return { item, href };
+  }
+  return null;
+}
+
+function mediaKind(item: ContentObservation): 'Video' | 'Image' | 'Post' | 'Content' {
+  const value = item.content_type?.toLowerCase() ?? '';
+  if (value.includes('video') || value.includes('reel')) return 'Video';
+  if (value.includes('image') || value.includes('photo')) return 'Image';
+  if (value.includes('post')) {
+    if (item.content_url?.includes('instagram.com/p/')) return 'Image';
+    return 'Post';
+  }
+  return 'Content';
 }
 
 function Card({ label, value, note }: { label: string; value: string; note: string }) {
@@ -224,12 +266,14 @@ export default function UgcPage() {
 
       <section className="overflow-x-auto" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-card)' }}>
         <table className="w-full text-sm">
-          <thead style={{ background: 'var(--paper-sunk)', color: 'var(--fg-2)' }}><tr><th className="text-left p-3">Creator</th><th className="text-left p-3">Platform</th><th className="text-right p-3">Followers</th><th className="text-right p-3">ER</th><th className="text-right p-3">Avg / observed views</th><th className="text-right p-3">Content</th><th className="text-left p-3">Stage</th><th className="text-left p-3">Next action</th></tr></thead>
+          <thead style={{ background: 'var(--paper-sunk)', color: 'var(--fg-2)' }}><tr><th className="text-left p-3">Creator</th><th className="text-left p-3">Platform</th><th className="text-right p-3">Followers</th><th className="text-right p-3">ER</th><th className="text-right p-3">Avg / observed views</th><th className="text-left p-3">Content</th><th className="text-left p-3">Media</th><th className="text-left p-3">Next action</th></tr></thead>
           <tbody>
             {loading ? <tr><td colSpan={8} className="p-10 text-center"><Loader2 className="h-6 w-6 animate-spin inline-block" /> <span className="ml-2">Loading UGC…</span></td></tr> : creators.length === 0 ? <tr><td colSpan={8} className="p-10 text-center" style={{ color: 'var(--fg-2)' }}><Users className="h-7 w-7 mx-auto mb-2" />No creators match this view.</td></tr> : creators.map((creator) => {
               const profile = primaryProfile(creator, platform);
               const views = profile.avg_video_views ?? profile.latest_observed_views;
-              return <tr key={creator.id} style={{ borderTop: '1px solid var(--border-hairline)' }}><td className="p-3"><button type="button" onClick={() => setSelectedId(creator.id)} className="text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="block font-bold underline decoration-transparent underline-offset-4 hover:decoration-current">{creator.display_name || `@${profile.handle}`}</span><span className="block" style={{ color: 'var(--fg-3)' }}>@{profile.handle}</span></button></td><td className="p-3 capitalize">{profile.platform}</td><td className="p-3 text-right tabular-nums">{formatNumber(profile.followers)}</td><td className="p-3 text-right tabular-nums">{profile.engagement_rate == null ? '—' : `${formatNumber(profile.engagement_rate)}%`}</td><td className="p-3 text-right tabular-nums">{formatNumber(views)}{profile.view_observations === 1 ? <span title="One observed publication"> *</span> : null}</td><td className="p-3 text-right tabular-nums">{formatNumber(profile.content_count)}</td><td className="p-3"><span className="px-2 py-1 font-bold" style={{ background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)' }}>{creator.lifecycle_stage.replaceAll('_', ' ')}</span></td><td className="p-3">{creator.collaboration?.next_action || '—'}</td></tr>;
+              const latest = latestLinkedContent(profile);
+              const media = latest ? mediaKind(latest.item) : null;
+              return <tr key={creator.id} style={{ borderTop: '1px solid var(--border-hairline)' }}><td className="p-3"><button type="button" onClick={() => setSelectedId(creator.id)} className="text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="block font-bold underline decoration-transparent underline-offset-4 hover:decoration-current">{creator.display_name || `@${profile.handle}`}</span><span className="block" style={{ color: 'var(--fg-3)' }}>@{profile.handle}</span></button></td><td className="p-3 capitalize">{profile.platform}</td><td className="p-3 text-right tabular-nums">{formatNumber(profile.followers)}</td><td className="p-3 text-right tabular-nums">{profile.engagement_rate == null ? '—' : `${formatNumber(profile.engagement_rate)}%`}</td><td className="p-3 text-right tabular-nums">{formatNumber(views)}{profile.view_observations === 1 ? <span title="One observed publication"> *</span> : null}</td><td className="p-3 tabular-nums" aria-label={`${profile.content_count} content observations`}>{formatNumber(profile.content_count)}</td><td className="p-3">{latest && media ? <a href={latest.href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="min-h-11 min-w-24 px-3 inline-flex items-center justify-center gap-2 font-bold rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" style={{ color: 'var(--brand-rot)', background: 'var(--paper-sunk)', border: '1px solid var(--border-subtle)' }} aria-label={`Open latest ${media.toLowerCase()} from @${profile.handle}`} title={latest.item.content_url ?? undefined}>{media === 'Video' ? <Video className="h-5 w-5" /> : media === 'Image' ? <ImageIcon className="h-5 w-5" /> : media === 'Post' ? <FileText className="h-5 w-5" /> : <Link className="h-5 w-5" />}<span>{media}</span><ExternalLink className="h-3.5 w-3.5" /></a> : <span style={{ color: 'var(--fg-3)' }}>N/A</span>}</td><td className="p-3">{creator.collaboration?.next_action || '—'}</td></tr>;
             })}
           </tbody>
         </table>
@@ -255,6 +299,7 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
   const [rightsExpiry, setRightsExpiry] = useState(collaboration.rights_expires_at ?? '');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const content = creator.profiles.flatMap((profile) => profile.content.map((item) => ({ ...item, platform: profile.platform })));
 
   async function save() {
     setSaving(true); setMessage(null);
@@ -268,6 +313,17 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
   return <section className="p-5 md:p-6 space-y-5" style={{ background: 'var(--bg-surface)', border: '2px solid var(--brand-schwarz)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-raised)' }}>
     <div className="flex items-start justify-between gap-4"><div><div className="dx-eyebrow">Creator record</div><h2 className="mt-1 text-2xl font-extrabold">{creator.display_name || `@${creator.profiles[0]?.handle}`}</h2></div><button type="button" onClick={onClose} className="min-h-11 min-w-11 flex items-center justify-center" aria-label="Close creator panel"><X className="h-5 w-5" /></button></div>
     <div className="grid md:grid-cols-3 gap-3">{creator.profiles.map((profile) => <div key={profile.id} className="p-4" style={{ background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)' }}><div className="font-bold capitalize">{profile.platform} · @{profile.handle}</div><div className="mt-2 text-sm" style={{ color: 'var(--fg-2)' }}>{formatNumber(profile.followers)} followers · {profile.view_observations} view observations</div><div className="mt-1 text-sm" style={{ color: 'var(--fg-2)' }}>{formatNumber(profile.commerce_clicks)} clicks · {formatNumber(profile.commerce_orders)} orders</div><div className="mt-1 text-sm" style={{ color: 'var(--fg-3)' }}>Metrics as of {profile.metrics_as_of || 'unknown'}</div></div>)}</div>
+    <section className="space-y-3" aria-labelledby={`content-history-${creator.id}`}>
+      <div className="flex items-end justify-between gap-3"><div><div className="dx-eyebrow">Content evidence</div><h3 id={`content-history-${creator.id}`} className="mt-1 text-xl font-extrabold">Publication history</h3></div><div className="text-sm tabular-nums" style={{ color: 'var(--fg-2)' }}>{content.length} observations</div></div>
+      {content.length ? <div className="grid lg:grid-cols-2 gap-3">{content.map((item) => {
+        const href = contentHref(item.content_url);
+        return <article key={item.id} className="p-4 space-y-3" style={{ background: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)' }}>
+          <div className="flex items-start justify-between gap-3"><div><div className="font-bold capitalize">{item.platform}{item.content_type ? ` · ${item.content_type}` : ''}</div><div className="mt-1 text-xs" style={{ color: 'var(--fg-3)' }}>{item.published_at ? `Published ${item.published_at}` : `${item.source_sheet || 'Source'}${item.source_row == null ? '' : ` · row ${item.source_row}`}`}</div></div>{href ? <a href={href} target="_blank" rel="noopener noreferrer" className="min-h-11 px-3 shrink-0 inline-flex items-center gap-2 font-bold rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" style={{ color: 'var(--fg-on-brand)', background: 'var(--brand-schwarz)' }} aria-label={`Open ${item.platform} content`}><ExternalLink className="h-4 w-4" />Open content</a> : <span className="min-h-11 px-3 shrink-0 inline-flex items-center gap-2 text-sm" style={{ color: 'var(--fg-3)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><Link2Off className="h-4 w-4" />No link recorded</span>}</div>
+          {href && <a href={href} target="_blank" rel="noopener noreferrer" className="min-h-11 flex items-center break-all text-sm underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" style={{ color: 'var(--brand-rot)' }}>{item.content_url}</a>}
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm" style={{ color: 'var(--fg-2)' }}><span>{formatNumber(item.views)} views</span><span>{formatNumber(item.comments)} comments</span><span>{item.product_codes.length ? item.product_codes.join(', ') : 'No products recorded'}</span></div>
+        </article>;
+      })}</div> : <div className="min-h-20 p-4 flex items-center gap-3" style={{ color: 'var(--fg-2)', background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)' }}><Link2Off className="h-5 w-5" />No content observations recorded.</div>}
+    </section>
     <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
       <Field label="Stage"><select value={stage} onChange={(event) => setStage(event.target.value)}>{STAGES.map((value) => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select></Field>
       <Field label="Owner"><input value={owner} onChange={(event) => setOwner(event.target.value)} /></Field>

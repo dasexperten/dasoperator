@@ -104,7 +104,7 @@ export function clearAuth(): void {
 
 export const ALL_MODULES = [
   '/', '/partners', '/operations', '/planner', '/products', '/warehouses',
-  '/marketplaces', '/reviews', '/crm', '/emailer', '/whatsapp', '/finance', '/analytics',
+  '/marketplaces', '/reviews', '/ugc', '/crm', '/emailer', '/whatsapp', '/finance', '/analytics',
   '/knowledge', '/settings',
 ] as const;
 

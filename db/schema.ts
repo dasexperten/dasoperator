@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 // =============================================================================
 // COMPANIES — наши юрлица (DEE, DEI, DEASEAN, DEC)
@@ -464,4 +464,111 @@ export const userActivity = sqliteTable("user_activity", {
 }, (t) => ({
   userTsIdx: index("idx_user_activity_user_ts").on(t.userId, t.ts),
   tsIdx: index("idx_user_activity_ts").on(t.ts),
+}));
+
+// =============================================================================
+// UGC — creator identity, platform profiles, observed content and collaborations
+// =============================================================================
+export const ugcCreators = sqliteTable("ugc_creators", {
+  id: text("id").primaryKey(),
+  normalizedHandle: text("normalized_handle").notNull(),
+  displayName: text("display_name"),
+  category: text("category"),
+  audienceMarket: text("audience_market"),
+  audienceLanguage: text("audience_language"),
+  lifecycleStage: text("lifecycle_stage").notNull().default("found"),
+  priority: text("priority"),
+  owner: text("owner"),
+  notes: text("notes"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (t) => ({
+  handleIdx: index("idx_ugc_creators_handle").on(t.normalizedHandle),
+  stageIdx: index("idx_ugc_creators_stage").on(t.lifecycleStage),
+}));
+
+export const ugcCreatorPlatforms = sqliteTable("ugc_creator_platforms", {
+  id: text("id").primaryKey(),
+  creatorId: text("creator_id").notNull().references(() => ugcCreators.id),
+  platform: text("platform").notNull(),
+  handle: text("handle").notNull(),
+  normalizedHandle: text("normalized_handle").notNull(),
+  profileUrl: text("profile_url"),
+  followers: integer("followers"),
+  engagementRate: real("engagement_rate"),
+  engagementRateMethod: text("engagement_rate_method"),
+  avgVideoViews: real("avg_video_views"),
+  medianVideoViews: real("median_video_views"),
+  avgComments: real("avg_comments"),
+  postingCadence: real("posting_cadence"),
+  commerceClicks: integer("commerce_clicks"),
+  commerceOrders: integer("commerce_orders"),
+  commerceGmvMinor: integer("commerce_gmv_minor"),
+  commerceCurrency: text("commerce_currency"),
+  metricsAsOf: text("metrics_as_of"),
+  source: text("source"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (t) => ({
+  creatorIdx: index("idx_ugc_platforms_creator").on(t.creatorId),
+  platformIdx: index("idx_ugc_platforms_platform").on(t.platform),
+  platformHandleUnique: uniqueIndex("uq_ugc_platform_handle").on(t.platform, t.normalizedHandle),
+}));
+
+export const ugcContent = sqliteTable("ugc_content", {
+  id: text("id").primaryKey(),
+  creatorId: text("creator_id").notNull().references(() => ugcCreators.id),
+  creatorPlatformId: text("creator_platform_id").notNull().references(() => ugcCreatorPlatforms.id),
+  contentUrl: text("content_url"),
+  contentType: text("content_type"),
+  publishedAt: text("published_at"),
+  views: integer("views"),
+  likes: integer("likes"),
+  comments: integer("comments"),
+  saves: integer("saves"),
+  shares: integer("shares"),
+  engagementRate: real("engagement_rate"),
+  productCodes: text("product_codes"),
+  usageLabel: text("usage_label"),
+  sourceRating: real("source_rating"),
+  sourceValid: text("source_valid"),
+  audioLabel: text("audio_label"),
+  downloadUrl: text("download_url"),
+  sourceWorkbook: text("source_workbook"),
+  sourceSheet: text("source_sheet"),
+  sourceRow: integer("source_row"),
+  importedAt: integer("imported_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (t) => ({
+  creatorIdx: index("idx_ugc_content_creator").on(t.creatorId),
+  platformIdx: index("idx_ugc_content_platform").on(t.creatorPlatformId),
+  sourceRowUnique: uniqueIndex("uq_ugc_content_source_row").on(t.sourceWorkbook, t.sourceSheet, t.sourceRow),
+}));
+
+export const ugcCollaborations = sqliteTable("ugc_collaborations", {
+  id: text("id").primaryKey(),
+  creatorId: text("creator_id").notNull().references(() => ugcCreators.id),
+  platform: text("platform"),
+  status: text("status").notNull().default("found"),
+  contactChannel: text("contact_channel"),
+  invitedAt: text("invited_at"),
+  acceptedAt: text("accepted_at"),
+  lastContactAt: text("last_contact_at"),
+  nextAction: text("next_action"),
+  nextActionAt: text("next_action_at"),
+  offerType: text("offer_type"),
+  deliverables: text("deliverables"),
+  productCodes: text("product_codes"),
+  sampleStatus: text("sample_status"),
+  sampleSentAt: text("sample_sent_at"),
+  contentDueAt: text("content_due_at"),
+  publishedAt: text("published_at"),
+  rightsScope: text("rights_scope"),
+  rightsExpiresAt: text("rights_expires_at"),
+  owner: text("owner"),
+  notes: text("notes"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (t) => ({
+  creatorIdx: index("idx_ugc_collaborations_creator").on(t.creatorId, t.updatedAt),
 }));

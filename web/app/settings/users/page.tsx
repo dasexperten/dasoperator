@@ -27,6 +27,7 @@ const MODULES: { key: string; label: string }[] = [
   { key: '/warehouses',   label: 'Warehouses' },
   { key: '/marketplaces', label: 'Marketplaces' },
   { key: '/reviews',      label: 'Reviews' },
+  { key: '/ugc',          label: 'UGC' },
   { key: '/crm',          label: 'CRM' },
   { key: '/whatsapp',     label: 'WhatsApp' },
   { key: '/finance',      label: 'Finance' },

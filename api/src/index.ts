@@ -98,6 +98,7 @@ import dailyDigestRoutes from './routes/daily-digest';
 import seoRoutes from './routes/seo';
 import analyticsRoutes from './routes/analytics';
 import knowledgeRoutes from './routes/knowledge';
+import ugcRoutes from './routes/ugc';
 import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
 import { handleInboundEmail } from './lib/email-inbound';
@@ -322,6 +323,7 @@ app.route('/api/analytics', analyticsRoutes);
 app.route('/api/daily-digest', dailyDigestRoutes);
 app.route('/api/seo', seoRoutes);
 app.route('/api/knowledge', knowledgeRoutes);  // graph over the organizacia corpus (cache of GitHub, never a second truth)
+app.route('/api/ugc', ugcRoutes);
 
 export default {
   fetch: app.fetch,

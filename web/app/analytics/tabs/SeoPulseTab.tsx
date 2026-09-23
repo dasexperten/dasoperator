@@ -154,6 +154,11 @@ export default function SeoPulseTab() {
               </div>
               <p style={{ fontWeight: 700 }}>{text(q.question)}</p>
               {q.context ? <p style={{ color: 'var(--fg-2)', marginTop: 4 }}>{text(q.context)}</p> : null}
+              {q.answer ? (
+                <p style={{ marginTop: 6 }}>
+                  <b>Answer{q.answered_at ? ` · ${text(q.answered_at)}` : ''}:</b> {text(q.answer)}
+                </p>
+              ) : null}
             </div>
           ))}
         </div>

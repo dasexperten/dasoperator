@@ -34,7 +34,22 @@ type ContentObservation = {
   product_codes: string[];
   source_sheet: string | null;
   source_row: number | null;
+  link_status: LinkStatus | null;
+  link_checked_at: string | null;
+  link_http_status: number | null;
+  link_final_url: string | null;
+  link_check_note: string | null;
+  products: ProductMatch[];
+  unknown_product_codes: string[];
+  product_status: 'identified' | 'queued' | 'unknown' | null;
+  product_source: 'explicit_import' | 'metadata_text' | 'vision' | 'manual' | null;
+  product_confidence: number | null;
+  product_evidence: string | null;
+  product_checked_at: string | null;
 };
+
+type LinkStatus = 'active' | 'missing' | 'restricted' | 'unknown' | 'invalid';
+type ProductMatch = { raw_code: string; raw_offer_id: string; sku: string; name: string; pack_factor: number | null; source: string; confidence: number };
 
 type Collaboration = {
   id?: string;
@@ -68,15 +83,31 @@ type Creator = {
   collaboration: Collaboration | null;
 };
 
+type LinkSummary = {
+  linked_content: number;
+  links_active: number;
+  links_missing: number;
+  links_restricted: number;
+  links_unknown: number;
+  links_invalid: number;
+  links_unchecked: number;
+  links_checked_30d: number;
+  links_last_checked_at: string | null;
+  link_check_history: number;
+  product_identified: number;
+  product_queued: number;
+};
+
 type UgcPayload = {
   creators: Creator[];
-  summary: { creators: number; profiles: number; content_items: number; active_outreach: number; published: number };
+  summary: { creators: number; profiles: number; content_items: number; active_outreach: number; published: number } & LinkSummary;
   platforms: { platform: string; creator_count: number }[];
+  products: { sku: string; name: string; content_count: number }[];
 };
 
 const PLATFORM_TABS = ['all', 'instagram', 'tiktok', 'vk', 'shopee', 'lazada', 'facebook', 'telegram', 'youtube', 'other'];
 const STAGES = ['found', 'qualified', 'invited', 'accepted', 'sample_delivered', 'published', 'orders_mature', 'renew', 'stop'];
-const API_EMPTY: UgcPayload = { creators: [], summary: { creators: 0, profiles: 0, content_items: 0, active_outreach: 0, published: 0 }, platforms: [] };
+const API_EMPTY: UgcPayload = { creators: [], summary: { creators: 0, profiles: 0, content_items: 0, active_outreach: 0, published: 0, linked_content: 0, links_active: 0, links_missing: 0, links_restricted: 0, links_unknown: 0, links_invalid: 0, links_unchecked: 0, links_checked_30d: 0, links_last_checked_at: null, link_check_history: 0, product_identified: 0, product_queued: 0 }, platforms: [], products: [] };
 
 function formatNumber(value: number | null | undefined): string {
   if (value == null) return '—';
@@ -117,12 +148,39 @@ function mediaKind(item: ContentObservation): 'Video' | 'Image' | 'Post' | 'Cont
   return 'Content';
 }
 
-function Card({ label, value, note }: { label: string; value: string; note: string }) {
+const LINK_STATUS_LABEL: Record<LinkStatus, string> = { active: 'Active', missing: 'Missing', restricted: 'Restricted', unknown: 'Unknown', invalid: 'Invalid' };
+
+function formatCheckedAt(value: string | null | undefined): string {
+  if (!value) return 'Not checked';
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf()) ? value : new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(date);
+}
+
+function statusColor(status: LinkStatus | null): string {
+  if (status === 'active') return 'var(--status-success)';
+  if (status === 'restricted' || status === 'unknown') return 'var(--status-warning)';
+  if (status === 'missing' || status === 'invalid') return 'var(--status-error)';
+  return 'var(--fg-3)';
+}
+
+function LinkHealth({ item, compact = false }: { item: ContentObservation; compact?: boolean }) {
+  const label = item.link_status ? LINK_STATUS_LABEL[item.link_status] : 'Not checked';
+  return <span className={`inline-flex items-center gap-1.5 ${compact ? 'text-xs' : 'text-sm'}`} style={{ color: statusColor(item.link_status) }} title={item.link_check_note || undefined}><span aria-hidden="true" className="h-2 w-2 rounded-full" style={{ background: statusColor(item.link_status) }} />{label}{item.link_checked_at ? ` · ${formatCheckedAt(item.link_checked_at)}` : ''}</span>;
+}
+
+function ProductEvidence({ item }: { item: ContentObservation }) {
+  if (item.products.length) return <div className="flex flex-wrap items-center gap-2">{item.products.map((product) => <span key={product.sku} title={`${product.raw_offer_id} · ${product.source} · confidence ${product.confidence}`} className="px-2 py-1 text-xs font-bold" style={{ color: 'var(--brand-schwarz)', background: 'var(--brand-gold)', borderRadius: 'var(--radius-pill)' }}>{product.name} · {product.sku}{product.pack_factor && product.pack_factor > 1 ? ` · ${product.pack_factor} pack` : ''}</span>)}<span className="text-xs" style={{ color: 'var(--status-success)' }}>Confirmed from explicit product field</span></div>;
+  if (item.unknown_product_codes.length) return <div className="text-xs" style={{ color: 'var(--status-warning)' }}>Unknown product code: {item.unknown_product_codes.join(', ')} · needs review</div>;
+  if (item.product_status === 'queued') return <div className="text-xs" style={{ color: 'var(--fg-3)' }}>Product identification queued · no explicit product evidence</div>;
+  return <div className="text-xs" style={{ color: 'var(--fg-3)' }}>Product unknown</div>;
+}
+
+function Kpi({ label, value, exact, note, accent }: { label: string; value: string; exact: string; note: string; accent: string }) {
   return (
-    <div className="p-5" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-card)' }}>
+    <div className="px-4 py-3" title={exact} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderTop: `4px solid ${accent}`, borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow-raised)' }}>
       <div className="dx-eyebrow" style={{ color: 'var(--fg-3)' }}>{label}</div>
-      <div className="mt-2" style={{ fontFamily: 'var(--font-display)', fontSize: '32px', fontWeight: 900, lineHeight: 1 }}>{value}</div>
-      <div className="mt-2 text-sm" style={{ color: 'var(--fg-2)' }}>{note}</div>
+      <div className="mt-1" style={{ fontFamily: 'var(--font-display)', fontSize: '28px', fontWeight: 900, lineHeight: 1 }}>{value}</div>
+      <div className="mt-1 text-xs" style={{ color: 'var(--fg-2)' }}>{note}</div>
     </div>
   );
 }
@@ -132,11 +190,14 @@ export default function UgcPage() {
   const [platform, setPlatform] = useState('all');
   const [search, setSearch] = useState('');
   const [stage, setStage] = useState('');
+  const [product, setProduct] = useState('');
   const [sort, setSort] = useState('followers');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState<string | null>(null);
+  const [checkingLinks, setCheckingLinks] = useState(false);
+  const [checkMessage, setCheckMessage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const urlStateReady = useRef(false);
 
@@ -147,11 +208,12 @@ export default function UgcPage() {
     if (platform !== 'all') params.set('platform', platform);
     if (search.trim()) params.set('search', search.trim());
     if (stage) params.set('stage', stage);
+    if (product) params.set('product', product);
     const response = await apiGet<UgcPayload>(`/api/ugc?${params.toString()}`);
     if (!response.success || !response.result) setError(response.errors[0]?.message ?? 'UGC data could not be loaded');
     else setData(response.result);
     setLoading(false);
-  }, [platform, search, stage]);
+  }, [platform, search, stage, product]);
 
   useEffect(() => {
     const timer = window.setTimeout(load, 180);
@@ -164,10 +226,11 @@ export default function UgcPage() {
     if (platform === 'all') params.delete('platform'); else params.set('platform', platform);
     if (search.trim()) params.set('search', search.trim()); else params.delete('search');
     if (stage) params.set('stage', stage); else params.delete('stage');
+    if (product) params.set('product', product); else params.delete('product');
     if (sort === 'followers') params.delete('sort'); else params.set('sort', sort);
     const query = params.toString();
     window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
-  }, [platform, search, stage, sort]);
+  }, [platform, search, stage, product, sort]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -177,6 +240,7 @@ export default function UgcPage() {
     if (urlSort && ['followers', 'views', 'engagement', 'stage'].includes(urlSort)) setSort(urlSort);
     setSearch(params.get('search') ?? '');
     setStage(params.get('stage') ?? '');
+    setProduct(params.get('product') ?? '');
     urlStateReady.current = true;
   }, []);
 
@@ -193,6 +257,13 @@ export default function UgcPage() {
     return rows;
   }, [data.creators, platform, sort]);
   const selected = data.creators.find((creator) => creator.id === selectedId) ?? null;
+  const headline = useMemo(() => {
+    const profiles = data.creators.flatMap((creator) => creator.profiles);
+    const followers = profiles.reduce((sum, item) => sum + (item.followers ?? 0), 0);
+    const views = profiles.map((item) => item.avg_video_views ?? item.latest_observed_views).filter((value): value is number => value != null);
+    const ers = profiles.map((item) => item.engagement_rate).filter((value): value is number => value != null);
+    return { followers, avgViews: views.length ? views.reduce((a, b) => a + b, 0) / views.length : null, avgEr: ers.length ? ers.reduce((a, b) => a + b, 0) / ers.length : null };
+  }, [data.creators]);
 
   async function onImport(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -218,6 +289,18 @@ export default function UgcPage() {
     }
   }
 
+  async function checkLinks() {
+    setCheckingLinks(true);
+    setCheckMessage(null);
+    const response = await apiPost<{ checked: number }>('/api/ugc/link-health/run', { limit: 5 });
+    if (!response.success) setCheckMessage(response.errors[0]?.message ?? 'Link check failed');
+    else {
+      setCheckMessage(`${response.result?.checked ?? 0} links checked`);
+      await load();
+    }
+    setCheckingLinks(false);
+  }
+
   return (
     <div className="p-5 md:p-8 space-y-7">
       <PageHeader
@@ -227,9 +310,8 @@ export default function UgcPage() {
         actions={(
           <>
             <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onImport} />
-            <button type="button" onClick={() => fileRef.current?.click()} disabled={Boolean(importing)} className="min-h-11 px-4 flex items-center gap-2 font-bold transition-transform hover:-translate-y-0.5 disabled:transform-none disabled:opacity-60" style={{ color: 'var(--fg-on-brand)', background: 'var(--brand-rot)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow-raised)' }}>
-              {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
-              {importing ?? 'Import XLSX'}
+            <button type="button" onClick={() => fileRef.current?.click()} disabled={Boolean(importing)} className="min-h-11 px-1 flex items-center font-bold transition-transform hover:-translate-y-0.5 disabled:transform-none disabled:opacity-60">
+              <span className="px-2.5 py-1.5 inline-flex items-center gap-2" style={{ color: 'var(--fg-on-brand)', background: 'var(--brand-rot)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow-raised)' }}>{importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}{importing ?? 'Import XLSX'}</span>
             </button>
           </>
         )}
@@ -238,42 +320,58 @@ export default function UgcPage() {
       {error && <div role="alert" className="p-4 flex items-start justify-between gap-4" style={{ background: 'var(--paper-sunk)', borderLeft: '4px solid var(--status-error)' }}><span>{error}</span><button type="button" aria-label="Dismiss" onClick={() => setError(null)} className="min-h-11 flex items-center justify-center" style={{ minWidth: '44px' }}><X className="h-5 w-5" /></button></div>}
       <div role="status" aria-live="polite" className="sr-only">{importing}</div>
 
-      <section className="grid grid-cols-2 xl:grid-cols-5 gap-3">
-        <Card label="Creators" value={formatNumber(data.summary.creators)} note="distinct platform identities" />
-        <Card label="Profiles" value={formatNumber(data.summary.profiles)} note="across all platforms" />
-        <Card label="Content" value={formatNumber(data.summary.content_items)} note="observed publications" />
-        <Card label="In motion" value={formatNumber(data.summary.active_outreach)} note="active outreach" />
-        <Card label="Published" value={formatNumber(data.summary.published)} note="tracked collaborations" />
+      <section className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
+        <Kpi label="Creators" value={formatNumber(data.summary.creators)} exact={`${data.summary.creators} creators`} note="in this view" accent="var(--brand-schwarz)" />
+        <Kpi label="Followers" value={formatNumber(headline.followers)} exact={`${headline.followers} followers`} note="known audience" accent="var(--brand-rot)" />
+        <Kpi label="Avg views" value={formatNumber(headline.avgViews)} exact={headline.avgViews == null ? 'Unknown' : `${headline.avgViews} average views`} note="per known profile" accent="var(--status-info)" />
+        <Kpi label="Engagement" value={headline.avgEr == null ? '—' : `${formatNumber(headline.avgEr)}%`} exact={headline.avgEr == null ? 'Unknown' : `${headline.avgEr}% average engagement`} note="known profiles" accent="var(--status-success)" />
+        <Kpi label="Publications" value={formatNumber(data.summary.content_items)} exact={`${data.summary.content_items} publications`} note="observed content" accent="var(--brand-schwarz)" />
+        <Kpi label="Products" value={formatNumber(data.products.length)} exact={`${data.products.length} identified product families`} note={`${formatNumber(data.summary.product_queued)} queued`} accent="var(--brand-gold)" />
+      </section>
+
+      <section aria-label="Content link health" className="p-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
+        <strong style={{ fontFamily: 'var(--font-display)', fontWeight: 900 }}>Link health</strong>
+        <span style={{ color: 'var(--status-success)' }}>● {formatNumber(data.summary.links_active)} active</span>
+        <span style={{ color: 'var(--status-error)' }}>● {formatNumber(data.summary.links_missing)} missing</span>
+        <span style={{ color: 'var(--status-warning)' }}>● {formatNumber(data.summary.links_restricted)} restricted</span>
+        <span style={{ color: 'var(--status-warning)' }}>● {formatNumber(data.summary.links_unknown)} unknown</span>
+        <span style={{ color: 'var(--status-error)' }}>● {formatNumber(data.summary.links_invalid)} invalid</span>
+        <span style={{ color: 'var(--fg-3)' }}>{formatNumber(data.summary.links_unchecked)} not checked</span>
+        <span className="ml-auto" style={{ color: 'var(--fg-3)' }}>Last check: {formatCheckedAt(data.summary.links_last_checked_at)} · {formatNumber(data.summary.link_check_history)} audits</span>
+        <button type="button" onClick={checkLinks} disabled={checkingLinks} className="min-h-11 px-1 inline-flex items-center font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-60"><span className="px-2.5 py-1 inline-flex items-center gap-1.5 text-xs" style={{ color: 'var(--fg-on-brand)', background: 'var(--brand-schwarz)', borderRadius: 'var(--radius-sm)' }}>{checkingLinks && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{checkingLinks ? 'Checking…' : 'Check 5 now'}</span></button>
+        {checkMessage && <span role="status" aria-live="polite" className="text-xs" style={{ color: checkMessage.includes('checked') ? 'var(--status-success)' : 'var(--status-error)' }}>{checkMessage}</span>}
       </section>
 
       <section className="space-y-4">
         <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Platforms">
           {PLATFORM_TABS.map((key) => {
             const count = key === 'all' ? data.summary.creators : data.platforms.find((item) => item.platform === key)?.creator_count;
-            return <button key={key} type="button" aria-pressed={platform === key} onClick={() => setPlatform(key)} className="min-h-11 shrink-0 px-4 font-bold capitalize" style={{ color: platform === key ? 'var(--fg-on-brand)' : 'var(--fg-1)', background: platform === key ? 'var(--brand-schwarz)' : 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>{key} {count != null ? `· ${count}` : ''}</button>;
+            return <button key={key} type="button" aria-pressed={platform === key} onClick={() => setPlatform(key)} className="min-h-11 shrink-0 px-1 flex items-center font-bold capitalize focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="px-2.5 py-1" style={{ color: platform === key ? 'var(--fg-on-brand)' : 'var(--fg-1)', background: platform === key ? 'var(--brand-schwarz)' : 'var(--paper-sunk)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-pill)' }}>{key} {count != null ? `· ${count}` : ''}</span></button>;
           })}
         </div>
 
-        <div className="grid md:grid-cols-[minmax(240px,1fr)_180px_180px] gap-3">
+        <div className="grid md:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_170px_190px_170px] gap-2">
           <label className="min-h-11 px-3 flex items-center gap-2" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>
             <Search className="h-4 w-4" style={{ color: 'var(--fg-3)' }} />
             <input aria-label="Search creators" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search creators…" className="w-full bg-transparent outline-none" />
           </label>
           <select aria-label="Filter by collaboration stage" value={stage} onChange={(event) => setStage(event.target.value)} className="min-h-11 px-3" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><option value="">All stages</option>{STAGES.map((value) => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select>
+          <select aria-label="Filter by product" value={product} onChange={(event) => setProduct(event.target.value)} className="min-h-11 px-3" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><option value="">All products</option>{data.products.map((item) => <option key={item.sku} value={item.sku}>{item.name} · {item.content_count}</option>)}</select>
           <label className="min-h-11 px-3 flex items-center gap-2" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><ArrowUpDown className="h-4 w-4" /><select aria-label="Sort creators" value={sort} onChange={(event) => setSort(event.target.value)} className="w-full bg-transparent outline-none"><option value="followers">Followers</option><option value="views">Views</option><option value="engagement">Engagement</option><option value="stage">Stage</option></select></label>
         </div>
       </section>
 
       <section className="overflow-x-auto" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-card)' }}>
         <table className="w-full text-sm">
-          <thead style={{ background: 'var(--paper-sunk)', color: 'var(--fg-2)' }}><tr><th className="text-left p-3">Creator</th><th className="text-left p-3">Platform</th><th className="text-right p-3">Followers</th><th className="text-right p-3">ER</th><th className="text-right p-3">Avg / observed views</th><th className="text-left p-3">Content</th><th className="text-left p-3">Media</th><th className="text-left p-3">Next action</th></tr></thead>
+          <thead style={{ background: 'var(--paper-sunk)', color: 'var(--fg-2)' }}><tr><th className="text-left p-3">Creator</th><th className="text-right p-3">Followers</th><th className="text-right p-3">Avg views</th><th className="text-right p-3">Engagement</th><th className="text-left p-3">Publications</th><th className="text-left p-3">Product</th><th className="text-left p-3">Media</th><th className="text-left p-3">Next</th></tr></thead>
           <tbody>
             {loading ? <tr><td colSpan={8} className="p-10 text-center"><Loader2 className="h-6 w-6 animate-spin inline-block" /> <span className="ml-2">Loading UGC…</span></td></tr> : creators.length === 0 ? <tr><td colSpan={8} className="p-10 text-center" style={{ color: 'var(--fg-2)' }}><Users className="h-7 w-7 mx-auto mb-2" />No creators match this view.</td></tr> : creators.map((creator) => {
               const profile = primaryProfile(creator, platform);
               const views = profile.avg_video_views ?? profile.latest_observed_views;
               const latest = latestLinkedContent(profile);
               const media = latest ? mediaKind(latest.item) : null;
-              return <tr key={creator.id} style={{ borderTop: '1px solid var(--border-hairline)' }}><td className="p-3"><button type="button" onClick={() => setSelectedId(creator.id)} className="text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="block font-bold underline decoration-transparent underline-offset-4 hover:decoration-current">{creator.display_name || `@${profile.handle}`}</span><span className="block" style={{ color: 'var(--fg-3)' }}>@{profile.handle}</span></button></td><td className="p-3 capitalize">{profile.platform}</td><td className="p-3 text-right tabular-nums">{formatNumber(profile.followers)}</td><td className="p-3 text-right tabular-nums">{profile.engagement_rate == null ? '—' : `${formatNumber(profile.engagement_rate)}%`}</td><td className="p-3 text-right tabular-nums">{formatNumber(views)}{profile.view_observations === 1 ? <span title="One observed publication"> *</span> : null}</td><td className="p-3 tabular-nums" aria-label={`${profile.content_count} content observations`}>{formatNumber(profile.content_count)}</td><td className="p-3">{latest && media ? <a href={latest.href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="min-h-11 min-w-24 px-3 inline-flex items-center justify-center gap-2 font-bold rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" style={{ color: 'var(--brand-rot)', background: 'var(--paper-sunk)', border: '1px solid var(--border-subtle)' }} aria-label={`Open latest ${media.toLowerCase()} from @${profile.handle}`} title={latest.item.content_url ?? undefined}>{media === 'Video' ? <Video className="h-5 w-5" /> : media === 'Image' ? <ImageIcon className="h-5 w-5" /> : media === 'Post' ? <FileText className="h-5 w-5" /> : <Link className="h-5 w-5" />}<span>{media}</span><ExternalLink className="h-3.5 w-3.5" /></a> : <span style={{ color: 'var(--fg-3)' }}>N/A</span>}</td><td className="p-3">{creator.collaboration?.next_action || '—'}</td></tr>;
+              const products = Array.from(new Map(profile.content.flatMap((item) => item.products).map((item) => [item.sku, item])).values());
+              return <tr key={creator.id} style={{ borderTop: '1px solid var(--border-hairline)' }}><td className="p-3"><button type="button" onClick={() => setSelectedId(creator.id)} className="min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="block font-bold underline decoration-transparent underline-offset-4 hover:decoration-current">{creator.display_name || `@${profile.handle}`}</span><span className="block text-xs capitalize" style={{ color: 'var(--fg-3)' }}>{profile.platform} · @{profile.handle}</span></button></td><td className="p-3 text-right tabular-nums" title={profile.followers == null ? 'Unknown' : `${profile.followers}`}>{formatNumber(profile.followers)}</td><td className="p-3 text-right tabular-nums" title={views == null ? 'Unknown' : `${views}`}>{formatNumber(views)}{profile.view_observations === 1 ? <span title="One observed publication"> *</span> : null}</td><td className="p-3 text-right tabular-nums" title={profile.engagement_rate == null ? 'Unknown' : `${profile.engagement_rate}%`}>{profile.engagement_rate == null ? '—' : `${formatNumber(profile.engagement_rate)}%`}</td><td className="p-3 tabular-nums" aria-label={`${profile.content_count} content observations`}>{formatNumber(profile.content_count)}</td><td className="p-3">{products.length ? <div className="flex flex-wrap gap-1">{products.slice(0, 2).map((item) => <span key={item.sku} title={`${item.name} · ${item.sku} · confirmed from explicit import`} className="px-2 py-1 text-xs font-bold" style={{ background: 'var(--brand-gold)', color: 'var(--brand-schwarz)', borderRadius: 'var(--radius-pill)' }}>{item.name}</span>)}</div> : <span className="text-xs" style={{ color: 'var(--fg-3)' }}>{profile.content.some((item) => item.product_status === 'queued') ? 'Queued' : 'Unknown'}</span>}</td><td className="p-3">{latest && media ? <div className="inline-flex flex-col gap-1"><a href={latest.href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="min-h-11 px-1 inline-flex items-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`Open latest ${media.toLowerCase()} from @${profile.handle}`} title={latest.item.content_url ?? undefined}><span className="px-2 py-1 inline-flex items-center gap-1.5 text-xs font-bold" style={{ color: 'var(--brand-rot)', background: 'var(--paper-sunk)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>{media === 'Video' ? <Video className="h-4 w-4" /> : media === 'Image' ? <ImageIcon className="h-4 w-4" /> : media === 'Post' ? <FileText className="h-4 w-4" /> : <Link className="h-4 w-4" />}<span>{media}</span><ExternalLink className="h-3 w-3" /></span></a><LinkHealth item={latest.item} compact /></div> : <span style={{ color: 'var(--fg-3)' }}>N/A</span>}</td><td className="p-3">{creator.collaboration?.next_action || '—'}</td></tr>;
             })}
           </tbody>
         </table>
@@ -318,8 +416,10 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
       {content.length ? <div className="grid lg:grid-cols-2 gap-3">{content.map((item) => {
         const href = contentHref(item.content_url);
         return <article key={item.id} className="p-4 space-y-3" style={{ background: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)' }}>
-          <div className="flex items-start justify-between gap-3"><div><div className="font-bold capitalize">{item.platform}{item.content_type ? ` · ${item.content_type}` : ''}</div><div className="mt-1 text-xs" style={{ color: 'var(--fg-3)' }}>{item.published_at ? `Published ${item.published_at}` : `${item.source_sheet || 'Source'}${item.source_row == null ? '' : ` · row ${item.source_row}`}`}</div></div>{href ? <a href={href} target="_blank" rel="noopener noreferrer" className="min-h-11 px-3 shrink-0 inline-flex items-center gap-2 font-bold rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" style={{ color: 'var(--fg-on-brand)', background: 'var(--brand-schwarz)' }} aria-label={`Open ${item.platform} content`}><ExternalLink className="h-4 w-4" />Open content</a> : <span className="min-h-11 px-3 shrink-0 inline-flex items-center gap-2 text-sm" style={{ color: 'var(--fg-3)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><Link2Off className="h-4 w-4" />No link recorded</span>}</div>
+          <div className="flex items-start justify-between gap-3"><div><div className="font-bold capitalize">{item.platform}{item.content_type ? ` · ${item.content_type}` : ''}</div><div className="mt-1 text-xs" style={{ color: 'var(--fg-3)' }}>{item.published_at ? `Published ${item.published_at}` : `${item.source_sheet || 'Source'}${item.source_row == null ? '' : ` · row ${item.source_row}`}`}</div></div>{href ? <div className="shrink-0"><a href={href} target="_blank" rel="noopener noreferrer" className="min-h-11 px-1 inline-flex items-center font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`Open ${item.platform} content`}><span className="px-2 py-1 inline-flex items-center gap-1.5 text-xs" style={{ color: 'var(--fg-on-brand)', background: 'var(--brand-schwarz)', borderRadius: 'var(--radius-sm)' }}><ExternalLink className="h-3.5 w-3.5" />Open content</span></a></div> : <span className="min-h-11 px-3 shrink-0 inline-flex items-center gap-2 text-sm" style={{ color: 'var(--fg-3)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><Link2Off className="h-4 w-4" />No link recorded</span>}</div>
           {href && <a href={href} target="_blank" rel="noopener noreferrer" className="min-h-11 flex items-center break-all text-sm underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" style={{ color: 'var(--brand-rot)' }}>{item.content_url}</a>}
+          <ProductEvidence item={item} />
+          {href && <LinkHealth item={item} />}
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm" style={{ color: 'var(--fg-2)' }}><span>{formatNumber(item.views)} views</span><span>{formatNumber(item.comments)} comments</span><span>{item.product_codes.length ? item.product_codes.join(', ') : 'No products recorded'}</span></div>
         </article>;
       })}</div> : <div className="min-h-20 p-4 flex items-center gap-3" style={{ color: 'var(--fg-2)', background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)' }}><Link2Off className="h-5 w-5" />No content observations recorded.</div>}

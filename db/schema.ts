@@ -539,10 +539,34 @@ export const ugcContent = sqliteTable("ugc_content", {
   sourceRow: integer("source_row"),
   importedAt: integer("imported_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
+  linkStatus: text("link_status", { enum: ["active", "missing", "restricted", "unknown", "invalid"] }),
+  linkCheckedAt: text("link_checked_at"),
+  linkHttpStatus: integer("link_http_status"),
+  linkFinalUrl: text("link_final_url"),
+  linkCheckNote: text("link_check_note"),
+  productStatus: text("product_status", { enum: ["identified", "queued", "unknown"] }),
+  productSource: text("product_source", { enum: ["explicit_import", "metadata_text", "vision", "manual"] }),
+  productConfidence: real("product_confidence"),
+  productEvidence: text("product_evidence"),
+  productCheckedAt: text("product_checked_at"),
 }, (t) => ({
   creatorIdx: index("idx_ugc_content_creator").on(t.creatorId),
   platformIdx: index("idx_ugc_content_platform").on(t.creatorPlatformId),
   sourceRowUnique: uniqueIndex("uq_ugc_content_source_row").on(t.sourceWorkbook, t.sourceSheet, t.sourceRow),
+}));
+
+export const ugcLinkChecks = sqliteTable("ugc_link_checks", {
+  id: text("id").primaryKey(),
+  contentId: text("content_id").notNull().references(() => ugcContent.id),
+  checkedAt: text("checked_at").notNull(),
+  status: text("status", { enum: ["active", "missing", "restricted", "unknown", "invalid"] }).notNull(),
+  httpStatus: integer("http_status"),
+  finalUrl: text("final_url"),
+  note: text("note"),
+  responseMs: integer("response_ms"),
+}, (t) => ({
+  contentIdx: index("idx_ugc_link_checks_content").on(t.contentId, t.checkedAt),
+  checkedIdx: index("idx_ugc_link_checks_checked").on(t.checkedAt),
 }));
 
 export const ugcCollaborations = sqliteTable("ugc_collaborations", {

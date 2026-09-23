@@ -116,6 +116,9 @@
   "erp-social-queue": [
     "*/5 4-19 * * *"
   ],
+  "erp-ugc-link-health": [
+    "23 2 * * *"
+  ],
   "erp-vn-einvoice": [
     "*/5 * * * *"
   ],

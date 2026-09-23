@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { fail, ok } from '../lib/responses';
 import { hasModuleAccess, validateSession, type AuthUser } from '../lib/auth';
+import { runUgcLinkHealthBatch } from '../lib/ugc-link-health';
+import { baseProductSku, identifyExplicitProducts, initialProductClassification, UGC_PRODUCTS } from '../lib/ugc-products.mjs';
 
 type ImportRow = {
   handle?: unknown;
@@ -110,6 +112,7 @@ ugc.get('/', async (c) => {
   const usePlatform = c.req.query('platform') && c.req.query('platform') !== 'all' ? platform : null;
   const search = textValue(c.req.query('search'), 120)?.toLowerCase() ?? '';
   const stage = textValue(c.req.query('stage'), 80);
+  const product = baseProductSku(c.req.query('product'));
 
   const profiles = await c.env.DB.prepare(
     `SELECT
@@ -126,14 +129,21 @@ ugc.get('/', async (c) => {
      WHERE (?1 IS NULL OR p.platform = ?1)
        AND (?2 = '' OR LOWER(COALESCE(c.display_name, '') || ' ' || p.handle) LIKE '%' || ?2 || '%')
        AND (?3 IS NULL OR c.lifecycle_stage = ?3)
+       AND (?4 IS NULL OR EXISTS (
+         SELECT 1 FROM ugc_content uc
+         WHERE uc.creator_platform_id = p.id AND UPPER(COALESCE(uc.product_codes, '')) LIKE '%"' || ?4 || '%'
+       ))
      ORDER BY COALESCE(p.followers, -1) DESC, COALESCE(c.display_name, p.handle) ASC
      LIMIT 1500`
-  ).bind(usePlatform, search, stage).all<Record<string, any>>();
+  ).bind(usePlatform, search, stage, product).all<Record<string, any>>();
 
   const metricRows = await c.env.DB.prepare(
     `SELECT id, creator_id, creator_platform_id, content_url, content_type,
             published_at, views, comments, product_codes, source_sheet,
-            source_row, imported_at
+            source_row, imported_at, link_status, link_checked_at,
+            link_http_status, link_final_url, link_check_note,
+            product_status, product_source, product_confidence,
+            product_evidence, product_checked_at
      FROM ugc_content
      ORDER BY COALESCE(published_at, '') DESC, imported_at DESC,
               source_sheet DESC, source_row DESC`
@@ -160,6 +170,7 @@ ugc.get('/', async (c) => {
         if (Array.isArray(parsed)) productCodes = parsed.map(String);
       } catch { /* preserve an empty list for malformed legacy values */ }
     }
+    const productIdentity = identifyExplicitProducts(productCodes);
     entry.content.push({
       id: row.id,
       content_url: row.content_url,
@@ -168,8 +179,20 @@ ugc.get('/', async (c) => {
       views: row.views,
       comments: row.comments,
       product_codes: productCodes,
+      products: productIdentity.matches,
+      unknown_product_codes: productIdentity.unknown_codes,
       source_sheet: row.source_sheet,
       source_row: row.source_row,
+      link_status: row.link_status,
+      link_checked_at: row.link_checked_at,
+      link_http_status: row.link_http_status,
+      link_final_url: row.link_final_url,
+      link_check_note: row.link_check_note,
+      product_status: row.product_status,
+      product_source: row.product_source,
+      product_confidence: row.product_confidence,
+      product_evidence: row.product_evidence,
+      product_checked_at: row.product_checked_at,
     });
     byProfile.set(row.creator_platform_id, entry);
   }
@@ -244,16 +267,51 @@ ugc.get('/', async (c) => {
        (SELECT COUNT(*) FROM ugc_creators) creators,
        (SELECT COUNT(*) FROM ugc_creator_platforms) profiles,
        (SELECT COUNT(*) FROM ugc_content) content_items,
+       (SELECT COUNT(*) FROM ugc_content WHERE content_url IS NOT NULL AND TRIM(content_url) <> '') linked_content,
+       (SELECT COUNT(*) FROM ugc_content WHERE link_status = 'active') links_active,
+       (SELECT COUNT(*) FROM ugc_content WHERE link_status = 'missing') links_missing,
+       (SELECT COUNT(*) FROM ugc_content WHERE link_status = 'restricted') links_restricted,
+       (SELECT COUNT(*) FROM ugc_content WHERE link_status = 'unknown') links_unknown,
+       (SELECT COUNT(*) FROM ugc_content WHERE link_status = 'invalid') links_invalid,
+       (SELECT COUNT(*) FROM ugc_content WHERE content_url IS NOT NULL AND TRIM(content_url) <> '' AND link_checked_at IS NULL) links_unchecked,
+       (SELECT COUNT(*) FROM ugc_content WHERE datetime(link_checked_at) > datetime('now', '-30 days')) links_checked_30d,
+       (SELECT MAX(link_checked_at) FROM ugc_content) links_last_checked_at,
+       (SELECT COUNT(*) FROM ugc_link_checks) link_check_history,
+       (SELECT COUNT(*) FROM ugc_content WHERE product_status = 'identified') product_identified,
+       (SELECT COUNT(*) FROM ugc_content WHERE product_status = 'queued') product_queued,
        (SELECT COUNT(*) FROM ugc_collaborations WHERE status IN ('invited','accepted','sample_delivered')) active_outreach,
        (SELECT COUNT(*) FROM ugc_collaborations WHERE status = 'published') published
     `
-  ).first<Record<string, number>>();
+  ).first<Record<string, any>>();
+  const productCounts = new Map<string, number>();
+  for (const row of metricRows.results ?? []) {
+    let codes: string[] = [];
+    try { const parsed = JSON.parse(String(row.product_codes ?? '[]')); if (Array.isArray(parsed)) codes = parsed.map(String); } catch { /* raw evidence remains in DB */ }
+    for (const match of identifyExplicitProducts(codes).matches) productCounts.set(match.sku, (productCounts.get(match.sku) ?? 0) + 1);
+  }
 
   return ok(c, {
     creators: Array.from(creators.values()),
-    summary: totals ?? { creators: 0, profiles: 0, content_items: 0, active_outreach: 0, published: 0 },
+    summary: totals ?? {
+      creators: 0, profiles: 0, content_items: 0, linked_content: 0,
+      links_active: 0, links_missing: 0, links_restricted: 0, links_unknown: 0,
+      links_invalid: 0, links_unchecked: 0, links_checked_30d: 0,
+      links_last_checked_at: null, link_check_history: 0, product_identified: 0, product_queued: 0,
+      active_outreach: 0, published: 0,
+    },
     platforms: platformCounts.results ?? [],
+    products: Array.from(productCounts, ([sku, content_count]) => ({ sku, name: UGC_PRODUCTS[sku] ?? sku, content_count }))
+      .sort((a, b) => b.content_count - a.content_count || a.name.localeCompare(b.name)),
   });
+});
+
+ugc.post('/link-health/run', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  let body: { limit?: unknown } = {};
+  try { body = await c.req.json(); } catch { /* optional empty body */ }
+  const limit = Math.max(1, Math.min(10, Math.trunc(Number(body.limit) || 5)));
+  return ok(c, await runUgcLinkHealthBatch(c.env, limit));
 });
 
 ugc.post('/import', async (c) => {
@@ -326,13 +384,15 @@ ugc.post('/import', async (c) => {
       const products = Array.isArray(row.product_codes)
         ? row.product_codes.map((value) => textValue(value, 60)).filter(Boolean)
         : [];
+      const productClassification = initialProductClassification(products, Boolean(textValue(row.content_url, 1000)));
       statements.push(c.env.DB.prepare(
         `INSERT INTO ugc_content
            (id, creator_id, creator_platform_id, content_url, content_type, views,
             comments, product_codes, usage_label, source_rating, source_valid,
             audio_label, download_url, source_workbook, source_sheet, source_row,
-            imported_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?17)
+            imported_at, updated_at, product_status, product_source,
+            product_confidence, product_evidence, product_checked_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?17, ?18, ?19, ?20, ?21, ?22)
          ON CONFLICT(source_workbook, source_sheet, source_row) DO UPDATE SET
            creator_id = excluded.creator_id,
            creator_platform_id = excluded.creator_platform_id,
@@ -341,11 +401,21 @@ ugc.post('/import', async (c) => {
            views = excluded.views,
            comments = excluded.comments,
            product_codes = excluded.product_codes,
+           product_status = CASE WHEN excluded.product_source = 'explicit_import' OR ugc_content.product_source IS NULL THEN excluded.product_status ELSE ugc_content.product_status END,
+           product_source = CASE WHEN excluded.product_source = 'explicit_import' OR ugc_content.product_source IS NULL THEN excluded.product_source ELSE ugc_content.product_source END,
+           product_confidence = CASE WHEN excluded.product_source = 'explicit_import' OR ugc_content.product_source IS NULL THEN excluded.product_confidence ELSE ugc_content.product_confidence END,
+           product_evidence = CASE WHEN excluded.product_source = 'explicit_import' OR ugc_content.product_source IS NULL THEN excluded.product_evidence ELSE ugc_content.product_evidence END,
+           product_checked_at = CASE WHEN excluded.product_source = 'explicit_import' OR ugc_content.product_source IS NULL THEN excluded.product_checked_at ELSE ugc_content.product_checked_at END,
            usage_label = excluded.usage_label,
            source_rating = excluded.source_rating,
            source_valid = excluded.source_valid,
            audio_label = excluded.audio_label,
            download_url = excluded.download_url,
+           link_status = CASE WHEN excluded.content_url IS ugc_content.content_url THEN ugc_content.link_status ELSE NULL END,
+           link_checked_at = CASE WHEN excluded.content_url IS ugc_content.content_url THEN ugc_content.link_checked_at ELSE NULL END,
+           link_http_status = CASE WHEN excluded.content_url IS ugc_content.content_url THEN ugc_content.link_http_status ELSE NULL END,
+           link_final_url = CASE WHEN excluded.content_url IS ugc_content.content_url THEN ugc_content.link_final_url ELSE NULL END,
+           link_check_note = CASE WHEN excluded.content_url IS ugc_content.content_url THEN ugc_content.link_check_note ELSE NULL END,
            updated_at = excluded.updated_at`
       ).bind(
         contentId, creatorId, profileId, textValue(row.content_url, 1000),
@@ -354,6 +424,9 @@ ugc.post('/import', async (c) => {
         textValue(row.usage_label, 160), numberValue(row.source_rating),
         textValue(row.source_valid, 80), textValue(row.audio_label, 160),
         textValue(row.download_url, 1000), sourceWorkbook, sourceSheet, sourceRow, now,
+        productClassification.status, productClassification.source,
+        productClassification.confidence, productClassification.evidence,
+        productClassification.source ? new Date(now).toISOString() : null,
       ));
     }
     accepted += 1;

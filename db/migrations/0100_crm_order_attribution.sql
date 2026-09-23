@@ -1,4 +1,4 @@
--- 0099 — durable, non-personal commerce attribution on website orders.
+-- 0100 — durable, non-personal commerce attribution on website orders.
 --
 -- These fields are copied from bounded Stripe PaymentIntent metadata. They do
 -- not contain buyer identity, URL query strings or referrers. Pinterest is the

@@ -698,14 +698,18 @@ async function ordersFromMirror(
   // строка скрыта, если у того же покупателя в пределах суток есть заказ на ту
   // же сумму — оплаченный либо более поздний. Остаётся удачная попытка, а без
   // оплаты — последняя. Строки в зеркале не трогаем: фильтр только на экране.
+  // Урезанная корзина (Владелец 24.09.2026, тот же разговор): неоплаченный
+  // заказ скрыт и тогда, когда в те же сутки покупатель оплатил заказ на
+  // меньшую сумму — корзину сократил и оплатил.
   // Откат: убрать это условие и выкатить.
   where.push(`NOT (paid = 0 AND customer_key IS NOT NULL AND EXISTS (
     SELECT 1 FROM crm_orders_ru s
     WHERE s.customer_key = crm_orders_ru.customer_key
       AND s.order_number <> crm_orders_ru.order_number
-      AND s.total_rub = crm_orders_ru.total_rub
       AND abs(julianday(s.created_at) - julianday(crm_orders_ru.created_at)) < 1
-      AND (s.paid = 1 OR julianday(s.created_at) > julianday(crm_orders_ru.created_at))))`);
+      AND ((s.total_rub = crm_orders_ru.total_rub
+            AND (s.paid = 1 OR julianday(s.created_at) > julianday(crm_orders_ru.created_at)))
+        OR (s.paid = 1 AND s.total_rub < crm_orders_ru.total_rub))))`);
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
   const cols = `order_number, storefront_id, status, storefront_status, source, created_at, paid, paid_at,

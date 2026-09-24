@@ -693,6 +693,19 @@ async function ordersFromMirror(
 
   const where: string[] = []; const binds: any[] = [];
   if (search) { where.push('(order_number LIKE ?1 OR customer_key LIKE ?1)'); binds.push(`%${search}%`); }
+  // Повторные попытки оплаты (Владелец 24.09.2026): покупатель часто создаёт
+  // несколько заказов на одну сумму, прежде чем оплата пройдёт. Неоплаченная
+  // строка скрыта, если у того же покупателя в пределах суток есть заказ на ту
+  // же сумму — оплаченный либо более поздний. Остаётся удачная попытка, а без
+  // оплаты — последняя. Строки в зеркале не трогаем: фильтр только на экране.
+  // Откат: убрать это условие и выкатить.
+  where.push(`NOT (paid = 0 AND customer_key IS NOT NULL AND EXISTS (
+    SELECT 1 FROM crm_orders_ru s
+    WHERE s.customer_key = crm_orders_ru.customer_key
+      AND s.order_number <> crm_orders_ru.order_number
+      AND s.total_rub = crm_orders_ru.total_rub
+      AND abs(julianday(s.created_at) - julianday(crm_orders_ru.created_at)) < 1
+      AND (s.paid = 1 OR julianday(s.created_at) > julianday(crm_orders_ru.created_at))))`);
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
   const cols = `order_number, storefront_id, status, storefront_status, source, created_at, paid, paid_at,

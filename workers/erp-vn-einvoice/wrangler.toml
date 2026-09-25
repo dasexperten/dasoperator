@@ -16,10 +16,11 @@ binding = "DOCS"
 bucket_name = "das-erp-docs-dev"
 
 [vars]
-# The provider's documented shared domain has a valid public certificate.
-# The supplied sandbox domain is intentionally not used: its certificate has
-# the wrong hostname and the API header carries the raw username/password.
-EASYINVOICE_BASE_URL = "https://api.easyinvoice.vn"
+# UAT: SoftDreams demo tenant. Verified 2026-09-25 over HTTPS with a valid
+# certificate (status call answered Status 2). api.easyinvoice.vn is the
+# production host; the demo account answers 176 there. Switch back to
+# https://api.easyinvoice.vn only together with production credentials.
+EASYINVOICE_BASE_URL = "https://appdemo.softdreams.vn"
 EASYINVOICE_ENABLED = "0"
 EASYINVOICE_PATTERN = "1C26TAA"
 # Circular 78 combines the former template and symbol in Pattern. EasyInvoice

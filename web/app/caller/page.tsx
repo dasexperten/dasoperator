@@ -83,6 +83,11 @@ function duration(seconds: number | null) {
   return m ? `${m} min ${s} s` : `${s} s`;
 }
 
+const CHANNEL_LABEL: Record<string, string> = { whatsapp: 'WhatsApp', telegram: 'Telegram' };
+function channelLabel(channel: string) {
+  return CHANNEL_LABEL[channel] || channel;
+}
+
 function recipient(row: CallRow) {
   return row.recipient_label ? `${row.recipient_label} · +${row.recipient_phone}` : `+${row.recipient_phone}`;
 }
@@ -93,6 +98,7 @@ function PurposeCell({ row }: { row: CallRow }) {
     <span className="inline-flex items-center gap-2 font-bold text-muted-foreground">
       <Icon className="h-4 w-4" aria-label={row.call_type === 'incoming' ? 'Incoming' : 'Outgoing'} />
       {PURPOSE_LABEL[row.call_purpose] || row.call_purpose}
+      <span className="text-stone-500">· {channelLabel(row.channel)}</span>
     </span>
   );
 }
@@ -214,7 +220,7 @@ export default function CallerPage() {
                 </h2>
                 <p className="mt-1 text-sm font-bold text-stone-500">
                   <span className={DEAL_CLASS[open.deal_status]}>{DEAL_LABEL[open.deal_status]}</span>
-                  {' · '}{PURPOSE_LABEL[open.call_purpose]} · {open.call_type === 'incoming' ? 'Incoming' : 'Outgoing'} WhatsApp
+                  {' · '}{PURPOSE_LABEL[open.call_purpose]} · {open.call_type === 'incoming' ? 'Incoming' : 'Outgoing'} {channelLabel(open.channel)}
                   {' · '}{when(open.started_at)} · <span className={STATUS_CLASS[open.status]}>{STATUS_LABEL[open.status]}</span>
                   {open.duration_seconds ? ` · ${duration(open.duration_seconds)}` : ''}
                 </p>

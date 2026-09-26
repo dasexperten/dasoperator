@@ -2,19 +2,24 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { PhoneCall, Send } from 'lucide-react';
+import { MessageCircle, PhoneCall, Send } from 'lucide-react';
+import AgentBar from './agent-bar';
 
 // Caller (Owner 2026-09-26): replaces the WhatsApp menu item. The call list is the main view;
 // WhatsApp messaging is a subsection inside it.
 const TABS = [
   { href: '/caller', label: 'Calls', icon: PhoneCall },
-  { href: '/caller/whatsapp', label: 'WhatsApp', icon: Send },
+  { href: '/caller/whatsapp', label: 'WhatsApp', icon: MessageCircle },
+  { href: '/caller/telegram', label: 'Telegram', icon: Send },
 ];
 
 export default function CallerLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  // The agent popup shows the account of the section in view; the main list shows both.
+  const channel = pathname.startsWith('/caller/telegram') ? 'telegram' : pathname.startsWith('/caller/whatsapp') ? 'whatsapp' : null;
   return (
     <div className="space-y-6">
+      <AgentBar channel={channel} />
       <nav className="mx-auto flex max-w-6xl gap-2 border-b border-border" aria-label="Caller sections">
         {TABS.map(({ href, label, icon: Icon }) => {
           const active = href === '/caller' ? pathname === '/caller' : pathname.startsWith(href);

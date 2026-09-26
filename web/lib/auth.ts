@@ -104,7 +104,7 @@ export function clearAuth(): void {
 
 export const ALL_MODULES = [
   '/', '/partners', '/operations', '/planner', '/products', '/warehouses',
-  '/marketplaces', '/reviews', '/ugc', '/crm', '/emailer', '/whatsapp', '/finance', '/analytics',
+  '/marketplaces', '/reviews', '/ugc', '/crm', '/emailer', '/caller', '/whatsapp', '/finance', '/analytics',
   '/knowledge', '/settings',
 ] as const;
 
@@ -118,6 +118,10 @@ export function hasModuleAccess(user: AuthUser, route: string): boolean {
   // Standalone Android mail app shares Emailer module permission
   if (route === '/mail' || route.startsWith('/mail/')) {
     return (perms['/emailer'] ?? 'none') !== 'none';
+  }
+  // Caller replaced WhatsApp (Owner 2026-09-26): an existing WhatsApp grant opens Caller.
+  if (route === '/caller' || route.startsWith('/caller/')) {
+    return (perms['/caller'] ?? perms['/whatsapp'] ?? 'none') !== 'none';
   }
   for (const m of ALL_MODULES) {
     if (m === '/') continue;

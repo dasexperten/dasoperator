@@ -29,7 +29,7 @@ const MODULES: { key: string; label: string }[] = [
   { key: '/reviews',      label: 'Reviews' },
   { key: '/ugc',          label: 'UGC' },
   { key: '/crm',          label: 'CRM' },
-  { key: '/whatsapp',     label: 'WhatsApp' },
+  { key: '/caller',       label: 'Caller (calls + WhatsApp)' },
   { key: '/finance',      label: 'Finance' },
   { key: '/analytics',    label: 'Analytics' },
   { key: '/knowledge',    label: 'Knowledge' },

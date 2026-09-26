@@ -11,7 +11,7 @@ app.use('*', async (c, next) => {
   const token = c.req.header('Authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
   const user = token ? await validateSession(c.env.DB, token) : null;
   if (!user) return fail(c, 401, [{ code: 'unauthorized', message: 'Sign in to use WhatsApp.' }]);
-  const access = user.permissions['/whatsapp'] || 'none';
+  const access = user.permissions['/caller'] || user.permissions['/whatsapp'] || 'none';
   if (user.role !== 'admin' && !['full', 'rw', 'read'].includes(access)) {
     return fail(c, 403, [{ code: 'forbidden', message: 'You do not have access to WhatsApp.' }]);
   }
@@ -69,7 +69,7 @@ app.get('/messages', async (c) => {
 
 app.post('/send', async (c) => {
   const user = c.get('authUser');
-  const access = user.permissions['/whatsapp'] || 'none';
+  const access = user.permissions['/caller'] || user.permissions['/whatsapp'] || 'none';
   if (user.role !== 'admin' && !['full', 'rw'].includes(access)) {
     return fail(c, 403, [{ code: 'read_only', message: 'Read/write access is required to send messages.' }]);
   }

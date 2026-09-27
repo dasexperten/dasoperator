@@ -701,15 +701,19 @@ async function ordersFromMirror(
   // Урезанная корзина (Владелец 24.09.2026, тот же разговор): неоплаченный
   // заказ скрыт и тогда, когда в те же сутки покупатель оплатил заказ на
   // меньшую сумму — корзину сократил и оплатил.
+  // Любая сумма (Владелец 27.09.2026): «человек пробовал 3 раза и купил один
+  // раз — скрыть остальные». Неоплаченный заказ скрыт, если в те же сутки тот
+  // же покупатель оплатил любой заказ — и меньше, и больше (DE260927-5681 и
+  // -3679 при оплаченном DE260927-4949 на большую сумму).
   // Откат: убрать это условие и выкатить.
   where.push(`NOT (paid = 0 AND customer_key IS NOT NULL AND EXISTS (
     SELECT 1 FROM crm_orders_ru s
     WHERE s.customer_key = crm_orders_ru.customer_key
       AND s.order_number <> crm_orders_ru.order_number
       AND abs(julianday(s.created_at) - julianday(crm_orders_ru.created_at)) < 1
-      AND ((s.total_rub = crm_orders_ru.total_rub
-            AND (s.paid = 1 OR julianday(s.created_at) > julianday(crm_orders_ru.created_at)))
-        OR (s.paid = 1 AND s.total_rub < crm_orders_ru.total_rub))))`);
+      AND (s.paid = 1
+        OR (s.total_rub = crm_orders_ru.total_rub
+            AND julianday(s.created_at) > julianday(crm_orders_ru.created_at)))))`);
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
   const cols = `order_number, storefront_id, status, storefront_status, source, created_at, paid, paid_at,

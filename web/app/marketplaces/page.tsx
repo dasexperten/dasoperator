@@ -14,6 +14,7 @@ import {
   Check,
 } from 'lucide-react';
 import { ChannelsOverview, ChannelTab, type ChannelKey } from '@/components/marketplaces/channel-pulse';
+import { WbFbsBoard } from '@/components/marketplaces/wb-fbs';
 
 const OZON_BLUE = 'rgb(0, 91, 255)';
 
@@ -63,18 +64,6 @@ const OZON_THEME = {
   '--radius-pill': '999px',
 } as React.CSSProperties;
 
-const WB_THEME = {
-  '--paper-1': '#FFFFFF',
-  '--paper-sunk': '#F8F1FC',
-  '--border-hairline': '#EBD8F5',
-  '--fg-1': '#26063B',
-  '--fg-2': '#6E4A8C',
-  '--fg-muted': '#9A7BB3',
-  '--radius-sm': '10px',
-  '--radius-md': '12px',
-  '--radius-pill': '999px',
-} as React.CSSProperties;
-
 const OZON_CONFIG = {
   accent: OZON_BLUE,
   accentLabel: 'OZON FBO · SUPPLY PLANNING',
@@ -96,20 +85,6 @@ const OZON_CONFIG = {
     'Хабаровск',
   ],
   csvPrefix: 'ozon_fbo',
-};
-
-const WB_CONFIG = {
-  accent: WB_PINK,
-  accentLabel: 'WB FBO · SUPPLY PLANNING',
-  theme: WB_THEME,
-  pageBg: '#FAF4FE',
-  brandBar: 'linear-gradient(135deg, #CB11AB 0%, #7D31EE 100%)',
-  statusUrl: 'https://dasoperator-api.dasexperten.workers.dev/api/marketplaces/fbo/wb',
-  runsUrl:
-    'https://dasoperator-api.dasexperten.workers.dev/api/marketplaces/fbo/runs?marketplace=wb',
-  workflowUrl: 'https://github.com/dasexperten/arams-db/actions/workflows/wb-fbo-monthly.yml',
-  clusterOrder: [] as string[],
-  csvPrefix: 'wb_fbo',
 };
 
 interface DashboardConfig {
@@ -184,7 +159,7 @@ export default function MarketplacesPage() {
   const tabs: Array<{ key: Tab; label: string; accent: string }> = [
     { key: 'overview', label: 'Overview', accent: 'var(--fg-1)' },
     { key: 'ozon', label: 'Ozon FBO', accent: OZON_BLUE },
-    { key: 'wb', label: 'WB FBO', accent: WB_PINK },
+    { key: 'wb', label: 'WB FBS', accent: WB_PINK },
     { key: 'merchant', label: 'Merchant', accent: '#1A73E8' },
     { key: 'shopee', label: 'Shopee', accent: '#EE4D2D' },
     { key: 'tiktok', label: 'TikTok Shop', accent: '#111111' },
@@ -208,7 +183,7 @@ export default function MarketplacesPage() {
           Marketplaces
         </h1>
         <p className="mt-2" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
-          Sales pulse · FBO supply planning · shop status
+          Sales pulse · Ozon FBO planning · WB FBS · shop status
         </p>
       </div>
 
@@ -227,7 +202,8 @@ export default function MarketplacesPage() {
 
       {tab === 'overview' && <ChannelsOverview onOpen={openChannel} />}
       {tab === 'ozon' && <FboDashboard config={OZON_CONFIG} key="ozon" />}
-      {tab === 'wb' && <FboDashboard config={WB_CONFIG} key="wb" />}
+      {/* WB is FBS-only since 2026-09-19 (Owner): the FBO planner is retired for WB. */}
+      {tab === 'wb' && <WbFbsBoard />}
       {(tab === 'merchant' || tab === 'shopee' || tab === 'tiktok' || tab === 'lazada') && (
         <ChannelTab channel={tab} key={tab} />
       )}

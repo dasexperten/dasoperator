@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { runLogged, type BaseEnv } from '../../_shared/run';
 import {
+  callEndpoint,
   callJson,
   codeOf,
   downloadInvoice,
@@ -30,6 +31,8 @@ interface Env extends BaseEnv {
   EASYINVOICE_PATTERN?: string;
   EASYINVOICE_SERIAL?: string;
   SWIFTHUB_INGEST_SECRET?: string;
+  // Present only while a demo acceptance run is open; deleted afterwards.
+  EASYINVOICE_UAT_SECRET?: string;
 }
 
 interface IngestEvent {
@@ -62,6 +65,8 @@ interface DocumentRow {
 }
 
 const WORKER = 'erp-vn-einvoice';
+// Acceptance calls may reach only SoftDreams demo tenants, never production.
+const UAT_HOSTS = new Set(['appdemo.softdreams.vn']);
 const RETRY_SECONDS = 5 * 60;
 const MAX_VERIFY_MISSES = 3;
 
@@ -562,6 +567,56 @@ async function ingest(request: Request, env: Env): Promise<Response> {
   return json({ ok: true, idempotent: false, document: stored }, 202);
 }
 
+// Demo acceptance: calls the provider directly with the bound demo account,
+// independent of EASYINVOICE_ENABLED and of the outbox. It refuses any host
+// that is not a demo tenant and exists only while EASYINVOICE_UAT_SECRET is
+// bound. Responses carry the provider envelope, never the auth header.
+async function uat(request: Request, env: Env): Promise<Response> {
+  if (!env.EASYINVOICE_UAT_SECRET) return json({ ok: false, error: 'not_found' }, 404);
+  if (!authorized(request, env.EASYINVOICE_UAT_SECRET)) return json({ ok: false, error: 'unauthorized' }, 401);
+  let baseUrl = '';
+  try {
+    baseUrl = strictBaseUrl(env.EASYINVOICE_BASE_URL || '');
+  } catch (error) {
+    return json({ ok: false, error: error instanceof Error ? error.message : 'easyinvoice_base_url_invalid' }, 409);
+  }
+  if (!UAT_HOSTS.has(new URL(baseUrl).hostname)) return json({ ok: false, error: 'uat_demo_host_only' }, 409);
+  if (!env.EASYINVOICE_USERNAME || !env.EASYINVOICE_PASSWORD || !env.EASYINVOICE_TAX_CODE) {
+    return json({ ok: false, error: 'uat_credentials_missing' }, 409);
+  }
+  const config: EasyInvoiceConfig = {
+    baseUrl,
+    username: env.EASYINVOICE_USERNAME,
+    password: env.EASYINVOICE_PASSWORD,
+    taxCode: env.EASYINVOICE_TAX_CODE,
+    pattern: env.EASYINVOICE_PATTERN || '',
+    serial: env.EASYINVOICE_SERIAL ?? '',
+  };
+  let input: { endpoint?: unknown; body?: unknown; download?: unknown };
+  try {
+    input = await request.json();
+  } catch {
+    return json({ ok: false, error: 'invalid_json' }, 400);
+  }
+  const endpoint = safeString(input.endpoint, 80);
+  const body = input.body && typeof input.body === 'object' ? input.body as Record<string, unknown> : {};
+  try {
+    if (input.download) {
+      const ikey = safeString(body.Ikey, 100);
+      const option = Number(body.Option ?? 0) as -1 | 0 | 1 | 2;
+      const file = await downloadInvoice(config, ikey, safeString(body.Pattern, 20) || config.pattern, option);
+      const bytes = new Uint8Array(file.bytes);
+      let text = '';
+      for (let i = 0; i < Math.min(bytes.length, 400); i++) text += String.fromCharCode(bytes[i]);
+      return json({ ok: true, httpStatus: file.httpStatus, contentType: file.contentType, size: bytes.length, head: text });
+    }
+    const result = await callEndpoint(config, endpoint, body);
+    return json({ ok: true, host: new URL(baseUrl).hostname, pattern: config.pattern, httpStatus: result.httpStatus, body: result.body });
+  } catch (error) {
+    return json({ ok: false, error: error instanceof Error ? error.message.slice(0, 500) : 'uat_call_failed' }, 502);
+  }
+}
+
 export default {
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(
@@ -578,6 +633,7 @@ export default {
       if (!authorized(request, env.ERP_RUN_SECRET)) return json({ ok: false, error: 'unauthorized' }, 401);
       return json(await runLogged(env, WORKER, 'manual', async (e, dry) => queueRun(e, dry)));
     }
+    if (request.method === 'POST' && url.pathname === '/uat/call') return uat(request, env);
     return json({ ok: false, error: 'not_found' }, 404);
   },
 } satisfies ExportedHandler<Env>;

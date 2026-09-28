@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Loader2, Phone, Send, X } from 'lucide-react';
+import { Loader2, Phone, X } from 'lucide-react';
 import { apiGet, apiPost } from '@/lib/api';
 import { AVATAR_BASE, CALL_ACCOUNTS, CALLER_AGENTS, NO_PORTRAIT, initials, type CallChannel, type CallerAgent } from './agents';
 
@@ -184,7 +184,6 @@ export default function AgentBar({ channel }: { channel: CallChannel | null }) {
 
   useEffect(() => { setDial(null); }, [open]);
 
-  const accounts = channel ? [channel] : (Object.keys(CALL_ACCOUNTS) as CallChannel[]);
   const list = open && recipients ? recipients[open.slug] || [] : [];
 
   return (
@@ -230,22 +229,6 @@ export default function AgentBar({ channel }: { channel: CallChannel | null }) {
             <button type="button" onClick={() => setOpen(null)} aria-label="Close" className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-sm border border-border text-muted-foreground">
               <X className="h-4 w-4" />
             </button>
-          </div>
-
-          <div className="mt-4 space-y-2">
-            <p className="text-xs font-extrabold uppercase text-stone-500">Calls from</p>
-            {accounts.map((key) => {
-              const acc = CALL_ACCOUNTS[key];
-              const Icon = key === 'telegram' ? Send : Phone;
-              return (
-                <p key={key} className="flex items-center gap-2 text-sm font-bold text-foreground">
-                  <Icon className="h-4 w-4 text-muted-foreground" />
-                  <span>{acc.label}</span>
-                  <span className="whitespace-nowrap">{acc.account}</span>
-                  <span className="truncate font-semibold text-stone-500">· {acc.detail}</span>
-                </p>
-              );
-            })}
           </div>
 
           <div className="mt-4">

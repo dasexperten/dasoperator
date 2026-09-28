@@ -86,8 +86,12 @@ function channelLabel(channel: string) {
   return CHANNEL_LABEL[channel] || channel;
 }
 
+function shownTarget(value: string) {
+  return /^\d+$/.test(value) ? `+${value}` : value;
+}
+
 function recipient(row: CallRow) {
-  return row.recipient_label ? `${row.recipient_label} · +${row.recipient_phone}` : `+${row.recipient_phone}`;
+  return row.recipient_label ? `${row.recipient_label} · ${shownTarget(row.recipient_phone)}` : shownTarget(row.recipient_phone);
 }
 
 function PurposeCell({ row }: { row: CallRow }) {

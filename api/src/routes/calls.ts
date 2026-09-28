@@ -67,6 +67,58 @@ app.get('/agents', async (c) => {
   return ok(c, { agents, channel: byChannel ? channel : null });
 });
 
+// Caller dial (Owner 2026-09-28): the agent popup's WhatsApp/Telegram buttons store a call
+// request; the voice bridge on the Mac claims it and writes progress back. Placing a call to
+// an arbitrary number needs write access to Caller.
+const SEATS = /^[a-z0-9-]{2,60}$/;
+app.post('/requests', async (c) => {
+  const user = c.get('authUser');
+  const access = user.permissions['/caller'] || user.permissions['/whatsapp'] || 'none';
+  if (user.role !== 'admin' && !['full', 'rw'].includes(access)) {
+    return fail(c, 403, [{ code: 'read_only', message: 'Write access to Caller is required to place calls.' }]);
+  }
+  type DialBody = { seat_slug?: string; channel?: string; target?: string };
+  const body: DialBody = await c.req.json<DialBody>().catch((): DialBody => ({}));
+  const seat = String(body.seat_slug || '');
+  const channel = String(body.channel || '');
+  let target = String(body.target || '').trim();
+  if (!SEATS.test(seat)) return fail(c, 422, [{ code: 'invalid_seat', message: 'Unknown agent.' }]);
+  if (!CHANNELS.has(channel)) return fail(c, 422, [{ code: 'invalid_channel', message: 'Channel is whatsapp or telegram.' }]);
+  if (channel === 'telegram' && /^@?[A-Za-z][A-Za-z0-9_]{4,31}$/.test(target)) {
+    target = `@${target.replace(/^@/, '')}`;
+  } else {
+    const digits = target.replace(/\D/g, '');
+    if (!/^\d{8,15}$/.test(digits)) {
+      return fail(c, 422, [{ code: 'invalid_target', message: channel === 'telegram'
+        ? 'Enter an international phone number or a Telegram @username.'
+        : 'Enter an international phone number with 8–15 digits.' }]);
+    }
+    target = `+${digits}`;
+  }
+  const busy = await c.env.DB.prepare(`SELECT id FROM call_requests WHERE status IN ('pending','dialing','connected')
+    AND created_at > ?1 LIMIT 1`).bind(Math.floor(Date.now() / 1000) - 600).first();
+  if (busy) return fail(c, 409, [{ code: 'busy', message: 'Another call is being placed. Try again when it ends.' }]);
+  const now = Math.floor(Date.now() / 1000);
+  const id = crypto.randomUUID();
+  await c.env.DB.prepare(`INSERT INTO call_requests (id, seat_slug, channel, target, requested_by, status, created_at, updated_at)
+    VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?6)`).bind(id, seat, channel, target, user.name || user.id, now).run();
+  return ok(c, { id, status: 'pending', target });
+});
+
+app.get('/requests/:rid', async (c) => {
+  const row = await c.env.DB.prepare(`SELECT id, seat_slug, channel, target, status, detail, call_id, created_at, updated_at
+    FROM call_requests WHERE id = ?1`).bind(c.req.param('rid')).first();
+  if (!row) return fail(c, 404, [{ code: 'not_found', message: 'Call request not found.' }]);
+  return ok(c, row);
+});
+
+app.post('/requests/:rid/cancel', async (c) => {
+  const now = Math.floor(Date.now() / 1000);
+  await c.env.DB.prepare(`UPDATE call_requests SET status = 'cancelled', updated_at = ?2
+    WHERE id = ?1 AND status = 'pending'`).bind(c.req.param('rid'), now).run();
+  return ok(c, { id: c.req.param('rid') });
+});
+
 app.get('/:id', async (c) => {
   const row = await c.env.DB.prepare(`SELECT * FROM call_transcripts WHERE id = ?1`).bind(c.req.param('id')).first<Record<string, unknown>>();
   if (!row) return fail(c, 404, [{ code: 'not_found', message: 'Call not found.' }]);

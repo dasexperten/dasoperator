@@ -13,6 +13,7 @@ import {
   ShoppingCart,
   Check,
 } from 'lucide-react';
+import { ChannelsOverview, ChannelTab, type ChannelKey } from '@/components/marketplaces/channel-pulse';
 
 const OZON_BLUE = 'rgb(0, 91, 255)';
 
@@ -170,7 +171,7 @@ interface RunRow {
 }
 
 type FilterType = 'toship' | 'top5' | 'stockout' | 'overstock' | null;
-type Tab = 'ozon' | 'wb';
+type Tab = 'overview' | 'ozon' | 'wb' | 'merchant' | 'shopee' | 'tiktok' | 'lazada';
 
 function fmt(n: number | null | undefined): string {
   if (n == null) return '—';
@@ -178,7 +179,20 @@ function fmt(n: number | null | undefined): string {
 }
 
 export default function MarketplacesPage() {
-  const [tab, setTab] = useState<Tab>('ozon');
+  const [tab, setTab] = useState<Tab>('overview');
+
+  const tabs: Array<{ key: Tab; label: string; accent: string }> = [
+    { key: 'overview', label: 'Overview', accent: 'var(--fg-1)' },
+    { key: 'ozon', label: 'Ozon FBO', accent: OZON_BLUE },
+    { key: 'wb', label: 'WB FBO', accent: WB_PINK },
+    { key: 'merchant', label: 'Merchant', accent: '#1A73E8' },
+    { key: 'shopee', label: 'Shopee', accent: '#EE4D2D' },
+    { key: 'tiktok', label: 'TikTok Shop', accent: '#111111' },
+    { key: 'lazada', label: 'Lazada', accent: '#0F146D' },
+  ];
+
+  // Overview rows open their channel; Ozon and WB open the FBO planning tabs.
+  const openChannel = (key: ChannelKey) => setTab(key);
 
   return (
     <div className="space-y-6 max-w-full">
@@ -194,28 +208,29 @@ export default function MarketplacesPage() {
           Marketplaces
         </h1>
         <p className="mt-2" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
-          FBO supply planning · cross-channel insights
+          Sales pulse · FBO supply planning · shop status
         </p>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1" style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-        <TabButton
-          active={tab === 'ozon'}
-          onClick={() => setTab('ozon')}
-          label="Ozon FBO"
-          accent={OZON_BLUE}
-        />
-        <TabButton
-          active={tab === 'wb'}
-          onClick={() => setTab('wb')}
-          label="WB FBO"
-          accent={WB_PINK}
-        />
+      <div className="flex gap-1 overflow-x-auto" style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+        {tabs.map(t => (
+          <TabButton
+            key={t.key}
+            active={tab === t.key}
+            onClick={() => setTab(t.key)}
+            label={t.label}
+            accent={t.accent}
+          />
+        ))}
       </div>
 
+      {tab === 'overview' && <ChannelsOverview onOpen={openChannel} />}
       {tab === 'ozon' && <FboDashboard config={OZON_CONFIG} key="ozon" />}
       {tab === 'wb' && <FboDashboard config={WB_CONFIG} key="wb" />}
+      {(tab === 'merchant' || tab === 'shopee' || tab === 'tiktok' || tab === 'lazada') && (
+        <ChannelTab channel={tab} key={tab} />
+      )}
     </div>
   );
 }
@@ -246,6 +261,8 @@ function TabButton({
         cursor: 'pointer',
         fontFamily: 'var(--font-body)',
         transition: 'color 120ms',
+        whiteSpace: 'nowrap',
+        flexShrink: 0,
       }}
     >
       {label}

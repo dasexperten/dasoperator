@@ -94,6 +94,24 @@ For the supplied Circular 78 pattern `1C26TAA`, the v8 specification requires
 an explicitly empty `Serial`; a separate serial is not missing. Only after the
 provider-side checks pass may `EASYINVOICE_ENABLED` change from `0` to `1`.
 
+## Demo acceptance 2026-09-29
+
+On appdemo.softdreams.vn the connector's account issued signed invoices
+(pattern 1C26TAA, numbers 1-4), read their status, refused a resend of a
+signed Ikey (code 163) and downloaded the PDF. One Ikey per invoice is
+accepted. Provider behaviour the connector now follows:
+
+- `checkInvoiceState` answers Status 2 for every request; an unknown Ikey
+  appears in `Data.KeyInvoiceMsg` as `-1`. That is "not found", not success.
+- Issue XML needs invoice totals and `AmountInWords`; an empty `CusEmail`
+  is rejected, so the element is omitted when there is no email.
+- Code 163 on issue means the Ikey is already signed: verify, never fail.
+- Code 164 on cancel means the tax authority check is still running: the
+  cancel is retried later.
+- `adjustInvoice` / `replaceInvoice` use a different XML layout (the
+  product-level `Amount` is not declared); the schema is requested from
+  SoftDreams.
+
 ## Current readiness
 
 The connector is intentionally deployed disabled. The supplied sandbox host

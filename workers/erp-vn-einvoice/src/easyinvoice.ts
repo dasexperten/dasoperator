@@ -130,12 +130,31 @@ export function isProviderSuccess(body: ProviderEnvelope): boolean {
   return statusOf(body) === 2 || codeOf(body) === '0';
 }
 
-export function isMissingIkey(body: ProviderEnvelope): boolean {
-  return codeOf(body) === '128';
+// checkInvoiceState answers Status 2 for every request and reports each Ikey
+// in Data.KeyInvoiceMsg; "-1" means the provider has no invoice for it
+// (verified on the demo tenant 2026-09-29).
+export function ikeyState(body: ProviderEnvelope, ikey: string): string | null {
+  const data = body.Data && typeof body.Data === 'object' ? body.Data as Record<string, unknown> : {};
+  const msg = data.KeyInvoiceMsg && typeof data.KeyInvoiceMsg === 'object'
+    ? data.KeyInvoiceMsg as Record<string, unknown>
+    : {};
+  return msg[ikey] === undefined || msg[ikey] === null ? null : String(msg[ikey]);
 }
 
+export function isMissingIkey(body: ProviderEnvelope, ikey?: string): boolean {
+  return codeOf(body) === '128' || (ikey !== undefined && ikeyState(body, ikey) === '-1');
+}
+
+// 163: the Ikey already holds a signed invoice, so a resend must be verified,
+// never treated as a failure.
 export function needsVerification(body: ProviderEnvelope): boolean {
-  return ['125', '126', '169', '170', '193'].includes(codeOf(body));
+  return ['125', '126', '163', '169', '170', '193'].includes(codeOf(body));
+}
+
+// 164: the tax authority has not returned its check result yet, so the
+// invoice cannot be cancelled now; the same request is retried later.
+export function isRetryLater(body: ProviderEnvelope): boolean {
+  return codeOf(body) === '164';
 }
 
 export function isConfigurationBlock(body: ProviderEnvelope): boolean {

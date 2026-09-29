@@ -92,3 +92,14 @@ test('invoice number and lookup code are extracted for the matching Ikey', () =>
     },
   }, 'swh-42'), { invoiceNo: '0000042', lookupCode: 'ABC' });
 });
+
+test('status replies from the demo tenant: -1 is missing, signed resend verifies, 164 retries', () => {
+  const missing = { Status: 2, Message: 'Ok', Data: { KeyInvoiceMsg: { 'swh-1': '-1' } } };
+  const found = { Status: 2, Message: 'Ok', Data: { KeyInvoiceMsg: { 'swh-1': '1' } } };
+  assert.equal(client.isMissingIkey(missing, 'swh-1'), true);
+  assert.equal(client.isMissingIkey(found, 'swh-1'), false);
+  assert.equal(client.ikeyState(found, 'swh-1'), '1');
+  assert.equal(client.needsVerification({ Status: 4, ErrorCode: 163 }), true);
+  assert.equal(client.isRetryLater({ Status: 4, ErrorCode: 164 }), true);
+  assert.equal(client.isRetryLater({ Status: 4, ErrorCode: 165 }), false);
+});

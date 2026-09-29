@@ -11,6 +11,7 @@ import {
   isConfigurationBlock,
   isMissingIkey,
   isProviderSuccess,
+  isRetryLater,
   needsVerification,
   providerMessage,
   statusBody,
@@ -272,7 +273,9 @@ async function markProviderFailure(
     ? 'blocked_config'
     : needsVerification(body)
       ? 'verify_pending'
-      : 'failed_terminal';
+      : isRetryLater(body)
+        ? 'received'
+        : 'failed_terminal';
   await updateDocument(env, row.id, {
     state,
     provider_status: body.Status === undefined ? null : Number(body.Status),
@@ -280,7 +283,7 @@ async function markProviderFailure(
     provider_message: providerMessage(body) || null,
     response_r2_key: responseKey,
     retry_count: row.retry_count + 1,
-    next_attempt_at: state === 'verify_pending' ? now + RETRY_SECONDS : null,
+    next_attempt_at: state === 'verify_pending' || state === 'received' ? now + RETRY_SECONDS : null,
     updated_at: now,
   });
 }
@@ -291,16 +294,7 @@ async function verifyDocument(env: Env, row: DocumentRow, config: EasyInvoiceCon
   try {
     const result = await callJson(config, 'status', statusBody(target));
     const responseKey = await archiveProviderResponse(env, row, 'verify', result);
-    if (isProviderSuccess(result.body)) {
-      const nextState = row.action === 'cancel' ? 'cancelled' : 'issued_archive_pending';
-      await saveProviderFacts(env, row, result.body, nextState, responseKey);
-      await recordAttempt(env, row.id, 'verify', started, 'found', {
-        httpStatus: result.httpStatus, body: result.body, responseKey,
-      });
-      if (row.action !== 'cancel') await archiveIssuedFiles(env, row, config);
-      return 'verified';
-    }
-    if (isMissingIkey(result.body)) {
+    if (isMissingIkey(result.body, target)) {
       const misses = row.verify_count + 1;
       const manual = row.state === 'verify_pending' && misses >= MAX_VERIFY_MISSES;
       await updateDocument(env, row.id, {
@@ -317,6 +311,29 @@ async function verifyDocument(env: Env, row: DocumentRow, config: EasyInvoiceCon
         httpStatus: result.httpStatus, body: result.body, responseKey,
       });
       return manual ? 'manual_review' : 'not_found';
+    }
+    if (isProviderSuccess(result.body) && row.action === 'cancel') {
+      // The status call shows the original invoice exists, not that it was
+      // cancelled: before submission it clears the cancel to go ahead; after an
+      // uncertain submission a person checks the provider portal.
+      if (row.state === 'checking') return 'original_found';
+      await updateDocument(env, row.id, {
+        state: 'manual_review', response_r2_key: responseKey, next_attempt_at: null,
+        updated_at: Math.floor(Date.now() / 1000),
+      });
+      await recordAttempt(env, row.id, 'verify', started, 'manual_review', {
+        httpStatus: result.httpStatus, body: result.body, responseKey,
+      });
+      return 'manual_review';
+    }
+    if (isProviderSuccess(result.body)) {
+      const nextState = row.action === 'cancel' ? 'cancelled' : 'issued_archive_pending';
+      await saveProviderFacts(env, row, result.body, nextState, responseKey);
+      await recordAttempt(env, row.id, 'verify', started, 'found', {
+        httpStatus: result.httpStatus, body: result.body, responseKey,
+      });
+      if (row.action !== 'cancel') await archiveIssuedFiles(env, row, config);
+      return 'verified';
     }
     await markProviderFailure(env, row, result.body, responseKey);
     await recordAttempt(env, row.id, 'verify', started, 'provider_error', {
@@ -391,6 +408,7 @@ async function processDocument(env: Env, row: DocumentRow, config: EasyInvoiceCo
   if (row.state === 'verify_pending') return verifyDocument(env, row, config);
   await updateDocument(env, row.id, { state: 'checking', updated_at: Math.floor(Date.now() / 1000) });
   const preflight = await verifyDocument(env, { ...row, state: 'checking' }, config);
+  if (preflight === 'original_found') return submitDocument(env, row, config);
   if (preflight === 'not_found') {
     if (row.action === 'cancel') {
       await updateDocument(env, row.id, {

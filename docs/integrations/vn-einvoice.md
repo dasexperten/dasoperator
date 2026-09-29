@@ -100,3 +100,15 @@ The connector is intentionally deployed disabled. The supplied sandbox host
 does not present a certificate valid for its hostname, and the shared HTTPS API
 reports that this tenant is not initialized. No invoice may be issued until
 SoftDreams resolves those provider-side items.
+
+## Demo acceptance route
+
+`POST /uat/call` runs one provider call against the SoftDreams demo tenant with
+the bound demo account. It exists only while the `EASYINVOICE_UAT_SECRET`
+binding is present (send it as `Authorization: Bearer <secret>`), answers only
+when `EASYINVOICE_BASE_URL` is a demo host (`appdemo.softdreams.vn`), ignores
+`EASYINVOICE_ENABLED`, and bypasses the outbox. Body:
+`{"endpoint": "api/publish/checkInvoiceState", "body": {...}}`, or
+`{"download": true, "body": {"Ikey": "...", "Option": 0}}` for the PDF. The
+response carries the provider envelope, never the authentication header. The
+secret is deleted when an acceptance run ends, which disables the route.

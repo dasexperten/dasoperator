@@ -186,7 +186,22 @@ export async function callJson(
   action: InvoiceAction | 'status',
   body: Record<string, unknown>,
 ): Promise<ProviderResult> {
-  const response = await post(config, endpointFor(action), body);
+  return callEndpoint(config, endpointFor(action), body);
+}
+
+// Demo-tenant acceptance runs name the provider path directly, so a path the
+// guide spells differently can be tried without a redeploy.
+export function isProviderPath(endpoint: string): boolean {
+  return /^api\/[A-Za-z]+\/[A-Za-z]+$/.test(endpoint);
+}
+
+export async function callEndpoint(
+  config: EasyInvoiceConfig,
+  endpoint: string,
+  body: Record<string, unknown>,
+): Promise<ProviderResult> {
+  if (!isProviderPath(endpoint)) throw new Error('easyinvoice_endpoint_invalid');
+  const response = await post(config, endpoint, body);
   const text = await response.text();
   let parsed: ProviderEnvelope;
   try {

@@ -9,6 +9,13 @@ const OUTBOX = 'agents/angela/social-outbox';
 const GRAPH = 'https://graph.facebook.com/v21.0';
 const HOSTS = ['www.dasexperten.com', 'dasexperten.com', 'dasexperten.ru', 'www.dasexperten.ru'];
 const cacheHeaders = { 'cache-control': 'no-store' };
+// Workers runtime rejects redirect:'error' outright (every call threw). Same rule, edge-legal:
+// take the redirect manually and refuse it.
+async function noRedirectFetch(url, init) {
+  const r = await fetch(url, { ...init, redirect: 'manual' });
+  if (r.status >= 300 && r.status < 400) throw Error(`Redirect refused (${r.status})`);
+  return r;
+}
 function safeUrl(url) { const u = new URL(url); if (u.protocol !== 'https:' || !HOSTS.includes(u.hostname) || u.username || u.password) throw Error('Expected company article URL'); return u; }
 const decode = s => s.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#(\d+);/g, (_,n)=>String.fromCodePoint(+n)).replace(/&#x([a-f0-9]+);/gi,(_,n)=>String.fromCodePoint(parseInt(n,16)));
 export function readPreview(html) {
@@ -23,7 +30,7 @@ export function readPreview(html) {
 }
 async function livePreview(url) {
   safeUrl(url);
-  const r = await fetch(url, { redirect: 'error', headers: cacheHeaders, signal: AbortSignal.timeout(25000) });
+  const r = await noRedirectFetch(url, { headers: cacheHeaders, signal: AbortSignal.timeout(25000) });
   if (!r.ok || !r.headers.get('content-type')?.includes('text/html')) throw Error(`Article unavailable (${r.status})`);
   const html = await r.text();
   if (!/<article\b/i.test(html)) throw Error('URL is not an article');
@@ -31,7 +38,7 @@ async function livePreview(url) {
   if (!p.title || !p.description || !p.image || !p.url) throw Error('Article preview metadata incomplete');
   if (safeUrl(p.url).href !== safeUrl(url).href) throw Error('Article canonical preview URL mismatch');
   safeUrl(p.image);
-  const im = await fetch(p.image, { method:'HEAD', redirect:'error', signal:AbortSignal.timeout(25000) });
+  const im = await noRedirectFetch(p.image, { method:'HEAD', signal:AbortSignal.timeout(25000) });
   if (!im.ok || !im.headers.get('content-type')?.startsWith('image/')) throw Error('Article preview image unavailable');
   return { ...p, verified: true, evidence: `Live article and image checked ${new Date().toISOString()}` };
 }
@@ -39,12 +46,12 @@ export async function liveCreative(articleUrl, creative) {
   if (!creative) return null;
   const article = safeUrl(articleUrl);
   const image = safeUrl(creative.image);
-  const r = await fetch(article, { redirect: 'error', headers: cacheHeaders, signal: AbortSignal.timeout(25000) });
+  const r = await noRedirectFetch(article, { headers: cacheHeaders, signal: AbortSignal.timeout(25000) });
   if (!r.ok || !r.headers.get('content-type')?.includes('text/html')) throw Error(`Article unavailable (${r.status})`);
   const html = await r.text();
   const escapedPath = image.pathname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   if (!new RegExp(`(?:href|src)=["']${escapedPath}["']`).test(html)) throw Error('Creative is not an inline image in the article');
-  const im = await fetch(image, { method:'HEAD', redirect:'error', signal:AbortSignal.timeout(25000) });
+  const im = await noRedirectFetch(image, { method:'HEAD', signal:AbortSignal.timeout(25000) });
   if (!im.ok || !im.headers.get('content-type')?.startsWith('image/')) throw Error('Creative image unavailable');
   return { ...creative, verified: true, evidence: `Inline article creative and image checked ${new Date().toISOString()}` };
 }
@@ -146,7 +153,7 @@ export async function syncOutbox(env, queue = articleQueue(env)) {
       await queue.discover([{id,url:manifest.url,title:manifest.title,author:'kobayashi',publishedAt:manifest.publishedAt,backfillVerified}]);
       await queue.approve(id,payload);
       results.push({id,status:'approved'});
-    } catch { results.push({id,status:'blocked',reason:'Source, live preview or editorial validation failed; inspect manifest'}); }
+    } catch (e) { results.push({id,status:'blocked',reason:'Source, live preview or editorial validation failed; inspect manifest',detail:String(e instanceof Error ? e.message : e).slice(0,160)}); }
   }
   return results;
 }

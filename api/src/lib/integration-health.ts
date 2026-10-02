@@ -154,7 +154,7 @@ async function checkWbBackfill(env: Env, now: number): Promise<IntegrationHealth
 const MODULBANK_DEGRADED_AFTER_H = 48;
 const MODULBANK_BROKEN_AFTER_H = 120;
 
-async function checkModulbank(env: Env, now: number): Promise<IntegrationHealth> {
+export async function checkModulbank(env: Env, now: number): Promise<IntegrationHealth> {
   const since = now - 26 * HOUR;
   const [lastFail, lastHeal, lastTx] = await Promise.all([
     env.DB.prepare(
@@ -285,11 +285,11 @@ export async function computeIntegrationHealth(env: Env): Promise<HealthReport> 
   const checks = await Promise.all([
     ...MP_RULES.map((r) => checkMarketplace(env, now, r)),
     checkWbBackfill(env, now),
-    checkModulbank(env, now),
+    // Modulbank removed from health — Owner 2026-10-02 cancelled the Modulbank ERP checks.
     checkWebAnalytics(env, now),
   ]);
 
-  const order = ['ozon_stocks', 'ozon_sales', 'wb_sales', 'ozon_reviews', 'wb_reviews', 'ozon_questions', 'wb_questions', 'wb_backfill', 'modulbank', 'web_analytics'];
+  const order = ['ozon_stocks', 'ozon_sales', 'wb_sales', 'ozon_reviews', 'wb_reviews', 'ozon_questions', 'wb_questions', 'wb_backfill', 'web_analytics'];
   checks.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
 
   const needsYou = checks.filter((c) => c.status === 'broken').length;

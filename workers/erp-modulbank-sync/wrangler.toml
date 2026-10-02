@@ -1,4 +1,4 @@
-# erp-modulbank-sync — Modulbank API history import at 08:00 and 17:00 Yerevan (UTC+4).
+# erp-modulbank-sync — RETIRED (Owner 2026-10-02). Was: Modulbank API history import at 08:00 and 17:00 Yerevan.
 name = "erp-modulbank-sync"
 main = "src/index.ts"
 compatibility_date = "2026-09-20"
@@ -16,4 +16,5 @@ binding = "ERP"
 service = "dasoperator-api"
 
 [triggers]
-crons = ["0 4,13 * * *"]
+# Owner 2026-10-02: Modulbank ERP checks cancelled — every run since 2026-09-28 timed out at the bank (TLS).
+crons = []

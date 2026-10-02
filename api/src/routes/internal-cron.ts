@@ -15,7 +15,6 @@ import { STEPS } from '../cron-steps';
 
 const MOVED: Record<string, string> = {
   'erp-skladbot-sync': '30 */6 * * *',
-  'erp-modulbank-sync': '0 4,13 * * *',
   'erp-daily-digest': '0 3 * * *',
   'erp-pulse-warm': '0 1 * * *',
   'erp-web-analytics': '30 2 * * *',

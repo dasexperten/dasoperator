@@ -26,6 +26,7 @@ const KEY_LITERAL = [
 // Owner-approved exceptions to "timer, no model" — each with the Owner's word.
 const RETIRED = {
   'erp-wb-stocks': 'Owner 2026-09-19: WB is FBS-only; no warehouse stock sync',
+  'erp-modulbank-sync': 'Owner 2026-10-02: "cancel this modul bank erp checks" — bank refused every run (TLS timeout)',
   'erp-fbo-sync': 'Owner 2026-09-20: marketplace stock once daily and sales at 01:00 Yerevan; duplicate FBO timer retired',
 };
 

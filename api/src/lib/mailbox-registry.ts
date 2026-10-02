@@ -70,7 +70,11 @@ export const MAILBOX_REGISTRY: MailboxDef[] = [
   // so the mail was stored and invisible. Slugs are the agent_slug values in
   // organizacia/fleet-workers.json — never the worker name.
   { address: 'webmaster@dasexperten.com', kind: 'agent', slug: 'jurgen-witt', label: 'Jurgen Witt', role: 'Webmaster · Technical SEO', showInUi: true, inbound: 'worker', aliases: ['jurgen@dasexperten.com'] },
-  { address: 'lisa@dasexperten.com', kind: 'agent', slug: 'lisa', label: 'Lisa', role: 'Brand Studio', showInUi: true, inbound: 'worker', aliases: ['image@dasexperten.com'] },
+  { address: 'lisa@dasexperten.com', kind: 'agent', slug: 'lisa', label: 'Lisa', role: 'Brand Studio', showInUi: true, inbound: 'worker' },
+  // Owner 2026-10-02: image@ is a shared Brand Studio box, its own row (no
+  // longer Lisa's alias) so it can join the Workspace staged ingress on its
+  // own. Lisa answers by default; Otto takes infographic letters.
+  { address: 'image@dasexperten.com', kind: 'agent', slug: 'lisa', label: 'Image · Lisa + Otto', role: 'Brand Studio shared', showInUi: true, inbound: 'worker' },
   { address: 'taras@dasexperten.com', kind: 'agent', slug: 'taras-ryzhiy', label: 'Taras Ryzhiy', role: 'Video', showInUi: true, inbound: 'worker' },
   { address: 'build@dasexperten.com', kind: 'agent', slug: 'alessandro-conti', label: 'Alessandro Conti', role: 'Architecture · Construction', showInUi: true, inbound: 'worker' },
   // Owner 2026-08-30 (R8): social@ is Angela's, and only hers.

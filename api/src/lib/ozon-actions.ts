@@ -15,7 +15,7 @@ export function moneyRub(value: unknown): number | undefined {
 }
 
 export function normalizeActionProduct(product: Record<string, unknown>) {
-  const normalized = { ...product };
+  const normalized: Record<string, unknown> = { ...product, id_raw: product.id, id: Number(product.id) };
   for (const key of ['price', 'action_price', 'max_action_price', 'marketplace_seller_price',
     'min_seller_price', 'alert_max_action_price', 'price_min_elastic', 'price_max_elastic']) {
     normalized[`${key}_money`] = product[key];
@@ -42,8 +42,9 @@ export async function readActionProducts(
     const data = response.result ?? response;
     if (!Array.isArray(data.products)) throw new Error(`Ozon ${path}: missing products`);
     for (const raw of data.products) {
-      if (!Number.isSafeInteger(raw.id) || ids.has(raw.id)) throw new Error('Ozon promotion product id invalid/duplicated');
-      ids.add(raw.id);
+      const id = typeof raw.id === 'string' && /^\d+$/.test(raw.id) ? Number(raw.id) : raw.id;
+      if (!Number.isSafeInteger(id) || id <= 0 || ids.has(id)) throw new Error('Ozon promotion product id invalid/duplicated');
+      ids.add(id);
       products.push(normalizeActionProduct(raw));
     }
     const complete = () => {
@@ -71,7 +72,7 @@ export class PromotionInputError extends Error {}
 /** An explicit input, never a candidate-price fallback or echoed stock price. */
 export function explicitPriceLimit(input: { price_limit?: unknown; confirm_card_price_limit?: unknown }) {
   if (input.confirm_card_price_limit !== true) {
-    throw new PromotionInputError('Confirm the card price effect: from 13 October this limit also changes the card price ceiling and may change promotion membership.');
+    throw new PromotionInputError('Confirm the card price effect: from 13 October, outside voucher promotions, this limit also changes the card price ceiling and may change promotion membership.');
   }
   const text = String(input.price_limit ?? '');
   if (!/^\d+(\.\d{1,2})?$/.test(text)) throw new PromotionInputError('Enter an explicit positive RUB price limit with at most two decimal places.');
@@ -99,8 +100,8 @@ export function promotionUpdateOutcome(response: any, productId: number) {
   if (!Array.isArray(data.active_product_ids) || !Array.isArray(data.deactivated_product_ids) || !Array.isArray(data.rejected)) {
     throw new Error('Ozon update confirmation is incomplete. The outcome is unknown; refresh before any retry.');
   }
-  const active = data.active_product_ids.includes(productId);
-  const deactivated = data.deactivated_product_ids.includes(productId);
+  const active = data.active_product_ids.some((id: unknown) => String(id) === String(productId));
+  const deactivated = data.deactivated_product_ids.some((id: unknown) => String(id) === String(productId));
   const rejected = data.rejected.filter((item: any) => Number(item.product_id ?? item.id) === productId);
   if (active === deactivated && !rejected.length) throw new Error('Ozon did not confirm this product outcome. Refresh before any retry.');
   if ((active || deactivated) && rejected.length) throw new Error('Ozon returned contradictory product outcomes. Refresh before any retry.');

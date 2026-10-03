@@ -229,7 +229,7 @@ async function ozonRequest<T>(
     const raw = await ozonRequest<any>(env, '/v2/actions/products/deactivate', 'POST', input);
     const result = raw.result ?? raw;
     if (!Array.isArray(result.product_ids)) throw new Error('Ozon did not confirm voucher removal; refresh before retry.');
-    return { result: { product_ids: result.product_ids, rejected: input.product_ids.filter(id => !result.product_ids.includes(id)).map(product_id => ({ product_id, reason: 'Ozon did not confirm removal' })) } } as T;
+    return { result: { product_ids: result.product_ids, rejected: input.product_ids.filter(id => !result.product_ids.some((returned: unknown) => String(returned) === String(id))).map(product_id => ({ product_id, reason: 'Ozon did not confirm removal' })) } } as T;
   }
   assertLegacyPromotionWriteSafe(path);
   if (path === '/v1/actions/products' || path === '/v1/actions/candidates') {
@@ -1868,6 +1868,10 @@ promos.post('/ozon/actions/:actionId/price-limit', async (c) => {
     const prices = await fetchAllProductPriceInfo(c.env, [productId]);
     const minimum = prices.get(productId)?.min_price;
     const belowMinimum = assertPromotionFloor(money.amount, minimum);
+    const actions = await ozonRequest<{ result: OzonActionRaw[] }>(c.env, '/v1/actions', 'GET');
+    const action = actions.result?.find(a => Number(a.id) === actionId);
+    if (!action) throw new PromotionInputError('The action is unavailable; no price limit was sent. Refresh the action list.');
+    const voucher = action.is_voucher_action === true || action.action_type === 'VOUCHER';
     const response = await ozonRequest(c.env, '/v1/actions/products/update', 'POST', {
       action_id: actionId,
       products: [{ product_id: productId, action_price: money }],
@@ -1884,7 +1888,7 @@ promos.post('/ozon/actions/:actionId/price-limit', async (c) => {
     return ok(c, {
       action_id: actionId, product_id: productId, price_limit_requested: money,
       seller_min_price: minimum, below_seller_minimum: belowMinimum,
-      card_price_limit_effect_active: Date.now() >= Date.parse('2026-10-13T00:00:00+03:00'),
+      card_price_limit_effect_active: !voucher && Date.now() >= Date.parse('2026-10-13T00:00:00+03:00'),
       cache_invalidated: cacheInvalidated,
       ...outcome,
     });

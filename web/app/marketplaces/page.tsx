@@ -1999,7 +1999,7 @@ function OzonPromotionsWidget() {
           letterSpacing: 0,
         }}
       >
-        Ozon: from 13 October the explicit limit also sets the card price ceiling and may change promotion membership. Use Set explicit limit with the agreed amount; ERP checks the real seller minimum. Legacy stock/refill and membership toggles stop at cutover. Action limits are not verified buyer prices.
+        Ozon: from 13 October outside voucher promotions the explicit limit also sets the card price ceiling and may change promotion membership. Use Set explicit limit with the agreed amount; ERP checks the real seller minimum. Legacy stock/refill and membership toggles stop at cutover. Action limits are not verified buyer prices.
       </div>
 
       {/* Actions list */}
@@ -3660,7 +3660,7 @@ function PromoPriceCell({ actionId, product, onSaved }: {
         const details = result ? ` ${JSON.stringify({rejected:result.rejected,warnings:result.warnings})}` : '';
         throw new Error((json.errors?.[0]?.message || json.errors || 'Limit was not confirmed') + details);
       }
-      const effect = result.card_price_limit_effect_active ? 'Card price limit submitted.' : 'Promotion limit submitted; card price effect starts on 13 October.';
+      const effect = result.card_price_limit_effect_active ? 'Card price limit submitted.' : 'Promotion limit submitted; the card ceiling is unchanged for vouchers or before 13 October.';
       const warnings = result.warnings?.length ? ` Warnings: ${JSON.stringify(result.warnings)}` : '';
       setMessage(`${effect} Ozon membership: ${result.membership}.${warnings}`);
       setDraft(''); setConfirmed(false);
@@ -3690,7 +3690,7 @@ function PromoPriceCell({ actionId, product, onSaved }: {
         </div>
         <label style={{display:'flex', gap:5, fontSize:12, marginTop:8}}>
           <input type="checkbox" checked={confirmed} disabled={saving || !valid} onChange={e => setConfirmed(e.target.checked)} />
-          <span>I understand: from 13 October this amount also sets the card price ceiling and may add or remove this product from the promotion. It is not a verified buyer price.</span>
+          <span>I understand: from 13 October, outside voucher promotions, this amount also sets the card price ceiling and may add or remove this product from the promotion. It is not a verified buyer price.</span>
         </label>
         <button type="submit" disabled={saving || !valid || !confirmed} style={{marginTop:8}}>
           {saving ? 'Submitting…' : 'Submit explicit limit'}

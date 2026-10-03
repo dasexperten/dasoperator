@@ -54,3 +54,9 @@ test("live empty-currency Money and echoed-cursor empty terminal are retained wi
  assert.equal(products[0].action_price,797);assert.equal(products[0].currency_is_explicit_rub,false);assert.equal(n,2);
  await assert.rejects(()=>readActionProducts(async()=>({products:[],total:1,last_id:"7"}),9));
 });
+
+test('string product IDs normalize safely without losing original representation',async()=>{
+ const rows=await readActionProducts(async()=>({products:[{id:'77'}],last_id:''}),9);
+ assert.equal(rows[0].id,77);assert.equal(rows[0].id_raw,'77');
+ for(const id of ['not-an-id','9007199254740993'])await assert.rejects(readActionProducts(async()=>({products:[{id}],last_id:''}),9),/invalid/);
+});

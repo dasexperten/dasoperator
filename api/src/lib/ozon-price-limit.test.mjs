@@ -43,7 +43,7 @@ test('exact floor sends explicit RUB Money without echoed stock/candidate price 
  const m=setup();try{
   const r=await submit(m,{product_id:77,price_limit:'80.00',confirm_card_price_limit:true,stock:999,action_price:1});
   assert.equal(r.status,200);assert.equal(r.json.result.membership,'active');assert.equal(r.json.result.below_seller_minimum,true);
-  assert.deepEqual(m.calls[1].body,{action_id:9,products:[{product_id:77,action_price:{amount:'80.00',currency:'RUB'}}]});
+  assert.deepEqual(m.calls[2].body,{action_id:9,products:[{product_id:77,action_price:{amount:'80.00',currency:'RUB'}}]});
   assert.deepEqual(m.deleted,['ozon:actions:v23']);assert.equal(r.json.result.card_price_limit_effect_active,true);
  }finally{m.restore();}
 });
@@ -80,4 +80,13 @@ test("anonymous and read-only sessions cannot write a price or remove membership
   const readOnly=await submit(m,{product_id:77,price_limit:100,confirm_card_price_limit:true});assert.equal(readOnly.status,403);
   const remove=await app.request("/ozon/actions/9/products/77",{method:"DELETE"},m.env);assert.equal(remove.status,401);assert.equal(m.calls.length,0);
  }finally{m.restore();}
+});
+
+test('official string IDs retain membership and voucher limits do not change card ceiling',async()=>{
+ for(const voucher of [false,true]){
+  const m=setup({voucher,update:{active_product_ids:['77'],deactivated_product_ids:[],rejected:[],warnings:[]}});
+  try{const r=await submit(m,{product_id:77,price_limit:100,confirm_card_price_limit:true});assert.equal(r.status,200);assert.equal(r.json.result.membership,'active');assert.deepEqual(r.json.result.active_product_ids,['77']);assert.equal(r.json.result.card_price_limit_effect_active,!voucher);}finally{m.restore();}
+ }
+ const m=setup({update:{active_product_ids:[],deactivated_product_ids:['77'],rejected:[],warnings:[]}});
+ try{const r=await submit(m,{product_id:77,price_limit:200,confirm_card_price_limit:true});assert.equal(r.status,200);assert.equal(r.json.result.membership,'deactivated');}finally{m.restore();}
 });

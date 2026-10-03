@@ -91,6 +91,7 @@ import whatsappRoutes from './routes/whatsapp';
 import callsRoutes from './routes/calls';
 import cronRunsRoutes from './routes/cron-runs';
 import internalCronRoutes from './routes/internal-cron';
+import internalWbRoutes from './routes/internal-wb';
 import loyaltyRoutes from './routes/loyalty';
 import plannerRoutes from './routes/planner';
 import authRoutes from './routes/auth';
@@ -208,6 +209,7 @@ app.get('/api/_llm-diag', async (c) => {
 
 app.route('/health', healthRoutes);
 app.route('/internal/cron', internalCronRoutes);  // erp-* timer workers start their ERP job (ERP_RUN_SECRET)
+app.route('/internal/wb', internalWbRoutes); // protected read-only return reports
 app.route('/geo-price', geoPriceRoutes);  // public zonal price feed for dasexperten.com storefront
 app.route('/api/pricing', pricingMatrixRoutes);  // ERP: zonal pricing matrix for /crm
 app.route('/api/products', productsRoutes);

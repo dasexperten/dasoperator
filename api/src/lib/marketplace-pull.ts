@@ -683,7 +683,7 @@ async function buildWbFromStaging(env: Env, task: any): Promise<{ taskId: string
 
   // Build lines (filtered to catalog)
   const lines: any[] = [];
-  let opTotal = 0;
+  let opTotalMinor = 0;
   for (const d of perSku) {
     if (d.qty <= 0) continue;
     if (!catalog.has(d.sku)) continue;
@@ -693,14 +693,22 @@ async function buildWbFromStaging(env: Env, task: any): Promise<{ taskId: string
     const penaltyPoolShare = pool.penalty * share;
     const direct = d.delivery + d.penalty + d.acceptance - d.rebill;
     const netTotal = d.payout - direct - storageShare - advertShare - penaltyPoolShare;
-    const netPer = Math.round(netTotal / d.qty);
-    opTotal += d.qty * netPer;
+    // Operations and line_items use decimal RUB (money audit migration0042).
+    // Preserve the calculated unit average; round the line once to kopecks.
+    // Rebuilding totals from a whole-ruble unit price loses up to qty/2 RUB.
+    const lineMinor = Math.round(netTotal * 100);
+    if (!Number.isSafeInteger(lineMinor)) throw new Error('Invalid WB settlement amount');
+    const netPer = netTotal / d.qty;
+    opTotalMinor += lineMinor;
     lines.push({
       sku: d.sku, qty: d.qty, retail: d.retail, gross: d.gross, commission: d.commission, payout: d.payout,
       logistics: d.delivery, penalty: d.penalty, acceptance: d.acceptance, rebill: d.rebill,
       storage_share: storageShare, advert_share: advertShare, net_total: netTotal, net_per: netPer,
+      line_amount: lineMinor / 100,
     });
   }
+
+  const opTotal = opTotalMinor / 100;
 
   // Create operation
   const refDate = task.period_to.replace(/-/g, '').slice(2);
@@ -743,7 +751,7 @@ async function buildWbFromStaging(env: Env, task: any): Promise<{ taskId: string
   const liStmts: any[] = [];
   const pnlStmts: any[] = [];
   for (const l of lines) {
-    const lineAmount = l.qty * l.net_per;
+    const lineAmount = l.line_amount;
     liStmts.push(env.DB.prepare(
       `INSERT INTO line_items (id, operation_id, product_id, item_description, qty, cartons, inner_boxes,
        unit_price, discount_pct, unit_price_after_disc, line_amount, currency, line_usd_equiv, created_at, updated_at)

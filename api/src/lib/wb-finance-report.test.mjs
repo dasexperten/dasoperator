@@ -78,3 +78,40 @@ test('a short page keeps fetching; HTTP 204 completes without parsing an empty b
   assert.equal((await tickMarketplacePull(env)).action, 'fetch_complete');
   assert.ok(writes.some(w => w.sql.includes("status='fetched'") && w.args[1] === 1));
 });
+
+test('WB builder preserves kopecks and negative lines instead of multiplying whole-ruble unit averages', async () => {
+  const task = { id: 'rounding-fixture', marketplace: 'wb', status: 'fetched', task_type: 'realization',
+    period_from: '2026-09-21', period_to: '2026-09-27' };
+  const rows = [
+    {sa:'A',qty:3,payout:100},
+    {sa:'B',qty:2000,payout:12501.37},
+    {sa:'C',qty:1072,payout:-6787.9645},
+  ];
+  const writes = [];
+  const env = { DB: {
+    prepare(sql) { let args = []; return {
+      bind(...values) { args = values; return this; },
+      async first() {
+        if (sql.includes('SELECT * FROM marketplace_pull_tasks')) return task;
+        if (sql.includes('SUM(storage)')) return {storage:0,deduction:0,penalty:0};
+        return null;
+      },
+      async all() {
+        if (sql.includes('GROUP BY TRIM(sa_name)')) return {results:rows};
+        if (sql.includes('SELECT id FROM products')) return {results:rows.map(r=>({id:r.sa}))};
+        throw new Error(`Unexpected query: ${sql}`);
+      },
+      async run() { writes.push({sql,args}); },
+    }; },
+    async batch(statements) { for (const s of statements) await s.run(); },
+  } };
+  assert.equal((await tickMarketplacePull(env)).action,'built');
+  const lines = writes.filter(w=>w.sql.includes('INSERT INTO line_items'));
+  assert.deepEqual(lines.map(w=>w.args[7]),[100,12501.37,-6787.96]);
+  assert.equal(lines[0].args[5],100/3);
+  assert.equal(lines[1].args[5],12501.37/2000);
+  const operation = writes.find(w=>w.sql.includes('INSERT INTO operations'));
+  assert.equal(operation.args[2],5813.41);
+  const pnl = writes.filter(w=>w.sql.includes('INSERT INTO marketplace_pnl_lines'));
+  assert.equal(pnl[2].args[14],-6787.9645);
+});

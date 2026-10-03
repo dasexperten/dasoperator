@@ -83,8 +83,8 @@ test('WB builder preserves kopecks and negative lines instead of multiplying who
   const task = { id: 'rounding-fixture', marketplace: 'wb', status: 'fetched', task_type: 'realization',
     period_from: '2026-09-21', period_to: '2026-09-27' };
   const rows = [
-    {sa:'A',qty:3,payout:100},
-    {sa:'B',qty:2000,payout:12501.37},
+    {sa:'A',qty:3,payout:100,rebill:12.34},
+    {sa:'B',qty:2000,payout:12501.37,rebill:-2.50},
     {sa:'C',qty:1072,payout:-6787.9645},
   ];
   const writes = [];
@@ -114,4 +114,6 @@ test('WB builder preserves kopecks and negative lines instead of multiplying who
   assert.equal(operation.args[2],5813.41);
   const pnl = writes.filter(w=>w.sql.includes('INSERT INTO marketplace_pnl_lines'));
   assert.equal(pnl[2].args[14],-6787.9645);
+  assert.equal(pnl[0].args[11],12.34); // disclosed, not credited
+  assert.equal(pnl[1].args[11],-2.50); // correction also neutral
 });

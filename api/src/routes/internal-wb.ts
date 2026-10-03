@@ -53,4 +53,13 @@ route.post('/settlements/:id/reconcile-rounding', async (c) => {
   }
 });
 
+// Separate explicit action: rounding-only callers never change fee treatment.
+route.post('/settlements/:id/reconcile-rebill', async (c) => {
+  try {
+    return c.json({ ok:true, ...await reconcileWbSettlementRounding(c.env.DB,c.req.param('id'),'rebill') });
+  } catch {
+    return c.json({ ok:false, error:'Rebill correction requires audited source components, unchanged lines and no linked payments/documents' },409);
+  }
+});
+
 export default route;

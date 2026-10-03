@@ -31,6 +31,8 @@ test('missing/wrong operator credentials cannot query or reveal return records',
   assert.equal((await request(env,path,'wrong')).status,401);
   assert.equal((await route.request('/settlements/op_wb_260927_weekly/reconcile-rounding',
     {method:'POST'},env)).status,401);
+  assert.equal((await route.request('/settlements/op_wb_260927_weekly/reconcile-rebill',
+    {method:'POST'},env)).status,401);
   delete env.ERP_RUN_SECRET;
   assert.equal((await request(env)).status,401);
   assert.equal(writes.length,0);

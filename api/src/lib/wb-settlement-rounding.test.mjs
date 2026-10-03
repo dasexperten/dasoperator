@@ -17,10 +17,10 @@ function fixture(t) {
     CREATE TABLE payments(operation_id TEXT,deleted_at INTEGER);
     CREATE TABLE documents(operation_id TEXT);
     CREATE TABLE line_items(id TEXT,operation_id TEXT,product_id TEXT,qty INTEGER,unit_price REAL,unit_price_after_disc REAL,line_amount REAL,discount_pct REAL,updated_at INTEGER);
-    CREATE TABLE marketplace_pnl_lines(id TEXT,operation_id TEXT,marketplace TEXT,product_id TEXT,qty INTEGER,net_total REAL,net_per REAL);
+    CREATE TABLE marketplace_pnl_lines(id TEXT,operation_id TEXT,marketplace TEXT,product_id TEXT,qty INTEGER,net_total REAL,net_per REAL,payout REAL DEFAULT 0,logistics REAL DEFAULT 0,penalty REAL DEFAULT 0,acceptance REAL DEFAULT 0,rebill_logistic REAL DEFAULT 0,storage_share REAL DEFAULT 0,advert_share REAL DEFAULT 0);
     INSERT INTO operations VALUES('${id}','wb','RUB',99,1,NULL);
     INSERT INTO line_items VALUES('line','${id}','A',3,33,33,99,0,1);
-    INSERT INTO marketplace_pnl_lines VALUES('pnl','${id}','wb','A',3,100,33);`);
+    INSERT INTO marketplace_pnl_lines(id,operation_id,marketplace,product_id,qty,net_total,net_per) VALUES('pnl','${id}','wb','A',3,100,33);`);
   let beforeBatch=()=>{};
   const db={prepare(text) {let args=[];return {bind(...a){args=a;return this;},async first(){return sql.prepare(text).get(...args);},execute(){return sql.prepare(text).all(...args);}};},
     async batch(statements){beforeBatch();sql.exec('BEGIN');try {const r=statements.map(s=>s.execute());sql.exec('COMMIT');return r;}catch(e){sql.exec('ROLLBACK');throw e;}}};
@@ -60,4 +60,31 @@ test('a failed later update rolls back already executed financial writes',async 
   await assert.rejects(()=>repair(db,id));
   assert.equal(sql.prepare('SELECT total_amount FROM operations').get().total_amount,99);
   assert.equal(sql.prepare('SELECT line_amount FROM line_items').get().line_amount,99);
+});
+
+test('rebill is neutral; explicit correction preserves disclosure and is repeat-safe',async t=>{
+  const {sql,db}=fixture(t);
+  sql.exec('UPDATE marketplace_pnl_lines SET payout=100,rebill_logistic=12.34,net_total=112.34,net_per=112.34/3; UPDATE line_items SET unit_price=112.34/3,unit_price_after_disc=112.34/3,line_amount=112.34; UPDATE operations SET total_amount=112.34;');
+  assert.equal((await repair(db,id,'rebill')).after_rub,100);
+  assert.deepEqual({...sql.prepare('SELECT net_total,rebill_logistic FROM marketplace_pnl_lines').get()},{net_total:100,rebill_logistic:12.34});
+  assert.equal((await repair(db,id,'rebill')).changed,false);
+  assert.equal((await repair(db,id)).changed,false);
+});
+test('rebill refuses unknown periods, unexplained charges, and concurrent component changes',async t=>{
+  const {sql,db,mutateBeforeBatch}=fixture(t);
+  await assert.rejects(()=>repair(db,'op_wb_261004_weekly','rebill'));
+  sql.exec('UPDATE marketplace_pnl_lines SET payout=90,rebill_logistic=20;');
+  await assert.rejects(()=>repair(db,id,'rebill'));
+  sql.exec('UPDATE marketplace_pnl_lines SET payout=90,rebill_logistic=10;');
+  mutateBeforeBatch(()=>sql.exec('UPDATE marketplace_pnl_lines SET rebill_logistic=11;'));
+  await assert.rejects(()=>repair(db,id,'rebill'));
+  assert.equal(sql.prepare('SELECT total_amount FROM operations').get().total_amount,99);
+});
+test('rebill retains negative settlement amounts and rejects linked documents',async t=>{
+  const {sql,db}=fixture(t);
+  sql.exec('UPDATE marketplace_pnl_lines SET payout=100,logistics=150,rebill_logistic=150;');
+  sql.exec(`INSERT INTO documents VALUES('${id}');`);
+  await assert.rejects(()=>repair(db,id,'rebill'));
+  sql.exec('DELETE FROM documents;');
+  assert.equal((await repair(db,id,'rebill')).after_rub,-50);
 });

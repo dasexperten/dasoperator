@@ -691,7 +691,10 @@ async function buildWbFromStaging(env: Env, task: any): Promise<{ taskId: string
     const storageShare = pool.storage * share;
     const advertShare = pool.deduction * share;
     const penaltyPoolShare = pool.penalty * share;
-    const direct = d.delivery + d.penalty + d.acceptance - d.rebill;
+    // WB's report guide: carrier reimbursement (quantity=2) does not
+    // affect seller income. Retain it for disclosure, never add it to payout.
+    // https://seller.wildberries.ru/instructions/ru/ru/material/how-to-read-fimancial-reports-detalization
+    const direct = d.delivery + d.penalty + d.acceptance;
     const netTotal = d.payout - direct - storageShare - advertShare - penaltyPoolShare;
     // Operations and line_items use decimal RUB (money audit migration0042).
     // Preserve the calculated unit average; round the line once to kopecks.

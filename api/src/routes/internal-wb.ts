@@ -1,12 +1,11 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { wbRequest } from '../lib/wb-gateway';
+import { reconcileWbSettlementRounding } from '../lib/wb-settlement-rounding';
 
 const route = new Hono<{ Bindings: Env }>();
 
-// Return identifiers and collection locations are available only to ERP operators.
-// This is a read-only report: it neither requests a return nor changes inventory.
-route.get('/goods-returns', async (c) => {
+route.use('*', async (c, next) => {
   c.header('Cache-Control', 'no-store');
   const secret = (c.env as Env & { ERP_RUN_SECRET?: string }).ERP_RUN_SECRET;
   const given = (c.req.header('Authorization') ?? '').replace(/^Bearer /, '');
@@ -14,7 +13,11 @@ route.get('/goods-returns', async (c) => {
   if (!secret || given.length !== secret.length) return c.json({ ok: false, error: 'unauthorized' }, 401);
   for (let i = 0; i < secret.length; i++) diff |= secret.charCodeAt(i) ^ given.charCodeAt(i);
   if (diff) return c.json({ ok: false, error: 'unauthorized' }, 401);
+  await next();
+});
 
+// This report neither requests a return nor changes inventory.
+route.get('/goods-returns', async (c) => {
   const from = c.req.query('dateFrom') ?? '';
   const to = c.req.query('dateTo') ?? '';
   const validDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s)
@@ -38,6 +41,15 @@ route.get('/goods-returns', async (c) => {
     return c.json({ ok: true, date_from: from, date_to: to, fetched_at: new Date().toISOString(), report: body.report });
   } catch {
     return c.json({ ok: false, error: 'WB return report request failed' }, 502);
+  }
+});
+
+route.post('/settlements/:id/reconcile-rounding', async (c) => {
+  try {
+    return c.json({ ok:true, ...await reconcileWbSettlementRounding(c.env.DB,c.req.param('id')) });
+  } catch (error) {
+    // Deliberately no raw database error/financial record disclosure.
+    return c.json({ ok:false, error:'Settlement could not be reconciled; verify source lines, payment/document links and concurrent changes' },409);
   }
 });
 

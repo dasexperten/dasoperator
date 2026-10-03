@@ -1,4 +1,5 @@
 import { wbRequest } from '../lib/wb-gateway';
+import { WB_REALIZATION_URL, wbRealizationRequest, normalizeWbFinanceRow } from './wb-finance-report';
 // =============================================================================
 // Marketplace auto-pull pipeline — Phase 8.0
 //
@@ -19,7 +20,6 @@ import { wbRequest } from '../lib/wb-gateway';
 
 import type { Env } from '../types';
 
-const WB_REALIZATION_URL = 'https://statistics-api.wildberries.ru/api/v5/supplier/reportDetailByPeriod';
 
 // -----------------------------------------------------------------------------
 // SCHEDULE: Called by weekly/monthly cron to create pending tasks
@@ -153,17 +153,10 @@ async function tickWbRealization(env: Env, task: any): Promise<{ taskId: string;
   const token = env.WB_API_TOKEN;
   if (!token) throw new Error('WB_API_TOKEN not configured');
 
-  // Build URL: dateFrom, dateTo, limit, rrdid pagination
-  const url = new URL(WB_REALIZATION_URL);
-  url.searchParams.set('dateFrom', task.period_from);
-  url.searchParams.set('dateTo', task.period_to);
-  url.searchParams.set('limit', '10000'); // Bigger pages exceed Worker CPU on parse+insert
-  if (task.pagination_token) {
-    url.searchParams.set('rrdid', task.pagination_token);
-  }
-
-  const resp = await wbRequest(env, url.toString(), {
-    headers: { 'Authorization': token },
+  const resp = await wbRequest(env, WB_REALIZATION_URL, {
+    method: 'POST',
+    headers: { 'Authorization': token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(wbRealizationRequest(task)),
   });
 
   if (resp.status === 429) {
@@ -191,7 +184,10 @@ async function tickWbRealization(env: Env, task: any): Promise<{ taskId: string;
     return { taskId: task.id, action: 'http_error', rows: 0 };
   }
 
-  const rows = await resp.json() as any[];
+  // Finance API ends pagination with HTTP 204, including after a short page.
+  const payload = resp.status === 204 ? [] : await resp.json();
+  if (!Array.isArray(payload)) throw new Error('Invalid WB finance report response');
+  const rows = payload.map(normalizeWbFinanceRow);
   console.log(`[mp-pull:wb-realization] fetched ${rows.length} rows for ${task.id}`);
 
   // Save to staging
@@ -208,7 +204,7 @@ async function tickWbRealization(env: Env, task: any): Promise<{ taskId: string;
         id, task.id,
         String(r.sa_name || '').trim().toLowerCase(),
         r.supplier_oper_name || '',
-        r.sale_dt || r.order_dt || '',
+        r.sale_dt || '',
         r.quantity || 0,
         r.retail_price || 0,
         r.retail_amount || 0,
@@ -220,7 +216,7 @@ async function tickWbRealization(env: Env, task: any): Promise<{ taskId: string;
         r.storage_fee || 0,
         r.deduction || 0,
         r.acceptance || 0,
-        JSON.stringify(r)
+        r.raw_json
       ));
     }
     // Batch up to 50 at a time
@@ -232,8 +228,7 @@ async function tickWbRealization(env: Env, task: any): Promise<{ taskId: string;
   const pages_done = (task.pages_done || 0) + 1;
   const rows_collected = (task.rows_collected || 0) + rows.length;
 
-  const WB_PAGE_LIMIT = 10000;
-  if (rows.length === 0 || rows.length < WB_PAGE_LIMIT) {
+  if (rows.length === 0) {
     // Done fetching
     await env.DB.prepare(
       `UPDATE marketplace_pull_tasks 

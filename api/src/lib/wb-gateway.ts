@@ -6,7 +6,7 @@ export interface WbEnv {
 }
 const HOSTS = new Set(['statistics-api.wildberries.ru', 'seller-analytics-api.wildberries.ru',
   'discounts-prices-api.wildberries.ru', 'common-api.wildberries.ru',
-  'advert-api.wildberries.ru']);
+  'advert-api.wildberries.ru', 'finance-api.wildberries.ru']);
 export function wbPolicy(url: URL) {
   if (url.protocol !== 'https:' || !HOSTS.has(url.hostname) || url.port || url.username || url.password)
     throw new Error('WB gateway destination denied');
@@ -16,6 +16,7 @@ export function wbPolicy(url: URL) {
   let group = url.pathname;
   let interval = 1000;
   if (host.startsWith('statistics-')) interval = 65000;
+  if (host.startsWith('finance-')) interval = 65000;
   if (host.startsWith('seller-analytics-')) {
     interval = 21000;
     group = url.pathname.includes('sales-funnel') ? 'sales-funnel' : url.pathname.replace(/\/tasks\/[^/]+\//, '/tasks/:id/');

@@ -513,9 +513,9 @@ async function buildOzonRealization(env: Env, task: any): Promise<{ taskId: stri
 
   // Filter to catalog-known SKUs and build lines
   const lines: Array<{
-    sku: string; qty: number; retail: number; gross: number; payout: number; net_per: number;
+    sku: string; qty: number; retail: number; gross: number; payout: number; net_per: number; line_amount: number;
   }> = [];
-  let opTotal = 0;
+  let opTotalMinor = 0;
   let skippedSku = 0;
   for (const [sku, d] of perSku) {
     if (d.qty <= 0) continue;
@@ -523,13 +523,18 @@ async function buildOzonRealization(env: Env, task: any): Promise<{ taskId: stri
       skippedSku++;
       continue;
     }
-    const netPer = Math.round(d.payout / d.qty);
-    const lineAmt = d.qty * netPer;
-    opTotal += lineAmt;
+    // Preserve the upstream aggregate; rounding a per-unit RUB average first
+    // distorts high-volume settlements. Round each line once to kopecks.
+    const lineMinor = Math.round(d.payout * 100);
+    if (!Number.isSafeInteger(lineMinor)) throw new Error('Invalid Ozon settlement amount');
+    const netPer = d.payout / d.qty;
+    opTotalMinor += lineMinor;
     lines.push({
-      sku, qty: d.qty, retail: d.retail, gross: d.gross, payout: d.payout, net_per: netPer,
+      sku, qty: d.qty, retail: d.retail, gross: d.gross, payout: d.payout, net_per: netPer, line_amount: lineMinor / 100,
     });
   }
+
+  const opTotal = opTotalMinor / 100;
 
   if (skippedSku > 0) {
     console.log(`[mp-pull:build-ozon] ${task.id} skipped ${skippedSku} SKU not in catalog`);
@@ -576,7 +581,7 @@ async function buildOzonRealization(env: Env, task: any): Promise<{ taskId: stri
   const liStmts: any[] = [];
   const pnlStmts: any[] = [];
   for (const l of lines) {
-    const lineAmt = l.qty * l.net_per;
+    const lineAmt = l.line_amount;
     liStmts.push(env.DB.prepare(
       `INSERT INTO line_items (id, operation_id, product_id, item_description, qty, cartons, inner_boxes,
        unit_price, discount_pct, unit_price_after_disc, line_amount, currency, line_usd_equiv, created_at, updated_at)

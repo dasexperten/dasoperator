@@ -13,9 +13,22 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
+import { validateSession } from '../lib/auth';
 import { readActionProducts, assertLegacyPromotionWriteSafe, PromotionMigrationError, PromotionInputError, explicitPriceLimit, assertPromotionFloor, promotionUpdateOutcome } from '../lib/ozon-actions';
 
 const promos = new Hono<{ Bindings: Env }>();
+
+// Use the existing ERP session and module access model, even while the shared
+// auth gate is in observation mode. A price input is not an authentication token.
+async function requirePromotionWrite(c: any) {
+  const token = /^Bearer\s+(.+)$/i.exec(c.req.header('Authorization') ?? '')?.[1]?.trim();
+  const user = token ? await validateSession(c.env.DB, token) : null;
+  if (!user) return fail(c, 401, [{ code: 'unauthorized', message: 'Valid ERP session required' }]);
+  if (user.role !== 'admin' && !['full', 'rw'].includes(user.permissions['/marketplaces'] ?? 'none')) {
+    return fail(c, 403, [{ code: 'forbidden', message: 'Marketplace write access required' }]);
+  }
+  return null;
+}
 
 const CACHE_KEY = 'ozon:actions:v23';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
@@ -1837,6 +1850,8 @@ promos.get('/ozon/refill-history', async (c) => {
 // Explicit limit control uses the new update API. Never infers a price from a
 // candidate, saved participation snapshot or old stock/refill request.
 promos.post('/ozon/actions/:actionId/price-limit', async (c) => {
+  const denied = await requirePromotionWrite(c);
+  if (denied) return denied;
   const actionId = Number(c.req.param('actionId'));
   let body: { product_id?: number; price_limit?: unknown; confirm_card_price_limit?: unknown };
   try { body = await c.req.json(); } catch {
@@ -2149,6 +2164,8 @@ promos.post('/ozon/actions/:actionId/products/:productId/activate', async (c) =>
 // longer in the action) and busts the cache so next GET reflects the change.
 // ---------------------------------------------------------------------------
 promos.delete('/ozon/actions/:actionId/products/:productId', async (c) => {
+  const denied = await requirePromotionWrite(c);
+  if (denied) return denied;
   const actionId = Number(c.req.param('actionId'));
   const productId = Number(c.req.param('productId'));
   if (!actionId || Number.isNaN(actionId)) return fail(c, 400, 'invalid action_id');

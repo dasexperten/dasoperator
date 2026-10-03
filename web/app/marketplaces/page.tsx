@@ -14,6 +14,7 @@ import {
   Check,
 } from 'lucide-react';
 import { ChannelsOverview, ChannelTab, type ChannelKey } from '@/components/marketplaces/channel-pulse';
+import { apiPost, apiDelete } from '@/lib/api';
 import { WbFbsBoard } from '@/components/marketplaces/wb-fbs';
 
 const OZON_BLUE = 'rgb(0, 91, 255)';
@@ -3653,12 +3654,7 @@ function PromoPriceCell({ actionId, product, onSaved }: {
     if (saving || !valid || !confirmed) return;
     setSaving(true); setErr(null); setMessage(null);
     try {
-      const apiBase = (window as unknown as { __API_BASE?: string }).__API_BASE || 'https://dasoperator-api.dasexperten.workers.dev';
-      const response = await fetch(`${apiBase}/api/marketplaces/ozon/actions/${actionId}/price-limit`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({product_id: product.product_id, price_limit: draft, confirm_card_price_limit: true}),
-      });
-      const json = await response.json();
+      const json = await apiPost<any>(`/api/marketplaces/ozon/actions/${actionId}/price-limit`, {product_id: product.product_id, price_limit: draft, confirm_card_price_limit: true});
       const result = json.result;
       if (!json.success) {
         const details = result ? ` ${JSON.stringify({rejected:result.rejected,warnings:result.warnings})}` : '';
@@ -3903,11 +3899,7 @@ function ToggleActionButton({
         'https://dasoperator-api.dasexperten.workers.dev';
       if (isActive) {
         // Remove
-        const r = await fetch(
-          `${apiBase}/api/marketplaces/ozon/actions/${actionId}/products/${productId}`,
-          { method: 'DELETE' },
-        );
-        const j = await r.json();
+        const j = await apiDelete(`/api/marketplaces/ozon/actions/${actionId}/products/${productId}`);
         if (!j.success) throw new Error(j.errors?.[0]?.message || j.errors || 'Remove failed');
       } else {
         // Activate: send Ozon-suggested action_price so it picks an acceptable

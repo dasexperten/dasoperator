@@ -7,9 +7,9 @@ const {buildSync}=require('esbuild');
 // interpretation of the real flat v2 acknowledgement, and cache invalidation.
 const bundle=buildSync({entryPoints:[new URL('../routes/marketplaces-promos.ts',import.meta.url).pathname],bundle:true,platform:'node',format:'esm',write:false,nodePaths:[...require.resolve.paths('hono')]}).outputFiles[0].text;
 const {default:app}=await import('data:text/javascript;base64,'+Buffer.from(bundle).toString('base64'));
-function setup({minimum=100,update={active_product_ids:[77],deactivated_product_ids:[],rejected:[],warnings:[]},voucher=false,cacheFails=false}={}) {
+function setup({minimum=100,update={active_product_ids:[77],deactivated_product_ids:[],rejected:[],warnings:[]},voucher=false,cacheFails=false,role='admin',access='rw'}={}) {
  const calls=[],deleted=[];
- const env={OZON_CLIENT_ID:'test',OZON_API_KEY:'test',CACHE:{async delete(key){deleted.push(key);if(cacheFails)throw new Error('cache');},async get(){return null;},async put(){}}};
+ const env={OZON_CLIENT_ID:'test',OZON_API_KEY:'test',DB:{prepare(){return{bind(){return this;},async first(){return{active:1,expires_at:Date.now()+3600000,id:'test-user',name:'Test',role,permissions:JSON.stringify({'/marketplaces':access})};}}}},CACHE:{async delete(key){deleted.push(key);if(cacheFails)throw new Error('cache');},async get(){return null;},async put(){}}};
  const originalFetch=globalThis.fetch,originalNow=Date.now;
  Date.now=()=>Date.parse('2026-10-14T12:00:00Z');
  globalThis.fetch=async(url,init)=>{
@@ -24,7 +24,7 @@ function setup({minimum=100,update={active_product_ids:[77],deactivated_product_
  };
  return {calls,deleted,env,restore(){globalThis.fetch=originalFetch;Date.now=originalNow;}};
 }
-async function submit(mock,body){const r=await app.request('/ozon/actions/9/price-limit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)},mock.env);return{status:r.status,json:await r.json()};}
+async function submit(mock,body){const r=await app.request('/ozon/actions/9/price-limit',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer test-session-123456789'},body:JSON.stringify(body)},mock.env);return{status:r.status,json:await r.json()};}
 test('missing numeric ceiling or effect acknowledgement never calls Seller API',async()=>{
  const m=setup();try{
   for(const body of [{product_id:77},{product_id:77,price_limit:80},{product_id:77,price_limit:0,confirm_card_price_limit:true},{product_id:77,price_limit:'1.234',confirm_card_price_limit:true}]) assert.equal((await submit(m,body)).status,409);
@@ -66,10 +66,18 @@ test('cache failure does not hide a confirmed external result',async()=>{
 test('only server-verified voucher deletion reaches v2; no invented nonvoucher exit price',async()=>{
  for(const voucher of [false,true]){
   const m=setup({voucher});try{
-   const r=await app.request('/ozon/actions/9/products/77',{method:'DELETE'},m.env);
+   const r=await app.request('/ozon/actions/9/products/77',{method:'DELETE',headers:{Authorization:'Bearer test-session-123456789'}},m.env);
    assert.equal(r.status,voucher?200:409);assert.equal(m.calls.length,voucher?2:1);
    if(voucher)assert.deepEqual(m.calls[1].body,{action_id:9,product_ids:[77]});
    assert.equal(m.calls.some(c=>c.url.endsWith('/v1/actions/products/update')),false);
   }finally{m.restore();}
  }
+});
+
+test("anonymous and read-only sessions cannot write a price or remove membership",async()=>{
+ const m=setup({role:"manager",access:"read"});try{
+  const anonymous=await app.request("/ozon/actions/9/price-limit",{method:"POST",body:"{}"},m.env);assert.equal(anonymous.status,401);
+  const readOnly=await submit(m,{product_id:77,price_limit:100,confirm_card_price_limit:true});assert.equal(readOnly.status,403);
+  const remove=await app.request("/ozon/actions/9/products/77",{method:"DELETE"},m.env);assert.equal(remove.status,401);assert.equal(m.calls.length,0);
+ }finally{m.restore();}
 });

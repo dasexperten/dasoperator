@@ -15,6 +15,7 @@
 import type { Env } from '../types';
 import { computeIntegrationHealth } from './integration-health';
 import { reportCronFailure } from './auto-healer';
+import { recordErpRecovery } from './persistent-erp-alert';
 
 const HOUR = 3600;
 const nowTs = (): number => Math.floor(Date.now() / 1000);
@@ -71,8 +72,11 @@ export async function runWatchdog(env: Env): Promise<WatchdogResult> {
 
   // 2) ESCALATE — broken integrations, deduped to once per 3h
   for (const it of report.integrations) {
-    if (it.status !== 'broken') continue;
     const svc = `watchdog:${it.key}`;
+    if (it.status !== 'broken') {
+      if (it.status === 'healthy') await recordErpRecovery(env, svc);
+      continue;
+    }
     const recent = await env.DB.prepare(
       `SELECT COUNT(*) AS c FROM sync_failures WHERE service_name = ? AND occurred_at >= ?`
     ).bind(svc, ts - 3 * HOUR).first<{ c: number }>();

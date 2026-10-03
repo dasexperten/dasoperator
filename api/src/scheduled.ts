@@ -13,6 +13,7 @@ import { runEmailRetention } from './lib/email-retention';
 import { runBankStatementIngestion } from './lib/bank-statement-ingestion';
 import { scheduleWbWeekly, scheduleOzonMonthly, rebuildPriorMonthSite, rebuildPriorMonthDasexpertenCom } from './lib/marketplace-pull';
 import { reportCronFailure } from './lib/auto-healer';
+import { recordErpRecovery } from './lib/persistent-erp-alert';
 
 
 // =============================================================================
@@ -700,6 +701,7 @@ export async function handleScheduled(
       const { runWebAnalyticsNightly } = await import('./lib/web-analytics-sync');
       const r = await runWebAnalyticsNightly(env);
       console.log(`[cron:web-analytics] ${r.date}: ${r.legs.join(' | ')}`);
+      await recordErpRecovery(env, 'web_analytics_nightly');
     } catch (e) {
       console.error('[cron:web-analytics] failed:', e);
       await reportCronFailure(env, 'web_analytics_nightly', e, { cron: '30 2 * * *' });
@@ -795,6 +797,7 @@ export async function handleScheduled(
       const { runOrdersDropWatchdog } = await import('./lib/orders-drop-watchdog');
       const итог = await runOrdersDropWatchdog(env);
       console.log(`[cron:orders-drop] ${JSON.stringify(итог)}`);
+      await recordErpRecovery(env, 'orders_drop_watchdog');
     } catch (e) {
       console.error('[cron:orders-drop] упал:', e);
       await reportCronFailure(env, 'orders_drop_watchdog', e, { cron: '0 4 * * *' });

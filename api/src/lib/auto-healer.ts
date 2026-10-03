@@ -5,7 +5,7 @@
 //   reportCronFailure(env, service, error, ctx?)
 //       — entry point for cron handlers. Logs failure to sync_failures,
 //         attempts to find matching recipe, executes safe action if found,
-//         and notifies Aram via Telegram in all outcomes.
+//         and reports only persistent unresolved problems to the Owner.
 //
 // Recipes are stored in auto_heal_recipes (regex pattern → action_type).
 // Actions are implemented in healer-actions.ts.
@@ -15,11 +15,12 @@
 
 import type { Env } from '../types';
 import { executeHealAction } from './healer-actions';
-import { sendOwnerTelegram } from './owner-telegram';
+import { notifyPersistentErpFailure } from './persistent-erp-alert';
 
 interface ReportContext {
   cron?: string;
   payload?: unknown;
+  occurredAt?: number;
 }
 
 interface Recipe {
@@ -50,10 +51,6 @@ function classifyError(msg: string): string {
   if (m.includes('timeout') || m.includes('etimedout')) return 'timeout';
   if (m.includes('unique constraint')) return 'duplicate';
   return 'unknown';
-}
-
-async function sendTelegram(env: Env, text: string): Promise<void> {
-  await sendOwnerTelegram(env, text);
 }
 
 async function findMatchingRecipe(env: Env, errMsg: string): Promise<Recipe | null> {
@@ -118,6 +115,7 @@ async function logFailure(
   errMsg: string,
   payload: unknown,
   healLogId: string | null,
+  occurredAt = now(),
 ): Promise<string> {
   const id = `fail_${uuid()}`;
   await env.DB.prepare(
@@ -128,11 +126,11 @@ async function logFailure(
     id,
     service,
     cron ?? null,
-    now(),
+    occurredAt,
     errMsg.slice(0, 2000),
     classifyError(errMsg),
     payload ? JSON.stringify(payload).slice(0, 5000) : null,
-    1,
+    0,
     healLogId,
     now(),
   ).run();
@@ -145,7 +143,7 @@ async function logFailure(
  *   1. Log the failure to sync_failures (audit trail)
  *   2. Try to find a matching playbook recipe
  *   3. Execute the recipe's action (if rate-limit allows)
- *   4. Send a Telegram notification to Aram
+ *   4. Report only repeated unresolved failures spanning at least 24 hours
  */
 export async function reportCronFailure(
   env: Env,
@@ -163,30 +161,15 @@ export async function reportCronFailure(
 
   if (!recipe) {
     healLogId = await logHeal(env, null, service, errMsg, 'none', 'skipped_no_recipe', null, 0);
-    await logFailure(env, service, ctx.cron, errMsg, ctx.payload, healLogId);
-    await sendTelegram(
-      env,
-      `⚠️ Sync failed (no recipe)\n\n` +
-      `Service: ${service}\n` +
-      `Class: ${errClass}\n` +
-      `Error: ${errMsg.slice(0, 400)}\n\n` +
-      `Add a playbook recipe at /api/admin/auto-heal/recipes if this pattern recurs.`
-    );
+    const failureId = await logFailure(env, service, ctx.cron, errMsg, ctx.payload, healLogId, ctx.occurredAt);
+    await notifyPersistentErpFailure(env, service, failureId, errClass);
     return;
   }
 
   if (await isRateLimited(env, recipe)) {
     healLogId = await logHeal(env, recipe.id, service, errMsg, recipe.action_type, 'skipped_rate_limited', null, 0);
-    await logFailure(env, service, ctx.cron, errMsg, ctx.payload, healLogId);
-    await sendTelegram(
-      env,
-      `🟡 Auto-heal rate-limited\n\n` +
-      `Service: ${service}\n` +
-      `Recipe: ${recipe.name}\n` +
-      `Tried >= ${recipe.max_per_hour} times in last hour without success.\n` +
-      `Error: ${errMsg.slice(0, 300)}\n\n` +
-      `Manual investigation needed.`
-    );
+    const failureId = await logFailure(env, service, ctx.cron, errMsg, ctx.payload, healLogId, ctx.occurredAt);
+    await notifyPersistentErpFailure(env, service, failureId, errClass);
     return;
   }
 
@@ -205,28 +188,6 @@ export async function reportCronFailure(
   const durationMs = Date.now() - t0;
 
   healLogId = await logHeal(env, recipe.id, service, errMsg, recipe.action_type, result, details, durationMs);
-  await logFailure(env, service, ctx.cron, errMsg, ctx.payload, healLogId);
-
-  if (result === 'success') {
-    await sendTelegram(
-      env,
-      `✓ Auto-healed\n\n` +
-      `Service: ${service}\n` +
-      `Recipe: ${recipe.name}\n` +
-      `Action: ${recipe.action_type}\n` +
-      `Duration: ${durationMs}ms\n\n` +
-      `Sync will resume on next cron tick.`
-    );
-  } else {
-    const errDetail = (details as { error?: string })?.error ?? 'unknown';
-    await sendTelegram(
-      env,
-      `❌ Auto-heal failed\n\n` +
-      `Service: ${service}\n` +
-      `Recipe: ${recipe.name}\n` +
-      `Original error: ${errMsg.slice(0, 250)}\n` +
-      `Heal error: ${errDetail.slice(0, 250)}\n\n` +
-      `Manual investigation needed.`
-    );
-  }
+  const failureId = await logFailure(env, service, ctx.cron, errMsg, ctx.payload, healLogId, ctx.occurredAt);
+  if (result !== 'success') await notifyPersistentErpFailure(env, service, failureId, errClass);
 }

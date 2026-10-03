@@ -19,6 +19,7 @@ import { ga4Configured, ga4RunReport, metricNum } from './ga4';
 import { fetchClarityBehavior, fetchClarityBehaviorByUrl, clarityCacheKey, clarityUrlCacheKey } from './clarity';
 import { directConfigured, fetchDirectCampaigns } from './direct';
 import { reportCronFailure } from './auto-healer';
+import { recordErpRecovery } from './persistent-erp-alert';
 
 const CRON = '30 2 * * *';
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -258,6 +259,7 @@ export async function runWebAnalyticsNightly(
   const run = async (name: string, fn: () => Promise<string>) => {
     try {
       legs.push(await fn());
+      await recordErpRecovery(env, `web_analytics:${name}`);
     } catch (e) {
       legs.push(`${name}: FAILED (${e instanceof Error ? e.message.slice(0, 120) : e})`);
       await reportCronFailure(env, `web_analytics:${name}`, e, { cron: CRON });

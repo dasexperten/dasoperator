@@ -13,10 +13,11 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
+import { readActionProducts, assertLegacyPromotionWriteSafe, PromotionMigrationError } from '../lib/ozon-actions';
 
 const promos = new Hono<{ Bindings: Env }>();
 
-const CACHE_KEY = 'ozon:actions:v22';
+const CACHE_KEY = 'ozon:actions:v23';
 const CACHE_TTL_SEC = 30 * 60; // 30 min
 const AUTO_ZERO_FLAG_PREFIX = 'ozon:promos:auto-zeroed:';
 const AUTO_ZERO_FLAG_TTL_SEC = 365 * 24 * 60 * 60; // 1 year — flag is durable
@@ -117,6 +118,12 @@ interface OzonActionProduct {
   price_min_elastic?: number; // price floor to qualify for min boost level
   price_max_elastic?: number; // price floor to qualify for max boost level
   alert_max_action_price_failed?: boolean;
+  marketplace_seller_price?: number;
+  min_seller_price?: number;
+  website_prices?: unknown;
+  is_quarantined?: boolean;
+  action_price_money?: unknown;
+  currency_is_explicit_rub?: boolean;
 }
 
 interface OzonProductInfo {
@@ -156,6 +163,12 @@ interface CachedActionsPayload {
       stock: number;
       min_stock: number;
       min_price: number | null;
+      min_seller_price: number | null;
+      website_prices: unknown;
+      is_quarantined: boolean | null;
+      action_price_semantics: string;
+      action_price_money: unknown;
+      currency_is_explicit_rub: boolean;
       current_price: number;
       is_deciding_price: boolean;
       sold_count: number | null;
@@ -191,6 +204,13 @@ async function ozonRequest<T>(
   method: 'GET' | 'POST',
   body?: unknown,
 ): Promise<T> {
+  assertLegacyPromotionWriteSafe(path);
+  if (path === '/v1/actions/products' || path === '/v1/actions/candidates') {
+    const input = body as { action_id: number; offset?: number; limit?: number };
+    const all = await readActionProducts((endpoint, data) => ozonRequest(env, endpoint, 'POST', data), input.action_id, path.endsWith('candidates'));
+    const offset = input.offset ?? 0;
+    return { result: { products: all.slice(offset, offset + (input.limit ?? 100)), total: all.length } } as T;
+  }
   const headers: Record<string, string> = {
     'Client-Id': env.OZON_CLIENT_ID,
     'Api-Key': env.OZON_API_KEY,
@@ -1231,9 +1251,9 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
                 : (effectiveStock > 0 ? effectiveStock : null));
           const priceInfo = priceInfoMap.get(p.id);
           const minPrice = priceInfo?.min_price ?? null;
-          const currentPrice = priceInfo?.current_price ?? 0;
+          const currentPrice = p.marketplace_seller_price ?? priceInfo?.current_price ?? 0;
           const isDeciding =
-            currentPrice > 0 && Math.abs(p.action_price - currentPrice) < 0.5;
+            Date.now() < Date.parse('2026-10-13T00:00:00+03:00') && currentPrice > 0 && Math.abs(p.action_price - currentPrice) < 0.5;
           const refillRule = await getRefillRule(env, aw.raw.id, p.id);
           // Helper: number-or-null normalizer
           const numOrNull = (v: unknown): number | null =>
@@ -1248,6 +1268,12 @@ async function buildPayload(env: Env): Promise<CachedActionsPayload> {
             stock: effectiveStock,
             min_stock: p.min_stock,
             min_price: minPrice,
+            min_seller_price: numOrNull(p.min_seller_price),
+            website_prices: p.website_prices ?? null,
+            is_quarantined: p.is_quarantined ?? null,
+            action_price_semantics: 'card_price_limit_after_2026-10-13',
+            action_price_money: p.action_price_money ?? null,
+            currency_is_explicit_rub: p.currency_is_explicit_rub === true,
             current_price: currentPrice,
             is_deciding_price: isDeciding,
             sold_count: soldCount,
@@ -1579,7 +1605,7 @@ promos.get('/ozon/actions', async (c) => {
     }
     return ok(c, { ...payload, _cached: false });
   } catch (e) {
-    return fail(c, 502, e instanceof Error ? e.message : 'Ozon API error');
+    return fail(c, e instanceof PromotionMigrationError ? 409 : 502, e instanceof Error ? e.message : 'Ozon API error');
   }
 });
 
@@ -1714,7 +1740,7 @@ promos.post('/ozon/actions/:actionId/stock', async (c) => {
       accepted_count: accepted.length,
     });
   } catch (e) {
-    return fail(c, 502, e instanceof Error ? e.message : 'Ozon API error');
+    return fail(c, e instanceof PromotionMigrationError ? 409 : 502, e instanceof Error ? e.message : 'Ozon API error');
   }
 });
 
@@ -1845,7 +1871,7 @@ promos.post('/ozon/actions/:actionId/price', async (c) => {
       action_price: newPrice,
     });
   } catch (e) {
-    return fail(c, 502, e instanceof Error ? e.message : 'Ozon API error');
+    return fail(c, e instanceof PromotionMigrationError ? 409 : 502, e instanceof Error ? e.message : 'Ozon API error');
   }
 });
 
@@ -1960,7 +1986,7 @@ promos.get('/ozon/actions/:actionId/candidates', async (c) => {
 
     return ok(c, { candidates, count: candidates.length });
   } catch (e) {
-    return fail(c, 502, e instanceof Error ? e.message : 'Ozon API error');
+    return fail(c, e instanceof PromotionMigrationError ? 409 : 502, e instanceof Error ? e.message : 'Ozon API error');
   }
 });
 
@@ -2053,7 +2079,7 @@ promos.post('/ozon/actions/:actionId/products/:productId/activate', async (c) =>
     }
     return ok(c, { action_id: actionId, product_id: productId, activated: true });
   } catch (e) {
-    return fail(c, 502, e instanceof Error ? e.message : 'Ozon API error');
+    return fail(c, e instanceof PromotionMigrationError ? 409 : 502, e instanceof Error ? e.message : 'Ozon API error');
   }
 });
 
@@ -2094,7 +2120,7 @@ promos.delete('/ozon/actions/:actionId/products/:productId', async (c) => {
     }
     return ok(c, { action_id: actionId, product_id: productId, removed: true });
   } catch (e) {
-    return fail(c, 502, e instanceof Error ? e.message : 'Ozon API error');
+    return fail(c, e instanceof PromotionMigrationError ? 409 : 502, e instanceof Error ? e.message : 'Ozon API error');
   }
 });
 
@@ -2212,7 +2238,7 @@ promos.post('/ozon/actions/:actionId/leave', async (c) => {
       rejected: allRejected,
     });
   } catch (e) {
-    return fail(c, 502, e instanceof Error ? e.message : 'Ozon API error');
+    return fail(c, e instanceof PromotionMigrationError ? 409 : 502, e instanceof Error ? e.message : 'Ozon API error');
   }
 });
 
@@ -2291,7 +2317,7 @@ promos.post('/ozon/actions/:actionId/rejoin', async (c) => {
       rejected: allRejected,
     });
   } catch (e) {
-    return fail(c, 502, e instanceof Error ? e.message : 'Ozon API error');
+    return fail(c, e instanceof PromotionMigrationError ? 409 : 502, e instanceof Error ? e.message : 'Ozon API error');
   }
 });
 
@@ -2654,7 +2680,7 @@ promos.post('/ozon/actions/:actionId/products/:productId/left-target', async (c)
       ozon_stock_after: ozonStockAfter,
     });
   } catch (e) {
-    return fail(c, 502, e instanceof Error ? e.message : 'Ozon API error');
+    return fail(c, e instanceof PromotionMigrationError ? 409 : 502, e instanceof Error ? e.message : 'Ozon API error');
   }
 });
 

@@ -1996,7 +1996,7 @@ function OzonPromotionsWidget() {
           letterSpacing: 0,
         }}
       >
-        Policy: stock-discount actions (Распродажа стока etc.) are auto-zeroed on first detection. Raise individual SKUs manually to commit.
+        Ozon changes promotion controls on 13 October: saving an action also sets the card price limit. ERP legacy stock, refill, price and membership edits will stop then; use Seller with an approved price limit. Listed action prices are limits, not verified buyer prices.
       </div>
 
       {/* Actions list */}

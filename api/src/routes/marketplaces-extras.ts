@@ -1,3 +1,4 @@
+import { guardOzonCpc } from '../lib/ozon-perf-period';
 import { wbRequest } from '../lib/wb-gateway';
 /**
  * Marketplace extras — endpoints layered on top of routes/marketplaces.ts.
@@ -123,6 +124,7 @@ marketplacesExtras.get('/sales', async (c) => {
         o.units_sold, o.revenue_rub,
         o.views, o.tocart_count,
         o.position_category, o.current_price_rub,
+        o.period_from, o.period_to, o.cpc_period_from, o.cpc_period_to, o.cpc_report_created_at,
         o.cost_per_click_rub, o.cost_per_order_rub,
         o.stars_promo_rub, o.brand_commission_rub,
         o.reviews_cost_rub, o.stars_membership_rub,
@@ -169,7 +171,7 @@ marketplacesExtras.get('/sales', async (c) => {
     },
     daily: daily.results,
     top_skus: {
-      ozon: topOzon.results,
+      ozon: topOzon.results.map(guardOzonCpc),
       wb: topWb.results,
     },
   });

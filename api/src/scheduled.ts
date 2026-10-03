@@ -8,6 +8,7 @@
 // =============================================================================
 
 import type { Env } from './types';
+import { salesPeriod, historicalCampaigns, mergeCpc, echoedPeriodMatches } from './lib/ozon-perf-period';
 import { runInboxIngestion } from './lib/inbox-ingestion';
 import { runEmailRetention } from './lib/email-retention';
 import { runBankStatementIngestion } from './lib/bank-statement-ingestion';
@@ -26,9 +27,13 @@ async function cronCreatePerfReport(env: Env) {
       return;
     }
 
+    const pending = await env.DB.prepare("SELECT uuid FROM perf_reports WHERE status = 'pending' LIMIT 1").first();
+    if (pending) return; // Ozon allows one concurrent export per account.
+    const snapshot = await env.DB.prepare('SELECT DISTINCT period_from, period_to FROM marketplace_sales_ozon').all<{ period_from: string; period_to: string }>();
+    const period = salesPeriod(snapshot.results || []);
     const token = await getOzonPerfToken(env);
     
-    // Fetch active SKU-bearing campaigns
+    // Include paused/finished campaigns that overlap this historical window.
     const campResp = await fetch('https://api-performance.ozon.ru/api/client/campaign', {
       headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -36,50 +41,31 @@ async function cronCreatePerfReport(env: Env) {
       throw new Error(`campaigns HTTP ${campResp.status}`);
     }
     const campData = await campResp.json<{ list: any[] }>();
-    const skuTypes = new Set(['SKU', 'SEARCH_PROMO', 'BRAND_SHELF', 'ACTION']);
-    const campaigns = (campData.list || [])
-      .filter((c) => c.state === 'CAMPAIGN_STATE_RUNNING' && skuTypes.has(c.advObjectType))
-      .map((c) => c.id);
-
-    if (campaigns.length === 0) {
-      console.log('[cron:perf-create] no active SKU campaigns, skip');
-      return;
-    }
-
-    const today = new Date();
-    const dateTo = isoDate(today);
-    const from = new Date(today.getTime() - PERIOD_DAYS * 24 * 3600_000);
-    const dateFrom = isoDate(from);
-
-    // Create async report
-    const createResp = await fetch('https://api-performance.ozon.ru/api/client/statistics/json', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        campaigns,
-        dateFrom,
-        dateTo,
-        groupBy: 'NO_GROUP_BY',
-      }),
-    });
-
-    if (!createResp.ok) {
-      throw new Error(`create report HTTP ${createResp.status}`);
-    }
-
-    const createData = await createResp.json<{ UUID: string }>();
-    const uuid = createData.UUID;
-    if (!uuid) throw new Error('No UUID returned');
-
-    // Store in perf_reports
-    await env.DB.prepare(
-      'INSERT INTO perf_reports (uuid, created_at, status) VALUES (?, ?, ?)'
-    ).bind(uuid, Math.floor(Date.now() / 1000), 'pending').run();
+    const campaigns = historicalCampaigns(campData.list || [], period);
+    if (campaigns.length === 0) throw new Error('No historical SKU campaigns for Ozon sales period');
+    const uuid = await createPerfBatch(env, token, campaigns, period.dateFrom, period.dateTo,
+      crypto.randomUUID(), {}, Math.floor(Date.now() / 1000));
 
     console.log(`[cron:perf-create] created report ${uuid}, campaigns=${campaigns.length}`);
   } catch (e) {
     console.error('[cron:perf-create] failed:', e);
   }
+}
+
+async function createPerfBatch(env: Env, token: string, campaigns: string[], dateFrom: string,
+  dateTo: string, groupId: string, accumulated: Record<string, number>, createdAt: number) {
+  const response = await fetch('https://api-performance.ozon.ru/api/client/statistics/json', {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ campaigns: campaigns.slice(0, 10), dateFrom, dateTo, groupBy: 'NO_GROUP_BY' }),
+  });
+  if (!response.ok) throw new Error(`create report HTTP ${response.status}`);
+  const data = await response.json<{ UUID: string }>();
+  if (!data.UUID) throw new Error('No UUID returned');
+  await env.DB.prepare(`INSERT INTO perf_reports
+    (uuid, created_at, status, date_from, date_to, group_id, remaining_campaigns, accumulated_cpc)
+    VALUES (?, ?, 'pending', ?, ?, ?, ?, ?)`)
+    .bind(data.UUID, createdAt, dateFrom, dateTo, groupId, JSON.stringify(campaigns.slice(10)), JSON.stringify(accumulated)).run();
+  return data.UUID;
 }
 
 // =============================================================================
@@ -102,8 +88,8 @@ export async function cronPollPerfReports(env: Env) {
     ).bind(staleThreshold).run();
 
     const pending = await env.DB.prepare(
-      "SELECT uuid, created_at FROM perf_reports WHERE status = 'pending' ORDER BY created_at ASC LIMIT 5"
-    ).all<{ uuid: string; created_at: number }>();
+      "SELECT uuid, created_at, date_from, date_to, group_id, remaining_campaigns, accumulated_cpc, checked_at FROM perf_reports WHERE status = 'pending' ORDER BY created_at ASC LIMIT 5"
+    ).all<{ uuid: string; created_at: number; date_from: string; date_to: string; group_id: string; remaining_campaigns: string; accumulated_cpc: string; checked_at: number | null }>();
 
     if (!pending.results || pending.results.length === 0) {
       return;
@@ -113,22 +99,36 @@ export async function cronPollPerfReports(env: Env) {
 
     for (const report of pending.results) {
       try {
+        // Negative checked_at claims this row atomically; a crashed claim expires with the report.
+        const claim = await env.DB.prepare("UPDATE perf_reports SET checked_at=? WHERE uuid=? AND status='pending' AND COALESCE(checked_at,0)>=0 AND COALESCE(checked_at,0)=?")
+          .bind(-now, report.uuid, report.checked_at || 0).run();
+        if (!claim.meta.changes) continue;
+        if (!report.date_from || !report.date_to || !report.group_id) {
+          await env.DB.prepare("UPDATE perf_reports SET status='stale', error_message='legacy report has no verified period' WHERE uuid=?").bind(report.uuid).run();
+          continue;
+        }
+        const snapshot = await env.DB.prepare('SELECT DISTINCT period_from, period_to FROM marketplace_sales_ozon').all<{ period_from: string; period_to: string }>();
+        const period = salesPeriod(snapshot.results || []);
+        if (period.dateFrom !== report.date_from || period.dateTo !== report.date_to) {
+          await env.DB.prepare("UPDATE perf_reports SET status='stale', error_message='sales period changed while report was pending' WHERE uuid=?").bind(report.uuid).run();
+          continue;
+        }
         const pollResp = await fetch(`https://api-performance.ozon.ru/api/client/statistics/${report.uuid}`, {
           headers: { 'Authorization': `Bearer ${token}` },
         });
 
         if (!pollResp.ok) {
           console.log(`  ${report.uuid} poll HTTP ${pollResp.status}`);
+          await env.DB.prepare("UPDATE perf_reports SET checked_at=? WHERE uuid=?").bind(now, report.uuid).run();
           continue;
         }
 
-        const pollData = await pollResp.json<{ state: string; link?: string }>();
+        const pollData = await pollResp.json<{ state: string; link?: string; request?: { dateFrom?: string; dateTo?: string; from?: string; to?: string } }>();
         
-        await env.DB.prepare(
-          'UPDATE perf_reports SET checked_at = ? WHERE uuid = ?'
-        ).bind(now, report.uuid).run();
-
         if (pollData.state === 'OK' && pollData.link) {
+          if (!echoedPeriodMatches(pollData.request, {dateFrom: report.date_from, dateTo: report.date_to})) {
+            throw new Error('Ozon echoed report period does not match requested sales period');
+          }
           // Download and process
           const downloadUrl = `https://api-performance.ozon.ru${pollData.link}`;
           const dlResp = await fetch(downloadUrl, {
@@ -145,25 +145,33 @@ export async function cronPollPerfReports(env: Env) {
           const skuMap = await refreshOzonSkuMap(env);
           const cpcBySku = parseCpcJson(reportJson, skuMap);
 
-          const stmts: D1PreparedStatement[] = [];
-          for (const [sku, kopecks] of cpcBySku.entries()) {
-            stmts.push(
-              env.DB.prepare(
-                `UPDATE marketplace_sales_ozon
-                 SET cost_per_click_rub = ?,
-                     expenses_total_rub = ? + cost_per_order_rub + stars_promo_rub + brand_commission_rub + reviews_cost_rub + stars_membership_rub + acquiring_rub
-                 WHERE base_sku = ?`
-              ).bind(kopecks, kopecks, sku)
-            );
-          }
-
-          if (stmts.length > 0) {
-            await env.DB.batch(stmts);
+          const totals = mergeCpc(JSON.parse(report.accumulated_cpc || '{}'), cpcBySku);
+          const remaining: string[] = JSON.parse(report.remaining_campaigns || '[]');
+          if (remaining.length > 0) {
+            // No partial batch may be published as total CPC. One export at a time.
+            await createPerfBatch(env, token, remaining, report.date_from, report.date_to,
+              report.group_id, totals, report.created_at);
+          } else {
+            const sales = await env.DB.prepare('SELECT base_sku FROM marketplace_sales_ozon WHERE period_from=? AND period_to=?')
+              .bind(report.date_from, report.date_to).all<{ base_sku: string }>();
+            const stmts = (sales.results || []).map(row => {
+              const amount = totals[row.base_sku] || 0;
+              return env.DB.prepare(`UPDATE marketplace_sales_ozon
+                SET cost_per_click_rub=?, ad_spend_rub=?,
+                    expenses_total_rub=? + cost_per_order_rub + stars_promo_rub + brand_commission_rub
+                      + reviews_cost_rub + stars_membership_rub + acquiring_rub + returns_cost_rub,
+                    cpc_period_from=?, cpc_period_to=?, cpc_report_created_at=?
+                WHERE base_sku=? AND period_from=? AND period_to=?
+                  AND (cpc_report_created_at IS NULL OR cpc_report_created_at<=?)`)
+                .bind(amount, amount, amount, report.date_from, report.date_to, report.created_at,
+                  row.base_sku, report.date_from, report.date_to, report.created_at);
+            });
+            if (stmts.length) await env.DB.batch(stmts);
           }
 
           await env.DB.prepare(
-            "UPDATE perf_reports SET status = 'ok', downloaded_at = ?, skus_updated = ? WHERE uuid = ?"
-          ).bind(now, cpcBySku.size, report.uuid).run();
+            "UPDATE perf_reports SET status = 'ok', checked_at = ?, downloaded_at = ?, skus_updated = ? WHERE uuid = ?"
+          ).bind(now, now, Object.keys(totals).length, report.uuid).run();
 
           console.log(`  ${report.uuid} OK, updated ${cpcBySku.size} SKUs`);
         } else if (pollData.state && pollData.state.includes('ERR')) {
@@ -172,6 +180,7 @@ export async function cronPollPerfReports(env: Env) {
           ).bind(JSON.stringify(pollData), report.uuid).run();
           console.log(`  ${report.uuid} ERROR: ${pollData.state}`);
         } else {
+          await env.DB.prepare("UPDATE perf_reports SET checked_at=? WHERE uuid=?").bind(now, report.uuid).run();
           console.log(`  ${report.uuid} state=${pollData.state}, waiting...`);
         }
       } catch (e) {
@@ -199,15 +208,17 @@ function parseCpcJson(json: string, skuMap: Map<number, any>): Map<string, numbe
     parsed = JSON.parse(json);
   } catch (e) {
     console.error('[parseCpcJson] not valid JSON, len=' + json.length + ' first120=' + json.slice(0, 120));
-    return result;
+    throw new Error('Performance report is not valid JSON');
   }
 
-  if (!parsed || typeof parsed !== 'object') return result;
+  if (!parsed || typeof parsed !== 'object') throw new Error('Performance report has no campaign data');
 
+  let recognized = 0;
   for (const campaignId of Object.keys(parsed)) {
     const body = parsed[campaignId];
     const rows = body?.report?.rows;
     if (!Array.isArray(rows)) continue;
+    recognized++;
 
     for (const row of rows) {
       const skuRaw = row?.sku;
@@ -230,14 +241,9 @@ function parseCpcJson(json: string, skuMap: Map<number, any>): Map<string, numbe
     }
   }
 
+  if (!recognized) throw new Error('Performance report has no recognized campaign rows');
   return result;
 }
-
-function isoDate(d: Date): string {
-  return d.toISOString().split('T')[0];
-}
-
-const PERIOD_DAYS = 7;
 
 // Helper to get Performance API token (duplicated from extras)
 async function getOzonPerfToken(env: Env): Promise<string> {
@@ -265,6 +271,7 @@ async function refreshOzonSkuMap(env: Env): Promise<Map<number, any>> {
   //   ozon_sku → offer_id.toLowerCase() (= our catalog_sku / base_sku).
   // Both `item.sku` and entries in `item.sources[].sku` are collected because
   //   a product can have multiple variants/quants, each with its own SKU.
+  if (!env.OZON_CLIENT_ID || !env.OZON_API_KEY) throw new Error('Ozon Seller credentials not configured');
   const skuMap = new Map<number, any>();
 
   // Step 1: paginate /v3/product/list to gather offer_ids
@@ -274,8 +281,8 @@ async function refreshOzonSkuMap(env: Env): Promise<Map<number, any>> {
     const apiResp = await fetch('https://api-seller.ozon.ru/v3/product/list', {
       method: 'POST',
       headers: {
-        'Client-Id': '374116',
-        'Api-Key': '4ac8181b-4cd8-4b4a-964d-905e39cc9b42',
+        'Client-Id': env.OZON_CLIENT_ID!,
+        'Api-Key': env.OZON_API_KEY!,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ filter: { visibility: 'ALL' }, last_id: lastId, limit: 1000 }),
@@ -302,8 +309,8 @@ async function refreshOzonSkuMap(env: Env): Promise<Map<number, any>> {
     const infoResp = await fetch('https://api-seller.ozon.ru/v3/product/info/list', {
       method: 'POST',
       headers: {
-        'Client-Id': '374116',
-        'Api-Key': '4ac8181b-4cd8-4b4a-964d-905e39cc9b42',
+        'Client-Id': env.OZON_CLIENT_ID!,
+        'Api-Key': env.OZON_API_KEY!,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ offer_id: slice, product_id: [], sku: [] }),

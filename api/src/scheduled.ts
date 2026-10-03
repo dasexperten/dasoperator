@@ -58,7 +58,7 @@ async function createPerfBatch(env: Env, token: string, campaigns: string[], dat
     method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ campaigns: campaigns.slice(0, 10), dateFrom, dateTo, groupBy: 'NO_GROUP_BY' }),
   });
-  if (!response.ok) throw new Error(`create report HTTP ${response.status}`);
+  if (!response.ok) throw new Error(`create report HTTP ${response.status}: ${(await response.text()).slice(0,500)}`);
   const data = await response.json<{ UUID: string }>();
   if (!data.UUID) throw new Error('No UUID returned');
   await env.DB.prepare(`INSERT INTO perf_reports
@@ -157,13 +157,13 @@ export async function cronPollPerfReports(env: Env) {
             const stmts = (sales.results || []).map(row => {
               const amount = totals[row.base_sku] || 0;
               return env.DB.prepare(`UPDATE marketplace_sales_ozon
-                SET cost_per_click_rub=?, ad_spend_rub=?,
+                SET cost_per_click_rub=?,
                     expenses_total_rub=? + cost_per_order_rub + stars_promo_rub + brand_commission_rub
                       + reviews_cost_rub + stars_membership_rub + acquiring_rub + returns_cost_rub,
                     cpc_period_from=?, cpc_period_to=?, cpc_report_created_at=?
                 WHERE base_sku=? AND period_from=? AND period_to=?
                   AND (cpc_report_created_at IS NULL OR cpc_report_created_at<=?)`)
-                .bind(amount, amount, amount, report.date_from, report.date_to, report.created_at,
+                .bind(amount, amount, report.date_from, report.date_to, report.created_at,
                   row.base_sku, report.date_from, report.date_to, report.created_at);
             });
             if (stmts.length) await env.DB.batch(stmts);

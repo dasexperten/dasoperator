@@ -18,14 +18,17 @@ test('closed sales window wins; missing/mixed/over-limit snapshots cannot create
  assert.throws(()=>salesPeriod([{period_from:'2026-09-25',period_to:'2026-10-02'},{period_from:'2026-09-26',period_to:'2026-10-03'}]));
  assert.throws(()=>salesPeriod([{period_from:'2026-01-01',period_to:'2026-10-02'}]));
 });
-test('paused and archived historical spend included, future/ended/display excluded',()=>{
+test('paused CPC history included; future/ended/CPO/CPM excluded',()=>{
  const rows=[
- {id:1,advObjectType:'SKU',state:'CAMPAIGN_STATE_RUNNING'},
- {id:2,advObjectType:'SKU',state:'CAMPAIGN_STATE_INACTIVE',fromDate:'2026-09-01',toDate:'2026-09-25'},
- {id:3,advObjectType:'SEARCH_PROMO',state:'CAMPAIGN_STATE_ARCHIVED'},
- {id:4,advObjectType:'SKU',fromDate:'2026-10-03'},
- {id:5,advObjectType:'SKU',toDate:'2026-09-24'},
- {id:6,advObjectType:'BANNER'},
+ {id:1,advObjectType:'SKU',PaymentType:'CPC',state:'CAMPAIGN_STATE_RUNNING'},
+ {id:2,advObjectType:'SKU',paymentType:'CPC',state:'CAMPAIGN_STATE_INACTIVE',fromDate:'2026-09-01',toDate:'2026-09-25'},
+ {id:3,advObjectType:'SKU',PaymentType:'CPC',state:'CAMPAIGN_STATE_ARCHIVED'},
+ {id:4,advObjectType:'SKU',PaymentType:'CPC',fromDate:'2026-10-03'},
+ {id:5,advObjectType:'SKU',PaymentType:'CPC',toDate:'2026-09-24'},
+ {id:6,advObjectType:'BANNER',PaymentType:'CPM'},
+ {id:7,advObjectType:'SEARCH_PROMO',PaymentType:'CPO'},
+ {id:8,advObjectType:'SKU',PaymentType:'CPO'},
+ {id:9,advObjectType:'SKU'},
  ];
  assert.deepEqual(historicalCampaigns(rows,period),['1','2','3']);
 });

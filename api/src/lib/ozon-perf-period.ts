@@ -15,8 +15,11 @@ export function salesPeriod(rows: Array<{ period_from: string; period_to: string
 }
 
 export function historicalCampaigns(rows: any[], period: SalesPeriod): string[] {
-  const types = new Set(['SKU', 'SEARCH_PROMO', 'BRAND_SHELF', 'ACTION']);
+  // Live campaign API uses PaymentType; documentation also shows paymentType.
+  // Search promotion is CPO, media is CPM: neither belongs in CPC expense.
+  const types = new Set(['SKU']);
   return [...new Set(rows.filter(c => types.has(c.advObjectType)
+    && (c.PaymentType ?? c.paymentType) === 'CPC'
     // Current state says nothing about spending earlier in this window.
     && (!c.fromDate || String(c.fromDate).slice(0, 10) <= period.dateTo)
     && (!c.toDate || String(c.toDate).slice(0, 10) >= period.dateFrom))

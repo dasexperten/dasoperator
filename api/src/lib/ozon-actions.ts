@@ -66,9 +66,56 @@ export async function readActionProducts(
 // to remove elastic/stock actions or silently convert a stock edit into a discount.
 export class PromotionMigrationError extends Error {}
 
+export class PromotionInputError extends Error {}
+
+/** An explicit input, never a candidate-price fallback or echoed stock price. */
+export function explicitPriceLimit(input: { price_limit?: unknown; confirm_card_price_limit?: unknown }) {
+  if (input.confirm_card_price_limit !== true) {
+    throw new PromotionInputError('Confirm the card price effect: from 13 October this limit also changes the card price ceiling and may change promotion membership.');
+  }
+  const text = String(input.price_limit ?? '');
+  if (!/^\d+(\.\d{1,2})?$/.test(text)) throw new PromotionInputError('Enter an explicit positive RUB price limit with at most two decimal places.');
+  const amount = Number(text);
+  if (amount <= 0 || !Number.isSafeInteger(Math.round(amount * 100))) throw new PromotionInputError('Invalid price limit.');
+  return { amount: amount.toFixed(2), currency: 'RUB' };
+}
+
+export function assertPromotionFloor(amount: string, minimum: number | null | undefined) {
+  // Owner 18.07: Dasha LEARNING DK-LAW-260718-04 / DK-HARD-260718-01;
+  // price.min_price from v5, not v2 min_seller_price or the candidate maximum.
+  if (minimum == null || !Number.isFinite(minimum) || minimum <= 0) {
+    throw new PromotionInputError('Seller min_price is unknown; no price limit was sent. Load the actual minimum first.');
+  }
+  const priceCents = Math.round(Number(amount) * 100);
+  const minCents = Math.round(minimum * 100);
+  if (priceCents * 100 < minCents * 80) {
+    throw new PromotionInputError('Price limit is below 80% of seller min_price (Owner rule DK-LAW-260718-04). A deeper price needs Justina and Owner; no limit was sent.');
+  }
+  return priceCents < minCents;
+}
+
+export function promotionUpdateOutcome(response: any, productId: number) {
+  const data = response.result ?? response;
+  if (!Array.isArray(data.active_product_ids) || !Array.isArray(data.deactivated_product_ids) || !Array.isArray(data.rejected)) {
+    throw new Error('Ozon update confirmation is incomplete. The outcome is unknown; refresh before any retry.');
+  }
+  const active = data.active_product_ids.includes(productId);
+  const deactivated = data.deactivated_product_ids.includes(productId);
+  const rejected = data.rejected.filter((item: any) => Number(item.product_id ?? item.id) === productId);
+  if (active === deactivated && !rejected.length) throw new Error('Ozon did not confirm this product outcome. Refresh before any retry.');
+  if ((active || deactivated) && rejected.length) throw new Error('Ozon returned contradictory product outcomes. Refresh before any retry.');
+  return {
+    membership: rejected.length ? 'rejected' : active ? 'active' : 'deactivated',
+    active_product_ids: data.active_product_ids,
+    deactivated_product_ids: data.deactivated_product_ids,
+    rejected: data.rejected,
+    warnings: Array.isArray(data.warnings) ? data.warnings : [],
+  };
+}
+
 export function assertLegacyPromotionWriteSafe(path: string, now = Date.now()) {
   if (['/v1/actions/products/activate', '/v1/actions/products/deactivate'].includes(path) &&
       now >= Date.parse('2026-10-13T00:00:00+03:00')) {
-    throw new PromotionMigrationError('Ozon changed promotion price semantics on 13 October: this legacy control is disabled. Use an explicitly approved card price limit in Seller; no price or membership was changed by ERP.');
+    throw new PromotionMigrationError('Ozon changed promotion price semantics on 13 October: this legacy control is disabled. Use Set explicit limit with the agreed numeric price; no price or membership was changed by ERP.');
   }
 }

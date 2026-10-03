@@ -13,7 +13,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
-import { readActionProducts, assertLegacyPromotionWriteSafe, PromotionMigrationError } from '../lib/ozon-actions';
+import { readActionProducts, assertLegacyPromotionWriteSafe, PromotionMigrationError, PromotionInputError, explicitPriceLimit, assertPromotionFloor, promotionUpdateOutcome } from '../lib/ozon-actions';
 
 const promos = new Hono<{ Bindings: Env }>();
 
@@ -204,6 +204,20 @@ async function ozonRequest<T>(
   method: 'GET' | 'POST',
   body?: unknown,
 ): Promise<T> {
+  if (path === '/v1/actions/products/deactivate' && Date.now() >= Date.parse('2026-10-13T00:00:00+03:00')) {
+    // The new deactivate method is voucher-only. Verify on the server; a UI
+    // flag or an old cached title cannot authorize a different price operation.
+    const input = body as { action_id: number; product_ids: number[] };
+    const actions = await ozonRequest<{ result: OzonActionRaw[] }>(env, '/v1/actions', 'GET');
+    const action = actions.result?.find(a => a.id === input.action_id);
+    if (!action || !(action.is_voucher_action === true || action.action_type === 'VOUCHER')) {
+      throw new PromotionMigrationError('Removing a non-voucher action requires an explicit card price limit. Use Set explicit limit; ERP will not guess an exit price.');
+    }
+    const raw = await ozonRequest<any>(env, '/v2/actions/products/deactivate', 'POST', input);
+    const result = raw.result ?? raw;
+    if (!Array.isArray(result.product_ids)) throw new Error('Ozon did not confirm voucher removal; refresh before retry.');
+    return { result: { product_ids: result.product_ids, rejected: input.product_ids.filter(id => !result.product_ids.includes(id)).map(product_id => ({ product_id, reason: 'Ozon did not confirm removal' })) } } as T;
+  }
   assertLegacyPromotionWriteSafe(path);
   if (path === '/v1/actions/products' || path === '/v1/actions/candidates') {
     const input = body as { action_id: number; offset?: number; limit?: number };
@@ -1820,6 +1834,50 @@ promos.get('/ozon/refill-history', async (c) => {
 //   { product_id, action_price, current_stock }
 // We re-send the existing stock so Ozon keeps the quota unchanged.
 // ---------------------------------------------------------------------------
+// Explicit limit control uses the new update API. Never infers a price from a
+// candidate, saved participation snapshot or old stock/refill request.
+promos.post('/ozon/actions/:actionId/price-limit', async (c) => {
+  const actionId = Number(c.req.param('actionId'));
+  let body: { product_id?: number; price_limit?: unknown; confirm_card_price_limit?: unknown };
+  try { body = await c.req.json(); } catch {
+    return fail(c, 400, [{ code: 'PROMO_INPUT', message: 'Invalid JSON body' }]);
+  }
+  const productId = Number(body.product_id);
+  if (!Number.isSafeInteger(actionId) || actionId <= 0 || !Number.isSafeInteger(productId) || productId <= 0) {
+    return fail(c, 400, [{ code: 'PROMO_INPUT', message: 'Valid action_id and product_id required' }]);
+  }
+  try {
+    const money = explicitPriceLimit(body);
+    // Read the real seller floor immediately before writing, rather than trust
+    // a UI amount or a 30-minute cache. Unknown cannot become zero/default.
+    const prices = await fetchAllProductPriceInfo(c.env, [productId]);
+    const minimum = prices.get(productId)?.min_price;
+    const belowMinimum = assertPromotionFloor(money.amount, minimum);
+    const response = await ozonRequest(c.env, '/v1/actions/products/update', 'POST', {
+      action_id: actionId,
+      products: [{ product_id: productId, action_price: money }],
+    });
+    // Membership and other action prices may change; do not locally patch a
+    // price and invent retained participation. Invalidate even on rejection or
+    // a malformed acknowledgement (the platform may have applied the request).
+    let cacheInvalidated = true;
+    try { await c.env.CACHE.delete(CACHE_KEY); } catch { cacheInvalidated = false; }
+    const outcome = promotionUpdateOutcome(response, productId);
+    if (outcome.membership === 'rejected') {
+      return c.json({ success: false, result: { action_id: actionId, product_id: productId, ...outcome }, errors: [{ code: 'OZON_REJECTED', message: 'Ozon rejected this product; inspect rejected and warnings.' }], messages: [] }, 409);
+    }
+    return ok(c, {
+      action_id: actionId, product_id: productId, price_limit_requested: money,
+      seller_min_price: minimum, below_seller_minimum: belowMinimum,
+      card_price_limit_effect_active: Date.now() >= Date.parse('2026-10-13T00:00:00+03:00'),
+      cache_invalidated: cacheInvalidated,
+      ...outcome,
+    });
+  } catch (e) {
+    return fail(c, e instanceof PromotionInputError ? 409 : 502, [{ code: 'PROMO_LIMIT', message: e instanceof Error ? e.message : 'Ozon update failed; refresh before retry' }]);
+  }
+});
+
 promos.post('/ozon/actions/:actionId/price', async (c) => {
   const actionId = Number(c.req.param('actionId'));
   if (!actionId || Number.isNaN(actionId)) return fail(c, 400, 'invalid action_id');
@@ -2780,4 +2838,3 @@ promos.get('/ozon/matrix', async (c) => {
 });
 
 export default promos;
-

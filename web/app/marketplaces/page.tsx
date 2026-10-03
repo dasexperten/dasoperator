@@ -146,7 +146,7 @@ interface RunRow {
 }
 
 type FilterType = 'toship' | 'top5' | 'stockout' | 'overstock' | null;
-type Tab = 'overview' | 'ozon' | 'wb' | 'merchant' | 'shopee' | 'tiktok' | 'lazada';
+type Tab = 'overview' | 'ozon-promos' | 'ozon' | 'wb' | 'merchant' | 'shopee' | 'tiktok' | 'lazada';
 
 function fmt(n: number | null | undefined): string {
   if (n == null) return '—';
@@ -159,6 +159,7 @@ export default function MarketplacesPage() {
   const tabs: Array<{ key: Tab; label: string; accent: string }> = [
     { key: 'overview', label: 'Overview', accent: 'var(--fg-1)' },
     { key: 'ozon', label: 'Ozon FBO', accent: OZON_BLUE },
+    { key: 'ozon-promos', label: 'Ozon promotions', accent: OZON_BLUE },
     { key: 'wb', label: 'WB FBS', accent: WB_PINK },
     { key: 'merchant', label: 'Merchant', accent: '#1A73E8' },
     { key: 'shopee', label: 'Shopee', accent: '#EE4D2D' },
@@ -202,6 +203,7 @@ export default function MarketplacesPage() {
 
       {tab === 'overview' && <ChannelsOverview onOpen={openChannel} />}
       {tab === 'ozon' && <FboDashboard config={OZON_CONFIG} key="ozon" />}
+      {tab === 'ozon-promos' && <div style={OZON_THEME}><OzonPromotionsWidget /></div>}
       {/* WB is FBS-only since 2026-09-19 (Owner): the FBO planner is retired for WB. */}
       {tab === 'wb' && <WbFbsBoard />}
       {(tab === 'merchant' || tab === 'shopee' || tab === 'tiktok' || tab === 'lazada') && (
@@ -1996,7 +1998,7 @@ function OzonPromotionsWidget() {
           letterSpacing: 0,
         }}
       >
-        Ozon changes promotion controls on 13 October: saving an action also sets the card price limit. ERP legacy stock, refill, price and membership edits will stop then; use Seller with an approved price limit. Listed action prices are limits, not verified buyer prices.
+        Ozon: from 13 October the explicit limit also sets the card price ceiling and may change promotion membership. Use Set explicit limit with the agreed amount; ERP checks the real seller minimum. Legacy stock/refill and membership toggles stop at cutover. Action limits are not verified buyer prices.
       </div>
 
       {/* Actions list */}
@@ -2011,7 +2013,7 @@ function OzonPromotionsWidget() {
             key={a.action_id}
             action={a}
             allActions={data.actions}
-            onSaved={() => load(false, true)}
+            onSaved={(force) => load(force === true, true)}
           />
         ))}
       </div>
@@ -2083,7 +2085,7 @@ function PromoActionItem({
 }: {
   action: PromoAction;
   allActions: PromoAction[];
-  onSaved: () => void;
+  onSaved: (force?: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [showAddSku, setShowAddSku] = useState(false);
@@ -2472,7 +2474,7 @@ function PromoActionItem({
           onClose={() => setShowAddSku(false)}
           onSuccess={() => {
             setShowAddSku(false);
-            onSaved();
+            onSaved(true);
           }}
         />
       )}
@@ -2502,7 +2504,6 @@ function AddSkuModal({
   const [candidates, setCandidates] = useState<CandidateRow[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [adding, setAdding] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string[]>([]);
 
@@ -2537,33 +2538,6 @@ function AddSkuModal({
       cancelled = true;
     };
   }, [actionId]);
-
-  async function activate(c: CandidateRow) {
-    if (adding != null) return;
-    setAdding(c.product_id);
-    setError(null);
-    try {
-      const apiBase =
-        (typeof window !== 'undefined' &&
-          (window as unknown as { __API_BASE?: string }).__API_BASE) ||
-        'https://dasoperator-api.dasexperten.workers.dev';
-      const r = await fetch(
-        `${apiBase}/api/marketplaces/ozon/actions/${actionId}/products/${c.product_id}/activate`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        },
-      );
-      const j = await r.json();
-      if (!j.success) throw new Error(j.errors?.[0]?.message || j.errors || 'Не удалось добавить');
-      setDone((prev) => [...prev, c.offer_id]);
-    } catch (e) {
-      setError(humanizeOzonError(e instanceof Error ? e.message : ''));
-    } finally {
-      setAdding(null);
-    }
-  }
 
   const filtered = (candidates || []).filter((c) => {
     if (!search.trim()) return true;
@@ -2719,8 +2693,6 @@ function AddSkuModal({
             </div>
           ) : (
             filtered.map((c) => {
-              const alreadyDone = done.includes(c.offer_id);
-              const isAdding = adding === c.product_id;
               return (
                 <div
                   key={c.product_id}
@@ -2730,7 +2702,6 @@ function AddSkuModal({
                     display: 'flex',
                     alignItems: 'center',
                     gap: 16,
-                    opacity: alreadyDone ? 0.55 : 1,
                   }}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -2768,23 +2739,7 @@ function AddSkuModal({
                       {c.max_action_price > 0 ? `${c.max_action_price}₽` : '—'}
                     </div>
                   </div>
-                  <button
-                    onClick={() => activate(c)}
-                    disabled={alreadyDone || isAdding}
-                    style={{
-                      padding: '6px 14px',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      color: alreadyDone ? 'var(--fg-muted)' : '#fff',
-                      backgroundColor: alreadyDone ? 'var(--paper-2)' : OZON_BLUE,
-                      border: alreadyDone ? '0.5px solid var(--border-hairline)' : 'none',
-                      borderRadius: 'var(--radius-sm)',
-                      cursor: alreadyDone || isAdding ? 'default' : 'pointer',
-                      minWidth: 90,
-                    }}
-                  >
-                    {alreadyDone ? 'Добавлен' : isAdding ? '…' : 'Добавить'}
-                  </button>
+                  <PromoPriceCell actionId={actionId} product={{product_id:c.product_id,offer_id:c.offer_id,action_price:0,min_price:null}} onSaved={() => setDone(prev => Array.from(new Set([...prev,c.offer_id])))} />
                 </div>
               );
             })
@@ -2803,7 +2758,7 @@ function AddSkuModal({
             }}
           >
             <div style={{ fontSize: '13px', color: 'var(--fg-2)' }}>
-              Добавлено: {done.length}
+              Обновить участие по результату Ozon: {done.length}
             </div>
             <button
               onClick={onSuccess}
@@ -2844,7 +2799,7 @@ function PromoProductRow({
   isClearance: boolean;
   allActions: PromoAction[];
   showBoost: boolean;
-  onSaved: () => void;
+  onSaved: (force?: boolean) => void;
 }) {
   const isOut = product.stock === 0;
 
@@ -2982,20 +2937,7 @@ function PromoProductRow({
       </td>
       {/* Promo: editable for boost actions, read-only for Распродажа (Ozon sets it) */}
       <td style={{ ...tdStyle, textAlign: 'right' }}>
-        {!isParticipating ? (
-          <span
-            style={{ color: 'var(--fg-muted)', fontSize: '14px', fontStyle: 'italic' }}
-            title="Включи товар чтобы участвовать"
-          >
-            —
-          </span>
-        ) : isClearance ? (
-          <span style={{ fontWeight: 700, fontSize: '14px' }}>
-            {fmt(product.action_price)}₽
-          </span>
-        ) : (
-          <PromoPriceCell actionId={actionId} product={product} onSaved={onSaved} />
-        )}
+        <PromoPriceCell actionId={actionId} product={product} onSaved={onSaved} />
       </td>
 
       {/* Boost level slider — only for elastic boost actions */}
@@ -3282,7 +3224,7 @@ function RefillRuleCell({
   actionId: number;
   productId: number;
   currentRule: { threshold: number; target: number } | null;
-  onSaved: () => void;
+  onSaved: (force?: boolean) => void;
 }) {
   const [belowDraft, setBelowDraft] = useState<string>(
     currentRule ? String(currentRule.threshold) : '',
@@ -3470,7 +3412,7 @@ function BoostSliderCell({
 }: {
   actionId: number;
   product: PromoProduct;
-  onSaved: () => void;
+  onSaved: (force?: boolean) => void;
 }) {
   // Pull boost range values; nulls = Ozon didn't return them (rare)
   const pMin = product.price_min_elastic;
@@ -3598,7 +3540,7 @@ function BoostSliderCell({
           max={100}
           step={1}
           value={aboveRange ? 0 : draftIntensity}
-          disabled={saving}
+          disabled={saving || Date.now() >= Date.parse('2026-10-13T00:00:00+03:00')}
           onChange={(e) => setDraftIntensity(Number(e.target.value))}
           onMouseUp={save}
           onTouchEnd={save}
@@ -3693,155 +3635,73 @@ function BoostSliderCell({
   );
 }
 
-function PromoPriceCell({
-  actionId,
-  product,
-  onSaved,
-}: {
-  actionId: number;
-  product: PromoProduct;
-  onSaved: () => void;
+function PromoPriceCell({ actionId, product, onSaved }: {
+  actionId: number; product: Pick<PromoProduct, 'product_id' | 'offer_id' | 'action_price' | 'min_price'>; onSaved: (force?: boolean) => void;
 }) {
-  const [draft, setDraft] = useState<string>(String(product.action_price));
+  // A historical action price is not an approved new card ceiling. No default
+  // price, no blur/autosave, and no silent candidate maximum as a fallback.
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [confirmed, setConfirmed] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [savedFlash, setSavedFlash] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const valid = /^\d+(\.\d{1,2})?$/.test(draft) && Number(draft) > 0;
 
-  useEffect(() => {
-    setDraft(String(product.action_price));
-    setErr(null);
-  }, [product.action_price]);
-
-  const num = Number(draft);
-  const valid = Number.isFinite(num) && num > 0;
-  const dirty = valid && num !== product.action_price;
-
-  async function save() {
-    if (saving || !dirty) return;
-    setSaving(true);
-    setErr(null);
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (saving || !valid || !confirmed) return;
+    setSaving(true); setErr(null); setMessage(null);
     try {
-      const apiBase =
-        (typeof window !== 'undefined' &&
-          (window as unknown as { __API_BASE?: string }).__API_BASE) ||
-        'https://dasoperator-api.dasexperten.workers.dev';
-      const r = await fetch(
-        `${apiBase}/api/marketplaces/ozon/actions/${actionId}/price`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            product_id: product.product_id,
-            action_price: num,
-            current_stock: product.stock,
-          }),
-        },
-      );
-      const j = await r.json();
-      if (!j.success) throw new Error(j.errors?.[0]?.message || j.errors || 'Save failed');
-      setSavedFlash(true);
-      setTimeout(() => setSavedFlash(false), 1500);
-      onSaved();
-    } catch (e) {
-      setErr(humanizeOzonError(e instanceof Error ? e.message : ''));
-      setDraft(String(product.action_price));
-    } finally {
-      setSaving(false);
-    }
+      const apiBase = (window as unknown as { __API_BASE?: string }).__API_BASE || 'https://dasoperator-api.dasexperten.workers.dev';
+      const response = await fetch(`${apiBase}/api/marketplaces/ozon/actions/${actionId}/price-limit`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({product_id: product.product_id, price_limit: draft, confirm_card_price_limit: true}),
+      });
+      const json = await response.json();
+      const result = json.result;
+      if (!json.success) {
+        const details = result ? ` ${JSON.stringify({rejected:result.rejected,warnings:result.warnings})}` : '';
+        throw new Error((json.errors?.[0]?.message || json.errors || 'Limit was not confirmed') + details);
+      }
+      const effect = result.card_price_limit_effect_active ? 'Card price limit submitted.' : 'Promotion limit submitted; card price effect starts on 13 October.';
+      const warnings = result.warnings?.length ? ` Warnings: ${JSON.stringify(result.warnings)}` : '';
+      setMessage(`${effect} Ozon membership: ${result.membership}.${warnings}`);
+      setDraft(''); setConfirmed(false);
+      onSaved(true);
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : 'Outcome unknown; refresh before retry.');
+      // Do not retry automatically: the platform may already have applied it.
+      onSaved(true);
+    } finally { setSaving(false); }
   }
 
   return (
-    <div
-      style={{
-        position: 'relative',
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 4,
-        justifyContent: 'flex-end',
-      }}
-    >
-      <input
-        type="text"
-          inputMode="numeric"
-        min={1}
-        value={draft}
-        disabled={saving}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            (e.target as HTMLInputElement).blur();
-            save();
-          }
-          if (e.key === 'Escape') {
-            setDraft(String(product.action_price));
-            setErr(null);
-          }
-        }}
-        onBlur={() => {
-          if (dirty) save();
-        }}
-        style={{
-          width: 78,
-          padding: '6px 8px',
-          fontFamily: 'var(--font-body)',
-          fontSize: '14px',
-          fontWeight: 800,
-          textAlign: 'right',
-          color: 'var(--fg-1)',
-          backgroundColor: dirty ? 'rgba(212,160,23,0.10)' : 'transparent',
-          border: dirty
-            ? '1px solid #D4A017'
-            : err
-            ? '1px solid var(--brand-rot)'
-            : '1px solid transparent',
-          borderRadius: 'var(--radius-sm)',
-          outline: 'none',
-          fontVariantNumeric: 'tabular-nums',
-        }}
-      />
-      <span style={{ fontWeight: 800, color: 'var(--fg-1)' }}>₽</span>
-      {savedFlash && !dirty && (
-        <span
-          style={{
-            fontSize: '11px',
-            fontWeight: 700,
-            color: '#2E7D4F',
-            marginLeft: 4,
-          }}
-        >
-          ✓
-        </span>
-      )}
-      {err && (
-        <div
-          onClick={() => setErr(null)}
-          title={err + ' (клик чтобы закрыть)'}
-          style={{
-            position: 'absolute',
-            zIndex: 50,
-            background: 'var(--brand-rot)',
-            color: '#fff',
-            fontSize: '12px',
-            fontWeight: 600,
-            padding: '6px 10px',
-            borderRadius: 4,
-            top: '100%',
-            right: 0,
-            marginTop: 4,
-            maxWidth: 280,
-            minWidth: 200,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
-            letterSpacing: 0,
-            whiteSpace: 'normal',
-            lineHeight: 1.35,
-            cursor: 'pointer',
-            textAlign: 'left',
-          }}
-        >
-          {err}
+    <div style={{textAlign:'right', minWidth:160}}>
+      <div style={{fontWeight:700}}>{fmt(product.action_price)}₽</div>
+      <button type="button" onClick={() => setOpen(!open)} style={{fontSize:12}}>
+        {open ? 'Close limit editor' : 'Set explicit limit'}
+      </button>
+      {open && <form onSubmit={save} style={{textAlign:'left', maxWidth:300, padding:8, border:'1px solid var(--border-hairline)'}}>
+        <label style={{display:'block', fontSize:12}}>
+          Approved promotion/card limit, RUB
+          <input aria-label={`Explicit price limit for ${product.offer_id}`} inputMode="decimal" value={draft} disabled={saving}
+            onChange={e => {setDraft(e.target.value);setConfirmed(false);setErr(null);}}
+            placeholder="Enter the agreed amount" style={{display:'block', width:'100%', padding:6}} />
+        </label>
+        <div style={{fontSize:11, marginTop:4}}>
+          Seller minimum: {product.min_price == null ? 'unknown — server will read it before saving' : `${fmt(product.min_price)}₽`}. Owner floor: 80% of the actual seller minimum.
         </div>
-      )}
+        <label style={{display:'flex', gap:5, fontSize:12, marginTop:8}}>
+          <input type="checkbox" checked={confirmed} disabled={saving || !valid} onChange={e => setConfirmed(e.target.checked)} />
+          <span>I understand: from 13 October this amount also sets the card price ceiling and may add or remove this product from the promotion. It is not a verified buyer price.</span>
+        </label>
+        <button type="submit" disabled={saving || !valid || !confirmed} style={{marginTop:8}}>
+          {saving ? 'Submitting…' : 'Submit explicit limit'}
+        </button>
+      </form>}
+      {message && <div role="status" style={{fontSize:12, color:'#2E7D4F', maxWidth:300}}>{message}</div>}
+      {err && <div role="alert" style={{fontSize:12, color:'var(--brand-rot)', maxWidth:300}}>{err}</div>}
     </div>
   );
 }
@@ -3853,7 +3713,7 @@ function LeftToSellCell({
 }: {
   actionId: number;
   product: PromoProduct;
-  onSaved: () => void;
+  onSaved: (force?: boolean) => void;
 }) {
   const [draft, setDraft] = useState<string>(
     product.left_to_sell != null ? String(product.left_to_sell) : '',

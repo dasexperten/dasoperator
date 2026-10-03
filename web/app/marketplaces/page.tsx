@@ -3900,7 +3900,7 @@ function ToggleActionButton({
       if (isActive) {
         // Remove
         const j = await apiDelete(`/api/marketplaces/ozon/actions/${actionId}/products/${productId}`);
-        if (!j.success) throw new Error(j.errors?.[0]?.message || j.errors || 'Remove failed');
+        if (!j.success) throw new Error(j.errors?.[0]?.message || 'Remove failed');
       } else {
         // Activate: send Ozon-suggested action_price so it picks an acceptable
         // discount level automatically.

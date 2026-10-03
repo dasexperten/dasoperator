@@ -21,7 +21,8 @@ export function wbPolicy(url: URL) {
     interval = 21000;
     group = url.pathname.includes('sales-funnel') ? 'sales-funnel' : url.pathname.replace(/\/tasks\/[^/]+\//, '/tasks/:id/');
     if (url.pathname.endsWith('/warehouse_remains')) interval = 65000;
-    if (url.pathname === '/api/v1/analytics/goods-return') interval = 65000;
+    if (url.pathname === '/api/v1/analytics/goods-return'
+        || url.pathname === '/api/analytics/v1/item-returns') interval = 65000;
   }
   if (host.startsWith('discounts-prices-')) { interval = 6500; group = 'prices'; }
   return { key: `${host}:${group}`, interval };

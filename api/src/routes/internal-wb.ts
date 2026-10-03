@@ -26,9 +26,24 @@ route.get('/goods-returns', async (c) => {
       || (Date.parse(to) - Date.parse(from)) / 86400000 >= 31) {
     return c.json({ ok: false, error: 'dateFrom/dateTo must be valid dates spanning at most 31 inclusive days' }, 400);
   }
-  const url = new URL('https://seller-analytics-api.wildberries.ru/api/v1/analytics/goods-return');
+  const status = c.req.query('status');
+  const limitText = c.req.query('limit') ?? '1000';
+  const offsetText = c.req.query('offset') ?? '0';
+  const limit = Number(limitText);
+  const offset = Number(offsetText);
+  if ((status !== undefined && status !== 'active' && status !== 'archive')
+      || !/^\d+$/.test(limitText) || !Number.isSafeInteger(limit) || limit < 1 || limit > 1000
+      || !/^\d+$/.test(offsetText) || !Number.isSafeInteger(offset) || offset < 0) {
+    return c.json({ ok: false, error: 'status must be active/archive; limit must be 1..1000; offset must be a non-negative safe integer' }, 400);
+  }
+  // WB retires the unpaginated endpoint on 26 October 2026.
+  const paginated = c.req.query('limit') !== undefined || c.req.query('offset') !== undefined;
+  const url = new URL('https://seller-analytics-api.wildberries.ru/api/analytics/v1/item-returns');
   url.searchParams.set('dateFrom', from);
   url.searchParams.set('dateTo', to);
+  url.searchParams.set('limit', String(limit));
+  url.searchParams.set('offset', String(offset));
+  if (status) url.searchParams.set('status', status);
   try {
     const response = await wbRequest(c.env, url);
     if (!response.ok) {
@@ -36,9 +51,24 @@ route.get('/goods-returns', async (c) => {
       if (retry) c.header('Retry-After', retry);
       return c.json({ ok: false, error: 'WB return report unavailable', upstream_status: response.status }, response.status === 429 ? 429 : 502);
     }
-    const body = await response.json() as { report?: unknown };
-    if (!Array.isArray(body.report)) return c.json({ ok: false, error: 'Unexpected WB return report response' }, 502);
-    return c.json({ ok: true, date_from: from, date_to: to, fetched_at: new Date().toISOString(), report: body.report });
+    const body = response.status === 204 ? { count: 0, report: [] }
+      : await response.json() as { count?: unknown; report?: unknown };
+    if (!Array.isArray(body.report) || typeof body.count !== 'number'
+        || !Number.isSafeInteger(body.count) || body.count < 0 || body.report.length > limit
+        || (body.report.length > 0 && offset + body.report.length > body.count)
+        || (body.report.length === 0 && offset < body.count)) {
+      return c.json({ ok: false, error: 'Unexpected WB return report response' }, 502);
+    }
+    const hasMore = offset + body.report.length < body.count;
+    // Old consumers expected a full report. Never silently give them page one.
+    if (!paginated && hasMore) {
+      return c.json({ ok: false, error: 'WB report requires pagination; request limit and offset explicitly',
+        count: body.count, limit, offset, complete: false }, 409);
+    }
+    return c.json({ ok: true, date_from: from, date_to: to, status: status ?? null,
+      fetched_at: new Date().toISOString(), count: body.count, limit, offset,
+      has_more: hasMore, next_offset: hasMore ? offset + body.report.length : null,
+      complete: offset === 0 && !hasMore, report: body.report });
   } catch {
     return c.json({ ok: false, error: 'WB return report request failed' }, 502);
   }

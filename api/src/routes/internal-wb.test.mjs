@@ -51,10 +51,10 @@ test('31-day report preserves statuses and identifiers and uses the central one-
     const url = new URL(req.url);
     assert.equal(req.method,'GET');
     assert.equal(url.origin,'https://seller-analytics-api.wildberries.ru');
-    assert.equal(url.pathname,'/api/v1/analytics/goods-return');
+    assert.equal(url.pathname,'/api/analytics/v1/item-returns');
     assert.equal(url.searchParams.get('dateFrom'),'2026-09-03');
     assert.equal(req.headers.get('Authorization'),'wb-fixture');
-    return Response.json({report});
+    return Response.json({count:report.length,report});
   });
   const res = await request(env);
   assert.equal(res.status,200); assert.equal(res.headers.get('Cache-Control'),'no-store');
@@ -73,7 +73,52 @@ test('throttling, upstream failure, invalid JSON and missing report never become
   }
 });
 test('a verified empty report is distinguishable from an error', async (t) => {
-  t.mock.method(globalThis,'fetch',async () => Response.json({report:[]}));
+  t.mock.method(globalThis,'fetch',async () => Response.json({count:0,report:[]}));
   const res = await request(fixture().env);
   assert.equal(res.status,200); assert.deepEqual((await res.json()).report,[]);
+});
+
+
+test('invalid pagination and status never reach WB', async (t) => {
+  t.mock.method(globalThis, 'fetch', () => { throw new Error('must not fetch'); });
+  for (const suffix of ['&status=all','&limit=0','&limit=1001','&limit=1.2','&offset=-1','&offset=9007199254740992','&limit=','&offset=']) {
+    const {env,writes}=fixture();
+    assert.equal((await request(env,path+suffix)).status,400);
+    assert.equal(writes.length,0);
+  }
+});
+test('explicit pagination preserves active filter, total and continuation across pages', async (t) => {
+  const rows=[{srid:'one',status:'Готов к выдаче'},{srid:'two',status:'В пути'},{srid:'three',status:'Готов к выдаче'}];
+  t.mock.method(globalThis,'fetch',async req => {
+    const u=new URL(req.url), start=Number(u.searchParams.get('offset'));
+    assert.equal(u.searchParams.get('status'),'active');
+    assert.equal(u.searchParams.get('limit'),'2');
+    return Response.json({count:3,report:rows.slice(start,start+2)});
+  });
+  const a=await (await request(fixture().env,path+'&status=active&limit=2&offset=0')).json();
+  assert.equal(a.count,3); assert.equal(a.has_more,true); assert.equal(a.complete,false); assert.equal(a.next_offset,2);
+  const b=await (await request(fixture().env,path+'&status=active&limit=2&offset='+a.next_offset)).json();
+  assert.equal(b.has_more,false); assert.equal(b.complete,false); assert.equal(b.next_offset,null);
+  assert.deepEqual([...a.report,...b.report],rows);
+});
+test('unpaginated consumers cannot silently mistake a partial report for complete', async (t) => {
+  t.mock.method(globalThis,'fetch',async req => {
+    const u=new URL(req.url);
+    assert.equal(u.searchParams.get('status'),null);
+    assert.equal(u.searchParams.get('limit'),'1000'); assert.equal(u.searchParams.get('offset'),'0');
+    return Response.json({count:1001,report:Array.from({length:1000},(_,i)=>({shkId:i}))});
+  });
+  const res=await request(fixture().env), body=await res.json();
+  assert.equal(res.status,409); assert.equal(body.ok,false); assert.equal(body.complete,false); assert.equal(body.report,undefined);
+});
+test('204 is a verified empty result, while missing or inconsistent count is an error', async (t) => {
+  t.mock.method(globalThis,'fetch',async()=>new Response(null,{status:204}));
+  const res=await request(fixture().env),body=await res.json();
+  assert.equal(res.status,200); assert.equal(body.count,0); assert.equal(body.complete,true); assert.deepEqual(body.report,[]);
+  t.mock.restoreAll();
+  for (const payload of [{report:[]},{count:-1,report:[]},{count:2,report:[]},{count:0,report:[{}]},{count:1.5,report:[]}]) {
+    t.mock.method(globalThis,'fetch',async()=>Response.json(payload));
+    assert.equal((await request(fixture().env)).status,502);
+    t.mock.restoreAll();
+  }
 });

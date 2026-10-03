@@ -46,7 +46,7 @@ test('invalid, reversed and over-31-day windows are rejected before upstream acc
 });
 test('31-day report preserves statuses and identifiers and uses the central one-minute rate limit', async (t) => {
   const {env,writes} = fixture();
-  const report = [{srid:'fixture-order',isStatusActive:1,status:'Готов к выдаче',completedDt:'',shkId:123}];
+  const report = [{srid:'fixture-order',returnStatus:'Готов к выдаче',completedDt:'',shkId:123}];
   t.mock.method(globalThis,'fetch',async req => {
     const url = new URL(req.url);
     assert.equal(req.method,'GET');
@@ -88,7 +88,7 @@ test('invalid pagination and status never reach WB', async (t) => {
   }
 });
 test('explicit pagination preserves active filter, total and continuation across pages', async (t) => {
-  const rows=[{srid:'one',status:'Готов к выдаче'},{srid:'two',status:'В пути'},{srid:'three',status:'Готов к выдаче'}];
+  const rows=[{srid:'one',returnStatus:'Готов к выдаче'},{srid:'two',returnStatus:'В пути'},{srid:'three',returnStatus:'Готов к выдаче'}];
   t.mock.method(globalThis,'fetch',async req => {
     const u=new URL(req.url), start=Number(u.searchParams.get('offset'));
     assert.equal(u.searchParams.get('status'),'active');

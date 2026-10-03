@@ -17,6 +17,8 @@ export function wbPolicy(url: URL) {
   let interval = 1000;
   if (host.startsWith('statistics-')) interval = 65000;
   if (host.startsWith('finance-')) interval = 65000;
+  // Promotion fullstats allows three calls/minute, one every 20 seconds.
+  if (host === 'advert-api.wildberries.ru' && url.pathname === '/adv/v3/fullstats') interval = 21000;
   if (host.startsWith('seller-analytics-')) {
     interval = 21000;
     group = url.pathname.includes('sales-funnel') ? 'sales-funnel' : url.pathname.replace(/\/tasks\/[^/]+\//, '/tasks/:id/');

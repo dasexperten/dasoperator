@@ -36,6 +36,7 @@ c.commit();print(json.dumps(rows))`, path], { input:JSON.stringify([query,args,s
 }
 const url = 'https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=2026-09-01';
 test('gateway denies SSRF and care hosts; honours server retry headers',()=>{
+  assert.equal(wbPolicy(new URL('https://advert-api.wildberries.ru/adv/v3/fullstats?ids=1')).interval,21000);
   for (const u of ['https://evil.example/', 'https://statistics-api.wildberries.ru.evil.test/', 'http://statistics-api.wildberries.ru/', 'https://feedbacks-api.wildberries.ru/api/v1/questions', 'https://x:y@statistics-api.wildberries.ru/']) assert.throws(()=>wbPolicy(new URL(u)));
   assert.equal(retryMilliseconds(new Headers({'X-Ratelimit-Retry':'719'})),719000);
   assert.equal(retryMilliseconds(new Headers({'Retry-After':'120'})),120000);

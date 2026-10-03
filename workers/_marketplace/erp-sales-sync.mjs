@@ -1,4 +1,5 @@
 import { wbRead } from "./wb-egress.mjs";
+import { fetchWbAdvertSpend } from "./wb-advert-spend.mjs";
 /**
  * Marketplace SALES craft → ERP D1 (Owner 2026-07-21).
  *
@@ -702,6 +703,11 @@ export async function syncWbSalesToErp(env, periodDays = 7) {
       out.source_warnings.push(`prices: ${String(e?.message || e)}`);
     }
 
+    // Required cost source: finish all reads before replacing the sales snapshot.
+    const advertising = await fetchWbAdvertSpend(env, dateFromStr, dateToStr);
+    out.ad_campaigns = advertising.campaigns;
+    out.ad_spend_kopecks = [...advertising.spend.values()].reduce((sum, value) => sum + value, 0);
+
     const catalog = await env.ERP_DB.prepare(
       "SELECT id FROM products WHERE deleted_at IS NULL"
     ).all();
@@ -711,6 +717,11 @@ export async function syncWbSalesToErp(env, periodDays = 7) {
     for (const [sku, v] of perSku.entries()) {
       if (catalogIds.has(sku)) filtered.set(sku, v);
       else dropped++;
+    }
+    // A paid SKU with no sales must remain visible in the cost report.
+    for (const [sku, spend] of advertising.spend) {
+      if (spend > 0 && catalogIds.has(sku) && !filtered.has(sku))
+        filtered.set(sku, { units: 0, revenue: 0, listings: new Set([sku]) });
     }
 
     out.movers = Array.from(filtered, ([base_sku, current]) => {
@@ -770,7 +781,7 @@ export async function syncWbSalesToErp(env, periodDays = 7) {
            (base_sku, period_from, period_to, units_sold, revenue_rub, listings_count, synced_at,
             views, tocart_count, position_category, current_price_rub, ad_spend_rub,
             prev_period_units_sold, prev_period_revenue_rub, anomaly)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
           sku,
           dateFromStr,
@@ -783,6 +794,7 @@ export async function syncWbSalesToErp(env, periodDays = 7) {
           f.tocart,
           f.position,
           price,
+          advertising.spend.get(sku) || 0,
           prev.units,
           prev.revenue,
           wbAnomaly

@@ -39,7 +39,11 @@ export async function fetchWbAdvertSpend(env, from, to) {
     for (let first = start; first <= end; first += 31 * DAY) {
       const last = Math.min(end, first + 30 * DAY);
       const rows = await read(`/adv/v3/fullstats?ids=${batch.join(',')}&beginDate=${date(first)}&endDate=${date(last)}`);
-      if (!Array.isArray(rows)) throw new Error('WB advertising: malformed fullstats');
+      if (!Array.isArray(rows)) {
+        // Say what WB actually sent: a bare label hid the cause for two nights (2026-10-03/04).
+        const shape = rows === null ? 'null' : typeof rows === 'object' ? `object keys=${Object.keys(rows).slice(0, 8).join(',')}` : typeof rows;
+        throw new Error(`WB advertising: malformed fullstats (${shape}; ${JSON.stringify(rows)?.slice(0, 160)}; ${batch.length} campaigns ${date(first)}..${date(last)})`);
+      }
       for (const campaign of rows) {
         if (!batch.includes(campaign.advertId)) throw new Error('WB advertising: unexpected campaign');
         if (campaign.currency && campaign.currency !== 'RUB') throw new Error('WB advertising: non-RUB spend');

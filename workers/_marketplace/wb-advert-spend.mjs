@@ -33,12 +33,17 @@ export async function fetchWbAdvertSpend(env, from, to) {
   const articles = new Map((mappings.results || []).map(row =>
     [Number(row.nm_id), String(row.supplier_article || '').trim().toLowerCase()]));
   const spend = new Map();
+  let emptyBatches = 0;
   const campaigns = [...ids];
   for (let i = 0; i < campaigns.length; i += 50) {
     const batch = campaigns.slice(i, i + 50);
     for (let first = start; first <= end; first += 31 * DAY) {
       const last = Math.min(end, first + 30 * DAY);
       const rows = await read(`/adv/v3/fullstats?ids=${batch.join(',')}&beginDate=${date(first)}&endDate=${date(last)}`);
+      // WB answers 200 `null` when none of the campaigns has statistics for the period (seen live
+      // 2026-10-05: 50 campaigns, 2026-09-29..2026-10-06). That is "no spend reported", not a failure —
+      // but it is counted and surfaced, never silent.
+      if (rows === null) { emptyBatches++; continue; }
       if (!Array.isArray(rows)) {
         // Say what WB actually sent: a bare label hid the cause for two nights (2026-10-03/04).
         const shape = rows === null ? 'null' : typeof rows === 'object' ? `object keys=${Object.keys(rows).slice(0, 8).join(',')}` : typeof rows;
@@ -70,5 +75,5 @@ export async function fetchWbAdvertSpend(env, from, to) {
       }
     }
   }
-  return { spend, campaigns: campaigns.length };
+  return { spend, campaigns: campaigns.length, emptyBatches };
 }

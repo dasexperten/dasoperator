@@ -58,6 +58,13 @@ test('reject missing breakdown, non-RUB and unmapped paid SKU instead of droppin
   }
 });
 
+test('WB null fullstats means no statistics: counted, not an error, not silent', async () => {
+  const result = await fetchWbAdvertSpend(envFor(() => null), '2026-10-02', '2026-10-02');
+  assert.equal(result.emptyBatches, 1);
+  assert.equal(result.spend.size, 0);
+  await assert.rejects(fetchWbAdvertSpend(envFor(() => ({ error: true })), '2026-10-02', '2026-10-02'), /malformed fullstats \(object/);
+});
+
 function integrationEnv(fail = false) {
   // Python SQLite matches the existing gateway test harness and works on Node20 CI.
   const folder = mkdtempSync(join(tmpdir(), 'wb-spend-test-'));

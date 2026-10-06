@@ -706,6 +706,7 @@ export async function syncWbSalesToErp(env, periodDays = 7) {
     // Required cost source: finish all reads before replacing the sales snapshot.
     const advertising = await fetchWbAdvertSpend(env, dateFromStr, dateToStr);
     out.ad_campaigns = advertising.campaigns;
+    if (advertising.emptyBatches) out.source_warnings.push(`advertising: WB returned no statistics for ${advertising.emptyBatches} campaign batch(es) — spend counted as zero for them`);
     out.ad_spend_kopecks = [...advertising.spend.values()].reduce((sum, value) => sum + value, 0);
 
     const catalog = await env.ERP_DB.prepare(

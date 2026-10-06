@@ -225,15 +225,16 @@ class PdfCanvas {
 
 function drawHeader(c: PdfCanvas, model: PdfModel, continued = false): void {
   const width = c.page.getWidth() - MARGIN * 2;
+  // Compact header (Owner 06.10.2026: one page). Title 15 pt, brand line, then No. and Date.
   c.drawText(continued ? `${model.title} · CONTINUED` : model.title,
-    MARGIN, c.y - 21, continued ? 14 : 18, { bold: true });
-  c.drawText('DAS EXPERTEN', MARGIN, c.y - 37, 8, { color: BRAND, bold: true });
-  c.page.drawLine({ start: { x: MARGIN, y: c.y - 44 }, end: { x: MARGIN + width, y: c.y - 44 }, thickness: 1.3, color: BRAND });
-  c.y -= 55;
+    MARGIN, c.y - 17, continued ? 12 : 15, { bold: true });
+  c.drawText('DAS EXPERTEN', MARGIN, c.y - 30, 8, { color: BRAND, bold: true });
+  c.page.drawLine({ start: { x: MARGIN, y: c.y - 36 }, end: { x: MARGIN + width, y: c.y - 36 }, thickness: 1.3, color: BRAND });
+  c.y -= 44;
   if (!continued) {
     c.drawText(`No. ${model.reference}`, MARGIN, c.y - 10, 9, { bold: true });
     c.drawText(`Date ${formatDate(model.issuedAt)}`, MARGIN + width / 2, c.y - 10, 9, { bold: true });
-    c.y -= 25;
+    c.y -= 20;
   }
 }
 
@@ -365,6 +366,37 @@ function tableDefinition(model: PdfModel, usable: number): { columns: TableColum
       String(i + 1), pickLineLabel(li, { kind: 'TN' }), String(li.qty), 'шт', String(li.cartons ?? 0),
     ]) };
   }
+  if (model.kind === 'IS-V1' || model.kind === 'IS-V2') {
+    // Same columns as the Word IS: customs needs cartons and both weights on the spec itself.
+    // The description is the widest column so a line stays on one row where it can.
+    const columns: TableColumn[] = [
+      { label: '#', width: 0.03, align: 'center' }, { label: 'HS code', width: 0.075, align: 'center' },
+      { label: 'Origin', width: 0.055, align: 'center' }, { label: 'Description', width: 0.38 },
+      { label: 'Qty', width: 0.06, align: 'right' }, { label: 'Cartons', width: 0.06, align: 'right' },
+      { label: 'Net kg', width: 0.07, align: 'right' }, { label: 'Gross kg', width: 0.07, align: 'right' },
+      { label: 'Price', width: 0.08, align: 'right' }, { label: 'Amount', width: 0.12, align: 'right' },
+    ];
+    let tQty = 0, tCtn = 0, tNet = 0, tGross = 0, known = true;
+    const rows = model.lineItems.map((li, i) => {
+      const perCtn = li.ctn_qty ?? 0;
+      const cartons = li.cartons > 0 ? li.cartons : (perCtn > 0 ? Math.ceil(li.qty / perCtn) : 0);
+      const net = li.unit_net_weight_g !== null ? (li.qty * li.unit_net_weight_g) / 1000 : null;
+      const gross = li.ctn_weight_gross_kg !== null && cartons > 0 ? cartons * li.ctn_weight_gross_kg : null;
+      tQty += li.qty; tCtn += cartons;
+      if (net === null || gross === null) known = false; else { tNet += net; tGross += gross; }
+      return [
+        String(i + 1), li.hs_code ?? 'TBD', li.country_of_origin ?? 'China',
+        pickLineLabel(li, { kind: 'IS', variant: model.kind === 'IS-V1' ? 'V1' : 'V2' }),
+        String(li.qty), String(cartons), net === null ? 'TBD' : net.toFixed(3), gross === null ? 'TBD' : gross.toFixed(3),
+        model.currency ? formatUnitPrice(li.unit_price_after_disc, model.currency) : String(li.unit_price_after_disc),
+        model.currency ? formatMoney(li.line_amount, model.currency) : String(li.line_amount),
+      ];
+    });
+    rows.push(['', '', '', 'TOTAL', String(tQty), String(tCtn),
+      known ? tNet.toFixed(3) : 'TBD', known ? tGross.toFixed(3) : 'TBD', '',
+      model.total !== null && model.currency ? formatMoney(model.total, model.currency) : '']);
+    return { columns: columns.map((col) => ({ ...col, width: col.width * usable })), rows };
+  }
   const columns: TableColumn[] = [
     { label: '#', width: 0.035, align: 'center' }, { label: 'SKU', width: 0.075 },
     { label: 'Description', width: 0.32 }, { label: 'HS code', width: 0.10, align: 'center' },
@@ -412,12 +444,12 @@ function drawTable(c: PdfCanvas, model: PdfModel): void {
   drawTableHeader(c, columns);
   for (const row of rows) {
     const wrapped = row.map((value, i) => wrap(c.fonts, value, 6.6, (columns[i]?.width ?? 20) - 7));
-    const height = Math.max(18, Math.max(...wrapped.map((lines) => lines.length)) * 8 + 6);
+    const height = Math.max(15, Math.max(...wrapped.map((lines) => lines.length)) * 8 + 5);
     c.ensure(height + 4, () => { drawHeader(c, model, true); drawTableHeader(c, columns); });
     let x = MARGIN;
     columns.forEach((col, i) => {
       c.page.drawRectangle({ x, y: c.y - height, width: col.width, height, borderColor: LINE, borderWidth: 0.5 });
-      let y = c.y - 10;
+      let y = c.y - 9.5;
       for (const line of wrapped[i] ?? ['']) {
         c.drawText(line, x + 3.5, y, 6.6, { maxWidth: col.width - 7, align: col.align ?? 'left' });
         y -= 8;
@@ -437,43 +469,49 @@ async function embedSignatureImage(
 }
 
 async function drawSignature(c: PdfCanvas, model: PdfModel): Promise<void> {
+  // Compact block at the right end: hand signature, then title and name right-aligned, and a
+  // stand-alone stamp at ordinary size (3.5 cm ≈ 99 pt) pressed OVER that text, drawn last on
+  // transparent PNG scans (Owner 06.10.2026: «normal stamp size and the name size», «as if it
+  // is stamped on the text», one page). A combined stamp+signature scan stays one image.
   const sig = model.signature;
-  const requiredHeight = 238;
-  c.ensure(requiredHeight, () => drawHeader(c, model, true));
-  const rightWidth = Math.min(320, c.page.getWidth() - MARGIN * 2);
-  const x = c.page.getWidth() - MARGIN - rightWidth;
-  if (model.total !== null && model.currency) {
-    c.drawText(isRussian(model.language, model.kind) ? 'ИТОГО' : 'TOTAL', MARGIN, c.y - 18, 10, { bold: true });
-    c.drawText(formatMoney(model.total, model.currency), MARGIN + 70, c.y - 18, 10, { bold: true });
+  const ru = isRussian(model.language, model.kind);
+  const blockHeight = 92;
+  c.ensure(blockHeight + 6, () => drawHeader(c, model, true));
+  const right = c.page.getWidth() - MARGIN;
+  const textWidth = 300;
+  // The IS table already ends with its TOTAL row; a second total line would only repeat it.
+  const tableHasTotal = model.kind === 'IS-V1' || model.kind === 'IS-V2';
+  if (model.total !== null && model.currency && !tableHasTotal) {
+    c.drawText(ru ? 'ИТОГО' : 'TOTAL', MARGIN, c.y - 14, 10, { bold: true });
+    c.drawText(formatMoney(model.total, model.currency), MARGIN + 70, c.y - 14, 10, { bold: true });
     if (model.kind === 'UPD' && model.vatRatePct !== undefined) {
-      c.drawText(`VAT / НДС: ${model.vatRatePct}%`, MARGIN, c.y - 34, 8);
+      c.drawText(`VAT / НДС: ${model.vatRatePct}%`, MARGIN, c.y - 28, 8);
     }
   }
-  c.drawText(isRussian(model.language, model.kind) ? 'Уполномоченная подпись' : 'Authorised signature', x, c.y - 14, 8, { bold: true });
-  const stamp = sig.stamp ? await embedSignatureImage(c.doc, sig.stamp) : null;
-  if (stamp && sig.stamp) {
-    const maxW = 290;
-    const maxH = 180;
-    const scale = Math.min(maxW / stamp.width, maxH / stamp.height);
-    const w = stamp.width * scale;
-    const h = stamp.height * scale;
-    c.page.drawImage(stamp, { x: x + rightWidth - w, y: c.y - 194, width: w, height: h });
-  }
-  if (sig.handSignature) {
+  const titleY = c.y - 70;
+  const nameY = c.y - 81;
+  if (sig.stamp && sig.stampIncludesHandSignature) {
+    const combined = await embedSignatureImage(c.doc, sig.stamp);
+    const scale = Math.min(170 / combined.width, 58 / combined.height);
+    const w = combined.width * scale;
+    c.page.drawImage(combined, { x: right - w, y: titleY + 10, width: w, height: combined.height * scale });
+  } else if (sig.handSignature) {
     const hand = await embedSignatureImage(c.doc, sig.handSignature);
-    const maxW = 300;
-    const maxH = 90;
-    const scale = Math.min(maxW / hand.width, maxH / hand.height);
-    const w = hand.width * scale;
-    const h = hand.height * scale;
-    c.page.drawImage(hand, { x: x + rightWidth - w - 8, y: c.y - 148, width: w, height: h });
+    const w = 112;
+    c.page.drawImage(hand, { x: right - w - 40, y: titleY + 12, width: w, height: hand.height * w / hand.width });
   }
-  const title = isRussian(model.language, model.kind)
+  const title = ru
     ? (sig.titleRu ?? sig.titleEn ?? 'Генеральный директор')
     : (sig.titleEn ?? sig.titleRu ?? 'General Manager');
-  c.drawText(title, x, c.y - 212, 8, { bold: true });
-  if (sig.name) c.drawText(sig.name, x, c.y - 226, 8);
-  c.y -= requiredHeight;
+  c.drawText(title, right - textWidth, titleY, 8, { bold: true, align: 'right', maxWidth: textWidth });
+  if (sig.name) c.drawText(sig.name, right - textWidth, nameY, 8, { align: 'right', maxWidth: textWidth });
+  if (sig.stamp && !sig.stampIncludesHandSignature) {
+    const stamp = await embedSignatureImage(c.doc, sig.stamp);
+    const d = 99;
+    const h = stamp.height * d / stamp.width;
+    c.page.drawImage(stamp, { x: right - d + 4, y: nameY - 26, width: d, height: h });
+  }
+  c.y -= blockHeight;
 }
 
 async function createPdf(model: PdfModel): Promise<Uint8Array> {

@@ -4,14 +4,17 @@ import { resolve } from 'node:path';
 const root = resolve(import.meta.dirname, '..');
 const asset = (path) => readFileSync(resolve(root, path)).toString('base64');
 
+// Stand-alone stamps and hand signatures are transparent PNG: the stamp is drawn over the
+// signatory's text and the signature over the stamp, so a JPEG's white box would hide them
+// (Owner 06.10.2026, IS-YZJX-26052101). Combined stamp+signature scans stay JPEG, inline.
 const stamps = [
-  ['daseanStamp', 'tools/invoice-templates/assets/erp/dasean_stamp.jpg', 500, 498],
+  ['daseanStamp', 'tools/invoice-templates/assets/dasean_stamp.png', 472, 470],
   ['deeCombined', 'tools/invoice-templates/assets/erp/dee_stamp_signature.jpg', 500, 456],
   ['deiCombined', 'tools/invoice-templates/assets/erp/dei_stamp_signature.jpg', 500, 360],
-  ['ellenSignature', 'tools/invoice-templates/assets/erp/ellen_wei_signature.jpg', 500, 79],
-  ['honghuiStamp', 'tools/invoice-templates/assets/erp/honghui_stamp.jpg', 500, 353],
-  ['jinxiaStamp', 'tools/invoice-templates/assets/erp/jinxia_stamp.jpg', 500, 488],
-  ['loisSignature', 'tools/invoice-templates/assets/erp/lois_guan_signature.jpg', 500, 132],
+  ['ellenSignature', 'tools/invoice-templates/assets/ellen_wei_signature.png', 247, 39],
+  ['honghuiStamp', 'tools/invoice-templates/assets/honghui_stamp.png', 1302, 919],
+  ['jinxiaStamp', 'tools/invoice-templates/assets/jinxia_stamp.png', 262, 256],
+  ['loisSignature', 'tools/invoice-templates/assets/lois_guan_signature.png', 279, 74],
   ['wdaaCombined', 'tools/invoice-templates/assets/erp/wdaa_stamp_with_signature.jpg', 500, 134],
 ];
 
@@ -33,8 +36,8 @@ function decode(b64: string): Uint8Array {
 }
 
 export interface IssuerSignatureAssets {
-  stamp: { data: () => Uint8Array; format: 'jpg'; width: number; height: number };
-  handSignature?: { data: () => Uint8Array; format: 'jpg'; width: number; height: number };
+  stamp: { data: () => Uint8Array; format: 'jpg' | 'png'; width: number; height: number };
+  handSignature?: { data: () => Uint8Array; format: 'jpg' | 'png'; width: number; height: number };
   stampIncludesHandSignature: boolean;
 }
 
@@ -42,10 +45,14 @@ const image = (b64: string, width: number, height: number) => ({
   data: () => decode(b64), format: 'jpg' as const, width, height,
 });
 
+const png = (b64: string, width: number, height: number) => ({
+  data: () => decode(b64), format: 'png' as const, width, height,
+});
+
 export const STAMP_SIGNATURE: Record<string, IssuerSignatureAssets> = {
   dasean: {
-    stamp: image(daseanStamp, 472, 470),
-    handSignature: image('${asset('tools/invoice-templates/assets/erp/aram_badalyan_signature.jpg')}', 500, 365),
+    stamp: png(daseanStamp, 472, 470),
+    handSignature: png('${asset('tools/invoice-templates/assets/aram_badalyan_signature.png')}', 415, 303),
     stampIncludesHandSignature: false,
   },
   dee: {
@@ -57,23 +64,23 @@ export const STAMP_SIGNATURE: Record<string, IssuerSignatureAssets> = {
     stampIncludesHandSignature: true,
   },
   honghui: {
-    stamp: image(honghuiStamp, 1302, 919),
-    handSignature: image(ellenSignature, 247, 39),
+    stamp: png(honghuiStamp, 1302, 919),
+    handSignature: png(ellenSignature, 247, 39),
     stampIncludesHandSignature: false,
   },
   'guangzhou-honghui': {
-    stamp: image(honghuiStamp, 1302, 919),
-    handSignature: image(ellenSignature, 247, 39),
+    stamp: png(honghuiStamp, 1302, 919),
+    handSignature: png(ellenSignature, 247, 39),
     stampIncludesHandSignature: false,
   },
   jinxia: {
-    stamp: image(jinxiaStamp, 262, 256),
-    handSignature: image(loisSignature, 279, 74),
+    stamp: png(jinxiaStamp, 262, 256),
+    handSignature: png(loisSignature, 279, 74),
     stampIncludesHandSignature: false,
   },
   'yangzhou-jinxia': {
-    stamp: image(jinxiaStamp, 262, 256),
-    handSignature: image(loisSignature, 279, 74),
+    stamp: png(jinxiaStamp, 262, 256),
+    handSignature: png(loisSignature, 279, 74),
     stampIncludesHandSignature: false,
   },
   wdaa: {

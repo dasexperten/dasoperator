@@ -702,7 +702,7 @@ export function buildSignature(sig: RenderSignature, language: Language): Paragr
   // stamp floats OVER that text the way a real stamp is pressed onto a signed page (Owner
   // 06.10.2026: «as if it is stamped on the text», «just as a normal stamp size and the name
   // size»). Plain paragraphs, not a table: Pages drops images that float inside a table cell.
-  // Sizes are px at 96 dpi: 132 px = 3.5 cm stamp circle, 150 px = 4 cm signature. Only the
+  // Sizes are px at 96 dpi: 121 px = 3.2 cm stamp circle, 150 px = 4 cm signature. Only the
   // combined DEI scan (signature baked into the stamp) keeps the larger width the Owner asked
   // for on 16.09 and stays inline.
   const CM = 360000; // EMU per cm
@@ -737,10 +737,10 @@ export function buildSignature(sig: RenderSignature, language: Language): Paragr
     titleRuns.push(new ImageRun({
       type: sig.stamp.format,
       data: sig.stamp.data,
-      transformation: scaled(sig.stamp, 132),
+      transformation: scaled(sig.stamp, 121),
       floating: {
         horizontalPosition: { relative: HorizontalPositionRelativeFrom.MARGIN, align: HorizontalPositionAlign.RIGHT },
-        verticalPosition: { relative: VerticalPositionRelativeFrom.PARAGRAPH, offset: Math.round(-2.0 * CM) },
+        verticalPosition: { relative: VerticalPositionRelativeFrom.PARAGRAPH, offset: Math.round(-1.3 * CM) },
         wrap: { type: TextWrappingType.NONE },
         allowOverlap: true,
         behindDocument: false,

@@ -126,6 +126,22 @@ in both private vaults and Worker secret bindings, never in this repository.
 Rollback: keep `EASYINVOICE_ENABLED=0`; restore the previous demo host and
 vaulted demo credentials only if a return to demo is needed.
 
+Read-only production portal verification on 2026-10-07 found:
+
+- InvoiceTemplate/Index: VAT template `78_INVVAT_01_PRO`, pattern `1`,
+  status **Not initialized**.
+- Publish/index: pattern `1`, symbol empty, current invoice number `0`;
+  this is not an assigned production pattern usable by the connector.
+- Declaration/Index: the 2026-10-05 change-information declaration is
+  **Chưa gửi CQT** (not sent to the tax authority).
+- Company/ViewKeyStores: one EasyCA certificate for tax code 0319132917,
+  active and enabled, valid 2026-10-05 through 2027-10-05, type `PKCS_12`,
+  signing count zero. The portal does not explicitly identify it as HSM.
+
+Complete provider/tax registration and obtain the assigned production pattern
+before enabling issuance. This connection task does not submit a legal tax
+declaration, initialize a fiscal template, or issue a real invoice.
+
 ## Demo acceptance route
 
 `POST /uat/call` runs one provider call against the SoftDreams demo tenant with

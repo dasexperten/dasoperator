@@ -94,13 +94,27 @@ function recipient(row: CallRow) {
   return row.recipient_label ? `${row.recipient_label} · ${shownTarget(row.recipient_phone)}` : shownTarget(row.recipient_phone);
 }
 
+// Two stacked lines, never a wrapped run: purpose over channel, name over number (Marika 07.10.2026).
 function PurposeCell({ row }: { row: CallRow }) {
   const Icon = row.call_type === 'incoming' ? PhoneIncoming : PhoneOutgoing;
   return (
-    <span className="inline-flex items-center gap-2 font-bold text-muted-foreground">
-      <Icon className="h-4 w-4" aria-label={row.call_type === 'incoming' ? 'Incoming' : 'Outgoing'} />
-      {PURPOSE_LABEL[row.call_purpose] || row.call_purpose}
-      <span className="text-stone-500">· {channelLabel(row.channel)}</span>
+    <span className="flex min-w-0 items-start gap-2">
+      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-label={row.call_type === 'incoming' ? 'Incoming' : 'Outgoing'} />
+      <span className="flex min-w-0 flex-col">
+        <span className="whitespace-nowrap text-sm font-bold text-foreground">{PURPOSE_LABEL[row.call_purpose] || row.call_purpose}</span>
+        <span className="whitespace-nowrap text-sm font-semibold text-stone-500">{channelLabel(row.channel)}</span>
+      </span>
+    </span>
+  );
+}
+
+function RecipientCell({ row }: { row: CallRow }) {
+  const target = shownTarget(row.recipient_phone);
+  if (!row.recipient_label) return <span className="break-words font-extrabold text-foreground">{target}</span>;
+  return (
+    <span className="flex min-w-0 flex-col">
+      <span className="font-extrabold text-foreground">{row.recipient_label}</span>
+      <span className="whitespace-nowrap text-sm font-semibold text-stone-500">{target}</span>
     </span>
   );
 }
@@ -169,7 +183,7 @@ export default function CallList({ channel = null, title = 'Caller', subtitle = 
       )}
 
       <section className="overflow-hidden rounded-lg border border-border bg-card shadow-card">
-        <div className="hidden grid-cols-[1.3fr_0.8fr_1fr_1fr_1fr_1.4fr] gap-4 border-b border-border px-5 py-3 text-sm font-extrabold text-stone-500 md:grid">
+        <div className="hidden grid-cols-[minmax(0,1.3fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1.4fr)] gap-4 border-b border-border px-5 py-3 text-sm font-extrabold text-stone-500 md:grid">
           <span>Recipient</span><span>Status</span><span>Call type</span><span>Agent</span><span>Time</span><span>Outcome</span>
         </div>
         {loading && calls.length === 0 && (
@@ -186,15 +200,15 @@ export default function CallList({ channel = null, title = 'Caller', subtitle = 
               <button
                 type="button"
                 onClick={() => void openCall(row)}
-                className="grid w-full gap-1 px-5 py-4 text-left hover:bg-muted focus:bg-muted focus:outline-none md:grid-cols-[1.3fr_0.8fr_1fr_1fr_1fr_1.4fr] md:items-center md:gap-4"
+                className="grid w-full gap-1 px-5 py-4 text-left hover:bg-muted focus:bg-muted focus:outline-none md:grid-cols-[minmax(0,1.3fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1.4fr)] md:items-start md:gap-4"
               >
-                <span className="font-extrabold text-foreground">{recipient(row)}</span>
+                <RecipientCell row={row} />
                 <span className={`text-sm font-extrabold ${DEAL_CLASS[row.deal_status] || 'text-muted-foreground'}`}>
                   {DEAL_LABEL[row.deal_status] || row.deal_status}
                 </span>
-                <span className="text-sm"><PurposeCell row={row} /></span>
+                <PurposeCell row={row} />
                 <span className="text-sm font-bold text-foreground">{row.seat_name}</span>
-                <span className="text-sm font-bold text-stone-500">{when(row.started_at)}</span>
+                <span className="whitespace-nowrap text-sm font-bold text-stone-500">{when(row.started_at)}</span>
                 <span className="text-sm font-semibold text-muted-foreground">{row.summary || '—'}</span>
               </button>
             </li>

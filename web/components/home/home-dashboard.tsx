@@ -7,11 +7,13 @@ import { getUser } from '@/lib/auth';
 import {
   getOperations,
   getPayments,
+  getSiteSeoMetrics,
   type Operation,
   type Payment,
 } from '@/lib/api';
 import MarketplacePulse from './marketplace-pulse';
 import SystemHealth from './system-health';
+import AiVisibilityOverview from './ai-visibility-overview';
 
 // =============================================================================
 // Helpers
@@ -32,8 +34,32 @@ function formatMoney(amount: number, currency: string): string {
   });
 }
 
+function formatSeoNumber(n: number): string {
+  if (!Number.isFinite(n)) return '—';
+  if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(n) >= 10_000) return `${Math.round(n / 1_000)}k`;
+  return Math.round(n).toLocaleString('en-US');
+}
 
+type SiteSeoMetrics = {
+  domain: string;
+  domain_authority: number;
+  backlinks: number;
+  ref_domains: number;
+  organic_traffic: number;
+  updated_at: number;
+  source: string;
+};
 
+const SEO_SEED: SiteSeoMetrics = {
+  domain: 'dasexperten.com',
+  domain_authority: 11,
+  backlinks: 1093,
+  ref_domains: 328,
+  organic_traffic: 124,
+  updated_at: 0,
+  source: 'seed',
+};
 
 // =============================================================================
 // Status chip
@@ -73,6 +99,7 @@ function StatusChip({ status }: { status: string }) {
 export default function HomeDashboard() {
   const [operations, setOperations] = useState<Operation[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [seo, setSeo] = useState<SiteSeoMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [greetName, setGreetName] = useState('');
   const [greetWord, setGreetWord] = useState('Guten Tag');
@@ -89,14 +116,17 @@ export default function HomeDashboard() {
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [opsRes, paysRes] = await Promise.all([
+        const [opsRes, paysRes, seoRes] = await Promise.all([
           getOperations({ compact: true }),
           getPayments(),
+          getSiteSeoMetrics(),
         ]);
         if (opsRes.success && opsRes.result) setOperations(opsRes.result.operations);
         if (paysRes.success && paysRes.result) setPayments(paysRes.result.payments);
+        if (seoRes.success && seoRes.result) setSeo(seoRes.result);
+        else setSeo(SEO_SEED);
       } catch {
-        /* tables stay empty */
+        setSeo(SEO_SEED);
       } finally {
         setLoading(false);
       }
@@ -105,6 +135,7 @@ export default function HomeDashboard() {
   }, []);
 
   // ---------------------------------------------------------------------------
+  // Headline KPIs = SEO snapshot (same 4-card design); tables use ops/payments
   // ---------------------------------------------------------------------------
   const activeOps = operations.filter((o) => o.status !== 'cancelled');
 
@@ -116,6 +147,11 @@ export default function HomeDashboard() {
     .sort((a, b) => b.payment_date - a.payment_date)
     .slice(0, 3);
 
+  const m = seo ?? SEO_SEED;
+  const seoAsOf =
+    m.updated_at > 0
+      ? new Date(m.updated_at * 1000).toISOString().slice(0, 10)
+      : 'snapshot';
 
   // ---------------------------------------------------------------------------
   return (
@@ -143,6 +179,46 @@ export default function HomeDashboard() {
         </h1>
       </div>
 
+      <HomePulseBlock
+        title="SEO"
+        kicker="Jurgen Witt · Ubersuggest"
+        asOf={loading ? 'Loading…' : `as of ${seoAsOf}`}
+      >
+        <div className="grid grid-cols-4 gap-4 dx-metrics-grid">
+          <MetricCard
+            label="Domain authority"
+            sublabel="dasexperten.com"
+            value={String(m.domain_authority)}
+            tone="default"
+            loading={loading}
+          />
+          <MetricCard
+            label="Backlinks"
+            sublabel="dasexperten.com"
+            value={loading ? '—' : formatSeoNumber(m.backlinks)}
+            tone="default"
+            loading={loading}
+          />
+          <MetricCard
+            label="Referring domains"
+            sublabel="dasexperten.com"
+            value={loading ? '—' : formatSeoNumber(m.ref_domains)}
+            tone="default"
+            loading={loading}
+          />
+          <MetricCard
+            label="Organic traffic"
+            sublabel="dasexperten.com · est."
+            value={loading ? '—' : formatSeoNumber(m.organic_traffic)}
+            tone="default"
+            loading={loading}
+          />
+        </div>
+      </HomePulseBlock>
+
+      <AiVisibilityOverview />
+
+      <div className="dx-eyebrow-rot">Остальные показатели</div>
 
       {/* MARKETPLACE PULSE ========================================== */}
       <MarketplacePulse />
@@ -293,7 +369,106 @@ export default function HomeDashboard() {
 // =============================================================================
 // Sub-components
 // =============================================================================
+function HomePulseBlock({
+  title,
+  kicker,
+  asOf,
+  children,
+}: {
+  title: string;
+  kicker: string;
+  asOf: string;
+  children: ReactNode;
+}) {
+  return (
+    <section>
+      <div
+        className="overflow-hidden"
+        style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', background: 'var(--paper)' }}
+      >
+        <div
+          style={{
+            height: '4px',
+            background:
+              'linear-gradient(90deg, var(--brand-schwarz) 0 33.33%, var(--brand-rot) 33.33% 66.66%, var(--brand-gold) 66.66% 100%)',
+          }}
+        />
+        <div style={{ padding: '20px 24px 24px' }}>
+          <div className="flex items-baseline justify-between" style={{ marginBottom: '16px' }}>
+            <div>
+              <div className="dx-eyebrow-rot">{title}</div>
+              <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginTop: '3px' }}>{kicker}</div>
+            </div>
+            <span style={{ fontSize: '11px', color: 'var(--fg-3)' }}>{asOf}</span>
+          </div>
+          {children}
+        </div>
+      </div>
+    </section>
+  );
+}
 
+function MetricCard({
+  label,
+  sublabel,
+  value,
+  tone,
+  loading,
+}: {
+  label: string;
+  sublabel: string;
+  value: string;
+  tone: 'default' | 'rot' | 'muted';
+  loading: boolean;
+}) {
+  const valueColor =
+    tone === 'rot' ? 'var(--brand-rot)' :
+    tone === 'muted' ? 'var(--fg-3)' :
+    'var(--fg-1)';
+
+  return (
+    <div
+      style={{
+        backgroundColor: 'var(--paper)',
+        border: '1px solid var(--border-hairline)',
+        borderRadius: 'var(--radius-md)',
+        padding: '20px 22px',
+        position: 'relative',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+      }}
+    >
+      {/* Two lines are reserved for the label whether it needs them or not, so
+          every figure in the row starts at the same height. A one-line label
+          next to a two-line one is what knocked the numbers out of line. */}
+      <div
+        style={{ color: 'var(--fg-2)', lineHeight: 1.25, minHeight: '2.5em' }}
+      >
+        {label}
+      </div>
+      <div
+        className="dx-num"
+        style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 'clamp(24px, 7vw, 40px)',
+          fontWeight: 900,
+          lineHeight: 1.05,
+          color: valueColor,
+          marginTop: '12px',
+        }}
+      >
+        {loading ? <Loader2 className="h-7 w-7 animate-spin inline-block" style={{ color: 'var(--fg-3)' }} /> : value}
+      </div>
+      <div
+        style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-3)', marginTop: 'auto', paddingTop: '8px' }}
+      >
+        {sublabel}
+      </div>
+    </div>
+  );
+}
 
 function SectionHeader({
   title,

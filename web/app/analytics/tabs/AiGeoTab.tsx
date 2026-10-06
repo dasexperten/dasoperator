@@ -6,8 +6,6 @@
 // HARD: demo marker when demo=true; never invent crawler counts.
 // =============================================================================
 
-import SiteSeoBlock from '@/components/home/site-seo-block';
-import AiVisibilityOverview from '@/components/home/ai-visibility-overview';
 import AiPanelOverview from '@/components/home/ai-panel-overview';
 import React from 'react';
 import {
@@ -81,9 +79,8 @@ export default function AiGeoTab() {
 
   return (
     <div className="space-y-4">
-      {/* Moved from the ERP home page, Owner 2026-10-06. */}
-      <SiteSeoBlock />
-      <AiVisibilityOverview />
+      {/* Julian's daily AI-answer measurement by language — moved here from the
+          ERP home page by the Owner's word 2026-10-06. */}
       <AiPanelOverview />
 
       {/* Our own nightly measurement comes first: it is the only source here that

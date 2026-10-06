@@ -69,14 +69,18 @@ route.get('/guard', async (c) => {
     const failed = rows.filter((r) => !r.ok && r.finished_at).length;
     const missed = Math.max(0, expected - ran);
     const lastError = [...rows].reverse().find((r) => !r.ok && r.finished_at)?.error ?? null;
+    const lastFail = [...rows].reverse().find((r) => !r.ok && r.finished_at)?.started_at ?? '';
+    // A failure followed by a later good run (a manual one counts) is a recovery, not an open fault.
+    const recovered = failed > 0 && (lastOk.get(worker) ?? '') > lastFail;
     let verdict: Verdict = 'green';
     if (!seen.has(worker)) verdict = expected > 0 ? 'red' : 'quiet';
+    else if (recovered && missed <= Math.max(1, Math.floor(expected * 0.05))) verdict = 'yellow';
     else if (failed > 0 || (expected > 0 && ok === 0 && dry === 0)) verdict = 'red';
     else if (skipped > 0 && ok === 0) verdict = 'red';
     else if (missed > Math.max(1, Math.floor(expected * 0.05))) verdict = 'red';
     else if (dry > 0 || missed > 0 || skipped > 0) verdict = 'yellow';
     else if (expected === 0) verdict = 'quiet';
-    return { worker, crons, expected, ran, ok, failed, dry, skipped, missed, last_ok: lastOk.get(worker) ?? null, last_error: lastError, verdict };
+    return { worker, crons, expected, ran, ok, failed, dry, skipped, missed, recovered, last_ok: lastOk.get(worker) ?? null, last_error: lastError, verdict };
   });
   const count = (v: Verdict) => workers.filter((w) => w.verdict === v).length;
   return c.json({

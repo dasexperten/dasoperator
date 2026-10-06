@@ -1,5 +1,7 @@
 // How many times a Cloudflare cron should have fired in a UTC window.
-// Five fields: minute hour day-of-month month day-of-week (0 or 7 = Sunday).
+// Five fields: minute hour day-of-month month day-of-week.
+// Day of week follows CLOUDFLARE, not Vixie cron: 1 = Sunday … 7 = Saturday. Proven on live runs:
+// `0 4 * * 4` (erp-wb-weekly-report) ran on Wednesday 2026-09-30, `7 20 * * 1` (erp-wb-week) on Sunday 2026-10-04.
 // Supports *, n, a-b, lists, and /step on * or a range. When both day fields are
 // restricted, a day matches if EITHER matches (standard cron behaviour).
 
@@ -30,6 +32,11 @@ function parseField(src: string, min: number, max: number): Field {
   return { any: false, set };
 }
 
+// Cloudflare 1..7 (Sun..Sat) → JS getUTCDay 0..6.
+function shiftDow(f: Field): Field {
+  return f.any ? f : { any: false, set: new Set([...f.set].map((v) => v - 1)) };
+}
+
 export interface Cron {
   minute: Field;
   hour: Field;
@@ -46,7 +53,7 @@ export function parseCron(expr: string): Cron {
     hour: parseField(f[1]!, 0, 23),
     dom: parseField(f[2]!, 1, 31),
     month: parseField(f[3]!, 1, 12),
-    dow: parseField(f[4]!, 0, 7),
+    dow: shiftDow(parseField(f[4]!, 1, 7)),
   };
 }
 

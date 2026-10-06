@@ -36,14 +36,15 @@ test('lists and ranges', () => {
 });
 
 test('day of week and month', () => {
-  // 2026-09-17 is a Thursday, 2026-09-14 a Monday
-  assert.equal(n('0 4 * * 4', '2026-09-17T00:00:00Z'), 1);
-  assert.equal(n('0 4 * * 4', '2026-09-16T00:00:00Z'), 0);
-  assert.equal(n('6 20 * * 1', '2026-09-14T00:00:00Z'), 1);
+  // Cloudflare numbering: 1 = Sunday … 4 = Wednesday. 2026-09-16 is a Wednesday, 2026-09-13 a Sunday.
+  assert.equal(n('0 4 * * 4', '2026-09-16T00:00:00Z'), 1);
+  assert.equal(n('0 4 * * 4', '2026-09-17T00:00:00Z'), 0);
+  assert.equal(n('6 20 * * 1', '2026-09-13T00:00:00Z'), 1);
+  assert.equal(n('6 20 * * 1', '2026-09-14T00:00:00Z'), 0);
   assert.equal(n('0 3 5 * *', '2026-09-05T00:00:00Z'), 1);
   assert.equal(n('0 3 5 * *', '2026-09-06T00:00:00Z'), 0);
-  // both day fields restricted → either matches: day 1-7 OR Wednesday
-  assert.equal(n('0 4 1-7 * 3', '2026-09-16T00:00:00Z'), 1, 'a Wednesday on the 16th');
+  // both day fields restricted → either matches: day 1-7 OR Tuesday (3 in Cloudflare numbering)
+  assert.equal(n('0 4 1-7 * 3', '2026-09-15T00:00:00Z'), 1, 'a Tuesday on the 15th');
   assert.equal(n('0 4 1-7 * 3', '2026-09-03T00:00:00Z'), 1, 'the 3rd');
-  assert.equal(n('0 4 1-7 * 3', '2026-09-18T00:00:00Z'), 0);
+  assert.equal(n('0 4 1-7 * 3', '2026-09-16T00:00:00Z'), 0, 'a Wednesday on the 16th');
 });

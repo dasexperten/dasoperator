@@ -73,19 +73,21 @@ export default function AiVisibilityOverview() {
         />
 
         <div style={{ padding: '20px 24px 24px' }}>
-          <div className="flex items-baseline justify-between" style={{ marginBottom: '16px' }}>
-            <div>
-              <div className="dx-eyebrow-rot">Geo</div>
-              <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginTop: '3px' }}>
-                Julian Farah · Search Console + AI crawlers
-              </div>
+          <div style={{ marginBottom: '16px' }}>
+            {/* Same header as the SEO block above: title and date on one line,
+                source beneath — Owner 2026-10-06, GEO must read like SEO. */}
+            <div className="flex items-baseline justify-between">
+              <div className="dx-eyebrow-rot">GEO</div>
+              <span style={{ fontSize: '11px', color: 'var(--fg-3)' }}>
+                {loading ? 'Loading…' : `as of ${asOf}`}
+              </span>
             </div>
-            <span style={{ fontSize: '11px', color: 'var(--fg-3)' }}>
-              {loading ? 'Loading…' : `as of ${asOf}`}
-            </span>
+            <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginTop: '3px' }}>
+              Julian Farah · Search Console + AI crawlers
+            </div>
           </div>
 
-          <div className="grid gap-4" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
+          <div className="grid grid-cols-4 gap-4 dx-metrics-grid">
             {loading &&
               [0, 1, 2, 3].map((i) => (
                 <AuthCard key={i} label="…" value={null} hint="" />

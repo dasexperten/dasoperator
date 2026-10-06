@@ -77,6 +77,7 @@
   --border-subtle:     rgba(26, 21, 25, 0.14);
   --border-strong:     rgba(26, 21, 25, 0.32);
   --border-ink:        var(--brand-schwarz-ink);
+  --line-1:            var(--border-subtle);      /* ERP pages use --line-1 for card and table frames */
 
   /* ---------------- STATUS ---------------- */
   --status-success:    #2E7D4F;

@@ -25,6 +25,32 @@ function formatAmount(minor: number, currency: string): string {
   });
 }
 
+// Group bank accounts by company; default account first, then by currency.
+function groupAccountsByCompany(accounts: BankAccount[]): [string, BankAccount[]][] {
+  const groups = new Map<string, BankAccount[]>();
+  for (const acc of accounts) {
+    const key = acc.company_abbreviation || '—';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(acc);
+  }
+  groups.forEach((list) => {
+    list.sort((a: BankAccount, b: BankAccount) =>
+      (b.is_default === 1 ? 1 : 0) - (a.is_default === 1 ? 1 : 0) ||
+      (a.currency || '').localeCompare(b.currency || ''));
+  });
+  return Array.from(groups.entries());
+}
+
+// "Vietnam Joint Stock … (VietinBank) – Branch 9 Ho Chi Minh City" → VietinBank / Branch 9 Ho Chi Minh City.
+// Full legal name stays in the card tooltip.
+function shortBankName(full: string): { name: string; branch: string | null } {
+  const [head, ...rest] = full.split(/\s+[–—-]\s+/);
+  const branch = rest.length ? rest.join(' – ') : null;
+  // Only long legal names collapse to their bracketed short form; "VTB Bank (PJSC)" stays as is.
+  const abbr = head.length > 40 ? head.match(/\(([^)]+)\)/) : null;
+  return { name: abbr ? abbr[1] : head, branch };
+}
+
 function formatDate(unix: number): string {
   return new Date(unix * 1000).toISOString().split('T')[0]!;
 }
@@ -783,83 +809,115 @@ export default function FinanceTransactionsPage() {
         </div>
       </div>
 
-      {/* Our bank accounts — Modulbank DEE · Wio DEI · Chase HK DEI · … */}
+      {/* Our bank accounts — one section per company, one even grid per section */}
       {!loading && accounts.length > 0 && (
-        <div className="mb-6">
+        <div className="mb-8">
           <div style={{
-            fontSize: '12px', fontWeight: 700, color: 'var(--fg-2)',
-            textTransform: 'uppercase', letterSpacing: '0', marginBottom: '10px',
+            fontSize: '13px', fontWeight: 800, color: 'var(--fg-1)',
+            textTransform: 'uppercase', letterSpacing: '0', marginBottom: '16px',
           }}>
             Our bank accounts
           </div>
-          <div className="flex flex-wrap gap-3">
-            {accounts.map((acc) => {
-              const bankLabel =
-                acc.bank_name ||
-                acc.bank_provider_name ||
-                acc.bank_legal_name ||
-                'Bank';
-              const selected = accountFilter === acc.id;
-              return (
-                <button
-                  key={acc.id}
-                  type="button"
-                  onClick={() => setAccountFilter(selected ? 'all' : acc.id)}
-                  title={acc.notes ?? undefined}
-                  style={{
-                    border: selected ? '2px solid var(--fg-1)' : '1px solid var(--line-1)',
-                    borderRadius: 'var(--radius-sm)',
-                    backgroundColor: 'var(--paper)',
-                    padding: '12px 14px',
-                    minWidth: '220px',
-                    maxWidth: '320px',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div className="flex items-center justify-between gap-2" style={{ marginBottom: '6px' }}>
-                    <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--fg-2)' }}>
-                      {acc.company_abbreviation}
-                      {acc.is_default === 1 ? ' · default' : ''}
-                    </span>
-                    <span style={{
-                      fontSize: '11px', fontWeight: 700,
-                      padding: '2px 8px',
-                      borderRadius: '999px',
-                      backgroundColor: 'var(--paper-sunk)',
-                      color: 'var(--fg-1)',
-                    }}>
-                      {acc.currency}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)', marginBottom: '4px' }}>
-                    {bankLabel}
-                  </div>
-                  <div style={{
-                    fontSize: '13px', fontWeight: 600, color: 'var(--fg-1)',
-                    fontFamily: 'Manrope, ui-monospace, monospace', wordBreak: 'break-all',
-                  }}>
-                    {acc.account_number}
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--fg-2)', marginTop: '6px' }}>
-                    {[
-                      acc.bank_swift ? `SWIFT ${acc.bank_swift}` : null,
-                      acc.bank_code ? `code ${acc.bank_code}` : null,
-                      acc.branch_number ? `br ${acc.branch_number}` : null,
-                      acc.routing_number ? `rt ${acc.routing_number}` : null,
-                      acc.api_enabled === 1 ? 'API' : 'manual',
-                    ].filter(Boolean).join(' · ')}
-                  </div>
-                  {acc.bank_address && (
-                    <div style={{ fontSize: '11px', color: 'var(--fg-3)', marginTop: '4px' }}>
-                      {acc.bank_address}
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          <p style={{ fontSize: '12px', color: 'var(--fg-3)', marginTop: '8px' }}>
+          {groupAccountsByCompany(accounts).map(([company, list]) => (
+            <section key={company} style={{ marginBottom: '20px' }}>
+              <div className="flex items-baseline gap-2" style={{
+                borderBottom: '1px solid var(--line-1)', paddingBottom: '6px', marginBottom: '12px',
+              }}>
+                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--fg-1)' }}>{company}</span>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--fg-2)' }}>
+                  {list.length}&nbsp;{list.length === 1 ? 'account' : 'accounts'}
+                </span>
+              </div>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))',
+                gap: '12px',
+                alignItems: 'stretch',
+              }}>
+                {list.map((acc) => {
+                  const fullName =
+                    acc.bank_name ||
+                    acc.bank_provider_name ||
+                    acc.bank_legal_name ||
+                    'Bank';
+                  const { name: bankName, branch } = shortBankName(fullName);
+                  const selected = accountFilter === acc.id;
+                  return (
+                    <button
+                      key={acc.id}
+                      type="button"
+                      onClick={() => setAccountFilter(selected ? 'all' : acc.id)}
+                      title={[fullName, acc.notes].filter(Boolean).join('\n')}
+                      className="flex flex-col"
+                      style={{
+                        border: selected ? '2px solid var(--fg-1)' : '1px solid var(--line-1)',
+                        borderRadius: 'var(--radius-sm)',
+                        backgroundColor: 'var(--paper)',
+                        padding: selected ? '13px 15px' : '14px 16px',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        minWidth: 0,
+                      }}
+                    >
+                      <div className="flex items-center gap-2" style={{ marginBottom: '10px' }}>
+                        <span style={{
+                          fontSize: '12px', fontWeight: 800,
+                          padding: '2px 10px', borderRadius: '999px',
+                          backgroundColor: 'var(--fg-1)', color: 'var(--paper)',
+                        }}>
+                          {acc.currency}
+                        </span>
+                        {acc.is_default === 1 && (
+                          <span style={{
+                            fontSize: '12px', fontWeight: 700,
+                            padding: '2px 10px', borderRadius: '999px',
+                            backgroundColor: 'var(--paper-sunk)', color: 'var(--fg-1)',
+                          }}>
+                            default
+                          </span>
+                        )}
+                        <span style={{ marginLeft: 'auto', fontSize: '12px', fontWeight: 700, color: 'var(--fg-2)' }}>
+                          {acc.api_enabled === 1 ? 'API' : 'manual'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--fg-1)', lineHeight: 1.3 }}>
+                        {bankName}
+                      </div>
+                      {branch && (
+                        <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--fg-2)', marginTop: '2px' }}>
+                          {branch}
+                        </div>
+                      )}
+                      <div style={{
+                        fontSize: '16px', fontWeight: 700, color: 'var(--fg-1)',
+                        fontVariantNumeric: 'tabular-nums', wordBreak: 'break-all',
+                        marginTop: '10px',
+                      }}>
+                        {acc.account_number}
+                      </div>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--fg-2)', marginTop: '4px' }}>
+                        {[
+                          acc.bank_swift ? `SWIFT\u00a0${acc.bank_swift}` : null,
+                          acc.bank_code ? `code\u00a0${acc.bank_code}` : null,
+                          acc.branch_number ? `br\u00a0${acc.branch_number}` : null,
+                          acc.routing_number ? `rt\u00a0${acc.routing_number}` : null,
+                        ].filter(Boolean).join(' · ')}
+                      </div>
+                      {acc.bank_address && (
+                        <div style={{
+                          fontSize: '12px', fontWeight: 500, color: 'var(--fg-2)',
+                          marginTop: 'auto', paddingTop: '10px',
+                        }}>
+                          {acc.bank_address}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+          <p style={{ fontSize: '13px', color: 'var(--fg-2)', marginTop: '4px' }}>
             Click a card to filter transactions. DEI: Wio (UAE) and Chase HK are both active — pick one bank block per invoice.
           </p>
         </div>

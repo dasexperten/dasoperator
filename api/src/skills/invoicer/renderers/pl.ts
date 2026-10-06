@@ -9,7 +9,7 @@ import {
   buildBrandBar, buildDeliveryBankTable, buildMetaRow, buildPartyTable, buildProductTable,
   buildPartyLineBlock, buildSignature, buildTitle, formatDate, p, pickLineLabel,
   t, tBilingual, type RenderLanguage,
-  type ProductCell,
+  type ProductCell, DOC_STYLES,
 } from './shared';
 import { AlignmentType } from 'docx';
 
@@ -170,6 +170,7 @@ export async function renderPackingList(input: RenderPlInput): Promise<Uint8Arra
   });
 
   const doc = new Document({
+    styles: DOC_STYLES,
     creator: 'dasoperator-api',
     title: `Packing List ${input.reference}`,
     sections: [{

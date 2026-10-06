@@ -25,7 +25,8 @@
 
 import {
   AlignmentType, BorderStyle, Document, Packer, PageOrientation, Paragraph,
-  ImageRun, ShadingType, Table, TableCell, TableLayoutType, TableRow, TextRun,
+  HorizontalPositionAlign, HorizontalPositionRelativeFrom, ImageRun, LineRuleType, ShadingType, TextWrappingType,
+  VerticalPositionRelativeFrom, Table, TableCell, TableLayoutType, TableRow, TextRun,
   VerticalAlign, WidthType,
 } from 'docx';
 
@@ -107,7 +108,7 @@ const HAIRLINE_BORDERS = {
 } as const;
 
 const CELL_MARGINS_PARTY = {
-  top: 80, bottom: 80, left: 120, right: 120,
+  top: 40, bottom: 40, left: 120, right: 120,
 } as const;
 
 const CELL_MARGINS_TABLE = {
@@ -247,15 +248,27 @@ interface ParaOpts {
   align?: Alignment;
   spaceAfter?: number;    // default 0 — most lines stay tight
   spaceBefore?: number;
+  lineSize?: number;      // largest run size in the paragraph when runs differ (half-points)
+}
+
+// Line height is EXACT at 1.2 x the text size. On "auto" the viewer takes the line height
+// from the font's own metrics: Pages, which substitutes Calibri on macOS, opened every party
+// and bank line at almost double height and pushed the IS onto a second page (Owner 06.10.2026).
+// 1 half-point = 10 twips, so 1.2 x size = size * 12 twips.
+function exactLine(halfPoints: number): number {
+  return Math.round(halfPoints * 12);
 }
 
 function makeParagraph(runs: TextRun[], opts: ParaOpts = {}): Paragraph {
-  const para: Record<string, unknown> = { children: runs };
+  // Every paragraph names the Normal style explicitly: docx does not mark our Normal as the
+  // default style, and Pages only honours a style it is told about (see DOC_STYLES).
+  const para: Record<string, unknown> = { children: runs, style: 'Normal' };
   if (opts.align !== undefined) para.alignment = opts.align;
   para.spacing = {
     before: opts.spaceBefore ?? 0,
     after: opts.spaceAfter ?? 0,
-    line: 240,
+    line: exactLine(opts.lineSize ?? opts.size ?? 16),
+    lineRule: LineRuleType.EXACT,
   };
   return new Paragraph(para as never);
 }
@@ -268,12 +281,48 @@ function makeRun(text: string, opts: ParaOpts = {}): TextRun {
   return new TextRun(r as never);
 }
 
+// Base paragraph style for every invoicer document. Without a "Normal" style Pages falls back to
+// its own 11 pt Helvetica body for each line: it ignored our spacing and right alignment, opened
+// every cell line double-spaced and pushed the IS onto two pages (Owner 06.10.2026). Word and
+// Quick Look were unaffected. Pass as `styles: DOC_STYLES` to `new Document`.
+export const DOC_STYLES = {
+  default: {
+    document: {
+      run: { font: 'Calibri', size: 16 },
+      paragraph: { spacing: { before: 0, after: 0, line: 240 } },
+    },
+  },
+  paragraphStyles: [{
+    id: 'Normal',
+    name: 'Normal',
+    quickFormat: true,
+    run: { font: 'Calibri', size: 16 },
+    paragraph: { spacing: { before: 0, after: 0, line: 240 } },
+  }],
+};
+
 export function p(text: string, opts: ParaOpts = {}): Paragraph {
   return makeParagraph([makeRun(text, opts)], opts);
 }
 
 export function blank(): Paragraph {
   return makeParagraph([new TextRun('')], { size: 12, spaceAfter: 0 });
+}
+
+// A block of lines inside one cell is ONE paragraph with line breaks, not one paragraph per line.
+// Pages lays out every paragraph inside a table cell with its own body spacing and ignores the
+// spacing we set, so separate paragraphs opened as double-spaced blocks and pushed the IS onto a
+// second page (Owner 06.10.2026: «the lines could be more compact to fit everything on one page»).
+export interface Line { text: string; opts?: ParaOpts }
+
+export function lineBlock(lines: Line[]): Paragraph {
+  const runs: TextRun[] = [];
+  lines.forEach((l, i) => {
+    if (i > 0) runs.push(new TextRun({ break: 1 }));
+    runs.push(makeRun(l.text, { size: 16, ...l.opts }));
+  });
+  const maxSize = Math.max(16, ...lines.map((l) => l.opts?.size ?? 16));
+  return makeParagraph(runs.length ? runs : [new TextRun('')], { size: maxSize });
 }
 
 // =============================================================================
@@ -289,7 +338,7 @@ export function buildBrandBar(): Paragraph {
   // Thin red accent rule under the title — Das Experten brand signature.
   return makeParagraph(
     [makeRun('▬▬▬▬▬▬▬▬▬▬▬▬▬', { size: 14, bold: true, color: BRAND_ROT })],
-    { align: AlignmentType.LEFT, spaceAfter: 160 }
+    { align: AlignmentType.LEFT, spaceAfter: 80, lineSize: 14 }
   );
 }
 
@@ -306,7 +355,7 @@ export function buildMetaRow(items: MetaItem[]): Paragraph {
     runs.push(makeRun('  ', { size: 14 }));
     runs.push(makeRun(item.value, { size: 18, bold: true, color: BRAND_ANTHRACITE }));
   });
-  return makeParagraph(runs, { align: AlignmentType.LEFT, spaceAfter: 240 });
+  return makeParagraph(runs, { align: AlignmentType.LEFT, spaceAfter: 120, lineSize: 18 });
 }
 
 // =============================================================================
@@ -314,24 +363,24 @@ export function buildMetaRow(items: MetaItem[]): Paragraph {
 // =============================================================================
 
 function partyContent(label: string, party: RenderParty, language: Language): Paragraph[] {
-  const out: Paragraph[] = [];
+  const out: Line[] = [];
   // Label: 9pt bold, small space after
-  out.push(p(label, { bold: true, size: 18, spaceAfter: 60 }));
+  const labelPara = p(label, { bold: true, size: 18, spaceAfter: 60 });
 
   // Names — bold primary line, lighter secondary
   if (language === 'BILINGUAL') {
-    if (party.legalNameEn) out.push(p(party.legalNameEn, { bold: true, size: 16 }));
+    if (party.legalNameEn) out.push({ text: party.legalNameEn, opts: { bold: true, size: 16 } });
     if (party.legalNameLocal && party.legalNameLocal !== party.legalNameEn) {
-      out.push(p(party.legalNameLocal, { size: 16 }));
+      out.push({ text: party.legalNameLocal, opts: { size: 16 } });
     }
-    if (party.legalNameCn) out.push(p(party.legalNameCn, { size: 16 }));
+    if (party.legalNameCn) out.push({ text: party.legalNameCn, opts: { size: 16 } });
   } else if (language === 'RU') {
-    out.push(p(party.legalNameLocal ?? party.legalNameEn ?? '', { bold: true, size: 16 }));
+    out.push({ text: party.legalNameLocal ?? party.legalNameEn ?? '', opts: { bold: true, size: 16 } });
     if (party.legalNameEn && party.legalNameEn !== party.legalNameLocal) {
-      out.push(p(party.legalNameEn, { italic: true, size: 14, color: '666666' }));
+      out.push({ text: party.legalNameEn, opts: { italic: true, size: 14, color: '666666' } });
     }
   } else {
-    out.push(p(party.legalNameEn ?? party.legalNameLocal ?? '', { bold: true, size: 16 }));
+    out.push({ text: party.legalNameEn ?? party.legalNameLocal ?? '', opts: { bold: true, size: 16 } });
   }
 
   // Address
@@ -340,9 +389,9 @@ function partyContent(label: string, party: RenderParty, language: Language): Pa
   const primaryAddr = (language === 'RU')
     ? (party.addressLocal ?? party.addressEn)
     : (party.addressEn ?? party.addressLocal);
-  if (primaryAddr) out.push(p(primaryAddr, { size: 16 }));
+  if (primaryAddr) out.push({ text: primaryAddr, opts: { size: 16 } });
   if (language === 'BILINGUAL' && showLocalAddr && party.addressLocal) {
-    out.push(p(party.addressLocal, { size: 16 }));
+    out.push({ text: party.addressLocal, opts: { size: 16 } });
   }
 
   // Tax / registration IDs
@@ -356,10 +405,10 @@ function partyContent(label: string, party: RenderParty, language: Language): Pa
   if (idLine.length === 0 && party.registrationNo) {
     idLine.push(language === 'RU' ? `Рег. № ${party.registrationNo}` : `Reg. No ${party.registrationNo}`);
   }
-  if (idLine.length) out.push(p(idLine.join(', '), { size: 16 }));
+  if (idLine.length) out.push({ text: idLine.join(', '), opts: { size: 16 } });
 
-  if (party.email) out.push(p(`Email: ${party.email}`, { size: 16 }));
-  return out;
+  if (party.email) out.push({ text: `Email: ${party.email}`, opts: { size: 16 } });
+  return [labelPara, lineBlock(out)];
 }
 
 // =============================================================================
@@ -448,7 +497,7 @@ export function buildPartyLineBlock(spec: PartyLineBlockSpec): Table {
             borders: NO_BORDERS,
             children: [
               p(spec.label, { bold: true, size: 18, spaceAfter: 60 }),
-              ...spec.lines.map((line) => p(line, { size: 16 })),
+              lineBlock(spec.lines.map((text) => ({ text }))),
             ],
           }),
         ],
@@ -475,21 +524,21 @@ export interface DeliveryBankTableSpec {
   rightLines?: string[];
 }
 
-function bankContent(bank: RenderBank, language: Language): Paragraph[] {
-  const out: Paragraph[] = [];
-  out.push(p(`${language === 'RU' ? 'Получатель' : 'Beneficiary'}: ${bank.accountHolder}`, { size: 16 }));
-  out.push(p(bank.bankName, { size: 16 }));
-  if (bank.bankAddress) out.push(p(bank.bankAddress, { size: 16 }));
+function bankContent(bank: RenderBank, language: Language): Line[] {
+  const out: Line[] = [];
+  out.push({ text: `${language === 'RU' ? 'Получатель' : 'Beneficiary'}: ${bank.accountHolder}` });
+  out.push({ text: bank.bankName });
+  if (bank.bankAddress) out.push({ text: bank.bankAddress });
   if (bank.accountNumber) {
-    out.push(p(`${language === 'RU' ? 'Счёт' : 'Account'}: ${bank.accountNumber}`, { size: 16 }));
+    out.push({ text: `${language === 'RU' ? 'Счёт' : 'Account'}: ${bank.accountNumber}` });
   }
-  if (bank.iban) out.push(p(`IBAN: ${bank.iban}`, { size: 16 }));
-  if (bank.swift) out.push(p(`SWIFT: ${bank.swift}`, { size: 16 }));
-  if (bank.bik) out.push(p(`БИК: ${bank.bik}`, { size: 16 }));
+  if (bank.iban) out.push({ text: `IBAN: ${bank.iban}` });
+  if (bank.swift) out.push({ text: `SWIFT: ${bank.swift}` });
+  if (bank.bik) out.push({ text: `БИК: ${bank.bik}` });
   if (bank.correspondentAccount) {
-    out.push(p(`${language === 'RU' ? 'Корр. счёт' : 'Correspondent account'}: ${bank.correspondentAccount}`, { size: 16 }));
+    out.push({ text: `${language === 'RU' ? 'Корр. счёт' : 'Correspondent account'}: ${bank.correspondentAccount}` });
   }
-  out.push(p(`${language === 'RU' ? 'Валюта' : 'Currency'}: ${bank.currency}`, { size: 16 }));
+  out.push({ text: `${language === 'RU' ? 'Валюта' : 'Currency'}: ${bank.currency}` });
   return out;
 }
 
@@ -497,19 +546,19 @@ export function buildDeliveryBankTable(spec: DeliveryBankTableSpec): Table {
   const half = Math.floor(spec.totalWidthDxa / 2);
   const leftChildren: Paragraph[] = [
     p(spec.deliveryHeader, { bold: true, size: 18, spaceAfter: 60 }),
-    ...spec.deliveryLines.map((line) => p(line, { size: 16 })),
+    lineBlock(spec.deliveryLines.map((text) => ({ text }))),
   ];
 
   let rightChildren: Paragraph[];
   if (spec.bank && spec.bankHeader) {
     rightChildren = [
       p(spec.bankHeader, { bold: true, size: 18, spaceAfter: 60 }),
-      ...bankContent(spec.bank, spec.language),
+      lineBlock(bankContent(spec.bank, spec.language)),
     ];
   } else if (spec.rightLines && spec.rightHeader) {
     rightChildren = [
       p(spec.rightHeader, { bold: true, size: 18, spaceAfter: 60 }),
-      ...spec.rightLines.map((line) => p(line, { size: 16 })),
+      lineBlock(spec.rightLines.map((text) => ({ text }))),
     ];
   } else {
     rightChildren = [p('', { size: 16 })];
@@ -648,37 +697,59 @@ export function buildSignature(sig: RenderSignature, language: Language): Paragr
   const titleLine = language === 'RU'
     ? titleRu
     : (language === 'BILINGUAL' ? `${titleEn} / ${titleRu} / 盖章` : titleEn);
+
+  // Signature block at the right end of the page: hand signature, then title and name, and the
+  // stamp floats OVER that text the way a real stamp is pressed onto a signed page (Owner
+  // 06.10.2026: «as if it is stamped on the text», «just as a normal stamp size and the name
+  // size»). Plain paragraphs, not a table: Pages drops images that float inside a table cell.
+  // Sizes are px at 96 dpi: 132 px = 3.5 cm stamp circle, 150 px = 4 cm signature. Only the
+  // combined DEI scan (signature baked into the stamp) keeps the larger width the Owner asked
+  // for on 16.09 and stays inline.
+  const CM = 360000; // EMU per cm
+  const scaled = (s: NonNullable<RenderSignature['stamp']>, w: number) => (
+    { width: w, height: Math.round(s.height * w / s.width) }
+  );
   const out: Paragraph[] = [];
-  out.push(p('', { spaceAfter: 200 }));
-  if (sig.stamp) {
-    // Owner requested the authorised combined scan at twice the former size.
-    const w = 600;
-    out.push(new Paragraph({
-      alignment: AlignmentType.RIGHT,
-      children: [new ImageRun({
-        type: sig.stamp.format,
-        data: sig.stamp.data,
-        transformation: { width: w, height: Math.round(sig.stamp.height * w / sig.stamp.width) },
-      })],
+
+  const firstLine: ImageRun[] = [];
+  if (sig.handSignature) {
+    firstLine.push(new ImageRun({
+      type: sig.handSignature.format,
+      data: sig.handSignature.data,
+      transformation: scaled(sig.handSignature, 150),
     }));
-  } else {
+  }
+  if (sig.stamp && sig.stampIncludesHandSignature) {
+    firstLine.push(new ImageRun({
+      type: sig.stamp.format,
+      data: sig.stamp.data,
+      transformation: scaled(sig.stamp, 600),
+    }));
+  }
+  if (firstLine.length) {
+    out.push(new Paragraph({ style: 'Normal', alignment: AlignmentType.RIGHT, children: firstLine }));
+  } else if (!sig.stamp) {
     out.push(p('_______________________', { align: AlignmentType.RIGHT, size: 16 }));
   }
-  if (sig.handSignature) {
-    const w = 220;
-    out.push(new Paragraph({
-      alignment: AlignmentType.RIGHT,
-      children: [new ImageRun({
-        type: sig.handSignature.format,
-        data: sig.handSignature.data,
-        transformation: {
-          width: w,
-          height: Math.round(sig.handSignature.height * w / sig.handSignature.width),
-        },
-      })],
+
+  const titleRuns: (ImageRun | TextRun)[] = [];
+  if (sig.stamp && !sig.stampIncludesHandSignature) {
+    titleRuns.push(new ImageRun({
+      type: sig.stamp.format,
+      data: sig.stamp.data,
+      transformation: scaled(sig.stamp, 132),
+      floating: {
+        horizontalPosition: { relative: HorizontalPositionRelativeFrom.MARGIN, align: HorizontalPositionAlign.RIGHT },
+        verticalPosition: { relative: VerticalPositionRelativeFrom.PARAGRAPH, offset: Math.round(-2.0 * CM) },
+        wrap: { type: TextWrappingType.NONE },
+        allowOverlap: true,
+        behindDocument: false,
+        zIndex: 10,
+      },
     }));
   }
-  out.push(p(titleLine, { bold: true, size: 18, align: AlignmentType.RIGHT }));
+  titleRuns.push(makeRun(titleLine, { bold: true, size: 18 }));
+  out.push(new Paragraph({ style: 'Normal', alignment: AlignmentType.RIGHT, children: titleRuns }));
   if (sig.name) out.push(p(sig.name, { size: 16, align: AlignmentType.RIGHT }));
   return out;
 }

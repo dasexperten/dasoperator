@@ -13,7 +13,7 @@ import {
   buildPartyTable, buildProductTable, buildSignature, formatDate,
   formatMoney, p, pickLineLabel, trilingual,
   type ProductCell,
-  BRAND_ANTHRACITE, BRAND_ROT,
+  BRAND_ANTHRACITE, BRAND_ROT, DOC_STYLES,
 } from './shared';
 
 // Compact local layout — IS-V2 must fit on one landscape page.
@@ -192,6 +192,7 @@ export async function renderInvoiceSpecPastes(input: RenderIsV2Input): Promise<U
   });
 
   const doc = new Document({
+    styles: DOC_STYLES,
     creator: 'dasoperator-api',
     title: `IS-V2 ${input.reference}`,
     sections: [{

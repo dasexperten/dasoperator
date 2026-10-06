@@ -10,7 +10,7 @@ import {
   RenderParty, RenderSignature, bilingual, blank, buildDeliveryBankTable,
   buildMetaRow, buildPartyTable, buildProductTable, buildSignature, buildBrandBar, buildTitle,
   formatDate, formatMoney, pickLineLabel, trilingual,
-  type ProductCell,
+  type ProductCell, DOC_STYLES,
 } from './shared';
 
 export interface RenderIsV1Input {
@@ -76,16 +76,16 @@ export async function renderInvoiceSpecBrushes(input: RenderIsV1Input): Promise<
       : {}),
   });
 
-  // Product table — 10 cols, sum 15400 DXA.
+  // Product table — 10 cols, sum 15400 DXA. Description is the widest so each line stays on one row.
   // [#, HS Code, Origin, Description, Qty pcs, Cartons, Net kg, Gross kg, Price, Amount]
-  const widths = [400, 1200, 1100, 5400, 1100, 1000, 1100, 1100, 1100, 1900];
+  const widths = [400, 1100, 1100, 6000, 900, 1000, 1000, 1000, 1200, 1700];
   const headers = [
     { text: '#', align: 'center' as const },
     { text: 'HS Code', align: 'center' as const },
     { text: bilingual('Origin', 'Страна'), align: 'center' as const },
     { text: bilingual('Description', 'Описание'), align: 'left' as const },
     { text: bilingual('Qty (pcs)', 'Кол-во'), align: 'right' as const },
-    { text: bilingual('Cartons', 'Кор-ов'), align: 'right' as const },
+    { text: bilingual('Cartons', 'Кор\u2011ов'), align: 'right' as const },
     { text: bilingual('Net (kg)', 'Нетто'), align: 'right' as const },
     { text: bilingual('Gross (kg)', 'Брутто'), align: 'right' as const },
     { text: bilingual('Price', 'Цена'), align: 'right' as const },
@@ -148,6 +148,7 @@ export async function renderInvoiceSpecBrushes(input: RenderIsV1Input): Promise<
   });
 
   const doc = new Document({
+    styles: DOC_STYLES,
     creator: 'dasoperator-api',
     title: `IS-V1 ${input.reference}`,
     sections: [{

@@ -11,7 +11,7 @@ import {
   RenderSignature, blank, buildBrandBar, buildDeliveryBankTable, buildMetaRow, buildPartyTable,
   buildPartyLineBlock, buildProductTable, buildSignature, buildTitle, formatDate, formatMoney,
   formatUnitPrice, pickLineLabel,
-  type ProductCell,
+  type ProductCell, DOC_STYLES,
 } from './shared';
 
 export interface RenderCiInput {
@@ -163,6 +163,7 @@ export async function renderCommercialInvoice(input: RenderCiInput): Promise<Uin
   });
 
   const doc = new Document({
+    styles: DOC_STYLES,
     creator: 'dasoperator-api',
     title: `Commercial Invoice ${input.reference}`,
     sections: [{

@@ -16,13 +16,12 @@ binding = "DOCS"
 bucket_name = "das-erp-docs-dev"
 
 [vars]
-# UAT: SoftDreams demo tenant. Verified 2026-09-25 over HTTPS with a valid
-# certificate (status call answered Status 2). api.easyinvoice.vn is the
-# production host; the demo account answers 176 there. Switch back to
-# https://api.easyinvoice.vn only together with production credentials.
-EASYINVOICE_BASE_URL = "https://appdemo.softdreams.vn"
+# Production account supplied by SoftDreams on 2026-10-07.
+# Keep issuance disabled until the assigned production pattern and HSM are verified.
+EASYINVOICE_BASE_URL = "https://api.easyinvoice.vn"
 EASYINVOICE_ENABLED = "0"
-EASYINVOICE_PATTERN = "1C26TAA"
+# Production template has not been supplied/verified; never reuse the demo template.
+EASYINVOICE_PATTERN = ""
 # Circular 78 combines the former template and symbol in Pattern. EasyInvoice
 # v8 requires an explicitly empty Serial for patterns such as 1C26TAA.
 EASYINVOICE_SERIAL = ""

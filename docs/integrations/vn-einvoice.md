@@ -112,12 +112,19 @@ accepted. Provider behaviour the connector now follows:
   product-level `Amount` is not declared); the schema is requested from
   SoftDreams.
 
-## Current readiness
+## Production connection 2026-10-07
 
-The connector is intentionally deployed disabled. The supplied sandbox host
-does not present a certificate valid for its hostname, and the shared HTTPS API
-reports that this tenant is not initialized. No invoice may be issued until
-SoftDreams resolves those provider-side items.
+SoftDreams supplied the production account for tax code 0319132917 in
+`0319132917_Prod.txt`. A read-only `checkInvoiceState` call to
+`https://api.easyinvoice.vn` authenticated successfully (Status 2, Ok);
+a deliberately nonexistent Ikey returned -1. No invoice was created.
+
+The production endpoint is configured, with issuance disabled until the
+assigned production pattern and HSM activation are verified. The demo
+pattern must not be assumed to apply to production. Credentials are held
+in both private vaults and Worker secret bindings, never in this repository.
+Rollback: keep `EASYINVOICE_ENABLED=0`; restore the previous demo host and
+vaulted demo credentials only if a return to demo is needed.
 
 ## Demo acceptance route
 

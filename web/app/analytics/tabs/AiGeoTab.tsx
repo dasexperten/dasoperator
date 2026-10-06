@@ -6,6 +6,9 @@
 // HARD: demo marker when demo=true; never invent crawler counts.
 // =============================================================================
 
+import SiteSeoBlock from '@/components/home/site-seo-block';
+import AiVisibilityOverview from '@/components/home/ai-visibility-overview';
+import AiPanelOverview from '@/components/home/ai-panel-overview';
 import React from 'react';
 import {
   useApi, fmtNum, timeAgo, Panel, LoadState, SourceChip, Kpi,
@@ -78,6 +81,11 @@ export default function AiGeoTab() {
 
   return (
     <div className="space-y-4">
+      {/* Moved from the ERP home page, Owner 2026-10-06. */}
+      <SiteSeoBlock />
+      <AiVisibilityOverview />
+      <AiPanelOverview />
+
       {/* Our own nightly measurement comes first: it is the only source here that
           reports what happened rather than what an outside tool estimates, and it
           needs nobody's approval to run (Owner 2026-09-12). Ubersuggest authority

@@ -8,7 +8,7 @@ import { Fragment, useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Search, Loader2, Plus, X, Trash2, Upload, CheckCircle2, Mail, Building2, AlertCircle, Send } from 'lucide-react';
 import {
-  getOperations, deleteOperation, updateOperationStatus, getPayments,
+  apiGet, getOperations, deleteOperation, updateOperationStatus, getPayments,
   uploadOperationDocument,
   createOperationFromDocument,
   getPartners, getManufacturers, getCompanies, getWarehouses,
@@ -99,6 +99,7 @@ function threadKey(op: Operation): string {
     const mp = (op as { marketplace?: 'OZN' | 'WB' }).marketplace;
     return mp === 'WB' ? 'mp:wb' : mp === 'OZN' ? 'mp:ozon' : 'mp:batch';
   }
+  if (isMonthlyRollup(op)) return `m:${op.id}`; // every month is its own line
   const { label, partnerId } = resolvePartnerLabel(op);
   return partnerId ? `p:${partnerId}` : `l:${label}`;
 }
@@ -738,30 +739,87 @@ export default function OperationsPage() {
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  // Monthly roll-ups (TBANK-YYYYMM): one line per month, its dropdown lists the
-  // orders that make the amount (Owner 2026-10-07). STRIPE months get no second
-  // dropdown: the partner thread already opens them (Owner 2026-10-07).
+  // Monthly roll-ups (TBANK-YYYYMM, STRIPE-YYYYMM): each month is its own line with
+  // the month name; one triangle on it lists the month's orders, newest first —
+  // T-Bank order numbers, Stripe buyer and country from the .com shop (Owner 2026-10-07).
   const [ordersOpen, setOrdersOpen] = useState<Set<string>>(new Set());
   const [ordersOf, setOrdersOf] = useState<Record<string, Payment[] | 'loading' | 'error'>>({});
-  function toggleOrders(opId: string) {
+  function toggleOrders(opId: string, stripe = false) {
     setOrdersOpen((prev) => {
       const next = new Set(prev);
       if (next.has(opId)) next.delete(opId); else next.add(opId);
       return next;
     });
+    if (stripe) { loadSiteOrders(); return; }
     if (ordersOf[opId] && ordersOf[opId] !== 'error') return;
     setOrdersOf((prev) => ({ ...prev, [opId]: 'loading' }));
     getPayments({ operation_id: opId })
       .then((r) => setOrdersOf((prev) => ({
         ...prev,
         [opId]: r.success && r.result
-          ? [...r.result.payments].sort((a, b) => a.payment_date - b.payment_date)
+          ? [...r.result.payments].sort((a, b) => b.payment_date - a.payment_date)
           : 'error',
       })))
       .catch(() => setOrdersOf((prev) => ({ ...prev, [opId]: 'error' })));
   }
 
+  // dasexperten.com orders (Stripe): loaded once, split by the month they were placed.
+  const [siteOrders, setSiteOrders] = useState<SiteOrder[] | 'loading' | 'error' | undefined>(undefined);
+  function loadSiteOrders() {
+    if (siteOrders && siteOrders !== 'error') return;
+    setSiteOrders('loading');
+    (async () => {
+      const all: SiteOrder[] = [];
+      for (let page = 1; page <= 50; page++) {
+        const r = await apiGet<{ orders: SiteOrder[]; pagination: { total_pages: number } }>(
+          `/api/crm/website/orders?limit=100&page=${page}&sort=date&dir=asc`);
+        if (!r.success || !r.result) throw new Error('site orders');
+        all.push(...r.result.orders);
+        if (page >= r.result.pagination.total_pages) break;
+      }
+      setSiteOrders(all);
+    })().catch(() => setSiteOrders('error'));
+  }
+
+  function renderStripeOrders(op: Operation) {
+    if (siteOrders === 'loading' || siteOrders === undefined) {
+      return <div style={{ fontSize: '13px', color: 'var(--fg-3)', padding: '6px 0' }}>Loading orders…</div>;
+    }
+    if (siteOrders === 'error') {
+      return <div style={{ fontSize: '13px', color: 'var(--brand-rot)', padding: '6px 0' }}>Could not load the orders</div>;
+    }
+    const ym = (op.reference ?? '').slice(-6);
+    const list = siteOrders.filter((o) => o.status === 'paid' && o.created_at.slice(0, 7).replace('-', '') === ym)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+    if (list.length === 0) {
+      return <div style={{ fontSize: '13px', color: 'var(--fg-3)', padding: '6px 0' }}>No orders this month</div>;
+    }
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {list.map((o) => (
+          <div key={o.number} style={{
+            display: 'flex', justifyContent: 'space-between', gap: '12px',
+            padding: '6px 0', borderBottom: '1px solid var(--border-hairline)',
+            fontSize: '13px', whiteSpace: 'nowrap',
+          }}>
+            <span style={{ display: 'inline-flex', gap: '16px', minWidth: 0 }}>
+              <span style={{ color: 'var(--fg-3)' }}>{o.created_at.slice(0, 10)}</span>
+              <span style={{ color: 'var(--fg-1)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {o.customer_name}
+              </span>
+              <span style={{ color: 'var(--fg-3)', fontWeight: 700 }}>{(o.ship_country ?? '').toUpperCase()}</span>
+            </span>
+            <span style={{ color: 'var(--fg-1)', fontWeight: 700 }}>
+              {`${formatMoney(o.total_cents / 100, o.currency)}\u00A0${o.currency}`}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   function renderOrderLines(op: Operation) {
+    if (isStripeMonth(op)) return renderStripeOrders(op);
     const list = ordersOf[op.id];
     if (list === 'loading' || list === undefined) {
       return <div style={{ fontSize: '13px', color: 'var(--fg-3)', padding: '6px 0' }}>Loading orders…</div>;
@@ -807,7 +865,7 @@ export default function OperationsPage() {
     const ps = op.payment_state ?? 'neutral';
     // Transfers don't have payment — neutral amount colour regardless of payment_state
     const amountColor = op.operation_type === 'transfer' ? 'var(--fg-1)' : (AMOUNT_PAYMENT_COLOR[ps] ?? 'var(--fg-1)');
-    const { label: partnerLabel } = resolvePartnerLabel(op);
+    const partnerLabel = isMonthlyRollup(op) ? rollupMonthLabel(op) : resolvePartnerLabel(op).label;
     const isBatchRow = (op as { is_batch?: boolean }).is_batch === true;
     const clusterCount = (op as { cluster_count?: number }).cluster_count ?? null;
     const href = isBatchRow ? `/operations/batch/${op.id}` : `/operations/${op.id}`;
@@ -833,9 +891,6 @@ export default function OperationsPage() {
             <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-2)' }}>
               {op.reference ?? op.id.slice(0, 12)}
             </span>
-            {rollup && (
-              <OrdersToggle open={ordersOpen.has(op.id)} onToggle={() => toggleOrders(op.id)} />
-            )}
             {thread && thread.rest.length > 0 && (
               <ThreadToggle
                 count={thread.rest.length + 1}
@@ -885,6 +940,9 @@ export default function OperationsPage() {
             lineHeight: 1.2,
           }}>
             {isBatchRow ? `transfer · ${clusterCount ?? 0} ${(clusterCount ?? 0) === 1 ? 'cluster' : 'clusters'}` : partnerLabel}
+            {rollup && (
+              <OrdersToggle open={ordersOpen.has(op.id)} onToggle={() => toggleOrders(op.id, isStripeMonth(op))} />
+            )}
           </div>
           {/* Amount — right, colour = payment state. Batches show pcs count. */}
           <div style={{ flexShrink: 0 }}>
@@ -938,22 +996,20 @@ export default function OperationsPage() {
           >
             {op.reference ?? op.id}
           </Link>
-          {rollup && (
-            <OrdersToggle open={ordersOpen.has(op.id)} onToggle={() => toggleOrders(op.id)} />
-          )}
         </td>
         <td className="px-4 py-3" style={{ color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>{formatDate(op.operation_date)}</td>
         {/* v2 manufacturer fallback — deployed 2026-05-11 */}
         <td className="px-4 py-3" style={{ color: 'var(--fg-1)', fontWeight: 700, whiteSpace: 'nowrap' }}>
           {(() => {
-            const { label } = resolvePartnerLabel(op);
+            const label = rollup ? rollupMonthLabel(op) : resolvePartnerLabel(op).label;
+            const filterBy = rollup ? (op.reference ?? '').slice(0, -6) : label;
             return label !== '—' ? (
               <span
                 role="button"
                 tabIndex={0}
-                title={`Show only ${label}`}
-                onClick={() => setSearch(label)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSearch(label); } }}
+                title={`Show only ${filterBy}`}
+                onClick={() => setSearch(filterBy)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSearch(filterBy); } }}
                 style={{ color: 'var(--fg-1)', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '3px', display: 'inline-block', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', verticalAlign: 'bottom' }}
               >
                 {label}
@@ -962,6 +1018,9 @@ export default function OperationsPage() {
               <span>{label}</span>
             );
           })()}
+          {rollup && (
+            <OrdersToggle open={ordersOpen.has(op.id)} onToggle={() => toggleOrders(op.id, isStripeMonth(op))} />
+          )}
           {thread && thread.rest.length > 0 && (
             <ThreadToggle
               count={thread.rest.length + 1}
@@ -1873,9 +1932,31 @@ export default function OperationsPage() {
   );
 }
 
-// Monthly roll-up operations whose payments are the individual orders.
+// Monthly roll-up operations whose payments are the orders or payouts of the month.
 function isMonthlyRollup(op: Operation): boolean {
-  return /^TBANK-\d{6}$/.test(op.reference ?? '');
+  return /^(TBANK|STRIPE)-\d{6}$/.test(op.reference ?? '');
+}
+
+function isStripeMonth(op: Operation): boolean {
+  return /^STRIPE-\d{6}$/.test(op.reference ?? '');
+}
+
+// STRIPE-202510 → "October 2025": the month stands where the counterparty would.
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+  'August', 'September', 'October', 'November', 'December'];
+function rollupMonthLabel(op: Operation): string {
+  const m = /(\d{4})(\d{2})$/.exec(op.reference ?? '');
+  return m ? `${MONTH_NAMES[Number(m[2]) - 1]} ${m[1]}` : '—';
+}
+
+interface SiteOrder {
+  number: string;
+  customer_name: string;
+  ship_country: string | null;
+  total_cents: number;
+  currency: string;
+  status: string;
+  created_at: string;
 }
 
 // "T-Kassa · order DE260927-4949" → "DE260927-4949"

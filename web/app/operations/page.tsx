@@ -8,12 +8,12 @@ import { Fragment, useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Search, Loader2, Plus, X, Trash2, Upload, CheckCircle2, Mail, Building2, AlertCircle, Send } from 'lucide-react';
 import {
-  getOperations, deleteOperation, updateOperationStatus,
+  getOperations, deleteOperation, updateOperationStatus, getPayments,
   uploadOperationDocument,
   createOperationFromDocument,
   getPartners, getManufacturers, getCompanies, getWarehouses,
   getOperationDocumentSources, createOperationDocumentSource, deleteOperationDocumentSource,
-  type Operation, type UploadDocResult, type OperationCandidate,
+  type Operation, type Payment, type UploadDocResult, type OperationCandidate,
   type UploadDocPrefill, type CreateFromDocBody,
   type Partner, type Manufacturer, type Company, type Warehouse,
   type OperationDocumentSource,
@@ -737,6 +737,62 @@ export default function OperationsPage() {
   }, [filtered]);
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  // Monthly roll-ups (TBANK-YYYYMM): one line per month, its dropdown lists the
+  // orders that make the amount — one payment per order (Owner 2026-10-07).
+  const [ordersOpen, setOrdersOpen] = useState<Set<string>>(new Set());
+  const [ordersOf, setOrdersOf] = useState<Record<string, Payment[] | 'loading' | 'error'>>({});
+  function toggleOrders(opId: string) {
+    setOrdersOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(opId)) next.delete(opId); else next.add(opId);
+      return next;
+    });
+    if (ordersOf[opId] && ordersOf[opId] !== 'error') return;
+    setOrdersOf((prev) => ({ ...prev, [opId]: 'loading' }));
+    getPayments({ operation_id: opId })
+      .then((r) => setOrdersOf((prev) => ({
+        ...prev,
+        [opId]: r.success && r.result
+          ? [...r.result.payments].sort((a, b) => a.payment_date - b.payment_date)
+          : 'error',
+      })))
+      .catch(() => setOrdersOf((prev) => ({ ...prev, [opId]: 'error' })));
+  }
+
+  function renderOrderLines(op: Operation) {
+    const list = ordersOf[op.id];
+    if (list === 'loading' || list === undefined) {
+      return <div style={{ fontSize: '13px', color: 'var(--fg-3)', padding: '6px 0' }}>Loading orders…</div>;
+    }
+    if (list === 'error') {
+      return <div style={{ fontSize: '13px', color: 'var(--brand-rot)', padding: '6px 0' }}>Could not load the orders</div>;
+    }
+    if (list.length === 0) {
+      return <div style={{ fontSize: '13px', color: 'var(--fg-3)', padding: '6px 0' }}>No orders</div>;
+    }
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {list.map((p) => (
+          <div key={p.id} style={{
+            display: 'flex', justifyContent: 'space-between', gap: '12px',
+            padding: '6px 0', borderBottom: '1px solid var(--border-hairline)',
+            fontSize: '13px', whiteSpace: 'nowrap',
+          }}>
+            <span style={{ display: 'inline-flex', gap: '16px', minWidth: 0 }}>
+              <span style={{ color: 'var(--fg-3)' }}>{formatDate(p.payment_date)}</span>
+              <span style={{ color: 'var(--fg-1)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {orderLabel(p)}
+              </span>
+            </span>
+            <span style={{ color: 'var(--fg-1)', fontWeight: 700 }}>
+              {`${formatMoney(p.amount, p.currency)}\u00A0${p.currency}`}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
   function toggleThread(key: string) {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -754,9 +810,10 @@ export default function OperationsPage() {
     const isBatchRow = (op as { is_batch?: boolean }).is_batch === true;
     const clusterCount = (op as { cluster_count?: number }).cluster_count ?? null;
     const href = isBatchRow ? `/operations/batch/${op.id}` : `/operations/${op.id}`;
+    const rollup = isMonthlyRollup(op);
     return (
+      <Fragment key={`m-${op.id}`}>
       <Link
-        key={`m-${op.id}`}
         href={href}
         className="bg-card"
         style={{
@@ -775,6 +832,9 @@ export default function OperationsPage() {
             <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-2)' }}>
               {op.reference ?? op.id.slice(0, 12)}
             </span>
+            {rollup && (
+              <OrdersToggle open={ordersOpen.has(op.id)} onToggle={() => toggleOrders(op.id)} />
+            )}
             {thread && thread.rest.length > 0 && (
               <ThreadToggle
                 count={thread.rest.length + 1}
@@ -849,6 +909,16 @@ export default function OperationsPage() {
           </div>
         </div>
       </Link>
+      {rollup && ordersOpen.has(op.id) && (
+        <div style={{
+          marginLeft: '16px', padding: '4px 14px',
+          border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)',
+          backgroundColor: 'var(--paper-sunk)',
+        }}>
+          {renderOrderLines(op)}
+        </div>
+      )}
+      </Fragment>
     );
   }
 
@@ -856,8 +926,10 @@ export default function OperationsPage() {
     const tc = TYPE_COLORS[op.operation_type];
     const isBatchRow = (op as { is_batch?: boolean }).is_batch === true;
     const clusterCount = (op as { cluster_count?: number }).cluster_count ?? 0;
+    const rollup = isMonthlyRollup(op);
     return (
-      <tr key={op.id} style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: child ? 'var(--paper-sunk)' : undefined }}>
+      <Fragment key={op.id}>
+      <tr style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: child ? 'var(--paper-sunk)' : undefined }}>
         <td className="px-4 py-3" style={{ fontWeight: 700, color: 'var(--fg-1)', whiteSpace: 'nowrap', paddingLeft: child ? '40px' : undefined }}>
           <Link
             href={isBatchRow ? `/operations/batch/${op.id}` : `/operations/${op.id}`}
@@ -865,6 +937,9 @@ export default function OperationsPage() {
           >
             {op.reference ?? op.id}
           </Link>
+          {rollup && (
+            <OrdersToggle open={ordersOpen.has(op.id)} onToggle={() => toggleOrders(op.id)} />
+          )}
         </td>
         <td className="px-4 py-3" style={{ color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>{formatDate(op.operation_date)}</td>
         {/* v2 manufacturer fallback — deployed 2026-05-11 */}
@@ -991,6 +1066,14 @@ export default function OperationsPage() {
           </div>
         </td>
       </tr>
+      {rollup && ordersOpen.has(op.id) && (
+        <tr style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: 'var(--paper-sunk)' }}>
+          <td colSpan={8} style={{ padding: '4px 16px 8px 40px' }}>
+            <div style={{ maxWidth: '560px' }}>{renderOrderLines(op)}</div>
+          </td>
+        </tr>
+      )}
+      </Fragment>
     );
   }
 
@@ -1786,6 +1869,36 @@ export default function OperationsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// Monthly roll-up operations whose payments are the individual orders.
+function isMonthlyRollup(op: Operation): boolean {
+  return /^TBANK-\d{6}$/.test(op.reference ?? '');
+}
+
+// "T-Kassa · order DE260927-4949" → "DE260927-4949"
+function orderLabel(p: Payment): string {
+  const m = /order\s+(\S+)/.exec(p.notes ?? '');
+  return m ? m[1]! : (p.notes ?? p.id);
+}
+
+// OrdersToggle — the same quiet triangle, opening the orders of a roll-up.
+function OrdersToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      title={open ? 'Hide orders' : 'Show orders'}
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggle(); }}
+      style={{
+        marginLeft: '6px', padding: 0, background: 'transparent', border: 'none',
+        color: 'var(--fg-3)', cursor: 'pointer', fontSize: '11px', lineHeight: 1,
+        whiteSpace: 'nowrap', verticalAlign: 'baseline',
+      }}
+    >
+      {open ? '▴' : '▾'}
+    </button>
   );
 }
 

@@ -9,8 +9,10 @@
 // Yandex Pay and stay with yandex-pay-sale.ts (YANDEXKIT-…) — never counted here.
 //
 // Source: crm_orders_ru (the D1 mirror of the storefront feed), paid orders only.
-// One payment per order with a fixed id, so the run is idempotent and can sit
-// on the frequent erp-ru-orders cron without churning the payments table.
+// Owner 2026-10-07: one line per month, fixed on its LAST day (operation_date),
+// with the T-Bank total; its dropdown lists every order that makes the amount.
+// One payment per paid order with a fixed id (pay_tbank_<order_number>), so the
+// run is idempotent on the frequent erp-ru-orders cron.
 // =============================================================================
 import type { Env } from '../types';
 
@@ -71,11 +73,11 @@ async function rebuildOneMonth(env: Env, y: number, m: number): Promise<TbankMon
   if (existing) {
     operationId = existing.id;
     await env.DB.prepare(
-      `UPDATE operations SET total_amount = ?, notes = ?, updated_at = ? WHERE id = ?`
-    ).bind(total, note, nowTs, operationId).run();
+      `UPDATE operations SET total_amount = ?, notes = ?, operation_date = ?, updated_at = ? WHERE id = ?`
+    ).bind(total, note, Math.floor(Date.UTC(y, m, 0) / 1000), nowTs, operationId).run();
   } else {
     operationId = `op_${crypto.randomUUID()}`;
-    const opDate = Math.floor(Date.UTC(y, m - 1, 1) / 1000);
+    const opDate = Math.floor(Date.UTC(y, m, 0) / 1000); // last day of the month
     await env.DB.prepare(
       `INSERT INTO operations (
         id, operation_date, operation_type, partner_id, our_company_id, contract_id,
@@ -87,8 +89,7 @@ async function rebuildOneMonth(env: Env, y: number, m: number): Promise<TbankMon
     ).run();
   }
 
-  // One payment per paid order with a fixed id. A row changes only when it is
-  // new, revived (order paid again) or its amount moved — so 'added' is real.
+  // A row changes only when it is new, revived or its amount moved.
   const wanted = new Set(orders.map((o) => `pay_tbank_${o.order_number}`));
   let added = 0;
   const stmts = orders.map((o) => env.DB.prepare(
@@ -103,7 +104,7 @@ async function rebuildOneMonth(env: Env, y: number, m: number): Promise<TbankMon
   ).bind(
     `pay_tbank_${o.order_number}`, TBANK_PARTNER_ID, TBANK_CONTRACT_ID, operationId,
     o.total_rub, TBANK_CURRENCY, Math.floor(Date.parse(o.paid_at) / 1000),
-    `[AUTO tbank-site-sale] order ${o.order_number} paid via T-Kassa → ${reference}`,
+    `T-Kassa · order ${o.order_number}`,
     nowTs, nowTs,
   ));
   for (let i = 0; i < stmts.length; i += 50) {

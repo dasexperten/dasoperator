@@ -738,8 +738,9 @@ export default function OperationsPage() {
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  // Monthly roll-ups (TBANK-YYYYMM, STRIPE-YYYYMM): one line per month, its
-  // dropdown lists what makes the amount — T-Bank orders, Stripe payouts (Owner 2026-10-07).
+  // Monthly roll-ups (TBANK-YYYYMM): one line per month, its dropdown lists the
+  // orders that make the amount (Owner 2026-10-07). STRIPE months get no second
+  // dropdown: the partner thread already opens them (Owner 2026-10-07).
   const [ordersOpen, setOrdersOpen] = useState<Set<string>>(new Set());
   const [ordersOf, setOrdersOf] = useState<Record<string, Payment[] | 'loading' | 'error'>>({});
   function toggleOrders(opId: string) {
@@ -1872,17 +1873,15 @@ export default function OperationsPage() {
   );
 }
 
-// Monthly roll-up operations whose payments are the orders or payouts of the month.
+// Monthly roll-up operations whose payments are the individual orders.
 function isMonthlyRollup(op: Operation): boolean {
-  return /^(TBANK|STRIPE)-\d{6}$/.test(op.reference ?? '');
+  return /^TBANK-\d{6}$/.test(op.reference ?? '');
 }
 
-// "T-Kassa · order DE260927-4949" → "DE260927-4949"; a Stripe payment → "Stripe payout"
+// "T-Kassa · order DE260927-4949" → "DE260927-4949"
 function orderLabel(p: Payment): string {
   const m = /order\s+(\S+)/.exec(p.notes ?? '');
-  if (m) return m[1]!;
-  if (/dasexperten-com-monthly|STRIPE-/.test(p.notes ?? '')) return 'Stripe payout';
-  return p.notes ?? p.id;
+  return m ? m[1]! : (p.notes ?? p.id);
 }
 
 // OrdersToggle — the same quiet triangle, opening the orders of a roll-up.

@@ -1134,6 +1134,7 @@ export async function rebuildPriorMonthDasexpertenCom(env: Env): Promise<Rebuild
 
   const startTs = Math.floor(Date.UTC(targetYear, targetMonthIdx, 1) / 1000);
   const endTs = Math.floor(Date.UTC(targetYear, targetMonthIdx + 1, 1) / 1000);
+  const monthEndTs = Math.floor(Date.UTC(targetYear, targetMonthIdx + 1, 0) / 1000); // Owner 2026-10-07: month line sits on its last day
 
   // Fetch all bank_tx in that month from Stripe (via Network International LLC)
   const nameList = DASCOM_CONTRAGENT_NAMES.map(() => '?').join(',');
@@ -1171,10 +1172,11 @@ export async function rebuildPriorMonthDasexpertenCom(env: Env): Promise<Rebuild
     operationId = existing.id;
     await env.DB.prepare(
       `UPDATE operations
-       SET reference = ?, total_amount = ?, notes = ?, updated_at = ?
+       SET reference = ?, operation_date = ?, total_amount = ?, notes = ?, updated_at = ?
        WHERE id = ?`
     ).bind(
       reference,
+      monthEndTs,
       totalAmount,
       `[CONSOLIDATED — dasexperten.com monthly] Stripe via Wio Bank — ${targetYM} — ${txns.length} payments, total ${totalAmount.toFixed(2)} AED (rebuilt on ${new Date().toISOString().slice(0, 10)})`,
       nowTs,
@@ -1189,7 +1191,7 @@ export async function rebuildPriorMonthDasexpertenCom(env: Env): Promise<Rebuild
         reference, delivery_status, operation_track, created_at, updated_at
       ) VALUES (?, ?, 'sale', ?, 'dei', 'issued', 'AED', ?, ?, ?, 'delivered', 'goods', ?, ?)`
     ).bind(
-      operationId, startTs, DASCOM_PARTNER_ID, totalAmount,
+      operationId, monthEndTs, DASCOM_PARTNER_ID, totalAmount,
       `[CONSOLIDATED — dasexperten.com monthly] Stripe via Wio Bank — ${targetYM} — ${txns.length} payments, total ${totalAmount.toFixed(2)} AED`,
       reference, nowTs, nowTs
     ).run();

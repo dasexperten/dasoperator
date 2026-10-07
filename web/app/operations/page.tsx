@@ -738,8 +738,8 @@ export default function OperationsPage() {
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  // Monthly roll-ups (TBANK-YYYYMM): one line per month, its dropdown lists the
-  // orders that make the amount — one payment per order (Owner 2026-10-07).
+  // Monthly roll-ups (TBANK-YYYYMM, STRIPE-YYYYMM): one line per month, its
+  // dropdown lists what makes the amount — T-Bank orders, Stripe payouts (Owner 2026-10-07).
   const [ordersOpen, setOrdersOpen] = useState<Set<string>>(new Set());
   const [ordersOf, setOrdersOf] = useState<Record<string, Payment[] | 'loading' | 'error'>>({});
   function toggleOrders(opId: string) {
@@ -769,7 +769,7 @@ export default function OperationsPage() {
       return <div style={{ fontSize: '13px', color: 'var(--brand-rot)', padding: '6px 0' }}>Could not load the orders</div>;
     }
     if (list.length === 0) {
-      return <div style={{ fontSize: '13px', color: 'var(--fg-3)', padding: '6px 0' }}>No orders</div>;
+      return <div style={{ fontSize: '13px', color: 'var(--fg-3)', padding: '6px 0' }}>Nothing paid this month</div>;
     }
     return (
       <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -1872,15 +1872,17 @@ export default function OperationsPage() {
   );
 }
 
-// Monthly roll-up operations whose payments are the individual orders.
+// Monthly roll-up operations whose payments are the orders or payouts of the month.
 function isMonthlyRollup(op: Operation): boolean {
-  return /^TBANK-\d{6}$/.test(op.reference ?? '');
+  return /^(TBANK|STRIPE)-\d{6}$/.test(op.reference ?? '');
 }
 
-// "T-Kassa · order DE260927-4949" → "DE260927-4949"
+// "T-Kassa · order DE260927-4949" → "DE260927-4949"; a Stripe payment → "Stripe payout"
 function orderLabel(p: Payment): string {
   const m = /order\s+(\S+)/.exec(p.notes ?? '');
-  return m ? m[1]! : (p.notes ?? p.id);
+  if (m) return m[1]!;
+  if (/dasexperten-com-monthly|STRIPE-/.test(p.notes ?? '')) return 'Stripe payout';
+  return p.notes ?? p.id;
 }
 
 // OrdersToggle — the same quiet triangle, opening the orders of a roll-up.

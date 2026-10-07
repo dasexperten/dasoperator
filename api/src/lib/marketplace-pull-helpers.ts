@@ -32,6 +32,7 @@ async function rebuildOneMonthDasexpertenCom(
   const targetYM = `${year}-${month}`;
   const startTs = Math.floor(Date.UTC(year, monthIdx, 1) / 1000);
   const endTs = Math.floor(Date.UTC(year, monthIdx + 1, 1) / 1000);
+  const monthEndTs = Math.floor(Date.UTC(year, monthIdx + 1, 0) / 1000); // Owner 2026-10-07: month line sits on its last day
 
   const nameList = DASCOM_CONTRAGENT_NAMES.map(() => '?').join(',');
   const txnsResult = await env.DB.prepare(
@@ -77,10 +78,11 @@ async function rebuildOneMonthDasexpertenCom(
     operationId = existing.id;
     await env.DB.prepare(
       `UPDATE operations
-       SET reference = ?, total_amount = ?, notes = ?, updated_at = ?
+       SET reference = ?, operation_date = ?, total_amount = ?, notes = ?, updated_at = ?
        WHERE id = ?`,
     ).bind(
       reference,
+      monthEndTs,
       totalAmount,
       `[CONSOLIDATED — dasexperten.com monthly] Stripe via Wio Bank — ${targetYM} — ${txns.length} payments, total ${totalAmount.toFixed(2)} AED (backfill ${new Date().toISOString().slice(0, 10)})`,
       nowTs,
@@ -95,7 +97,7 @@ async function rebuildOneMonthDasexpertenCom(
         reference, delivery_status, operation_track, created_at, updated_at
       ) VALUES (?, ?, 'sale', ?, 'dei', 'issued', 'AED', ?, ?, ?, 'delivered', 'goods', ?, ?)`,
     ).bind(
-      operationId, startTs, DASCOM_PARTNER_ID, totalAmount,
+      operationId, monthEndTs, DASCOM_PARTNER_ID, totalAmount,
       `[CONSOLIDATED — dasexperten.com monthly] Stripe via Wio Bank — ${targetYM} — ${txns.length} payments, total ${totalAmount.toFixed(2)} AED (backfill)`,
       reference, nowTs, nowTs,
     ).run();

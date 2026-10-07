@@ -1436,6 +1436,38 @@ operations.post('/:id/gtd/upload', async (c) => {
 
 // GET /:id/gtd/download — download the GTD PDF for an operation. Returns the
 // raw PDF stream with content-disposition for inline viewing in the browser.
+// =============================================================================
+// GET /operations/:id/tbank-orders — the orders inside a TBANK-YYYYMM month line.
+// Owner 2026-10-07: show the buyer as first name + first letter of the family
+// name + city. The family name is cut to one letter inside SQL, so the full name
+// never leaves the database; phone and email are not read.
+// =============================================================================
+operations.get('/:id/tbank-orders', async (c) => {
+  const rows = (await c.env.DB.prepare(
+    `SELECT o.order_number, o.paid_at, o.total_rub,
+            json_extract(o.raw_json, '$.client.first_name') AS first_name,
+            substr(trim(json_extract(o.raw_json, '$.client.last_name')), 1, 1) AS initial,
+            m.city
+       FROM payments p
+       JOIN crm_orders_ru o ON o.order_number = substr(p.id, 11)
+       LEFT JOIN crm_loyalty_key_map m ON m.customer_key = o.customer_key
+      WHERE p.operation_id = ? AND p.deleted_at IS NULL AND p.id LIKE 'pay\\_tbank\\_%' ESCAPE '\\'
+      ORDER BY o.paid_at DESC`
+  ).bind(c.req.param('id')).all<{
+    order_number: string; paid_at: string; total_rub: number;
+    first_name: string | null; initial: string | null; city: string | null;
+  }>()).results ?? [];
+  const orders = rows.map((r) => ({
+    order_number: r.order_number,
+    paid_at: r.paid_at,
+    total_rub: r.total_rub,
+    buyer: [String(r.first_name ?? '').trim(), r.initial ? `${r.initial.toUpperCase()}.` : '']
+      .filter(Boolean).join(' ') || null,
+    city: r.city || null,
+  }));
+  return ok(c, { orders });
+});
+
 operations.get('/:id/gtd/download', async (c) => {
   const id = c.req.param('id');
   const doc = await c.env.DB.prepare(

@@ -744,6 +744,8 @@ export default function OperationsPage() {
   // T-Bank order numbers, Stripe buyer and country from the .com shop (Owner 2026-10-07).
   const [ordersOpen, setOrdersOpen] = useState<Set<string>>(new Set());
   const [ordersOf, setOrdersOf] = useState<Record<string, Payment[] | 'loading' | 'error'>>({});
+  // T-Bank buyers: first name, initial, city (Owner 2026-10-07). Missing → order numbers.
+  const [buyersOf, setBuyersOf] = useState<Record<string, TbankOrder[]>>({});
   function toggleOrders(opId: string, stripe = false) {
     setOrdersOpen((prev) => {
       const next = new Set(prev);
@@ -753,6 +755,9 @@ export default function OperationsPage() {
     if (stripe) { loadSiteOrders(); return; }
     if (ordersOf[opId] && ordersOf[opId] !== 'error') return;
     setOrdersOf((prev) => ({ ...prev, [opId]: 'loading' }));
+    apiGet<{ orders: TbankOrder[] }>(`/api/operations/${opId}/tbank-orders`)
+      .then((r) => { if (r.success && r.result) setBuyersOf((prev) => ({ ...prev, [opId]: r.result!.orders })); })
+      .catch(() => { /* the order numbers stay */ });
     getPayments({ operation_id: opId })
       .then((r) => setOrdersOf((prev) => ({
         ...prev,
@@ -820,6 +825,31 @@ export default function OperationsPage() {
 
   function renderOrderLines(op: Operation) {
     if (isStripeMonth(op)) return renderStripeOrders(op);
+    const buyers = buyersOf[op.id];
+    if (buyers && buyers.length > 0) {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {buyers.map((o) => (
+            <div key={o.order_number} style={{
+              display: 'flex', justifyContent: 'space-between', gap: '12px',
+              padding: '6px 0', borderBottom: '1px solid var(--border-hairline)',
+              fontSize: '13px', whiteSpace: 'nowrap',
+            }}>
+              <span style={{ display: 'inline-flex', gap: '16px', minWidth: 0 }}>
+                <span style={{ color: 'var(--fg-3)' }}>{o.paid_at.slice(0, 10)}</span>
+                <span style={{ color: 'var(--fg-1)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {o.buyer ?? o.order_number}
+                </span>
+                {o.city && <span style={{ color: 'var(--fg-3)', fontWeight: 700 }}>{o.city}</span>}
+              </span>
+              <span style={{ color: 'var(--fg-1)', fontWeight: 700 }}>
+                {`${formatMoney(o.total_rub, 'RUB')}\u00A0RUB`}
+              </span>
+            </div>
+          ))}
+        </div>
+      );
+    }
     const list = ordersOf[op.id];
     if (list === 'loading' || list === undefined) {
       return <div style={{ fontSize: '13px', color: 'var(--fg-3)', padding: '6px 0' }}>Loading orders…</div>;
@@ -1947,6 +1977,14 @@ const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'Ju
 function rollupMonthLabel(op: Operation): string {
   const m = /(\d{4})(\d{2})$/.exec(op.reference ?? '');
   return m ? `${MONTH_NAMES[Number(m[2]) - 1]} ${m[1]}` : '—';
+}
+
+interface TbankOrder {
+  order_number: string;
+  paid_at: string;
+  total_rub: number;
+  buyer: string | null;
+  city: string | null;
 }
 
 interface SiteOrder {

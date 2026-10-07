@@ -140,10 +140,35 @@ export async function handleInboundEmail(
     return;
   }
 
-  if (await forwardWorkspaceInbound(message, env)) return;
+  // Владелец 07.10.2026: every company box is the agent's, and the Owner's
+  // Gmail is the monitor. So: copy first (Workspace + Gmail, or Gmail alone),
+  // then archive for the agent. Since 14.09 Workspace boxes returned here
+  // without archiving and the Gmail sync never filled the gap — agents saw no
+  // incoming mail for three weeks. A failed copy is logged, never thrown, so
+  // the agent's archive still gets the letter.
+  let raw: Uint8Array | null = null;
+  try {
+    raw = await readRaw(message.raw, message.rawSize);
+  } catch (err) {
+    console.log(JSON.stringify({ scope: 'email-inbound', success: false, mailbox, stage: 'read', error: err instanceof Error ? err.message : String(err) }));
+  }
+  let copied = false;
+  try {
+    copied = await forwardWorkspaceInbound(message, env);
+  } catch (err) {
+    copied = true; // Workspace path already attempted the Gmail copy.
+    console.log(JSON.stringify({ scope: 'email-inbound', success: false, mailbox, stage: 'workspace-forward', error: err instanceof Error ? err.message : String(err) }));
+  }
+  if (!copied) {
+    try {
+      await message.forward(OWNER_GMAIL_FORWARD);
+    } catch (err) {
+      console.log(JSON.stringify({ scope: 'email-inbound', success: false, mailbox, stage: 'owner-copy', error: err instanceof Error ? err.message : String(err) }));
+    }
+  }
 
   try {
-    const raw = await readRaw(message.raw, message.rawSize);
+    if (!raw) throw new Error('raw message unreadable');
     const parsed = await PostalMime.parse(raw);
 
     const toList = (parsed.to || []).map((a) => a.address).filter(Boolean) as string[];

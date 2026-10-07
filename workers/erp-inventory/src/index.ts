@@ -15,6 +15,13 @@ interface Env extends BaseEnv {
 export default {
   async email(message: ForwardableEmailMessage, env: Env): Promise<void> {
     const raw = new Uint8Array(await new Response(message.raw).arrayBuffer());
+    // Owner 2026-10-07: his Gmail is the monitor of every company box. Copy first;
+    // a failed copy is logged and never stops the stock list reaching the ERP.
+    try {
+      await message.forward('dasexperten@gmail.com');
+    } catch (e) {
+      console.log(JSON.stringify({ scope: 'erp-inventory', stage: 'owner-copy', error: String(e).slice(0, 200) }));
+    }
     await runLogged(env, 'erp-inventory', 'mail', async () => {
       const parsed = await PostalMime.parse(raw);
       const letter: InventoryLetter = {

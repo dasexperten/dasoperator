@@ -1442,6 +1442,14 @@ operations.post('/:id/gtd/upload', async (c) => {
 // name + city. The family name is cut to one letter inside SQL, so the full name
 // never leaves the database; phone and email are not read.
 // =============================================================================
+// "Московская область, Балашиха" → "Балашиха"; "г Учалы, Учалинский район, …" → "Учалы".
+function shortCity(raw: string | null): string | null {
+  const parts = String(raw ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+  const place = parts.find((x) => !/област|округ|район|респ|край|автономн/i.test(x)) ?? parts[parts.length - 1]!;
+  return place.replace(/^г\.?\s+/i, '');
+}
+
 operations.get('/:id/tbank-orders', async (c) => {
   const rows = (await c.env.DB.prepare(
     `SELECT o.order_number, o.paid_at, o.total_rub,
@@ -1463,7 +1471,7 @@ operations.get('/:id/tbank-orders', async (c) => {
     total_rub: r.total_rub,
     buyer: [String(r.first_name ?? '').trim(), r.initial ? `${r.initial.toUpperCase()}.` : '']
       .filter(Boolean).join(' ') || null,
-    city: r.city || null,
+    city: shortCity(r.city),
   }));
   return ok(c, { orders });
 });

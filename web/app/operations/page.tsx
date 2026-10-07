@@ -840,7 +840,7 @@ export default function OperationsPage() {
                 <span style={{ color: 'var(--fg-1)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {o.buyer ?? o.order_number}
                 </span>
-                {o.city && <span style={{ color: 'var(--fg-3)', fontWeight: 700 }}>{o.city}</span>}
+                {o.city && <span style={{ color: 'var(--fg-3)', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.city}</span>}
               </span>
               <span style={{ color: 'var(--fg-1)', fontWeight: 700 }}>
                 {`${formatMoney(o.total_rub, 'RUB')}\u00A0RUB`}

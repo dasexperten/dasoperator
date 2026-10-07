@@ -7,7 +7,8 @@
 // invoice.
 //
 // Business rules (locked by Aram 2026-05-29):
-//   • Each report file => ONE sale operation, reference DASR-YYYYMMDD.
+//   • Each report file => ONE sale operation, reference YANDEXKIT-YYYYMMDD
+//     (named after the payment source; DASR- before 2026-10-07).
 //   • operation_date = the REPORT date (from filename), NOT the creation date.
 //   • total_amount   = NET payout (what actually hit the bank). This is what the
 //     bank reconciles against. CSV layout: rows WITH an order number are the
@@ -285,7 +286,7 @@ async function writeLineItems(
   return count;
 }
 
-// Main entry: build the DASR-YYYYMMDD sale operation from one report CSV.
+// Main entry: build the YANDEXKIT-YYYYMMDD sale operation from one report CSV.
 // Idempotent — re-running for the same report date rebuilds cleanly.
 export async function createDailySaleFromYandexCsv(
   env: Env,
@@ -300,7 +301,8 @@ export async function createDailySaleFromYandexCsv(
   }
 
   const ymd = parsed.saleDate.replace(/-/g, '');
-  const reference = `DASR-${ymd}`;
+  const reference = `YANDEXKIT-${ymd}`;
+  const legacyReference = `DASR-${ymd}`; // pre-2026-10-07 name
   const opDateTs = Math.floor(new Date(parsed.saleDate + 'T00:00:00Z').getTime() / 1000);
   const now = Math.floor(Date.now() / 1000);
 
@@ -310,8 +312,8 @@ export async function createDailySaleFromYandexCsv(
   const colSet = new Set((cols.results ?? []).map((r) => r.name));
 
   const existing = await env.DB.prepare(
-    `SELECT id FROM operations WHERE reference = ? AND deleted_at IS NULL LIMIT 1`
-  ).bind(reference).first<{ id: string }>();
+    `SELECT id FROM operations WHERE reference IN (?, ?) AND deleted_at IS NULL LIMIT 1`
+  ).bind(reference, legacyReference).first<{ id: string }>();
 
   // total_amount = NET payout (what hit the bank).
   const totalAmount = parsed.netPayout;
@@ -323,8 +325,8 @@ export async function createDailySaleFromYandexCsv(
   if (existing) {
     operationId = existing.id;
     replaced = true;
-    const sets: string[] = ['total_amount = ?', 'updated_at = ?'];
-    const vals: any[] = [totalAmount, now];
+    const sets: string[] = ['reference = ?', 'total_amount = ?', 'updated_at = ?'];
+    const vals: any[] = [reference, totalAmount, now];
     if (colSet.has('notes')) { sets.push('notes = ?'); vals.push(note); }
     vals.push(operationId);
     await env.DB.prepare(`UPDATE operations SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();

@@ -803,7 +803,7 @@ export async function issueDocuments(
         const signature = r.signature;
         if (r.spec.variant === 'V2') {
           const renderInput = {
-            reference, issuedAt: nowSec, currency: r.currency,
+            reference, issuedAt: documentDateSec, currency: r.currency,
             shipperSeller: r.seller.party,
             consigneeBuyer: r.buyer.party,
             bank, signature, contract: input.contract,
@@ -825,7 +825,7 @@ export async function issueDocuments(
             ? r.seller.party
             : partyFromCompany(input.ourCompany);
           const renderInput = {
-            reference, issuedAt: nowSec, currency: r.currency,
+            reference, issuedAt: documentDateSec, currency: r.currency,
             shipper: r.spec.sellerKind === 'manufacturer'
               ? r.seller.party
               : (input.legalSellerManufacturer

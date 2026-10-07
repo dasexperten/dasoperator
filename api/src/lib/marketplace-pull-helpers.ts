@@ -51,7 +51,8 @@ async function rebuildOneMonthDasexpertenCom(
   const txns = txnsResult.results;
   const totalMinor = txns.reduce((s, t) => s + (t.amount || 0), 0);
   const totalAmount = Math.round(totalMinor) / 100;
-  const reference = `DASCOM-${year}${month}`;
+  const reference = `STRIPE-${year}${month}`;
+  const legacyReference = `DASCOM-${year}${month}`; // pre-2026-10-07 name
 
   // Skip month if no txns at all
   if (txns.length === 0) {
@@ -66,8 +67,8 @@ async function rebuildOneMonthDasexpertenCom(
   }
 
   const existing = await env.DB.prepare(
-    `SELECT id FROM operations WHERE reference = ? AND deleted_at IS NULL LIMIT 1`,
-  ).bind(reference).first<{ id: string }>();
+    `SELECT id FROM operations WHERE reference IN (?, ?) AND deleted_at IS NULL LIMIT 1`,
+  ).bind(reference, legacyReference).first<{ id: string }>();
 
   const nowTs = Math.floor(Date.now() / 1000);
   let operationId: string;
@@ -76,9 +77,10 @@ async function rebuildOneMonthDasexpertenCom(
     operationId = existing.id;
     await env.DB.prepare(
       `UPDATE operations
-       SET total_amount = ?, notes = ?, updated_at = ?
+       SET reference = ?, total_amount = ?, notes = ?, updated_at = ?
        WHERE id = ?`,
     ).bind(
+      reference,
       totalAmount,
       `[CONSOLIDATED — dasexperten.com monthly] Stripe via Wio Bank — ${targetYM} — ${txns.length} payments, total ${totalAmount.toFixed(2)} AED (backfill ${new Date().toISOString().slice(0, 10)})`,
       nowTs,

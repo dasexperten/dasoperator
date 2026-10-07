@@ -1156,12 +1156,13 @@ export async function rebuildPriorMonthDasexpertenCom(env: Env): Promise<Rebuild
   const totalMinor = txns.reduce((s, t) => s + (t.amount || 0), 0);
   const totalAmount = Math.round(totalMinor) / 100;
 
-  const reference = `DASCOM-${targetYear}${targetMonth}`;
+  const reference = `STRIPE-${targetYear}${targetMonth}`;
+  const legacyReference = `DASCOM-${targetYear}${targetMonth}`; // pre-2026-10-07 name
 
   // Upsert operation
   const existing = await env.DB.prepare(
-    `SELECT id FROM operations WHERE reference = ? AND deleted_at IS NULL LIMIT 1`
-  ).bind(reference).first<{ id: string }>();
+    `SELECT id FROM operations WHERE reference IN (?, ?) AND deleted_at IS NULL LIMIT 1`
+  ).bind(reference, legacyReference).first<{ id: string }>();
 
   const nowTs = Math.floor(Date.now() / 1000);
   let operationId: string;
@@ -1170,9 +1171,10 @@ export async function rebuildPriorMonthDasexpertenCom(env: Env): Promise<Rebuild
     operationId = existing.id;
     await env.DB.prepare(
       `UPDATE operations
-       SET total_amount = ?, notes = ?, updated_at = ?
+       SET reference = ?, total_amount = ?, notes = ?, updated_at = ?
        WHERE id = ?`
     ).bind(
+      reference,
       totalAmount,
       `[CONSOLIDATED — dasexperten.com monthly] Stripe via Wio Bank — ${targetYM} — ${txns.length} payments, total ${totalAmount.toFixed(2)} AED (rebuilt on ${new Date().toISOString().slice(0, 10)})`,
       nowTs,

@@ -84,7 +84,16 @@ export const STEPS: Record<string, Step> = {
     if (!r.ok) throw new Error(`ru orders mirror: ${r.error ?? 'failed'}`);
     const { warmKitAggregate } = await import('./routes/crm');
     const w = await warmKitAggregate(env);
-    return `${r.upserted}/${r.total} v${r.feed_version ?? '?'} · aggregate ${w.orders} orders`;
+    // Own-site orders paid via T-Kassa → TBANK-YYYYMM sale operations (Owner 2026-10-07).
+    let tb = '';
+    try {
+      const { rebuildTbankSiteSales } = await import('./lib/tbank-site-sale');
+      const months = await rebuildTbankSiteSales(env);
+      tb = ' · tbank ' + months.filter((x) => x.operation_id).map((x) => `${x.operation_reference}:${x.orders}`).join(',');
+    } catch (e) {
+      tb = ` · tbank failed: ${e instanceof Error ? e.message : String(e)}`.slice(0, 200);
+    }
+    return `${r.upserted}/${r.total} v${r.feed_version ?? '?'} · aggregate ${w.orders} orders${tb}`;
   },
   'erp-loyalty-keys': async (env) => {
     if (!env.RU_FEED_TOKEN) return 'skipped: RU_FEED_TOKEN not set';

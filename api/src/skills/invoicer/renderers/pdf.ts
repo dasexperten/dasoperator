@@ -398,10 +398,11 @@ function tableDefinition(model: PdfModel, usable: number): { columns: TableColum
     return { columns: columns.map((col) => ({ ...col, width: col.width * usable })), rows };
   }
   const columns: TableColumn[] = [
-    { label: '#', width: 0.035, align: 'center' }, { label: 'SKU', width: 0.075 },
-    { label: 'Description', width: 0.32 }, { label: 'HS code', width: 0.10, align: 'center' },
-    { label: 'Origin', width: 0.08, align: 'center' }, { label: 'Qty', width: 0.07, align: 'right' },
-    { label: 'Unit', width: 0.055, align: 'center' }, { label: 'Unit price', width: 0.12, align: 'right' },
+    // SKU fits a nine-letter article on one line (Owner 07.10.2026, CI-YZJX-26052101: «de120aaaa» broke in two).
+    { label: '#', width: 0.035, align: 'center' }, { label: 'SKU', width: 0.11 },
+    { label: 'Description', width: 0.32 }, { label: 'HS code', width: 0.09, align: 'center' },
+    { label: 'Origin', width: 0.065, align: 'center' }, { label: 'Qty', width: 0.07, align: 'right' },
+    { label: 'Unit', width: 0.055, align: 'center' }, { label: 'Unit price', width: 0.11, align: 'right' },
     { label: 'Amount', width: 0.145, align: 'right' },
   ];
   const rows = model.lineItems.map((li, i) => [

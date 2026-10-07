@@ -4,7 +4,7 @@ export const runtime = 'edge';
 
 
 
-import { useEffect, useState, useMemo } from 'react';
+import { Fragment, useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Search, Loader2, Plus, X, Trash2, Upload, CheckCircle2, Mail, Building2, AlertCircle, Send } from 'lucide-react';
 import {
@@ -89,6 +89,18 @@ function resolvePartnerLabel(op: { partner_id?: string | null; partner_trade_nam
   if (op.partner_id) return { label: op.partner_id, partnerId: op.partner_id };
   if (op.manufacturer_name) return { label: op.manufacturer_name, partnerId: null };
   return { label: '—', partnerId: null };
+}
+
+// Thread grouping — one counterparty, one thread (Gmail style).
+interface OpThread { key: string; head: Operation; rest: Operation[] }
+
+function threadKey(op: Operation): string {
+  if ((op as { is_batch?: boolean }).is_batch === true) {
+    const mp = (op as { marketplace?: 'OZN' | 'WB' }).marketplace;
+    return mp === 'WB' ? 'mp:wb' : mp === 'OZN' ? 'mp:ozon' : 'mp:batch';
+  }
+  const { label, partnerId } = resolvePartnerLabel(op);
+  return partnerId ? `p:${partnerId}` : `l:${label}`;
 }
 
 // Amount colour for mobile cards — driven by payment_state, not status.
@@ -704,6 +716,284 @@ export default function OperationsPage() {
     });
   }, [operations, search, typeFilter, statusFilter, paymentFilter]);
 
+  // Gmail-style threads — one row per counterparty. The list arrives newest
+  // first, so the first op of each group is its head and groups keep the
+  // order of their newest operation. Filters run first, grouping second.
+  const threads = useMemo(() => {
+    const byKey = new Map<string, OpThread>();
+    const order: OpThread[] = [];
+    for (const op of filtered) {
+      const key = threadKey(op);
+      const t = byKey.get(key);
+      if (t) {
+        t.rest.push(op);
+      } else {
+        const nt: OpThread = { key, head: op, rest: [] };
+        byKey.set(key, nt);
+        order.push(nt);
+      }
+    }
+    return order;
+  }, [filtered]);
+
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  function toggleThread(key: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  function renderMobileCard(op: Operation, thread?: OpThread, child = false) {
+    const sd = statusDot(op.status);
+    const ps = op.payment_state ?? 'neutral';
+    // Transfers don't have payment — neutral amount colour regardless of payment_state
+    const amountColor = op.operation_type === 'transfer' ? 'var(--fg-1)' : (AMOUNT_PAYMENT_COLOR[ps] ?? 'var(--fg-1)');
+    const { label: partnerLabel } = resolvePartnerLabel(op);
+    const isBatchRow = (op as { is_batch?: boolean }).is_batch === true;
+    const clusterCount = (op as { cluster_count?: number }).cluster_count ?? null;
+    const href = isBatchRow ? `/operations/batch/${op.id}` : `/operations/${op.id}`;
+    return (
+      <Link
+        key={`m-${op.id}`}
+        href={href}
+        className="bg-card"
+        style={{
+          display: 'block',
+          padding: '12px 14px',
+          border: '1px solid var(--border-hairline)',
+          borderRadius: 'var(--radius-md)',
+          color: 'var(--fg-1)',
+          marginLeft: child ? '16px' : undefined,
+          backgroundColor: child ? 'var(--paper-sunk)' : undefined,
+        }}
+      >
+        {/* Row 1: reference (left) + thread toggle + status chip (right) */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'baseline', whiteSpace: 'nowrap', minWidth: 0 }}>
+            <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-2)' }}>
+              {op.reference ?? op.id.slice(0, 12)}
+            </span>
+            {thread && thread.rest.length > 0 && (
+              <ThreadToggle
+                count={thread.rest.length + 1}
+                open={expanded.has(thread.key)}
+                onToggle={() => toggleThread(thread.key)}
+              />
+            )}
+          </span>
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 10px',
+              borderRadius: 'var(--radius-pill)',
+              backgroundColor: sd.bg,
+              border: `1px solid ${sd.border}`,
+              color: sd.fg,
+              fontSize: '12px',
+              fontWeight: 700,
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: sd.fg, display: 'inline-block' }} />
+            {statusLabel(op.status, op.operation_type)}
+          </span>
+        </div>
+
+        {/* Row 2: counterparty (bottom-left, bold) + amount stack (bottom-right) */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'flex-end',
+          justifyContent: 'space-between',
+          gap: '12px',
+          marginTop: '10px',
+        }}>
+          {/* Counterparty — left, takes remaining width */}
+          <div className="dx-product-name" style={{
+            fontSize: '16px',
+            fontWeight: 800,
+            minWidth: 0,
+            flex: 1,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            lineHeight: 1.2,
+          }}>
+            {isBatchRow ? `transfer · ${clusterCount ?? 0} ${(clusterCount ?? 0) === 1 ? 'cluster' : 'clusters'}` : partnerLabel}
+          </div>
+          {/* Amount — right, colour = payment state. Batches show pcs count. */}
+          <div style={{ flexShrink: 0 }}>
+            <span style={{
+              fontSize: '18px',
+              fontWeight: 800,
+              color: isBatchRow ? 'var(--fg-1)' : amountColor,
+              whiteSpace: 'nowrap',
+              lineHeight: 1,
+            }}>
+              {isBatchRow ? (
+                <>
+                  {(op as { total_units?: number }).total_units ?? 0}
+                  <span style={{ fontSize: '12px', color: 'var(--fg-3)', marginLeft: '4px', fontWeight: 700 }}>pcs</span>
+                </>
+              ) : (
+                <>
+                  {formatMoney(op.total_amount, op.currency)}
+                  {op.currency && <span style={{ fontSize: '12px', color: 'var(--fg-3)', marginLeft: '4px', fontWeight: 700 }}>{op.currency}</span>}
+                </>
+              )}
+            </span>
+          </div>
+        </div>
+      </Link>
+    );
+  }
+
+  function renderDesktopRow(op: Operation, thread?: OpThread, child = false) {
+    const tc = TYPE_COLORS[op.operation_type];
+    const isBatchRow = (op as { is_batch?: boolean }).is_batch === true;
+    const clusterCount = (op as { cluster_count?: number }).cluster_count ?? 0;
+    return (
+      <tr key={op.id} style={{ borderBottom: '1px solid var(--border-hairline)', backgroundColor: child ? 'var(--paper-sunk)' : undefined }}>
+        <td className="px-4 py-3" style={{ fontWeight: 700, color: 'var(--fg-1)', whiteSpace: 'nowrap', paddingLeft: child ? '40px' : undefined }}>
+          <Link
+            href={isBatchRow ? `/operations/batch/${op.id}` : `/operations/${op.id}`}
+            style={{ color: 'var(--fg-1)', textDecoration: 'underline', textDecorationColor: 'var(--border-hairline)', textUnderlineOffset: '3px' }}
+          >
+            {op.reference ?? op.id}
+          </Link>
+        </td>
+        <td className="px-4 py-3" style={{ color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>{formatDate(op.operation_date)}</td>
+        {/* v2 manufacturer fallback — deployed 2026-05-11 */}
+        <td className="px-4 py-3" style={{ color: 'var(--fg-1)', fontWeight: 700, whiteSpace: 'nowrap' }}>
+          {(() => {
+            const { label } = resolvePartnerLabel(op);
+            return label !== '—' ? (
+              <span
+                role="button"
+                tabIndex={0}
+                title={`Show only ${label}`}
+                onClick={() => setSearch(label)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSearch(label); } }}
+                style={{ color: 'var(--fg-1)', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '3px', display: 'inline-block', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', verticalAlign: 'bottom' }}
+              >
+                {label}
+              </span>
+            ) : (
+              <span>{label}</span>
+            );
+          })()}
+          {thread && thread.rest.length > 0 && (
+            <ThreadToggle
+              count={thread.rest.length + 1}
+              open={expanded.has(thread.key)}
+              onToggle={() => toggleThread(thread.key)}
+            />
+          )}
+        </td>
+        <td className="px-4 py-3" style={{ color: 'var(--fg-2)', whiteSpace: 'nowrap' }}>
+          {isBatchRow ? (
+            <span style={{ color: 'var(--fg-muted)' }}>—</span>
+          ) : (
+            <ContractRef contractNo={op.contract_no} />
+          )}
+        </td>
+        <td className="px-4 py-3">
+          {(() => {
+            if (isBatchRow) {
+              const mp = (op as { marketplace?: 'OZN' | 'WB' }).marketplace;
+              const accepted = (op as { batch_accepted?: boolean }).batch_accepted === true;
+              // Accepted: blue for OZON, purple for WB
+              // Pending: grey
+              let bg = 'var(--paper-sunk)';
+              let fg = 'var(--fg-2)';
+              if (accepted && mp === 'OZN') {
+                bg = 'rgba(0,90,200,0.10)';
+                fg = '#1654B8';
+              } else if (accepted && mp === 'WB') {
+                bg = 'rgba(140,40,160,0.10)';
+                fg = '#7A2890';
+              }
+              return (
+                <span className="inline-block" style={{ fontSize: '14px', fontWeight: 500, padding: '3px 10px', backgroundColor: bg, color: fg, borderRadius: 'var(--radius-pill)' }}>
+                  transfer
+                </span>
+              );
+            }
+            const isService = op.operation_track === 'service';
+            const badge = isService ? TYPE_COLORS.service : tc;
+            const label = isService ? 'service' : op.operation_type;
+            return (
+              <span className="inline-block" style={{ fontSize: '14px', fontWeight: 500, padding: '3px 10px', backgroundColor: badge?.bg, color: badge?.fg, borderRadius: 'var(--radius-pill)' }}>
+                {label}
+              </span>
+            );
+          })()}
+        </td>
+        <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)', fontWeight: 700, whiteSpace: 'nowrap' }}>
+          {isBatchRow ? (
+            <span>{(op as { total_units?: number }).total_units ?? 0} <span style={{ color: 'var(--fg-3)', fontWeight: 600, fontSize: '13px' }}>pcs</span></span>
+          ) : (
+            `${formatMoney(op.total_amount, op.currency)}${op.currency ? ' ' + op.currency : ''}`
+          )}
+        </td>
+        <td className="px-4 py-3">
+          <StatusStages op={op} />
+        </td>
+        <td className="px-4 py-3 text-right">
+          <div className="inline-flex items-center gap-2">
+            {op.status === 'draft' && (
+              <button
+                onClick={() => handleDelete(op)}
+                disabled={busyId === op.id}
+                title="Delete (draft only — permanent)"
+                style={{
+                  fontSize: '14px', fontWeight: 600,
+                  padding: '4px 10px',
+                  border: '1px solid rgba(229,32,44,0.3)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: '#A82029',
+                  backgroundColor: busyId === op.id ? 'var(--paper-sunk)' : 'transparent',
+                  cursor: busyId === op.id ? 'wait' : 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: '4px',
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete
+              </button>
+            )}
+            {op.status !== 'draft' && op.status !== 'cancelled' && op.status !== 'delivered' && (
+              <button
+                onClick={() => handleCancel(op)}
+                disabled={busyId === op.id}
+                title="Cancel operation (reverses stock if shipped)"
+                style={{
+                  fontSize: '14px', fontWeight: 600,
+                  padding: '4px 10px',
+                  border: '1px solid var(--border-hairline)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--fg-2)',
+                  backgroundColor: busyId === op.id ? 'var(--paper-sunk)' : 'transparent',
+                  cursor: busyId === op.id ? 'wait' : 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: '4px',
+                }}
+              >
+                <X className="h-3.5 w-3.5" />
+                Cancel
+              </button>
+            )}
+            {(op.status === 'cancelled' || op.status === 'delivered') && (
+              <span style={{ fontSize: '14px', color: 'var(--fg-muted)' }}>—</span>
+            )}
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
   return (
     <div className="space-y-8 max-w-7xl">
       <div className="flex items-start justify-between dx-header-wrap">
@@ -715,7 +1005,7 @@ export default function OperationsPage() {
             Operations
           </h1>
           <p className="mt-2" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
-            {loading ? 'Loading...' : `${operations.length} across all partners · ${filtered.length} shown`}
+            {loading ? 'Loading...' : `${operations.length} across all partners · ${filtered.length} shown · ${threads.length} ${threads.length === 1 ? 'counterparty' : 'counterparties'}`}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap dx-page-actions">
@@ -909,101 +1199,12 @@ export default function OperationsPage() {
           {filtered.length === 0 ? (
             <div className="text-center py-12" style={{ color: 'var(--fg-3)' }}>No operations match the filters</div>
           ) : (
-            filtered.map((op) => {
-              const sd = statusDot(op.status);
-              const ps = op.payment_state ?? 'neutral';
-              // Transfers don't have payment — neutral amount colour regardless of payment_state
-              const amountColor = op.operation_type === 'transfer' ? 'var(--fg-1)' : (AMOUNT_PAYMENT_COLOR[ps] ?? 'var(--fg-1)');
-              const { label: partnerLabel } = resolvePartnerLabel(op);
-              const isBatchRow = (op as { is_batch?: boolean }).is_batch === true;
-              const clusterCount = (op as { cluster_count?: number }).cluster_count ?? null;
-              const href = isBatchRow ? `/operations/batch/${op.id}` : `/operations/${op.id}`;
-              return (
-                <Link
-                  key={`m-${op.id}`}
-                  href={href}
-                  className="bg-card"
-                  style={{
-                    display: 'block',
-                    padding: '12px 14px',
-                    border: '1px solid var(--border-hairline)',
-                    borderRadius: 'var(--radius-md)',
-                    color: 'var(--fg-1)',
-                  }}
-                >
-                  {/* Row 1: reference (left) + status chip (right) */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                    <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--fg-2)' }}>
-                      {op.reference ?? op.id.slice(0, 12)}
-                    </span>
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        padding: '4px 10px',
-                        borderRadius: 'var(--radius-pill)',
-                        backgroundColor: sd.bg,
-                        border: `1px solid ${sd.border}`,
-                        color: sd.fg,
-                        fontSize: '12px',
-                        fontWeight: 700,
-                        flexShrink: 0,
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: sd.fg, display: 'inline-block' }} />
-                      {statusLabel(op.status, op.operation_type)}
-                    </span>
-                  </div>
-
-                  {/* Row 2: counterparty (bottom-left, bold) + amount stack (bottom-right) */}
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'flex-end',
-                    justifyContent: 'space-between',
-                    gap: '12px',
-                    marginTop: '10px',
-                  }}>
-                    {/* Counterparty — left, takes remaining width */}
-                    <div className="dx-product-name" style={{
-                      fontSize: '16px',
-                      fontWeight: 800,
-                      minWidth: 0,
-                      flex: 1,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      lineHeight: 1.2,
-                    }}>
-                      {isBatchRow ? `transfer · ${clusterCount ?? 0} ${(clusterCount ?? 0) === 1 ? 'cluster' : 'clusters'}` : partnerLabel}
-                    </div>
-                    {/* Amount — right, colour = payment state. Batches show pcs count. */}
-                    <div style={{ flexShrink: 0 }}>
-                      <span style={{
-                        fontSize: '18px',
-                        fontWeight: 800,
-                        color: isBatchRow ? 'var(--fg-1)' : amountColor,
-                        whiteSpace: 'nowrap',
-                        lineHeight: 1,
-                      }}>
-                        {isBatchRow ? (
-                          <>
-                            {(op as { total_units?: number }).total_units ?? 0}
-                            <span style={{ fontSize: '12px', color: 'var(--fg-3)', marginLeft: '4px', fontWeight: 700 }}>pcs</span>
-                          </>
-                        ) : (
-                          <>
-                            {formatMoney(op.total_amount, op.currency)}
-                            {op.currency && <span style={{ fontSize: '12px', color: 'var(--fg-3)', marginLeft: '4px', fontWeight: 700 }}>{op.currency}</span>}
-                          </>
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                </Link>
-              );
-            })
+            threads.map((t) => (
+              <Fragment key={`mt-${t.key}`}>
+                {renderMobileCard(t.head, t)}
+                {expanded.has(t.key) && t.rest.map((op) => renderMobileCard(op, undefined, true))}
+              </Fragment>
+            ))
           )}
         </div>
 
@@ -1018,140 +1219,12 @@ export default function OperationsPage() {
               {filtered.length === 0 ? (
                 <tr><td colSpan={8} className="text-center py-12" style={{ color: 'var(--fg-3)' }}>No operations match the filters</td></tr>
               ) : (
-                filtered.map((op) => {
-                  const tc = TYPE_COLORS[op.operation_type];
-                  const isBatchRow = (op as { is_batch?: boolean }).is_batch === true;
-                  const clusterCount = (op as { cluster_count?: number }).cluster_count ?? 0;
-                  return (
-                    <tr key={op.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-                      <td className="px-4 py-3" style={{ fontWeight: 700, color: 'var(--fg-1)', whiteSpace: 'nowrap' }}>
-                        <Link
-                          href={isBatchRow ? `/operations/batch/${op.id}` : `/operations/${op.id}`}
-                          style={{ color: 'var(--fg-1)', textDecoration: 'underline', textDecorationColor: 'var(--border-hairline)', textUnderlineOffset: '3px' }}
-                        >
-                          {op.reference ?? op.id}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3" style={{ color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>{formatDate(op.operation_date)}</td>
-                      {/* v2 manufacturer fallback — deployed 2026-05-11 */}
-                      <td className="px-4 py-3" style={{ color: 'var(--fg-1)', fontWeight: 700 }}>
-                        {(() => {
-                          const { label } = resolvePartnerLabel(op);
-                          return label !== '—' ? (
-                            <span
-                              role="button"
-                              tabIndex={0}
-                              title={`Show only ${label}`}
-                              onClick={() => setSearch(label)}
-                              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSearch(label); } }}
-                              style={{ color: 'var(--fg-1)', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '3px' }}
-                            >
-                              {label}
-                            </span>
-                          ) : (
-                            <span>{label}</span>
-                          );
-                        })()}
-                      </td>
-                      <td className="px-4 py-3" style={{ color: 'var(--fg-2)', whiteSpace: 'nowrap' }}>
-                        {isBatchRow ? (
-                          <span style={{ color: 'var(--fg-muted)' }}>—</span>
-                        ) : (
-                          <ContractRef contractNo={op.contract_no} />
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {(() => {
-                          if (isBatchRow) {
-                            const mp = (op as { marketplace?: 'OZN' | 'WB' }).marketplace;
-                            const accepted = (op as { batch_accepted?: boolean }).batch_accepted === true;
-                            // Accepted: blue for OZON, purple for WB
-                            // Pending: grey
-                            let bg = 'var(--paper-sunk)';
-                            let fg = 'var(--fg-2)';
-                            if (accepted && mp === 'OZN') {
-                              bg = 'rgba(0,90,200,0.10)';
-                              fg = '#1654B8';
-                            } else if (accepted && mp === 'WB') {
-                              bg = 'rgba(140,40,160,0.10)';
-                              fg = '#7A2890';
-                            }
-                            return (
-                              <span className="inline-block" style={{ fontSize: '14px', fontWeight: 500, padding: '3px 10px', backgroundColor: bg, color: fg, borderRadius: 'var(--radius-pill)' }}>
-                                transfer
-                              </span>
-                            );
-                          }
-                          const isService = op.operation_track === 'service';
-                          const badge = isService ? TYPE_COLORS.service : tc;
-                          const label = isService ? 'service' : op.operation_type;
-                          return (
-                            <span className="inline-block" style={{ fontSize: '14px', fontWeight: 500, padding: '3px 10px', backgroundColor: badge?.bg, color: badge?.fg, borderRadius: 'var(--radius-pill)' }}>
-                              {label}
-                            </span>
-                          );
-                        })()}
-                      </td>
-                      <td className="px-4 py-3 text-right" style={{ color: 'var(--fg-1)', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                        {isBatchRow ? (
-                          <span>{(op as { total_units?: number }).total_units ?? 0} <span style={{ color: 'var(--fg-3)', fontWeight: 600, fontSize: '13px' }}>pcs</span></span>
-                        ) : (
-                          `${formatMoney(op.total_amount, op.currency)}${op.currency ? ' ' + op.currency : ''}`
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <StatusStages op={op} />
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="inline-flex items-center gap-2">
-                          {op.status === 'draft' && (
-                            <button
-                              onClick={() => handleDelete(op)}
-                              disabled={busyId === op.id}
-                              title="Delete (draft only — permanent)"
-                              style={{
-                                fontSize: '14px', fontWeight: 600,
-                                padding: '4px 10px',
-                                border: '1px solid rgba(229,32,44,0.3)',
-                                borderRadius: 'var(--radius-sm)',
-                                color: '#A82029',
-                                backgroundColor: busyId === op.id ? 'var(--paper-sunk)' : 'transparent',
-                                cursor: busyId === op.id ? 'wait' : 'pointer',
-                                display: 'inline-flex', alignItems: 'center', gap: '4px',
-                              }}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                              Delete
-                            </button>
-                          )}
-                          {op.status !== 'draft' && op.status !== 'cancelled' && op.status !== 'delivered' && (
-                            <button
-                              onClick={() => handleCancel(op)}
-                              disabled={busyId === op.id}
-                              title="Cancel operation (reverses stock if shipped)"
-                              style={{
-                                fontSize: '14px', fontWeight: 600,
-                                padding: '4px 10px',
-                                border: '1px solid var(--border-hairline)',
-                                borderRadius: 'var(--radius-sm)',
-                                color: 'var(--fg-2)',
-                                backgroundColor: busyId === op.id ? 'var(--paper-sunk)' : 'transparent',
-                                cursor: busyId === op.id ? 'wait' : 'pointer',
-                                display: 'inline-flex', alignItems: 'center', gap: '4px',
-                              }}
-                            >
-                              <X className="h-3.5 w-3.5" />
-                              Cancel
-                            </button>
-                          )}
-                          {(op.status === 'cancelled' || op.status === 'delivered') && (
-                            <span style={{ fontSize: '14px', color: 'var(--fg-muted)' }}>—</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
+                threads.map((t) => (
+                  <Fragment key={`t-${t.key}`}>
+                    {renderDesktopRow(t.head, t)}
+                    {expanded.has(t.key) && t.rest.map((op) => renderDesktopRow(op, undefined, true))}
+                  </Fragment>
+                ))
               )}
             </tbody>
           </table>
@@ -1713,6 +1786,30 @@ export default function OperationsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// ThreadToggle — a down triangle and a thin italic count, on one line.
+function ThreadToggle({ count, open, onToggle }: {
+  count: number; open: boolean; onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      title={open ? 'Hide other operations' : `Show all ${count} operations`}
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggle(); }}
+      style={{
+        display: 'inline-flex', alignItems: 'baseline', gap: '4px',
+        marginLeft: '6px', padding: 0,
+        background: 'transparent', border: 'none',
+        color: 'var(--fg-3)', cursor: 'pointer',
+        whiteSpace: 'nowrap', verticalAlign: 'baseline', flexShrink: 0,
+      }}
+    >
+      <span style={{ fontSize: '11px', lineHeight: 1 }}>{open ? '▴' : '▾'}</span>
+      <span style={{ fontSize: '12px', fontStyle: 'italic', fontWeight: 300 }}>{count}</span>
+    </button>
   );
 }
 

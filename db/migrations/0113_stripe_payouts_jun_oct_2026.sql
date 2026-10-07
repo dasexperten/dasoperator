@@ -3,7 +3,7 @@
 -- Source: Stripe payout e-mails (notifications@stripe.com, payout id + arrival date + amount) and, where
 -- present, the matching Wio "You've received money" e-mail (sender NETWORK INTERNATIONAL LLC + AEL reference).
 -- external_id = Stripe payout id, so a later Wio statement upload of the same deposit is a different key;
--- dedupe on upload by amount+date+contragent before importing that month.
+-- a statement upload matches these rows (same amount, ±3 days) instead of adding them again.
 -- Rollback: DELETE FROM bank_transactions WHERE company_bank_account_id='cba_dei_wio_aed' AND external_id LIKE 'po_%' AND source_type='email_inbox';
 --           then POST /api/operations/_backfill-dasexperten-com-monthly?from=2026-06&to=2026-10
 

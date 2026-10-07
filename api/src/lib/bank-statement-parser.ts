@@ -160,6 +160,7 @@ export interface InsertSummary {
   total: number;
   inserted: number;
   skipped: number;
+  matched: number;   // statement line that a deposit entered earlier from e-mail already covers
   errors: number;
   account_id: string | null;
   account_match_method: 'exact' | 'currency_only' | 'none';
@@ -174,6 +175,7 @@ export async function insertTransactions(
     total: parsed.transactions.length,
     inserted: 0,
     skipped: 0,
+    matched: 0,
     errors: 0,
     account_id: null,
     account_match_method: 'none',
@@ -198,6 +200,35 @@ export async function insertTransactions(
     try {
       const txId = `bt_${crypto.randomUUID()}`;
       const executedAt = Math.floor(new Date(tx.executed_at + 'T12:00:00Z').getTime() / 1000);
+
+      // Owner 2026-10-07: a deposit already written from e-mail (e.g. a Stripe payout
+      // notice) is matched, never written twice — only a payment that does not exist
+      // yet becomes a new row. Same account, direction, amount and currency, within
+      // 3 days; the closest one wins and takes the statement's own details.
+      const emailRow = await env.DB.prepare(
+        `SELECT id FROM bank_transactions
+          WHERE company_bank_account_id = ? AND source_type = 'email_inbox'
+            AND direction = ? AND amount = ? AND currency = ? AND deleted_at IS NULL
+            AND ABS(executed_at - ?) <= 3 * 86400
+          ORDER BY ABS(executed_at - ?) LIMIT 1`
+      ).bind(accountId.id, tx.direction, tx.amount, tx.currency, executedAt, executedAt)
+        .first<{ id: string }>();
+      if (emailRow) {
+        await env.DB.prepare(
+          `UPDATE bank_transactions
+              SET source_type = 'manual_upload',
+                  external_doc_number = COALESCE(?, external_doc_number),
+                  payment_purpose = COALESCE(?, payment_purpose),
+                  contragent_name = COALESCE(?, contragent_name),
+                  executed_at = ?, updated_at = ?
+            WHERE id = ?`
+        ).bind(
+          tx.external_doc_number ?? null, tx.payment_purpose ?? null, tx.contragent_name ?? null,
+          executedAt, now, emailRow.id
+        ).run();
+        summary.matched++;
+        continue;
+      }
 
       // Insert with INSERT OR IGNORE — UNIQUE constraint handles dedup
       const result = await env.DB.prepare(

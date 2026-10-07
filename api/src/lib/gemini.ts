@@ -4,7 +4,9 @@
 // Text reviews still go through Claude (lib/anthropic).
 //
 // Gemini 2.5 Flash: $0.30/M input, $2.50/M output — 10x cheaper than Claude.
-// Thinking budget disabled (thinkingConfig.thinkingBudget=0) for speed.
+// Thinking level 'minimal' (closest to no thinking) for speed. No sampling
+// fields: Google deprecated thinkingBudget/temperature/topP/topK (notice 2026-10-07)
+// and upcoming models reject them with 400.
 // =============================================================================
 
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent';
@@ -23,8 +25,7 @@ export interface GeminiResult {
 export interface GeminiOpts {
   apiKey: string;
   maxTokens?: number;
-  temperature?: number;
-  thinkingBudget?: number;  // default 0 (disabled) — Flash is fine without
+  thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high';  // default 'minimal'
 }
 
 export async function callGeminiFlash(
@@ -37,8 +38,7 @@ export async function callGeminiFlash(
     systemInstruction: { parts: [{ text: system }] },
     generationConfig: {
       maxOutputTokens: opts.maxTokens ?? 1500,
-      temperature: opts.temperature ?? 0.5,
-      thinkingConfig: { thinkingBudget: opts.thinkingBudget ?? 0 },
+      thinkingConfig: { thinkingLevel: opts.thinkingLevel ?? 'minimal' },
     },
   };
 
@@ -99,8 +99,7 @@ export async function callGeminiPdf(
     systemInstruction: { parts: [{ text: system }] },
     generationConfig: {
       maxOutputTokens: opts.maxTokens ?? 2500,
-      temperature: opts.temperature ?? 0.2,
-      thinkingConfig: { thinkingBudget: opts.thinkingBudget ?? 0 },
+      thinkingConfig: { thinkingLevel: opts.thinkingLevel ?? 'minimal' },
     },
   };
 

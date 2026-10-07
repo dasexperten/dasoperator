@@ -660,7 +660,6 @@ The attached PDF is an invoice/УПД/счёт. Extract all fields per the schem
       const g = await callGeminiPdf(DEEPSEEK_PROMPT, userMsg, b64, {
         apiKey: env.GEMINI_API_KEY,
         maxTokens: 2500,
-        temperature: 0.2,
       });
       return JSON.parse(stripFences(g.text));
     } catch (ge) {

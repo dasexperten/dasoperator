@@ -2677,6 +2677,8 @@ operations.post('/_backfill-dasexperten-com-monthly', async (c) => {
   }
   const { rebuildPriorMonthDasexpertenComForRange } = await import('../lib/marketplace-pull-helpers');
   const results = await rebuildPriorMonthDasexpertenComForRange(c.env, fromStr, toStr);
+  const { refreshStripeMonthDates } = await import('../lib/stripe-month-date');
+  await refreshStripeMonthDates(c.env);
   return ok(c, { range: { from: fromStr, to: toStr }, months: results });
 });
 

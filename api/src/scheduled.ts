@@ -502,6 +502,8 @@ export async function handleScheduled(
     try {
       const r = await rebuildPriorMonthDasexpertenCom(env);
       console.log(`[cron:dascom-rebuild] complete: ${JSON.stringify(r)}`);
+      const { refreshStripeMonthDates } = await import('./lib/stripe-month-date');
+      await refreshStripeMonthDates(env);
     } catch (e) {
       console.error('[cron:dascom-rebuild] failed:', e);
     }

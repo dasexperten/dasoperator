@@ -93,6 +93,14 @@ export const STEPS: Record<string, Step> = {
     } catch (e) {
       tb = ` · tbank failed: ${e instanceof Error ? e.message : String(e)}`.slice(0, 200);
     }
+    // STRIPE-YYYYMM lines follow their latest .com order (Owner 2026-10-08).
+    try {
+      const { refreshStripeMonthDates } = await import('./lib/stripe-month-date');
+      const n = await refreshStripeMonthDates(env);
+      if (n) tb += ` · stripe dates ${n}`;
+    } catch (e) {
+      tb += ` · stripe dates failed: ${e instanceof Error ? e.message : String(e)}`.slice(0, 200);
+    }
     return `${r.upserted}/${r.total} v${r.feed_version ?? '?'} · aggregate ${w.orders} orders${tb}`;
   },
   'erp-loyalty-keys': async (env) => {

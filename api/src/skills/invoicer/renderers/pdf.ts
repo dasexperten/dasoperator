@@ -14,6 +14,7 @@ import {
   type RenderBank, type RenderParty, type RenderSignature,
 } from './shared';
 import { pdfFontBytes } from './pdf-fonts';
+import { packedLine, packedTotals } from './packing';
 
 type PdfKind = 'CI' | 'PL' | 'IS-V1' | 'IS-V2' | 'UPD' | 'TN';
 
@@ -37,7 +38,7 @@ interface PdfModel {
   total: number | null;
   extraCharges: Array<{ label: string; amount: number }>;
   signature: RenderSignature;
-  packingDetails?: PackingDetails;
+  packingDetails?: PackingDetails | undefined;
   vatRatePct?: number;
 }
 
@@ -376,14 +377,12 @@ function tableDefinition(model: PdfModel, usable: number): { columns: TableColum
       { label: 'Net kg', width: 0.07, align: 'right' }, { label: 'Gross kg', width: 0.07, align: 'right' },
       { label: 'Price', width: 0.08, align: 'right' }, { label: 'Amount', width: 0.12, align: 'right' },
     ];
-    let tQty = 0, tCtn = 0, tNet = 0, tGross = 0, known = true;
+    let tQty = 0, tCtn = 0;
+    const packed = model.lineItems.map((li) => packedLine(li, model.packingDetails));
+    const packedTotal = packedTotals(packed, model.packingDetails);
     const rows = model.lineItems.map((li, i) => {
-      const perCtn = li.ctn_qty ?? 0;
-      const cartons = li.cartons > 0 ? li.cartons : (perCtn > 0 ? Math.ceil(li.qty / perCtn) : 0);
-      const net = li.unit_net_weight_g !== null ? (li.qty * li.unit_net_weight_g) / 1000 : null;
-      const gross = li.ctn_weight_gross_kg !== null && cartons > 0 ? cartons * li.ctn_weight_gross_kg : null;
+      const { cartons, netKg: net, grossKg: gross } = packed[i]!;
       tQty += li.qty; tCtn += cartons;
-      if (net === null || gross === null) known = false; else { tNet += net; tGross += gross; }
       return [
         String(i + 1), li.hs_code ?? 'TBD', li.country_of_origin ?? 'China',
         pickLineLabel(li, { kind: 'IS', variant: model.kind === 'IS-V1' ? 'V1' : 'V2' }),
@@ -393,7 +392,8 @@ function tableDefinition(model: PdfModel, usable: number): { columns: TableColum
       ];
     });
     rows.push(['', '', '', 'TOTAL', String(tQty), String(tCtn),
-      known ? tNet.toFixed(3) : 'TBD', known ? tGross.toFixed(3) : 'TBD', '',
+      packedTotal.netKg !== null ? packedTotal.netKg.toFixed(3) : 'TBD',
+      packedTotal.grossKg !== null ? packedTotal.grossKg.toFixed(3) : 'TBD', '',
       model.total !== null && model.currency ? formatMoney(model.total, model.currency) : '']);
     return { columns: columns.map((col) => ({ ...col, width: col.width * usable })), rows };
   }
@@ -606,6 +606,7 @@ export function renderInvoiceSpecBrushesPdf(input: RenderIsV1Input): Promise<Uin
     reference: input.reference, issuedAt: input.issuedAt, language: 'BILINGUAL', currency: input.currency,
     parties, details: [input.incoterms, ...(input.consigneeAtTerminal ? [`Consignee at terminal: ${input.consigneeAtTerminal}`] : [])],
     bank: input.bank, lineItems: input.lineItems, total: input.totalMinor, extraCharges: [], signature: input.signature,
+    packingDetails: input.packingDetails,
   });
 }
 
@@ -616,6 +617,7 @@ export function renderInvoiceSpecPastesPdf(input: RenderIsV2Input): Promise<Uint
     parties: [{ label: 'SHIPPER / SELLER', party: input.shipperSeller }, { label: 'CONSIGNEE / BUYER', party: input.consigneeBuyer }],
     details: [input.incoterms, ...(input.container ? [`Container: ${input.container}`] : []), ...(input.countryStation ? [`Country / Station: ${input.countryStation}`] : [])],
     bank: input.bank, lineItems: input.lineItems, total: input.totalMinor, extraCharges: [], signature: input.signature,
+    packingDetails: input.packingDetails,
   });
 }
 

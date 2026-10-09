@@ -5,7 +5,8 @@
 // leaving China to Russia (HS 3306xxx).
 // =============================================================================
 
-import type { ContractRow, LineItemRow } from '../types';
+import type { ContractRow, LineItemRow, PackingDetails } from '../types';
+import { packedLine, packedTotals } from './packing';
 import { PageOrientation, AlignmentType, Paragraph, TextRun } from 'docx';
 import {
   Document, LANDSCAPE_USABLE_DXA, Packer, RenderBank,
@@ -60,6 +61,8 @@ export interface RenderIsV2Input {
   countryStation: string | null;
   lineItems: LineItemRow[];
   totalMinor: number;
+  /** Factory packing figures from the operation; override product-card weights. */
+  packingDetails?: PackingDetails | undefined;
 }
 
 const SAFETY_RU =
@@ -137,23 +140,12 @@ export async function renderInvoiceSpecPastes(input: RenderIsV2Input): Promise<U
 
   let totalQty = 0;
   let totalCartons = 0;
-  let totalNet = 0;
-  let totalGross = 0;
-  let allWeightsKnown = true;
+  const packed = input.lineItems.map((li) => packedLine(li, input.packingDetails));
+  const packedTotal = packedTotals(packed, input.packingDetails);
 
   const rows: ProductCell[][] = input.lineItems.map((li, idx) => {
     const desc = pickLineLabel(li, { kind: 'IS', variant: 'V2' });
-    const qtyPerCtn = li.ctn_qty ?? 0;
-    const cartons = li.cartons > 0
-      ? li.cartons
-      : (qtyPerCtn > 0 ? Math.ceil(li.qty / qtyPerCtn) : 0);
-    const lineNetKg = li.unit_net_weight_g !== null
-      ? (li.qty * li.unit_net_weight_g) / 1000 : null;
-    const lineGrossKg = (li.ctn_weight_gross_kg !== null && cartons > 0)
-      ? cartons * li.ctn_weight_gross_kg : null;
-
-    if (lineNetKg !== null) totalNet += lineNetKg; else allWeightsKnown = false;
-    if (lineGrossKg !== null) totalGross += lineGrossKg; else allWeightsKnown = false;
+    const { cartons, netKg: lineNetKg, grossKg: lineGrossKg } = packed[idx]!;
     totalCartons += cartons;
     totalQty += li.qty;
 
@@ -184,8 +176,8 @@ export async function renderInvoiceSpecPastes(input: RenderIsV2Input): Promise<U
     totalValues: [
       { text: String(totalQty), align: 'right' },
       { text: String(totalCartons), align: 'right' },
-      { text: allWeightsKnown ? totalNet.toFixed(3) : 'TBD', align: 'right' },
-      { text: allWeightsKnown ? totalGross.toFixed(3) : 'TBD', align: 'right' },
+      { text: packedTotal.netKg !== null ? packedTotal.netKg.toFixed(3) : 'TBD', align: 'right' },
+      { text: packedTotal.grossKg !== null ? packedTotal.grossKg.toFixed(3) : 'TBD', align: 'right' },
       { text: '', align: 'right' },
       { text: formatMoney(input.totalMinor, input.currency), align: 'right' },
     ],

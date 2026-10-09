@@ -811,6 +811,7 @@ export async function issueDocuments(
             container: null, countryStation: null,
             lineItems: docLineItems,
             totalMinor: goodsTotal,
+            packingDetails,
           };
           [docxBytes, pdfBytes] = await Promise.all([
             renderInvoiceSpecPastes(renderInput),
@@ -842,6 +843,7 @@ export async function issueDocuments(
             consigneeAtTerminal: null,
             lineItems: docLineItems,
             totalMinor: goodsTotal,
+            packingDetails,
           };
           [docxBytes, pdfBytes] = await Promise.all([
             renderInvoiceSpecBrushes(renderInput),

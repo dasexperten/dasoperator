@@ -42,6 +42,11 @@ interface CrmOrder {
   id: number;
   number: string;
   customer_name: string;
+  customer_first_name?: string | null;
+  customer_last_name?: string | null;
+  customer_city?: string | null;
+  ship_city?: string | null;
+  phone?: string | null;
   total: number;
   status: string;
   created_at: string;
@@ -243,7 +248,7 @@ export default function CrmPage() {
   // Каждый показ пишется в журнал на стороне России (pd_access_log).
   const [pdShown, setPdShown] = useState<Record<string, { name?: string; phone?: string; email?: string; city?: string } | 'loading' | 'error'>>({});
   const revealCustomer = async (number: string) => {
-    if (pdShown[number]) return;
+    if (pdShown[number] && pdShown[number] !== 'error') return;
     setPdShown((m) => ({ ...m, [number]: 'loading' }));
     try {
       const res = await fetch(`${API_BASE}/api/crm/customer/${encodeURIComponent(number)}?who=erp-ui`);
@@ -1921,6 +1926,35 @@ function DataTablePanel({
   );
 }
 
+function OrderCustomerCell({ order, revealed, onReveal }: {
+  order: CrmOrder;
+  revealed?: { name?: string; phone?: string; email?: string; city?: string } | 'loading' | 'error';
+  onReveal?: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const full = revealed && typeof revealed === 'object' ? revealed : null;
+  const name = full?.name || order.customer_name;
+  const words = name.trim().split(/\s+/);
+  const first = order.customer_first_name || words[0];
+  const surname = order.customer_last_name || words[1];
+  const shortName = first && first !== '—' ? `${first}${surname ? ` ${Array.from(surname)[0]}.` : ''}` : '—';
+  const city = full?.city || order.customer_city || order.ship_city;
+  const showing = expanded && (full || !onReveal);
+  return (
+    <button type="button" aria-expanded={!!showing}
+      title={showing ? 'Скрыть фамилию и телефон' : 'Показать фамилию и телефон'}
+      onClick={(e) => { e.stopPropagation(); setExpanded(revealed === 'error' || !expanded); if (!expanded || revealed === 'error') onReveal?.(); }}
+      style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer',
+        font: 'inherit', textAlign: 'left', color: 'var(--fg-1)', whiteSpace: 'nowrap' }}>
+      <span style={{ display: 'block', fontWeight: 700 }}>{showing ? name : shortName}</span>
+      <span style={{ display: 'block', fontSize: 12, color: 'var(--fg-3)' }}>{city || '—'}</span>
+      {showing && (full?.phone || order.phone) ? <span style={{ display: 'block', fontSize: 12, color: 'var(--fg-3)' }}>{full?.phone || order.phone}</span> : null}
+      {expanded && revealed === 'loading' ? <span style={{ display: 'block', fontSize: 12 }}>Загрузка…</span> : null}
+      {expanded && revealed === 'error' ? <span style={{ display: 'block', fontSize: 12, color: 'var(--status-error)' }}>Не загрузилось — нажмите ещё раз</span> : null}
+    </button>
+  );
+}
+
 function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', onOpen, pdShown = {}, revealCustomer }: { orders: CrmOrder[]; hasSearch: boolean; search: string; sort: { key: string; dir: 'asc' | 'desc' }; onSort: (k: string) => void; variant?: CrmSource; onOpen?: (orderNumber: string) => void; pdShown?: Record<string, { name?: string; phone?: string; email?: string; city?: string } | 'loading' | 'error'>; revealCustomer?: (number: string) => void }) {
   if (variant === 'com') {
     // Website (.com/Stripe) orders — no loyalty columns; USD; SKU line items
@@ -1962,10 +1996,7 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
                   <span style={{ fontWeight: 400, color: 'var(--fg-3)', marginLeft: 6 }}>{o.order_source}</span>
                 )}
               </Td>
-              <Td>
-                {o.customer_name}
-                {o.email && <div style={{ fontSize: 12, color: 'var(--fg-3)' }}>{o.email}</div>}
-              </Td>
+              <Td><OrderCustomerCell order={o} /></Td>
               <td className="px-6 py-3 text-left relative group" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
                 {(() => {
                   const its = o.items ?? [];
@@ -2047,31 +2078,7 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
           >
             <Td bold style={{ whiteSpace: 'nowrap' }}>{o.number}</Td>
             <Td>
-              {(() => {
-                const pd = pdShown[o.number];
-                if (pd === 'loading') return <span style={{ color: 'var(--fg-3)' }}>…</span>;
-                if (pd === 'error') return <span style={{ color: 'var(--status-error)' }}>не открылось</span>;
-                if (pd && typeof pd === 'object') return (
-                  <span>
-                    <b>{pd.name || '—'}</b>
-                    <span style={{ display: 'block', color: 'var(--fg-3)', fontSize: 12 }}>
-                      {[pd.phone, pd.city].filter(Boolean).join(' · ')}
-                    </span>
-                  </span>
-                );
-                return (
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); revealCustomer?.(o.number); }}
-                    title="Показать имя и телефон. Показ записывается в журнал."
-                    style={{ border: '1px solid var(--border-hairline)', background: 'transparent',
-                             borderRadius: 6, padding: '4px 9px', cursor: 'pointer',
-                             font: 'inherit', fontSize: 13, color: 'var(--fg-2)' }}
-                  >
-                    {o.customer_name} · показать
-                  </button>
-                );
-              })()}
+              <OrderCustomerCell order={o} revealed={pdShown[o.number]} onReveal={() => revealCustomer?.(o.number)} />
             </Td>
             {/* Штук в заказе; состав раскрывается мышью и с клавиатуры. */}
             <td className="px-6 py-3 text-left relative group" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
@@ -2152,19 +2159,11 @@ function OrderShipmentCell({ label, detail, trackingUrl, missing, waiting }: { l
     const body = (
       <span style={{ fontWeight: 700 }}>
         {label}
-        {waiting ? (
-          <span style={{
-            display: 'block', marginTop: 3, fontSize: 12, fontWeight: 700,
-            color: 'var(--status-warning)', whiteSpace: 'nowrap',
-          }}>
-            ждёт в пункте выдачи{waiting > 1 ? ` · ${waiting} посылки` : ''}
-          </span>
-        ) : null}
-        {detail ? <span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--fg-3)' }}>{detail}</span> : null}
+        {detail ? <span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: waiting ? 'var(--status-warning)' : 'var(--fg-3)' }}>{detail}</span> : null}
       </span>
     );
     return (
-      <Td style={{ whiteSpace: 'nowrap' }}>
+      <Td style={{ whiteSpace: 'nowrap' }} title={waiting ? `Ждёт в пункте выдачи: ${waiting}` : undefined}>
         {trackingUrl
           ? <a href={trackingUrl} target="_blank" rel="noreferrer" style={{ color: 'inherit' }} onClick={(e) => e.stopPropagation()}>{body}</a>
           : body}
@@ -2297,11 +2296,11 @@ function ruShipment(o: CrmOrder): { label?: string | null; detail?: string | nul
     // своим складам, части приезжают в разные дни, и «забрал две трети» иначе с
     // экрана не читается вовсе.
     const parts = o.delivery_parts_total ?? 0;
-    const partsLine = parts > 1
-      ? `${parts} посылки · получено ${o.delivery_parts_received ?? 0}`
+    const partsLine = parts > 0
+      ? `created ${parts}, получено ${o.delivery_parts_received ?? 0}`
       : null;
     return {
-      label: o.delivery_status || 'отправление создано',
+      label: o.delivery_order_id,
       detail: partsLine,
       // Не статус, а отдельная ось: посылка в пункте всё ещё delivering.
       waiting: o.delivery_parts_at_point ?? 0,
@@ -2338,7 +2337,7 @@ function comShipment(o: CrmOrder): { label?: string | null; detail?: string | nu
   if (o.fulfillment_status === 'cancelled') return {};
   const shipped = o.fulfillment_status === 'shipped' || o.fulfillment_status === 'delivered';
   if (o.tracking_number) {
-    return { label: o.fulfillment_status || 'shipped', trackingUrl: o.tracking_url };
+    return { label: o.tracking_number, detail: o.fulfillment_status, trackingUrl: o.tracking_url };
   }
   if (shipped) return { label: o.fulfillment_status, trackingUrl: o.tracking_url };
   const settled = o.status === 'refunded' || o.status === 'partially_refunded' || o.status === 'failed';

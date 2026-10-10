@@ -543,6 +543,20 @@ async function ozonSupplyFacts(env: Env): Promise<Map<string, OzonSupplyFact> | 
   }
 }
 
+function ruCustomerSummary(raw: string | null) {
+  try {
+    const order = JSON.parse(raw || '{}');
+    const first = String(order.client?.first_name || '').trim();
+    const last = String(order.client?.last_name || '').trim();
+    return {
+      customer_name: first ? `${first}${last ? ` ${Array.from(last)[0]}.` : ''}` : '—',
+      customer_first_name: first || null,
+      customer_last_name: last ? `${Array.from(last)[0]}.` : null,
+      customer_city: order.delivery?.city || null,
+    };
+  } catch { return { customer_name: '—' }; }
+}
+
 function ruItems(raw: string | null | undefined): RuItem[] {
   if (!raw) return [];
   try {
@@ -760,7 +774,7 @@ async function ordersFromMirror(
     return {
       id: r.order_number,
       number: r.order_number,
-      customer_name: '—',                                 // обезличено, как и раньше
+      ...ruCustomerSummary(r.raw_json),
       total: r.total_rub,
       status: STATUS_KEBAB(r.status ?? '—'),
       created_at: r.created_at,

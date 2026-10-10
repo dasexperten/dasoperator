@@ -791,7 +791,7 @@ site.get('/orders', async (c) => {
       .first<{ n: number }>();
     const rows = await c.env.DB.prepare(
       `SELECT id, source, order_number, stripe_payment_intent, customer_id, customer_name,
-              email, currency, subtotal_cents, shipping_cents, total_cents,
+              phone, email, currency, subtotal_cents, shipping_cents, total_cents,
               financial_status, fulfillment_status, tracking_number, tracking_url, payment_method, lang,
               ship_country, ship_city, items, placed_at,
               traffic_source, traffic_medium, traffic_campaign
@@ -811,6 +811,7 @@ site.get('/orders', async (c) => {
       traffic_campaign: o.traffic_campaign ?? null,
       customer_name: o.customer_name ?? o.email ?? '—',
       customer_id: o.customer_id,
+      phone: o.phone,
       email: o.email,
       // `total` mirrors the KIT feed (major units) so the shared table renders;
       // *_cents keep the exact figures for anything that needs them.

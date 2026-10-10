@@ -131,7 +131,7 @@
     "35 10 * * *"
   ],
   "erp-wb-sales": [
-    "0 21 * * *"
+    "0 1 * * *"
   ],
   "erp-wb-stocks": [],
   "erp-wb-turnover": [

@@ -703,11 +703,20 @@ export async function syncWbSalesToErp(env, periodDays = 7) {
       out.source_warnings.push(`prices: ${String(e?.message || e)}`);
     }
 
-    // Required cost source: finish all reads before replacing the sales snapshot.
-    const advertising = await fetchWbAdvertSpend(env, dateFromStr, dateToStr);
-    out.ad_campaigns = advertising.campaigns;
-    if (advertising.emptyBatches) out.source_warnings.push(`advertising: WB returned no statistics for ${advertising.emptyBatches} campaign batch(es) — spend counted as zero for them`);
-    out.ad_spend_kopecks = [...advertising.spend.values()].reduce((sum, value) => sum + value, 0);
+    // Advertising must not hold sales hostage (Owner 2026-10-10: 9 Oct sales missed the night run).
+    // A failed ad read is stored as unknown (NULL), never as zero spend, and named in the run note.
+    let advertising = null;
+    try {
+      advertising = await fetchWbAdvertSpend(env, dateFromStr, dateToStr);
+    } catch (e) {
+      out.advertising_error = String(e?.message || e);
+      out.source_warnings.push(`advertising: ${out.advertising_error} — sales saved, ad spend stored as unknown`);
+    }
+    if (advertising) {
+      out.ad_campaigns = advertising.campaigns;
+      if (advertising.emptyBatches) out.source_warnings.push(`advertising: WB returned no statistics for ${advertising.emptyBatches} campaign batch(es) — spend counted as zero for them`);
+      out.ad_spend_kopecks = [...advertising.spend.values()].reduce((sum, value) => sum + value, 0);
+    }
 
     const catalog = await env.ERP_DB.prepare(
       "SELECT id FROM products WHERE deleted_at IS NULL"
@@ -720,7 +729,7 @@ export async function syncWbSalesToErp(env, periodDays = 7) {
       else dropped++;
     }
     // A paid SKU with no sales must remain visible in the cost report.
-    for (const [sku, spend] of advertising.spend) {
+    for (const [sku, spend] of advertising?.spend ?? []) {
       if (spend > 0 && catalogIds.has(sku) && !filtered.has(sku))
         filtered.set(sku, { units: 0, revenue: 0, listings: new Set([sku]) });
     }
@@ -795,7 +804,7 @@ export async function syncWbSalesToErp(env, periodDays = 7) {
           f.tocart,
           f.position,
           price,
-          advertising.spend.get(sku) || 0,
+          advertising ? advertising.spend.get(sku) || 0 : null,
           prev.units,
           prev.revenue,
           wbAnomaly

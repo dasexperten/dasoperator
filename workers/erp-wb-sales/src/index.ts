@@ -10,5 +10,7 @@ export default erpWorker<Env>('erp-wb-sales', async (env, dry) => {
   if (dry) return { note: 'dry · sync skipped' };
   const r = await syncWbSalesToErp(env);
   if (r?.error) throw new Error(String(r.error));
-  return { rows: r?.rows_synced ?? 0, note: JSON.stringify(r).slice(0, 500) };
+  // An ad-read failure leads the note so the run log shows it before the long detail.
+  const ads = r?.advertising_error ? `ADS UNKNOWN: ${r.advertising_error} | ` : '';
+  return { rows: r?.rows_synced ?? 0, note: (ads + JSON.stringify(r)).slice(0, 1000) };
 });

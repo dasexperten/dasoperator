@@ -21,8 +21,9 @@ database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
 # Keys (secrets): WB_API_TOKEN (Arina's personal token, SECRETS/wb-arina.md).
 
 [triggers]
-# 01:00 Yerevan (21:00 UTC on the previous calendar day).
-crons = ["0 21 * * *"]
+# 05:00 Yerevan (01:00 UTC): WB has settled the previous Moscow day by then (Owner 2026-10-10;
+# at 01:00 Yerevan the run fired exactly at Moscow midnight and missed late sales).
+crons = ["0 1 * * *"]
 
 # Only dasoperator-api holds WB credentials or calls WB.
 [[services]]

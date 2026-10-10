@@ -120,11 +120,14 @@ test('real scheduled writer persists kopecks, including paid SKU with no sales',
   db.close();
 });
 
-test('advertising failure keeps previous snapshot and marks actual job error', async () => {
+test('advertising failure still saves sales, with ad spend unknown (NULL), never zero', async () => {
   const { env, db } = integrationEnv(true);
   const result = await syncWbSalesToErp(env);
-  assert.match(result.error, /HTTP 403/);
-  assert.equal(db.prepare('SELECT ad_spend_rub FROM marketplace_sales_wb WHERE base_sku=?').get('old').ad_spend_rub, 12345);
-  assert.equal(db.prepare('SELECT status FROM marketplace_sync_log').get().status, 'error');
+  assert.equal(result.error, null);
+  assert.match(result.advertising_error, /HTTP 403/);
+  assert.ok(result.source_warnings.some(w => /ad spend stored as unknown/.test(w)));
+  assert.deepEqual(db.prepare('SELECT base_sku,units_sold,ad_spend_rub FROM marketplace_sales_wb ORDER BY base_sku').all().map(r => ({ ...r })),
+    [{ base_sku: 'de209', units_sold: 1, ad_spend_rub: null }]);
+  assert.equal(db.prepare('SELECT units_sold FROM marketplace_sales_daily WHERE marketplace=?').get('wb').units_sold, 1);
   db.close();
 });

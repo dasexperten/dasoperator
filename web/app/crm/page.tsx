@@ -2045,7 +2045,7 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
             onMouseEnter={(e) => { if (onOpen) (e.currentTarget as HTMLTableRowElement).style.backgroundColor = 'var(--paper-sunk, #F3F0E8)'; }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.backgroundColor = 'transparent'; }}
           >
-            <Td bold>{o.number}</Td>
+            <Td bold style={{ whiteSpace: 'nowrap' }}>{o.number}</Td>
             <Td>
               {(() => {
                 const pd = pdShown[o.number];
@@ -2128,30 +2128,30 @@ function OrderPaymentCell({ state, at, method }: { state: PayState; at?: string 
     : null;
   if (state === 'paid') {
     return (
-      <Td>
+      <Td style={{ whiteSpace: 'nowrap' }}>
         <span style={{ color: 'var(--status-success)', fontWeight: 700 }}>оплачен{at ? <span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--fg-3)' }}>{new Date(at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span> : null}</span>
         {methodLine}
       </Td>
     );
   }
   if (state === 'refunded') {
-    return <Td><span style={{ color: 'var(--status-warning)', fontWeight: 700 }}>возврат</span>{methodLine}</Td>;
+    return <Td style={{ whiteSpace: 'nowrap' }}><span style={{ color: 'var(--status-warning)', fontWeight: 700 }}>возврат</span>{methodLine}</Td>;
   }
   if (state === 'failed') {
-    return <Td><span style={{ color: 'var(--status-error)', fontWeight: 700 }}>оплата не прошла</span>{methodLine}</Td>;
+    return <Td style={{ whiteSpace: 'nowrap' }}><span style={{ color: 'var(--status-error)', fontWeight: 700 }}>оплата не прошла</span>{methodLine}</Td>;
   }
   const label = state === 'awaiting' ? 'ждёт оплаты' : state === 'unpaid' ? 'не оплачен' : '—';
-  return <Td><span style={{ color: 'var(--fg-3)' }}>{label}</span>{state === 'unknown' ? null : methodLine}</Td>;
+  return <Td style={{ whiteSpace: 'nowrap' }}><span style={{ color: 'var(--fg-3)' }}>{label}</span>{state === 'unknown' ? null : methodLine}</Td>;
 }
 
-function OrderShipmentCell({ id, detail, trackingUrl, missing, waiting }: { id?: string | null; detail?: string | null; trackingUrl?: string | null; missing?: boolean; waiting?: number }) {
-  if (id) {
+function OrderShipmentCell({ label, detail, trackingUrl, missing, waiting }: { label?: string | null; detail?: string | null; trackingUrl?: string | null; missing?: boolean; waiting?: number }) {
+  if (label) {
     // «Ждёт в пункте выдачи» — деньги, которые уже уедут назад, если покупатель
     // не придёт: срок хранения идёт, а Ozon об этом сам не напоминает. Поэтому
     // предупреждающим цветом, а не строкой мелким шрифтом.
     const body = (
       <span style={{ fontWeight: 700 }}>
-        {id}
+        {label}
         {waiting ? (
           <span style={{
             display: 'block', marginTop: 3, fontSize: 12, fontWeight: 700,
@@ -2164,7 +2164,7 @@ function OrderShipmentCell({ id, detail, trackingUrl, missing, waiting }: { id?:
       </span>
     );
     return (
-      <Td>
+      <Td style={{ whiteSpace: 'nowrap' }}>
         {trackingUrl
           ? <a href={trackingUrl} target="_blank" rel="noreferrer" style={{ color: 'inherit' }} onClick={(e) => e.stopPropagation()}>{body}</a>
           : body}
@@ -2172,7 +2172,7 @@ function OrderShipmentCell({ id, detail, trackingUrl, missing, waiting }: { id?:
     );
   }
   if (missing) return (
-    <Td>
+    <Td style={{ whiteSpace: 'nowrap' }}>
       <span style={{
         color: 'var(--status-error)', fontWeight: 700,
         background: 'color-mix(in srgb, var(--status-error) 10%, transparent)',
@@ -2183,7 +2183,7 @@ function OrderShipmentCell({ id, detail, trackingUrl, missing, waiting }: { id?:
       </span>
     </Td>
   );
-  return <Td><span style={{ color: 'var(--fg-3)' }}>—</span></Td>;
+  return <Td style={{ whiteSpace: 'nowrap' }}><span style={{ color: 'var(--fg-3)' }}>—</span></Td>;
 }
 
 // Доставлено — конец пути заказа. Витрина отдельного поля «вручено в» не
@@ -2198,7 +2198,7 @@ function OrderDeliveryCell({ state, at, parts }: { state: DeliveryState; at?: st
     : null;
   if (state === 'delivered') {
     return (
-      <Td>
+      <Td style={{ whiteSpace: 'nowrap' }}>
         <span style={{ color: 'var(--status-success)', fontWeight: 700 }}>
           доставлен
           {at ? <span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--fg-3)' }}>
@@ -2210,12 +2210,12 @@ function OrderDeliveryCell({ state, at, parts }: { state: DeliveryState; at?: st
     );
   }
   if (state === 'transit') {
-    return <Td><span style={{ fontWeight: 700 }}>в пути</span>{partsLine}</Td>;
+    return <Td style={{ whiteSpace: 'nowrap' }}><span style={{ fontWeight: 700 }}>в пути</span>{partsLine}</Td>;
   }
   if (state === 'cancelled') {
-    return <Td><span style={{ color: 'var(--fg-2)', fontWeight: 700 }}>отменён</span></Td>;
+    return <Td style={{ whiteSpace: 'nowrap' }}><span style={{ color: 'var(--fg-2)', fontWeight: 700 }}>отменён</span></Td>;
   }
-  return <Td><span style={{ color: 'var(--fg-3)' }}>—</span></Td>;
+  return <Td style={{ whiteSpace: 'nowrap' }}><span style={{ color: 'var(--fg-3)' }}>—</span></Td>;
 }
 
 function ruDelivery(o: CrmOrder): { state: DeliveryState; at?: string | null; parts?: string | null } {
@@ -2290,7 +2290,7 @@ function ruPayment(o: CrmOrder): { state: PayState; at?: string | null } {
   return { state: 'unpaid' };
 }
 
-function ruShipment(o: CrmOrder): { id?: string | null; detail?: string | null; missing?: boolean; waiting?: number } {
+function ruShipment(o: CrmOrder): { label?: string | null; detail?: string | null; missing?: boolean; waiting?: number } {
   if (o.paid === undefined) return {};
   if (o.delivery_order_id) {
     // Разбивку показываем только когда посылок больше одной: Ozon режет заказ по
@@ -2301,8 +2301,8 @@ function ruShipment(o: CrmOrder): { id?: string | null; detail?: string | null; 
       ? `${parts} посылки · получено ${o.delivery_parts_received ?? 0}`
       : null;
     return {
-      id: o.delivery_order_id,
-      detail: [o.delivery_status, partsLine, o.tracking_number].filter(Boolean).join(' · '),
+      label: o.delivery_status || 'отправление создано',
+      detail: partsLine,
       // Не статус, а отдельная ось: посылка в пункте всё ещё delivering.
       waiting: o.delivery_parts_at_point ?? 0,
     };
@@ -2334,13 +2334,13 @@ function comPayment(o: CrmOrder): { state: PayState; at?: string | null; method?
   return { state: 'unpaid', method };
 }
 
-function comShipment(o: CrmOrder): { id?: string | null; detail?: string | null; trackingUrl?: string | null; missing?: boolean } {
+function comShipment(o: CrmOrder): { label?: string | null; detail?: string | null; trackingUrl?: string | null; missing?: boolean } {
   if (o.fulfillment_status === 'cancelled') return {};
   const shipped = o.fulfillment_status === 'shipped' || o.fulfillment_status === 'delivered';
   if (o.tracking_number) {
-    return { id: o.tracking_number, detail: o.fulfillment_status, trackingUrl: o.tracking_url };
+    return { label: o.fulfillment_status || 'shipped', trackingUrl: o.tracking_url };
   }
-  if (shipped) return { id: o.fulfillment_status, trackingUrl: o.tracking_url };
+  if (shipped) return { label: o.fulfillment_status, trackingUrl: o.tracking_url };
   const settled = o.status === 'refunded' || o.status === 'partially_refunded' || o.status === 'failed';
   return { missing: o.status === 'paid' && !settled };
 }

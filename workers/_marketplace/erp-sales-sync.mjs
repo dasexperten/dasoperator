@@ -1,5 +1,6 @@
 import { wbRead } from "./wb-egress.mjs";
 import { fetchWbAdvertSpend } from "./wb-advert-spend.mjs";
+import { mskDate, writeWbSkuDaily } from "./wb-sku-daily.mjs";
 /**
  * Marketplace SALES craft → ERP D1 (Owner 2026-07-21).
  *
@@ -826,6 +827,32 @@ export async function syncWbSalesToErp(env, periodDays = 7) {
     const CHUNK = 40;
     for (let i = 0; i < stmts.length; i += CHUNK) {
       await env.ERP_DB.batch(stmts.slice(i, i + CHUNK));
+    }
+
+    // WB library: lasting per-product daily history. Never blocks the snapshot above.
+    try {
+      const nowMs = Date.now();
+      const yesterday = mskDate(nowMs - 24 * 3600_000);
+      let dayFunnel = null;
+      try {
+        await sleep(env.WB_FUNNEL_PAUSE_MS === undefined ? 21000 : Number(env.WB_FUNNEL_PAUSE_MS)); // funnel API: ~3 requests a minute
+        dayFunnel = await fetchWbNmReport(env, token, yesterday, yesterday);
+      } catch (e) {
+        out.source_warnings.push(`library funnel: ${String(e?.message || e)}`);
+      }
+      out.library = await writeWbSkuDaily(env, {
+        now: nowMs,
+        salesFrom: previousFrom.getTime(),
+        salesRows: rows,
+        catalogIds,
+        adFrom: dateFromStr,
+        adByDay: advertising ? advertising.spendByDay : null,
+        dayFunnel,
+        priceMap: priceMap.size ? priceMap : null,
+      });
+    } catch (e) {
+      out.library_error = String(e?.message || e);
+      out.source_warnings.push(`library: ${out.library_error}`);
     }
 
     await finishOk(env, logId, filtered.size);

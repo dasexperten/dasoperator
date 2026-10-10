@@ -64,6 +64,47 @@ marketplacesExtras.get('/sync/log', async (c) => {
 });
 
 // =============================================================================
+// GET /api/marketplaces/wb/daily?days=30&sku=de209
+//
+// WB library: lasting per-product history (wb_sku_daily, Owner 2026-10-10).
+// One row per WB day and product; money in kopecks; NULL = not received yet.
+// Without ?sku the products are listed so the page can offer a choice.
+// =============================================================================
+marketplacesExtras.get('/wb/daily', async (c) => {
+  const days = Math.min(Math.max(parseInt(c.req.query('days') || '30', 10) || 30, 1), 400);
+  const sku = (c.req.query('sku') || '').trim().toLowerCase();
+  const from = new Date(Date.now() + 3 * 3600_000 - days * 86400_000).toISOString().slice(0, 10);
+
+  const rowsQuery = sku
+    ? c.env.DB.prepare(`
+        SELECT date, base_sku, units_sold, revenue_kopecks, views, tocart, orders,
+               price_kopecks, ad_spend_kopecks
+        FROM wb_sku_daily WHERE base_sku = ? AND date >= ? ORDER BY date DESC`).bind(sku, from)
+    : c.env.DB.prepare(`
+        SELECT date, NULL AS base_sku,
+               SUM(units_sold) AS units_sold, SUM(revenue_kopecks) AS revenue_kopecks,
+               SUM(views) AS views, SUM(tocart) AS tocart, SUM(orders) AS orders,
+               NULL AS price_kopecks,
+               CASE WHEN COUNT(ad_spend_kopecks) = 0 THEN NULL ELSE SUM(ad_spend_kopecks) END AS ad_spend_kopecks
+        FROM wb_sku_daily WHERE date >= ? GROUP BY date ORDER BY date DESC`).bind(from);
+
+  const [rows, products, fresh] = await Promise.all([
+    rowsQuery.all(),
+    c.env.DB.prepare(`
+      SELECT d.base_sku AS sku, p.product_name
+      FROM (SELECT DISTINCT base_sku FROM wb_sku_daily) d
+      LEFT JOIN products p ON p.id = d.base_sku
+      ORDER BY d.base_sku`).all(),
+    c.env.DB.prepare(`
+      SELECT MAX(sales_synced_at) AS sales, MAX(funnel_synced_at) AS funnel,
+             MAX(price_synced_at) AS price, MAX(ad_synced_at) AS ad
+      FROM wb_sku_daily`).first(),
+  ]);
+
+  return ok(c, { from, sku: sku || null, rows: rows.results, products: products.results, synced_at: fresh });
+});
+
+// =============================================================================
 // GET /api/marketplaces/sales
 //
 // Returns:

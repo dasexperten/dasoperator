@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -93,10 +93,11 @@ c.commit();print(json.dumps({'rows':rows,'lastInsertRowid':rid}))`, file],
     CREATE TABLE marketplace_sales_wb(base_sku TEXT PRIMARY KEY,period_from TEXT,period_to TEXT,units_sold INTEGER,revenue_rub INTEGER,listings_count INTEGER,synced_at INTEGER,views INTEGER,tocart_count INTEGER,position_category REAL,current_price_rub INTEGER,ad_spend_rub INTEGER,prev_period_units_sold INTEGER,prev_period_revenue_rub INTEGER,anomaly TEXT);
     INSERT INTO marketplace_sales_wb(base_sku,ad_spend_rub) VALUES('old',12345);
     CREATE TABLE marketplace_sales_daily(marketplace TEXT,date TEXT,units_sold INTEGER,revenue_rub INTEGER,synced_at INTEGER,PRIMARY KEY(marketplace,date));`);
+  db.exec(readFileSync(new URL('../../db/migrations/0114_wb_sku_daily.sql', import.meta.url), 'utf8'));
   const wrap = sql => ({ sql, args: [], bind(...args) { this.args = args; return this; },
     async all() { return { results: db.prepare(sql).all(...this.args) }; },
     async run() { const r = db.prepare(sql).run(...this.args); return { meta: { last_row_id: Number(r.lastInsertRowid) } }; } });
-  const env = { ERP_DB: { prepare: wrap, batch: async statements => {
+  const env = { WB_FUNNEL_PAUSE_MS: '0', ERP_DB: { prepare: wrap, batch: async statements => {
     db.exec('BEGIN'); try { for (const s of statements) await s.run(); db.exec('COMMIT'); }
     catch (e) { db.exec('ROLLBACK'); throw e; }
   } }, WB_GATEWAY: { fetch: async input => {
@@ -117,6 +118,9 @@ test('real scheduled writer persists kopecks, including paid SKU with no sales',
   assert.equal(result.rows_synced, 2);
   assert.deepEqual(db.prepare('SELECT base_sku,units_sold,ad_spend_rub FROM marketplace_sales_wb ORDER BY base_sku').all().map(r => ({ ...r })),
     [{ base_sku: 'de203aa', units_sold: 0, ad_spend_rub: 800 }, { base_sku: 'de209', units_sold: 1, ad_spend_rub: 34700 }]);
+  assert.equal(result.library_error, undefined);
+  assert.ok(result.library.ad_rows >= 14); // 7+ window days × 2 SKUs, zero where WB reported nothing
+  assert.ok(db.prepare('SELECT COUNT(*) n FROM wb_sku_daily WHERE ad_spend_kopecks IS NOT NULL').get().n > 0);
   db.close();
 });
 
@@ -129,5 +133,7 @@ test('advertising failure still saves sales, with ad spend unknown (NULL), never
   assert.deepEqual(db.prepare('SELECT base_sku,units_sold,ad_spend_rub FROM marketplace_sales_wb ORDER BY base_sku').all().map(r => ({ ...r })),
     [{ base_sku: 'de209', units_sold: 1, ad_spend_rub: null }]);
   assert.equal(db.prepare('SELECT units_sold FROM marketplace_sales_daily WHERE marketplace=?').get('wb').units_sold, 1);
+  assert.equal(result.library.ad_rows, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM wb_sku_daily WHERE ad_spend_kopecks IS NOT NULL').get().n, 0);
   db.close();
 });

@@ -33,6 +33,7 @@ export async function fetchWbAdvertSpend(env, from, to) {
   const articles = new Map((mappings.results || []).map(row =>
     [Number(row.nm_id), String(row.supplier_article || '').trim().toLowerCase()]));
   const spend = new Map();
+  const spendByDay = new Map(); // WB day → article → kopecks, for the WB library history
   let emptyBatches = 0;
   const campaigns = [...ids];
   for (let i = 0; i < campaigns.length; i += 50) {
@@ -67,7 +68,12 @@ export async function fetchWbAdvertSpend(env, from, to) {
               const kopecks = Math.round(nm.sum * 100);
               const article = articles.get(nm.nmId);
               if (kopecks > 0 && !article) throw new Error(`WB advertising: unmapped paid nmID ${nm.nmId}`);
-              if (article) spend.set(article, (spend.get(article) || 0) + kopecks);
+              if (article) {
+                spend.set(article, (spend.get(article) || 0) + kopecks);
+                const dayMap = spendByDay.get(dayKey) || new Map();
+                dayMap.set(article, (dayMap.get(article) || 0) + kopecks);
+                spendByDay.set(dayKey, dayMap);
+              }
             }
           }
         }
@@ -75,5 +81,5 @@ export async function fetchWbAdvertSpend(env, from, to) {
       }
     }
   }
-  return { spend, campaigns: campaigns.length, emptyBatches };
+  return { spend, spendByDay, campaigns: campaigns.length, emptyBatches };
 }

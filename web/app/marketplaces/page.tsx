@@ -16,6 +16,7 @@ import {
 import { ChannelsOverview, ChannelTab, type ChannelKey } from '@/components/marketplaces/channel-pulse';
 import { apiPost, apiDelete } from '@/lib/api';
 import { WbFbsBoard } from '@/components/marketplaces/wb-fbs';
+import { WbLibrary } from '@/components/marketplaces/wb-library';
 
 const OZON_BLUE = 'rgb(0, 91, 255)';
 
@@ -147,7 +148,7 @@ interface RunRow {
 }
 
 type FilterType = 'toship' | 'top5' | 'stockout' | 'overstock' | null;
-type Tab = 'overview' | 'ozon-promos' | 'ozon' | 'wb' | 'merchant' | 'shopee' | 'tiktok' | 'lazada';
+type Tab = 'overview' | 'ozon-promos' | 'ozon' | 'wb' | 'wb-library' | 'merchant' | 'shopee' | 'tiktok' | 'lazada';
 
 function fmt(n: number | null | undefined): string {
   if (n == null) return '—';
@@ -162,6 +163,7 @@ export default function MarketplacesPage() {
     { key: 'ozon', label: 'Ozon FBO', accent: OZON_BLUE },
     { key: 'ozon-promos', label: 'Ozon promotions', accent: OZON_BLUE },
     { key: 'wb', label: 'WB FBS', accent: WB_PINK },
+    { key: 'wb-library', label: 'WB library', accent: WB_PINK },
     { key: 'merchant', label: 'Merchant', accent: '#1A73E8' },
     { key: 'shopee', label: 'Shopee', accent: '#EE4D2D' },
     { key: 'tiktok', label: 'TikTok Shop', accent: '#111111' },
@@ -207,6 +209,7 @@ export default function MarketplacesPage() {
       {tab === 'ozon-promos' && <div style={OZON_THEME}><OzonPromotionsWidget /></div>}
       {/* WB is FBS-only since 2026-09-19 (Owner): the FBO planner is retired for WB. */}
       {tab === 'wb' && <WbFbsBoard />}
+      {tab === 'wb-library' && <WbLibrary />}
       {(tab === 'merchant' || tab === 'shopee' || tab === 'tiktok' || tab === 'lazada') && (
         <ChannelTab channel={tab} key={tab} />
       )}

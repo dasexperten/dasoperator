@@ -20,7 +20,7 @@
 .crm-orders-table[data-source="com"] th:nth-child(9) { width: 12%; }
 .crm-orders-table td > button { max-width: 100% !important; }
 .crm-orders-table td > button > span { max-width: 100% !important; overflow: hidden; text-overflow: ellipsis; }
-.crm-orders-table td > span { max-width: 100%; }
+.crm-orders-table td > span { max-width: 100% !important; box-sizing: border-box; }
 .crm-orders-table td > span > span[title] { max-width: 100% !important; }
 @media (max-width: 700px) {
   .crm-orders-table, .crm-orders-table tbody { display: block; width: 100%; }

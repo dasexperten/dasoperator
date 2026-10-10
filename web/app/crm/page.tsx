@@ -802,7 +802,7 @@ export default function CrmPage() {
               Данные на {new Date(ordersAsOf * 1000).toLocaleString('ru-RU')} · зеркало витрины в ERP, обновляется каждые 15 минут
             </div>
           )}
-          <OrdersTable orders={orders} hasSearch={!!ordersActiveSearch} search={ordersActiveSearch} sort={ordersSort} onSort={sortOrders} variant={crmSource} onOpen={(n) => setDetail({ kind: 'order', id: n, src: crmSource })} pdShown={pdShown} revealCustomer={revealCustomer} />
+          <OrdersTable orders={orders} hasSearch={!!ordersActiveSearch} search={ordersActiveSearch} sort={ordersSort} onSort={sortOrders} variant={crmSource} onOpen={(n) => { setDetail({ kind: 'order', id: n, src: crmSource }); if (crmSource === 'ru' && window.matchMedia('(max-width: 700px)').matches) revealCustomer(n); }} pdShown={pdShown} revealCustomer={revealCustomer} />
         </DataTablePanel>
       )}
 
@@ -856,7 +856,7 @@ export default function CrmPage() {
       {detail && (
         <CrmDetailDrawer
           kind={detail.kind}
-          data={detailData}
+          data={detailData && detail.kind === 'order' && typeof pdShown[detail.id] === 'object' ? { ...detailData, customer_name: (pdShown[detail.id] as any).name, phone: (pdShown[detail.id] as any).phone, email: (pdShown[detail.id] as any).email, ship_city: (pdShown[detail.id] as any).city } : detailData}
           loading={detailLoading}
           error={detailError}
           onClose={() => setDetail(null)}

@@ -76,6 +76,9 @@ jobs:
         working-directory: workers
         run: npm ci --no-audit --no-fund
 
+      - name: Test manual ERP warehouse stock source
+        run: node --test api/src/routes/external-stocks.test.mjs
+
       - name: Test cron-expect
         run: node --test api/src/lib/cron-expect.test.mjs
 

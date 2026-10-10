@@ -78,6 +78,14 @@ externalStocks.get('/by-product', async (c) => {
   // for a future shipment" doesn't mean the goods left, just that F4 won't
   // re-allocate them. Clamp at 0 so any negative quirks in their data don't
   // poison our matrix.
+  // Owner 2026-10-10: LBR shipments are posted in our ledger, while F4
+  // still includes dispatched goods. Keep the raw snapshot for comparison,
+  // but do not let it override the manually reconciled ERP balance.
+  const internalWarehouseIds = (c.env.INTERNAL_STOCK_WAREHOUSES ?? '')
+    .split(',').map((id) => id.trim()).filter(Boolean);
+  const excluded = internalWarehouseIds.length
+    ? ` AND es.warehouse_id NOT IN (${internalWarehouseIds.map(() => '?').join(',')})`
+    : '';
   const sql = `
     SELECT es.product_id, es.warehouse_id, es.external_vendor_code,
            MAX(0, SUM(es.amount) + SUM(es.reserve_amount)) AS amount,
@@ -95,12 +103,13 @@ externalStocks.get('/by-product', async (c) => {
       AND es.external_vendor_code = latest.external_vendor_code
       AND COALESCE(es.marketplace, '') = latest.mp_norm
       AND es.synced_at = latest.max_synced
-    WHERE es.product_id IS NOT NULL
+    WHERE es.product_id IS NOT NULL${excluded}
     GROUP BY es.product_id, es.warehouse_id
     ORDER BY es.product_id, es.warehouse_id
   `;
-  const result = await c.env.DB.prepare(sql).all();
-  return ok(c, { rows: result.results });
+  const stmt = c.env.DB.prepare(sql);
+  const result = await (internalWarehouseIds.length ? stmt.bind(...internalWarehouseIds) : stmt).all();
+  return ok(c, { rows: result.results, internal_warehouse_ids: internalWarehouseIds });
 });
 
 // ---------------------------------------------------------------------------

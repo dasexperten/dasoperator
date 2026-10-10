@@ -1726,6 +1726,7 @@ export interface ExternalStockByProductRow {
 
 export interface ExternalStocksByProductResponse {
   rows: ExternalStockByProductRow[];
+  internal_warehouse_ids?: string[];
 }
 
 export async function getExternalStocksByProduct() {

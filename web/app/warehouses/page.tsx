@@ -33,6 +33,7 @@ export default function WarehousesPage() {
   // External stocks: keyed as `${product_id}|${warehouse_id}` for O(1) lookup in row render.
   // Source: F4 Lyubertsy WMS via Skladbot API, refreshed by /api/external-stocks/sync cron.
   const [externalStocks, setExternalStocks] = useState<Record<string, ExternalStockByProductRow>>({});
+  const [internalWarehouseIds, setInternalWarehouseIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -83,6 +84,7 @@ export default function WarehousesPage() {
             byKey[`${row.product_id}|${row.warehouse_id}`] = row;
           }
           setExternalStocks(byKey);
+          setInternalWarehouseIds(extRes.result.internal_warehouse_ids ?? []);
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Network error');
@@ -355,6 +357,11 @@ export default function WarehousesPage() {
           <p className="mt-2" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
             {loading ? 'Loading...' : `${products.length} SKUs × ${warehouses.length} warehouses · ${grandTotal.toLocaleString('en-US')} pieces total`}
           </p>
+          {internalWarehouseIds.length > 0 && (
+            <p className="mt-2" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
+              {warehouses.filter((w) => internalWarehouseIds.includes(w.id)).map((w) => w.code).join(', ')}: остатки по нашему учёту ERP, с проведёнными отгрузками.
+            </p>
+          )}
         </div>
         <div className="shrink-0 flex items-center gap-2 dx-page-actions">
           <Link
@@ -456,7 +463,7 @@ export default function WarehousesPage() {
                   <SortableTh
                     key={w.id}
                     center
-                    withParens={!!w.external_provider}
+                    withParens={!!w.external_provider && !internalWarehouseIds.includes(w.id)}
                     bg={TINT_BY_GROUP[groupForWarehouse(w)]}
                     sortKey={w.id}
                     sort={sort}
@@ -548,7 +555,7 @@ export default function WarehousesPage() {
                             value={v}
                             inProduction={prod}
                             externalAmount={ext?.amount}
-                            hasParensColumn={!!w.external_provider}
+                            hasParensColumn={!!w.external_provider && !internalWarehouseIds.includes(w.id)}
                             href={`/warehouses/${w.id}?sku=${skuLower}`}
                             tint={TINT_BY_GROUP[groupForWarehouse(w)]}
                           />
@@ -580,7 +587,7 @@ export default function WarehousesPage() {
                   {visibleWarehouses.map((w) => {
                     const tot = totalsByWarehouse.totals[w.code] ?? 0;
                     const cellBg = TINT_BY_GROUP[groupForWarehouse(w)];
-                    if (w.external_provider) {
+                    if (w.external_provider && !internalWarehouseIds.includes(w.id)) {
                       return (
                         <td key={w.id} className="px-3 py-2" style={{
                           fontSize: '14px',

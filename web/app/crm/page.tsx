@@ -3,6 +3,7 @@
 export const runtime = 'edge';
 
 import { useEffect, useState, useCallback } from 'react';
+import './orders-table.css';
 import {
   Loader2, RefreshCw, Headphones, AlertCircle, Search, Save,
   ChevronLeft, ChevronRight, ShoppingBag, Users
@@ -1926,10 +1927,20 @@ function DataTablePanel({
   );
 }
 
-function OrderCustomerCell({ order, revealed, onReveal }: {
+function OrderDateCell({ value }: { value: string }) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return <Td muted>—</Td>;
+  return <Td muted style={{ whiteSpace: 'nowrap' }} title={value}>
+    <span style={{ display: 'block' }}>{date.toLocaleDateString('ru-RU', { timeZone: 'Asia/Yerevan' })}</span>
+    <span style={{ display: 'block', fontSize: 12 }}>{date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Yerevan' })}</span>
+  </Td>;
+}
+
+function OrderCustomerCell({ order, revealed, onReveal, onOpen }: {
   order: CrmOrder;
   revealed?: { name?: string; phone?: string; email?: string; city?: string } | 'loading' | 'error';
   onReveal?: () => void;
+  onOpen?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const full = revealed && typeof revealed === 'object' ? revealed : null;
@@ -1943,11 +1954,11 @@ function OrderCustomerCell({ order, revealed, onReveal }: {
   return (
     <button type="button" aria-expanded={!!showing}
       title={showing ? 'Скрыть фамилию и телефон' : 'Показать фамилию и телефон'}
-      onClick={(e) => { e.stopPropagation(); setExpanded(revealed === 'error' || !expanded); if (!expanded || revealed === 'error') onReveal?.(); }}
+      onClick={(e) => { e.stopPropagation(); if (window.matchMedia('(max-width: 700px)').matches && onOpen) { onOpen(); return; } setExpanded(revealed === 'error' || !expanded); if (!expanded || revealed === 'error') onReveal?.(); }}
       style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer',
-        font: 'inherit', textAlign: 'left', color: 'var(--fg-1)', whiteSpace: 'nowrap' }}>
+        font: 'inherit', textAlign: 'left', color: 'var(--fg-1)', whiteSpace: 'nowrap', maxWidth: 220, overflow: 'hidden' }}>
       <span style={{ display: 'block', fontWeight: 700 }}>{showing ? name : shortName}</span>
-      <span style={{ display: 'block', fontSize: 12, color: 'var(--fg-3)' }}>{city || '—'}</span>
+      <span title={city || undefined} style={{ display: 'block', fontSize: 12, color: 'var(--fg-3)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}>{city || '—'}</span>
       {showing && (full?.phone || order.phone) ? <span style={{ display: 'block', fontSize: 12, color: 'var(--fg-3)' }}>{full?.phone || order.phone}</span> : null}
       {expanded && revealed === 'loading' ? <span style={{ display: 'block', fontSize: 12 }}>Загрузка…</span> : null}
       {expanded && revealed === 'error' ? <span style={{ display: 'block', fontSize: 12, color: 'var(--status-error)' }}>Не загрузилось — нажмите ещё раз</span> : null}
@@ -1959,7 +1970,7 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
   if (variant === 'com') {
     // Website (.com/Stripe) orders — no loyalty columns; USD; SKU line items
     return (
-      <table className="w-full">
+      <table className="w-full crm-orders-table" data-source="com">
         <thead>
           <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
             <SortTh label="Order" sortKey="number" current={sort} onSort={onSort} align="left" />
@@ -1996,7 +2007,7 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
                   <span style={{ fontWeight: 400, color: 'var(--fg-3)', marginLeft: 6 }}>{o.order_source}</span>
                 )}
               </Td>
-              <Td><OrderCustomerCell order={o} /></Td>
+              <Td><OrderCustomerCell order={o} onOpen={() => onOpen?.(String(o.number))} /></Td>
               <td className="px-6 py-3 text-left relative group" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
                 {(() => {
                   const its = o.items ?? [];
@@ -2038,7 +2049,7 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
               <OrderPaymentCell {...comPayment(o)} />
               <OrderShipmentCell {...comShipment(o)} />
               <OrderDeliveryCell {...comDelivery(o)} />
-              <Td muted>{o.created_at}</Td>
+              <OrderDateCell value={o.created_at} />
             </tr>
           ))}
         </tbody>
@@ -2046,7 +2057,7 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
     );
   }
   return (
-    <table className="w-full">
+    <table className="w-full crm-orders-table" data-source="ru">
       <thead>
         <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
           <Th align="left">Order</Th>
@@ -2078,7 +2089,7 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
           >
             <Td bold style={{ whiteSpace: 'nowrap' }}>{o.number}</Td>
             <Td>
-              <OrderCustomerCell order={o} revealed={pdShown[o.number]} onReveal={() => revealCustomer?.(o.number)} />
+              <OrderCustomerCell order={o} revealed={pdShown[o.number]} onReveal={() => revealCustomer?.(o.number)} onOpen={() => onOpen?.(String(o.number))} />
             </Td>
             {/* Штук в заказе; состав раскрывается мышью и с клавиатуры. */}
             <td className="px-6 py-3 text-left relative group" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
@@ -2114,7 +2125,7 @@ function OrdersTable({ orders, hasSearch, search, sort, onSort, variant = 'ru', 
             <OrderPaymentCell {...ruPayment(o)} />
             <OrderShipmentCell {...ruShipment(o)} />
             <OrderDeliveryCell {...ruDelivery(o)} />
-            <Td muted>{o.created_at}</Td>
+            <OrderDateCell value={o.created_at} />
           </tr>
         ))}
       </tbody>
@@ -2175,10 +2186,10 @@ function OrderShipmentCell({ label, detail, trackingUrl, missing, waiting }: { l
       <span style={{
         color: 'var(--status-error)', fontWeight: 700,
         background: 'color-mix(in srgb, var(--status-error) 10%, transparent)',
-        borderRadius: 'var(--radius-pill)', padding: '3px 10px', display: 'inline-block', maxWidth: 360,
+        borderRadius: 'var(--radius-pill)', padding: '3px 10px', display: 'inline-block', maxWidth: 260,
       }}>
         нет отправления
-        {detail ? <span style={{ display: 'block', marginTop: 2, fontSize: 12, fontWeight: 700 }}>{detail}</span> : null}
+        {detail ? <span title={detail} style={{ display: 'block', marginTop: 2, fontSize: 12, fontWeight: 700, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis' }}>{detail}</span> : null}
       </span>
     </Td>
   );

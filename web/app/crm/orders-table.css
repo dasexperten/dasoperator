@@ -1,0 +1,40 @@
+/* Owner: desktop fits the screen; phones show name, amount, delivery only. */
+.crm-orders-table { width: 100%; table-layout: fixed; }
+.crm-orders-table th, .crm-orders-table td { padding: 12px 10px; }
+.crm-orders-table[data-source="ru"] th:nth-child(1) { width: 13%; }
+.crm-orders-table[data-source="ru"] th:nth-child(2) { width: 17%; }
+.crm-orders-table[data-source="ru"] th:nth-child(3) { width: 7%; }
+.crm-orders-table[data-source="ru"] th:nth-child(4) { width: 8%; }
+.crm-orders-table[data-source="ru"] th:nth-child(5) { width: 12%; }
+.crm-orders-table[data-source="ru"] th:nth-child(6) { width: 17%; }
+.crm-orders-table[data-source="ru"] th:nth-child(7) { width: 14%; }
+.crm-orders-table[data-source="ru"] th:nth-child(8) { width: 12%; }
+.crm-orders-table[data-source="com"] th:nth-child(1) { width: 13%; }
+.crm-orders-table[data-source="com"] th:nth-child(2) { width: 17%; }
+.crm-orders-table[data-source="com"] th:nth-child(3) { width: 7%; }
+.crm-orders-table[data-source="com"] th:nth-child(4) { width: 8%; }
+.crm-orders-table[data-source="com"] th:nth-child(5) { width: 6%; }
+.crm-orders-table[data-source="com"] th:nth-child(6) { width: 10%; }
+.crm-orders-table[data-source="com"] th:nth-child(7) { width: 15%; }
+.crm-orders-table[data-source="com"] th:nth-child(8) { width: 12%; }
+.crm-orders-table[data-source="com"] th:nth-child(9) { width: 12%; }
+.crm-orders-table td > button { max-width: 100% !important; }
+.crm-orders-table td > button > span { max-width: 100% !important; overflow: hidden; text-overflow: ellipsis; }
+.crm-orders-table td > span { max-width: 100%; }
+.crm-orders-table td > span > span[title] { max-width: 100% !important; }
+@media (max-width: 700px) {
+  .crm-orders-table, .crm-orders-table tbody { display: block; width: 100%; }
+  .crm-orders-table thead { display: none; }
+  .crm-orders-table tbody tr { display: grid; grid-template-columns: minmax(0, 1fr); padding: 14px 12px; gap: 6px; }
+  .crm-orders-table tbody td { display: none; padding: 0; text-align: left; }
+  .crm-orders-table tbody td:nth-child(2),
+  .crm-orders-table tbody td:nth-child(4),
+  .crm-orders-table[data-source="ru"] tbody td:nth-child(7),
+  .crm-orders-table[data-source="com"] tbody td:nth-child(8) { display: block; }
+  .crm-orders-table tbody td:nth-child(2) button > span:not(:first-child),
+  .crm-orders-table[data-source="ru"] tbody td:nth-child(7) span > span,
+  .crm-orders-table[data-source="ru"] tbody td:nth-child(7) > span:not(:first-child),
+  .crm-orders-table[data-source="com"] tbody td:nth-child(8) span > span,
+  .crm-orders-table[data-source="com"] tbody td:nth-child(8) > span:not(:first-child) { display: none !important; }
+  .crm-orders-table tbody td[colspan] { display: block; }
+}

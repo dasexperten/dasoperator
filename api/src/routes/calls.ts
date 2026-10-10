@@ -27,6 +27,8 @@ app.use('*', async (c, next) => {
 });
 
 const CHANNELS = new Set(['whatsapp', 'telegram']);
+// Same categories as call_transcripts.call_purpose (migration 0103).
+const PURPOSE_KINDS = new Set(['sales', 'follow_up', 'support', 'owner_briefing', 'test', 'other']);
 
 app.get('/', async (c) => {
   const raw = Number(c.req.query('limit'));
@@ -38,7 +40,7 @@ app.get('/', async (c) => {
   if (seat) { params.push(seat); where.push(`seat_slug = ?${params.length}`); }
   if (channel && CHANNELS.has(channel)) { params.push(channel); where.push(`channel = ?${params.length}`); }
   const sql = `SELECT id, seat_slug, seat_name, recipient_phone, recipient_label, call_type, channel, engine, status,
-      deal_status, call_purpose, summary, started_at, ended_at, duration_seconds FROM call_transcripts
+      deal_status, call_purpose, purpose_label, script_grade, script_flags, summary, started_at, ended_at, duration_seconds FROM call_transcripts
     ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY started_at DESC LIMIT ?1`;
   const result = await c.env.DB.prepare(sql).bind(...params).all();
   return ok(c, { calls: result.results, limit });
@@ -77,11 +79,15 @@ app.post('/requests', async (c) => {
   if (user.role !== 'admin' && !['full', 'rw'].includes(access)) {
     return fail(c, 403, [{ code: 'read_only', message: 'Write access to Caller is required to place calls.' }]);
   }
-  type DialBody = { seat_slug?: string; channel?: string; target?: string };
+  type DialBody = { seat_slug?: string; channel?: string; target?: string; purpose_label?: string; purpose_kind?: string; purpose_note?: string };
   const body: DialBody = await c.req.json<DialBody>().catch((): DialBody => ({}));
   const seat = String(body.seat_slug || '');
   const channel = String(body.channel || '');
   let target = String(body.target || '').trim();
+  // Owner 2026-10-10: the reason for the call. Empty = the agent works it out itself.
+  const purposeLabel = String(body.purpose_label || '').trim().slice(0, 160) || null;
+  const purposeKind = PURPOSE_KINDS.has(String(body.purpose_kind || '')) ? String(body.purpose_kind) : null;
+  const purposeNote = String(body.purpose_note || '').trim().slice(0, 400) || null;
   if (!SEATS.test(seat)) return fail(c, 422, [{ code: 'invalid_seat', message: 'Unknown agent.' }]);
   if (!CHANNELS.has(channel)) return fail(c, 422, [{ code: 'invalid_channel', message: 'Channel is whatsapp or telegram.' }]);
   if (channel === 'telegram' && /^@?[A-Za-z][A-Za-z0-9_]{4,31}$/.test(target)) {
@@ -100,8 +106,10 @@ app.post('/requests', async (c) => {
   if (busy) return fail(c, 409, [{ code: 'busy', message: 'Another call is being placed. Try again when it ends.' }]);
   const now = Math.floor(Date.now() / 1000);
   const id = crypto.randomUUID();
-  await c.env.DB.prepare(`INSERT INTO call_requests (id, seat_slug, channel, target, requested_by, status, created_at, updated_at)
-    VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?6)`).bind(id, seat, channel, target, user.name || user.id, now).run();
+  await c.env.DB.prepare(`INSERT INTO call_requests (id, seat_slug, channel, target, requested_by, status, created_at, updated_at,
+      purpose_label, purpose_kind, purpose_note)
+    VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?6, ?7, ?8, ?9)`)
+    .bind(id, seat, channel, target, user.name || user.id, now, purposeLabel, purposeKind, purposeNote).run();
   return ok(c, { id, status: 'pending', target });
 });
 

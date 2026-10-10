@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, Phone, X } from 'lucide-react';
 import { apiGet, apiPost } from '@/lib/api';
-import { AVATAR_BASE, CALL_ACCOUNTS, CALLER_AGENTS, NO_PORTRAIT, initials, type CallChannel, type CallerAgent } from './agents';
+import { AVATAR_BASE, CALL_ACCOUNTS, CALLER_AGENTS, NO_PORTRAIT, initials, purposesFor, type CallChannel, type CallerAgent } from './agents';
 
 // Owner 2026-09-26: a row of small agent avatars with names on top of Caller. A click opens a
 // small popup: the account the agent calls from and the last 10 numbers it called. On the
@@ -36,7 +36,7 @@ function WhatsAppIcon({ className }: { className?: string }) {
 
 type DialStatus = 'pending' | 'dialing' | 'connected' | 'completed' | 'no_answer' | 'failed' | 'cancelled';
 const DIAL_TEXT: Record<DialStatus, string> = {
-  pending: 'Waiting for the call service on the Mac…',
+  pending: 'Waiting for the call service…',
   dialing: 'Calling…',
   connected: 'Connected — the agent is talking.',
   completed: 'Call ended. The transcript is in the list.',
@@ -51,6 +51,10 @@ function DialPopup({ agent, channel, onClose }: { agent: CallerAgent; channel: C
   const [error, setError] = useState<string | null>(null);
   const [request, setRequest] = useState<{ id: string; status: DialStatus; detail?: string | null; target: string } | null>(null);
   const [sending, setSending] = useState(false);
+  // Owner 2026-10-10: why the call is made. -1 = no reason chosen, the agent works it out.
+  const purposes = purposesFor(agent.slug);
+  const [purposeIndex, setPurposeIndex] = useState(-1);
+  const [note, setNote] = useState('');
   const telegram = channel === 'telegram';
 
   useEffect(() => {
@@ -68,6 +72,9 @@ function DialPopup({ agent, channel, onClose }: { agent: CallerAgent; channel: C
     setError(null);
     const res = await apiPost<{ id: string; status: DialStatus; target: string }>('/api/calls/requests', {
       seat_slug: agent.slug, channel, target,
+      purpose_label: purposes[purposeIndex]?.label || undefined,
+      purpose_kind: purposes[purposeIndex]?.kind || undefined,
+      purpose_note: note.trim() || undefined,
     });
     setSending(false);
     if (!res.success || !res.result) { setError(res.errors[0]?.message || 'The call could not be requested.'); return; }
@@ -102,6 +109,31 @@ function DialPopup({ agent, channel, onClose }: { agent: CallerAgent; channel: C
             onChange={(e) => { setTarget(e.target.value); setError(null); }}
             placeholder={telegram ? '+374 94 004004 or @username' : '+374 94 004004'}
             className="min-h-11 w-full rounded-sm border border-border bg-card px-3 font-semibold text-foreground outline-none focus:ring-2 focus:ring-gold"
+          />
+          <fieldset className="space-y-1">
+            <legend className="block text-sm font-bold text-muted-foreground">Why the call is made</legend>
+            {[{ label: 'No reason given — the agent works it out', index: -1 }, ...purposes.map((p, index) => ({ label: p.label, index }))].map((option) => (
+              <label key={option.index} className="flex min-h-9 cursor-pointer items-center gap-2 text-sm font-semibold text-foreground">
+                <input
+                  type="radio"
+                  name="dial-purpose"
+                  checked={purposeIndex === option.index}
+                  onChange={() => setPurposeIndex(option.index)}
+                  className="h-4 w-4 accent-rot"
+                />
+                {option.label}
+              </label>
+            ))}
+          </fieldset>
+          <label htmlFor="dial-note" className="block text-sm font-bold text-muted-foreground">Who this is and anything to know (optional)</label>
+          <textarea
+            id="dial-note"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            maxLength={400}
+            rows={2}
+            placeholder="e.g. buyer of a pharmacy chain in Yerevan, we sent the offer on Monday"
+            className="w-full rounded-sm border border-border bg-card px-3 py-2 font-semibold text-foreground outline-none focus:ring-2 focus:ring-gold"
           />
           {error && <p className="text-sm font-bold text-rot">{error}</p>}
           <button type="submit" disabled={sending || !target.trim()} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-sm bg-rot px-4 font-extrabold text-paper disabled:opacity-40">

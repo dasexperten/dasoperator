@@ -20,12 +20,22 @@ interface CallRow {
   deal_status: DealStatus;
   call_purpose: CallPurpose;
   summary: string | null;
+  purpose_label?: string | null;
+  script_grade?: ScriptGrade | null;
+  script_flags?: string | null;
   started_at: number;
   ended_at: number | null;
   duration_seconds: number | null;
 }
 type DealStatus = 'agreed' | 'interested' | 'callback' | 'no_decision' | 'not_interested' | 'not_reached';
 type CallPurpose = 'sales' | 'follow_up' | 'support' | 'owner_briefing' | 'test' | 'other';
+type ScriptGrade = 'green' | 'yellow' | 'red';
+
+// Owner 2026-10-10: every call is checked against the call scripts by the call service —
+// green works, yellow sounds like a script or misses a rule, red lost the caller or used a
+// banned opener («чем могу помочь»). Calls before 10.10 carry no grade.
+const GRADE_LABEL: Record<ScriptGrade, string> = { green: 'Scripts kept', yellow: 'Scripts partly kept', red: 'Scripts broken' };
+const GRADE_CLASS: Record<ScriptGrade, string> = { green: 'text-success', yellow: 'text-warning', red: 'text-rot' };
 
 // Owner 26.09: "status" is the deal position, "type" is the call purpose.
 const DEAL_LABEL: Record<DealStatus, string> = {
@@ -207,7 +217,12 @@ export default function CallList({ channel = null, title = 'Caller', subtitle = 
                   {DEAL_LABEL[row.deal_status] || row.deal_status}
                 </span>
                 <PurposeCell row={row} />
-                <span className="text-sm font-bold text-foreground">{row.seat_name}</span>
+                <span className="flex flex-col">
+                  <span className="text-sm font-bold text-foreground">{row.seat_name}</span>
+                  {row.script_grade && (
+                    <span className={`whitespace-nowrap text-sm font-extrabold ${GRADE_CLASS[row.script_grade]}`}>{GRADE_LABEL[row.script_grade]}</span>
+                  )}
+                </span>
                 <span className="whitespace-nowrap text-sm font-bold text-stone-500">{when(row.started_at)}</span>
                 <span className="text-sm font-semibold text-muted-foreground">{row.summary || '—'}</span>
               </button>
@@ -242,6 +257,13 @@ export default function CallList({ channel = null, title = 'Caller', subtitle = 
                   {' · '}{when(open.started_at)} · <span className={STATUS_CLASS[open.status]}>{STATUS_LABEL[open.status]}</span>
                   {open.duration_seconds ? ` · ${duration(open.duration_seconds)}` : ''}
                 </p>
+                {open.purpose_label && <p className="mt-1 text-sm font-bold text-foreground">Reason: {open.purpose_label}</p>}
+                {open.script_grade && (
+                  <p className="mt-1 text-sm font-bold">
+                    <span className={GRADE_CLASS[open.script_grade]}>{GRADE_LABEL[open.script_grade]}</span>
+                    {open.script_flags ? <span className="text-stone-500"> · {open.script_flags}</span> : null}
+                  </p>
+                )}
               </div>
               <button
                 type="button"

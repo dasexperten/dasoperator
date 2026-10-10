@@ -48,6 +48,57 @@ export const CALL_ACCOUNTS = {
 
 export type CallChannel = keyof typeof CALL_ACCOUNTS;
 
+// Why the call is made (Owner 2026-10-10): 3–5 reasons per agent in the dial popup. The label is
+// what the agent hears as the reason for the call; kind is the call_purpose category of the
+// record. Nothing chosen = the agent finds the reason in its memory or works it out on the call.
+export type PurposeKind = 'sales' | 'follow_up' | 'support' | 'owner_briefing' | 'test' | 'other';
+export interface CallPurpose { label: string; kind: PurposeKind }
+
+const SCRIPT_TEST: CallPurpose = { label: 'Script test: I play the other side — find out who I am', kind: 'test' };
+
+const COMMERCE: CallPurpose[] = [
+  { label: 'First call to a distributor or importer', kind: 'sales' },
+  { label: 'First call to a retail or pharmacy chain buyer', kind: 'sales' },
+  { label: 'Follow-up touch on an open lead', kind: 'follow_up' },
+  { label: 'Follow-up after the offer or the meeting', kind: 'follow_up' },
+  SCRIPT_TEST,
+];
+
+const DEFAULT_PURPOSES: CallPurpose[] = [
+  { label: 'Report to the Owner on current work', kind: 'owner_briefing' },
+  { label: 'Question on a task in progress', kind: 'other' },
+  SCRIPT_TEST,
+];
+
+export const CALL_PURPOSES: Record<string, CallPurpose[]> = {
+  'lauda-briana': COMMERCE,
+  tet: COMMERCE,
+  'denis-vasilevski': [
+    { label: 'First call to a chain category manager', kind: 'sales' },
+    { label: 'First call to a pharmacy chain buyer', kind: 'sales' },
+    { label: 'Follow-up touch on an open lead', kind: 'follow_up' },
+    { label: 'Follow-up after the offer or the meeting', kind: 'follow_up' },
+    SCRIPT_TEST,
+  ],
+  'diana-helios': [
+    { label: 'First offer to a blogger', kind: 'sales' },
+    { label: 'Follow-up to a silent blogger', kind: 'follow_up' },
+    { label: 'Video approval, publication or payment with a blogger', kind: 'support' },
+    { label: 'Call with a blogger\'s manager or agency', kind: 'sales' },
+    SCRIPT_TEST,
+  ],
+  'tamara-haar': [
+    { label: 'Call back a buyer about a complaint', kind: 'support' },
+    { label: 'Order or delivery question from a buyer', kind: 'support' },
+    { label: 'Return or replacement — collect the facts', kind: 'support' },
+    SCRIPT_TEST,
+  ],
+};
+
+export function purposesFor(slug: string): CallPurpose[] {
+  return CALL_PURPOSES[slug] || DEFAULT_PURPOSES;
+}
+
 export function initials(name: string) {
   return name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
 }

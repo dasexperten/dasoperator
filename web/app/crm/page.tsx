@@ -105,6 +105,7 @@ interface CrmOrder {
 }
 
 interface CrmCustomer {
+  delivery_status?: string | null;
   id: number | string;
   name: string;
   // .ru: город пункта выдачи из связки ключей; в ленте витрины города нет.
@@ -2415,173 +2416,59 @@ type RevealedCustomer = { name?: string | null; phone?: string | null; email?: s
   loyalty?: { balance: number | null; level: string | null; privilege_pct: number | null } };
 
 function CustomersTable({ customers, hasSearch, search, sort, onSort, variant = 'ru', onOpen }: { customers: CrmCustomer[]; hasSearch: boolean; search: string; sort: { key: string; dir: 'asc' | 'desc' }; onSort: (k: string) => void; variant?: CrmSource; onOpen?: (customerId: string) => void }) {
-  // Список .ru приходит обезличенным: в колонке «Заказ N», телефона и почты нет.
-  // Имя, телефон, почта и бонусы — по кнопке в строке, по одному покупателю,
-  // с записью в журнал на стороне России (pd_access_log, key:<ключ>).
-  // Решение Владельца 31.08.2026: кнопка, а не выгрузка.
   const [revealed, setRevealed] = useState<Record<string, RevealedCustomer | 'loading' | 'error'>>({});
+  const [contact, setContact] = useState<CrmCustomer | null>(null);
   const revealByKey = async (key: string) => {
-    if (revealed[key]) return;
+    if (revealed[key] && revealed[key] !== 'error') return;
     setRevealed((m) => ({ ...m, [key]: 'loading' }));
     try {
       const res = await fetch(`${API_BASE}/api/crm/customer-key/${encodeURIComponent(key)}?who=erp-ui`);
       const j = await res.json();
       if (!j?.success) throw new Error('нет данных');
-      setRevealed((m) => ({ ...m, [key]: {
-        name: j.result?.customer?.name, phone: j.result?.customer?.phone,
-        email: j.result?.customer?.email, loyalty: j.result?.loyalty } }));
-    } catch {
-      setRevealed((m) => ({ ...m, [key]: 'error' }));
-    }
+      setRevealed((m) => ({ ...m, [key]: { name: j.result?.customer?.name, phone: j.result?.customer?.phone, email: j.result?.customer?.email, loyalty: j.result?.loyalty } }));
+    } catch { setRevealed((m) => ({ ...m, [key]: 'error' })); }
   };
-  if (variant === 'com') {
-    // Website (.com) customer database — no loyalty columns; USD; source tag
-    return (
-      <table className="w-full">
-        <thead>
-          <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-            <SortTh label="Customer" sortKey="name" current={sort} onSort={onSort} align="left" />
-            <Th align="left">Email</Th>
-            <Th align="left">Phone</Th>
-            <Th align="left">Country</Th>
-            <Th align="left">Source</Th>
-            <SortTh label="Orders" sortKey="orders" current={sort} onSort={onSort} />
-            <SortTh label="Total spent" sortKey="spent" current={sort} onSort={onSort} />
-            <SortTh label="Registered" sortKey="registered" current={sort} onSort={onSort} align="left" />
-          </tr>
-        </thead>
-        <tbody>
-          {customers.length === 0 && (
-            <tr>
-              <td colSpan={8} className="px-6 py-8 text-center" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
-                {hasSearch ? `No customers matching "${search}"` : 'No website customers yet'}
-              </td>
-            </tr>
-          )}
-          {customers.map((cu) => (
-            <tr
-              key={cu.id}
-              onClick={() => onOpen?.(String(cu.id))}
-              title="Open customer card"
-              style={{ borderBottom: '1px solid var(--border-hairline)', cursor: onOpen ? 'pointer' : 'default' }}
-              onMouseEnter={(e) => { if (onOpen) (e.currentTarget as HTMLTableRowElement).style.backgroundColor = 'var(--paper-sunk, #F3F0E8)'; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.backgroundColor = 'transparent'; }}
-            >
-              <Td bold>{cu.name}</Td>
-              <Td muted>{cu.email || '—'}</Td>
-              <Td muted>{cu.phone || '—'}</Td>
-              <Td muted>{cu.country || '—'}</Td>
-              <Td muted>{cu.customer_source || 'website'}</Td>
-              <Td align="right" bold>{cu.orders_count}</Td>
-              <Td align="right" bold>${cu.total_spent.toLocaleString('en-US')}</Td>
-              <Td muted>{cu.created_at}</Td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    );
-  }
-  return (
-    <table className="w-full">
-      <thead>
-        <tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-          <Th align="left">Customer</Th>
-          {/* Город — второй графой (Владелец 02.09.2026). В ленте витрины его
-              нет: приходит из связки, которую набивает крон по карточке
-              последнего заказа. Прочерк значит «витрина города не назвала». */}
-          <Th align="left">City</Th>
-          <Th align="left">Email</Th>
-          <Th align="left">Phone</Th>
-          <SortTh label="Orders" sortKey="orders" current={sort} onSort={onSort} />
-          <SortTh label="Total spent" sortKey="spent" current={sort} onSort={onSort} />
-          <Th align="left">Level</Th>
-          <SortTh label="Balance" sortKey="balance" current={sort} onSort={onSort} />
-          {/* Лента .ru даты регистрации не отдаёт: в этой графе всегда стояла
-              дата последнего заказа. Теперь она названа своим именем и по ней
-              же идёт порядок по умолчанию — свежие сверху. */}
-          <SortTh label="Last order" sortKey="last_order" current={sort} onSort={onSort} align="left" />
-        </tr>
-      </thead>
+  const contactData = contact?.key ? revealed[contact.key] : null;
+  const full = contactData && typeof contactData === 'object' ? contactData : null;
+  const deliveryLabel = (status?: string | null) => status === 'delivered' ? 'доставлен' : ['shipped', 'delivering', 'wait_for_delivery'].includes(status || '') ? 'в пути' : ['cancelled', 'refunded'].includes(status || '') ? 'отменён' : status === 'created' ? 'создан' : '—';
+  return <>
+    <table className="w-full crm-customers-table" data-source={variant}>
+      <thead><tr style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+        <Th>Customer</Th>
+        <SortTh label="Orders" sortKey="orders" current={sort} onSort={onSort} />
+        <SortTh label="Total spent" sortKey="spent" current={sort} onSort={onSort} />
+        <Th>Delivered</Th>
+        {variant === 'ru' && <><Th>Level</Th><SortTh label="Balance" sortKey="balance" current={sort} onSort={onSort} /></>}
+        <SortTh label="Last order" sortKey="last_order" current={sort} onSort={onSort} />
+      </tr></thead>
       <tbody>
-        {customers.length === 0 && (
-          <tr>
-            <td colSpan={9} className="px-6 py-8 text-center" style={{ fontSize: 14, color: 'var(--fg-3)' }}>
-              {hasSearch ? `No customers matching "${search}"` : 'No customers'}
-            </td>
-          </tr>
-        )}
+        {!customers.length && <tr><td colSpan={variant === 'ru' ? 7 : 5} style={{ padding: 24 }}>{hasSearch ? `No customers matching "${search}"` : 'No customers'}</td></tr>}
         {customers.map((cu) => {
-          const key = cu.key ?? null;
-          const r = key ? revealed[key] : undefined;
+          const r = cu.key ? revealed[cu.key] : null;
           const shown = r && typeof r === 'object' ? r : null;
-          const level = shown?.loyalty?.level ?? cu.loyalty_level;
-          // После показа по кнопке счёта может не оказаться — тогда процент
-          // берём из расчёта по тратам, а не гасим графу заодно с балансом.
-          const pct = shown?.loyalty?.privilege_pct ?? cu.loyalty_privilege_pct;
-          const balance = shown?.loyalty?.balance ?? cu.loyalty_balance;
-          return (
-          <tr key={cu.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
-            <Td bold>
-              {!cu.depersonalized || !key ? cu.name
-                : r === 'loading' ? <span style={{ color: 'var(--fg-3)' }}>…</span>
-                : r === 'error' ? <span style={{ color: 'var(--status-error)' }}>не открылось</span>
-                : shown ? (shown.name || '—')
-                : (
-                  <button
-                    type="button"
-                    onClick={() => revealByKey(key)}
-                    title="Показать имя, телефон и почту. Показ записывается в журнал."
-                    style={{ border: '1px solid var(--border-hairline)', background: 'transparent',
-                             borderRadius: 6, padding: '4px 9px', cursor: 'pointer',
-                             font: 'inherit', fontSize: 13, color: 'var(--fg-2)' }}
-                  >
-                    {cu.name} · показать
-                  </button>
-                )}
-            </Td>
-            <Td muted>{cu.city || '—'}</Td>
-            <Td muted>{shown ? (shown.email || '—') : (cu.email || '—')}</Td>
-            <Td muted>{shown ? (shown.phone || '—') : (cu.phone || '—')}</Td>
+          return <tr key={cu.id} style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+            <Td><OrderCustomerCell order={{ customer_name: cu.name, customer_city: cu.city, phone: cu.depersonalized ? null : cu.phone } as CrmOrder}
+              revealed={r as any} onReveal={cu.key ? () => revealByKey(cu.key!) : undefined}
+              onOpen={() => { setContact(cu); if (cu.key) revealByKey(cu.key); }} /></Td>
             <Td align="right" bold>{cu.orders_count}</Td>
-            <Td align="right" bold>{cu.total_spent.toLocaleString('ru-RU')} ₽</Td>
-            {/* Уровень: из счёта, если он есть, иначе посчитан по сумме
-                покупок тем же правилом клуба. Подпись говорит, что это
-                расчёт, — чтобы расчёт не выдавали за счёт. */}
-            <Td bold style={{ color: level ? 'var(--fg-1)' : 'var(--fg-3)' }}
-                title={cu.loyalty_level_basis === 'spent'
-                  ? 'Уровень посчитан по сумме покупок: счёта в клубе у этого покупателя нет'
-                  : undefined}>
-              {level || '—'}
-              {pct !== null && pct !== undefined && (
-                <span style={{ fontWeight: 400, color: 'var(--fg-3)', marginLeft: 6 }}>{pct}%</span>
-              )}
-            </Td>
-            {/* Баланс. Остаток счёта показываем, когда счёт найден. Когда не
-                найден — показываем то, что о баллах всё же известно: сколько
-                покупатель ими заплатил в заказах (Владелец 02.09.2026: «если
-                что-то есть — показывай, не надо прятать»). Прочерк остаётся
-                только там, где нет ни того, ни другого. */}
-            <Td align="right" bold style={{ color: balance === null || balance === undefined ? 'var(--fg-3)' : 'var(--fg-1)' }}
-                title={balance === null || balance === undefined
-                  ? (cu.loyalty_used
-                    ? `Остаток счёта не виден: счёт заведён на телефон, а лента .ru отдаёт обезличенный ключ. Известно одно — баллами оплачено ${cu.loyalty_used} ₽`
-                    : 'Баллов не видно: счёт лояльности заведён на телефон, а лента .ru отдаёт обезличенный ключ — связать их пока нечем')
-                  : undefined}>
-              {balance !== null && balance !== undefined
-                ? balance.toLocaleString('ru-RU')
-                : cu.loyalty_used
-                  ? <span style={{ fontWeight: 400, color: 'var(--fg-2)' }}>
-                      −{cu.loyalty_used.toLocaleString('ru-RU')}<span style={{ color: 'var(--fg-3)' }}> потрачено</span>
-                    </span>
-                  : '—'}
-            </Td>
-            <Td muted>{cu.last_order_at ?? cu.created_at}</Td>
-          </tr>
-          );
+            <Td align="right" bold>{cu.total_spent.toLocaleString(variant === 'ru' ? 'ru-RU' : 'en-US')} {variant === 'ru' ? '₽' : '$'}</Td>
+            <Td title="Статус доставки последнего заказа">{deliveryLabel(cu.delivery_status)}</Td>
+            {variant === 'ru' && <><Td bold>{shown?.loyalty?.level ?? cu.loyalty_level ?? '—'}{(shown?.loyalty?.privilege_pct ?? cu.loyalty_privilege_pct) != null && <span style={{ color: 'var(--fg-3)', marginLeft: 6 }}>{shown?.loyalty?.privilege_pct ?? cu.loyalty_privilege_pct}%</span>}</Td>
+              <Td align="right" bold>{(shown?.loyalty?.balance ?? cu.loyalty_balance)?.toLocaleString('ru-RU') ?? (cu.loyalty_used ? `−${cu.loyalty_used.toLocaleString('ru-RU')} потрачено` : '—')}</Td></>}
+            <OrderDateCell value={cu.last_order_at || cu.created_at} />
+          </tr>;
         })}
       </tbody>
     </table>
-  );
+    {contact && <div role="dialog" aria-modal="true" aria-label="Customer details" style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'var(--paper)', padding: 24, overflowY: 'auto' }}>
+      <button onClick={() => setContact(null)} style={{ float: 'right', padding: 8 }}>Close</button>
+      <h2 style={{ fontSize: 20, marginTop: 48 }}>{full?.name || contact.name}</h2>
+      <p>{contact.city || '—'}</p><p>{full?.phone || contact.phone || '—'}</p><p>{full?.email || contact.email || '—'}</p>
+      {contactData === 'loading' && <p>Загрузка…</p>}
+      {contactData === 'error' && <button onClick={() => revealByKey(contact.key!)}>Повторить</button>}
+      <button onClick={() => { setContact(null); onOpen?.(String(contact.id)); }}>Open customer card</button>
+    </div>}
+  </>;
 }
 
 function Th({ children, align = 'left' }: { children: React.ReactNode; align?: 'left' | 'right' }) {

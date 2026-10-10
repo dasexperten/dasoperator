@@ -913,7 +913,16 @@ site.get('/customers', async (c) => {
       .all<any>();
 
     const totalCount = Number(total?.n ?? 0);
+    const latestByCustomer = new Map<string, string>();
+    const ids = (rows.results ?? []).map((cu) => cu.id);
+    if (ids.length) {
+      const latest = await c.env.DB.prepare(
+        `SELECT customer_id, fulfillment_status FROM crm_orders WHERE customer_id IN (${ids.map(() => '?').join(',')}) ORDER BY placed_at DESC`
+      ).bind(...ids).all<any>();
+      for (const row of latest.results ?? []) if (!latestByCustomer.has(row.customer_id)) latestByCustomer.set(row.customer_id, row.fulfillment_status);
+    }
     const customers = (rows.results ?? []).map((cu) => ({
+      delivery_status: latestByCustomer.get(cu.id) || null,
       id: cu.id,
       name: [cu.first_name, cu.last_name].filter(Boolean).join(' ') || cu.email || '—',
       email: cu.email,

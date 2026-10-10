@@ -1167,6 +1167,17 @@ crm.get('/customers', async (c) => {
       } catch { /* связки ещё нет — покажем то, что знаем без неё */ }
     }
 
+    const latestByKey = new Map<string, any>();
+    if (phones.length) {
+      const marks = phones.map(() => '?').join(',');
+      const latest = await c.env.DB.prepare(
+        `SELECT customer_key, raw_json, delivery_status, storefront_status FROM crm_orders_ru
+         WHERE customer_key IN (${marks}) ORDER BY created_at DESC`
+      ).bind(...phones).all<any>();
+      for (const row of latest.results ?? []) {
+        if (!latestByKey.has(row.customer_key)) latestByKey.set(row.customer_key, row);
+      }
+    }
     const customers = pageRows.map((cu) => {
       const acc = accByPhone.get(cu.phone);
       // Счёт лояльности заведён на телефон, а обезличенная лента .ru отдаёт
@@ -1186,10 +1197,11 @@ crm.get('/customers', async (c) => {
         // покажет кнопку; настоящие данные — по /customer-key/:key под запись.
         depersonalized,
         key: depersonalized ? cu.phone : null,
-        name: cu.name,
+        name: ruCustomerSummary(latestByKey.get(cu.phone)?.raw_json).customer_name || cu.name,
+        delivery_status: latestByKey.get(cu.phone)?.delivery_status || latestByKey.get(cu.phone)?.storefront_status || null,
         // Город — не персональные данные (населённый пункт пункта выдачи),
         // поэтому виден без кнопки показа, как и просил Владелец.
-        city: cityByKey.get(cu.phone) ?? null,
+        city: ruCustomerSummary(latestByKey.get(cu.phone)?.raw_json).customer_city || cityByKey.get(cu.phone) || null,
         email: cu.email,
         phone: depersonalized ? null : cu.phone,
         orders_count: cu.orders_count,

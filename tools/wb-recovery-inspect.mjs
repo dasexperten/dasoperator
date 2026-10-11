@@ -5,13 +5,14 @@ export default {
     const url = new URL(request.url);
     const product = products[url.searchParams.get('sku')];
     const kind = url.searchParams.get('kind');
-    if (request.method !== 'GET' || url.pathname !== '/inspect' || !product || !['min', 'config', 'limits'].includes(kind)) {
+    if (request.method !== 'GET' || url.pathname !== '/inspect' || !product || !['min', 'config', 'limits', 'campaign'].includes(kind)) {
       return new Response('Unsupported read', { status: 400 });
     }
     if (!env.WB_GATEWAY) return new Response('ERP gateway unavailable', { status: 503 });
     const [advertId, nmId] = product;
     let target = 'https://advert-api.wildberries.ru/api/advert/v1/config';
     let init = { method: 'GET' };
+    if (kind === 'campaign') target = `https://advert-api.wildberries.ru/api/advert/v2/adverts?ids=${advertId}`;
     if (kind === 'limits') target = `https://advert-api.wildberries.ru/api/advert/v0/daily-limits?advertIds=${advertId}`;
     if (kind === 'min') {
       target = 'https://advert-api.wildberries.ru/api/advert/v1/bids/min';

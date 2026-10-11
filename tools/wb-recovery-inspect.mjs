@@ -1,8 +1,20 @@
 // Local recovery adapter. WB authentication and rate limits stay in ERP.
 const products = { schwarz: [34396247, 198719422], termo: [34456493, 805033249] };
+let draftCreated = false;
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    // Preparation only: fixed unfunded draft; never top up or launch here.
+    if (request.method === 'POST' && url.pathname === '/draft-schwarz' && url.search === '' && request.headers.get('X-Recovery-Action') === 'unfunded-schwarz-261011') {
+      if (draftCreated) return new Response('Draft creation already attempted; inspect result before retry', { status: 409 });
+      if (!env.WB_GATEWAY) return new Response('ERP gateway unavailable', { status: 503 });
+      draftCreated = true;
+      const result = await env.WB_GATEWAY.fetch('https://advert-api.wildberries.ru/adv/v2/seacat/save-ad', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'SCHWARZ recovery 261011 unfunded test', nms: [198719422], bid_type: 'manual', payment_type: 'cpc', placement_types: ['search'] })
+      });
+      return new Response(result.body, { status: result.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+    }
     // One explicit cost reduction, never a budget increase or campaign restart.
     if (request.method === 'POST' && url.pathname === '/reduce-termo' && url.search === '' && request.headers.get('X-Recovery-Action') === 'termo-10-to-7') {
       if (!env.WB_GATEWAY) return new Response('ERP gateway unavailable', { status: 503 });

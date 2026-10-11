@@ -3,6 +3,7 @@
 export const runtime = 'edge';
 
 import Link from 'next/link';
+import SystemHealth from '@/components/home/system-health';
 import { Tag, FileSliders, Settings as SettingsIcon, ArrowRight, Users, Activity, Timer } from 'lucide-react';
 
 const SECTIONS = [
@@ -93,6 +94,16 @@ export default function SettingsPage() {
           </Link>
         ))}
       </div>
+
+      <section style={{ marginTop: '32px', maxWidth: '1200px' }}>
+        <h2 style={{
+          fontFamily: 'Plus Jakarta Sans, sans-serif', fontSize: '16px',
+          fontWeight: 700, color: 'var(--fg-1)', marginBottom: '12px',
+        }}>
+          System health
+        </h2>
+        <SystemHealth />
+      </section>
     </div>
   );
 }

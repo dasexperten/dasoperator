@@ -12,7 +12,6 @@ import {
   type Payment,
 } from '@/lib/api';
 import MarketplacePulse from './marketplace-pulse';
-import SystemHealth from './system-health';
 import AiVisibilityOverview from './ai-visibility-overview';
 
 // =============================================================================
@@ -222,9 +221,6 @@ export default function HomeDashboard() {
 
       {/* MARKETPLACE PULSE ========================================== */}
       <MarketplacePulse />
-
-      {/* SYSTEM HEALTH ============================================== */}
-      <SystemHealth />
 
       {/* RECENT OPERATIONS ========================================== */}
       <section>

@@ -1,0 +1,6 @@
+{
+  "name": "wb-recovery-inspect-local",
+  "main": "wb-recovery-inspect.mjs",
+  "compatibility_date": "2026-10-11",
+  "services": [{ "binding": "WB_GATEWAY", "service": "dasoperator-api", "entrypoint": "WbGateway", "remote": true }]
+}

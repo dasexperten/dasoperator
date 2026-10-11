@@ -385,7 +385,7 @@ export default function UgcPage() {
             </div>;
           })}
         </div>
-        <table className="ugc-table w-full text-sm">
+        <table className="ugc-table dx-keep-table w-full text-sm">
           <colgroup>{[25, 9, 9, 10, 10, 11, 16, 10].map((width, i) => <col key={i} style={{ width: `${width}%` }} />)}</colgroup>
           <thead style={{ background: 'var(--paper-sunk)', color: 'var(--fg-2)' }}><tr><th className="text-left p-3">Creator</th><th className="text-right p-3">Followers</th><th className="text-right p-3">Avg views</th><th className="text-right p-3">Eng. %</th><th className="text-left p-3">Posts</th><th className="text-left p-3">Product</th><th className="text-left p-3">Media</th><th className="text-left p-3">Next</th></tr></thead>
           <tbody>

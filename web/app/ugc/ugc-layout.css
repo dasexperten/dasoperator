@@ -37,7 +37,7 @@
   .ugc-page .dx-ribbon-rule,
   .ugc-kpis, .ugc-health { display: none !important; }
   .ugc-page .dx-page-actions, .ugc-page .ugc-import { display: none !important; }
-  .ugc-table { display: none; }
+  .ugc-page table.ugc-table { display: none !important; }
   .ugc-mobile-list { display: block; }
   .ugc-mobile-row { display: grid; grid-template-columns: minmax(0, 1fr) 54px 45px 30px 36px; align-items: center; gap: 4px; padding: 0 8px; min-height: 44px; border-top: 1px solid var(--border-hairline); font-size: 12px; white-space: nowrap; }
   .ugc-mobile-row > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: right; font-variant-numeric: tabular-nums; }
@@ -55,7 +55,7 @@
 @media (max-width: 700px) {
   .ugc-page #ugc-platforms { display: none !important; }
   .ugc-page .ugc-controls[data-expanded="true"] #ugc-filters .ugc-network-select { display: block; }
-  .ugc-page #ugc-filters > label { display: flex !important; flex-direction: row !important; align-items: center !important; justify-content: flex-start !important; height: 44px; padding: 0 12px !important; }
+  .ugc-page #ugc-filters > label { display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important; align-items: center !important; justify-content: flex-start !important; height: 44px; padding: 0 12px !important; }
   .ugc-page #ugc-filters > label > svg { align-self: center !important; flex: 0 0 16px; }
   .ugc-page #ugc-filters > label > :is(input, select) { flex: 1 1 auto; min-width: 0; height: 100%; margin: 0 !important; text-align: left !important; }
 }

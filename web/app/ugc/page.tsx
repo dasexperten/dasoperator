@@ -170,7 +170,7 @@ function statusColor(status: LinkStatus | null): string {
 
 function LinkHealth({ item, compact = false }: { item: ContentObservation; compact?: boolean }) {
   const label = item.link_status ? LINK_STATUS_LABEL[item.link_status] : 'Not checked';
-  return <span className={`inline-flex items-center gap-1.5 ${compact ? 'text-xs' : 'text-sm'}`} style={{ color: statusColor(item.link_status) }} title={item.link_check_note || undefined}><span aria-hidden="true" className="h-2 w-2 rounded-full" style={{ background: statusColor(item.link_status) }} />{label}{item.link_checked_at ? ` · ${formatCheckedAt(item.link_checked_at)}` : ''}</span>;
+  return <span className={`inline-flex items-center gap-1.5 ${compact ? 'text-xs' : 'text-sm'}`} style={{ color: statusColor(item.link_status) }} title={[item.link_check_note, item.link_checked_at ? formatCheckedAt(item.link_checked_at) : null].filter(Boolean).join(' · ') || undefined}><span aria-hidden="true" className="h-2 w-2 rounded-full" style={{ background: statusColor(item.link_status) }} />{label}{item.link_checked_at ? ` · ${compact ? new Date(item.link_checked_at).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }) : formatCheckedAt(item.link_checked_at)}` : ''}</span>;
 }
 
 function ProductEvidence({ item }: { item: ContentObservation }) {

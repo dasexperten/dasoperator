@@ -1,6 +1,6 @@
 // Local recovery adapter. WB authentication and rate limits stay in ERP.
 const products = { schwarz: [34396247, 198719422], termo: [34456493, 805033249], test: [40869251, 198719422] };
-let draftCreated = false;
+let draftCreated = true; // Draft40869251 exists; recreation requires inspection, never retry.
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -32,13 +32,17 @@ export default {
     }
     const product = products[url.searchParams.get('sku')];
     const kind = url.searchParams.get('kind');
-    if (request.method !== 'GET' || url.pathname !== '/inspect' || !product || !['min', 'config', 'limits', 'campaign'].includes(kind)) {
+    if (request.method !== 'GET' || url.pathname !== '/inspect' || !product || !['min', 'config', 'limits', 'campaign', 'budget'].includes(kind)) {
       return new Response('Unsupported read', { status: 400 });
     }
     if (!env.WB_GATEWAY) return new Response('ERP gateway unavailable', { status: 503 });
     const [advertId, nmId] = product;
     let target = 'https://advert-api.wildberries.ru/api/advert/v1/config';
     let init = { method: 'GET' };
+    if (kind === 'budget') {
+      target = 'https://advert-api.wildberries.ru/api/advert/v2/budget';
+      init = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ advertIds: [advertId] }) };
+    }
     if (kind === 'campaign') target = `https://advert-api.wildberries.ru/api/advert/v2/adverts?ids=${advertId}`;
     if (kind === 'limits') target = `https://advert-api.wildberries.ru/api/advert/v0/daily-limits?advertIds=${advertId}`;
     if (kind === 'min') {

@@ -47,7 +47,7 @@
   .ugc-mobile-work { display: flex; align-items: center; justify-content: center; min-height: 44px; color: var(--brand-rot); }
   .ugc-mobile-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; }
   .ugc-mobile-controls button { min-height: 44px; padding: 0 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); font-weight: 700; }
-  .ugc-controls[data-expanded="false"] .ugc-platforms,
-  .ugc-controls[data-expanded="false"] .ugc-filters > :not(:first-child) { display: none; }
+  .ugc-page .ugc-controls[data-expanded="false"] #ugc-platforms,
+  .ugc-page .ugc-controls[data-expanded="false"] #ugc-filters > :not(:first-child) { display: none !important; }
   .ugc-filters { grid-template-columns: minmax(0, 1fr); }
 }

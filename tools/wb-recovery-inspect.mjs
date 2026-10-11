@@ -1,5 +1,5 @@
 // Local recovery adapter. WB authentication and rate limits stay in ERP.
-const products = { schwarz: [34396247, 198719422], termo: [34456493, 805033249] };
+const products = { schwarz: [34396247, 198719422], termo: [34456493, 805033249], test: [40869251, 198719422] };
 let draftCreated = false;
 export default {
   async fetch(request, env) {

@@ -1,8 +1,23 @@
-// Local-only read adapter. WB authentication and rate limits stay in ERP.
+// Local recovery adapter. WB authentication and rate limits stay in ERP.
 const products = { schwarz: [34396247, 198719422], termo: [34456493, 805033249] };
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    // One explicit cost reduction, never a budget increase or campaign restart.
+    if (request.method === 'POST' && url.pathname === '/reduce-termo' && url.search === '' && request.headers.get('X-Recovery-Action') === 'termo-10-to-7') {
+      if (!env.WB_GATEWAY) return new Response('ERP gateway unavailable', { status: 503 });
+      const current = await env.WB_GATEWAY.fetch('https://advert-api.wildberries.ru/api/advert/v2/adverts?ids=34456493');
+      if (!current.ok) return new Response(await current.text(), { status: current.status });
+      const campaign = (await current.json()).adverts?.find(x => x.id === 34456493);
+      const item = campaign?.nm_settings?.find(x => x.nm_id === 805033249);
+      if (item?.bids_kopecks?.search === 700) return Response.json({ alreadyReduced: true });
+      if (campaign?.status !== 9 || campaign?.settings?.payment_type !== 'cpc' || item?.bids_kopecks?.search !== 1000) return new Response('Campaign changed; inspect before acting', { status: 409 });
+      const result = await env.WB_GATEWAY.fetch('https://advert-api.wildberries.ru/api/advert/v1/bids', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bids: [{ advert_id: 34456493, nm_bids: [{ nm_id: 805033249, bid_kopecks: 700, placement: 'search' }] }] })
+      });
+      return new Response(result.body, { status: result.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+    }
     const product = products[url.searchParams.get('sku')];
     const kind = url.searchParams.get('kind');
     if (request.method !== 'GET' || url.pathname !== '/inspect' || !product || !['min', 'config', 'limits', 'campaign'].includes(kind)) {

@@ -369,9 +369,24 @@ export default function UgcPage() {
       </section>
 
       <section className="ugc-table-shell" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-card)' }}>
+        <div className="ugc-mobile-list">
+          <div className="ugc-mobile-row ugc-mobile-head" aria-hidden="true"><span>Creator</span><span>Followers</span><span>Views</span><span>Posts</span><span /></div>
+          {loading ? <p className="p-3">Loading UGC…</p> : creators.length === 0 ? <p className="p-3">No creators match this view.</p> : creators.map((creator) => {
+            const profile = primaryProfile(creator, platform);
+            const latest = latestLinkedContent(profile);
+            const name = profile.handle ? `@${profile.handle}` : creator.display_name || 'Creator';
+            return <div key={creator.id} className="ugc-mobile-row">
+              <button type="button" className="ugc-mobile-name" title={creator.display_name || name} onClick={() => setSelectedId(creator.id)}>{name}</button>
+              <span title={`${profile.followers ?? 'Unknown'} followers`}>{formatNumber(profile.followers)}</span>
+              <span title={`${profile.avg_video_views ?? profile.latest_observed_views ?? 'Unknown'} views`}>{formatNumber(profile.avg_video_views ?? profile.latest_observed_views)}</span>
+              <span title={`${profile.content_count} publications`}>{formatNumber(profile.content_count)}</span>
+              {latest ? <a href={latest.href} target="_blank" rel="noopener noreferrer" className="ugc-mobile-work" aria-label={`Open completed work from ${name}`} title="Open completed work"><Video size={18} /></a> : <span aria-label="No completed work">—</span>}
+            </div>;
+          })}
+        </div>
         <table className="ugc-table w-full text-sm">
           <colgroup>{[25, 9, 9, 10, 10, 11, 16, 10].map((width, i) => <col key={i} style={{ width: `${width}%` }} />)}</colgroup>
-          <thead style={{ background: 'var(--paper-sunk)', color: 'var(--fg-2)' }}><tr><th className="text-left p-3">Creator</th><th className="text-right p-3">Followers</th><th className="text-right p-3">Avg views</th><th className="text-right p-3">Engagement</th><th className="text-left p-3">Publications</th><th className="text-left p-3">Product</th><th className="text-left p-3">Media</th><th className="text-left p-3">Next</th></tr></thead>
+          <thead style={{ background: 'var(--paper-sunk)', color: 'var(--fg-2)' }}><tr><th className="text-left p-3">Creator</th><th className="text-right p-3">Followers</th><th className="text-right p-3">Avg views</th><th className="text-right p-3">Eng. %</th><th className="text-left p-3">Posts</th><th className="text-left p-3">Product</th><th className="text-left p-3">Media</th><th className="text-left p-3">Next</th></tr></thead>
           <tbody>
             {loading ? <tr><td colSpan={8} className="p-10 text-center"><Loader2 className="h-6 w-6 animate-spin inline-block" /> <span className="ml-2">Loading UGC…</span></td></tr> : creators.length === 0 ? <tr><td colSpan={8} className="p-10 text-center" style={{ color: 'var(--fg-2)' }}><Users className="h-7 w-7 mx-auto mb-2" />No creators match this view.</td></tr> : creators.map((creator) => {
               const profile = primaryProfile(creator, platform);
@@ -385,7 +400,7 @@ export default function UgcPage() {
         </table>
       </section>
 
-      {selected && <CreatorPanel key={selected.id} creator={selected} onClose={() => setSelectedId(null)} onSaved={load} />}
+      {selected && <div ref={(node) => { if (node) node.scrollIntoView({ block: 'start', behavior: 'smooth' }); }}><CreatorPanel key={selected.id} creator={selected} onClose={() => setSelectedId(null)} onSaved={load} /></div>}
       <p title="A single publication is shown as observed views, not as an average. Unknown values remain blank." className="text-sm" style={{ color: 'var(--fg-3)' }}>* A single publication is shown as observed views, not as an average. Unknown values remain blank.</p>
     </div>
   );

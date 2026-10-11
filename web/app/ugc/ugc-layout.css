@@ -26,7 +26,7 @@
   .ugc-filters { grid-template-columns: minmax(0, 1fr); }
 }
 
-.ugc-mobile-controls, .ugc-mobile-list { display: none; }
+.ugc-mobile-controls, .ugc-mobile-list, .ugc-network-select { display: none; }
 @media (max-width: 700px) {
   .ugc-page { padding: 16px; }
   .ugc-page > * + * { margin-top: 12px !important; }
@@ -50,4 +50,12 @@
   .ugc-page .ugc-controls[data-expanded="false"] #ugc-platforms,
   .ugc-page .ugc-controls[data-expanded="false"] #ugc-filters > :not(:first-child) { display: none !important; }
   .ugc-filters { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 700px) {
+  .ugc-page #ugc-platforms { display: none !important; }
+  .ugc-page .ugc-controls[data-expanded="true"] #ugc-filters .ugc-network-select { display: block; }
+  .ugc-page #ugc-filters > label { display: flex !important; flex-direction: row !important; align-items: center !important; justify-content: flex-start !important; height: 44px; padding: 0 12px !important; }
+  .ugc-page #ugc-filters > label > svg { align-self: center !important; flex: 0 0 16px; }
+  .ugc-page #ugc-filters > label > :is(input, select) { flex: 1 1 auto; min-width: 0; height: 100%; margin: 0 !important; text-align: left !important; }
 }

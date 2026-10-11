@@ -36,7 +36,7 @@
   .ugc-page .dx-header-wrap :is(.dx-eyebrow-rot, p, .dx-page-actions),
   .ugc-page .dx-ribbon-rule,
   .ugc-kpis, .ugc-health { display: none !important; }
-  .ugc-page .dx-page-actions { display: none !important; }
+  .ugc-page .dx-page-actions, .ugc-page .ugc-import { display: none !important; }
   .ugc-table { display: none; }
   .ugc-mobile-list { display: block; }
   .ugc-mobile-row { display: grid; grid-template-columns: minmax(0, 1fr) 54px 45px 30px 36px; align-items: center; gap: 4px; padding: 0 8px; min-height: 44px; border-top: 1px solid var(--border-hairline); font-size: 12px; white-space: nowrap; }

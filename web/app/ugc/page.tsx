@@ -316,7 +316,7 @@ export default function UgcPage() {
         actions={(
           <>
             <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onImport} />
-            <button type="button" onClick={() => fileRef.current?.click()} disabled={Boolean(importing)} className="min-h-11 px-1 flex items-center font-bold transition-transform hover:-translate-y-0.5 disabled:transform-none disabled:opacity-60">
+            <button type="button" onClick={() => fileRef.current?.click()} disabled={Boolean(importing)} className="ugc-import min-h-11 px-1 flex items-center font-bold transition-transform hover:-translate-y-0.5 disabled:transform-none disabled:opacity-60">
               <span className="px-2.5 py-1.5 inline-flex items-center gap-2" style={{ color: 'var(--fg-on-brand)', background: 'var(--brand-rot)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow-raised)' }}>{importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}{importing ?? 'Import XLSX'}</span>
             </button>
           </>

@@ -34,3 +34,20 @@
 @media (max-width: 480px) {
   .ugc-filters { grid-template-columns: minmax(0, 1fr); }
 }
+
+.ugc-mobile-controls { display: none; }
+@media (max-width: 700px) {
+  .ugc-page { padding: 16px; }
+  .ugc-page > * + * { margin-top: 12px !important; }
+  .ugc-page > div:first-child { margin-bottom: 12px; }
+  .ugc-page .dx-header-wrap { gap: 0; }
+  .ugc-page .dx-header-wrap h1 { font-size: 28px !important; }
+  .ugc-page .dx-header-wrap :is(.dx-eyebrow-rot, p, .dx-page-actions),
+  .ugc-page > div:first-child .dx-ribbon-rule,
+  .ugc-kpis, .ugc-health { display: none; }
+  .ugc-mobile-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; }
+  .ugc-mobile-controls button { min-height: 44px; padding: 0 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); font-weight: 700; }
+  .ugc-controls[data-expanded="false"] .ugc-platforms,
+  .ugc-controls[data-expanded="false"] .ugc-filters > :not(:first-child) { display: none; }
+  .ugc-filters { grid-template-columns: minmax(0, 1fr); }
+}

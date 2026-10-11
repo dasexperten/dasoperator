@@ -192,6 +192,7 @@ function Kpi({ label, value, exact, note, accent }: { label: string; value: stri
 
 export default function UgcPage() {
   const [data, setData] = useState<UgcPayload>(API_EMPTY);
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [platform, setPlatform] = useState('all');
   const [search, setSearch] = useState('');
   const [stage, setStage] = useState('');
@@ -325,7 +326,7 @@ export default function UgcPage() {
       {error && <div role="alert" className="p-4 flex items-start justify-between gap-4" style={{ background: 'var(--paper-sunk)', borderLeft: '4px solid var(--status-error)' }}><span>{error}</span><button type="button" aria-label="Dismiss" onClick={() => setError(null)} className="min-h-11 flex items-center justify-center" style={{ minWidth: '44px' }}><X className="h-5 w-5" /></button></div>}
       <div role="status" aria-live="polite" className="sr-only">{importing}</div>
 
-      <section className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
+      <section className="ugc-kpis grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
         <Kpi label="Creators" value={formatNumber(data.summary.creators)} exact={`${data.summary.creators} creators`} note="in this view" accent="var(--brand-schwarz)" />
         <Kpi label="Followers" value={formatNumber(headline.followers)} exact={`${headline.followers} followers`} note="known audience" accent="var(--brand-rot)" />
         <Kpi label="Avg views" value={formatNumber(headline.avgViews)} exact={headline.avgViews == null ? 'Unknown' : `${headline.avgViews} average views`} note="per known profile" accent="var(--status-info)" />
@@ -334,7 +335,7 @@ export default function UgcPage() {
         <Kpi label="Products" value={formatNumber(data.products.length)} exact={`${data.products.length} identified product families`} note={`${formatNumber(data.summary.product_queued)} queued`} accent="var(--brand-gold)" />
       </section>
 
-      <section aria-label="Content link health" className="p-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
+      <section aria-label="Content link health" className="ugc-health p-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
         <strong style={{ fontFamily: 'var(--font-display)', fontWeight: 900 }}>Link health</strong>
         <span style={{ color: 'var(--status-success)' }}>● {formatNumber(data.summary.links_active)} active</span>
         <span style={{ color: 'var(--status-error)' }}>● {formatNumber(data.summary.links_missing)} missing</span>
@@ -347,15 +348,16 @@ export default function UgcPage() {
         {checkMessage && <span role="status" aria-live="polite" className="text-xs" style={{ color: checkMessage.includes('checked') ? 'var(--status-success)' : 'var(--status-error)' }}>{checkMessage}</span>}
       </section>
 
-      <section className="space-y-4">
-        <div className="ugc-platforms flex flex-wrap gap-2 pb-1" aria-label="Platforms">
+      <section className="ugc-controls space-y-4" data-expanded={filtersExpanded}>
+        <div className="ugc-mobile-controls"><span>{formatNumber(data.summary.creators)} creators</span><button type="button" aria-expanded={filtersExpanded} aria-controls="ugc-platforms ugc-filters" onClick={() => setFiltersExpanded((value) => !value)}>{filtersExpanded ? 'Close filters' : `Filters${platform !== 'all' || stage || product ? ' · active' : ''}`}</button></div>
+        <div id="ugc-platforms" className="ugc-platforms flex flex-wrap gap-2 pb-1" aria-label="Platforms">
           {PLATFORM_TABS.map((key) => {
             const count = key === 'all' ? data.summary.creators : data.platforms.find((item) => item.platform === key)?.creator_count;
             return <button key={key} type="button" aria-pressed={platform === key} onClick={() => setPlatform(key)} className="min-h-11 shrink-0 px-1 flex items-center font-bold capitalize focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="px-2.5 py-1" style={{ color: platform === key ? 'var(--fg-on-brand)' : 'var(--fg-1)', background: platform === key ? 'var(--brand-schwarz)' : 'var(--paper-sunk)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-pill)' }}>{key} {count != null ? `· ${count}` : ''}</span></button>;
           })}
         </div>
 
-        <div className="ugc-filters grid gap-2">
+        <div id="ugc-filters" className="ugc-filters grid gap-2">
           <label className="min-h-11 px-3 flex items-center gap-2" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>
             <Search className="h-4 w-4" style={{ color: 'var(--fg-3)' }} />
             <input aria-label="Search creators" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search creators…" className="w-full bg-transparent outline-none" />

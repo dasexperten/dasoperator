@@ -1,0 +1,36 @@
+/* UGC: one viewport wide, with each text line kept intact. */
+.ugc-page { min-width: 0; max-width: 100%; }
+.ugc-page *, .ugc-page *::before, .ugc-page *::after { box-sizing: border-box; }
+.ugc-page :is(section, article, .grid, .flex, .inline-flex, label, input, select) { min-width: 0; max-width: 100%; }
+.ugc-page :is(p, h1, h2, h3, span, button, label, input, select) { white-space: nowrap; }
+.ugc-page :is(p, h2, h3, .dx-eyebrow, .dx-eyebrow-rot), .ugc-page .block, .ugc-content-url { overflow: hidden; text-overflow: ellipsis; }
+.ugc-page .dx-header-wrap > div:first-child { min-width: 0; }
+.ugc-page .grid > div > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ugc-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ugc-platforms { overflow: visible; }
+.ugc-table { table-layout: fixed; width: 100%; }
+.ugc-table :is(th, td) { white-space: nowrap; padding: 12px 8px; overflow: hidden; text-overflow: ellipsis; }
+.ugc-table th { font-size: 12px; }
+.ugc-table td > button { display: block; width: 100%; }
+.ugc-table td .flex { flex-wrap: nowrap; }
+.ugc-table td > .inline-flex { display: flex; }
+.ugc-table td .inline-flex > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ugc-table svg { flex-shrink: 0; }
+.ugc-content-url { white-space: nowrap; line-height: 44px; }
+.ugc-page textarea { white-space: pre; overflow-x: hidden; }
+.ugc-page article :is(.text-xs, .text-sm) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (min-width: 1280px) {
+  .ugc-filters { grid-template-columns: minmax(0, 2fr) repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .ugc-table, .ugc-table tbody { display: block; width: 100%; }
+  .ugc-table colgroup, .ugc-table thead { display: none; }
+  .ugc-table tbody tr { display: grid; grid-template-columns: minmax(0, 1fr); padding: 12px; gap: 4px; }
+  .ugc-table td { display: block; text-align: left; padding: 0; }
+  .ugc-table td[data-label]:not(:first-child)::before { content: attr(data-label) ': '; color: var(--fg-3); font-size: 12px; }
+  .ugc-table td > .inline-flex { display: inline-flex; vertical-align: top; }
+  .ugc-table td:first-child { margin-bottom: 6px; }
+}
+@media (max-width: 480px) {
+  .ugc-filters { grid-template-columns: minmax(0, 1fr); }
+}

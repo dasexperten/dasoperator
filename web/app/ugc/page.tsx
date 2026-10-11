@@ -2,6 +2,7 @@
 
 import { ChangeEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpDown, ExternalLink, FileSpreadsheet, FileText, ImageIcon, Link, Link2Off, Loader2, Search, Users, Video, X } from 'lucide-react';
+import './ugc-layout.css';
 import PageHeader from '@/components/ui/page-header';
 import { apiGet, apiPatch, apiPost } from '@/lib/api';
 import { parseUgcWorkbook } from '@/lib/ugc-import';
@@ -306,7 +307,7 @@ export default function UgcPage() {
   }
 
   return (
-    <div className="p-5 md:p-8 space-y-7">
+    <div className="ugc-page p-5 md:p-8 space-y-7">
       <PageHeader
         eyebrow="Creator operations"
         title="UGC"
@@ -347,14 +348,14 @@ export default function UgcPage() {
       </section>
 
       <section className="space-y-4">
-        <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Platforms">
+        <div className="ugc-platforms flex flex-wrap gap-2 pb-1" aria-label="Platforms">
           {PLATFORM_TABS.map((key) => {
             const count = key === 'all' ? data.summary.creators : data.platforms.find((item) => item.platform === key)?.creator_count;
             return <button key={key} type="button" aria-pressed={platform === key} onClick={() => setPlatform(key)} className="min-h-11 shrink-0 px-1 flex items-center font-bold capitalize focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="px-2.5 py-1" style={{ color: platform === key ? 'var(--fg-on-brand)' : 'var(--fg-1)', background: platform === key ? 'var(--brand-schwarz)' : 'var(--paper-sunk)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-pill)' }}>{key} {count != null ? `· ${count}` : ''}</span></button>;
           })}
         </div>
 
-        <div className="grid md:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_170px_190px_170px] gap-2">
+        <div className="ugc-filters grid gap-2">
           <label className="min-h-11 px-3 flex items-center gap-2" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>
             <Search className="h-4 w-4" style={{ color: 'var(--fg-3)' }} />
             <input aria-label="Search creators" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search creators…" className="w-full bg-transparent outline-none" />
@@ -365,8 +366,9 @@ export default function UgcPage() {
         </div>
       </section>
 
-      <section className="overflow-x-auto" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-card)' }}>
-        <table className="w-full text-sm">
+      <section className="ugc-table-shell" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-card)' }}>
+        <table className="ugc-table w-full text-sm">
+          <colgroup>{[25, 9, 9, 10, 10, 11, 16, 10].map((width, i) => <col key={i} style={{ width: `${width}%` }} />)}</colgroup>
           <thead style={{ background: 'var(--paper-sunk)', color: 'var(--fg-2)' }}><tr><th className="text-left p-3">Creator</th><th className="text-right p-3">Followers</th><th className="text-right p-3">Avg views</th><th className="text-right p-3">Engagement</th><th className="text-left p-3">Publications</th><th className="text-left p-3">Product</th><th className="text-left p-3">Media</th><th className="text-left p-3">Next</th></tr></thead>
           <tbody>
             {loading ? <tr><td colSpan={8} className="p-10 text-center"><Loader2 className="h-6 w-6 animate-spin inline-block" /> <span className="ml-2">Loading UGC…</span></td></tr> : creators.length === 0 ? <tr><td colSpan={8} className="p-10 text-center" style={{ color: 'var(--fg-2)' }}><Users className="h-7 w-7 mx-auto mb-2" />No creators match this view.</td></tr> : creators.map((creator) => {
@@ -375,14 +377,14 @@ export default function UgcPage() {
               const latest = latestLinkedContent(profile);
               const media = latest ? mediaKind(latest.item) : null;
               const products = Array.from(new Map(profile.content.flatMap((item) => item.products).map((item) => [item.sku, item])).values());
-              return <tr key={creator.id} style={{ borderTop: '1px solid var(--border-hairline)' }}><td className="p-3"><button type="button" onClick={() => setSelectedId(creator.id)} className="min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="block font-bold underline decoration-transparent underline-offset-4 hover:decoration-current">{creator.display_name || `@${profile.handle}`}</span><span className="block text-xs capitalize" style={{ color: 'var(--fg-3)' }}>{profile.platform} · @{profile.handle}</span></button></td><td className="p-3 text-right tabular-nums" title={profile.followers == null ? 'Unknown' : `${profile.followers}`}>{formatNumber(profile.followers)}</td><td className="p-3 text-right tabular-nums" title={views == null ? 'Unknown' : `${views}`}>{formatNumber(views)}{profile.view_observations === 1 ? <span title="One observed publication"> *</span> : null}</td><td className="p-3 text-right tabular-nums" title={profile.engagement_rate == null ? 'Unknown' : `${profile.engagement_rate}%`}>{profile.engagement_rate == null ? '—' : `${formatNumber(profile.engagement_rate)}%`}</td><td className="p-3 tabular-nums" aria-label={`${profile.content_count} content observations`}>{formatNumber(profile.content_count)}</td><td className="p-3">{products.length ? <div className="flex flex-wrap gap-1">{products.slice(0, 2).map((item) => <span key={`${item.sku}-${item.raw_offer_id}`} title={`${item.name} · ${item.raw_offer_id} · confirmed from explicit import`} className="px-2 py-1 text-xs font-bold" style={{ background: 'var(--brand-gold)', color: 'var(--brand-schwarz)', borderRadius: 'var(--radius-pill)' }}>{compactProductCode(item.raw_offer_id || item.raw_code || item.sku)}</span>)}</div> : <span className="text-xs" style={{ color: 'var(--fg-3)' }}>{profile.content.some((item) => item.product_status === 'queued') ? 'Queued' : 'Unknown'}</span>}</td><td className="p-3">{latest && media ? <div className="inline-flex flex-col gap-1"><a href={latest.href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="min-h-11 px-1 inline-flex items-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`Open latest ${media.toLowerCase()} from @${profile.handle}`} title={latest.item.content_url ?? undefined}><span className="px-2 py-1 inline-flex items-center gap-1.5 text-xs font-bold" style={{ color: 'var(--brand-rot)', background: 'var(--paper-sunk)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>{media === 'Video' ? <Video className="h-4 w-4" /> : media === 'Image' ? <ImageIcon className="h-4 w-4" /> : media === 'Post' ? <FileText className="h-4 w-4" /> : <Link className="h-4 w-4" />}<span>{media}</span><ExternalLink className="h-3 w-3" /></span></a><LinkHealth item={latest.item} compact /></div> : <span style={{ color: 'var(--fg-3)' }}>N/A</span>}</td><td className="p-3">{creator.collaboration?.next_action || '—'}</td></tr>;
+              return <tr key={creator.id} style={{ borderTop: '1px solid var(--border-hairline)' }}><td className="p-3" data-label="Creator"><button type="button" title={`${creator.display_name || `@${profile.handle}`} · ${profile.platform} · @${profile.handle}`} onClick={() => setSelectedId(creator.id)} className="min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="block font-bold underline decoration-transparent underline-offset-4 hover:decoration-current">{creator.display_name || `@${profile.handle}`}</span><span className="block text-xs capitalize" style={{ color: 'var(--fg-3)' }}>{profile.platform} · @{profile.handle}</span></button></td><td data-label="Followers" className="p-3 text-right tabular-nums" title={profile.followers == null ? 'Unknown' : `${profile.followers}`}>{formatNumber(profile.followers)}</td><td data-label="Avg views" className="p-3 text-right tabular-nums" title={views == null ? 'Unknown' : `${views}`}>{formatNumber(views)}{profile.view_observations === 1 ? <span title="One observed publication"> *</span> : null}</td><td data-label="Engagement" className="p-3 text-right tabular-nums" title={profile.engagement_rate == null ? 'Unknown' : `${profile.engagement_rate}%`}>{profile.engagement_rate == null ? '—' : `${formatNumber(profile.engagement_rate)}%`}</td><td data-label="Publications" className="p-3 tabular-nums" aria-label={`${profile.content_count} content observations`}>{formatNumber(profile.content_count)}</td><td data-label="Product" className="p-3">{products.length ? <div className="flex flex-wrap gap-1">{products.slice(0, 2).map((item) => <span key={`${item.sku}-${item.raw_offer_id}`} title={`${item.name} · ${item.raw_offer_id} · confirmed from explicit import`} className="px-2 py-1 text-xs font-bold" style={{ background: 'var(--brand-gold)', color: 'var(--brand-schwarz)', borderRadius: 'var(--radius-pill)' }}>{compactProductCode(item.raw_offer_id || item.raw_code || item.sku)}</span>)}</div> : <span className="text-xs" style={{ color: 'var(--fg-3)' }}>{profile.content.some((item) => item.product_status === 'queued') ? 'Queued' : 'Unknown'}</span>}</td><td data-label="Media" className="p-3">{latest && media ? <div className="inline-flex flex-col gap-1"><a href={latest.href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="min-h-11 px-1 inline-flex items-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`Open latest ${media.toLowerCase()} from @${profile.handle}`} title={latest.item.content_url ?? undefined}><span className="px-2 py-1 inline-flex items-center gap-1.5 text-xs font-bold" style={{ color: 'var(--brand-rot)', background: 'var(--paper-sunk)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>{media === 'Video' ? <Video className="h-4 w-4" /> : media === 'Image' ? <ImageIcon className="h-4 w-4" /> : media === 'Post' ? <FileText className="h-4 w-4" /> : <Link className="h-4 w-4" />}<span>{media}</span><ExternalLink className="h-3 w-3" /></span></a><LinkHealth item={latest.item} compact /></div> : <span style={{ color: 'var(--fg-3)' }}>N/A</span>}</td><td data-label="Next" className="p-3" title={creator.collaboration?.next_action || undefined}>{creator.collaboration?.next_action || '—'}</td></tr>;
             })}
           </tbody>
         </table>
       </section>
 
       {selected && <CreatorPanel key={selected.id} creator={selected} onClose={() => setSelectedId(null)} onSaved={load} />}
-      <p className="text-sm" style={{ color: 'var(--fg-3)' }}>* A single publication is shown as observed views, not as an average. Unknown values remain blank.</p>
+      <p title="A single publication is shown as observed views, not as an average. Unknown values remain blank." className="text-sm" style={{ color: 'var(--fg-3)' }}>* A single publication is shown as observed views, not as an average. Unknown values remain blank.</p>
     </div>
   );
 }
@@ -421,7 +423,7 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
         const href = contentHref(item.content_url);
         return <article key={item.id} className="p-4 space-y-3" style={{ background: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)' }}>
           <div className="flex items-start justify-between gap-3"><div><div className="font-bold capitalize">{item.platform}{item.content_type ? ` · ${item.content_type}` : ''}</div><div className="mt-1 text-xs" style={{ color: 'var(--fg-3)' }}>{item.published_at ? `Published ${item.published_at}` : `${item.source_sheet || 'Source'}${item.source_row == null ? '' : ` · row ${item.source_row}`}`}</div></div>{href ? <div className="shrink-0"><a href={href} target="_blank" rel="noopener noreferrer" className="min-h-11 px-1 inline-flex items-center font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`Open ${item.platform} content`}><span className="px-2 py-1 inline-flex items-center gap-1.5 text-xs" style={{ color: 'var(--fg-on-brand)', background: 'var(--brand-schwarz)', borderRadius: 'var(--radius-sm)' }}><ExternalLink className="h-3.5 w-3.5" />Open content</span></a></div> : <span className="min-h-11 px-3 shrink-0 inline-flex items-center gap-2 text-sm" style={{ color: 'var(--fg-3)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><Link2Off className="h-4 w-4" />No link recorded</span>}</div>
-          {href && <a href={href} target="_blank" rel="noopener noreferrer" className="min-h-11 flex items-center break-all text-sm underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" style={{ color: 'var(--brand-rot)' }}>{item.content_url}</a>}
+          {href && <a title={item.content_url || undefined} href={href} target="_blank" rel="noopener noreferrer" className="min-h-11 ugc-content-url block text-sm underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" style={{ color: 'var(--brand-rot)' }}>{item.content_url}</a>}
           <ProductEvidence item={item} />
           {href && <LinkHealth item={item} />}
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm" style={{ color: 'var(--fg-2)' }}><span>{formatNumber(item.views)} views</span><span>{formatNumber(item.comments)} comments</span><span>{item.product_codes.length ? item.product_codes.join(', ') : 'No products recorded'}</span></div>

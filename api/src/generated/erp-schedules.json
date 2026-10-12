@@ -127,7 +127,6 @@
     "5 4 * * *",
     "5 12 * * *"
   ],
-  "erp-wb-ryazan-watch": [],
   "erp-wb-sales": [
     "0 1 * * *"
   ],

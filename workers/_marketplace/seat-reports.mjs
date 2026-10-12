@@ -4,7 +4,6 @@
 // pick up the seat's off-schedule notes (env.DB = the board database).
 import { dayTurnover, ozonNoticeDetail, ozonNoticeLine, ozonNotices, turnoverLine, wbNews, wbNewsDetail, wbNewsLine, weekLine, weekRollup } from "./marketplace-watch.mjs";
 import { markHour, markWeek } from "./schedule-mark.mjs";
-import { runRyazanWatch } from "./wb-ryazan-watch.mjs";
 
 export async function runOzonDayTurnover(env) {
   const t = await dayTurnover(env, "ozon");
@@ -111,8 +110,4 @@ export async function runWbWeek(env) {
     line: line || w.error,
   }).catch((e) => ({ ok: false, error: String(e && e.message || e) }));
   return { ...w, line, mark };
-}
-export async function runRyazanCheck(env) {
-  const r = await runRyazanWatch(env);
-  return r;
 }

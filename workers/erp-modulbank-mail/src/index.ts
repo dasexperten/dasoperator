@@ -32,7 +32,7 @@ function isoDay(v: unknown): string | null {
 }
 
 export default erpWorker<Env>('erp-modulbank-mail', async (env, dry) => {
-  const found = await bridge(env, { action: 'find', query: QUERY, max_results: 40 });
+  const found = await bridge(env, { action: 'find', query: QUERY, max_results: 20, skip_attachments: true }, 150_000);
   const threads: any[] = found?.threads ?? [];
   let letters = 0, inserted = 0, known = 0, archived = 0, held = 0;
   const problems: string[] = [];
@@ -43,7 +43,7 @@ export default erpWorker<Env>('erp-modulbank-mail', async (env, dry) => {
     if (!threadId) continue;
     let thr: any;
     try {
-      thr = await bridge(env, { action: 'get_thread', thread_id: threadId });
+      thr = await bridge(env, { action: 'get_thread', thread_id: threadId, skip_attachments: true });
     } catch (e) {
       problems.push(`${threadId}: ${e instanceof Error ? e.message : String(e)}`);
       held++;

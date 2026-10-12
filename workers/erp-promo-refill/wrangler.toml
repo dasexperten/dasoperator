@@ -17,4 +17,5 @@ binding = "ERP"
 service = "dasoperator-api"
 
 [triggers]
-crons = ["*/15 * * * *"]
+# Owner 2026-10-12: Ozon-facing — every 3 hours at most (was every 15 minutes).
+crons = ["15 */3 * * *"]

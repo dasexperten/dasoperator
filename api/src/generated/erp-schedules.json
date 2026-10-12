@@ -69,12 +69,8 @@
   "erp-ozon-stocks": [
     "30 20 * * *"
   ],
-  "erp-ozon-turnover": [
-    "4 20 * * *"
-  ],
-  "erp-ozon-week": [
-    "6 20 * * 1"
-  ],
+  "erp-ozon-turnover": [],
+  "erp-ozon-week": [],
   "erp-partner-status": [
     "0 12 * * *"
   ],
@@ -128,15 +124,12 @@
     "5 12 * * *"
   ],
   "erp-wb-sales": [
-    "0 1 * * *"
+    "0 1 * * *",
+    "0 3 * * *"
   ],
   "erp-wb-stocks": [],
-  "erp-wb-turnover": [
-    "5 20 * * *"
-  ],
-  "erp-wb-week": [
-    "7 20 * * 1"
-  ],
+  "erp-wb-turnover": [],
+  "erp-wb-week": [],
   "erp-wb-weekly-report": [
     "0 4 * * 4"
   ],

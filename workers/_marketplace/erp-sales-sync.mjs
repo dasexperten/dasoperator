@@ -645,6 +645,18 @@ async function fetchWbPrices(env, token) {
 /**
  * Arina — WB sales → ERP (7d window default).
  */
+
+// Owner 2026-10-12: erp-wb-sales must finish. A side read (funnel, prices, ads) that
+// hangs used to hold the whole run until Cloudflare cut it off and no sales were saved.
+// Each side read now has its own ceiling; on timeout the run keeps the sales.
+function withCap(promise, ms, label) {
+  let t;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { t = setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)), ms); }),
+  ]).finally(() => clearTimeout(t));
+}
+
 export async function syncWbSalesToErp(env, periodDays = 7) {
   const days = Math.min(Math.max(Number(periodDays) || 7, 1), 90);
   const out = {
@@ -693,13 +705,13 @@ export async function syncWbSalesToErp(env, periodDays = 7) {
 
     let funnelMap = new Map();
     try {
-      funnelMap = await fetchWbNmReport(env, token, dateFromStr, dateToStr);
+      funnelMap = await withCap(fetchWbNmReport(env, token, dateFromStr, dateToStr), 90_000, "funnel");
     } catch (e) {
       out.source_warnings.push(`funnel: ${String(e?.message || e)}`);
     }
     let priceMap = new Map();
     try {
-      priceMap = await fetchWbPrices(env, token);
+      priceMap = await withCap(fetchWbPrices(env, token), 45_000, "prices");
     } catch (e) {
       out.source_warnings.push(`prices: ${String(e?.message || e)}`);
     }
@@ -708,7 +720,7 @@ export async function syncWbSalesToErp(env, periodDays = 7) {
     // A failed ad read is stored as unknown (NULL), never as zero spend, and named in the run note.
     let advertising = null;
     try {
-      advertising = await fetchWbAdvertSpend(env, dateFromStr, dateToStr);
+      advertising = await withCap(fetchWbAdvertSpend(env, dateFromStr, dateToStr), 240_000, "advertising");
     } catch (e) {
       out.advertising_error = String(e?.message || e);
       out.source_warnings.push(`advertising: ${out.advertising_error} — sales saved, ad spend stored as unknown`);

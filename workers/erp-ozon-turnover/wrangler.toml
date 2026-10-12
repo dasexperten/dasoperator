@@ -32,4 +32,6 @@ service = "organizacia"
 OZON_CLIENT_ID = "374116"
 
 [triggers]
-crons = ["4 20 * * *"]
+# Owner 2026-10-12: retired — copied an ERP total onto the board; ERP already holds it.
+# Revive: restore schedule "4 20 * * *"
+crons = []

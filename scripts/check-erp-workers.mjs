@@ -25,6 +25,7 @@ const KEY_LITERAL = [
 
 // Owner-approved exceptions to "timer, no model" — each with the Owner's word.
 const RETIRED = {
+  'erp-loyalty-keys': 'Owner 2026-10-12: loyalty programme idle since 12 August; nothing to link',
   'erp-ozon-turnover': 'Owner 2026-10-12: board copy of an ERP total; the ERP already shows it',
   'erp-ozon-week': 'Owner 2026-10-12: board copy of an ERP total; the ERP already shows it',
   'erp-wb-turnover': 'Owner 2026-10-12: board copy of an ERP total; the ERP already shows it',

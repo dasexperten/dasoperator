@@ -18,4 +18,5 @@ service = "dasoperator-api"
 
 [triggers]
 # Owner 2026-10-12: never more often than hourly unless he names it.
-crons = ["34 */3 * * *"]
+# Owner 2026-10-12: retired — no new loyalty accounts since 12 August. Revive: restore schedule "34 */3 * * *"
+crons = []

@@ -27,6 +27,17 @@ function formatAmount(minor: number, currency: string): string {
   });
 }
 
+// Display names for payers the bank reports under an acquirer's legal name.
+// The stored contragent_name stays unchanged: the API matches Stripe payouts by it.
+const COUNTERPARTY_DISPLAY: Record<string, string> = {
+  'NETWORK INTERNATIONAL LLC': 'dasexperten.com',
+};
+
+function counterpartyLabel(name: string | null | undefined): string | null {
+  if (!name) return null;
+  return COUNTERPARTY_DISPLAY[name.trim().toUpperCase()] ?? name;
+}
+
 // Group bank accounts by company; default account first, then by currency.
 function groupAccountsByCompany(accounts: BankAccount[]): [string, BankAccount[]][] {
   const groups = new Map<string, BankAccount[]>();
@@ -727,7 +738,7 @@ export default function FinanceTransactionsPage() {
       if (search) {
         const q = search.toLowerCase();
         const haystack = [
-          tx.contragent_name, tx.contragent_inn, tx.payment_purpose,
+          tx.contragent_name, counterpartyLabel(tx.contragent_name), tx.contragent_inn, tx.payment_purpose,
           tx.external_doc_number, tx.account_number,
         ].filter(Boolean).join(' ').toLowerCase();
         if (!haystack.includes(q)) return false;
@@ -1011,7 +1022,7 @@ export default function FinanceTransactionsPage() {
                       {tx.direction === 'incoming' ? '+' : '−'}{formatAmount(tx.amount, tx.currency)}{'\u00a0'}{tx.currency}
                     </td>
                     <td style={{ padding: '12px 16px', color: 'var(--fg-1)' }}>
-                      <div className="finance-counterparty" title={tx.contragent_name ?? undefined} style={{ fontWeight: 700 }}>{tx.contragent_name ?? '—'}</div>
+                      <div className="finance-counterparty" title={tx.contragent_name ?? undefined} style={{ fontWeight: 700 }}>{counterpartyLabel(tx.contragent_name) ?? '—'}</div>
                       {tx.contragent_inn && (
                         <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '2px' }}>
                           INN {tx.contragent_inn}

@@ -594,7 +594,7 @@ export default function CrmPage() {
   const isLoading = statsLoading || metrikaLoading || timelineLoading || ordersLoading || customersLoading;
 
   return (
-    <div className="space-y-4 max-w-full crm-mock">
+    <div className="erp-compact-page space-y-4 max-w-full crm-mock">
       {/* Owner order 2026-07-21: mockup typography — Plus Jakarta Sans body, Fraunces numerals.
           Brighter pass (same day): denser layout, solid CTAs, larger key numbers, raised cards. */}
       <style>{`
@@ -604,9 +604,9 @@ export default function CrmPage() {
         .crm-mock tbody tr:hover{background:#F3F0E8;}
       `}</style>
       {/* Header */}
-      <div className="flex items-end justify-between gap-4">
+      <div className="erp-page-heading dx-keep-flex flex items-end justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3">
+          <div className="erp-crm-title dx-keep-flex flex items-center gap-3">
             <Headphones className="h-7 w-7" style={{ color: 'var(--brand-rot)' }} />
             <h1 style={{
               fontFamily: "'Fraunces', serif",
@@ -634,7 +634,7 @@ export default function CrmPage() {
           <button
             onClick={refreshAll}
             disabled={isLoading}
-            className="flex items-center gap-2 px-4 py-2"
+            className="dx-keep-flex flex items-center gap-2 px-4 py-2"
             style={{
               fontFamily: 'var(--font-display)',
               fontSize: 14,
@@ -653,8 +653,9 @@ export default function CrmPage() {
         )}
       </div>
 
+      <select className="erp-mobile-selector" aria-label="CRM source" value={crmSource} onChange={(e) => switchSource(e.target.value as CrmSource)}><option value="ru">dasexperten.ru</option><option value="com">dasexperten.com</option><option value="pricing">Geo Price Matrix</option></select>
       {/* Storefront source switcher: .ru (Yandex KIT) ↔ .com (Stripe) */}
-      <div className="flex items-center gap-2 flex-wrap dx-keep-flex">
+      <div className="erp-desktop-tabs erp-crm-sources flex items-center gap-2 flex-wrap dx-keep-flex">
         <SourcePill
           active={crmSource === 'ru'}
           onClick={() => switchSource('ru')}
@@ -691,6 +692,7 @@ export default function CrmPage() {
         <ErrorBox title="Website CRM stats unavailable" message={comStatsError} />
       )}
 
+      <div className="erp-desktop-only space-y-4">
       {/* KPI tiles — .com source (USD, cents from /api/crm/website/stats) */}
       {crmSource === 'com' && comStats && <ComMetricBand stats={comStats} />}
       {crmSource === 'com' && comStatsLoading && !comStats && (
@@ -727,6 +729,7 @@ export default function CrmPage() {
         />
       )}
 
+      </div>
       {/* Tabs — filled chips (brighter: fill, not underline) */}
       {crmSource !== 'pricing' && (
       <div className="flex items-center gap-2 flex-wrap dx-keep-flex">

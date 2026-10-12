@@ -17,7 +17,7 @@ export function ProductsPartnersTabs() {
 
   return (
     <div
-      className="flex gap-1 mb-6"
+      className="erp-products-tabs flex gap-1 mb-6"
       style={{
         borderBottom: '1px solid var(--border-hairline)',
         paddingBottom: '1px',
@@ -25,7 +25,7 @@ export function ProductsPartnersTabs() {
     >
       <button
         onClick={() => router.push('/products')}
-        className="flex items-center gap-2 px-4 py-2 text-sm transition-colors"
+        className="dx-keep-flex flex items-center gap-2 px-4 py-2 text-sm transition-colors"
         style={{
           backgroundColor: activeTab === 'products' ? 'var(--bg-accent)' : 'transparent',
           color: activeTab === 'products' ? 'var(--fg-on-brand)' : 'var(--fg-2)',
@@ -39,7 +39,7 @@ export function ProductsPartnersTabs() {
       </button>
       <button
         onClick={() => router.push('/partners')}
-        className="flex items-center gap-2 px-4 py-2 text-sm transition-colors"
+        className="dx-keep-flex flex items-center gap-2 px-4 py-2 text-sm transition-colors"
         style={{
           backgroundColor: activeTab === 'partners' ? 'var(--bg-accent)' : 'transparent',
           color: activeTab === 'partners' ? 'var(--fg-on-brand)' : 'var(--fg-2)',

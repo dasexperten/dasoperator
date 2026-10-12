@@ -203,9 +203,9 @@ export default function KnowledgePage() {
     stats?.synced_newest && stats?.synced_oldest ? stats.synced_newest - stats.synced_oldest : 0;
 
   return (
-    <div className="dx-prose" style={{ maxWidth: 'none' }}>
+    <div className="erp-compact-page dx-prose" style={{ maxWidth: 'none' }}>
       {/* ---------------------------------------------------------------- */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div className="erp-page-heading dx-keep-flex flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="dx-h1 flex items-center gap-3" style={{ marginBottom: 4 }}>
             <Network className="h-8 w-8" style={{ color: 'var(--brand-rot)' }} />
@@ -231,24 +231,24 @@ export default function KnowledgePage() {
             }}
           >
             <RefreshCw className="h-4 w-4" />
-            {syncing ? 'Syncing…' : 'Sync from GitHub'}
+            <span className="erp-desktop-only">{syncing ? 'Syncing…' : 'Sync from GitHub'}</span><span className="erp-mobile-only">{syncing ? 'Syncing…' : 'Sync'}</span>
           </button>
         )}
       </div>
 
       {/* Freshness. Two dates, because one hides a half-stale cache. */}
       <div
-        className="flex items-center gap-4 flex-wrap"
+        className="erp-knowledge-stats flex items-center gap-4 flex-wrap"
         style={{
           marginTop: 16, padding: '10px 14px', background: 'var(--bg-sunk)',
           borderRadius: 'var(--radius-sm)', fontSize: 14, color: 'var(--fg-2)',
         }}
       >
-        <span><strong>{kindCount('record')}</strong> entries</span>
-        <span><strong>{kindCount('seat')}</strong> seats</span>
-        <span><strong>{kindCount('law')}</strong> law sections</span>
-        <span><strong>{kindCount('topic')}</strong> topics</span>
-        <span><strong>{stats?.edges ?? 0}</strong> links</span>
+        <span className="erp-desktop-only"><strong>{kindCount('record')}</strong> entries</span>
+        <span className="erp-desktop-only"><strong>{kindCount('seat')}</strong> seats</span>
+        <span className="erp-desktop-only"><strong>{kindCount('law')}</strong> law sections</span>
+        <span className="erp-desktop-only"><strong>{kindCount('topic')}</strong> topics</span>
+        <span className="erp-desktop-only"><strong>{stats?.edges ?? 0}</strong> links</span>
         <span style={{ color: 'var(--fg-3)' }}>
           built {yerevan(stats?.synced_newest ?? null)}
           {staleSpread > 86400 && (

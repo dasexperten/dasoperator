@@ -1,5 +1,7 @@
 'use client';
 
+import MobilePageActions from '@/components/ui/page-actions';
+
 export const runtime = 'edge';
 
 
@@ -291,9 +293,9 @@ export default function PartnersPage() {
   ];
 
   return (
-    <div className="space-y-6 max-w-7xl">
+    <div className="erp-compact-page space-y-6 max-w-7xl">
       <ProductsPartnersTabs />
-      <div className="flex items-start justify-between gap-4">
+      <div className="erp-page-heading dx-keep-flex flex items-start justify-between gap-4">
         <div>
           <div className="dx-eyebrow-rot mb-2">Master Data</div>
           <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--fs-display-md)', fontWeight: 900, color: 'var(--fg-1)' }}>
@@ -303,7 +305,7 @@ export default function PartnersPage() {
             {loading ? 'Loading...' : `${partners.length} partners · ${activeCount} active${pendingCount > 0 ? ` · ${pendingCount} pending` : ''}`}
           </p>
         </div>
-        <div className="flex gap-2 mt-2">
+        <MobilePageActions>
           <button
             onClick={async () => {
               try {
@@ -350,7 +352,7 @@ export default function PartnersPage() {
           >
             <Plus className="h-4 w-4" /> Add new partner
           </Link>
-        </div>
+        </MobilePageActions>
       </div>
 
       <div className="dx-ribbon-rule" />

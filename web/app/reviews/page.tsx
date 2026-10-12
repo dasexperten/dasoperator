@@ -112,25 +112,26 @@ export default function ReviewsPage() {
   }, [items, search, tab.kind]);
 
   return (
-    <div style={{ maxWidth: 1040, margin: '0 auto', padding: '28px 16px 72px' }}>
+    <div className="erp-compact-page erp-reviews" style={{ maxWidth: 1040, margin: '0 auto', padding: '28px 16px 72px' }}>
       <style>{`@keyframes dxspin{to{transform:rotate(360deg)}}`}</style>
 
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
+      <div className="erp-page-heading" style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
           <span style={{ width: 44, height: 6, background: 'var(--brand-rot)', borderRadius: 3 }} />
           <span style={{ width: 22, height: 6, background: 'var(--brand-gold)', borderRadius: 3 }} />
         </div>
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 42, fontWeight: 900, lineHeight: 1.05, color: 'var(--fg-1)', margin: 0, letterSpacing: '0' }}>
-          Reviews, questions &amp; chats
+          <span className="erp-desktop-only">Reviews, questions &amp; chats</span><span className="erp-mobile-only">Reviews</span>
         </h1>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 16, fontWeight: 600, color: 'var(--fg-2)', marginTop: 8 }}>
           Customer feedback across marketplaces
         </p>
       </div>
 
+      <select className="erp-mobile-selector" aria-label="Review channel and type" value={active} onChange={(e) => { setActive(e.target.value); setSearch(''); setRating(null); }}>{TABS.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}</select>
       {/* Tabs — bold filled pills */}
-      <div className="dx-review-tabs" style={{ display: 'flex', gap: 10, marginBottom: 22, flexWrap: 'wrap' }}>
+      <div className="erp-desktop-tabs dx-review-tabs" style={{ display: 'flex', gap: 10, marginBottom: 22, flexWrap: 'wrap' }}>
         {TABS.map(t => {
           const on = t.key === active;
           const col = CHANNEL_COLOR[t.channel];

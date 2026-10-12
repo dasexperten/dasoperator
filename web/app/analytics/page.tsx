@@ -73,18 +73,19 @@ export default function AnalyticsPage() {
   }, [activate]);
 
   return (
-    <div className="space-y-6 max-w-7xl">
+    <div className="erp-compact-page space-y-6 max-w-7xl">
       {/* ============================ HEADER ============================ */}
-      <div>
-        <div className="dx-eyebrow mb-2">Web Analytics Command Center</div>
+      <div className="erp-analytics-heading">
+        <div className="dx-eyebrow mb-2"><span className="erp-desktop-only">Web Analytics Command Center</span><span className="erp-mobile-only">Analytics</span></div>
         <p style={{ color: 'var(--fg-2)', marginTop: 4, maxWidth: 720 }}>
           Discover how visitors engage with your site&apos;s pages.
         </p>
         <div className="dx-ribbon-rule mt-4" style={{ maxWidth: 240 }}><i /><i /><i /></div>
       </div>
 
+      <select className="erp-mobile-selector" aria-label="Analytics section" value={active} onChange={(e) => activate(e.target.value as typeof active)}>{TABS.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}</select>
       {/* ============================ TABS ============================ */}
-      <div className="wa-tabs" role="tablist" aria-label="Analytics sections">
+      <div className="erp-desktop-tabs wa-tabs" role="tablist" aria-label="Analytics sections">
         {TABS.map((t, i) => (
           <button
             key={t.id}
@@ -131,7 +132,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* ============================ FOOTER ============================ */}
-      <div style={{ paddingTop: 16, borderTop: '1px solid var(--border-hairline)' }}>
+      <div className="erp-page-help" style={{ paddingTop: 16, borderTop: '1px solid var(--border-hairline)' }}>
         <p style={{ color: 'var(--fg-3)' }}>
           Sources: GA4 property 511756146 · Clarity Data Export (10 calls/day cap — served from
           nightly cache) · Metrika counter 107720199 · D1 web_analytics_daily /

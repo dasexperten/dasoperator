@@ -1,5 +1,7 @@
 'use client';
 
+import MobilePageActions from '@/components/ui/page-actions';
+
 export const runtime = 'edge';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -739,8 +741,8 @@ export default function FinanceTransactionsPage() {
   }, [filtered]);
 
   return (
-    <div className="px-8 py-6 max-w-screen-2xl">
-      <div className="mb-6 flex items-end justify-between gap-4 flex-wrap">
+    <div className="erp-compact-page px-8 py-6 max-w-screen-2xl">
+      <div className="erp-page-heading dx-keep-flex mb-6 flex items-end justify-between gap-4 flex-wrap">
         <div>
           <h1 style={{
             fontFamily: 'Plus Jakarta Sans, sans-serif',
@@ -758,7 +760,7 @@ export default function FinanceTransactionsPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <MobilePageActions>
           <button
             onClick={() => setSourcesListOpen(true)}
             className="inline-flex items-center gap-2 px-4 py-2"
@@ -806,7 +808,7 @@ export default function FinanceTransactionsPage() {
             <Upload className="h-4 w-4" />
             Upload Bank Statement
           </button>
-        </div>
+        </MobilePageActions>
       </div>
 
       {/* Our bank accounts — one section per company, one even grid per section */}

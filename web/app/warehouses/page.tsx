@@ -1,5 +1,7 @@
 'use client';
 
+import MobilePageActions from '@/components/ui/page-actions';
+
 export const runtime = 'edge';
 
 
@@ -340,8 +342,8 @@ export default function WarehousesPage() {
     SPECIAL_COLS.filter((c) => showCol(c.key)).length;
 
   return (
-    <div className="space-y-8 max-w-full">
-      <div className="flex items-start justify-between gap-4 dx-header-wrap">
+    <div className="erp-compact-page space-y-8 max-w-full">
+      <div className="erp-page-heading dx-keep-flex flex items-start justify-between gap-4 dx-header-wrap">
         <div>
           <div className="dx-eyebrow-rot mb-2">Inventory</div>
           <h1
@@ -363,10 +365,10 @@ export default function WarehousesPage() {
             </p>
           )}
         </div>
-        <div className="shrink-0 flex items-center gap-2 dx-page-actions">
+        <MobilePageActions>
           <Link
             href="/operations/bundling/new"
-            className="flex items-center gap-2"
+            className="dx-keep-flex flex items-center gap-2"
             style={{
               padding: '9px 16px',
               borderRadius: 'var(--radius-sm)',
@@ -384,7 +386,7 @@ export default function WarehousesPage() {
           </Link>
           <button
             onClick={() => setShowTransfer(true)}
-            className="flex items-center gap-2"
+            className="dx-keep-flex flex items-center gap-2"
             style={{
               padding: '9px 16px',
               borderRadius: 'var(--radius-sm)',
@@ -399,7 +401,7 @@ export default function WarehousesPage() {
             <ArrowLeftRight className="h-4 w-4" />
             Stock transfer
           </button>
-        </div>
+        </MobilePageActions>
       </div>
 
       <div className="dx-ribbon-rule" />

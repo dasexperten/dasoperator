@@ -1,5 +1,7 @@
 'use client';
 
+import MobilePageActions from '@/components/ui/page-actions';
+
 export const runtime = 'edge';
 
 
@@ -1168,8 +1170,8 @@ export default function OperationsPage() {
   }
 
   return (
-    <div className="space-y-8 max-w-7xl">
-      <div className="flex items-start justify-between dx-header-wrap">
+    <div className="erp-compact-page space-y-8 max-w-7xl">
+      <div className="erp-page-heading dx-keep-flex flex items-start justify-between dx-header-wrap">
         <div>
           <div className="dx-eyebrow-rot dx-hide-mobile" style={{ marginBottom: '8px' }}>
             Operations
@@ -1181,7 +1183,7 @@ export default function OperationsPage() {
             {loading ? 'Loading...' : `${operations.length} across all partners · ${filtered.length} shown · ${threads.length} ${threads.length === 1 ? 'counterparty' : 'counterparties'}`}
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap dx-page-actions">
+        <MobilePageActions>
           <button
             onClick={() => setSourcesListOpen(true)}
             className="inline-flex items-center gap-2 px-3 py-2"
@@ -1244,7 +1246,7 @@ export default function OperationsPage() {
             <Plus className="h-4 w-4" />
             Add new
           </Link>
-        </div>
+        </MobilePageActions>
       </div>
 
       <div className="dx-ribbon-rule" />

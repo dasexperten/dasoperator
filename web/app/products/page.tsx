@@ -1,5 +1,7 @@
 'use client';
 
+import MobilePageActions from '@/components/ui/page-actions';
+
 export const runtime = 'edge';
 
 // build-bust: 1778137654
@@ -257,9 +259,9 @@ export default function ProductsPage() {
   }
 
   return (
-    <div className="space-y-8 max-w-7xl">
+    <div className="erp-compact-page space-y-8 max-w-7xl">
       <ProductsPartnersTabs />
-      <div className="flex items-start justify-between gap-6">
+      <div className="erp-page-heading dx-keep-flex flex items-start justify-between gap-6">
         <div>
           <div className="dx-eyebrow-rot mb-2">Master Data</div>
           <h1 style={{
@@ -277,7 +279,7 @@ export default function ProductsPage() {
               : `${rows.length} products · ${pasteCount} toothpastes · ${brushCount} brushes${otherCount > 0 ? ` · ${otherCount} other` : ''}`}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <MobilePageActions>
         {isAdmin && (
           <button
             type="button"
@@ -313,7 +315,7 @@ export default function ProductsPage() {
           <Plus className="h-4 w-4" />
           Add product
         </Link>
-        </div>
+        </MobilePageActions>
       </div>
 
       {resyncMsg && (

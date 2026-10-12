@@ -45,7 +45,7 @@ export default function SnapshotTab() {
 
   return (
     <div className="space-y-4">
-      <div className="wa-note">
+      <div className="erp-page-help wa-note">
         Snapshot — the same six cards as the GA4 UI's Reports snapshot, rebuilt here so the
         numbers live next to the rest of the ERP. Source: GA4 property 511756146.
       </div>

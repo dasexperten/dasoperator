@@ -41,8 +41,8 @@ const SECTIONS = [
 
 export default function SettingsPage() {
   return (
-    <div className="px-8 py-6 max-w-screen-2xl">
-      <div className="flex items-center gap-3 mb-6">
+    <div className="erp-compact-page px-8 py-6 max-w-screen-2xl">
+      <div className="erp-page-heading dx-keep-flex flex items-center gap-3 mb-6">
         <SettingsIcon className="h-7 w-7" style={{ color: 'var(--fg-1)' }} />
         <h1 style={{
           fontFamily: 'Plus Jakarta Sans, sans-serif', fontSize: '28px',
@@ -52,7 +52,7 @@ export default function SettingsPage() {
         </h1>
       </div>
 
-      <p style={{ fontSize: '14px', color: 'var(--fg-2)', marginBottom: '24px', maxWidth: '720px' }}>
+      <p className="erp-page-help" style={{ fontSize: '14px', color: 'var(--fg-2)', marginBottom: '24px', maxWidth: '720px' }}>
         Operator-level configuration. Categories and rules feed the transaction classifier and Inbox — edit them as your business evolves.
       </p>
 
@@ -67,7 +67,7 @@ export default function SettingsPage() {
               backgroundColor: 'var(--paper)', textDecoration: 'none',
               transition: 'all 0.15s',
             }}
-            className="hover:shadow-sm"
+            className="erp-settings-link hover:shadow-sm"
           >
             <div className="flex items-start gap-3">
               <div style={{
@@ -88,7 +88,7 @@ export default function SettingsPage() {
                   </h2>
                   <ArrowRight className="h-4 w-4" style={{ color: 'var(--fg-3)' }} />
                 </div>
-                <p style={{ fontSize: '14px', color: 'var(--fg-2)' }}>{s.description}</p>
+                <p className="erp-page-help" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>{s.description}</p>
               </div>
             </div>
           </Link>

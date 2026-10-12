@@ -174,8 +174,8 @@ export default function MarketplacesPage() {
   const openChannel = (key: ChannelKey) => setTab(key);
 
   return (
-    <div className="space-y-6 max-w-full">
-      <div>
+    <div className="erp-compact-page space-y-6 max-w-full">
+      <div className="erp-page-heading">
         <h1
           style={{
             fontFamily: 'var(--font-display)',
@@ -191,8 +191,9 @@ export default function MarketplacesPage() {
         </p>
       </div>
 
+      <select className="erp-mobile-selector" aria-label="Marketplace section" value={tab} onChange={(e) => setTab(e.target.value as Tab)}>{tabs.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}</select>
       {/* Tabs */}
-      <div className="flex gap-1 overflow-x-auto" style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+      <div className="erp-desktop-tabs flex gap-1 overflow-x-auto" style={{ borderBottom: '1px solid var(--border-hairline)' }}>
         {tabs.map(t => (
           <TabButton
             key={t.key}

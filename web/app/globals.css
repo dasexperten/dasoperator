@@ -1242,3 +1242,43 @@ input[type="number"] {
   word-break: keep-all;
   min-width: 0;
 }
+
+/* Compact mobile page chrome: titles and working content take priority. */
+.erp-mobile-selector, .erp-mobile-only, .erp-page-actions-toggle { display: none; }
+.erp-page-actions { position: relative; flex-shrink: 0; }
+.erp-page-actions-content { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 767px) {
+  main .erp-compact-page > * + * { margin-top: 8px !important; }
+  main .erp-compact-page > .dx-ribbon-rule,
+  main .erp-compact-page .erp-page-help,
+  main .erp-compact-page .erp-desktop-only,
+  main .erp-compact-page .erp-desktop-tabs { display: none !important; }
+  main .erp-compact-page .erp-page-heading { display: flex !important; align-items: center !important; justify-content: space-between; flex-wrap: nowrap !important; gap: 8px !important; margin-bottom: 8px !important; min-width: 0; }
+  main .erp-compact-page .erp-page-heading p,
+  main .erp-compact-page .erp-page-heading .dx-eyebrow-rot { display: none !important; }
+  main .erp-compact-page .erp-page-heading h1 { font-size: 22px !important; line-height: 1.2 !important; margin: 0 !important; min-width: 0; }
+  main .erp-compact-page .erp-page-heading > div:first-child { min-width: 0; }
+  main .erp-compact-page .erp-page-heading :is(h1, button, a),
+  main .erp-compact-page .erp-crm-title { display: flex !important; align-items: center !important; flex-wrap: nowrap !important; gap: 8px !important; }
+  main .erp-compact-page .erp-page-heading svg { flex-shrink: 0; width: 18px; height: 18px; }
+  main .erp-compact-page .erp-mobile-only { display: inline; }
+  main .erp-compact-page .erp-mobile-selector { display: block; width: 100%; min-width: 0; height: 44px; padding: 0 12px; font-size: 16px; color: var(--fg-1); background: var(--paper); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); }
+  main .erp-compact-page .erp-products-tabs { display: flex !important; flex-wrap: nowrap !important; margin-bottom: 8px !important; gap: 4px; }
+  main .erp-compact-page .erp-products-tabs button { display: flex !important; align-items: center !important; justify-content: center !important; flex-wrap: nowrap !important; gap: 6px !important; min-height: 44px; padding: 6px 12px !important; }
+  main .erp-compact-page .erp-page-actions-toggle { display: flex !important; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--paper); color: var(--fg-1); font-size: 14px; font-weight: 700; }
+  main .erp-compact-page .erp-page-actions-content { display: none !important; }
+  main .erp-compact-page .erp-page-actions[data-expanded="true"] .erp-page-actions-content { display: flex !important; flex-direction: column; align-items: stretch; flex-wrap: nowrap; position: absolute; top: calc(100% + 4px); right: 0; z-index: 40; width: 240px; max-width: calc(100vw - 32px); padding: 8px; background: var(--paper); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); box-shadow: var(--shadow-raised); }
+  main .erp-compact-page .erp-page-actions-content > :is(button, a) { display: flex !important; align-items: center !important; justify-content: flex-start !important; flex-wrap: nowrap !important; gap: 8px !important; min-height: 44px; white-space: nowrap; }
+  main .erp-reviews { padding: 12px 0 72px !important; }
+  main .erp-reviews .erp-page-heading { display: block !important; }
+  main .erp-reviews .erp-page-heading > div { display: none; }
+  main .erp-compact-page .erp-analytics-heading :is(p, .dx-ribbon-rule) { display: none; }
+  main .erp-compact-page .erp-analytics-heading .dx-eyebrow { font-size: 22px; font-weight: 900; margin: 0; }
+  main .erp-compact-page .erp-knowledge-stats { display: flex !important; flex-wrap: wrap; gap: 6px !important; padding: 4px 0 !important; font-size: 12px !important; }
+  main .erp-compact-page .erp-settings-link { padding: 12px !important; }
+  main .erp-compact-page .erp-settings-link > div { align-items: center; }
+}
+@media (max-width: 767px) {
+  main .erp-compact-page:is(.px-8, .p-6) { padding: 12px !important; }
+  main .erp-compact-page .erp-empty-help { padding: 12px !important; }
+}

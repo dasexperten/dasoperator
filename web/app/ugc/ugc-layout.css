@@ -71,3 +71,6 @@
   .ugc-page .ugc-controls > #ugc-filters { margin-top: 6px !important; }
   .ugc-page > .ugc-table-shell { margin-top: 8px !important; }
 }
+@media (max-width: 700px) {
+  .ugc-page .erp-page-help { display: none !important; }
+}

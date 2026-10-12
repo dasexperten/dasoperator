@@ -1034,9 +1034,9 @@ export default function PlannerPage() {
   const hasManualEntries = Object.keys(manualOverrides).length > 0;
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="erp-compact-page erp-planner p-6 space-y-5">
       {/* HEADER */}
-      <div>
+      <div className="erp-page-heading">
         <h1 style={{ fontSize: '22px', fontWeight: 500 }}>Procurement Planner</h1>
         <p className="text-stone-500" style={{ fontSize: '14px', marginTop: '4px' }}>
           Sorted by urgency · one manufacturer per cycle · window {summary?.rules.window_days}d · coverage {summary?.rules.coverage_days}d · lead {summary?.rules.lead_time_days}d
@@ -1242,7 +1242,7 @@ export default function PlannerPage() {
         </>
       ) : (
         <div className="text-stone-500 text-center py-12 border border-dashed border-stone-200 rounded" style={{ fontSize: '14px' }}>
-          Click a manufacturer above to see its plan.
+          Select a manufacturer.
         </div>
       )}
     </div>
@@ -1505,7 +1505,7 @@ function SkuTable({
 
   if (rows.length === 0) {
     return (
-      <div className="text-stone-500 text-center py-8 border border-dashed border-stone-200 rounded" style={{ fontSize: '14px' }}>
+      <div className="erp-empty-help text-stone-500 text-center py-8 border border-dashed border-stone-200 rounded" style={{ fontSize: '14px' }}>
         No SKUs in this manufacturer group.
       </div>
     );

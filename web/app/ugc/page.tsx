@@ -402,7 +402,7 @@ export default function UgcPage() {
       </section>
 
       {selected && <div ref={(node) => { if (node) node.scrollIntoView({ block: 'start', behavior: 'smooth' }); }}><CreatorPanel key={selected.id} creator={selected} onClose={() => setSelectedId(null)} onSaved={load} /></div>}
-      <p title="A single publication is shown as observed views, not as an average. Unknown values remain blank." className="text-sm" style={{ color: 'var(--fg-3)' }}>* A single publication is shown as observed views, not as an average. Unknown values remain blank.</p>
+      <p title="A single publication is shown as observed views, not as an average. Unknown values remain blank." className="erp-page-help text-sm" style={{ color: 'var(--fg-3)' }}>* A single publication is shown as observed views, not as an average. Unknown values remain blank.</p>
     </div>
   );
 }

@@ -92,7 +92,8 @@ export type MatchOutcome =
   | 'bank_self_reference_skipped'
   | 'awaiting_marketplace_settlement'
   | 'awaiting_invoice'
-  | 'auto_invno_pair';
+  | 'auto_invno_pair'
+  | 'insurance_compensation';
 
 export interface AutoMatchResult {
   outcome: MatchOutcome;
@@ -168,6 +169,11 @@ export function parseInvoiceFromPurpose(purpose: string): {
 
 // ---- main entry -----------------------------------------------------------
 
+// Insurers whose incoming payments are compensation for lost stock (Owner 2026-10-12).
+const INSURANCE_INNS = new Map<string, string>([
+  ['7705042179', 'Ingosstrakh payout for goods burnt at Ozon warehouses (Owner 2026-10-12)'],
+]);
+
 export async function autoMatchBankTransaction(
   env: Env,
   txId: string,
@@ -192,6 +198,20 @@ export async function autoMatchBankTransaction(
 
   if (!tx) {
     return { outcome: 'no_candidate', operation_id: null, attachment_ids: [], reason: 'tx not found' };
+  }
+
+  // INSURANCE COMPENSATION (Owner 2026-10-12, Justina): Ingosstrakh (INN 7705042179)
+  // pays for Das Experten stock destroyed in fires at Ozon warehouses (events of
+  // 22.08.2026 Adygea and 24.08.2026 Samara). It is compensation for lost goods, never
+  // a marketplace sale payout: tag it and keep it out of partner lookup and the FIFO split.
+  if (tx.direction === 'incoming' && INSURANCE_INNS.has(String(tx.contragent_inn || ''))) {
+    await env.DB.prepare(
+      `UPDATE bank_transactions
+          SET match_method = 'insurance_compensation', suggested_category_id = 'fc_insurance_compensation',
+              suggested_reason = ?, matched_at = ?, matched_by = 'auto', updated_at = ?
+        WHERE id = ? AND matched_operation_id IS NULL`,
+    ).bind(INSURANCE_INNS.get(String(tx.contragent_inn)), Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000), txId).run();
+    return { outcome: 'insurance_compensation', operation_id: null, attachment_ids: [], reason: 'insurer payout for lost goods' };
   }
 
   // RAIL 2 (2026-05-27): bank tx amount is the source of truth for invoice

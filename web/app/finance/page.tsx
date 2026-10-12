@@ -48,6 +48,12 @@ function groupAccountsByCompany(accounts: BankAccount[]): [string, BankAccount[]
 function shortBankName(full: string): { name: string; branch: string | null } {
   const [head, ...rest] = full.split(/\s+[–—-]\s+/);
   const branch = rest.length ? rest.join(' – ') : null;
+  const knownName = [
+    [/VietinBank/i, 'VietinBank'], [/MODULBANK/i, 'Modulbank'],
+    [/\bVTB\b/i, 'VTB'], [/\bWio\b/i, 'Wio'], [/JPMorgan Chase/i, 'Chase'],
+  ] as const;
+  const bank = knownName.find(([pattern]) => pattern.test(head));
+  if (bank) return { name: bank[1], branch };
   // Only long legal names collapse to their bracketed short form; "VTB Bank (PJSC)" stays as is.
   const abbr = head.length > 40 ? head.match(/\(([^)]+)\)/) : null;
   return { name: abbr ? abbr[1] : head, branch };
@@ -741,7 +747,7 @@ export default function FinanceTransactionsPage() {
   }, [filtered]);
 
   return (
-    <div className="erp-compact-page px-8 py-6 max-w-screen-2xl">
+    <div className="erp-compact-page erp-finance px-8 py-6 max-w-screen-2xl">
       <div className="erp-page-heading dx-keep-flex mb-6 flex items-end justify-between gap-4 flex-wrap">
         <div>
           <h1 style={{
@@ -811,126 +817,35 @@ export default function FinanceTransactionsPage() {
         </MobilePageActions>
       </div>
 
-      {/* Our bank accounts — one section per company, one even grid per section */}
+      {/* One account per line: company, bank, currency. Requisites remain in the tooltip and account filter. */}
       {!loading && accounts.length > 0 && (
-        <div className="mb-8">
-          <div style={{
-            fontSize: '13px', fontWeight: 800, color: 'var(--fg-1)',
-            textTransform: 'uppercase', letterSpacing: '0', marginBottom: '16px',
-          }}>
-            Our bank accounts
-          </div>
-          {groupAccountsByCompany(accounts).map(([company, list]) => (
-            <section key={company} style={{ marginBottom: '20px' }}>
-              <div className="flex items-baseline gap-2" style={{
-                borderBottom: '1px solid var(--line-1)', paddingBottom: '6px', marginBottom: '12px',
-              }}>
-                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--fg-1)' }}>{company}</span>
-                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--fg-2)' }}>
-                  {list.length}&nbsp;{list.length === 1 ? 'account' : 'accounts'}
-                </span>
-              </div>
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))',
-                gap: '12px',
-                alignItems: 'stretch',
-              }}>
-                {list.map((acc) => {
-                  const fullName =
-                    acc.bank_name ||
-                    acc.bank_provider_name ||
-                    acc.bank_legal_name ||
-                    'Bank';
-                  const { name: bankName, branch } = shortBankName(fullName);
-                  const selected = accountFilter === acc.id;
-                  return (
-                    <button
-                      key={acc.id}
-                      type="button"
-                      onClick={() => setAccountFilter(selected ? 'all' : acc.id)}
-                      title={[fullName, acc.notes].filter(Boolean).join('\n')}
-                      className="flex flex-col"
-                      style={{
-                        border: selected ? '2px solid var(--fg-1)' : '1px solid var(--line-1)',
-                        borderRadius: 'var(--radius-sm)',
-                        backgroundColor: 'var(--paper)',
-                        padding: selected ? '13px 15px' : '14px 16px',
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        minWidth: 0,
-                      }}
-                    >
-                      <div className="flex items-center gap-2" style={{ marginBottom: '10px' }}>
-                        <span style={{
-                          fontSize: '12px', fontWeight: 800,
-                          padding: '2px 10px', borderRadius: '999px',
-                          backgroundColor: 'var(--fg-1)', color: 'var(--paper)',
-                        }}>
-                          {acc.currency}
-                        </span>
-                        {acc.is_default === 1 && (
-                          <span style={{
-                            fontSize: '12px', fontWeight: 700,
-                            padding: '2px 10px', borderRadius: '999px',
-                            backgroundColor: 'var(--paper-sunk)', color: 'var(--fg-1)',
-                          }}>
-                            default
-                          </span>
-                        )}
-                        <span style={{ marginLeft: 'auto', fontSize: '12px', fontWeight: 700, color: 'var(--fg-2)' }}>
-                          {acc.api_enabled === 1 ? 'API' : 'manual'}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--fg-1)', lineHeight: 1.3 }}>
-                        {bankName}
-                      </div>
-                      {branch && (
-                        <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--fg-2)', marginTop: '2px' }}>
-                          {branch}
-                        </div>
-                      )}
-                      <div style={{
-                        fontSize: '16px', fontWeight: 700, color: 'var(--fg-1)',
-                        fontVariantNumeric: 'tabular-nums', wordBreak: 'break-all',
-                        marginTop: '10px',
-                      }}>
-                        {acc.account_number}
-                      </div>
-                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--fg-2)', marginTop: '4px' }}>
-                        {[
-                          acc.bank_swift ? `SWIFT\u00a0${acc.bank_swift}` : null,
-                          acc.bank_code ? `code\u00a0${acc.bank_code}` : null,
-                          acc.branch_number ? `br\u00a0${acc.branch_number}` : null,
-                          acc.routing_number ? `rt\u00a0${acc.routing_number}` : null,
-                        ].filter(Boolean).join(' · ')}
-                      </div>
-                      {acc.bank_address && (
-                        <div style={{
-                          fontSize: '12px', fontWeight: 500, color: 'var(--fg-2)',
-                          marginTop: 'auto', paddingTop: '10px',
-                        }}>
-                          {acc.bank_address}
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-          ))}
-          <p style={{ fontSize: '13px', color: 'var(--fg-2)', marginTop: '4px' }}>
-            Click a card to filter transactions. DEI: Wio (UAE) and Chase HK are both active — pick one bank block per invoice.
-          </p>
+        <div className="finance-accounts" aria-label="Our bank accounts">
+          {groupAccountsByCompany(accounts).flatMap(([company, list]) => list.map((acc) => {
+            const fullName = acc.bank_name || acc.bank_provider_name || acc.bank_legal_name || 'Bank';
+            const { name: bankName } = shortBankName(fullName);
+            const selected = accountFilter === acc.id;
+            const details = [company, fullName, acc.currency, acc.account_number,
+              acc.bank_swift ? `SWIFT ${acc.bank_swift}` : null,
+              acc.bank_address, acc.notes].filter(Boolean).join(' · ');
+            return (
+              <button key={acc.id} type="button" className="finance-account"
+                aria-pressed={selected} aria-label={details} title={details}
+                onClick={() => setAccountFilter(selected ? 'all' : acc.id)}>
+                <span>{company}</span><span aria-hidden="true"> · </span>
+                <span>{bankName}</span><span aria-hidden="true"> · </span>
+                <span>{acc.currency}</span>
+              </button>
+            );
+          }))}
         </div>
       )}
 
       {!loading && (
-        <div className="mb-4 flex flex-wrap gap-3">
+        <div className="finance-totals">
           {Object.entries(totals.incoming).map(([cur, amt]) => (
-            <div key={`in-${cur}`} className="px-4 py-3" style={{
+            <div key={`in-${cur}`} className="finance-total" style={{
               border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
-              backgroundColor: 'var(--paper)', minWidth: '180px',
+              backgroundColor: 'var(--paper)',
             }}>
               <div className="flex items-center gap-1" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
                 <ArrowDownLeft className="h-4 w-4" style={{ color: 'var(--status-success)' }} />
@@ -942,9 +857,9 @@ export default function FinanceTransactionsPage() {
             </div>
           ))}
           {Object.entries(totals.outgoing).map(([cur, amt]) => (
-            <div key={`out-${cur}`} className="px-4 py-3" style={{
+            <div key={`out-${cur}`} className="finance-total" style={{
               border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
-              backgroundColor: 'var(--paper)', minWidth: '180px',
+              backgroundColor: 'var(--paper)',
             }}>
               <div className="flex items-center gap-1" style={{ fontSize: '14px', color: 'var(--fg-2)' }}>
                 <ArrowUpRight className="h-4 w-4" style={{ color: 'var(--status-danger)' }} />
@@ -958,8 +873,8 @@ export default function FinanceTransactionsPage() {
         </div>
       )}
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="relative">
+      <div className="finance-filters mb-4 flex flex-wrap items-center gap-3">
+        <div className="relative finance-search">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={{ color: 'var(--fg-3)' }} />
           <input
             type="text"
@@ -969,12 +884,12 @@ export default function FinanceTransactionsPage() {
             style={{
               border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
               backgroundColor: 'var(--paper)', padding: '8px 12px 8px 36px',
-              fontSize: '14px', fontWeight: 700, width: '320px', color: 'var(--fg-1)',
+              fontSize: '14px', fontWeight: 700, width: '100%', color: 'var(--fg-1)',
             }}
           />
         </div>
 
-        <select value={accountFilter} onChange={(e) => setAccountFilter(e.target.value)} style={{
+        <select className="finance-account-select" aria-label="Filter by bank account" value={accountFilter} onChange={(e) => setAccountFilter(e.target.value)} style={{
           border: '1px solid var(--line-1)', borderRadius: 'var(--radius-sm)',
           backgroundColor: 'var(--paper)', padding: '8px 12px',
           fontSize: '14px', fontWeight: 700, color: 'var(--fg-1)',
@@ -1066,16 +981,16 @@ export default function FinanceTransactionsPage() {
           border: '1px solid var(--line-1)', borderRadius: 'var(--radius-md)',
           backgroundColor: 'var(--paper)', overflow: 'hidden',
         }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+          <table className="finance-transactions" style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: '14px' }}>
             <thead>
               <tr style={{ backgroundColor: 'var(--paper-sunk)', borderBottom: '1px solid var(--line-1)' }}>
                 <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--fg-2)', fontWeight: 700, width: '110px' }}>Date</th>
-                <th style={{ textAlign: 'center', padding: '12px 16px', color: 'var(--fg-2)', fontWeight: 700, width: '60px' }}>Dir</th>
-                <th style={{ textAlign: 'right', padding: '12px 16px', color: 'var(--fg-2)', fontWeight: 700, width: '160px' }}>Amount</th>
+                <th style={{ textAlign: 'center', padding: '12px 16px', color: 'var(--fg-2)', fontWeight: 700, width: '40px' }}>Dir</th>
+                <th style={{ textAlign: 'right', padding: '12px 16px', color: 'var(--fg-2)', fontWeight: 700, width: '170px' }}>Amount</th>
                 <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--fg-2)', fontWeight: 700 }}>Counterparty</th>
                 <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--fg-2)', fontWeight: 700 }}>Purpose</th>
                 <th style={{ textAlign: 'center', padding: '12px 16px', color: 'var(--fg-2)', fontWeight: 700, width: '100px' }}>Status</th>
-                <th style={{ textAlign: 'center', padding: '12px 16px', color: 'var(--fg-2)', fontWeight: 700, width: '80px' }}>Match</th>
+                <th style={{ textAlign: 'center', padding: '12px 16px', color: 'var(--fg-2)', fontWeight: 700, width: '90px' }}>Match</th>
               </tr>
             </thead>
             <tbody>
@@ -1094,7 +1009,7 @@ export default function FinanceTransactionsPage() {
                       color: tx.direction === 'incoming' ? 'var(--status-success)' : 'var(--fg-1)',
                       fontFamily: 'Manrope, sans-serif',
                     }}>
-                      {tx.direction === 'incoming' ? '+' : '−'}{formatAmount(tx.amount, tx.currency)} {tx.currency}
+                      {tx.direction === 'incoming' ? '+' : '−'}{formatAmount(tx.amount, tx.currency)}{'\u00a0'}{tx.currency}
                     </td>
                     <td style={{ padding: '12px 16px', color: 'var(--fg-1)' }}>
                       <div style={{ fontWeight: 700 }}>{tx.contragent_name ?? '—'}</div>
@@ -1106,9 +1021,9 @@ export default function FinanceTransactionsPage() {
                     </td>
                     <td style={{
                       padding: '12px 16px', color: 'var(--fg-2)',
-                      maxWidth: '400px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      overflow: 'hidden',
                     }} title={tx.payment_purpose ?? undefined}>
-                      {tx.payment_purpose ?? '—'}
+                      <div className="finance-purpose">{tx.payment_purpose ?? '—'}</div>
                     </td>
                     <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                       <span style={{

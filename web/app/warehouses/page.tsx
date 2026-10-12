@@ -27,6 +27,8 @@ interface SortState {
   dir: SortDir;
 }
 
+const WB_STALE_SECONDS = 2 * 24 * 60 * 60;
+
 export default function WarehousesPage() {
   const [products, setProducts] = useState<ProductWithStock[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -116,6 +118,17 @@ export default function WarehousesPage() {
     });
   }
 
+  // WB moved to FBS on 2026-09-19 and its FBO stock feed stopped. A WB
+  // number older than WB_STALE_SECONDS is shown muted with its date and
+  // left out of every total, so the page never counts a frozen snapshot.
+  const wbSyncedAt = useMemo(() => {
+    let t = 0;
+    for (const m of Object.values(marketplaces)) t = Math.max(t, m.wb_synced_at ?? 0);
+    return t;
+  }, [marketplaces]);
+  const wbStale = wbSyncedAt > 0 && Date.now() / 1000 - wbSyncedAt > WB_STALE_SECONDS;
+  const wbCounted = (m: MarketplaceStockRow | undefined) => (wbStale ? 0 : m?.wb_units ?? 0);
+
   // Build numeric value extractor for current sort key.
   // Returns string for SKU/Product (text sort), number for everything else.
   const sortedProducts = useMemo(() => {
@@ -151,7 +164,7 @@ export default function WarehousesPage() {
           t += p.on_the_way ?? 0;
           const mp = marketplaces[p.id];
           t += mp?.ozon_units ?? 0;
-          t += mp?.wb_units ?? 0;
+          t += wbCounted(mp);
           return t;
         };
         va = computeTotal(a);
@@ -193,7 +206,7 @@ export default function WarehousesPage() {
     });
 
     return list;
-  }, [products, sort, marketplaces, externalStocks]);
+  }, [products, sort, marketplaces, externalStocks, wbStale]);
 
   // Apply search filter on top of sort
   const filtered = useMemo(() => {
@@ -248,8 +261,8 @@ export default function WarehousesPage() {
   // This is the single number shown in the header line ("X pieces total").
   const grandTotal = useMemo(() => {
     const whSum = Object.values(totalsByWarehouse.totals).reduce((a, b) => a + b, 0);
-    return whSum + totalsByWarehouse.otwTotal + marketplaceTotals.ozon + marketplaceTotals.wb;
-  }, [totalsByWarehouse, marketplaceTotals]);
+    return whSum + totalsByWarehouse.otwTotal + marketplaceTotals.ozon + (wbStale ? 0 : marketplaceTotals.wb);
+  }, [totalsByWarehouse, marketplaceTotals, wbStale]);
 
   // Per-row totals computed client-side using same external-aware rule.
   // For each product, sum: LBR-from-F4 (or on_hand fallback) + other warehouses' on_hand
@@ -273,11 +286,11 @@ export default function WarehousesPage() {
       total += p.on_the_way ?? 0;
       const mp = marketplaces[p.id];
       total += mp?.ozon_units ?? 0;
-      total += mp?.wb_units ?? 0;
+      total += wbCounted(mp);
       m[p.id] = total;
     }
     return m;
-  }, [products, externalStocks, marketplaces]);
+  }, [products, externalStocks, marketplaces, wbStale]);
 
   // Filter out marketplace-hidden warehouses (ozon, wb) — these are rendered
   // separately via MarketplaceCellTd which combines API data + our internal.
@@ -362,6 +375,12 @@ export default function WarehousesPage() {
           {internalWarehouseIds.length > 0 && (
             <p className="mt-2" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
               {warehouses.filter((w) => internalWarehouseIds.includes(w.id)).map((w) => w.code).join(', ')}: остатки по нашему учёту ERP, с проведёнными отгрузками.
+            </p>
+          )}
+          {!loading && (
+            <p className="mt-2" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
+              Ozon: свободно к продаже, без резерва под заказы.
+              {wbStale && ` WB: данные от ${formatShortDate(wbSyncedAt)}, обновление остановлено, в итог не входят.`}
             </p>
           )}
         </div>
@@ -491,7 +510,7 @@ export default function WarehousesPage() {
                   sortKey="ozon"
                   sort={sort}
                   onClick={handleSortClick}
-                >Ozon</SortableTh>}
+                >Ozon · free</SortableTh>}
                 {showCol('wb') && <SortableTh
                   center
                   withParens
@@ -499,7 +518,7 @@ export default function WarehousesPage() {
                   sortKey="wb"
                   sort={sort}
                   onClick={handleSortClick}
-                >WB</SortableTh>}
+                >{wbStale ? `WB · ${formatShortDate(wbSyncedAt)}` : 'WB'}</SortableTh>}
                 {showCol('total') && <SortableTh
                   center
                   accent
@@ -565,7 +584,7 @@ export default function WarehousesPage() {
                       })}
                       {showCol('otw') && <OtwCellTd value={otwQty} />}
                       {showCol('ozon') && <MarketplaceCellTd value={ozonVal} ourValue={ourOzonVal} tint={MARKETPLACE_TINT.ozon} />}
-                      {showCol('wb') && <MarketplaceCellTd value={wbVal}   ourValue={ourWbVal}   tint={MARKETPLACE_TINT.wb} />}
+                      {showCol('wb') && <MarketplaceCellTd value={wbVal}   ourValue={ourWbVal}   tint={MARKETPLACE_TINT.wb} stale={wbStale} />}
                       {showCol('total') && (
                         <td className="px-3 py-2 text-right" style={{
                           fontSize: '14px',
@@ -645,7 +664,7 @@ export default function WarehousesPage() {
                   {showCol('wb') && <td className="px-3 py-2" style={{
                     fontSize: '14px',
                     fontWeight: 700,
-                    color: 'var(--fg-1)',
+                    color: wbStale ? 'var(--fg-muted)' : 'var(--fg-1)',
                     backgroundColor: MARKETPLACE_TINT.wb,
                   }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 56px', columnGap: '4px', alignItems: 'baseline' }}>
@@ -881,12 +900,12 @@ function OtwCellTd({ value }: { value: number }) {
   );
 }
 
-function MarketplaceCellTd({ value, ourValue = 0, tint }: { value: number; ourValue?: number; tint: string }) {
+function MarketplaceCellTd({ value, ourValue = 0, tint, stale = false }: { value: number; ourValue?: number; tint: string; stale?: boolean }) {
   // API number primary (Ozon/WB FBO from /marketplace/stocks endpoint).
   // ourValue in parens = our internal stock at the hidden 'ozon' / 'wb'
   // warehouse — built up from transfer LBR → external operations starting
   // in Phase 5. Until then ourValue = 0.
-  const color = value === 0 ? 'var(--fg-muted)' : 'var(--fg-1)';
+  const color = value === 0 || stale ? 'var(--fg-muted)' : 'var(--fg-1)';
 
   // Parens color = drift signal. Compare api vs our.
   let parensColor = 'var(--fg-3)';
@@ -901,7 +920,7 @@ function MarketplaceCellTd({ value, ourValue = 0, tint }: { value: number; ourVa
   }
 
   return (
-    <td className="px-3 py-2" style={{ backgroundColor: tint, fontSize: '14px', color, fontWeight: value > 0 ? 600 : 400 }}>
+    <td className="px-3 py-2" style={{ backgroundColor: tint, fontSize: '14px', color, fontWeight: value > 0 && !stale ? 600 : 400 }}>
       <div
         style={{
           display: 'grid',
@@ -1048,6 +1067,11 @@ function SyncWarningBanner({ health }: { health: MarketplaceHealthResponse | nul
       </div>
     </div>
   );
+}
+
+function formatShortDate(unix: number): string {
+  if (!unix) return '—';
+  return new Date(unix * 1000).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', timeZone: 'Asia/Yerevan' });
 }
 
 function formatBannerTimestamp(unix: number): string {

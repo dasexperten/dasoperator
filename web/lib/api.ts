@@ -1693,6 +1693,7 @@ export async function getInventorySessions(filters?: { warehouse_id?: string; st
 export interface MarketplaceStockRow {
   base_sku: string;
   ozon_units: number;
+  ozon_reserved?: number;
   wb_units: number;
   ozon_synced_at: number | null;
   wb_synced_at: number | null;

@@ -22,20 +22,24 @@ const marketplaces = new Hono<{ Bindings: Env }>();
 // ---------------------------------------------------------------------------
 // GET /api/marketplaces/stocks
 // Returns aggregated marketplace stock per canonical SKU.
-//   { stocks: [ { base_sku, ozon_units, wb_units, ozon_synced_at, wb_synced_at } ] }
+//   { stocks: [ { base_sku, ozon_units, ozon_reserved, wb_units, ozon_synced_at, wb_synced_at } ] }
+// ozon_units is free to sell: FBO present minus units reserved for pending
+// orders, never below zero per offer. ozon_reserved is reported separately.
 // ---------------------------------------------------------------------------
 marketplaces.get('/stocks', async (c) => {
   const rows = await c.env.DB.prepare(`
     SELECT
       p.id AS base_sku,
       COALESCE(oz.qty, 0) AS ozon_units,
+      COALESCE(oz.reserved, 0) AS ozon_reserved,
       COALESCE(wb.qty, 0) AS wb_units,
       oz.synced_at AS ozon_synced_at,
       wb.synced_at AS wb_synced_at
     FROM products p
     LEFT JOIN (
       SELECT LOWER(offer_id) AS sku_lc,
-             SUM(fbo_available) AS qty,
+             SUM(MAX(0, fbo_available - COALESCE(fbo_reserved, 0))) AS qty,
+             SUM(COALESCE(fbo_reserved, 0)) AS reserved,
              MAX(synced_at) AS synced_at
       FROM marketplace_stocks_ozon
       GROUP BY LOWER(offer_id)

@@ -828,7 +828,7 @@ export default function FinanceTransactionsPage() {
               acc.bank_swift ? `SWIFT ${acc.bank_swift}` : null,
               acc.bank_address, acc.notes].filter(Boolean).join(' · ');
             return (
-              <button key={acc.id} type="button" className="finance-account"
+              <button key={acc.id} type="button" className="finance-account" data-company={company}
                 aria-pressed={selected} aria-label={details} title={details}
                 onClick={() => setAccountFilter(selected ? 'all' : acc.id)}>
                 <span>{company}</span><span aria-hidden="true"> · </span>

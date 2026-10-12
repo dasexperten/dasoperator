@@ -1258,6 +1258,10 @@ input[type="number"] {
 .finance-account > span { flex-shrink: 0; }
 .finance-account > span[aria-hidden="true"] { padding: 0 4px; }
 .finance-account > span:nth-child(3) { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.finance-account[data-company="DEASEAN"] { background: color-mix(in srgb, var(--status-success) 10%, var(--paper)); }
+.finance-account[data-company="DEE"] { background: color-mix(in srgb, var(--brand-rot) 8%, var(--paper)); }
+.finance-account[data-company="DEI"] { background: color-mix(in srgb, var(--brand-gold) 12%, var(--paper)); }
+.finance-account[data-company="DEC"] { background: var(--paper-sunk); }
 .finance-account[aria-pressed="true"] { background: var(--fg-1); color: var(--paper); border-color: var(--fg-1); }
 .finance-totals { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-bottom: 12px; }
 .finance-totals .finance-total { display: flex; align-items: baseline; gap: 8px; border: 0 !important; padding: 0; }

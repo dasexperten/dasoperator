@@ -817,7 +817,7 @@ export default function FinanceTransactionsPage() {
         </MobilePageActions>
       </div>
 
-      {/* One account per line: company, bank, currency. Requisites remain in the tooltip and account filter. */}
+      {/* One account per chip: bank and currency only; the company shows as the chip colour. Requisites remain in the tooltip and account filter. */}
       {!loading && accounts.length > 0 && (
         <div className="finance-accounts" aria-label="Our bank accounts">
           {groupAccountsByCompany(accounts).flatMap(([company, list]) => list.map((acc) => {
@@ -831,7 +831,6 @@ export default function FinanceTransactionsPage() {
               <button key={acc.id} type="button" className="finance-account" data-company={company}
                 aria-pressed={selected} aria-label={details} title={details}
                 onClick={() => setAccountFilter(selected ? 'all' : acc.id)}>
-                <span>{company}</span><span aria-hidden="true"> · </span>
                 <span>{bankName}</span><span aria-hidden="true"> · </span>
                 <span>{acc.currency}</span>
               </button>

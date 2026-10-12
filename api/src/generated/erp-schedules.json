@@ -44,6 +44,9 @@
   "erp-marketplace-pull": [
     "30 */3 * * *"
   ],
+  "erp-modulbank-mail": [
+    "30 0 * * 1-5"
+  ],
   "erp-modulbank-sync": [],
   "erp-orders-drop-watch": [
     "0 4 * * *"

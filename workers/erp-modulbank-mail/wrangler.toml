@@ -1,0 +1,30 @@
+# erp-modulbank-mail — Modulbank payment notifications from dasexperten@gmail.com → ERP bank lines,
+# then the Gmail thread is archived. Owner 2026-10-12: the Modulbank API feed is off; read the mail
+# once a day on weekdays. Code in workers/_bank/modulbank-mail.mjs.
+name = "erp-modulbank-mail"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "081ddb85cb399ad62a70210328d744fc"
+workers_dev = true
+
+# DB = run log + bank_transactions (das_erp_dev).
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+# Gmail (dasexperten@gmail.com) through the existing bridge: find, get_thread, modify(archive).
+[[services]]
+binding = "EMAILER"
+service = "emailer-bridge"
+
+# Keys (secrets): ERP_RUN_SECRET (manual /run).
+
+[vars]
+# First deploy reads only (Owner 2026-10-12 test); removed after the dry check.
+DRY_RUN = "1"
+
+[triggers]
+# 04:30 Yerevan Mon–Fri (00:30 UTC): before marketplace FIFO (00:50) and bank match (02:00).
+crons = ["30 0 * * 1-5"]

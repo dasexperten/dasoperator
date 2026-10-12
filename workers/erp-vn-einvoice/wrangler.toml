@@ -27,4 +27,6 @@ EASYINVOICE_PATTERN = ""
 EASYINVOICE_SERIAL = ""
 
 [triggers]
-crons = ["*/5 * * * *"]
+# Owner 2026-10-12: hourly, Vietnam working hours only — Mon–Fri 08:05–17:05 Ho Chi Minh
+# (UTC+7 → 01–10 UTC). Was every 5 minutes round the clock.
+crons = ["5 1-10 * * 1-5"]

@@ -21,10 +21,6 @@ service = "emailer-bridge"
 
 # Keys (secrets): ERP_RUN_SECRET (manual /run).
 
-[vars]
-# First deploy reads only (Owner 2026-10-12 test); removed after the dry check.
-DRY_RUN = "1"
-
 [triggers]
 # 04:30 Yerevan Mon–Fri (00:30 UTC): before marketplace FIFO (00:50) and bank match (02:00).
 crons = ["30 0 * * 1-5"]

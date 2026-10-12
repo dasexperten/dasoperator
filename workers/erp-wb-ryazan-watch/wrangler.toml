@@ -31,7 +31,8 @@ service = "organizacia"
 [vars]
 
 [triggers]
-crons = ["35 10 * * *"]
+# Owner 2026-10-12: retired — "you can actually remove ERP ryazan watch". Revive: restore "35 10 * * *".
+crons = []
 
 # Only dasoperator-api holds WB credentials or calls WB.
 [[services]]

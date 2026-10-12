@@ -23,4 +23,5 @@ bucket_name = "self-learning"
 
 # Keys (secrets): META_SYSTEM_USER_TOKEN (SECRETS/meta.md), GITHUB_TOKEN (claude-ops PAT, read).
 [triggers]
-crons = ["*/5 4-19 * * *"]
+# Owner 2026-10-12: never more often than hourly unless he names it.
+crons = ["40 4,7,10,13,16,19 * * *"]

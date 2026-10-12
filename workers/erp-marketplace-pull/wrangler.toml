@@ -17,4 +17,5 @@ binding = "ERP"
 service = "dasoperator-api"
 
 [triggers]
-crons = ["*/15 * * * *"]
+# Owner 2026-10-12: never more often than hourly unless he names it.
+crons = ["30 */3 * * *"]

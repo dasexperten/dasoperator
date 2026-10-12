@@ -31,6 +31,10 @@ const RETIRED = {
   'erp-wb-ryazan-watch': 'Owner 2026-10-12: Ryazan watch removed (too many ERP timers)',
 };
 
+// Owner 2026-10-12: no ERP timer fires more often than once an hour unless he names
+// it here himself. A minute field that is not one plain number is a finding.
+const SUBHOURLY_ALLOWED = {};
+
 const MODEL_ALLOWED = {
   'erp-inventory': 'Owner 2026-09-18: inventory@ stock lists read by DeepSeek inside this worker ("put it inside that worker", "the best model for identification")',
 };
@@ -138,6 +142,10 @@ for (const d of dirs) {
   const isMail = /\basync\s+email\s*\(/.test(readFileSync(entry, 'utf8'));
   if (!crons(toml).length && !isMail && !RETIRED[d]) findings.push(`${d}: no [triggers] crons and no email handler — a worker with nothing to wake it`);
   if (RETIRED[d] && crons(toml).length) findings.push(`${d}: retired worker must have no cron`);
+  for (const c of crons(toml)) {
+    if (!/^\d+$/.test(String(c).trim().split(/\s+/)[0]) && !SUBHOURLY_ALLOWED[d])
+      findings.push(`${d}: "${c}" fires more than once an hour — Owner 2026-10-12 allows hourly at most`);
+  }
   if (tomlField(toml, 'main') !== 'src/index.ts') findings.push(`${d}: main must be src/index.ts`);
 
   for (const f of graph(entry)) {

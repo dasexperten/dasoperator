@@ -1012,7 +1012,7 @@ export default function FinanceTransactionsPage() {
                       {tx.direction === 'incoming' ? '+' : '−'}{formatAmount(tx.amount, tx.currency)}{'\u00a0'}{tx.currency}
                     </td>
                     <td style={{ padding: '12px 16px', color: 'var(--fg-1)' }}>
-                      <div style={{ fontWeight: 700 }}>{tx.contragent_name ?? '—'}</div>
+                      <div className="finance-counterparty" title={tx.contragent_name ?? undefined} style={{ fontWeight: 700 }}>{tx.contragent_name ?? '—'}</div>
                       {tx.contragent_inn && (
                         <div style={{ fontSize: '14px', color: 'var(--fg-3)', marginTop: '2px' }}>
                           INN {tx.contragent_inn}

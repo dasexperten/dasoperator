@@ -309,7 +309,7 @@ export default function UgcPage() {
 
   return (
     <div className="ugc-page p-5 md:p-8 space-y-7">
-      <PageHeader
+      <div className="ugc-heading"><PageHeader
         eyebrow="Creator operations"
         title="UGC"
         subtitle="Creators, platform evidence, outreach, samples, content and usage rights in one operating view."
@@ -321,7 +321,7 @@ export default function UgcPage() {
             </button>
           </>
         )}
-      />
+      /></div>
 
       {error && <div role="alert" className="p-4 flex items-start justify-between gap-4" style={{ background: 'var(--paper-sunk)', borderLeft: '4px solid var(--status-error)' }}><span>{error}</span><button type="button" aria-label="Dismiss" onClick={() => setError(null)} className="min-h-11 flex items-center justify-center" style={{ minWidth: '44px' }}><X className="h-5 w-5" /></button></div>}
       <div role="status" aria-live="polite" className="sr-only">{importing}</div>
@@ -349,7 +349,7 @@ export default function UgcPage() {
       </section>
 
       <section className="ugc-controls space-y-4" data-expanded={filtersExpanded}>
-        <div className="ugc-mobile-controls"><span>{formatNumber(data.summary.creators)} creators</span><button type="button" aria-expanded={filtersExpanded} aria-controls="ugc-platforms ugc-filters" onClick={() => setFiltersExpanded((value) => !value)}>{filtersExpanded ? 'Close filters' : `Filters${platform !== 'all' || stage || product ? ' · active' : ''}`}</button></div>
+        <div className="ugc-mobile-controls"><h2>UGC</h2><span>{formatNumber(data.summary.creators)} creators</span><button type="button" aria-expanded={filtersExpanded} aria-controls="ugc-platforms ugc-filters" onClick={() => setFiltersExpanded((value) => !value)}>{filtersExpanded ? 'Close filters' : `Filters${platform !== 'all' || stage || product ? ' · active' : ''}`}</button></div>
         <div id="ugc-platforms" className="ugc-platforms flex flex-wrap gap-2 pb-1" aria-label="Platforms">
           {PLATFORM_TABS.map((key) => {
             const count = key === 'all' ? data.summary.creators : data.platforms.find((item) => item.platform === key)?.creator_count;

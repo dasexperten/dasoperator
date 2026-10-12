@@ -59,3 +59,15 @@
   .ugc-page #ugc-filters > label > svg { align-self: center !important; flex: 0 0 16px; }
   .ugc-page #ugc-filters > label > :is(input, select) { flex: 1 1 auto; min-width: 0; height: 100%; margin: 0 !important; text-align: left !important; }
 }
+
+/* Keep the phone list close to its heading and search. */
+@media (max-width: 700px) {
+  .ugc-page { padding: 12px !important; }
+  .ugc-page > .ugc-heading { display: none !important; }
+  .ugc-page > .ugc-controls { margin-top: 0 !important; }
+  .ugc-page .ugc-mobile-controls { gap: 8px; }
+  .ugc-page .ugc-mobile-controls h2 { margin: 0; font-size: 20px; font-weight: 900; }
+  .ugc-page .ugc-mobile-controls > span { flex: 1; font-size: 12px; color: var(--fg-3); }
+  .ugc-page .ugc-controls > #ugc-filters { margin-top: 6px !important; }
+  .ugc-page > .ugc-table-shell { margin-top: 8px !important; }
+}

@@ -4,7 +4,7 @@ import { fail, ok } from '../lib/responses';
 import { hasModuleAccess, validateSession, type AuthUser } from '../lib/auth';
 import { runUgcLinkHealthBatch } from '../lib/ugc-link-health';
 import { baseProductSku, identifyExplicitProducts, initialProductClassification, UGC_PRODUCTS } from '../lib/ugc-products.mjs';
-import { checkDailyLimit, compareByRecent, isPayoutStatus, latestActivityMs, maskPhone, parsePayoutAmount, payoutDate, statusStampColumn } from '../lib/ugc-payouts.mjs';
+import { checkDailyLimit, checkDailyTotalLimit, compareByRecent, isPayoutStatus, latestActivityMs, maskPhone, parsePayoutAmount, payoutDate, statusStampColumn } from '../lib/ugc-payouts.mjs';
 
 type ImportRow = {
   handle?: unknown;
@@ -571,7 +571,8 @@ ugc.post('/collaborations', async (c) => {
 
 // ---------------------------------------------------------------------------
 // Barter payouts (0116, Owner 2026-10-14). Status only — never raw phone or
-// bank data. Ceiling: 999 ₽ per creator per payout per day.
+// bank data. Ceiling: 999 ₽ per creator per payout per day, and 5 000 ₽ for
+// all creators together per day (auto-approval cap, Owner 2026-10-14).
 // ---------------------------------------------------------------------------
 
 const PAYOUT_COLUMNS = `p.id, p.creator_id, p.creator_platform_id, p.platform, p.handle, p.amount_minor,
@@ -624,6 +625,15 @@ async function sameDayPayoutMinor(c: any, creatorId: string, day: string, exclud
   return Number(row?.total ?? 0);
 }
 
+// Every creator's live payouts on that date; failed ones do not count.
+async function dayTotalPayoutMinor(c: any, day: string, excludeId: string | null): Promise<number> {
+  const row = await c.env.DB.prepare(
+    `SELECT COALESCE(SUM(amount_minor), 0) total FROM ugc_payouts
+     WHERE payout_date=?1 AND status <> 'failed' AND (?2 IS NULL OR id <> ?2)`
+  ).bind(day, excludeId).first() as { total: number } | null;
+  return Number(row?.total ?? 0);
+}
+
 function isoOrNull(value: unknown): string | null {
   const text = textValue(value, 40);
   if (!text) return null;
@@ -662,6 +672,10 @@ ugc.post('/payouts', async (c) => {
   if (creator instanceof Response) return creator;
   const daily = checkDailyLimit(await sameDayPayoutMinor(c, creator.creatorId, day, null), amount.amount_minor);
   if (!daily.ok) return fail(c, 422, [{ code: daily.code, message: daily.message }]);
+  if (status !== 'failed') {
+    const total = checkDailyTotalLimit(await dayTotalPayoutMinor(c, day, null), amount.amount_minor);
+    if (!total.ok) return fail(c, 422, [{ code: total.code, message: total.message }]);
+  }
   const stampAt = isoOrNull(body.status_at) ?? new Date(now).toISOString();
   const stampColumn = statusStampColumn(status);
   const stamp = (column: string) => (stampColumn === column ? stampAt : isoOrNull(body[column]));
@@ -701,6 +715,12 @@ ugc.patch('/payouts/:id', async (c) => {
   const day = body.payout_date === undefined ? String(current.payout_date) : payoutDate(body.payout_date, Date.now());
   const daily = checkDailyLimit(await sameDayPayoutMinor(c, String(current.creator_id), day, id), amountMinor);
   if (!daily.ok) return fail(c, 422, [{ code: daily.code, message: daily.message }]);
+  // The all-creators cap applies when amount or date changes on a live payout.
+  const amountOrDate = body.amount_rub !== undefined || body.amount_minor !== undefined || body.payout_date !== undefined;
+  if (amountOrDate && current.status !== 'failed') {
+    const total = checkDailyTotalLimit(await dayTotalPayoutMinor(c, day, id), amountMinor);
+    if (!total.ok) return fail(c, 422, [{ code: total.code, message: total.message }]);
+  }
   const keep = (name: string, max: number) => (body[name] === undefined ? current[name] : textValue(body[name], max));
   const now = Date.now();
   await c.env.DB.prepare(

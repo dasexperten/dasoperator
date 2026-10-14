@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { checkDailyLimit, compareByRecent, latestActivityMs, maskPhone, parsePayoutAmount, payoutDate, statusStampColumn, UGC_PAYOUT_MAX_MINOR } from './ugc-payouts.mjs';
+import { checkDailyLimit, checkDailyTotalLimit, compareByRecent, formatRub, latestActivityMs, maskPhone, parsePayoutAmount, payoutDate, statusStampColumn, UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR, UGC_PAYOUT_MAX_MINOR } from './ugc-payouts.mjs';
 
 test('accepts payouts up to and including 999 ₽', () => {
   assert.deepEqual(parsePayoutAmount({ amount_rub: 691 }), { ok: true, amount_minor: 69100 });
@@ -24,6 +24,29 @@ test('the daily sum per creator stays within 999 ₽', () => {
   assert.equal(checkDailyLimit(0, 99900).ok, true);
   assert.equal(checkDailyLimit(50000, 49900).ok, true);
   assert.equal(checkDailyLimit(50000, 50000).ok, false);
+});
+
+test('all creators together stay within 5 000 ₽ per day', () => {
+  assert.equal(UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR, 500000);
+  assert.equal(checkDailyTotalLimit(0, 99900).ok, true);
+  assert.equal(checkDailyTotalLimit(400100, 99900).ok, true); // exactly 5 000 ₽
+  assert.equal(checkDailyTotalLimit(400101, 99900).ok, false); // one kopeck over
+  const over = checkDailyTotalLimit(410000, 99900);
+  assert.equal(over.ok, false);
+  assert.equal(over.code, 'daily_total_limit');
+  assert.equal(over.remaining_minor, 90000);
+  assert.match(over.message, /900\u00a0₽ left/);
+  assert.match(over.message, /5\u00a0000\u00a0₽/);
+  const full = checkDailyTotalLimit(500000, 100);
+  assert.equal(full.ok, false);
+  assert.equal(full.remaining_minor, 0);
+  assert.match(full.message, /0\u00a0₽ left/);
+});
+
+test('roubles are written with a non-breaking sign and digit groups', () => {
+  assert.equal(formatRub(500000), '5\u00a0000\u00a0₽');
+  assert.equal(formatRub(410050), '4\u00a0100,50\u00a0₽');
+  assert.equal(formatRub(-5), '0\u00a0₽');
 });
 
 test('a phone is always masked, never stored raw', () => {

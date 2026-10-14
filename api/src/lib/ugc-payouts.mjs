@@ -1,8 +1,12 @@
 // UGC barter payouts — pure rules, shared by the route and its tests.
 // Owner 2026-10-14: at most 999 ₽ per creator per payout per day; every payout
 // is approved by the Owner; the ERP holds status, never payment details.
+// Owner 2026-10-14 («Автоодобрение, потолок 5000 в день»): payouts are
+// auto-approved within both limits — 999 ₽ per creator per day and 5 000 ₽
+// for all creators together per day.
 
 export const UGC_PAYOUT_MAX_MINOR = 99900;
+export const UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR = 500000;
 export const UGC_PAYOUT_STATUSES = ['awaiting_approval', 'approved', 'sent', 'paid', 'failed'];
 
 const STATUS_STAMP = { approved: 'approved_at', sent: 'sent_at', paid: 'paid_at', failed: 'failed_at' };
@@ -35,6 +39,32 @@ export function checkDailyLimit(existingSameDayMinor, amountMinor) {
   const total = Number(existingSameDayMinor || 0) + Number(amountMinor || 0);
   if (total > UGC_PAYOUT_MAX_MINOR) {
     return { ok: false, code: 'daily_limit', message: `Creator already has ${Math.round(Number(existingSameDayMinor || 0)) / 100} ₽ that day; total would pass 999 ₽` };
+  }
+  return { ok: true };
+}
+
+/** Kopecks as roubles: 4 101 ₽ or 4 100,50 ₽, never split from the sign. */
+export function formatRub(minor) {
+  const value = Math.max(0, Math.round(Number(minor || 0)));
+  const whole = String(Math.floor(value / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, '\u00a0');
+  const kopecks = value % 100;
+  return `${whole}${kopecks ? `,${String(kopecks).padStart(2, '0')}` : ''}\u00a0₽`;
+}
+
+/**
+ * Sum of every other live payout that day (all creators, failed excluded)
+ * plus this one must stay within 5 000 ₽. The refusal names the room left.
+ */
+export function checkDailyTotalLimit(existingDayTotalMinor, amountMinor) {
+  const existing = Number(existingDayTotalMinor || 0);
+  if (existing + Number(amountMinor || 0) > UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR) {
+    const remaining = Math.max(0, UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR - existing);
+    return {
+      ok: false,
+      code: 'daily_total_limit',
+      remaining_minor: remaining,
+      message: `Daily total for all creators is capped at ${formatRub(UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR)}; ${formatRub(remaining)} left that day`,
+    };
   }
   return { ok: true };
 }

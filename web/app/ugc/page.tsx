@@ -1,11 +1,12 @@
 'use client';
 
 import { ChangeEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpDown, CircleCheck, CircleDashed, CircleX, Clock, ExternalLink, FileSpreadsheet, FileText, ImageIcon, Link, Link2Off, Loader2, Search, Send, ShieldCheck, Users, Video, X } from 'lucide-react';
+import { ArrowUpDown, ExternalLink, FileSpreadsheet, FileText, ImageIcon, Link, Link2Off, Loader2, Search, Users, Video, X } from 'lucide-react';
 import './ugc-layout.css';
 import PageHeader from '@/components/ui/page-header';
 import { apiGet, apiPatch, apiPost } from '@/lib/api';
 import { parseUgcWorkbook } from '@/lib/ugc-import';
+import { formatRub, PAYOUT_STATUS_LABEL, payoutCell } from '@/lib/ugc-payout-cell.mjs';
 
 type PlatformMetric = {
   id: string;
@@ -173,38 +174,17 @@ function mediaKind(item: ContentObservation): 'Video' | 'Image' | 'Post' | 'Cont
   return 'Content';
 }
 
-// Payout state (Owner 2026-10-14): Paid in green, everything else neutral.
-const PAYOUT_LABEL: Record<PayoutStatus | 'none', string> = { none: 'Unpaid', awaiting_approval: 'Ждёт одобрения', approved: 'Одобрено', sent: 'Отправлено', paid: 'Paid', failed: 'Ошибка' };
-
-function formatRub(minor: number | null | undefined): string {
-  if (minor == null) return '';
-  // U+00A0 keeps the number and the rouble sign on one line (§4h-2).
-  return `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(minor / 100)} ₽`;
-}
-
+// «Оплата» (Owner 2026-10-14): solid rectangle with the amount — green when
+// paid, red otherwise; the status name only in the hover title.
 function payoutTitle(payout: Payout | null | undefined): string {
-  if (!payout) return 'No payout recorded';
+  if (!payout) return PAYOUT_STATUS_LABEL.none;
   const at = payout.paid_at ?? payout.sent_at ?? payout.approved_at ?? payout.failed_at;
-  return [PAYOUT_LABEL[payout.status], formatRub(payout.amount_minor), payout.payout_date, at ? new Date(at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : null, payout.bank_ref].filter(Boolean).join(' · ');
-}
-
-function PayoutIcon({ status, size = 16 }: { status: PayoutStatus | 'none'; size?: number }) {
-  if (status === 'paid') return <CircleCheck size={size} aria-hidden="true" />;
-  if (status === 'sent') return <Send size={size} aria-hidden="true" />;
-  if (status === 'approved') return <ShieldCheck size={size} aria-hidden="true" />;
-  if (status === 'awaiting_approval') return <Clock size={size} aria-hidden="true" />;
-  if (status === 'failed') return <CircleX size={size} aria-hidden="true" />;
-  return <CircleDashed size={size} aria-hidden="true" />;
+  return [PAYOUT_STATUS_LABEL[payout.status], formatRub(payout.amount_minor), payout.payout_date, at ? new Date(at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : null, payout.bank_ref].filter(Boolean).join(' · ');
 }
 
 function PayoutBadge({ payout }: { payout: Payout | null | undefined }) {
-  const status: PayoutStatus | 'none' = payout?.status ?? 'none';
-  const paid = status === 'paid';
-  const color = paid ? 'var(--fg-on-brand)' : status === 'failed' ? 'var(--status-error)' : status === 'none' ? 'var(--fg-3)' : 'var(--fg-1)';
-  return <span className="ugc-payout inline-flex items-center gap-1.5" title={payoutTitle(payout)}>
-    <span className="px-2 py-1 inline-flex items-center gap-1 text-xs font-bold" style={{ color, background: paid ? 'var(--status-success)' : 'var(--paper-sunk)', border: paid ? '1px solid var(--status-success)' : '1px solid var(--border-subtle)', borderRadius: 'var(--radius-pill)' }}><PayoutIcon status={status} size={14} />{PAYOUT_LABEL[status]}</span>
-    {payout ? <span className="text-xs tabular-nums" style={{ color: 'var(--fg-2)' }}>{formatRub(payout.amount_minor)}</span> : null}
-  </span>;
+  const cell = payoutCell(payout);
+  return <span className="ugc-payout" data-tone={cell.tone} title={payoutTitle(payout)} aria-label={`${payoutTitle(payout)}`}>{cell.text}</span>;
 }
 
 const LINK_STATUS_LABEL: Record<LinkStatus, string> = { active: 'Active', missing: 'Missing', restricted: 'Restricted', unknown: 'Unknown', invalid: 'Invalid' };
@@ -437,7 +417,7 @@ export default function UgcPage() {
               <span title={`${profile.avg_video_views ?? profile.latest_observed_views ?? 'Unknown'} views`}>{formatNumber(profile.avg_video_views ?? profile.latest_observed_views)}</span>
               <span title={`${profile.content_count} publications`}>{formatNumber(profile.content_count)}</span>
               {latest ? <a href={latest.href} target="_blank" rel="noopener noreferrer" className="ugc-mobile-work" aria-label={`Open completed work from ${name}`} title="Open completed work"><Video size={18} /></a> : <span aria-label="No completed work">—</span>}
-              <span className="ugc-mobile-pay" data-status={creator.payout?.status ?? 'none'} title={payoutTitle(creator.payout)} aria-label={payoutTitle(creator.payout)}><PayoutIcon status={creator.payout?.status ?? 'none'} size={18} /></span>
+              <span className="ugc-mobile-pay"><PayoutBadge payout={creator.payout} /></span>
             </div>;
           })}
         </div>
@@ -493,7 +473,7 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
     <div className="grid md:grid-cols-3 gap-3">{creator.profiles.map((profile) => <div key={profile.id} className="p-4" style={{ background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)' }}><div className="font-bold capitalize">{profile.platform} · @{profile.handle}</div><div className="mt-2 text-sm" style={{ color: 'var(--fg-2)' }}>{formatNumber(profile.followers)} followers · {profile.view_observations} view observations</div><div className="mt-1 text-sm" style={{ color: 'var(--fg-2)' }}>{formatNumber(profile.commerce_clicks)} clicks · {formatNumber(profile.commerce_orders)} orders</div><div className="mt-1 text-sm" style={{ color: 'var(--fg-3)' }}>Metrics as of {profile.metrics_as_of || 'unknown'}</div></div>)}</div>
     {creator.payouts?.length ? <section className="space-y-2" aria-labelledby={`payouts-${creator.id}`}>
       <div className="flex items-end justify-between gap-3"><div><div className="dx-eyebrow">Barter refunds</div><h3 id={`payouts-${creator.id}`} className="mt-1 text-xl font-extrabold">Оплата</h3></div><div className="text-sm tabular-nums" style={{ color: 'var(--fg-2)' }}>Paid {formatRub(creator.paid_total_minor ?? 0)}</div></div>
-      <div className="grid gap-2">{creator.payouts.map((item) => <div key={item.id} className="p-3 flex items-center justify-between gap-3" style={{ background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)' }}><PayoutBadge payout={item} /><span className="text-xs" style={{ color: 'var(--fg-3)' }}>{payoutTitle(item)}</span></div>)}</div>
+      <div className="grid gap-2">{creator.payouts.map((item) => <div key={item.id} className="p-3 flex items-center justify-between gap-3" style={{ background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)' }}><PayoutBadge payout={item} /><span className="text-xs" style={{ color: 'var(--fg-3)' }}>{item.payout_date}</span></div>)}</div>
     </section> : null}
     <section className="space-y-3" aria-labelledby={`content-history-${creator.id}`}>
       <div className="flex items-end justify-between gap-3"><div><div className="dx-eyebrow">Content evidence</div><h3 id={`content-history-${creator.id}`} className="mt-1 text-xl font-extrabold">Publication history</h3></div><div className="text-sm tabular-nums" style={{ color: 'var(--fg-2)' }}>{content.length} observations</div></div>

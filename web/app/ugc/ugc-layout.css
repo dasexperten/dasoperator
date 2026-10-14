@@ -12,11 +12,17 @@
    reach figures, last activity and payment; posts, product, content and next
    step follow and step out as the screen narrows. Figures sit right, Russian
    digit groups, one fixed width per figure column so neighbours never squeeze it. */
+/* Columns in line (Owner 2026-10-14 «сначала выровняй все столбы»):
+   one middle line for every cell, one row height, figures and their heads on
+   the right edge, words and their heads on the left, fixed column widths, and a
+   payout rectangle of one width. Which columns show is decided by the table's
+   own width (container query), so the creator column never collapses. */
+.ugc-table-shell { container: ugc-table / inline-size; }
 .ugc-table { table-layout: fixed; width: 100%; border-collapse: collapse; }
 /* Same measure as /planner (Owner 2026-10-14): 14px bold figures, cells 10px 12px, heads 8px 12px. */
-.ugc-table :is(th, td) { white-space: nowrap; padding: 10px 12px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; text-align: left; font-size: 14px; font-weight: 700; }
+.ugc-table :is(th, td) { white-space: nowrap; padding: 10px 12px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; text-align: left; font-size: 14px; font-weight: 700; line-height: 20px; }
 .ugc-table th { padding: 8px 12px; color: var(--fg-2); }
-.ugc-table .ugc-payout { font-size: 14px; padding: 3px 10px; }
+.ugc-table tbody td { height: 64px; }
 .ugc-table .ugc-c-num { text-align: right; font-variant-numeric: tabular-nums; }
 .ugc-table th.ugc-c-platform { width: 104px; }
 .ugc-table th.ugc-c-followers { width: 120px; }
@@ -26,40 +32,43 @@
 .ugc-table th.ugc-c-pay { width: 112px; }
 .ugc-table th.ugc-c-posts { width: 80px; }
 .ugc-table th.ugc-c-product { width: 144px; }
-.ugc-table th.ugc-c-media { width: 128px; }
+.ugc-table th.ugc-c-media { width: 176px; }
 .ugc-table th.ugc-c-next { width: 148px; }
 .ugc-table tbody tr:hover { background: var(--paper-sunk); }
-.ugc-table td > button { display: block; width: 100%; }
-.ugc-creator { display: flex !important; flex-direction: column; justify-content: center; }
-.ugc-creator > span { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-.ugc-creator-name { font-weight: 700; color: var(--fg-1); }
+/* Payout: one width in every row, right edge on the head's right edge. */
+.ugc-table .ugc-payout { width: 84px; padding: 2px 0; text-align: center; font-size: 14px; line-height: 20px; vertical-align: middle; }
+/* Creator: one line in every row, name then handle. */
+.ugc-table td > button.ugc-creator { display: flex !important; flex-direction: row; align-items: center; gap: 8px; width: 100%; min-width: 0; }
+.ugc-creator > span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ugc-creator-name { flex: 0 1 auto; font-weight: 700; color: var(--fg-1); }
+.ugc-creator-handle { flex: 0 10 auto; }
 .ugc-creator:hover .ugc-creator-name { color: var(--brand-rot); }
 .ugc-creator-handle, .ugc-muted { color: var(--fg-3); font-weight: 400; }
-.ugc-creator-platform { display: none !important; color: var(--fg-3); }
-.ugc-star { margin-left: 2px; color: var(--fg-3); }
+.ugc-creator-platform { display: none !important; flex: 0 0 auto; color: var(--fg-3); font-weight: 400; }
+/* The single-publication star hangs outside the figure, so digits keep one right edge. */
+.ugc-figure { position: relative; }
+.ugc-star { position: absolute; left: 100%; top: 0; padding-left: 1px; color: var(--fg-3); }
 .ugc-pills { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; }
-.ugc-pill { padding: 2px 8px; font-weight: 700; color: var(--brand-schwarz); background: var(--brand-gold); border-radius: var(--radius-pill); }
+.ugc-pill { padding: 0 8px; line-height: 22px; font-weight: 700; color: var(--brand-schwarz); background: var(--brand-gold); border-radius: var(--radius-pill); }
 .ugc-pill-more { color: var(--fg-2); font-weight: 700; }
-.ugc-media { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.ugc-link-dot { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; }
-.ugc-media-link { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; font-weight: 700; color: var(--brand-rot); }
-.ugc-media-link:hover { color: var(--fg-1); }
-.ugc-media .inline-flex > span { min-width: 0; }
+.ugc-media { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.ugc-link-dot { position: absolute; right: 2px; bottom: 2px; width: 7px; height: 7px; border-radius: 50%; box-shadow: 0 0 0 1.5px var(--bg-surface); }
+.ugc-media-link { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 28px; width: 28px; height: 28px; color: var(--brand-rot); border-radius: var(--radius-sm); }
+.ugc-media-link:hover { color: var(--fg-1); background: var(--paper-sunk); }
 .ugc-table svg { flex-shrink: 0; }
-@media (max-width: 1679px) {
+/* Column sets by table width: creator keeps at least 240px. */
+@container ugc-table (max-width: 1431px) {
   .ugc-table .ugc-sec-1 { display: none; }
 }
-@media (max-width: 1439px) {
+@container ugc-table (max-width: 1283px) {
   .ugc-table .ugc-sec-3 { display: none; }
 }
-@media (max-width: 1199px) {
+@container ugc-table (max-width: 1107px) {
   .ugc-table .ugc-sec-2 { display: none; }
 }
-@media (max-width: 1099px) {
+@container ugc-table (max-width: 883px) {
   .ugc-table .ugc-c-platform { display: none; }
   .ugc-creator-platform { display: block !important; }
-  .ugc-table th.ugc-c-followers, .ugc-table th.ugc-c-views { width: 108px; }
-  .ugc-table th.ugc-c-activity { width: 100px; }
 }
 /* «Оплата»: solid rectangle, white amount; green = passed to Konsol (sent, paid), red otherwise. */
 .ugc-payout { display: inline-block; padding: 4px 10px; border-radius: var(--radius-sm); color: var(--fg-on-brand); background: var(--status-error); font-weight: 700; font-size: 12px; line-height: 1.4; white-space: nowrap; font-variant-numeric: tabular-nums; letter-spacing: 0; }
@@ -95,7 +104,7 @@
   .ugc-mobile-head { color: var(--fg-3); font-size: 10px; min-height: 28px; border-top: 0; }
   .ugc-mobile-head > :first-child { text-align: left; }
   .ugc-mobile-pay { display: flex; align-items: center; justify-content: flex-end; min-height: 44px; }
-  .ugc-mobile-pay .ugc-payout { padding: 4px 6px; font-size: 11px; }
+  .ugc-mobile-pay .ugc-payout { width: 64px; padding: 4px 0; text-align: center; font-size: 11px; }
   .ugc-mobile-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; }
   .ugc-mobile-controls button { min-height: 44px; padding: 0 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); font-weight: 700; }
   .ugc-page .ugc-controls[data-expanded="false"] #ugc-platforms,

@@ -156,12 +156,8 @@ function contentHref(value: string | null | undefined): string | null {
   }
 }
 
-function latestLinkedContent(profile: PlatformMetric): { item: ContentObservation; href: string } | null {
-  for (const item of profile.content) {
-    const href = contentHref(item.content_url);
-    if (href) return { item, href };
-  }
-  return null;
+function linkedContent(profile: PlatformMetric): { item: ContentObservation; href: string }[] {
+  return profile.content.flatMap((item) => { const href = contentHref(item.content_url); return href ? [{ item, href }] : []; });
 }
 
 function mediaKind(item: ContentObservation): 'Video' | 'Image' | 'Post' | 'Content' {
@@ -191,8 +187,10 @@ function PayoutBadge({ payout }: { payout: Payout | null | undefined }) {
 const LINK_STATUS_LABEL: Record<LinkStatus, string> = { active: 'Active', missing: 'Missing', restricted: 'Restricted', unknown: 'Unknown', invalid: 'Invalid' };
 // Table cells speak Russian, like the column heads (Owner 2026-10-14).
 const LINK_STATUS_SHORT: Record<LinkStatus, string> = { active: 'Доступна', missing: 'Удалена', restricted: 'Закрыта', unknown: 'Не ясно', invalid: 'Ошибка' };
-const MEDIA_LABEL: Record<ReturnType<typeof mediaKind>, string> = { Video: 'Видео', Image: 'Фото', Post: 'Пост', Content: 'Ссылка' };
+const MEDIA_LABEL: Record<ReturnType<typeof mediaKind>, string> = { Video: 'видео', Image: 'фото', Post: 'пост', Content: 'ссылка' };
 const PRODUCT_PILLS = 2;
+// «Контент» (Owner 2026-10-14): one icon per publication, no words; four, then «+N».
+const CONTENT_ICONS = 4;
 
 function formatCheckedAt(value: string | null | undefined): string {
   if (!value) return 'Not checked';
@@ -443,8 +441,7 @@ export default function UgcPage() {
             {loading ? <tr><td colSpan={11} className="p-10 text-center"><Loader2 className="h-6 w-6 animate-spin inline-block" /> <span className="ml-2">Загрузка…</span></td></tr> : creators.length === 0 ? <tr><td colSpan={11} className="p-10 text-center" style={{ color: 'var(--fg-2)' }}><Users className="h-7 w-7 mx-auto mb-2" />Никого не найдено.</td></tr> : creators.map((creator) => {
               const profile = primaryProfile(creator, platform);
               const views = profile.avg_video_views ?? profile.latest_observed_views;
-              const latest = latestLinkedContent(profile);
-              const media = latest ? mediaKind(latest.item) : null;
+              const linked = linkedContent(profile);
               const products = Array.from(new Map(profile.content.flatMap((item) => item.products).map((item) => [item.sku, item])).values());
               const name = creator.display_name || `@${profile.handle}`;
               const handleLine = creator.display_name && profile.handle ? `@${profile.handle}` : null;
@@ -453,12 +450,12 @@ export default function UgcPage() {
                 <td className="ugc-c-platform">{platformLabel(profile.platform)}</td>
                 <td className="ugc-c-num" title={profile.followers == null ? 'Нет данных' : `${profile.followers}`}>{formatCount(profile.followers)}</td>
                 <td className="ugc-c-num" title={profile.engagement_rate == null ? 'Нет данных' : `${profile.engagement_rate}%`}>{formatRate(profile.engagement_rate)}</td>
-                <td className="ugc-c-num" title={views == null ? 'Нет данных' : profile.view_observations === 1 ? `${views} · одна публикация` : `${views}`}>{formatCount(views)}{profile.view_observations === 1 && views != null ? <span className="ugc-star" aria-label="одна публикация">*</span> : null}</td>
+                <td className="ugc-c-num" title={views == null ? 'Нет данных' : profile.view_observations === 1 ? `${views} · одна публикация` : `${views}`}><span className="ugc-figure">{formatCount(views)}{profile.view_observations === 1 && views != null ? <span className="ugc-star" aria-label="одна публикация">*</span> : null}</span></td>
                 <td className="ugc-c-num" title={creator.last_activity_at ? new Date(creator.last_activity_at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : 'Нет данных'}>{formatActivity(creator.last_activity_at)}</td>
                 <td className="ugc-c-num ugc-c-pay"><PayoutBadge payout={creator.payout} /></td>
                 <td className="ugc-c-num ugc-sec-2" aria-label={`${profile.content_count} публикаций`}>{formatCount(profile.content_count)}</td>
                 <td className="ugc-c-product ugc-sec-2">{products.length ? <div className="ugc-pills" title={products.map((item) => `${compactProductCode(item.sku)} · ${item.name}`).join('\n')}>{products.slice(0, PRODUCT_PILLS).map((item) => <span key={`${item.sku}-${item.raw_offer_id}`} className="ugc-pill">{compactProductCode(item.sku)}</span>)}{products.length > PRODUCT_PILLS ? <span className="ugc-pill-more">+{products.length - PRODUCT_PILLS}</span> : null}</div> : <span className="ugc-muted">{profile.content.some((item) => item.product_status === 'queued') ? 'В очереди' : 'Не определён'}</span>}</td>
-                <td className="ugc-c-media ugc-sec-3">{latest && media ? <div className="ugc-media"><a href={latest.href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="ugc-media-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`Открыть: ${MEDIA_LABEL[media]} · @${profile.handle}`} title={latest.item.content_url ?? undefined}>{media === 'Video' ? <Video className="h-4 w-4" /> : media === 'Image' ? <ImageIcon className="h-4 w-4" /> : media === 'Post' ? <FileText className="h-4 w-4" /> : <Link className="h-4 w-4" />}<span>{MEDIA_LABEL[media]}</span><ExternalLink className="h-3 w-3" /></a><span className="ugc-link-dot" role="img" aria-label={latest.item.link_status ? LINK_STATUS_SHORT[latest.item.link_status] : 'Не проверена'} title={[latest.item.link_status ? LINK_STATUS_SHORT[latest.item.link_status] : 'Не проверена', latest.item.link_checked_at ? new Date(latest.item.link_checked_at).toLocaleDateString('ru-RU') : null, latest.item.link_check_note].filter(Boolean).join(' · ')} style={{ background: statusColor(latest.item.link_status) }} /></div> : <span className="ugc-muted">—</span>}</td>
+                <td className="ugc-c-media ugc-sec-3">{linked.length ? <div className="ugc-media">{linked.slice(0, CONTENT_ICONS).map(({ item, href }) => { const kind = mediaKind(item); const status = item.link_status ? LINK_STATUS_SHORT[item.link_status] : 'Не проверена'; return <a key={item.id} href={href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="ugc-media-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${MEDIA_LABEL[kind]} · ${status}`} title={[MEDIA_LABEL[kind], status, item.link_checked_at ? new Date(item.link_checked_at).toLocaleDateString('ru-RU') : null, item.content_url].filter(Boolean).join(' · ')}>{kind === 'Video' ? <Video className="h-4 w-4" /> : kind === 'Image' ? <ImageIcon className="h-4 w-4" /> : kind === 'Post' ? <FileText className="h-4 w-4" /> : <Link className="h-4 w-4" />}<span className="ugc-link-dot" aria-hidden="true" style={{ background: statusColor(item.link_status) }} /></a>; })}{linked.length > CONTENT_ICONS ? <span className="ugc-pill-more" title={`Ещё ${linked.length - CONTENT_ICONS}`}>+{linked.length - CONTENT_ICONS}</span> : null}</div> : <span className="ugc-muted">—</span>}</td>
                 <td className="ugc-c-next ugc-sec-1" title={creator.collaboration?.next_action || undefined}>{creator.collaboration?.next_action || <span className="ugc-muted">—</span>}</td>
               </tr>;
             })}

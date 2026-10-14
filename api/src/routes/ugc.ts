@@ -4,6 +4,7 @@ import { fail, ok } from '../lib/responses';
 import { hasModuleAccess, validateSession, type AuthUser } from '../lib/auth';
 import { runUgcLinkHealthBatch } from '../lib/ugc-link-health';
 import { baseProductSku, identifyExplicitProducts, initialProductClassification, UGC_PRODUCTS } from '../lib/ugc-products.mjs';
+import { checkDailyLimit, compareByRecent, isPayoutStatus, latestActivityMs, maskPhone, parsePayoutAmount, payoutDate, statusStampColumn } from '../lib/ugc-payouts.mjs';
 
 type ImportRow = {
   handle?: unknown;
@@ -158,6 +159,31 @@ ugc.get('/', async (c) => {
     `SELECT * FROM ugc_collaborations ORDER BY updated_at DESC`
   ).all<Record<string, any>>();
 
+  // ugc_payouts arrives with migration 0116; until it is applied the screen
+  // must keep working, so a missing table reads as "no payouts".
+  let payoutRows: Record<string, any>[] = [];
+  try {
+    const result = await c.env.DB.prepare(
+      `SELECT id, creator_id, creator_platform_id, platform, handle, amount_minor,
+              currency, status, payout_date, marketplace, bank_ref, note,
+              approved_at, sent_at, paid_at, failed_at, created_at, updated_at
+       FROM ugc_payouts ORDER BY updated_at DESC`
+    ).all<Record<string, any>>();
+    payoutRows = result.results ?? [];
+  } catch { /* table not yet migrated */ }
+  const payoutsByCreator = new Map<string, Record<string, any>[]>();
+  for (const row of payoutRows) {
+    const list = payoutsByCreator.get(String(row.creator_id)) ?? [];
+    list.push(row);
+    payoutsByCreator.set(String(row.creator_id), list);
+  }
+  const contentByCreator = new Map<string, Record<string, any>[]>();
+  for (const row of metricRows.results ?? []) {
+    const list = contentByCreator.get(String(row.creator_id)) ?? [];
+    list.push({ imported_at: row.imported_at, published_at: row.published_at });
+    contentByCreator.set(String(row.creator_id), list);
+  }
+
   const byProfile = new Map<string, { views: number[]; comments: number[]; content_count: number; content: Record<string, unknown>[] }>();
   for (const row of metricRows.results ?? []) {
     const entry = byProfile.get(row.creator_platform_id) ?? { views: [], comments: [], content_count: 0, content: [] };
@@ -239,6 +265,7 @@ ugc.get('/', async (c) => {
       updated_at: row.profile_updated_at,
     };
     const creatorId = String(row.creator_id);
+    const creatorPayouts = payoutsByCreator.get(creatorId) ?? [];
     const creator = creators.get(creatorId) ?? {
       id: creatorId,
       normalized_handle: row.creator_handle,
@@ -253,6 +280,14 @@ ugc.get('/', async (c) => {
       updated_at: row.creator_updated_at,
       profiles: [],
       collaboration: latestCollaboration.get(creatorId) ?? null,
+      payout: creatorPayouts[0] ?? null,
+      payouts: creatorPayouts.slice(0, 20),
+      paid_total_minor: creatorPayouts.filter((item) => item.status === 'paid').reduce((sum, item) => sum + Number(item.amount_minor || 0), 0),
+      last_activity_at: latestActivityMs({
+        collaboration: latestCollaboration.get(creatorId) ?? null,
+        payouts: creatorPayouts,
+        content: contentByCreator.get(creatorId) ?? [],
+      }),
     };
     creator.profiles.push(profile);
     creators.set(creatorId, creator);
@@ -283,6 +318,12 @@ ugc.get('/', async (c) => {
        (SELECT COUNT(*) FROM ugc_collaborations WHERE status = 'published') published
     `
   ).first<Record<string, any>>();
+  const payoutSummary = {
+    payouts_awaiting: payoutRows.filter((row) => row.status === 'awaiting_approval').length,
+    payouts_open: payoutRows.filter((row) => row.status === 'approved' || row.status === 'sent').length,
+    payouts_paid: payoutRows.filter((row) => row.status === 'paid').length,
+    payouts_paid_minor: payoutRows.filter((row) => row.status === 'paid').reduce((sum, row) => sum + Number(row.amount_minor || 0), 0),
+  };
   const productCounts = new Map<string, number>();
   for (const row of metricRows.results ?? []) {
     let codes: string[] = [];
@@ -290,8 +331,15 @@ ugc.get('/', async (c) => {
     for (const match of identifyExplicitProducts(codes).matches) productCounts.set(match.sku, (productCounts.get(match.sku) ?? 0) + 1);
   }
 
+  // Default order: most recent activity first (Owner 2026-10-14).
+  const creatorList = Array.from(creators.values()).sort((a, b) => compareByRecent(
+    { last_activity_at: a.last_activity_at, followers: Math.max(-1, ...a.profiles.map((p: any) => p.followers ?? -1)), name: a.display_name ?? a.normalized_handle },
+    { last_activity_at: b.last_activity_at, followers: Math.max(-1, ...b.profiles.map((p: any) => p.followers ?? -1)), name: b.display_name ?? b.normalized_handle },
+  ));
+
   return ok(c, {
-    creators: Array.from(creators.values()),
+    creators: creatorList,
+    payout_summary: payoutSummary,
     summary: totals ?? {
       creators: 0, profiles: 0, content_items: 0, linked_content: 0,
       links_active: 0, links_missing: 0, links_restricted: 0, links_unknown: 0,
@@ -519,6 +567,177 @@ ugc.post('/collaborations', async (c) => {
     field('notes', 3000), now,
   ).run();
   return ok(c, { id, creator_id: creatorId, updated_at: now });
+});
+
+// ---------------------------------------------------------------------------
+// Barter payouts (0116, Owner 2026-10-14). Status only — never raw phone or
+// bank data. Ceiling: 999 ₽ per creator per payout per day.
+// ---------------------------------------------------------------------------
+
+const PAYOUT_COLUMNS = `p.id, p.creator_id, p.creator_platform_id, p.platform, p.handle, p.amount_minor,
+  p.currency, p.status, p.payout_date, p.marketplace, p.phone_masked, p.bank_ref, p.note,
+  p.approved_at, p.approved_by, p.sent_at, p.paid_at, p.failed_at, p.created_by,
+  p.created_at, p.updated_at, c.display_name creator_display_name, c.normalized_handle creator_handle`;
+
+type PayoutCreator = { creatorId: string; profileId: string | null; platform: string | null; handle: string | null };
+
+async function resolvePayoutCreator(c: any, body: Record<string, unknown>, now: number): Promise<PayoutCreator | Response> {
+  const creatorId = textValue(body.creator_id, 80);
+  if (creatorId) {
+    const creator = await c.env.DB.prepare(`SELECT id FROM ugc_creators WHERE id=?1`).bind(creatorId).first();
+    if (!creator) return fail(c, 404, [{ code: 'not_found', message: 'Creator not found' }]);
+    const profile = await c.env.DB.prepare(
+      `SELECT id, platform, handle FROM ugc_creator_platforms WHERE creator_id=?1 ORDER BY COALESCE(followers, -1) DESC LIMIT 1`
+    ).bind(creatorId).first() as Record<string, any> | null;
+    return { creatorId, profileId: profile?.id ?? null, platform: profile?.platform ?? null, handle: profile?.handle ?? null };
+  }
+  const normalizedHandle = normalizeHandle(body.handle);
+  if (!normalizedHandle) return fail(c, 422, [{ code: 'creator_required', message: 'creator_id or handle required' }]);
+  const platform = normalizePlatform(body.platform ?? 'instagram');
+  const existing = await c.env.DB.prepare(
+    `SELECT id, creator_id, handle FROM ugc_creator_platforms WHERE platform=?1 AND normalized_handle=?2`
+  ).bind(platform, normalizedHandle).first() as Record<string, any> | null;
+  if (existing) return { creatorId: String(existing.creator_id), profileId: String(existing.id), platform, handle: String(existing.handle) };
+  // Minimal record with the same stable ids the XLSX import uses, so a later
+  // import of the same handle lands on this creator instead of a twin.
+  const newCreatorId = await stableId('ugc', `${platform}:${normalizedHandle}`);
+  const profileId = await stableId('ugcp', `${platform}:${normalizedHandle}`);
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO ugc_creators (id, normalized_handle, lifecycle_stage, created_at, updated_at)
+       VALUES (?1, ?2, 'accepted', ?3, ?3) ON CONFLICT(id) DO NOTHING`
+    ).bind(newCreatorId, normalizedHandle, now),
+    c.env.DB.prepare(
+      `INSERT INTO ugc_creator_platforms (id, creator_id, platform, handle, normalized_handle, profile_url, source, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?4, ?5, 'ugc_payout', ?6, ?6) ON CONFLICT(platform, normalized_handle) DO NOTHING`
+    ).bind(profileId, newCreatorId, platform, normalizedHandle,
+      platform === 'instagram' ? `https://www.instagram.com/${normalizedHandle}/` : null, now),
+  ]);
+  return { creatorId: newCreatorId, profileId, platform, handle: normalizedHandle };
+}
+
+async function sameDayPayoutMinor(c: any, creatorId: string, day: string, excludeId: string | null): Promise<number> {
+  const row = await c.env.DB.prepare(
+    `SELECT COALESCE(SUM(amount_minor), 0) total FROM ugc_payouts
+     WHERE creator_id=?1 AND payout_date=?2 AND status <> 'failed' AND (?3 IS NULL OR id <> ?3)`
+  ).bind(creatorId, day, excludeId).first() as { total: number } | null;
+  return Number(row?.total ?? 0);
+}
+
+function isoOrNull(value: unknown): string | null {
+  const text = textValue(value, 40);
+  if (!text) return null;
+  const ms = Date.parse(text);
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString();
+}
+
+ugc.get('/payouts', async (c) => {
+  const access = await requireAccess(c);
+  if (access instanceof Response) return access;
+  const creatorId = textValue(c.req.query('creator_id'), 80);
+  const status = textValue(c.req.query('status'), 40);
+  if (status && !isPayoutStatus(status)) return fail(c, 422, [{ code: 'invalid_status', message: 'Unknown payout status' }]);
+  const rows = await c.env.DB.prepare(
+    `SELECT ${PAYOUT_COLUMNS} FROM ugc_payouts p JOIN ugc_creators c ON c.id = p.creator_id
+     WHERE (?1 IS NULL OR p.creator_id = ?1) AND (?2 IS NULL OR p.status = ?2)
+     ORDER BY p.updated_at DESC LIMIT 500`
+  ).bind(creatorId, status).all<Record<string, any>>();
+  return ok(c, { payouts: rows.results ?? [] });
+});
+
+ugc.post('/payouts', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch {
+    return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]);
+  }
+  const amount = parsePayoutAmount(body);
+  if (!amount.ok) return fail(c, 422, [{ code: amount.code, message: amount.message }]);
+  const status = textValue(body.status, 40) ?? 'awaiting_approval';
+  if (!isPayoutStatus(status)) return fail(c, 422, [{ code: 'invalid_status', message: 'Unknown payout status' }]);
+  const now = Date.now();
+  const day = payoutDate(body.payout_date, now);
+  const creator = await resolvePayoutCreator(c, body, now);
+  if (creator instanceof Response) return creator;
+  const daily = checkDailyLimit(await sameDayPayoutMinor(c, creator.creatorId, day, null), amount.amount_minor);
+  if (!daily.ok) return fail(c, 422, [{ code: daily.code, message: daily.message }]);
+  const stampAt = isoOrNull(body.status_at) ?? new Date(now).toISOString();
+  const stampColumn = statusStampColumn(status);
+  const stamp = (column: string) => (stampColumn === column ? stampAt : isoOrNull(body[column]));
+  const id = crypto.randomUUID();
+  await c.env.DB.prepare(
+    `INSERT INTO ugc_payouts
+       (id, creator_id, creator_platform_id, platform, handle, amount_minor, currency, status,
+        payout_date, marketplace, phone_masked, bank_ref, note, approved_at, approved_by,
+        sent_at, paid_at, failed_at, created_by, created_at, updated_at)
+     VALUES (?1,?2,?3,?4,?5,?6,'RUB',?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?19)`
+  ).bind(
+    id, creator.creatorId, creator.profileId, creator.platform, creator.handle, amount.amount_minor, status,
+    day, textValue(body.marketplace, 40), maskPhone(body.phone ?? body.phone_masked),
+    textValue(body.bank_ref, 200), textValue(body.note, 1000),
+    stamp('approved_at'), stampColumn === 'approved_at' ? access.name ?? null : textValue(body.approved_by, 120),
+    stamp('sent_at'), stamp('paid_at'), stamp('failed_at'), access.name ?? null, now,
+  ).run();
+  return ok(c, { id, creator_id: creator.creatorId, amount_minor: amount.amount_minor, status, payout_date: day, updated_at: now });
+});
+
+ugc.patch('/payouts/:id', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch {
+    return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]);
+  }
+  const id = c.req.param('id');
+  const current = await c.env.DB.prepare(`SELECT * FROM ugc_payouts WHERE id=?1`).bind(id).first<Record<string, any>>();
+  if (!current) return fail(c, 404, [{ code: 'not_found', message: 'Payout not found' }]);
+  let amountMinor = Number(current.amount_minor);
+  if (body.amount_rub !== undefined || body.amount_minor !== undefined) {
+    const amount = parsePayoutAmount(body);
+    if (!amount.ok) return fail(c, 422, [{ code: amount.code, message: amount.message }]);
+    amountMinor = amount.amount_minor;
+  }
+  const day = body.payout_date === undefined ? String(current.payout_date) : payoutDate(body.payout_date, Date.now());
+  const daily = checkDailyLimit(await sameDayPayoutMinor(c, String(current.creator_id), day, id), amountMinor);
+  if (!daily.ok) return fail(c, 422, [{ code: daily.code, message: daily.message }]);
+  const keep = (name: string, max: number) => (body[name] === undefined ? current[name] : textValue(body[name], max));
+  const now = Date.now();
+  await c.env.DB.prepare(
+    `UPDATE ugc_payouts SET amount_minor=?1, payout_date=?2, marketplace=?3, phone_masked=?4,
+       bank_ref=?5, note=?6, updated_at=?7 WHERE id=?8`
+  ).bind(
+    amountMinor, day, keep('marketplace', 40),
+    body.phone === undefined && body.phone_masked === undefined ? current.phone_masked : maskPhone(body.phone ?? body.phone_masked),
+    keep('bank_ref', 200), keep('note', 1000), now, id,
+  ).run();
+  return ok(c, { id, amount_minor: amountMinor, payout_date: day, updated_at: now });
+});
+
+ugc.post('/payouts/:id/status', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch {
+    return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]);
+  }
+  const status = textValue(body.status, 40);
+  if (!status || !isPayoutStatus(status)) return fail(c, 422, [{ code: 'invalid_status', message: 'status must be awaiting_approval, approved, sent, paid or failed' }]);
+  const id = c.req.param('id');
+  const current = await c.env.DB.prepare(`SELECT id FROM ugc_payouts WHERE id=?1`).bind(id).first();
+  if (!current) return fail(c, 404, [{ code: 'not_found', message: 'Payout not found' }]);
+  const now = Date.now();
+  const at = isoOrNull(body.at) ?? new Date(now).toISOString();
+  const column = statusStampColumn(status);
+  // The column name comes from a fixed map, never from the request.
+  const stampSql = column ? `, ${column}=?5` : '';
+  const approvedBySql = column === 'approved_at' ? ', approved_by=?6' : '';
+  await c.env.DB.prepare(
+    `UPDATE ugc_payouts SET status=?1, updated_at=?2,
+       bank_ref=COALESCE(?3, bank_ref), note=COALESCE(?4, note)${stampSql}${approvedBySql}
+     WHERE id=?7`
+  ).bind(status, now, textValue(body.bank_ref, 200), textValue(body.note, 1000), at, access.name ?? null, id).run();
+  return ok(c, { id, status, at, updated_at: now });
 });
 
 export default ugc;

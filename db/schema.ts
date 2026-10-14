@@ -596,3 +596,32 @@ export const ugcCollaborations = sqliteTable("ugc_collaborations", {
 }, (t) => ({
   creatorIdx: index("idx_ugc_collaborations_creator").on(t.creatorId, t.updatedAt),
 }));
+
+// Barter refund payouts (0116). Status only — never raw phone or bank data.
+export const ugcPayouts = sqliteTable("ugc_payouts", {
+  id: text("id").primaryKey(),
+  creatorId: text("creator_id").notNull().references(() => ugcCreators.id),
+  creatorPlatformId: text("creator_platform_id").references(() => ugcCreatorPlatforms.id),
+  platform: text("platform"),
+  handle: text("handle"),
+  amountMinor: integer("amount_minor").notNull(),
+  currency: text("currency").notNull().default("RUB"),
+  status: text("status", { enum: ["awaiting_approval", "approved", "sent", "paid", "failed"] }).notNull().default("awaiting_approval"),
+  payoutDate: text("payout_date").notNull(),
+  marketplace: text("marketplace"),
+  phoneMasked: text("phone_masked"),
+  bankRef: text("bank_ref"),
+  note: text("note"),
+  approvedAt: text("approved_at"),
+  approvedBy: text("approved_by"),
+  sentAt: text("sent_at"),
+  paidAt: text("paid_at"),
+  failedAt: text("failed_at"),
+  createdBy: text("created_by"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (t) => ({
+  creatorIdx: index("idx_ugc_payouts_creator").on(t.creatorId, t.updatedAt),
+  statusIdx: index("idx_ugc_payouts_status").on(t.status, t.updatedAt),
+  dayIdx: index("idx_ugc_payouts_day").on(t.creatorId, t.payoutDate),
+}));

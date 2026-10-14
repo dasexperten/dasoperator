@@ -1,0 +1,12 @@
+export type UgcPayoutStatus = 'awaiting_approval' | 'approved' | 'sent' | 'paid' | 'failed';
+export const UGC_PAYOUT_MAX_MINOR: number;
+export const UGC_PAYOUT_STATUSES: UgcPayoutStatus[];
+export type AmountResult = { ok: true; amount_minor: number } | { ok: false; code: string; message: string };
+export function parsePayoutAmount(body: Record<string, unknown> | null | undefined): AmountResult;
+export function checkDailyLimit(existingSameDayMinor: number | null | undefined, amountMinor: number): { ok: true } | { ok: false; code: string; message: string };
+export function isPayoutStatus(value: unknown): value is UgcPayoutStatus;
+export function statusStampColumn(status: string): 'approved_at' | 'sent_at' | 'paid_at' | 'failed_at' | null;
+export function maskPhone(value: unknown): string | null;
+export function payoutDate(value: unknown, fallbackMs?: number): string;
+export function latestActivityMs(input?: { collaboration?: Record<string, unknown> | null; payouts?: Record<string, unknown>[]; content?: Record<string, unknown>[] }): number | null;
+export function compareByRecent(a: { last_activity_at?: number | null; followers?: number | null; name?: string | null }, b: { last_activity_at?: number | null; followers?: number | null; name?: string | null }): number;

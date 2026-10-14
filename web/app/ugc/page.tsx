@@ -1,7 +1,7 @@
 'use client';
 
 import { ChangeEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpDown, ExternalLink, FileSpreadsheet, FileText, ImageIcon, Link, Link2Off, Loader2, Search, Users, Video, X } from 'lucide-react';
+import { ArrowUpDown, ExternalLink, Facebook, FileSpreadsheet, FileText, Globe, ImageIcon, Instagram, Link, Link2Off, Loader2, Search, Send, Users, Video, X, Youtube } from 'lucide-react';
 import './ugc-layout.css';
 import PageHeader from '@/components/ui/page-header';
 import { apiGet, apiPatch, apiPost } from '@/lib/api';
@@ -182,6 +182,31 @@ function payoutTitle(payout: Payout | null | undefined): string {
 function PayoutBadge({ payout }: { payout: Payout | null | undefined }) {
   const cell = payoutCell(payout);
   return <span className="ugc-payout" data-tone={cell.tone} title={payoutTitle(payout)} aria-label={`${payoutTitle(payout)}`}>{cell.text}</span>;
+}
+
+// «Сеть» (Owner 2026-10-14): one monochrome icon per network, never the word.
+// Lucide marks where they exist; TikTok is its public glyph in currentColor;
+// VK, Shopee and Lazada get a letter mark in the same ink.
+const TIKTOK_PATH = 'M12.53.02C13.84 0 15.14.01 16.44 0c.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z';
+const LETTER_MARK: Record<string, string> = { vk: 'VK', shopee: 'S', lazada: 'L' };
+
+function PlatformIcon({ platform }: { platform: string }) {
+  const key = String(platform ?? '').toLowerCase();
+  const label = platformLabel(key);
+  const glyph = key === 'instagram' ? <Instagram className="h-[18px] w-[18px]" aria-hidden="true" />
+    : key === 'youtube' ? <Youtube className="h-[18px] w-[18px]" aria-hidden="true" />
+    : key === 'facebook' ? <Facebook className="h-[18px] w-[18px]" aria-hidden="true" />
+    : key === 'telegram' ? <Send className="h-[18px] w-[18px]" aria-hidden="true" />
+    : key === 'tiktok' ? <svg viewBox="0 0 24 24" className="h-[16px] w-[16px]" aria-hidden="true"><path fill="currentColor" d={TIKTOK_PATH} /></svg>
+    : LETTER_MARK[key] ? <span className="ugc-letter-mark" aria-hidden="true">{LETTER_MARK[key]}</span>
+    : <Globe className="h-[18px] w-[18px]" aria-hidden="true" />;
+  return <span className="ugc-platform-icon" role="img" aria-label={label} title={label}>{glyph}</span>;
+}
+
+function PlatformIcons({ creator }: { creator: Creator }) {
+  const platforms = Array.from(new Set(creator.profiles.map((profile) => String(profile.platform ?? '').toLowerCase()).filter(Boolean)));
+  if (!platforms.length) return <span className="ugc-muted">—</span>;
+  return <span className="ugc-platforms-cell">{platforms.map((platform) => <PlatformIcon key={platform} platform={platform} />)}</span>;
 }
 
 const LINK_STATUS_LABEL: Record<LinkStatus, string> = { active: 'Active', missing: 'Missing', restricted: 'Restricted', unknown: 'Unknown', invalid: 'Invalid' };
@@ -413,9 +438,9 @@ export default function UgcPage() {
           {loading ? <p className="p-3">Загрузка…</p> : creators.length === 0 ? <p className="p-3">Никого не найдено.</p> : creators.map((creator) => {
             const profile = primaryProfile(creator, platform);
             const views = profile.avg_video_views ?? profile.latest_observed_views;
-            const name = creator.display_name || (profile.handle ? `@${profile.handle}` : 'Автор');
+            const name = profile.handle ? `@${profile.handle}` : creator.display_name || 'Автор';
             return <div key={creator.id} className="ugc-mobile-row">
-              <button type="button" className="ugc-mobile-name" title={profile.handle ? `${name} · @${profile.handle}` : name} onClick={() => setSelectedId(creator.id)}><span className="ugc-mobile-title">{name}</span><span className="ugc-mobile-meta">{platformLabel(profile.platform)} · {formatActivity(creator.last_activity_at)}</span></button>
+              <button type="button" className="ugc-mobile-name" title={creator.display_name ? `${name} · ${creator.display_name}` : name} onClick={() => setSelectedId(creator.id)}><span className="ugc-mobile-title">{name}</span><span className="ugc-mobile-meta"><PlatformIcons creator={creator} /><span>{formatActivity(creator.last_activity_at)}</span></span></button>
               <span title={`Подписчики: ${profile.followers ?? 'нет данных'}`}>{formatCount(profile.followers)}</span>
               <span title={`ER: ${profile.engagement_rate ?? 'нет данных'}`}>{formatRate(profile.engagement_rate)}</span>
               <span title={`Просмотры: ${views ?? 'нет данных'}`}>{formatCount(views)}</span>
@@ -443,11 +468,12 @@ export default function UgcPage() {
               const views = profile.avg_video_views ?? profile.latest_observed_views;
               const linked = linkedContent(profile);
               const products = Array.from(new Map(profile.content.flatMap((item) => item.products).map((item) => [item.sku, item])).values());
-              const name = creator.display_name || `@${profile.handle}`;
-              const handleLine = creator.display_name && profile.handle ? `@${profile.handle}` : null;
+              const handle = profile.handle ? `@${profile.handle}` : null;
+              const name = handle ?? creator.display_name ?? 'Автор';
+              const secondName = handle && creator.display_name ? creator.display_name : null;
               return <tr key={creator.id} style={{ borderTop: '1px solid var(--border-hairline)' }}>
-                <td className="ugc-c-creator"><button type="button" title={`${name} · ${platformLabel(profile.platform)} · @${profile.handle}`} onClick={() => setSelectedId(creator.id)} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="ugc-creator-name">{name}</span>{handleLine ? <span className="ugc-creator-handle">{handleLine}</span> : null}<span className="ugc-creator-platform">{platformLabel(profile.platform)}</span></button></td>
-                <td className="ugc-c-platform">{platformLabel(profile.platform)}</td>
+                <td className="ugc-c-creator"><button type="button" title={[name, secondName].filter(Boolean).join(' · ')} onClick={() => setSelectedId(creator.id)} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="ugc-creator-name">{name}</span>{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span></button></td>
+                <td className="ugc-c-platform"><PlatformIcons creator={creator} /></td>
                 <td className="ugc-c-num" title={profile.followers == null ? 'Нет данных' : `${profile.followers}`}>{formatCount(profile.followers)}</td>
                 <td className="ugc-c-num" title={profile.engagement_rate == null ? 'Нет данных' : `${profile.engagement_rate}%`}>{formatRate(profile.engagement_rate)}</td>
                 <td className="ugc-c-num" title={views == null ? 'Нет данных' : profile.view_observations === 1 ? `${views} · одна публикация` : `${views}`}><span className="ugc-figure">{formatCount(views)}{profile.view_observations === 1 && views != null ? <span className="ugc-star" aria-label="одна публикация">*</span> : null}</span></td>

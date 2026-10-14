@@ -16,7 +16,7 @@
 .ugc-table td > .inline-flex { display: flex; }
 .ugc-table td .inline-flex > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ugc-table svg { flex-shrink: 0; }
-/* «Оплата»: solid rectangle, white amount; green paid, red everything else. */
+/* «Оплата»: solid rectangle, white amount; green = passed to Konsol (sent, paid), red otherwise. */
 .ugc-payout { display: inline-block; padding: 4px 10px; border-radius: var(--radius-sm); color: var(--fg-on-brand); background: var(--status-error); font-weight: 700; font-size: 12px; line-height: 1.4; white-space: nowrap; font-variant-numeric: tabular-nums; letter-spacing: 0; }
 .ugc-payout[data-tone="green"] { background: var(--status-success); }
 .ugc-content-url { white-space: nowrap; line-height: 44px; }

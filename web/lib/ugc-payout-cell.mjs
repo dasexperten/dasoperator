@@ -1,6 +1,8 @@
 // «Оплата» cell on /ugc (Owner 2026-10-14): a solid rectangle with the amount.
-// Green only when paid; red for every other state, and for no payout at all.
-// The status name lives in the hover title only.
+// «Если оплата сделана, то зелёная. Если ещё не сделана, то красная.» A payment
+// counts as made once it is passed to Konsol: green for sent and paid; red for
+// awaiting_approval, approved, failed, and for no payout at all («—»).
+// The status name (sent vs paid) lives in the hover title only.
 
 export const PAYOUT_STATUS_LABEL = {
   none: 'Unpaid',
@@ -10,6 +12,8 @@ export const PAYOUT_STATUS_LABEL = {
   paid: 'Paid',
   failed: 'Ошибка',
 };
+
+const MADE = new Set(['sent', 'paid']);
 
 /** Roubles with a non-breaking space before the sign (§4h-2). */
 export function formatRub(minor) {
@@ -21,7 +25,7 @@ export function payoutCell(payout) {
   if (!payout) return { tone: 'red', text: '—', title: PAYOUT_STATUS_LABEL.none };
   const status = payout.status in PAYOUT_STATUS_LABEL ? payout.status : 'none';
   return {
-    tone: status === 'paid' ? 'green' : 'red',
+    tone: MADE.has(status) ? 'green' : 'red',
     text: formatRub(payout.amount_minor) || '—',
     title: PAYOUT_STATUS_LABEL[status],
   };

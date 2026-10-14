@@ -1,12 +1,13 @@
 // /ugc table figures (Marika, Owner 2026-10-14 «приведи эту таблицу в порядок»).
-// Russian digit groups with a non-breaking space, whole numbers for counts,
-// one decimal for ER, the percent sign held to its number (§4h-2).
+// Owner override 14.10.2026 for this screen: «не 10 542, а прямо одним числом 10542»,
+// counts carry no digit groups. Whole numbers for counts, one decimal for ER,
+// the percent sign held to its number with a non-breaking space (§4h-2).
 
 const NBSP = ' ';
-const COUNT = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 });
-const RATE = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 });
+const COUNT = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0, useGrouping: false });
+const RATE = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1, useGrouping: false });
 
-/** Followers, views, posts: «5 964», never «5,964» or «1 447,7». */
+/** Followers, views, posts: «5964», never «5 964», «5,964» or «1 447,7». */
 export function formatCount(value) {
   if (value == null || !Number.isFinite(Number(value))) return '—';
   return COUNT.format(Math.round(Number(value))).replace(/\s/g, NBSP);

@@ -21,22 +21,24 @@
 .ugc-table { table-layout: fixed; width: 100%; border-collapse: collapse; }
 /* Same measure as /planner (Owner 2026-10-14): 14px bold figures, cells 10px 12px, heads 8px 12px. */
 .ugc-table :is(th, td) { white-space: nowrap; padding: 10px 12px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; text-align: left; font-size: 14px; font-weight: 700; line-height: 20px; }
-.ugc-table th { padding: 8px 12px; color: var(--fg-2); }
+/* Owner widths 14.10.2026, set by hand on the preview (1440 frame, 1044 px): Автор 186 and wider. */
+.ugc-table th { padding: 8px 12px; color: var(--fg-2); text-overflow: clip; }
+.ugc-table :is(th, td).ugc-c-num, .ugc-table :is(th, td).ugc-c-platform, .ugc-table :is(th, td).ugc-c-er { padding-left: 6px; padding-right: 6px; }
 .ugc-table tbody td { height: 64px; }
 .ugc-table .ugc-c-num { text-align: right; font-variant-numeric: tabular-nums; }
-.ugc-table th.ugc-c-platform { width: 88px; }
-.ugc-table th.ugc-c-followers { width: 120px; }
-.ugc-table th.ugc-c-er { width: 80px; }
-.ugc-table th.ugc-c-views { width: 116px; }
-.ugc-table th.ugc-c-activity { width: 112px; }
-.ugc-table th.ugc-c-pay { width: 112px; }
-.ugc-table th.ugc-c-posts { width: 80px; }
-.ugc-table th.ugc-c-product { width: 144px; }
-.ugc-table th.ugc-c-media { width: 176px; }
-.ugc-table th.ugc-c-next { width: 148px; }
+.ugc-table th.ugc-c-platform { width: 58px; }
+.ugc-table th.ugc-c-followers { width: 68px; }
+.ugc-table th.ugc-c-er { width: 56px; }
+.ugc-table th.ugc-c-views { width: 85px; }
+.ugc-table th.ugc-c-activity { width: 71px; }
+.ugc-table th.ugc-c-pay { width: 101px; }
+.ugc-table th.ugc-c-posts { width: 59px; }
+.ugc-table th.ugc-c-product { width: 121px; }
+.ugc-table th.ugc-c-media { width: 159px; }
+.ugc-table th.ugc-c-next { width: 80px; }
 .ugc-table tbody tr:hover { background: var(--paper-sunk); }
 /* Payout: one width in every row, right edge on the head's right edge. */
-.ugc-table .ugc-payout { width: 84px; padding: 2px 0; text-align: center; font-size: 14px; line-height: 20px; vertical-align: middle; }
+.ugc-table .ugc-payout { width: 80px; padding: 2px 0; text-align: center; font-size: 14px; line-height: 20px; vertical-align: middle; }
 /* Creator: one line in every row, name then handle. */
 .ugc-table td > button.ugc-creator { display: flex !important; flex-direction: row; align-items: center; gap: 8px; width: 100%; min-width: 0; }
 .ugc-creator > span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -59,17 +61,17 @@
 .ugc-media-link { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 28px; width: 28px; height: 28px; color: var(--brand-rot); border-radius: var(--radius-sm); }
 .ugc-media-link:hover { color: var(--fg-1); background: var(--paper-sunk); }
 .ugc-table svg { flex-shrink: 0; }
-/* Column sets by table width: creator keeps at least 240px. */
-@container ugc-table (max-width: 1431px) {
+/* Column sets by table width: all eleven from 1044 px (the 1440 screen) up; creator keeps 186 px. */
+@container ugc-table (max-width: 1043px) {
   .ugc-table .ugc-sec-1 { display: none; }
 }
-@container ugc-table (max-width: 1283px) {
+@container ugc-table (max-width: 963px) {
   .ugc-table .ugc-sec-3 { display: none; }
 }
-@container ugc-table (max-width: 1107px) {
+@container ugc-table (max-width: 804px) {
   .ugc-table .ugc-sec-2 { display: none; }
 }
-@container ugc-table (max-width: 883px) {
+@container ugc-table (max-width: 624px) {
   .ugc-table .ugc-c-platform { display: none; }
   .ugc-creator-platform { display: inline-flex !important; }
 }

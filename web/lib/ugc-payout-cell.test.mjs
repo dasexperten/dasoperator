@@ -19,3 +19,7 @@ test('no payout is a red rectangle with a dash', () => {
   assert.deepEqual(payoutCell(null), { tone: 'red', text: '—', title: 'Unpaid' });
   assert.deepEqual(payoutCell(undefined), { tone: 'red', text: '—', title: 'Unpaid' });
 });
+
+test('amounts of 1000 and more stay one figure (Owner 2026-10-14)', () => {
+  assert.equal(payoutCell({ status: 'paid', amount_minor: 152700 }).text, `1527${NBSP}₽`);
+});

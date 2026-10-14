@@ -15,10 +15,10 @@ export const PAYOUT_STATUS_LABEL = {
 
 const MADE = new Set(['sent', 'paid']);
 
-/** Roubles with a non-breaking space before the sign (§4h-2). */
+/** Roubles as one figure (Owner 2026-10-14: «1527 ₽»), non-breaking space before the sign (§4h-2). */
 export function formatRub(minor) {
   if (minor == null || !Number.isFinite(Number(minor))) return '';
-  return `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(Number(minor) / 100)} ₽`;
+  return `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2, useGrouping: false }).format(Number(minor) / 100)} ₽`;
 }
 
 export function payoutCell(payout) {

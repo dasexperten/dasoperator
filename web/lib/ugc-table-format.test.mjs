@@ -4,10 +4,11 @@ import { formatActivity, formatCount, formatRate, platformLabel } from './ugc-ta
 
 const NBSP = ' ';
 
-test('counts are whole, grouped with a non-breaking space', () => {
-  assert.equal(formatCount(5964), `5${NBSP}964`);
-  assert.equal(formatCount(1447.7), `1${NBSP}448`);
-  assert.equal(formatCount(3_600_000), `3${NBSP}600${NBSP}000`);
+test('counts are whole and one figure, no digit groups (Owner 2026-10-14)', () => {
+  assert.equal(formatCount(5964), '5964');
+  assert.equal(formatCount(1447.7), '1448');
+  assert.equal(formatCount(10542), '10542');
+  assert.equal(formatCount(3_600_000), '3600000');
   assert.equal(formatCount(0), '0');
   assert.equal(formatCount(null), '—');
   assert.equal(formatCount(undefined), '—');

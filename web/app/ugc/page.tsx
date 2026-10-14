@@ -252,6 +252,37 @@ function Kpi({ label, value, exact, note, accent }: { label: string; value: stri
   );
 }
 
+// Owner 2026-10-14: every head reads in full. A head wider than its column steps
+// its size down by half a point to 10px; only at 10px may it wrap. No ellipsis,
+// no letter-spacing.
+const HEAD_MAX = 14;
+const HEAD_MIN = 10;
+function fitHeads(table: HTMLTableElement | null) {
+  if (!table) return;
+  table.querySelectorAll<HTMLTableCellElement>('thead th').forEach((th) => {
+    th.style.removeProperty('font-size');
+    th.style.removeProperty('white-space');
+    if (th.offsetParent === null) return;
+    let size = HEAD_MAX;
+    th.style.setProperty('font-size', `${size}px`, 'important');
+    while (th.scrollWidth > th.clientWidth && size > HEAD_MIN) {
+      size -= 0.5;
+      th.style.setProperty('font-size', `${size}px`, 'important');
+    }
+    if (th.scrollWidth > th.clientWidth) th.style.setProperty('white-space', 'normal', 'important');
+  });
+  // A figure never hides behind an ellipsis either (§4h-2): it shrinks, it is not cut.
+  table.querySelectorAll<HTMLTableCellElement>('tbody td.ugc-c-num').forEach((td) => {
+    td.style.removeProperty('font-size');
+    if (td.offsetParent === null || td.scrollWidth <= td.clientWidth) return;
+    let size = HEAD_MAX;
+    while (td.scrollWidth > td.clientWidth && size > HEAD_MIN) {
+      size -= 0.5;
+      td.style.setProperty('font-size', `${size}px`, 'important');
+    }
+  });
+}
+
 export default function UgcPage() {
   const [data, setData] = useState<UgcPayload>(API_EMPTY);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
@@ -268,6 +299,7 @@ export default function UgcPage() {
   const [checkMessage, setCheckMessage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const urlStateReady = useRef(false);
+  const tableRef = useRef<HTMLTableElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -325,6 +357,15 @@ export default function UgcPage() {
     });
     return rows;
   }, [data.creators, platform, sort]);
+  useEffect(() => {
+    const table = tableRef.current;
+    if (!table) return;
+    fitHeads(table);
+    const observer = new ResizeObserver(() => fitHeads(table));
+    observer.observe(table);
+    document.fonts?.ready.then(() => fitHeads(table));
+    return () => observer.disconnect();
+  }, [creators, loading]);
   const selected = data.creators.find((creator) => creator.id === selectedId) ?? null;
   const headline = useMemo(() => {
     const profiles = data.creators.flatMap((creator) => creator.profiles);
@@ -448,7 +489,7 @@ export default function UgcPage() {
             </div>;
           })}
         </div>
-        <table className="ugc-table dx-keep-table w-full text-sm">
+        <table ref={tableRef} className="ugc-table dx-keep-table w-full text-sm">
           <thead><tr className="border-b border-stone-200 bg-stone-50">
             <th scope="col" className="ugc-c-creator">Автор</th>
             <th scope="col" className="ugc-c-platform">Сеть</th>

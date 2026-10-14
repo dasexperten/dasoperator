@@ -8,14 +8,59 @@
 .ugc-page .grid > div > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ugc-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .ugc-platforms { overflow: visible; }
-.ugc-table { table-layout: fixed; width: 100%; }
-.ugc-table :is(th, td) { white-space: nowrap; padding: 12px 8px; overflow: hidden; text-overflow: ellipsis; }
-.ugc-table th { font-size: 12px; }
+/* Table (Marika, Owner 2026-10-14): the creator first, then network, the three
+   reach figures, last activity and payment; posts, product, content and next
+   step follow and step out as the screen narrows. Figures sit right, Russian
+   digit groups, one fixed width per figure column so neighbours never squeeze it. */
+.ugc-table { table-layout: fixed; width: 100%; border-collapse: collapse; }
+/* Same measure as /planner (Owner 2026-10-14): 14px bold figures, cells 10px 12px, heads 8px 12px. */
+.ugc-table :is(th, td) { white-space: nowrap; padding: 10px 12px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; text-align: left; font-size: 14px; font-weight: 700; }
+.ugc-table th { padding: 8px 12px; color: var(--fg-2); }
+.ugc-table .ugc-payout { font-size: 14px; padding: 3px 10px; }
+.ugc-table .ugc-c-num { text-align: right; font-variant-numeric: tabular-nums; }
+.ugc-table th.ugc-c-platform { width: 104px; }
+.ugc-table th.ugc-c-followers { width: 120px; }
+.ugc-table th.ugc-c-er { width: 80px; }
+.ugc-table th.ugc-c-views { width: 116px; }
+.ugc-table th.ugc-c-activity { width: 112px; }
+.ugc-table th.ugc-c-pay { width: 112px; }
+.ugc-table th.ugc-c-posts { width: 80px; }
+.ugc-table th.ugc-c-product { width: 144px; }
+.ugc-table th.ugc-c-media { width: 128px; }
+.ugc-table th.ugc-c-next { width: 148px; }
+.ugc-table tbody tr:hover { background: var(--paper-sunk); }
 .ugc-table td > button { display: block; width: 100%; }
-.ugc-table td .flex { flex-wrap: nowrap; }
-.ugc-table td > .inline-flex { display: flex; }
-.ugc-table td .inline-flex > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ugc-creator { display: flex !important; flex-direction: column; justify-content: center; }
+.ugc-creator > span { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.ugc-creator-name { font-weight: 700; color: var(--fg-1); }
+.ugc-creator:hover .ugc-creator-name { color: var(--brand-rot); }
+.ugc-creator-handle, .ugc-muted { color: var(--fg-3); font-weight: 400; }
+.ugc-creator-platform { display: none !important; color: var(--fg-3); }
+.ugc-star { margin-left: 2px; color: var(--fg-3); }
+.ugc-pills { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; }
+.ugc-pill { padding: 2px 8px; font-weight: 700; color: var(--brand-schwarz); background: var(--brand-gold); border-radius: var(--radius-pill); }
+.ugc-pill-more { color: var(--fg-2); font-weight: 700; }
+.ugc-media { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ugc-link-dot { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; }
+.ugc-media-link { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; font-weight: 700; color: var(--brand-rot); }
+.ugc-media-link:hover { color: var(--fg-1); }
+.ugc-media .inline-flex > span { min-width: 0; }
 .ugc-table svg { flex-shrink: 0; }
+@media (max-width: 1679px) {
+  .ugc-table .ugc-sec-1 { display: none; }
+}
+@media (max-width: 1439px) {
+  .ugc-table .ugc-sec-3 { display: none; }
+}
+@media (max-width: 1199px) {
+  .ugc-table .ugc-sec-2 { display: none; }
+}
+@media (max-width: 1099px) {
+  .ugc-table .ugc-c-platform { display: none; }
+  .ugc-creator-platform { display: block !important; }
+  .ugc-table th.ugc-c-followers, .ugc-table th.ugc-c-views { width: 108px; }
+  .ugc-table th.ugc-c-activity { width: 100px; }
+}
 /* «Оплата»: solid rectangle, white amount; green = passed to Konsol (sent, paid), red otherwise. */
 .ugc-payout { display: inline-block; padding: 4px 10px; border-radius: var(--radius-sm); color: var(--fg-on-brand); background: var(--status-error); font-weight: 700; font-size: 12px; line-height: 1.4; white-space: nowrap; font-variant-numeric: tabular-nums; letter-spacing: 0; }
 .ugc-payout[data-tone="green"] { background: var(--status-success); }
@@ -42,14 +87,15 @@
   .ugc-page .dx-page-actions, .ugc-page .ugc-import { display: none !important; }
   .ugc-page table.ugc-table { display: none !important; }
   .ugc-mobile-list { display: block; }
-  .ugc-mobile-row { display: grid; grid-template-columns: minmax(0, 1fr) 48px 40px 26px 30px 60px; align-items: center; gap: 4px; padding: 0 8px; min-height: 44px; border-top: 1px solid var(--border-hairline); font-size: 12px; white-space: nowrap; }
+  .ugc-mobile-row { display: grid; grid-template-columns: minmax(0, 1fr) 56px 48px 52px 72px; align-items: center; gap: 4px; padding: 0 8px; min-height: 44px; border-top: 1px solid var(--border-hairline); font-size: 12px; white-space: nowrap; }
   .ugc-mobile-row > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: right; font-variant-numeric: tabular-nums; }
-  .ugc-mobile-row .ugc-mobile-name { text-align: left; font-weight: 700; min-height: 44px; color: var(--brand-rot); }
+  .ugc-mobile-row .ugc-mobile-name { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; text-align: left; min-height: 44px; padding: 4px 0; }
+  .ugc-mobile-row .ugc-mobile-title { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-weight: 700; color: var(--brand-rot); }
+  .ugc-mobile-row .ugc-mobile-meta { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--fg-3); }
   .ugc-mobile-head { color: var(--fg-3); font-size: 10px; min-height: 28px; border-top: 0; }
   .ugc-mobile-head > :first-child { text-align: left; }
   .ugc-mobile-pay { display: flex; align-items: center; justify-content: flex-end; min-height: 44px; }
   .ugc-mobile-pay .ugc-payout { padding: 4px 6px; font-size: 11px; }
-  .ugc-mobile-work { display: flex; align-items: center; justify-content: center; min-height: 44px; color: var(--brand-rot); }
   .ugc-mobile-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; }
   .ugc-mobile-controls button { min-height: 44px; padding: 0 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); font-weight: 700; }
   .ugc-page .ugc-controls[data-expanded="false"] #ugc-platforms,

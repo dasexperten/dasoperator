@@ -7,6 +7,7 @@ import PageHeader from '@/components/ui/page-header';
 import { apiGet, apiPatch, apiPost } from '@/lib/api';
 import { parseUgcWorkbook } from '@/lib/ugc-import';
 import { formatRub, PAYOUT_STATUS_LABEL, payoutCell } from '@/lib/ugc-payout-cell.mjs';
+import { formatActivity, formatCount, formatRate, platformLabel } from '@/lib/ugc-table-format.mjs';
 
 type PlatformMetric = {
   id: string;
@@ -188,6 +189,10 @@ function PayoutBadge({ payout }: { payout: Payout | null | undefined }) {
 }
 
 const LINK_STATUS_LABEL: Record<LinkStatus, string> = { active: 'Active', missing: 'Missing', restricted: 'Restricted', unknown: 'Unknown', invalid: 'Invalid' };
+// Table cells speak Russian, like the column heads (Owner 2026-10-14).
+const LINK_STATUS_SHORT: Record<LinkStatus, string> = { active: 'Доступна', missing: 'Удалена', restricted: 'Закрыта', unknown: 'Не ясно', invalid: 'Ошибка' };
+const MEDIA_LABEL: Record<ReturnType<typeof mediaKind>, string> = { Video: 'Видео', Image: 'Фото', Post: 'Пост', Content: 'Ссылка' };
+const PRODUCT_PILLS = 2;
 
 function formatCheckedAt(value: string | null | undefined): string {
   if (!value) return 'Not checked';
@@ -406,39 +411,63 @@ export default function UgcPage() {
 
       <section className="ugc-table-shell" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-card)' }}>
         <div className="ugc-mobile-list">
-          <div className="ugc-mobile-row ugc-mobile-head" aria-hidden="true"><span>Creator</span><span>Followers</span><span>Views</span><span>Posts</span><span /><span>Оплата</span></div>
-          {loading ? <p className="p-3">Loading UGC…</p> : creators.length === 0 ? <p className="p-3">No creators match this view.</p> : creators.map((creator) => {
+          <div className="ugc-mobile-row ugc-mobile-head" aria-hidden="true"><span>Автор</span><span>Подп.</span><span>ER</span><span>Просм.</span><span>Оплата</span></div>
+          {loading ? <p className="p-3">Загрузка…</p> : creators.length === 0 ? <p className="p-3">Никого не найдено.</p> : creators.map((creator) => {
             const profile = primaryProfile(creator, platform);
-            const latest = latestLinkedContent(profile);
-            const name = profile.handle ? `@${profile.handle}` : creator.display_name || 'Creator';
+            const views = profile.avg_video_views ?? profile.latest_observed_views;
+            const name = creator.display_name || (profile.handle ? `@${profile.handle}` : 'Автор');
             return <div key={creator.id} className="ugc-mobile-row">
-              <button type="button" className="ugc-mobile-name" title={creator.display_name || name} onClick={() => setSelectedId(creator.id)}>{name}</button>
-              <span title={`${profile.followers ?? 'Unknown'} followers`}>{formatNumber(profile.followers)}</span>
-              <span title={`${profile.avg_video_views ?? profile.latest_observed_views ?? 'Unknown'} views`}>{formatNumber(profile.avg_video_views ?? profile.latest_observed_views)}</span>
-              <span title={`${profile.content_count} publications`}>{formatNumber(profile.content_count)}</span>
-              {latest ? <a href={latest.href} target="_blank" rel="noopener noreferrer" className="ugc-mobile-work" aria-label={`Open completed work from ${name}`} title="Open completed work"><Video size={18} /></a> : <span aria-label="No completed work">—</span>}
+              <button type="button" className="ugc-mobile-name" title={profile.handle ? `${name} · @${profile.handle}` : name} onClick={() => setSelectedId(creator.id)}><span className="ugc-mobile-title">{name}</span><span className="ugc-mobile-meta">{platformLabel(profile.platform)} · {formatActivity(creator.last_activity_at)}</span></button>
+              <span title={`Подписчики: ${profile.followers ?? 'нет данных'}`}>{formatCount(profile.followers)}</span>
+              <span title={`ER: ${profile.engagement_rate ?? 'нет данных'}`}>{formatRate(profile.engagement_rate)}</span>
+              <span title={`Просмотры: ${views ?? 'нет данных'}`}>{formatCount(views)}</span>
               <span className="ugc-mobile-pay"><PayoutBadge payout={creator.payout} /></span>
             </div>;
           })}
         </div>
         <table className="ugc-table dx-keep-table w-full text-sm">
-          <colgroup>{[20, 8, 8, 7, 7, 10, 13, 14, 13].map((width, i) => <col key={i} style={{ width: `${width}%` }} />)}</colgroup>
-          <thead style={{ background: 'var(--paper-sunk)', color: 'var(--fg-2)' }}><tr><th className="text-left p-3">Creator</th><th className="text-right p-3">Followers</th><th className="text-right p-3">Avg views</th><th className="text-right p-3">Eng. %</th><th className="text-left p-3">Posts</th><th className="text-left p-3">Product</th><th className="text-left p-3">Media</th><th className="text-left p-3">Оплата</th><th className="text-left p-3">Next</th></tr></thead>
+          <thead><tr className="border-b border-stone-200 bg-stone-50">
+            <th scope="col" className="ugc-c-creator">Автор</th>
+            <th scope="col" className="ugc-c-platform">Сеть</th>
+            <th scope="col" className="ugc-c-num ugc-c-followers">Подписчики</th>
+            <th scope="col" className="ugc-c-num ugc-c-er" title="Вовлечённость">ER</th>
+            <th scope="col" className="ugc-c-num ugc-c-views" title="Средние просмотры; со звёздочкой одна публикация">Просмотры</th>
+            <th scope="col" className="ugc-c-num ugc-c-activity" title="Последний контакт, выплата или публикация">Активность</th>
+            <th scope="col" className="ugc-c-num ugc-c-pay">Оплата</th>
+            <th scope="col" className="ugc-c-num ugc-c-posts ugc-sec-2">Посты</th>
+            <th scope="col" className="ugc-c-product ugc-sec-2">Продукт</th>
+            <th scope="col" className="ugc-c-media ugc-sec-3">Контент</th>
+            <th scope="col" className="ugc-c-next ugc-sec-1">Шаг</th>
+          </tr></thead>
           <tbody>
-            {loading ? <tr><td colSpan={9} className="p-10 text-center"><Loader2 className="h-6 w-6 animate-spin inline-block" /> <span className="ml-2">Loading UGC…</span></td></tr> : creators.length === 0 ? <tr><td colSpan={9} className="p-10 text-center" style={{ color: 'var(--fg-2)' }}><Users className="h-7 w-7 mx-auto mb-2" />No creators match this view.</td></tr> : creators.map((creator) => {
+            {loading ? <tr><td colSpan={11} className="p-10 text-center"><Loader2 className="h-6 w-6 animate-spin inline-block" /> <span className="ml-2">Загрузка…</span></td></tr> : creators.length === 0 ? <tr><td colSpan={11} className="p-10 text-center" style={{ color: 'var(--fg-2)' }}><Users className="h-7 w-7 mx-auto mb-2" />Никого не найдено.</td></tr> : creators.map((creator) => {
               const profile = primaryProfile(creator, platform);
               const views = profile.avg_video_views ?? profile.latest_observed_views;
               const latest = latestLinkedContent(profile);
               const media = latest ? mediaKind(latest.item) : null;
               const products = Array.from(new Map(profile.content.flatMap((item) => item.products).map((item) => [item.sku, item])).values());
-              return <tr key={creator.id} style={{ borderTop: '1px solid var(--border-hairline)' }}><td className="p-3" data-label="Creator"><button type="button" title={`${creator.display_name || `@${profile.handle}`} · ${profile.platform} · @${profile.handle}`} onClick={() => setSelectedId(creator.id)} className="min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="block font-bold underline decoration-transparent underline-offset-4 hover:decoration-current">{creator.display_name || `@${profile.handle}`}</span><span className="block text-xs capitalize" style={{ color: 'var(--fg-3)' }}>{profile.platform} · @{profile.handle}</span></button></td><td data-label="Followers" className="p-3 text-right tabular-nums" title={profile.followers == null ? 'Unknown' : `${profile.followers}`}>{formatNumber(profile.followers)}</td><td data-label="Avg views" className="p-3 text-right tabular-nums" title={views == null ? 'Unknown' : `${views}`}>{formatNumber(views)}{profile.view_observations === 1 ? <span title="One observed publication"> *</span> : null}</td><td data-label="Engagement" className="p-3 text-right tabular-nums" title={profile.engagement_rate == null ? 'Unknown' : `${profile.engagement_rate}%`}>{profile.engagement_rate == null ? '—' : `${formatNumber(profile.engagement_rate)}%`}</td><td data-label="Publications" className="p-3 tabular-nums" aria-label={`${profile.content_count} content observations`}>{formatNumber(profile.content_count)}</td><td data-label="Product" className="p-3">{products.length ? <div className="flex flex-nowrap gap-1">{products.map((item) => <span key={`${item.sku}-${item.raw_offer_id}`} title={`${item.name} · ${item.raw_offer_id} · confirmed from explicit import`} className="px-2 py-1 text-xs font-bold" style={{ background: 'var(--brand-gold)', color: 'var(--brand-schwarz)', borderRadius: 'var(--radius-pill)' }}>{compactProductCode(item.sku)}</span>)}</div> : <span className="text-xs" style={{ color: 'var(--fg-3)' }}>{profile.content.some((item) => item.product_status === 'queued') ? 'Queued' : 'Unknown'}</span>}</td><td data-label="Media" className="p-3">{latest && media ? <div className="inline-flex flex-col gap-1"><a href={latest.href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="min-h-11 px-1 inline-flex items-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`Open latest ${media.toLowerCase()} from @${profile.handle}`} title={latest.item.content_url ?? undefined}><span className="px-2 py-1 inline-flex items-center gap-1.5 text-xs font-bold" style={{ color: 'var(--brand-rot)', background: 'var(--paper-sunk)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>{media === 'Video' ? <Video className="h-4 w-4" /> : media === 'Image' ? <ImageIcon className="h-4 w-4" /> : media === 'Post' ? <FileText className="h-4 w-4" /> : <Link className="h-4 w-4" />}<span>{media}</span><ExternalLink className="h-3 w-3" /></span></a><LinkHealth item={latest.item} compact /></div> : <span style={{ color: 'var(--fg-3)' }}>N/A</span>}</td><td data-label="Оплата" className="p-3"><PayoutBadge payout={creator.payout} /></td><td data-label="Next" className="p-3" title={creator.collaboration?.next_action || undefined}>{creator.collaboration?.next_action || '—'}</td></tr>;
+              const name = creator.display_name || `@${profile.handle}`;
+              const handleLine = creator.display_name && profile.handle ? `@${profile.handle}` : null;
+              return <tr key={creator.id} style={{ borderTop: '1px solid var(--border-hairline)' }}>
+                <td className="ugc-c-creator"><button type="button" title={`${name} · ${platformLabel(profile.platform)} · @${profile.handle}`} onClick={() => setSelectedId(creator.id)} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="ugc-creator-name">{name}</span>{handleLine ? <span className="ugc-creator-handle">{handleLine}</span> : null}<span className="ugc-creator-platform">{platformLabel(profile.platform)}</span></button></td>
+                <td className="ugc-c-platform">{platformLabel(profile.platform)}</td>
+                <td className="ugc-c-num" title={profile.followers == null ? 'Нет данных' : `${profile.followers}`}>{formatCount(profile.followers)}</td>
+                <td className="ugc-c-num" title={profile.engagement_rate == null ? 'Нет данных' : `${profile.engagement_rate}%`}>{formatRate(profile.engagement_rate)}</td>
+                <td className="ugc-c-num" title={views == null ? 'Нет данных' : profile.view_observations === 1 ? `${views} · одна публикация` : `${views}`}>{formatCount(views)}{profile.view_observations === 1 && views != null ? <span className="ugc-star" aria-label="одна публикация">*</span> : null}</td>
+                <td className="ugc-c-num" title={creator.last_activity_at ? new Date(creator.last_activity_at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : 'Нет данных'}>{formatActivity(creator.last_activity_at)}</td>
+                <td className="ugc-c-num ugc-c-pay"><PayoutBadge payout={creator.payout} /></td>
+                <td className="ugc-c-num ugc-sec-2" aria-label={`${profile.content_count} публикаций`}>{formatCount(profile.content_count)}</td>
+                <td className="ugc-c-product ugc-sec-2">{products.length ? <div className="ugc-pills" title={products.map((item) => `${compactProductCode(item.sku)} · ${item.name}`).join('\n')}>{products.slice(0, PRODUCT_PILLS).map((item) => <span key={`${item.sku}-${item.raw_offer_id}`} className="ugc-pill">{compactProductCode(item.sku)}</span>)}{products.length > PRODUCT_PILLS ? <span className="ugc-pill-more">+{products.length - PRODUCT_PILLS}</span> : null}</div> : <span className="ugc-muted">{profile.content.some((item) => item.product_status === 'queued') ? 'В очереди' : 'Не определён'}</span>}</td>
+                <td className="ugc-c-media ugc-sec-3">{latest && media ? <div className="ugc-media"><a href={latest.href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="ugc-media-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`Открыть: ${MEDIA_LABEL[media]} · @${profile.handle}`} title={latest.item.content_url ?? undefined}>{media === 'Video' ? <Video className="h-4 w-4" /> : media === 'Image' ? <ImageIcon className="h-4 w-4" /> : media === 'Post' ? <FileText className="h-4 w-4" /> : <Link className="h-4 w-4" />}<span>{MEDIA_LABEL[media]}</span><ExternalLink className="h-3 w-3" /></a><span className="ugc-link-dot" role="img" aria-label={latest.item.link_status ? LINK_STATUS_SHORT[latest.item.link_status] : 'Не проверена'} title={[latest.item.link_status ? LINK_STATUS_SHORT[latest.item.link_status] : 'Не проверена', latest.item.link_checked_at ? new Date(latest.item.link_checked_at).toLocaleDateString('ru-RU') : null, latest.item.link_check_note].filter(Boolean).join(' · ')} style={{ background: statusColor(latest.item.link_status) }} /></div> : <span className="ugc-muted">—</span>}</td>
+                <td className="ugc-c-next ugc-sec-1" title={creator.collaboration?.next_action || undefined}>{creator.collaboration?.next_action || <span className="ugc-muted">—</span>}</td>
+              </tr>;
             })}
           </tbody>
         </table>
       </section>
 
       {selected && <div ref={(node) => { if (node) node.scrollIntoView({ block: 'start', behavior: 'smooth' }); }}><CreatorPanel key={selected.id} creator={selected} onClose={() => setSelectedId(null)} onSaved={load} /></div>}
-      <p title="A single publication is shown as observed views, not as an average. Unknown values remain blank." className="erp-page-help text-sm" style={{ color: 'var(--fg-3)' }}>* A single publication is shown as observed views, not as an average. Unknown values remain blank.</p>
+      <p className="erp-page-help text-sm" style={{ color: 'var(--fg-3)' }}>* Одна публикация: показаны её просмотры, а не среднее. Нет данных: прочерк.</p>
     </div>
   );
 }

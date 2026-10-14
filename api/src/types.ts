@@ -81,6 +81,8 @@ export interface Env {
   EMAILER_SERVICE_SECRET?: string;
   DASORG_API_KEY?: string;   // org board — learning and Owner bot notifications
   ORGANIZATION?: Fetcher;   // authenticated @dasexpertenbot delivery through organizacia
+  /** Konsol Payment Service key — UGC payouts over SBP (card SECRETS/konsol.md). Never logged. */
+  KONSOL_API_KEY?: string;
 
   // GitHub read token for dasexperten/organizacia — the knowledge graph's only
   // input. organizacia is a private repo, so without this the graph cannot

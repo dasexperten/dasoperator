@@ -620,8 +620,28 @@ export const ugcPayouts = sqliteTable("ugc_payouts", {
   createdBy: text("created_by"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
+  // 0119 — Konsol Payment Service
+  fpsBankMemberId: text("fps_bank_member_id"),
+  konsolContractorId: text("konsol_contractor_id"),
+  konsolPaymentId: text("konsol_payment_id"),
+  konsolStatus: text("konsol_status"),
+  konsolError: text("konsol_error"),
+  executeClaim: text("execute_claim"),
+  executeClaimedAt: text("execute_claimed_at"),
+  paidNoticeAt: text("paid_notice_at"),
 }, (t) => ({
   creatorIdx: index("idx_ugc_payouts_creator").on(t.creatorId, t.updatedAt),
   statusIdx: index("idx_ugc_payouts_status").on(t.status, t.updatedAt),
   dayIdx: index("idx_ugc_payouts_day").on(t.creatorId, t.payoutDate),
 }));
+
+// 0119 — full SBP phone and recipient name for Konsol; never joined into listings.
+export const ugcPayoutRequisites = sqliteTable("ugc_payout_requisites", {
+  payoutId: text("payout_id").primaryKey().references(() => ugcPayouts.id),
+  fpsMobilePhone: text("fps_mobile_phone").notNull(),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  patronymic: text("patronymic"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});

@@ -127,3 +127,75 @@ export function compareByRecent(a, b) {
   if (bf !== af) return bf - af;
   return String(a.name ?? '').localeCompare(String(b.name ?? ''));
 }
+
+// ---------------------------------------------------------------------------
+// Konsol Payment Service (Owner 2026-10-14: «запускай выплаты через API»).
+// HARD money law (Owner 2026-10-14, DH-LAW-261014-05 · JT-LAW-261014-01):
+// `balance` from GET /api/v1/company_accounts INCLUDES the overdraft. Own RUB =
+// balance − 1 905 000 ₽. A payout leaves only when own RUB ≥ amount + 30 ₽ fee.
+// The overdraft is never touched; a negative or odd own figure stops everything.
+// ---------------------------------------------------------------------------
+
+export const KONSOL_OVERDRAFT_MINOR = 190500000;
+export const KONSOL_FEE_MINOR = 3000;
+export const KONSOL_SERVICE_TITLE = 'Подарок для покупателя продукции ТМ Дас Экспертен';
+
+/** "1936615.38" → 193661538 kopecks, or null when it is not a clean number. */
+export function rubToMinor(value) {
+  if (value == null || value === '') return null;
+  const text = String(value).trim();
+  if (!/^-?\d+(\.\d{1,2})?$/.test(text)) return null;
+  return Math.round(Number(text) * 100);
+}
+
+/**
+ * Own RUB from the company_accounts answer. Exactly one account is expected;
+ * anything else is odd and stops payouts. Never returns the overdraft figure.
+ */
+export function ownRubMinor(accountsBody) {
+  const list = accountsBody && Array.isArray(accountsBody.collection) ? accountsBody.collection : null;
+  if (!list || list.length !== 1) return { ok: false, code: 'own_rub_odd', reason: `expected one Konsol account, got ${list ? list.length : 'none'}` };
+  const balance = rubToMinor(list[0].balance);
+  if (balance == null) return { ok: false, code: 'own_rub_odd', reason: 'balance is not a number' };
+  const own = balance - KONSOL_OVERDRAFT_MINOR;
+  if (own < 0) return { ok: false, code: 'own_rub_odd', own_minor: own, reason: 'own RUB came out negative — overdraft limit may have changed' };
+  return { ok: true, own_minor: own };
+}
+
+/** Pay only if own RUB covers the amount plus the 30 ₽ fee. */
+export function checkOwnRub(accountsBody, amountMinor) {
+  const own = ownRubMinor(accountsBody);
+  if (!own.ok) return own;
+  const need = Number(amountMinor || 0) + KONSOL_FEE_MINOR;
+  if (own.own_minor < need) return { ok: false, code: 'own_rub_low', own_minor: own.own_minor, need_minor: need, reason: 'own RUB below amount plus fee' };
+  return { ok: true, own_minor: own.own_minor, need_minor: need };
+}
+
+/** Konsol payment status → ERP payout status. Only these two are final. */
+export function mapKonsolStatus(status) {
+  if (status === 'executed') return 'paid';
+  if (status === 'failed') return 'failed';
+  return 'sent';
+}
+
+/** Any Russian mobile form → +7XXXXXXXXXX (the form Konsol stores), or null. */
+export function konsolPhone(value) {
+  if (value == null) return null;
+  let digits = String(value).replace(/\D/g, '');
+  if (digits.length === 10 && digits.startsWith('9')) digits = `7${digits}`;
+  if (digits.length === 11 && digits.startsWith('8')) digits = `7${digits.slice(1)}`;
+  if (digits.length !== 11 || !digits.startsWith('79')) return null;
+  return `+${digits}`;
+}
+
+/** Masked for the ERP and reports: +7930*****25 (first four digits, last two). */
+export function maskPhoneWide(value) {
+  const phone = konsolPhone(value);
+  if (!phone) return null;
+  return `${phone.slice(0, 5)}*****${phone.slice(-2)}`;
+}
+
+/** SBP bank member id as Konsol expects it: the 12-digit NSPK id. */
+export function isFpsBankMemberId(value) {
+  return /^\d{12}$/.test(String(value ?? '').trim());
+}

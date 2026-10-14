@@ -39,6 +39,11 @@ function storefrontEnv(env: Env): Record<string, unknown> {
 }
 
 export const STEPS: Record<string, Step> = {
+  // Owner 2026-10-14: one evening message on UGC payouts — count, sum, own RUB left.
+  'erp-ugc-payout-summary': async (env) => {
+    const { ugcPayoutEvening } = await import('./lib/ugc-payout-store');
+    return ugcPayoutEvening(env);
+  },
   'erp-site-stock': async (env) => {
     // @ts-expect-error plain JS module
     const { syncOzonStocksToSite } = await import('./lib/site-stock-sync.mjs');

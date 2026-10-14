@@ -4,7 +4,8 @@ import { fail, ok } from '../lib/responses';
 import { hasModuleAccess, validateSession, type AuthUser } from '../lib/auth';
 import { runUgcLinkHealthBatch } from '../lib/ugc-link-health';
 import { baseProductSku, identifyExplicitProducts, initialProductClassification, UGC_PRODUCTS } from '../lib/ugc-products.mjs';
-import { checkDailyLimit, checkDailyTotalLimit, compareByRecent, isPayoutStatus, latestActivityMs, maskPhone, parsePayoutAmount, payoutDate, statusStampColumn } from '../lib/ugc-payouts.mjs';
+import { checkDailyLimit, checkDailyTotalLimit, compareByRecent, isFpsBankMemberId, isPayoutStatus, konsolPhone, latestActivityMs, maskPhone, maskPhoneWide, parsePayoutAmount, payoutDate, statusStampColumn } from '../lib/ugc-payouts.mjs';
+import { executeUgcPayout, refreshUgcPayout, ugcPayoutEvening } from '../lib/ugc-payout-store';
 
 type ImportRow = {
   handle?: unknown;
@@ -758,6 +759,72 @@ ugc.post('/payouts/:id/status', async (c) => {
      WHERE id=?7`
   ).bind(status, now, textValue(body.bank_ref, 200), textValue(body.note, 1000), at, access.name ?? null, id).run();
   return ok(c, { id, status, at, updated_at: now });
+});
+
+// ---------------------------------------------------------------------------
+// Konsol Payment Service (0119, Owner 2026-10-14). Execute = auto-approve within
+// the limits, own-RUB check (overdraft never), one Konsol payment per row.
+// ---------------------------------------------------------------------------
+
+// The full phone goes to ugc_payout_requisites only; the payout row keeps a mask.
+ugc.put('/payouts/:id/requisites', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch {
+    return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]);
+  }
+  const id = c.req.param('id');
+  const current = await c.env.DB.prepare(`SELECT id, konsol_payment_id FROM ugc_payouts WHERE id=?1`).bind(id).first<Record<string, any>>();
+  if (!current) return fail(c, 404, [{ code: 'not_found', message: 'Payout not found' }]);
+  if (current.konsol_payment_id) return fail(c, 409, [{ code: 'already_sent', message: 'Payout already handed to Konsol' }]);
+  const phone = konsolPhone(body.phone ?? body.fps_mobile_phone);
+  if (!phone) return fail(c, 422, [{ code: 'invalid_phone', message: 'Russian mobile number required (+79…)' }]);
+  const bankId = textValue(body.fps_bank_member_id, 20);
+  if (!isFpsBankMemberId(bankId)) return fail(c, 422, [{ code: 'invalid_bank', message: 'fps_bank_member_id must be the 12-digit SBP id' }]);
+  const firstName = textValue(body.first_name, 120);
+  const lastName = textValue(body.last_name, 120);
+  if (!firstName || !lastName) return fail(c, 422, [{ code: 'name_required', message: 'first_name and last_name required by Konsol' }]);
+  const now = Date.now();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO ugc_payout_requisites (payout_id, fps_mobile_phone, first_name, last_name, patronymic, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+       ON CONFLICT(payout_id) DO UPDATE SET fps_mobile_phone=excluded.fps_mobile_phone, first_name=excluded.first_name,
+         last_name=excluded.last_name, patronymic=excluded.patronymic, updated_at=excluded.updated_at`
+    ).bind(id, phone, firstName, lastName, textValue(body.patronymic, 120), now),
+    c.env.DB.prepare(
+      `UPDATE ugc_payouts SET phone_masked=?2, fps_bank_member_id=?3, bank_ref=COALESCE(?4, bank_ref), updated_at=?5 WHERE id=?1`
+    ).bind(id, maskPhoneWide(phone), bankId, textValue(body.bank_ref, 200), now),
+  ]);
+  return ok(c, { id, phone_masked: maskPhoneWide(phone), fps_bank_member_id: bankId, updated_at: now });
+});
+
+ugc.post('/payouts/:id/execute', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  const out = await executeUgcPayout(c.env, c.req.param('id'));
+  if (!out.ok) return fail(c, out.http as 400, [{ code: out.code ?? 'failed', message: out.message ?? 'Payout not executed' }]);
+  return c.json({ success: true, result: { already: out.already === true, payout: out.payout }, errors: [], messages: [] }, out.http as 200);
+});
+
+ugc.post('/payouts/:id/refresh', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  const out = await refreshUgcPayout(c.env, c.req.param('id'));
+  if (!out.ok) return fail(c, out.http as 400, [{ code: String(out.code ?? 'failed'), message: String((out as { message?: string }).message ?? 'Refresh failed') }]);
+  return ok(c, out);
+});
+
+// Same job as the evening timer; once per Yerevan day unless force=1.
+ugc.post('/payouts/summary', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  try {
+    return ok(c, { note: await ugcPayoutEvening(c.env, { force: c.req.query('force') === '1' }) });
+  } catch (e) {
+    return fail(c, 502, [{ code: 'summary_failed', message: e instanceof Error ? e.message : String(e) }]);
+  }
 });
 
 export default ugc;

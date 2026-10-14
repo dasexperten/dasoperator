@@ -114,6 +114,9 @@
   "erp-ugc-link-health": [
     "23 2 * * *"
   ],
+  "erp-ugc-payout-summary": [
+    "0 17 * * *"
+  ],
   "erp-vn-einvoice": [
     "5 1-10 * * 1-5"
   ],

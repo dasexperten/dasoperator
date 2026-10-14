@@ -106,6 +106,7 @@ import { ok } from './lib/responses';
 import { handleScheduled } from './scheduled';
 import { handleInboundEmail } from './lib/email-inbound';
 import { authGate } from './lib/auth-gate';
+import { handleKonsolCallback } from './lib/ugc-payout-store';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -301,6 +302,19 @@ app.route('/api/external-requests', externalRequestsRoutes);
 app.route('/api/bundling', bundlingRoutes);
 app.route('/api/banks/modulbank', banksModulbankRoutes);
 app.route('/webhooks/vietinbank', banksVietinbankRoutes);
+// Konsol payment callbacks (Owner 2026-10-14). Public by nature: the body only
+// names a payment, whose status is re-read from Konsol with our key — a forged
+// call can at most make us look the payment up. Unknown payments are ignored.
+app.post('/webhooks/konsol', async (c) => {
+  const body = await c.req.json().catch(() => null);
+  try {
+    const out = await handleKonsolCallback(c.env, body);
+    return c.json({ ok: true, result: out });
+  } catch (e) {
+    console.error('[konsol-callback]', e instanceof Error ? e.message : String(e));
+    return c.json({ ok: false }, 500);
+  }
+});
 app.route('/api/bank-statement-sources', bankStatementSourcesRoutes);
 app.route('/api/operation-document-sources', operationDocumentSourcesRoutes);
 app.route('/api/operation-documents', operationDocumentsRoutes);

@@ -1,0 +1,22 @@
+# erp-ugc-payout-summary — evening UGC payout summary to the Owner (Owner 2026-10-14):
+# catches up Konsol statuses of payouts still "sent", then one message: count, sum,
+# own RUB left (never the overdraft figure). 17:00 UTC = 21:00 Yerevan.
+# The job runs in the ERP on its own keys (KONSOL_API_KEY) through /internal/cron.
+name = "erp-ugc-payout-summary"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "081ddb85cb399ad62a70210328d744fc"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+[[services]]
+binding = "ERP"
+service = "dasoperator-api"
+
+[triggers]
+crons = ["0 17 * * *"]

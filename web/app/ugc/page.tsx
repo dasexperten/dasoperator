@@ -272,10 +272,11 @@ function fitHeads(table: HTMLTableElement | null) {
     if (th.scrollWidth > th.clientWidth) th.style.setProperty('white-space', 'normal', 'important');
   });
   // A figure never hides behind an ellipsis either (§4h-2): it shrinks, it is not cut.
-  table.querySelectorAll<HTMLTableCellElement>('tbody td.ugc-c-num').forEach((td) => {
-    td.style.removeProperty('font-size');
-    if (td.offsetParent === null || td.scrollWidth <= td.clientWidth) return;
-    let size = HEAD_MAX;
+  // Read every cell first (one layout), then touch only the few that overflow.
+  const over = Array.from(table.querySelectorAll<HTMLTableCellElement>('tbody td.ugc-c-num'))
+    .filter((td) => td.offsetParent !== null && td.scrollWidth > td.clientWidth);
+  over.forEach((td) => {
+    let size = parseFloat(getComputedStyle(td).fontSize) || HEAD_MAX;
     while (td.scrollWidth > td.clientWidth && size > HEAD_MIN) {
       size -= 0.5;
       td.style.setProperty('font-size', `${size}px`, 'important');
@@ -361,7 +362,14 @@ export default function UgcPage() {
     const table = tableRef.current;
     if (!table) return;
     fitHeads(table);
-    const observer = new ResizeObserver(() => fitHeads(table));
+    // Refit only when the table WIDTH changes: refitting changes row heights, and
+    // reacting to height would loop every frame.
+    let lastWidth = table.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (table.clientWidth === lastWidth) return;
+      lastWidth = table.clientWidth;
+      fitHeads(table);
+    });
     observer.observe(table);
     document.fonts?.ready.then(() => fitHeads(table));
     return () => observer.disconnect();

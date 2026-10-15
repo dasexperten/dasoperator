@@ -20,8 +20,9 @@ bucket_name = "das-erp-docs-dev"
 # Keep issuance disabled until the assigned production pattern and HSM are verified.
 EASYINVOICE_BASE_URL = "https://api.easyinvoice.vn"
 EASYINVOICE_ENABLED = "0"
-# Production template has not been supplied/verified; never reuse the demo template.
-EASYINVOICE_PATTERN = ""
+# Production range verified read-only through the provider usage report on 2026-10-15.
+# Issuance remains disabled until signing and the final template are verified.
+EASYINVOICE_PATTERN = "1C26MAA"
 # Circular 78 combines the former template and symbol in Pattern. EasyInvoice
 # v8 requires an explicitly empty Serial for patterns such as 1C26TAA.
 EASYINVOICE_SERIAL = ""

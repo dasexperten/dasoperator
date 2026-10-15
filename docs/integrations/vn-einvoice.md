@@ -142,6 +142,26 @@ Complete provider/tax registration and obtain the assigned production pattern
 before enabling issuance. This connection task does not submit a legal tax
 declaration, initialize a fiscal template, or issue a real invoice.
 
+## Production range verification 2026-10-15
+
+Read-only calls to the production tenant authenticated successfully. The provider's
+`getInvoiceUsageReport` for 1–15 October returned the company's own range
+`1C26MAA`, with an empty separate serial and zero used invoices. Its technical
+guide, section 7, specifies that Circular 78's combined symbol goes in `Pattern`
+and `Serial` is explicitly empty. The connector now records that verified range
+while keeping `EASYINVOICE_ENABLED=0`.
+
+`getInvoiceByArisingDateRange` with `Option=1` returned one draft, number `0`,
+unsigned, not sent to the tax authority, and without a tax-authority code. Its
+lookup code matches the supplied sample, but its totals differ from that PDF;
+the provider must reconcile the versions. The revised PDF's 20 rows and totals
+reconcile arithmetically, but it does not prove HSM signing, tax acceptance or
+production issuance. Those checks remain open; this verification created no
+invoice and submitted no tax filing.
+
+Provider sources: [shared-domain notice](https://easyinvoice.vn/thong-bao-ve-viec-thay-doi-duong-dan-trang-hoa-don-va-trang-tra-cuu-cua-he-thong-hoa-don-dien-tu-easyinvoice-tu-ngay-01-01-2026/)
+and its linked [technical integration guide](https://docs.google.com/document/d/1QN9NwhAYhBidQtGV_XZtXKtYefSJFLZR/edit).
+
 ## Demo acceptance route
 
 `POST /uat/call` runs one provider call against the SoftDreams demo tenant with

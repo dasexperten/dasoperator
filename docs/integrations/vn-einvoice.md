@@ -159,7 +159,8 @@ reconcile arithmetically, but it does not prove HSM signing, tax acceptance or
 production issuance. Those checks remain open; this verification created no
 invoice and submitted no tax filing.
 
-**Owner correction, 2026-10-15:** the specific sample draft with lookup code
+**Earlier interpretation recorded 2026-10-15; superseded by the attribution
+correction below:** the specific sample draft with lookup code
 `6ELTEIU7M` is **REJECTED / REFERENCE ONLY**. The Owner states it was refused;
 the original refusal date, refusing party and grounds are not established here.
 Earlier arithmetic and layout checks are historical observations, not acceptance.
@@ -168,6 +169,19 @@ from active follow-ups; do not issue or sign it. Its VND 44,944,232 total is sam
 arithmetic only, not an amount payable or receivable. This correction concerns
 this sample only. General integration readiness remains a separate matter and
 the correction neither cancels the integration nor authorizes enabling issuance.
+
+**Attribution correction, 2026-10-15 13:00:59 Yerevan:** the assistant interpreted
+a questioned refusal as cancellation of sample `6ELTEIU7M`. The scope and identity
+of the refused invoice are unconfirmed; the Owner has not confirmed an instruction
+to abandon this test. The earlier attribution of this sample's rejection to the
+Owner is not an established fact. The coordinating assistant sent a source-channel
+withdrawal at 12:56 Yerevan, marked Received; that action remains in the audit
+history. Hold the affected sample/API, approval, reconciliation, XML, issue and
+signing actions pending the Owner's clarification. This repairs attribution only:
+it does not approve or reopen the sample, authorize another external instruction,
+or change financial, provider or configuration states. VND 44,944,232 remains
+sample arithmetic, not an established payable or receivable. General integration
+readiness remains separate.
 
 Provider sources: [shared-domain notice](https://easyinvoice.vn/thong-bao-ve-viec-thay-doi-duong-dan-trang-hoa-don-va-trang-tra-cuu-cua-he-thong-hoa-don-dien-tu-easyinvoice-tu-ngay-01-01-2026/)
 and its linked [technical integration guide](https://docs.google.com/document/d/1QN9NwhAYhBidQtGV_XZtXKtYefSJFLZR/edit).

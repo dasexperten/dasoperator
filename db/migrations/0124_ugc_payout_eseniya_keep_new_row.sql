@@ -5,10 +5,10 @@
 -- waiting to be paid gets its prior status back. Changes nothing otherwise.
 
 UPDATE ugc_payouts
-   SET status = CASE WHEN note LIKE '%(было: approved)' THEN 'approved' ELSE 'awaiting_approval' END,
+   SET status = CASE WHEN instr(note, 'approved)') > 0 THEN 'approved' ELSE 'awaiting_approval' END,
        failed_at = NULL,
        note = NULL,
        updated_at = 1792080000000
- WHERE note LIKE 'реестр №2 в чате, Консоль не исполнила (было: %'
-   AND (note LIKE '%(было: approved)' OR note LIKE '%(было: awaiting_approval)')
+ WHERE instr(note, 'Консоль не исполнила') > 0
+   AND (instr(note, '(было: approved)') > 0 OR instr(note, '(было: awaiting_approval)') > 0)
    AND EXISTS (SELECT 1 FROM ugc_payout_requisites r WHERE r.payout_id = ugc_payouts.id);

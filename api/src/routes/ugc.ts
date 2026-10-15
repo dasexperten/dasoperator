@@ -6,6 +6,7 @@ import { runUgcLinkHealthBatch } from '../lib/ugc-link-health';
 import { baseProductSku, identifyExplicitProducts, initialProductClassification, UGC_PRODUCTS } from '../lib/ugc-products.mjs';
 import { annotateOverLimit, checkDailyLimit, checkDailyTotalLimit, compareByRecent, isFpsBankMemberId, isPayoutStatus, konsolPhone, latestActivityMs, maskPhone, maskPhoneWide, paidCounters, parsePayoutAmount, payoutDate, statusStampColumn } from '../lib/ugc-payouts.mjs';
 import { executeUgcPayout, refreshUgcPayout, ugcPayoutEvening } from '../lib/ugc-payout-store';
+import { profileAverages } from '../lib/ugc-profile-metrics.mjs';
 
 // Diana's creator statuses (Owner 2026-10-15, DH-LAW-261015-02): one English
 // word, at most 7 letters. Main path, then side statuses.
@@ -106,13 +107,6 @@ async function stableId(prefix: string, input: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
   return `${prefix}_${hex.slice(0, 24)}`;
-}
-
-function median(values: number[]): number | null {
-  if (!values.length) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2;
 }
 
 ugc.get('/', async (c) => {
@@ -260,15 +254,9 @@ ugc.get('/', async (c) => {
       followers: row.followers,
       engagement_rate: row.engagement_rate,
       engagement_rate_method: row.engagement_rate_method,
-      avg_video_views: metrics.views.length >= 2
-        ? metrics.views.reduce((sum, value) => sum + value, 0) / metrics.views.length
-        : row.avg_video_views,
-      median_video_views: metrics.views.length >= 2 ? median(metrics.views) : row.median_video_views,
+      ...profileAverages(row, metrics),
       latest_observed_views: metrics.views.length === 1 ? metrics.views[0] : null,
       view_observations: metrics.views.length,
-      avg_comments: metrics.comments.length >= 2
-        ? metrics.comments.reduce((sum, value) => sum + value, 0) / metrics.comments.length
-        : row.avg_comments,
       posting_cadence: row.posting_cadence,
       commerce_clicks: row.commerce_clicks,
       commerce_orders: row.commerce_orders,

@@ -150,7 +150,7 @@ ugc.get('/', async (c) => {
 
   const metricRows = await c.env.DB.prepare(
     `SELECT id, creator_id, creator_platform_id, content_url, content_type,
-            published_at, views, comments, product_codes, source_sheet,
+            published_at, views, likes, comments, product_codes, source_sheet,
             source_row, imported_at, link_status, link_checked_at,
             link_http_status, link_final_url, link_check_note,
             product_status, product_source, product_confidence,
@@ -217,6 +217,7 @@ ugc.get('/', async (c) => {
       content_type: row.content_type,
       published_at: row.published_at,
       views: row.views,
+      likes: row.likes,
       comments: row.comments,
       product_codes: productCodes,
       products: productIdentity.matches,

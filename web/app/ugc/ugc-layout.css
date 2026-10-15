@@ -23,7 +23,7 @@
 .ugc-table :is(th, td) { white-space: nowrap; padding: 10px 12px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; text-align: left; font-size: 14px; font-weight: 700; line-height: 20px; }
 /* Owner widths 14.10.2026, set by hand on the preview (1440 frame, 1044 px): Автор 186 and wider. */
 .ugc-table th { padding: 8px 12px; color: var(--fg-2); text-overflow: clip; }
-.ugc-table :is(th, td).ugc-c-num, .ugc-table :is(th, td).ugc-c-platform, .ugc-table :is(th, td).ugc-c-er { padding-left: 6px; padding-right: 6px; }
+.ugc-table :is(th, td).ugc-c-num, .ugc-table :is(th, td).ugc-c-platform, .ugc-table :is(th, td).ugc-c-er, .ugc-table :is(th, td).ugc-c-media { padding-left: 6px; padding-right: 6px; }
 /* A right-aligned head needs no left pad: «Подписчики» fits 68 px at 10 px and keeps its right edge on the figures. */
 .ugc-table th.ugc-c-num { padding-left: 0; }
 .ugc-table tbody td { height: 64px; }
@@ -34,9 +34,8 @@
 .ugc-table th.ugc-c-views { width: 85px; }
 .ugc-table th.ugc-c-activity { width: 71px; }
 .ugc-table th.ugc-c-pay { width: 101px; }
-.ugc-table th.ugc-c-posts { width: 59px; }
 .ugc-table th.ugc-c-product { width: 121px; }
-.ugc-table th.ugc-c-media { width: 159px; }
+.ugc-table th.ugc-c-media { width: 218px; }
 .ugc-table th.ugc-c-next { width: 80px; }
 .ugc-table tbody tr:hover { background: var(--paper-sunk); }
 /* Payout: one width in every row, right edge on the head's right edge. */
@@ -58,10 +57,21 @@
 .ugc-pills { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; }
 .ugc-pill { padding: 0 8px; line-height: 22px; font-weight: 700; color: var(--brand-schwarz); background: var(--brand-gold); border-radius: var(--radius-pill); }
 .ugc-pill-more { color: var(--fg-2); font-weight: 700; }
-.ugc-media { display: flex; align-items: center; gap: 4px; min-width: 0; }
-.ugc-link-dot { position: absolute; right: 2px; bottom: 2px; width: 7px; height: 7px; border-radius: 50%; box-shadow: 0 0 0 1.5px var(--bg-surface); }
-.ugc-media-link { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 28px; width: 28px; height: 28px; color: var(--brand-rot); border-radius: var(--radius-sm); }
-.ugc-media-link:hover { color: var(--fg-1); background: var(--paper-sunk); }
+/* «Контент» (Owner 2026-10-16): link icon, then views, likes and comments stacked
+   to its right; the icon is exactly the stack's height (3 × 13 = 39 px). The next
+   publication follows in the same line. Live link in red, unchecked in ink, dead faded.
+   «Посты» left the table: the count lives here as «+N» and in the cell's label. */
+.ugc-media { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; }
+.ugc-pub { position: relative; display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.ugc-pub-link { display: inline-flex; flex: 0 0 39px; width: 39px; height: 39px; color: var(--brand-rot); border-radius: var(--radius-sm); }
+.ugc-pub-link svg { width: 39px; height: 39px; stroke-width: 1.5; }
+.ugc-pub-link:hover { color: var(--fg-1); background: var(--paper-sunk); }
+.ugc-pub[data-state="unknown"] .ugc-pub-link { color: var(--fg-2); }
+.ugc-pub[data-state="dead"] .ugc-pub-link { color: var(--fg-3); opacity: 0.35; }
+.ugc-pub-stats { display: flex; flex-direction: column; justify-content: center; height: 39px; }
+.ugc-pub-stats > span { display: flex; align-items: center; gap: 3px; height: 13px; font-size: 12px; line-height: 13px; font-weight: 700; color: var(--fg-1); font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.ugc-pub-stats svg { width: 11px; height: 11px; color: var(--fg-2); stroke-width: 2.25; }
+.ugc-pub-more { position: absolute; top: -7px; left: 26px; min-width: 18px; height: 16px; padding: 0 4px; border-radius: var(--radius-pill); background: var(--fg-1); color: var(--bg-surface); font-size: 11px; line-height: 16px; font-weight: 700; text-align: center; letter-spacing: 0; }
 .ugc-table svg { flex-shrink: 0; }
 /* Column sets by table width: all eleven from 1044 px (the 1440 screen) up; creator keeps 186 px. */
 @container ugc-table (max-width: 1043px) {
@@ -70,7 +80,7 @@
 @container ugc-table (max-width: 963px) {
   .ugc-table .ugc-sec-3 { display: none; }
 }
-@container ugc-table (max-width: 804px) {
+@container ugc-table (max-width: 745px) {
   .ugc-table .ugc-sec-2 { display: none; }
 }
 @container ugc-table (max-width: 624px) {

@@ -1,7 +1,7 @@
 'use client';
 
 import { ChangeEvent, createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpDown, ExternalLink, Facebook, FileSpreadsheet, FileText, Globe, Hand, ImageIcon, Instagram, Link, Link2Off, Loader2, Search, Send, Users, Video, X, Youtube } from 'lucide-react';
+import { ArrowUpDown, ExternalLink, Eye, Facebook, FileSpreadsheet, FileText, Globe, Hand, Heart, ImageIcon, Instagram, Link, Link2Off, Loader2, MessageCircle, Search, Send, SquarePlay, Users, Video, X, Youtube } from 'lucide-react';
 import './ugc-layout.css';
 import PageHeader from '@/components/ui/page-header';
 import { apiGet, apiPatch, apiPost, apiPostTimed } from '@/lib/api';
@@ -34,6 +34,7 @@ type ContentObservation = {
   content_type: string | null;
   published_at: string | null;
   views: number | null;
+  likes?: number | null;
   comments: number | null;
   product_codes: string[];
   source_sheet: string | null;
@@ -257,8 +258,28 @@ const LINK_STATUS_LABEL: Record<LinkStatus, string> = { active: 'Active', missin
 const LINK_STATUS_SHORT: Record<LinkStatus, string> = { active: 'Доступна', missing: 'Удалена', restricted: 'Закрыта', unknown: 'Не ясно', invalid: 'Ошибка' };
 const MEDIA_LABEL: Record<ReturnType<typeof mediaKind>, string> = { Video: 'видео', Image: 'фото', Post: 'пост', Content: 'ссылка' };
 const PRODUCT_PILLS = 2;
-// «Контент» (Owner 2026-10-14): one icon per publication, no words; four, then «+N».
-const CONTENT_ICONS = 4;
+// «Контент» (Owner 2026-10-16): per publication, its link icon as tall as the three
+// figures stacked right of it (views, likes, comments); a dead link is faded.
+// Two publications side by side, then «+N» on the second icon.
+const CONTENT_ICONS = 2;
+const DEAD_LINK: ReadonlySet<LinkStatus> = new Set<LinkStatus>(['missing', 'restricted', 'invalid']);
+
+function Publication({ item, href, more }: { item: ContentObservation; href: string; more: number }) {
+  const kind = mediaKind(item);
+  const status = item.link_status ? LINK_STATUS_SHORT[item.link_status] : 'Не проверена';
+  const state = item.link_status === 'active' ? 'live' : item.link_status && DEAD_LINK.has(item.link_status) ? 'dead' : 'unknown';
+  const Glyph = kind === 'Video' ? SquarePlay : kind === 'Image' ? ImageIcon : kind === 'Post' ? FileText : Link;
+  const figure = (label: string, value: number | null | undefined) => `${label}: ${value == null ? 'нет данных' : value}`;
+  return <span className="ugc-pub" data-state={state}>
+    <a href={href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="ugc-pub-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${MEDIA_LABEL[kind]} · ${status}`} title={[MEDIA_LABEL[kind], status, item.link_checked_at ? new Date(item.link_checked_at).toLocaleDateString('ru-RU') : null, item.content_url].filter(Boolean).join(' · ')}><Glyph aria-hidden="true" /></a>
+    <span className="ugc-pub-stats">
+      <span title={figure('Просмотры', item.views)}><Eye aria-hidden="true" />{formatCount(item.views)}</span>
+      <span title={figure('Лайки', item.likes)}><Heart aria-hidden="true" />{formatCount(item.likes)}</span>
+      <span title={figure('Комментарии', item.comments)}><MessageCircle aria-hidden="true" />{formatCount(item.comments)}</span>
+    </span>
+    {more > 0 ? <span className="ugc-pub-more" title={`Ещё ${more}`}>+{more}</span> : null}
+  </span>;
+}
 
 function formatCheckedAt(value: string | null | undefined): string {
   if (!value) return 'Not checked';
@@ -640,13 +661,12 @@ export default function UgcPage() {
             <th scope="col" className="ugc-c-num ugc-c-views" title="Средние просмотры; со звёздочкой одна публикация">Просмотры</th>
             <th scope="col" className="ugc-c-num ugc-c-activity" title="Последний контакт, выплата или публикация">Активность</th>
             <th scope="col" className="ugc-c-num ugc-c-pay">Оплата</th>
-            <th scope="col" className="ugc-c-num ugc-c-posts ugc-sec-2">Посты</th>
             <th scope="col" className="ugc-c-product ugc-sec-2">Продукт</th>
             <th scope="col" className="ugc-c-media ugc-sec-3">Контент</th>
             <th scope="col" className="ugc-c-next ugc-sec-1">Статус</th>
           </tr></thead>
           <tbody>
-            {loading ? <tr><td colSpan={11} className="p-10 text-center"><Loader2 className="h-6 w-6 animate-spin inline-block" /> <span className="ml-2">Загрузка…</span></td></tr> : creators.length === 0 ? <tr><td colSpan={11} className="p-10 text-center" style={{ color: 'var(--fg-2)' }}><Users className="h-7 w-7 mx-auto mb-2" />Никого не найдено.</td></tr> : creators.map((creator) => {
+            {loading ? <tr><td colSpan={10} className="p-10 text-center"><Loader2 className="h-6 w-6 animate-spin inline-block" /> <span className="ml-2">Загрузка…</span></td></tr> : creators.length === 0 ? <tr><td colSpan={10} className="p-10 text-center" style={{ color: 'var(--fg-2)' }}><Users className="h-7 w-7 mx-auto mb-2" />Никого не найдено.</td></tr> : creators.map((creator) => {
               const profile = primaryProfile(creator, platform);
               const views = profile.avg_video_views ?? profile.latest_observed_views;
               const linked = linkedContent(profile);
@@ -662,9 +682,8 @@ export default function UgcPage() {
                 <td className="ugc-c-num" title={views == null ? 'Нет данных' : profile.view_observations === 1 ? `${views} · одна публикация` : `${views}`}><span className="ugc-figure">{formatCount(views)}{profile.view_observations === 1 && views != null ? <span className="ugc-star" aria-label="одна публикация">*</span> : null}</span></td>
                 <td className="ugc-c-num" title={creator.last_activity_at ? new Date(creator.last_activity_at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : 'Нет данных'}>{formatActivity(creator.last_activity_at)}</td>
                 <td className="ugc-c-num ugc-c-pay"><PayoutBadge payout={creator.payout} /></td>
-                <td className="ugc-c-num ugc-sec-2" aria-label={`${profile.content_count} публикаций`}>{formatCount(profile.content_count)}</td>
                 <td className="ugc-c-product ugc-sec-2">{products.length ? <div className="ugc-pills" title={products.map((item) => `${compactProductCode(item.sku)} · ${item.name}`).join('\n')}>{products.slice(0, PRODUCT_PILLS).map((item) => <span key={`${item.sku}-${item.raw_offer_id}`} className="ugc-pill">{compactProductCode(item.sku)}</span>)}{products.length > PRODUCT_PILLS ? <span className="ugc-pill-more">+{products.length - PRODUCT_PILLS}</span> : null}</div> : <span className="ugc-muted">{profile.content.some((item) => item.product_status === 'queued') ? 'В очереди' : 'Не определён'}</span>}</td>
-                <td className="ugc-c-media ugc-sec-3">{linked.length ? <div className="ugc-media">{linked.slice(0, CONTENT_ICONS).map(({ item, href }) => { const kind = mediaKind(item); const status = item.link_status ? LINK_STATUS_SHORT[item.link_status] : 'Не проверена'; return <a key={item.id} href={href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="ugc-media-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${MEDIA_LABEL[kind]} · ${status}`} title={[MEDIA_LABEL[kind], status, item.link_checked_at ? new Date(item.link_checked_at).toLocaleDateString('ru-RU') : null, item.content_url].filter(Boolean).join(' · ')}>{kind === 'Video' ? <Video className="h-4 w-4" /> : kind === 'Image' ? <ImageIcon className="h-4 w-4" /> : kind === 'Post' ? <FileText className="h-4 w-4" /> : <Link className="h-4 w-4" />}<span className="ugc-link-dot" aria-hidden="true" style={{ background: statusColor(item.link_status) }} /></a>; })}{linked.length > CONTENT_ICONS ? <span className="ugc-pill-more" title={`Ещё ${linked.length - CONTENT_ICONS}`}>+{linked.length - CONTENT_ICONS}</span> : null}</div> : <span className="ugc-muted">—</span>}</td>
+                <td className="ugc-c-media ugc-sec-3" aria-label={`${profile.content_count} публикаций`}>{linked.length ? <div className="ugc-media">{linked.slice(0, CONTENT_ICONS).map(({ item, href }, index) => <Publication key={item.id} item={item} href={href} more={index === CONTENT_ICONS - 1 ? linked.length - CONTENT_ICONS : 0} />)}</div> : <span className="ugc-muted">—</span>}</td>
                 <td className="ugc-c-next ugc-sec-1" title={creator.collaboration?.next_action || undefined}><span className="ugc-stage" data-stage={creator.lifecycle_stage}>{creator.lifecycle_stage}</span></td>
               </tr>;
             })}
@@ -722,7 +741,7 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
           {href && <a title={item.content_url || undefined} href={href} target="_blank" rel="noopener noreferrer" className="min-h-11 ugc-content-url block text-sm underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" style={{ color: 'var(--brand-rot)' }}>{item.content_url}</a>}
           <ProductEvidence item={item} />
           {href && <LinkHealth item={item} />}
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm" style={{ color: 'var(--fg-2)' }}><span>{formatNumber(item.views)} views</span><span>{formatNumber(item.comments)} comments</span><span>{item.product_codes.length ? item.product_codes.join(', ') : 'No products recorded'}</span></div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm" style={{ color: 'var(--fg-2)' }}><span>{formatNumber(item.views)} views</span><span>{formatNumber(item.likes ?? null)} likes</span><span>{formatNumber(item.comments)} comments</span><span>{item.product_codes.length ? item.product_codes.join(', ') : 'No products recorded'}</span></div>
         </article>;
       })}</div> : <div className="min-h-20 p-4 flex items-center gap-3" style={{ color: 'var(--fg-2)', background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)' }}><Link2Off className="h-5 w-5" />No content observations recorded.</div>}
     </section>

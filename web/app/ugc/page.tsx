@@ -182,7 +182,7 @@ function payoutTitle(payout: Payout | null | undefined): string {
   return [PAYOUT_STATUS_LABEL[payout.status], formatRub(payout.amount_minor), payout.payout_date, at ? new Date(at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : null, payout.bank_ref].filter(Boolean).join(' · ');
 }
 
-// «Откуда» (Owner 2026-10-15): set once, never a step. Invited — brown magnifier;
+// «Откуда» (Owner 2026-10-15): set once, never a step; sits right after the @account. Invited — brown magnifier;
 // self — green raised hand, the creator volunteered. No mark until Diana knows.
 function OriginMark({ origin }: { origin?: string | null }) {
   if (origin !== 'invited' && origin !== 'self') return null;
@@ -532,7 +532,7 @@ export default function UgcPage() {
               const name = handle ?? creator.display_name ?? 'Автор';
               const secondName = handle && creator.display_name ? creator.display_name : null;
               return <tr key={creator.id} style={{ borderTop: '1px solid var(--border-hairline)' }}>
-                <td className="ugc-c-creator"><button type="button" title={[name, secondName].filter(Boolean).join(' · ')} onClick={() => setSelectedId(creator.id)} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><OriginMark origin={creator.origin} /><span className="ugc-creator-name">{name}</span>{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span></button></td>
+                <td className="ugc-c-creator"><button type="button" title={[name, secondName].filter(Boolean).join(' · ')} onClick={() => setSelectedId(creator.id)} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="ugc-creator-name">{name}</span><OriginMark origin={creator.origin} />{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span></button></td>
                 <td className="ugc-c-platform"><PlatformIcons creator={creator} /></td>
                 <td className="ugc-c-num" title={profile.followers == null ? 'Нет данных' : `${profile.followers}`}>{formatCount(profile.followers)}</td>
                 <td className="ugc-c-num" title={profile.engagement_rate == null ? 'Нет данных' : `${profile.engagement_rate}%`}>{formatRate(profile.engagement_rate)}</td>

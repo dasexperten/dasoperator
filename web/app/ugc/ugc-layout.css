@@ -58,19 +58,20 @@
 .ugc-pill { padding: 0 8px; line-height: 22px; font-weight: 700; color: var(--brand-schwarz); background: var(--brand-gold); border-radius: var(--radius-pill); }
 .ugc-pill-more { color: var(--fg-2); font-weight: 700; }
 /* «Контент» (Owner 2026-10-16): link icon, then views, likes and comments stacked
-   to its right; the icon is exactly the stack's height (3 × 13 = 39 px). The next
+   to its right; the icon is exactly the stack's height (3 × 16 = 48 px). Owner 2026-10-16 sample:
+   heart and bubble as big as the digits, heavy black line, bold figures. The next
    publication follows in the same line. Live link in red, unchecked in ink, dead faded.
    «Посты» left the table: the count lives here as «+N» and in the cell's label. */
 .ugc-media { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; }
 .ugc-pub { position: relative; display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
-.ugc-pub-link { display: inline-flex; flex: 0 0 39px; width: 39px; height: 39px; color: var(--brand-rot); border-radius: var(--radius-sm); }
-.ugc-pub-link svg { width: 39px; height: 39px; stroke-width: 1.5; }
+.ugc-pub-link { display: inline-flex; flex: 0 0 48px; width: 48px; height: 48px; color: var(--brand-rot); border-radius: var(--radius-sm); }
+.ugc-pub-link svg { width: 48px; height: 48px; stroke-width: 1.75; }
 .ugc-pub-link:hover { color: var(--fg-1); background: var(--paper-sunk); }
 .ugc-pub[data-state="unknown"] .ugc-pub-link { color: var(--fg-2); }
 .ugc-pub[data-state="dead"] .ugc-pub-link { color: var(--fg-3); opacity: 0.35; }
-.ugc-pub-stats { display: flex; flex-direction: column; justify-content: center; height: 39px; }
-.ugc-pub-stats > span { display: flex; align-items: center; gap: 3px; height: 13px; font-size: 12px; line-height: 13px; font-weight: 700; color: var(--fg-1); font-variant-numeric: tabular-nums; letter-spacing: 0; }
-.ugc-pub-stats svg { width: 11px; height: 11px; color: var(--fg-2); stroke-width: 2.25; }
+.ugc-pub-stats { display: flex; flex-direction: column; justify-content: center; height: 48px; }
+.ugc-pub-stats > span { display: flex; align-items: center; gap: 4px; height: 16px; font-size: 14px; line-height: 16px; font-weight: 800; color: var(--fg-1); font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.ugc-pub-stats svg { width: 15px; height: 15px; color: var(--fg-1); stroke-width: 2.5; }
 .ugc-pub-more { margin-left: 2px; color: var(--fg-2); font-size: 14px; line-height: 20px; font-weight: 700; letter-spacing: 0; }
 .ugc-table svg { flex-shrink: 0; }
 /* Column sets by table width: all eleven from 1044 px (the 1440 screen) up; creator keeps 186 px. */

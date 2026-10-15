@@ -165,7 +165,7 @@
   --st-red: #c0392b; --st-rival: #e8890c; --st-rival-fg: #1c1917; --st-fee: #7a4e25;
   --st-grey: #a8a29e; --st-grey-fg: #1c1917; --st-unfit: #6b6460;
 }
-.ugc-stage { display: inline-block; min-width: 64px; padding: 2px 6px; border-radius: var(--radius-sm); text-align: center; font-size: 12px; line-height: 18px; font-weight: 600; white-space: nowrap; letter-spacing: 0; color: var(--fg-on-brand); background: var(--st-new); border: 1px solid transparent; }
+.ugc-stage { display: inline-block; width: 60px; padding: 2px 0; border-radius: var(--radius-sm); text-align: center; font-size: 12px; line-height: 18px; font-weight: 600; white-space: nowrap; letter-spacing: 0; color: var(--fg-on-brand); background: var(--st-new); border: 1px solid transparent; }
 .ugc-stage[data-stage="new"] { background: var(--st-new); color: var(--st-new-fg); }
 .ugc-stage[data-stage="sent"] { background: var(--st-sent); color: var(--st-sent-fg); }
 .ugc-stage[data-stage="replied"] { background: var(--st-replied); color: var(--st-replied-fg); }

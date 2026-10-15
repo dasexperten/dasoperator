@@ -658,7 +658,6 @@ export default function UgcPage() {
             <th scope="col" className="ugc-c-platform">Сеть</th>
             <th scope="col" className="ugc-c-num ugc-c-followers">Подписчики</th>
             <th scope="col" className="ugc-c-num ugc-c-er" title="Вовлечённость">ER</th>
-            <th scope="col" className="ugc-c-num ugc-c-views" title="Средние просмотры; со звёздочкой одна публикация">Просмотры</th>
             <th scope="col" className="ugc-c-num ugc-c-activity" title="Последний контакт, выплата или публикация">Активность</th>
             <th scope="col" className="ugc-c-num ugc-c-pay">Оплата</th>
             <th scope="col" className="ugc-c-product ugc-sec-2">Продукт</th>
@@ -666,9 +665,8 @@ export default function UgcPage() {
             <th scope="col" className="ugc-c-next ugc-sec-1">Статус</th>
           </tr></thead>
           <tbody>
-            {loading ? <tr><td colSpan={10} className="p-10 text-center"><Loader2 className="h-6 w-6 animate-spin inline-block" /> <span className="ml-2">Загрузка…</span></td></tr> : creators.length === 0 ? <tr><td colSpan={10} className="p-10 text-center" style={{ color: 'var(--fg-2)' }}><Users className="h-7 w-7 mx-auto mb-2" />Никого не найдено.</td></tr> : creators.map((creator) => {
+            {loading ? <tr><td colSpan={9} className="p-10 text-center"><Loader2 className="h-6 w-6 animate-spin inline-block" /> <span className="ml-2">Загрузка…</span></td></tr> : creators.length === 0 ? <tr><td colSpan={9} className="p-10 text-center" style={{ color: 'var(--fg-2)' }}><Users className="h-7 w-7 mx-auto mb-2" />Никого не найдено.</td></tr> : creators.map((creator) => {
               const profile = primaryProfile(creator, platform);
-              const views = profile.avg_video_views ?? profile.latest_observed_views;
               const linked = linkedContent(profile);
               const products = Array.from(new Map(profile.content.flatMap((item) => item.products).map((item) => [item.sku, item])).values());
               const handle = profile.handle ? `@${profile.handle}` : null;
@@ -679,7 +677,6 @@ export default function UgcPage() {
                 <td className="ugc-c-platform"><PlatformIcons creator={creator} /></td>
                 <td className="ugc-c-num" title={profile.followers == null ? 'Нет данных' : `${profile.followers}`}>{formatCount(profile.followers)}</td>
                 <td className="ugc-c-num" title={profile.engagement_rate == null ? 'Нет данных' : `${profile.engagement_rate}%`}>{formatRate(profile.engagement_rate)}</td>
-                <td className="ugc-c-num" title={views == null ? 'Нет данных' : profile.view_observations === 1 ? `${views} · одна публикация` : `${views}`}><span className="ugc-figure">{formatCount(views)}{profile.view_observations === 1 && views != null ? <span className="ugc-star" aria-label="одна публикация">*</span> : null}</span></td>
                 <td className="ugc-c-num" title={creator.last_activity_at ? new Date(creator.last_activity_at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : 'Нет данных'}>{formatActivity(creator.last_activity_at)}</td>
                 <td className="ugc-c-num ugc-c-pay"><PayoutBadge payout={creator.payout} /></td>
                 <td className="ugc-c-product ugc-sec-2">{products.length ? <div className="ugc-pills" title={products.map((item) => `${compactProductCode(item.sku)} · ${item.name}`).join('\n')}>{products.slice(0, PRODUCT_PILLS).map((item) => <span key={`${item.sku}-${item.raw_offer_id}`} className="ugc-pill">{compactProductCode(item.sku)}</span>)}{products.length > PRODUCT_PILLS ? <span className="ugc-pill-more">+{products.length - PRODUCT_PILLS}</span> : null}</div> : <span className="ugc-muted">{profile.content.some((item) => item.product_status === 'queued') ? 'В очереди' : 'Не определён'}</span>}</td>
@@ -693,7 +690,6 @@ export default function UgcPage() {
 
       {selected && <div ref={(node) => { if (node) node.scrollIntoView({ block: 'start', behavior: 'smooth' }); }}><CreatorPanel key={selected.id} creator={selected} onClose={() => setSelectedId(null)} onSaved={load} /></div>}
       <div className="ugc-stage-legend" aria-label="Статусы">{STAGES.map((value) => <span key={value} className="ugc-stage" data-stage={value}>{value}</span>)}</div>
-      <p className="erp-page-help text-sm" style={{ color: 'var(--fg-3)' }}>* Одна публикация: показаны её просмотры, а не среднее. Нет данных: прочерк.</p>
     </div>
     </PayContext.Provider>
   );

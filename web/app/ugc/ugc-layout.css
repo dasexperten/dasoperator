@@ -31,11 +31,10 @@
 .ugc-table th.ugc-c-platform { width: 58px; }
 .ugc-table th.ugc-c-followers { width: 68px; }
 .ugc-table th.ugc-c-er { width: 56px; }
-.ugc-table th.ugc-c-views { width: 85px; }
 .ugc-table th.ugc-c-activity { width: 71px; }
 .ugc-table th.ugc-c-pay { width: 101px; }
 .ugc-table th.ugc-c-product { width: 121px; }
-.ugc-table th.ugc-c-media { width: 218px; }
+.ugc-table th.ugc-c-media { width: 303px; }
 .ugc-table th.ugc-c-next { width: 80px; }
 .ugc-table tbody tr:hover { background: var(--paper-sunk); }
 /* Payout: one width in every row, right edge on the head's right edge. */
@@ -61,6 +60,7 @@
    to its right; the icon is exactly the stack's height (3 × 16 = 48 px). Owner 2026-10-16 sample:
    heart and bubble as big as the digits, heavy black line, bold figures. The next
    publication follows in the same line. Live link in red, unchecked in ink, dead faded.
+   «Просмотры» left too (Owner 2026-10-16): views live in each publication.
    «Посты» left the table: the count lives here as «+N» and in the cell's label. */
 .ugc-media { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; }
 .ugc-pub { position: relative; display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }

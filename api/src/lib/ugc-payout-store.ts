@@ -102,6 +102,23 @@ export async function handleKonsolCallback(env: Env, body: any) {
   return refreshUgcPayout(env, row.id);
 }
 
+/**
+ * Re-reads every payout still "sent" in Konsol (Owner 15.10.2026: check every
+ * 15 minutes, no browser, no PC). Runs on the 15-minute tick and before the evening
+ * summary; a paid payout turns green and Diana gets her notice at once.
+ */
+export async function ugcPayoutSweep(env: Env): Promise<number> {
+  const pending = await env.DB.prepare(
+    `SELECT id FROM ugc_payouts WHERE status='sent' AND konsol_payment_id IS NOT NULL ORDER BY updated_at LIMIT 50`
+  ).all<{ id: string }>();
+  let refreshed = 0;
+  for (const r of pending.results ?? []) {
+    const out = await refreshUgcPayout(env, r.id);
+    if (out.ok) refreshed++;
+  }
+  return refreshed;
+}
+
 function yerevanDay(ms: number): string {
   return new Date(ms + 4 * 3600_000).toISOString().slice(0, 10);
 }
@@ -112,14 +129,7 @@ function yerevanDay(ms: number): string {
  * Owner: count, sum, own RUB left. Silent on a day with no Konsol payouts.
  */
 export async function ugcPayoutEvening(env: Env, opts: { force?: boolean } = {}): Promise<string> {
-  const pending = await env.DB.prepare(
-    `SELECT id FROM ugc_payouts WHERE status='sent' AND konsol_payment_id IS NOT NULL ORDER BY updated_at LIMIT 50`
-  ).all<{ id: string }>();
-  let refreshed = 0;
-  for (const r of pending.results ?? []) {
-    const out = await refreshUgcPayout(env, r.id);
-    if (out.ok) refreshed++;
-  }
+  const refreshed = await ugcPayoutSweep(env);
   const now = Date.now();
   const day = yerevanDay(now);
   const key = 'ugc_payout_summary:last_day';

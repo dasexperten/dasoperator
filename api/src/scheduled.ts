@@ -694,6 +694,13 @@ export async function handleScheduled(
       console.error('[cron:tg-inbox] failed:', e);
     }
 
+    try {
+      const { ugcPayoutSweep } = await import('./lib/ugc-payout-store');
+      console.log(`[cron:ugc-payouts] refreshed=${await ugcPayoutSweep(env)}`);
+    } catch (e) {
+      console.error('[cron:ugc-payouts] failed:', e);
+    }
+
     // The model-free steps of this slot run in their own erp-* workers (api/src/cron-steps.ts):
     // promo refill, marketplace pull, mail index, .ru track, .ru orders, loyalty keys.
     // The RetailCRM export finished (crm_sync_state retailcrm:orders_page = done) and was removed.

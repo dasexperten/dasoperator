@@ -24,3 +24,7 @@ export function mapKonsolStatus(status: unknown): 'paid' | 'failed' | 'sent';
 export function konsolPhone(value: unknown): string | null;
 export function maskPhoneWide(value: unknown): string | null;
 export function isFpsBankMemberId(value: unknown): boolean;
+export function yerevanDay(msValue: number): string;
+export function annotateOverLimit<T extends Record<string, any>>(rows: T[]): (T & { over_limit: boolean })[];
+export type PaidCount = { count: number; minor: number; day: string };
+export function paidCounters(rows: Record<string, any>[], now?: number): { today: PaidCount; yesterday: PaidCount };

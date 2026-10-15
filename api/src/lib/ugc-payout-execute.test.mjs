@@ -184,3 +184,15 @@ test('a failed Telegram notice is retried next time', async () => {
   const out = await applyKonsolPayment(await w.deps.store.getPayout('p1'), { id: 'pay-1', status: 'executed' }, w.deps);
   assert.equal(out.noticed, true);
 });
+
+import { matchRegistryPayment } from './ugc-payout-execute.mjs';
+
+test('registry payout links only to exactly one executed Konsol payment of its amount and day', () => {
+  const row = { id: 'r', amount_minor: 69100, payout_date: '2026-10-14' };
+  const ok = { id: 'k1', status: 'executed', amount: '691.0', paid_at: '2026-10-14T11:00:00Z' };
+  assert.equal(matchRegistryPayment(row, [ok, { id: 'k2', status: 'executed', amount: '836.0', paid_at: '2026-10-14T11:00:00Z' }]).payment.id, 'k1');
+  assert.match(matchRegistryPayment(row, [ok, { ...ok, id: 'k3' }]).reason, /ambiguous/);
+  assert.match(matchRegistryPayment(row, [{ ...ok, status: 'failed' }]).reason, /no executed/);
+  assert.match(matchRegistryPayment(row, [{ ...ok, paid_at: '2026-10-20T11:00:00Z', created_at: null }]).reason, /no executed/);
+  assert.match(matchRegistryPayment(row, [ok], new Set(['k1'])).reason, /no executed/);
+});

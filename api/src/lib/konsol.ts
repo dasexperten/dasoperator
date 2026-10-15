@@ -49,6 +49,8 @@ export function konsolClient(env: Env) {
   return {
     companyAccounts: () => call('GET', '/api/v1/company_accounts'),
     getPayment: (id: string) => call('GET', `/api/v1/payments/${encodeURIComponent(id)}`),
+    /** GET only. One page of payments; next page = ?from=<pagination.to> (same as contractors). */
+    listPayments: (from?: string | null) => call('GET', `/api/v1/payments${from ? `?from=${encodeURIComponent(from)}` : ''}`),
     createPayment: (body: unknown) => call('POST', '/api/v1/payments', body),
     createContractor: (body: unknown) => call('POST', '/api/v1/contractors', body),
 

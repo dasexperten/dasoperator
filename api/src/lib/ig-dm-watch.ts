@@ -25,6 +25,35 @@ async function graph(path: string, token: string): Promise<Answer> {
   }
 }
 
+const NAME_BATCH = 10;
+
+/**
+ * Creator's own name after the @handle on /ugc (Owner 2026-10-15): read from the
+ * Instagram profile of whoever wrote to @dasexperten (GET /{igsid}?fields=name).
+ * Only fills an empty name; never the payout recipient (that can be a third person).
+ * A profile that answers without a name is marked '' so it is not asked again.
+ */
+export async function fillCreatorNames(env: Env, pageToken: string): Promise<number> {
+  const rows = (await env.DB.prepare(
+    `SELECT c.id creator_id, MIN(m.from_id) from_id
+       FROM ugc_ig_messages m
+       JOIN ugc_creator_platforms p ON p.platform = 'instagram' AND p.normalized_handle = LOWER(m.from_username)
+       JOIN ugc_creators c ON c.id = p.creator_id
+      WHERE m.direction = 'in' AND m.from_id IS NOT NULL AND c.display_name IS NULL
+      GROUP BY c.id LIMIT ${NAME_BATCH}`
+  ).all<{ creator_id: string; from_id: string }>()).results ?? [];
+  let filled = 0;
+  for (const r of rows) {
+    const who = await graph(`/${encodeURIComponent(r.from_id)}?fields=name`, pageToken);
+    if (!who.ok) continue;
+    const name = typeof who.body?.name === 'string' ? who.body.name.trim().slice(0, 180) : '';
+    await env.DB.prepare(`UPDATE ugc_creators SET display_name=?2, updated_at=?3 WHERE id=?1 AND display_name IS NULL`)
+      .bind(r.creator_id, name, Date.now()).run();
+    if (name) filled++;
+  }
+  return filled;
+}
+
 export type IgWatchResult = { ok: boolean; activity: boolean; stored: number; incoming: number; error?: string };
 
 export async function igDmWatch(env: Env): Promise<IgWatchResult> {
@@ -34,6 +63,7 @@ export async function igDmWatch(env: Env): Promise<IgWatchResult> {
   const page = await graph(`/${PAGE_ID}?fields=access_token`, token);
   if (!page.ok || !page.body?.access_token) return { ok: false, activity: false, stored: 0, incoming: 0, error: `page token: ${page.error}` };
   const pageToken = String(page.body.access_token);
+  try { await fillCreatorNames(env, pageToken); } catch { /* names are a convenience; retried next run */ }
 
   const convs = await graph(`/${PAGE_ID}/conversations?platform=instagram&fields=id,updated_time&limit=${MAX_CONVERSATIONS}`, pageToken);
   if (!convs.ok) return { ok: false, activity: false, stored: 0, incoming: 0, error: `conversations: ${convs.error}` };

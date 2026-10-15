@@ -199,3 +199,51 @@ export function maskPhoneWide(value) {
 export function isFpsBankMemberId(value) {
   return /^\d{12}$/.test(String(value ?? '').trim());
 }
+
+// ---------------------------------------------------------------------------
+// Honest «Оплата» (Owner 2026-10-15): paid means executed in Konsol, nothing less.
+// ---------------------------------------------------------------------------
+
+const YEREVAN_OFFSET_MS = 4 * 3600_000;
+
+/** YYYY-MM-DD of a moment in Yerevan time. */
+export function yerevanDay(msValue) {
+  return new Date(Number(msValue) + YEREVAN_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/**
+ * Marks rows that sit over a limit on their day: 999 ₽ per creator or 5 000 ₽
+ * for all creators (failed rows do not count, paid ones do). Mutates and returns rows.
+ */
+export function annotateOverLimit(rows) {
+  const perCreator = new Map();
+  const perDay = new Map();
+  for (const r of rows) {
+    if (r.status === 'failed') continue;
+    const k = `${r.creator_id}|${r.payout_date}`;
+    perCreator.set(k, (perCreator.get(k) ?? 0) + Number(r.amount_minor || 0));
+    perDay.set(r.payout_date, (perDay.get(r.payout_date) ?? 0) + Number(r.amount_minor || 0));
+  }
+  for (const r of rows) {
+    const open = r.status === 'awaiting_approval' || r.status === 'approved';
+    r.over_limit = open && ((perCreator.get(`${r.creator_id}|${r.payout_date}`) ?? 0) > UGC_PAYOUT_MAX_MINOR
+      || (perDay.get(r.payout_date) ?? 0) > UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR);
+  }
+  return rows;
+}
+
+/** «Оплачено сегодня / вчера»: only payouts executed in Konsol, by Yerevan day of paid_at. */
+export function paidCounters(rows, now = Date.now()) {
+  const today = yerevanDay(now);
+  const yesterday = yerevanDay(now - 24 * 3600_000);
+  const out = { today: { count: 0, minor: 0, day: today }, yesterday: { count: 0, minor: 0, day: yesterday } };
+  for (const r of rows) {
+    if (r.status !== 'paid' || !r.konsol_payment_id || !r.paid_at) continue;
+    const at = Date.parse(String(r.paid_at));
+    if (Number.isNaN(at)) continue;
+    const day = yerevanDay(at);
+    const slot = day === today ? out.today : day === yesterday ? out.yesterday : null;
+    if (slot) { slot.count += 1; slot.minor += Number(r.amount_minor || 0); }
+  }
+  return out;
+}

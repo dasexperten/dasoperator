@@ -4,7 +4,7 @@ import { fail, ok } from '../lib/responses';
 import { hasModuleAccess, validateSession, type AuthUser } from '../lib/auth';
 import { runUgcLinkHealthBatch } from '../lib/ugc-link-health';
 import { baseProductSku, identifyExplicitProducts, initialProductClassification, UGC_PRODUCTS } from '../lib/ugc-products.mjs';
-import { checkDailyLimit, checkDailyTotalLimit, compareByRecent, isFpsBankMemberId, isPayoutStatus, konsolPhone, latestActivityMs, maskPhone, maskPhoneWide, parsePayoutAmount, payoutDate, statusStampColumn } from '../lib/ugc-payouts.mjs';
+import { annotateOverLimit, checkDailyLimit, checkDailyTotalLimit, compareByRecent, isFpsBankMemberId, isPayoutStatus, konsolPhone, latestActivityMs, maskPhone, maskPhoneWide, paidCounters, parsePayoutAmount, payoutDate, statusStampColumn } from '../lib/ugc-payouts.mjs';
 import { executeUgcPayout, refreshUgcPayout, ugcPayoutEvening } from '../lib/ugc-payout-store';
 
 // Diana's creator statuses (Owner 2026-10-15, DH-LAW-261015-02): one English
@@ -174,12 +174,15 @@ ugc.get('/', async (c) => {
   let payoutRows: Record<string, any>[] = [];
   try {
     const result = await c.env.DB.prepare(
-      `SELECT id, creator_id, creator_platform_id, platform, handle, amount_minor,
-              currency, status, payout_date, marketplace, bank_ref, note,
-              approved_at, sent_at, paid_at, failed_at, created_at, updated_at
-       FROM ugc_payouts ORDER BY updated_at DESC`
+      `SELECT p.id, p.creator_id, p.creator_platform_id, p.platform, p.handle, p.amount_minor,
+              p.currency, p.status, p.payout_date, p.marketplace, p.bank_ref, p.note,
+              p.approved_at, p.sent_at, p.paid_at, p.failed_at, p.created_at, p.updated_at,
+              p.konsol_payment_id, p.konsol_status, p.phone_masked, p.fps_bank_member_id,
+              -- requisites received? (yes/no only; the phone and name never leave that table)
+              (CASE WHEN EXISTS (SELECT 1 FROM ugc_payout_requisites r WHERE r.payout_id = p.id) THEN 1 ELSE 0 END) has_requisites
+       FROM ugc_payouts p ORDER BY p.updated_at DESC`
     ).all<Record<string, any>>();
-    payoutRows = result.results ?? [];
+    payoutRows = annotateOverLimit(result.results ?? []);
   } catch { /* table not yet migrated */ }
   const payoutsByCreator = new Map<string, Record<string, any>[]>();
   for (const row of payoutRows) {
@@ -293,7 +296,7 @@ ugc.get('/', async (c) => {
       collaboration: latestCollaboration.get(creatorId) ?? null,
       payout: creatorPayouts[0] ?? null,
       payouts: creatorPayouts.slice(0, 20),
-      paid_total_minor: creatorPayouts.filter((item) => item.status === 'paid').reduce((sum, item) => sum + Number(item.amount_minor || 0), 0),
+      paid_total_minor: creatorPayouts.filter((item) => item.status === 'paid' && item.konsol_payment_id).reduce((sum, item) => sum + Number(item.amount_minor || 0), 0),
       last_activity_at: latestActivityMs({
         collaboration: latestCollaboration.get(creatorId) ?? null,
         payouts: creatorPayouts,
@@ -332,8 +335,10 @@ ugc.get('/', async (c) => {
   const payoutSummary = {
     payouts_awaiting: payoutRows.filter((row) => row.status === 'awaiting_approval').length,
     payouts_open: payoutRows.filter((row) => row.status === 'approved' || row.status === 'sent').length,
-    payouts_paid: payoutRows.filter((row) => row.status === 'paid').length,
-    payouts_paid_minor: payoutRows.filter((row) => row.status === 'paid').reduce((sum, row) => sum + Number(row.amount_minor || 0), 0),
+    // Paid = executed in Konsol with its payment id (Owner 2026-10-15).
+    payouts_paid: payoutRows.filter((row) => row.status === 'paid' && row.konsol_payment_id).length,
+    payouts_paid_minor: payoutRows.filter((row) => row.status === 'paid' && row.konsol_payment_id).reduce((sum, row) => sum + Number(row.amount_minor || 0), 0),
+    paid_konsol: paidCounters(payoutRows),
   };
   const productCounts = new Map<string, number>();
   for (const row of metricRows.results ?? []) {
@@ -814,6 +819,8 @@ ugc.put('/payouts/:id/requisites', async (c) => {
 ugc.post('/payouts/:id/execute', async (c) => {
   const access = await requireAccess(c, true);
   if (access instanceof Response) return access;
+  // The Owner pays by hand (Owner 2026-10-15): only Admin may send money to Konsol.
+  if (access.role !== 'admin') return fail(c, 403, [{ code: 'admin_only', message: 'Only the Owner (Admin) can pay' }]);
   const out = await executeUgcPayout(c.env, c.req.param('id'));
   if (!out.ok) return fail(c, out.http as 400, [{ code: out.code ?? 'failed', message: out.message ?? 'Payout not executed' }]);
   return c.json({ success: true, result: { already: out.already === true, payout: out.payout }, errors: [], messages: [] }, out.http as 200);

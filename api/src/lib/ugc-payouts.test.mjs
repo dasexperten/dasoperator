@@ -84,3 +84,31 @@ test('sorts by most recent activity, unknown last, ties by followers', () => {
   ];
   assert.deepEqual([...rows].sort(compareByRecent).map((row) => row.name), ['new', 'tie-big', 'tie-small', 'old', 'none']);
 });
+
+// Honest «Оплата» (Owner 2026-10-15).
+import { annotateOverLimit, paidCounters, yerevanDay } from './ugc-payouts.mjs';
+
+test('paid counters count only Konsol-executed payouts by Yerevan day', () => {
+  const now = Date.parse('2026-10-15T10:00:00Z');
+  const rows = [
+    { status: 'paid', konsol_payment_id: 'a', paid_at: '2026-10-15T06:00:00Z', amount_minor: 69100 },
+    { status: 'paid', konsol_payment_id: 'b', paid_at: '2026-10-14T19:30:00Z', amount_minor: 83600 }, // 23:30 Yerevan 14.10
+    { status: 'paid', konsol_payment_id: 'c', paid_at: '2026-10-14T20:30:00Z', amount_minor: 10000 }, // 00:30 Yerevan 15.10
+    { status: 'paid', paid_at: '2026-10-15T06:00:00Z', amount_minor: 48400 },  // no Konsol id — not counted
+    { status: 'sent', konsol_payment_id: 'd', paid_at: null, amount_minor: 5000 },
+  ];
+  const out = paidCounters(rows, now);
+  assert.deepEqual(out.today, { count: 2, minor: 79100, day: '2026-10-15' });
+  assert.deepEqual(out.yesterday, { count: 1, minor: 83600, day: '2026-10-14' });
+  assert.equal(yerevanDay(Date.parse('2026-10-14T20:00:00Z')), '2026-10-15');
+});
+
+test('over_limit marks open rows past 999 ₽ per creator or 5 000 ₽ per day', () => {
+  const rows = annotateOverLimit([
+    { creator_id: 'x', payout_date: '2026-10-15', status: 'approved', amount_minor: 60000 },
+    { creator_id: 'x', payout_date: '2026-10-15', status: 'awaiting_approval', amount_minor: 50000 },
+    { creator_id: 'y', payout_date: '2026-10-15', status: 'failed', amount_minor: 99900 },
+    { creator_id: 'z', payout_date: '2026-10-15', status: 'approved', amount_minor: 30000 },
+  ]);
+  assert.deepEqual(rows.map((r) => r.over_limit), [true, true, false, false]);
+});

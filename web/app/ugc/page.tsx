@@ -1,12 +1,13 @@
 'use client';
 
-import { ChangeEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpDown, ExternalLink, Facebook, FileSpreadsheet, FileText, Globe, Hand, ImageIcon, Instagram, Link, Link2Off, Loader2, Search, Send, Users, Video, X, Youtube } from 'lucide-react';
 import './ugc-layout.css';
 import PageHeader from '@/components/ui/page-header';
 import { apiGet, apiPatch, apiPost } from '@/lib/api';
 import { parseUgcWorkbook } from '@/lib/ugc-import';
-import { formatRub, PAYOUT_STATUS_LABEL, payoutCell } from '@/lib/ugc-payout-cell.mjs';
+import { canPay, formatRub, PAYOUT_STATUS_LABEL, payConfirmText, payoutCell } from '@/lib/ugc-payout-cell.mjs';
+import { getUser } from '@/lib/auth';
 import { formatActivity, formatCount, formatRate, platformLabel } from '@/lib/ugc-table-format.mjs';
 
 type PlatformMetric = {
@@ -85,7 +86,16 @@ type Payout = {
   bank_ref: string | null;
   note: string | null;
   updated_at: number;
+  konsol_payment_id?: string | null;
+  konsol_status?: string | null;
+  handle?: string | null;
+  phone_masked?: string | null;
+  fps_bank_member_id?: string | null;
+  has_requisites?: number | boolean;
+  over_limit?: boolean;
 };
+
+type PaidCount = { count: number; minor: number; day: string };
 
 type Creator = {
   id: string;
@@ -124,6 +134,7 @@ type LinkSummary = {
 
 type UgcPayload = {
   creators: Creator[];
+  payout_summary?: { paid_konsol?: { today: PaidCount; yesterday: PaidCount } };
   summary: { creators: number; profiles: number; content_items: number; active_outreach: number; published: number } & LinkSummary;
   platforms: { platform: string; creator_count: number }[];
   products: { sku: string; name: string; content_count: number }[];
@@ -174,12 +185,13 @@ function mediaKind(item: ContentObservation): 'Video' | 'Image' | 'Post' | 'Cont
   return 'Content';
 }
 
-// «Оплата» (Owner 2026-10-14): solid rectangle with the amount — green when
-// paid, red otherwise; the status name only in the hover title.
+// «Оплата» (Owner 2026-10-15): green only when executed in Konsol; brown when
+// requisites are in and the payout waits; grey without requisites; red when it
+// failed or sat «Отправлено» without Konsol for 2 days. Reason under the amount.
 function payoutTitle(payout: Payout | null | undefined): string {
   if (!payout) return PAYOUT_STATUS_LABEL.none;
   const at = payout.paid_at ?? payout.sent_at ?? payout.approved_at ?? payout.failed_at;
-  return [PAYOUT_STATUS_LABEL[payout.status], formatRub(payout.amount_minor), payout.payout_date, at ? new Date(at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : null, payout.bank_ref].filter(Boolean).join(' · ');
+  return [payoutCell(payout).title, formatRub(payout.amount_minor), payout.payout_date, at ? new Date(at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : null, payout.bank_ref].filter(Boolean).join(' · ');
 }
 
 // «Откуда» (Owner 2026-10-15): set once, never a step; sits right after the @account. Invited — brown magnifier;
@@ -190,9 +202,20 @@ function OriginMark({ origin }: { origin?: string | null }) {
   return <span className="ugc-origin" data-origin={origin} role="img" aria-label={label} title={label}>{origin === 'invited' ? <Search className="h-4 w-4" aria-hidden="true" /> : <Hand className="h-4 w-4" aria-hidden="true" />}</span>;
 }
 
+// «Оплатить» (Owner 2026-10-15): Admin only; the Owner confirms, then the click
+// goes to POST /api/ugc/payouts/:id/execute. Nothing pays without that click.
+type PayApi = { isAdmin: boolean; busyId: string | null; pay: (payout: Payout) => void };
+const PayContext = createContext<PayApi>({ isAdmin: false, busyId: null, pay: () => undefined });
+
 function PayoutBadge({ payout }: { payout: Payout | null | undefined }) {
   const cell = payoutCell(payout);
-  return <span className="ugc-payout" data-tone={cell.tone} title={payoutTitle(payout)} aria-label={`${payoutTitle(payout)}`}>{cell.text}</span>;
+  const { isAdmin, busyId, pay } = useContext(PayContext);
+  const payable = Boolean(isAdmin && payout && canPay(payout));
+  return <span className="ugc-payout-cell" title={payoutTitle(payout)}>
+    <span className="ugc-payout" data-tone={cell.tone} aria-label={payoutTitle(payout)}>{cell.text}</span>
+    {cell.reason ? <span className="ugc-payout-reason">{cell.reason}</span> : null}
+    {payable && payout ? <button type="button" className="ugc-pay-btn" disabled={busyId !== null} onClick={(event) => { event.stopPropagation(); pay(payout); }}>{busyId === payout.id ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> : null}Оплатить</button> : null}
+  </span>;
 }
 
 // «Сеть» (Owner 2026-10-14): one monochrome icon per network, never the word.
@@ -251,6 +274,13 @@ function ProductEvidence({ item }: { item: ContentObservation }) {
   if (item.unknown_product_codes.length) return <div className="text-xs" style={{ color: 'var(--status-warning)' }}>Unknown product code: {item.unknown_product_codes.join(', ')} · needs review</div>;
   if (item.product_status === 'queued') return <div className="text-xs" style={{ color: 'var(--fg-3)' }}>Product identification queued · no explicit product evidence</div>;
   return <div className="text-xs" style={{ color: 'var(--fg-3)' }}>Product unknown</div>;
+}
+
+// «Оплачено сегодня / вчера» (Owner 2026-10-15): only payouts executed in Konsol.
+function PaidCounter({ paid }: { paid?: { today: PaidCount; yesterday: PaidCount } }) {
+  if (!paid) return null;
+  const part = (label: string, p: PaidCount) => <span>{label}: <b>{p.count}</b> на <b>{formatRub(p.minor) || '0 ₽'}</b></span>;
+  return <div className="ugc-paid-counter" title="Только выплаты, исполненные в Консоли">Оплачено блогерам · {part('сегодня', paid.today)} · {part('вчера', paid.yesterday)}</div>;
 }
 
 function Kpi({ label, value, exact, note, accent }: { label: string; value: string; exact: string; note: string; accent: string }) {
@@ -312,6 +342,9 @@ export default function UgcPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const urlStateReady = useRef(false);
   const tableRef = useRef<HTMLTableElement>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [payBusy, setPayBusy] = useState<string | null>(null);
+  useEffect(() => { setIsAdmin(getUser()?.role === 'admin'); }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -430,7 +463,27 @@ export default function UgcPage() {
     setCheckingLinks(false);
   }
 
+  const payApi: PayApi = {
+    isAdmin,
+    busyId: payBusy,
+    pay: async (payout) => {
+      if (!window.confirm(payConfirmText(payout, payout.handle))) return;
+      setPayBusy(payout.id);
+      setError(null);
+      try {
+        const response = await apiPost(`/api/ugc/payouts/${encodeURIComponent(payout.id)}/execute`, {});
+        if (!response.success) setError(`Оплата не ушла: ${response.errors[0]?.message ?? 'ошибка'}`);
+      } catch (reason) {
+        setError(`Оплата: ответа нет — сначала проверь Консоль. ${reason instanceof Error ? reason.message : String(reason)}`);
+      } finally {
+        setPayBusy(null);
+        await load();
+      }
+    },
+  };
+
   return (
+    <PayContext.Provider value={payApi}>
     <div className="ugc-page p-5 md:p-8 space-y-7">
       <div className="ugc-heading"><PageHeader
         eyebrow="Creator operations"
@@ -457,6 +510,7 @@ export default function UgcPage() {
         <Kpi label="Publications" value={formatNumber(data.summary.content_items)} exact={`${data.summary.content_items} publications`} note="observed content" accent="var(--brand-schwarz)" />
         <Kpi label="Products" value={formatNumber(data.products.length)} exact={`${data.products.length} identified product families`} note={`${formatNumber(data.summary.product_queued)} queued`} accent="var(--brand-gold)" />
       </section>
+      <PaidCounter paid={data.payout_summary?.paid_konsol} />
 
       <section aria-label="Content link health" className="ugc-health p-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
         <strong style={{ fontFamily: 'var(--font-display)', fontWeight: 900 }}>Link health</strong>
@@ -553,6 +607,7 @@ export default function UgcPage() {
       <div className="ugc-stage-legend" aria-label="Статусы">{STAGES.map((value) => <span key={value} className="ugc-stage" data-stage={value}>{value}</span>)}</div>
       <p className="erp-page-help text-sm" style={{ color: 'var(--fg-3)' }}>* Одна публикация: показаны её просмотры, а не среднее. Нет данных: прочерк.</p>
     </div>
+    </PayContext.Provider>
   );
 }
 

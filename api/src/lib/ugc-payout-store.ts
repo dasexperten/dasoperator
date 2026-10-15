@@ -4,7 +4,7 @@
 import type { Env } from '../types';
 import { konsolClient } from './konsol';
 import { sendOwnerTelegram } from './owner-telegram';
-import { applyKonsolPayment, executePayout } from './ugc-payout-execute.mjs';
+import { applyKonsolPayment, executePayout, matchRegistryPayment, REGISTRY_LINK_IDS } from './ugc-payout-execute.mjs';
 import { formatRub, ownRubMinor } from './ugc-payouts.mjs';
 
 export function payoutStore(env: Env) {
@@ -107,7 +107,48 @@ export async function handleKonsolCallback(env: Env, body: any) {
  * 15 minutes, no browser, no PC). Runs on the 15-minute tick and before the evening
  * summary; a paid payout turns green and Diana gets her notice at once.
  */
+/**
+ * Links the two registry payouts of 14.10 to their executed Konsol payments
+ * (GET only). Runs on the sweep until both carry an id, then does nothing.
+ * Diana's «деньги пришли» notice is not sent: these were paid on 14.10.
+ */
+export async function linkRegistryPayouts(env: Env): Promise<string> {
+  const placeholders = REGISTRY_LINK_IDS.map((_, i) => `?${i + 1}`).join(',');
+  const rows = (await env.DB.prepare(
+    `SELECT id, amount_minor, payout_date FROM ugc_payouts WHERE id IN (${placeholders}) AND konsol_payment_id IS NULL`
+  ).bind(...REGISTRY_LINK_IDS).all<Record<string, any>>()).results ?? [];
+  if (!rows.length) return 'registry: nothing to link';
+  const konsol = konsolClient(env);
+  const payments: any[] = [];
+  let from: string | null = null;
+  for (let page = 0; page < 20; page++) {
+    const r = await konsol.listPayments(from);
+    if (!r.ok) return `registry: Konsol list failed (${r.error ?? r.status})`;
+    payments.push(...(r.body?.collection ?? []));
+    const next = r.body?.pagination;
+    if (!next?.next_page || !next.to || String(next.to) === from) break;
+    from = String(next.to);
+  }
+  const linked = new Set(((await env.DB.prepare(`SELECT konsol_payment_id FROM ugc_payouts WHERE konsol_payment_id IS NOT NULL`).all<{ konsol_payment_id: string }>()).results ?? []).map((r) => String(r.konsol_payment_id)));
+  const notes: string[] = [];
+  for (const row of rows) {
+    const hit = matchRegistryPayment(row, payments, linked);
+    if (!hit.payment) { notes.push(`${row.id}: ${hit.reason}`); continue; }
+    const p = hit.payment;
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      `UPDATE ugc_payouts SET konsol_payment_id=?2, konsol_contractor_id=COALESCE(konsol_contractor_id, ?3), konsol_status=?4,
+         status='paid', paid_at=?5, paid_notice_at=COALESCE(paid_notice_at, ?6), updated_at=?7
+       WHERE id=?1 AND konsol_payment_id IS NULL`
+    ).bind(row.id, String(p.id), p.contractor_id != null ? String(p.contractor_id) : null, p.status, p.paid_at || p.created_at || now, now, Date.now()).run();
+    linked.add(String(p.id));
+    notes.push(`${row.id}: linked`);
+  }
+  return `registry: ${notes.join('; ')}`;
+}
+
 export async function ugcPayoutSweep(env: Env): Promise<number> {
+  try { await linkRegistryPayouts(env); } catch { /* GET-only link; retried next tick */ }
   const pending = await env.DB.prepare(
     `SELECT id FROM ugc_payouts WHERE status='sent' AND konsol_payment_id IS NOT NULL ORDER BY updated_at LIMIT 50`
   ).all<{ id: string }>();
@@ -141,7 +182,17 @@ export async function ugcPayoutEvening(env: Env, opts: { force?: boolean } = {})
   const rows = (await env.DB.prepare(
     `SELECT status, amount_minor FROM ugc_payouts WHERE konsol_payment_id IS NOT NULL AND sent_at >= ?1 AND sent_at < ?2`
   ).bind(startUtc, endUtc).all<{ status: string; amount_minor: number }>()).results ?? [];
-  if (!rows.length) return `refreshed=${refreshed}; no Konsol payouts on ${day} — silent`;
+  // «Отправлено» with no Konsol payment for more than 2 days (Owner 2026-10-15):
+  // the money did not go through Konsol — always named in the summary.
+  const staleBefore = new Date(now - 2 * 24 * 3600_000).toISOString();
+  const stale = (await env.DB.prepare(
+    `SELECT amount_minor FROM ugc_payouts WHERE status='sent' AND konsol_payment_id IS NULL
+       AND COALESCE(sent_at, payout_date || 'T00:00:00.000Z') < ?1`
+  ).bind(staleBefore).all<{ amount_minor: number }>()).results ?? [];
+  const staleLine = stale.length
+    ? ` Отправлено, но в Консоли нет платежа больше 2 дней: ${stale.length} на ${formatRub(stale.reduce((s, r) => s + Number(r.amount_minor || 0), 0))}.`
+    : '';
+  if (!rows.length && !stale.length) return `refreshed=${refreshed}; no Konsol payouts on ${day} — silent`;
   const sum = rows.reduce((s, r) => s + Number(r.amount_minor || 0), 0);
   const paid = rows.filter((r) => r.status === 'paid').length;
   const failed = rows.filter((r) => r.status === 'failed').length;
@@ -149,8 +200,9 @@ export async function ugcPayoutEvening(env: Env, opts: { force?: boolean } = {})
   const own = accounts.ok ? ownRubMinor(accounts.body) : null;
   const ownLine = own && own.ok ? `Свой рублёвый счёт Консоли: ${formatRub(own.own_minor)}.` : 'Свой рублёвый счёт Консоли сейчас не прочитан.';
   const [, m, d] = day.split('-');
-  const text = `Выплаты блогерам за ${d}.${m}: ${rows.length} на ${formatRub(sum)}. Пришли: ${paid}` +
-    (failed ? `, не прошли: ${failed}` : '') + `. ${ownLine}`;
+  const text = (rows.length
+    ? `Выплаты блогерам за ${d}.${m}: ${rows.length} на ${formatRub(sum)}. Пришли: ${paid}` + (failed ? `, не прошли: ${failed}` : '') + '.'
+    : `Выплаты блогерам за ${d}.${m}: через Консоль сегодня не было.`) + staleLine + ` ${ownLine}`;
   const sent = await sendOwnerTelegram(env, text);
   if (sent) {
     await env.DB.prepare(`INSERT INTO crm_sync_state (key, value, updated_at) VALUES (?1, ?2, ?3)

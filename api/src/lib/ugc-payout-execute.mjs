@@ -161,3 +161,34 @@ export async function applyKonsolPayment(row, payment, deps) {
   }
   return { changed, status: target === 'sent' ? row.status : target, konsol_status: payment.status, noticed };
 }
+
+// ---------------------------------------------------------------------------
+// Registry payouts of 14.10 (Owner 2026-10-15, «Да, выкладывай»): two payouts
+// went through Konsol by the chat registry, before the API flow, so their ERP
+// rows carry no Konsol id. They are linked by Konsol GET only — never a POST.
+// Exactly one executed Konsol payment of the same amount, made on the payout
+// day or the day after (Yerevan), not linked to any other row. Anything else
+// leaves the row as it is.
+// ---------------------------------------------------------------------------
+
+export const REGISTRY_LINK_IDS = ['ugcpay_20261014_yasmin_i_b', 'ugcpay_20261014_mis_alina_010'];
+
+function yerevanDayOf(value) {
+  const at = Date.parse(String(value ?? ''));
+  return Number.isNaN(at) ? null : new Date(at + 4 * 3600_000).toISOString().slice(0, 10);
+}
+
+function nextDay(day) {
+  return new Date(Date.parse(`${day}T00:00:00Z`) + 24 * 3600_000).toISOString().slice(0, 10);
+}
+
+/** → { payment } when exactly one Konsol payment fits, else { reason }. */
+export function matchRegistryPayment(row, payments, linkedIds = new Set()) {
+  const days = new Set([row.payout_date, nextDay(row.payout_date)]);
+  const fits = (payments ?? []).filter((p) => p && p.status === 'executed'
+    && Math.round(Number(p.amount) * 100) === Number(row.amount_minor)
+    && !linkedIds.has(String(p.id))
+    && [p.paid_at, p.created_at].some((v) => days.has(yerevanDayOf(v))));
+  if (fits.length === 1) return { payment: fits[0] };
+  return { reason: fits.length ? `ambiguous: ${fits.length} executed payments fit` : 'no executed payment fits' };
+}

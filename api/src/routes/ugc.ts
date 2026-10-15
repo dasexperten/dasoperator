@@ -178,6 +178,7 @@ ugc.get('/', async (c) => {
               p.currency, p.status, p.payout_date, p.marketplace, p.bank_ref, p.note,
               p.approved_at, p.sent_at, p.paid_at, p.failed_at, p.created_at, p.updated_at,
               p.konsol_payment_id, p.konsol_status, p.phone_masked, p.fps_bank_member_id,
+              (CASE WHEN p.execute_claim IS NOT NULL THEN 'held' END) execute_claim,
               -- requisites received? (yes/no only; the phone and name never leave that table)
               (CASE WHEN EXISTS (SELECT 1 FROM ugc_payout_requisites r WHERE r.payout_id = p.id) THEN 1 ELSE 0 END) has_requisites
        FROM ugc_payouts p ORDER BY p.updated_at DESC`

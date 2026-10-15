@@ -86,3 +86,13 @@ test('confirm names nick, amount, bank and only the last two phone digits', () =
   assert.match(text, /…25$/);
   assert.doesNotMatch(text, /7930/);
 });
+
+test('no double pay (UI): light green and green are never clickable; tomorrow is not payable today', () => {
+  const now = Date.parse('2026-10-15T12:00:00Z');
+  const ready = { status: 'approved', amount_minor: 50000, has_requisites: 1, payout_date: '2026-10-15' };
+  assert.equal(canPay(ready, now), true);
+  assert.equal(canPay({ ...ready, status: 'sent', konsol_payment_id: 'k' }, now), false);
+  assert.equal(canPay({ ...ready, status: 'paid', konsol_payment_id: 'k' }, now), false);
+  assert.equal(canPay({ ...ready, execute_claim: 'x' }, now), false);
+  assert.equal(canPay({ ...ready, payout_date: '2026-10-16' }, now), false);
+});

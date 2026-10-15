@@ -69,8 +69,11 @@ export function payoutCell(payout, now = Date.now()) {
 // shows only to Admin, only on a brown badge: requisites in, within the limits,
 // not yet handed to Konsol. Nothing here pays — the click goes to
 // POST /api/ugc/payouts/:id/execute after the Owner confirms.
-export function canPay(payout) {
-  if (!payout || payout.konsol_payment_id) return false;
+export function canPay(payout, now = Date.now()) {
+  if (!payout || payout.konsol_payment_id || payout.execute_claim) return false;
+  // A row dated a later day is paid on that day (Owner 2026-10-15: daily 5 000 ₽ cap).
+  const today = new Date(now + 4 * 3600_000).toISOString().slice(0, 10);
+  if (payout.payout_date && String(payout.payout_date) > today) return false;
   if (payout.status !== 'awaiting_approval' && payout.status !== 'approved') return false;
   return Boolean(payout.has_requisites) && !payout.over_limit;
 }

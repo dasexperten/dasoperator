@@ -64,8 +64,16 @@ export async function executePayout(id, deps) {
   if (row.konsol_payment_id) {
     return result(200, { ok: true, already: true, payout: { id: row.id, status: row.status, konsol_payment_id: row.konsol_payment_id, konsol_contractor_id: row.konsol_contractor_id } });
   }
-  if (row.execute_claim) return result(409, { ok: false, code: 'execute_unclear', message: 'An earlier send has no clear answer from Konsol. Check Konsol before anything else; do not retry.' });
-  if (!EXECUTABLE.has(row.status)) return result(409, { ok: false, code: 'not_executable', message: `Payout is ${row.status}` });
+  if (row.execute_claim) return result(409, { ok: false, code: 'execute_unclear', message: 'An earlier send has no clear answer from Konsol. Check Konsol before anything else; do not retry.', payout: { id: row.id, status: row.status } });
+  if (!EXECUTABLE.has(row.status)) return result(409, { ok: false, code: 'not_executable', message: `Payout is ${row.status}`, payout: { id: row.id, status: row.status } });
+  // Owner 2026-10-15: a row dated a later day is not paid today (the daily caps belong to its day).
+  const today = payoutDate(null, now);
+  if (String(row.payout_date) > today) return result(409, { ok: false, code: 'not_due', message: `Payout is dated ${row.payout_date}; it is paid on that day` });
+  // Owner 2026-10-15: one blogger is not paid twice a day. A second payout the
+  // same day goes only when it was explicitly approved (and fits the 999 ₽ cap).
+  if (row.status !== 'approved' && (await store.handedToday(row.creator_id, today, row.id)) > 0) {
+    return result(409, { ok: false, code: 'already_paid_today', message: 'This blogger already has a payout handed to Konsol today' });
+  }
 
   const amount = Number(row.amount_minor);
   if (!(Number.isInteger(amount) && amount > 0 && amount <= UGC_PAYOUT_MAX_MINOR)) return result(422, { ok: false, code: 'invalid_amount', message: 'Amount outside 0–999 ₽' });

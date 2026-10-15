@@ -22,6 +22,12 @@ export function payoutStore(env: Env) {
         WHERE creator_id=?1 AND payout_date=?2 AND status <> 'failed' AND (?3 IS NULL OR id <> ?3)`).bind(creatorId, day, excludeId).first<{ total: number }>();
       return Number(r?.total ?? 0);
     },
+    /** Other payouts of this creator on that day already handed to Konsol (or being handed). */
+    async handedToday(creatorId: string, day: string, excludeId: string) {
+      const r = await db.prepare(`SELECT COUNT(*) n FROM ugc_payouts WHERE creator_id=?1 AND payout_date=?2 AND id<>?3
+        AND (status IN ('sent','paid') OR konsol_payment_id IS NOT NULL OR execute_claim IS NOT NULL)`).bind(creatorId, day, excludeId).first<{ n: number }>();
+      return Number(r?.n ?? 0);
+    },
     async dayTotalMinor(day: string, excludeId: string | null) {
       const r = await db.prepare(`SELECT COALESCE(SUM(amount_minor),0) total FROM ugc_payouts
         WHERE payout_date=?1 AND status <> 'failed' AND (?2 IS NULL OR id <> ?2)`).bind(day, excludeId).first<{ total: number }>();

@@ -18,6 +18,7 @@ function world({ rows = [], ownRub = 31615.38, payment = { ok: true, status: 201
     getPayout: async (id) => (db.has(id) ? { ...db.get(id) } : null),
     getRequisites: async (id) => requisites.get(id) ?? null,
     sameDayMinor: async (creator, day, exclude) => [...db.values()].filter((r) => r.creator_id === creator && r.payout_date === day && r.status !== 'failed' && r.id !== exclude).reduce((s, r) => s + r.amount_minor, 0),
+    handedToday: async (creator, day, exclude) => [...db.values()].filter((r) => r.creator_id === creator && r.payout_date === day && r.id !== exclude && (r.status === 'sent' || r.status === 'paid' || r.konsol_payment_id || r.execute_claim)).length,
     dayTotalMinor: async (day, exclude) => [...db.values()].filter((r) => r.payout_date === day && r.status !== 'failed' && r.id !== exclude).reduce((s, r) => s + r.amount_minor, 0),
     claim: async (id, token) => { const r = db.get(id); if (r.execute_claim || r.konsol_payment_id) return false; r.execute_claim = token; return true; },
     release: async (id, error) => { const r = db.get(id); r.execute_claim = null; r.konsol_error = error; },
@@ -114,7 +115,7 @@ test('negative own RUB (overdraft limit changed) stops the payout', async () => 
 });
 
 test('limits: 999 ₽ per creator per day and 5 000 ₽ for all, checked at execute', async () => {
-  const perCreator = world({ rows: [{ id: 'a', amount_minor: 60000, status: 'sent', konsol_payment_id: 'x' }, { id: 'b', amount_minor: 40000 }] });
+  const perCreator = world({ rows: [{ id: 'a', amount_minor: 60000, status: 'sent', konsol_payment_id: 'x' }, { id: 'b', amount_minor: 40000, status: 'approved' }] });
   const out1 = await executePayout('b', perCreator.deps);
   assert.equal(out1.code, 'daily_limit');
   assert.equal(perCreator.calls.payments.length, 0);
@@ -195,4 +196,37 @@ test('registry payout links only to exactly one executed Konsol payment of its a
   assert.match(matchRegistryPayment(row, [{ ...ok, status: 'failed' }]).reason, /no executed/);
   assert.match(matchRegistryPayment(row, [{ ...ok, paid_at: '2026-10-20T11:00:00Z', created_at: null }]).reason, /no executed/);
   assert.match(matchRegistryPayment(row, [ok], new Set(['k1'])).reason, /no executed/);
+});
+
+// Double payment impossible (Owner 2026-10-15) — server and blogger-day levels.
+test('no double pay (server): a claimed, sent or paid row never reaches Konsol again', async () => {
+  for (const extra of [{ execute_claim: 'other' }, { status: 'sent' }, { status: 'paid' }]) {
+    const { deps, calls } = world({ rows: [{ id: 'p1', amount_minor: 100, ...extra }] });
+    const out = await executePayout('p1', deps);
+    assert.equal(out.ok, false);
+    assert.equal(calls.payments.length, 0);
+    assert.equal(calls.contractors.length, 0);
+  }
+});
+
+test('no double pay (server): two clicks at once — Konsol is called once', async () => {
+  const { deps, calls } = world({ rows: [{ id: 'p1', amount_minor: 100 }] });
+  await Promise.all([executePayout('p1', deps), executePayout('p1', deps)]);
+  assert.equal(calls.payments.length, 1);
+});
+
+test('no double pay (blogger-day): a second payout of the same blogger today is refused unless approved', async () => {
+  const rows = [{ id: 'a', amount_minor: 300, status: 'sent', konsol_payment_id: 'k' }, { id: 'b', amount_minor: 300 }];
+  const first = world({ rows });
+  const out = await executePayout('b', first.deps);
+  assert.equal(out.code, 'already_paid_today');
+  assert.equal(first.calls.payments.length, 0);
+  const second = world({ rows: [rows[0], { id: 'b', amount_minor: 300, status: 'approved' }] });
+  assert.equal((await executePayout('b', second.deps)).http, 201);
+});
+
+test('a payout dated tomorrow is not paid today', async () => {
+  const { deps, calls } = world({ rows: [{ id: 'p1', amount_minor: 100, payout_date: '2026-10-15' }] });
+  assert.equal((await executePayout('p1', deps)).code, 'not_due');
+  assert.equal(calls.payments.length, 0);
 });

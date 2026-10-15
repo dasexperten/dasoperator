@@ -91,6 +91,7 @@ type Payout = {
   handle?: string | null;
   phone_masked?: string | null;
   fps_bank_member_id?: string | null;
+  execute_claim?: string | null;
   has_requisites?: number | boolean;
   over_limit?: boolean;
 };
@@ -280,6 +281,12 @@ function ProductEvidence({ item }: { item: ContentObservation }) {
 }
 
 // «Оплачено сегодня / вчера» (Owner 2026-10-15): only payouts executed in Konsol.
+/** The cached copy keeps only what the table shows: no phone mask, no bank ids. */
+function cacheSafe(payload: UgcPayload): UgcPayload {
+  const strip = (p: Payout): Payout => ({ ...p, phone_masked: null, fps_bank_member_id: null, bank_ref: null });
+  return { ...payload, creators: payload.creators.map((c) => ({ ...c, payout: c.payout ? strip(c.payout) : c.payout, payouts: c.payouts?.map(strip) })) };
+}
+
 function PaidCounter({ paid }: { paid?: { today: PaidCount; yesterday: PaidCount } }) {
   if (!paid) return null;
   const part = (label: string, p: PaidCount) => <span>{label}: <b>{p.count}</b> на <b>{formatRub(p.minor) || '0 ₽'}</b></span>;
@@ -350,17 +357,25 @@ export default function UgcPage() {
   const payLock = useRef(false);
   useEffect(() => { setIsAdmin(getUser()?.role === 'admin'); }, []);
 
+  // Owner 2026-10-15: render at once from this tab's cached copy, revalidate in
+  // the background. Cache per user and filter; phones and bank data are stripped.
   const load = useCallback(async () => {
-    setLoading(true);
     setError(null);
     const params = new URLSearchParams();
     if (platform !== 'all') params.set('platform', platform);
     if (search.trim()) params.set('search', search.trim());
     if (stage) params.set('stage', stage);
     if (product) params.set('product', product);
+    const key = `ugc-cache:${getUser()?.id ?? 'anon'}:${params.toString()}`;
+    let cached: UgcPayload | null = null;
+    try { const raw = sessionStorage.getItem(key); cached = raw ? JSON.parse(raw) as UgcPayload : null; } catch { cached = null; }
+    if (cached) { setData(cached); setLoading(false); } else setLoading(true);
     const response = await apiGet<UgcPayload>(`/api/ugc?${params.toString()}`);
     if (!response.success || !response.result) setError(response.errors[0]?.message ?? 'UGC data could not be loaded');
-    else setData(response.result);
+    else {
+      setData(response.result);
+      try { sessionStorage.setItem(key, JSON.stringify(cacheSafe(response.result))); } catch { /* full or blocked — fine */ }
+    }
     setLoading(false);
   }, [platform, search, stage, product]);
 
@@ -467,6 +482,30 @@ export default function UgcPage() {
     setCheckingLinks(false);
   }
 
+  const mergePayout = (id: string, patch: Partial<Payout>) => {
+    const merge = (item: Payout): Payout => (item.id === id ? { ...item, ...patch } as Payout : item);
+    setData((prev) => ({ ...prev, creators: prev.creators.map((creator) => ({
+      ...creator,
+      payout: creator.payout ? merge(creator.payout) : creator.payout,
+      payouts: creator.payouts?.map(merge),
+    })) }));
+  };
+  // After a pay click: ask Konsol (through the ERP) about that one payout until
+  // it is executed or failed — the badge goes from light green to green.
+  const watchPayout = async (id: string) => {
+    for (let i = 0; i < 40; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 15_000));
+      try {
+        const r = await apiPost<{ status?: string; konsol_status?: string }>(`/api/ugc/payouts/${encodeURIComponent(id)}/refresh`, {});
+        const status = r.result?.status;
+        if (r.success && (status === 'paid' || status === 'failed')) {
+          mergePayout(id, { status: status as PayoutStatus, konsol_status: r.result?.konsol_status ?? null, ...(status === 'paid' ? { paid_at: new Date().toISOString() } : { failed_at: new Date().toISOString() }) });
+          return;
+        }
+      } catch { /* next try */ }
+    }
+  };
+
   const payApi: PayApi = {
     isAdmin,
     busyId: payBusy,
@@ -482,12 +521,8 @@ export default function UgcPage() {
         const response = await apiPost<{ payout?: Partial<Payout> }>(`/api/ugc/payouts/${encodeURIComponent(payout.id)}/execute`, {});
         const sent = response.result?.payout;
         if (response.success && sent) {
-          const merge = (item: Payout): Payout => (item.id === payout.id ? { ...item, ...sent } as Payout : item);
-          setData((prev) => ({ ...prev, creators: prev.creators.map((creator) => ({
-            ...creator,
-            payout: creator.payout ? merge(creator.payout) : creator.payout,
-            payouts: creator.payouts?.map(merge),
-          })) }));
+          mergePayout(payout.id, sent);
+          void watchPayout(payout.id);
         } else {
           setError(`Оплата не ушла: ${response.errors?.[0]?.message ?? 'ошибка'}`);
         }

@@ -1,7 +1,7 @@
 'use client';
 
 import { ChangeEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpDown, ExternalLink, Facebook, FileSpreadsheet, FileText, Globe, ImageIcon, Instagram, Link, Link2Off, Loader2, Search, Send, Users, Video, X, Youtube } from 'lucide-react';
+import { ArrowUpDown, ExternalLink, Facebook, FileSpreadsheet, FileText, Globe, Hand, ImageIcon, Instagram, Link, Link2Off, Loader2, Search, Send, Users, Video, X, Youtube } from 'lucide-react';
 import './ugc-layout.css';
 import PageHeader from '@/components/ui/page-header';
 import { apiGet, apiPatch, apiPost } from '@/lib/api';
@@ -95,6 +95,7 @@ type Creator = {
   audience_market: string | null;
   audience_language: string | null;
   lifecycle_stage: string;
+  origin?: 'invited' | 'self' | null;
   priority: string | null;
   owner: string | null;
   notes: string | null;
@@ -129,7 +130,9 @@ type UgcPayload = {
 };
 
 const PLATFORM_TABS = ['all', 'instagram', 'tiktok', 'vk', 'shopee', 'lazada', 'facebook', 'telegram', 'youtube', 'other'];
-const STAGES = ['found', 'qualified', 'invited', 'accepted', 'sample_delivered', 'published', 'orders_mature', 'renew', 'stop'];
+// Diana's statuses (Owner 2026-10-15, DH-LAW-261015-02): one English word, at most 7 letters.
+const STAGES = ['new', 'sent', 'replied', 'agreed', 'cart', 'payout', 'paid', 'ordered', 'review', 'posted', 'gold', 'silent', 'failed', 'fee', 'refused', 'unfit', 'rival', 'claim', 'owner'];
+const ORIGINS = ['invited', 'self'];
 const API_EMPTY: UgcPayload = { creators: [], summary: { creators: 0, profiles: 0, content_items: 0, active_outreach: 0, published: 0, linked_content: 0, links_active: 0, links_missing: 0, links_restricted: 0, links_unknown: 0, links_invalid: 0, links_unchecked: 0, links_checked_30d: 0, links_last_checked_at: null, link_check_history: 0, product_identified: 0, product_queued: 0 }, platforms: [], products: [] };
 
 function formatNumber(value: number | null | undefined): string {
@@ -177,6 +180,14 @@ function payoutTitle(payout: Payout | null | undefined): string {
   if (!payout) return PAYOUT_STATUS_LABEL.none;
   const at = payout.paid_at ?? payout.sent_at ?? payout.approved_at ?? payout.failed_at;
   return [PAYOUT_STATUS_LABEL[payout.status], formatRub(payout.amount_minor), payout.payout_date, at ? new Date(at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : null, payout.bank_ref].filter(Boolean).join(' · ');
+}
+
+// «Откуда» (Owner 2026-10-15): set once, never a step. Invited — brown magnifier;
+// self — green raised hand, the creator volunteered. No mark until Diana knows.
+function OriginMark({ origin }: { origin?: string | null }) {
+  if (origin !== 'invited' && origin !== 'self') return null;
+  const label = origin === 'invited' ? 'Мы пригласили' : 'Сама пришла';
+  return <span className="ugc-origin" data-origin={origin} role="img" aria-label={label} title={label}>{origin === 'invited' ? <Search className="h-4 w-4" aria-hidden="true" /> : <Hand className="h-4 w-4" aria-hidden="true" />}</span>;
 }
 
 function PayoutBadge({ payout }: { payout: Payout | null | undefined }) {
@@ -475,7 +486,7 @@ export default function UgcPage() {
             <input aria-label="Search creators" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search creators…" className="w-full bg-transparent outline-none" />
           </label>
           <select className="ugc-network-select min-h-11 px-3" aria-label="Social network" value={platform} onChange={(event) => setPlatform(event.target.value)} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>{PLATFORM_TABS.map((key) => <option key={key} value={key}>{key === 'all' ? 'All social networks' : key.charAt(0).toUpperCase() + key.slice(1)}</option>)}</select>
-          <select aria-label="Filter by collaboration stage" value={stage} onChange={(event) => setStage(event.target.value)} className="min-h-11 px-3" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><option value="">All stages</option>{STAGES.map((value) => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select>
+          <select aria-label="Filter by collaboration stage" value={stage} onChange={(event) => setStage(event.target.value)} className="min-h-11 px-3" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><option value="">All stages</option>{STAGES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
           <select aria-label="Filter by product" value={product} onChange={(event) => setProduct(event.target.value)} className="min-h-11 px-3" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><option value="">All products</option>{data.products.map((item) => <option key={item.sku} value={item.sku}>{compactProductCode(item.sku)} · {item.content_count}</option>)}</select>
           <label className="dx-keep-flex min-h-11 px-3 flex items-center gap-2" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><ArrowUpDown className="h-4 w-4" /><select aria-label="Sort creators" value={sort} onChange={(event) => setSort(event.target.value)} className="w-full bg-transparent outline-none"><option value="recent">Recent activity</option><option value="followers">Followers</option><option value="views">Views</option><option value="engagement">Engagement</option><option value="stage">Stage</option></select></label>
         </div>
@@ -521,7 +532,7 @@ export default function UgcPage() {
               const name = handle ?? creator.display_name ?? 'Автор';
               const secondName = handle && creator.display_name ? creator.display_name : null;
               return <tr key={creator.id} style={{ borderTop: '1px solid var(--border-hairline)' }}>
-                <td className="ugc-c-creator"><button type="button" title={[name, secondName].filter(Boolean).join(' · ')} onClick={() => setSelectedId(creator.id)} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="ugc-creator-name">{name}</span>{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span></button></td>
+                <td className="ugc-c-creator"><button type="button" title={[name, secondName].filter(Boolean).join(' · ')} onClick={() => setSelectedId(creator.id)} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><OriginMark origin={creator.origin} /><span className="ugc-creator-name">{name}</span>{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span></button></td>
                 <td className="ugc-c-platform"><PlatformIcons creator={creator} /></td>
                 <td className="ugc-c-num" title={profile.followers == null ? 'Нет данных' : `${profile.followers}`}>{formatCount(profile.followers)}</td>
                 <td className="ugc-c-num" title={profile.engagement_rate == null ? 'Нет данных' : `${profile.engagement_rate}%`}>{formatRate(profile.engagement_rate)}</td>
@@ -531,7 +542,7 @@ export default function UgcPage() {
                 <td className="ugc-c-num ugc-sec-2" aria-label={`${profile.content_count} публикаций`}>{formatCount(profile.content_count)}</td>
                 <td className="ugc-c-product ugc-sec-2">{products.length ? <div className="ugc-pills" title={products.map((item) => `${compactProductCode(item.sku)} · ${item.name}`).join('\n')}>{products.slice(0, PRODUCT_PILLS).map((item) => <span key={`${item.sku}-${item.raw_offer_id}`} className="ugc-pill">{compactProductCode(item.sku)}</span>)}{products.length > PRODUCT_PILLS ? <span className="ugc-pill-more">+{products.length - PRODUCT_PILLS}</span> : null}</div> : <span className="ugc-muted">{profile.content.some((item) => item.product_status === 'queued') ? 'В очереди' : 'Не определён'}</span>}</td>
                 <td className="ugc-c-media ugc-sec-3">{linked.length ? <div className="ugc-media">{linked.slice(0, CONTENT_ICONS).map(({ item, href }) => { const kind = mediaKind(item); const status = item.link_status ? LINK_STATUS_SHORT[item.link_status] : 'Не проверена'; return <a key={item.id} href={href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="ugc-media-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${MEDIA_LABEL[kind]} · ${status}`} title={[MEDIA_LABEL[kind], status, item.link_checked_at ? new Date(item.link_checked_at).toLocaleDateString('ru-RU') : null, item.content_url].filter(Boolean).join(' · ')}>{kind === 'Video' ? <Video className="h-4 w-4" /> : kind === 'Image' ? <ImageIcon className="h-4 w-4" /> : kind === 'Post' ? <FileText className="h-4 w-4" /> : <Link className="h-4 w-4" />}<span className="ugc-link-dot" aria-hidden="true" style={{ background: statusColor(item.link_status) }} /></a>; })}{linked.length > CONTENT_ICONS ? <span className="ugc-pill-more" title={`Ещё ${linked.length - CONTENT_ICONS}`}>+{linked.length - CONTENT_ICONS}</span> : null}</div> : <span className="ugc-muted">—</span>}</td>
-                <td className="ugc-c-next ugc-sec-1" title={creator.collaboration?.next_action || undefined}>{creator.collaboration?.next_action || <span className="ugc-muted">—</span>}</td>
+                <td className="ugc-c-next ugc-sec-1" title={creator.collaboration?.next_action || undefined}><span className="ugc-stage" data-stage={creator.lifecycle_stage}>{creator.lifecycle_stage}</span></td>
               </tr>;
             })}
           </tbody>
@@ -547,6 +558,7 @@ export default function UgcPage() {
 function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose: () => void; onSaved: () => Promise<void> }) {
   const collaboration = creator.collaboration ?? {};
   const [stage, setStage] = useState(creator.lifecycle_stage);
+  const [origin, setOrigin] = useState<string>(creator.origin ?? '');
   const [owner, setOwner] = useState(creator.owner ?? '');
   const [notes, setNotes] = useState(creator.notes ?? '');
   const [channel, setChannel] = useState(collaboration.contact_channel ?? '');
@@ -562,7 +574,7 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
 
   async function save() {
     setSaving(true); setMessage(null);
-    const creatorResult = await apiPatch(`/api/ugc/creators/${creator.id}`, { lifecycle_stage: stage, owner, notes });
+    const creatorResult = await apiPatch(`/api/ugc/creators/${creator.id}`, { lifecycle_stage: stage, origin: origin || null, owner, notes });
     const collabResult = await apiPost('/api/ugc/collaborations', { id: collaboration.id, creator_id: creator.id, platform: creator.profiles[0]?.platform, status: stage, contact_channel: channel, next_action: nextAction, next_action_at: nextActionAt, sample_status: sampleStatus, deliverables, rights_scope: rights, rights_expires_at: rightsExpiry });
     if (!creatorResult.success || !collabResult.success) setMessage(creatorResult.errors[0]?.message ?? collabResult.errors[0]?.message ?? 'Save failed');
     else { setMessage('Saved'); await onSaved(); }
@@ -590,7 +602,8 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
       })}</div> : <div className="min-h-20 p-4 flex items-center gap-3" style={{ color: 'var(--fg-2)', background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)' }}><Link2Off className="h-5 w-5" />No content observations recorded.</div>}
     </section>
     <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-      <Field label="Stage"><select value={stage} onChange={(event) => setStage(event.target.value)}>{STAGES.map((value) => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select></Field>
+      <Field label="Stage"><select value={stage} onChange={(event) => setStage(event.target.value)}>{STAGES.map((value) => <option key={value} value={value}>{value}</option>)}</select></Field>
+      <Field label="Origin"><select value={origin} onChange={(event) => setOrigin(event.target.value)}><option value="">—</option>{ORIGINS.map((value) => <option key={value} value={value}>{value}</option>)}</select></Field>
       <Field label="Owner"><input value={owner} onChange={(event) => setOwner(event.target.value)} /></Field>
       <Field label="Contact channel"><input value={channel} onChange={(event) => setChannel(event.target.value)} placeholder="Shopee, TikTok Shop, Zalo…" /></Field>
       <Field label="Sample status"><input value={sampleStatus} onChange={(event) => setSampleStatus(event.target.value)} /></Field>

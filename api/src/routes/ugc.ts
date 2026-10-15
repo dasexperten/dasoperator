@@ -7,6 +7,15 @@ import { baseProductSku, identifyExplicitProducts, initialProductClassification,
 import { checkDailyLimit, checkDailyTotalLimit, compareByRecent, isFpsBankMemberId, isPayoutStatus, konsolPhone, latestActivityMs, maskPhone, maskPhoneWide, parsePayoutAmount, payoutDate, statusStampColumn } from '../lib/ugc-payouts.mjs';
 import { executeUgcPayout, refreshUgcPayout, ugcPayoutEvening } from '../lib/ugc-payout-store';
 
+// Diana's creator statuses (Owner 2026-10-15, DH-LAW-261015-02): one English
+// word, at most 7 letters. Main path, then side statuses.
+const UGC_STAGES = new Set([
+  'new', 'sent', 'replied', 'agreed', 'cart', 'payout', 'paid', 'ordered', 'review', 'posted', 'gold',
+  'silent', 'failed', 'fee', 'refused', 'unfit', 'rival', 'claim', 'owner',
+]);
+// Who started: we invited (brown magnifier) or the creator came herself (green hand).
+const UGC_ORIGINS = new Set(['invited', 'self']);
+
 type ImportRow = {
   handle?: unknown;
   platform?: unknown;
@@ -119,7 +128,7 @@ ugc.get('/', async (c) => {
   const profiles = await c.env.DB.prepare(
     `SELECT
        c.id creator_id, c.normalized_handle creator_handle, c.display_name,
-       c.category, c.audience_market, c.audience_language, c.lifecycle_stage,
+       c.category, c.audience_market, c.audience_language, c.lifecycle_stage, c.origin,
        c.priority, c.owner, c.notes, c.updated_at creator_updated_at,
        p.id profile_id, p.platform, p.handle, p.profile_url, p.followers,
        p.engagement_rate, p.engagement_rate_method, p.avg_video_views,
@@ -275,6 +284,7 @@ ugc.get('/', async (c) => {
       audience_market: row.audience_market,
       audience_language: row.audience_language,
       lifecycle_stage: row.lifecycle_stage,
+      origin: row.origin ?? null,
       priority: row.priority,
       owner: row.owner,
       notes: row.notes,
@@ -315,8 +325,8 @@ ugc.get('/', async (c) => {
        (SELECT COUNT(*) FROM ugc_link_checks) link_check_history,
        (SELECT COUNT(*) FROM ugc_content WHERE product_status = 'identified') product_identified,
        (SELECT COUNT(*) FROM ugc_content WHERE product_status = 'queued') product_queued,
-       (SELECT COUNT(*) FROM ugc_collaborations WHERE status IN ('invited','accepted','sample_delivered')) active_outreach,
-       (SELECT COUNT(*) FROM ugc_collaborations WHERE status = 'published') published
+       (SELECT COUNT(*) FROM ugc_collaborations WHERE status IN ('sent','replied','agreed','cart','payout','paid','ordered','review')) active_outreach,
+       (SELECT COUNT(*) FROM ugc_collaborations WHERE status IN ('posted','gold')) published
     `
   ).first<Record<string, any>>();
   const payoutSummary = {
@@ -399,7 +409,7 @@ ugc.post('/import', async (c) => {
     statements.push(c.env.DB.prepare(
       `INSERT INTO ugc_creators
          (id, normalized_handle, display_name, lifecycle_stage, created_at, updated_at)
-       VALUES (?1, ?2, ?3, 'found', ?4, ?4)
+       VALUES (?1, ?2, ?3, 'new', ?4, ?4)
        ON CONFLICT(id) DO UPDATE SET
          display_name = COALESCE(excluded.display_name, ugc_creators.display_name),
          updated_at = excluded.updated_at`
@@ -495,14 +505,15 @@ ugc.patch('/creators/:id', async (c) => {
   const id = c.req.param('id');
   const current = await c.env.DB.prepare(`SELECT * FROM ugc_creators WHERE id = ?1`).bind(id).first<Record<string, any>>();
   if (!current) return fail(c, 404, [{ code: 'not_found', message: 'Creator not found' }]);
-  const allowedStages = new Set(['found', 'qualified', 'invited', 'accepted', 'sample_delivered', 'published', 'orders_mature', 'renew', 'stop']);
   const nextStage = textValue(body.lifecycle_stage, 40) ?? current.lifecycle_stage;
-  if (!allowedStages.has(nextStage)) return fail(c, 422, [{ code: 'invalid_stage', message: 'Unknown lifecycle stage' }]);
+  if (!UGC_STAGES.has(nextStage)) return fail(c, 422, [{ code: 'invalid_stage', message: 'Unknown lifecycle stage' }]);
+  const nextOrigin = body.origin === undefined ? (current.origin ?? null) : (body.origin === null || body.origin === '' ? null : textValue(body.origin, 10));
+  if (nextOrigin !== null && !UGC_ORIGINS.has(nextOrigin)) return fail(c, 422, [{ code: 'invalid_origin', message: 'origin is invited or self' }]);
   const updatedAt = Date.now();
   await c.env.DB.prepare(
     `UPDATE ugc_creators SET
        display_name=?1, category=?2, audience_market=?3, audience_language=?4,
-       lifecycle_stage=?5, priority=?6, owner=?7, notes=?8, updated_at=?9
+       lifecycle_stage=?5, priority=?6, owner=?7, notes=?8, updated_at=?9, origin=?11
      WHERE id=?10`
   ).bind(
     body.display_name === undefined ? current.display_name : textValue(body.display_name, 180),
@@ -513,7 +524,7 @@ ugc.patch('/creators/:id', async (c) => {
     body.priority === undefined ? current.priority : textValue(body.priority, 40),
     body.owner === undefined ? current.owner : textValue(body.owner, 120),
     body.notes === undefined ? current.notes : textValue(body.notes, 3000),
-    updatedAt, id,
+    updatedAt, id, nextOrigin,
   ).run();
   return ok(c, { id, updated_at: updatedAt });
 });
@@ -556,7 +567,7 @@ ugc.post('/collaborations', async (c) => {
        rights_expires_at=excluded.rights_expires_at, owner=excluded.owner,
        notes=excluded.notes, updated_at=excluded.updated_at`
   ).bind(
-    id, creatorId, field('platform', 40), field('status', 40) ?? 'found',
+    id, creatorId, field('platform', 40), field('status', 40) ?? 'new',
     field('contact_channel', 80), field('invited_at', 40),
     field('accepted_at', 40), field('last_contact_at', 40),
     field('next_action', 500), field('next_action_at', 40),
@@ -607,7 +618,7 @@ async function resolvePayoutCreator(c: any, body: Record<string, unknown>, now: 
   await c.env.DB.batch([
     c.env.DB.prepare(
       `INSERT INTO ugc_creators (id, normalized_handle, lifecycle_stage, created_at, updated_at)
-       VALUES (?1, ?2, 'accepted', ?3, ?3) ON CONFLICT(id) DO NOTHING`
+       VALUES (?1, ?2, 'agreed', ?3, ?3) ON CONFLICT(id) DO NOTHING`
     ).bind(newCreatorId, normalizedHandle, now),
     c.env.DB.prepare(
       `INSERT INTO ugc_creator_platforms (id, creator_id, platform, handle, normalized_handle, profile_url, source, created_at, updated_at)

@@ -2,7 +2,10 @@
 // The organization owns the bot token and recipient; ERP uses its authenticated door.
 import type { Env } from '../types';
 
-export async function sendOwnerTelegram(env: Env, text: string): Promise<boolean> {
+// The message is signed by the seat whose work it reports (Owner 2026-10-16:
+// UGC payout notices are Diana's, not Mina's). Mina stays the default for ERP
+// system alerts.
+export async function sendOwnerTelegram(env: Env, text: string, slug = 'mina-rutunya'): Promise<boolean> {
   const secret = env.DASORG_API_KEY;
   if (!secret || !env.ORGANIZATION) {
     console.warn('[owner-telegram] organization bot route not configured — nothing sent');
@@ -11,7 +14,7 @@ export async function sendOwnerTelegram(env: Env, text: string): Promise<boolean
   const init: RequestInit = {
     method: 'POST',
     headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ slug: 'mina-rutunya', text, report: true }),
+    body: JSON.stringify({ slug, text, report: true }),
     signal: AbortSignal.timeout(20_000),
   };
   try {

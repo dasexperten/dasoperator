@@ -38,7 +38,7 @@ export function ownRubStopText(check, row) {
 }
 
 export function paidNoticeText(row) {
-  return `Деньги пришли: ${who(row)}, ${formatRub(row.amount_minor)} по СБП. Диана, напиши блогеру: «Деньги пришли 👍 Заказывайте и пришлите скрин».`;
+  return `Деньги пришли: ${who(row)}, ${formatRub(row.amount_minor)} по СБП. Пишу блогеру: «Деньги пришли 👍 Заказывайте и пришлите скрин».`;
 }
 
 async function findOrCreateContractor(konsol, requisites, phone) {

@@ -84,7 +84,7 @@ function deps(env: Env) {
   return {
     store: payoutStore(env),
     konsol: konsolClient(env),
-    notifyOwner: (text: string) => sendOwnerTelegram(env, text),
+    notifyOwner: (text: string) => sendOwnerTelegram(env, text, 'diana-helios'),
     now: Date.now(),
     claimToken: crypto.randomUUID(),
   };
@@ -219,7 +219,7 @@ export async function ugcPayoutEvening(env: Env, opts: { force?: boolean } = {})
   const text = (rows.length
     ? `Выплаты блогерам за ${d}.${m}: ${rows.length} на ${formatRub(sum)}. Пришли: ${paid}` + (failed ? `, не прошли: ${failed}` : '') + '.'
     : `Выплаты блогерам за ${d}.${m}: через Консоль сегодня не было.`) + staleLine + ` ${ownLine}`;
-  const sent = await sendOwnerTelegram(env, text);
+  const sent = await sendOwnerTelegram(env, text, 'diana-helios');
   if (sent) {
     await env.DB.prepare(`INSERT INTO crm_sync_state (key, value, updated_at) VALUES (?1, ?2, ?3)
       ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`).bind(key, day, now).run();

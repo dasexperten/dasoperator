@@ -4,7 +4,7 @@ import { ChangeEvent, createContext, type ReactNode, useCallback, useContext, us
 import { ArrowUpDown, ExternalLink, Facebook, FileSpreadsheet, FileText, Globe, Hand, ImageIcon, Instagram, Link, Link2Off, Loader2, Search, Send, Users, Video, X, Youtube } from 'lucide-react';
 import './ugc-layout.css';
 import PageHeader from '@/components/ui/page-header';
-import { apiGet, apiPatch, apiPost } from '@/lib/api';
+import { apiGet, apiPatch, apiPost, apiPostTimed } from '@/lib/api';
 import { parseUgcWorkbook } from '@/lib/ugc-import';
 import { canPay, formatRub, PAYOUT_STATUS_LABEL, payoutCell } from '@/lib/ugc-payout-cell.mjs';
 import { getUser } from '@/lib/auth';
@@ -205,20 +205,25 @@ function OriginMark({ origin }: { origin?: string | null }) {
 
 // «Оплатить» (Owner 2026-10-15): Admin only; the Owner confirms, then the click
 // goes to POST /api/ugc/payouts/:id/execute. Nothing pays without that click.
-type PayApi = { isAdmin: boolean; busyId: string | null; pay: (payout: Payout) => void };
-const PayContext = createContext<PayApi>({ isAdmin: false, busyId: null, pay: () => undefined });
+type PayApi = { isAdmin: boolean; busy: ReadonlySet<string>; errors: Readonly<Record<string, string>>; pay: (payout: Payout) => void };
+const PayContext = createContext<PayApi>({ isAdmin: false, busy: new Set(), errors: {}, pay: () => undefined });
 
 function PayoutBadge({ payout }: { payout: Payout | null | undefined }) {
   const cell = payoutCell(payout);
-  const { isAdmin, busyId, pay } = useContext(PayContext);
+  const { isAdmin, busy, errors, pay } = useContext(PayContext);
   const payable = Boolean(isAdmin && payout && canPay(payout));
+  const isBusy = Boolean(payout && busy.has(payout.id));
+  const payError = payout ? errors[payout.id] : undefined;
   // Owner 2026-10-15: the brown badge itself is the button (Admin only). Green is done, not clickable.
+  // Only the clicked badge waits; every other badge stays clickable.
   const badge = payable && payout
-    ? <button type="button" className="ugc-payout ugc-payout-btn" data-tone={cell.tone} disabled={busyId !== null} aria-label={`Оплатить: ${payoutTitle(payout)}`} onClick={(event) => { event.stopPropagation(); pay(payout); }}>{busyId === payout.id ? <Loader2 className="h-3 w-3 animate-spin inline" aria-hidden="true" /> : cell.text}</button>
+    ? <button type="button" className="ugc-payout ugc-payout-btn" data-tone={cell.tone} disabled={isBusy} aria-label={`Оплатить: ${payoutTitle(payout)}`} onClick={(event) => { event.stopPropagation(); pay(payout); }}>{isBusy ? <Loader2 className="h-3 w-3 animate-spin inline" aria-hidden="true" /> : cell.text}</button>
     : <span className="ugc-payout" data-tone={cell.tone} aria-label={payoutTitle(payout)}>{cell.text}</span>;
   return <span className="ugc-payout-cell" title={payable ? `Нажми, чтобы оплатить · ${payoutTitle(payout)}` : payoutTitle(payout)}>
     {badge}
-    {cell.reason ? <span className="ugc-payout-reason">{payable ? 'оплатить' : cell.reason}</span> : null}
+    {payError
+      ? <span className="ugc-payout-reason" role="alert" style={{ color: 'var(--status-error)' }}>{payError}</span>
+      : cell.reason ? <span className="ugc-payout-reason">{isBusy ? 'отправляю…' : payable ? 'оплатить' : cell.reason}</span> : null}
   </span>;
 }
 
@@ -353,8 +358,9 @@ export default function UgcPage() {
   const urlStateReady = useRef(false);
   const tableRef = useRef<HTMLTableElement>(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [payBusy, setPayBusy] = useState<string | null>(null);
-  const payLock = useRef(false);
+  const [payBusy, setPayBusy] = useState<ReadonlySet<string>>(() => new Set());
+  const [payErrors, setPayErrors] = useState<Record<string, string>>({});
+  const payLock = useRef<Set<string>>(new Set());
   useEffect(() => { setIsAdmin(getUser()?.role === 'admin'); }, []);
 
   // Owner 2026-10-15: render at once from this tab's cached copy, revalidate in
@@ -366,7 +372,7 @@ export default function UgcPage() {
     if (search.trim()) params.set('search', search.trim());
     if (stage) params.set('stage', stage);
     if (product) params.set('product', product);
-    const key = `ugc-cache:${getUser()?.id ?? 'anon'}:${params.toString()}`;
+    const key = `ugc-cache:v2:${getUser()?.id ?? 'anon'}:${params.toString()}`;
     let cached: UgcPayload | null = null;
     try { const raw = sessionStorage.getItem(key); cached = raw ? JSON.parse(raw) as UgcPayload : null; } catch { cached = null; }
     if (cached) { setData(cached); setLoading(false); } else setLoading(true);
@@ -508,29 +514,39 @@ export default function UgcPage() {
 
   const payApi: PayApi = {
     isAdmin,
-    busyId: payBusy,
+    busy: payBusy,
+    errors: payErrors,
     // Owner 2026-10-15: one click pays — no confirm, no page reload. The badge
     // turns light green from the execute answer; green when Konsol executes.
-    // Double click: the ref locks at once, the server lock (execute_claim) holds too.
+    // Only the clicked payout is locked; 20 s without an answer ends with the
+    // words on the badge. The server lock (execute_claim) still stops a double pay.
     pay: async (payout) => {
-      if (payLock.current) return;
-      payLock.current = true;
-      setPayBusy(payout.id);
-      setError(null);
+      const id = payout.id;
+      if (payLock.current.has(id)) return;
+      payLock.current.add(id);
+      setPayBusy((prev) => new Set(prev).add(id));
+      setPayErrors((prev) => { const next = { ...prev }; delete next[id]; return next; });
+      const fail = (text: string) => {
+        setPayErrors((prev) => ({ ...prev, [id]: text }));
+        setError(`${payout.handle ? `@${payout.handle}: ` : ''}${text}`);
+      };
       try {
-        const response = await apiPost<{ payout?: Partial<Payout> }>(`/api/ugc/payouts/${encodeURIComponent(payout.id)}/execute`, {});
+        const response = await apiPostTimed<{ payout?: Partial<Payout> }>(`/api/ugc/payouts/${encodeURIComponent(id)}/execute`, {}, 20_000);
         const sent = response.result?.payout;
         if (response.success && sent) {
-          mergePayout(payout.id, sent);
-          void watchPayout(payout.id);
+          mergePayout(id, sent);
+          void watchPayout(id);
         } else {
-          setError(`Оплата не ушла: ${response.errors?.[0]?.message ?? 'ошибка'}`);
+          fail(`Не ушло: ${response.errors?.[0]?.message ?? 'ошибка'}`);
         }
       } catch (reason) {
-        setError(`Оплата: ответа нет — сначала проверь Консоль. ${reason instanceof Error ? reason.message : String(reason)}`);
+        const name = reason instanceof Error ? reason.name : '';
+        fail(name === 'AbortError' || name === 'TimeoutError'
+          ? 'Нет ответа 20 с, проверь Консоль'
+          : `Нет связи: ${reason instanceof Error ? reason.message : String(reason)}`);
       } finally {
-        setPayBusy(null);
-        payLock.current = false;
+        payLock.current.delete(id);
+        setPayBusy((prev) => { const next = new Set(prev); next.delete(id); return next; });
       }
     },
   };

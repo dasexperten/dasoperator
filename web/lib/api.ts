@@ -63,6 +63,32 @@ export async function apiPost<T = unknown>(
   return res.json();
 }
 
+// POST with a time limit (Owner 2026-10-15: a pay click must never hang the
+// page). No /login bounce: the caller shows the server's words on the badge.
+export async function apiPostTimed<T = unknown>(
+  path: string,
+  body: unknown,
+  timeoutMs: number
+): Promise<ApiResponse<T>> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    try {
+      return await res.json();
+    } catch {
+      return { success: false, result: null, errors: [{ code: `http_${res.status}`, message: `HTTP ${res.status}` }], messages: [] };
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function apiPatch<T = unknown>(
   path: string,
   body: unknown

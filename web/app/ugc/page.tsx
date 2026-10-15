@@ -192,7 +192,7 @@ function mediaKind(item: ContentObservation): 'Video' | 'Image' | 'Post' | 'Cont
 function payoutTitle(payout: Payout | null | undefined): string {
   if (!payout) return PAYOUT_STATUS_LABEL.none;
   const at = payout.paid_at ?? payout.sent_at ?? payout.approved_at ?? payout.failed_at;
-  return [payoutCell(payout).title, formatRub(payout.amount_minor), payout.payout_date, at ? new Date(at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : null, payout.bank_ref].filter(Boolean).join(' · ');
+  return [payoutCell(payout).title, formatRub(payout.amount_minor), at ? new Date(at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : null, payout.bank_ref].filter(Boolean).join(' · ');
 }
 
 // «Откуда» (Owner 2026-10-15): set once, never a step; sits right after the @account. Invited — brown magnifier;
@@ -711,7 +711,7 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
     <div className="grid md:grid-cols-3 gap-3">{creator.profiles.map((profile) => <div key={profile.id} className="p-4" style={{ background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)' }}><div className="font-bold capitalize">{profile.platform} · @{profile.handle}</div><div className="mt-2 text-sm" style={{ color: 'var(--fg-2)' }}>{formatNumber(profile.followers)} followers · {profile.view_observations} view observations</div><div className="mt-1 text-sm" style={{ color: 'var(--fg-2)' }}>{formatNumber(profile.commerce_clicks)} clicks · {formatNumber(profile.commerce_orders)} orders</div><div className="mt-1 text-sm" style={{ color: 'var(--fg-3)' }}>Metrics as of {profile.metrics_as_of || 'unknown'}</div></div>)}</div>
     {creator.payouts?.length ? <section className="space-y-2" aria-labelledby={`payouts-${creator.id}`}>
       <div className="flex items-end justify-between gap-3"><div><div className="dx-eyebrow">Barter refunds</div><h3 id={`payouts-${creator.id}`} className="mt-1 text-xl font-extrabold">Оплата</h3></div><div className="text-sm tabular-nums" style={{ color: 'var(--fg-2)' }}>Paid {formatRub(creator.paid_total_minor ?? 0)}</div></div>
-      <div className="grid gap-2">{creator.payouts.map((item) => <div key={item.id} className="p-3 flex items-center justify-between gap-3" style={{ background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)' }}><PayoutBadge payout={item} /><span className="text-xs" style={{ color: 'var(--fg-3)' }}>{item.payout_date}</span></div>)}</div>
+      <div className="grid gap-2">{creator.payouts.map((item) => <div key={item.id} className="p-3 flex items-center justify-between gap-3" style={{ background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)' }}><PayoutBadge payout={item} /><span className="text-xs" style={{ color: 'var(--fg-3)' }}>{item.status === 'awaiting_approval' || item.status === 'approved' ? 'В очереди' : item.payout_date}</span></div>)}</div>
     </section> : null}
     <section className="space-y-3" aria-labelledby={`content-history-${creator.id}`}>
       <div className="flex items-end justify-between gap-3"><div><div className="dx-eyebrow">Content evidence</div><h3 id={`content-history-${creator.id}`} className="mt-1 text-xl font-extrabold">Publication history</h3></div><div className="text-sm tabular-nums" style={{ color: 'var(--fg-2)' }}>{content.length} observations</div></div>

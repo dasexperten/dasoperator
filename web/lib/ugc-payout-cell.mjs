@@ -71,9 +71,7 @@ export function payoutCell(payout, now = Date.now()) {
 // POST /api/ugc/payouts/:id/execute after the Owner confirms.
 export function canPay(payout, now = Date.now()) {
   if (!payout || payout.konsol_payment_id || payout.execute_claim) return false;
-  // A row dated a later day is paid on that day (Owner 2026-10-15: daily 5 000 ₽ cap).
-  const today = new Date(now + 4 * 3600_000).toISOString().slice(0, 10);
-  if (payout.payout_date && String(payout.payout_date) > today) return false;
+  // Owner 2026-10-16: every ready payout is in one queue, regardless of its recorded date.
   if (payout.status !== 'awaiting_approval' && payout.status !== 'approved') return false;
   return Boolean(payout.has_requisites) && !payout.over_limit;
 }

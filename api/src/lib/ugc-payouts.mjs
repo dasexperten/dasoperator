@@ -92,7 +92,7 @@ export function maskPhone(value) {
 /** YYYY-MM-DD or null. */
 export function payoutDate(value, fallbackMs) {
   if (value != null && /^\d{4}-\d{2}-\d{2}$/.test(String(value).trim())) return String(value).trim();
-  return new Date(fallbackMs ?? Date.now()).toISOString().slice(0, 10);
+  return yerevanDay(fallbackMs ?? Date.now());
 }
 
 function toMs(value) {
@@ -211,23 +211,33 @@ export function yerevanDay(msValue) {
   return new Date(Number(msValue) + YEREVAN_OFFSET_MS).toISOString().slice(0, 10);
 }
 
-/**
- * Marks rows that sit over a limit on their day: 999 ₽ per creator or 5 000 ₽
- * for all creators (failed rows do not count, paid ones do). Mutates and returns rows.
- */
-export function annotateOverLimit(rows) {
+/** Actual sends/claims consume the daily limit; waiting rows never reserve a day. */
+export function isCommittedPayout(row) {
+  return row.status !== 'failed' && Boolean(row.status === 'sent' || row.status === 'paid' || row.konsol_payment_id || row.execute_claim);
+}
+
+/** Day money was handed to Konsol (or claimed); legacy rows fall back to their recorded date. */
+export function committedPayoutDay(row) {
+  const at = toMs(row.sent_at) ?? toMs(row.execute_claimed_at) ?? toMs(row.paid_at);
+  return at == null ? row.payout_date : yerevanDay(at);
+}
+
+/** One ready queue. Each row is checked against actual usage now, not other waiting rows. */
+export function annotateOverLimit(rows, now = Date.now()) {
+  const today = yerevanDay(now);
   const perCreator = new Map();
-  const perDay = new Map();
+  let total = 0;
   for (const r of rows) {
-    if (r.status === 'failed') continue;
-    const k = `${r.creator_id}|${r.payout_date}`;
-    perCreator.set(k, (perCreator.get(k) ?? 0) + Number(r.amount_minor || 0));
-    perDay.set(r.payout_date, (perDay.get(r.payout_date) ?? 0) + Number(r.amount_minor || 0));
+    if (!isCommittedPayout(r) || committedPayoutDay(r) !== today) continue;
+    const amount = Number(r.amount_minor || 0);
+    perCreator.set(r.creator_id, (perCreator.get(r.creator_id) ?? 0) + amount);
+    total += amount;
   }
   for (const r of rows) {
     const open = r.status === 'awaiting_approval' || r.status === 'approved';
-    r.over_limit = open && ((perCreator.get(`${r.creator_id}|${r.payout_date}`) ?? 0) > UGC_PAYOUT_MAX_MINOR
-      || (perDay.get(r.payout_date) ?? 0) > UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR);
+    const amount = Number(r.amount_minor || 0);
+    r.over_limit = open && (!checkDailyLimit(perCreator.get(r.creator_id) ?? 0, amount).ok
+      || !checkDailyTotalLimit(total, amount).ok);
   }
   return rows;
 }

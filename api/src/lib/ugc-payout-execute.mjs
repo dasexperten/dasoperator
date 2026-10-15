@@ -66,9 +66,8 @@ export async function executePayout(id, deps) {
   }
   if (row.execute_claim) return result(409, { ok: false, code: 'execute_unclear', message: 'An earlier send has no clear answer from Konsol. Check Konsol before anything else; do not retry.', payout: { id: row.id, status: row.status } });
   if (!EXECUTABLE.has(row.status)) return result(409, { ok: false, code: 'not_executable', message: `Payout is ${row.status}`, payout: { id: row.id, status: row.status } });
-  // Owner 2026-10-15: a row dated a later day is not paid today (the daily caps belong to its day).
+  // Owner 2026-10-16: one ready queue; a recorded date never schedules or delays payment.
   const today = payoutDate(null, now);
-  if (String(row.payout_date) > today) return result(409, { ok: false, code: 'not_due', message: `Payout is dated ${row.payout_date}; it is paid on that day` });
   // Owner 2026-10-15: one blogger is not paid twice a day. A second payout the
   // same day goes only when it was explicitly approved (and fits the 999 ₽ cap).
   if (row.status !== 'approved' && (await store.handedToday(row.creator_id, today, row.id)) > 0) {
@@ -108,7 +107,12 @@ export async function executePayout(id, deps) {
   if (!claimed) {
     const again = await store.getPayout(row.id);
     if (again?.konsol_payment_id) return result(200, { ok: true, already: true, payout: { id: again.id, status: again.status, konsol_payment_id: again.konsol_payment_id, konsol_contractor_id: again.konsol_contractor_id } });
-    return result(409, { ok: false, code: 'execute_in_progress', message: 'Another send of this payout is running' });
+    // A competing payout can consume today's budget between the first check and the atomic claim.
+    const dailyNow = checkDailyLimit(await store.sameDayMinor(row.creator_id, day, row.id), amount);
+    if (!dailyNow.ok) return result(422, { ok: false, code: dailyNow.code, message: dailyNow.message });
+    const totalNow = checkDailyTotalLimit(await store.dayTotalMinor(day, row.id), amount);
+    if (!totalNow.ok) return result(422, { ok: false, code: totalNow.code, message: totalNow.message });
+    return result(409, { ok: false, code: 'execute_in_progress', message: 'Another send of this payout or creator is running' });
   }
 
   const contractor = await findOrCreateContractor(konsol, requisites, phone);

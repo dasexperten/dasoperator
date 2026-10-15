@@ -176,7 +176,7 @@ ugc.get('/', async (c) => {
     const result = await c.env.DB.prepare(
       `SELECT p.id, p.creator_id, p.creator_platform_id, p.platform, p.handle, p.amount_minor,
               p.currency, p.status, p.payout_date, p.marketplace, p.bank_ref, p.note,
-              p.approved_at, p.sent_at, p.paid_at, p.failed_at, p.created_at, p.updated_at,
+              p.approved_at, p.sent_at, p.paid_at, p.failed_at, p.execute_claimed_at, p.created_at, p.updated_at,
               p.konsol_payment_id, p.konsol_status, p.phone_masked, p.fps_bank_member_id,
               (CASE WHEN p.execute_claim IS NOT NULL THEN 'held' END) execute_claim,
               -- requisites received? (yes/no only; the phone and name never leave that table)
@@ -638,7 +638,7 @@ async function resolvePayoutCreator(c: any, body: Record<string, unknown>, now: 
 async function sameDayPayoutMinor(c: any, creatorId: string, day: string, excludeId: string | null): Promise<number> {
   const row = await c.env.DB.prepare(
     `SELECT COALESCE(SUM(amount_minor), 0) total FROM ugc_payouts
-     WHERE creator_id=?1 AND payout_date=?2 AND status <> 'failed' AND (?3 IS NULL OR id <> ?3)`
+     WHERE creator_id=?1 AND payout_date=?2 AND status IN ('sent','paid') AND (?3 IS NULL OR id <> ?3)`
   ).bind(creatorId, day, excludeId).first() as { total: number } | null;
   return Number(row?.total ?? 0);
 }
@@ -647,7 +647,7 @@ async function sameDayPayoutMinor(c: any, creatorId: string, day: string, exclud
 async function dayTotalPayoutMinor(c: any, day: string, excludeId: string | null): Promise<number> {
   const row = await c.env.DB.prepare(
     `SELECT COALESCE(SUM(amount_minor), 0) total FROM ugc_payouts
-     WHERE payout_date=?1 AND status <> 'failed' AND (?2 IS NULL OR id <> ?2)`
+     WHERE payout_date=?1 AND status IN ('sent','paid') AND (?2 IS NULL OR id <> ?2)`
   ).bind(day, excludeId).first() as { total: number } | null;
   return Number(row?.total ?? 0);
 }
@@ -688,9 +688,11 @@ ugc.post('/payouts', async (c) => {
   const day = payoutDate(body.payout_date, now);
   const creator = await resolvePayoutCreator(c, body, now);
   if (creator instanceof Response) return creator;
-  const daily = checkDailyLimit(await sameDayPayoutMinor(c, creator.creatorId, day, null), amount.amount_minor);
-  if (!daily.ok) return fail(c, 422, [{ code: daily.code, message: daily.message }]);
-  if (status !== 'failed') {
+  // DH-LAW-261016-01: register every ready payout in one queue. Daily caps
+  // apply when money is sent, never by moving waiting entries to another day.
+  if (status === 'sent' || status === 'paid') {
+    const daily = checkDailyLimit(await sameDayPayoutMinor(c, creator.creatorId, day, null), amount.amount_minor);
+    if (!daily.ok) return fail(c, 422, [{ code: daily.code, message: daily.message }]);
     const total = checkDailyTotalLimit(await dayTotalPayoutMinor(c, day, null), amount.amount_minor);
     if (!total.ok) return fail(c, 422, [{ code: total.code, message: total.message }]);
   }
@@ -731,11 +733,11 @@ ugc.patch('/payouts/:id', async (c) => {
     amountMinor = amount.amount_minor;
   }
   const day = body.payout_date === undefined ? String(current.payout_date) : payoutDate(body.payout_date, Date.now());
-  const daily = checkDailyLimit(await sameDayPayoutMinor(c, String(current.creator_id), day, id), amountMinor);
-  if (!daily.ok) return fail(c, 422, [{ code: daily.code, message: daily.message }]);
-  // The all-creators cap applies when amount or date changes on a live payout.
+  // Waiting payouts are not scheduled reservations. Keep checks on sent/paid records.
   const amountOrDate = body.amount_rub !== undefined || body.amount_minor !== undefined || body.payout_date !== undefined;
-  if (amountOrDate && current.status !== 'failed') {
+  if (amountOrDate && (current.status === 'sent' || current.status === 'paid')) {
+    const daily = checkDailyLimit(await sameDayPayoutMinor(c, String(current.creator_id), day, id), amountMinor);
+    if (!daily.ok) return fail(c, 422, [{ code: daily.code, message: daily.message }]);
     const total = checkDailyTotalLimit(await dayTotalPayoutMinor(c, day, id), amountMinor);
     if (!total.ok) return fail(c, 422, [{ code: total.code, message: total.message }]);
   }

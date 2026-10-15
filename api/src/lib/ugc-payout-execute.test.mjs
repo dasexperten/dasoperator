@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { applyKonsolPayment, executePayout } from './ugc-payout-execute.mjs';
-import { checkOwnRub, konsolPhone, mapKonsolStatus, maskPhoneWide, ownRubMinor, rubToMinor } from './ugc-payouts.mjs';
+import { checkOwnRub, konsolPhone, mapKonsolStatus, maskPhoneWide, ownRubMinor, rubToMinor, isCommittedPayout, committedPayoutDay } from './ugc-payouts.mjs';
 
 const PHONE = '+79000000011';
 const NOW = Date.parse('2026-10-14T12:00:00Z');
@@ -17,10 +17,18 @@ function world({ rows = [], ownRub = 31615.38, payment = { ok: true, status: 201
   const store = {
     getPayout: async (id) => (db.has(id) ? { ...db.get(id) } : null),
     getRequisites: async (id) => requisites.get(id) ?? null,
-    sameDayMinor: async (creator, day, exclude) => [...db.values()].filter((r) => r.creator_id === creator && r.payout_date === day && r.status !== 'failed' && r.id !== exclude).reduce((s, r) => s + r.amount_minor, 0),
-    handedToday: async (creator, day, exclude) => [...db.values()].filter((r) => r.creator_id === creator && r.payout_date === day && r.id !== exclude && (r.status === 'sent' || r.status === 'paid' || r.konsol_payment_id || r.execute_claim)).length,
-    dayTotalMinor: async (day, exclude) => [...db.values()].filter((r) => r.payout_date === day && r.status !== 'failed' && r.id !== exclude).reduce((s, r) => s + r.amount_minor, 0),
-    claim: async (id, token) => { const r = db.get(id); if (r.execute_claim || r.konsol_payment_id) return false; r.execute_claim = token; return true; },
+    sameDayMinor: async (creator, day, exclude) => [...db.values()].filter((r) => r.creator_id === creator && committedPayoutDay(r) === day && isCommittedPayout(r) && r.id !== exclude).reduce((s, r) => s + r.amount_minor, 0),
+    handedToday: async (creator, day, exclude) => [...db.values()].filter((r) => r.creator_id === creator && committedPayoutDay(r) === day && r.id !== exclude && isCommittedPayout(r)).length,
+    dayTotalMinor: async (day, exclude) => [...db.values()].filter((r) => committedPayoutDay(r) === day && isCommittedPayout(r) && r.id !== exclude).reduce((s, r) => s + r.amount_minor, 0),
+    claim: async (id, token, at) => {
+      const r = db.get(id);
+      if (r.execute_claim || r.konsol_payment_id) return false;
+      const other = [...db.values()].filter((p) => p.id !== id && isCommittedPayout(p) && committedPayoutDay(p) === DAY);
+      if (other.reduce((sum, p) => sum + p.amount_minor, r.amount_minor) > 500000) return false;
+      const same = other.filter((p) => p.creator_id === r.creator_id);
+      if (same.reduce((sum, p) => sum + p.amount_minor, r.amount_minor) > 99900 || (r.status !== 'approved' && same.length)) return false;
+      r.execute_claim = token; r.execute_claimed_at = at; return true;
+    },
     release: async (id, error) => { const r = db.get(id); r.execute_claim = null; r.konsol_error = error; },
     holdUnclear: async (id, error) => { db.get(id).konsol_error = error; },
     setContractor: async (id, c) => { db.get(id).konsol_contractor_id = c; },
@@ -225,8 +233,26 @@ test('no double pay (blogger-day): a second payout of the same blogger today is 
   assert.equal((await executePayout('b', second.deps)).http, 201);
 });
 
-test('a payout dated tomorrow is not paid today', async () => {
-  const { deps, calls } = world({ rows: [{ id: 'p1', amount_minor: 100, payout_date: '2026-10-15' }] });
-  assert.equal((await executePayout('p1', deps)).code, 'not_due');
-  assert.equal(calls.payments.length, 0);
+test('a future recorded date does not delay a ready payout', async () => {
+  const { deps, calls, db } = world({ rows: [{ id: 'p1', amount_minor: 100, payout_date: '2026-10-15' }] });
+  assert.equal((await executePayout('p1', deps)).http, 201);
+  assert.equal(calls.payments.length, 1);
+  assert.equal(db.get('p1').payout_date, DAY);
+});
+
+
+test('waiting payouts beyond a daily budget do not block a ready payout', async () => {
+  const rows = Array.from({ length: 8 }, (_, i) => ({ id: `q${i}`, creator_id: `c${i}`, amount_minor: 99900 }));
+  const { deps, calls } = world({ rows });
+  assert.equal((await executePayout('q0', deps)).http, 201);
+  assert.equal(calls.payments.length, 1);
+});
+
+
+test('simultaneous clicks on different queue entries cannot exceed the daily total', async () => {
+  const rows = Array.from({ length: 6 }, (_, i) => ({ id: `q${i}`, creator_id: `c${i}`, amount_minor: 99900, payout_date: '2026-10-20' }));
+  const { deps, calls } = world({ rows });
+  await Promise.all(rows.map((row) => executePayout(row.id, deps)));
+  assert.equal(calls.payments.length, 5);
+  assert.equal(calls.payments.reduce((sum, p) => sum + p.amount, 0), 4995);
 });

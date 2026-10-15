@@ -5,11 +5,14 @@ import type { Env } from '../types';
 import { konsolClient } from './konsol';
 import { sendOwnerTelegram } from './owner-telegram';
 import { applyKonsolPayment, executePayout, matchRegistryPayment, REGISTRY_LINK_IDS } from './ugc-payout-execute.mjs';
-import { formatRub, ownRubMinor } from './ugc-payouts.mjs';
+import { formatRub, ownRubMinor, UGC_PAYOUT_MAX_MINOR, UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR, yerevanDay } from './ugc-payouts.mjs';
 
 export function payoutStore(env: Env) {
   const db = env.DB;
   const touch = () => Date.now();
+  // DH-LAW-261016-01: dates do not reserve budget for waiting payouts.
+  const committed = `status <> 'failed' AND (status IN ('sent','paid') OR konsol_payment_id IS NOT NULL OR execute_claim IS NOT NULL)`;
+  const sendDay = `date(COALESCE(sent_at, execute_claimed_at, paid_at, payout_date || 'T12:00:00Z'), '+4 hours')`;
   return {
     getPayout: (id: string) => db.prepare(
       `SELECT p.*, c.normalized_handle creator_handle FROM ugc_payouts p JOIN ugc_creators c ON c.id = p.creator_id WHERE p.id=?1`
@@ -19,23 +22,30 @@ export function payoutStore(env: Env) {
     ).bind(id).first<Record<string, any>>(),
     async sameDayMinor(creatorId: string, day: string, excludeId: string | null) {
       const r = await db.prepare(`SELECT COALESCE(SUM(amount_minor),0) total FROM ugc_payouts
-        WHERE creator_id=?1 AND payout_date=?2 AND status <> 'failed' AND (?3 IS NULL OR id <> ?3)`).bind(creatorId, day, excludeId).first<{ total: number }>();
+        WHERE creator_id=?1 AND ${sendDay}=?2 AND ${committed} AND (?3 IS NULL OR id <> ?3)`).bind(creatorId, day, excludeId).first<{ total: number }>();
       return Number(r?.total ?? 0);
     },
     /** Other payouts of this creator on that day already handed to Konsol (or being handed). */
     async handedToday(creatorId: string, day: string, excludeId: string) {
-      const r = await db.prepare(`SELECT COUNT(*) n FROM ugc_payouts WHERE creator_id=?1 AND payout_date=?2 AND id<>?3
-        AND (status IN ('sent','paid') OR konsol_payment_id IS NOT NULL OR execute_claim IS NOT NULL)`).bind(creatorId, day, excludeId).first<{ n: number }>();
+      const r = await db.prepare(`SELECT COUNT(*) n FROM ugc_payouts WHERE creator_id=?1 AND ${sendDay}=?2 AND id<>?3 AND ${committed}`).bind(creatorId, day, excludeId).first<{ n: number }>();
       return Number(r?.n ?? 0);
     },
     async dayTotalMinor(day: string, excludeId: string | null) {
       const r = await db.prepare(`SELECT COALESCE(SUM(amount_minor),0) total FROM ugc_payouts
-        WHERE payout_date=?1 AND status <> 'failed' AND (?2 IS NULL OR id <> ?2)`).bind(day, excludeId).first<{ total: number }>();
+        WHERE ${sendDay}=?1 AND ${committed} AND (?2 IS NULL OR id <> ?2)`).bind(day, excludeId).first<{ total: number }>();
       return Number(r?.total ?? 0);
     },
     async claim(id: string, token: string, at: string) {
       const r = await db.prepare(`UPDATE ugc_payouts SET execute_claim=?2, execute_claimed_at=?3, konsol_error=NULL, updated_at=?4
-        WHERE id=?1 AND execute_claim IS NULL AND konsol_payment_id IS NULL`).bind(id, token, at, touch()).run();
+        WHERE id=?1 AND execute_claim IS NULL AND konsol_payment_id IS NULL
+          AND status IN ('awaiting_approval','approved')
+          AND amount_minor + (SELECT COALESCE(SUM(amount_minor),0) FROM ugc_payouts p
+            WHERE p.id<>?1 AND p.creator_id=ugc_payouts.creator_id AND ${sendDay}=?5 AND ${committed}) <= ?6
+          AND amount_minor + (SELECT COALESCE(SUM(amount_minor),0) FROM ugc_payouts
+            WHERE id<>?1 AND ${sendDay}=?5 AND ${committed}) <= ?7
+          AND (status='approved' OR NOT EXISTS (SELECT 1 FROM ugc_payouts p
+            WHERE p.id<>?1 AND p.creator_id=ugc_payouts.creator_id AND ${sendDay}=?5 AND ${committed}))`
+      ).bind(id, token, at, touch(), yerevanDay(Date.parse(at)), UGC_PAYOUT_MAX_MINOR, UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR).run();
       return (r.meta?.changes ?? 0) === 1;
     },
     release: (id: string, error: string) => db.prepare(

@@ -103,12 +103,33 @@ test('paid counters count only Konsol-executed payouts by Yerevan day', () => {
   assert.equal(yerevanDay(Date.parse('2026-10-14T20:00:00Z')), '2026-10-15');
 });
 
-test('over_limit marks open rows past 999 ₽ per creator or 5 000 ₽ per day', () => {
+test('one queue: waiting rows do not reserve daily budget or depend on their date', () => {
+  const now = Date.parse('2026-10-15T10:00:00Z');
+  const rows = annotateOverLimit(Array.from({ length: 8 }, (_, i) => ({
+    creator_id: 'x', payout_date: i % 2 ? '2026-10-16' : '2026-10-15',
+    status: 'approved', amount_minor: 99900,
+  })), now);
+  assert.deepEqual(rows.map((r) => r.over_limit), Array(8).fill(false));
+});
+
+test('ready queue uses actual sends and in-flight claims on the current Yerevan day', () => {
+  const now = Date.parse('2026-10-15T21:00:00Z'); // 16.10 in Yerevan
   const rows = annotateOverLimit([
-    { creator_id: 'x', payout_date: '2026-10-15', status: 'approved', amount_minor: 60000 },
-    { creator_id: 'x', payout_date: '2026-10-15', status: 'awaiting_approval', amount_minor: 50000 },
-    { creator_id: 'y', payout_date: '2026-10-15', status: 'failed', amount_minor: 99900 },
-    { creator_id: 'z', payout_date: '2026-10-15', status: 'approved', amount_minor: 30000 },
-  ]);
-  assert.deepEqual(rows.map((r) => r.over_limit), [true, true, false, false]);
+    { creator_id: 'x', payout_date: '2026-10-15', status: 'sent', sent_at: '2026-10-15T20:30:00Z', amount_minor: 60000 },
+    { creator_id: 'x', payout_date: '2026-10-20', status: 'approved', amount_minor: 40000 },
+    { creator_id: 'y', payout_date: '2026-10-16', status: 'failed', amount_minor: 99900 },
+    { creator_id: 'z', payout_date: '2026-10-17', status: 'approved', amount_minor: 30000 },
+    { creator_id: 'z', payout_date: '2026-10-15', status: 'awaiting_approval', execute_claim: 'held', execute_claimed_at: '2026-10-15T20:30:00Z', amount_minor: 70000 },
+  ], now);
+  assert.deepEqual(rows.map((r) => r.over_limit), [false, true, false, true, true]);
+});
+
+test('actual daily total blocks an otherwise ready payout without moving its date', () => {
+  const now = Date.parse('2026-10-16T10:00:00Z');
+  const rows = annotateOverLimit([
+    ...Array.from({ length: 5 }, (_, i) => ({ creator_id: `p${i}`, status: 'sent', sent_at: '2026-10-16T06:00:00Z', amount_minor: 99900 })),
+    { creator_id: 'q', status: 'approved', payout_date: '2026-10-17', amount_minor: 600 },
+  ], now);
+  assert.equal(rows.at(-1).over_limit, true);
+  assert.equal(rows.at(-1).payout_date, '2026-10-17');
 });

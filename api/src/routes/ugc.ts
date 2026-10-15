@@ -150,7 +150,7 @@ ugc.get('/', async (c) => {
 
   const metricRows = await c.env.DB.prepare(
     `SELECT id, creator_id, creator_platform_id, content_url, content_type,
-            published_at, views, likes, comments, product_codes, source_sheet,
+            published_at, views, likes, comments, metrics_checked_at, product_codes, source_sheet,
             source_row, imported_at, link_status, link_checked_at,
             link_http_status, link_final_url, link_check_note,
             product_status, product_source, product_confidence,
@@ -218,6 +218,7 @@ ugc.get('/', async (c) => {
       published_at: row.published_at,
       views: row.views,
       likes: row.likes,
+      metrics_checked_at: row.metrics_checked_at,
       comments: row.comments,
       product_codes: productCodes,
       products: productIdentity.matches,
@@ -378,6 +379,33 @@ ugc.post('/link-health/run', async (c) => {
   try { body = await c.req.json(); } catch { /* optional empty body */ }
   const limit = Math.max(1, Math.min(10, Math.trunc(Number(body.limit) || 5)));
   return ok(c, await runUgcLinkHealthBatch(c.env, limit));
+});
+
+// Diana 2026-10-16 (Owner: «check like and views one by one»): counts read from
+// each publication on its platform. Only figures the platform showed are written;
+// a missing figure leaves the stored one untouched.
+ugc.post('/content/metrics', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  let body: { items?: unknown };
+  try { body = await c.req.json(); } catch { return fail(c, 400, [{ code: 'invalid_json', message: 'Body must be JSON' }]); }
+  const items = Array.isArray(body.items) ? body.items : [];
+  if (!items.length || items.length > 100) return fail(c, 413, [{ code: 'batch_size', message: 'Send 1 to 100 items per request' }]);
+  const count = (value: unknown) => (value == null || value === '' || !Number.isFinite(Number(value)) || Number(value) < 0 ? null : Math.round(Number(value)));
+  const now = Date.now();
+  const statements: D1PreparedStatement[] = [];
+  for (const raw of items as Record<string, unknown>[]) {
+    const id = typeof raw?.id === 'string' ? raw.id.slice(0, 80) : null;
+    const checkedAt = typeof raw?.checked_at === 'string' && !Number.isNaN(Date.parse(raw.checked_at)) ? raw.checked_at : null;
+    if (!id || !checkedAt) continue;
+    statements.push(c.env.DB.prepare(
+      `UPDATE ugc_content SET views = COALESCE(?, views), likes = COALESCE(?, likes), comments = COALESCE(?, comments),
+              metrics_checked_at = ?, metrics_source = ?, updated_at = ? WHERE id = ?`
+    ).bind(count(raw.views), count(raw.likes), count(raw.comments), checkedAt, typeof raw.source === 'string' ? raw.source.slice(0, 40) : 'platform', now, id));
+  }
+  if (!statements.length) return fail(c, 400, [{ code: 'no_valid_items', message: 'Each item needs id and checked_at' }]);
+  const results = await c.env.DB.batch(statements);
+  return ok(c, { updated: results.reduce((sum, r) => sum + (r.meta?.changes ?? 0), 0), sent: items.length });
 });
 
 ugc.post('/import', async (c) => {

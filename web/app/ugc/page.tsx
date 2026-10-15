@@ -35,6 +35,7 @@ type ContentObservation = {
   published_at: string | null;
   views: number | null;
   likes?: number | null;
+  metrics_checked_at?: string | null;
   comments: number | null;
   product_codes: string[];
   source_sheet: string | null;
@@ -270,7 +271,8 @@ function Publication({ item, href, more }: { item: ContentObservation; href: str
   const status = item.link_status ? LINK_STATUS_SHORT[item.link_status] : 'Не проверена';
   const state = item.link_status === 'active' ? 'live' : item.link_status && DEAD_LINK.has(item.link_status) ? 'dead' : 'unknown';
   const Glyph = kind === 'Video' ? SquarePlay : kind === 'Image' ? ImageIcon : kind === 'Post' ? FileText : Link;
-  const figure = (label: string, value: number | null | undefined) => `${label}: ${value == null ? 'нет данных' : value}`;
+  const read = item.metrics_checked_at ? ` · ${new Date(item.metrics_checked_at).toLocaleDateString('ru-RU')}` : '';
+  const figure = (label: string, value: number | null | undefined) => `${label}: ${value == null ? 'нет данных' : value}${read}`;
   return <span className="ugc-pub" data-state={state}>
     <a href={href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="ugc-pub-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${MEDIA_LABEL[kind]} · ${status}`} title={[MEDIA_LABEL[kind], status, item.link_checked_at ? new Date(item.link_checked_at).toLocaleDateString('ru-RU') : null, item.content_url].filter(Boolean).join(' · ')}><Glyph aria-hidden="true" /></a>
     <span className="ugc-pub-stats">

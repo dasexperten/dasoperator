@@ -6,7 +6,7 @@ import './ugc-layout.css';
 import PageHeader from '@/components/ui/page-header';
 import { apiGet, apiPatch, apiPost } from '@/lib/api';
 import { parseUgcWorkbook } from '@/lib/ugc-import';
-import { canPay, formatRub, PAYOUT_STATUS_LABEL, payConfirmText, payoutCell } from '@/lib/ugc-payout-cell.mjs';
+import { canPay, formatRub, PAYOUT_STATUS_LABEL, payoutCell } from '@/lib/ugc-payout-cell.mjs';
 import { getUser } from '@/lib/auth';
 import { formatActivity, formatCount, formatRate, platformLabel } from '@/lib/ugc-table-format.mjs';
 
@@ -347,6 +347,7 @@ export default function UgcPage() {
   const tableRef = useRef<HTMLTableElement>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [payBusy, setPayBusy] = useState<string | null>(null);
+  const payLock = useRef(false);
   useEffect(() => { setIsAdmin(getUser()?.role === 'admin'); }, []);
 
   const load = useCallback(async () => {
@@ -469,18 +470,32 @@ export default function UgcPage() {
   const payApi: PayApi = {
     isAdmin,
     busyId: payBusy,
+    // Owner 2026-10-15: one click pays — no confirm, no page reload. The badge
+    // turns light green from the execute answer; green when Konsol executes.
+    // Double click: the ref locks at once, the server lock (execute_claim) holds too.
     pay: async (payout) => {
-      if (!window.confirm(payConfirmText(payout, payout.handle))) return;
+      if (payLock.current) return;
+      payLock.current = true;
       setPayBusy(payout.id);
       setError(null);
       try {
-        const response = await apiPost(`/api/ugc/payouts/${encodeURIComponent(payout.id)}/execute`, {});
-        if (!response.success) setError(`Оплата не ушла: ${response.errors[0]?.message ?? 'ошибка'}`);
+        const response = await apiPost<{ payout?: Partial<Payout> }>(`/api/ugc/payouts/${encodeURIComponent(payout.id)}/execute`, {});
+        const sent = response.result?.payout;
+        if (response.success && sent) {
+          const merge = (item: Payout): Payout => (item.id === payout.id ? { ...item, ...sent } as Payout : item);
+          setData((prev) => ({ ...prev, creators: prev.creators.map((creator) => ({
+            ...creator,
+            payout: creator.payout ? merge(creator.payout) : creator.payout,
+            payouts: creator.payouts?.map(merge),
+          })) }));
+        } else {
+          setError(`Оплата не ушла: ${response.errors?.[0]?.message ?? 'ошибка'}`);
+        }
       } catch (reason) {
         setError(`Оплата: ответа нет — сначала проверь Консоль. ${reason instanceof Error ? reason.message : String(reason)}`);
       } finally {
         setPayBusy(null);
-        await load();
+        payLock.current = false;
       }
     },
   };

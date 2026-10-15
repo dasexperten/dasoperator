@@ -27,7 +27,8 @@ test('requisites received, not paid yet — brown with the amount (Owner 2026-10
     assert.equal(cell.text, `836${NBSP}₽`);
     assert.equal(cell.reason, 'к оплате');
   }
-  assert.equal(payoutCell({ status: 'sent', amount_minor: 83600, has_requisites: 1, konsol_payment_id: 'p2' }, NOW).tone, 'brown');
+  const handed = payoutCell({ status: 'sent', amount_minor: 83600, has_requisites: 1, konsol_payment_id: 'p2' }, NOW);
+  assert.deepEqual([handed.tone, handed.reason], ['lightgreen', 'передано в Консоль']);
 });
 
 test('no requisites — grey, waits for requisites', () => {

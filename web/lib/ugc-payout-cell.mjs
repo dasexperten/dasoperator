@@ -53,6 +53,8 @@ export function payoutCell(payout, now = Date.now()) {
   const out = (tone, reason) => ({ tone, text: amount, reason, title: [tone === 'green' ? 'Оплата сделана' : 'Не оплачено', tone === 'green' ? '' : reason].filter(Boolean).join(' · ') });
 
   if (isKonsolPaid(payout)) return out('green', 'оплата сделана');
+  // Owner 2026-10-15: right after the click — light green «передано в Консоль», not clickable.
+  if (payout.status === 'sent' && payout.konsol_payment_id) return out('lightgreen', 'передано в Консоль');
   if (payout.status === 'failed') return out('red', payout.konsol_payment_id ? 'отказ' : 'не исполнено в Консоли');
   if (isStaleSent(payout, now)) return out('red', 'не исполнено в Консоли');
   if ((payout.status === 'sent' || payout.status === 'paid') && !payout.konsol_payment_id) {
@@ -60,8 +62,7 @@ export function payoutCell(payout, now = Date.now()) {
   }
   if (payout.over_limit) return out(payout.has_requisites ? 'brown' : 'grey', 'сверх лимита');
   if (!payout.has_requisites) return out('grey', 'ждёт реквизитов');
-  if (payout.status === 'sent') return out('brown', 'в Консоли, ждёт исполнения');
-  return { ...out('brown', label.toLowerCase()) };
+  return out('brown', label.toLowerCase());
 }
 
 // «Оплатить» (Owner 2026-10-15): the Owner pays by hand from /ugc. The button

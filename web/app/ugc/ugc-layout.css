@@ -82,6 +82,7 @@
 .ugc-payout[data-tone="green"] { background: var(--status-success); }
 /* Owner 2026-10-15: brown = requisites in, not paid; grey = waits for requisites; red = failed or stale. */
 .ugc-payout[data-tone="brown"] { background: #7a4e25; }
+.ugc-payout[data-tone="lightgreen"] { background: #c9ecc4; color: #1f4d1a; }
 .ugc-payout[data-tone="grey"] { background: #e7e5e4; color: #57534e; }
 .ugc-payout-cell { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; }
 .ugc-payout-reason { font-size: 11px; line-height: 13px; color: var(--fg-3); white-space: normal; text-align: center; max-width: 96px; letter-spacing: 0; }

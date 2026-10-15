@@ -684,6 +684,22 @@ export async function handleScheduled(
     return;
   }
 
+  // Every minute: the adaptive lanes (Owner 2026-10-15, DH-LAW-261015-01).
+  // Each lane runs only when due — 3 min after activity, then 15, then 30.
+  if (cron === '* * * * *') {
+    const { runAdaptiveLane } = await import('./lib/adaptive-runner');
+    const { ugcPayoutSweep } = await import('./lib/ugc-payout-store');
+    const { igDmWatch } = await import('./lib/ig-dm-watch');
+    for (const line of await Promise.all([
+      runAdaptiveLane(env, 'ugc_payouts', async (e) => {
+        const refreshed = await ugcPayoutSweep(e);
+        return { ok: true, activity: refreshed > 0, refreshed };
+      }),
+      runAdaptiveLane(env, 'ig_dm', igDmWatch),
+    ])) console.log(`[cron:adaptive] ${line}`);
+    return;
+  }
+
   if (cron === '*/15 * * * *') {
     console.log('[cron:tg-inbox] starting Telegram inbox ingestion');
     try {
@@ -694,12 +710,6 @@ export async function handleScheduled(
       console.error('[cron:tg-inbox] failed:', e);
     }
 
-    try {
-      const { ugcPayoutSweep } = await import('./lib/ugc-payout-store');
-      console.log(`[cron:ugc-payouts] refreshed=${await ugcPayoutSweep(env)}`);
-    } catch (e) {
-      console.error('[cron:ugc-payouts] failed:', e);
-    }
 
     // The model-free steps of this slot run in their own erp-* workers (api/src/cron-steps.ts):
     // promo refill, marketplace pull, mail index, .ru track, .ru orders, loyalty keys.

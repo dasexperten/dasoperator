@@ -210,7 +210,9 @@ name = "EMAIL"
 # here) -> :40 publish. ERP stays host + storage, no timers of its own.
 # Removed: "20 */3" (already a no-op), "30 */3" (draft-prep), "10 */3" (WB
 # auto-reply — ERP has no WB token since the reissue, it was dead weight).
-crons = ["0 0 * * *", "*/15 * * * *"]
+# * * * * * — adaptive lanes (Instagram Direct, Konsol payouts), Owner 2026-10-15:
+# each runs 3 min after activity, then 15, then 30 (DH-LAW-261015-01).
+crons = ["0 0 * * *", "*/15 * * * *", "* * * * *"]
 
 
 # -----------------------------------------------------------------------------

@@ -69,10 +69,10 @@ test('a payout within limits and money is sent once to Konsol as fps', async () 
   assert.deepEqual(calls.contractors[0], { kind: 'individual', first_name: 'Имя', last_name: 'Фамилия', phone: PHONE });
   assert.equal(calls.payments.length, 1);
   const p = calls.payments[0];
-  assert.equal(p.kind, 'fps');
+  assert.equal(p.bank_details_kind, 'fps');
   assert.equal(p.amount, 1);
-  assert.equal(p.fps_bank_member_id, '100000000004');
-  assert.equal(p.fps_mobile_phone, PHONE);
+  assert.equal(p.bank_details.fps_bank_member_id, '100000000004');
+  assert.equal(p.bank_details.fps_mobile_phone, PHONE);
   assert.equal(p.contractor_id, 'ctr-new');
 });
 

@@ -114,9 +114,9 @@ export async function executePayout(id, deps) {
   const payment = await konsol.createPayment({
     contractor_id: contractor.id,
     amount: rub,
-    kind: 'fps',
-    fps_bank_member_id: bankId,
-    fps_mobile_phone: phone,
+    // Konsol 2026-10-15 live 422: SBP details go in bank_details_kind + bank_details, not top-level fields.
+    bank_details_kind: 'fps',
+    bank_details: { fps_mobile_phone: phone, fps_bank_member_id: bankId },
     services_list: [{ title: KONSOL_SERVICE_TITLE, amount: rub }],
   });
   if (payment.ok && payment.body && payment.body.id) {

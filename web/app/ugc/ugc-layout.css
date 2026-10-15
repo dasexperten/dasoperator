@@ -86,9 +86,10 @@
 .ugc-payout-cell { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; }
 .ugc-payout-reason { font-size: 11px; line-height: 13px; color: var(--fg-3); white-space: normal; text-align: center; max-width: 96px; letter-spacing: 0; }
 .ugc-paid-counter { padding: 8px 12px; font-size: 14px; color: var(--fg-2); background: var(--bg-surface); border: 1px solid var(--border-hairline); border-left: 4px solid var(--status-success); border-radius: var(--radius-sm); letter-spacing: 0; }
-.ugc-pay-btn { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 2px 10px; border-radius: var(--radius-sm); border: 1px solid #7a4e25; background: transparent; color: #7a4e25; font-size: 12px; font-weight: 700; letter-spacing: 0; cursor: pointer; }
-.ugc-pay-btn:hover:not(:disabled) { background: #7a4e25; color: var(--fg-on-brand); }
-.ugc-pay-btn:disabled { opacity: 0.5; cursor: default; }
+.ugc-payout-btn { border: 0; cursor: pointer; box-shadow: var(--shadow-raised); }
+.ugc-payout-btn:hover:not(:disabled) { filter: brightness(1.15); }
+.ugc-payout-btn:focus-visible { outline: 2px solid var(--fg-1); outline-offset: 2px; }
+.ugc-payout-btn:disabled { opacity: 0.6; cursor: default; }
 .ugc-paid-counter b { color: var(--fg-1); font-weight: 700; white-space: nowrap; }
 .ugc-content-url { white-space: nowrap; line-height: 44px; }
 .ugc-page textarea { white-space: pre; overflow-x: hidden; }

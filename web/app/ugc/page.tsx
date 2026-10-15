@@ -211,10 +211,13 @@ function PayoutBadge({ payout }: { payout: Payout | null | undefined }) {
   const cell = payoutCell(payout);
   const { isAdmin, busyId, pay } = useContext(PayContext);
   const payable = Boolean(isAdmin && payout && canPay(payout));
-  return <span className="ugc-payout-cell" title={payoutTitle(payout)}>
-    <span className="ugc-payout" data-tone={cell.tone} aria-label={payoutTitle(payout)}>{cell.text}</span>
-    {cell.reason ? <span className="ugc-payout-reason">{cell.reason}</span> : null}
-    {payable && payout ? <button type="button" className="ugc-pay-btn" disabled={busyId !== null} onClick={(event) => { event.stopPropagation(); pay(payout); }}>{busyId === payout.id ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> : null}Оплатить</button> : null}
+  // Owner 2026-10-15: the brown badge itself is the button (Admin only). Green is done, not clickable.
+  const badge = payable && payout
+    ? <button type="button" className="ugc-payout ugc-payout-btn" data-tone={cell.tone} disabled={busyId !== null} aria-label={`Оплатить: ${payoutTitle(payout)}`} onClick={(event) => { event.stopPropagation(); pay(payout); }}>{busyId === payout.id ? <Loader2 className="h-3 w-3 animate-spin inline" aria-hidden="true" /> : cell.text}</button>
+    : <span className="ugc-payout" data-tone={cell.tone} aria-label={payoutTitle(payout)}>{cell.text}</span>;
+  return <span className="ugc-payout-cell" title={payable ? `Нажми, чтобы оплатить · ${payoutTitle(payout)}` : payoutTitle(payout)}>
+    {badge}
+    {cell.reason ? <span className="ugc-payout-reason">{payable ? 'оплатить' : cell.reason}</span> : null}
   </span>;
 }
 

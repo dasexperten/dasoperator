@@ -71,7 +71,7 @@
 .ugc-pub-stats { display: flex; flex-direction: column; justify-content: center; height: 39px; }
 .ugc-pub-stats > span { display: flex; align-items: center; gap: 3px; height: 13px; font-size: 12px; line-height: 13px; font-weight: 700; color: var(--fg-1); font-variant-numeric: tabular-nums; letter-spacing: 0; }
 .ugc-pub-stats svg { width: 11px; height: 11px; color: var(--fg-2); stroke-width: 2.25; }
-.ugc-pub-more { position: absolute; top: -7px; left: 26px; min-width: 18px; height: 16px; padding: 0 4px; border-radius: var(--radius-pill); background: var(--fg-1); color: var(--bg-surface); font-size: 11px; line-height: 16px; font-weight: 700; text-align: center; letter-spacing: 0; }
+.ugc-pub-more { margin-left: 2px; color: var(--fg-2); font-size: 14px; line-height: 20px; font-weight: 700; letter-spacing: 0; }
 .ugc-table svg { flex-shrink: 0; }
 /* Column sets by table width: all eleven from 1044 px (the 1440 screen) up; creator keeps 186 px. */
 @container ugc-table (max-width: 1043px) {

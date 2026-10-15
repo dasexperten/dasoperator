@@ -260,7 +260,7 @@ const MEDIA_LABEL: Record<ReturnType<typeof mediaKind>, string> = { Video: 'ви
 const PRODUCT_PILLS = 2;
 // «Контент» (Owner 2026-10-16): per publication, its link icon as tall as the three
 // figures stacked right of it (views, likes, comments); a dead link is faded.
-// Two publications side by side, then «+N» on the second icon.
+// Two publications side by side, then «+N».
 const CONTENT_ICONS = 2;
 const DEAD_LINK: ReadonlySet<LinkStatus> = new Set<LinkStatus>(['missing', 'restricted', 'invalid']);
 

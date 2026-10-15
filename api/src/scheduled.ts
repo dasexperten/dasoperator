@@ -417,6 +417,23 @@ export async function handleScheduled(
     return;
   }
 
+  // Every minute: the adaptive lanes (Owner 2026-10-15, DH-LAW-261015-01).
+  // Each lane runs only when due — 3 min after activity, then 15, then 30.
+  // Must stay ABOVE the email-harvest branch, which returns on this tick.
+  if (cron === '* * * * *') {
+    const { runAdaptiveLane } = await import('./lib/adaptive-runner');
+    const { ugcPayoutSweep } = await import('./lib/ugc-payout-store');
+    const { igDmWatch } = await import('./lib/ig-dm-watch');
+    for (const line of await Promise.all([
+      runAdaptiveLane(env, 'ugc_payouts', async (e) => {
+        const refreshed = await ugcPayoutSweep(e);
+        return { ok: true, activity: refreshed > 0, refreshed };
+      }),
+      runAdaptiveLane(env, 'ig_dm', igDmWatch),
+    ])) console.log(`[cron:adaptive] ${line}`);
+    // No return: the email-harvest branch below shares this minute tick.
+  }
+
   // Email archive harvest — every minute until done (temporary backfill job).
   if (cron === '* * * * *') {
     try {
@@ -681,22 +698,6 @@ export async function handleScheduled(
       console.error('[cron:modulbank-pull] failed:', e);
       await reportCronFailure(env, 'modulbank_sync', e, { cron: '0 4,13 * * *' });
     }
-    return;
-  }
-
-  // Every minute: the adaptive lanes (Owner 2026-10-15, DH-LAW-261015-01).
-  // Each lane runs only when due — 3 min after activity, then 15, then 30.
-  if (cron === '* * * * *') {
-    const { runAdaptiveLane } = await import('./lib/adaptive-runner');
-    const { ugcPayoutSweep } = await import('./lib/ugc-payout-store');
-    const { igDmWatch } = await import('./lib/ig-dm-watch');
-    for (const line of await Promise.all([
-      runAdaptiveLane(env, 'ugc_payouts', async (e) => {
-        const refreshed = await ugcPayoutSweep(e);
-        return { ok: true, activity: refreshed > 0, refreshed };
-      }),
-      runAdaptiveLane(env, 'ig_dm', igDmWatch),
-    ])) console.log(`[cron:adaptive] ${line}`);
     return;
   }
 

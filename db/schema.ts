@@ -525,6 +525,8 @@ export const ugcContent = sqliteTable("ugc_content", {
   publishedAt: text("published_at"),
   views: integer("views"),
   likes: integer("likes"),
+  metricsCheckedAt: text("metrics_checked_at"),
+  metricsSource: text("metrics_source"),
   comments: integer("comments"),
   saves: integer("saves"),
   shares: integer("shares"),

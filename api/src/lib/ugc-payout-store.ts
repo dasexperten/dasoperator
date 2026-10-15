@@ -5,7 +5,7 @@ import type { Env } from '../types';
 import { konsolClient } from './konsol';
 import { sendOwnerTelegram } from './owner-telegram';
 import { applyKonsolPayment, executePayout, matchRegistryPayment, REGISTRY_LINK_IDS } from './ugc-payout-execute.mjs';
-import { formatRub, ownRubMinor, UGC_PAYOUT_MAX_MINOR, UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR, yerevanDay } from './ugc-payouts.mjs';
+import { formatRub, ownRubMinor, UGC_PAYOUT_MAX_MINOR, UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR } from './ugc-payouts.mjs';
 
 export function payoutStore(env: Env) {
   const db = env.DB;

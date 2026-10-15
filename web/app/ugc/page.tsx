@@ -131,7 +131,7 @@ type UgcPayload = {
 
 const PLATFORM_TABS = ['all', 'instagram', 'tiktok', 'vk', 'shopee', 'lazada', 'facebook', 'telegram', 'youtube', 'other'];
 // Diana's statuses (Owner 2026-10-15, DH-LAW-261015-02): one English word, at most 7 letters.
-const STAGES = ['new', 'sent', 'replied', 'agreed', 'cart', 'payout', 'paid', 'ordered', 'review', 'posted', 'gold', 'silent', 'failed', 'fee', 'refused', 'unfit', 'rival', 'claim', 'owner'];
+const STAGES = ['new', 'sent', 'replied', 'agreed', 'cart', 'payout', 'paid', 'ordered', 'review', 'posted', 'gold', 'silent', 'failed', 'fee', 'refused', 'unfit', 'rival', 'owner'];
 const ORIGINS = ['invited', 'self'];
 const API_EMPTY: UgcPayload = { creators: [], summary: { creators: 0, profiles: 0, content_items: 0, active_outreach: 0, published: 0, linked_content: 0, links_active: 0, links_missing: 0, links_restricted: 0, links_unknown: 0, links_invalid: 0, links_unchecked: 0, links_checked_30d: 0, links_last_checked_at: null, link_check_history: 0, product_identified: 0, product_queued: 0 }, platforms: [], products: [] };
 
@@ -520,7 +520,7 @@ export default function UgcPage() {
             <th scope="col" className="ugc-c-num ugc-c-posts ugc-sec-2">Посты</th>
             <th scope="col" className="ugc-c-product ugc-sec-2">Продукт</th>
             <th scope="col" className="ugc-c-media ugc-sec-3">Контент</th>
-            <th scope="col" className="ugc-c-next ugc-sec-1">Шаг</th>
+            <th scope="col" className="ugc-c-next ugc-sec-1">Статус</th>
           </tr></thead>
           <tbody>
             {loading ? <tr><td colSpan={11} className="p-10 text-center"><Loader2 className="h-6 w-6 animate-spin inline-block" /> <span className="ml-2">Загрузка…</span></td></tr> : creators.length === 0 ? <tr><td colSpan={11} className="p-10 text-center" style={{ color: 'var(--fg-2)' }}><Users className="h-7 w-7 mx-auto mb-2" />Никого не найдено.</td></tr> : creators.map((creator) => {
@@ -550,6 +550,7 @@ export default function UgcPage() {
       </section>
 
       {selected && <div ref={(node) => { if (node) node.scrollIntoView({ block: 'start', behavior: 'smooth' }); }}><CreatorPanel key={selected.id} creator={selected} onClose={() => setSelectedId(null)} onSaved={load} /></div>}
+      <div className="ugc-stage-legend" aria-label="Статусы">{STAGES.map((value) => <span key={value} className="ugc-stage" data-stage={value}>{value}</span>)}</div>
       <p className="erp-page-help text-sm" style={{ color: 'var(--fg-3)' }}>* Одна публикация: показаны её просмотры, а не среднее. Нет данных: прочерк.</p>
     </div>
   );

@@ -151,4 +151,37 @@
 .ugc-origin { flex: 0 0 auto; display: inline-flex; align-items: center; }
 .ugc-origin[data-origin="invited"] { color: var(--ugc-origin-invited); }
 .ugc-origin[data-origin="self"] { color: var(--status-success); }
-.ugc-stage { white-space: nowrap; }
+
+/* Статус (Owner 2026-10-15, DH-LAW-261015-02): one word in a coloured block.
+   Good path green → blue; review black, posted bold black, gold dark gold;
+   failed/refused red, rival orange, fee brown, silent/owner grey. */
+.ugc-page {
+  --st-new: #e7e5e4; --st-new-fg: #57534e;
+  --st-sent: #cfe8f7; --st-sent-fg: #0b4f75;
+  --st-replied: #8ccbf0; --st-replied-fg: #08344f;
+  --st-agreed: #b5cc3a; --st-agreed-fg: #1f2a05;
+  --st-cart: #4f8f2f; --st-payout: #3d7f2a; --st-paid: var(--status-success);
+  --st-ordered: #1f5fd1; --st-review: #1c1917; --st-posted: #000000; --st-gold: #8c6d1f;
+  --st-red: #c0392b; --st-rival: #e8890c; --st-rival-fg: #1c1917; --st-fee: #7a4e25;
+  --st-grey: #a8a29e; --st-grey-fg: #1c1917; --st-unfit: #6b6460;
+}
+.ugc-stage { display: inline-block; min-width: 64px; padding: 2px 6px; border-radius: var(--radius-sm); text-align: center; font-size: 12px; line-height: 18px; font-weight: 600; white-space: nowrap; letter-spacing: 0; color: var(--fg-on-brand); background: var(--st-new); border: 1px solid transparent; }
+.ugc-stage[data-stage="new"] { background: var(--st-new); color: var(--st-new-fg); }
+.ugc-stage[data-stage="sent"] { background: var(--st-sent); color: var(--st-sent-fg); }
+.ugc-stage[data-stage="replied"] { background: var(--st-replied); color: var(--st-replied-fg); }
+.ugc-stage[data-stage="agreed"] { background: var(--st-agreed); color: var(--st-agreed-fg); }
+.ugc-stage[data-stage="cart"] { background: var(--st-cart); }
+.ugc-stage[data-stage="payout"] { background: var(--st-payout); }
+.ugc-stage[data-stage="paid"] { background: var(--st-paid); }
+.ugc-stage[data-stage="ordered"] { background: var(--st-ordered); }
+.ugc-stage[data-stage="review"] { background: var(--st-review); }
+.ugc-stage[data-stage="posted"] { background: var(--st-posted); font-weight: 800; }
+.ugc-stage[data-stage="gold"] { background: var(--st-gold); font-weight: 700; }
+.ugc-stage[data-stage="failed"], .ugc-stage[data-stage="refused"] { background: var(--st-red); }
+.ugc-stage[data-stage="rival"] { background: var(--st-rival); color: var(--st-rival-fg); }
+.ugc-stage[data-stage="fee"] { background: var(--st-fee); }
+.ugc-stage[data-stage="silent"], .ugc-stage[data-stage="owner"] { background: var(--st-grey); color: var(--st-grey-fg); }
+.ugc-stage[data-stage="unfit"] { background: var(--st-unfit); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ugc-stage:is([data-stage="review"], [data-stage="posted"]) { border-color: var(--border-subtle); } }
+:root[data-theme="dark"] .ugc-stage:is([data-stage="review"], [data-stage="posted"]) { border-color: var(--border-subtle); }
+.ugc-stage-legend { display: flex; flex-wrap: wrap; gap: 6px; }

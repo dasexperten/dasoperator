@@ -11,7 +11,7 @@ import { executeUgcPayout, refreshUgcPayout, ugcPayoutEvening } from '../lib/ugc
 // word, at most 7 letters. Main path, then side statuses.
 const UGC_STAGES = new Set([
   'new', 'sent', 'replied', 'agreed', 'cart', 'payout', 'paid', 'ordered', 'review', 'posted', 'gold',
-  'silent', 'failed', 'fee', 'refused', 'unfit', 'rival', 'claim', 'owner',
+  'silent', 'failed', 'fee', 'refused', 'unfit', 'rival', 'owner',
 ]);
 // Who started: we invited (brown magnifier) or the creator came herself (green hand).
 const UGC_ORIGINS = new Set(['invited', 'self']);

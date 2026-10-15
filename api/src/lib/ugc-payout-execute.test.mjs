@@ -153,7 +153,7 @@ test('missing requisites or unknown bank never reach Konsol', async () => {
   assert.equal(w.calls.payments.length + w2.calls.payments.length, 0);
 });
 
-test('callback status mapping: executed → paid with one notice, failed → failed', async () => {
+test('callback status mapping: executed → paid with no Telegram message, failed → failed', async () => {
   assert.equal(mapKonsolStatus('executed'), 'paid');
   assert.equal(mapKonsolStatus('failed'), 'failed');
   assert.equal(mapKonsolStatus('created'), 'sent');
@@ -164,10 +164,7 @@ test('callback status mapping: executed → paid with one notice, failed → fai
   assert.equal(out.status, 'paid');
   assert.equal(w.db.get('p1').status, 'paid');
   assert.equal(w.db.get('p1').paid_at, '2026-10-14T12:01:00Z');
-  assert.equal(w.calls.owner.length, 1);
-  assert.match(w.calls.owner[0], /Деньги пришли/);
-  await applyKonsolPayment(await w.deps.store.getPayout('p1'), { id: 'pay-1', status: 'executed' }, w.deps);
-  assert.equal(w.calls.owner.length, 1, 'notice goes once');
+  assert.equal(w.calls.owner.length, 0, 'no message per payment (Owner 2026-10-16)');
 
   const f = world({ rows: [{ id: 'p2', amount_minor: 100, status: 'sent', konsol_payment_id: 'pay-2' }] });
   await applyKonsolPayment(await f.deps.store.getPayout('p2'), { id: 'pay-2', status: 'failed', error_message: 'Банк получателя отклонил выплату.' }, f.deps);
@@ -181,17 +178,6 @@ test('a payment id that does not belong to the row changes nothing', async () =>
   const out = await applyKonsolPayment(await w.deps.store.getPayout('p1'), { id: 'other', status: 'executed' }, w.deps);
   assert.equal(out.changed, false);
   assert.equal(w.db.get('p1').status, 'sent');
-});
-
-test('a failed Telegram notice is retried next time', async () => {
-  const w = world({ rows: [{ id: 'p1', amount_minor: 100, status: 'sent', konsol_payment_id: 'pay-1' }] });
-  let fail = true;
-  w.deps.notifyOwner = async () => !fail;
-  await applyKonsolPayment(await w.deps.store.getPayout('p1'), { id: 'pay-1', status: 'executed' }, w.deps);
-  assert.equal(w.db.get('p1').paid_notice_at, null);
-  fail = false;
-  const out = await applyKonsolPayment(await w.deps.store.getPayout('p1'), { id: 'pay-1', status: 'executed' }, w.deps);
-  assert.equal(out.noticed, true);
 });
 
 import { matchRegistryPayment } from './ugc-payout-execute.mjs';

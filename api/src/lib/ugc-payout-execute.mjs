@@ -164,13 +164,9 @@ export async function applyKonsolPayment(row, payment, deps) {
   } else if (row.konsol_status !== payment.status) {
     await store.setKonsolStatus(row.id, payment.status);
   }
-  let noticed = false;
-  if (target === 'paid' && !row.paid_notice_at) {
-    if (await store.claimNotice(row.id, new Date(now).toISOString())) {
-      noticed = await notifyOwner(paidNoticeText(row));
-      if (!noticed) await store.releaseNotice(row.id);
-    }
-  }
+  // Owner 2026-10-16: no Telegram message per payment — he checks Instagram himself.
+  // The paid row turns green in the ERP; the evening summary stays.
+  const noticed = false;
   return { changed, status: target === 'sent' ? row.status : target, konsol_status: payment.status, noticed };
 }
 

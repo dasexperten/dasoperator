@@ -1,0 +1,6 @@
+{
+  "name": "arina-wb-keywords-local",
+  "main": "wb-keyword-transfer.mjs",
+  "compatibility_date": "2026-10-15",
+  "services": [{"binding":"WB_GATEWAY","service":"dasoperator-api","entrypoint":"WbGateway","remote":true}]
+}

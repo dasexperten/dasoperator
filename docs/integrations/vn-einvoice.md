@@ -159,6 +159,16 @@ reconcile arithmetically, but it does not prove HSM signing, tax acceptance or
 production issuance. Those checks remain open; this verification created no
 invoice and submitted no tax filing.
 
+**Owner correction, 2026-10-15:** the specific sample draft with lookup code
+`6ELTEIU7M` is **REJECTED / REFERENCE ONLY**. The Owner states it was refused;
+the original refusal date, refusing party and grounds are not established here.
+Earlier arithmetic and layout checks are historical observations, not acceptance.
+Remove this sample's approval, further reconciliation and matching PDF/XML work
+from active follow-ups; do not issue or sign it. Its VND 44,944,232 total is sample
+arithmetic only, not an amount payable or receivable. This correction concerns
+this sample only. General integration readiness remains a separate matter and
+the correction neither cancels the integration nor authorizes enabling issuance.
+
 Provider sources: [shared-domain notice](https://easyinvoice.vn/thong-bao-ve-viec-thay-doi-duong-dan-trang-hoa-don-va-trang-tra-cuu-cua-he-thong-hoa-don-dien-tu-easyinvoice-tu-ngay-01-01-2026/)
 and its linked [technical integration guide](https://docs.google.com/document/d/1QN9NwhAYhBidQtGV_XZtXKtYefSJFLZR/edit).
 

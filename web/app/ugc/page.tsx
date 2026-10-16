@@ -236,6 +236,19 @@ function PayoutBadge({ payout }: { payout: Payout | null | undefined }) {
 const TIKTOK_PATH = 'M12.53.02C13.84 0 15.14.01 16.44 0c.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z';
 const LETTER_MARK: Record<string, string> = { vk: 'VK', shopee: 'S', lazada: 'L' };
 
+// Owner 2026-10-16: the account name opens the blogger's own page, not our card.
+function profileHref(profile: { platform: string; handle: string }): string | null {
+  const h = String(profile.handle ?? '').replace(/^@/, '').trim();
+  if (!h) return null;
+  const p = String(profile.platform ?? '').toLowerCase();
+  if (p === 'tiktok') return `https://www.tiktok.com/@${h}`;
+  if (p === 'youtube') return `https://www.youtube.com/@${h}`;
+  if (p === 'vk') return `https://vk.com/${h}`;
+  if (p === 'telegram') return `https://t.me/${h}`;
+  if (p === 'facebook') return `https://www.facebook.com/${h}`;
+  return `https://www.instagram.com/${h}/`;
+}
+
 function PlatformIcon({ platform }: { platform: string }) {
   const key = String(platform ?? '').toLowerCase();
   const label = platformLabel(key);
@@ -654,7 +667,7 @@ export default function UgcPage() {
             const views = profile.avg_video_views ?? profile.latest_observed_views;
             const name = profile.handle ? `@${profile.handle}` : creator.display_name || 'Автор';
             return <div key={creator.id} className="ugc-mobile-row">
-              <button type="button" className="ugc-mobile-name" title={creator.display_name ? `${name} · ${creator.display_name}` : name} onClick={() => setSelectedId(creator.id)}><span className="ugc-mobile-title">{name}</span><span className="ugc-mobile-meta"><PlatformIcons creator={creator} /><span>{formatActivity(creator.last_activity_at)}</span></span></button>
+              <span className="ugc-mobile-name"><a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" className="ugc-mobile-title" title={creator.display_name ? `${name} · ${creator.display_name}` : name}>{name}</a><button type="button" className="ugc-mobile-meta" onClick={() => setSelectedId(creator.id)} aria-label={`Карточка автора ${name}`}><PlatformIcons creator={creator} /><span>{formatActivity(creator.last_activity_at)}</span><span className="ugc-stage" data-stage={creator.lifecycle_stage}>{creator.lifecycle_stage}</span></button></span>
               <span title={`Подписчики: ${profile.followers ?? 'нет данных'}`}>{formatCount(profile.followers)}</span>
               <span title={`ER: ${profile.engagement_rate ?? 'нет данных'}`}>{formatRate(profile.engagement_rate)}</span>
               <span title={`Просмотры: ${views ?? 'нет данных'}`}>{formatCount(views)}</span>
@@ -684,7 +697,7 @@ export default function UgcPage() {
               // Name and city after the handle (Owner 2026-10-16: «Город нужен, город обязательно»).
               const secondName = handle ? [creator.display_name, creator.city].filter(Boolean).join(' · ') || null : null;
               return <tr key={creator.id} style={{ borderTop: '1px solid var(--border-hairline)' }}>
-                <td className="ugc-c-creator"><button type="button" title={[name, secondName].filter(Boolean).join(' · ')} onClick={() => setSelectedId(creator.id)} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="ugc-creator-name">{name}</span><OriginMark origin={creator.origin} />{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span></button></td>
+                <td className="ugc-c-creator"><a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" title={[name, secondName, 'открыть страницу автора'].filter(Boolean).join(' · ')} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="ugc-creator-name">{name}</span><OriginMark origin={creator.origin} />{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span></a></td>
                 <td className="ugc-c-platform"><PlatformIcons creator={creator} /></td>
                 <td className="ugc-c-num" title={profile.followers == null ? 'Нет данных' : `${profile.followers}`}>{formatCount(profile.followers)}</td>
                 <td className="ugc-c-num" title={profile.engagement_rate == null ? 'Нет данных' : `${profile.engagement_rate}%`}>{formatRate(profile.engagement_rate)}</td>
@@ -692,7 +705,7 @@ export default function UgcPage() {
                 <td className="ugc-c-num ugc-c-pay"><PayoutBadge payout={creator.payout} /></td>
                 <td className="ugc-c-product ugc-sec-2">{products.length ? <div className="ugc-pills" title={products.map((item) => `${compactProductCode(item.sku)} · ${item.name}`).join('\n')}>{products.slice(0, PRODUCT_PILLS).map((item) => <span key={`${item.sku}-${item.raw_offer_id}`} className="ugc-pill">{compactProductCode(item.sku)}</span>)}</div> : <span className="ugc-muted">{profile.content.some((item) => item.product_status === 'queued') ? 'В очереди' : 'Не определён'}</span>}</td>
                 <td className="ugc-c-media ugc-sec-3" aria-label={`${profile.content_count} публикаций`}>{linked.length ? <div className="ugc-media">{linked.slice(0, CONTENT_ICONS).map(({ item, href }, index) => <Publication key={item.id} item={item} href={href} more={index === CONTENT_ICONS - 1 ? linked.length - CONTENT_ICONS : 0} />)}</div> : <span className="ugc-muted">—</span>}</td>
-                <td className="ugc-c-next ugc-sec-1" title={creator.collaboration?.next_action || undefined}><span className="ugc-stage" data-stage={creator.lifecycle_stage}>{creator.lifecycle_stage}</span></td>
+                <td className="ugc-c-next ugc-sec-1" title={creator.collaboration?.next_action || undefined}><button type="button" onClick={() => setSelectedId(creator.id)} className="ugc-stage ugc-stage-btn focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" data-stage={creator.lifecycle_stage} aria-label={`Карточка автора · ${creator.lifecycle_stage}`}>{creator.lifecycle_stage}</button></td>
               </tr>;
             })}
           </tbody>

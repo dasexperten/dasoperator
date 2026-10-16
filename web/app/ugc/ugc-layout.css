@@ -211,3 +211,12 @@
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ugc-stage:is([data-stage="review"], [data-stage="posted"]) { border-color: var(--border-subtle); } }
 :root[data-theme="dark"] .ugc-stage:is([data-stage="review"], [data-stage="posted"]) { border-color: var(--border-subtle); }
 .ugc-stage-legend { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Owner 2026-10-16: the status chip opens the creator card; the name opens the blogger's page. */
+.ugc-stage-btn { cursor: pointer; border: 0; font: inherit; }
+.ugc-stage-btn:hover { filter: brightness(0.92); }
+a.ugc-creator { color: inherit; text-decoration: none; }
+a.ugc-creator:hover .ugc-creator-name { text-decoration: underline; }
+.ugc-mobile-name { display: flex; flex-direction: column; min-width: 0; }
+.ugc-mobile-name a { color: inherit; text-decoration: none; }
+.ugc-mobile-meta { background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }

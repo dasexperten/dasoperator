@@ -63,3 +63,28 @@ there are no diagnostics in the changed UGC API modules.
 Release requires migration/data application from pushed main, successful API and
 Pages production deployments, and a live page readback. No bank transfer,
 creator message or payment-state update is part of this reconciliation.
+
+## Production readback
+
+Migration and all 1,296 source records were applied from clean pushed commit
+`25beb25d2a7e6cca9fe7a0fe3a90a6ef7ed64fee`. D1 readback confirmed 711 amount
+rows, 282 linked accounts, 34,855,500 minor RUB units, 585 product references,
+498 linked profiles and no orphaned creator links.
+
+Both production workflows completed successfully: Worker run `38888332375` and
+Pages run `38888332379`. The GitHub Contents API confirmed the source-file blobs.
+
+Browser readback inspected all 747 then-visible table rows: 501 had product
+identification and 255 displayed the historical register total. One of the
+originally projected 256 blanks acquired a current payout during this work;
+current payout precedence therefore explains the difference. Other attended
+sessions continued creating/paying creators during this reconciliation.
+
+Examples verified in the live table: `lnv1979` 2,665 RUB,
+`marina.stikanova_21` 1,866 RUB, `viktoriya_guleeva_39` 1,572 RUB and
+`a_fadeeva_99` 1,396 RUB. The last row also showed DE201, DE206 and DE130.
+All historical values were grey and labelled `по реестру`.
+
+Remaining unknown products have no sufficient product evidence in these two
+source databases. Some rows are `other` records with the same handle but no
+stored profile URL; no cross-platform identity or merge is inferred for them.

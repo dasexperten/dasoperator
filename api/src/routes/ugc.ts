@@ -606,7 +606,7 @@ ugc.post('/collaborations', async (c) => {
 
 // ---------------------------------------------------------------------------
 // Barter payouts (0116, Owner 2026-10-14). Status only — never raw phone or
-// bank data. Ceiling: 999 ₽ per creator per payout per day, and 5 000 ₽ for
+// bank data. Ceiling: 999 ₽ per creator per payout per day, and 10 000 ₽ for
 // all creators together per day (auto-approval cap, Owner 2026-10-14).
 // ---------------------------------------------------------------------------
 

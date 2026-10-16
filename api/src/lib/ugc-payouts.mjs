@@ -4,9 +4,10 @@
 // Owner 2026-10-14 («Автоодобрение, потолок 5000 в день»): payouts are
 // auto-approved within both limits — 999 ₽ per creator per day and 5 000 ₽
 // for all creators together per day.
+// Owner 2026-10-16 («remove 5000 ruble lock put it to 10000»): day total 10 000 ₽.
 
 export const UGC_PAYOUT_MAX_MINOR = 99900;
-export const UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR = 500000;
+export const UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR = 1000000;
 export const UGC_PAYOUT_STATUSES = ['awaiting_approval', 'approved', 'sent', 'paid', 'failed'];
 
 const STATUS_STAMP = { approved: 'approved_at', sent: 'sent_at', paid: 'paid_at', failed: 'failed_at' };
@@ -53,7 +54,7 @@ export function formatRub(minor) {
 
 /**
  * Sum of every other live payout that day (all creators, failed excluded)
- * plus this one must stay within 5 000 ₽. The refusal names the room left.
+ * plus this one must stay within 10 000 ₽. The refusal names the room left.
  */
 export function checkDailyTotalLimit(existingDayTotalMinor, amountMinor) {
   const existing = Number(existingDayTotalMinor || 0);

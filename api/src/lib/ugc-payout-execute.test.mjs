@@ -24,7 +24,7 @@ function world({ rows = [], ownRub = 31615.38, payment = { ok: true, status: 201
       const r = db.get(id);
       if (r.execute_claim || r.konsol_payment_id) return false;
       const other = [...db.values()].filter((p) => p.id !== id && isCommittedPayout(p) && committedPayoutDay(p) === DAY);
-      if (other.reduce((sum, p) => sum + p.amount_minor, r.amount_minor) > 500000) return false;
+      if (other.reduce((sum, p) => sum + p.amount_minor, r.amount_minor) > 1000000) return false;
       const same = other.filter((p) => p.creator_id === r.creator_id);
       if (same.reduce((sum, p) => sum + p.amount_minor, r.amount_minor) > 99900 || (r.status !== 'approved' && same.length)) return false;
       r.execute_claim = token; r.execute_claimed_at = at; return true;
@@ -122,13 +122,13 @@ test('negative own RUB (overdraft limit changed) stops the payout', async () => 
   assert.equal(calls.owner.length, 1);
 });
 
-test('limits: 999 ₽ per creator per day and 5 000 ₽ for all, checked at execute', async () => {
+test('limits: 999 ₽ per creator per day and 10 000 ₽ for all, checked at execute', async () => {
   const perCreator = world({ rows: [{ id: 'a', amount_minor: 60000, status: 'sent', konsol_payment_id: 'x' }, { id: 'b', amount_minor: 40000, status: 'approved' }] });
   const out1 = await executePayout('b', perCreator.deps);
   assert.equal(out1.code, 'daily_limit');
   assert.equal(perCreator.calls.payments.length, 0);
-  const rows = [1, 2, 3, 4, 5].map((n) => ({ id: `s${n}`, creator_id: `c${n}`, amount_minor: 99900, status: 'sent', konsol_payment_id: `k${n}` }));
-  const total = world({ rows: [...rows, { id: 'last', creator_id: 'c9', amount_minor: 600 }] });
+  const rows = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => ({ id: `s${n}`, creator_id: `c${n}`, amount_minor: 99900, status: 'sent', konsol_payment_id: `k${n}` }));
+  const total = world({ rows: [...rows, { id: 'last', creator_id: 'c99', amount_minor: 1100 }] });
   const out2 = await executePayout('last', total.deps);
   assert.equal(out2.code, 'daily_total_limit');
   assert.equal(total.calls.payments.length, 0);
@@ -236,9 +236,9 @@ test('waiting payouts beyond a daily budget do not block a ready payout', async 
 
 
 test('simultaneous clicks on different queue entries cannot exceed the daily total', async () => {
-  const rows = Array.from({ length: 6 }, (_, i) => ({ id: `q${i}`, creator_id: `c${i}`, amount_minor: 99900, payout_date: '2026-10-20' }));
+  const rows = Array.from({ length: 11 }, (_, i) => ({ id: `q${i}`, creator_id: `c${i}`, amount_minor: 99900, payout_date: '2026-10-20' }));
   const { deps, calls } = world({ rows });
   await Promise.all(rows.map((row) => executePayout(row.id, deps)));
-  assert.equal(calls.payments.length, 5);
-  assert.equal(calls.payments.reduce((sum, p) => sum + p.amount, 0), 4995);
+  assert.equal(calls.payments.length, 10);
+  assert.equal(calls.payments.reduce((sum, p) => sum + p.amount, 0), 9990);
 });

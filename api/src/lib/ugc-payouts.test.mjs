@@ -26,18 +26,18 @@ test('the daily sum per creator stays within 999 ₽', () => {
   assert.equal(checkDailyLimit(50000, 50000).ok, false);
 });
 
-test('all creators together stay within 5 000 ₽ per day', () => {
-  assert.equal(UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR, 500000);
+test('all creators together stay within 10 000 ₽ per day', () => {
+  assert.equal(UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR, 1000000);
   assert.equal(checkDailyTotalLimit(0, 99900).ok, true);
-  assert.equal(checkDailyTotalLimit(400100, 99900).ok, true); // exactly 5 000 ₽
-  assert.equal(checkDailyTotalLimit(400101, 99900).ok, false); // one kopeck over
-  const over = checkDailyTotalLimit(410000, 99900);
+  assert.equal(checkDailyTotalLimit(900100, 99900).ok, true); // exactly 10 000 ₽
+  assert.equal(checkDailyTotalLimit(900101, 99900).ok, false); // one kopeck over
+  const over = checkDailyTotalLimit(910000, 99900);
   assert.equal(over.ok, false);
   assert.equal(over.code, 'daily_total_limit');
   assert.equal(over.remaining_minor, 90000);
   assert.match(over.message, /900\u00a0₽ left/);
-  assert.match(over.message, /5\u00a0000\u00a0₽/);
-  const full = checkDailyTotalLimit(500000, 100);
+  assert.match(over.message, /10\u00a0000\u00a0₽/);
+  const full = checkDailyTotalLimit(1000000, 100);
   assert.equal(full.ok, false);
   assert.equal(full.remaining_minor, 0);
   assert.match(full.message, /0\u00a0₽ left/);
@@ -127,8 +127,8 @@ test('ready queue uses actual sends and in-flight claims on the current Yerevan 
 test('actual daily total blocks an otherwise ready payout without moving its date', () => {
   const now = Date.parse('2026-10-16T10:00:00Z');
   const rows = annotateOverLimit([
-    ...Array.from({ length: 5 }, (_, i) => ({ creator_id: `p${i}`, status: 'sent', sent_at: '2026-10-16T06:00:00Z', amount_minor: 99900 })),
-    { creator_id: 'q', status: 'approved', payout_date: '2026-10-17', amount_minor: 600 },
+    ...Array.from({ length: 10 }, (_, i) => ({ creator_id: `p${i}`, status: 'sent', sent_at: '2026-10-16T06:00:00Z', amount_minor: 99900 })),
+    { creator_id: 'q', status: 'approved', payout_date: '2026-10-17', amount_minor: 1100 },
   ], now);
   assert.equal(rows.at(-1).over_limit, true);
   assert.equal(rows.at(-1).payout_date, '2026-10-17');

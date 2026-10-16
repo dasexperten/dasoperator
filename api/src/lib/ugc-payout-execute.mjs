@@ -3,7 +3,7 @@
 // without a network or a database (ugc-payout-execute.test.mjs).
 //
 // Owner 2026-10-14 («запускай выплаты через API»):
-//   - auto-approve within 999 ₽ per creator per day and 5 000 ₽ for all per day;
+//   - auto-approve within 999 ₽ per creator per day and 10 000 ₽ for all per day;
 //   - own RUB = balance − 1 905 000 ₽; pay only if own RUB ≥ amount + 30 ₽;
 //     otherwise stop and tell the Owner — the overdraft is never touched;
 //   - one Konsol payment per ugc_payouts row, ever.

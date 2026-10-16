@@ -19,4 +19,6 @@ test('an inaccessible post never erases a completed product or manual decision',
   const post = { url: item.content_url, error: 'not_found' };
   assert.equal(planCaptionProducts([post], [{ ...item, product_status: 'identified', product_codes: '["DE210"]' }], map).updates.length, 0);
   assert.equal(planCaptionProducts([post], [{ ...item, product_source: 'manual' }], map).updates.length, 0);
+  const family = planCaptionProducts([post], [{ ...item, product_status: 'unknown', product_evidence: '{"labels":[{"name":"INNOWEISS"}]}' }], map);
+  assert.deepEqual(JSON.parse(family.updates[0].product_evidence).labels, [{ name: 'INNOWEISS' }]);
 });

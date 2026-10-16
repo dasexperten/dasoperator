@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { identifyExplicitProducts } from '../api/src/lib/ugc-products.mjs';
-import { identifySourceProductNames } from '../api/src/lib/ugc-source-records.mjs';
+import { identifySourceProductNames, publicationProductLabels } from '../api/src/lib/ugc-source-records.mjs';
 
 export function mediaKey(value) {
   try {
@@ -39,7 +39,7 @@ export function planCaptionProducts(posts, contents, wbMap) {
     const identified = identifyExplicitProducts(codes).matches;
     // Do not downgrade any completed original classification after an unavailable fetch.
     if (!result.codes.length && item.product_status === 'identified') continue;
-    const evidence = JSON.stringify({ kind: 'publication_caption', content_url: item.content_url, caption: post.caption ?? null, matched_wb_articles: result.articles, result: result.codes.length ? 'identified' : post.error ? 'unavailable' : 'no_product_match', previous_evidence: item.product_evidence ?? null, labels: [] });
+    const evidence = JSON.stringify({ kind: 'publication_caption', content_url: item.content_url, caption: post.caption ?? null, matched_wb_articles: result.articles, result: result.codes.length ? 'identified' : post.error ? 'unavailable' : 'no_product_match', previous_evidence: item.product_evidence ?? null, labels: result.codes.length ? [] : publicationProductLabels(item.product_evidence) });
     updates.push({ id: item.id, creator_platform_id: item.creator_platform_id, content_url: item.content_url, product_codes: JSON.stringify(codes), product_status: identified.length ? 'identified' : 'unknown', product_source: 'metadata_text', product_confidence: identified.length ? 1 : null, product_evidence: evidence });
     if (result.codes.length) {
       const doc = `instagram:${key}`;

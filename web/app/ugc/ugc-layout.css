@@ -224,3 +224,10 @@ a.ugc-creator:hover .ugc-creator-name { text-decoration: underline; }
 .ugc-pub[data-net="tiktok"][data-state="live"] .ugc-pub-link { color: var(--brand-schwarz, #111); }
 .ugc-pub[data-net="telegram"][data-state="live"] .ugc-pub-link { color: #229ED9; }
 .ugc-pub[data-net="vk"][data-state="live"] .ugc-pub-link { color: #0077FF; }
+/* Owner 2026-10-16 (Marika): the hand / magnifier stands right of the @nick on its line;
+   under it, smaller and grey, the name and city. */
+.ugc-table td > a.ugc-creator { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; width: 100%; min-width: 0; }
+.ugc-creator-line { display: flex !important; align-items: center; gap: 6px; max-width: 100%; min-width: 0; }
+.ugc-creator-line .ugc-creator-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ugc-creator-line .ugc-origin { flex: 0 0 auto; display: inline-flex; }
+a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: var(--fg-3); font-weight: 400; max-width: 100%; }

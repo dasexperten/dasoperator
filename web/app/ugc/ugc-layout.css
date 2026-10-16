@@ -1,3 +1,24 @@
+/* Compact operating header (Owner 2026-10-16): put the creator table first. */
+.dx-main-inner:has(> .ugc-page) { padding: 0 !important; }
+.ugc-page { display: flex; flex-direction: column; gap: 12px; padding: 16px 24px; }
+.ugc-page > * { margin: 0; }
+.ugc-page .ugc-heading h1 { margin: 0; font-size: 28px; font-weight: 900; line-height: 32px; color: var(--fg-1); }
+.ugc-page .ugc-heading p { margin: 4px 0 0; font-size: 14px; line-height: 20px; color: var(--fg-2); white-space: normal; overflow: visible; text-overflow: clip; }
+.ugc-kpi { padding: 8px 12px; }
+.ugc-kpi .ugc-kpi-label { font-size: 12px; line-height: 16px; }
+.ugc-kpi-value { margin-top: 2px; }
+.ugc-kpi-note { margin-top: 2px; font-size: 12px; line-height: 16px; }
+.ugc-controls { display: grid; gap: 8px; }
+.ugc-controls > * { margin: 0; }
+.ugc-controls #ugc-platforms { gap: 4px; padding: 0; }
+.ugc-controls #ugc-platforms button { min-height: 44px; padding: 0 2px; font-size: 14px; }
+.ugc-controls #ugc-platforms button > span { padding: 4px 8px; }
+.ugc-filters > :is(label, select) { min-height: 44px; font-size: 14px; }
+.ugc-filters input { font-size: 16px; }
+@media (max-width: 767px) {
+  .dx-main-inner:has(> .ugc-page) { padding-bottom: 84px !important; }
+}
+
 /* UGC: one viewport wide, with each text line kept intact. */
 .ugc-page { min-width: 0; max-width: 100%; }
 .ugc-page *, .ugc-page *::before, .ugc-page *::after { box-sizing: border-box; }
@@ -120,13 +141,13 @@
 .ugc-mobile-controls, .ugc-mobile-list, .ugc-network-select { display: none; }
 @media (max-width: 700px) {
   .ugc-page { padding: 16px; }
-  .ugc-page > * + * { margin-top: 12px !important; }
-  .ugc-page > div:first-child { margin-bottom: 12px; }
+  .ugc-page > * + * { margin-top: 0 !important; }
+  .ugc-page > div:first-child { margin-bottom: 0; }
   .ugc-page .dx-header-wrap { gap: 0; }
   .ugc-page .dx-header-wrap h1 { font-size: 28px !important; }
   .ugc-page .dx-header-wrap :is(.dx-eyebrow-rot, p, .dx-page-actions),
   .ugc-page .dx-ribbon-rule,
-  .ugc-kpis, .ugc-health { display: none !important; }
+  .ugc-kpis { display: none !important; }
   .ugc-page .dx-page-actions, .ugc-page .ugc-import { display: none !important; }
   .ugc-page table.ugc-table { display: none !important; }
   .ugc-mobile-list { display: block; }
@@ -158,14 +179,14 @@
 
 /* Keep the phone list close to its heading and search. */
 @media (max-width: 700px) {
-  .ugc-page { padding: 12px !important; }
+  .ugc-page { padding: 12px !important; gap: 8px; }
   .ugc-page > .ugc-heading { display: none !important; }
   .ugc-page > .ugc-controls { margin-top: 0 !important; }
   .ugc-page .ugc-mobile-controls { gap: 8px; }
   .ugc-page .ugc-mobile-controls h2 { margin: 0; font-size: 20px; font-weight: 900; }
   .ugc-page .ugc-mobile-controls > span { flex: 1; font-size: 12px; color: var(--fg-3); }
   .ugc-page .ugc-controls > #ugc-filters { margin-top: 6px !important; }
-  .ugc-page > .ugc-table-shell { margin-top: 8px !important; }
+  .ugc-page > .ugc-table-shell { margin-top: 0 !important; }
 }
 @media (max-width: 700px) {
   .ugc-page .erp-page-help { display: none !important; }

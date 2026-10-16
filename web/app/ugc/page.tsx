@@ -1,11 +1,9 @@
 'use client';
 
-import { ChangeEvent, createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpDown, ExternalLink, Eye, Facebook, FileSpreadsheet, Globe, Hand, Heart, Instagram, Link, Link2Off, Loader2, MessageCircle, Search, Send, Users, Video, X, Youtube } from 'lucide-react';
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowUpDown, ExternalLink, Eye, Facebook, Globe, Hand, Heart, Instagram, Link, Link2Off, Loader2, MessageCircle, Search, Send, Users, Video, X, Youtube } from 'lucide-react';
 import './ugc-layout.css';
-import PageHeader from '@/components/ui/page-header';
 import { apiGet, apiPatch, apiPost, apiPostTimed } from '@/lib/api';
-import { parseUgcWorkbook } from '@/lib/ugc-import';
 import { canPay, formatRub, PAYOUT_STATUS_LABEL, payoutCell } from '@/lib/ugc-payout-cell.mjs';
 import { getUser } from '@/lib/auth';
 import { formatActivity, formatCount, formatRate, platformLabel } from '@/lib/ugc-table-format.mjs';
@@ -368,10 +366,10 @@ function PaidCounter({ paid }: { paid?: { today: PaidCount; yesterday: PaidCount
 
 function Kpi({ label, value, exact, note, accent }: { label: string; value: string; exact: string; note: string; accent: string }) {
   return (
-    <div className="px-4 py-3" title={exact} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderTop: `4px solid ${accent}`, borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow-raised)' }}>
-      <div className="dx-eyebrow" style={{ color: 'var(--fg-3)' }}>{label}</div>
-      <div className="mt-1" style={{ fontFamily: 'var(--font-display)', fontSize: '28px', fontWeight: 900, lineHeight: 1 }}>{value}</div>
-      <div className="mt-1 text-xs" style={{ color: 'var(--fg-2)' }}>{note}</div>
+    <div className="ugc-kpi" title={exact} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderTop: `4px solid ${accent}`, borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow-raised)' }}>
+      <div className="dx-eyebrow ugc-kpi-label" style={{ color: 'var(--fg-3)' }}>{label}</div>
+      <div className="ugc-kpi-value" style={{ fontFamily: 'var(--font-display)', fontSize: '24px', fontWeight: 900, lineHeight: 1 }}>{value}</div>
+      <div className="ugc-kpi-note" style={{ color: 'var(--fg-2)' }}>{note}</div>
     </div>
   );
 }
@@ -419,10 +417,6 @@ export default function UgcPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [importing, setImporting] = useState<string | null>(null);
-  const [checkingLinks, setCheckingLinks] = useState(false);
-  const [checkMessage, setCheckMessage] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
   const urlStateReady = useRef(false);
   const tableRef = useRef<HTMLTableElement>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -520,42 +514,6 @@ export default function UgcPage() {
     return { followers, avgViews: views.length ? views.reduce((a, b) => a + b, 0) / views.length : null, avgEr: ers.length ? ers.reduce((a, b) => a + b, 0) / ers.length : null };
   }, [data.creators]);
 
-  async function onImport(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-    setError(null);
-    setImporting('Reading workbook…');
-    try {
-      const rows = await parseUgcWorkbook(await file.arrayBuffer(), file.name);
-      let accepted = 0;
-      for (let offset = 0; offset < rows.length; offset += 25) {
-        setImporting(`Importing ${Math.min(offset + 25, rows.length)} of ${rows.length} rows…`);
-        const response = await apiPost<{ accepted: number }>('/api/ugc/import', { rows: rows.slice(offset, offset + 25) });
-        if (!response.success) throw new Error(response.errors[0]?.message ?? 'Import failed');
-        accepted += response.result?.accepted ?? 0;
-      }
-      setImporting(`${accepted} rows imported`);
-      await load();
-      window.setTimeout(() => setImporting(null), 3000);
-    } catch (reason) {
-      setImporting(null);
-      setError(reason instanceof Error ? reason.message : String(reason));
-    }
-  }
-
-  async function checkLinks() {
-    setCheckingLinks(true);
-    setCheckMessage(null);
-    const response = await apiPost<{ checked: number }>('/api/ugc/link-health/run', { limit: 5 });
-    if (!response.success) setCheckMessage(response.errors[0]?.message ?? 'Link check failed');
-    else {
-      setCheckMessage(`${response.result?.checked ?? 0} links checked`);
-      await load();
-    }
-    setCheckingLinks(false);
-  }
-
   const mergePayout = (id: string, patch: Partial<Payout>) => {
     const merge = (item: Payout): Payout => (item.id === id ? { ...item, ...patch } as Payout : item);
     setData((prev) => ({ ...prev, creators: prev.creators.map((creator) => ({
@@ -621,23 +579,13 @@ export default function UgcPage() {
 
   return (
     <PayContext.Provider value={payApi}>
-    <div className="ugc-page p-5 md:p-8 space-y-7">
-      <div className="ugc-heading"><PageHeader
-        eyebrow="Creator operations"
-        title="UGC"
-        subtitle="Creators, platform evidence, outreach, samples, content and usage rights in one operating view."
-        actions={(
-          <>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onImport} />
-            <button type="button" onClick={() => fileRef.current?.click()} disabled={Boolean(importing)} className="ugc-import min-h-11 px-1 flex items-center font-bold transition-transform hover:-translate-y-0.5 disabled:transform-none disabled:opacity-60">
-              <span className="px-2.5 py-1.5 inline-flex items-center gap-2" style={{ color: 'var(--fg-on-brand)', background: 'var(--brand-rot)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow-raised)' }}>{importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}{importing ?? 'Import XLSX'}</span>
-            </button>
-          </>
-        )}
-      /></div>
+    <div className="ugc-page">
+      <header className="ugc-heading">
+        <h1>UGC</h1>
+        <p>Creators, platform evidence, outreach, samples, content and usage rights in one operating view.</p>
+      </header>
 
       {error && <div role="alert" className="p-4 flex items-start justify-between gap-4" style={{ background: 'var(--paper-sunk)', borderLeft: '4px solid var(--status-error)' }}><span>{error}</span><button type="button" aria-label="Dismiss" onClick={() => setError(null)} className="min-h-11 flex items-center justify-center" style={{ minWidth: '44px' }}><X className="h-5 w-5" /></button></div>}
-      <div role="status" aria-live="polite" className="sr-only">{importing}</div>
 
       {/* One line on top (Owner 2026-10-16): payments made today and yesterday — no day limit any more. */}
       <PaidCounter paid={data.payout_summary?.paid_konsol} />
@@ -650,20 +598,7 @@ export default function UgcPage() {
         <Kpi label="Products" value={formatNumber(data.products.length)} exact={`${data.products.length} identified product families`} note={`${formatNumber(data.summary.product_queued)} queued`} accent="var(--brand-gold)" />
       </section>
 
-      <section aria-label="Content link health" className="ugc-health p-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
-        <strong style={{ fontFamily: 'var(--font-display)', fontWeight: 900 }}>Link health</strong>
-        <span style={{ color: 'var(--status-success)' }}>● {formatNumber(data.summary.links_active)} active</span>
-        <span style={{ color: 'var(--status-error)' }}>● {formatNumber(data.summary.links_missing)} missing</span>
-        <span style={{ color: 'var(--status-warning)' }}>● {formatNumber(data.summary.links_restricted)} restricted</span>
-        <span style={{ color: 'var(--status-warning)' }}>● {formatNumber(data.summary.links_unknown)} unknown</span>
-        <span style={{ color: 'var(--status-error)' }}>● {formatNumber(data.summary.links_invalid)} invalid</span>
-        <span style={{ color: 'var(--fg-3)' }}>{formatNumber(data.summary.links_unchecked)} not checked</span>
-        <span className="ml-auto" style={{ color: 'var(--fg-3)' }}>Last check: {formatCheckedAt(data.summary.links_last_checked_at)} · {formatNumber(data.summary.link_check_history)} audits</span>
-        <button type="button" onClick={checkLinks} disabled={checkingLinks} className="min-h-11 px-1 inline-flex items-center font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-60"><span className="px-2.5 py-1 inline-flex items-center gap-1.5 text-xs" style={{ color: 'var(--fg-on-brand)', background: 'var(--brand-schwarz)', borderRadius: 'var(--radius-sm)' }}>{checkingLinks && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{checkingLinks ? 'Checking…' : 'Check 5 now'}</span></button>
-        {checkMessage && <span role="status" aria-live="polite" className="text-xs" style={{ color: checkMessage.includes('checked') ? 'var(--status-success)' : 'var(--status-error)' }}>{checkMessage}</span>}
-      </section>
-
-      <section className="ugc-controls space-y-4" data-expanded={filtersExpanded}>
+      <section className="ugc-controls" data-expanded={filtersExpanded}>
         <div className="ugc-mobile-controls"><h2>UGC</h2><span>{formatNumber(data.summary.creators)} creators</span><button type="button" aria-expanded={filtersExpanded} aria-controls="ugc-platforms ugc-filters" onClick={() => setFiltersExpanded((value) => !value)}>{filtersExpanded ? 'Close filters' : `Filters${platform !== 'all' || stage || product ? ' · active' : ''}`}</button></div>
         <div id="ugc-platforms" className="ugc-platforms flex flex-wrap gap-2 pb-1" aria-label="Platforms">
           {PLATFORM_TABS.map((key) => {

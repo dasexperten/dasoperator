@@ -68,3 +68,49 @@ export async function diagnosePayoutCreators(env: Env): Promise<{ measured: numb
   }
   return error ? { measured, error } : { measured };
 }
+
+// Owner 2026-10-16: «есть ссылки, но нет views, likes и комментариев». Counts were read once
+// and never refreshed, and a removed post kept the label «active». Each run now reads a few
+// Instagram publications through the same browser: likes and comments from the page meta,
+// views only when the page itself shows them; a removed post is marked missing.
+const CONTENT_PER_RUN = 4;
+
+export async function refreshContentMetrics(env: Env): Promise<{ read: number; removed: number; error?: string }> {
+  if (!(env as unknown as { CF_BROWSER_TOKEN?: string }).CF_BROWSER_TOKEN) return { read: 0, removed: 0, error: 'CF_BROWSER_TOKEN not set' };
+  const rows = (await env.DB.prepare(
+    `SELECT id, content_url FROM ugc_content
+      WHERE content_url LIKE '%instagram.com/%' AND COALESCE(link_status, '') NOT IN ('missing', 'invalid')
+        AND (metrics_checked_at IS NULL OR metrics_checked_at < ?1)
+      ORDER BY metrics_checked_at IS NOT NULL, metrics_checked_at LIMIT ${CONTENT_PER_RUN}`
+  ).bind(new Date(Date.now() - 7 * 86_400_000).toISOString()).all<{ id: string; content_url: string }>()).results ?? [];
+  let read = 0, removed = 0;
+  let error: string | undefined;
+  for (const row of rows) {
+    const code = row.content_url.match(/\/(?:p|reel|reels|tv)\/([A-Za-z0-9_-]{6,})/)?.[1];
+    const now = new Date().toISOString();
+    if (!code) continue;
+    let html: string | null = null;
+    try { html = await render(env, `https://www.instagram.com/p/${code}/`, 'networkidle0'); } catch (e) { error = e instanceof Error ? e.message : String(e); continue; }
+    if (!html) continue;
+    if (/<title[^>]*>[^<]*(?:isn.t available|недоступ)/i.test(html)) {
+      await env.DB.prepare(
+        `UPDATE ugc_content SET link_status='missing', link_checked_at=?2, link_check_note='Post removed or hidden (browser)', metrics_checked_at=?2, metrics_source='instagram_browser', updated_at=?3 WHERE id=?1`
+      ).bind(row.id, now, Date.now()).run();
+      removed++;
+      continue;
+    }
+    const meta = html.match(/<meta[^>]+(?:property|name)="(?:og:)?description"[^>]+content="([^"]+)"/)?.[1];
+    const p = meta ? parsePostMeta(meta) : null;
+    const num = (re: RegExp) => { const v = html!.match(re)?.[1]; return v == null ? null : Number(v); };
+    const views = num(/"(?:ig_play_count|play_count|video_play_count|video_view_count|view_count)":(\d+)/);
+    const likes = p?.likes ?? num(/"like_count":(\d+)/);
+    const comments = p?.comments ?? num(/"comment_count":(\d+)/);
+    if (likes == null && comments == null && views == null) continue; // nothing shown: try again next week
+    await env.DB.prepare(
+      `UPDATE ugc_content SET views=COALESCE(?2, views), likes=COALESCE(?3, likes), comments=COALESCE(?4, comments),
+         metrics_checked_at=?5, metrics_source='instagram_browser', link_status='active', link_checked_at=?5, updated_at=?6 WHERE id=?1`
+    ).bind(row.id, views, likes, comments, now, Date.now()).run();
+    read++;
+  }
+  return error ? { read, removed, error } : { read, removed };
+}

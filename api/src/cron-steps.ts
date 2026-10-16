@@ -56,11 +56,12 @@ export const STEPS: Record<string, Step> = {
   'erp-ugc-payouts': async (env) => {
     const { runAdaptiveLane } = await import('./lib/adaptive-runner');
     const { ugcPayoutSweep } = await import('./lib/ugc-payout-store');
-    const { diagnosePayoutCreators } = await import('./lib/ugc-diagnose');
+    const { diagnosePayoutCreators, refreshContentMetrics } = await import('./lib/ugc-diagnose');
     return runAdaptiveLane(env, 'ugc_payouts', async (e) => {
       const refreshed = await ugcPayoutSweep(e);
       const diag = await diagnosePayoutCreators(e).catch((err) => ({ measured: 0, error: String(err) }));
-      return { ok: true, activity: refreshed > 0 || diag.measured > 0, refreshed, ...diag };
+      const content = await refreshContentMetrics(e).catch((err) => ({ read: 0, removed: 0, error: String(err) }));
+      return { ok: true, activity: refreshed > 0 || diag.measured > 0 || content.read + content.removed > 0, refreshed, ...diag, content };
     });
   },
   // Owner 2026-10-14: one evening message on UGC payouts — count, sum, own RUB left.

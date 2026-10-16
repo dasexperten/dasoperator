@@ -427,7 +427,10 @@ export async function handleScheduled(
     for (const line of await Promise.all([
       runAdaptiveLane(env, 'ugc_payouts', async (e) => {
         const refreshed = await ugcPayoutSweep(e);
-        return { ok: true, activity: refreshed > 0, refreshed };
+        // Measure bloggers of waiting payouts: followers + ER of the last six posts (Owner 2026-10-16).
+        const { diagnosePayoutCreators } = await import('./lib/ugc-diagnose');
+        const diag = await diagnosePayoutCreators(e).catch((err) => ({ measured: 0, error: String(err) }));
+        return { ok: true, activity: refreshed > 0 || diag.measured > 0, refreshed, ...diag };
       }),
       // Read, then answer (Owner 2026-10-16: «It should work automatically by itself»).
       runAdaptiveLane(env, 'ig_dm', async (e) => {

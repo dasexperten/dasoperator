@@ -59,6 +59,30 @@ export async function fillCreatorNames(env: Env, pageToken: string): Promise<num
 }
 
 /**
+ * City from the blogger's own answer (Owner 2026-10-16: «спроси город у тех, у кого
+ * его нет»). Only creators without a city; the newest message naming a city wins.
+ */
+export async function fillCitiesFromReplies(env: Env): Promise<number> {
+  const rows = (await env.DB.prepare(
+    `SELECT c.id creator_id, m.text FROM ugc_creators c
+       JOIN ugc_ig_messages m ON m.direction = 'in' AND LOWER(m.from_username) = c.normalized_handle
+      WHERE c.city IS NULL AND m.text IS NOT NULL AND m.text <> '' AND m.created_at >= '2026-10-16'
+      ORDER BY m.created_at DESC LIMIT 200`
+  ).all<{ creator_id: string; text: string }>()).results ?? [];
+  const done = new Set<string>();
+  for (const r of rows) {
+    if (done.has(r.creator_id)) continue;
+    // A short answer («Казань», «из Казани, Татарстан») — not a city inside a long story.
+    if (r.text.length > 80) continue;
+    const city = cityOf(r.text);
+    if (!city) continue;
+    await env.DB.prepare(`UPDATE ugc_creators SET city=?2, updated_at=?3 WHERE id=?1 AND city IS NULL`).bind(r.creator_id, city, Date.now()).run();
+    done.add(r.creator_id);
+  }
+  return done.size;
+}
+
+/**
  * One Direct message from @dasexperten to a blogger who has written to us
  * (Owner 2026-10-16: green payout → Diana writes at once). The recipient is the
  * Instagram id from that blogger's own incoming messages; no id → nothing sent.
@@ -99,6 +123,7 @@ export async function igDmWatch(env: Env): Promise<IgWatchResult> {
   if (!page.ok || !page.body?.access_token) return { ok: false, activity: false, stored: 0, incoming: 0, error: `page token: ${page.error}` };
   const pageToken = String(page.body.access_token);
   try { await fillCreatorNames(env, pageToken); } catch { /* names are a convenience; retried next run */ }
+  try { await fillCitiesFromReplies(env); } catch { /* retried next run */ }
 
   const convs = await graph(`/${PAGE_ID}/conversations?platform=instagram&fields=id,updated_time&limit=${MAX_CONVERSATIONS}`, pageToken);
   if (!convs.ok) return { ok: false, activity: false, stored: 0, incoming: 0, error: `conversations: ${convs.error}` };

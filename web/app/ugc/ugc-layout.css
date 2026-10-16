@@ -66,6 +66,8 @@
 .ugc-pub { position: relative; display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
 .ugc-pub-link { display: inline-flex; flex: 0 0 48px; width: 48px; height: 48px; color: var(--brand-rot); border-radius: var(--radius-sm); }
 .ugc-pub-link svg { width: 48px; height: 48px; stroke-width: 1.75; }
+.ugc-pub-link svg[viewBox] path[fill] { stroke: none; }
+.ugc-pub-letter { display: flex; align-items: center; justify-content: center; width: 48px; height: 48px; font-size: 18px; font-weight: 900; letter-spacing: 0; }
 .ugc-pub-link:hover { color: var(--fg-1); background: var(--paper-sunk); }
 .ugc-pub[data-state="unknown"] .ugc-pub-link { color: var(--fg-2); }
 .ugc-pub[data-state="dead"] .ugc-pub-link { color: var(--fg-3); opacity: 0.35; }

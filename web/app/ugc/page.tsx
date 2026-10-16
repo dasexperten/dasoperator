@@ -1,7 +1,7 @@
 'use client';
 
 import { ChangeEvent, createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpDown, ExternalLink, Eye, Facebook, FileSpreadsheet, FileText, Globe, Hand, Heart, ImageIcon, Instagram, Link, Link2Off, Loader2, MessageCircle, Search, Send, SquarePlay, Users, Video, X, Youtube } from 'lucide-react';
+import { ArrowUpDown, ExternalLink, Eye, Facebook, FileSpreadsheet, Globe, Hand, Heart, Instagram, Link, Link2Off, Loader2, MessageCircle, Search, Send, Users, Video, X, Youtube } from 'lucide-react';
 import './ugc-layout.css';
 import PageHeader from '@/components/ui/page-header';
 import { apiGet, apiPatch, apiPost, apiPostTimed } from '@/lib/api';
@@ -271,11 +271,16 @@ function Publication({ item, href, more }: { item: ContentObservation; href: str
   const kind = mediaKind(item);
   const status = item.link_status ? LINK_STATUS_SHORT[item.link_status] : 'Не проверена';
   const state = item.link_status === 'active' ? 'live' : item.link_status && DEAD_LINK.has(item.link_status) ? 'dead' : 'unknown';
-  const Glyph = kind === 'Video' ? SquarePlay : kind === 'Image' ? ImageIcon : kind === 'Post' ? FileText : Link;
+  // The network the link lives on (Owner 2026-10-16, Marika): Instagram, TikTok, YouTube…
+  // instead of photo / video glyphs; a live link is bright, a dead one faded (data-state).
+  const host = (() => { try { return new URL(href).hostname.replace(/^www\./, '').toLowerCase(); } catch { return ''; } })();
+  const net = /instagram\.com|instagr\.am/.test(host) ? 'instagram' : /tiktok\.com/.test(host) ? 'tiktok' : /youtube\.com|youtu\.be/.test(host) ? 'youtube'
+    : /vk\.com|vkvideo\.ru/.test(host) ? 'vk' : /t\.me|telegram/.test(host) ? 'telegram' : /facebook\.com|fb\.watch/.test(host) ? 'facebook' : '';
+  const Glyph = net === 'instagram' ? Instagram : net === 'youtube' ? Youtube : net === 'telegram' ? Send : net === 'facebook' ? Facebook : null;
   const read = item.metrics_checked_at ? ` · ${new Date(item.metrics_checked_at).toLocaleDateString('ru-RU')}` : '';
   const figure = (label: string, value: number | null | undefined) => `${label}: ${value == null ? 'нет данных' : value}${read}`;
   return <span className="ugc-pub" data-state={state}>
-    <a href={href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="ugc-pub-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${MEDIA_LABEL[kind]} · ${status}`} title={[MEDIA_LABEL[kind], status, item.link_checked_at ? new Date(item.link_checked_at).toLocaleDateString('ru-RU') : null, item.content_url].filter(Boolean).join(' · ')}><Glyph aria-hidden="true" /></a>
+    <a href={href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="ugc-pub-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${net ? platformLabel(net) : 'Ссылка'} · ${MEDIA_LABEL[kind]} · ${status}`} title={[net ? platformLabel(net) : null, MEDIA_LABEL[kind], status, item.link_checked_at ? new Date(item.link_checked_at).toLocaleDateString('ru-RU') : null, item.content_url].filter(Boolean).join(' · ')}>{Glyph ? <Glyph aria-hidden="true" /> : net === 'tiktok' ? <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d={TIKTOK_PATH} /></svg> : net === 'vk' ? <span className="ugc-pub-letter" aria-hidden="true">VK</span> : <Link aria-hidden="true" />}</a>
     <span className="ugc-pub-stats">
       <span title={figure('Просмотры', item.views)}><Eye aria-hidden="true" />{formatCount(item.views)}</span>
       <span title={figure('Лайки', item.likes)}><Heart aria-hidden="true" />{formatCount(item.likes)}</span>

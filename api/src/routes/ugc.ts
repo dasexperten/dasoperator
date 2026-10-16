@@ -4,7 +4,7 @@ import { fail, ok } from '../lib/responses';
 import { hasModuleAccess, validateSession, type AuthUser } from '../lib/auth';
 import { runUgcLinkHealthBatch } from '../lib/ugc-link-health';
 import { baseProductSku, identifyExplicitProducts, initialProductClassification, UGC_PRODUCTS } from '../lib/ugc-products.mjs';
-import { annotateMissingInfo, annotateOverLimit, checkDailyLimit, missingInfo, compareByRecent, isFpsBankMemberId, isPayoutStatus, konsolPhone, latestActivityMs, maskPhone, maskPhoneWide, paidCounters, parsePayoutAmount, payoutDate, statusStampColumn } from '../lib/ugc-payouts.mjs';
+import { annotateMissingInfo, annotateOverLimit, checkDailyLimit, compareByRecent, isFpsBankMemberId, isPayoutStatus, konsolPhone, latestActivityMs, maskPhone, maskPhoneWide, paidCounters, parsePayoutAmount, payoutDate, statusStampColumn } from '../lib/ugc-payouts.mjs';
 import { executeUgcPayout, refreshUgcPayout, ugcPayoutEvening } from '../lib/ugc-payout-store';
 import { profileAverages } from '../lib/ugc-profile-metrics.mjs';
 import { identifySourceProductNames, payoutProductRecords, publicationProductLabels, sourceProductLabels, sourceRecordIndex } from '../lib/ugc-source-records.mjs';
@@ -864,15 +864,7 @@ ugc.post('/payouts/:id/execute', async (c) => {
   if (access instanceof Response) return access;
   // The Owner pays by hand (Owner 2026-10-15): only Admin may send money to Konsol.
   if (access.role !== 'admin') return fail(c, 403, [{ code: 'admin_only', message: 'Only the Owner (Admin) can pay' }]);
-  // Owner 2026-10-16: followers, ER and product before any money moves.
-  const ready = await c.env.DB.prepare(
-    `SELECT p.product,
-            (SELECT MAX(cp.followers) FROM ugc_creator_platforms cp WHERE cp.creator_id = p.creator_id) creator_followers,
-            (SELECT MAX(cp.engagement_rate) FROM ugc_creator_platforms cp WHERE cp.creator_id = p.creator_id) creator_er
-       FROM ugc_payouts p WHERE p.id=?1`
-  ).bind(c.req.param('id')).first<Record<string, any>>();
-  const missing = ready ? missingInfo(ready) : [];
-  if (missing.length) return fail(c, 409, [{ code: 'not_ready', message: `Нет данных: ${missing.join(', ')}` }]);
+  // Owner follow-up 2026-10-16: enrichment runs independently and never blocks payment.
   const out = await executeUgcPayout(c.env, c.req.param('id'));
   if (!out.ok) return fail(c, out.http as 400, [{ code: out.code ?? 'failed', message: out.message ?? 'Payout not executed' }]);
   return c.json({ success: true, result: { already: out.already === true, payout: out.payout }, errors: [], messages: [] }, out.http as 200);

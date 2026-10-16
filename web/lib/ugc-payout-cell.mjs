@@ -62,8 +62,7 @@ export function payoutCell(payout, now = Date.now()) {
   }
   if (payout.over_limit) return out(payout.has_requisites ? 'brown' : 'grey', 'сверх лимита');
   if (!payout.has_requisites) return out('grey', 'ждёт реквизитов');
-  // Owner 2026-10-16: brown only when followers, ER and the product are known.
-  if (Array.isArray(payout.missing_info) && payout.missing_info.length) return out('grey', `нет: ${payout.missing_info.join(', ')}`);
+  // Owner follow-up 2026-10-16: enrichment never changes payment readiness.
   return out('brown', label.toLowerCase());
 }
 
@@ -75,7 +74,7 @@ export function canPay(payout, now = Date.now()) {
   if (!payout || payout.konsol_payment_id || payout.execute_claim) return false;
   // Owner 2026-10-16: every ready payout is in one queue, regardless of its recorded date.
   if (payout.status !== 'awaiting_approval' && payout.status !== 'approved') return false;
-  return Boolean(payout.has_requisites) && !payout.over_limit && !(Array.isArray(payout.missing_info) && payout.missing_info.length);
+  return Boolean(payout.has_requisites) && !payout.over_limit;
 }
 
 /** Confirm text: nick, amount, bank, last two phone digits — never the full phone. */

@@ -52,7 +52,7 @@ export const STEPS: Record<string, Step> = {
       return { ...read, ...answered, activity: read.activity || answered.replied > 0 };
     });
   },
-  // Payouts: Konsol status of handed-over payouts, then followers + ER of bloggers waiting to be paid.
+  // Refresh Konsol status and independently enrich creator metrics, including after payment.
   'erp-ugc-payouts': async (env) => {
     const { runAdaptiveLane } = await import('./lib/adaptive-runner');
     const { ugcPayoutSweep } = await import('./lib/ugc-payout-store');

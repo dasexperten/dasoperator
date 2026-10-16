@@ -1,7 +1,4 @@
-// Before a payout turns brown the blogger is measured (Owner 2026-10-16: «хотя бы
-// должно быть количество фолловеров. Средний engagement rate… по последним шести
-// постам. Такой анализ делаешь ты, диагностируешь, и после этого всё прописываешь»;
-// «APIфай не используй… Jet Browser… Router Run, Agent Reach»).
+// Creator enrichment runs independently of payment readiness (Owner 2026-10-16).
 // Our own headless browser (Cloudflare Browser Rendering, the browser-run path), no login:
 //   profile page → followers from its meta line, post codes from the page;
 //   each post page → «N likes, M comments - handle on <date>»;
@@ -45,13 +42,13 @@ export async function measureInstagram(env: Env, handle: string): Promise<{ foll
   return { followers, er: followers ? engagementLast6(followers, posts) : null };
 }
 
-/** Waiting payouts whose Instagram blogger has no followers or ER yet: measure up to two per run. */
+/** Missing metrics remain eligible after payment: measure up to two creators per run. */
 export async function diagnosePayoutCreators(env: Env): Promise<{ measured: number; error?: string }> {
   if (!(env as unknown as { CF_BROWSER_TOKEN?: string }).CF_BROWSER_TOKEN) return { measured: 0, error: 'CF_BROWSER_TOKEN not set' };
   const rows = (await env.DB.prepare(
     `SELECT DISTINCT cp.normalized_handle h FROM ugc_payouts p
        JOIN ugc_creator_platforms cp ON cp.creator_id = p.creator_id AND cp.platform = 'instagram'
-      WHERE p.status IN ('awaiting_approval','approved')
+      WHERE p.status IN ('awaiting_approval','approved','sent','paid')
         AND (cp.followers IS NULL OR cp.followers <= 0 OR cp.engagement_rate IS NULL)
         AND (cp.metrics_as_of IS NULL OR cp.metrics_as_of < ?1)
       LIMIT ${PER_RUN}`

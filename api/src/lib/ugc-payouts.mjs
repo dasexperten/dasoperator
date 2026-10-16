@@ -225,13 +225,11 @@ export function committedPayoutDay(row) {
 }
 
 /**
- * Owner 2026-10-16: before a payout turns brown the blogger is known — followers,
- * engagement rate (last six posts) and the product we pay for. Missing → grey.
+ * Enrichment gaps for follow-up only. They never gate payment (Owner 2026-10-16).
  */
 export function missingInfo(row) {
   const out = [];
   if (!(Number(row.creator_followers) > 0)) out.push('подписчики');
-  if (row.creator_er == null || !Number.isFinite(Number(row.creator_er))) out.push('ER');
   if (!String(row.product ?? '').trim()) out.push('продукт');
   return out;
 }

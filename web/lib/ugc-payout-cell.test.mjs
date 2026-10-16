@@ -97,11 +97,11 @@ test('no double pay (UI): light green and green are never clickable; recorded fu
   assert.equal(canPay({ ...ready, payout_date: '2026-10-16' }, now), true);
 });
 
-test('missing followers, ER or product keeps the badge grey and unpayable (Owner 2026-10-16)', () => {
-  const p = { status: 'awaiting_approval', amount_minor: 50000, has_requisites: 1, missing_info: ['ER', 'продукт'] };
+test('missing creator data never blocks a ready payout (Owner follow-up 2026-10-16)', () => {
+  const p = { status: 'awaiting_approval', amount_minor: 50000, has_requisites: 1, missing_info: ['подписчики', 'ER', 'продукт'] };
   const cell = payoutCell(p);
-  assert.equal(cell.tone, 'grey');
-  assert.equal(cell.reason, 'нет: ER, продукт');
-  assert.equal(canPay(p), false);
+  assert.equal(cell.tone, 'brown');
+  assert.equal(cell.reason, 'к оплате');
+  assert.equal(canPay(p), true);
   assert.equal(canPay({ ...p, missing_info: [] }), true);
 });

@@ -6,7 +6,7 @@ import './ugc-layout.css';
 import { apiGet, apiPatch, apiPost, apiPostTimed } from '@/lib/api';
 import { canPay, formatRub, PAYOUT_STATUS_LABEL, payoutCell } from '@/lib/ugc-payout-cell.mjs';
 import { getUser } from '@/lib/auth';
-import { formatActivity, formatCount, formatRate, platformLabel } from '@/lib/ugc-table-format.mjs';
+import { formatActivity, formatCount, platformLabel } from '@/lib/ugc-table-format.mjs';
 
 type PlatformMetric = {
   id: string;
@@ -469,7 +469,7 @@ export default function UgcPage() {
     const urlPlatform = params.get('platform');
     const urlSort = params.get('sort');
     if (urlPlatform && PLATFORM_TABS.includes(urlPlatform)) setPlatform(urlPlatform);
-    if (urlSort && ['recent', 'followers', 'views', 'engagement', 'stage'].includes(urlSort)) setSort(urlSort);
+    if (urlSort && ['recent', 'followers', 'views', 'stage'].includes(urlSort)) setSort(urlSort);
     setSearch(params.get('search') ?? '');
     setStage(params.get('stage') ?? '');
     setProduct(params.get('product') ?? '');
@@ -482,7 +482,6 @@ export default function UgcPage() {
       const ap = primaryProfile(a, platform);
       const bp = primaryProfile(b, platform);
       if (sort === 'views') return (bp.avg_video_views ?? bp.latest_observed_views ?? -1) - (ap.avg_video_views ?? ap.latest_observed_views ?? -1);
-      if (sort === 'engagement') return (bp.engagement_rate ?? -1) - (ap.engagement_rate ?? -1);
       if (sort === 'stage') return a.lifecycle_stage.localeCompare(b.lifecycle_stage);
       if (sort === 'recent') return ((b.last_activity_at ?? -1) - (a.last_activity_at ?? -1)) || ((bp.followers ?? -1) - (ap.followers ?? -1));
       return (bp.followers ?? -1) - (ap.followers ?? -1);
@@ -510,8 +509,7 @@ export default function UgcPage() {
     const profiles = data.creators.flatMap((creator) => creator.profiles);
     const followers = profiles.reduce((sum, item) => sum + (item.followers ?? 0), 0);
     const views = profiles.map((item) => item.avg_video_views ?? item.latest_observed_views).filter((value): value is number => value != null);
-    const ers = profiles.map((item) => item.engagement_rate).filter((value): value is number => value != null);
-    return { followers, avgViews: views.length ? views.reduce((a, b) => a + b, 0) / views.length : null, avgEr: ers.length ? ers.reduce((a, b) => a + b, 0) / ers.length : null };
+    return { followers, avgViews: views.length ? views.reduce((a, b) => a + b, 0) / views.length : null };
   }, [data.creators]);
 
   const mergePayout = (id: string, patch: Partial<Payout>) => {
@@ -589,11 +587,10 @@ export default function UgcPage() {
 
       {/* One line on top (Owner 2026-10-16): payments made today and yesterday — no day limit any more. */}
       <PaidCounter paid={data.payout_summary?.paid_konsol} />
-      <section className="ugc-kpis grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
+      <section className="ugc-kpis grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
         <Kpi label="Creators" value={formatNumber(data.summary.creators)} exact={`${data.summary.creators} creators`} note="in this view" accent="var(--brand-schwarz)" />
         <Kpi label="Followers" value={formatNumber(headline.followers)} exact={`${headline.followers} followers`} note="known audience" accent="var(--brand-rot)" />
         <Kpi label="Avg views" value={formatNumber(headline.avgViews)} exact={headline.avgViews == null ? 'Unknown' : `${headline.avgViews} average views`} note="per known profile" accent="var(--status-info)" />
-        <Kpi label="Engagement" value={headline.avgEr == null ? '—' : `${formatNumber(headline.avgEr)}%`} exact={headline.avgEr == null ? 'Unknown' : `${headline.avgEr}% average engagement`} note="known profiles" accent="var(--status-success)" />
         <Kpi label="Publications" value={formatNumber(data.summary.content_items)} exact={`${data.summary.content_items} publications`} note="observed content" accent="var(--brand-schwarz)" />
         <Kpi label="Products" value={formatNumber(data.products.length)} exact={`${data.products.length} identified product families`} note={`${formatNumber(data.summary.product_queued)} queued`} accent="var(--brand-gold)" />
       </section>
@@ -615,13 +612,13 @@ export default function UgcPage() {
           <select className="ugc-network-select min-h-11 px-3" aria-label="Social network" value={platform} onChange={(event) => setPlatform(event.target.value)} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>{PLATFORM_TABS.map((key) => <option key={key} value={key}>{key === 'all' ? 'All social networks' : key.charAt(0).toUpperCase() + key.slice(1)}</option>)}</select>
           <select aria-label="Filter by collaboration stage" value={stage} onChange={(event) => setStage(event.target.value)} className="min-h-11 px-3" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><option value="">All stages</option>{STAGES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
           <select aria-label="Filter by product" value={product} onChange={(event) => setProduct(event.target.value)} className="min-h-11 px-3" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><option value="">All products</option>{data.products.map((item) => <option key={item.sku} value={item.sku}>{compactProductCode(item.sku)} · {item.content_count}</option>)}</select>
-          <label className="dx-keep-flex min-h-11 px-3 flex items-center gap-2" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><ArrowUpDown className="h-4 w-4" /><select aria-label="Sort creators" value={sort} onChange={(event) => setSort(event.target.value)} className="w-full bg-transparent outline-none"><option value="recent">Recent activity</option><option value="followers">Followers</option><option value="views">Views</option><option value="engagement">Engagement</option><option value="stage">Stage</option></select></label>
+          <label className="dx-keep-flex min-h-11 px-3 flex items-center gap-2" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><ArrowUpDown className="h-4 w-4" /><select aria-label="Sort creators" value={sort} onChange={(event) => setSort(event.target.value)} className="w-full bg-transparent outline-none"><option value="recent">Recent activity</option><option value="followers">Followers</option><option value="views">Views</option><option value="stage">Stage</option></select></label>
         </div>
       </section>
 
       <section className="ugc-table-shell" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-card)' }}>
         <div className="ugc-mobile-list">
-          <div className="ugc-mobile-row ugc-mobile-head" aria-hidden="true"><span>Автор</span><span>Подп.</span><span>ER</span><span>Просм.</span><span>Оплата</span></div>
+          <div className="ugc-mobile-row ugc-mobile-head" aria-hidden="true"><span>Автор</span><span>Подп.</span><span>Просм.</span><span>Оплата</span></div>
           {loading ? <p className="p-3">Загрузка…</p> : creators.length === 0 ? <p className="p-3">Никого не найдено.</p> : creators.map((creator) => {
             const profile = primaryProfile(creator, platform);
             const views = profile.avg_video_views ?? profile.latest_observed_views;
@@ -629,7 +626,6 @@ export default function UgcPage() {
             return <div key={creator.id} className="ugc-mobile-row">
               <span className="ugc-mobile-name"><a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" className="ugc-mobile-title" title={creator.display_name ? `${name} · ${creator.display_name}` : name}>{name}</a><button type="button" className="ugc-mobile-meta" onClick={() => setSelectedId(creator.id)} aria-label={`Карточка автора ${name}`}><PlatformIcons creator={creator} /><span>{formatActivity(creator.last_activity_at)}</span><span className="ugc-stage" data-stage={creator.lifecycle_stage}>{creator.lifecycle_stage}</span></button></span>
               <span title={`Подписчики: ${profile.followers ?? 'нет данных'}`}>{formatCount(profile.followers)}</span>
-              <span title={`ER: ${profile.engagement_rate ?? 'нет данных'}`}>{formatRate(profile.engagement_rate)}</span>
               <span title={`Просмотры: ${views ?? 'нет данных'}`}>{formatCount(views)}</span>
               <span className="ugc-mobile-pay"><CreatorPayment creator={creator} /></span>
             </div>;
@@ -640,7 +636,6 @@ export default function UgcPage() {
             <th scope="col" className="ugc-c-creator">Автор</th>
             <th scope="col" className="ugc-c-platform">Сеть</th>
             <th scope="col" className="ugc-c-num ugc-c-followers">Подписчики</th>
-            <th scope="col" className="ugc-c-num ugc-c-er" title="Вовлечённость">ER</th>
             <th scope="col" className="ugc-c-num ugc-c-activity" title="Последний контакт, выплата или публикация">Активность</th>
             <th scope="col" className="ugc-c-num ugc-c-pay">Оплата</th>
             <th scope="col" className="ugc-c-product ugc-sec-2">Продукт</th>
@@ -648,7 +643,7 @@ export default function UgcPage() {
             <th scope="col" className="ugc-c-next ugc-sec-1">Статус</th>
           </tr></thead>
           <tbody>
-            {loading ? <tr><td colSpan={9} className="p-10 text-center"><Loader2 className="h-6 w-6 animate-spin inline-block" /> <span className="ml-2">Загрузка…</span></td></tr> : creators.length === 0 ? <tr><td colSpan={9} className="p-10 text-center" style={{ color: 'var(--fg-2)' }}><Users className="h-7 w-7 mx-auto mb-2" />Никого не найдено.</td></tr> : creators.map((creator) => {
+            {loading ? <tr><td colSpan={8} className="p-10 text-center"><Loader2 className="h-6 w-6 animate-spin inline-block" /> <span className="ml-2">Загрузка…</span></td></tr> : creators.length === 0 ? <tr><td colSpan={8} className="p-10 text-center" style={{ color: 'var(--fg-2)' }}><Users className="h-7 w-7 mx-auto mb-2" />Никого не найдено.</td></tr> : creators.map((creator) => {
               const profile = primaryProfile(creator, platform);
               const linked = linkedContent(profile);
               const products = Array.from(new Map([...profile.content.flatMap((item) => item.products), ...(profile.source_products ?? [])].map((item) => [item.sku, item])).values());
@@ -660,7 +655,6 @@ export default function UgcPage() {
                 <td className="ugc-c-creator"><a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" title={[name, secondName, 'открыть страницу автора'].filter(Boolean).join(' · ')} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="ugc-creator-line"><span className="ugc-creator-name">{name}</span><OriginMark origin={creator.origin} /></span>{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span></a></td>
                 <td className="ugc-c-platform"><PlatformIcons creator={creator} /></td>
                 <td className="ugc-c-num" title={profile.followers == null ? 'Нет данных' : `${profile.followers}`}>{formatCount(profile.followers)}</td>
-                <td className="ugc-c-num" title={profile.engagement_rate == null ? 'Нет данных' : `${profile.engagement_rate}%`}>{formatRate(profile.engagement_rate)}</td>
                 <td className="ugc-c-num" title={creator.last_activity_at ? new Date(creator.last_activity_at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : 'Нет данных'}>{formatActivity(creator.last_activity_at)}</td>
                 <td className="ugc-c-num ugc-c-pay"><CreatorPayment creator={creator} /></td>
                 <td className="ugc-c-product ugc-sec-2">{products.length || profile.source_product_labels?.length ? <div className="ugc-pills" title={[...products.map((item) => `${compactProductCode(item.sku)} · ${item.name}${item.source === 'blogger_database' ? ' · база блогеров' : ''}`), ...(profile.source_product_labels ?? []).map((item) => `${item.name} · название из базы, тип не указан`)].join('\n')}>{products.slice(0, PRODUCT_PILLS).map((item) => <span key={`${item.sku}-${item.raw_offer_id}`} className="ugc-pill">{compactProductCode(item.sku)}</span>)}{profile.source_product_labels?.map((item) => <span key={item.name} className="ugc-pill">{item.name}</span>)}</div> : creator.payout?.product ? <div className="ugc-pills" title={`Из выплаты: ${creator.payout.product}`}>{creator.payout.product.split('+').map((part) => part.trim()).filter(Boolean).slice(0, PRODUCT_PILLS).map((part) => <span key={part} className="ugc-pill">{part}</span>)}</div> : <span className="ugc-muted">{profile.content.some((item) => item.product_status === 'queued') ? 'В очереди' : 'Не определён'}</span>}</td>

@@ -44,14 +44,13 @@
 .ugc-table :is(th, td) { white-space: nowrap; padding: 10px 12px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; text-align: left; font-size: 14px; font-weight: 700; line-height: 20px; }
 /* Owner widths 14.10.2026, set by hand on the preview (1440 frame, 1044 px): Автор 186 and wider. */
 .ugc-table th { padding: 8px 12px; color: var(--fg-2); text-overflow: clip; }
-.ugc-table :is(th, td).ugc-c-num, .ugc-table :is(th, td).ugc-c-platform, .ugc-table :is(th, td).ugc-c-er, .ugc-table :is(th, td).ugc-c-media, .ugc-table :is(th, td).ugc-c-product { padding-left: 6px; padding-right: 6px; }
+.ugc-table :is(th, td).ugc-c-num, .ugc-table :is(th, td).ugc-c-platform, .ugc-table :is(th, td).ugc-c-media, .ugc-table :is(th, td).ugc-c-product { padding-left: 6px; padding-right: 6px; }
 /* A right-aligned head needs no left pad: «Подписчики» fits 68 px at 10 px and keeps its right edge on the figures. */
 .ugc-table th.ugc-c-num { padding-left: 0; }
 .ugc-table tbody td { height: 64px; }
 .ugc-table .ugc-c-num { text-align: right; font-variant-numeric: tabular-nums; }
 .ugc-table th.ugc-c-platform { width: 58px; }
 .ugc-table th.ugc-c-followers { width: 68px; }
-.ugc-table th.ugc-c-er { width: 56px; }
 .ugc-table th.ugc-c-activity { width: 71px; }
 .ugc-table th.ugc-c-pay { width: 101px; }
 .ugc-table th.ugc-c-product { width: 170px; }
@@ -151,7 +150,7 @@
   .ugc-page .dx-page-actions, .ugc-page .ugc-import { display: none !important; }
   .ugc-page table.ugc-table { display: none !important; }
   .ugc-mobile-list { display: block; }
-  .ugc-mobile-row { display: grid; grid-template-columns: minmax(0, 1fr) 56px 48px 52px 72px; align-items: center; gap: 4px; padding: 0 8px; min-height: 44px; border-top: 1px solid var(--border-hairline); font-size: 12px; white-space: nowrap; }
+  .ugc-mobile-row { display: grid; grid-template-columns: minmax(0, 1fr) 56px 52px 72px; align-items: center; gap: 4px; padding: 0 8px; min-height: 44px; border-top: 1px solid var(--border-hairline); font-size: 12px; white-space: nowrap; }
   .ugc-mobile-row > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: right; font-variant-numeric: tabular-nums; }
   .ugc-mobile-row .ugc-mobile-name { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; text-align: left; min-height: 44px; padding: 4px 0; }
   .ugc-mobile-row .ugc-mobile-title { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-weight: 700; color: var(--brand-rot); }

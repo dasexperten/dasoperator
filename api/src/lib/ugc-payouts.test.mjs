@@ -134,8 +134,8 @@ test('no day total blocks a ready payout, and its date is never moved', () => {
   assert.equal(rows.at(-1).payout_date, '2026-10-17');
 });
 
-test('a payout is ready only with followers, ER and product (Owner 2026-10-16)', () => {
+test('enrichment gaps track followers and product, not ER or payment readiness', () => {
   assert.deepEqual(missingInfo({ creator_followers: 3062, creator_er: 0.026, product: 'TERMO + ZERO' }), []);
-  assert.deepEqual(missingInfo({ creator_followers: null, creator_er: null, product: '' }), ['подписчики', 'ER', 'продукт']);
-  assert.deepEqual(missingInfo({ creator_followers: 1663, creator_er: null, product: 'TERMO' }), ['ER']);
+  assert.deepEqual(missingInfo({ creator_followers: null, creator_er: null, product: '' }), ['подписчики', 'продукт']);
+  assert.deepEqual(missingInfo({ creator_followers: 1663, creator_er: null, product: 'TERMO' }), []);
 });

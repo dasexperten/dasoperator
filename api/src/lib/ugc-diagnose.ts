@@ -34,14 +34,17 @@ export async function diagnosePayoutCreators(env: Env): Promise<{ measured: numb
   const handles = rows.map((r) => r.h);
   let body: any;
   try {
-    const res = await fetch(BRIDGE, {
+    // Service binding first: workers.dev between our own Workers answers 1042.
+    const bridge = (env as unknown as { APIFY_BRIDGE?: Fetcher }).APIFY_BRIDGE;
+    const res = await (bridge ? bridge.fetch.bind(bridge) : fetch)(BRIDGE, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Bridge-Auth': auth },
       body: JSON.stringify({ actor: 'apify/instagram-profile-scraper', input: { usernames: handles, resultsLimit: 12 } }),
       signal: AbortSignal.timeout(110_000),
     });
-    body = await res.json();
-    if (!res.ok) return { measured: 0, error: `bridge HTTP ${res.status}` };
+    const text = await res.text();
+    if (!res.ok) return { measured: 0, error: `bridge HTTP ${res.status}: ${text.slice(0, 120)}` };
+    body = JSON.parse(text);
   } catch (e) {
     return { measured: 0, error: e instanceof Error ? e.message : String(e) };
   }

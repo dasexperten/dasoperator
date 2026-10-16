@@ -422,7 +422,18 @@ export async function handleScheduled(
   // Must stay ABOVE the email-harvest branch, which returns on this tick.
   if (cron === '* * * * *') {
     // Owner 2026-10-16: the Direct and payout lanes moved to their own ERP workers
-    // (erp-ugc-direct, erp-ugc-payouts → cron-steps.ts). Only the evening summary stays here.
+    // (erp-ugc-direct, erp-ugc-payouts → cron-steps.ts). Safety net: if a worker's own timer
+    // has not run in the last 3 minutes, the ERP's minute tick runs the same step itself —
+    // the 3 / 15 / 30 state is one row per lane, so a step never runs twice in a slot.
+    try {
+      const { STEPS } = await import('./cron-steps');
+      for (const w of ['erp-ugc-direct', 'erp-ugc-payouts']) {
+        const fresh = await env.DB.prepare(
+          `SELECT 1 FROM erp_cron_runs WHERE worker=?1 AND cron<>'manual' AND started_at >= ?2 LIMIT 1`
+        ).bind(w, new Date(Date.now() - 3 * 60_000).toISOString()).first();
+        if (!fresh) console.log(`[cron:${w}:fallback] ${await STEPS[w](env)}`);
+      }
+    } catch (e) { console.error('[cron:ugc-fallback] failed:', e); }
     // Evening UGC payout summary to the Owner (Owner 2026-10-15): a message, never a
     // payment. The erp-ugc-payout-summary timer has no run key yet, so the ERP starts
     // it itself at 21:05–21:55 Yerevan; one message a day (day mark in crm_sync_state).

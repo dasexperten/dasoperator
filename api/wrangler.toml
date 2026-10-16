@@ -110,11 +110,6 @@ service = "organizacia"
 binding = "EMAILER"
 service = "emailer-bridge"
 
-# Owner 2026-10-16: blogger measurement (followers, ER of 6 posts). A Worker cannot call another
-# Worker of this account over workers.dev (error 1042) — the bridge is reached through this binding.
-[[services]]
-binding = "APIFY_BRIDGE"
-service = "apify-bridge"
 
 # Self-binding: lets scheduled handlers call our own routes without going
 # through *.workers.dev (which Cloudflare blocks for same-account loops

@@ -5,7 +5,8 @@ import type { Env } from '../types';
 import { konsolClient } from './konsol';
 import { sendOwnerTelegram } from './owner-telegram';
 import { applyKonsolPayment, executePayout, matchRegistryPayment, REGISTRY_LINK_IDS } from './ugc-payout-execute.mjs';
-import { sendIgDirect } from './ig-dm-watch';
+import { sendIgCards, sendIgDirect } from './ig-dm-watch';
+import { SCENARIO_CARDS } from './ig-dm-reply-guard.mjs';
 import { formatRub, ownRubMinor, UGC_PAYOUT_MAX_MINOR, UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR } from './ugc-payouts.mjs';
 
 export function payoutStore(env: Env) {
@@ -86,7 +87,13 @@ function deps(env: Env) {
     store: payoutStore(env),
     konsol: konsolClient(env),
     notifyOwner: (text: string) => sendOwnerTelegram(env, text, 'diana-helios'),
-    notifyBlogger: (row: Record<string, any>, text: string) => sendIgDirect(env, String(row.creator_handle || row.handle || ''), text),
+    notifyBlogger: async (row: Record<string, any>, text: string) => {
+      const handle = String(row.creator_handle || row.handle || '');
+      const sent = await sendIgDirect(env, handle, text);
+      // After a new payment the scenario cards follow the bridge (Owner 2026-10-16); an old debt gets thanks only.
+      if (sent.ok && /карточ/.test(text)) await sendIgCards(env, handle, SCENARIO_CARDS);
+      return sent;
+    },
     now: Date.now(),
     claimToken: crypto.randomUUID(),
   };

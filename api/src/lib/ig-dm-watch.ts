@@ -102,7 +102,17 @@ export async function lastWordIsBlogger(env: Env, conversationId: string): Promi
   return Boolean(top) && String(top.from?.id ?? '') !== IG_ID;
 }
 
-export async function sendIgDirect(env: Env, handle: string, text: string, opts: { humanAgent?: boolean } = {}): Promise<{ ok: boolean; error?: string }> {
+/** The seven scenario cards, one image message each, after a text (Owner 2026-10-16). */
+export async function sendIgCards(env: Env, handle: string, urls: string[], opts: { humanAgent?: boolean } = {}): Promise<number> {
+  let sent = 0;
+  for (const url of urls) {
+    const r = await sendIgDirect(env, handle, '', { ...opts, imageUrl: url });
+    if (r.ok) sent++;
+  }
+  return sent;
+}
+
+export async function sendIgDirect(env: Env, handle: string, text: string, opts: { humanAgent?: boolean; imageUrl?: string } = {}): Promise<{ ok: boolean; error?: string }> {
   const h = handle.trim().replace(/^@/, '').toLowerCase();
   if (!h) return { ok: false, error: 'no handle' };
   const token = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN ?? '';
@@ -118,7 +128,7 @@ export async function sendIgDirect(env: Env, handle: string, text: string, opts:
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       // After 24 h Meta accepts a reply only with the HUMAN_AGENT tag (7 days).
-      body: JSON.stringify({ recipient: { id: who.from_id }, message: { text }, ...(opts.humanAgent ? { messaging_type: 'MESSAGE_TAG', tag: 'HUMAN_AGENT' } : { messaging_type: 'RESPONSE' }) }),
+      body: JSON.stringify({ recipient: { id: who.from_id }, message: opts.imageUrl ? { attachment: { type: 'image', payload: { url: opts.imageUrl } } } : { text }, ...(opts.humanAgent ? { messaging_type: 'MESSAGE_TAG', tag: 'HUMAN_AGENT' } : { messaging_type: 'RESPONSE' }) }),
       signal: AbortSignal.timeout(20_000),
     });
     const body = await res.json().catch(() => null) as any;

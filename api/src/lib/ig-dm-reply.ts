@@ -5,8 +5,8 @@
 // the model may not decide is left for a human (escalated, no reply).
 import type { Env } from '../types';
 import { callPro } from './llm';
-import { DIANA_RULES, guardReply } from './ig-dm-reply-guard.mjs';
-import { lastWordIsBlogger, sendIgDirect } from './ig-dm-watch';
+import { DIANA_RULES, SCENARIO_CARDS, guardReply } from './ig-dm-reply-guard.mjs';
+import { lastWordIsBlogger, sendIgCards, sendIgDirect } from './ig-dm-watch';
 
 const MAX_PER_RUN = 6;
 // Let a burst of messages finish before answering.
@@ -80,6 +80,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     // The ERP copy can lag behind Instagram; never answer a conversation we already answered.
     if (!(await lastWordIsBlogger(env, w.cid))) { await mark(); continue; }
     const sent = await sendIgDirect(env, w.h, out.reply, { humanAgent: now - at > 23.5 * 3_600_000 });
+    if (sent.ok && out.sendCards) await sendIgCards(env, w.h, SCENARIO_CARDS, { humanAgent: now - at > 23.5 * 3_600_000 });
     if (sent.ok) { replied++; await mark(); }
     else { errors++; console.warn(`[ig-reply] ${w.h}: send failed: ${sent.error}`); }
   }

@@ -9,8 +9,31 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, fail } from '../lib/responses';
 import { withKvCache, cacheKey } from '../lib/kv-cache';
+import { articlePlacements } from '../lib/article-placements';
 
 const analytics = new Hono<{ Bindings: Env }>();
+
+// The organization placement ledger stays the single publication record.
+analytics.get('/articles', async (c) => {
+  if (!c.env.ORG_SSOT_TOKEN) return fail(c, 503, [{ code: 'articles_unavailable', message: 'Article source is unavailable.' }]);
+  try {
+    const data = await withKvCache(c.env, 'analytics:articles:v1', 60, async () => {
+      const response = await fetch('https://api.github.com/repos/dasexperten/organizacia/contents/jobs/julian-brand-seeding/PLACEMENTS.json?ref=main', {
+        headers: {
+          Authorization: `Bearer ${c.env.ORG_SSOT_TOKEN}`,
+          Accept: 'application/vnd.github.raw+json',
+          'User-Agent': 'dasoperator-articles',
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) throw new Error('Article source request failed');
+      return { rows: articlePlacements(await response.json()) };
+    });
+    return ok(c, data);
+  } catch {
+    return fail(c, 502, [{ code: 'articles_unavailable', message: 'Unable to load articles.' }]);
+  }
+});
 
 // =============================================================================
 // GET /api/analytics/marketplace-summary - Ozon + WB stock & 30d sales

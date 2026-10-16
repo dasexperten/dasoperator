@@ -10,6 +10,7 @@ import BehaviorTab from './tabs/BehaviorTab';
 import CampaignsTab from './tabs/CampaignsTab';
 import AiGeoTab from './tabs/AiGeoTab';
 import SeoPulseTab from './tabs/SeoPulseTab';
+import ArticlesTab from './tabs/ArticlesTab';
 
 // =============================================================================
 // /analytics — Web Analytics Command Center.
@@ -42,6 +43,7 @@ const TABS = [
   { id: 'campaigns', label: 'Campaigns', src: 'Direct + Ads' },
   { id: 'ai-geo', label: 'AI / GEO', src: 'Cloudflare crawlers + Ubersuggest' },
   { id: 'seo-pulse', label: 'Search & Sales RU', src: 'Jurgen daily run · Yandex Webmaster + Metrika' },
+  { id: 'articles', label: 'Articles', src: 'Publication ledger' },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -56,8 +58,12 @@ export default function AnalyticsPage() {
     setVisited((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
   }, []);
 
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('section') === 'articles') activate('articles');
+  }, [activate]);
+
   // Desktop tier (design-system interaction principles): keyboard shortcuts
-  // for the high-frequency action — keys 1-8 switch tabs. Documented in-UI
+  // for the high-frequency action — keys 1-9 switch tabs. Documented in-UI
   // via the hint next to the tab bar; ignored while typing in a field.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -77,9 +83,9 @@ export default function AnalyticsPage() {
       {/* ============================ HEADER ============================ */}
       <div className="erp-analytics-heading">
         <div className="dx-eyebrow mb-2"><span className="erp-desktop-only">Web Analytics Command Center</span><span className="erp-mobile-only">Analytics</span></div>
-        <p style={{ color: 'var(--fg-2)', marginTop: 4, maxWidth: 720 }}>
+        {active !== 'articles' && <p style={{ color: 'var(--fg-2)', marginTop: 4, maxWidth: 720 }}>
           Discover how visitors engage with your site&apos;s pages.
-        </p>
+        </p>}
         <div className="dx-ribbon-rule mt-4" style={{ maxWidth: 240 }}><i /><i /><i /></div>
       </div>
 
@@ -101,7 +107,7 @@ export default function AnalyticsPage() {
           </button>
         ))}
         <span className="wa-kbd-hint" aria-hidden="true">
-          <kbd>1</kbd>–<kbd>8</kbd> switch tabs
+          <kbd>1</kbd>–<kbd>9</kbd> switch tabs
         </span>
       </div>
 
@@ -130,9 +136,12 @@ export default function AnalyticsPage() {
       <div style={{ display: active === 'seo-pulse' ? 'block' : 'none' }}>
         {visited.has('seo-pulse') && <SeoPulseTab />}
       </div>
+      <div style={{ display: active === 'articles' ? 'block' : 'none' }}>
+        {visited.has('articles') && <ArticlesTab />}
+      </div>
 
       {/* ============================ FOOTER ============================ */}
-      <div className="erp-page-help" style={{ paddingTop: 16, borderTop: '1px solid var(--border-hairline)' }}>
+      {active !== 'articles' && <div className="erp-page-help" style={{ paddingTop: 16, borderTop: '1px solid var(--border-hairline)' }}>
         <p style={{ color: 'var(--fg-3)' }}>
           Sources: GA4 property 511756146 · Clarity Data Export (10 calls/day cap — served from
           nightly cache) · Metrika counter 107720199 · D1 web_analytics_daily /
@@ -141,7 +150,7 @@ export default function AnalyticsPage() {
           never faked. Pending: Yandex Direct token · Google Ads revenue attribution join · home
           AI blocks only after Owner pick.
         </p>
-      </div>
+      </div>}
     </div>
   );
 }

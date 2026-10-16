@@ -165,6 +165,22 @@
 .wa-table td.right, .wa-table th.right { text-align: right; }
 .wa-table-scroll { overflow-x: auto; }
 
+.wa-article-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 220px)); gap: 12px; padding: 20px; }
+.wa-article-filters label { display: grid; min-width: 0; gap: 6px; color: var(--fg-2); font-weight: 600; }
+.wa-article-filters select { width: 100%; min-width: 0; height: 44px; padding: 10px 12px; border: 1px solid var(--border-hairline); border-radius: var(--radius-md); background: var(--paper-raised); color: var(--fg-1); font: inherit; }
+.wa-articles-table td:first-child { min-width: 240px; }
+.wa-articles-table td:not(:first-child) { white-space: nowrap; }
+.wa-article-link { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; color: var(--brand-rot); border-radius: var(--radius-sm); }
+.wa-article-link:hover { background: var(--dx-hover-lift); }
+.wa-article-link:focus-visible, .wa-article-filters select:focus-visible { outline: 2px solid var(--brand-rot); outline-offset: 2px; }
+@media (max-width: 767px) {
+  .wa-article-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 16px; }
+  main table.dx-keep-table.wa-articles-table { width: 100%; min-width: 700px; }
+  main table.dx-keep-table.wa-articles-table thead { display: table-header-group !important; }
+  main table.dx-keep-table.wa-articles-table tbody { display: table-row-group !important; }
+  main table.dx-keep-table.wa-articles-table :is(th, td):first-child { position: static; width: 280px; min-width: 240px; max-width: 280px; white-space: normal; overflow-wrap: anywhere; }
+}
+
 /* ---- Status pills ----------------------------------------------------------- */
 .wa-status {
   display: inline-flex;

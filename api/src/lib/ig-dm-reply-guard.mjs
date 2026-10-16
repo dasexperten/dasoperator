@@ -10,7 +10,9 @@ export const DIANA_RULES = `Ты — Диана, менеджер блогеро
 
 Жёсткие правила:
 - Пиши по-русски, коротко: одно-два предложения, один вопрос. Без приветствий в идущем разговоре. Без капса, упрёков, уменьшительных.
-- Никогда не обещай перевод и срок. Получила реквизиты — «Получила, проверяю». Никогда не пиши «перевела/отправила/оплатили», если в данных ERP нет статуса paid. Если paid — можно: «Перевели N ₽ — дошло?».
+- Никогда не обещай перевод и срок. Получила реквизиты — ответь «Получила: N ₽ на <банк>, <имя>. Проверяю!» и НЕ ставь escalate: реквизиты — обычная работа, не спор.
+- Если в переписке есть полный набор для оплаты — сумма корзины (до 999 ₽), российский номер телефона, банк, фамилия и имя получателя — положи их в "requisites": {"amount_rub": число, "phone": "строка", "bank": "название банка", "last_name": "...", "first_name": "...", "patronymic": "..."|null}. Не хватает чего-то — requisites=null и вежливо попроси недостающее одним вопросом.
+- В reason не пиши номера телефонов и карт. Никогда не пиши «перевела/отправила/оплатили», если в данных ERP нет статуса paid. Если paid — можно: «Перевели N ₽ — дошло?».
 - Не выдумывай факты о продукте, составе, ценах, акциях. Не обсуждай деньги сверх программы, платные рилсы, споры о старых оплатах, возвраты, жалобы — это решает человек: escalate=true, reply=null.
 - Ясное «нет» / «не актуально» — коротко поблагодари и закрой, без уговоров.
 - Если ответ не нужен (спасибо, ок, смайлик, «хорошо» на нашу просьбу подождать) — reply=null.
@@ -27,7 +29,34 @@ export const DIANA_RULES = `Ты — Диана, менеджер блогеро
 7 «Паста с пробиотиком» (SYMBIOS): хук «Первая паста с пробиотиком, которую пробую»; паста на щётку крупно → чистка: вкус, пена → после: ощущение; финал «Буду ли чистить дальше и почему»; совет: паста в фокусе, дневной свет.
 Если блогер просит сценарии, не может их найти или ещё не получал карточки — поставь "send_cards": true и в reply коротко: «Вот семь сценариев — какой вам ближе? Пришлите номер.»
 
-Ответь строго JSON без пояснений: {"reply": string|null, "escalate": boolean, "send_cards": boolean, "reason": string}`;
+Ответь строго JSON без пояснений: {"reply": string|null, "escalate": boolean, "send_cards": boolean, "requisites": object|null, "reason": string}`;
+
+// SBP member ids of the banks bloggers name (Konsol FPS list).
+const BANKS = [
+  [/сбер/i, '100000000111'], [/т[-\s]?банк|тинькоф|тиньков|tbank|tinkoff/i, '100000000004'], [/втб|vtb/i, '100000000005'],
+  [/озон|ozon/i, '100000000273'], [/альфа|alfa/i, '100000000008'], [/райф/i, '100000000007'], [/газпром/i, '100000000001'],
+  [/совком/i, '100000000013'], [/мтс|mts/i, '100000000017'], [/почта/i, '100000000016'], [/росбанк/i, '100000000012'],
+  [/яндекс|yandex/i, '100000000150'], [/открыти/i, '100000000015'], [/уралсиб/i, '100000000026'], [/россельхоз/i, '100000000020'],
+];
+
+/** The model's requisites → a payout the server may register, or null when anything is missing. */
+export function cleanRequisites(r) {
+  if (!r || typeof r !== 'object') return null;
+  const rub = Math.round(Number(r.amount_rub));
+  if (!Number.isFinite(rub) || rub < 50 || rub > 999) return null;
+  let d = String(r.phone ?? '').replace(/\D/g, '');
+  if (d.length === 10 && d.startsWith('9')) d = `7${d}`;
+  if (d.length === 11 && d.startsWith('8')) d = `7${d.slice(1)}`;
+  if (d.length !== 11 || !d.startsWith('79')) return null;
+  // +7 940 is Abkhazia: SBP refuses it (liana_xachatryan_abidzhba, 16.10.2026).
+  if (d.startsWith('7940')) return null;
+  const bank = BANKS.find(([re]) => re.test(String(r.bank ?? '')))?.[1];
+  if (!bank) return null;
+  const name = (v) => String(v ?? '').trim().replace(/[^\p{L}\s-]/gu, '').slice(0, 120);
+  const last = name(r.last_name), first = name(r.first_name);
+  if (last.length < 2 || first.length < 2) return null;
+  return { amount_minor: rub * 100, phone: `+${d}`, bank, last_name: last, first_name: first, patronymic: name(r.patronymic) || null };
+}
 
 // Seven scenario cards (Owner 2026-10-16: «Загружай эти семь карточек куда-то, чтобы ты
 // постоянно при надобности эти семь карточек загружал»). Public, stable R2 links.
@@ -48,10 +77,11 @@ export function guardReply(raw, { paid = false } = {}) {
   const escalate = parsed.escalate === true;
   const reason = String(parsed.reason ?? '').slice(0, 200);
   const sendCards = parsed.send_cards === true;
+  const requisites = cleanRequisites(parsed.requisites);
   if (!reply || escalate) return { reply: null, escalate, reason, sendCards: false };
   if (reply.length > 420) return { reply: null, escalate: true, reason: 'too long' };
   if (!paid && MONEY_SENT.test(reply)) return { reply: null, escalate: true, reason: 'claims money sent, not paid in ERP' };
   if (PROMISE.test(reply)) return { reply: null, escalate: true, reason: 'promises payment' };
   if (/добрый (день|вечер)|здравствуйте|привет/i.test(reply) && reply.length < 25) return { reply: null, escalate: false, reason: 'greeting only' };
-  return { reply, escalate: false, reason, sendCards };
+  return { reply, escalate: false, reason, sendCards, requisites };
 }

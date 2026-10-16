@@ -258,7 +258,7 @@ ugc.get('/', async (c) => {
     WITH latest AS (SELECT conversation_id, MAX(created_at) at FROM ugc_ig_messages GROUP BY conversation_id)
     SELECT state.value,
       COALESCE((SELECT p.creator_id FROM ugc_creator_platforms p WHERE p.platform='instagram' AND p.normalized_handle=json_extract(state.value,'$.handle') LIMIT 1),
-        (SELECT p.creator_id FROM ugc_creator_platforms p WHERE p.platform='other' AND p.normalized_handle=json_extract(state.value,'$.handle') AND p.profile_url LIKE '%instagram.com/%' LIMIT 1)) creator_id
+        (SELECT p.creator_id FROM ugc_creator_platforms p WHERE p.platform='other' AND p.normalized_handle=json_extract(state.value,'$.handle') LIMIT 1)) creator_id
     FROM crm_sync_state state
       JOIN latest ON state.key='ig_reply_escalated:'||latest.conversation_id
       JOIN ugc_ig_messages m ON m.conversation_id=latest.conversation_id AND m.created_at=latest.at
@@ -328,11 +328,11 @@ ugc.get('/', async (c) => {
       payment_sources: sourceIndex.paymentSources.get(creatorId) ?? [],
       payouts: creatorPayouts.slice(0, 20),
       paid_total_minor: creatorPayouts.filter((item) => item.status === 'paid' && item.konsol_payment_id).reduce((sum, item) => sum + Number(item.amount_minor || 0), 0),
-      last_activity_at: latestActivityMs({
+      last_activity_at: Math.max(Date.parse(attentionByCreator.get(creatorId)?.at ?? '') || 0, latestActivityMs({
         collaboration: latestCollaboration.get(creatorId) ?? null,
         payouts: creatorPayouts,
         content: contentByCreator.get(creatorId) ?? [],
-      }),
+      }) ?? 0) || null,
     };
     creator.profiles.push(profile);
     creators.set(creatorId, creator);

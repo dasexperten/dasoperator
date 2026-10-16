@@ -12,6 +12,14 @@ export async function runAdaptiveLane(env: Env, lane: string, fn: LaneFn, now = 
   let state: any = null;
   try { state = row?.value ? JSON.parse(row.value) : null; } catch { state = null; }
   if (!laneDue(state, now)) return `${lane}: not due`;
+  // A run can last longer than a minute; the next tick must not start the same lane meanwhile
+  // (Owner 2026-10-16: two answers to one blogger 2 s apart). Take a 5-minute lease atomically:
+  // only the tick that still sees the old value moves next_at forward.
+  const lease = JSON.stringify({ ...(state ?? {}), next_at: now + 5 * 60_000, running_since: now });
+  const took = row?.value
+    ? await env.DB.prepare(`UPDATE crm_sync_state SET value=?2, updated_at=?3 WHERE key=?1 AND value=?4`).bind(key, lease, now, row.value).run()
+    : await env.DB.prepare(`INSERT INTO crm_sync_state (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO NOTHING`).bind(key, lease, now).run();
+  if ((took.meta?.changes ?? 0) !== 1) return `${lane}: taken by another run`;
   let out: Awaited<ReturnType<LaneFn>>;
   try {
     out = await fn(env);

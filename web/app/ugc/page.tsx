@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpDown, ExternalLink, Eye, Facebook, Globe, Hand, Heart, Instagram, Link, Link2Off, Loader2, MessageCircle, Search, Send, Users, Video, X, Youtube } from 'lucide-react';
+import { AlertCircle, ArrowUpDown, ExternalLink, Eye, Facebook, Globe, Hand, Heart, Instagram, Link, Link2Off, Loader2, MessageCircle, Search, Send, Users, Video, X, Youtube } from 'lucide-react';
 import './ugc-layout.css';
 import { apiGet, apiPatch, apiPost, apiPostTimed } from '@/lib/api';
 import { canPay, formatRub, PAYOUT_STATUS_LABEL, payoutCell } from '@/lib/ugc-payout-cell.mjs';
@@ -124,6 +124,7 @@ type Creator = {
   payouts?: Payout[];
   paid_total_minor?: number;
   last_activity_at?: number | null;
+  attention?: { at: string; status: string; kind: string; label: string; reason: string } | null;
 };
 
 type LinkSummary = {
@@ -469,7 +470,7 @@ export default function UgcPage() {
     const urlPlatform = params.get('platform');
     const urlSort = params.get('sort');
     if (urlPlatform && PLATFORM_TABS.includes(urlPlatform)) setPlatform(urlPlatform);
-    if (urlSort && ['recent', 'followers', 'views', 'stage'].includes(urlSort)) setSort(urlSort);
+    if (urlSort && ['recent', 'followers', 'views', 'stage', 'attention'].includes(urlSort)) setSort(urlSort);
     setSearch(params.get('search') ?? '');
     setStage(params.get('stage') ?? '');
     setProduct(params.get('product') ?? '');
@@ -481,6 +482,7 @@ export default function UgcPage() {
     rows.sort((a, b) => {
       const ap = primaryProfile(a, platform);
       const bp = primaryProfile(b, platform);
+      if (sort === 'attention') return Number(Boolean(b.attention)) - Number(Boolean(a.attention)) || Date.parse(b.attention?.at ?? '') - Date.parse(a.attention?.at ?? '') || ((b.last_activity_at ?? -1) - (a.last_activity_at ?? -1));
       if (sort === 'views') return (bp.avg_video_views ?? bp.latest_observed_views ?? -1) - (ap.avg_video_views ?? ap.latest_observed_views ?? -1);
       if (sort === 'stage') return a.lifecycle_stage.localeCompare(b.lifecycle_stage);
       if (sort === 'recent') return ((b.last_activity_at ?? -1) - (a.last_activity_at ?? -1)) || ((bp.followers ?? -1) - (ap.followers ?? -1));
@@ -612,7 +614,7 @@ export default function UgcPage() {
           <select className="ugc-network-select min-h-11 px-3" aria-label="Social network" value={platform} onChange={(event) => setPlatform(event.target.value)} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>{PLATFORM_TABS.map((key) => <option key={key} value={key}>{key === 'all' ? 'All social networks' : key.charAt(0).toUpperCase() + key.slice(1)}</option>)}</select>
           <select aria-label="Filter by collaboration stage" value={stage} onChange={(event) => setStage(event.target.value)} className="min-h-11 px-3" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><option value="">All stages</option>{STAGES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
           <select aria-label="Filter by product" value={product} onChange={(event) => setProduct(event.target.value)} className="min-h-11 px-3" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><option value="">All products</option>{data.products.map((item) => <option key={item.sku} value={item.sku}>{compactProductCode(item.sku)} · {item.content_count}</option>)}</select>
-          <label className="dx-keep-flex min-h-11 px-3 flex items-center gap-2" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><ArrowUpDown className="h-4 w-4" /><select aria-label="Sort creators" value={sort} onChange={(event) => setSort(event.target.value)} className="w-full bg-transparent outline-none"><option value="recent">Recent activity</option><option value="followers">Followers</option><option value="views">Views</option><option value="stage">Stage</option></select></label>
+          <label className="dx-keep-flex min-h-11 px-3 flex items-center gap-2" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><ArrowUpDown className="h-4 w-4" /><select aria-label="Sort creators" value={sort} onChange={(event) => setSort(event.target.value)} className="w-full bg-transparent outline-none"><option value="recent">Recent activity</option><option value="followers">Followers</option><option value="views">Views</option><option value="stage">Stage</option><option value="attention">Требуют проверки</option></select></label>
         </div>
       </section>
 
@@ -624,7 +626,7 @@ export default function UgcPage() {
             const views = profile.avg_video_views ?? profile.latest_observed_views;
             const name = profile.handle ? `@${profile.handle}` : creator.display_name || 'Автор';
             return <div key={creator.id} className="ugc-mobile-row">
-              <span className="ugc-mobile-name"><a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" className="ugc-mobile-title" title={creator.display_name ? `${name} · ${creator.display_name}` : name}>{name}</a><button type="button" className="ugc-mobile-meta" onClick={() => setSelectedId(creator.id)} aria-label={`Карточка автора ${name}`}><PlatformIcons creator={creator} /><span>{formatActivity(creator.last_activity_at)}</span><span className="ugc-stage" data-stage={creator.lifecycle_stage}>{creator.lifecycle_stage}</span></button></span>
+              <span className="ugc-mobile-name"><a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" className="ugc-mobile-title" title={creator.display_name ? `${name} · ${creator.display_name}` : name}>{name}</a><button type="button" className="ugc-mobile-meta" onClick={() => setSelectedId(creator.id)} aria-label={`Карточка автора ${name}`}><PlatformIcons creator={creator} />{creator.attention ? <AlertCircle className="h-4 w-4" aria-label={creator.attention.label} style={{ color: '#7a4e25' }} /> : null}<span>{formatActivity(creator.last_activity_at)}</span><span className="ugc-stage" data-stage={creator.lifecycle_stage}>{creator.lifecycle_stage}</span></button></span>
               <span title={`Подписчики: ${profile.followers ?? 'нет данных'}`}>{formatCount(profile.followers)}</span>
               <span title={`Просмотры: ${views ?? 'нет данных'}`}>{formatCount(views)}</span>
               <span className="ugc-mobile-pay"><CreatorPayment creator={creator} /></span>
@@ -652,7 +654,7 @@ export default function UgcPage() {
               // Name and city after the handle (Owner 2026-10-16: «Город нужен, город обязательно»).
               const secondName = handle ? [creator.display_name, creator.city].filter(Boolean).join(' · ') || null : null;
               return <tr key={creator.id} style={{ borderTop: '1px solid var(--border-hairline)' }}>
-                <td className="ugc-c-creator"><a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" title={[name, secondName, 'открыть страницу автора'].filter(Boolean).join(' · ')} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="ugc-creator-line"><span className="ugc-creator-name">{name}</span><OriginMark origin={creator.origin} /></span>{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span></a></td>
+                <td className="ugc-c-creator" style={creator.attention ? { position: 'relative', paddingRight: 50 } : undefined}>{creator.attention ? <button type="button" onClick={() => setSelectedId(creator.id)} aria-label={`${creator.attention.label}: ${name}`} title={creator.attention.reason} className="absolute right-1 top-1/2 -translate-y-1/2 min-h-11 min-w-11 inline-flex items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-2" style={{ color: '#7a4e25', width: 44, height: 44 }}><AlertCircle className="h-5 w-5" /></button> : null}<a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" title={[name, secondName, 'открыть страницу автора'].filter(Boolean).join(' · ')} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="ugc-creator-line"><span className="ugc-creator-name">{name}</span><OriginMark origin={creator.origin} /></span>{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span></a></td>
                 <td className="ugc-c-platform"><PlatformIcons creator={creator} /></td>
                 <td className="ugc-c-num" title={profile.followers == null ? 'Нет данных' : `${profile.followers}`}>{formatCount(profile.followers)}</td>
                 <td className="ugc-c-num" title={creator.last_activity_at ? new Date(creator.last_activity_at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : 'Нет данных'}>{formatActivity(creator.last_activity_at)}</td>
@@ -701,6 +703,7 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
 
   return <section className="p-5 md:p-6 space-y-5" style={{ background: 'var(--bg-surface)', border: '2px solid var(--brand-schwarz)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-raised)' }}>
     <div className="flex items-start justify-between gap-4"><div><div className="dx-eyebrow">Creator record</div><h2 className="mt-1 text-2xl font-extrabold">{creator.display_name || `@${creator.profiles[0]?.handle}`}</h2></div><button type="button" onClick={onClose} className="min-h-11 min-w-11 flex items-center justify-center" aria-label="Close creator panel"><X className="h-5 w-5" /></button></div>
+    {creator.attention ? <p className="flex items-start gap-2 text-sm" style={{ color: 'var(--fg-1)' }}><AlertCircle className="h-5 w-5 shrink-0" style={{ color: '#7a4e25' }} /><span style={{ whiteSpace: 'normal' }}><strong>{creator.attention.label}.</strong> {creator.attention.reason}</span></p> : null}
     <div className="grid md:grid-cols-3 gap-3">{creator.profiles.map((profile) => <div key={profile.id} className="p-4" style={{ background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)' }}><div className="font-bold capitalize">{profile.platform} · @{profile.handle}</div><div className="mt-2 text-sm" style={{ color: 'var(--fg-2)' }}>{formatNumber(profile.followers)} followers · {profile.view_observations} view observations</div><div className="mt-1 text-sm" style={{ color: 'var(--fg-2)' }}>{formatNumber(profile.commerce_clicks)} clicks · {formatNumber(profile.commerce_orders)} orders</div><div className="mt-1 text-sm" style={{ color: 'var(--fg-3)' }}>Metrics as of {profile.metrics_as_of || 'unknown'}</div></div>)}</div>
     {creator.payouts?.length ? <section className="space-y-2" aria-labelledby={`payouts-${creator.id}`}>
       <div className="flex items-end justify-between gap-3"><div><div className="dx-eyebrow">Barter refunds</div><h3 id={`payouts-${creator.id}`} className="mt-1 text-xl font-extrabold">Оплата</h3></div><div className="text-sm tabular-nums" style={{ color: 'var(--fg-2)' }}>Paid {formatRub(creator.paid_total_minor ?? 0)}</div></div>

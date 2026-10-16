@@ -91,18 +91,18 @@ export async function fillCitiesFromReplies(env: Env): Promise<number> {
  * Live check before an automatic reply: is the newest message in this Instagram
  * conversation still the blogger's? Read from Instagram itself, not the ERP copy.
  */
-export async function lastWordIsBlogger(env: Env, conversationId: string): Promise<boolean> {
+export async function lastWordIsBlogger(env: Env, conversationId: string): Promise<boolean | null> {
   const token = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN ?? '';
-  if (!token) return false;
+  if (!token) return null;
   const page = await graph(`/${PAGE_ID}?fields=access_token`, token);
-  if (!page.ok || !page.body?.access_token) return false;
+  if (!page.ok || !page.body?.access_token) return null;
   const r = await graph(`/${conversationId}?fields=messages.limit(1){from}`, String(page.body.access_token));
-  if (!r.ok) return false;
+  if (!r.ok) return null;
   const top = r.body?.messages?.data?.[0];
-  return Boolean(top) && String(top.from?.id ?? '') !== IG_ID;
+  return top?.from?.id ? String(top.from.id) !== IG_ID : null;
 }
 
-/** The seven scenario cards, one image message each, after a text (Owner 2026-10-16). */
+/** The four scenario cards, one image message each, after a text (Owner 2026-10-16). */
 export async function sendIgCards(env: Env, handle: string, urls: string[], opts: { humanAgent?: boolean } = {}): Promise<number> {
   let sent = 0;
   for (const url of urls) {

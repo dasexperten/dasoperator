@@ -266,3 +266,9 @@ test('an old debt is thanked, not asked for a new order', () => {
   assert.match(bloggerPaidText({ amount_minor: 33300, note: 'Старый долг, подтвердила 15.10' }), /за ваш ролик/);
   assert.match(bloggerPaidText({ amount_minor: 50900, note: null }), /Оформляйте заказ/);
 });
+
+test('new-payment notice offers four scenario cards', () => {
+ const text = bloggerPaidText({ amount_minor: 90000, payout_date: '2026-10-17' });
+ assert.match(text,/четыре карточки/);
+ assert.doesNotMatch(text,/семь/);
+});

@@ -43,7 +43,7 @@ export function bloggerPaidText(row) {
   // отчиталась по вашей пасте»): thank her, never ask for a new order.
   if (/долг|повтор/i.test(String(row.note ?? ''))) return `Перевела ${formatRub(row.amount_minor)} по СБП 👍 Это за ваш ролик и отзыв — спасибо!`;
   // Owner 2026-10-16: «Мы вам оплатили… И после этого мост перекидываешь сразу про сценарий».
-  return `Перевела ${formatRub(row.amount_minor)} по СБП 👍 Оформляйте заказ и пришлите скрин. А пока выберите сценарий ролика — вот семь карточек, какой вам ближе? Пришлите номер.`;
+  return `Перевела ${formatRub(row.amount_minor)} по СБП 👍 Оформляйте заказ и пришлите скрин. А пока выберите сценарий ролика — вот четыре карточки, какой вам ближе? Пришлите номер.`;
 }
 
 export function paidNoticeText(row) {

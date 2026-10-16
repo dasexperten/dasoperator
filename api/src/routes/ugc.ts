@@ -7,6 +7,7 @@ import { baseProductSku, identifyExplicitProducts, initialProductClassification,
 import { annotateMissingInfo, annotateOverLimit, checkDailyLimit, compareByRecent, isFpsBankMemberId, isPayoutStatus, konsolPhone, latestActivityMs, maskPhone, maskPhoneWide, paidCounters, parsePayoutAmount, payoutDate, statusStampColumn } from '../lib/ugc-payouts.mjs';
 import { executeUgcPayout, refreshUgcPayout, ugcPayoutEvening } from '../lib/ugc-payout-store';
 import { profileAverages } from '../lib/ugc-profile-metrics.mjs';
+import { readReplyState, replyAttention } from '../lib/ig-dm-reply-state.mjs';
 import { identifySourceProductNames, payoutProductRecords, publicationProductLabels, sourceProductLabels, sourceRecordIndex } from '../lib/ugc-source-records.mjs';
 
 // Diana's creator statuses (Owner 2026-10-15, DH-LAW-261015-02): one English
@@ -252,6 +253,20 @@ ugc.get('/', async (c) => {
     if (!latestCollaboration.has(String(row.creator_id))) latestCollaboration.set(String(row.creator_id), row);
   }
 
+  // Only unresolved incidents for the current incoming message are shown.
+  const incidents = await c.env.DB.prepare(`
+    WITH latest AS (SELECT conversation_id, MAX(created_at) at FROM ugc_ig_messages GROUP BY conversation_id)
+    SELECT state.value FROM crm_sync_state state
+      JOIN latest ON state.key='ig_reply_escalated:'||latest.conversation_id
+      JOIN ugc_ig_messages m ON m.conversation_id=latest.conversation_id AND m.created_at=latest.at
+    WHERE m.direction='in' AND json_valid(state.value) AND json_extract(state.value,'$.at')=latest.at
+  `).all<{value: string}>();
+  const attentionByHandle = new Map<string, ReturnType<typeof replyAttention>>();
+  for (const row of incidents.results ?? []) {
+    const state = readReplyState(row.value);
+    if (state?.handle) attentionByHandle.set(state.handle.toLowerCase(), replyAttention(state));
+  }
+
   const creators = new Map<string, Record<string, any>>();
   for (const row of profiles.results ?? []) {
     const metrics = byProfile.get(String(row.profile_id)) ?? { views: [], comments: [], content_count: 0, content: [] };
@@ -293,6 +308,7 @@ ugc.get('/', async (c) => {
       normalized_handle: row.creator_handle,
       display_name: row.display_name,
       city: row.city ?? null,
+      attention: attentionByHandle.get(String(row.creator_handle).toLowerCase()) ?? null,
       category: row.category,
       audience_market: row.audience_market,
       audience_language: row.audience_language,

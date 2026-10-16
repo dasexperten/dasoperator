@@ -5,8 +5,10 @@
 // the model may not decide is left for a human (escalated, no reply).
 import type { Env } from '../types';
 import { callPro } from './llm';
-import { DIANA_RULES, JSON_SPEC, SCENARIO_CARDS, guardReply, type CleanRequisites } from './ig-dm-reply-guard.mjs';
+import { DIANA_RULES, JSON_SPEC, SCENARIO_RULES, SCENARIO_CARDS, guardReply, type CleanRequisites } from './ig-dm-reply-guard.mjs';
 import { composeDiana, type DianaFiles } from './diana-profile.mjs';
+import { canAttemptReply, nextReplyFailure, readReplyState, type ReplyState } from './ig-dm-reply-state.mjs';
+import { sendOwnerTelegram } from './owner-telegram';
 
 // Diana's profile from GitHub, read once per check (Owner 2026-10-16: harness, VOICE, CHARTER,
 // HARD_RULES, and the LEARNING / MEMORY entries this message needs). No token or no answer → built-in rules.
@@ -40,6 +42,7 @@ const MAX_PER_RUN = 15;
 // Let a burst of messages finish before answering.
 const SETTLE_MS = 90_000;
 const HANDLED_KEY = (cid: string) => `ig_reply:${cid}`;
+const STATE_KEY = (cid: string) => `ig_reply_escalated:${cid}`;
 
 type Msg = { direction: string; text: string | null; attachments_json: string | null; created_at: string };
 
@@ -81,33 +84,58 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
      SELECT m.conversation_id cid, m.created_at t, LOWER(m.from_username) h
        FROM ugc_ig_messages m JOIN last ON last.cid = m.conversation_id AND last.t = m.created_at
       WHERE m.direction = 'in' AND m.from_username IS NOT NULL
-      ORDER BY m.created_at DESC LIMIT 40`
-  ).all<{ cid: string; t: string; h: string }>()).results ?? [];
-  let replied = 0, escalated = 0, errors = 0;
+        AND m.created_at >= ?1 AND m.created_at <= ?2
+        AND NOT EXISTS (SELECT 1 FROM crm_sync_state incident WHERE incident.key='ig_reply_escalated:'||m.conversation_id
+          AND json_valid(incident.value) AND json_extract(incident.value,'$.at')=m.created_at
+          AND (json_extract(incident.value,'$.status')='needs_review' AND json_extract(incident.value,'$.notified_at') IS NOT NULL
+            OR json_extract(incident.value,'$.status')='retry' AND json_extract(incident.value,'$.next_retry_at')>?3))
+        AND NOT EXISTS (SELECT 1 FROM crm_sync_state done WHERE done.key='ig_reply:'||m.conversation_id AND done.value=m.created_at)
+      ORDER BY m.created_at ASC LIMIT 100`
+  ).bind(new Date(now - 7 * 86_400_000).toISOString(), new Date(now - SETTLE_MS).toISOString(), now).all<{ cid: string; t: string; h: string }>()).results ?? [];
+  let replied = 0, escalated = 0, errors = 0, attempted = 0;
   let diana: DianaFiles | null | undefined;
   for (const w of waiting) {
-    if (replied + escalated >= MAX_PER_RUN) break;
+    if (attempted >= MAX_PER_RUN) break;
     const at = Date.parse(w.t);
     if (!Number.isFinite(at) || now - at < SETTLE_MS || now - at > 7 * 86_400_000) continue;
     const done = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(HANDLED_KEY(w.cid)).first<{ value: string }>();
     if (done?.value === w.t) continue;
-    const mark = () => env.DB.prepare(
-      `INSERT INTO crm_sync_state (key, value, updated_at) VALUES (?1, ?2, ?3)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
-    ).bind(HANDLED_KEY(w.cid), w.t, Date.now()).run();
+    const stored = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(STATE_KEY(w.cid)).first<{ value: string }>();
+    let state = readReplyState(stored?.value);
+    const saveState = (next: ReplyState) => env.DB.prepare(
+      `INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`
+    ).bind(STATE_KEY(w.cid), JSON.stringify(next), Date.now()).run();
+    const notify = async () => {
+      if (!state || state.at !== w.t || state.status === 'retry' || state.notified_at) return;
+      const sent = await sendOwnerTelegram(env, `UGC: @${w.h} ждёт проверки переписки. Автоответ не завершён, обращение открыто. https://erp.dasexperten.com/ugc?search=${encodeURIComponent(w.h)}`, 'diana-helios');
+      if (sent) { state = { ...state, notified_at: new Date().toISOString() }; await saveState(state); }
+    };
+    if (!canAttemptReply(state, w.t, now)) { await notify(); continue; }
+    attempted++;
+    const failStep = async (reason: string) => {
+      state = nextReplyFailure(state, { handle: w.h, at: w.t, reason, now });
+      await saveState(state);
+      if (state.status === 'needs_review') { escalated++; await notify(); } else errors++;
+    };
+    const mark = async () => {
+      await env.DB.prepare(
+        `INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`
+      ).bind(HANDLED_KEY(w.cid), w.t, Date.now()).run();
+      await env.DB.prepare(`DELETE FROM crm_sync_state WHERE key=?1`).bind(STATE_KEY(w.cid)).run();
+    };
 
     const history = ((await env.DB.prepare(
-      `SELECT direction, text, attachments_json, created_at FROM ugc_ig_messages WHERE conversation_id=?1 ORDER BY created_at DESC LIMIT 20`
+      `SELECT direction, text, attachments_json, created_at FROM ugc_ig_messages WHERE conversation_id=?1 ORDER BY created_at DESC LIMIT 60`
     ).bind(w.cid).all<Msg>()).results ?? []).reverse();
     const creator = await env.DB.prepare(
       `SELECT c.id, c.display_name, c.city FROM ugc_creators c WHERE c.normalized_handle=?1`
     ).bind(w.h).first<{ id: string; display_name: string | null; city: string | null }>();
     const payouts = creator ? ((await env.DB.prepare(
-      `SELECT amount_minor, status, payout_date FROM ugc_payouts WHERE creator_id=?1 ORDER BY created_at DESC LIMIT 5`
-    ).bind(creator.id).all<{ amount_minor: number; status: string; payout_date: string }>()).results ?? []) : [];
-    const paid = payouts.some((p) => p.status === 'paid');
+      `SELECT amount_minor, status, payout_date, konsol_payment_id FROM ugc_payouts WHERE creator_id=?1 ORDER BY created_at DESC LIMIT 5`
+    ).bind(creator.id).all<{ amount_minor: number; status: string; payout_date: string; konsol_payment_id?: string | null }>()).results ?? []) : [];
+    const paid = payouts[0]?.status === 'paid' && Boolean(payouts[0]?.konsol_payment_id);
     const erp = payouts.length
-      ? payouts.map((p) => `${Math.round(p.amount_minor / 100)} ₽ — ${p.status === 'paid' ? 'paid (перевод исполнен)' : p.status === 'failed' ? 'failed (банк отклонил)' : 'ждёт оплаты'} (${p.payout_date})`).join('; ')
+      ? payouts.map((p) => `${Math.round(p.amount_minor / 100)} ₽ — ${p.status === 'paid' && p.konsol_payment_id ? 'paid (перевод исполнен)' : p.status === 'failed' ? 'failed (банк отклонил)' : 'ждёт оплаты'} (${p.payout_date})`).join('; ')
       : 'выплат нет';
     const lines = history.map((m) => {
       const body = (m.text && m.text.trim()) || (m.attachments_json && m.attachments_json !== '[]' ? '[фото или вложение]' : '');
@@ -118,37 +146,32 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     // The whole profile is read only when someone is actually waiting for an answer.
     if (diana === undefined) diana = await loadDiana(env);
     const query = history.filter((m) => m.direction === 'in').slice(-6).map((m) => m.text ?? '').join(' ');
-    const system = diana ? `${composeDiana(diana, query)}\n\n${JSON_SPEC}` : DIANA_RULES;
+    const system = `${diana ? composeDiana(diana, query) : DIANA_RULES}\n\n${SCENARIO_RULES}\n\n${JSON_SPEC}\nРегистрируй реквизиты только для текущей неоплаченной корзины. Уже исполненную выплату повторно не создавай. Верни законченный JSON, reason до 80 знаков. ${state?.at === w.t ? `Предыдущий ответ отклонён: ${state.reason}. Исправь формулировку; не обещай оплату.` : ''}`;
     let raw = '';
     try {
-      const r = await callPro([{ role: 'system', content: system }, { role: 'user', content: context }], { env, maxTokens: 500, temperature: 0.2, prefer: 'anthropic' })
-        .catch(() => callPro([{ role: 'system', content: system }, { role: 'user', content: context }], { env, maxTokens: 500, temperature: 0.2 }));
+      const r = await callPro([{ role: 'system', content: system }, { role: 'user', content: context }], { env, maxTokens: 1400, temperature: 0.2, prefer: 'anthropic' })
+        .catch(() => callPro([{ role: 'system', content: system }, { role: 'user', content: context }], { env, maxTokens: 1400, temperature: 0.2 }));
       raw = r.text;
-    } catch (e) {
-      errors++;
-      console.warn(`[ig-reply] ${w.h}: model failed: ${e instanceof Error ? e.message : String(e)}`);
+    } catch {
+      await failStep('provider_error');
       continue;
     }
     const out = guardReply(raw, { paid });
     if (!out.reply) {
-      if (out.escalate) {
-        escalated++;
-        await env.DB.prepare(
-          `INSERT INTO crm_sync_state (key, value, updated_at) VALUES (?1, ?2, ?3)
-           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
-        ).bind(`ig_reply_escalated:${w.cid}`, JSON.stringify({ handle: w.h, at: w.t, reason: out.reason }), Date.now()).run();
-      }
-      await mark();
+      if (out.escalate) await failStep(out.reason);
+      else await mark();
       continue;
     }
-    // The ERP copy can lag behind Instagram; never answer a conversation we already answered.
-    if (!(await lastWordIsBlogger(env, w.cid))) { await mark(); continue; }
+    // Failure to read Instagram is unknown, never evidence that we already replied.
+    const latestIsBlogger = await lastWordIsBlogger(env, w.cid);
+    if (latestIsBlogger == null) { await failStep('conversation_check_failed'); continue; }
+    if (!latestIsBlogger) { await mark(); continue; }
     // Full requisites in the chat → a brown payout row at once (DH-LAW-261015-04 p.6, Owner 2026-10-16).
-    if (out.requisites) { try { await registerPayout(env, w.h, out.requisites); } catch (e) { console.warn(`[ig-reply] ${w.h}: payout row failed: ${e instanceof Error ? e.message : String(e)}`); } }
+    if (out.requisites) { try { await registerPayout(env, w.h, out.requisites); } catch { await failStep('payout_registration_failed'); continue; } }
     const sent = await sendIgDirect(env, w.h, out.reply, { humanAgent: now - at > 23.5 * 3_600_000 });
     if (sent.ok && out.sendCards) await sendIgCards(env, w.h, SCENARIO_CARDS, { humanAgent: now - at > 23.5 * 3_600_000 });
     if (sent.ok) { replied++; await mark(); }
-    else { errors++; console.warn(`[ig-reply] ${w.h}: send failed: ${sent.error}`); }
+    else await failStep('send_failed');
   }
   return { replied, escalated, errors };
 }

@@ -81,7 +81,7 @@ export async function refreshContentMetrics(env: Env): Promise<{ read: number; r
     `SELECT id, content_url FROM ugc_content
       WHERE content_url LIKE '%instagram.com/%' AND COALESCE(link_status, '') NOT IN ('missing', 'invalid')
         AND (metrics_checked_at IS NULL OR metrics_checked_at < ?1)
-      ORDER BY metrics_checked_at IS NOT NULL, metrics_checked_at LIMIT ${CONTENT_PER_RUN}`
+      ORDER BY metrics_checked_at IS NOT NULL, metrics_checked_at, RANDOM() LIMIT ${CONTENT_PER_RUN}`
   ).bind(new Date(Date.now() - 7 * 86_400_000).toISOString()).all<{ id: string; content_url: string }>()).results ?? [];
   let read = 0, removed = 0;
   let error: string | undefined;

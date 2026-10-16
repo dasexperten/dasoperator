@@ -87,6 +87,10 @@ export function guardReply(raw, { paid = false } = {}) {
   if (reply.length > 420) return { reply: null, escalate: true, reason: 'too long' };
   if (!paid && MONEY_SENT.test(reply)) return { reply: null, escalate: true, reason: 'claims money sent, not paid in ERP' };
   if (PROMISE.test(reply)) return { reply: null, escalate: true, reason: 'promises payment' };
+  // Owner 2026-10-16 («Что за бред?»): table words of the scenario menu never reach a blogger,
+  // and a reel is always with the face.
+  if (/(^|[^а-яё])(хук|финал|такт[ыа]?)([^а-яё]|$)|→|одно «?понравилось»?,? одно «?нет»?/i.test(reply)) return { reply: null, escalate: true, reason: 'menu jargon in a reply' };
+  if (/лицо\s+(не\s+)?необязательн|без\s+лица|можно\s+без\s+лиц/i.test(reply)) return { reply: null, escalate: true, reason: 'says face is optional' };
   if (/добрый (день|вечер)|здравствуйте|привет/i.test(reply) && reply.length < 25) return { reply: null, escalate: false, reason: 'greeting only' };
   return { reply, escalate: false, reason, sendCards, requisites };
 }

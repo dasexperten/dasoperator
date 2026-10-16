@@ -27,3 +27,9 @@ test('requisites become a payout only when complete and within 999 ₽', async (
   assert.equal(cleanRequisites({ amount_rub: 500, phone: '+7940 123 45 67', bank: 'Т-Банк', last_name: 'Хачатрян', first_name: 'Лиана' }), null);
   assert.equal(cleanRequisites({ amount_rub: 500, phone: '+79001112233', bank: 'Т-Банк', last_name: 'С', first_name: 'Екатерина' }), null);
 });
+
+test('menu jargon and «no face» never leave (Owner 2026-10-16)', () => {
+  assert.equal(guardReply('{"reply":"Хук: «Название обещает тепло» → чистка","escalate":false}').reply, null);
+  assert.equal(guardReply('{"reply":"Показывать лицо необязательно — руки тоже работают","escalate":false}').reply, null);
+  assert.equal(guardReply('{"reply":"Отличный выбор! Снимаете первую чистку пастой TERMO.","escalate":false}').reply, 'Отличный выбор! Снимаете первую чистку пастой TERMO.');
+});

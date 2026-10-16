@@ -26,11 +26,15 @@ analytics.get('/articles', async (c) => {
         },
         signal: AbortSignal.timeout(10000),
       });
-      if (!response.ok) throw new Error('Article source request failed');
+      if (!response.ok) {
+        console.warn(JSON.stringify({ event: 'articles_source_status', status: response.status }));
+        throw new Error('Article source request failed');
+      }
       return { rows: articlePlacements(await response.json()) };
     });
     return ok(c, data);
-  } catch {
+  } catch (error) {
+    console.warn(JSON.stringify({ event: 'articles_source_error', type: error instanceof Error ? error.name : 'Unknown' }));
     return fail(c, 502, [{ code: 'articles_unavailable', message: 'Unable to load articles.' }]);
   }
 });

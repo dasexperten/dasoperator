@@ -180,6 +180,15 @@
   main table.dx-keep-table.wa-articles-table tbody { display: table-row-group !important; }
   main table.dx-keep-table.wa-articles-table :is(th, td):first-child { position: static; width: 280px; min-width: 240px; max-width: 280px; white-space: normal; overflow-wrap: anywhere; }
 }
+@media (max-width: 600px) {
+  main table.dx-keep-table.wa-articles-table { min-width: 0; table-layout: fixed; }
+  main table.dx-keep-table.wa-articles-table :is(th, td) { padding-left: 8px !important; padding-right: 8px !important; }
+  main table.dx-keep-table.wa-articles-table :is(th, td):first-child { width: auto; min-width: 0; max-width: none; }
+  main table.dx-keep-table.wa-articles-table :is(th, td):nth-child(2) { width: 104px; }
+  main table.dx-keep-table.wa-articles-table :is(th, td):nth-child(4) { width: 60px; }
+  main table.dx-keep-table.wa-articles-table :is(th, td):nth-child(3),
+  main table.dx-keep-table.wa-articles-table :is(th, td):nth-child(5) { display: none; }
+}
 
 /* ---- Status pills ----------------------------------------------------------- */
 .wa-status {

@@ -2,7 +2,7 @@
 
 The Articles section lists published article placements from the organization ledger on `main`. Open `/analytics?section=articles` or choose Articles in Analytics.
 
-The table contains the article title, short placement service name, two-letter language code, one external link icon and placement date. The service and language filters combine. Both controls remain side by side on narrow screens. The five-column table scrolls within its panel on mobile.
+The table contains the article title, short placement service name, two-letter language code, one external link icon and placement date. The service and language filters combine. Both controls remain side by side on narrow screens. At widths up to600px the article, service and link remain visible together without swiping; language and date are hidden. Wider screens retain all five columns.
 
 `GET /api/analytics/articles` reads `dasexperten/organizacia/jobs/julian-brand-seeding/PLACEMENTS.json` through the existing server-side `ORG_SSOT_TOKEN`. The ledger remains the source of truth; ERP does not duplicate its records in D1. Responses contain only the five publication fields and are cached for 60 seconds. Timestamps use the Yerevan calendar day; date-only records keep their date. Vietnamese is displayed as VN.
 

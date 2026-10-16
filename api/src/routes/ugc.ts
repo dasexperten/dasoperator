@@ -7,6 +7,7 @@ import { baseProductSku, identifyExplicitProducts, initialProductClassification,
 import { annotateOverLimit, checkDailyLimit, compareByRecent, isFpsBankMemberId, isPayoutStatus, konsolPhone, latestActivityMs, maskPhone, maskPhoneWide, paidCounters, parsePayoutAmount, payoutDate, statusStampColumn } from '../lib/ugc-payouts.mjs';
 import { executeUgcPayout, refreshUgcPayout, ugcPayoutEvening } from '../lib/ugc-payout-store';
 import { profileAverages } from '../lib/ugc-profile-metrics.mjs';
+import { sourceRecordIndex } from '../lib/ugc-source-records.mjs';
 
 // Diana's creator statuses (Owner 2026-10-15, DH-LAW-261015-02): one English
 // word, at most 7 letters. Main path, then side statuses.
@@ -137,6 +138,10 @@ ugc.get('/', async (c) => {
        AND (?4 IS NULL OR EXISTS (
          SELECT 1 FROM ugc_content uc
          WHERE uc.creator_platform_id = p.id AND UPPER(COALESCE(uc.product_codes, '')) LIKE '%"' || ?4 || '%'
+       ) OR EXISTS (
+         SELECT 1 FROM ugc_source_records sr
+         WHERE sr.creator_platform_id = p.id AND sr.kind = 'product_reference'
+           AND UPPER(COALESCE(sr.product_codes, '')) LIKE '%"' || ?4 || '"%'
        ))
      ORDER BY COALESCE(p.followers, -1) DESC, COALESCE(c.display_name, p.handle) ASC
      LIMIT 1500`
@@ -153,6 +158,13 @@ ugc.get('/', async (c) => {
      ORDER BY COALESCE(published_at, '') DESC, imported_at DESC,
               source_sheet DESC, source_row DESC`
   ).all<Record<string, any>>();
+
+  const sourceRows = await c.env.DB.prepare(
+    `SELECT creator_id, creator_platform_id, kind, source_document, source_sheet,
+            source_row, source_text, amount_minor, product_codes, content_url
+     FROM ugc_source_records ORDER BY source_document, source_row`
+  ).all<Record<string, any>>();
+  const sourceIndex = sourceRecordIndex(sourceRows.results ?? []);
 
   const contentCounts = await c.env.DB.prepare(
     `SELECT creator_id, creator_platform_id, COUNT(*) content_count
@@ -264,6 +276,8 @@ ugc.get('/', async (c) => {
       commerce_currency: row.commerce_currency,
       metrics_as_of: row.metrics_as_of,
       source: row.source,
+      source_products: sourceIndex.products.get(String(row.profile_id)) ?? [],
+      source_product_labels: sourceIndex.productLabels.get(String(row.profile_id)) ?? [],
       content_count: metrics.content_count,
       content: metrics.content,
       updated_at: row.profile_updated_at,
@@ -287,6 +301,7 @@ ugc.get('/', async (c) => {
       profiles: [],
       collaboration: latestCollaboration.get(creatorId) ?? null,
       payout: creatorPayouts[0] ?? null,
+      payment_register: sourceIndex.payments.get(creatorId) ?? [],
       payouts: creatorPayouts.slice(0, 20),
       paid_total_minor: creatorPayouts.filter((item) => item.status === 'paid' && item.konsol_payment_id).reduce((sum, item) => sum + Number(item.amount_minor || 0), 0),
       last_activity_at: latestActivityMs({
@@ -337,6 +352,10 @@ ugc.get('/', async (c) => {
     let codes: string[] = [];
     try { const parsed = JSON.parse(String(row.product_codes ?? '[]')); if (Array.isArray(parsed)) codes = parsed.map(String); } catch { /* raw evidence remains in DB */ }
     for (const match of identifyExplicitProducts(codes).matches) productCounts.set(match.sku, (productCounts.get(match.sku) ?? 0) + 1);
+  }
+
+  for (const list of sourceIndex.products.values()) {
+    for (const match of list) productCounts.set(match.sku, (productCounts.get(match.sku) ?? 0) + 1);
   }
 
   // Default order: most recent activity first (Owner 2026-10-14).

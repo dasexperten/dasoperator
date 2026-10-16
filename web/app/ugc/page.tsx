@@ -25,6 +25,8 @@ type PlatformMetric = {
   commerce_orders: number | null;
   content_count: number;
   content: ContentObservation[];
+  source_products?: ProductMatch[];
+  source_product_labels?: { name: string }[];
   metrics_as_of: string | null;
 };
 
@@ -99,6 +101,7 @@ type Payout = {
 };
 
 type PaidCount = { count: number; minor: number; day: string };
+type RegisterRecord = { amount_minor: number; source_document: string; source_sheet: string; source_row: number };
 
 type Creator = {
   id: string;
@@ -116,6 +119,7 @@ type Creator = {
   profiles: PlatformMetric[];
   collaboration: Collaboration | null;
   payout?: Payout | null;
+  payment_register?: RegisterRecord[];
   payouts?: Payout[];
   paid_total_minor?: number;
   last_activity_at?: number | null;
@@ -210,6 +214,20 @@ function OriginMark({ origin }: { origin?: string | null }) {
 // goes to POST /api/ugc/payouts/:id/execute. Nothing pays without that click.
 type PayApi = { isAdmin: boolean; busy: ReadonlySet<string>; errors: Readonly<Record<string, string>>; pay: (payout: Payout) => void };
 const PayContext = createContext<PayApi>({ isAdmin: false, busy: new Set(), errors: {}, pay: () => undefined });
+
+function RegisterAmounts({ records }: { records: RegisterRecord[] }) {
+  const total = records.reduce((sum, row) => sum + row.amount_minor, 0);
+  const title = `Итог ${records.length} строк реестра «Оплаты Консоль», включая повторы по указанию владельца. Исполнение старых переводов не подтверждено.`;
+  return <span className="ugc-payout-cell" title={title}>
+    <span className="ugc-payout" data-tone="grey">{formatRub(total)}</span>
+    <span className="ugc-payout-reason">по реестру</span>
+  </span>;
+}
+
+function CreatorPayment({ creator }: { creator: Creator }) {
+  if (creator.payout || !creator.payment_register?.length) return <PayoutBadge payout={creator.payout} />;
+  return <RegisterAmounts records={creator.payment_register} />;
+}
 
 function PayoutBadge({ payout }: { payout: Payout | null | undefined }) {
   const cell = payoutCell(payout);
@@ -671,7 +689,7 @@ export default function UgcPage() {
               <span title={`Подписчики: ${profile.followers ?? 'нет данных'}`}>{formatCount(profile.followers)}</span>
               <span title={`ER: ${profile.engagement_rate ?? 'нет данных'}`}>{formatRate(profile.engagement_rate)}</span>
               <span title={`Просмотры: ${views ?? 'нет данных'}`}>{formatCount(views)}</span>
-              <span className="ugc-mobile-pay"><PayoutBadge payout={creator.payout} /></span>
+              <span className="ugc-mobile-pay"><CreatorPayment creator={creator} /></span>
             </div>;
           })}
         </div>
@@ -691,7 +709,7 @@ export default function UgcPage() {
             {loading ? <tr><td colSpan={9} className="p-10 text-center"><Loader2 className="h-6 w-6 animate-spin inline-block" /> <span className="ml-2">Загрузка…</span></td></tr> : creators.length === 0 ? <tr><td colSpan={9} className="p-10 text-center" style={{ color: 'var(--fg-2)' }}><Users className="h-7 w-7 mx-auto mb-2" />Никого не найдено.</td></tr> : creators.map((creator) => {
               const profile = primaryProfile(creator, platform);
               const linked = linkedContent(profile);
-              const products = Array.from(new Map(profile.content.flatMap((item) => item.products).map((item) => [item.sku, item])).values());
+              const products = Array.from(new Map([...profile.content.flatMap((item) => item.products), ...(profile.source_products ?? [])].map((item) => [item.sku, item])).values());
               const handle = profile.handle ? `@${profile.handle}` : null;
               const name = handle ?? creator.display_name ?? 'Автор';
               // Name and city after the handle (Owner 2026-10-16: «Город нужен, город обязательно»).
@@ -702,8 +720,8 @@ export default function UgcPage() {
                 <td className="ugc-c-num" title={profile.followers == null ? 'Нет данных' : `${profile.followers}`}>{formatCount(profile.followers)}</td>
                 <td className="ugc-c-num" title={profile.engagement_rate == null ? 'Нет данных' : `${profile.engagement_rate}%`}>{formatRate(profile.engagement_rate)}</td>
                 <td className="ugc-c-num" title={creator.last_activity_at ? new Date(creator.last_activity_at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : 'Нет данных'}>{formatActivity(creator.last_activity_at)}</td>
-                <td className="ugc-c-num ugc-c-pay"><PayoutBadge payout={creator.payout} /></td>
-                <td className="ugc-c-product ugc-sec-2">{products.length ? <div className="ugc-pills" title={products.map((item) => `${compactProductCode(item.sku)} · ${item.name}`).join('\n')}>{products.slice(0, PRODUCT_PILLS).map((item) => <span key={`${item.sku}-${item.raw_offer_id}`} className="ugc-pill">{compactProductCode(item.sku)}</span>)}</div> : <span className="ugc-muted">{profile.content.some((item) => item.product_status === 'queued') ? 'В очереди' : 'Не определён'}</span>}</td>
+                <td className="ugc-c-num ugc-c-pay"><CreatorPayment creator={creator} /></td>
+                <td className="ugc-c-product ugc-sec-2">{products.length || profile.source_product_labels?.length ? <div className="ugc-pills" title={[...products.map((item) => `${compactProductCode(item.sku)} · ${item.name}${item.source === 'blogger_database' ? ' · база блогеров' : ''}`), ...(profile.source_product_labels ?? []).map((item) => `${item.name} · название из базы, тип не указан`)].join('\n')}>{products.slice(0, PRODUCT_PILLS).map((item) => <span key={`${item.sku}-${item.raw_offer_id}`} className="ugc-pill">{compactProductCode(item.sku)}</span>)}{profile.source_product_labels?.map((item) => <span key={item.name} className="ugc-pill">{item.name}</span>)}</div> : <span className="ugc-muted">{profile.content.some((item) => item.product_status === 'queued') ? 'В очереди' : 'Не определён'}</span>}</td>
                 <td className="ugc-c-media ugc-sec-3" aria-label={`${profile.content_count} публикаций`}>{linked.length ? <div className="ugc-media">{linked.slice(0, CONTENT_ICONS).map(({ item, href }, index) => <Publication key={item.id} item={item} href={href} more={index === CONTENT_ICONS - 1 ? linked.length - CONTENT_ICONS : 0} />)}</div> : <span className="ugc-muted">—</span>}</td>
                 <td className="ugc-c-next ugc-sec-1" title={creator.collaboration?.next_action || undefined}><button type="button" onClick={() => setSelectedId(creator.id)} className="ugc-stage ugc-stage-btn focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" data-stage={creator.lifecycle_stage} aria-label={`Карточка автора · ${creator.lifecycle_stage}`}>{creator.lifecycle_stage}</button></td>
               </tr>;
@@ -751,6 +769,22 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
     {creator.payouts?.length ? <section className="space-y-2" aria-labelledby={`payouts-${creator.id}`}>
       <div className="flex items-end justify-between gap-3"><div><div className="dx-eyebrow">Barter refunds</div><h3 id={`payouts-${creator.id}`} className="mt-1 text-xl font-extrabold">Оплата</h3></div><div className="text-sm tabular-nums" style={{ color: 'var(--fg-2)' }}>Paid {formatRub(creator.paid_total_minor ?? 0)}</div></div>
       <div className="grid gap-2">{creator.payouts.map((item) => <div key={item.id} className="p-3 flex items-center justify-between gap-3" style={{ background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)' }}><PayoutBadge payout={item} /><span className="text-xs" style={{ color: 'var(--fg-3)' }}>{item.status === 'awaiting_approval' || item.status === 'approved' ? 'В очереди' : item.payout_date}</span></div>)}</div>
+    </section> : null}
+    {creator.payment_register?.length ? <section className="space-y-2">
+      <h3 className="text-xl font-extrabold">Исторический реестр</h3>
+      <RegisterAmounts records={creator.payment_register} />
+      <p className="text-sm" style={{ color: 'var(--fg-2)' }}>Общий итог строк, включая повторы. Исполнение переводов по этим записям не подтверждено.</p>
+      <details><summary className="cursor-pointer">Строки реестра ({creator.payment_register.length})</summary>
+        <ul>{creator.payment_register.map((row) => <li key={`${row.source_document}-${row.source_row}`}><a className="underline" target="_blank" rel="noopener noreferrer" href={`https://docs.google.com/spreadsheets/d/${row.source_document}/edit#gid=0&range=H${row.source_row}`}>Строка {row.source_row}: {formatRub(row.amount_minor)}</a></li>)}</ul>
+      </details>
+    </section> : null}
+    {creator.profiles.some((profile) => profile.source_products?.length || profile.source_product_labels?.length) ? <section className="space-y-2">
+      <h3 className="text-xl font-extrabold">Продукты из базы блогеров</h3>
+      {creator.profiles.filter((profile) => profile.source_products?.length || profile.source_product_labels?.length).map((profile) => <div key={profile.id}>
+        <p className="text-sm">{profile.platform} · @{profile.handle}</p>
+        <div className="ugc-pills">{profile.source_products?.map((product) => <span key={product.sku} className="ugc-pill" title={product.name}>{compactProductCode(product.sku)} · {product.name}</span>)}{profile.source_product_labels?.map((product) => <span key={product.name} className="ugc-pill">{product.name} · тип не указан</span>)}</div>
+      </div>)}
+      <p className="text-sm" style={{ color: 'var(--fg-2)' }}>История аккаунта из поля LAST_PRODUCT. Состав каждого отдельного ролика проверяется отдельно.</p>
     </section> : null}
     <section className="space-y-3" aria-labelledby={`content-history-${creator.id}`}>
       <div className="flex items-end justify-between gap-3"><div><div className="dx-eyebrow">Content evidence</div><h3 id={`content-history-${creator.id}`} className="mt-1 text-xl font-extrabold">Publication history</h3></div><div className="text-sm tabular-nums" style={{ color: 'var(--fg-2)' }}>{content.length} observations</div></div>

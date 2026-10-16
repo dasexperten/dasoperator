@@ -11,9 +11,9 @@ test('rolls explicit bundle offers up to canonical DETOX and NANO MASSAGE', () =
 });
 
 test('never guesses an unrecognized explicit code', () => {
-  const result = identifyExplicitProducts(['DE3', 'DE123AAAA']);
+  const result = identifyExplicitProducts(['DE3', 'DE999AAAA']);
   assert.equal(result.matches.length, 0);
-  assert.deepEqual(result.unknown_codes, ['DE3', 'DE123AAAA']);
+  assert.deepEqual(result.unknown_codes, ['DE3', 'DE999AAAA']);
   assert.deepEqual(initialProductClassification(['DE3'], true), { status: 'unknown', source: 'explicit_import', confidence: null, evidence: 'DE3' });
 });
 

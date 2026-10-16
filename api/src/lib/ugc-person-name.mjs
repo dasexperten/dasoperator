@@ -134,3 +134,32 @@ export function bloggerName(profileName, handle) {
   if (initial && fromHandle.startsWith(initial)) return `${fromHandle} ${fromProfile}`;
   return fromProfile;
 }
+
+const REGION_WORD = /^(республик|област|обл$|край|края|район|р-н|округ|ао$)/i;
+
+/**
+ * City from a short answer to «из какого вы города?»: «Реутов Московская область» →
+ * «Реутов», «Республика Крым, г. Симферополь» → «Симферополь», «Из Махачкалы» →
+ * «Махачкала». A region alone («Республика Дагестан») gives ''.
+ */
+export function replyCity(text) {
+  const t = String(text ?? '').trim();
+  if (!t || t.length > 80 || /https?:/i.test(t)) return '';
+  const segments = t.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
+  // A segment marked «г.» / «город» is the city; otherwise the first one that is not a region.
+  const marked = segments.find((x) => /(^|\s)(г\.|город\s)/i.test(x));
+  for (const segment of marked ? [marked] : segments) {
+    const words = segment.replace(/(^|\s)(г\.|город|из|в|с)(?=\s|$|\p{Lu})/giu, ' ').split(/\s+/).map((w) => w.replace(/[^\p{L}-]/gu, '')).filter(Boolean);
+    if (!words.length || words.some((w) => REGION_WORD.test(w))) {
+      const before = [];
+      for (const w of words) { if (REGION_WORD.test(w)) break; before.push(w); }
+      // «Реутов Московская область»: the town comes before the region's adjective.
+      if (before.length >= 2) { const known = cityOf(before[0]); return known || title(before[0]); }
+      continue;
+    }
+    const known = cityOf(words.join(' '));
+    if (known) return known;
+    if (words.length <= 2 && /^\p{Lu}/u.test(words[0]) && !REGIONS.has(words[0].toLocaleLowerCase('ru'))) return words.map(title).join(' ');
+  }
+  return '';
+}

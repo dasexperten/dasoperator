@@ -429,7 +429,13 @@ export async function handleScheduled(
         const refreshed = await ugcPayoutSweep(e);
         return { ok: true, activity: refreshed > 0, refreshed };
       }),
-      runAdaptiveLane(env, 'ig_dm', igDmWatch),
+      // Read, then answer (Owner 2026-10-16: «It should work automatically by itself»).
+      runAdaptiveLane(env, 'ig_dm', async (e) => {
+        const read = await igDmWatch(e);
+        const { igDmReply } = await import('./lib/ig-dm-reply');
+        const answered = await igDmReply(e).catch((err) => ({ replied: 0, escalated: 0, errors: 1, error: String(err) }));
+        return { ...read, ...answered, activity: read.activity || answered.replied > 0 };
+      }),
     ])) console.log(`[cron:adaptive] ${line}`);
     // Evening UGC payout summary to the Owner (Owner 2026-10-15): a message, never a
     // payment. The erp-ugc-payout-summary timer has no run key yet, so the ERP starts

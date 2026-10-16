@@ -7,7 +7,7 @@ import { baseProductSku, identifyExplicitProducts, initialProductClassification,
 import { annotateMissingInfo, annotateOverLimit, checkDailyLimit, missingInfo, compareByRecent, isFpsBankMemberId, isPayoutStatus, konsolPhone, latestActivityMs, maskPhone, maskPhoneWide, paidCounters, parsePayoutAmount, payoutDate, statusStampColumn } from '../lib/ugc-payouts.mjs';
 import { executeUgcPayout, refreshUgcPayout, ugcPayoutEvening } from '../lib/ugc-payout-store';
 import { profileAverages } from '../lib/ugc-profile-metrics.mjs';
-import { sourceRecordIndex } from '../lib/ugc-source-records.mjs';
+import { identifySourceProductNames, payoutProductRecords, publicationProductLabels, sourceProductLabels, sourceRecordIndex } from '../lib/ugc-source-records.mjs';
 
 // Diana's creator statuses (Owner 2026-10-15, DH-LAW-261015-02): one English
 // word, at most 7 letters. Main path, then side statuses.
@@ -30,6 +30,7 @@ type ImportRow = {
   views?: unknown;
   comments?: unknown;
   product_codes?: unknown;
+  product_text?: unknown;
   usage_label?: unknown;
   source_rating?: unknown;
   source_valid?: unknown;
@@ -135,17 +136,9 @@ ugc.get('/', async (c) => {
      WHERE (?1 IS NULL OR p.platform = ?1)
        AND (?2 = '' OR LOWER(COALESCE(c.display_name, '') || ' ' || p.handle) LIKE '%' || ?2 || '%')
        AND (?3 IS NULL OR c.lifecycle_stage = ?3)
-       AND (?4 IS NULL OR EXISTS (
-         SELECT 1 FROM ugc_content uc
-         WHERE uc.creator_platform_id = p.id AND UPPER(COALESCE(uc.product_codes, '')) LIKE '%"' || ?4 || '%'
-       ) OR EXISTS (
-         SELECT 1 FROM ugc_source_records sr
-         WHERE sr.creator_platform_id = p.id AND sr.kind = 'product_reference'
-           AND UPPER(COALESCE(sr.product_codes, '')) LIKE '%"' || ?4 || '"%'
-       ))
      ORDER BY COALESCE(p.followers, -1) DESC, COALESCE(c.display_name, p.handle) ASC
      LIMIT 1500`
-  ).bind(usePlatform, search, stage, product).all<Record<string, any>>();
+  ).bind(usePlatform, search, stage).all<Record<string, any>>();
 
   const metricRows = await c.env.DB.prepare(
     `SELECT id, creator_id, creator_platform_id, content_url, content_type,
@@ -164,7 +157,6 @@ ugc.get('/', async (c) => {
             source_row, source_text, amount_minor, product_codes, content_url
      FROM ugc_source_records ORDER BY source_document, source_row`
   ).all<Record<string, any>>();
-  const sourceIndex = sourceRecordIndex(sourceRows.results ?? []);
 
   const contentCounts = await c.env.DB.prepare(
     `SELECT creator_id, creator_platform_id, COUNT(*) content_count
@@ -194,6 +186,7 @@ ugc.get('/', async (c) => {
     ).all<Record<string, any>>();
     payoutRows = annotateMissingInfo(annotateOverLimit(result.results ?? []));
   } catch { /* table not yet migrated */ }
+  const sourceIndex = sourceRecordIndex([...(sourceRows.results ?? []), ...payoutProductRecords(payoutRows)]);
   const payoutsByCreator = new Map<string, Record<string, any>[]>();
   for (const row of payoutRows) {
     const list = payoutsByCreator.get(String(row.creator_id)) ?? [];
@@ -230,7 +223,8 @@ ugc.get('/', async (c) => {
       metrics_checked_at: row.metrics_checked_at,
       comments: row.comments,
       product_codes: productCodes,
-      products: productIdentity.matches,
+      products: productIdentity.matches.map((match) => ({ ...match, source: row.product_source ?? match.source })),
+      product_labels: publicationProductLabels(row.product_evidence),
       unknown_product_codes: productIdentity.unknown_codes,
       source_sheet: row.source_sheet,
       source_row: row.source_row,
@@ -280,12 +274,19 @@ ugc.get('/', async (c) => {
       metrics_as_of: row.metrics_as_of,
       source: row.source,
       source_products: sourceIndex.products.get(String(row.profile_id)) ?? [],
-      source_product_labels: sourceIndex.productLabels.get(String(row.profile_id)) ?? [],
+      source_product_labels: Array.from(new Map([
+        ...(sourceIndex.productLabels.get(String(row.profile_id)) ?? []),
+        ...metrics.content.flatMap((item) => Array.isArray(item.product_labels) ? item.product_labels : []),
+      ].map((label: any) => [label.name, label])).values()),
       content_count: metrics.content_count,
       content: metrics.content,
       updated_at: row.profile_updated_at,
     };
     const creatorId = String(row.creator_id);
+    // Filter against the same evidence shown in the table, including products
+    // explicitly entered on a payout. No publication inherits an account order.
+    if (product && !profile.source_products.some((p: any) => p.sku === product)
+      && !profile.content.some((item: any) => item.products.some((p: any) => p.sku === product))) continue;
     const creatorPayouts = payoutsByCreator.get(creatorId) ?? [];
     const creator = creators.get(creatorId) ?? {
       id: creatorId,
@@ -487,10 +488,19 @@ ugc.post('/import', async (c) => {
       || row.usage_label != null || row.source_rating != null || row.audio_label != null;
     if (hasContent && sourceRow != null) {
       const contentId = await stableId('ugcc', `${sourceWorkbook}:${sourceSheet}:${sourceRow}`);
-      const products = Array.isArray(row.product_codes)
+      const rawProducts = Array.isArray(row.product_codes)
         ? row.product_codes.map((value) => textValue(value, 60)).filter(Boolean)
         : [];
+      const productText = textValue(row.product_text, 2000);
+      const products = [...new Set([...rawProducts, ...identifySourceProductNames(productText)])];
       const productClassification = initialProductClassification(products, Boolean(textValue(row.content_url, 1000)));
+      const labels = sourceProductLabels(productText, identifyExplicitProducts(products).matches.map((p) => p.sku));
+      if (productText) {
+        productClassification.evidence = JSON.stringify({ source_document: sourceWorkbook, source_sheet: sourceSheet, source_row: sourceRow, source_text: productText, labels });
+        if (labels.length && productClassification.status !== 'identified') {
+          productClassification.status = 'unknown'; productClassification.source = 'explicit_import';
+        }
+      }
       statements.push(c.env.DB.prepare(
         `INSERT INTO ugc_content
            (id, creator_id, creator_platform_id, content_url, content_type, views,

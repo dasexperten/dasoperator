@@ -48,6 +48,7 @@ type ContentObservation = {
   link_final_url: string | null;
   link_check_note: string | null;
   products: ProductMatch[];
+  product_labels?: { name: string }[];
   unknown_product_codes: string[];
   product_status: 'identified' | 'queued' | 'unknown' | null;
   product_source: 'explicit_import' | 'metadata_text' | 'vision' | 'manual' | null;
@@ -342,10 +343,13 @@ function LinkHealth({ item, compact = false }: { item: ContentObservation; compa
 }
 
 function ProductEvidence({ item }: { item: ContentObservation }) {
-  if (item.products.length) return <div className="flex flex-nowrap items-center gap-2">{item.products.map((product) => <span key={`${product.sku}-${product.raw_offer_id}`} title={`${product.name} · ${product.raw_offer_id} · ${product.source} · confidence ${product.confidence}`} className="px-2 py-1 text-xs font-bold" style={{ color: 'var(--brand-schwarz)', background: 'var(--brand-gold)', borderRadius: 'var(--radius-pill)' }}>{compactProductCode(product.sku)}</span>)}<span className="text-xs" style={{ color: 'var(--status-success)' }}>Confirmed from explicit product field</span></div>;
-  if (item.unknown_product_codes.length) return <div className="text-xs" style={{ color: 'var(--status-warning)' }}>Unknown product code: {item.unknown_product_codes.join(', ')} · needs review</div>;
-  if (item.product_status === 'queued') return <div className="text-xs" style={{ color: 'var(--fg-3)' }}>Product identification queued · no explicit product evidence</div>;
-  return <div className="text-xs" style={{ color: 'var(--fg-3)' }}>Product unknown</div>;
+  if (item.product_labels?.length) return <div className="flex flex-wrap gap-2">{item.products.map((product) => <span key={product.sku} className="ugc-pill">{compactProductCode(product.sku)} · {product.name}</span>)}{item.product_labels.map((label) => <span key={label.name} className="ugc-pill">{label.name} · тип не указан</span>)}</div>;
+  if (item.products.length) return <div className="flex flex-wrap items-center gap-2">{item.products.map((product) => <span key={`${product.sku}-${product.raw_offer_id}`} title={product.name} className="ugc-pill">{compactProductCode(product.sku)} · {product.name}</span>)}<span className="text-xs" style={{ color: 'var(--status-success)' }}>{item.product_source === 'metadata_text' ? 'По описанию публикации' : 'По товарному полю источника'}</span></div>;
+  if (item.unknown_product_codes.length) return <div className="text-xs" style={{ color: 'var(--status-warning)' }}>Неизвестный код товара: {item.unknown_product_codes.join(', ')}</div>;
+  if (item.product_status === 'queued') return <div className="text-xs" style={{ color: 'var(--fg-3)' }}>Товар ещё не определён</div>;
+  let result: string | undefined;
+  try { result = JSON.parse(item.product_evidence ?? '{}').result; } catch { /* legacy evidence */ }
+  return <div className="text-xs" style={{ color: 'var(--fg-3)' }}>{result === 'unavailable' ? 'Публикация недоступна; товар не определён' : result === 'no_product_match' ? 'В описании нет точного товара' : 'В источнике товар не указан'}</div>;
 }
 
 // «Оплачено сегодня / вчера» (Owner 2026-10-15): only payouts executed in Konsol.
@@ -784,12 +788,12 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
       </div>)}
     </section> : null}
     {creator.profiles.some((profile) => profile.source_products?.length || profile.source_product_labels?.length) ? <section className="space-y-2">
-      <h3 className="text-xl font-extrabold">Продукты из базы блогеров</h3>
+      <h3 className="text-xl font-extrabold">Продукты по записям аккаунта</h3>
       {creator.profiles.filter((profile) => profile.source_products?.length || profile.source_product_labels?.length).map((profile) => <div key={profile.id}>
         <p className="text-sm">{profile.platform} · @{profile.handle}</p>
         <div className="ugc-pills">{profile.source_products?.map((product) => <span key={product.sku} className="ugc-pill" title={product.name}>{compactProductCode(product.sku)} · {product.name}</span>)}{profile.source_product_labels?.map((product) => <span key={product.name} className="ugc-pill">{product.name} · тип не указан</span>)}</div>
       </div>)}
-      <p className="text-sm" style={{ color: 'var(--fg-2)' }}>История аккаунта из товарных полей базы блогеров. Состав каждого отдельного ролика проверяется отдельно.</p>
+      <p className="text-sm" style={{ color: 'var(--fg-2)' }}>Товарные поля базы блогеров и записей выплат. Для каждой публикации используются её собственные данные.</p>
     </section> : null}
     <section className="space-y-3" aria-labelledby={`content-history-${creator.id}`}>
       <div className="flex items-end justify-between gap-3"><div><div className="dx-eyebrow">Content evidence</div><h3 id={`content-history-${creator.id}`} className="mt-1 text-xl font-extrabold">Publication history</h3></div><div className="text-sm tabular-nums" style={{ color: 'var(--fg-2)' }}>{content.length} observations</div></div>
@@ -800,7 +804,7 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
           {href && <a title={item.content_url || undefined} href={href} target="_blank" rel="noopener noreferrer" className="min-h-11 ugc-content-url block text-sm underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" style={{ color: 'var(--brand-rot)' }}>{item.content_url}</a>}
           <ProductEvidence item={item} />
           {href && <LinkHealth item={item} />}
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm" style={{ color: 'var(--fg-2)' }}><span>{formatNumber(item.views)} views</span><span>{formatNumber(item.likes ?? null)} likes</span><span>{formatNumber(item.comments)} comments</span><span>{item.product_codes.length ? item.product_codes.join(', ') : 'No products recorded'}</span></div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm" style={{ color: 'var(--fg-2)' }}><span>{formatNumber(item.views)} views</span><span>{formatNumber(item.likes ?? null)} likes</span><span>{formatNumber(item.comments)} comments</span><span>{item.product_codes.length ? item.product_codes.join(', ') : item.product_labels?.length ? item.product_labels.map((p) => p.name).join(', ') : 'Товар не указан в источнике'}</span></div>
         </article>;
       })}</div> : <div className="min-h-20 p-4 flex items-center gap-3" style={{ color: 'var(--fg-2)', background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)' }}><Link2Off className="h-5 w-5" />No content observations recorded.</div>}
     </section>

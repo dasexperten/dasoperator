@@ -9,6 +9,7 @@ export type UgcImportRow = {
   views?: number | null;
   comments?: number | null;
   product_codes?: string[];
+  product_text?: string | null;
   usage_label?: string | null;
   source_rating?: number | null;
   source_valid?: string | null;
@@ -96,6 +97,7 @@ export async function parseUgcWorkbook(buffer: ArrayBuffer, workbookName: string
         display_name: text(row[11]),
         source_valid: text(row[12]),
         product_codes: products,
+        product_text: text(row[18]),
         audio_label: text(row[19]),
         download_url: text(row[20]),
         source_workbook: workbookName,

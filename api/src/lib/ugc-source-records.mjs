@@ -14,7 +14,7 @@ export function identifySourceProductNames(value) {
   const codes = new Set(text.match(/\bDE\d{3}\b/g) ?? []);
   for (const [pattern, sku] of [
     [/\bSYMBIOS\b/, 'DE206'], [/\bDETOX\b/, 'DE202'], [/\bGINGER\s+FORCE\b/, 'DE203'],
-    [/\bCOCOCANNABIS\b/, 'DE205'], [/\bINNOWEIS{1,2}\b.*(?:ПАСТА|TOOTHPASTE)/, 'DE210'], [/\bTHERMO\b/, 'DE209'],
+    [/\bCOCOCANNABIS\b/, 'DE205'], [/\bINNOWEIS{1,2}\b.*(?:ПАСТА|TOOTHPASTE)/, 'DE210'], [/\b(?:THERMO|TERMO)\b/, 'DE209'],
     [/\bNANO\s+MASSAGE\b/, 'DE120'], [/\bMITTEL\b/, 'DE107'], [/\bINTENSIV\b/, 'DE130'],
     [/\bKRAFT\b/, 'DE116'], [/\bAKTIV\b/, 'DE122'], [/\bBIO\b/, 'DE123'], [/\bZUNGER\b/, 'DE114'],
     [/\bKINDER\s*3\s*\+/, 'DE108'], [/\bKINDER\s*1\s*\+/, 'DE118'],
@@ -30,11 +30,49 @@ export function identifySourceProductNames(value) {
   return identifyExplicitProducts([...codes]).matches.map((p) => p.sku);
 }
 
+export function sourceProductLabels(value, codes = []) {
+  const text = String(value ?? '').toUpperCase();
+  return [
+    [/INNOWEIS{1,2}/, 'INNOWEISS', ['DE210', 'DE310']],
+    [/SCHWAR[T]?Z/, 'SCHWARZ', ['DE201', 'DE105', 'DE115']],
+  ].filter(([pattern, , related]) => pattern.test(text) && !related.some((sku) => codes.includes(sku)))
+    .map(([, name]) => ({ name }));
+}
+
+export function publicationProductLabels(evidence) {
+  try {
+    const parsed = JSON.parse(evidence ?? '{}');
+    return Array.isArray(parsed.labels) ? parsed.labels.filter((label) => ['INNOWEISS', 'SCHWARZ'].includes(label?.name)) : [];
+  } catch { return []; }
+}
+
+export function payoutProductRecords(payouts) {
+  return payouts.filter((p) => p.creator_platform_id && p.product).map((p) => ({
+    creator_id: p.creator_id, creator_platform_id: p.creator_platform_id,
+    kind: 'product_reference', source_document: `ugc_payout:${p.id}`,
+    source_sheet: 'product', source_row: 0, source_text: p.product,
+    product_codes: JSON.stringify(identifySourceProductNames(p.product)),
+  }));
+}
+
 export function sourceRecordIndex(rows) {
   const payments = new Map();
   const paymentSources = new Map();
   const products = new Map();
   const productLabels = new Map();
+  const resolvedAtUrl = new Map();
+  const urlKey = (profile, value) => {
+    try { const u = new URL(value); const media = /instagram\.com$/.test(u.hostname) ? /^\/(?:p|reel|reels)\/([^/]+)/.exec(u.pathname)?.[1] : null; return `${profile}:${media ?? `${u.hostname}${u.pathname.replace(/\/$/, '')}`}`; } catch { return null; }
+  };
+  for (const row of rows) {
+    if (row.kind !== 'product_reference' || !row.creator_platform_id) continue;
+    const key = urlKey(row.creator_platform_id, row.content_url);
+    if (!key) continue;
+    try {
+      const codes = JSON.parse(row.product_codes ?? '[]');
+      if (Array.isArray(codes)) resolvedAtUrl.set(key, [...(resolvedAtUrl.get(key) ?? []), ...identifyExplicitProducts(codes).matches.map((p) => p.sku)]);
+    } catch { /* malformed source cannot resolve a family */ }
+  }
   for (const row of rows) {
     const evidence = { source_document: row.source_document, source_sheet: row.source_sheet, source_row: row.source_row, source_text: row.source_text, content_url: row.content_url };
     if (row.kind === 'payment_register' && row.amount_minor != null && Number(row.amount_minor) >= 0) {
@@ -48,16 +86,12 @@ export function sourceRecordIndex(rows) {
       if (!Array.isArray(codes)) codes = [];
       const list = products.get(row.creator_platform_id) ?? [];
       for (const match of identifyExplicitProducts(Array.isArray(codes) ? codes : []).matches) {
-        if (!list.some((p) => p.sku === match.sku)) list.push({ ...match, source: 'blogger_database', evidence });
+        if (!list.some((p) => p.sku === match.sku)) list.push({ ...match, source: String(row.source_document).startsWith('ugc_payout:') ? 'payout_record' : String(row.source_document).startsWith('instagram:') ? 'metadata_text' : 'blogger_database', evidence });
       }
       products.set(row.creator_platform_id, list);
       const labels = productLabels.get(row.creator_platform_id) ?? [];
-      const text = String(row.source_text ?? '').toUpperCase();
-      for (const [pattern, label, related] of [
-        [/INNOWEIS{1,2}/, 'INNOWEISS', ['DE210', 'DE310']],
-        [/SCHWAR[T]?Z/, 'SCHWARZ', ['DE201', 'DE105', 'DE115']],
-      ]) {
-        if (pattern.test(text) && !related.some((sku) => codes.includes(sku)) && !labels.some((item) => item.name === label)) labels.push({ name: label, evidence });
+      for (const label of sourceProductLabels(row.source_text, [...codes, ...(resolvedAtUrl.get(urlKey(row.creator_platform_id, row.content_url)) ?? [])])) {
+        if (!labels.some((item) => item.name === label.name)) labels.push({ ...label, evidence });
       }
       productLabels.set(row.creator_platform_id, labels);
     }

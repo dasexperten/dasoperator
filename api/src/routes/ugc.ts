@@ -256,15 +256,18 @@ ugc.get('/', async (c) => {
   // Only unresolved incidents for the current incoming message are shown.
   const incidents = await c.env.DB.prepare(`
     WITH latest AS (SELECT conversation_id, MAX(created_at) at FROM ugc_ig_messages GROUP BY conversation_id)
-    SELECT state.value FROM crm_sync_state state
+    SELECT state.value,
+      COALESCE((SELECT p.creator_id FROM ugc_creator_platforms p WHERE p.platform='instagram' AND p.normalized_handle=json_extract(state.value,'$.handle') LIMIT 1),
+        (SELECT p.creator_id FROM ugc_creator_platforms p WHERE p.platform='other' AND p.normalized_handle=json_extract(state.value,'$.handle') AND p.profile_url LIKE '%instagram.com/%' LIMIT 1)) creator_id
+    FROM crm_sync_state state
       JOIN latest ON state.key='ig_reply_escalated:'||latest.conversation_id
       JOIN ugc_ig_messages m ON m.conversation_id=latest.conversation_id AND m.created_at=latest.at
     WHERE m.direction='in' AND json_valid(state.value) AND json_extract(state.value,'$.at')=latest.at
-  `).all<{value: string}>();
-  const attentionByHandle = new Map<string, ReturnType<typeof replyAttention>>();
+  `).all<{value: string; creator_id: string | null}>();
+  const attentionByCreator = new Map<string, ReturnType<typeof replyAttention>>();
   for (const row of incidents.results ?? []) {
     const state = readReplyState(row.value);
-    if (state?.handle) attentionByHandle.set(state.handle.toLowerCase(), replyAttention(state));
+    if (state && row.creator_id) attentionByCreator.set(row.creator_id, replyAttention(state));
   }
 
   const creators = new Map<string, Record<string, any>>();
@@ -308,7 +311,7 @@ ugc.get('/', async (c) => {
       normalized_handle: row.creator_handle,
       display_name: row.display_name,
       city: row.city ?? null,
-      attention: attentionByHandle.get(String(row.creator_handle).toLowerCase()) ?? null,
+      attention: attentionByCreator.get(creatorId) ?? null,
       category: row.category,
       audience_market: row.audience_market,
       audience_language: row.audience_language,

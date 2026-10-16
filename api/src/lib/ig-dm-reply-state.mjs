@@ -1,5 +1,5 @@
 // A failed Direct step is pending work, never a handled incoming message.
-const TECHNICAL = new Set(['unparsable', 'too long', 'promises payment', 'claims money sent, not paid in ERP', 'menu jargon in a reply', 'says face is optional', 'scenario outside active menu', 'provider_error', 'payout_registration_failed', 'conversation_check_failed', 'send_failed']);
+const TECHNICAL = new Set(['unparsable', 'too long', 'promises payment', 'claims money sent, not paid in ERP', 'menu jargon in a reply', 'says face is optional', 'scenario outside active menu', 'provider_error', 'payout_registration_failed', 'creator_registration_failed', 'conversation_check_failed', 'send_failed']);
 export const RETRY_DELAY_MS = 5 * 60_000;
 export const MAX_REPLY_ATTEMPTS = 3;
 

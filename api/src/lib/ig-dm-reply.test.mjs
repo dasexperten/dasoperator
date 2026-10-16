@@ -36,7 +36,7 @@ function fixture() {
   },async first(){
     if(sql.includes('SELECT value'))return states.has(p[0])?{value:states.get(p[0])}:null;
     if(sql.includes('SELECT c.id'))return f.creator??null;
-    if(sql.includes('SELECT creator_id'))return {creator_id:'creator',id:'profile'};
+    if(sql.includes('SELECT creator_id'))return f.newCreator ? null : {creator_id:'creator',id:'profile'};
     if(sql.includes('COUNT(*) n'))return {n:0};
     throw Error('unexpected first '+sql);
   },async run(){if(sql.includes('INSERT INTO crm_sync_state')) states.set(p[0],p[1]);else if(sql.includes('DELETE FROM crm_sync_state'))states.delete(p[0]);else throw Error('unexpected run '+sql);return {success:true};}};return st;},async batch(){if(f.failBatch)throw Error('database');return [];}}};
@@ -92,4 +92,8 @@ test('a registry-only paid row is described as unconfirmed, never unpaid or exec
  const f=fixture();f.creator={id:'creator'};f.payouts=[{amount_minor:90000,status:'paid',payout_date:'2026-10-17',konsol_payment_id:null}];
  f.raw=JSON.stringify({reply:'Перевели 900 ₽ — дошло?',escalate:false});await igDmReply(f.env);
  assert.match(f.context,/исполнение перевода не подтверждено/);assert.equal(f.sent.length,0);assert.equal(incident(f).reason,'claims money sent, not paid in ERP');
+});
+
+test('creator registration failure stays pending without any acknowledgement',async()=>{
+ const f=fixture();f.newCreator=true;f.failBatch=true;await igDmReply(f.env);assert.equal(incident(f).reason,'creator_registration_failed');assert.equal(handled(f),undefined);assert.equal(f.sent.length,0);
 });

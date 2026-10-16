@@ -51,18 +51,25 @@ async function stableId(prefix: string, input: string): Promise<string> {
   return `${prefix}_${Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('').slice(0, 24)}`;
 }
 
-/** One awaiting payout per blogger: creates the creator if new, skips when a row is already open. */
-async function registerPayout(env: Env, handle: string, r: CleanRequisites): Promise<void> {
+/** Incoming conversations must have a visible ERP creator even before a basket is ready. */
+async function ensureCreator(env: Env, handle: string): Promise<{cid: string; pid: string}> {
   const now = Date.now();
   const known = await env.DB.prepare(`SELECT creator_id, id FROM ugc_creator_platforms WHERE platform='instagram' AND normalized_handle=?1`).bind(handle).first<{ creator_id: string; id: string }>();
   const cid = known?.creator_id ?? await stableId('ugc', `instagram:${handle}`);
   const pid = known?.id ?? await stableId('ugcp', `instagram:${handle}`);
   if (!known) {
     await env.DB.batch([
-      env.DB.prepare(`INSERT INTO ugc_creators (id, normalized_handle, lifecycle_stage, created_at, updated_at) VALUES (?1, ?2, 'agreed', ?3, ?3) ON CONFLICT(id) DO NOTHING`).bind(cid, handle, now),
-      env.DB.prepare(`INSERT INTO ugc_creator_platforms (id, creator_id, platform, handle, normalized_handle, profile_url, source, created_at, updated_at) VALUES (?1, ?2, 'instagram', ?3, ?3, ?4, 'ugc_payout', ?5, ?5) ON CONFLICT(platform, normalized_handle) DO NOTHING`).bind(pid, cid, handle, `https://www.instagram.com/${handle}/`, now),
+      env.DB.prepare(`INSERT INTO ugc_creators (id, normalized_handle, lifecycle_stage, created_at, updated_at) VALUES (?1, ?2, 'replied', ?3, ?3) ON CONFLICT(id) DO NOTHING`).bind(cid, handle, now),
+      env.DB.prepare(`INSERT INTO ugc_creator_platforms (id, creator_id, platform, handle, normalized_handle, profile_url, source, created_at, updated_at) VALUES (?1, ?2, 'instagram', ?3, ?3, ?4, 'ugc_dm', ?5, ?5) ON CONFLICT(platform, normalized_handle) DO NOTHING`).bind(pid, cid, handle, `https://www.instagram.com/${handle}/`, now),
     ]);
   }
+  return { cid, pid };
+}
+
+/** One awaiting payout per blogger; an existing open row is reused. */
+async function registerPayout(env: Env, handle: string, r: CleanRequisites): Promise<void> {
+  const now = Date.now();
+  const { cid, pid } = await ensureCreator(env, handle);
   const open = await env.DB.prepare(`SELECT COUNT(*) n FROM ugc_payouts WHERE creator_id=?1 AND status IN ('awaiting_approval','approved','sent')`).bind(cid).first<{ n: number }>();
   if (Number(open?.n ?? 0) > 0) return;
   const id = crypto.randomUUID();
@@ -124,12 +131,14 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       await env.DB.prepare(`DELETE FROM crm_sync_state WHERE key=?1`).bind(STATE_KEY(w.cid)).run();
     };
 
+    let identity: {cid: string; pid: string};
+    try { identity = await ensureCreator(env, w.h); } catch { await failStep('creator_registration_failed'); continue; }
     const history = ((await env.DB.prepare(
       `SELECT direction, text, attachments_json, created_at FROM ugc_ig_messages WHERE conversation_id=?1 ORDER BY created_at DESC LIMIT 60`
     ).bind(w.cid).all<Msg>()).results ?? []).reverse();
     const creator = await env.DB.prepare(
-      `SELECT c.id, c.display_name, c.city FROM ugc_creators c WHERE c.normalized_handle=?1`
-    ).bind(w.h).first<{ id: string; display_name: string | null; city: string | null }>();
+      `SELECT c.id, c.display_name, c.city FROM ugc_creators c WHERE c.id=?1`
+    ).bind(identity.cid).first<{ id: string; display_name: string | null; city: string | null }>();
     const payouts = creator ? ((await env.DB.prepare(
       `SELECT amount_minor, status, payout_date, konsol_payment_id FROM ugc_payouts WHERE creator_id=?1 ORDER BY created_at DESC LIMIT 5`
     ).bind(creator.id).all<{ amount_minor: number; status: string; payout_date: string; konsol_payment_id?: string | null }>()).results ?? []) : [];

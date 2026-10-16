@@ -24,7 +24,7 @@ const good = JSON.stringify({reply:'Получила, проверяю!',escalat
 function fixture() {
   const t = new Date(Date.now()-300_000).toISOString(), cid='conversation', states=new Map(), sent=[], notices=[], systems=[], sqls=[];
   const f = { t,cid,states,sent,notices,systems,sqls,live:true,raw:good,failBatch:false,
-    async generate(messages) { systems.push(messages[0].content); if(f.providerError) throw Error('provider'); return {text:f.raw}; },
+    async generate(messages) { systems.push(messages[0].content); f.context=messages[1].content; if(f.providerError) throw Error('provider'); return {text:f.raw}; },
     async notify(){notices.push(true);return true;},
     async send(...args){sent.push(args);return {ok:!f.sendError};}, async cards(_e,_h,urls){f.cardUrls=urls;return urls.length;}
   };
@@ -86,4 +86,10 @@ test('a live profile containing the retired menu is overridden by the current fo
  globalThis.fetch=async()=>new Response('Старое меню: семь сценариев.',{status:200});
  try { await igDmReply(f.env);assert.ok(f.systems[0].lastIndexOf('ТОЛЬКО ЧЕТЫРЕ')>f.systems[0].indexOf('семь сценариев')); }
  finally {globalThis.fetch=original;}
+});
+
+test('a registry-only paid row is described as unconfirmed, never unpaid or executed',async()=>{
+ const f=fixture();f.creator={id:'creator'};f.payouts=[{amount_minor:90000,status:'paid',payout_date:'2026-10-17',konsol_payment_id:null}];
+ f.raw=JSON.stringify({reply:'Перевели 900 ₽ — дошло?',escalate:false});await igDmReply(f.env);
+ assert.match(f.context,/исполнение перевода не подтверждено/);assert.equal(f.sent.length,0);assert.equal(incident(f).reason,'claims money sent, not paid in ERP');
 });

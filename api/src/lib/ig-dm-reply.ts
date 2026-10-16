@@ -135,7 +135,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     ).bind(creator.id).all<{ amount_minor: number; status: string; payout_date: string; konsol_payment_id?: string | null }>()).results ?? []) : [];
     const paid = payouts[0]?.status === 'paid' && Boolean(payouts[0]?.konsol_payment_id);
     const erp = payouts.length
-      ? payouts.map((p) => `${Math.round(p.amount_minor / 100)} ₽ — ${p.status === 'paid' && p.konsol_payment_id ? 'paid (перевод исполнен)' : p.status === 'failed' ? 'failed (банк отклонил)' : 'ждёт оплаты'} (${p.payout_date})`).join('; ')
+      ? payouts.map((p) => `${Math.round(p.amount_minor / 100)} ₽ — ${p.status === 'paid' ? (p.konsol_payment_id ? 'paid (перевод исполнен)' : 'запись об оплате; исполнение перевода не подтверждено') : p.status === 'failed' ? 'failed (банк отклонил)' : 'ждёт оплаты'} (${p.payout_date})`).join('; ')
       : 'выплат нет';
     const lines = history.map((m) => {
       const body = (m.text && m.text.trim()) || (m.attachments_json && m.attachments_json !== '[]' ? '[фото или вложение]' : '');

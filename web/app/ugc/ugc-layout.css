@@ -220,3 +220,7 @@ a.ugc-creator:hover .ugc-creator-name { text-decoration: underline; }
 .ugc-mobile-name { display: flex; flex-direction: column; min-width: 0; }
 .ugc-mobile-name a { color: inherit; text-decoration: none; }
 .ugc-mobile-meta { background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }
+/* Network colours (Owner 2026-10-16): Instagram stays brand red, TikTok black, Telegram and VK blue. Only live links take the colour; dead and unchecked stay faded grey like Instagram. */
+.ugc-pub[data-net="tiktok"][data-state="live"] .ugc-pub-link { color: var(--brand-schwarz, #111); }
+.ugc-pub[data-net="telegram"][data-state="live"] .ugc-pub-link { color: #229ED9; }
+.ugc-pub[data-net="vk"][data-state="live"] .ugc-pub-link { color: #0077FF; }

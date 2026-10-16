@@ -292,7 +292,7 @@ function Publication({ item, href, more }: { item: ContentObservation; href: str
   const Glyph = net === 'instagram' ? Instagram : net === 'youtube' ? Youtube : net === 'telegram' ? Send : net === 'facebook' ? Facebook : null;
   const read = item.metrics_checked_at ? ` · ${new Date(item.metrics_checked_at).toLocaleDateString('ru-RU')}` : '';
   const figure = (label: string, value: number | null | undefined) => `${label}: ${value == null ? 'нет данных' : value}${read}`;
-  return <span className="ugc-pub" data-state={state}>
+  return <span className="ugc-pub" data-state={state} data-net={net || undefined}>
     <a href={href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="ugc-pub-link focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`${net ? platformLabel(net) : 'Ссылка'} · ${MEDIA_LABEL[kind]} · ${status}`} title={[net ? platformLabel(net) : null, MEDIA_LABEL[kind], status, item.link_checked_at ? new Date(item.link_checked_at).toLocaleDateString('ru-RU') : null, item.content_url].filter(Boolean).join(' · ')}>{Glyph ? <Glyph aria-hidden="true" /> : net === 'tiktok' ? <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d={TIKTOK_PATH} /></svg> : net === 'vk' ? <span className="ugc-pub-letter" aria-hidden="true">VK</span> : <Link aria-hidden="true" />}</a>
     <span className="ugc-pub-stats">
       <span title={figure('Просмотры', item.views)}><Eye aria-hidden="true" />{formatCount(item.views)}</span>

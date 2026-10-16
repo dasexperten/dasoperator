@@ -789,7 +789,7 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
         <p className="text-sm">{profile.platform} · @{profile.handle}</p>
         <div className="ugc-pills">{profile.source_products?.map((product) => <span key={product.sku} className="ugc-pill" title={product.name}>{compactProductCode(product.sku)} · {product.name}</span>)}{profile.source_product_labels?.map((product) => <span key={product.name} className="ugc-pill">{product.name} · тип не указан</span>)}</div>
       </div>)}
-      <p className="text-sm" style={{ color: 'var(--fg-2)' }}>История аккаунта из поля LAST_PRODUCT. Состав каждого отдельного ролика проверяется отдельно.</p>
+      <p className="text-sm" style={{ color: 'var(--fg-2)' }}>История аккаунта из товарных полей базы блогеров. Состав каждого отдельного ролика проверяется отдельно.</p>
     </section> : null}
     <section className="space-y-3" aria-labelledby={`content-history-${creator.id}`}>
       <div className="flex items-end justify-between gap-3"><div><div className="dx-eyebrow">Content evidence</div><h3 id={`content-history-${creator.id}`} className="mt-1 text-xl font-extrabold">Publication history</h3></div><div className="text-sm tabular-nums" style={{ color: 'var(--fg-2)' }}>{content.length} observations</div></div>

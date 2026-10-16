@@ -70,3 +70,29 @@ first header handle, money formats/additions, correct NEW column interpretation,
 source precedence, cross-source non-duplication, product ambiguity and the
 existing payout execution safeguards. Web TypeScript and migration numbering
 checks passed. Production import and browser readback are recorded after release.
+
+## Production readback
+
+Release `1b754785d80f7f8098286033d6ffa9345512ee02` is on GitHub main;
+Worker deployment [38894736142](https://github.com/dasexperten/dasoperator/actions/runs/38894736142)
+and Pages deployment [38894736167](https://github.com/dasexperten/dasoperator/actions/runs/38894736167)
+both succeeded. The identity migration and all 1,169 source records were applied
+from the clean pushed tree. Each imported field was read back and compared
+against the plan: 1,169 exact matches, zero orphan profile references.
+
+Live database readback confirms 578 original payment rows / 494 accounts /
+305,403 RUB, 591 original product references / 504 profiles, and 654 unique
+accounts with monetary history across the two separate sources. All four
+repaired source observations resolve to their verified authors.
+
+Browser readback on the live ERP showed 749 creator rows, 504 with product
+evidence, and 623 historical payment cells; current payouts take precedence
+on the remaining covered accounts. The updated creator panel was verified
+with `a_fadeeva_99`: original workbook total 934 RUB (E376: 478 RUB; E431:
+456 RUB), separate Konsol register total 1,396 RUB, products DE201, DE206
+and DE130. The E-cell links and the separate-source notice are visible and
+correct. Historical source imports did not write payout rows or execute money.
+
+A follow-up copy correction replaces the old LAST_PRODUCT-only description
+with a source-neutral description, reflecting the original product columns
+and pivot text now used.

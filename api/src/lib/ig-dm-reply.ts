@@ -8,7 +8,7 @@ import { callPro } from './llm';
 import { DIANA_RULES, SCENARIO_CARDS, guardReply, type CleanRequisites } from './ig-dm-reply-guard.mjs';
 import { lastWordIsBlogger, sendIgCards, sendIgDirect } from './ig-dm-watch';
 
-const MAX_PER_RUN = 6;
+const MAX_PER_RUN = 15;
 // Let a burst of messages finish before answering.
 const SETTLE_MS = 90_000;
 const HANDLED_KEY = (cid: string) => `ig_reply:${cid}`;

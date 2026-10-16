@@ -53,8 +53,9 @@
 /* The single-publication star hangs outside the figure, so digits keep one right edge. */
 .ugc-figure { position: relative; }
 .ugc-star { position: absolute; left: 100%; top: 0; padding-left: 1px; color: var(--fg-3); }
-.ugc-pills { display: grid; grid-template-columns: repeat(3, max-content); align-content: center; gap: 4px; }
-.ugc-pill { padding: 0 8px; line-height: 22px; font-weight: 700; color: var(--brand-schwarz); background: var(--brand-gold); border-radius: var(--radius-pill); }
+/* Marika 2026-10-16: pills wrap inside the 158 px cell — a long name (INNOWEISS) never runs past the edge. */
+.ugc-pills { display: flex; flex-wrap: wrap; align-content: center; gap: 4px; max-width: 100%; }
+.ugc-pill { padding: 0 7px; line-height: 22px; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-weight: 700; color: var(--brand-schwarz); background: var(--brand-gold); border-radius: var(--radius-pill); }
 .ugc-pill-more { color: var(--fg-2); font-weight: 700; }
 /* «Контент» (Owner 2026-10-16): link icon, then views, likes and comments stacked
    to its right; the icon is exactly the stack's height (3 × 16 = 48 px). Owner 2026-10-16 sample:

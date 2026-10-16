@@ -305,6 +305,7 @@ ugc.get('/', async (c) => {
       collaboration: latestCollaboration.get(creatorId) ?? null,
       payout: creatorPayouts[0] ?? null,
       payment_register: sourceIndex.payments.get(creatorId) ?? [],
+      payment_sources: sourceIndex.paymentSources.get(creatorId) ?? [],
       payouts: creatorPayouts.slice(0, 20),
       paid_total_minor: creatorPayouts.filter((item) => item.status === 'paid' && item.konsol_payment_id).reduce((sum, item) => sum + Number(item.amount_minor || 0), 0),
       last_activity_at: latestActivityMs({

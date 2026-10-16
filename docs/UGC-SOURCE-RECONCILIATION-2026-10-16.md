@@ -1,5 +1,10 @@
 # UGC source reconciliation, 16 October 2026
 
+**This is the first, incomplete pass.** The Owner requested an exhaustive follow-up.
+The original workbook and its previously omitted `sum` column are audited in
+[UGC-FULL-WORKBOOK-AUDIT-2026-10-16.md](UGC-FULL-WORKBOOK-AUDIT-2026-10-16.md).
+Its primary-source totals supersede this pass where both books cover an account.
+
 The Owner requested missing RUB amounts and product identities on `/ugc`.
 The follow-up explicitly selected **the total of all register rows**, including
 repeated rows, rather than separate amounts. A register total is not a settled

@@ -101,7 +101,7 @@ type Payout = {
 };
 
 type PaidCount = { count: number; minor: number; day: string };
-type RegisterRecord = { amount_minor: number; source_document: string; source_sheet: string; source_row: number };
+type RegisterRecord = { amount_minor: number; source_document: string; source_sheet: string; source_row: number; source_title?: string; amount_column?: string };
 
 type Creator = {
   id: string;
@@ -120,6 +120,7 @@ type Creator = {
   collaboration: Collaboration | null;
   payout?: Payout | null;
   payment_register?: RegisterRecord[];
+  payment_sources?: { source_document: string; source_title: string; records: RegisterRecord[] }[];
   payouts?: Payout[];
   paid_total_minor?: number;
   last_activity_at?: number | null;
@@ -217,10 +218,11 @@ const PayContext = createContext<PayApi>({ isAdmin: false, busy: new Set(), erro
 
 function RegisterAmounts({ records }: { records: RegisterRecord[] }) {
   const total = records.reduce((sum, row) => sum + row.amount_minor, 0);
-  const title = `Итог ${records.length} строк реестра «Оплаты Консоль», включая повторы по указанию владельца. Исполнение старых переводов не подтверждено.`;
+  const sourceTitle = records[0]?.source_title ?? 'Оплаты Консоль';
+  const title = `Итог ${records.length} строк «${sourceTitle}», включая повторы по указанию владельца. Исполнение старых переводов не подтверждено.`;
   return <span className="ugc-payout-cell" title={title}>
     <span className="ugc-payout" data-tone="grey">{formatRub(total)}</span>
-    <span className="ugc-payout-reason">по реестру</span>
+    <span className="ugc-payout-reason">{sourceTitle === 'Blooger Database' ? 'по базе' : 'по реестру'}</span>
   </span>;
 }
 
@@ -770,13 +772,16 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
       <div className="flex items-end justify-between gap-3"><div><div className="dx-eyebrow">Barter refunds</div><h3 id={`payouts-${creator.id}`} className="mt-1 text-xl font-extrabold">Оплата</h3></div><div className="text-sm tabular-nums" style={{ color: 'var(--fg-2)' }}>Paid {formatRub(creator.paid_total_minor ?? 0)}</div></div>
       <div className="grid gap-2">{creator.payouts.map((item) => <div key={item.id} className="p-3 flex items-center justify-between gap-3" style={{ background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)' }}><PayoutBadge payout={item} /><span className="text-xs" style={{ color: 'var(--fg-3)' }}>{item.status === 'awaiting_approval' || item.status === 'approved' ? 'В очереди' : item.payout_date}</span></div>)}</div>
     </section> : null}
-    {creator.payment_register?.length ? <section className="space-y-2">
-      <h3 className="text-xl font-extrabold">Исторический реестр</h3>
-      <RegisterAmounts records={creator.payment_register} />
-      <p className="text-sm" style={{ color: 'var(--fg-2)' }}>Общий итог строк, включая повторы. Исполнение переводов по этим записям не подтверждено.</p>
-      <details><summary className="cursor-pointer">Строки реестра ({creator.payment_register.length})</summary>
-        <ul>{creator.payment_register.map((row) => <li key={`${row.source_document}-${row.source_row}`}><a className="underline" target="_blank" rel="noopener noreferrer" href={`https://docs.google.com/spreadsheets/d/${row.source_document}/edit#gid=0&range=H${row.source_row}`}>Строка {row.source_row}: {formatRub(row.amount_minor)}</a></li>)}</ul>
-      </details>
+    {creator.payment_sources?.length ? <section className="space-y-3">
+      <h3 className="text-xl font-extrabold">Исторические суммы</h3>
+      <p className="text-sm" style={{ color: 'var(--fg-2)' }}>Общий итог строк внутри каждого источника, включая повторы. Исполнение переводов по этим записям не подтверждено.</p>
+      {creator.payment_sources.map((source, index) => <div key={source.source_document} className="space-y-2">
+        <h4 className="font-bold">{source.source_title}</h4><RegisterAmounts records={source.records} />
+        {index > 0 ? <p className="text-sm" style={{ color: 'var(--fg-2)' }}>Отдельный источник, в основной итог не прибавляется.</p> : null}
+        <details><summary className="cursor-pointer">Строки источника ({source.records.length})</summary>
+          <ul>{source.records.map((row) => <li key={`${row.source_document}-${row.source_row}`}><a className="underline" target="_blank" rel="noopener noreferrer" href={`https://docs.google.com/spreadsheets/d/${row.source_document}/edit#gid=0&range=${row.amount_column ?? 'H'}${row.source_row}`}>Строка {row.source_row}: {formatRub(row.amount_minor)}</a></li>)}</ul>
+        </details>
+      </div>)}
     </section> : null}
     {creator.profiles.some((profile) => profile.source_products?.length || profile.source_product_labels?.length) ? <section className="space-y-2">
       <h3 className="text-xl font-extrabold">Продукты из базы блогеров</h3>

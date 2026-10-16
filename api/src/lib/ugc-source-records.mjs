@@ -1,5 +1,12 @@
 import { identifyExplicitProducts } from './ugc-products.mjs';
 
+export const ORIGINAL_BLOGGER_DATABASE = '1U8tY23CA6kUfrybqmtkC_irUgDFSdJ326JyhnZ7FsIM';
+export function paymentSource(document) {
+  return document === ORIGINAL_BLOGGER_DATABASE
+    ? { source_title: 'Blooger Database', amount_column: 'E', priority: 0 }
+    : { source_title: document === '17FQ-ZBHVNl_R94tFd27Al_irYCedU78H9GoWbi8uK0c' ? 'Оплаты Консоль' : 'Реестр', amount_column: 'H', priority: 1 };
+}
+
 // Bare SCHWARZ is ambiguous (paste/brush/floss); preserve it without guessing.
 // Legacy BIO/KINDER/ZUNGER identifiers verified in the live ERP catalogue.
 export function identifySourceProductNames(value) {
@@ -25,13 +32,14 @@ export function identifySourceProductNames(value) {
 
 export function sourceRecordIndex(rows) {
   const payments = new Map();
+  const paymentSources = new Map();
   const products = new Map();
   const productLabels = new Map();
   for (const row of rows) {
     const evidence = { source_document: row.source_document, source_sheet: row.source_sheet, source_row: row.source_row, source_text: row.source_text, content_url: row.content_url };
     if (row.kind === 'payment_register' && row.amount_minor != null && Number(row.amount_minor) >= 0) {
       const list = payments.get(row.creator_id) ?? [];
-      list.push({ ...evidence, amount_minor: Number(row.amount_minor), currency: 'RUB' });
+      list.push({ ...evidence, ...paymentSource(row.source_document), amount_minor: Number(row.amount_minor), currency: 'RUB' });
       payments.set(row.creator_id, list);
     }
     if (row.kind === 'product_reference' && row.creator_platform_id) {
@@ -54,5 +62,17 @@ export function sourceRecordIndex(rows) {
       productLabels.set(row.creator_platform_id, labels);
     }
   }
-  return { payments, products, productLabels };
+  // These books can describe the same historical payments. Sum all rows WITHIN
+  // the Owner's original database; never add a second book to that total.
+  for (const [creatorId, records] of payments) {
+    const groups = new Map();
+    for (const row of records) {
+      const list = groups.get(row.source_document) ?? [];
+      list.push(row); groups.set(row.source_document, list);
+    }
+    const sources = [...groups.values()].sort((a, b) => a[0].priority - b[0].priority);
+    paymentSources.set(creatorId, sources.map((records) => ({ source_document: records[0].source_document, source_title: records[0].source_title, records })));
+    payments.set(creatorId, sources[0] ?? []);
+  }
+  return { payments, paymentSources, products, productLabels };
 }

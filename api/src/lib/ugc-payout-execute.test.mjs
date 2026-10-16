@@ -2,7 +2,7 @@
 // Synthetic data only — the phone below is a made-up number of the right shape.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyKonsolPayment, executePayout } from './ugc-payout-execute.mjs';
+import { applyKonsolPayment, bloggerPaidText, executePayout } from './ugc-payout-execute.mjs';
 import { checkOwnRub, konsolPhone, mapKonsolStatus, maskPhoneWide, ownRubMinor, rubToMinor, isCommittedPayout, committedPayoutDay } from './ugc-payouts.mjs';
 
 const PHONE = '+79000000011';
@@ -262,4 +262,9 @@ test('green payout: Diana writes the blogger once; a failed send is retried next
   const third = await applyKonsolPayment(await w.deps.store.getPayout('p1'), { id: 'pay-1', status: 'executed' }, w.deps);
   assert.equal(third.noticed, false, 'already paid → no second message');
   assert.equal(sent.length, 2);
+});
+
+test('an old debt is thanked, not asked for a new order', () => {
+  assert.match(bloggerPaidText({ amount_minor: 33300, note: 'Старый долг, подтвердила 15.10' }), /за ваш ролик/);
+  assert.match(bloggerPaidText({ amount_minor: 50900, note: null }), /Оформляйте заказ/);
 });

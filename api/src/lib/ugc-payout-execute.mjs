@@ -39,6 +39,9 @@ export function ownRubStopText(check, row) {
 
 /** Diana to the blogger the moment the payout turns green (Owner 2026-10-16). Mid-dialogue: no greeting. */
 export function bloggerPaidText(row) {
+  // An old debt pays for a reel already made (Owner 2026-10-16, madifood_: «Я уже
+  // отчиталась по вашей пасте»): thank her, never ask for a new order.
+  if (/долг|повтор/i.test(String(row.note ?? ''))) return `Перевела ${formatRub(row.amount_minor)} по СБП 👍 Это за ваш ролик и отзыв — спасибо!`;
   return `Перевела ${formatRub(row.amount_minor)} по СБП 👍 Оформляйте заказ и пришлите скрин, пожалуйста.`;
 }
 

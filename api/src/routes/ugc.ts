@@ -121,7 +121,7 @@ ugc.get('/', async (c) => {
 
   const profiles = await c.env.DB.prepare(
     `SELECT
-       c.id creator_id, c.normalized_handle creator_handle, c.display_name,
+       c.id creator_id, c.normalized_handle creator_handle, c.display_name, c.city,
        c.category, c.audience_market, c.audience_language, c.lifecycle_stage, c.origin,
        c.priority, c.owner, c.notes, c.updated_at creator_updated_at,
        p.id profile_id, p.platform, p.handle, p.profile_url, p.followers,
@@ -274,6 +274,7 @@ ugc.get('/', async (c) => {
       id: creatorId,
       normalized_handle: row.creator_handle,
       display_name: row.display_name,
+      city: row.city ?? null,
       category: row.category,
       audience_market: row.audience_market,
       audience_language: row.audience_language,

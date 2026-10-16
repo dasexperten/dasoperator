@@ -104,6 +104,7 @@ type Creator = {
   id: string;
   normalized_handle: string;
   display_name: string | null;
+  city?: string | null;
   category: string | null;
   audience_market: string | null;
   audience_language: string | null;
@@ -674,7 +675,8 @@ export default function UgcPage() {
               const products = Array.from(new Map(profile.content.flatMap((item) => item.products).map((item) => [item.sku, item])).values());
               const handle = profile.handle ? `@${profile.handle}` : null;
               const name = handle ?? creator.display_name ?? 'Автор';
-              const secondName = handle && creator.display_name ? creator.display_name : null;
+              // Name and city after the handle (Owner 2026-10-16: «Город нужен, город обязательно»).
+              const secondName = handle ? [creator.display_name, creator.city].filter(Boolean).join(' · ') || null : null;
               return <tr key={creator.id} style={{ borderTop: '1px solid var(--border-hairline)' }}>
                 <td className="ugc-c-creator"><button type="button" title={[name, secondName].filter(Boolean).join(' · ')} onClick={() => setSelectedId(creator.id)} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="ugc-creator-name">{name}</span><OriginMark origin={creator.origin} />{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span></button></td>
                 <td className="ugc-c-platform"><PlatformIcons creator={creator} /></td>

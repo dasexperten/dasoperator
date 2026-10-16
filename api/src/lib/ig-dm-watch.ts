@@ -4,6 +4,7 @@
 // Sends only one thing: Diana's «перевела» when a payout turns green (sendIgDirect).
 // Cadence is not decided here — the adaptive runner calls it (3 / 15 / 30 min).
 import type { Env } from '../types';
+import { bloggerName, cityOf } from './ugc-person-name.mjs';
 
 const G = 'https://graph.facebook.com/v21.0';
 const PAGE_ID = '1697038263872226';
@@ -35,20 +36,23 @@ const NAME_BATCH = 10;
  */
 export async function fillCreatorNames(env: Env, pageToken: string): Promise<number> {
   const rows = (await env.DB.prepare(
-    `SELECT c.id creator_id, MIN(m.from_id) from_id
+    `SELECT c.id creator_id, c.normalized_handle handle, MIN(m.from_id) from_id
        FROM ugc_ig_messages m
        JOIN ugc_creator_platforms p ON p.platform = 'instagram' AND p.normalized_handle = LOWER(m.from_username)
        JOIN ugc_creators c ON c.id = p.creator_id
       WHERE m.direction = 'in' AND m.from_id IS NOT NULL AND c.display_name IS NULL
       GROUP BY c.id LIMIT ${NAME_BATCH}`
-  ).all<{ creator_id: string; from_id: string }>()).results ?? [];
+  ).all<{ creator_id: string; handle: string; from_id: string }>()).results ?? [];
   let filled = 0;
   for (const r of rows) {
     const who = await graph(`/${encodeURIComponent(r.from_id)}?fields=name`, pageToken);
     if (!who.ok) continue;
-    const name = typeof who.body?.name === 'string' ? who.body.name.trim().slice(0, 180) : '';
-    await env.DB.prepare(`UPDATE ugc_creators SET display_name=?2, updated_at=?3 WHERE id=?1 AND display_name IS NULL`)
-      .bind(r.creator_id, name, Date.now()).run();
+    const raw = typeof who.body?.name === 'string' ? who.body.name.trim().slice(0, 180) : '';
+    // Only the person and the city (Owner 2026-10-16): «Life blog| рецепты» is not a name.
+    const name = bloggerName(raw, r.handle).slice(0, 180);
+    const city = cityOf(raw) || cityOf(r.handle) || null;
+    await env.DB.prepare(`UPDATE ugc_creators SET display_name=?2, city=COALESCE(city, ?4), updated_at=?3 WHERE id=?1 AND display_name IS NULL`)
+      .bind(r.creator_id, name, Date.now(), city).run();
     if (name) filled++;
   }
   return filled;

@@ -77,9 +77,16 @@ function buildOAuthHeaders(token: string): Record<string, string> {
   };
 }
 
+export interface LlmImage {
+  mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
+  data: string;
+  label?: string;
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
+  images?: LlmImage[];
 }
 
 export interface LlmUsage {
@@ -105,6 +112,8 @@ interface OAuthCallOptions {
   /** Sampling temperature. Default 0.3 (deterministic for docs). */
   temperature?: number;
 }
+
+type AnthropicUserContent = string | Array<{ type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; media_type: LlmImage['mediaType']; data: string } }>;
 
 interface AnthropicMessageBlock {
   type: 'text';
@@ -140,7 +149,7 @@ function buildAnthropicBody(
   temperature: number,
 ): {
   system?: AnthropicMessageBlock[];
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  messages: Array<{ role: 'user' | 'assistant'; content: AnthropicUserContent }>;
   model: string;
   max_tokens: number;
   temperature: number;
@@ -148,13 +157,13 @@ function buildAnthropicBody(
   const isHaiku = model.toLowerCase().includes('haiku');
 
   const systemBlocks: AnthropicMessageBlock[] = [];
-  const userAssistant: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  const userAssistant: Array<{ role: 'user' | 'assistant'; content: AnthropicUserContent }> = [];
 
   for (const m of messages) {
     if (m.role === 'system') {
       systemBlocks.push({ type: 'text', text: m.content });
     } else {
-      userAssistant.push({ role: m.role, content: m.content });
+      userAssistant.push({ role: m.role, content: m.images?.length ? [{ type: 'text' as const, text: m.content }, ...m.images.flatMap((image): Exclude<AnthropicUserContent, string> => [...(image.label ? [{ type: 'text' as const, text: image.label }] : []), { type: 'image' as const, source: { type: 'base64' as const, media_type: image.mediaType, data: image.data } }])] : m.content });
     }
   }
 
@@ -190,6 +199,7 @@ async function callAnthropic(
     method: 'POST',
     headers: buildOAuthHeaders(opts.oauthToken),
     body: JSON.stringify(body),
+    ...(messages.some((m) => m.images?.length) ? { signal: AbortSignal.timeout(60_000) } : {}),
   });
 
   if (!res.ok) {

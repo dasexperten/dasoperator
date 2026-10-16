@@ -51,7 +51,9 @@ async function call(
     },
     body: JSON.stringify({
       model,
-      messages,
+      messages: messages.map(({ role, content, images }) => ({ role, content: images?.length
+        ? [{ type: 'text', text: content }, ...images.flatMap((image) => [...(image.label ? [{ type: 'text', text: image.label }] : []), { type: 'image_url', image_url: { url: `data:${image.mediaType};base64,${image.data}` } }])]
+        : content })),
       max_tokens: opts.maxTokens ?? 8000,
       temperature: opts.temperature ?? 0.3,
     }),

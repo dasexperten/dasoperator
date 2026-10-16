@@ -102,6 +102,19 @@ export async function lastWordIsBlogger(env: Env, conversationId: string): Promi
   return top?.from?.id ? String(top.from.id) !== IG_ID : null;
 }
 
+/** Refresh a signed attachment URL without sending a message to the blogger. */
+export async function refreshIgAttachments(env: Env, messageId: string): Promise<string | null> {
+  const token = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN;
+  if (!token) return null;
+  const page = await graph(`/${PAGE_ID}?fields=access_token`, token);
+  if (!page.ok || !page.body?.access_token) return null;
+  const r = await graph(`/${encodeURIComponent(messageId)}?fields=attachments{mime_type,file_url,image_data,video_data}`, String(page.body.access_token));
+  if (!r.ok || !Array.isArray(r.body?.attachments?.data)) return null;
+  const json = JSON.stringify(r.body.attachments.data);
+  await env.DB.prepare(`UPDATE ugc_ig_messages SET attachments_json=?2 WHERE id=?1`).bind(messageId, json).run();
+  return json;
+}
+
 /** The four scenario cards, one image message each, after a text (Owner 2026-10-16). */
 export async function sendIgCards(env: Env, handle: string, urls: string[], opts: { humanAgent?: boolean } = {}): Promise<number> {
   let sent = 0;
@@ -196,7 +209,7 @@ export async function igDmWatch(env: Env): Promise<IgWatchResult> {
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
       ).bind(String(m.id), c.id, out ? 'out' : 'in', m.from?.id ?? null, m.from?.username ?? null,
         typeof m.message === 'string' ? m.message.slice(0, 4000) : null,
-        m.attachments?.data?.length ? JSON.stringify(m.attachments.data).slice(0, 4000) : null,
+        m.attachments?.data?.length ? JSON.stringify(m.attachments.data) : null,
         new Date(Date.parse(m.created_time)).toISOString(), now).run();
       if ((r.meta?.changes ?? 0) === 1) { stored++; if (!out) incoming++; }
     }

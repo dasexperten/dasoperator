@@ -34,7 +34,7 @@ import { callPro as openrouterPro, callFlash as openrouterFlash } from './openro
 
 // Re-export the shared message + result types so call sites import everything
 // from a single module.
-export type { ChatMessage, LlmResult, LlmUsage } from './anthropic';
+export type { ChatMessage, LlmImage, LlmResult, LlmUsage } from './anthropic';
 import type { ChatMessage, LlmResult } from './anthropic';
 
 export interface LlmCallOptions {
@@ -64,6 +64,7 @@ async function route(
   opts: LlmCallOptions,
   variant: 'pro' | 'flash',
 ): Promise<LlmResult> {
+  if (messages.some((m) => m.images?.length)) throw new Error('Images require callVision; text-only fallback would lose the screenshot');
   const { env, maxTokens, temperature, prefer = 'deepseek' } = opts;
 
   const anthropicAvailable = !!env.CLAUDE_CODE_OAUTH_TOKEN;
@@ -184,4 +185,16 @@ export async function callFlash(
   opts: LlmCallOptions,
 ): Promise<LlmResult> {
   return route(messages, opts, 'flash');
+}
+
+/** Images stay on a vision-capable provider, including on fallback. */
+export async function callVision(messages: ChatMessage[], opts: LlmCallOptions): Promise<LlmResult> {
+  if (!messages.some((m) => m.images?.length)) throw new Error('Vision request has no images');
+  const shared = { maxTokens: opts.maxTokens ?? 1400, temperature: opts.temperature ?? 0.2 };
+  if (opts.env.CLAUDE_CODE_OAUTH_TOKEN) {
+    try { return await anthropicPro(messages, { oauthToken: opts.env.CLAUDE_CODE_OAUTH_TOKEN, ...shared }); }
+    catch { if (!opts.env.OPENROUTER_ERP) throw new Error('Vision provider unavailable'); }
+  }
+  if (opts.env.OPENROUTER_ERP) return openrouterPro(messages, { apiKey: opts.env.OPENROUTER_ERP, ...shared });
+  throw new Error('No vision-capable provider configured');
 }

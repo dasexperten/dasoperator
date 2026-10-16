@@ -431,7 +431,8 @@ export async function handleScheduled(
         const fresh = await env.DB.prepare(
           `SELECT 1 FROM erp_cron_runs WHERE worker=?1 AND cron<>'manual' AND started_at >= ?2 LIMIT 1`
         ).bind(w, new Date(Date.now() - 3 * 60_000).toISOString()).first();
-        if (!fresh) console.log(`[cron:${w}:fallback] ${await STEPS[w](env)}`);
+        const step = STEPS[w];
+        if (!fresh && step) console.log(`[cron:${w}:fallback] ${await step(env)}`);
       }
     } catch (e) { console.error('[cron:ugc-fallback] failed:', e); }
     // Evening UGC payout summary to the Owner (Owner 2026-10-15): a message, never a

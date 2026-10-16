@@ -37,7 +37,10 @@ const RETIRED = {
 
 // Owner 2026-10-12: no ERP timer fires more often than once an hour unless he names
 // it here himself. A minute field that is not one plain number is a finding.
-const SUBHOURLY_ALLOWED = {};
+const SUBHOURLY_ALLOWED = {
+  'erp-ugc-direct': 'Owner 2026-10-15: «after activity… the next check is after 3 minutes… 15… 30» (DH-LAW-261015-01); 2026-10-16: «должно быть ERP-UGC worker». Fires every minute, the lane runs only when due.',
+  'erp-ugc-payouts': 'Owner 2026-10-15: same 3/15/30 rule for payouts (DH-LAW-261015-01); 2026-10-16: «должно быть ERP-UGC worker». Fires every minute, the lane runs only when due.',
+};
 
 const MODEL_ALLOWED = {
   'erp-inventory': 'Owner 2026-09-18: inventory@ stock lists read by DeepSeek inside this worker ("put it inside that worker", "the best model for identification")',

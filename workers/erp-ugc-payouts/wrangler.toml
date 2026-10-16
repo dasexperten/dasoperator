@@ -1,0 +1,21 @@
+# erp-ugc-payouts — UGC payouts (Owner 2026-10-15/16): Konsol status of payouts handed over,
+# and the measurement of bloggers with a waiting payout (followers, ER of the last six posts).
+# Same 3 / 15 / 30-minute rule inside; no model anywhere in this job.
+name = "erp-ugc-payouts"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "081ddb85cb399ad62a70210328d744fc"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+[[services]]
+binding = "ERP"
+service = "dasoperator-api"
+
+[triggers]
+crons = ["* * * * *"]

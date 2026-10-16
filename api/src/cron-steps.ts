@@ -39,6 +39,30 @@ function storefrontEnv(env: Env): Record<string, unknown> {
 }
 
 export const STEPS: Record<string, Step> = {
+  // Owner 2026-10-16: the UGC routines are ERP workers of their own («должно быть ERP-UGC worker»).
+  // Each timer fires every minute; runAdaptiveLane keeps the 3 / 15 / 30-minute rule (DH-LAW-261015-01).
+  // Direct: read new messages, then Diana's answers (the model runs here in the ERP, never in the worker).
+  'erp-ugc-direct': async (env) => {
+    const { runAdaptiveLane } = await import('./lib/adaptive-runner');
+    const { igDmWatch } = await import('./lib/ig-dm-watch');
+    const { igDmReply } = await import('./lib/ig-dm-reply');
+    return runAdaptiveLane(env, 'ig_dm', async (e) => {
+      const read = await igDmWatch(e);
+      const answered = await igDmReply(e).catch((err) => ({ replied: 0, escalated: 0, errors: 1, error: String(err) }));
+      return { ...read, ...answered, activity: read.activity || answered.replied > 0 };
+    });
+  },
+  // Payouts: Konsol status of handed-over payouts, then followers + ER of bloggers waiting to be paid.
+  'erp-ugc-payouts': async (env) => {
+    const { runAdaptiveLane } = await import('./lib/adaptive-runner');
+    const { ugcPayoutSweep } = await import('./lib/ugc-payout-store');
+    const { diagnosePayoutCreators } = await import('./lib/ugc-diagnose');
+    return runAdaptiveLane(env, 'ugc_payouts', async (e) => {
+      const refreshed = await ugcPayoutSweep(e);
+      const diag = await diagnosePayoutCreators(e).catch((err) => ({ measured: 0, error: String(err) }));
+      return { ok: true, activity: refreshed > 0 || diag.measured > 0, refreshed, ...diag };
+    });
+  },
   // Owner 2026-10-14: one evening message on UGC payouts — count, sum, own RUB left.
   'erp-ugc-payout-summary': async (env) => {
     const { ugcPayoutEvening } = await import('./lib/ugc-payout-store');

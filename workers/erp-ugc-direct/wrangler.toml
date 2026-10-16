@@ -1,0 +1,22 @@
+# erp-ugc-direct — Diana's Instagram Direct (Owner 2026-10-15/16): every minute the timer
+# asks the ERP; the 3 / 15 / 30-minute rule inside decides whether the lane runs.
+# The ERP reads new messages, then answers under Diana's rules (the answer is written in
+# dasoperator-api; this worker holds no model and no key besides ERP_RUN_SECRET).
+name = "erp-ugc-direct"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "081ddb85cb399ad62a70210328d744fc"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "das_erp_dev"
+database_id = "0653d156-5069-4c46-a496-fad982d0d1df"
+
+[[services]]
+binding = "ERP"
+service = "dasoperator-api"
+
+[triggers]
+crons = ["* * * * *"]

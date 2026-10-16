@@ -6,7 +6,7 @@
 import type { Env } from '../types';
 import { callPro } from './llm';
 import { DIANA_RULES, guardReply } from './ig-dm-reply-guard.mjs';
-import { sendIgDirect } from './ig-dm-watch';
+import { lastWordIsBlogger, sendIgDirect } from './ig-dm-watch';
 
 const MAX_PER_RUN = 6;
 // Let a burst of messages finish before answering.
@@ -28,7 +28,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
   for (const w of waiting) {
     if (replied + escalated >= MAX_PER_RUN) break;
     const at = Date.parse(w.t);
-    if (!Number.isFinite(at) || now - at < SETTLE_MS || now - at > 23.5 * 3_600_000) continue;
+    if (!Number.isFinite(at) || now - at < SETTLE_MS || now - at > 7 * 86_400_000) continue;
     const done = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(HANDLED_KEY(w.cid)).first<{ value: string }>();
     if (done?.value === w.t) continue;
     const mark = () => env.DB.prepare(
@@ -77,7 +77,9 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       await mark();
       continue;
     }
-    const sent = await sendIgDirect(env, w.h, out.reply);
+    // The ERP copy can lag behind Instagram; never answer a conversation we already answered.
+    if (!(await lastWordIsBlogger(env, w.cid))) { await mark(); continue; }
+    const sent = await sendIgDirect(env, w.h, out.reply, { humanAgent: now - at > 23.5 * 3_600_000 });
     if (sent.ok) { replied++; await mark(); }
     else { errors++; console.warn(`[ig-reply] ${w.h}: send failed: ${sent.error}`); }
   }

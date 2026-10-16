@@ -87,7 +87,22 @@ export async function fillCitiesFromReplies(env: Env): Promise<number> {
  * (Owner 2026-10-16: green payout → Diana writes at once). The recipient is the
  * Instagram id from that blogger's own incoming messages; no id → nothing sent.
  */
-export async function sendIgDirect(env: Env, handle: string, text: string): Promise<{ ok: boolean; error?: string }> {
+/**
+ * Live check before an automatic reply: is the newest message in this Instagram
+ * conversation still the blogger's? Read from Instagram itself, not the ERP copy.
+ */
+export async function lastWordIsBlogger(env: Env, conversationId: string): Promise<boolean> {
+  const token = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN ?? '';
+  if (!token) return false;
+  const page = await graph(`/${PAGE_ID}?fields=access_token`, token);
+  if (!page.ok || !page.body?.access_token) return false;
+  const r = await graph(`/${conversationId}?fields=messages.limit(1){from}`, String(page.body.access_token));
+  if (!r.ok) return false;
+  const top = r.body?.messages?.data?.[0];
+  return Boolean(top) && String(top.from?.id ?? '') !== IG_ID;
+}
+
+export async function sendIgDirect(env: Env, handle: string, text: string, opts: { humanAgent?: boolean } = {}): Promise<{ ok: boolean; error?: string }> {
   const h = handle.trim().replace(/^@/, '').toLowerCase();
   if (!h) return { ok: false, error: 'no handle' };
   const token = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN ?? '';
@@ -102,7 +117,8 @@ export async function sendIgDirect(env: Env, handle: string, text: string): Prom
     const res = await fetch(`${G}/${PAGE_ID}/messages?access_token=${encodeURIComponent(String(page.body.access_token))}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ recipient: { id: who.from_id }, message: { text }, messaging_type: 'RESPONSE' }),
+      // After 24 h Meta accepts a reply only with the HUMAN_AGENT tag (7 days).
+      body: JSON.stringify({ recipient: { id: who.from_id }, message: { text }, ...(opts.humanAgent ? { messaging_type: 'MESSAGE_TAG', tag: 'HUMAN_AGENT' } : { messaging_type: 'RESPONSE' }) }),
       signal: AbortSignal.timeout(20_000),
     });
     const body = await res.json().catch(() => null) as any;
@@ -125,9 +141,23 @@ export async function igDmWatch(env: Env): Promise<IgWatchResult> {
   try { await fillCreatorNames(env, pageToken); } catch { /* names are a convenience; retried next run */ }
   try { await fillCitiesFromReplies(env); } catch { /* retried next run */ }
 
-  const convs = await graph(`/${PAGE_ID}/conversations?platform=instagram&fields=id,updated_time&limit=${MAX_CONVERSATIONS}`, pageToken);
-  if (!convs.ok) return { ok: false, activity: false, stored: 0, incoming: 0, error: `conversations: ${convs.error}` };
-  const list: Array<{ id: string; updated_time: string }> = convs.body?.data ?? [];
+  // Every conversation changed since the last mark, page after page (Owner 2026-10-16:
+  // 63 replies in one go were more than one page, the rest were never stored and the
+  // reply lane answered those blogers twice).
+  const last0 = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(STATE_KEY).first<{ value: string }>();
+  const since0 = last0?.value ? Date.parse(last0.value) : 0;
+  const list: Array<{ id: string; updated_time: string }> = [];
+  let path = `/${PAGE_ID}/conversations?platform=instagram&fields=id,updated_time&limit=${MAX_CONVERSATIONS}`;
+  for (let page = 0; page < 8; page++) {
+    const convs = await graph(path, pageToken);
+    if (!convs.ok) return { ok: false, activity: false, stored: 0, incoming: 0, error: `conversations: ${convs.error}` };
+    const data: Array<{ id: string; updated_time: string }> = convs.body?.data ?? [];
+    list.push(...data);
+    const after = convs.body?.paging?.cursors?.after;
+    const oldest = data.reduce((m, c) => Math.min(m, Date.parse(c.updated_time)), Infinity);
+    if (!after || !data.length || !since0 || oldest <= since0) break;
+    path = `/${PAGE_ID}/conversations?platform=instagram&fields=id,updated_time&limit=${MAX_CONVERSATIONS}&after=${encodeURIComponent(after)}`;
+  }
 
   const now = new Date().toISOString();
   const last = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(STATE_KEY).first<{ value: string }>();

@@ -34,7 +34,7 @@
 .ugc-table th.ugc-c-activity { width: 71px; }
 .ugc-table th.ugc-c-pay { width: 101px; }
 .ugc-table th.ugc-c-product { width: 170px; }
-.ugc-table th.ugc-c-media { width: 254px; }
+.ugc-table th.ugc-c-media { width: 266px; }
 .ugc-table th.ugc-c-next { width: 80px; }
 .ugc-table tbody tr:hover { background: var(--paper-sunk); }
 /* Payout: one width in every row, right edge on the head's right edge. */
@@ -69,7 +69,8 @@
 .ugc-pub-link:hover { color: var(--fg-1); background: var(--paper-sunk); }
 .ugc-pub[data-state="unknown"] .ugc-pub-link { color: var(--fg-2); }
 .ugc-pub[data-state="dead"] .ugc-pub-link { color: var(--fg-3); opacity: 0.35; }
-.ugc-pub-stats { display: flex; flex-direction: column; justify-content: center; height: 48px; }
+/* Fixed width (Owner 2026-10-16, Marika): «—» and «1461» take the same room, so the second publication and «+N» stand in one line down the column. Four digits fit; a longer figure widens its own cell only. */
+.ugc-pub-stats { display: flex; flex-direction: column; justify-content: center; height: 48px; min-width: 54px; }
 .ugc-pub-stats > span { display: flex; align-items: center; gap: 4px; height: 16px; font-size: 14px; line-height: 16px; font-weight: 800; color: var(--fg-1); font-variant-numeric: tabular-nums; letter-spacing: 0; }
 .ugc-pub-stats svg { width: 15px; height: 15px; color: var(--fg-1); stroke-width: 2.5; }
 .ugc-pub-more { margin-left: 2px; color: var(--fg-2); font-size: 14px; line-height: 20px; font-weight: 700; letter-spacing: 0; }

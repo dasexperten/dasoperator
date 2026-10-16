@@ -56,3 +56,33 @@ family-only evidence, payout-specific profiles, source priority and payment
 execution safeguards. Web TypeScript passes. Full API TypeScript has existing
 errors outside the modified UGC modules; no modified UGC module errors were
 reported. The worker bundle dry run passes. Production readback follows release.
+
+## Production verification
+
+The change is pushed to main. Pages release `b234a8be` succeeded in
+[38897276381](https://github.com/dasexperten/dasoperator/actions/runs/38897276381).
+The first Worker release hit a transient Cloudflare API 10013 deployment error;
+a fresh guarded dispatch from main `5774bb82` succeeded in
+[38897392182](https://github.com/dasexperten/dasoperator/actions/runs/38897392182).
+
+Applied 600 unique publication updates (the two plans overlap), and 11 new
+source references. Every changed product field was read back and compared with
+the final plans; all 600 matched. The live classification counts are 449
+identified, 313 queued and 609 unknown. These differ from account coverage:
+the live full table showed 751 creators (other work is adding accounts), 513
+with product evidence, 24 canonical product families and 313 still queued.
+Unknown observations include source rows without a content URL and family-only
+evidence; they are not silently represented as fully identified SKUs.
+
+Browser verification confirmed the TERMO filter returns the 9 matching creators,
+including payout-product profiles. Main rows now show DE209 for inna._zaykova,
+natalia_mit78, asmirai_09_, mashaa_ugc and gr.y.ser, and DE310 for alinailfatovna.
+The a_fadeeva_99 publication panel correctly shows DE206/DE130 on Sheet1:431
+and DE201 on Sheet1:376. Its two newer publications without evidence remain
+unclassified: account history is not projected onto them. The daily payment
+counter stayed at 24 / 16,221 RUB during this verification; no financial action
+was executed by this correction.
+
+The user declined a larger external scan. The remaining 313 queued publications
+and unavailable/ambiguous source cases are disclosed, not a claim of complete
+product coverage. No expanded scan was launched.

@@ -124,12 +124,12 @@ test('ready queue uses actual sends and in-flight claims on the current Yerevan 
   assert.deepEqual(rows.map((r) => r.over_limit), [false, true, false, true, true]);
 });
 
-test('actual daily total blocks an otherwise ready payout without moving its date', () => {
+test('no day total blocks a ready payout, and its date is never moved', () => {
   const now = Date.parse('2026-10-16T10:00:00Z');
   const rows = annotateOverLimit([
     ...Array.from({ length: 10 }, (_, i) => ({ creator_id: `p${i}`, status: 'sent', sent_at: '2026-10-16T06:00:00Z', amount_minor: 99900 })),
     { creator_id: 'q', status: 'approved', payout_date: '2026-10-17', amount_minor: 1100 },
   ], now);
-  assert.equal(rows.at(-1).over_limit, true);
+  assert.equal(rows.at(-1).over_limit, false);
   assert.equal(rows.at(-1).payout_date, '2026-10-17');
 });

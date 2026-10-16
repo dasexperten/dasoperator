@@ -7,7 +7,7 @@ import { sendOwnerTelegram } from './owner-telegram';
 import { applyKonsolPayment, executePayout, matchRegistryPayment, REGISTRY_LINK_IDS } from './ugc-payout-execute.mjs';
 import { sendIgCards, sendIgDirect } from './ig-dm-watch';
 import { SCENARIO_CARDS } from './ig-dm-reply-guard.mjs';
-import { formatRub, ownRubMinor, UGC_PAYOUT_MAX_MINOR, UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR } from './ugc-payouts.mjs';
+import { formatRub, ownRubMinor, UGC_PAYOUT_MAX_MINOR } from './ugc-payouts.mjs';
 
 export function payoutStore(env: Env) {
   const db = env.DB;
@@ -43,11 +43,9 @@ export function payoutStore(env: Env) {
           AND status IN ('awaiting_approval','approved')
           AND amount_minor + (SELECT COALESCE(SUM(amount_minor),0) FROM ugc_payouts p
             WHERE p.id<>?1 AND p.creator_id=ugc_payouts.creator_id AND ${sendDay}=?5 AND ${committed}) <= ?6
-          AND amount_minor + (SELECT COALESCE(SUM(amount_minor),0) FROM ugc_payouts
-            WHERE id<>?1 AND ${sendDay}=?5 AND ${committed}) <= ?7
           AND (status='approved' OR NOT EXISTS (SELECT 1 FROM ugc_payouts p
             WHERE p.id<>?1 AND p.creator_id=ugc_payouts.creator_id AND ${sendDay}=?5 AND ${committed}))`
-      ).bind(id, token, at, touch(), yerevanDay(Date.parse(at)), UGC_PAYOUT_MAX_MINOR, UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR).run();
+      ).bind(id, token, at, touch(), yerevanDay(Date.parse(at)), UGC_PAYOUT_MAX_MINOR).run();
       return (r.meta?.changes ?? 0) === 1;
     },
     release: (id: string, error: string) => db.prepare(

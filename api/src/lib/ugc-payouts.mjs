@@ -4,7 +4,8 @@
 // Owner 2026-10-14 («Автоодобрение, потолок 5000 в день»): payouts are
 // auto-approved within both limits — 999 ₽ per creator per day and 5 000 ₽
 // for all creators together per day.
-// Owner 2026-10-16 («remove 5000 ruble lock put it to 10000»): day total 10 000 ₽.
+// Owner 2026-10-16 («remove 5000 ruble lock put it to 10000»), later the same day:
+// «убираешь лимит на 10 тысяч, вообще убираешь» — no day total is enforced anywhere.
 
 export const UGC_PAYOUT_MAX_MINOR = 99900;
 export const UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR = 1000000;
@@ -227,18 +228,16 @@ export function committedPayoutDay(row) {
 export function annotateOverLimit(rows, now = Date.now()) {
   const today = yerevanDay(now);
   const perCreator = new Map();
-  let total = 0;
   for (const r of rows) {
     if (!isCommittedPayout(r) || committedPayoutDay(r) !== today) continue;
     const amount = Number(r.amount_minor || 0);
     perCreator.set(r.creator_id, (perCreator.get(r.creator_id) ?? 0) + amount);
-    total += amount;
   }
   for (const r of rows) {
     const open = r.status === 'awaiting_approval' || r.status === 'approved';
     const amount = Number(r.amount_minor || 0);
-    r.over_limit = open && (!checkDailyLimit(perCreator.get(r.creator_id) ?? 0, amount).ok
-      || !checkDailyTotalLimit(total, amount).ok);
+    // Only 999 ₽ per blogger per day; the day total for all is gone (Owner 2026-10-16).
+    r.over_limit = open && !checkDailyLimit(perCreator.get(r.creator_id) ?? 0, amount).ok;
   }
   return rows;
 }

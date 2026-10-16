@@ -14,7 +14,7 @@
 // cannot be paid twice by a blind retry — a person checks Konsol first.
 
 import {
-  checkDailyLimit, checkDailyTotalLimit, checkOwnRub, formatRub, isFpsBankMemberId,
+  checkDailyLimit, checkOwnRub, formatRub, isFpsBankMemberId,
   konsolPhone, KONSOL_SERVICE_TITLE, mapKonsolStatus, maskPhoneWide, payoutDate,
   UGC_PAYOUT_MAX_MINOR,
 } from './ugc-payouts.mjs';
@@ -90,8 +90,7 @@ export async function executePayout(id, deps) {
   const day = payoutDate(null, now);
   const daily = checkDailyLimit(await store.sameDayMinor(row.creator_id, day, row.id), amount);
   if (!daily.ok) return result(422, { ok: false, code: daily.code, message: daily.message });
-  const total = checkDailyTotalLimit(await store.dayTotalMinor(day, row.id), amount);
-  if (!total.ok) return result(422, { ok: false, code: total.code, message: total.message });
+  // Owner 2026-10-16: «убираешь лимит на 10 тысяч, вообще убираешь» — no day total for all bloggers.
 
   const requisites = await store.getRequisites(row.id);
   const phone = konsolPhone(requisites?.fps_mobile_phone);
@@ -119,8 +118,6 @@ export async function executePayout(id, deps) {
     // A competing payout can consume today's budget between the first check and the atomic claim.
     const dailyNow = checkDailyLimit(await store.sameDayMinor(row.creator_id, day, row.id), amount);
     if (!dailyNow.ok) return result(422, { ok: false, code: dailyNow.code, message: dailyNow.message });
-    const totalNow = checkDailyTotalLimit(await store.dayTotalMinor(day, row.id), amount);
-    if (!totalNow.ok) return result(422, { ok: false, code: totalNow.code, message: totalNow.message });
     return result(409, { ok: false, code: 'execute_in_progress', message: 'Another send of this payout or creator is running' });
   }
 

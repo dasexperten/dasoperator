@@ -601,6 +601,8 @@ export default function UgcPage() {
       {error && <div role="alert" className="p-4 flex items-start justify-between gap-4" style={{ background: 'var(--paper-sunk)', borderLeft: '4px solid var(--status-error)' }}><span>{error}</span><button type="button" aria-label="Dismiss" onClick={() => setError(null)} className="min-h-11 flex items-center justify-center" style={{ minWidth: '44px' }}><X className="h-5 w-5" /></button></div>}
       <div role="status" aria-live="polite" className="sr-only">{importing}</div>
 
+      {/* One line on top (Owner 2026-10-16): payments made today and yesterday — no day limit any more. */}
+      <PaidCounter paid={data.payout_summary?.paid_konsol} />
       <section className="ugc-kpis grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
         <Kpi label="Creators" value={formatNumber(data.summary.creators)} exact={`${data.summary.creators} creators`} note="in this view" accent="var(--brand-schwarz)" />
         <Kpi label="Followers" value={formatNumber(headline.followers)} exact={`${headline.followers} followers`} note="known audience" accent="var(--brand-rot)" />
@@ -609,7 +611,6 @@ export default function UgcPage() {
         <Kpi label="Publications" value={formatNumber(data.summary.content_items)} exact={`${data.summary.content_items} publications`} note="observed content" accent="var(--brand-schwarz)" />
         <Kpi label="Products" value={formatNumber(data.products.length)} exact={`${data.products.length} identified product families`} note={`${formatNumber(data.summary.product_queued)} queued`} accent="var(--brand-gold)" />
       </section>
-      <PaidCounter paid={data.payout_summary?.paid_konsol} />
 
       <section aria-label="Content link health" className="ugc-health p-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)' }}>
         <strong style={{ fontFamily: 'var(--font-display)', fontWeight: 900 }}>Link health</strong>

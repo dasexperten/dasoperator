@@ -37,6 +37,11 @@ export function ownRubStopText(check, row) {
   return `Свой рублёвый счёт Консоли не сходится, выплаты остановлены. Выплата ${who(row)} ${formatRub(row.amount_minor)} не ушла. Проверь лимит овердрафта.`;
 }
 
+/** Diana to the blogger the moment the payout turns green (Owner 2026-10-16). Mid-dialogue: no greeting. */
+export function bloggerPaidText(row) {
+  return `Перевела ${formatRub(row.amount_minor)} по СБП 👍 Оформляйте заказ и пришлите скрин, пожалуйста.`;
+}
+
 export function paidNoticeText(row) {
   return `Деньги пришли: ${who(row)}, ${formatRub(row.amount_minor)} по СБП. Пишу блогеру: «Деньги пришли 👍 Заказывайте и пришлите скрин».`;
 }
@@ -165,8 +170,16 @@ export async function applyKonsolPayment(row, payment, deps) {
     await store.setKonsolStatus(row.id, payment.status);
   }
   // Owner 2026-10-16: no Telegram message per payment — he checks Instagram himself.
-  // The paid row turns green in the ERP; the evening summary stays.
-  const noticed = false;
+  // Green is Diana's trigger («как только оплата сделана… сразу написала им»): one
+  // Instagram message to the blogger, once per payout (paid_notice_at is the lock).
+  let noticed = false;
+  if (changed && target === 'paid' && deps.notifyBlogger) {
+    if (await store.claimNotice(row.id, new Date(now).toISOString())) {
+      const sent = await deps.notifyBlogger(row, bloggerPaidText(row));
+      if (sent && sent.ok) noticed = true;
+      else await store.releaseNotice(row.id);
+    }
+  }
   return { changed, status: target === 'sent' ? row.status : target, konsol_status: payment.status, noticed };
 }
 

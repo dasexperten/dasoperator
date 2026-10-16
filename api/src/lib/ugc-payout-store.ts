@@ -5,6 +5,7 @@ import type { Env } from '../types';
 import { konsolClient } from './konsol';
 import { sendOwnerTelegram } from './owner-telegram';
 import { applyKonsolPayment, executePayout, matchRegistryPayment, REGISTRY_LINK_IDS } from './ugc-payout-execute.mjs';
+import { sendIgDirect } from './ig-dm-watch';
 import { formatRub, ownRubMinor, UGC_PAYOUT_MAX_MINOR, UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR } from './ugc-payouts.mjs';
 
 export function payoutStore(env: Env) {
@@ -85,6 +86,7 @@ function deps(env: Env) {
     store: payoutStore(env),
     konsol: konsolClient(env),
     notifyOwner: (text: string) => sendOwnerTelegram(env, text, 'diana-helios'),
+    notifyBlogger: (row: Record<string, any>, text: string) => sendIgDirect(env, String(row.creator_handle || row.handle || ''), text),
     now: Date.now(),
     claimToken: crypto.randomUUID(),
   };

@@ -1,7 +1,7 @@
 // Instagram Direct watcher for Diana (Owner 2026-10-15). Reads @dasexperten's
 // Direct through the Page with META_IG_MESSAGING_TOKEN (card SECRETS/instagram.md,
 // both vaults; never logged) and stores new messages in ugc_ig_messages.
-// Read-only toward Instagram: nothing is sent from here.
+// Sends only one thing: Diana's «перевела» when a payout turns green (sendIgDirect).
 // Cadence is not decided here — the adaptive runner calls it (3 / 15 / 30 min).
 import type { Env } from '../types';
 
@@ -52,6 +52,37 @@ export async function fillCreatorNames(env: Env, pageToken: string): Promise<num
     if (name) filled++;
   }
   return filled;
+}
+
+/**
+ * One Direct message from @dasexperten to a blogger who has written to us
+ * (Owner 2026-10-16: green payout → Diana writes at once). The recipient is the
+ * Instagram id from that blogger's own incoming messages; no id → nothing sent.
+ */
+export async function sendIgDirect(env: Env, handle: string, text: string): Promise<{ ok: boolean; error?: string }> {
+  const h = handle.trim().replace(/^@/, '').toLowerCase();
+  if (!h) return { ok: false, error: 'no handle' };
+  const token = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN ?? '';
+  if (!token) return { ok: false, error: 'META_IG_MESSAGING_TOKEN not set on the Worker' };
+  const who = await env.DB.prepare(
+    `SELECT from_id FROM ugc_ig_messages WHERE direction='in' AND LOWER(from_username)=?1 AND from_id IS NOT NULL ORDER BY created_at DESC LIMIT 1`
+  ).bind(h).first<{ from_id: string }>();
+  if (!who?.from_id) return { ok: false, error: `no Instagram id for ${h}` };
+  const page = await graph(`/${PAGE_ID}?fields=access_token`, token);
+  if (!page.ok || !page.body?.access_token) return { ok: false, error: `page token: ${page.error}` };
+  try {
+    const res = await fetch(`${G}/${PAGE_ID}/messages?access_token=${encodeURIComponent(String(page.body.access_token))}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipient: { id: who.from_id }, message: { text }, messaging_type: 'RESPONSE' }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const body = await res.json().catch(() => null) as any;
+    if (!res.ok || body?.error) return { ok: false, error: String(body?.error?.message ?? `HTTP ${res.status}`).slice(0, 200) };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 export type IgWatchResult = { ok: boolean; activity: boolean; stored: number; incoming: number; error?: string };

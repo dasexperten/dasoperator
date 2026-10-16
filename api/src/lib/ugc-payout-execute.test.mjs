@@ -165,6 +165,7 @@ test('callback status mapping: executed → paid with no Telegram message, faile
   assert.equal(w.db.get('p1').status, 'paid');
   assert.equal(w.db.get('p1').paid_at, '2026-10-14T12:01:00Z');
   assert.equal(w.calls.owner.length, 0, 'no message per payment (Owner 2026-10-16)');
+  assert.equal(out.noticed, false, 'no blogger sender in this world → nothing claimed');
 
   const f = world({ rows: [{ id: 'p2', amount_minor: 100, status: 'sent', konsol_payment_id: 'pay-2' }] });
   await applyKonsolPayment(await f.deps.store.getPayout('p2'), { id: 'pay-2', status: 'failed', error_message: 'Банк получателя отклонил выплату.' }, f.deps);
@@ -241,4 +242,24 @@ test('simultaneous clicks on different queue entries cannot exceed the daily tot
   await Promise.all(rows.map((row) => executePayout(row.id, deps)));
   assert.equal(calls.payments.length, 10);
   assert.equal(calls.payments.reduce((sum, p) => sum + p.amount, 0), 9990);
+});
+
+test('green payout: Diana writes the blogger once; a failed send is retried next time', async () => {
+  const w = world({ rows: [{ id: 'p1', amount_minor: 33300, status: 'sent', konsol_payment_id: 'pay-1', handle: 'madifood_' }] });
+  const sent = [];
+  let okSend = false;
+  w.deps.notifyBlogger = async (row, text) => { sent.push({ handle: row.handle, text }); return { ok: okSend }; };
+  w.deps.store.claimNotice = async (id, at) => { const r = w.db.get(id); if (r.paid_notice_at) return false; r.paid_notice_at = at; return true; };
+  w.deps.store.releaseNotice = async (id) => { w.db.get(id).paid_notice_at = null; };
+  const first = await applyKonsolPayment(await w.deps.store.getPayout('p1'), { id: 'pay-1', status: 'executed' }, w.deps);
+  assert.equal(first.noticed, false);
+  assert.equal(w.db.get('p1').paid_notice_at, null, 'failed send releases the lock');
+  assert.match(sent[0].text, /^Перевела 333 ₽ по СБП/);
+  okSend = true;
+  w.db.get('p1').status = 'sent';
+  const second = await applyKonsolPayment(await w.deps.store.getPayout('p1'), { id: 'pay-1', status: 'executed' }, w.deps);
+  assert.equal(second.noticed, true);
+  const third = await applyKonsolPayment(await w.deps.store.getPayout('p1'), { id: 'pay-1', status: 'executed' }, w.deps);
+  assert.equal(third.noticed, false, 'already paid → no second message');
+  assert.equal(sent.length, 2);
 });

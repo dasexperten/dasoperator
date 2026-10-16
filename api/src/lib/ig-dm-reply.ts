@@ -5,7 +5,35 @@
 // the model may not decide is left for a human (escalated, no reply).
 import type { Env } from '../types';
 import { callPro } from './llm';
-import { DIANA_RULES, SCENARIO_CARDS, guardReply, type CleanRequisites } from './ig-dm-reply-guard.mjs';
+import { DIANA_RULES, JSON_SPEC, SCENARIO_CARDS, guardReply, type CleanRequisites } from './ig-dm-reply-guard.mjs';
+import { composeDiana, type DianaFiles } from './diana-profile.mjs';
+
+// Diana's profile from GitHub, read once per check (Owner 2026-10-16: harness, VOICE, CHARTER,
+// HARD_RULES, and the LEARNING / MEMORY entries this message needs). No token or no answer → built-in rules.
+const PROFILE = {
+  harness: 'agents/diana-helios/DIRECT_RULES.md', voice: 'agents/diana-helios/VOICE.md', charter: 'agents/diana-helios/CHARTER.md',
+  hardRules: 'HARD_RULES.md', learning: 'agents/diana-helios/LEARNING.md', memory: 'agents/diana-helios/MEMORY.md',
+} as const;
+
+async function loadDiana(env: Env): Promise<DianaFiles | null> {
+  const token = (env as unknown as { GITHUB_TOKEN?: string }).GITHUB_TOKEN ?? '';
+  if (!token) return null;
+  try {
+    const entries = await Promise.all(Object.entries(PROFILE).map(async ([k, path]) => {
+      const res = await fetch(`https://api.github.com/repos/dasexperten/organizacia/contents/${path}?ref=main`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.raw+json', 'User-Agent': 'erp-ugc-direct' },
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+      return [k, await res.text()] as const;
+    }));
+    const files = Object.fromEntries(entries) as DianaFiles;
+    return files.harness && files.voice && files.charter ? files : null;
+  } catch (e) {
+    console.warn(`[ig-reply] Diana profile not read, built-in rules used: ${e instanceof Error ? e.message : String(e)}`);
+    return null;
+  }
+}
 import { lastWordIsBlogger, sendIgCards, sendIgDirect } from './ig-dm-watch';
 
 const MAX_PER_RUN = 15;
@@ -56,6 +84,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       ORDER BY m.created_at DESC LIMIT 40`
   ).all<{ cid: string; t: string; h: string }>()).results ?? [];
   let replied = 0, escalated = 0, errors = 0;
+  let diana: DianaFiles | null | undefined;
   for (const w of waiting) {
     if (replied + escalated >= MAX_PER_RUN) break;
     const at = Date.parse(w.t);
@@ -86,10 +115,14 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     }).join('\n');
     const context = `Блогер: @${w.h}${creator?.display_name ? `, ${creator.display_name}` : ''}${creator?.city ? `, ${creator.city}` : ''}\nERP, выплаты: ${erp}\n\nПереписка (последние сообщения):\n${lines}\n\nНапиши следующий ответ Дианы.`;
 
+    // The whole profile is read only when someone is actually waiting for an answer.
+    if (diana === undefined) diana = await loadDiana(env);
+    const query = history.filter((m) => m.direction === 'in').slice(-6).map((m) => m.text ?? '').join(' ');
+    const system = diana ? `${composeDiana(diana, query)}\n\n${JSON_SPEC}` : DIANA_RULES;
     let raw = '';
     try {
-      const r = await callPro([{ role: 'system', content: DIANA_RULES }, { role: 'user', content: context }], { env, maxTokens: 400, temperature: 0.2, prefer: 'anthropic' })
-        .catch(() => callPro([{ role: 'system', content: DIANA_RULES }, { role: 'user', content: context }], { env, maxTokens: 400, temperature: 0.2 }));
+      const r = await callPro([{ role: 'system', content: system }, { role: 'user', content: context }], { env, maxTokens: 500, temperature: 0.2, prefer: 'anthropic' })
+        .catch(() => callPro([{ role: 'system', content: system }, { role: 'user', content: context }], { env, maxTokens: 500, temperature: 0.2 }));
       raw = r.text;
     } catch (e) {
       errors++;

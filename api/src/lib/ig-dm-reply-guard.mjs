@@ -2,7 +2,7 @@
 // by itself… 3 minutes after any activity, 15 if idle»). The rules and the last
 // check before a reply leaves the server. Pure — shared by the lane and its tests.
 
-export const DIANA_RULES = `Ты — Диана, менеджер блогеров бренда Das Experten (зубные пасты и щётки). Пишешь в Instagram Direct от имени @dasexperten.
+export const DIANA_RULES_BODY = `Ты — Диана, менеджер блогеров бренда Das Experten (зубные пасты и щётки). Пишешь в Instagram Direct от имени @dasexperten.
 
 Программа (бартер): блогер собирает на Ozon одну пасту TERMO и одну нашу щётку Das Experten (ETALON, ZERO, SENSITIV или BIO), присылает скрин корзины; мы переводим сумму корзины по СБП до заказа; блогер заказывает, снимает честный ролик и оставляет отзыв. Найти пасту: поиск на Ozon «зубная паста с ферментами», оранжевая TERMO. Сначала предлагай Ozon; если блогер принципиально не хочет Ozon — можно Wildberries, та же паста TERMO и наша щётка (Владелец 16.10.2026). Лимит — 999 ₽ на блогера; больше — только одна паста и одна щётка.
 
@@ -30,7 +30,10 @@ export const DIANA_RULES = `Ты — Диана, менеджер блогеро
 Голос объяснения сценария — Александры Файбе (Владелец 16.10.2026: «При объяснении сценария… работаешь с Александрой Файбе»): 1) тепло открыть («Отличный выбор!»); 2) просто объяснить механизм — что снять → почему это работает с её пастой; 3) один короткий вывод, как есть; 4) один следующий шаг (снять и прислать ссылку). Без жаргона, не больше двух терминов подряд, без пафоса. О продукте — только то, что есть на карточке и в названии пасты (TERMO 39° — тепло при чистке; ферменты; уголь; пробиотик); ничего не выдумывать.
 Если блогер просит сценарии, не может их найти или ещё не получал карточки — поставь "send_cards": true и в reply коротко: «Вот семь сценариев — какой вам ближе? Пришлите номер.»
 
-Ответь строго JSON без пояснений: {"reply": string|null, "escalate": boolean, "send_cards": boolean, "requisites": object|null, "reason": string}`;
+`;
+
+// The answer format is the code's, never the profile's: the guard below parses it.
+export const JSON_SPEC = 'Ответь строго JSON без пояснений: {"reply": string|null, "escalate": boolean, "send_cards": boolean, "requisites": object|null, "reason": string}';
 
 // SBP member ids of the banks bloggers name (Konsol FPS list).
 const BANKS = [
@@ -87,3 +90,6 @@ export function guardReply(raw, { paid = false } = {}) {
   if (/добрый (день|вечер)|здравствуйте|привет/i.test(reply) && reply.length < 25) return { reply: null, escalate: false, reason: 'greeting only' };
   return { reply, escalate: false, reason, sendCards, requisites };
 }
+
+/** Built-in rules: the fallback when Diana's profile cannot be read from GitHub. */
+export const DIANA_RULES = `${DIANA_RULES_BODY}\n\n${JSON_SPEC}`;

@@ -38,9 +38,9 @@ async function registerPayout(env: Env, handle: string, r: CleanRequisites): Pro
   const day = new Date(now + 4 * 3_600_000).toISOString().slice(0, 10);
   const masked = `${r.phone.slice(0, 5)}*****${r.phone.slice(-2)}`;
   await env.DB.batch([
-    env.DB.prepare(`INSERT INTO ugc_payouts (id, creator_id, creator_platform_id, platform, handle, amount_minor, currency, status, payout_date, phone_masked, fps_bank_member_id, note, created_by, created_at, updated_at)
-      VALUES (?1, ?2, ?3, 'instagram', ?4, ?5, 'RUB', 'awaiting_approval', ?6, ?7, ?8, 'Реквизиты из переписки — заведено автоответом Дианы.', 'Diana Helios (auto)', ?9, ?9)`)
-      .bind(id, cid, pid, handle, r.amount_minor, day, masked, r.bank, now),
+    env.DB.prepare(`INSERT INTO ugc_payouts (id, creator_id, creator_platform_id, platform, handle, amount_minor, currency, status, payout_date, phone_masked, fps_bank_member_id, note, created_by, created_at, updated_at, product)
+      VALUES (?1, ?2, ?3, 'instagram', ?4, ?5, 'RUB', 'awaiting_approval', ?6, ?7, ?8, 'Реквизиты из переписки — заведено автоответом Дианы.', 'Diana Helios (auto)', ?9, ?9, ?10)`)
+      .bind(id, cid, pid, handle, r.amount_minor, day, masked, r.bank, now, r.product),
     env.DB.prepare(`INSERT INTO ugc_payout_requisites (payout_id, fps_mobile_phone, first_name, last_name, patronymic, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)`)
       .bind(id, r.phone, r.first_name, r.last_name, r.patronymic, now),
   ]);

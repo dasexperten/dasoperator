@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { checkDailyLimit, checkDailyTotalLimit, compareByRecent, formatRub, latestActivityMs, maskPhone, parsePayoutAmount, payoutDate, statusStampColumn, UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR, UGC_PAYOUT_MAX_MINOR } from './ugc-payouts.mjs';
+import { missingInfo, checkDailyLimit, checkDailyTotalLimit, compareByRecent, formatRub, latestActivityMs, maskPhone, parsePayoutAmount, payoutDate, statusStampColumn, UGC_PAYOUT_DAILY_TOTAL_MAX_MINOR, UGC_PAYOUT_MAX_MINOR } from './ugc-payouts.mjs';
 
 test('accepts payouts up to and including 999 ₽', () => {
   assert.deepEqual(parsePayoutAmount({ amount_rub: 691 }), { ok: true, amount_minor: 69100 });
@@ -132,4 +132,10 @@ test('no day total blocks a ready payout, and its date is never moved', () => {
   ], now);
   assert.equal(rows.at(-1).over_limit, false);
   assert.equal(rows.at(-1).payout_date, '2026-10-17');
+});
+
+test('a payout is ready only with followers, ER and product (Owner 2026-10-16)', () => {
+  assert.deepEqual(missingInfo({ creator_followers: 3062, creator_er: 0.026, product: 'TERMO + ZERO' }), []);
+  assert.deepEqual(missingInfo({ creator_followers: null, creator_er: null, product: '' }), ['подписчики', 'ER', 'продукт']);
+  assert.deepEqual(missingInfo({ creator_followers: 1663, creator_er: null, product: 'TERMO' }), ['ER']);
 });

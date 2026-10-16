@@ -4,7 +4,7 @@ import { fail, ok } from '../lib/responses';
 import { hasModuleAccess, validateSession, type AuthUser } from '../lib/auth';
 import { runUgcLinkHealthBatch } from '../lib/ugc-link-health';
 import { baseProductSku, identifyExplicitProducts, initialProductClassification, UGC_PRODUCTS } from '../lib/ugc-products.mjs';
-import { annotateOverLimit, checkDailyLimit, compareByRecent, isFpsBankMemberId, isPayoutStatus, konsolPhone, latestActivityMs, maskPhone, maskPhoneWide, paidCounters, parsePayoutAmount, payoutDate, statusStampColumn } from '../lib/ugc-payouts.mjs';
+import { annotateMissingInfo, annotateOverLimit, checkDailyLimit, missingInfo, compareByRecent, isFpsBankMemberId, isPayoutStatus, konsolPhone, latestActivityMs, maskPhone, maskPhoneWide, paidCounters, parsePayoutAmount, payoutDate, statusStampColumn } from '../lib/ugc-payouts.mjs';
 import { executeUgcPayout, refreshUgcPayout, ugcPayoutEvening } from '../lib/ugc-payout-store';
 import { profileAverages } from '../lib/ugc-profile-metrics.mjs';
 import { sourceRecordIndex } from '../lib/ugc-source-records.mjs';
@@ -186,10 +186,13 @@ ugc.get('/', async (c) => {
               p.konsol_payment_id, p.konsol_status, p.phone_masked, p.fps_bank_member_id,
               (CASE WHEN p.execute_claim IS NOT NULL THEN 'held' END) execute_claim,
               -- requisites received? (yes/no only; the phone and name never leave that table)
-              (CASE WHEN EXISTS (SELECT 1 FROM ugc_payout_requisites r WHERE r.payout_id = p.id) THEN 1 ELSE 0 END) has_requisites
+              (CASE WHEN EXISTS (SELECT 1 FROM ugc_payout_requisites r WHERE r.payout_id = p.id) THEN 1 ELSE 0 END) has_requisites,
+              p.product,
+              (SELECT MAX(cp.followers) FROM ugc_creator_platforms cp WHERE cp.creator_id = p.creator_id) creator_followers,
+              (SELECT MAX(cp.engagement_rate) FROM ugc_creator_platforms cp WHERE cp.creator_id = p.creator_id) creator_er
        FROM ugc_payouts p ORDER BY p.updated_at DESC`
     ).all<Record<string, any>>();
-    payoutRows = annotateOverLimit(result.results ?? []);
+    payoutRows = annotateMissingInfo(annotateOverLimit(result.results ?? []));
   } catch { /* table not yet migrated */ }
   const payoutsByCreator = new Map<string, Record<string, any>[]>();
   for (const row of payoutRows) {
@@ -850,6 +853,15 @@ ugc.post('/payouts/:id/execute', async (c) => {
   if (access instanceof Response) return access;
   // The Owner pays by hand (Owner 2026-10-15): only Admin may send money to Konsol.
   if (access.role !== 'admin') return fail(c, 403, [{ code: 'admin_only', message: 'Only the Owner (Admin) can pay' }]);
+  // Owner 2026-10-16: followers, ER and product before any money moves.
+  const ready = await c.env.DB.prepare(
+    `SELECT p.product,
+            (SELECT MAX(cp.followers) FROM ugc_creator_platforms cp WHERE cp.creator_id = p.creator_id) creator_followers,
+            (SELECT MAX(cp.engagement_rate) FROM ugc_creator_platforms cp WHERE cp.creator_id = p.creator_id) creator_er
+       FROM ugc_payouts p WHERE p.id=?1`
+  ).bind(c.req.param('id')).first<Record<string, any>>();
+  const missing = ready ? missingInfo(ready) : [];
+  if (missing.length) return fail(c, 409, [{ code: 'not_ready', message: `Нет данных: ${missing.join(', ')}` }]);
   const out = await executeUgcPayout(c.env, c.req.param('id'));
   if (!out.ok) return fail(c, out.http as 400, [{ code: out.code ?? 'failed', message: out.message ?? 'Payout not executed' }]);
   return c.json({ success: true, result: { already: out.already === true, payout: out.payout }, errors: [], messages: [] }, out.http as 200);

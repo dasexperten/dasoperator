@@ -27,6 +27,8 @@ export function isFpsBankMemberId(value: unknown): boolean;
 export function yerevanDay(msValue: number): string;
 export function isCommittedPayout(row: Record<string, any>): boolean;
 export function committedPayoutDay(row: Record<string, any>): string;
+export function missingInfo(row: Record<string, any>): string[];
+export function annotateMissingInfo<T extends Record<string, any>>(rows: T[]): (T & { missing_info: string[] })[];
 export function annotateOverLimit<T extends Record<string, any>>(rows: T[], now?: number): (T & { over_limit: boolean })[];
 export type PaidCount = { count: number; minor: number; day: string };
 export function paidCounters(rows: Record<string, any>[], now?: number): { today: PaidCount; yesterday: PaidCount };

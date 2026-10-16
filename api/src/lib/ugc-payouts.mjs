@@ -224,6 +224,26 @@ export function committedPayoutDay(row) {
   return at == null ? row.payout_date : yerevanDay(at);
 }
 
+/**
+ * Owner 2026-10-16: before a payout turns brown the blogger is known — followers,
+ * engagement rate (last six posts) and the product we pay for. Missing → grey.
+ */
+export function missingInfo(row) {
+  const out = [];
+  if (!(Number(row.creator_followers) > 0)) out.push('подписчики');
+  if (row.creator_er == null || !Number.isFinite(Number(row.creator_er))) out.push('ER');
+  if (!String(row.product ?? '').trim()) out.push('продукт');
+  return out;
+}
+
+export function annotateMissingInfo(rows) {
+  for (const r of rows) {
+    const open = r.status === 'awaiting_approval' || r.status === 'approved';
+    r.missing_info = open ? missingInfo(r) : [];
+  }
+  return rows;
+}
+
 /** One ready queue. Each row is checked against actual usage now, not other waiting rows. */
 export function annotateOverLimit(rows, now = Date.now()) {
   const today = yerevanDay(now);

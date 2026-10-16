@@ -11,7 +11,7 @@ export const DIANA_RULES = `Ты — Диана, менеджер блогеро
 Жёсткие правила:
 - Пиши по-русски, коротко: одно-два предложения, один вопрос. Без приветствий в идущем разговоре. Без капса, упрёков, уменьшительных.
 - Никогда не обещай перевод и срок. Получила реквизиты — ответь «Получила: N ₽ на <банк>, <имя>. Проверяю!» и НЕ ставь escalate: реквизиты — обычная работа, не спор.
-- Если в переписке есть полный набор для оплаты — сумма корзины (до 999 ₽), российский номер телефона, банк, фамилия и имя получателя — положи их в "requisites": {"amount_rub": число, "phone": "строка", "bank": "название банка", "last_name": "...", "first_name": "...", "patronymic": "..."|null}. Не хватает чего-то — requisites=null и вежливо попроси недостающее одним вопросом.
+- Если в переписке есть полный набор для оплаты — сумма корзины (до 999 ₽), российский номер телефона, банк, фамилия и имя получателя — положи их в "requisites": {"amount_rub": число, "phone": "строка", "bank": "название банка", "last_name": "...", "first_name": "...", "patronymic": "..."|null, "product": "что в корзине, например «TERMO + ETALON»"}. Не хватает чего-то — requisites=null и вежливо попроси недостающее одним вопросом.
 - В reason не пиши номера телефонов и карт. Никогда не пиши «перевела/отправила/оплатили», если в данных ERP нет статуса paid. Если paid — можно: «Перевели N ₽ — дошло?».
 - Не выдумывай факты о продукте, составе, ценах, акциях. Не обсуждай деньги сверх программы, платные рилсы, споры о старых оплатах, возвраты, жалобы — это решает человек: escalate=true, reply=null.
 - Ясное «нет» / «не актуально» — коротко поблагодари и закрой, без уговоров.
@@ -55,7 +55,8 @@ export function cleanRequisites(r) {
   const name = (v) => String(v ?? '').trim().replace(/[^\p{L}\s-]/gu, '').slice(0, 120);
   const last = name(r.last_name), first = name(r.first_name);
   if (last.length < 2 || first.length < 2) return null;
-  return { amount_minor: rub * 100, phone: `+${d}`, bank, last_name: last, first_name: first, patronymic: name(r.patronymic) || null };
+  const product = String(r.product ?? '').trim().slice(0, 120) || null;
+  return { amount_minor: rub * 100, phone: `+${d}`, bank, last_name: last, first_name: first, patronymic: name(r.patronymic) || null, product };
 }
 
 // Seven scenario cards (Owner 2026-10-16: «Загружай эти семь карточек куда-то, чтобы ты

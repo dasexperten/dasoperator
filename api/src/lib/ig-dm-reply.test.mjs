@@ -74,7 +74,7 @@ test('safe no-answer and confirmed existing reply are handled',async()=>{
 });
 test('runtime appends the current menu and sends exactly four cards',async()=>{
  const f=fixture();f.raw=JSON.stringify({reply:'Вот четыре сценария — какой вам ближе?',escalate:false,send_cards:true});await igDmReply(f.env);
- assert.equal(f.cardUrls.length,4);assert.match(f.cardUrls[2],/261017b\/card3/);assert.match(f.systems[0],/ТОЛЬКО ЧЕТЫРЕ/);
+ assert.equal(f.cardUrls.length,4);assert.match(f.cardUrls[2],/261017c\/card3/);assert.match(f.systems[0],/ТОЛЬКО ЧЕТЫРЕ/);
  assert.match(f.sqls.find(s=>s.includes('WITH last')),/m.created_at >= \?1/);
 });
 test('an older paid basket does not permit saying the new basket is paid',async()=>{

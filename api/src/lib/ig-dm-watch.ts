@@ -5,6 +5,7 @@
 // Cadence is not decided here — the adaptive runner calls it (3 / 15 / 30 min).
 import type { Env } from '../types';
 import { cacheIncomingImages } from './ig-dm-image-cache';
+import { archiveIgMessage } from './ig-dm-archive';
 import { bloggerName, cityOf } from './ugc-person-name.mjs';
 
 const G = 'https://graph.facebook.com/v21.0';
@@ -134,6 +135,29 @@ export async function refreshIgAttachments(env: Env, messageId: string): Promise
   return null;
 }
 
+/** Repair blank incoming records without asking the creator to resend. Metadata
+ * can appear after the initial Graph response, even with no new conversation. */
+export async function recoverMissingIgImages(env: Env): Promise<number> {
+  const now = Date.now();
+  const rows = (await env.DB.prepare(`SELECT m.id FROM ugc_ig_messages m
+    LEFT JOIN crm_sync_state probe ON probe.key='ig_attachment_probe:'||m.id
+    WHERE m.direction='in' AND (m.text IS NULL OR trim(m.text)='')
+      AND (m.attachments_json IS NULL OR m.attachments_json='' OR m.attachments_json='[]')
+      AND m.created_at>=?1 AND (probe.updated_at IS NULL OR probe.updated_at<?2)
+    ORDER BY m.created_at DESC LIMIT 10`)
+    .bind(new Date(now - 7 * 86_400_000).toISOString(), now - 30 * 60_000).all<{id:string}>()).results ?? [];
+  let repaired = 0;
+  for (const row of rows) {
+    const json = await refreshIgAttachments(env, row.id).catch(() => null);
+    if (json && json !== '[]') {
+      try { await cacheIncomingImages(env, row.id, JSON.parse(json)); repaired++; } catch { /* reader retries */ }
+    }
+    await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
+      .bind(`ig_attachment_probe:${row.id}`, json && json !== '[]' ? 'metadata_recovered' : 'not_available_yet', now).run();
+  }
+  return repaired;
+}
+
 /** The four scenario cards, one image message each, after a text (Owner 2026-10-16). */
 export async function sendIgCards(env: Env, handle: string, urls: string[], opts: { humanAgent?: boolean } = {}): Promise<number> {
   let sent = 0;
@@ -218,27 +242,25 @@ export async function igDmWatch(env: Env): Promise<IgWatchResult> {
   const fresh = list.filter((c) => Date.parse(c.updated_time) > since);
   let stored = 0, incoming = 0;
   for (const c of fresh) {
-    const msgs = await graph(`/${c.id}?fields=messages.limit(20){id,created_time,from,message,attachments{mime_type,file_url,image_data,video_data}}`, pageToken);
-    if (!msgs.ok) return { ok: false, activity: stored > 0, stored, incoming, error: `messages: ${msgs.error}` };
-    for (const m of msgs.body?.messages?.data ?? []) {
-      if (Date.parse(m.created_time) <= since) continue;
-      const out = String(m.from?.id ?? '') === IG_ID;
-      const r = await env.DB.prepare(
-        `INSERT OR IGNORE INTO ugc_ig_messages (id, conversation_id, direction, from_id, from_username, text, attachments_json, created_at, seen_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
-      ).bind(String(m.id), c.id, out ? 'out' : 'in', m.from?.id ?? null, m.from?.username ?? null,
-        typeof m.message === 'string' ? m.message.slice(0, 4000) : null,
-        m.attachments?.data?.length ? JSON.stringify(m.attachments.data) : null,
-        new Date(Date.parse(m.created_time)).toISOString(), now).run();
-      if ((r.meta?.changes ?? 0) === 1) {
-        stored++; if (!out) incoming++;
-        if (!out && m.attachments?.data?.length) {
-          try { await cacheIncomingImages(env,String(m.id),m.attachments.data); }
-          catch { console.warn('[ig-dm] screenshot cache incomplete; reader will retry'); }
-        }
+    let messagePath = `/${c.id}?fields=messages.limit(100){id,created_time,from,message,attachments{mime_type,file_url,image_data,video_data}}`;
+    const cursors = new Set<string>();
+    while (messagePath) {
+      const msgs = await graph(messagePath, pageToken);
+      if (!msgs.ok) return { ok: false, activity: stored > 0, stored, incoming, error: `messages: ${msgs.error}` };
+      const page = msgs.body?.messages ?? msgs.body;
+      const messages = page?.data ?? [];
+      for (const m of messages) {
+        const result = await archiveIgMessage(env, c.id, m, now, since);
+        if (result.inserted || result.repaired) stored++;
+        if (result.incoming) incoming++;
       }
+      const after = page?.paging?.cursors?.after;
+      if (!after || !messages.length || messages.some((m: any) => Date.parse(m.created_time) <= since) || cursors.has(after)) break;
+      cursors.add(after);
+      messagePath = `/${c.id}/messages?fields=id,created_time,from,message,attachments{mime_type,file_url,image_data,video_data}&limit=100&after=${encodeURIComponent(after)}`;
     }
   }
+  stored += await recoverMissingIgImages(env).catch(() => 0);
   if (newest && Date.parse(newest) > since) await saveMark(newest);
   return { ok: true, activity: stored > 0, stored, incoming };
 }

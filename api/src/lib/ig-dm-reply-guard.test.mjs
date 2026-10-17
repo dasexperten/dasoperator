@@ -57,3 +57,10 @@ test('several short messages pass as parts (Owner 2026-10-17)', () => {
   const one = guardReply(JSON.stringify({ reply: 'Пришлёте скрин?', escalate: false, send_cards: false, requisites: null, reason: 'x' }));
   assert.deepEqual(one.parts, ['Пришлёте скрин?']);
 });
+
+test('no claim about children and no adult wording (Owner 2026-10-17)', () => {
+  const j = (reply) => JSON.stringify({ reply, escalate: false, send_cards: false, requisites: null, reason: 'x' });
+  assert.equal(guardReply(j('Детям паста не подходит, только для взрослых.')).reason, 'claim about children');
+  assert.equal(guardReply(j('Снимите вдвоём со взрослым.')).reason, 'adult wording');
+  assert.ok(guardReply(j('Детей в ролики мы не берём, такое у нас правило.')).reply);
+});

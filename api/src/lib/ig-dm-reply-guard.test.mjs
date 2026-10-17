@@ -143,3 +143,18 @@ test('«снимайте» is a command; «можно снимать» passes (O
   assert.equal(guardReply(j('Как получите, снимайте сценарий №1.'), { paid: false, inCount: 5, lastIn: '', allowBrush: true }).reply, null);
   assert.ok(guardReply(j('Как получите, можно снимать сценарий №1.'), { paid: false, inCount: 5, lastIn: '', allowBrush: true }).reply);
 });
+
+test('returns and money back go to the Owner first (Owner 2026-10-17, blog_lezginka_22)', () => {
+  const j = (r) => JSON.stringify({ reply: r, replies: [r], send_cards: false, escalate: false, requisites: null });
+  const o = { paid: true, inCount: 5, allowBrush: false };
+  assert.equal(guardReply(j('Хорошо, поняла вас.'), { ...o, lastIn: 'Если так то я возврат сделаю и отправлю обратно деньги' }).reason, 'return or money back, Owner decides');
+  assert.equal(guardReply(j('Оформите, пожалуйста, возврат через Ozon.'), { ...o, lastIn: 'ок' }).reply, null);
+  assert.ok(guardReply(j('Вот и чудесно! Пришлите, пожалуйста, скрин заказа.'), { ...o, lastIn: 'ок' }).reply);
+});
+
+test('own scenario without the face is fine; unboxing is never offered (Owner 2026-10-17)', () => {
+  const j = (r) => JSON.stringify({ reply: r, replies: [r], send_cards: false, escalate: false, requisites: null });
+  const o = { paid: true, inCount: 5, lastIn: 'Без лица смогу', allowBrush: false };
+  assert.ok(guardReply(j('Хорошо, снимите, пожалуйста, по своему сценарию. Главное, чтобы паста была в деле.'), o).reply);
+  assert.equal(guardReply(j('Можно просто распаковку, это тоже подойдёт.'), o).reason, 'offers unboxing or closed packaging');
+});

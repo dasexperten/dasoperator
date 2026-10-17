@@ -44,7 +44,7 @@ async function saveAvatar(env: Env, id: string, url?: string | null): Promise<st
 
 // Independent of payouts and Direct. One nightly batch, or a manual batch/profile.
 // Missing values never erase previously observed values; attempts and successes differ.
-export async function refreshBloggerProfiles(env: Env, profileId?: string, limit = 20, options: { avatarOnly?: boolean } = {}) {
+export async function refreshBloggerProfiles(env: Env, profileId?: string, limit = 20, options: { avatarOnly?: boolean; avatarUrl?: string } = {}) {
   const lease = crypto.randomUUID();
   const lock = 'lock:erp-blogger-id';
   const claimed = await env.DB.prepare(`INSERT INTO erp_job_claims (worker,slot,lease_until) VALUES (?,?,?)
@@ -56,6 +56,7 @@ export async function refreshBloggerProfiles(env: Env, profileId?: string, limit
         (SELECT from_id FROM ugc_ig_messages m WHERE m.direction='in' AND lower(m.from_username)=ugc_creator_platforms.normalized_handle AND m.from_id IS NOT NULL ORDER BY m.created_at DESC LIMIT 1) igsid
       FROM ugc_creator_platforms
       WHERE platform='instagram' AND (?1 IS NULL OR id=?1)
+        AND EXISTS (SELECT 1 FROM ugc_creators c WHERE c.id=ugc_creator_platforms.creator_id AND c.archived_at IS NULL)
         AND (?1 IS NOT NULL OR profile_attempted_at IS NULL OR profile_attempted_at < ?2)
       ORDER BY (profile_checked_at IS NULL) DESC, created_at DESC, profile_attempted_at ASC LIMIT ?3`)
       .bind(profileId ?? null, new Date(Date.now() - 7 * 86_400_000).toISOString(), Math.min(20, Math.max(1, limit)))
@@ -78,7 +79,7 @@ export async function refreshBloggerProfiles(env: Env, profileId?: string, limit
         const matched = String(official?.username ?? '').toLowerCase() === row.normalized_handle.toLowerCase();
         if (options.avatarOnly) {
           // Avatar backfills do not re-read posts or advance dates on retained metrics.
-          let url = matched && isInstagramAvatarUrl(official.profile_pic) ? official.profile_pic : null;
+          let url = isInstagramAvatarUrl(options.avatarUrl) ? options.avatarUrl : matched && isInstagramAvatarUrl(official.profile_pic) ? official.profile_pic : null;
           if (!url) {
             const html = await render(env, `https://www.instagram.com/${encodeURIComponent(row.normalized_handle)}/`, 'domcontentloaded', 15_000).catch(() => null);
             url = html ? parseInstagramProfile(html).avatar : null;

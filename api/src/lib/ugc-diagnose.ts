@@ -62,7 +62,7 @@ export async function diagnosePayoutCreators(env: Env): Promise<{ measured: numb
               EXISTS (SELECT 1 FROM ugc_ig_messages im WHERE im.direction='in' AND lower(im.from_username)=cp.normalized_handle AND im.created_at > ?4) live,
               EXISTS (SELECT 1 FROM ugc_payouts p WHERE p.creator_id=cp.creator_id) paid,
               (cp.followers IS NULL OR cp.followers <= 0 OR cp.engagement_rate IS NULL) gap
-         FROM ugc_creator_platforms cp WHERE cp.platform='instagram')
+         FROM ugc_creator_platforms cp JOIN ugc_creators c ON c.id=cp.creator_id WHERE cp.platform='instagram' AND c.archived_at IS NULL)
       WHERE m IS NULL OR m < ?1 OR (gap AND m < CASE WHEN live THEN ?3 ELSE ?2 END)
       ORDER BY live DESC, paid DESC, (m IS NULL) DESC, m ASC
       LIMIT ${PER_RUN}`

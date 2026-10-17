@@ -117,6 +117,7 @@ type Creator = {
   normalized_handle: string;
   display_name: string | null;
   city?: string | null;
+  archived_at?: number | null;
   category: string | null;
   audience_market: string | null;
   audience_language: string | null;
@@ -727,7 +728,7 @@ export default function UgcPage() {
             <input aria-label="Search creators" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search creators…" className="w-full bg-transparent outline-none" />
           </label>
           <select className="ugc-network-select min-h-11 px-3" aria-label="Social network" value={platform} onChange={(event) => setPlatform(event.target.value)} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>{PLATFORM_TABS.map((key) => <option key={key} value={key}>{key === 'all' ? 'All social networks' : key.charAt(0).toUpperCase() + key.slice(1)}</option>)}</select>
-          <select aria-label="Filter by collaboration stage" value={stage} onChange={(event) => setStage(event.target.value)} className="min-h-11 px-3" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><option value="">All stages</option>{STAGES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+          <select aria-label="Filter by collaboration stage" value={stage} onChange={(event) => setStage(event.target.value)} className="min-h-11 px-3" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><option value="">All stages</option><option value="archived">Архив</option>{STAGES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
           <select aria-label="Filter by product" value={product} onChange={(event) => setProduct(event.target.value)} className="min-h-11 px-3" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><option value="">All products</option>{data.products.map((item) => <option key={item.sku} value={item.sku}>{compactProductCode(item.sku)} · {item.content_count}</option>)}</select>
           <label className="dx-keep-flex min-h-11 px-3 flex items-center gap-2" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><ArrowUpDown className="h-4 w-4" /><select aria-label="Sort creators" value={sort} onChange={(event) => setSort(event.target.value)} className="w-full bg-transparent outline-none"><option value="recent">Recent activity</option><option value="followers">Followers</option><option value="views">Views</option><option value="stage">Stage</option><option value="attention">Требуют проверки</option></select></label>
         </div>
@@ -818,6 +819,16 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
     setSaving(false);
   }
 
+  async function toggleArchive() {
+    setSaving(true); setMessage(null);
+    try {
+      const result = await apiPatch(`/api/ugc/creators/${creator.id}`, { archived: !creator.archived_at });
+      if (!result.success) setMessage(result.errors[0]?.message ?? 'Не удалось изменить архив');
+      else { await onSaved(); onClose(); }
+    } catch { setMessage('Не удалось изменить архив. Повторите попытку.'); }
+    finally { setSaving(false); }
+  }
+
   return <section className="ugc-creator-card p-5 md:p-6 space-y-5" style={{ background: 'var(--bg-surface)', border: '2px solid var(--brand-schwarz)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-raised)' }}>
     <div className="flex items-start justify-between gap-4"><div><h2 id="ugc-creator-title" className="text-2xl font-extrabold">{creator.display_name || `@${creator.profiles[0]?.handle}`}</h2></div><button type="button" onClick={onClose} className="min-h-11 min-w-11 flex items-center justify-center" aria-label="Закрыть карточку блогера"><X className="h-5 w-5" /></button></div>
     {creator.attention ? <p className="flex items-start gap-2 text-sm" style={{ color: 'var(--fg-1)' }}><AlertCircle className="h-5 w-5 shrink-0" style={{ color: '#7a4e25' }} /><span style={{ whiteSpace: 'normal' }}><strong>{creator.attention.label}.</strong> {creator.attention.reason}</span></p> : null}
@@ -870,7 +881,7 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
       <Field label="Deliverables"><input value={deliverables} onChange={(event) => setDeliverables(event.target.value)} placeholder="1 Shopee Video…" /></Field>
     </div>
     <div className="grid md:grid-cols-2 gap-4"><Field label="Rights"><textarea value={rights} onChange={(event) => setRights(event.target.value)} rows={3} /></Field><Field label="Notes"><textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} /></Field></div>
-    <div className="flex items-center gap-3"><button type="button" disabled={saving} onClick={save} className="min-h-11 px-5 font-bold flex items-center gap-2 transition-transform hover:-translate-y-0.5 disabled:transform-none disabled:opacity-60" style={{ color: 'var(--fg-on-brand)', background: 'var(--brand-rot)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow-raised)' }}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Video className="h-4 w-4" />}Save creator</button>{message && <span role="status" aria-live="polite" className="text-sm" style={{ color: message === 'Saved' ? 'var(--status-success)' : 'var(--status-error)' }}>{message}</span>}</div>
+    <div className="flex items-center gap-3"><button type="button" disabled={saving} onClick={save} className="min-h-11 px-5 font-bold flex items-center gap-2 transition-transform hover:-translate-y-0.5 disabled:transform-none disabled:opacity-60" style={{ color: 'var(--fg-on-brand)', background: 'var(--brand-rot)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow-raised)' }}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Video className="h-4 w-4" />}Save creator</button><button type="button" disabled={saving} onClick={toggleArchive} className="ugc-profile-refresh-btn">{creator.archived_at ? 'Вернуть в активные' : 'Убрать из активных'}</button>{message && <span role="status" aria-live="polite" className="text-sm" style={{ color: message === 'Saved' ? 'var(--status-success)' : 'var(--status-error)' }}>{message}</span>}</div>
   </section>;
 }
 

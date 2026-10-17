@@ -271,4 +271,7 @@ test('new-payment notice offers four scenario cards', () => {
  const text = bloggerPaidText({ amount_minor: 90000, payout_date: '2026-10-17' });
  assert.match(text,/четыре карточки/);
  assert.doesNotMatch(text,/семь/);
+ assert.match(text,/придумать сами/);
+ assert.ok(text.indexOf('придумать сами') < text.indexOf('четыре карточки'), 'own scenario is offered before the cards');
+ assert.equal(text.split(/\n\n+/).length, 3, 'three short messages');
 });

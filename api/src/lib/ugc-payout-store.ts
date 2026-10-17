@@ -87,7 +87,13 @@ function deps(env: Env) {
     notifyOwner: (text: string) => sendOwnerTelegram(env, text, 'diana-helios'),
     notifyBlogger: async (row: Record<string, any>, text: string) => {
       const handle = String(row.creator_handle || row.handle || '');
-      const sent = await sendIgDirect(env, handle, text);
+      // Owner 2026-10-17: several short messages in a row; the first decides success.
+      const [first, ...rest] = text.split(/\n\n+/);
+      const sent = await sendIgDirect(env, handle, first ?? text);
+      for (const part of sent.ok ? rest : []) {
+        await new Promise((r) => setTimeout(r, 1500));
+        if (!(await sendIgDirect(env, handle, part)).ok) break;
+      }
       // After a new payment the scenario cards follow the bridge (Owner 2026-10-16); an old debt gets thanks only.
       if (sent.ok && /карточ/.test(text)) await sendIgCards(env, handle, SCENARIO_CARDS);
       return sent;

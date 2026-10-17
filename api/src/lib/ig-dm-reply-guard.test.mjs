@@ -41,3 +41,19 @@ test('only the four current scenarios may be offered', async () => {
  for (const reply of ['Вот семь сценариев — выбирайте!', 'Выберите 1–7', 'Вот карточка 6']) assert.equal(guardReply(JSON.stringify({reply,escalate:false})).reason,'scenario outside active menu');
  assert.equal(guardReply(JSON.stringify({reply:'Вот четыре сценария — пришлите номер от 1 до 4.',escalate:false,send_cards:true})).sendCards,true);
 });
+
+test('paste only: a brush offer never leaves (Owner 2026-10-17)', () => {
+  const j = (reply) => JSON.stringify({ reply, escalate: false, send_cards: false, requisites: null, reason: 'x' });
+  assert.equal(guardReply(j('Положите в корзину пасту и щётку ETALON.')).reason, 'offers a brush, paste only');
+  assert.equal(guardReply(j('Добавьте пасту и нашу щётку, пришлите скрин.')).reason, 'offers a brush, paste only');
+  assert.ok(guardReply(j('В корзину нужна только паста, щётку брать не нужно. Пришлёте скрин?')).reply);
+  assert.ok(guardReply(j('Покажите крупно немного пасты на щётке.')).reply);
+});
+
+test('several short messages pass as parts (Owner 2026-10-17)', () => {
+  const out = guardReply(JSON.stringify({ reply: null, replies: ['Тепло у всех разное.', 'У части людей бывает лёгкое покалывание.', 'Пришлёте скрин корзины?'], escalate: false, send_cards: false, requisites: null, reason: 'x' }));
+  assert.deepEqual(out.parts, ['Тепло у всех разное.', 'У части людей бывает лёгкое покалывание.', 'Пришлёте скрин корзины?']);
+  assert.equal(out.reply, out.parts.join('\n'));
+  const one = guardReply(JSON.stringify({ reply: 'Пришлёте скрин?', escalate: false, send_cards: false, requisites: null, reason: 'x' }));
+  assert.deepEqual(one.parts, ['Пришлёте скрин?']);
+});

@@ -181,7 +181,15 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     if (!latestIsBlogger) { await mark(); continue; }
     // Full requisites in the chat → a brown payout row at once (DH-LAW-261015-04 p.6, Owner 2026-10-16).
     if (out.requisites) { try { await registerPayout(env, w.h, out.requisites); } catch { await failStep('payout_registration_failed'); continue; } }
-    const sent = await sendIgDirect(env, w.h, out.reply, { humanAgent: now - at > 23.5 * 3_600_000 });
+    // Several short messages in a row (Owner 2026-10-17); the first decides success.
+    const parts: string[] = out.parts?.length ? out.parts : [out.reply];
+    const [first = out.reply] = parts;
+    const sent = await sendIgDirect(env, w.h, first, { humanAgent: now - at > 23.5 * 3_600_000 });
+    for (const part of sent.ok ? parts.slice(1) : []) {
+      await new Promise((r) => setTimeout(r, 1500));
+      const more = await sendIgDirect(env, w.h, part, { humanAgent: now - at > 23.5 * 3_600_000 });
+      if (!more.ok) break;
+    }
     if (sent.ok && out.sendCards) await sendIgCards(env, w.h, SCENARIO_CARDS, { humanAgent: now - at > 23.5 * 3_600_000 });
     if (sent.ok) { replied++; await mark(); }
     else await failStep('send_failed');

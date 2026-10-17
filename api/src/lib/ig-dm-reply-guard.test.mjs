@@ -130,3 +130,10 @@ test('a first name and the surname initial are enough for SBP (Owner 2026-10-17)
   const r = cleanRequisites({ amount_rub: 395, phone: '89674029721', bank: 'Т-Банк', first_name: 'Кристина', last_name: 'С.' });
   assert.ok(r); assert.equal(r.last_name, 'С');
 });
+
+test('a surname initial counts only as a standalone letter, never inside Сумма or Сбер', async () => {
+  const { requisitesSupportedByText } = await import('./ig-dm-reply-guard.mjs');
+  const r = { amount_minor: 39500, phone: '+79674029721', bank: '100000000004', last_name: 'С', first_name: 'Кристина', patronymic: null };
+  assert.equal(requisitesSupportedByText(r, 'Сумма 395 руб, телефон 89674029721, Т-Банк, имя Кристина'), false);
+  assert.equal(requisitesSupportedByText(r, 'Сумма 395 руб\n89674029721\nТ-Банк\nКристина С.'), true);
+});

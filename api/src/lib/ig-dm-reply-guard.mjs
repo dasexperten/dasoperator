@@ -96,7 +96,9 @@ export function requisitesSupportedByText(r, text) {
   const t=normalize(text), rub=String(r.amount_minor/100);
   const phones=[...text.matchAll(/(?:\+?7|8)[ ()-]*(?:\d[ ()-]*){10}/g)].map(m=>m[0].replace(/\D/g,'').replace(/^8/,'7'));
   const amount = new RegExp(`(?:итог[оа]?|сумм[аы]?|всего|к оплате|корзина)[^\\d]{0,30}${rub}(?!\\d)|(?<!\\d)${rub}\\s*(?:₽|руб|р(?:\\b|$))`,'i').test(text);
-  const names=[r.last_name,r.first_name,r.patronymic].filter(Boolean).every(n=>t.includes(normalize(n)));
+  // A one-letter surname must stand alone as an initial («Кристина С.»), never inside «Сумма» or «Сбер».
+  const word=n=>{const v=normalize(n).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');return v.length===1?new RegExp(`(?<![\\p{L}])${v}\\.?(?![\\p{L}])`,'u').test(t):t.includes(v);};
+  const names=[r.last_name,r.first_name,r.patronymic].filter(Boolean).every(word);
   return amount && phones.includes(r.phone.replace(/\D/g,'')) && names && BANKS.some(([pattern,id])=>id===r.bank && pattern.test(text));
 }
 

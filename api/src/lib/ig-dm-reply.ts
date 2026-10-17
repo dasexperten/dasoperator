@@ -64,6 +64,13 @@ async function registerPayout(env: Env, handle: string, r: CleanRequisites): Pro
   ]);
 }
 
+/** A one-letter surname stands alone in the text («Кристина С.»), not inside a word or a patronymic. */
+export function initialWritten(letter: string, text: string): boolean {
+  const v = letter.toLowerCase().replace(/ё/g, 'е');
+  const t = text.toLowerCase().replace(/ё/g, 'е');
+  return new RegExp(`(?<![\\p{L}])${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.?(?![\\p{L}])`, 'u').test(t);
+}
+
 /** What the checker disliked, in words Diana can act on (Owner 2026-10-18). */
 function rewriteHint(reason: string, imageCheck: unknown): string {
   const r = reason.split(':')[0]!.trim();
@@ -72,6 +79,7 @@ function rewriteHint(reason: string, imageCheck: unknown): string {
     return `проверка скрина не подтвердила товар, продавца или цену (${why}). Не возвращай requisites и не подтверждай корзину; одним вопросом переспроси у блогера только недостающее.`;
   }
   const hints: Record<string, string> = {
+    'surname initial not written': 'в словах блогера нет первой буквы фамилии (слово на -овна, -евна, -ична это отчество, не фамилия). Не возвращай requisites; вежливо попроси первую букву фамилии.',
     'promises payment': 'нельзя обещать перевод или срок перевода. Не пиши «переведу», «отправлю», «оплатим». Если реквизиты получены, только «Реквизиты получила, проверяю!».',
     'unparsable': 'ответ был не в формате JSON.',
     'command tone, ask with «пожалуйста»': 'приказной тон. Проси мягко: «пришлите, пожалуйста», «можно снимать».',
@@ -229,12 +237,16 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       }
       out = guardReply(raw, { paid, inCount: incoming.length, lastIn: incoming.slice(-2).map((m) => m.text ?? '').join(' '), allowBrush: legacyCart });
       const imageConflict = Boolean(imageCheck && imageCheck.status !== 'yes' && out.requisites);
-      const rejected = imageConflict ? 'image_verdict_requires_clarification' : (!out.reply && out.escalate && isTechnical(out.reason) ? out.reason : '');
+      // Owner 2026-10-18 (irina__sayapina wrote «Ирина Алексеевна»; the model took «А» of the patronymic
+      // as the surname). A one-letter surname must stand in the blogger's own words, never be guessed.
+      const guessedInitial = Boolean(out.requisites && out.requisites.last_name.length === 1 && !initialWritten(out.requisites.last_name, incoming.slice(-6).map((m) => m.text ?? '').join(' ')));
+      const rejected = imageConflict ? 'image_verdict_requires_clarification' : guessedInitial ? 'surname initial not written' : (!out.reply && out.escalate && isTechnical(out.reason) ? out.reason : '');
       if (!rejected || pass === 1) break;
       feedback = `\nПРОШЛЫЙ ВАРИАНТ ТВОЕГО ОТВЕТА ОТКЛОНЁН ПРОВЕРКОЙ: ${rewriteHint(rejected, imageCheck)} Напиши ответ заново, исправив именно это. Верни строго один JSON по формату, без пояснений.`;
     }
     if (generationFailed) continue;
     if (imageCheck && imageCheck.status !== 'yes' && out.requisites) { await failStep('image_verdict_requires_clarification'); continue; }
+    if (out.requisites && out.requisites.last_name.length === 1 && !initialWritten(out.requisites.last_name, incoming.slice(-6).map((m) => m.text ?? '').join(' '))) { await failStep('surname initial not written'); continue; }
     if (textOnlyRecovery && !requisitesSupportedByText(out.requisites,currentText)) { await failStep('image_read_failed'); continue; }
     if (!out.reply) {
       // Keep the start of an unreadable answer, so the cause is visible (Owner 2026-10-18).

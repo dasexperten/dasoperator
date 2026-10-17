@@ -7,6 +7,8 @@ const TECHNICAL = new Set(['unparsable', 'too long', 'promises payment', 'claims
 const isTechnical = (reason) => TECHNICAL.has(String(reason ?? '').split(':')[0].trim());
 export const RETRY_DELAY_MS = 5 * 60_000;
 export const MAX_REPLY_ATTEMPTS = 3;
+export const HOURLY_RETRY_MS = 60 * 60_000;
+export const HOURLY_RETRY_WINDOW_MS = 24 * 3_600_000;
 
 export function readReplyState(value) {
   try { const s = typeof value === 'string' ? JSON.parse(value) : value; return s && typeof s.at === 'string' ? s : null; } catch { return null; }
@@ -18,9 +20,14 @@ export function canAttemptReply(state, at, now = Date.now()) {
 export function nextReplyFailure(previous, { at, handle, reason, now = Date.now() }) {
   const attempts = previous?.at === at ? Number(previous.attempts ?? 0) + 1 : 1;
   const kind = isTechnical(reason) ? 'technical' : 'business';
+  // Owner 2026-10-18 (khanbabaevaselmaia): a technical failure is never dropped after three
+  // quick tries. Then the server comes back every hour for a day; only after that a person looks.
+  const sinceAt = now - (Date.parse(at) || now);
+  const quick = attempts < MAX_REPLY_ATTEMPTS;
+  const hourly = !quick && sinceAt < HOURLY_RETRY_WINDOW_MS;
   return { handle, at, reason: String(reason || 'Требуется ручная проверка').replace(/(?:\+?7|8)[\s\d()\-]{9,18}/g, '[телефон]').slice(0, 200), kind, attempts,
-    status: kind === 'technical' && attempts < MAX_REPLY_ATTEMPTS ? 'retry' : 'needs_review',
-    next_retry_at: now + RETRY_DELAY_MS,
+    status: kind === 'technical' && (quick || hourly) ? 'retry' : 'needs_review',
+    next_retry_at: now + (quick ? RETRY_DELAY_MS : HOURLY_RETRY_MS),
     notified_at: previous?.at === at ? previous.notified_at ?? null : null };
 }
 export function replyAttention(state) {

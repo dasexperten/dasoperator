@@ -54,11 +54,11 @@ route.post('/:worker', async (c) => {
   // Diagnose the real private attachment path without sending a DM or touching
   // payments. Only a known creator handle is accepted; no arbitrary image URL.
   if (worker === 'diana-attachment-check') {
-    const input = z.object({ handle: z.string().regex(/^[a-zA-Z0-9_.]{1,30}$/) }).parse(await c.req.json());
+    const input = z.object({ handle: z.string().regex(/^[a-zA-Z0-9_.]{1,30}$/), message_id:z.string().min(1).max(2048).optional() }).parse(await c.req.json());
     const messages = (await c.env.DB.prepare(`SELECT id, direction, created_at, attachments_json
       FROM ugc_ig_messages WHERE direction='in' AND LOWER(from_username)=?1
-      AND attachments_json IS NOT NULL AND attachments_json<>'[]'
-      ORDER BY created_at DESC LIMIT 1`).bind(input.handle.toLowerCase()).all<{id:string;direction:string;created_at:string;attachments_json:string|null}>()).results ?? [];
+      AND attachments_json IS NOT NULL AND attachments_json<>'[]' AND (?2 IS NULL OR id=?2)
+      ORDER BY created_at DESC LIMIT 1`).bind(input.handle.toLowerCase(),input.message_id??null).all<{id:string;direction:string;created_at:string;attachments_json:string|null}>()).results ?? [];
     if (!messages.length) return c.json({ ok:false, error:'attachment_not_archived' },404);
     try {
       const { incomingScreenshots } = await import('../lib/ig-dm-attachments');

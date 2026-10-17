@@ -7,3 +7,4 @@ export function nextReplyFailure(previous: ReplyState | null, opts: {at: string;
 export function replyAttention(state: ReplyState): { at: string; status: string; kind: string; label: string; reason: string };
 export const HOURLY_RETRY_MS: number;
 export const HOURLY_RETRY_WINDOW_MS: number;
+export function isTechnical(reason: unknown): boolean;

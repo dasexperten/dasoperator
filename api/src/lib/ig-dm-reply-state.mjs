@@ -4,7 +4,7 @@ const TECHNICAL = new Set(['unparsable', 'too long', 'promises payment', 'claims
   'offers a brush, paste only', 'claim about children', 'adult wording', 'warm address too early, keep it neutral', 'informal ты, always вы', 'ask for the order screenshot too', 'one person, one program; ask what she means', 'do not repeat phone and recipient to the blogger', 'command tone, ask with «пожалуйста»', 'paid notice as a question, use «Перевела N ₽ по СБП. Проверьте, пожалуйста, должно быть уже дошло.»',
   'vision_error', 'image_unreadable_text_error', 'diana_context_unavailable', 'diana_image_check_unavailable', 'diana_context_audit_failed', 'image_verdict_requires_clarification',
   'current_image_unavailable', 'current_attachment_metadata_unavailable', 'diana_image_decode_unavailable']);
-const isTechnical = (reason) => TECHNICAL.has(String(reason ?? '').split(':')[0].trim());
+export const isTechnical = (reason) => TECHNICAL.has(String(reason ?? '').split(':')[0].trim());
 export const RETRY_DELAY_MS = 5 * 60_000;
 export const MAX_REPLY_ATTEMPTS = 3;
 export const HOURLY_RETRY_MS = 60 * 60_000;

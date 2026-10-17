@@ -11,7 +11,14 @@ export function summarizeImageChecks(checks) {
   const latest = checks.at(-1);
   if (!latest || !['basket', 'order', 'product_photo'].includes(latest.kind)) return { status: 'unknown', reasons: ['image_purpose_unclear'], checks };
   const reasons = [];
-  for (const field of ['product', 'seller', 'amount']) if (latest[field] !== 'yes') reasons.push(`${field}_${latest[field]}`);
+  // Owner 2026-10-18: an Ozon basket never shows the seller, so «seller unknown» on a basket blocked
+  // every payout (sabina_2002455, irina__sayapina, zeinab.4517, nastyavasilevskaya_). Only a visibly
+  // different seller («no») stops a basket; the product and the price must still be confirmed.
+  for (const field of ['product', 'seller', 'amount']) {
+    if (latest[field] === 'yes') continue;
+    if (field === 'seller' && latest.kind === 'basket' && latest.seller === 'unknown') continue;
+    reasons.push(`${field}_${latest[field]}`);
+  }
   return { status: reasons.length ? (['product', 'seller'].some(f => latest[f] === 'no') ? 'no' : 'unknown') : 'yes', reasons, checks };
 }
 export async function checkDianaImages({ images, policy, task, apiKey, fetchImpl = fetch, normalize = normalizeJevImage }) {

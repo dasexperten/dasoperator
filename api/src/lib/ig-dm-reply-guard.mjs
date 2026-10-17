@@ -145,7 +145,7 @@ export function shortParts(parts) {
 }
 
 // Owner (DH-MAP-261010-01): paid reels, price lists and fees are the Owner's call — no model answer.
-const HARD_ASK = /(возврат|вернуть\s+(деньги|заказ|товар)|верну\s+(деньги|заказ)|отправ\S*\s+(обратно\s+)?деньги|деньги\s+(обратно|назад)|отмен\S*\s+заказ|заказ\S*\s+отмен)/i;
+export const HARD_ASK = /(возврат|вернуть\s+(деньги|заказ|товар)|верну\s+(деньги|заказ)|отправ\S*\s+(обратно\s+)?деньги|деньги\s+(обратно|назад)|отмен\S*\s+заказ|заказ\S*\s+отмен)/i;
 const PAID_ASK = /(сколько\s+(вы\s+)?плат|прайс|за\s+деньги|платн|гонорар|оплат\S*\s+за\s+(рилс|ролик|пост|сторис|рекламу)|стоимост\S*\s+(рилс|ролик|реклам)|цена\s+за\s+(рилс|ролик|пост))/i;
 
 export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allowBrush = false } = {}) {

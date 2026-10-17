@@ -115,3 +115,10 @@ test('no command tone (Owner 2026-10-17)', () => {
   assert.equal(guardReply(j('Оформляйте заказ и пришлите скрин.')).reason, 'command tone, ask with «пожалуйста»');
   assert.ok(guardReply(j('Оформите, пожалуйста, заказ и пришлите скрин.')).reply);
 });
+
+test('one person, one program; phone never repeated (Owner 2026-10-17)', () => {
+  const j = (reply) => JSON.stringify({ reply, escalate: false, send_cards: false, requisites: null, reason: 'x' });
+  assert.equal(guardReply(j('Второй аккаунт, это отдельная программа. Пришлите ник второго аккаунта.')).reason, 'one person, one program; ask what she means');
+  assert.equal(guardReply(j('900 ₽ ушли на номер +79028764000, Сбер.'), { paid: true }).reason, 'do not repeat phone and recipient to the blogger');
+  assert.ok(guardReply(j('Уточните, пожалуйста: вы про оплату по этой корзине?')).reply);
+});

@@ -34,11 +34,11 @@ export const CALLER_AGENTS: CallerAgent[] = [
   { slug: 'magnus-larsen', name: 'Magnus Larsen', role: '' },
   { slug: 'otto-zuckerman', name: 'Otto Zuckerman', role: '' },
   { slug: 'taras-ryzhiy', name: 'Taras Ryzhiy', role: '' },
-  { slug: 'valera', name: 'Valera', role: '' },
 ];
 
 export const AVATAR_BASE = 'https://organizacia.dasexperten.workers.dev/assets/agents';
-export const NO_PORTRAIT = new Set(['otto-zuckerman', 'valera']);
+// Owner 2026-10-17: Valera removed from the Caller bar; Otto's portrait is live on the board.
+export const NO_PORTRAIT = new Set<string>([]);
 
 // Every agent calls from the same company accounts on the DEASEAN number.
 export const CALL_ACCOUNTS = {

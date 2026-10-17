@@ -13,6 +13,16 @@ export function formatCount(value) {
   return COUNT.format(Math.round(Number(value))).replace(/\s/g, NBSP);
 }
 
+/** Phone list (Owner 2026-10-17): short followers — 959, 1,7K, 12K, 1,2M — so columns never collide. */
+export function formatCountShort(value) {
+  if (value == null || !Number.isFinite(Number(value))) return '—';
+  const n = Math.round(Number(value));
+  const short = (v, unit) => `${v >= 10 ? Math.round(v) : String(Math.round(v * 10) / 10).replace('.', ',')}${unit}`;
+  if (Math.abs(n) >= 1e6) return short(n / 1e6, 'M');
+  if (Math.abs(n) >= 1e3) return short(n / 1e3, 'K');
+  return String(n);
+}
+
 /** Engagement rate: «4,2 %». */
 export function formatRate(value) {
   if (value == null || !Number.isFinite(Number(value))) return '—';

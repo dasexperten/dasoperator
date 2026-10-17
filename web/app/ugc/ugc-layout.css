@@ -290,3 +290,19 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
   .ugc-mobile-identity > .ugc-avatar-compact { align-self: flex-start; margin-top: 10px; }
   .ugc-mobile-identity .ugc-mobile-title { line-height: 44px; }
 }
+
+/* Phone list (Owner 2026-10-17): one level row — avatar + handle, followers, payment.
+   Views, date, status, network and the attention mark live on desktop and in the card. */
+@media (max-width: 700px) {
+  .ugc-mobile-row { grid-template-columns: minmax(0, 1fr) 52px 76px; column-gap: 12px; gap: 0 12px; padding: 0 12px; min-height: 52px; font-size: 14px; }
+  .ugc-mobile-head { min-height: 30px; font-size: 12px; color: var(--fg-2); font-weight: 700; }
+  .ugc-mobile-head > :last-child { text-align: center; }
+  .ugc-mobile-identity { gap: 10px; min-height: 52px; }
+  .ugc-mobile-identity > .ugc-avatar-compact { align-self: center; margin-top: 0; flex: 0 0 auto; }
+  .ugc-mobile-identity .ugc-mobile-title { flex: 1; min-width: 0; font-size: 13px; line-height: 52px; font-weight: 700; color: var(--brand-rot); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none; }
+  .ugc-mobile-pay { justify-content: center; min-height: 52px; overflow: visible; }
+  .ugc-mobile-pay .ugc-payout-cell { width: 100%; }
+  .ugc-mobile-pay .ugc-payout { width: 76px; padding: 6px 0; font-size: 14px; line-height: 20px; }
+  .ugc-mobile-pay .ugc-payout-reason { display: none; }
+  .ugc-mobile-pay .ugc-payout-cell:has([role="alert"]) .ugc-payout { outline: 2px solid var(--status-error); outline-offset: -2px; }
+}

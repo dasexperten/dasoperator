@@ -6,7 +6,7 @@ import './ugc-layout.css';
 import { apiGet, apiPatch, apiPost, apiPostTimed } from '@/lib/api';
 import { canPay, formatRub, PAYOUT_STATUS_LABEL, payoutCell } from '@/lib/ugc-payout-cell.mjs';
 import { getUser } from '@/lib/auth';
-import { formatActivity, formatCount, platformLabel } from '@/lib/ugc-table-format.mjs';
+import { formatActivity, formatCount, formatCountShort, platformLabel } from '@/lib/ugc-table-format.mjs';
 import { instagramChatHref } from '@/lib/ugc-instagram-chat.mjs';
 
 type PlatformMetric = {
@@ -738,15 +738,13 @@ export default function UgcPage() {
 
       <section className="ugc-table-shell" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-card)' }}>
         <div className="ugc-mobile-list">
-          <div className="ugc-mobile-row ugc-mobile-head" aria-hidden="true"><span>Автор</span><span>Подп.</span><span>Просм.</span><span>Оплата</span></div>
+          <div className="ugc-mobile-row ugc-mobile-head" aria-hidden="true"><span>Автор</span><span>Подп.</span><span>Оплата</span></div>
           {loading ? <p className="p-3">Загрузка…</p> : creators.length === 0 ? <p className="p-3">Никого не найдено.</p> : creators.map((creator) => {
             const profile = primaryProfile(creator, platform);
-            const views = profile.avg_video_views ?? profile.latest_observed_views;
             const name = profile.handle ? `@${profile.handle}` : creator.display_name || 'Автор';
             return <div key={creator.id} className="ugc-mobile-row ugc-creator-row" tabIndex={0} aria-label={`Карточка блогера ${name}`} onClick={(event) => { if (blankRowClick(event)) { event.preventDefault(); setSelectedId(creator.id); } }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setSelectedId(creator.id); } }}>
-              <span className="ugc-mobile-identity"><BloggerAvatar profile={profile} compact /><span className="ugc-mobile-name"><a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" className="ugc-mobile-title" title={creator.display_name ? `${name} · ${creator.display_name}` : name}>{name}</a><span className="ugc-mobile-meta"><PlatformIcons creator={creator} />{creator.attention ? <button type="button" onClick={() => setSelectedId(creator.id)} aria-label={creator.attention.label}><AlertCircle className="h-4 w-4" style={{ color: '#7a4e25' }} /></button> : null}<span>{formatActivity(creator.last_activity_at)}</span><CreatorStatus creator={creator} /></span></span></span>
-              <span title={`Подписчики: ${profile.followers ?? 'нет данных'}`}>{formatCount(profile.followers)}</span>
-              <span title={`Просмотры: ${views ?? 'нет данных'}`}>{formatCount(views)}</span>
+              <span className="ugc-mobile-identity"><BloggerAvatar profile={profile} compact /><a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" className="ugc-mobile-title" title={creator.display_name ? `${name} · ${creator.display_name}` : name}>{name}</a></span>
+              <span title={`Подписчики: ${profile.followers ?? 'нет данных'}`}>{formatCountShort(profile.followers)}</span>
               <span className="ugc-mobile-pay"><CreatorPayment creator={creator} /></span>
             </div>;
           })}

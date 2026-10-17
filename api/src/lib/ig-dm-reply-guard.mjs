@@ -33,6 +33,8 @@ export const DIANA_RULES_BODY = `Ты — Диана, менеджер блог�
 Дети: детей в ролики не берём («Детей в ролики мы не берём, такое у нас правило»), предложи снять самому или с кем-то из близких. Никогда не говори, подходит ли паста детям, — это не наш вывод. Слово «взрослый» блогеру не пиши.
 Блогер написал «заказала» — одной фразой порадуйся и попроси скрин заказа.
 
+Обращение (Владелец 17.10.2026): всегда на «вы», на «ты» не переходить никогда. Тёплое обращение с именем в стиле Гузеевой — «дорогая Юля», «милая Татьяна» — можно, но не сразу: только когда разговор уже потеплел (блогер ответил не меньше трёх раз), имя известно из переписки, и не чаще одного раза на несколько сообщений. Уменьшительные имена («Юлечка»), «зайка», «моя хорошая» — нет.
+
 Жёсткие правила:
 - Пиши по-русски, коротко: одно-два предложения, один вопрос.
 - Просьбы мягко, не приказом (Владелец 17.10.2026): «пришлите, пожалуйста», «оформите, пожалуйста»; «пожалуйста» иногда, не в каждой фразе. Не «оформляйте», «скиньте», «сделайте». Без приветствий в идущем разговоре. Без капса, упрёков, уменьшительных.
@@ -93,7 +95,7 @@ const MONEY_SENT = /(перевел|перевёл|перевела|переве
 const PROMISE = /(переведу|переведём|переведем|отправлю|оплачу|оплатим|завтра|сегодня переведём|в течение)/i;
 
 /** The model's answer → a reply that may leave, or null. Never trust it blindly. */
-export function guardReply(raw, { paid = false } = {}) {
+export function guardReply(raw, { paid = false, inCount = 99 } = {}) {
   let parsed;
   try {
     const m = String(raw ?? '').match(/\{[\s\S]*\}/);
@@ -120,6 +122,9 @@ export function guardReply(raw, { paid = false } = {}) {
   if (/(^|[^а-яё])(хук|финал|такт[ыа]?)([^а-яё]|$)|→|одно «?понравилось»?,? одно «?нет»?/i.test(reply)) return { reply: null, escalate: true, reason: 'menu jargon in a reply' };
   // Owner 2026-10-17: no claim on whether the paste suits children, and no child's tone («со взрослым»).
   if (/(дет(ям|ей|и)|ребён|ребен|дочк|сын)[^.!?]{0,40}(не\s+подход|нельзя|вредн|можно\s+ли)|(не\s+подход|нельзя)[^.!?]{0,30}(дет(ям|ей)|ребён|ребен)/i.test(reply)) return { reply: null, escalate: true, reason: 'claim about children' };
+  // Owner 2026-10-17: «дорогая Юля» only once the talk has warmed (3+ blogger messages); never «ты».
+  if (inCount < 3 && /(^|[^а-яё])([Дд]орог(ая|ой)|[Мм]ил(ая|ый))\s+[А-ЯЁ]/.test(reply)) return { reply: null, escalate: true, reason: 'warm address too early, keep it neutral' };
+  if (/(^|[^а-яё])(тебе|тебя|твой|твоя|твои|твоё|пришли|напиши|сними|покажи)([^а-яё]|$)/i.test(reply)) return { reply: null, escalate: true, reason: 'informal ты, always вы' };
   if (/взросл/i.test(reply)) return { reply: null, escalate: true, reason: 'adult wording' };
   if (/лицо\s+(не\s+)?необязательн|без\s+лица|можно\s+без\s+лиц/i.test(reply)) return { reply: null, escalate: true, reason: 'says face is optional' };
   if (/добрый (день|вечер)|здравствуйте|привет/i.test(reply) && reply.length < 25) return { reply: null, escalate: false, reason: 'greeting only' };

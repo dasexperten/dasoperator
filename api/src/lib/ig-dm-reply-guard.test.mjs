@@ -64,3 +64,11 @@ test('no claim about children and no adult wording (Owner 2026-10-17)', () => {
   assert.equal(guardReply(j('Снимите вдвоём со взрослым.')).reason, 'adult wording');
   assert.ok(guardReply(j('Детей в ролики мы не берём, такое у нас правило.')).reply);
 });
+
+test('warm address only after the talk warmed, always вы (Owner 2026-10-17)', () => {
+  const j = (reply) => JSON.stringify({ reply, escalate: false, send_cards: false, requisites: null, reason: 'x' });
+  assert.equal(guardReply(j('Дорогая Юля, пришлите скрин?'), { inCount: 1 }).reason, 'warm address too early, keep it neutral');
+  assert.ok(guardReply(j('Дорогая Юля, пришлите, пожалуйста, скрин?'), { inCount: 4 }).reply);
+  assert.equal(guardReply(j('Пришли скрин, как будет готово'), { inCount: 4 }).reason, 'informal ты, always вы');
+  assert.ok(guardReply(j('Пришлите, пожалуйста, скрин.'), { inCount: 1 }).reply);
+});

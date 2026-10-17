@@ -169,7 +169,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       await failStep(images.length ? 'image_read_failed' : 'provider_error');
       continue;
     }
-    const out = guardReply(raw, { paid });
+    const out = guardReply(raw, { paid, inCount: history.filter((m) => m.direction === 'in').length });
     if (!out.reply) {
       if (out.escalate) await failStep(out.reason);
       else await mark();

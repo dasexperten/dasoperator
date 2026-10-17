@@ -67,7 +67,7 @@ test('unknown live conversation and failed send remain pending',async()=>{
  const f=fixture();f.live=null;await igDmReply(f.env);assert.equal(incident(f).reason,'conversation_check_failed');assert.equal(handled(f),undefined);assert.equal(f.sent.length,0);
  const g=fixture();g.sendError=true;await igDmReply(g.env);assert.equal(incident(g).reason,'send_failed');assert.equal(handled(g),undefined);
 });
-test('provider outage remains pending',async()=>{const f=fixture();f.providerError=true;await igDmReply(f.env);assert.equal(incident(f).reason,'provider_error');assert.equal(handled(f),undefined);});
+test('provider outage remains pending',async()=>{const f=fixture();f.providerError=true;await igDmReply(f.env);assert.match(incident(f).reason,/^provider_error/);assert.equal(incident(f).status,'retry');assert.equal(handled(f),undefined);});
 test('safe no-answer and confirmed existing reply are handled',async()=>{
  const f=fixture();f.raw=JSON.stringify({reply:null,escalate:false});await igDmReply(f.env);assert.equal(handled(f),f.t);
  const g=fixture();g.live=false;await igDmReply(g.env);assert.equal(handled(g),g.t);assert.equal(g.sent.length,0);

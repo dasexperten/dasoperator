@@ -1,5 +1,9 @@
 // A failed Direct step is pending work, never a handled incoming message.
-const TECHNICAL = new Set(['unparsable', 'too long', 'promises payment', 'claims money sent, not paid in ERP', 'menu jargon in a reply', 'says face is optional', 'scenario outside active menu', 'provider_error', 'image_read_failed', 'payout_registration_failed', 'creator_registration_failed', 'conversation_check_failed', 'send_failed']);
+const TECHNICAL = new Set(['unparsable', 'too long', 'promises payment', 'claims money sent, not paid in ERP', 'menu jargon in a reply', 'says face is optional', 'scenario outside active menu', 'provider_error', 'image_read_failed', 'payout_registration_failed', 'creator_registration_failed', 'conversation_check_failed', 'send_failed',
+  // Rewrites the model can fix on the next attempt (guard rules of 2026-10-17); a paid request stays with a person.
+  'offers a brush, paste only', 'claim about children', 'adult wording', 'warm address too early, keep it neutral', 'informal ты, always вы', 'ask for the order screenshot too',
+  'vision_error', 'image_unreadable_text_error']);
+const isTechnical = (reason) => TECHNICAL.has(String(reason ?? '').split(':')[0].trim());
 export const RETRY_DELAY_MS = 5 * 60_000;
 export const MAX_REPLY_ATTEMPTS = 3;
 
@@ -12,14 +16,14 @@ export function canAttemptReply(state, at, now = Date.now()) {
 }
 export function nextReplyFailure(previous, { at, handle, reason, now = Date.now() }) {
   const attempts = previous?.at === at ? Number(previous.attempts ?? 0) + 1 : 1;
-  const kind = TECHNICAL.has(reason) ? 'technical' : 'business';
+  const kind = isTechnical(reason) ? 'technical' : 'business';
   return { handle, at, reason: String(reason || 'Требуется ручная проверка').replace(/(?:\+?7|8)[\s\d()\-]{9,18}/g, '[телефон]').slice(0, 200), kind, attempts,
     status: kind === 'technical' && attempts < MAX_REPLY_ATTEMPTS ? 'retry' : 'needs_review',
     next_retry_at: now + RETRY_DELAY_MS,
     notified_at: previous?.at === at ? previous.notified_at ?? null : null };
 }
 export function replyAttention(state) {
-  const technical = state.kind === 'technical' || TECHNICAL.has(state.reason);
+  const technical = state.kind === 'technical' || isTechnical(state.reason);
   return { at: state.at, status: state.status === 'retry' ? 'retry' : 'needs_review',
     kind: technical ? 'technical' : 'business',
     label: state.status === 'retry' ? 'Повторная обработка' : 'Требует проверки',

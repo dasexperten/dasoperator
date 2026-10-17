@@ -25,7 +25,8 @@ export function identifySourceProductNames(value) {
     // Owner 2026-10-17: bare INNOWEISS (legacy InnoWeis) means paste 210.
     // An explicitly named/code-marked mouthwash remains 310.
     if (/\bINNOWEIS{1,2}\b/.test(part)) {
-      codes.add(/ОПОЛАСК|MOUTHWASH|\bRINSE\b|\bDE310\b/.test(part) ? 'DE310' : 'DE210');
+      if (/ОПОЛАСК|MOUTHWASH|\bRINSE\b|\bDE310\b/.test(part)) codes.add('DE310');
+      else if (!codes.has('DE310') || /ПАСТА|TOOTHPASTE/.test(part)) codes.add('DE210');
     }
     if (!/SCHWARZ/.test(part)) continue;
     if (/ПАСТА|TOOTHPASTE/.test(part)) codes.add('DE201');

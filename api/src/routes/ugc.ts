@@ -511,7 +511,7 @@ ugc.post('/import', async (c) => {
         ? row.product_codes.map((value) => textValue(value, 60)).filter(Boolean)
         : [];
       const productText = textValue(row.product_text, 2000);
-      const products = [...new Set([...rawProducts, ...identifySourceProductNames(productText)])];
+      const products = [...new Set([...rawProducts, ...identifySourceProductNames([productText, ...rawProducts].join(';'))])];
       const productClassification = initialProductClassification(products, Boolean(textValue(row.content_url, 1000)));
       const labels = sourceProductLabels(productText, identifyExplicitProducts(products).matches.map((p) => p.sku));
       if (productText) {

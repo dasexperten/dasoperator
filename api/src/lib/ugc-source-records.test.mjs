@@ -16,9 +16,10 @@ test('Owner mapping: bare INNOWEISS is 210; explicitly named mouthwash stays 310
     assert.deepEqual(index.products.get('ig').map(p => p.sku), ['DE210']);
     assert.deepEqual(index.productLabels.get('ig'), []);
   }
-  for (const name of ['INNOWEISS mouthwash', 'Ополаскиватель INNOWEISS', 'INNOWEISS DE310']) {
+  for (const name of ['INNOWEISS mouthwash', 'Ополаскиватель INNOWEISS', 'INNOWEISS DE310', 'INNOWEISS;DE310', 'DE310,INNOWEISS']) {
     assert.deepEqual(identifySourceProductNames(name), ['DE310']);
   }
+  assert.deepEqual(identifySourceProductNames('INNOWEISS паста;DE310'), ['DE310', 'DE210']);
 });
 
 test('original workbook wins over the other register; overlapping books are never summed together', () => {

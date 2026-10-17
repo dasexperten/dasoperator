@@ -252,7 +252,9 @@ function CreatorStatus({ creator }: { creator: Creator }) {
 // numbers, links, payment buttons and icons retain their own behaviour.
 function blankRowClick(event: MouseEvent<HTMLElement>): boolean {
   const target = event.target;
-  if (!(target instanceof Element) || target.closest('a, button, input, select, textarea, svg, [role="img"]') || window.getSelection()?.toString()) return false;
+  if (!(target instanceof Element) || target.closest('button, input, select, textarea, svg, img, [role="img"]') || window.getSelection()?.toString()) return false;
+  // A profile link spans its cell: its empty padding is still row whitespace.
+  // Only actual text/image hits retain the link action; preventDefault in the row handler cancels blank-link navigation.
   const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) {
     const range = document.createRange();
@@ -740,7 +742,7 @@ export default function UgcPage() {
             const profile = primaryProfile(creator, platform);
             const views = profile.avg_video_views ?? profile.latest_observed_views;
             const name = profile.handle ? `@${profile.handle}` : creator.display_name || 'Автор';
-            return <div key={creator.id} className="ugc-mobile-row ugc-creator-row" tabIndex={0} aria-label={`Карточка блогера ${name}`} onClick={(event) => { if (blankRowClick(event)) setSelectedId(creator.id); }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setSelectedId(creator.id); } }}>
+            return <div key={creator.id} className="ugc-mobile-row ugc-creator-row" tabIndex={0} aria-label={`Карточка блогера ${name}`} onClick={(event) => { if (blankRowClick(event)) { event.preventDefault(); setSelectedId(creator.id); } }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setSelectedId(creator.id); } }}>
               <span className="ugc-mobile-identity"><BloggerAvatar profile={profile} compact /><span className="ugc-mobile-name"><a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" className="ugc-mobile-title" title={creator.display_name ? `${name} · ${creator.display_name}` : name}>{name}</a><span className="ugc-mobile-meta"><PlatformIcons creator={creator} />{creator.attention ? <button type="button" onClick={() => setSelectedId(creator.id)} aria-label={creator.attention.label}><AlertCircle className="h-4 w-4" style={{ color: '#7a4e25' }} /></button> : null}<span>{formatActivity(creator.last_activity_at)}</span><CreatorStatus creator={creator} /></span></span></span>
               <span title={`Подписчики: ${profile.followers ?? 'нет данных'}`}>{formatCount(profile.followers)}</span>
               <span title={`Просмотры: ${views ?? 'нет данных'}`}>{formatCount(views)}</span>
@@ -768,7 +770,7 @@ export default function UgcPage() {
               const name = handle ?? creator.display_name ?? 'Автор';
               // Name and city after the handle (Owner 2026-10-16: «Город нужен, город обязательно»).
               const secondName = handle ? [creator.display_name, creator.city].filter(Boolean).join(' · ') || null : null;
-              return <tr key={creator.id} className="ugc-creator-row" tabIndex={0} aria-label={`Карточка блогера ${name}`} onClick={(event) => { if (blankRowClick(event)) setSelectedId(creator.id); }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setSelectedId(creator.id); } }} style={{ borderTop: '1px solid var(--border-hairline)' }}>
+              return <tr key={creator.id} className="ugc-creator-row" tabIndex={0} aria-label={`Карточка блогера ${name}`} onClick={(event) => { if (blankRowClick(event)) { event.preventDefault(); setSelectedId(creator.id); } }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setSelectedId(creator.id); } }} style={{ borderTop: '1px solid var(--border-hairline)' }}>
                 <td className="ugc-c-creator" style={creator.attention ? { position: 'relative', paddingRight: 50 } : undefined}>{creator.attention ? <button type="button" onClick={() => setSelectedId(creator.id)} aria-label={`${creator.attention.label}: ${name}`} title={creator.attention.reason} className="absolute right-1 top-1/2 -translate-y-1/2 min-h-11 min-w-11 inline-flex items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-2" style={{ color: '#7a4e25', width: 44, height: 44 }}><AlertCircle className="h-5 w-5" /></button> : null}<a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" title={[name, secondName, 'открыть страницу автора'].filter(Boolean).join(' · ')} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><BloggerAvatar profile={profile} compact /><span className="ugc-creator-copy"><span className="ugc-creator-line"><span className="ugc-creator-name">{name}</span><OriginMark origin={creator.origin} /></span>{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span></span></a></td>
                 <td className="ugc-c-platform"><PlatformIcons creator={creator} /></td>
                 <td className="ugc-c-num" title={profile.followers == null ? 'Нет данных' : `${profile.followers}`}>{formatCount(profile.followers)}</td>

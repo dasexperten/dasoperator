@@ -264,7 +264,8 @@ export async function autoMatchBankTransaction(
   // =========================================================================
   if (tx.payment_purpose && tx.contragent_inn) {
     // Owner 2026-10-17: Lubertsy numbers carry a slash (№14/356 ↔ LBR-20261015-14/356).
-    const m = tx.payment_purpose.match(/(?:по\s+сч[её]т[ау])\s*[№NnIi]\s*([0-9]{1,6}(?:\/[0-9]{1,6})?)/i);
+    // Owner 2026-10-17: also «Счет № 341 от …» — the payer wrote the bare word, not «по счёту».
+    const m = tx.payment_purpose.match(/(?:по\s+сч[её]т[ау]|(?:^|[\s.,;:(«"])сч[её]т[ау]?)\s*[№NnIi]\s*([0-9]{1,6}(?:\/[0-9]{1,6})?)/i);
     if (m && m[1]) {
       const invno = m[1];
       // Find operation: same partner (by INN), reference ends with the invoice

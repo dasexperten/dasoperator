@@ -147,5 +147,8 @@
   ],
   "erp-web-analytics": [
     "30 2 * * *"
+  ],
+  "erp-wio-mail": [
+    "40 0 * * *"
   ]
 }

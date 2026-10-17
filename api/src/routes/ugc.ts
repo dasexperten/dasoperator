@@ -117,7 +117,7 @@ ugc.post('/profiles/refresh', async (c) => {
   if (access instanceof Response) return access;
   const body = await c.req.json<{ profile_id?: string; avatar_only?: boolean; avatar_url?: string }>().catch(() => ({} as { profile_id?: string; avatar_only?: boolean; avatar_url?: string }));
   const { refreshBloggerProfiles } = await import('../lib/ugc-blogger-profiles');
-  return ok(c, await refreshBloggerProfiles(c.env, body.profile_id, 2, { avatarOnly: body.avatar_only === true, avatarUrl: body.profile_id && typeof body.avatar_url === 'string' ? body.avatar_url : undefined }));
+  return ok(c, await refreshBloggerProfiles(c.env, body.profile_id, 2, { avatarOnly: body.avatar_only === true, ...(body.profile_id && typeof body.avatar_url === 'string' ? { avatarUrl: body.avatar_url } : {}) }));
 });
 
 ugc.get('/profiles/:id/avatar', async (c) => {

@@ -43,13 +43,13 @@ test('JEV, credentials or skill failure blocks preparation; no lexical or embedd
   await assert.rejects(prepareDianaContext({ ...fixture().options, githubToken: '' }), /credentials/);
   await assert.rejects(selectWithJev('task', [{ key: 'a' }], { apiKey: 'test', fetchImpl: async () => Response.json({ answers: {} }) }), /invalid JEV/);
 });
-test('the image request actually sends bytes to JEV; seller unknown remains unknown', async () => {
+test('the image request actually sends bytes to JEV; seller unknown on a basket is fine (Owner 2026-10-18)', async () => {
   let request;
   const result = await checkDianaImages({ images: [{ mediaType: 'image/png', data: 'IMAGE_BYTES', label: 'latest' }], policy: { sellers: ['verified seller'] }, task: 'basket', apiKey: 'test', normalize: i => i,
     fetchImpl: async (_url, init) => { request = JSON.parse(init.body); return Response.json({ answers: { kind: { choice: 'basket' }, product: { choice: 'yes' }, seller: { choice: 'unknown' }, amount: { choice: 'yes' } } }); } });
   assert.equal(request.model, 'typesafe/jev-1.14');
   assert.equal(request.state[1].image_url.url, 'data:image/png;base64,IMAGE_BYTES');
-  assert.equal(result.status, 'unknown'); assert.deepEqual(result.reasons, ['seller_unknown']);
+  assert.equal(result.status, 'yes'); assert.deepEqual(result.reasons, []);
 });
 test('a different seller is no; a fresh unreadable picture cannot borrow an older yes', () => {
   const good = { kind: 'basket', product: 'yes', seller: 'yes', amount: 'yes' };

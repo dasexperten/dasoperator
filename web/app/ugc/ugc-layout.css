@@ -143,6 +143,8 @@ body:has(.ugc-creator-modal[open]) { overflow: hidden; }
 .ugc-payout[data-tone="brown"] { background: #7a4e25; }
 .ugc-payout[data-tone="lightgreen"] { background: #c9ecc4; color: #1f4d1a; }
 .ugc-payout[data-tone="grey"] { background: #e7e5e4; color: #57534e; }
+/* Owner 2026-10-18: old amounts from the base or register are italic, so they never read as our current payout. */
+.ugc-payout[data-source="register"], .ugc-payout-reason[data-source="register"] { font-style: italic; }
 .ugc-payout-cell { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; }
 .ugc-payout-reason { font-size: 11px; line-height: 13px; color: var(--fg-3); white-space: normal; text-align: center; max-width: 96px; letter-spacing: 0; }
 .ugc-paid-counter { padding: 8px 12px; font-size: 14px; color: var(--fg-2); background: var(--bg-surface); border: 1px solid var(--border-hairline); border-left: 4px solid var(--status-success); border-radius: var(--radius-sm); letter-spacing: 0; }

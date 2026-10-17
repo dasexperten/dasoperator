@@ -16,22 +16,35 @@ const msg=(extra={})=>({id:'message',direction:'in',created_at:at,attachments_js
 const png=()=>new Response(Buffer.from(PNG,'base64'),{headers:{'content-type':'image/png'}});
 async function fakeFetch(fn,run){const orig=globalThis.fetch;globalThis.fetch=fn;try{return await run();}finally{globalThis.fetch=orig;}}
 test('real image bytes and chronological labels reach vision; outgoing cards do not',async()=>{
- await fakeFetch(async()=>png(),async()=>{const images=await incomingScreenshots({},[msg({direction:'out'}),msg()],at);assert.equal(images.length,1);assert.equal(images[0].data,PNG);assert.equal(images[0].mediaType,'image/png');assert.match(images[0].label,/2026-10-17/);});
+ await fakeFetch(async()=>png(),async()=>{const {images}=await incomingScreenshots({},[msg({direction:'out'}),msg()],at);assert.equal(images.length,1);assert.equal(images[0].data,PNG);assert.equal(images[0].mediaType,'image/png');assert.match(images[0].label,/2026-10-17/);});
 });
 test('expired CDN link is refreshed through the existing Instagram message',async()=>{
  let refreshed=0;globalThis.__ugcImageRefresh=async(_e,id)=>{assert.equal(id,'message');refreshed++;return JSON.stringify([{image_data:{url:url+'&fresh=1'}}]);};
- await fakeFetch(async u=>String(u).includes('fresh=1')?png():new Response('',{status:403}),async()=>{const images=await incomingScreenshots({},[msg()],at);assert.equal(images[0].data,PNG);assert.equal(refreshed,1);});
+ await fakeFetch(async u=>String(u).includes('fresh=1')?png():new Response('',{status:403}),async()=>{const {images}=await incomingScreenshots({},[msg()],at);assert.equal(images[0].data,PNG);assert.equal(refreshed,1);});
 });
 test('truncated attachment JSON is refreshed rather than silently ignored',async()=>{
- globalThis.__ugcImageRefresh=async()=>JSON.stringify([{image_data:{url}}]);await fakeFetch(async()=>png(),async()=>{assert.equal((await incomingScreenshots({},[msg({attachments_json:'[{"image_data":'})],at)).length,1);});
+ globalThis.__ugcImageRefresh=async()=>JSON.stringify([{image_data:{url}}]);await fakeFetch(async()=>png(),async()=>{assert.equal((await incomingScreenshots({},[msg({attachments_json:'[{"image_data":'})],at)).images.length,1);});
 });
 test('unreadable image fails; unsafe hosts are never fetched',async()=>{
  globalThis.__ugcImageRefresh=async()=>null;
- await fakeFetch(async()=>new Response('',{status:403}),async()=>{await assert.rejects(incomingScreenshots({},[msg()],at));});
- let fetched=false;await fakeFetch(async()=>{fetched=true;return png();},async()=>{await assert.rejects(incomingScreenshots({},[msg({attachments_json:JSON.stringify([{image_data:{url:'https://example.org/private'}}])})],at));assert.equal(fetched,false);});
+ await fakeFetch(async()=>new Response('',{status:403}),async()=>{assert.equal((await incomingScreenshots({},[msg()],at)).unreadable,1);});
+ let fetched=false;await fakeFetch(async()=>{fetched=true;return png();},async()=>{assert.equal((await incomingScreenshots({},[msg({attachments_json:JSON.stringify([{image_data:{url:'https://example.org/private'}}])})],at)).unreadable,1);assert.equal(fetched,false);});
 });
 test('missing image URL is not accepted as a text-only message',()=>{assert.throws(()=>imageUrls('[{"image_data":{}}]'));});
 test('latest six incoming images stay ordered, older than seven days are omitted',async()=>{
  const history=[msg({created_at:'2026-10-01T00:00:00Z'}),...Array.from({length:8},(_,i)=>msg({id:String(i),created_at:`2026-10-16T12:0${i}:00Z`}))];
- await fakeFetch(async()=>png(),async()=>{const images=await incomingScreenshots({},history,at);assert.equal(images.length,6);assert.match(images[0].label,/12:02/);assert.match(images.at(-1).label,/12:07/);});
+ await fakeFetch(async()=>png(),async()=>{const {images}=await incomingScreenshots({},history,at);assert.equal(images.length,6);assert.match(images[0].label,/12:02/);assert.match(images.at(-1).label,/12:07/);});
+});
+
+test('private archive survives a CDN expiry without downloading the image again',async()=>{
+ const objects=new Map();let requests=0;
+ const env={DOCS:{async get(k){return objects.get(k)??null;},async put(k,bytes,opts){objects.set(k,{size:bytes.length,httpMetadata:opts.httpMetadata,async arrayBuffer(){return bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength);}});}}};
+ await fakeFetch(async()=>{requests++;return png();},async()=>{assert.equal((await incomingScreenshots(env,[msg()],at)).images.length,1);});
+ await fakeFetch(async()=>{requests++;return new Response('',{status:404});},async()=>{const result=await incomingScreenshots(env,[msg()],at);assert.equal(result.images[0].data,PNG);assert.equal(result.unreadable,0);});
+ assert.equal(requests,1);assert.equal(objects.size,1);assert.match([...objects.keys()][0],/^ugc\/ig-private\/[a-f0-9]{64}\/0$/);
+});
+test('an expired earlier image cannot hide a newer readable screenshot',async()=>{
+ globalThis.__ugcImageRefresh=async()=>null;
+ const old=msg({id:'old'}),fresh=msg({id:'new',created_at:'2026-10-17T00:00:01Z',attachments_json:JSON.stringify([{image_data:{url:url+'&new=1'}}])});
+ await fakeFetch(async u=>String(u).includes('new=1')?png():new Response('',{status:404}),async()=>{const result=await incomingScreenshots({},[old,fresh],fresh.created_at);assert.equal(result.images.length,1);assert.equal(result.unreadable,1);assert.match(result.images[0].label,/00:00:01/);});
 });

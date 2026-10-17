@@ -83,6 +83,17 @@ export function cleanRequisites(r) {
   return { amount_minor: rub * 100, phone: `+${d}`, bank, last_name: last, first_name: first, patronymic: name(r.patronymic) || null, product };
 }
 
+/** A failed old image cannot block explicit complete requisites in a newer text. */
+export function requisitesSupportedByText(r, text) {
+  if (!r || typeof text !== 'string') return false;
+  const normalize = v => String(v).toLowerCase().replace(/ё/g,'е').normalize('NFKC');
+  const t=normalize(text), rub=String(r.amount_minor/100);
+  const phones=[...text.matchAll(/(?:\+?7|8)[ ()-]*(?:\d[ ()-]*){10}/g)].map(m=>m[0].replace(/\D/g,'').replace(/^8/,'7'));
+  const amount = new RegExp(`(?:итог[оа]?|сумм[аы]?|всего|к оплате|корзина)[^\\d]{0,30}${rub}(?!\\d)|(?<!\\d)${rub}\\s*(?:₽|руб|р(?:\\b|$))`,'i').test(text);
+  const names=[r.last_name,r.first_name,r.patronymic].filter(Boolean).every(n=>t.includes(normalize(n)));
+  return amount && phones.includes(r.phone.replace(/\D/g,'')) && names && BANKS.some(([pattern,id])=>id===r.bank && pattern.test(text));
+}
+
 // Owner 2026-10-17: exactly four cards; the mint comparison is replaced.
 const CARD_BASE = 'https://pub-1d1b12958f2d4ea380276bd8d0a1ff02.r2.dev/ugc';
 export const SCENARIO_CARDS = [

@@ -4,6 +4,7 @@
 // Sends only one thing: Diana's «перевела» when a payout turns green (sendIgDirect).
 // Cadence is not decided here — the adaptive runner calls it (3 / 15 / 30 min).
 import type { Env } from '../types';
+import { cacheIncomingImages } from './ig-dm-image-cache';
 import { bloggerName, cityOf } from './ugc-person-name.mjs';
 
 const G = 'https://graph.facebook.com/v21.0';
@@ -108,11 +109,27 @@ export async function refreshIgAttachments(env: Env, messageId: string): Promise
   if (!token) return null;
   const page = await graph(`/${PAGE_ID}?fields=access_token`, token);
   if (!page.ok || !page.body?.access_token) return null;
-  const r = await graph(`/${encodeURIComponent(messageId)}?fields=attachments{mime_type,file_url,image_data,video_data}`, String(page.body.access_token));
-  if (!r.ok || !Array.isArray(r.body?.attachments?.data)) return null;
-  const json = JSON.stringify(r.body.attachments.data);
-  await env.DB.prepare(`UPDATE ugc_ig_messages SET attachments_json=?2 WHERE id=?1`).bind(messageId, json).run();
-  return json;
+  const stored = await env.DB.prepare(`SELECT conversation_id, created_at, from_id FROM ugc_ig_messages WHERE id=?1`).bind(messageId).first<{conversation_id:string;created_at:string;from_id:string|null}>();
+  if (!stored) return null;
+  // Read the conversation when direct access to the saved message id fails.
+  // Use sender + timestamp only when that match is unambiguous.
+  let path = `/${encodeURIComponent(stored.conversation_id)}?fields=messages.limit(100){id,created_time,from,attachments{mime_type,file_url,image_data,video_data}}`;
+  for (let n=0;n<4;n++) {
+    const r=await graph(path,String(page.body.access_token)); if(!r.ok)return null;
+    const data=r.body?.messages?.data ?? r.body?.data ?? [];
+    let found=data.find((m:any)=>String(m.id)===messageId);
+    if(!found){const matches=data.filter((m:any)=>Date.parse(m.created_time)===Date.parse(stored.created_at) && (!stored.from_id || String(m.from?.id)===stored.from_id));if(matches.length===1)found=matches[0];}
+    if(found){
+      if(!Array.isArray(found.attachments?.data))return null;
+      const json=JSON.stringify(found.attachments.data);
+      await env.DB.prepare(`UPDATE ugc_ig_messages SET attachments_json=?2 WHERE id=?1`).bind(messageId,json).run();
+      return json;
+    }
+    const after=(r.body?.messages?.paging ?? r.body?.paging)?.cursors?.after;
+    if(!after || !data.length)break;
+    path=`/${encodeURIComponent(stored.conversation_id)}/messages?fields=id,created_time,from,attachments{mime_type,file_url,image_data,video_data}&limit=100&after=${encodeURIComponent(after)}`;
+  }
+  return null;
 }
 
 /** The four scenario cards, one image message each, after a text (Owner 2026-10-16). */
@@ -211,7 +228,13 @@ export async function igDmWatch(env: Env): Promise<IgWatchResult> {
         typeof m.message === 'string' ? m.message.slice(0, 4000) : null,
         m.attachments?.data?.length ? JSON.stringify(m.attachments.data) : null,
         new Date(Date.parse(m.created_time)).toISOString(), now).run();
-      if ((r.meta?.changes ?? 0) === 1) { stored++; if (!out) incoming++; }
+      if ((r.meta?.changes ?? 0) === 1) {
+        stored++; if (!out) incoming++;
+        if (!out && m.attachments?.data?.length) {
+          try { await cacheIncomingImages(env,String(m.id),m.attachments.data); }
+          catch { console.warn('[ig-dm] screenshot cache incomplete; reader will retry'); }
+        }
+      }
     }
   }
   if (newest && Date.parse(newest) > since) await saveMark(newest);

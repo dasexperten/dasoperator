@@ -15,7 +15,7 @@ await build({ entryPoints: [fileURLToPath(new URL('./ig-dm-reply.ts', import.met
     b.onResolve({filter: /^\.\/(llm|ig-dm-watch|owner-telegram|ig-dm-attachments)$/}, a => ({path:a.path, namespace:'mock'}));
     b.onLoad({filter:/.*/,namespace:'mock'}, a => ({contents: a.path==='./llm'
       ? 'export const callPro=(messages)=>globalThis.__ugcTest.generate(messages); export const callVision=(messages)=>{globalThis.__ugcTest.visionCalled=true;return globalThis.__ugcTest.generate(messages)};'
-      : a.path==='./ig-dm-attachments' ? 'export const incomingScreenshots=async()=>{if(globalThis.__ugcTest.imageError)throw Error("image");return globalThis.__ugcTest.screenshots??[]};'
+      : a.path==='./ig-dm-attachments' ? 'export const incomingScreenshots=async()=>{if(globalThis.__ugcTest.imageError)throw Error("image");return {images:globalThis.__ugcTest.screenshots??[],unreadable:globalThis.__ugcTest.unreadable??0}};'
       : a.path==='./owner-telegram' ? 'export const sendOwnerTelegram=()=>globalThis.__ugcTest.notify();'
       : 'export const lastWordIsBlogger=()=>globalThis.__ugcTest.live; export const sendIgDirect=(...args)=>globalThis.__ugcTest.send(...args); export const sendIgCards=(...args)=>globalThis.__ugcTest.cards(...args);' }));
   }}] });
@@ -31,7 +31,7 @@ function fixture() {
   };
   f.env={DB:{prepare(sql){let p=[];sqls.push(sql);const st={bind(...v){p=v;return st;},async all(){
     if(sql.includes('WITH last')) return {results:[{cid,t,h:'tester'}]};
-    if(sql.includes('SELECT id, direction'))return {results:[{direction:'in',text:'Подскажите',created_at:t}]};
+    if(sql.includes('SELECT id, direction'))return {results:f.history??[{direction:'in',text:'Подскажите',created_at:t}]};
     if(sql.includes('SELECT amount_minor'))return {results:f.payouts??[]};
     throw Error('unexpected all '+sql);
   },async first(){
@@ -104,5 +104,15 @@ test('screenshots are passed as images to vision, not just attachment text',asyn
  await igDmReply(f.env);assert.equal(f.visionCalled,true);assert.equal(f.sent.length,1);
 });
 test('an unavailable screenshot stays open and sends no blind acknowledgement',async()=>{
- const f=fixture();f.imageError=true;await igDmReply(f.env);assert.equal(incident(f).reason,'image_read_failed');assert.equal(handled(f),undefined);assert.equal(f.sent.length,0);assert.equal(f.systems.length,0);
+ const f=fixture();f.imageError=true;await igDmReply(f.env);assert.equal(incident(f).reason,'image_read_failed');assert.equal(handled(f),undefined);assert.equal(f.sent.length,0);assert.equal(f.systems.length,1);
+});
+
+test('unavailable older image does not block complete current text requisites',async()=>{
+ const f=fixture();f.unreadable=1;f.history=[{direction:'in',text:'89990001122 Тестова Анна Ивановна сбер Итого 627р',created_at:f.t},{direction:'out',text:'Пришлите реквизиты',created_at:f.t}];
+ f.raw=JSON.stringify({reply:'Получила, проверяю!',escalate:false,requisites:{amount_rub:627,phone:'89990001122',bank:'сбер',last_name:'Тестова',first_name:'Анна',patronymic:'Ивановна'}});
+ await igDmReply(f.env);assert.equal(f.sent.length,1);assert.equal(handled(f),f.t);
+});
+test('an expired picture plus incomplete text cannot produce a fabricated payout',async()=>{
+ const f=fixture();f.unreadable=1;f.raw=JSON.stringify({reply:'Получила, проверяю!',escalate:false,requisites:{amount_rub:627,phone:'89990001122',bank:'сбер',last_name:'Тестова',first_name:'Анна',patronymic:'Ивановна'}});
+ await igDmReply(f.env);assert.equal(f.sent.length,0);assert.equal(incident(f).reason,'image_read_failed');assert.equal(handled(f),undefined);
 });

@@ -85,7 +85,7 @@ jobs:
         run: node --test api/src/lib/ugc-payouts.test.mjs api/src/lib/ugc-payout-execute.test.mjs web/lib/ugc-payout-cell.test.mjs
 
       - name: Test UGC Direct retries and four-scenario delivery
-        run: node --test api/src/lib/ig-dm-reply.test.mjs api/src/lib/ig-dm-reply-guard.test.mjs api/src/lib/ig-dm-attachments.test.mjs api/src/lib/llm-vision.test.mjs
+        run: node --test api/src/lib/ig-dm-reply.test.mjs api/src/lib/ig-dm-reply-guard.test.mjs api/src/lib/ig-dm-attachments.test.mjs api/src/lib/ig-dm-refresh.test.mjs api/src/lib/llm-vision.test.mjs
 
       - name: Test WB gateway, concurrency and retired FBO sync
         run: node --test api/src/lib/wb-gateway.test.mjs

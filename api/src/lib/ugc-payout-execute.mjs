@@ -41,11 +41,16 @@ export function ownRubStopText(check, row) {
 export function bloggerPaidText(row) {
   // An old debt pays for a reel already made (Owner 2026-10-16, madifood_: «Я уже
   // отчиталась по вашей пасте»): thank her, never ask for a new order.
-  if (/долг|повтор/i.test(String(row.note ?? ''))) return `Перевела ${formatRub(row.amount_minor)} по СБП 👍 Это за ваш ролик и отзыв — спасибо!`;
+  if (/долг|повтор/i.test(String(row.note ?? ''))) return `Перевела ${formatRub(row.amount_minor)} по СБП. Это за ваш ролик и отзыв, спасибо вам!`;
   // Owner 2026-10-16: «Мы вам оплатили… И после этого мост перекидываешь сразу про сценарий».
-  // Owner 2026-10-17: several short messages (split on a blank line); first say the blogger may
-  // invent her own scenario, and only then offer our four cards.
-  return `Перевела ${formatRub(row.amount_minor)} по СБП 👍 Оформите, пожалуйста, заказ и пришлите скрин.\n\nСценарий можете придумать сами, свою аудиторию вы знаете лучше. Главное, чтобы было видно ваше лицо и пасту.\n\nНет идеи, не страшно: вот четыре карточки на выбор. Какая ближе? Пришлите номер.`;
+  // Owner 2026-10-17 («сделай это… голос Дианы»): paid notice in Diana's voice, short messages
+  // split on a blank line, no dashes; own idea first, cards second.
+  return [
+    `Перевела ${formatRub(row.amount_minor)} по СБП. Проверьте, пожалуйста, должно быть уже дошло.`,
+    'Оформите, пожалуйста, заказ и пришлите скрин.',
+    'Пока паста едет, можно подумать о ролике. Если у вас есть своя идея, расскажите.',
+    'Если нет, выберите карточку и пришлите номер от 1 до 4.',
+  ].join('\n\n');
 }
 
 export function paidNoticeText(row) {

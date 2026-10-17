@@ -265,13 +265,13 @@ test('green payout: Diana writes the blogger once; a failed send is retried next
 test('an old debt is thanked, not asked for a new order', () => {
   assert.match(bloggerPaidText({ amount_minor: 33300, note: 'Старый долг, подтвердила 15.10' }), /за ваш ролик/);
   assert.match(bloggerPaidText({ amount_minor: 50900, note: null }), /Оформите, пожалуйста, заказ/);
+  assert.doesNotMatch(bloggerPaidText({ amount_minor: 50900, note: null }), /[—–]|дошло\?|👍/);
 });
 
 test('new-payment notice offers four scenario cards', () => {
  const text = bloggerPaidText({ amount_minor: 90000, payout_date: '2026-10-17' });
- assert.match(text,/четыре карточки/);
+ assert.match(text,/карточку/);
  assert.doesNotMatch(text,/семь/);
- assert.match(text,/придумать сами/);
- assert.ok(text.indexOf('придумать сами') < text.indexOf('четыре карточки'), 'own scenario is offered before the cards');
- assert.equal(text.split(/\n\n+/).length, 3, 'three short messages');
+ assert.ok(text.indexOf('своя идея') < text.indexOf('карточку'), 'own scenario is offered before the cards');
+ assert.equal(text.split(/\n\n+/).length, 4, 'four short messages');
 });

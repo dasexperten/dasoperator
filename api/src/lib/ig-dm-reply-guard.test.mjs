@@ -26,7 +26,9 @@ test('requisites become a payout only when complete and within 999 ₽', async (
     { amount_minor: 75800, phone: '+79097024744', bank: '100000000111', last_name: 'Мирзода', first_name: 'Хамида', patronymic: 'Ахмадхон', product: null });
   assert.equal(cleanRequisites({ amount_rub: 1082, phone: '+79001112233', bank: 'Сбер', last_name: 'Ан', first_name: 'Бо' }), null);
   assert.equal(cleanRequisites({ amount_rub: 500, phone: '+7940 123 45 67', bank: 'Т-Банк', last_name: 'Хачатрян', first_name: 'Лиана' }), null);
-  assert.equal(cleanRequisites({ amount_rub: 500, phone: '+79001112233', bank: 'Т-Банк', last_name: 'С', first_name: 'Екатерина' }), null);
+  // Owner 2026-10-17: a surname initial is enough for SBP; a missing first name is not.
+  assert.ok(cleanRequisites({ amount_rub: 500, phone: '+79001112233', bank: 'Т-Банк', last_name: 'С', first_name: 'Екатерина' }));
+  assert.equal(cleanRequisites({ amount_rub: 500, phone: '+79001112233', bank: 'Т-Банк', last_name: 'Смирнова', first_name: 'Е' }), null);
 });
 
 test('menu jargon and «no face» never leave (Owner 2026-10-16)', () => {
@@ -121,4 +123,10 @@ test('one person, one program; phone never repeated (Owner 2026-10-17)', () => {
   assert.equal(guardReply(j('Второй аккаунт, это отдельная программа. Пришлите ник второго аккаунта.')).reason, 'one person, one program; ask what she means');
   assert.equal(guardReply(j('900 ₽ ушли на номер +79028764000, Сбер.'), { paid: true }).reason, 'do not repeat phone and recipient to the blogger');
   assert.ok(guardReply(j('Уточните, пожалуйста: вы про оплату по этой корзине?')).reply);
+});
+
+test('a first name and the surname initial are enough for SBP (Owner 2026-10-17)', async () => {
+  const { cleanRequisites } = await import('./ig-dm-reply-guard.mjs');
+  const r = cleanRequisites({ amount_rub: 395, phone: '89674029721', bank: 'Т-Банк', first_name: 'Кристина', last_name: 'С.' });
+  assert.ok(r); assert.equal(r.last_name, 'С');
 });

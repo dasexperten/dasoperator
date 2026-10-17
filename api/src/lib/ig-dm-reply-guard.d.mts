@@ -8,3 +8,6 @@ export function cleanRequisites(r: unknown): CleanRequisites | null;
 export function guardReply(raw: unknown, opts?: { paid?: boolean; inCount?: number; lastIn?: string; allowBrush?: boolean }): { reply: string | null; escalate: boolean; reason: string; sendCards?: boolean; requisites?: CleanRequisites | null; parts?: string[] };
 
 export function requisitesSupportedByText(r: CleanRequisites | null | undefined, text: string): boolean;
+
+export function noDashes(text: string): string;
+export function shortParts(parts: string[]): string[];

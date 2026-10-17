@@ -97,3 +97,15 @@ test('paid notice is a statement, never «дошло?» (Owner 2026-10-17)', () 
   assert.match(guardReply(j('Перевели 900 ₽ — дошло?'), { paid: true }).reason, /^paid notice as a question/);
   assert.ok(guardReply(j('Перевела 900 ₽ по СБП. Проверьте, пожалуйста, должно быть уже дошло.'), { paid: true }).reply);
 });
+
+test('no dashes and long paragraphs become short messages (Owner 2026-10-17)', async () => {
+  const { noDashes, shortParts } = await import('./ig-dm-reply-guard.mjs');
+  assert.equal(noDashes('Паста TERMO — с ферментами'), 'Паста TERMO, с ферментами');
+  assert.equal(noDashes('Кто-то чувствует сразу'), 'Кто-то чувствует сразу');
+  assert.equal(noDashes('номер 1–4'), 'номер 1 до 4');
+  const long = 'Снимите, пожалуйста, как вы первый раз чистите зубы пастой TERMO. Встаньте у окна, чтобы было светло. Сначала скажите в камеру: «Название обещает тепло, проверяю». Покажите пасту на щётке, потом почистите зубы, чтобы было видно лицо.';
+  const parts = shortParts([long]);
+  assert.ok(parts.length >= 2 && parts.every((p) => p.length <= 180));
+  const out = guardReply(JSON.stringify({ reply: 'Отлично — пришлите, пожалуйста, скрин.', escalate: false, send_cards: false, requisites: null, reason: 'x' }));
+  assert.equal(out.reply, 'Отлично, пришлите, пожалуйста, скрин.');
+});

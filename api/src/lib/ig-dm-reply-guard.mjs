@@ -34,7 +34,7 @@ export const DIANA_RULES_BODY = `Ты — Диана, менеджер блог�
 Дети: детей в ролики не берём («Детей в ролики мы не берём, такое у нас правило»), предложи снять самому или с кем-то из близких. Никогда не говори, подходит ли паста детям, — это не наш вывод. Слово «взрослый» блогеру не пиши.
 Блогер написал «заказала» — одной фразой порадуйся и попроси скрин заказа, даже если в том же сообщении есть другой вопрос (ответь на оба).
 
-Обращение (Владелец 17.10.2026): всегда на «вы», на «ты» не переходить никогда. Тёплое обращение с именем в стиле Гузеевой — «дорогая Юля», «милая Татьяна» — можно, но не сразу: только когда разговор уже потеплел (блогер ответил не меньше трёх раз), имя известно из переписки, и не чаще одного раза на несколько сообщений. Уменьшительные имена («Юлечка»), «зайка», «моя хорошая» — нет.
+Короткие фразы (Владелец 17.10.2026): длинный абзац разбивай на несколько коротких сообщений (replies). Никогда не используй тире и дефис как знак препинания («—», «–», «-»): вместо них запятая или точка.\nОбращение (Владелец 17.10.2026): всегда на «вы», на «ты» не переходить никогда. Тёплое обращение с именем в стиле Гузеевой — «дорогая Юля», «милая Татьяна» — можно, но не сразу: только когда разговор уже потеплел (блогер ответил не меньше трёх раз), имя известно из переписки, и не чаще одного раза на несколько сообщений. Уменьшительные имена («Юлечка»), «зайка», «моя хорошая» — нет.
 
 Жёсткие правила:
 - Пиши по-русски, коротко: одно-два предложения, один вопрос.
@@ -107,6 +107,35 @@ const MONEY_SENT = /(перевел|перевёл|перевела|переве
 const PROMISE = /(переведу|переведём|переведем|отправлю|оплачу|оплатим|завтра|сегодня переведём|в течение)/i;
 
 /** The model's answer → a reply that may leave, or null. Never trust it blindly. */
+
+// Owner 2026-10-17: «если длинный абзац, то разбиваешь на несколько коротких сообщений.
+// Никогда не используешь "-"». Dashes become commas; a hyphen inside a word (кто-то) stays.
+const SHORT_PART = 180;
+export function noDashes(text) {
+  return String(text)
+    .replace(/(^|\n)\s*[-–—•]\s+/g, '$1')
+    .replace(/(^|[^\d])(\d+)\s*[–—-]\s*(\d+)(?!\d)/g, (m, a, x, y) => `${a}${x} до ${y}`)
+    .replace(/\s+[–—-]+\s+/g, ', ')
+    .replace(/\s*[–—]\s*/g, ', ')
+    .replace(/,\s*([.!?])/g, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+export function shortParts(parts) {
+  const out = [];
+  for (const raw of parts) {
+    const text = noDashes(raw);
+    if (text.length <= SHORT_PART) { out.push(text); continue; }
+    let cur = '';
+    for (const sentence of text.split(/(?<=[.!?…])\s+/)) {
+      if (cur && (cur + ' ' + sentence).length > SHORT_PART) { out.push(cur); cur = sentence; }
+      else cur = cur ? `${cur} ${sentence}` : sentence;
+    }
+    if (cur) out.push(cur);
+  }
+  return out.slice(0, 6);
+}
+
 // Owner (DH-MAP-261010-01): paid reels, price lists and fees are the Owner's call — no model answer.
 const PAID_ASK = /(сколько\s+(вы\s+)?плат|прайс|за\s+деньги|платн|гонорар|оплат\S*\s+за\s+(рилс|ролик|пост|сторис|рекламу)|стоимост\S*\s+(рилс|ролик|реклам)|цена\s+за\s+(рилс|ролик|пост))/i;
 
@@ -120,19 +149,19 @@ export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allow
   } catch { parsed = null; }
   if (!parsed || typeof parsed !== 'object') return { reply: null, escalate: true, reason: 'unparsable' };
   // Owner 2026-10-17: from the second message on, several short messages instead of one long one.
-  const parts = (Array.isArray(parsed.replies) ? parsed.replies : [parsed.reply])
-    .filter((x) => typeof x === 'string').map((x) => x.trim()).filter(Boolean).slice(0, 4);
+  const parts = shortParts((Array.isArray(parsed.replies) ? parsed.replies : [parsed.reply])
+    .filter((x) => typeof x === 'string').map((x) => x.trim()).filter(Boolean).slice(0, 4));
   const reply = parts.join('\n');
   const escalate = parsed.escalate === true;
   const reason = String(parsed.reason ?? '').slice(0, 200);
   const sendCards = parsed.send_cards === true;
   const requisites = cleanRequisites(parsed.requisites);
   if (!reply || escalate) return { reply: null, escalate, reason, sendCards: false };
-  if (parts.length === 1 ? reply.length > 420 : parts.some((x) => x.length > 300) || reply.length > 800) return { reply: null, escalate: true, reason: 'too long' };
+  if (parts.some((x) => x.length > 300) || reply.length > 900) return { reply: null, escalate: true, reason: 'too long' };
   // Owner 2026-10-17: barter is TERMO paste only — no brush is offered or put in the cart.
   if (!allowBrush && /ETALON|SENSITIV|MITTEL|ЭТАЛОН|(^|[^a-zа-яё])ZERO([^a-zа-яё]|$)|паст[аыуеой]*\s+и\s+(?:одн[ау]\s+|наш[ау]\s+)?щ[её]тк|щ[её]тк[ауи]?\s+(?:тоже\s+)?(?:в\s+корзин|добав|полож|закаж)/i.test(reply)) return { reply: null, escalate: true, reason: 'offers a brush, paste only' };
   if (!paid && MONEY_SENT.test(reply)) return { reply: null, escalate: true, reason: 'claims money sent, not paid in ERP' };
-  if (/(?:семь|семи|7)\s+(?:сценари|карточ)|(?:от\s*1\s*до\s*7|1\s*[–—-]\s*7)|(?:сценари[йяюем]*|карточк[а-яё]*)\s*(?:№\s*)?[5-7](?!\d)/i.test(reply)) return { reply: null, escalate: true, reason: 'scenario outside active menu' };
+  if (/(?:семь|семи|7)\s+(?:сценари|карточ)|(?:(?:от\s*)?1\s*до\s*7|1\s*[–—-]\s*7)|(?:сценари[йяюем]*|карточк[а-яё]*)\s*(?:№\s*)?[5-7](?!\d)/i.test(reply)) return { reply: null, escalate: true, reason: 'scenario outside active menu' };
   if (PROMISE.test(reply)) return { reply: null, escalate: true, reason: 'promises payment' };
   // Owner 2026-10-16 («Что за бред?»): table words of the scenario menu never reach a blogger,
   // and a reel is always with the face.

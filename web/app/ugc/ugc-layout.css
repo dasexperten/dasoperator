@@ -16,7 +16,7 @@ body:has(.ugc-creator-modal[open]) { overflow: hidden; }
 .ugc-profile-refresh-btn:focus-visible { outline: 2px solid var(--fg-1); outline-offset: 2px; }
 .ugc-blogger-profile { padding: 16px; background: var(--paper-sunk); border-radius: var(--radius-sm); min-width: 0; }
 .ugc-blogger-identity { display: flex; align-items: center; gap: 12px; overflow-wrap: anywhere; }
-.ugc-blogger-avatar { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.ugc-blogger-avatar { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; flex-shrink: 0; display: inline-flex; overflow: hidden; }
 .ugc-avatar-empty { display: flex; align-items: center; justify-content: center; background: var(--bg-surface); color: var(--fg-2); }
 .ugc-profile-numbers { display: flex; flex-wrap: wrap; gap: 16px; margin-block: 16px; }
 .ugc-profile-numbers dt, .ugc-profile-note { font-size: 12px; color: var(--fg-2); white-space: normal; }
@@ -276,3 +276,13 @@ a.ugc-creator:hover .ugc-creator-name { text-decoration: underline; }
 .ugc-creator-line .ugc-creator-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .ugc-creator-line .ugc-origin { flex: 0 0 auto; display: inline-flex; }
 a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: var(--fg-3); font-weight: 400; max-width: 100%; }
+
+/* Real blogger photos precede account names in both list layouts. */
+.ugc-blogger-avatar > img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.ugc-blogger-avatar.ugc-avatar-compact { display: inline-flex; flex: 0 0 32px; width: 32px; height: 32px; }
+.ugc-avatar-compact > svg { width: 18px; height: 18px; }
+.ugc-table td > a.ugc-creator { flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; }
+.ugc-creator-copy { flex: 1; min-width: 0; }
+.ugc-creator-copy > span { display: block; overflow: hidden; text-overflow: ellipsis; }
+.ugc-mobile-identity { display: flex; align-items: center; gap: 6px; text-align: left; }
+.ugc-mobile-identity .ugc-mobile-name { flex: 1; min-width: 0; }

@@ -302,17 +302,42 @@ function ProfileRefresh({ profileId, onSaved }: { profileId?: string; onSaved: (
   }}>{busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}{busy ? 'Загружаю профиль…' : profileId ? 'Обновить профиль' : 'Загрузить профили'}</button>{message ? <span role="status">{message}</span> : null}</span>;
 }
 
-function BloggerProfile({ profile, onSaved }: { profile: PlatformMetric; onSaved: () => Promise<void> }) {
+// Reuse private authenticated image reads across the desktop list, phone list and card.
+const avatarRequests = new Map<string, Promise<string | null>>();
+function BloggerAvatar({ profile, compact = false }: { profile: PlatformMetric; compact?: boolean }) {
+  const ref = useRef<HTMLSpanElement>(null);
   const [avatar, setAvatar] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
     setAvatar(null);
-    if (profile.has_avatar) apiGet<{ data_url: string }>(`/api/ugc/profiles/${encodeURIComponent(profile.id)}/avatar`).then(r => { if (active && r.success) setAvatar(r.result?.data_url ?? null); }).catch(() => undefined);
-    return () => { active = false; };
+    if (!profile.has_avatar || !ref.current) return;
+    const key = `${profile.id}:${profile.profile_checked_at ?? ''}`;
+    const load = () => {
+      let request = avatarRequests.get(key);
+      if (!request) {
+        request = apiGet<{ data_url: string }>(`/api/ugc/profiles/${encodeURIComponent(profile.id)}/avatar`)
+          .then(r => r.success ? r.result?.data_url ?? null : null).catch(() => null);
+        avatarRequests.set(key, request);
+        request.then(value => { if (!value) avatarRequests.delete(key); });
+      }
+      request.then(value => { if (active) setAvatar(value); });
+    };
+    // Hidden responsive lists and off-screen rows do not download images.
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) { observer.disconnect(); load(); }
+    }, { rootMargin: '160px' });
+    observer.observe(ref.current);
+    return () => { active = false; observer.disconnect(); };
   }, [profile.id, profile.has_avatar, profile.profile_checked_at]);
+  return <span ref={ref} role="img" aria-label={avatar ? `Аватар @${profile.handle}` : 'Аватар пока не загружен'} className={`ugc-blogger-avatar${compact ? ' ugc-avatar-compact' : ''}${avatar ? '' : ' ugc-avatar-empty'}`}>
+    {avatar ? <img src={avatar} alt="" width={compact ? 32 : 72} height={compact ? 32 : 72} decoding="async" /> : <Users aria-hidden="true" />}
+  </span>;
+}
+
+function BloggerProfile({ profile, onSaved }: { profile: PlatformMetric; onSaved: () => Promise<void> }) {
   const date = (value?: string | null) => value ? new Date(value).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : 'ещё не загружен';
   return <section className="ugc-blogger-profile">
-    <div className="ugc-blogger-identity">{avatar ? <img src={avatar} alt={`Аватар @${profile.handle}`} width={72} height={72} className="ugc-blogger-avatar" /> : <span className="ugc-blogger-avatar ugc-avatar-empty" aria-label="Аватар пока не загружен"><Users aria-hidden="true" /></span>}<div><strong>@{profile.handle}</strong><div className="ugc-profile-note">{platformLabel(profile.platform)}</div></div></div>
+    <div className="ugc-blogger-identity"><BloggerAvatar profile={profile} /><div><strong>@{profile.handle}</strong><div className="ugc-profile-note">{platformLabel(profile.platform)}</div></div></div>
     <dl className="ugc-profile-numbers"><div><dt>Подписчики</dt><dd>{formatCount(profile.followers)}</dd></div><div><dt>Публикации</dt><dd>{formatCount(profile.posts_count ?? null)}</dd></div><div><dt>Средний ER</dt><dd>{profile.engagement_rate == null ? '—' : `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(profile.engagement_rate)}%`}</dd></div></dl>
     {profile.engagement_rate != null ? <p className="ugc-profile-note">{profile.er_sample_posts ? `По ${profile.er_sample_posts} последним доступным публикациям: среднее лайков и комментариев / подписчики.` : 'Ранее сохранённый показатель.'} ER: {date(profile.er_checked_at)}.</p> : <p className="ugc-profile-note">ER появится, когда доступны реакции на публикации.</p>}
     <p className="ugc-profile-note">Данные: {date(profile.profile_checked_at || profile.metrics_as_of)}{profile.profile_error ? ` · Последняя попытка: ${date(profile.profile_attempted_at)}. ${profile.profile_error}` : ''}</p>
@@ -716,7 +741,7 @@ export default function UgcPage() {
             const views = profile.avg_video_views ?? profile.latest_observed_views;
             const name = profile.handle ? `@${profile.handle}` : creator.display_name || 'Автор';
             return <div key={creator.id} className="ugc-mobile-row ugc-creator-row" tabIndex={0} aria-label={`Карточка блогера ${name}`} onClick={(event) => { if (blankRowClick(event)) setSelectedId(creator.id); }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setSelectedId(creator.id); } }}>
-              <span className="ugc-mobile-name"><a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" className="ugc-mobile-title" title={creator.display_name ? `${name} · ${creator.display_name}` : name}>{name}</a><span className="ugc-mobile-meta"><PlatformIcons creator={creator} />{creator.attention ? <button type="button" onClick={() => setSelectedId(creator.id)} aria-label={creator.attention.label}><AlertCircle className="h-4 w-4" style={{ color: '#7a4e25' }} /></button> : null}<span>{formatActivity(creator.last_activity_at)}</span><CreatorStatus creator={creator} /></span></span>
+              <span className="ugc-mobile-identity"><BloggerAvatar profile={profile} compact /><span className="ugc-mobile-name"><a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" className="ugc-mobile-title" title={creator.display_name ? `${name} · ${creator.display_name}` : name}>{name}</a><span className="ugc-mobile-meta"><PlatformIcons creator={creator} />{creator.attention ? <button type="button" onClick={() => setSelectedId(creator.id)} aria-label={creator.attention.label}><AlertCircle className="h-4 w-4" style={{ color: '#7a4e25' }} /></button> : null}<span>{formatActivity(creator.last_activity_at)}</span><CreatorStatus creator={creator} /></span></span></span>
               <span title={`Подписчики: ${profile.followers ?? 'нет данных'}`}>{formatCount(profile.followers)}</span>
               <span title={`Просмотры: ${views ?? 'нет данных'}`}>{formatCount(views)}</span>
               <span className="ugc-mobile-pay"><CreatorPayment creator={creator} /></span>
@@ -744,7 +769,7 @@ export default function UgcPage() {
               // Name and city after the handle (Owner 2026-10-16: «Город нужен, город обязательно»).
               const secondName = handle ? [creator.display_name, creator.city].filter(Boolean).join(' · ') || null : null;
               return <tr key={creator.id} className="ugc-creator-row" tabIndex={0} aria-label={`Карточка блогера ${name}`} onClick={(event) => { if (blankRowClick(event)) setSelectedId(creator.id); }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setSelectedId(creator.id); } }} style={{ borderTop: '1px solid var(--border-hairline)' }}>
-                <td className="ugc-c-creator" style={creator.attention ? { position: 'relative', paddingRight: 50 } : undefined}>{creator.attention ? <button type="button" onClick={() => setSelectedId(creator.id)} aria-label={`${creator.attention.label}: ${name}`} title={creator.attention.reason} className="absolute right-1 top-1/2 -translate-y-1/2 min-h-11 min-w-11 inline-flex items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-2" style={{ color: '#7a4e25', width: 44, height: 44 }}><AlertCircle className="h-5 w-5" /></button> : null}<a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" title={[name, secondName, 'открыть страницу автора'].filter(Boolean).join(' · ')} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="ugc-creator-line"><span className="ugc-creator-name">{name}</span><OriginMark origin={creator.origin} /></span>{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span></a></td>
+                <td className="ugc-c-creator" style={creator.attention ? { position: 'relative', paddingRight: 50 } : undefined}>{creator.attention ? <button type="button" onClick={() => setSelectedId(creator.id)} aria-label={`${creator.attention.label}: ${name}`} title={creator.attention.reason} className="absolute right-1 top-1/2 -translate-y-1/2 min-h-11 min-w-11 inline-flex items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-2" style={{ color: '#7a4e25', width: 44, height: 44 }}><AlertCircle className="h-5 w-5" /></button> : null}<a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" title={[name, secondName, 'открыть страницу автора'].filter(Boolean).join(' · ')} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><BloggerAvatar profile={profile} compact /><span className="ugc-creator-copy"><span className="ugc-creator-line"><span className="ugc-creator-name">{name}</span><OriginMark origin={creator.origin} /></span>{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span></span></a></td>
                 <td className="ugc-c-platform"><PlatformIcons creator={creator} /></td>
                 <td className="ugc-c-num" title={profile.followers == null ? 'Нет данных' : `${profile.followers}`}>{formatCount(profile.followers)}</td>
                 <td className="ugc-c-num" title={creator.last_activity_at ? new Date(creator.last_activity_at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : 'Нет данных'}>{formatActivity(creator.last_activity_at)}</td>

@@ -21,7 +21,9 @@ function trustedUrl(value: string): string {
 async function download(url: string): Promise<{ mediaType: LlmImage['mediaType']; data: string; size: number; bytes: Uint8Array }> {
   let source = url;
   for (let n = 0; n < 4; n++) {
-    const r = await fetch(trustedUrl(source), { redirect: 'manual', signal: AbortSignal.timeout(20_000) });
+    // Without a browser User-Agent Meta answers 302 → facebook.com/unsupportedbrowser (found 2026-10-17):
+    // every screenshot looked unreadable and Direct replies stalled.
+    const r = await fetch(trustedUrl(source), { redirect: 'manual', signal: AbortSignal.timeout(20_000), headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36', Accept: 'image/avif,image/webp,image/png,image/jpeg,*/*;q=0.8' } });
     if ([301,302,303,307,308].includes(r.status)) {
       const location = r.headers.get('location'); await r.body?.cancel();
       if (!location) throw new Error('Missing image redirect');

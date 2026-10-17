@@ -14,7 +14,7 @@ export function identifySourceProductNames(value) {
   const codes = new Set(text.match(/\bDE\d{3}\b/g) ?? []);
   for (const [pattern, sku] of [
     [/\bSYMBIOS\b/, 'DE206'], [/\bDETOX\b/, 'DE202'], [/\bGINGER\s+FORCE\b/, 'DE203'],
-    [/\bCOCOCANNABIS\b/, 'DE205'], [/\bINNOWEIS{1,2}\b.*(?:ПАСТА|TOOTHPASTE)/, 'DE210'], [/\b(?:THERMO|TERMO)\b/, 'DE209'],
+    [/\bCOCOCANNABIS\b/, 'DE205'], [/\b(?:THERMO|TERMO)\b/, 'DE209'],
     [/\bNANO\s+MASSAGE\b/, 'DE120'], [/\bMITTEL\b/, 'DE107'], [/\bINTENSIV\b/, 'DE130'],
     [/\bKRAFT\b/, 'DE116'], [/\bAKTIV\b/, 'DE122'], [/\bBIO\b/, 'DE123'], [/\bZUNGER\b/, 'DE114'],
     [/\bKINDER\s*3\s*\+/, 'DE108'], [/\bKINDER\s*1\s*\+/, 'DE118'],
@@ -22,6 +22,11 @@ export function identifySourceProductNames(value) {
     [/\bI?NTERDENTALS?\s+(?:РАЗМЕР\s*)?[MМ](?![A-ZА-Я])/, 'DE126'], [/\bI?NTERDENTALS?\s+S\b/, 'DE125'],
   ]) if (pattern.test(text)) codes.add(sku);
   for (const part of text.split(/[,;\n]/)) {
+    // Owner 2026-10-17: bare INNOWEISS (legacy InnoWeis) means paste 210.
+    // An explicitly named/code-marked mouthwash remains 310.
+    if (/\bINNOWEIS{1,2}\b/.test(part)) {
+      codes.add(/ОПОЛАСК|MOUTHWASH|\bRINSE\b|\bDE310\b/.test(part) ? 'DE310' : 'DE210');
+    }
     if (!/SCHWARZ/.test(part)) continue;
     if (/ПАСТА|TOOTHPASTE/.test(part)) codes.add('DE201');
     if (/ЩЕТК|BRUSH/.test(part)) codes.add('DE105');

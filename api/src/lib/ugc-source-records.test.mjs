@@ -5,8 +5,20 @@ import { identifySourceProductNames, sourceRecordIndex, ORIGINAL_BLOGGER_DATABAS
 test('names preserve paste/brush identity, ambiguous SCHWARZ is not guessed', () => {
   assert.deepEqual(identifySourceProductNames('SCHWARZ 2 ШТ'), []);
   assert.deepEqual(identifySourceProductNames('Schwartz Зубная щетка, Schwartz паста'), ['DE105', 'DE201']);
-  assert.deepEqual(identifySourceProductNames('InnoWeis,BIO 2 шт,KINDER 3+,KINDER 1+,ZUNGER'), ['DE123', 'DE114', 'DE108', 'DE118']);
-  assert.deepEqual(identifySourceProductNames('InnoWeis'), []);
+  assert.deepEqual(identifySourceProductNames('InnoWeis,BIO 2 шт,KINDER 3+,KINDER 1+,ZUNGER'), ['DE123', 'DE114', 'DE108', 'DE118', 'DE210']);
+  assert.deepEqual(identifySourceProductNames('InnoWeis'), ['DE210']);
+});
+
+test('Owner mapping: bare INNOWEISS is 210; explicitly named mouthwash stays 310', () => {
+  for (const name of ['INNOWEISS', 'InnoWeis', 'INNOWEISS паста']) {
+    assert.deepEqual(identifySourceProductNames(name), ['DE210']);
+    const index = sourceRecordIndex(payoutProductRecords([{ id: 'p', creator_id: 'c', creator_platform_id: 'ig', product: name }]));
+    assert.deepEqual(index.products.get('ig').map(p => p.sku), ['DE210']);
+    assert.deepEqual(index.productLabels.get('ig'), []);
+  }
+  for (const name of ['INNOWEISS mouthwash', 'Ополаскиватель INNOWEISS', 'INNOWEISS DE310']) {
+    assert.deepEqual(identifySourceProductNames(name), ['DE310']);
+  }
 });
 
 test('original workbook wins over the other register; overlapping books are never summed together', () => {

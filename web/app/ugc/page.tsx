@@ -337,15 +337,22 @@ function BloggerAvatar({ profile, compact = false }: { profile: PlatformMetric; 
   </span>;
 }
 
-function BloggerProfile({ profile, onSaved }: { profile: PlatformMetric; onSaved: () => Promise<void> }) {
+function BloggerProfile({ profile, onSaved, showHandle = false }: { profile: PlatformMetric; onSaved: () => Promise<void>; showHandle?: boolean }) {
   const date = (value?: string | null) => value ? new Date(value).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : 'ещё не загружен';
-  return <section className="ugc-blogger-profile">
-    <div className="ugc-blogger-identity"><BloggerAvatar profile={profile} /><div><strong>@{profile.handle}</strong><div className="ugc-profile-note">{platformLabel(profile.platform)}</div></div></div>
-    <dl className="ugc-profile-numbers"><div><dt>Подписчики</dt><dd>{formatCount(profile.followers)}</dd></div><div><dt>Публикации</dt><dd>{formatCount(profile.posts_count ?? null)}</dd></div><div><dt>Средний ER</dt><dd>{profile.engagement_rate == null ? '—' : `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(profile.engagement_rate)}%`}</dd></div></dl>
-    {profile.engagement_rate != null ? <p className="ugc-profile-note">{profile.er_sample_posts ? `По ${profile.er_sample_posts} последним доступным публикациям: среднее лайков и комментариев / подписчики.` : 'Ранее сохранённый показатель.'} ER: {date(profile.er_checked_at)}.</p> : <p className="ugc-profile-note">ER появится, когда доступны реакции на публикации.</p>}
+  const views = profile.avg_video_views ?? profile.latest_observed_views;
+  const er = profile.engagement_rate == null ? '—' : `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(profile.engagement_rate)}%`;
+  // Owner 2026-10-17: four tiles — followers, average views, publications, ER.
+  return <div className="ugc-blogger-profile ugc-card-audience">
+    {showHandle ? <div className="ugc-profile-note"><strong>@{profile.handle}</strong> · {platformLabel(profile.platform)}</div> : null}
+    <dl className="ugc-card-kpis">
+      <div><dt>Подписчики</dt><dd>{formatCount(profile.followers)}</dd></div>
+      <div><dt>Средние просмотры</dt><dd>{formatCount(views ?? null)}</dd></div>
+      <div><dt>Публикации</dt><dd>{formatCount(profile.posts_count ?? null)}</dd></div>
+      <div><dt>ER</dt><dd>{er}</dd></div>
+    </dl>
     <p className="ugc-profile-note">Данные: {date(profile.profile_checked_at || profile.metrics_as_of)}{profile.profile_error ? ` · Последняя попытка: ${date(profile.profile_attempted_at)}. ${profile.profile_error}` : ''}</p>
     {profile.platform === 'instagram' ? <ProfileRefresh profileId={profile.id} onSaved={onSaved} /> : null}
-  </section>;
+  </div>;
 }
 
 function PayoutBadge({ payout }: { payout: Payout | null | undefined }) {
@@ -805,6 +812,7 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
   const [rights, setRights] = useState(collaboration.rights_scope ?? '');
   const [rightsExpiry, setRightsExpiry] = useState(collaboration.rights_expires_at ?? '');
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const content = creator.profiles.flatMap((profile) => profile.content.map((item) => ({ ...item, platform: profile.platform })));
 
@@ -812,8 +820,8 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
     setSaving(true); setMessage(null);
     const creatorResult = await apiPatch(`/api/ugc/creators/${creator.id}`, { lifecycle_stage: stage, origin: origin || null, owner, notes });
     const collabResult = await apiPost('/api/ugc/collaborations', { id: collaboration.id, creator_id: creator.id, platform: creator.profiles[0]?.platform, status: stage, contact_channel: channel, next_action: nextAction, next_action_at: nextActionAt, sample_status: sampleStatus, deliverables, rights_scope: rights, rights_expires_at: rightsExpiry });
-    if (!creatorResult.success || !collabResult.success) setMessage(creatorResult.errors[0]?.message ?? collabResult.errors[0]?.message ?? 'Save failed');
-    else { setMessage('Saved'); await onSaved(); }
+    if (!creatorResult.success || !collabResult.success) setMessage(creatorResult.errors[0]?.message ?? collabResult.errors[0]?.message ?? 'Не удалось сохранить');
+    else { setMessage('Сохранено'); await onSaved(); }
     setSaving(false);
   }
 
@@ -827,16 +835,29 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
     finally { setSaving(false); }
   }
 
-  return <section className="ugc-creator-card p-5 md:p-6 space-y-5" style={{ background: 'var(--bg-surface)', border: '2px solid var(--brand-schwarz)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-raised)' }}>
-    <div className="flex items-start justify-between gap-4"><div><h2 id="ugc-creator-title" className="text-2xl font-extrabold">{creator.display_name || `@${creator.profiles[0]?.handle}`}</h2></div><button type="button" onClick={onClose} className="min-h-11 min-w-11 flex items-center justify-center" aria-label="Закрыть карточку блогера"><X className="h-5 w-5" /></button></div>
-    {creator.attention ? <p className="flex items-start gap-2 text-sm" style={{ color: 'var(--fg-1)' }}><AlertCircle className="h-5 w-5 shrink-0" style={{ color: '#7a4e25' }} /><span style={{ whiteSpace: 'normal' }}><strong>{creator.attention.label}.</strong> {creator.attention.reason}</span></p> : null}
-    <div className={creator.profiles.length > 1 ? 'grid md:grid-cols-2 gap-3' : 'grid gap-3'}>{creator.profiles.map((profile) => <BloggerProfile key={profile.id} profile={profile} onSaved={onSaved} />)}</div>
-    {creator.payouts?.length ? <section className="space-y-2" aria-labelledby={`payouts-${creator.id}`}>
-      <div className="flex items-end justify-between gap-3"><div><div className="dx-eyebrow">Barter refunds</div><h3 id={`payouts-${creator.id}`} className="mt-1 text-xl font-extrabold">Оплата</h3></div><div className="text-sm tabular-nums" style={{ color: 'var(--fg-2)' }}>Paid {formatRub(creator.paid_total_minor ?? 0)}</div></div>
-      <div className="grid gap-2">{creator.payouts.map((item) => <div key={item.id} className="p-3 flex items-center justify-between gap-3" style={{ background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)' }}><PayoutBadge payout={item} /><span className="text-xs" style={{ color: 'var(--fg-3)' }}>{item.status === 'awaiting_approval' || item.status === 'approved' ? 'В очереди' : item.payout_date}</span></div>)}</div>
-    </section> : null}
-    {creator.payment_sources?.length ? <section className="space-y-3">
-      <h3 className="text-xl font-extrabold">Исторические суммы</h3>
+  const lead = creator.profiles[0];
+  const sub = [creator.display_name && lead && creator.display_name !== `@${lead.handle}` ? creator.display_name : null, creator.city, lead ? platformLabel(lead.platform) : null].filter(Boolean).join(' · ');
+  const leadHref = lead ? profileHref(lead) : null;
+  const products = Array.from(new Map(creator.profiles.flatMap((profile) => [...profile.content.flatMap((item) => item.products), ...(profile.source_products ?? [])]).map((item) => [item.sku, item])).values());
+  const productLabels = creator.profiles.flatMap((profile) => profile.source_product_labels ?? []);
+  const shortDate = (value?: string | number | null) => value ? new Date(value).toLocaleDateString('ru-RU', { timeZone: 'Asia/Yerevan', day: '2-digit', month: '2-digit' }) : '—';
+  // Owner 2026-10-17: one column top to bottom — who, audience, work, payment, products, publications; the edit form opens on demand.
+  return <section className="ugc-creator-card ugc-card p-4 md:p-6" style={{ background: 'var(--bg-surface)', border: '2px solid var(--brand-schwarz)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-raised)' }}>
+    <div className="ugc-card-top">{lead ? <BloggerAvatar profile={lead} /> : null}<div className="ugc-card-who"><h2 id="ugc-creator-title">{lead ? `@${lead.handle}` : creator.display_name || 'Автор'}</h2>{sub ? <span>{sub}</span> : null}</div><button type="button" onClick={onClose} className="min-h-11 min-w-11 flex items-center justify-center" aria-label="Закрыть карточку блогера"><X className="h-5 w-5" /></button></div>
+    {creator.attention ? <p className="ugc-card-attention"><AlertCircle className="h-5 w-5 shrink-0" style={{ color: '#7a4e25' }} /><span><strong>{creator.attention.label}.</strong> {creator.attention.reason}</span></p> : null}
+    <section className="ugc-card-sec"><div className="ugc-card-label">Аудитория</div>{creator.profiles.map((profile) => <BloggerProfile key={profile.id} profile={profile} onSaved={onSaved} showHandle={creator.profiles.length > 1} />)}</section>
+    <section className="ugc-card-sec"><div className="ugc-card-label">Работа</div>
+      <div className="ugc-card-line"><span>Статус</span><span className="ugc-stage" data-stage={creator.lifecycle_stage}>{creator.lifecycle_stage}</span></div>
+      <div className="ugc-card-line"><span>Следующий шаг</span><span>{collaboration.next_action || '—'}</span></div>
+      <div className="ugc-card-line"><span>Срок</span><span>{shortDate(collaboration.next_action_at)}</span></div>
+      <div className="ugc-card-line"><span>Последний контакт</span><span>{shortDate(creator.last_activity_at)}</span></div>
+    </section>
+    <section className="ugc-card-sec" aria-labelledby={`payouts-${creator.id}`}><div id={`payouts-${creator.id}`} className="ugc-card-label">Оплата</div>
+      {creator.payouts?.length ? creator.payouts.map((item) => <div key={item.id} className="ugc-card-pay"><PayoutBadge payout={item} /><span>{item.status === 'awaiting_approval' || item.status === 'approved' ? 'В очереди' : item.payout_date}</span></div>) : <p className="ugc-card-empty">Выплат пока нет.</p>}
+      <div className="ugc-card-line"><span>Всего выплачено</span><strong>{formatRub(creator.paid_total_minor ?? 0)}</strong></div>
+    </section>
+    {creator.payment_sources?.length ? <details className="ugc-card-sec">
+      <summary className="ugc-card-label cursor-pointer">Исторические суммы</summary>
       <p className="text-sm" style={{ color: 'var(--fg-2)' }}>Общий итог строк внутри каждого источника, включая повторы. Исполнение переводов по этим записям не подтверждено.</p>
       {creator.payment_sources.map((source, index) => <div key={source.source_document} className="space-y-2">
         <h4 className="font-bold">{source.source_title}</h4><RegisterAmounts records={source.records} />
@@ -845,41 +866,32 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
           <ul>{source.records.map((row) => <li key={`${row.source_document}-${row.source_row}`}><a className="underline" target="_blank" rel="noopener noreferrer" href={`https://docs.google.com/spreadsheets/d/${row.source_document}/edit#gid=0&range=${row.amount_column ?? 'H'}${row.source_row}`}>Строка {row.source_row}: {formatRub(row.amount_minor)}</a></li>)}</ul>
         </details>
       </div>)}
-    </section> : null}
-    {creator.profiles.some((profile) => profile.source_products?.length || profile.source_product_labels?.length) ? <section className="space-y-2">
-      <h3 className="text-xl font-extrabold">Продукты по записям аккаунта</h3>
-      {creator.profiles.filter((profile) => profile.source_products?.length || profile.source_product_labels?.length).map((profile) => <div key={profile.id}>
-        <p className="text-sm">{profile.platform} · @{profile.handle}</p>
-        <div className="ugc-pills">{profile.source_products?.map((product) => <span key={product.sku} className="ugc-pill" title={product.name}>{compactProductCode(product.sku)} · {product.name}</span>)}{profile.source_product_labels?.map((product) => <span key={product.name} className="ugc-pill">{product.name} · тип не указан</span>)}</div>
-      </div>)}
-      <p className="text-sm" style={{ color: 'var(--fg-2)' }}>Товарные поля базы блогеров и записей выплат. Для каждой публикации используются её собственные данные.</p>
-    </section> : null}
-    <section className="space-y-3" aria-labelledby={`content-history-${creator.id}`}>
-      <div className="flex items-end justify-between gap-3"><div><div className="dx-eyebrow">Content evidence</div><h3 id={`content-history-${creator.id}`} className="mt-1 text-xl font-extrabold">Publication history</h3></div><div className="text-sm tabular-nums" style={{ color: 'var(--fg-2)' }}>{content.length} observations</div></div>
-      {content.length ? <div className="grid lg:grid-cols-2 gap-3">{content.map((item) => {
+    </details> : null}
+    <section className="ugc-card-sec"><div className="ugc-card-label">Продукты</div>{products.length || productLabels.length ? <div className="ugc-pills">{products.map((item) => <span key={item.sku} className="ugc-pill" title={item.name}>{compactProductCode(item.sku)}</span>)}{productLabels.map((item) => <span key={item.name} className="ugc-pill">{item.name}</span>)}</div> : <p className="ugc-card-empty">Не определён.</p>}</section>
+    <section className="ugc-card-sec" aria-labelledby={`content-history-${creator.id}`}><div id={`content-history-${creator.id}`} className="ugc-card-label">Публикации · {content.length}</div>
+      {content.length ? content.map((item) => {
         const href = contentHref(item.content_url);
-        return <article key={item.id} className="p-4 space-y-3" style={{ background: 'var(--paper-sunk)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-sm)' }}>
-          <div className="flex items-start justify-between gap-3"><div><div className="font-bold capitalize">{item.platform}{item.content_type ? ` · ${item.content_type}` : ''}</div><div className="mt-1 text-xs" style={{ color: 'var(--fg-3)' }}>{item.published_at ? `Published ${item.published_at}` : `${item.source_sheet || 'Source'}${item.source_row == null ? '' : ` · row ${item.source_row}`}`}</div></div>{href ? <div className="shrink-0"><a href={href} target="_blank" rel="noopener noreferrer" className="min-h-11 px-1 inline-flex items-center font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={`Open ${item.platform} content`}><span className="px-2 py-1 inline-flex items-center gap-1.5 text-xs" style={{ color: 'var(--fg-on-brand)', background: 'var(--brand-schwarz)', borderRadius: 'var(--radius-sm)' }}><ExternalLink className="h-3.5 w-3.5" />Open content</span></a></div> : <span className="min-h-11 px-3 shrink-0 inline-flex items-center gap-2 text-sm" style={{ color: 'var(--fg-3)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}><Link2Off className="h-4 w-4" />No link recorded</span>}</div>
-          {href && <a title={item.content_url || undefined} href={href} target="_blank" rel="noopener noreferrer" className="min-h-11 ugc-content-url block text-sm underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" style={{ color: 'var(--brand-rot)' }}>{item.content_url}</a>}
-          <ProductEvidence item={item} />
-          {href && <LinkHealth item={item} />}
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm" style={{ color: 'var(--fg-2)' }}><span>{formatNumber(item.views)} views</span><span>{formatNumber(item.likes ?? null)} likes</span><span>{formatNumber(item.comments)} comments</span><span>{item.product_codes.length ? item.product_codes.join(', ') : item.product_labels?.length ? item.product_labels.map((p) => p.name).join(', ') : 'Товар не указан в источнике'}</span></div>
-        </article>;
-      })}</div> : <div className="min-h-20 p-4 flex items-center gap-3" style={{ color: 'var(--fg-2)', background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)' }}><Link2Off className="h-5 w-5" />No content observations recorded.</div>}
+        const label = [item.content_type || platformLabel(item.platform), item.published_at ? shortDate(item.published_at) : null].filter(Boolean).join(' · ');
+        const what = item.product_codes.length ? item.product_codes.map(compactProductCode).join(', ') : item.product_labels?.length ? item.product_labels.map((product) => product.name).join(', ') : 'Продукт не определён';
+        return <div key={item.id} className="ugc-card-pub"><div className="ugc-card-pub-copy"><strong>{label}</strong><span>{what}</span>{href ? <LinkHealth item={item} /> : null}</div><span className="ugc-card-pub-views" title="Просмотры">{formatCount(item.views)}</span>{href ? <a href={href} target="_blank" rel="noopener noreferrer" className="min-h-11 min-w-11 inline-flex items-center justify-center" aria-label="Открыть публикацию"><ExternalLink className="h-4 w-4" /></a> : null}</div>;
+      }) : <p className="ugc-card-empty">Публикаций пока нет.</p>}
     </section>
+    <div className="ugc-card-actions"><button type="button" onClick={() => setEditing((value) => !value)} aria-expanded={editing}>{editing ? 'Скрыть поля' : 'Изменить данные'}</button>{leadHref ? <a href={leadHref} target="_blank" rel="noopener noreferrer">Открыть профиль <ExternalLink className="h-4 w-4" aria-hidden="true" /></a> : null}</div>
+    {editing ? <div className="ugc-card-edit space-y-4">
     <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-      <Field label="Stage"><select value={stage} onChange={(event) => setStage(event.target.value)}>{STAGES.map((value) => <option key={value} value={value}>{value}</option>)}</select></Field>
-      <Field label="Origin"><select value={origin} onChange={(event) => setOrigin(event.target.value)}><option value="">—</option>{ORIGINS.map((value) => <option key={value} value={value}>{value}</option>)}</select></Field>
-      <Field label="Owner"><input value={owner} onChange={(event) => setOwner(event.target.value)} /></Field>
-      <Field label="Contact channel"><input value={channel} onChange={(event) => setChannel(event.target.value)} placeholder="Shopee, TikTok Shop, Zalo…" /></Field>
-      <Field label="Sample status"><input value={sampleStatus} onChange={(event) => setSampleStatus(event.target.value)} /></Field>
-      <Field label="Next action"><input value={nextAction} onChange={(event) => setNextAction(event.target.value)} /></Field>
-      <Field label="Next action date"><input type="date" value={nextActionAt} onChange={(event) => setNextActionAt(event.target.value)} /></Field>
-      <Field label="Rights expiry"><input type="date" value={rightsExpiry} onChange={(event) => setRightsExpiry(event.target.value)} /></Field>
-      <Field label="Deliverables"><input value={deliverables} onChange={(event) => setDeliverables(event.target.value)} placeholder="1 Shopee Video…" /></Field>
+      <Field label="Статус"><select value={stage} onChange={(event) => setStage(event.target.value)}>{STAGES.map((value) => <option key={value} value={value}>{value}</option>)}</select></Field>
+      <Field label="Откуда"><select value={origin} onChange={(event) => setOrigin(event.target.value)}><option value="">—</option>{ORIGINS.map((value) => <option key={value} value={value}>{value}</option>)}</select></Field>
+      <Field label="Ответственный"><input value={owner} onChange={(event) => setOwner(event.target.value)} /></Field>
+      <Field label="Канал связи"><input value={channel} onChange={(event) => setChannel(event.target.value)} placeholder="Shopee, TikTok Shop, Zalo…" /></Field>
+      <Field label="Образец"><input value={sampleStatus} onChange={(event) => setSampleStatus(event.target.value)} /></Field>
+      <Field label="Следующий шаг"><input value={nextAction} onChange={(event) => setNextAction(event.target.value)} /></Field>
+      <Field label="Срок шага"><input type="date" value={nextActionAt} onChange={(event) => setNextActionAt(event.target.value)} /></Field>
+      <Field label="Права до"><input type="date" value={rightsExpiry} onChange={(event) => setRightsExpiry(event.target.value)} /></Field>
+      <Field label="Что сдаёт"><input value={deliverables} onChange={(event) => setDeliverables(event.target.value)} placeholder="1 Shopee Video…" /></Field>
     </div>
-    <div className="grid md:grid-cols-2 gap-4"><Field label="Rights"><textarea value={rights} onChange={(event) => setRights(event.target.value)} rows={3} /></Field><Field label="Notes"><textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} /></Field></div>
-    <div className="flex flex-wrap items-center gap-3"><button type="button" disabled={saving} onClick={save} className="min-h-11 px-5 font-bold flex items-center gap-2 transition-transform hover:-translate-y-0.5 disabled:transform-none disabled:opacity-60" style={{ color: 'var(--fg-on-brand)', background: 'var(--brand-rot)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow-raised)' }}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Video className="h-4 w-4" />}Save creator</button><button type="button" disabled={saving} onClick={toggleArchive} className="ugc-profile-refresh-btn">{creator.archived_at ? 'Вернуть в активные' : 'Убрать из активных'}</button>{message && <span role="status" aria-live="polite" className="text-sm" style={{ color: message === 'Saved' ? 'var(--status-success)' : 'var(--status-error)' }}>{message}</span>}</div>
+    <div className="grid md:grid-cols-2 gap-4"><Field label="Права"><textarea value={rights} onChange={(event) => setRights(event.target.value)} rows={3} /></Field><Field label="Заметки"><textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} /></Field></div>
+    <div className="flex flex-wrap items-center gap-3"><button type="button" disabled={saving} onClick={save} className="min-h-11 px-5 font-bold flex items-center gap-2 transition-transform hover:-translate-y-0.5 disabled:transform-none disabled:opacity-60" style={{ color: 'var(--fg-on-brand)', background: 'var(--brand-rot)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow-raised)' }}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Video className="h-4 w-4" />}Сохранить</button><button type="button" disabled={saving} onClick={toggleArchive} className="ugc-profile-refresh-btn">{creator.archived_at ? 'Вернуть в активные' : 'Убрать из активных'}</button>{message && <span role="status" aria-live="polite" className="text-sm" style={{ color: message === 'Сохранено' ? 'var(--status-success)' : 'var(--status-error)' }}>{message}</span>}</div>
+    </div> : null}
   </section>;
 }
 

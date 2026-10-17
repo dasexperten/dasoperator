@@ -306,3 +306,37 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
   .ugc-mobile-pay .ugc-payout-reason { display: none; }
   .ugc-mobile-pay .ugc-payout-cell:has([role="alert"]) .ugc-payout { outline: 2px solid var(--status-error); outline-offset: -2px; }
 }
+
+/* Creator card (Owner 2026-10-17): one column — who, audience, work, payment, products, publications. */
+.ugc-card { display: flex; flex-direction: column; gap: 18px; }
+.ugc-card-top { display: flex; align-items: center; gap: 12px; }
+.ugc-card-top .ugc-blogger-avatar { flex: 0 0 auto; width: 56px; height: 56px; }
+.ugc-card-top .ugc-blogger-avatar img { width: 56px; height: 56px; }
+.ugc-card-who { flex: 1; min-width: 0; }
+.ugc-card-who h2 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 900; color: var(--brand-rot); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ugc-card-who span { display: block; font-size: 13px; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ugc-card-attention { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 14px; color: var(--fg-1); white-space: normal; }
+.ugc-card-sec { display: flex; flex-direction: column; gap: 6px; }
+.ugc-card-label { font-size: 13px; font-weight: 700; color: var(--fg-2); }
+.ugc-card-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; }
+@media (min-width: 701px) { .ugc-card-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.ugc-card-kpis > div { padding: 10px 12px; background: var(--paper-sunk); border-radius: var(--radius-sm); min-width: 0; }
+.ugc-card-kpis dt { font-size: 12px; font-weight: 700; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ugc-card-kpis dd { margin: 2px 0 0; font-size: 20px; font-weight: 900; color: var(--fg-1); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ugc-card-audience { display: flex; flex-direction: column; gap: 6px; }
+.ugc-card-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; border-bottom: 1px solid var(--border-hairline); font-size: 14px; }
+.ugc-card-line > :first-child { color: var(--fg-2); flex: 0 0 auto; }
+.ugc-card-line > :last-child { min-width: 0; text-align: right; font-weight: 700; color: var(--fg-1); white-space: normal; }
+.ugc-card-pay { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; background: var(--paper-sunk); border-radius: var(--radius-sm); font-size: 13px; color: var(--fg-2); }
+.ugc-card-pay .ugc-payout-cell { flex-direction: row; align-items: center; gap: 10px; }
+.ugc-card-pay .ugc-payout { font-size: 15px; padding: 6px 12px; }
+.ugc-card-pay .ugc-payout-reason { max-width: none; text-align: left; font-size: 13px; line-height: 18px; color: var(--fg-1); }
+.ugc-card-empty { margin: 0; font-size: 14px; color: var(--fg-2); }
+.ugc-card-pub { display: flex; align-items: center; gap: 10px; min-height: 52px; border-bottom: 1px solid var(--border-hairline); font-size: 13px; }
+.ugc-card-pub-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ugc-card-pub-copy strong { font-weight: 700; color: var(--fg-1); }
+.ugc-card-pub-copy > span { color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ugc-card-pub-views { font-weight: 900; font-variant-numeric: tabular-nums; color: var(--fg-1); }
+.ugc-card-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.ugc-card-actions > * { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); font-weight: 700; font-size: 14px; color: var(--fg-1); background: var(--bg-surface); text-decoration: none; }
+.ugc-card-edit { padding-top: 6px; border-top: 1px solid var(--border-hairline); }

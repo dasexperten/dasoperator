@@ -286,3 +286,7 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 .ugc-creator-copy > span { display: block; overflow: hidden; text-overflow: ellipsis; }
 .ugc-mobile-identity { display: flex; align-items: center; gap: 6px; text-align: left; }
 .ugc-mobile-identity .ugc-mobile-name { flex: 1; min-width: 0; }
+@media (max-width: 700px) {
+  .ugc-mobile-identity > .ugc-avatar-compact { align-self: flex-start; margin-top: 10px; }
+  .ugc-mobile-identity .ugc-mobile-title { line-height: 44px; }
+}

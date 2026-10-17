@@ -139,6 +139,20 @@ route.post('/:worker', async (c) => {
 
   const worker = c.req.param('worker');
   const started = Date.now();
+  // Read-only live verification of Diana's actual runtime bindings, JEV and
+  // GitHub sources. Never polls DMs, writes a reply, or starts a payment.
+  if (worker === 'diana-context-check') {
+    try {
+      const { prepareDianaContext } = await import('../lib/diana-context.mjs');
+      const result = await prepareDianaContext({ task: 'Readiness check only: an Instagram creator asks how the current TERMO barter programme works. Load Diana and the relevant skills. No real creator, no reply, no payment.',
+        githubToken: (c.env as unknown as { GITHUB_TOKEN?: string }).GITHUB_TOKEN ?? '', jevKey: c.env.OPENROUTER_ERP ?? '' });
+      const { checkDianaImages } = await import('../lib/diana-image-check.mjs');
+      // TypeSafe's documented black-rectangle fixture; no personal image data.
+      const imageCheck = await checkDianaImages({ images: [{ mediaType: 'image/png', label: 'Readiness fixture: a black rectangle, not a basket.', data: 'iVBORw0KGgoAAAANSUhEUgAAARgAAAEYAQAAAACv9dQhAAAATklEQVR42u3ZoQ3AMAADwU8X6f47RkpJigqKI52pD5l6rH5zxTAMwzAMwzBMVWtnfpr7rWzIMAzDMAzDMAzDMMzpZvgQGYZhGIZhGKaqB4heFTaRz7VhAAAAAElFTkSuQmCC' }],
+        task: 'Read-only test image. Do not invent a seller, product or payable amount.', policy: result.imagePolicy, apiKey: c.env.OPENROUTER_ERP ?? '' });
+      return c.json({ ok: true, receipt: result.receipt, image_check: imageCheck, ms: Date.now() - started });
+    } catch { return c.json({ ok: false, error: 'diana_context_unavailable' }, 503); }
+  }
   // erp-inventory hands over one letter (JSON body) instead of starting a timer job.
   if (worker === 'erp-inventory') {
     try {

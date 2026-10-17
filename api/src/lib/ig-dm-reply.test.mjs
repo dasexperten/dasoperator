@@ -12,9 +12,11 @@ const dir = mkdtempSync(join(tmpdir(), 'ugc-reply-'));
 const outfile = join(dir, 'reply.mjs');
 await build({ entryPoints: [fileURLToPath(new URL('./ig-dm-reply.ts', import.meta.url))], bundle: true, platform: 'node', format: 'esm', outfile,
   plugins: [{ name: 'no-external-effects', setup(b) {
-    b.onResolve({filter: /^\.\/(llm|ig-dm-watch|owner-telegram|ig-dm-attachments)$/}, a => ({path:a.path, namespace:'mock'}));
+    b.onResolve({filter: /^\.\/(llm|ig-dm-watch|owner-telegram|ig-dm-attachments|diana-context\.mjs|diana-image-check\.mjs)$/}, a => ({path:a.path, namespace:'mock'}));
     b.onLoad({filter:/.*/,namespace:'mock'}, a => ({contents: a.path==='./llm'
       ? 'export const callPro=(messages)=>globalThis.__ugcTest.generate(messages); export const callVision=(messages)=>{globalThis.__ugcTest.visionCalled=true;return globalThis.__ugcTest.generate(messages)};'
+      : a.path==='./diana-context.mjs' ? 'export const prepareDianaContext=async()=>{if(globalThis.__ugcTest.contextError)throw Error("context");globalThis.__ugcTest.contextReady=true;return {system:"Full Diana JEV context",imagePolicy:{},receipt:{method:"jev"}}};'
+      : a.path==='./diana-image-check.mjs' ? 'export const checkDianaImages=async()=>{if(globalThis.__ugcTest.jevImageError)throw Error("JEV image");return globalThis.__ugcTest.imageCheck??{status:"yes",reasons:[],checks:[]}};'
       : a.path==='./ig-dm-attachments' ? 'export const incomingScreenshots=async()=>{if(globalThis.__ugcTest.imageError)throw Error("image");return {images:globalThis.__ugcTest.screenshots??[],unreadable:globalThis.__ugcTest.unreadable??0}};'
       : a.path==='./owner-telegram' ? 'export const sendOwnerTelegram=()=>globalThis.__ugcTest.notify();'
       : 'export const lastWordIsBlogger=()=>globalThis.__ugcTest.live; export const sendIgDirect=(...args)=>globalThis.__ugcTest.send(...args); export const sendIgCards=(...args)=>globalThis.__ugcTest.cards(...args);' }));
@@ -82,11 +84,26 @@ test('an older paid basket does not permit saying the new basket is paid',async(
  f.raw=JSON.stringify({reply:'Перевели 900 ₽ — дошло?',escalate:false});await igDmReply(f.env);assert.equal(f.sent.length,0);assert.equal(incident(f).reason,'claims money sent, not paid in ERP');
 });
 
-test('a live profile containing the retired menu is overridden by the current four',async()=>{
- const f=fixture(); f.env.GITHUB_TOKEN='test-only';const original=globalThis.fetch;
- globalThis.fetch=async()=>new Response('Старое меню: семь сценариев.',{status:200});
- try { await igDmReply(f.env);assert.ok(f.systems[0].lastIndexOf('ТОЛЬКО ЧЕТЫРЕ')>f.systems[0].indexOf('семь сценариев')); }
- finally {globalThis.fetch=original;}
+test('context failure never calls the writer, sends, or marks handled', async()=>{
+ const f=fixture();f.contextError=true;await igDmReply(f.env);
+ assert.equal(f.systems.length,0);assert.equal(f.sent.length,0);assert.equal(handled(f),undefined);
+ assert.equal(incident(f).reason,'diana_context_unavailable');assert.equal(incident(f).status,'retry');
+});
+test('JEV image outage never calls the writer or sends a stock response', async()=>{
+ const f=fixture();f.screenshots=[{mediaType:'image/png',data:'fixture'}];f.jevImageError=true;
+ await igDmReply(f.env);assert.equal(f.systems.length,0);assert.equal(f.sent.length,0);
+ assert.equal(incident(f).reason,'diana_image_check_unavailable');
+});
+test('an uncertain seller reaches Diana for clarification without a new payout', async()=>{
+ const f=fixture();f.screenshots=[{mediaType:'image/png',data:'fixture'}];f.imageCheck={status:'unknown',reasons:['seller_unknown'],checks:[]};
+ await igDmReply(f.env);assert.equal(f.sent.length,1);assert.match(f.systems[0],/seller_unknown/);
+ assert.ok(!f.sqls.some(s=>s.includes('INSERT INTO ugc_payouts')));
+});
+test('Diana cannot register a payout contrary to the JEV image verdict', async()=>{
+ const f=fixture();f.screenshots=[{mediaType:'image/png',data:'fixture'}];f.imageCheck={status:'unknown',reasons:['seller_unknown'],checks:[]};
+ f.raw=JSON.stringify({reply:'Получила, проверяю!',escalate:false,requisites:{amount_rub:627,phone:'89990001122',bank:'Сбер',last_name:'Тестова',first_name:'Анна'}});
+ await igDmReply(f.env);assert.equal(f.sent.length,0);assert.equal(incident(f).reason,'image_verdict_requires_clarification');
+ assert.ok(!f.sqls.some(s=>s.includes('INSERT INTO ugc_payouts')));
 });
 
 test('a registry-only paid row is described as unconfirmed, never unpaid or executed',async()=>{

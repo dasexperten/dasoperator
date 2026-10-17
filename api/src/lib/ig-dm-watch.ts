@@ -92,14 +92,16 @@ export async function fillCitiesFromReplies(env: Env): Promise<number> {
  * Live check before an automatic reply: is the newest message in this Instagram
  * conversation still the blogger's? Read from Instagram itself, not the ERP copy.
  */
-export async function lastWordIsBlogger(env: Env, conversationId: string): Promise<boolean | null> {
+export async function lastWordIsBlogger(env: Env, conversationId: string, expectedAt?: string): Promise<boolean | null> {
   const token = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN ?? '';
   if (!token) return null;
   const page = await graph(`/${PAGE_ID}?fields=access_token`, token);
   if (!page.ok || !page.body?.access_token) return null;
-  const r = await graph(`/${conversationId}?fields=messages.limit(1){from}`, String(page.body.access_token));
+  const r = await graph(`/${conversationId}?fields=messages.limit(1){from,created_time}`, String(page.body.access_token));
   if (!r.ok) return null;
   const top = r.body?.messages?.data?.[0];
+  // JEV/skill loading can take time. Never send an answer to an obsolete turn.
+  if (expectedAt && String(top?.from?.id ?? '') !== IG_ID && (!top?.created_time || Date.parse(top.created_time) !== Date.parse(expectedAt))) return null;
   return top?.from?.id ? String(top.from.id) !== IG_ID : null;
 }
 

@@ -7,7 +7,7 @@
 import type { Env } from '../types';
 import { parseCount, parsePostMeta, engagementLast6, type PostMeta } from './ugc-diagnose-parse.mjs';
 
-const PER_RUN = 2;
+const PER_RUN = 3;
 const METHOD = 'public_last6_posts_by_date:mean(likes+comments)/followers*100; observed; cloudflare browser rendering (no login)';
 
 async function render(env: Env, url: string, wait: 'networkidle0' | 'domcontentloaded'): Promise<string | null> {
@@ -42,17 +42,27 @@ export async function measureInstagram(env: Env, handle: string): Promise<{ foll
   return { followers, er: followers ? engagementLast6(followers, posts) : null };
 }
 
-/** Missing metrics remain eligible after payment: measure up to two creators per run. */
+/**
+ * Every Instagram creator in the ERP is measured, not only paid ones (Owner 2026-10-17:
+ * «ERP worker должен проверить всех блогеров, которые у нас есть в ERP»).
+ * Order: a live Direct conversation (last 7 days) → a payout → never measured → oldest reading.
+ * Fresh for 30 days; a profile that showed nothing is asked again after 7 days
+ * (6 hours while the blogger is in a live conversation).
+ */
 export async function diagnosePayoutCreators(env: Env): Promise<{ measured: number; error?: string }> {
   if (!(env as unknown as { CF_BROWSER_TOKEN?: string }).CF_BROWSER_TOKEN) return { measured: 0, error: 'CF_BROWSER_TOKEN not set' };
+  const iso = (ms: number) => new Date(Date.now() - ms).toISOString();
   const rows = (await env.DB.prepare(
-    `SELECT DISTINCT cp.normalized_handle h FROM ugc_payouts p
-       JOIN ugc_creator_platforms cp ON cp.creator_id = p.creator_id AND cp.platform = 'instagram'
-      WHERE p.status IN ('awaiting_approval','approved','sent','paid')
-        AND (cp.followers IS NULL OR cp.followers <= 0 OR cp.engagement_rate IS NULL)
-        AND (cp.metrics_as_of IS NULL OR cp.metrics_as_of < ?1)
+    `SELECT h FROM (
+       SELECT cp.normalized_handle h, cp.metrics_as_of m,
+              EXISTS (SELECT 1 FROM ugc_ig_messages im WHERE im.direction='in' AND lower(im.from_username)=cp.normalized_handle AND im.created_at > ?4) live,
+              EXISTS (SELECT 1 FROM ugc_payouts p WHERE p.creator_id=cp.creator_id) paid,
+              (cp.followers IS NULL OR cp.followers <= 0 OR cp.engagement_rate IS NULL) gap
+         FROM ugc_creator_platforms cp WHERE cp.platform='instagram')
+      WHERE m IS NULL OR m < ?1 OR (gap AND m < CASE WHEN live THEN ?3 ELSE ?2 END)
+      ORDER BY live DESC, paid DESC, (m IS NULL) DESC, m ASC
       LIMIT ${PER_RUN}`
-  ).bind(new Date(Date.now() - 6 * 3_600_000).toISOString()).all<{ h: string }>()).results ?? [];
+  ).bind(iso(30 * 86_400_000), iso(7 * 86_400_000), iso(6 * 3_600_000), iso(7 * 86_400_000)).all<{ h: string }>()).results ?? [];
   let measured = 0;
   let error: string | undefined;
   for (const { h } of rows) {
@@ -64,7 +74,7 @@ export async function diagnosePayoutCreators(env: Env): Promise<{ measured: numb
          engagement_rate_method=CASE WHEN ?3 IS NULL THEN engagement_rate_method ELSE ?4 END, metrics_as_of=?5, updated_at=?6
        WHERE platform='instagram' AND normalized_handle=?1`
     ).bind(h, m.followers, m.er, METHOD, new Date().toISOString(), Date.now()).run();
-    if (m.followers && m.er != null) measured++;
+    if (m.followers || m.er != null) measured++;
   }
   return error ? { measured, error } : { measured };
 }

@@ -53,7 +53,7 @@ async function stableId(prefix: string, input: string): Promise<string> {
 }
 
 /** Incoming conversations must have a visible ERP creator even before a basket is ready. */
-async function ensureCreator(env: Env, handle: string): Promise<{cid: string; pid: string}> {
+export async function ensureCreator(env: Env, handle: string): Promise<{cid: string; pid: string}> {
   const now = Date.now();
   const known = await env.DB.prepare(`SELECT creator_id, id FROM ugc_creator_platforms WHERE normalized_handle=?1 AND platform IN ('instagram','other') ORDER BY CASE WHEN platform='instagram' THEN 0 ELSE 1 END LIMIT 1`).bind(handle).first<{ creator_id: string; id: string }>();
   const cid = known?.creator_id ?? await stableId('ugc', `instagram:${handle}`);

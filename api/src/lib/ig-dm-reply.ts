@@ -203,7 +203,8 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     if (imageCheck && imageCheck.status !== 'yes' && out.requisites) { await failStep('image_verdict_requires_clarification'); continue; }
     if (textOnlyRecovery && !requisitesSupportedByText(out.requisites,currentText)) { await failStep('image_read_failed'); continue; }
     if (!out.reply) {
-      if (out.escalate) await failStep(out.reason);
+      // Keep the start of an unreadable answer, so the cause is visible (Owner 2026-10-18).
+      if (out.escalate) await failStep(out.reason === 'unparsable' ? `unparsable: ${raw.replace(/\s+/g, ' ').trim().slice(0, 120) || 'пусто'}` : out.reason);
       else await mark();
       continue;
     }

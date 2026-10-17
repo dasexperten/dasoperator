@@ -66,7 +66,7 @@ test('broken JSON stays pending, valid retry sends once and clears incident',asy
 });
 test('three technical failures require review and notify once',async()=>{
  const f=fixture();f.raw='broken';for(let n=0;n<3;n++){if(n){const s=incident(f);s.next_retry_at=0;f.states.set('ig_reply_escalated:'+f.cid,JSON.stringify(s));}await igDmReply(f.env);}
- assert.equal(incident(f).status,'needs_review');assert.equal(incident(f).attempts,3);assert.equal(handled(f),undefined);assert.equal(f.notices.length,0);
+ assert.equal(incident(f).status,'retry');assert.equal(incident(f).attempts,3);assert.ok(incident(f).next_retry_at-Date.now()>50*60_000);assert.match(incident(f).reason,/^unparsable: broken/);assert.equal(handled(f),undefined);assert.equal(f.notices.length,0);
  await igDmReply(f.env);assert.equal(f.notices.length,0);assert.equal(f.systems.length,3);
 });
 test('business review remains open without sending or retrying',async()=>{

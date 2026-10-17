@@ -232,8 +232,8 @@ function RegisterAmounts({ records }: { records: RegisterRecord[] }) {
   const sourceTitle = records[0]?.source_title ?? 'Оплаты Консоль';
   const title = `Итог ${records.length} строк «${sourceTitle}», включая повторы по указанию владельца. Исполнение старых переводов не подтверждено.`;
   return <span className="ugc-payout-cell" title={title}>
-    <span className="ugc-payout" data-tone="grey">{formatRub(total)}</span>
-    <span className="ugc-payout-reason">{sourceTitle === 'Blooger Database' ? 'по базе' : 'по реестру'}</span>
+    <span className="ugc-payout" data-tone="grey" data-source="register">{formatRub(total)}</span>
+    <span className="ugc-payout-reason" data-source="register">{sourceTitle === 'Blooger Database' ? 'по базе' : 'по реестру'}</span>
   </span>;
 }
 

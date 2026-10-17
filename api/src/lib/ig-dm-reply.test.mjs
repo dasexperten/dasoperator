@@ -156,3 +156,10 @@ test('a rejected draft is rewritten at once with the reason (Owner 2026-10-18)',
  const f=fixture();f.raws=[JSON.stringify({reply:'Сейчас переведу вам деньги!',escalate:false}),good];
  await igDmReply(f.env);assert.equal(f.sent.length,1);assert.equal(f.systems.length,2);assert.match(f.systems[1],/ОТКЛОНЁН ПРОВЕРКОЙ: нельзя обещать перевод/);assert.equal(handled(f),f.t);
 });
+
+test('a surname initial taken from a patronymic is never registered (Owner 2026-10-18, irina__sayapina)',async()=>{
+ const f=fixture();f.history=[{direction:'in',text:'89158785710 / Сбербанк / Ирина Алексеевна',created_at:f.t}];
+ const req=JSON.stringify({reply:'Реквизиты получила, проверяю!',escalate:false,requisites:{amount_rub:345,phone:'89158785710',bank:'Сбербанк',last_name:'А',first_name:'Ирина',product:'TERMO'}});
+ f.raws=[req,JSON.stringify({reply:'Ирина, подскажите, пожалуйста, первую букву фамилии.',escalate:false})];
+ await igDmReply(f.env);assert.equal(f.sent.length,1);assert.match(f.sent[0][2],/первую букву фамилии/);assert.match(f.systems[1],/нет первой буквы фамилии/);
+});

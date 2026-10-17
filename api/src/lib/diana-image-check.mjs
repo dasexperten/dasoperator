@@ -42,7 +42,9 @@ export async function checkDianaImages({ images, policy, task, apiKey, fetchImpl
           kind: { type: 'choice', instructions: 'What is the image?', criteria: { basket: 'Marketplace shopping basket before ordering.', order: 'Marketplace order detail or checkout confirmation.', product_photo: 'Photograph of a physical product.', other: 'Clearly another kind of image.', unknown: 'Cannot determine.' } },
           product: choice('Does the visible item match the programme product in the policy? Read the brand and variant, not orange colour alone.', 'Brand and variant visibly match the programme product.', 'A clearly different brand or product variant is visible.'),
           seller: choice('Does the visible SELLER identity match a verified seller in the policy for this marketplace? Compare the seller field, not the manufacturer or brand.', 'An actual seller field visibly matches a verified seller identity in the policy.', 'An actual seller field visibly identifies a different seller.'),
-          amount: choice('Is the current total actually payable for this basket/order legible and unambiguous?', 'A legible current basket/order total payable in RUB is visible.', 'A price is visible but is explicitly not the current total payable (credit limit, discount, instalment or unrelated figure).'),
+          // Owner 17.10.2026 (05_seferova_05): we pay our programme items, not the basket total;
+          // the blogger's own goods in the same basket are fine.
+          amount: choice('Is the current price payable for the programme product line(s) in the policy legible? Other goods in the same basket are allowed and do not matter.', 'The current RUB price of the programme product line is legible (or the basket holds only programme items and its total is legible).', 'A price is visible but is clearly not the current price of the programme item (credit limit, instalment, crossed-out old price or an unrelated figure).'),
         } }), signal: AbortSignal.timeout(45_000),
     });
     if (!response.ok) {

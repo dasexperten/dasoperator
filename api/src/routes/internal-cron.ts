@@ -150,7 +150,8 @@ route.post('/:worker', async (c) => {
       // TypeSafe's documented black-rectangle fixture; no personal image data.
       const imageCheck = await checkDianaImages({ images: [{ mediaType: 'image/png', label: 'Readiness fixture: a black rectangle, not a basket.', data: 'iVBORw0KGgoAAAANSUhEUgAAARgAAAEYAQAAAACv9dQhAAAATklEQVR42u3ZoQ3AMAADwU8X6f47RkpJigqKI52pD5l6rH5zxTAMwzAMwzBMVWtnfpr7rWzIMAzDMAzDMAzDMMzpZvgQGYZhGIZhGKaqB4heFTaRz7VhAAAAAElFTkSuQmCC' }],
         task: 'Read-only test image. Do not invent a seller, product or payable amount.', policy: result.imagePolicy, apiKey: c.env.OPENROUTER_ERP ?? '' });
-      return c.json({ ok: true, receipt: result.receipt, image_check: imageCheck, ms: Date.now() - started });
+      const ready = imageCheck.checks.length > 0 && imageCheck.checks.every(check => !check.reason);
+      return c.json({ ok: ready, receipt: result.receipt, image_check: imageCheck, ms: Date.now() - started }, ready ? 200 : 503);
     } catch { return c.json({ ok: false, error: 'diana_context_unavailable' }, 503); }
   }
   // erp-inventory hands over one letter (JSON body) instead of starting a timer job.

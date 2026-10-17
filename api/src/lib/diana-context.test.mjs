@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { prepareDianaContext, selectWithJev } from './diana-context.mjs';
 import { checkDianaImages, summarizeImageChecks } from './diana-image-check.mjs';
 import { normalizeJevImage } from './diana-image-normalize.mjs';
-import { PNG } from 'pngjs';
+import { encode as encodePng } from 'fast-png';
 import jpeg from 'jpeg-js';
 
 const names = ['ugc-master', 'personizer', 'product-skill', 'benefit-gate', 'marketolog'];
@@ -65,9 +65,9 @@ test('JEV image outage throws; unsupported media or dimensions return uncertaint
 });
 test('a tall phone screenshot is resized whole; a small picture is padded, never cropped', () => {
   for (const [width, height] of [[1080, 2400], [100, 80]]) {
-    const input = new PNG({ width, height }); input.data.fill(255);
+    const input = { width, height, data: new Uint8Array(width * height * 4).fill(255), channels: 4, depth: 8 };
     input.data[0] = 0; input.data[1] = 0; input.data[2] = 0;
-    const normalized = normalizeJevImage({ mediaType: 'image/png', data: PNG.sync.write(input).toString('base64') });
+    const normalized = normalizeJevImage({ mediaType: 'image/png', data: Buffer.from(encodePng(input)).toString('base64') });
     const output = jpeg.decode(Buffer.from(normalized.data, 'base64'));
     assert.ok(output.width >= 256 && output.height >= 256);
     assert.ok(output.width <= 1568 && output.height <= 1568);

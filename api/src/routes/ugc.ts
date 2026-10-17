@@ -115,9 +115,9 @@ async function stableId(prefix: string, input: string): Promise<string> {
 ugc.post('/profiles/refresh', async (c) => {
   const access = await requireAccess(c, true);
   if (access instanceof Response) return access;
-  const body = await c.req.json<{ profile_id?: string }>().catch(() => ({} as { profile_id?: string }));
+  const body = await c.req.json<{ profile_id?: string; avatar_only?: boolean }>().catch(() => ({} as { profile_id?: string; avatar_only?: boolean }));
   const { refreshBloggerProfiles } = await import('../lib/ugc-blogger-profiles');
-  return ok(c, await refreshBloggerProfiles(c.env, body.profile_id, 2));
+  return ok(c, await refreshBloggerProfiles(c.env, body.profile_id, 2, { avatarOnly: body.avatar_only === true }));
 });
 
 ugc.get('/profiles/:id/avatar', async (c) => {

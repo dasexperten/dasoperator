@@ -1,6 +1,6 @@
 import type { Env } from '../types';
-import { measureInstagram } from './ugc-diagnose';
-import { isInstagramAvatarUrl } from './ugc-blogger-profile-parse.mjs';
+import { measureInstagram, render } from './ugc-diagnose';
+import { parseInstagramProfile, isInstagramAvatarUrl } from './ugc-blogger-profile-parse.mjs';
 
 async function graph(path: string, token: string): Promise<any | null> {
   try {
@@ -44,7 +44,7 @@ async function saveAvatar(env: Env, id: string, url?: string | null): Promise<st
 
 // Independent of payouts and Direct. One nightly batch, or a manual batch/profile.
 // Missing values never erase previously observed values; attempts and successes differ.
-export async function refreshBloggerProfiles(env: Env, profileId?: string, limit = 20) {
+export async function refreshBloggerProfiles(env: Env, profileId?: string, limit = 20, options: { avatarOnly?: boolean } = {}) {
   const lease = crypto.randomUUID();
   const lock = 'lock:erp-blogger-id';
   const claimed = await env.DB.prepare(`INSERT INTO erp_job_claims (worker,slot,lease_until) VALUES (?,?,?)
@@ -63,6 +63,7 @@ export async function refreshBloggerProfiles(env: Env, profileId?: string, limit
     const messagingToken = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN;
     const pageToken = messagingToken ? (await graph('1697038263872226?fields=access_token', messagingToken))?.access_token : null;
     let updated = 0, attempted = 0;
+    const avatars: { profile_id: string; saved: boolean }[] = [];
     const deadline = Date.now() + 10 * 60_000;
     for (const row of rows) {
       if (Date.now() > deadline) break;
@@ -75,6 +76,22 @@ export async function refreshBloggerProfiles(env: Env, profileId?: string, limit
         if (!/^[A-Za-z0-9_.]{1,30}$/.test(row.normalized_handle)) throw new Error('invalid handle');
         const official = pageToken && row.igsid ? await graph(`${encodeURIComponent(row.igsid)}?fields=username,profile_pic,follower_count`, pageToken) : null;
         const matched = String(official?.username ?? '').toLowerCase() === row.normalized_handle.toLowerCase();
+        if (options.avatarOnly) {
+          // Avatar backfills do not re-read posts or advance dates on retained metrics.
+          let url = matched && isInstagramAvatarUrl(official.profile_pic) ? official.profile_pic : null;
+          if (!url) {
+            const html = await render(env, `https://www.instagram.com/${encodeURIComponent(row.normalized_handle)}/`, 'domcontentloaded', 15_000).catch(() => null);
+            url = html ? parseInstagramProfile(html).avatar : null;
+          }
+          const key = await saveAvatar(env, row.id, url).catch(() => null);
+          if (key) {
+            await env.DB.prepare('UPDATE ugc_creator_platforms SET avatar_key=?,updated_at=? WHERE id=?')
+              .bind(key, Date.now(), row.id).run();
+            updated++;
+          }
+          avatars.push({ profile_id: row.id, saved: Boolean(key) });
+          continue;
+        }
         m = await measureInstagram(env, row.normalized_handle).catch(() => ({ followers: null, er: null }));
         if (matched) {
           if (Number.isSafeInteger(official.follower_count) && official.follower_count >= 0) {
@@ -85,7 +102,10 @@ export async function refreshBloggerProfiles(env: Env, profileId?: string, limit
         }
         avatar = await saveAvatar(env, row.id, m.avatar).catch(() => null);
         if (m.followers == null && m.posts == null && !avatar) error = 'Instagram не открыл данные профиля';
-      } catch { error = 'Не удалось загрузить публичный профиль Instagram'; }
+      } catch {
+        if (options.avatarOnly) { avatars.push({ profile_id: row.id, saved: false }); continue; }
+        error = 'Не удалось загрузить публичный профиль Instagram';
+      }
       const success = m.followers != null || m.posts != null || avatar != null;
       await env.DB.prepare(`UPDATE ugc_creator_platforms SET
         followers=COALESCE(?2,followers),posts_count=COALESCE(?3,posts_count),avatar_key=COALESCE(?4,avatar_key),
@@ -97,7 +117,7 @@ export async function refreshBloggerProfiles(env: Env, profileId?: string, limit
         .bind(row.id,m.followers,m.posts ?? null,avatar,m.er,m.sample ?? null,now,success ? 1 : 0,error,Date.now()).run();
       if (success) updated++;
     }
-    return { attempted, updated, busy: false };
+    return { attempted, updated, busy: false, ...(options.avatarOnly ? { avatars } : {}) };
   } finally {
     await env.DB.prepare('DELETE FROM erp_job_claims WHERE worker=? AND slot=?').bind(lock,lease).run();
   }

@@ -93,7 +93,9 @@ export type MatchOutcome =
   | 'awaiting_marketplace_settlement'
   | 'awaiting_invoice'
   | 'auto_invno_pair'
-  | 'insurance_compensation';
+  | 'insurance_compensation'
+  | 'own_account_transfer'
+  | 'tax_payment';
 
 export interface AutoMatchResult {
   outcome: MatchOutcome;
@@ -212,6 +214,41 @@ export async function autoMatchBankTransaction(
         WHERE id = ? AND matched_operation_id IS NULL`,
     ).bind(INSURANCE_INNS.get(String(tx.contragent_inn)), Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000), txId).run();
     return { outcome: 'insurance_compensation', operation_id: null, attachment_ids: [], reason: 'insurer payout for lost goods' };
+  }
+
+  // OWN-ACCOUNT / INTRA-GROUP TRANSFER (Owner 2026-10-17): money moving between accounts of our
+  // own companies (DEE ↔ DEE «Перечисление на свой счет в другом банке», DEE ↔ DEI …) is not a
+  // business operation and has no invoice. The counterparty INN is one of ours → tag and close.
+  if (tx.contragent_inn && String(tx.contragent_inn).length >= 9) {
+    const own = await env.DB.prepare(
+      `SELECT id FROM companies WHERE tax_id = ? AND (deleted_at IS NULL OR deleted_at = 0) LIMIT 1`,
+    ).bind(String(tx.contragent_inn)).first<{ id: string }>().catch(() => null);
+    if (own) {
+      const ts = Math.floor(Date.now() / 1000);
+      await env.DB.prepare(
+        `UPDATE bank_transactions
+            SET match_method = 'own_account_transfer', suggested_category_id = 'fc_intragroup_transfer',
+                suggested_reason = ?, suggested_confidence = 1, matched_at = ?, matched_by = 'auto', updated_at = ?
+          WHERE id = ? AND matched_operation_id IS NULL`,
+      ).bind(`transfer between own accounts (${own.id}), Owner 2026-10-17`, ts, ts, txId).run();
+      return { outcome: 'own_account_transfer', operation_id: null, attachment_ids: [], reason: `own company ${own.id}` };
+    }
+  }
+
+  // TAX & GOVERNMENT (Owner 2026-10-17): ЕНП, НДС, УСН, взносы, таможенные пошлины go to the
+  // Treasury / FTS / customs. No invoice will ever come; tag them as taxes and close.
+  if (tx.direction === 'outgoing' && (
+    /казначейств|уфк(?![а-яё])|фнс(?![а-яё])|налогов(ая|ой) служб|таможн/i.test(String(tx.contragent_name || ''))
+    || /^\s*(ЕНП(?![а-яё])|Единый налоговый платеж)|таможенн(ой|ая|ых) пошлин/i.test(String(tx.payment_purpose || ''))
+  )) {
+    const ts = Math.floor(Date.now() / 1000);
+    await env.DB.prepare(
+      `UPDATE bank_transactions
+          SET match_method = 'tax_payment', suggested_category_id = 'fc_tax_government',
+              suggested_reason = ?, suggested_confidence = 1, matched_at = ?, matched_by = 'auto', updated_at = ?
+        WHERE id = ? AND matched_operation_id IS NULL`,
+    ).bind(`tax / customs payment: ${String(tx.payment_purpose || '').slice(0, 120)}`, ts, ts, txId).run();
+    return { outcome: 'tax_payment', operation_id: null, attachment_ids: [], reason: 'tax or customs payment' };
   }
 
   // RAIL 2 (2026-05-27): bank tx amount is the source of truth for invoice

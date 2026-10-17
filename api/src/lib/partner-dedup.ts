@@ -23,7 +23,7 @@
 export function normalisePartnerName(s: string): string {
   return s
     .toLowerCase()
-    .replace(/\b(llc|ооо|ltd\.?|co\.?\s*,?\s*ltd\.?|gmbh|inc\.?|jsc|ао|оао|зао|пао|акб|кб|cb|chartered|accounting|bookkeeping|book\s*keeping|trading|technology|filial|филиал|московский|moscow)\b/g, '')
+    .replace(/\b(llc|ооо|ltd\.?|co\.?\s*,?\s*ltd\.?|gmbh|inc\.?|jsc|ао|оао|зао|пао|акб|кб|cb|chartered|accounting|bookkeeping|and|book\s*keeping|trading|technology|filial|филиал|московский|moscow)\b/g, '')
     .replace(/[^a-zа-я0-9]+/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();

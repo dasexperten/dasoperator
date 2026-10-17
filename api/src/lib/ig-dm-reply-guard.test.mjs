@@ -137,3 +137,9 @@ test('a surname initial counts only as a standalone letter, never inside Сум�
   assert.equal(requisitesSupportedByText(r, 'Сумма 395 руб, телефон 89674029721, Т-Банк, имя Кристина'), false);
   assert.equal(requisitesSupportedByText(r, 'Сумма 395 руб\n89674029721\nТ-Банк\nКристина С.'), true);
 });
+
+test('«снимайте» is a command; «можно снимать» passes (Owner 2026-10-17, krainova_nadya)', () => {
+  const j = (r) => JSON.stringify({ reply: r, replies: [r], send_cards: false, escalate: false, requisites: null });
+  assert.equal(guardReply(j('Как получите, снимайте сценарий №1.'), { paid: false, inCount: 5, lastIn: '', allowBrush: true }).reply, null);
+  assert.ok(guardReply(j('Как получите, можно снимать сценарий №1.'), { paid: false, inCount: 5, lastIn: '', allowBrush: true }).reply);
+});

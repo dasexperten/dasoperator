@@ -302,7 +302,7 @@ export async function autoMatchBankTransaction(
   if (tx.payment_purpose && tx.contragent_inn) {
     // Owner 2026-10-17: Lubertsy numbers carry a slash (№14/356 ↔ LBR-20261015-14/356).
     // Owner 2026-10-17: also «Счет № 341 от …» — the payer wrote the bare word, not «по счёту».
-    const m = tx.payment_purpose.match(/(?:по\s+сч[её]т[ау]|(?:^|[\s.,;:(«"])сч[её]т[ау]?)\s*[№NnIi]\s*([0-9]{1,6}(?:\/[0-9]{1,6})?)/i);
+    const m = tx.payment_purpose.match(/(?:по\s+сч[её]т[ау]|(?:^|[\s.,;:(«"])сч[её]т[ау]?(?:\s+на\s+оплату)?)\s*[№NnIi]\s*([0-9]{1,6}(?:\/[0-9]{1,6})?)/i);
     if (m && m[1]) {
       const invno = m[1];
       // Find operation: same partner (by INN), reference ends with the invoice
@@ -711,6 +711,9 @@ const INN_TO_PARTNER_ALIAS: Record<string, string> = {
   // paid as ИП Кизеров Д.В. since October; the partner record carries ИП Швалев's INN.
   // Not a marketplace: deliberately absent from marketplace-fifo-allocator.PARTNER_ALIASES.
   '550608490308': 'f4_lubertsy',
+  // Owner 2026-10-17 (finance clean-up): ГК Единый отчётный центр bills 1С-ЭДО as ООО «ЕОЦ-ПАРТНЁР»
+  // (invoice № 894 of 02.10.2026 forwarded by the accountant); the partner card carries ООО «ЕОЦ».
+  '7724349840': 'eots',
 };
 
 async function findPartnerByInn(env: Env, inn: string): Promise<PartnerRow | null> {

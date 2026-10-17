@@ -2,6 +2,16 @@
 import type { Env } from '../types';
 import type { LlmImage } from './llm';
 const MAX_BYTES = 3_500_000;
+/** Meta sometimes labels a PNG screenshot image/jpeg. Trust the bytes, not
+ * that label, including for images cached before this fix. */
+export function detectImageMediaType(bytes: Uint8Array): LlmImage['mediaType'] {
+  if(bytes.length>=8 && [137,80,78,71,13,10,26,10].every((v,i)=>bytes[i]===v))return 'image/png';
+  if(bytes.length>=3 && bytes[0]===255 && bytes[1]===216 && bytes[2]===255)return 'image/jpeg';
+  const ascii=(start:number,end:number)=>String.fromCharCode(...bytes.subarray(start,end));
+  if(bytes.length>=6 && ['GIF87a','GIF89a'].includes(ascii(0,6)))return 'image/gif';
+  if(bytes.length>=12 && ascii(0,4)==='RIFF' && ascii(8,12)==='WEBP')return 'image/webp';
+  throw new Error('Unsupported image bytes');
+}
 export function imageUrls(json: string | null): string[] {
   if (!json || json === '[]') return [];
   const data = JSON.parse(json);
@@ -30,13 +40,13 @@ async function download(url: string): Promise<{ mediaType: LlmImage['mediaType']
       source = new URL(location, source).href; continue;
     }
     if (!r.ok || !r.body) throw new Error('Image unavailable');
-    const mediaType = (r.headers.get('content-type') ?? '').split(';')[0] as LlmImage['mediaType'];
-    if (!['image/jpeg','image/png','image/gif','image/webp'].includes(mediaType) || Number(r.headers.get('content-length')) > MAX_BYTES) { await r.body.cancel(); throw new Error('Unsupported image'); }
+    if (Number(r.headers.get('content-length')) > MAX_BYTES) { await r.body.cancel(); throw new Error('Image too large'); }
     const reader = r.body.getReader(), chunks: Uint8Array[] = []; let size = 0;
     while (true) { const {done,value} = await reader.read(); if (done) break; size += value.byteLength; if (size > MAX_BYTES) { await reader.cancel(); throw new Error('Image too large'); } chunks.push(value); }
     if (!size) throw new Error('Empty image');
     const bytes = new Uint8Array(size); let offset = 0;
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    const mediaType=detectImageMediaType(bytes);
     let binary = ''; for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768));
     return { mediaType, data: btoa(binary), size, bytes };
   }
@@ -52,9 +62,9 @@ export async function loadInstagramImage(env: Env, messageId: string | undefined
   let cached = null;
   try { cached = key && env.DOCS ? await env.DOCS.get(key) : null; } catch { console.warn('[ig-images] private cache read failed; using source'); }
   if (cached) {
-    const mediaType = cached.httpMetadata?.contentType as LlmImage['mediaType'];
-    if (cached.size > MAX_BYTES || !['image/jpeg','image/png','image/gif','image/webp'].includes(mediaType)) throw new Error('Invalid cached image');
-    const bytes = new Uint8Array(await cached.arrayBuffer()); let binary = '';
+    if (cached.size > MAX_BYTES) throw new Error('Invalid cached image');
+    const bytes = new Uint8Array(await cached.arrayBuffer());
+    const mediaType=detectImageMediaType(bytes);let binary = '';
     for (let i=0;i<bytes.length;i+=32768) binary += String.fromCharCode(...bytes.subarray(i,i+32768));
     return {mediaType,data:btoa(binary),size:bytes.length};
   }

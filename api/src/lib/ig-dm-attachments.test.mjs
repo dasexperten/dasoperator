@@ -31,6 +31,19 @@ test('unreadable image fails; unsafe hosts are never fetched',async()=>{
  let fetched=false;await fakeFetch(async()=>{fetched=true;return png();},async()=>{assert.equal((await incomingScreenshots({},[msg({attachments_json:JSON.stringify([{image_data:{url:'https://example.org/private'}}])})],at)).unreadable,1);assert.equal(fetched,false);});
 });
 test('missing image URL is not accepted as a text-only message',()=>{assert.throws(()=>imageUrls('[{"image_data":{}}]'));});
+
+test('a real PNG mislabeled JPEG by Meta reaches both readers as PNG',async()=>{
+ await fakeFetch(async()=>new Response(Buffer.from(PNG,'base64'),{headers:{'content-type':'image/jpeg'}}),async()=>{const result=await incomingScreenshots({},[msg()],at);assert.equal(result.images.length,1);assert.equal(result.images[0].mediaType,'image/png');assert.equal(result.images[0].data,PNG);});
+});
+
+test('old private cache metadata cannot keep a PNG mislabeled JPEG',async()=>{
+ const bytes=Buffer.from(PNG,'base64');const env={DOCS:{async get(){return {size:bytes.length,httpMetadata:{contentType:'image/jpeg'},async arrayBuffer(){return bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.length);}};}}};
+ await fakeFetch(async()=>{throw Error('cache should suffice');},async()=>{const result=await incomingScreenshots(env,[msg()],at);assert.equal(result.images.length,1);assert.equal(result.images[0].mediaType,'image/png');assert.equal(result.unreadable,0);});
+});
+
+test('an HTML error page labeled as an image never reaches vision',async()=>{
+ globalThis.__ugcImageRefresh=async()=>null;await fakeFetch(async()=>new Response('<html>error</html>',{headers:{'content-type':'image/jpeg'}}),async()=>{const result=await incomingScreenshots({},[msg()],at);assert.equal(result.images.length,0);assert.equal(result.currentUnavailable,true);});
+});
 test('all eight recent incoming images stay ordered instead of silently dropping the first two',async()=>{
  const history=[msg({created_at:'2026-10-01T00:00:00Z'}),...Array.from({length:8},(_,i)=>msg({id:String(i),created_at:`2026-10-16T12:0${i}:00Z`}))];
  await fakeFetch(async()=>png(),async()=>{const {images,omitted}=await incomingScreenshots({},history,at);assert.equal(images.length,8);assert.equal(omitted,0);assert.match(images[0].label,/12:00/);assert.match(images.at(-1).label,/12:07/);});
@@ -57,5 +70,5 @@ test('an unreadable current screenshot cannot be replaced by a readable old bask
 
 test('a current image excluded by the byte budget remains explicitly pending',async()=>{
  const history=Array.from({length:8},(_,i)=>msg({id:String(i),created_at:`2026-10-16T12:0${i}:00Z`}));
- await fakeFetch(async()=>new Response(new Uint8Array(3_000_000),{headers:{'content-type':'image/jpeg'}}),async()=>{const result=await incomingScreenshots({},history,at);assert.equal(result.omitted,3);assert.equal(result.currentUnavailable,true);});
+ await fakeFetch(async()=>{const bytes=new Uint8Array(3_000_000);bytes.set([255,216,255]);return new Response(bytes,{headers:{'content-type':'image/jpeg'}});},async()=>{const result=await incomingScreenshots({},history,at);assert.equal(result.omitted,3);assert.equal(result.currentUnavailable,true);});
 });

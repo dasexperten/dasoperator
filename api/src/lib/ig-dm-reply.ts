@@ -173,7 +173,8 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       await failStep(images.length || textOnlyRecovery ? 'image_read_failed' : 'provider_error');
       continue;
     }
-    const out = guardReply(raw, { paid, inCount: history.filter((m) => m.direction === 'in').length });
+    const incoming = history.filter((m) => m.direction === 'in');
+    const out = guardReply(raw, { paid, inCount: incoming.length, lastIn: incoming.slice(-2).map((m) => m.text ?? '').join(' ') });
     if (textOnlyRecovery && !requisitesSupportedByText(out.requisites,currentText)) { await failStep('image_read_failed'); continue; }
     if (!out.reply) {
       if (out.escalate) await failStep(out.reason);

@@ -72,3 +72,15 @@ test('warm address only after the talk warmed, always вы (Owner 2026-10-17)', 
   assert.equal(guardReply(j('Пришли скрин, как будет готово'), { inCount: 4 }).reason, 'informal ты, always вы');
   assert.ok(guardReply(j('Пришлите, пожалуйста, скрин.'), { inCount: 1 }).reply);
 });
+
+test('a paid-reel question goes to the Owner, never answered by the model', () => {
+  const j = JSON.stringify({ reply: 'Платного формата сейчас нет.', escalate: false, send_cards: false, requisites: null, reason: 'x' });
+  assert.equal(guardReply(j, { lastIn: 'А сколько вы платите за рилс?' }).reason, 'paid request, Owner decides');
+  assert.ok(guardReply(j, { lastIn: 'Сняла, вот ссылка' }).reply);
+});
+
+test('«заказала» always asks for the order screenshot', () => {
+  const j = (reply) => JSON.stringify({ reply, escalate: false, send_cards: false, requisites: null, reason: 'x' });
+  assert.equal(guardReply(j('Отличный выбор! Снимите три вещи.'), { lastIn: 'Заказала! Хочу вторую карточку' }).reason, 'ask for the order screenshot too');
+  assert.ok(guardReply(j('Отлично! Пришлите, пожалуйста, скрин заказа.'), { lastIn: 'Заказала!' }).reply);
+});

@@ -32,7 +32,7 @@ export const DIANA_RULES_BODY = `Ты — Диана, менеджер блог�
 Голос (Владелец 17.10.2026): живой человек, не служба поддержки — коротко, прямо, с лёгкой иронией, всегда на стороне товара, как стендап-комик Наталья Краснова, с тёплой прямотой Ларисы Гузеевой; под шуткой логика: каждое сообщение ведёт к одному шагу. Без мата, пошлости, тем отношений и психологии, уменьшительных, «дорогая», капса; не больше одного эмодзи на разговор; шутка не заменяет факт о товаре.
 
 Дети: детей в ролики не берём («Детей в ролики мы не берём, такое у нас правило»), предложи снять самому или с кем-то из близких. Никогда не говори, подходит ли паста детям, — это не наш вывод. Слово «взрослый» блогеру не пиши.
-Блогер написал «заказала» — одной фразой порадуйся и попроси скрин заказа.
+Блогер написал «заказала» — одной фразой порадуйся и попроси скрин заказа, даже если в том же сообщении есть другой вопрос (ответь на оба).
 
 Обращение (Владелец 17.10.2026): всегда на «вы», на «ты» не переходить никогда. Тёплое обращение с именем в стиле Гузеевой — «дорогая Юля», «милая Татьяна» — можно, но не сразу: только когда разговор уже потеплел (блогер ответил не меньше трёх раз), имя известно из переписки, и не чаще одного раза на несколько сообщений. Уменьшительные имена («Юлечка»), «зайка», «моя хорошая» — нет.
 
@@ -107,7 +107,12 @@ const MONEY_SENT = /(перевел|перевёл|перевела|переве
 const PROMISE = /(переведу|переведём|переведем|отправлю|оплачу|оплатим|завтра|сегодня переведём|в течение)/i;
 
 /** The model's answer → a reply that may leave, or null. Never trust it blindly. */
-export function guardReply(raw, { paid = false, inCount = 99 } = {}) {
+// Owner (DH-MAP-261010-01): paid reels, price lists and fees are the Owner's call — no model answer.
+const PAID_ASK = /(сколько\s+(вы\s+)?плат|прайс|за\s+деньги|платн|гонорар|оплат\S*\s+за\s+(рилс|ролик|пост|сторис|рекламу)|стоимост\S*\s+(рилс|ролик|реклам)|цена\s+за\s+(рилс|ролик|пост))/i;
+
+export function guardReply(raw, { paid = false, inCount = 99, lastIn = '' } = {}) {
+  if (PAID_ASK.test(String(lastIn))) return { reply: null, escalate: true, reason: 'paid request, Owner decides' };
+  const ordered = /(^|[^а-яё])(заказала|заказал|оформила заказ|оформил заказ)([^а-яё]|$)/i.test(String(lastIn)) && !/скрин|чек|номер заказа/i.test(String(lastIn));
   let parsed;
   try {
     const m = String(raw ?? '').match(/\{[\s\S]*\}/);
@@ -140,6 +145,8 @@ export function guardReply(raw, { paid = false, inCount = 99 } = {}) {
   if (/взросл/i.test(reply)) return { reply: null, escalate: true, reason: 'adult wording' };
   if (/лицо\s+(не\s+)?необязательн|без\s+лица|можно\s+без\s+лиц/i.test(reply)) return { reply: null, escalate: true, reason: 'says face is optional' };
   if (/добрый (день|вечер)|здравствуйте|привет/i.test(reply) && reply.length < 25) return { reply: null, escalate: false, reason: 'greeting only' };
+  // Owner 2026-10-17: «заказала» always gets «пришлите, пожалуйста, скрин заказа», even next to another question.
+  if (ordered && !/скрин/i.test(reply)) return { reply: null, escalate: true, reason: 'ask for the order screenshot too' };
   return { reply, parts, escalate: false, reason, sendCards, requisites };
 }
 

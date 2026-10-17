@@ -263,17 +263,19 @@ export async function autoMatchBankTransaction(
   // invoice numbers never fall through to awaiting_invoice unfairly.
   // =========================================================================
   if (tx.payment_purpose && tx.contragent_inn) {
-    const m = tx.payment_purpose.match(/(?:по\s+сч[её]т[ау])\s*[№NnIi]\s*([0-9]{1,6})/i);
+    // Owner 2026-10-17: Lubertsy numbers carry a slash (№14/356 ↔ LBR-20261015-14/356).
+    const m = tx.payment_purpose.match(/(?:по\s+сч[её]т[ау])\s*[№NnIi]\s*([0-9]{1,6}(?:\/[0-9]{1,6})?)/i);
     if (m && m[1]) {
       const invno = m[1];
       // Find operation: same partner (by INN), reference ends with the invoice
       // number, same currency, open status, amount matches within 1%.
       // Skip ops that already have a bank attached.
-      const candidate = await env.DB.prepare(`
+      // Partner resolved like everywhere else (INN, tax_id or INN alias), not by p.inn alone.
+      const invOwner = await findPartnerByInn(env, tx.contragent_inn);
+      const candidate = !invOwner ? null : await env.DB.prepare(`
         SELECT o.id, o.reference, o.total_amount
         FROM operations o
-        JOIN partners p ON p.id = o.partner_id
-        WHERE p.inn = ?
+        WHERE o.partner_id = ?
           AND o.currency = ?
           AND (o.deleted_at IS NULL OR o.deleted_at = 0)
           AND o.status IN ('draft','issued','order_fulfilment','production','stocked','shipped','delivered')
@@ -285,7 +287,7 @@ export async function autoMatchBankTransaction(
         ORDER BY o.operation_date DESC
         LIMIT 1
       `).bind(
-        tx.contragent_inn,
+        invOwner.id,
         tx.currency,
         invno,
         `%-${invno}`,
@@ -667,6 +669,10 @@ const INN_TO_PARTNER_ALIAS: Record<string, string> = {
   '9703026898': 'ozon', // OZON МКК Credit — pays for Ozon sales
   '7802754982': 'ozon', // Сбербанк Факторинг — pays for Ozon contract ИНН 7704217370
   '7702045051': 'ozon', // МТС-Банк — pays for Ozon contract ИР-34138/22
+  // Owner 2026-10-17: «IP кизеров – это люберцы склад». The F4 Lubertsy warehouse bills and is
+  // paid as ИП Кизеров Д.В. since October; the partner record carries ИП Швалев's INN.
+  // Not a marketplace: deliberately absent from marketplace-fifo-allocator.PARTNER_ALIASES.
+  '550608490308': 'f4_lubertsy',
 };
 
 async function findPartnerByInn(env: Env, inn: string): Promise<PartnerRow | null> {

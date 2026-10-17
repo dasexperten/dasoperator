@@ -18,7 +18,7 @@ await build({ entryPoints: [fileURLToPath(new URL('./ig-dm-reply.ts', import.met
       : a.path==='./diana-context.mjs' ? 'export const prepareDianaContext=async()=>{if(globalThis.__ugcTest.contextError)throw Error("context");globalThis.__ugcTest.contextReady=true;return {system:"Full Diana JEV context",imagePolicy:{},receipt:{method:"jev"}}};'
       : a.path==='./diana-image-check.mjs' ? 'export const checkDianaImages=async()=>{if(globalThis.__ugcTest.jevImageError)throw Error("JEV image");return globalThis.__ugcTest.imageCheck??{status:"yes",reasons:[],checks:[]}};'
       : a.path==='./ig-dm-attachments' ? 'export const incomingScreenshots=async()=>{if(globalThis.__ugcTest.imageError)throw Error("image");return {images:globalThis.__ugcTest.screenshots??[],unreadable:globalThis.__ugcTest.unreadable??0}};'
-      : a.path==='./owner-telegram' ? 'export const sendOwnerTelegram=()=>globalThis.__ugcTest.notify();'
+      : a.path==='./owner-telegram' ? 'export const sendOwnerTelegram=()=>globalThis.__ugcTest.notify(); export const sendOwnerQuestion=(_e,text,buttons)=>globalThis.__ugcTest.ask(text,buttons);'
       : 'export const refreshIgAttachments=async()=>globalThis.__ugcTest.freshAttachments??null; export const lastWordIsBlogger=()=>globalThis.__ugcTest.live; export const sendIgDirect=(...args)=>globalThis.__ugcTest.send(...args); export const sendIgCards=(...args)=>globalThis.__ugcTest.cards(...args);' }));
   }}] });
 const { igDmReply } = await import(pathToFileURL(outfile));
@@ -35,19 +35,21 @@ function fixture() {
   const t = new Date(Date.now()-300_000).toISOString(), cid='conversation', states=new Map(), sent=[], notices=[], systems=[], sqls=[];
   const f = { t,cid,states,sent,notices,systems,sqls,live:true,raw:good,failBatch:false,
     async generate(messages) { systems.push(messages[0].content); f.context=messages[1].content; if(f.providerError) throw Error('provider'); return {text:f.raw}; },
-    async notify(){notices.push(true);return true;},
+    async notify(){notices.push(true);return true;}, async ask(text,buttons){notices.push({text,buttons});return 77;},
     async send(...args){sent.push(args);return {ok:!f.sendError};}, async cards(_e,_h,urls){f.cardUrls=urls;return urls.length;}
   };
   f.env={DB:{prepare(sql){let p=[];sqls.push(sql);const st={bind(...v){p=v;return st;},async all(){
     if(sql.includes('WITH last')) return {results:[{cid,t,h:'tester'}]};
     if(sql.includes('SELECT id, direction'))return {results:f.history??[{direction:'in',text:'Подскажите',created_at:t}]};
     if(sql.includes('SELECT amount_minor'))return {results:f.payouts??[]};
+    if(sql.includes('SELECT text FROM ugc_ig_messages'))return {results:[{text:f.lastText??'Подскажите'}]};
     throw Error('unexpected all '+sql);
   },async first(){
     if(sql.includes('SELECT value'))return states.has(p[0])?{value:states.get(p[0])}:null;
     if(sql.includes('SELECT c.id'))return f.creator??null;
     if(sql.includes('SELECT creator_id'))return f.newCreator ? null : {creator_id:'creator',id:'profile'};
     if(sql.includes('COUNT(*) n'))return {n:0};
+    if(sql.includes('SELECT p.amount_minor'))return f.paid??null;
     throw Error('unexpected first '+sql);
   },async run(){if(sql.includes('INSERT INTO crm_sync_state')) states.set(p[0],p[1]);else if(sql.includes('DELETE FROM crm_sync_state'))states.delete(p[0]);else throw Error('unexpected run '+sql);return {success:true};}};return st;},async batch(){if(f.failBatch)throw Error('database');return [];}}};
   globalThis.__ugcTest=f; return f;
@@ -61,12 +63,18 @@ test('broken JSON stays pending, valid retry sends once and clears incident',asy
 });
 test('three technical failures require review and notify once',async()=>{
  const f=fixture();f.raw='broken';for(let n=0;n<3;n++){if(n){const s=incident(f);s.next_retry_at=0;f.states.set('ig_reply_escalated:'+f.cid,JSON.stringify(s));}await igDmReply(f.env);}
- assert.equal(incident(f).status,'needs_review');assert.equal(incident(f).attempts,3);assert.equal(handled(f),undefined);assert.equal(f.notices.length,1);
- await igDmReply(f.env);assert.equal(f.notices.length,1);assert.equal(f.systems.length,3);
+ assert.equal(incident(f).status,'needs_review');assert.equal(incident(f).attempts,3);assert.equal(handled(f),undefined);assert.equal(f.notices.length,0);
+ await igDmReply(f.env);assert.equal(f.notices.length,0);assert.equal(f.systems.length,3);
 });
 test('business review remains open without sending or retrying',async()=>{
  const f=fixture();f.raw=JSON.stringify({reply:null,escalate:true,reason:'спор о старой оплате'});await igDmReply(f.env);await igDmReply(f.env);
- assert.equal(incident(f).kind,'business');assert.equal(handled(f),undefined);assert.equal(f.sent.length,0);assert.equal(f.notices.length,1);
+ assert.equal(incident(f).kind,'business');assert.equal(handled(f),undefined);assert.equal(f.sent.length,0);assert.equal(f.notices.length,0);
+});
+test('only a return or money-back question goes to Telegram, with answer buttons (Owner 2026-10-17)',async()=>{
+ const f=fixture();f.lastText='Если так то я возврат сделаю и отправлю обратно деньги';f.paid={amount_minor:76400,payout_date:'2026-10-17',first_name:'Соня'};
+ f.history=[{direction:'in',text:f.lastText,created_at:f.t}];await igDmReply(f.env);await igDmReply(f.env);
+ assert.equal(f.sent.length,0);assert.equal(f.notices.length,1);assert.deepEqual(f.notices[0].buttons,['Не возвращать','Вернуть деньги','Напишу сам']);
+ assert.match(f.notices[0].text,/Соня, возвращать ничего не нужно\./);assert.match(f.notices[0].text,/764 ₽/);assert.ok(f.states.has('ig_hard:77'));
 });
 test('payout database failure sends no acknowledgement and is not handled',async()=>{
  const f=fixture();f.failBatch=true;f.raw=JSON.stringify({reply:'Получила, проверяю!',escalate:false,requisites:{amount_rub:900,phone:'+79001112233',bank:'Сбер',last_name:'Тестова',first_name:'Анна'}});

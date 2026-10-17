@@ -30,3 +30,23 @@ export async function sendOwnerTelegram(env: Env, text: string, slug = 'mina-rut
     return false;
   }
 }
+
+// Owner 2026-10-17: a hard Diana question goes to Telegram with answer buttons.
+// Returns the Telegram message id, so the tap can find the question again.
+export async function sendOwnerQuestion(env: Env, text: string, buttons: string[], slug = 'diana-helios'): Promise<number | null> {
+  const secret = env.DASORG_API_KEY;
+  if (!secret || !env.ORGANIZATION) return null;
+  try {
+    const res = await env.ORGANIZATION.fetch('https://organizacia.internal/api/telegram-bot/send', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug, text, report: true, options: buttons.map((button, i) => ({ key: `ans${i}`, button, explanation: '' })) }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) return null;
+    const result = await res.json() as { ok?: boolean; message_id?: number };
+    return result.ok === true && typeof result.message_id === 'number' ? result.message_id : null;
+  } catch {
+    return null;
+  }
+}

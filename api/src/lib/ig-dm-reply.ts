@@ -10,7 +10,7 @@ import { JSON_SPEC, SCENARIO_RULES, SCENARIO_CARDS, guardReply, requisitesSuppor
 import { prepareDianaContext } from './diana-context.mjs';
 import { checkDianaImages } from './diana-image-check.mjs';
 import { canAttemptReply, nextReplyFailure, readReplyState, type ReplyState } from './ig-dm-reply-state.mjs';
-import { sendOwnerTelegram } from './owner-telegram';
+import { askOwnerHardQuestion } from './ugc-hard-question';
 
 // Owner 17.10.2026: the complete Diana context and JEV-selected skills are mandatory.
 // No embedded script fallback when a source or JEV is unavailable.
@@ -103,8 +103,10 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     ).bind(STATE_KEY(w.cid), JSON.stringify(next), Date.now()).run();
     const notify = async () => {
       if (!state || state.at !== w.t || state.status === 'retry' || state.notified_at) return;
-      const sent = await sendOwnerTelegram(env, `UGC: @${w.h} ждёт проверки переписки. Автоответ не завершён, обращение открыто. https://erp.dasexperten.com/ugc?search=${encodeURIComponent(w.h)}`, 'diana-helios');
-      if (sent) { state = { ...state, notified_at: new Date().toISOString() }; await saveState(state); }
+      // Owner 2026-10-17: only hard questions (returns, money back) go to Telegram, with answer
+      // buttons; every other case waits in the ERP list without a Telegram message.
+      const asked = await askOwnerHardQuestion(env, w, state.reason).catch(() => 'failed' as const);
+      if (asked !== 'failed') { state = { ...state, notified_at: new Date().toISOString() }; await saveState(state); }
     };
     if (!canAttemptReply(state, w.t, now)) { await notify(); continue; }
     attempted++;

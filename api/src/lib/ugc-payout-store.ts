@@ -84,7 +84,8 @@ function deps(env: Env) {
   return {
     store: payoutStore(env),
     konsol: konsolClient(env),
-    notifyOwner: (text: string) => sendOwnerTelegram(env, text, 'diana-helios'),
+    // Owner 2026-10-17: Diana sends Telegram only for hard questions; a payout stop waits in the ERP.
+    notifyOwner: async (_text: string) => true,
     notifyBlogger: async (row: Record<string, any>, text: string) => {
       const handle = String(row.creator_handle || row.handle || '');
       // Owner 2026-10-17: several short messages in a row; the first decides success.
@@ -200,6 +201,8 @@ function yerevanDay(ms: number): string {
  */
 export async function ugcPayoutEvening(env: Env, opts: { force?: boolean } = {}): Promise<string> {
   const refreshed = await ugcPayoutSweep(env);
+  // Owner 2026-10-17: «только эти вопросы» go to Telegram; the evening payout summary is not sent.
+  if (!opts.force) return `refreshed=${refreshed}; evening summary off (Owner 2026-10-17: Telegram only for hard questions)`;
   const now = Date.now();
   const day = yerevanDay(now);
   const key = 'ugc_payout_summary:last_day';

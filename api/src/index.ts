@@ -91,6 +91,7 @@ import whatsappRoutes from './routes/whatsapp';
 import callsRoutes from './routes/calls';
 import cronRunsRoutes from './routes/cron-runs';
 import internalCronRoutes from './routes/internal-cron';
+import internalUgcRoutes from './routes/internal-ugc';
 import internalWbRoutes from './routes/internal-wb';
 import loyaltyRoutes from './routes/loyalty';
 import plannerRoutes from './routes/planner';
@@ -211,6 +212,7 @@ app.get('/api/_llm-diag', async (c) => {
 app.route('/health', healthRoutes);
 app.route('/internal/cron', internalCronRoutes);  // erp-* timer workers start their ERP job (ERP_RUN_SECRET)
 app.route('/internal/wb', internalWbRoutes); // protected read-only return reports
+app.route('/internal/ugc', internalUgcRoutes); // Diana hard-question buttons from Telegram (Owner 2026-10-17)
 app.route('/geo-price', geoPriceRoutes);  // public zonal price feed for dasexperten.com storefront
 app.route('/api/pricing', pricingMatrixRoutes);  // ERP: zonal pricing matrix for /crm
 app.route('/api/products', productsRoutes);

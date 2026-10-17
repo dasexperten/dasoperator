@@ -37,7 +37,7 @@ test('menu jargon and «no face» never leave (Owner 2026-10-16)', () => {
 test('only the four current scenarios may be offered', async () => {
  const { SCENARIO_CARDS, DIANA_RULES_BODY } = await import('./ig-dm-reply-guard.mjs');
  assert.equal(SCENARIO_CARDS.length,4);
- assert.match(DIANA_RULES_BODY,/Три чистки — три реакции/);
+ assert.match(DIANA_RULES_BODY,/Три утра с TERMO/);
  for (const reply of ['Вот семь сценариев — выбирайте!', 'Выберите 1–7', 'Вот карточка 6']) assert.equal(guardReply(JSON.stringify({reply,escalate:false})).reason,'scenario outside active menu');
  assert.equal(guardReply(JSON.stringify({reply:'Вот четыре сценария — пришлите номер от 1 до 4.',escalate:false,send_cards:true})).sendCards,true);
 });

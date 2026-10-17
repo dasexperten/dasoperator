@@ -1,12 +1,13 @@
 'use client';
 
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, type ReactNode, type MouseEvent, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, ArrowUpDown, ExternalLink, Eye, Facebook, Globe, Hand, Heart, Instagram, Link, Link2Off, Loader2, MessageCircle, Search, Send, Users, Video, X, Youtube } from 'lucide-react';
 import './ugc-layout.css';
 import { apiGet, apiPatch, apiPost, apiPostTimed } from '@/lib/api';
 import { canPay, formatRub, PAYOUT_STATUS_LABEL, payoutCell } from '@/lib/ugc-payout-cell.mjs';
 import { getUser } from '@/lib/auth';
 import { formatActivity, formatCount, platformLabel } from '@/lib/ugc-table-format.mjs';
+import { instagramChatHref } from '@/lib/ugc-instagram-chat.mjs';
 
 type PlatformMetric = {
   id: string;
@@ -26,6 +27,14 @@ type PlatformMetric = {
   source_products?: ProductMatch[];
   source_product_labels?: { name: string }[];
   metrics_as_of: string | null;
+  has_avatar?: boolean;
+  posts_count?: number | null;
+  er_sample_posts?: number | null;
+  er_checked_at?: string | null;
+  engagement_rate_method?: string | null;
+  profile_checked_at?: string | null;
+  profile_attempted_at?: string | null;
+  profile_error?: string | null;
 };
 
 type ContentObservation = {
@@ -230,6 +239,85 @@ function RegisterAmounts({ records }: { records: RegisterRecord[] }) {
 function CreatorPayment({ creator }: { creator: Creator }) {
   if (creator.payout || !creator.payment_register?.length) return <PayoutBadge payout={creator.payout} />;
   return <RegisterAmounts records={creator.payment_register} />;
+}
+
+function CreatorStatus({ creator }: { creator: Creator }) {
+  const href = instagramChatHref(creator.profiles);
+  return href
+    ? <a href={href} target="_blank" rel="noopener noreferrer" className="ugc-stage ugc-stage-btn focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" data-stage={creator.lifecycle_stage} aria-label={`Переписка в Instagram · ${creator.lifecycle_stage}`} title="Открыть переписку в Instagram">{creator.lifecycle_stage}</a>
+    : <span className="ugc-stage" data-stage={creator.lifecycle_stage} title="Instagram-аккаунт не указан">{creator.lifecycle_stage}</span>;
+}
+
+// The Owner reserved only whitespace for opening the card. Text selection,
+// numbers, links, payment buttons and icons retain their own behaviour.
+function blankRowClick(event: MouseEvent<HTMLElement>): boolean {
+  const target = event.target;
+  if (!(target instanceof Element) || target.closest('a, button, input, select, textarea, svg, [role="img"]') || window.getSelection()?.toString()) return false;
+  const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const range = document.createRange();
+    range.selectNodeContents(walker.currentNode);
+    for (const rect of Array.from(range.getClientRects())) {
+      if (event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom) return false;
+    }
+  }
+  return true;
+}
+
+function CreatorModal({ creator, onClose, onSaved }: { creator: Creator; onClose: () => void; onSaved: () => Promise<void> }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const main = document.querySelector('main');
+    const previousOverflow = main?.style.overflow;
+    if (main) main.style.overflow = 'hidden';
+    dialog.showModal();
+    dialog.querySelector('button')?.focus({ preventScroll: true });
+    return () => {
+      dialog.close();
+      if (main) main.style.overflow = previousOverflow ?? '';
+      opener?.focus({ preventScroll: true });
+    };
+  }, []);
+  return <dialog ref={ref} className="ugc-creator-modal" aria-labelledby="ugc-creator-title" onCancel={(event) => { event.preventDefault(); onClose(); }} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}><CreatorPanel creator={creator} onClose={onClose} onSaved={onSaved} /></dialog>;
+}
+
+function ProfileRefresh({ profileId, onSaved }: { profileId?: string; onSaved: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [writable, setWritable] = useState(false);
+  useEffect(() => { const user = getUser(); setWritable(user?.role === 'admin' || ['full', 'rw'].includes(user?.permissions?.['/ugc'] ?? '')); }, []);
+  if (!writable) return null;
+  return <span className="ugc-profile-refresh"><button type="button" disabled={busy} className="ugc-profile-refresh-btn" onClick={async () => {
+    setBusy(true); setMessage('');
+    try {
+      const response = await apiPostTimed<{ attempted: number; updated: number; busy: boolean }>('/api/ugc/profiles/refresh', { profile_id: profileId }, 210_000);
+      if (!response.success || !response.result) setMessage(response.errors[0]?.message ?? 'Не удалось обновить');
+      else if (response.result.busy) setMessage('Загрузка профилей уже идёт');
+      else { setMessage(`Проверено: ${response.result.attempted} · обновлено: ${response.result.updated}`); await onSaved(); }
+    } catch { setMessage('Ответ не получен. Проверьте время последней загрузки.'); }
+    finally { setBusy(false); }
+  }}>{busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}{busy ? 'Загружаю профиль…' : profileId ? 'Обновить профиль' : 'Загрузить профили'}</button>{message ? <span role="status">{message}</span> : null}</span>;
+}
+
+function BloggerProfile({ profile, onSaved }: { profile: PlatformMetric; onSaved: () => Promise<void> }) {
+  const [avatar, setAvatar] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    setAvatar(null);
+    if (profile.has_avatar) apiGet<{ data_url: string }>(`/api/ugc/profiles/${encodeURIComponent(profile.id)}/avatar`).then(r => { if (active && r.success) setAvatar(r.result?.data_url ?? null); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [profile.id, profile.has_avatar, profile.profile_checked_at]);
+  const date = (value?: string | null) => value ? new Date(value).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : 'ещё не загружен';
+  return <section className="ugc-blogger-profile">
+    <div className="ugc-blogger-identity">{avatar ? <img src={avatar} alt={`Аватар @${profile.handle}`} width={72} height={72} className="ugc-blogger-avatar" /> : <span className="ugc-blogger-avatar ugc-avatar-empty" aria-label="Аватар пока не загружен"><Users aria-hidden="true" /></span>}<div><strong>@{profile.handle}</strong><div className="ugc-profile-note">{platformLabel(profile.platform)}</div></div></div>
+    <dl className="ugc-profile-numbers"><div><dt>Подписчики</dt><dd>{formatCount(profile.followers)}</dd></div><div><dt>Публикации</dt><dd>{formatCount(profile.posts_count ?? null)}</dd></div><div><dt>Средний ER</dt><dd>{profile.engagement_rate == null ? '—' : `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(profile.engagement_rate)}%`}</dd></div></dl>
+    {profile.engagement_rate != null ? <p className="ugc-profile-note">{profile.er_sample_posts ? `По ${profile.er_sample_posts} последним доступным публикациям: среднее лайков и комментариев / подписчики.` : 'Ранее сохранённый показатель.'} ER: {date(profile.er_checked_at)}.</p> : <p className="ugc-profile-note">ER появится, когда доступны реакции на публикации.</p>}
+    <p className="ugc-profile-note">Данные: {date(profile.profile_checked_at || profile.metrics_as_of)}{profile.profile_error ? ` · Последняя попытка: ${date(profile.profile_attempted_at)}. ${profile.profile_error}` : ''}</p>
+    {profile.platform === 'instagram' ? <ProfileRefresh profileId={profile.id} onSaved={onSaved} /> : null}
+  </section>;
 }
 
 function PayoutBadge({ payout }: { payout: Payout | null | undefined }) {
@@ -618,6 +706,8 @@ export default function UgcPage() {
         </div>
       </section>
 
+      <div className="ugc-profile-tools"><span>Профили · ежедневно в 03:00</span><ProfileRefresh onSaved={load} /></div>
+
       <section className="ugc-table-shell" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-card)' }}>
         <div className="ugc-mobile-list">
           <div className="ugc-mobile-row ugc-mobile-head" aria-hidden="true"><span>Автор</span><span>Подп.</span><span>Просм.</span><span>Оплата</span></div>
@@ -625,8 +715,8 @@ export default function UgcPage() {
             const profile = primaryProfile(creator, platform);
             const views = profile.avg_video_views ?? profile.latest_observed_views;
             const name = profile.handle ? `@${profile.handle}` : creator.display_name || 'Автор';
-            return <div key={creator.id} className="ugc-mobile-row">
-              <span className="ugc-mobile-name"><a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" className="ugc-mobile-title" title={creator.display_name ? `${name} · ${creator.display_name}` : name}>{name}</a><button type="button" className="ugc-mobile-meta" onClick={() => setSelectedId(creator.id)} aria-label={`Карточка автора ${name}`}><PlatformIcons creator={creator} />{creator.attention ? <AlertCircle className="h-4 w-4" aria-label={creator.attention.label} style={{ color: '#7a4e25' }} /> : null}<span>{formatActivity(creator.last_activity_at)}</span><span className="ugc-stage" data-stage={creator.lifecycle_stage}>{creator.lifecycle_stage}</span></button></span>
+            return <div key={creator.id} className="ugc-mobile-row ugc-creator-row" tabIndex={0} aria-label={`Карточка блогера ${name}`} onClick={(event) => { if (blankRowClick(event)) setSelectedId(creator.id); }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setSelectedId(creator.id); } }}>
+              <span className="ugc-mobile-name"><a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" className="ugc-mobile-title" title={creator.display_name ? `${name} · ${creator.display_name}` : name}>{name}</a><span className="ugc-mobile-meta"><PlatformIcons creator={creator} />{creator.attention ? <button type="button" onClick={() => setSelectedId(creator.id)} aria-label={creator.attention.label}><AlertCircle className="h-4 w-4" style={{ color: '#7a4e25' }} /></button> : null}<span>{formatActivity(creator.last_activity_at)}</span><CreatorStatus creator={creator} /></span></span>
               <span title={`Подписчики: ${profile.followers ?? 'нет данных'}`}>{formatCount(profile.followers)}</span>
               <span title={`Просмотры: ${views ?? 'нет данных'}`}>{formatCount(views)}</span>
               <span className="ugc-mobile-pay"><CreatorPayment creator={creator} /></span>
@@ -653,7 +743,7 @@ export default function UgcPage() {
               const name = handle ?? creator.display_name ?? 'Автор';
               // Name and city after the handle (Owner 2026-10-16: «Город нужен, город обязательно»).
               const secondName = handle ? [creator.display_name, creator.city].filter(Boolean).join(' · ') || null : null;
-              return <tr key={creator.id} style={{ borderTop: '1px solid var(--border-hairline)' }}>
+              return <tr key={creator.id} className="ugc-creator-row" tabIndex={0} aria-label={`Карточка блогера ${name}`} onClick={(event) => { if (blankRowClick(event)) setSelectedId(creator.id); }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setSelectedId(creator.id); } }} style={{ borderTop: '1px solid var(--border-hairline)' }}>
                 <td className="ugc-c-creator" style={creator.attention ? { position: 'relative', paddingRight: 50 } : undefined}>{creator.attention ? <button type="button" onClick={() => setSelectedId(creator.id)} aria-label={`${creator.attention.label}: ${name}`} title={creator.attention.reason} className="absolute right-1 top-1/2 -translate-y-1/2 min-h-11 min-w-11 inline-flex items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-2" style={{ color: '#7a4e25', width: 44, height: 44 }}><AlertCircle className="h-5 w-5" /></button> : null}<a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" title={[name, secondName, 'открыть страницу автора'].filter(Boolean).join(' · ')} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="ugc-creator-line"><span className="ugc-creator-name">{name}</span><OriginMark origin={creator.origin} /></span>{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span></a></td>
                 <td className="ugc-c-platform"><PlatformIcons creator={creator} /></td>
                 <td className="ugc-c-num" title={profile.followers == null ? 'Нет данных' : `${profile.followers}`}>{formatCount(profile.followers)}</td>
@@ -661,14 +751,14 @@ export default function UgcPage() {
                 <td className="ugc-c-num ugc-c-pay"><CreatorPayment creator={creator} /></td>
                 <td className="ugc-c-product ugc-sec-2">{products.length || profile.source_product_labels?.length ? <div className="ugc-pills" title={[...products.map((item) => `${compactProductCode(item.sku)} · ${item.name}${item.source === 'blogger_database' ? ' · база блогеров' : ''}`), ...(profile.source_product_labels ?? []).map((item) => `${item.name} · название из базы, тип не указан`)].join('\n')}>{products.slice(0, PRODUCT_PILLS).map((item) => <span key={`${item.sku}-${item.raw_offer_id}`} className="ugc-pill">{compactProductCode(item.sku)}</span>)}{profile.source_product_labels?.map((item) => <span key={item.name} className="ugc-pill">{item.name}</span>)}</div> : creator.payout?.product ? <div className="ugc-pills" title={`Из выплаты: ${creator.payout.product}`}>{creator.payout.product.split('+').map((part) => part.trim()).filter(Boolean).slice(0, PRODUCT_PILLS).map((part) => <span key={part} className="ugc-pill">{part}</span>)}</div> : <span className="ugc-muted">{profile.content.some((item) => item.product_status === 'queued') ? 'В очереди' : 'Не определён'}</span>}</td>
                 <td className="ugc-c-media ugc-sec-3" aria-label={`${profile.content_count} публикаций`}>{linked.length ? <div className="ugc-media">{linked.slice(0, CONTENT_ICONS).map(({ item, href }, index) => <Publication key={item.id} item={item} href={href} more={index === CONTENT_ICONS - 1 ? linked.length - CONTENT_ICONS : 0} />)}</div> : <span className="ugc-muted">—</span>}</td>
-                <td className="ugc-c-next ugc-sec-1" title={creator.collaboration?.next_action || undefined}><button type="button" onClick={() => setSelectedId(creator.id)} className="ugc-stage ugc-stage-btn focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" data-stage={creator.lifecycle_stage} aria-label={`Карточка автора · ${creator.lifecycle_stage}`}>{creator.lifecycle_stage}</button></td>
+                <td className="ugc-c-next ugc-sec-1" title={creator.collaboration?.next_action || undefined}><CreatorStatus creator={creator} /></td>
               </tr>;
             })}
           </tbody>
         </table>
       </section>
 
-      {selected && <div ref={(node) => { if (node) node.scrollIntoView({ block: 'start', behavior: 'smooth' }); }}><CreatorPanel key={selected.id} creator={selected} onClose={() => setSelectedId(null)} onSaved={load} /></div>}
+      {selected && <CreatorModal key={selected.id} creator={selected} onClose={() => setSelectedId(null)} onSaved={load} />}
       <div className="ugc-stage-legend" aria-label="Статусы">{STAGES.map((value) => <span key={value} className="ugc-stage" data-stage={value}>{value}</span>)}</div>
     </div>
     </PayContext.Provider>
@@ -701,10 +791,10 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
     setSaving(false);
   }
 
-  return <section className="p-5 md:p-6 space-y-5" style={{ background: 'var(--bg-surface)', border: '2px solid var(--brand-schwarz)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-raised)' }}>
-    <div className="flex items-start justify-between gap-4"><div><div className="dx-eyebrow">Creator record</div><h2 className="mt-1 text-2xl font-extrabold">{creator.display_name || `@${creator.profiles[0]?.handle}`}</h2></div><button type="button" onClick={onClose} className="min-h-11 min-w-11 flex items-center justify-center" aria-label="Close creator panel"><X className="h-5 w-5" /></button></div>
+  return <section className="ugc-creator-card p-5 md:p-6 space-y-5" style={{ background: 'var(--bg-surface)', border: '2px solid var(--brand-schwarz)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-raised)' }}>
+    <div className="flex items-start justify-between gap-4"><div><h2 id="ugc-creator-title" className="text-2xl font-extrabold">{creator.display_name || `@${creator.profiles[0]?.handle}`}</h2></div><button type="button" onClick={onClose} className="min-h-11 min-w-11 flex items-center justify-center" aria-label="Закрыть карточку блогера"><X className="h-5 w-5" /></button></div>
     {creator.attention ? <p className="flex items-start gap-2 text-sm" style={{ color: 'var(--fg-1)' }}><AlertCircle className="h-5 w-5 shrink-0" style={{ color: '#7a4e25' }} /><span style={{ whiteSpace: 'normal' }}><strong>{creator.attention.label}.</strong> {creator.attention.reason}</span></p> : null}
-    <div className="grid md:grid-cols-3 gap-3">{creator.profiles.map((profile) => <div key={profile.id} className="p-4" style={{ background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)' }}><div className="font-bold capitalize">{profile.platform} · @{profile.handle}</div><div className="mt-2 text-sm" style={{ color: 'var(--fg-2)' }}>{formatNumber(profile.followers)} followers · {profile.view_observations} view observations</div><div className="mt-1 text-sm" style={{ color: 'var(--fg-2)' }}>{formatNumber(profile.commerce_clicks)} clicks · {formatNumber(profile.commerce_orders)} orders</div><div className="mt-1 text-sm" style={{ color: 'var(--fg-3)' }}>Metrics as of {profile.metrics_as_of || 'unknown'}</div></div>)}</div>
+    <div className="grid md:grid-cols-2 gap-3">{creator.profiles.map((profile) => <BloggerProfile key={profile.id} profile={profile} onSaved={onSaved} />)}</div>
     {creator.payouts?.length ? <section className="space-y-2" aria-labelledby={`payouts-${creator.id}`}>
       <div className="flex items-end justify-between gap-3"><div><div className="dx-eyebrow">Barter refunds</div><h3 id={`payouts-${creator.id}`} className="mt-1 text-xl font-extrabold">Оплата</h3></div><div className="text-sm tabular-nums" style={{ color: 'var(--fg-2)' }}>Paid {formatRub(creator.paid_total_minor ?? 0)}</div></div>
       <div className="grid gap-2">{creator.payouts.map((item) => <div key={item.id} className="p-3 flex items-center justify-between gap-3" style={{ background: 'var(--paper-sunk)', borderRadius: 'var(--radius-sm)' }}><PayoutBadge payout={item} /><span className="text-xs" style={{ color: 'var(--fg-3)' }}>{item.status === 'awaiting_approval' || item.status === 'approved' ? 'В очереди' : item.payout_date}</span></div>)}</div>

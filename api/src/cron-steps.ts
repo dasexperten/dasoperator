@@ -39,6 +39,10 @@ function storefrontEnv(env: Env): Record<string, unknown> {
 }
 
 export const STEPS: Record<string, Step> = {
+  'erp-blogger-id': async (env) => {
+    const { refreshBloggerProfiles } = await import('./lib/ugc-blogger-profiles');
+    return JSON.stringify(await refreshBloggerProfiles(env));
+  },
   // Owner 2026-10-16: the UGC routines are ERP workers of their own («должно быть ERP-UGC worker»).
   // Each timer fires every minute; runAdaptiveLane keeps the 3 / 15 / 30-minute rule (DH-LAW-261015-01).
   // Direct: read new messages, then Diana's answers (the model runs here in the ERP, never in the worker).
@@ -52,18 +56,17 @@ export const STEPS: Record<string, Step> = {
       return { ...read, ...answered, activity: read.activity || answered.replied > 0 };
     });
   },
-  // Refresh Konsol status and independently enrich creator metrics, including after payment.
+  // Konsol/content only. Creator profiles have their own erp-blogger-id timer.
   'erp-ugc-payouts': async (env) => {
     const { runAdaptiveLane } = await import('./lib/adaptive-runner');
     const { ugcPayoutSweep } = await import('./lib/ugc-payout-store');
-    const { diagnosePayoutCreators, refreshContentMetrics } = await import('./lib/ugc-diagnose');
+    const { refreshContentMetrics } = await import('./lib/ugc-diagnose');
     return runAdaptiveLane(env, 'ugc_payouts', async (e) => {
       const refreshed = await ugcPayoutSweep(e);
-      const diag = await diagnosePayoutCreators(e).catch((err) => ({ measured: 0, error: String(err) }));
       const { captureDmLinks } = await import('./lib/ugc-dm-links');
       const links = await captureDmLinks(e).catch((err) => ({ added: 0, error: String(err) }));
       const content = await refreshContentMetrics(e).catch((err) => ({ read: 0, removed: 0, error: String(err) }));
-      return { ok: true, activity: refreshed > 0 || diag.measured > 0 || links.added > 0 || content.read + content.removed > 0, refreshed, ...diag, links, content };
+      return { ok: true, activity: refreshed > 0 || links.added > 0 || content.read + content.removed > 0, refreshed, links, content };
     });
   },
   // Owner 2026-10-14: one evening message on UGC payouts — count, sum, own RUB left.

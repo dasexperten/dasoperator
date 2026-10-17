@@ -4,21 +4,22 @@
 //   each post page → «N likes, M comments - handle on <date>»;
 //   ER = mean(likes + comments) of the six newest posts by date / followers × 100.
 // A pinned post is old and drops out by the date sort.
+import { parseInstagramProfile } from './ugc-blogger-profile-parse.mjs';
 import type { Env } from '../types';
-import { parseCount, parsePostMeta, engagementLast6, type PostMeta } from './ugc-diagnose-parse.mjs';
+import { parsePostMeta, engagementLast6, type PostMeta } from './ugc-diagnose-parse.mjs';
 
 const PER_RUN = 3;
 const METHOD = 'public_last6_posts_by_date:mean(likes+comments)/followers*100; observed; cloudflare browser rendering (no login)';
 
-async function render(env: Env, url: string, wait: 'networkidle0' | 'domcontentloaded'): Promise<string | null> {
+export async function render(env: Env, url: string, wait: 'networkidle0' | 'domcontentloaded', timeout = 60_000): Promise<string | null> {
   const token = (env as unknown as { CF_BROWSER_TOKEN?: string }).CF_BROWSER_TOKEN ?? '';
   const account = (env as unknown as { CF_ACCOUNT_ID?: string }).CF_ACCOUNT_ID ?? '081ddb85cb399ad62a70210328d744fc';
   if (!token) return null;
   const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/browser-rendering/content`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, gotoOptions: { waitUntil: wait, timeout: 45_000 } }),
-    signal: AbortSignal.timeout(60_000),
+    body: JSON.stringify({ url, gotoOptions: { waitUntil: wait, timeout: Math.min(45_000, timeout - 1000) } }),
+    signal: AbortSignal.timeout(timeout),
   });
   if (!res.ok) throw new Error(`browser HTTP ${res.status}`);
   const j = await res.json() as { result?: string };
@@ -26,20 +27,23 @@ async function render(env: Env, url: string, wait: 'networkidle0' | 'domcontentl
 }
 
 /** One blogger: followers + ER of the six newest posts, or nulls when Instagram shows nothing. */
-export async function measureInstagram(env: Env, handle: string): Promise<{ followers: number | null; er: number | null }> {
-  const profile = await render(env, `https://www.instagram.com/${encodeURIComponent(handle)}/`, 'networkidle0');
+export async function measureInstagram(env: Env, handle: string): Promise<{ followers: number | null; er: number | null; posts?: number | null; avatar?: string | null; sample?: number }> {
+  const deadline = Date.now() + 45_000;
+  const profile = await render(env, `https://www.instagram.com/${encodeURIComponent(handle)}/`, 'networkidle0', 25_000);
   if (!profile) return { followers: null, er: null };
-  const followers = parseCount(profile.match(/content="([\d.,\sKkMmТтыс]+)\s*(?:Followers|подписчик)/)?.[1] ?? '');
+  const parsed = parseInstagramProfile(profile);
+  const followers = parsed.followers;
   const codes: string[] = [];
   for (const m of profile.matchAll(/\/(?:p|reel)\/([A-Za-z0-9_-]{8,})/g)) if (!codes.includes(m[1]!)) codes.push(m[1]!);
   const posts: PostMeta[] = [];
   for (const code of codes.slice(0, 9)) {
-    const html = await render(env, `https://www.instagram.com/p/${code}/`, 'domcontentloaded').catch(() => null);
+    if (Date.now() >= deadline) break;
+    const html = await render(env, `https://www.instagram.com/p/${code}/`, 'domcontentloaded', Math.min(10_000, Math.max(1000, deadline - Date.now()))).catch(() => null);
     const meta = html?.match(/<meta[^>]+(?:property|name)="(?:og:)?description"[^>]+content="([^"]+)"/)?.[1];
     const p = meta ? parsePostMeta(meta) : null;
     if (p) posts.push(p);
   }
-  return { followers, er: followers ? engagementLast6(followers, posts) : null };
+  return { followers, er: followers ? engagementLast6(followers, posts) : null, posts: parsed.posts, avatar: parsed.avatar, sample: Math.min(6, posts.filter(p => p.at != null).length) };
 }
 
 /**

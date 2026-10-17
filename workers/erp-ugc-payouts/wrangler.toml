@@ -1,5 +1,5 @@
 # erp-ugc-payouts — UGC payouts (Owner 2026-10-15/16): Konsol status of payouts handed over,
-# and the measurement of bloggers with a waiting payout (followers, ER of the last six posts).
+# Profile measurements are owned by erp-blogger-id (Owner 2026-10-17).
 # Same 3 / 15 / 30-minute rule inside; no model anywhere in this job.
 name = "erp-ugc-payouts"
 main = "src/index.ts"

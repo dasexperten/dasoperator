@@ -5,6 +5,9 @@
   "erp-bank-match": [
     "0 2 * * *"
   ],
+  "erp-blogger-id": [
+    "0 23 * * *"
+  ],
   "erp-daily-digest": [
     "0 3 * * *"
   ],

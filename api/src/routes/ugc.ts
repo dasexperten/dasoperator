@@ -112,6 +112,26 @@ async function stableId(prefix: string, input: string): Promise<string> {
   return `${prefix}_${hex.slice(0, 24)}`;
 }
 
+ugc.post('/profiles/refresh', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  const body = await c.req.json<{ profile_id?: string }>().catch(() => ({} as { profile_id?: string }));
+  const { refreshBloggerProfiles } = await import('../lib/ugc-blogger-profiles');
+  return ok(c, await refreshBloggerProfiles(c.env, body.profile_id, 2));
+});
+
+ugc.get('/profiles/:id/avatar', async (c) => {
+  const access = await requireAccess(c);
+  if (access instanceof Response) return access;
+  const row = await c.env.DB.prepare('SELECT avatar_key FROM ugc_creator_platforms WHERE id=?').bind(c.req.param('id')).first<{ avatar_key: string | null }>();
+  const image = row?.avatar_key ? await c.env.DOCS.get(row.avatar_key) : null;
+  if (!image) return fail(c, 404, [{ code: 'not_found', message: 'Avatar not loaded' }]);
+  const bytes = new Uint8Array(await image.arrayBuffer());
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  return ok(c, { data_url: `data:${image.httpMetadata?.contentType ?? 'image/jpeg'};base64,${btoa(binary)}` });
+});
+
 ugc.get('/', async (c) => {
   const access = await requireAccess(c);
   if (access instanceof Response) return access;
@@ -131,7 +151,8 @@ ugc.get('/', async (c) => {
        p.engagement_rate, p.engagement_rate_method, p.avg_video_views,
        p.median_video_views, p.avg_comments, p.posting_cadence,
        p.commerce_clicks, p.commerce_orders, p.commerce_gmv_minor,
-       p.commerce_currency, p.metrics_as_of, p.source, p.updated_at profile_updated_at
+       p.commerce_currency, p.metrics_as_of, p.source, p.updated_at profile_updated_at,
+       p.avatar_key, p.posts_count, p.er_sample_posts, p.profile_checked_at, p.profile_attempted_at, p.profile_error, p.er_checked_at
      FROM ugc_creators c
      JOIN ugc_creator_platforms p ON p.creator_id = c.id
      WHERE (?1 IS NULL OR p.platform = ?1)
@@ -275,6 +296,13 @@ ugc.get('/', async (c) => {
     const metrics = byProfile.get(String(row.profile_id)) ?? { views: [], comments: [], content_count: 0, content: [] };
     const profile = {
       id: row.profile_id,
+      has_avatar: Boolean(row.avatar_key),
+      posts_count: row.posts_count,
+      er_sample_posts: row.er_sample_posts,
+      er_checked_at: row.er_checked_at,
+      profile_checked_at: row.profile_checked_at,
+      profile_attempted_at: row.profile_attempted_at,
+      profile_error: row.profile_error,
       platform: row.platform,
       handle: row.handle,
       profile_url: row.profile_url,

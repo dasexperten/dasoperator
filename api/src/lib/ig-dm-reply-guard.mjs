@@ -9,8 +9,8 @@ export const SCENARIO_RULES = `Текущее решение Владельца 
 4 «Чувствуешь тепло?»: позвать близкого человека (мужа, подругу, маму), встать рядом у зеркала, чистить вместе и спросить друг друга «Чувствуешь тепло?»; каждый говорит, что почувствовал и что понравилось; в конце туба и кому посоветуете. Второй человек — взрослый, но слово «взрослый» блогеру не писать.
 Ни один сценарий не зовёт говорить о минусах: бартер продаёт товар (Владелец 17.10.2026). Тепло не обещать всем.
 Простые слова (Владелец 17.10.2026): пиши так, чтобы понял даже двенадцатилетний, но говоришь со взрослым человеком на равных — без детского тона, без «позовите взрослых». Без режиссёрских слов: не «уровень глаз», «плечом к плечу», «ракурс», «кадр», «секунды».
-При выборе номера: если в правилах Дианы есть утверждённый текст этого номера — отправь его дословно двумя сообщениями (replies, граница ‖), первое начинается с «Отличный выбор!». Иначе начни с «Отличный выбор!» и живо объясни, что снять, двумя-тремя короткими предложениями. Паста TERMO, щётку не предлагай, другой товар не навязывай. Лицо в кадре обязательно. Не используй слова «хук», «финал», «такт» и стрелки. Следующий шаг — снять и прислать ролик.
-Свой сценарий (Владелец 17.10.2026): прежде чем отправлять четыре карточки, скажи, что сценарий блогер может придумать сам. Придумала свой — прими его, если в кадре лицо и паста TERMO, и обещаний результата нет; карточки не отправляй.
+При выборе номера: если в правилах Дианы есть утверждённый текст этого номера — отправь его дословно двумя сообщениями (replies, граница ‖), первое начинается с «Отличный выбор!». Иначе начни с «Отличный выбор!» и живо объясни, что снять, двумя-тремя короткими предложениями. Паста TERMO, щётку не предлагай, другой товар не навязывай. Лицо в кадре лучше всего; не подходит блогеру — пусть снимет по своему сценарию, только не распаковка и не закрытая упаковка (Владелец 17.10.2026). Не используй слова «хук», «финал», «такт» и стрелки. Следующий шаг — снять и прислать ролик.
+Свой сценарий (Владелец 17.10.2026): прежде чем отправлять четыре карточки, скажи, что сценарий блогер может придумать сам. Придумала свой — прими его, если паста TERMO в деле (ею чистят зубы в кадре), это не распаковка и не ролик с закрытой упаковкой, и обещаний результата нет; карточки не отправляй.
 Если блогер просит сценарии, не может найти, своей идеи нет или ещё не получил карточки — send_cards=true, replies: ["А пока можно подумать о ролике. Если у вас есть своя идея, расскажите.", "Если нет, выберите карточку и пришлите номер от 1 до 4."]`;
 
 export const DIANA_RULES_BODY = `Ты — Диана, менеджер блогеров бренда Das Experten (зубные пасты и щётки). Пишешь в Instagram Direct от имени @dasexperten.
@@ -145,10 +145,13 @@ export function shortParts(parts) {
 }
 
 // Owner (DH-MAP-261010-01): paid reels, price lists and fees are the Owner's call — no model answer.
+const HARD_ASK = /(возврат|вернуть\s+(деньги|заказ|товар)|верну\s+(деньги|заказ)|отправ\S*\s+(обратно\s+)?деньги|деньги\s+(обратно|назад)|отмен\S*\s+заказ|заказ\S*\s+отмен)/i;
 const PAID_ASK = /(сколько\s+(вы\s+)?плат|прайс|за\s+деньги|платн|гонорар|оплат\S*\s+за\s+(рилс|ролик|пост|сторис|рекламу)|стоимост\S*\s+(рилс|ролик|реклам)|цена\s+за\s+(рилс|ролик|пост))/i;
 
 export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allowBrush = false } = {}) {
   if (PAID_ASK.test(String(lastIn))) return { reply: null, escalate: true, reason: 'paid request, Owner decides' };
+  // Owner 2026-10-17 (blog_lezginka_22): returns, refunds, cancelled orders and money going back are hard questions; ask the Owner first.
+  if (HARD_ASK.test(String(lastIn))) return { reply: null, escalate: true, reason: 'return or money back, Owner decides' };
   const ordered = /(^|[^а-яё])(заказала|заказал|оформила заказ|оформил заказ)([^а-яё]|$)/i.test(String(lastIn)) && !/скрин|чек|номер заказа/i.test(String(lastIn));
   let parsed;
   try {
@@ -185,9 +188,14 @@ export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allow
   if (/(^|[^а-яё])(оформляйте|скиньте|скидывайте|сделайте|присылайте|снимайте|заказывайте|выкладывайте|отправляйте)([^а-яё]|$)/i.test(reply)) return { reply: null, escalate: true, reason: 'command tone, ask with «пожалуйста»' };
   // Owner 2026-10-17: one person, one program — never a second account, a second program or a new basket.
   if (/(втор(ой|ого|ому)\s+аккаунт|отдельн(ая|ую|ой)\s+программ|ещё\s+одн[ау]\s+программ|ник\s+второго|нов(ую|ая)\s+корзин)/i.test(reply)) return { reply: null, escalate: true, reason: 'one person, one program; ask what she means' };
+  if (HARD_ASK.test(reply)) return { reply: null, escalate: true, reason: 'return or money back, Owner decides' };
   if (/(\+?7|8)[\s(-]*9\d{2}[\s)-]*\d{3}[\s-]*\d{2}[\s-]*\d{2}/.test(reply)) return { reply: null, escalate: true, reason: 'do not repeat phone and recipient to the blogger' };
   if (/взросл/i.test(reply)) return { reply: null, escalate: true, reason: 'adult wording' };
-  if (/лицо\s+(не\s+)?необязательн|без\s+лица|можно\s+без\s+лиц/i.test(reply)) return { reply: null, escalate: true, reason: 'says face is optional' };
+  // Owner 2026-10-17: there is always another option, the blogger's own scenario, even without the face.
+  // Never unboxing and never a video of closed packaging: the paste is used on camera.
+  // The face is still offered first: Diana never volunteers that it is optional.
+  if (/лицо\s+(показывать\s+)?(не\s*)?необязательн|лицо\s+(показывать\s+)?не\s+обязательн/i.test(reply)) return { reply: null, escalate: true, reason: 'says face is optional' };
+  if (/(^|[^а-яё])(снимите|снять|можно|сделайте|сделать|подойдёт|подойдет)\s+(\S+\s+){0,2}(распаковк|закрыт\S*\s+упаковк)/i.test(reply)) return { reply: null, escalate: true, reason: 'offers unboxing or closed packaging' };
   if (/добрый (день|вечер)|здравствуйте|привет/i.test(reply) && reply.length < 25) return { reply: null, escalate: false, reason: 'greeting only' };
   // Owner 2026-10-17: «заказала» always gets «пришлите, пожалуйста, скрин заказа», even next to another question.
   if (ordered && !/скрин/i.test(reply)) return { reply: null, escalate: true, reason: 'ask for the order screenshot too' };

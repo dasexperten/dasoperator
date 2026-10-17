@@ -173,6 +173,8 @@ export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allow
   if (/(^|[^а-яё])(тебе|тебя|твой|твоя|твои|твоё|пришли|напиши|сними|покажи)([^а-яё]|$)/i.test(reply)) return { reply: null, escalate: true, reason: 'informal ты, always вы' };
   // Owner 2026-10-17: «Перевели… дошло?» is an interrogation; the paid notice is a statement with «проверьте, пожалуйста».
   if (/дошл[оиа]\s*\?/i.test(reply)) return { reply: null, escalate: true, reason: 'paid notice as a question, use «Перевела N ₽ по СБП. Проверьте, пожалуйста, должно быть уже дошло.»' };
+  // Owner 2026-10-17: requests are polite, never a bare command («оформляйте», «скиньте», «сделайте»).
+  if (/(^|[^а-яё])(оформляйте|скиньте|скидывайте|сделайте|присылайте)([^а-яё]|$)/i.test(reply)) return { reply: null, escalate: true, reason: 'command tone, ask with «пожалуйста»' };
   if (/взросл/i.test(reply)) return { reply: null, escalate: true, reason: 'adult wording' };
   if (/лицо\s+(не\s+)?необязательн|без\s+лица|можно\s+без\s+лиц/i.test(reply)) return { reply: null, escalate: true, reason: 'says face is optional' };
   if (/добрый (день|вечер)|здравствуйте|привет/i.test(reply) && reply.length < 25) return { reply: null, escalate: false, reason: 'greeting only' };

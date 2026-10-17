@@ -109,3 +109,9 @@ test('no dashes and long paragraphs become short messages (Owner 2026-10-17)', a
   const out = guardReply(JSON.stringify({ reply: 'Отлично — пришлите, пожалуйста, скрин.', escalate: false, send_cards: false, requisites: null, reason: 'x' }));
   assert.equal(out.reply, 'Отлично, пришлите, пожалуйста, скрин.');
 });
+
+test('no command tone (Owner 2026-10-17)', () => {
+  const j = (reply) => JSON.stringify({ reply, escalate: false, send_cards: false, requisites: null, reason: 'x' });
+  assert.equal(guardReply(j('Оформляйте заказ и пришлите скрин.')).reason, 'command tone, ask with «пожалуйста»');
+  assert.ok(guardReply(j('Оформите, пожалуйста, заказ и пришлите скрин.')).reply);
+});

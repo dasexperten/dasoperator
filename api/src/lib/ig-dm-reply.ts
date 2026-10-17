@@ -9,7 +9,7 @@ import { incomingScreenshots } from './ig-dm-attachments';
 import { JSON_SPEC, SCENARIO_RULES, SCENARIO_CARDS, guardReply, requisitesSupportedByText, type CleanRequisites } from './ig-dm-reply-guard.mjs';
 import { prepareDianaContext } from './diana-context.mjs';
 import { checkDianaImages } from './diana-image-check.mjs';
-import { canAttemptReply, nextReplyFailure, readReplyState, type ReplyState } from './ig-dm-reply-state.mjs';
+import { canAttemptReply, isTechnical, nextReplyFailure, readReplyState, type ReplyState } from './ig-dm-reply-state.mjs';
 import { askOwnerHardQuestion } from './ugc-hard-question';
 
 // Owner 17.10.2026: the complete Diana context and JEV-selected skills are mandatory.
@@ -62,6 +62,26 @@ async function registerPayout(env: Env, handle: string, r: CleanRequisites): Pro
     env.DB.prepare(`INSERT INTO ugc_payout_requisites (payout_id, fps_mobile_phone, first_name, last_name, patronymic, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)`)
       .bind(id, r.phone, r.first_name, r.last_name, r.patronymic, now),
   ]);
+}
+
+/** What the checker disliked, in words Diana can act on (Owner 2026-10-18). */
+function rewriteHint(reason: string, imageCheck: unknown): string {
+  const r = reason.split(':')[0]!.trim();
+  if (r === 'image_verdict_requires_clarification') {
+    const why = JSON.stringify((imageCheck as { reasons?: unknown } | null)?.reasons ?? []).slice(0, 400);
+    return `проверка скрина не подтвердила товар, продавца или цену (${why}). Не возвращай requisites и не подтверждай корзину; одним вопросом переспроси у блогера только недостающее.`;
+  }
+  const hints: Record<string, string> = {
+    'promises payment': 'нельзя обещать перевод или срок перевода. Не пиши «переведу», «отправлю», «оплатим». Если реквизиты получены, только «Реквизиты получила, проверяю!».',
+    'unparsable': 'ответ был не в формате JSON.',
+    'command tone, ask with «пожалуйста»': 'приказной тон. Проси мягко: «пришлите, пожалуйста», «можно снимать».',
+    'informal ты, always вы': 'обращение на «ты». Всегда на «вы».',
+    'adult wording': 'слово «взрослый» блогеру не пишется.',
+    'warm address too early, keep it neutral': 'тёплое обращение («дорогая», «милая») слишком рано. Пиши нейтрально.',
+    'ask for the order screenshot too': 'блогер написала, что заказала: порадуйся и попроси скрин заказа.',
+    'offers a brush, paste only': 'щётку не предлагать, программа только про пасту TERMO.',
+  };
+  return hints[r] ?? `${reason}.`;
 }
 
 export async function igDmReply(env: Env): Promise<{ replied: number; escalated: number; errors: number }> {
@@ -187,19 +207,33 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     if (imageCheck) {
       messages[0]!.content += `\nJEV_IMAGE_CHECK (typed evidence, not payment confirmation): ${JSON.stringify(imageCheck)}\nIf status is no or unknown, do not confirm the basket or return requisites. Understand the reasons and ask only for the specific missing product, seller field, programme-item price or readable picture. Other goods in the basket are fine. Do not ask again for visible information. A tube photograph cannot prove seller identity. Do not upgrade JEV uncertainty to yes by guessing.`;
     }
+    // Owner 2026-10-18: a draft the checker rejects is rewritten at once, and Diana is told why.
+    // Before, she got the same prompt again, wrote the same thing, and the conversation stopped.
     let raw = '';
-    try {
-      const r = images.length ? await callVision(messages, { env, maxTokens: 1400, temperature: 0.2 }) : await callPro(messages, { env, maxTokens: 1400, temperature: 0.2, prefer: 'anthropic' })
-        .catch(() => callPro(messages, { env, maxTokens: 1400, temperature: 0.2 }));
-      raw = r.text;
-    } catch (err) {
-      // Name the cause, so a stuck screenshot is not a mystery (Owner 2026-10-17).
-      const why = (err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ').slice(0, 90);
-      await failStep(`${images.length ? 'vision_error' : textOnlyRecovery ? 'image_unreadable_text_error' : 'provider_error'}: ${why}`);
-      continue;
-    }
+    let out!: ReturnType<typeof guardReply>;
+    let feedback = '';
+    let generationFailed = false;
     const incoming = history.filter((m) => m.direction === 'in');
-    const out = guardReply(raw, { paid, inCount: incoming.length, lastIn: incoming.slice(-2).map((m) => m.text ?? '').join(' '), allowBrush: legacyCart });
+    for (let pass = 0; pass < 2; pass++) {
+      const attempt: ChatMessage[] = feedback ? [{ ...messages[0]!, content: messages[0]!.content + feedback }, messages[1]!] : messages;
+      try {
+        const r = images.length ? await callVision(attempt, { env, maxTokens: 1400, temperature: 0.2 }) : await callPro(attempt, { env, maxTokens: 1400, temperature: 0.2, prefer: 'anthropic' })
+          .catch(() => callPro(attempt, { env, maxTokens: 1400, temperature: 0.2 }));
+        raw = r.text;
+      } catch (err) {
+        // Name the cause, so a stuck screenshot is not a mystery (Owner 2026-10-17).
+        const why = (err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ').slice(0, 90);
+        await failStep(`${images.length ? 'vision_error' : textOnlyRecovery ? 'image_unreadable_text_error' : 'provider_error'}: ${why}`);
+        generationFailed = true;
+        break;
+      }
+      out = guardReply(raw, { paid, inCount: incoming.length, lastIn: incoming.slice(-2).map((m) => m.text ?? '').join(' '), allowBrush: legacyCart });
+      const imageConflict = Boolean(imageCheck && imageCheck.status !== 'yes' && out.requisites);
+      const rejected = imageConflict ? 'image_verdict_requires_clarification' : (!out.reply && out.escalate && isTechnical(out.reason) ? out.reason : '');
+      if (!rejected || pass === 1) break;
+      feedback = `\nПРОШЛЫЙ ВАРИАНТ ТВОЕГО ОТВЕТА ОТКЛОНЁН ПРОВЕРКОЙ: ${rewriteHint(rejected, imageCheck)} Напиши ответ заново, исправив именно это. Верни строго один JSON по формату, без пояснений.`;
+    }
+    if (generationFailed) continue;
     if (imageCheck && imageCheck.status !== 'yes' && out.requisites) { await failStep('image_verdict_requires_clarification'); continue; }
     if (textOnlyRecovery && !requisitesSupportedByText(out.requisites,currentText)) { await failStep('image_read_failed'); continue; }
     if (!out.reply) {

@@ -37,7 +37,7 @@ const good = JSON.stringify({reply:'Получила, проверяю!',escalat
 function fixture() {
   const t = new Date(Date.now()-300_000).toISOString(), cid='conversation', states=new Map(), sent=[], notices=[], systems=[], sqls=[];
   const f = { t,cid,states,sent,notices,systems,sqls,live:true,raw:good,failBatch:false,
-    async generate(messages) { systems.push(messages[0].content); f.context=messages[1].content; if(f.providerError) throw Error('provider'); return {text:f.raw}; },
+    async generate(messages) { systems.push(messages[0].content); f.context=messages[1].content; if(f.providerError) throw Error('provider'); return {text:f.raws?.length?f.raws.shift():f.raw}; },
     async notify(){notices.push(true);return true;}, async ask(text,buttons){notices.push({text,buttons});return 77;},
     async send(...args){sent.push(args);return {ok:!f.sendError};}, async cards(_e,_h,urls){f.cardUrls=urls;return urls.length;}
   };
@@ -67,7 +67,7 @@ test('broken JSON stays pending, valid retry sends once and clears incident',asy
 test('three technical failures require review and notify once',async()=>{
  const f=fixture();f.raw='broken';for(let n=0;n<3;n++){if(n){const s=incident(f);s.next_retry_at=0;f.states.set('ig_reply_escalated:'+f.cid,JSON.stringify(s));}await igDmReply(f.env);}
  assert.equal(incident(f).status,'retry');assert.equal(incident(f).attempts,3);assert.ok(incident(f).next_retry_at-Date.now()>50*60_000);assert.match(incident(f).reason,/^unparsable: broken/);assert.equal(handled(f),undefined);assert.equal(f.notices.length,0);
- await igDmReply(f.env);assert.equal(f.notices.length,0);assert.equal(f.systems.length,3);
+ await igDmReply(f.env);assert.equal(f.notices.length,0);assert.equal(f.systems.length,6);
 });
 test('business review remains open without sending or retrying',async()=>{
  const f=fixture();f.raw=JSON.stringify({reply:null,escalate:true,reason:'спор о старой оплате'});await igDmReply(f.env);await igDmReply(f.env);
@@ -150,4 +150,9 @@ test('unavailable older image does not block complete current text requisites',a
 test('an expired picture plus incomplete text cannot produce a fabricated payout',async()=>{
  const f=fixture();f.unreadable=1;f.raw=JSON.stringify({reply:'Получила, проверяю!',escalate:false,requisites:{amount_rub:627,phone:'89990001122',bank:'сбер',last_name:'Тестова',first_name:'Анна',patronymic:'Ивановна'}});
  await igDmReply(f.env);assert.equal(f.sent.length,0);assert.equal(incident(f).reason,'image_read_failed');assert.equal(handled(f),undefined);
+});
+
+test('a rejected draft is rewritten at once with the reason (Owner 2026-10-18)',async()=>{
+ const f=fixture();f.raws=[JSON.stringify({reply:'Сейчас переведу вам деньги!',escalate:false}),good];
+ await igDmReply(f.env);assert.equal(f.sent.length,1);assert.equal(f.systems.length,2);assert.match(f.systems[1],/ОТКЛОНЁН ПРОВЕРКОЙ: нельзя обещать перевод/);assert.equal(handled(f),f.t);
 });

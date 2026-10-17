@@ -668,54 +668,8 @@ export async function handleScheduled(
     return;
   }
 
-  // Twice-daily Modulbank pull-sync — 08:00 and 17:00 Yerevan (UTC+4).
-  // Pulls last 3 days of transactions across all DEE accounts; idempotent
-  // (UNIQUE constraint on company_bank_account_id + external_id treats
-  // duplicates as updates, not inserts).
-  if (cron === '0 4,13 * * *') {
-    console.log('[cron:modulbank-pull] starting hourly safety-net sync');
-    try {
-      const today = new Date();
-      const threeDaysAgo = new Date(today.getTime() - 3 * 24 * 3600_000);
-      const from = threeDaysAgo.toISOString().slice(0, 10);
-      const till = today.toISOString().slice(0, 10);
-      const r = await env.SELF.fetch(new Request(
-        `https://internal/api/banks/modulbank/sync-history`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from, till }),
-        }
-      ));
-      const text = await r.text();
-      console.log(`[cron:modulbank-pull] HTTP ${r.status} body=${text.slice(0, 300)}`);
-
-      // Surface per-account errors hidden inside a 200 response body to auto-healer
-      if (r.ok) {
-        try {
-          const parsed = JSON.parse(text) as { result?: { summary?: Array<{ account_id?: string; error?: string }> } };
-          const errored = parsed?.result?.summary?.filter((s) => s?.error) ?? [];
-          for (const item of errored) {
-            await reportCronFailure(
-              env,
-              `modulbank_sync:${item.account_id ?? 'unknown'}`,
-              new Error(item.error ?? 'unknown error'),
-              { cron: '0 4,13 * * *', payload: item },
-            );
-          }
-        } catch (parseErr) {
-          // Non-JSON body — likely 5xx from worker itself
-          await reportCronFailure(env, 'modulbank_sync', new Error(`sync-history HTTP ${r.status}: ${text.slice(0, 300)}`), { cron: '0 4,13 * * *' });
-        }
-      } else {
-        await reportCronFailure(env, 'modulbank_sync', new Error(`sync-history HTTP ${r.status}: ${text.slice(0, 300)}`), { cron: '0 4,13 * * *' });
-      }
-    } catch (e) {
-      console.error('[cron:modulbank-pull] failed:', e);
-      await reportCronFailure(env, 'modulbank_sync', e, { cron: '0 4,13 * * *' });
-    }
-    return;
-  }
+  // Owner 2026-10-17: the direct Modulbank API pull is removed for good. Modulbank lines
+  // arrive from the bank's notification letters (workers/erp-modulbank-mail), every day.
 
   if (cron === '*/15 * * * *') {
     console.log('[cron:tg-inbox] starting Telegram inbox ingestion');

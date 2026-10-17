@@ -31,7 +31,6 @@ const RETIRED = {
   'erp-wb-turnover': 'Owner 2026-10-12: board copy of an ERP total; the ERP already shows it',
   'erp-wb-week': 'Owner 2026-10-12: board copy of an ERP total; the ERP already shows it',
   'erp-wb-stocks': 'Owner 2026-09-19: WB is FBS-only; no warehouse stock sync',
-  'erp-modulbank-sync': 'Owner 2026-10-02: "cancel this modul bank erp checks" — bank refused every run (TLS timeout)',
   'erp-fbo-sync': 'Owner 2026-09-20: marketplace stock once daily and sales at 01:00 Yerevan; duplicate FBO timer retired',
 };
 

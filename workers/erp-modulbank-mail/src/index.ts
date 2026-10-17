@@ -5,7 +5,7 @@ import { autoMatchBankTransaction } from '../../../api/src/lib/bank-auto-match';
 import type { Env as ErpEnv } from '../../../api/src/types';
 
 // Owner 2026-10-12: Modulbank payment notifications in dasexperten@gmail.com are read,
-// written into the ERP bank lines, and the Gmail thread is archived. Weekdays, once a day.
+// written into the ERP bank lines, and the Gmail thread is archived. Once a day, every day (Owner 2026-10-17).
 // A thread with any letter that could not be read stays in the inbox for a human.
 
 interface Env extends BaseEnv {

@@ -1,6 +1,6 @@
 # erp-modulbank-mail — Modulbank payment notifications from dasexperten@gmail.com → ERP bank lines,
 # then the Gmail thread is archived. Owner 2026-10-12: the Modulbank API feed is off; read the mail
-# once a day on weekdays. Code in workers/_bank/modulbank-mail.mjs.
+# once a day. Owner 2026-10-17: every day including Saturday and Sunday — the bank writes on weekends too. Code in workers/_bank/modulbank-mail.mjs.
 name = "erp-modulbank-mail"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
@@ -22,5 +22,5 @@ service = "emailer-bridge"
 # Keys (secrets): ERP_RUN_SECRET (manual /run).
 
 [triggers]
-# 04:30 Yerevan Mon–Fri (00:30 UTC): before marketplace FIFO (00:50) and bank match (02:00).
-crons = ["30 0 * * 1-5"]
+# 04:30 Yerevan every day (00:30 UTC), Owner 2026-10-17: before marketplace FIFO (00:50) and bank match (02:00).
+crons = ["30 0 * * *"]

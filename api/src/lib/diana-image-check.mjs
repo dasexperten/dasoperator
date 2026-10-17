@@ -25,9 +25,10 @@ export async function checkDianaImages({ images, policy, task, apiKey, fetchImpl
       continue;
     }
     let prepared;
-    try { prepared = normalize(image); } catch { prepared = null; }
+    let decodeError = '';
+    try { prepared = normalize(image); } catch (e) { prepared = null; decodeError = e instanceof Error ? e.message.slice(0, 100) : 'decode error'; }
     if (!prepared) {
-      checks.push({ label: image.label, kind: 'unknown', product: 'unknown', seller: 'unknown', amount: 'unknown', reason: 'image_decode_failed' });
+      checks.push({ label: image.label, kind: 'unknown', product: 'unknown', seller: 'unknown', amount: 'unknown', reason: 'image_decode_failed', detail: decodeError });
       continue;
     }
     const choice = (instructions, yes, no) => ({ type: 'choice', instructions, criteria: { yes, no, unknown: 'The relevant detail is absent, cropped, unreadable, conflicting, or cannot be established from this image. Do not guess.' } });

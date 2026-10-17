@@ -1,5 +1,6 @@
 import jpeg from 'jpeg-js';
 import { PNG } from 'pngjs';
+import { Buffer } from 'node:buffer';
 
 // JEV image limits: docs.typesafe.ai/images. Preserve the entire picture,
 // resize to fit and pad narrow/small images rather than cropping evidence.

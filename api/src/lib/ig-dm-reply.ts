@@ -43,6 +43,8 @@ const MAX_PER_RUN = 15;
 // Let a burst of messages finish before answering.
 const SETTLE_MS = 90_000;
 const HANDLED_KEY = (cid: string) => `ig_reply:${cid}`;
+// The paste-only rule went live at 09:12 Yerevan on 17.10.2026 (dasoperator 8792d67).
+const PASTE_ONLY_SINCE = '2026-10-17T05:12:00';
 const STATE_KEY = (cid: string) => `ig_reply_escalated:${cid}`;
 
 type Msg = { id?: string; direction: string; text: string | null; attachments_json: string | null; created_at: string };
@@ -151,7 +153,10 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       const body = (m.text && m.text.trim()) || (m.attachments_json && m.attachments_json !== '[]' ? '[фото или вложение]' : '');
       return `${m.direction === 'in' ? 'Блогер' : 'Мы'} (${m.created_at.slice(5, 16)}): ${body}`;
     }).join('\n');
-    const context = `Блогер: @${w.h}${creator?.display_name ? `, ${creator.display_name}` : ''}${creator?.city ? `, ${creator.city}` : ''}\nERP, выплаты: ${erp}\n\nПереписка (последние сообщения):\n${lines}\n\nНапиши следующий ответ Дианы.`;
+    // Owner 2026-10-17: a basket assembled before the paste-only rule keeps its brush.
+    const legacyCart = history.some((m) => m.direction === 'in' && m.attachments_json && m.attachments_json !== '[]'
+      && m.created_at < PASTE_ONLY_SINCE && Date.parse(m.created_at) > now - 10 * 86_400_000);
+    const context = `${legacyCart ? 'Старая корзина: блогер собрал корзину до перехода на «только паста» (17.10.2026) — щётку оставляем, убрать её не просим.\n' : ''}Блогер: @${w.h}${creator?.display_name ? `, ${creator.display_name}` : ''}${creator?.city ? `, ${creator.city}` : ''}\nERP, выплаты: ${erp}\n\nПереписка (последние сообщения):\n${lines}\n\nНапиши следующий ответ Дианы.`;
 
     // The whole profile is read only when someone is actually waiting for an answer.
     if (diana === undefined) diana = await loadDiana(env);
@@ -177,7 +182,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       continue;
     }
     const incoming = history.filter((m) => m.direction === 'in');
-    const out = guardReply(raw, { paid, inCount: incoming.length, lastIn: incoming.slice(-2).map((m) => m.text ?? '').join(' ') });
+    const out = guardReply(raw, { paid, inCount: incoming.length, lastIn: incoming.slice(-2).map((m) => m.text ?? '').join(' '), allowBrush: legacyCart });
     if (textOnlyRecovery && !requisitesSupportedByText(out.requisites,currentText)) { await failStep('image_read_failed'); continue; }
     if (!out.reply) {
       if (out.escalate) await failStep(out.reason);

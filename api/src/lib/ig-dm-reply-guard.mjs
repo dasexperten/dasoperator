@@ -15,7 +15,7 @@ export const SCENARIO_RULES = `Текущее решение Владельца 
 
 export const DIANA_RULES_BODY = `Ты — Диана, менеджер блогеров бренда Das Experten (зубные пасты и щётки). Пишешь в Instagram Direct от имени @dasexperten.
 
-Программа (бартер, Владелец 17.10.2026): только паста TERMO 39°, щёток больше не даём. Блогер кладёт в корзину на Ozon одну пасту TERMO, присылает скрин корзины; мы переводим сумму корзины по СБП до заказа; блогер заказывает, снимает честный ролик и оставляет отзыв. Найти пасту: поиск на Ozon «зубная паста с ферментами», оранжевая TERMO. Картинку-инструкцию не обещай и не отправляй сама — её отправляет человек. Сначала предлагай Ozon; если блогер принципиально не хочет Ozon — можно Wildberries, та же паста TERMO. Щётку не предлагать; если блогер спросит про щётку или положил её в корзину — «щётку брать не нужно, только пасту». Лимит — 999 ₽ на блогера.
+Программа (бартер, Владелец 17.10.2026): только паста TERMO 39°, щёток больше не даём. Блогер кладёт в корзину на Ozon одну пасту TERMO, присылает скрин корзины; мы переводим сумму корзины по СБП до заказа; блогер заказывает, снимает честный ролик и оставляет отзыв. Найти пасту: поиск на Ozon «зубная паста с ферментами», оранжевая TERMO. Картинку-инструкцию не обещай и не отправляй сама — её отправляет человек. Сначала предлагай Ozon; если блогер принципиально не хочет Ozon — можно Wildberries, та же паста TERMO. Щётку не предлагать; если блогер спросит про щётку или положил её в корзину — «щётку брать не нужно, только пасту». Исключение (Владелец 17.10.2026): если в данных сказано «старая корзина», блогер собрал корзину со щёткой до новых правил — щётку оставляем, ничего убирать не просим. Лимит — 999 ₽ на блогера.
 
 Ход разговора (скрипт Дианы, Роберты и Дениса, 17.10.2026). Сначала интерес к пасте, потом честное ожидание. Слова о товаре — только эти (гейт Майи 15.10.2026):
 - Интерес: «Это TERMO 39°, паста с ферментами. Многие при чистке чувствуют мягкое тепло вместо привычного мятного холода. Хотите проверить на себе и снять честный ролик?»
@@ -110,7 +110,7 @@ const PROMISE = /(переведу|переведём|переведем|отп�
 // Owner (DH-MAP-261010-01): paid reels, price lists and fees are the Owner's call — no model answer.
 const PAID_ASK = /(сколько\s+(вы\s+)?плат|прайс|за\s+деньги|платн|гонорар|оплат\S*\s+за\s+(рилс|ролик|пост|сторис|рекламу)|стоимост\S*\s+(рилс|ролик|реклам)|цена\s+за\s+(рилс|ролик|пост))/i;
 
-export function guardReply(raw, { paid = false, inCount = 99, lastIn = '' } = {}) {
+export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allowBrush = false } = {}) {
   if (PAID_ASK.test(String(lastIn))) return { reply: null, escalate: true, reason: 'paid request, Owner decides' };
   const ordered = /(^|[^а-яё])(заказала|заказал|оформила заказ|оформил заказ)([^а-яё]|$)/i.test(String(lastIn)) && !/скрин|чек|номер заказа/i.test(String(lastIn));
   let parsed;
@@ -130,7 +130,7 @@ export function guardReply(raw, { paid = false, inCount = 99, lastIn = '' } = {}
   if (!reply || escalate) return { reply: null, escalate, reason, sendCards: false };
   if (parts.length === 1 ? reply.length > 420 : parts.some((x) => x.length > 300) || reply.length > 800) return { reply: null, escalate: true, reason: 'too long' };
   // Owner 2026-10-17: barter is TERMO paste only — no brush is offered or put in the cart.
-  if (/ETALON|SENSITIV|MITTEL|ЭТАЛОН|(^|[^a-zа-яё])ZERO([^a-zа-яё]|$)|паст[аыуеой]*\s+и\s+(?:одн[ау]\s+|наш[ау]\s+)?щ[её]тк|щ[её]тк[ауи]?\s+(?:тоже\s+)?(?:в\s+корзин|добав|полож|закаж)/i.test(reply)) return { reply: null, escalate: true, reason: 'offers a brush, paste only' };
+  if (!allowBrush && /ETALON|SENSITIV|MITTEL|ЭТАЛОН|(^|[^a-zа-яё])ZERO([^a-zа-яё]|$)|паст[аыуеой]*\s+и\s+(?:одн[ау]\s+|наш[ау]\s+)?щ[её]тк|щ[её]тк[ауи]?\s+(?:тоже\s+)?(?:в\s+корзин|добав|полож|закаж)/i.test(reply)) return { reply: null, escalate: true, reason: 'offers a brush, paste only' };
   if (!paid && MONEY_SENT.test(reply)) return { reply: null, escalate: true, reason: 'claims money sent, not paid in ERP' };
   if (/(?:семь|семи|7)\s+(?:сценари|карточ)|(?:от\s*1\s*до\s*7|1\s*[–—-]\s*7)|(?:сценари[йяюем]*|карточк[а-яё]*)\s*(?:№\s*)?[5-7](?!\d)/i.test(reply)) return { reply: null, escalate: true, reason: 'scenario outside active menu' };
   if (PROMISE.test(reply)) return { reply: null, escalate: true, reason: 'promises payment' };

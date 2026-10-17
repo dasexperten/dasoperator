@@ -84,3 +84,9 @@ test('«заказала» always asks for the order screenshot', () => {
   assert.equal(guardReply(j('Отличный выбор! Снимите три вещи.'), { lastIn: 'Заказала! Хочу вторую карточку' }).reason, 'ask for the order screenshot too');
   assert.ok(guardReply(j('Отлично! Пришлите, пожалуйста, скрин заказа.'), { lastIn: 'Заказала!' }).reply);
 });
+
+test('a basket assembled before the paste-only rule keeps its brush (Owner 2026-10-17)', () => {
+  const j = JSON.stringify({ reply: 'Паста и щётка ETALON в корзине — всё верно.', escalate: false, send_cards: false, requisites: null, reason: 'x' });
+  assert.equal(guardReply(j).reason, 'offers a brush, paste only');
+  assert.ok(guardReply(j, { allowBrush: true }).reply);
+});

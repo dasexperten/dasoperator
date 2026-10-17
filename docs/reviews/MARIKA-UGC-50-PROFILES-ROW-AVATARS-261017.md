@@ -86,3 +86,5 @@ The first long manual worker HTTP request was cancelled after the client's 300-s
 | @zarina18_97 | yes | 7773 | 45 | 6 |
 
 Owner follow-up: whitespace inside the full-width account anchor also opens the modal. Actual text and icons keep their own actions; blank anchor navigation is cancelled in both desktop and mobile row handlers.
+
+Final whitespace fix: `9df2c170821af93148eed31eae2018773e069359`; Pages **39022268145** and Checks **39022268155** succeeded. Native clicks were verified on the right-hand empty area of the desktop account anchor (x586) and the phone row's outer padding. Both opened the native modal, with main scroll 0 -> 0. Clicking the actual follower digits left zero dialogs open. Desktop dialog top16; phone top8,width374,zero horizontal overflow. After mobile alignment, avatar and account-name line centers both measured359.39px. Temporary viewport override reset and the live ERP tab retained.

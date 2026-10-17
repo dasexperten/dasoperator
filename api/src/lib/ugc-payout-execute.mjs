@@ -45,7 +45,7 @@ export function bloggerPaidText(row) {
   // Owner 2026-10-16: «Мы вам оплатили… И после этого мост перекидываешь сразу про сценарий».
   // Owner 2026-10-17: several short messages (split on a blank line); first say the blogger may
   // invent her own scenario, and only then offer our four cards.
-  return `Перевела ${formatRub(row.amount_minor)} по СБП 👍 Оформляйте заказ и пришлите скрин.\n\nСценарий можете придумать сами, главное, чтобы в кадре были ваше лицо и паста.\n\nЕсли готовой идеи нет, вот четыре карточки на выбор. Какой вам ближе? Пришлите номер.`;
+  return `Перевела ${formatRub(row.amount_minor)} по СБП 👍 Оформляйте заказ и пришлите скрин.\n\nСценарий можете придумать сами, главное, чтобы было видно ваше лицо и пасту.\n\nЕсли готовой идеи нет, вот четыре карточки на выбор. Какой вам ближе? Пришлите номер.`;
 }
 
 export function paidNoticeText(row) {

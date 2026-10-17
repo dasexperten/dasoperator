@@ -2,7 +2,8 @@
 const TECHNICAL = new Set(['unparsable', 'too long', 'promises payment', 'claims money sent, not paid in ERP', 'menu jargon in a reply', 'says face is optional', 'scenario outside active menu', 'provider_error', 'image_read_failed', 'payout_registration_failed', 'creator_registration_failed', 'conversation_check_failed', 'send_failed',
   // Rewrites the model can fix on the next attempt (guard rules of 2026-10-17); a paid request stays with a person.
   'offers a brush, paste only', 'claim about children', 'adult wording', 'warm address too early, keep it neutral', 'informal ты, always вы', 'ask for the order screenshot too', 'command tone, ask with «пожалуйста»', 'paid notice as a question, use «Перевела N ₽ по СБП. Проверьте, пожалуйста, должно быть уже дошло.»',
-  'vision_error', 'image_unreadable_text_error', 'diana_context_unavailable', 'diana_image_check_unavailable', 'diana_context_audit_failed', 'image_verdict_requires_clarification']);
+  'vision_error', 'image_unreadable_text_error', 'diana_context_unavailable', 'diana_image_check_unavailable', 'diana_context_audit_failed', 'image_verdict_requires_clarification',
+  'current_image_unavailable', 'current_attachment_metadata_unavailable', 'diana_image_decode_unavailable']);
 const isTechnical = (reason) => TECHNICAL.has(String(reason ?? '').split(':')[0].trim());
 export const RETRY_DELAY_MS = 5 * 60_000;
 export const MAX_REPLY_ATTEMPTS = 3;

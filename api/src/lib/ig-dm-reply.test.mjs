@@ -19,10 +19,17 @@ await build({ entryPoints: [fileURLToPath(new URL('./ig-dm-reply.ts', import.met
       : a.path==='./diana-image-check.mjs' ? 'export const checkDianaImages=async()=>{if(globalThis.__ugcTest.jevImageError)throw Error("JEV image");return globalThis.__ugcTest.imageCheck??{status:"yes",reasons:[],checks:[]}};'
       : a.path==='./ig-dm-attachments' ? 'export const incomingScreenshots=async()=>{if(globalThis.__ugcTest.imageError)throw Error("image");return {images:globalThis.__ugcTest.screenshots??[],unreadable:globalThis.__ugcTest.unreadable??0}};'
       : a.path==='./owner-telegram' ? 'export const sendOwnerTelegram=()=>globalThis.__ugcTest.notify();'
-      : 'export const lastWordIsBlogger=()=>globalThis.__ugcTest.live; export const sendIgDirect=(...args)=>globalThis.__ugcTest.send(...args); export const sendIgCards=(...args)=>globalThis.__ugcTest.cards(...args);' }));
+      : 'export const refreshIgAttachments=async()=>globalThis.__ugcTest.freshAttachments??null; export const lastWordIsBlogger=()=>globalThis.__ugcTest.live; export const sendIgDirect=(...args)=>globalThis.__ugcTest.send(...args); export const sendIgCards=(...args)=>globalThis.__ugcTest.cards(...args);' }));
   }}] });
 const { igDmReply } = await import(pathToFileURL(outfile));
 rmSync(dir, { recursive:true });
+
+test('missing current attachment metadata is repaired internally or stays pending without a resend request',async()=>{
+ const f=fixture();f.history=[{id:'blank',direction:'in',text:null,attachments_json:null,created_at:f.t}];
+ await igDmReply(f.env);assert.equal(incident(f).reason,'current_attachment_metadata_unavailable');assert.equal(f.sent.length,0);assert.equal(f.systems.length,0);
+ const g=fixture();g.history=[{id:'blank',direction:'in',text:null,attachments_json:null,created_at:g.t}];g.freshAttachments='[{"image_data":{"url":"https://lookaside.fbsbx.com/image"}}]';
+ await igDmReply(g.env);assert.equal(g.sent.length,1);assert.equal(g.history[0].attachments_json,g.freshAttachments);
+});
 const good = JSON.stringify({reply:'Получила, проверяю!',escalate:false,reason:'ok'});
 function fixture() {
   const t = new Date(Date.now()-300_000).toISOString(), cid='conversation', states=new Map(), sent=[], notices=[], systems=[], sqls=[];
@@ -121,7 +128,7 @@ test('screenshots are passed as images to vision, not just attachment text',asyn
  await igDmReply(f.env);assert.equal(f.visionCalled,true);assert.equal(f.sent.length,1);
 });
 test('an unavailable screenshot stays open and sends no blind acknowledgement',async()=>{
- const f=fixture();f.imageError=true;await igDmReply(f.env);assert.equal(incident(f).reason,'image_read_failed');assert.equal(handled(f),undefined);assert.equal(f.sent.length,0);assert.equal(f.systems.length,1);
+ const f=fixture();f.imageError=true;await igDmReply(f.env);assert.equal(incident(f).reason,'current_image_unavailable');assert.equal(handled(f),undefined);assert.equal(f.sent.length,0);assert.equal(f.systems.length,0);
 });
 
 test('unavailable older image does not block complete current text requisites',async()=>{

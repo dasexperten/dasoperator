@@ -14,7 +14,7 @@ import { sendOwnerTelegram } from './owner-telegram';
 
 // Owner 17.10.2026: the complete Diana context and JEV-selected skills are mandatory.
 // No embedded script fallback when a source or JEV is unavailable.
-import { lastWordIsBlogger, sendIgCards, sendIgDirect } from './ig-dm-watch';
+import { lastWordIsBlogger, refreshIgAttachments, sendIgCards, sendIgDirect } from './ig-dm-watch';
 
 const MAX_PER_RUN = 15;
 // Let a burst of messages finish before answering.
@@ -125,6 +125,15 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     const history = ((await env.DB.prepare(
       `SELECT id, direction, text, attachments_json, created_at FROM ugc_ig_messages WHERE conversation_id=?1 ORDER BY created_at DESC LIMIT 60`
     ).bind(w.cid).all<Msg>()).results ?? []).reverse();
+    const lastOutIndex=history.map(m=>m.direction).lastIndexOf('out');
+    let attachmentMetadataMissing=false;
+    for(const message of history.slice(lastOutIndex+1)){
+      if(message.direction!=='in' || message.text?.trim() || (message.attachments_json && message.attachments_json!=='[]'))continue;
+      const fresh=message.id ? await refreshIgAttachments(env,message.id).catch(()=>null) : null;
+      if(fresh && fresh!=='[]')message.attachments_json=fresh;
+      else attachmentMetadataMissing=true;
+    }
+    if(attachmentMetadataMissing){await failStep('current_attachment_metadata_unavailable');continue;}
     const creator = await env.DB.prepare(
       `SELECT c.id, c.display_name, c.city FROM ugc_creators c WHERE c.id=?1`
     ).bind(identity.cid).first<{ id: string; display_name: string | null; city: string | null }>();
@@ -153,16 +162,19 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     } catch { await failStep('diana_context_unavailable'); continue; }
     const system = `${prepared.system}\n\n${SCENARIO_RULES}\n\n${JSON_SPEC}\nРегистрируй реквизиты только для текущей неоплаченной корзины. Уже исполненную выплату повторно не создавай. Верни законченный JSON, reason до 80 знаков. ${state?.at === w.t ? `Предыдущий ответ отклонён: ${state.reason}. Исправь формулировку; не обещай оплату.` : ''}`;
     let screenshots;
-    try { screenshots=await incomingScreenshots(env,history,w.t); } catch { screenshots={images:[],unreadable:1}; }
+    try { screenshots=await incomingScreenshots(env,history,w.t); } catch { screenshots={images:[],unreadable:1,currentUnavailable:true,omitted:0}; }
+    // A broken transport is our incident, never a request to resend the same file.
+    if(screenshots.currentUnavailable){await failStep('current_image_unavailable');continue;}
     const images=screenshots.images;
     let imageCheck = null;
     if (images.length) {
       try { imageCheck = await checkDianaImages({ images, policy: prepared.imagePolicy, task: context, apiKey: env.OPENROUTER_ERP ?? '' }); }
       catch { await failStep('diana_image_check_unavailable'); continue; }
+      if(imageCheck.checks.some(check=>Boolean(check.reason))){await failStep('diana_image_decode_unavailable');continue;}
     }
     try {
       await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
-        .bind(`diana_context:${w.cid}`, JSON.stringify({ ...prepared.receipt, at: w.t, image_check: imageCheck }), Date.now()).run();
+        .bind(`diana_context:${w.cid}`, JSON.stringify({ ...prepared.receipt, at: w.t, image_check: imageCheck, attachment_coverage:{read:images.length,unreadable:screenshots.unreadable,omitted:screenshots.omitted} }), Date.now()).run();
     } catch { await failStep('diana_context_audit_failed'); continue; }
     const textOnlyRecovery=screenshots.unreadable>0 && images.length===0;
     if (screenshots.unreadable) console.warn(`[ig-reply] @${w.h}: ${screenshots.unreadable} image(s) unreadable, ${images.length} read`);

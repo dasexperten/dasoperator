@@ -29,6 +29,9 @@ test('missing current attachment metadata is repaired internally or stays pendin
  await igDmReply(f.env);assert.equal(incident(f).reason,'current_attachment_metadata_unavailable');assert.equal(f.sent.length,0);assert.equal(f.systems.length,0);
  const g=fixture();g.history=[{id:'blank',direction:'in',text:null,attachments_json:null,created_at:g.t}];g.freshAttachments='[{"image_data":{"url":"https://lookaside.fbsbx.com/image"}}]';
  await igDmReply(g.env);assert.equal(g.sent.length,1);assert.equal(g.history[0].attachments_json,g.freshAttachments);
+ // Owner 2026-10-18: Instagram confirms an empty item (a like, an unsupported sticker) — the text before it is answered.
+ const e=fixture();e.history=[{direction:'in',text:'89511688874 озон Сотова Ксения',created_at:e.t},{id:'blank',direction:'in',text:null,attachments_json:null,created_at:e.t}];e.freshAttachments='[]';
+ await igDmReply(e.env);assert.equal(e.sent.length,1);assert.equal(e.states.has('ig_reply_escalated:'+e.cid),false);
 });
 const good = JSON.stringify({reply:'Получила, проверяю!',escalate:false,reason:'ok'});
 function fixture() {

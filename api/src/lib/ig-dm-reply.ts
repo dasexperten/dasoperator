@@ -132,7 +132,8 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     for(const message of history.slice(lastOutIndex+1)){
       if(message.direction!=='in' || message.text?.trim() || (message.attachments_json && message.attachments_json!=='[]'))continue;
       const fresh=message.id ? await refreshIgAttachments(env,message.id).catch(()=>null) : null;
-      if(fresh && fresh!=='[]')message.attachments_json=fresh;
+      if(fresh==='[]')continue; // Instagram confirms the item is empty: nothing to read.
+      if(fresh)message.attachments_json=fresh;
       else attachmentMetadataMissing=true;
     }
     if(attachmentMetadataMissing){await failStep('current_attachment_metadata_unavailable');continue;}

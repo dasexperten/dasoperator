@@ -123,7 +123,10 @@ export async function refreshIgAttachments(env: Env, messageId: string): Promise
     let found=data.find((m:any)=>String(m.id)===messageId);
     if(!found){const matches=data.filter((m:any)=>Date.parse(m.created_time)===Date.parse(stored.created_at) && (!stored.from_id || String(m.from?.id)===stored.from_id));if(matches.length===1)found=matches[0];}
     if(found){
-      if(!Array.isArray(found.attachments?.data))return null;
+      // Owner 2026-10-18 (kseniya_obzor_wb_ozon, nazarovas2004 and 7 more): Instagram returns some
+      // items with no text and no attachments (a like, a reaction, an unsupported sticker). There is
+      // nothing to read; '[]' records «confirmed empty» so the reply is not blocked on it.
+      if(!Array.isArray(found.attachments?.data)){await env.DB.prepare(`UPDATE ugc_ig_messages SET attachments_json='[]' WHERE id=?1`).bind(messageId).run();return '[]';}
       const json=JSON.stringify(found.attachments.data);
       await env.DB.prepare(`UPDATE ugc_ig_messages SET attachments_json=?2 WHERE id=?1`).bind(messageId,json).run();
       return json;

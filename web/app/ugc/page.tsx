@@ -346,7 +346,7 @@ function BloggerProfile({ profile, onSaved, showHandle = false }: { profile: Pla
     {showHandle ? <div className="ugc-profile-note"><strong>@{profile.handle}</strong> · {platformLabel(profile.platform)}</div> : null}
     <dl className="ugc-card-kpis">
       <div><dt>Подписчики</dt><dd>{formatCount(profile.followers)}</dd></div>
-      <div><dt>Средние просмотры</dt><dd>{formatCount(views ?? null)}</dd></div>
+      <div title="Средние просмотры"><dt>Просмотры</dt><dd>{formatCount(views ?? null)}</dd></div>
       <div><dt>Публикации</dt><dd>{formatCount(profile.posts_count ?? null)}</dd></div>
       <div><dt>ER</dt><dd>{er}</dd></div>
     </dl>
@@ -846,12 +846,7 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
     <div className="ugc-card-top">{lead ? <BloggerAvatar profile={lead} /> : null}<div className="ugc-card-who"><h2 id="ugc-creator-title">{lead ? `@${lead.handle}` : creator.display_name || 'Автор'}</h2>{sub ? <span>{sub}</span> : null}</div><button type="button" onClick={onClose} className="min-h-11 min-w-11 flex items-center justify-center" aria-label="Закрыть карточку блогера"><X className="h-5 w-5" /></button></div>
     {creator.attention ? <p className="ugc-card-attention"><AlertCircle className="h-5 w-5 shrink-0" style={{ color: '#7a4e25' }} /><span><strong>{creator.attention.label}.</strong> {creator.attention.reason}</span></p> : null}
     <section className="ugc-card-sec"><div className="ugc-card-label">Аудитория</div>{creator.profiles.map((profile) => <BloggerProfile key={profile.id} profile={profile} onSaved={onSaved} showHandle={creator.profiles.length > 1} />)}</section>
-    <section className="ugc-card-sec"><div className="ugc-card-label">Работа</div>
-      <div className="ugc-card-line"><span>Статус</span><span className="ugc-stage" data-stage={creator.lifecycle_stage}>{creator.lifecycle_stage}</span></div>
-      <div className="ugc-card-line"><span>Следующий шаг</span><span>{collaboration.next_action || '—'}</span></div>
-      <div className="ugc-card-line"><span>Срок</span><span>{shortDate(collaboration.next_action_at)}</span></div>
-      <div className="ugc-card-line"><span>Последний контакт</span><span>{shortDate(creator.last_activity_at)}</span></div>
-    </section>
+    <div className="ugc-card-line"><span>Последний контакт</span><span>{shortDate(creator.last_activity_at)}</span></div>
     <section className="ugc-card-sec" aria-labelledby={`payouts-${creator.id}`}><div id={`payouts-${creator.id}`} className="ugc-card-label">Оплата</div>
       {creator.payouts?.length ? creator.payouts.map((item) => <div key={item.id} className="ugc-card-pay"><PayoutBadge payout={item} /><span>{item.status === 'awaiting_approval' || item.status === 'approved' ? 'В очереди' : item.payout_date}</span></div>) : <p className="ugc-card-empty">Выплат пока нет.</p>}
       <div className="ugc-card-line"><span>Всего выплачено</span><strong>{formatRub(creator.paid_total_minor ?? 0)}</strong></div>

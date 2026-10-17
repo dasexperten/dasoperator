@@ -2,6 +2,14 @@ import type { Env } from '../types';
 import { cacheIncomingImages } from './ig-dm-image-cache';
 const BRAND_ID = '17841466350261166';
 
+/** Restored bytes reopen only a transport failure; business review stays put. */
+export async function resumeRecoveredIgImage(env: Env, conversationId: string) {
+  await env.DB.prepare(`DELETE FROM crm_sync_state WHERE key=?1 AND json_valid(value)
+    AND json_extract(value,'$.kind')='technical'
+    AND json_extract(value,'$.reason') IN ('image_read_failed','current_image_unavailable','current_attachment_metadata_unavailable')`)
+    .bind(`ig_reply_escalated:${conversationId}`).run();
+}
+
 /** A message ID may arrive before its attachment metadata. Re-reading it must
  * enrich the existing row, not permanently preserve the first empty version. */
 export async function archiveIgMessage(env: Env, conversationId: string, message: any, seenAt: string, since: number) {
@@ -24,7 +32,7 @@ export async function archiveIgMessage(env: Env, conversationId: string, message
     repaired = (result.meta?.changes ?? 0) === 1;
   }
   if (!outgoing && attachmentJson && (inserted || repaired)) {
-    try { await cacheIncomingImages(env, String(message.id), message.attachments.data); }
+    try { await cacheIncomingImages(env, String(message.id), message.attachments.data); if(repaired)await resumeRecoveredIgImage(env,conversationId); }
     catch { /* metadata is retained; the reader retries a failed download */ }
   }
   return { inserted, repaired, incoming: inserted && !outgoing };

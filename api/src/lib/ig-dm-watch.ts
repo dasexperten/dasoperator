@@ -5,7 +5,7 @@
 // Cadence is not decided here — the adaptive runner calls it (3 / 15 / 30 min).
 import type { Env } from '../types';
 import { cacheIncomingImages } from './ig-dm-image-cache';
-import { archiveIgMessage } from './ig-dm-archive';
+import { archiveIgMessage, resumeRecoveredIgImage } from './ig-dm-archive';
 import { bloggerName, cityOf } from './ugc-person-name.mjs';
 
 const G = 'https://graph.facebook.com/v21.0';
@@ -139,18 +139,18 @@ export async function refreshIgAttachments(env: Env, messageId: string): Promise
  * can appear after the initial Graph response, even with no new conversation. */
 export async function recoverMissingIgImages(env: Env): Promise<number> {
   const now = Date.now();
-  const rows = (await env.DB.prepare(`SELECT m.id FROM ugc_ig_messages m
+  const rows = (await env.DB.prepare(`SELECT m.id,m.conversation_id FROM ugc_ig_messages m
     LEFT JOIN crm_sync_state probe ON probe.key='ig_attachment_probe:'||m.id
     WHERE m.direction='in' AND (m.text IS NULL OR trim(m.text)='')
       AND (m.attachments_json IS NULL OR m.attachments_json='' OR m.attachments_json='[]')
       AND m.created_at>=?1 AND (probe.updated_at IS NULL OR probe.updated_at<?2)
     ORDER BY m.created_at DESC LIMIT 10`)
-    .bind(new Date(now - 7 * 86_400_000).toISOString(), now - 30 * 60_000).all<{id:string}>()).results ?? [];
+    .bind(new Date(now - 7 * 86_400_000).toISOString(), now - 30 * 60_000).all<{id:string;conversation_id:string}>()).results ?? [];
   let repaired = 0;
   for (const row of rows) {
     const json = await refreshIgAttachments(env, row.id).catch(() => null);
     if (json && json !== '[]') {
-      try { await cacheIncomingImages(env, row.id, JSON.parse(json)); repaired++; } catch { /* reader retries */ }
+      try { await cacheIncomingImages(env, row.id, JSON.parse(json)); await resumeRecoveredIgImage(env,row.conversation_id); repaired++; } catch { /* reader retries */ }
     }
     await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
       .bind(`ig_attachment_probe:${row.id}`, json && json !== '[]' ? 'metadata_recovered' : 'not_available_yet', now).run();

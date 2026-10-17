@@ -6,8 +6,9 @@ test('a plain reply passes', () => {
   assert.equal(guardReply('{"reply":"Получила, проверяю!","escalate":false,"reason":"req"}').reply, 'Получила, проверяю!');
 });
 test('money sent is said only when ERP shows paid', () => {
-  assert.equal(guardReply('{"reply":"Перевели 560 ₽ — дошло?","escalate":false}').reply, null);
-  assert.equal(guardReply('{"reply":"Перевели 560 ₽ — дошло?","escalate":false}', { paid: true }).reply, 'Перевели 560 ₽ — дошло?');
+  const ok = 'Перевела 560 ₽ по СБП. Проверьте, пожалуйста, должно быть уже дошло.';
+  assert.equal(guardReply(JSON.stringify({ reply: ok, escalate: false })).reply, null);
+  assert.equal(guardReply(JSON.stringify({ reply: ok, escalate: false }), { paid: true }).reply, ok);
 });
 test('a promise of payment never leaves', () => {
   const out = guardReply('{"reply":"Переведу завтра!","escalate":false}');
@@ -89,4 +90,10 @@ test('a basket assembled before the paste-only rule keeps its brush (Owner 2026-
   const j = JSON.stringify({ reply: 'Паста и щётка ETALON в корзине — всё верно.', escalate: false, send_cards: false, requisites: null, reason: 'x' });
   assert.equal(guardReply(j).reason, 'offers a brush, paste only');
   assert.ok(guardReply(j, { allowBrush: true }).reply);
+});
+
+test('paid notice is a statement, never «дошло?» (Owner 2026-10-17)', () => {
+  const j = (reply) => JSON.stringify({ reply, escalate: false, send_cards: false, requisites: null, reason: 'x' });
+  assert.match(guardReply(j('Перевели 900 ₽ — дошло?'), { paid: true }).reason, /^paid notice as a question/);
+  assert.ok(guardReply(j('Перевела 900 ₽ по СБП. Проверьте, пожалуйста, должно быть уже дошло.'), { paid: true }).reply);
 });

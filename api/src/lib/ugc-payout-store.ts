@@ -114,6 +114,12 @@ function deps(env: Env) {
         await new Promise((r) => setTimeout(r, 1500));
         if (!(await sendIgDirect(env, handle, part, { humanAgent })).ok) break;
       }
+      // Owner 2026-10-18: closed window — Diana's words wait for the browser and count as delivered here.
+      if (!sent.ok && /allowed window/i.test(String(sent.error ?? ''))) {
+        const { queueForBrowser } = await import('./ig-dm-reply');
+        await queueForBrowser(env, handle, 'paid_notice', parts.join('\n'));
+        return { ok: true, queued: true };
+      }
       // After a new payment the scenario cards follow the bridge (Owner 2026-10-16); an old debt gets thanks only.
       // Owner 2026-10-18: no scenario cards with the payment — they wait for the order screenshot.
       return sent;
@@ -263,8 +269,8 @@ export async function paidOrderReminders(env: Env, now = Date.now()): Promise<nu
     } else if (/allowed window/i.test(String(first.error ?? ''))) {
       // Instagram's 7-day window is closed: only a person (or the browser) can write now.
       await save({ via: 'browser_queue', text: parts.join('\n') });
-      await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
-        .bind(`browser_queue:${handle}`, JSON.stringify({ handle, reason: 'paid_order_reminder', payout_id: row.id, text: parts.join('\n'), at: new Date(now).toISOString() }), now).run();
+      const { queueForBrowser } = await import('./ig-dm-reply');
+      await queueForBrowser(env, handle, 'paid_order_reminder', parts.join('\n'));
     }
   }
   return sent;

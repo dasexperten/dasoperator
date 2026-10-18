@@ -144,6 +144,18 @@ function rewriteHint(reason: string, imageCheck: unknown): string {
   return hints[r] ?? `${reason}.`;
 }
 
+/** Owner 2026-10-18: «запасной вход записать в очередь и при первом подключении через браузер сразу запускать». */
+export async function queueForBrowser(env: Env, handle: string, reason: string, text: string): Promise<void> {
+  const h = handle.toLowerCase().replace(/^@/, '');
+  const key = `browser_queue:${h}`;
+  const prev = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(key).first<{ value: string }>();
+  let items: Array<{ reason: string; text: string; at: string }> = [];
+  try { const v = JSON.parse(prev?.value ?? 'null'); items = Array.isArray(v?.items) ? v.items : v?.text ? [{ reason: v.reason, text: v.text, at: v.at }] : []; } catch { items = []; }
+  items.push({ reason, text, at: new Date().toISOString() });
+  await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
+    .bind(key, JSON.stringify({ handle: h, items: items.slice(-5) }), Date.now()).run();
+}
+
 /** Owner 2026-10-18 (mashaa_ugc): a blogger who refused is never paid by the queue; the Owner sees why. */
 export async function holdOpenPayouts(env: Env, creatorId: string, why: string): Promise<number> {
   const open = ((await env.DB.prepare(`SELECT id FROM ugc_payouts WHERE creator_id=?1 AND status IN ('awaiting_approval','approved') AND execute_claim IS NULL AND konsol_payment_id IS NULL`).bind(creatorId).all<{ id: string }>()).results ?? []);
@@ -428,6 +440,12 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       if (stage) await env.DB.prepare(`UPDATE ugc_creators SET lifecycle_stage=?2, updated_at=?3 WHERE id=?1`).bind(creator.id, stage, Date.now()).run().catch(() => undefined);
     }
     if (sent.ok) { replied++; await mark(); }
+    else if (/allowed window/i.test(String((sent as { error?: string }).error ?? ''))) {
+      // Owner 2026-10-18: a closed Instagram window queues Diana's words for the browser; the next browser
+      // connection sends them. The conversation is closed here so the lane does not retry forever.
+      await queueForBrowser(env, w.h, 'reply', parts.join('\n'));
+      await mark();
+    }
     else await failStep('send_failed');
   }
   return { replied, escalated, errors };

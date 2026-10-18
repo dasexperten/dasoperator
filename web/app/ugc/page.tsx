@@ -158,6 +158,7 @@ type LinkSummary = {
 
 type UgcPayload = {
   creators: Creator[];
+  inactive_count?: number;
   payout_summary?: { paid_konsol?: { today: PaidCount; yesterday: PaidCount } };
   summary: { creators: number; profiles: number; content_items: number; active_outreach: number; published: number } & LinkSummary;
   platforms: { platform: string; creator_count: number }[];
@@ -572,6 +573,7 @@ export default function UgcPage() {
   const [platform, setPlatform] = useState('all');
   const [search, setSearch] = useState('');
   const [stage, setStage] = useState('');
+  const [inactive, setInactive] = useState(false);
   const [product, setProduct] = useState('');
   const [sort, setSort] = useState('recent');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -594,7 +596,8 @@ export default function UgcPage() {
     if (search.trim()) params.set('search', search.trim());
     if (stage) params.set('stage', stage);
     if (product) params.set('product', product);
-    const key = `ugc-cache:v2:${getUser()?.id ?? 'anon'}:${params.toString()}`;
+    if (inactive) params.set('inactive', '1');
+    const key = `ugc-cache:v3:${getUser()?.id ?? 'anon'}:${params.toString()}`;
     let cached: UgcPayload | null = null;
     try { const raw = sessionStorage.getItem(key); cached = raw ? JSON.parse(raw) as UgcPayload : null; } catch { cached = null; }
     if (cached) { setData(cached); setLoading(false); } else setLoading(true);
@@ -605,7 +608,7 @@ export default function UgcPage() {
       try { sessionStorage.setItem(key, JSON.stringify(cacheSafe(response.result))); } catch { /* full or blocked — fine */ }
     }
     setLoading(false);
-  }, [platform, search, stage, product]);
+  }, [platform, search, stage, product, inactive]);
 
   useEffect(() => {
     const timer = window.setTimeout(load, 180);
@@ -630,10 +633,11 @@ export default function UgcPage() {
     if (search.trim()) params.set('search', search.trim()); else params.delete('search');
     if (stage) params.set('stage', stage); else params.delete('stage');
     if (product) params.set('product', product); else params.delete('product');
+    if (inactive) params.set('inactive', '1'); else params.delete('inactive');
     if (sort === 'recent') params.delete('sort'); else params.set('sort', sort);
     const query = params.toString();
     window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
-  }, [platform, search, stage, product, sort]);
+  }, [platform, search, stage, product, sort, inactive]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -643,12 +647,14 @@ export default function UgcPage() {
     if (urlSort && ['recent', 'followers', 'views', 'stage', 'attention'].includes(urlSort)) setSort(urlSort);
     setSearch(params.get('search') ?? '');
     setStage(params.get('stage') ?? '');
+    setInactive(params.get('inactive') === '1');
     setProduct(params.get('product') ?? '');
     urlStateReady.current = true;
   }, []);
 
   const creators = useMemo(() => {
-    const rows = [...data.creators];
+    // Hide stale rows immediately while the separately filtered request is loading.
+    const rows = data.creators.filter((creator) => creator.profiles.some(unavailableInstagram) === inactive);
     rows.sort((a, b) => {
       const ap = primaryProfile(a, platform);
       const bp = primaryProfile(b, platform);
@@ -659,7 +665,7 @@ export default function UgcPage() {
       return (bp.followers ?? -1) - (ap.followers ?? -1);
     });
     return rows;
-  }, [data.creators, platform, sort]);
+  }, [data.creators, platform, sort, inactive]);
   useEffect(() => {
     const table = tableRef.current;
     if (!table) return;
@@ -788,7 +794,7 @@ export default function UgcPage() {
         </div>
       </section>
 
-      <div className="ugc-profile-tools"><span>Профили · ежедневно в 03:00</span><ProfileRefresh onSaved={load} /></div>
+      <div className="ugc-profile-tools"><span>Профили · ежедневно в 03:00</span><label className="ugc-inactive-filter"><input type="checkbox" checked={inactive} onChange={(event) => { setInactive(event.target.checked); setSelectedId(null); if (event.target.checked) setStage(''); }} /><span>Inactive{data.inactive_count != null ? ` · ${data.inactive_count}` : ''}</span></label><ProfileRefresh onSaved={load} /></div>
 
       <section className="ugc-table-shell" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-card)' }}>
         <div className="ugc-mobile-list">

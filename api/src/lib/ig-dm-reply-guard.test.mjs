@@ -158,3 +158,10 @@ test('own scenario without the face is fine; unboxing is never offered (Owner 20
   assert.ok(guardReply(j('Хорошо, снимите, пожалуйста, по своему сценарию. Главное, чтобы паста была в деле.'), o).reply);
   assert.equal(guardReply(j('Можно просто распаковку, это тоже подойдёт.'), o).reason, 'offers unboxing or closed packaging');
 });
+
+test('a refusal never sounds like a refusal (noza_finds 2026-10-18)', () => {
+  for (const reply of ['Артикул не даём, ищите через поиск.', 'Артикул не даем', 'Ссылку не можем дать.', 'Так не положено.']) {
+    assert.equal(guardReply(JSON.stringify({ reply, escalate: false, reason: 'ok' }), { paid: false, inCount: 2, lastIn: 'можно артикул' }).reason, 'refusal tone');
+  }
+  assert.notEqual(guardReply(JSON.stringify({ reply: 'Лучше через поиск, так ваша покупка поможет нашей карточке)', escalate: false, reason: 'ok' }), { paid: false, inCount: 2, lastIn: 'можно артикул' }).reason, 'refusal tone');
+});

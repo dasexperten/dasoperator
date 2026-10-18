@@ -20,6 +20,11 @@ export async function dianaCompose(env: Env, handle: string, brief: string): Pro
   const prepared = await prepareDianaContext({ task,
     githubToken: (env as unknown as { GITHUB_TOKEN?: string }).GITHUB_TOKEN ?? '',
     jevKey: env.OPENROUTER_ERP ?? '' });
+  // Owner 2026-10-18: «через JEV подгружает под каждую задачу нужную информацию». No JEV picks — no message.
+  const receipt = (prepared as { receipt?: { entries?: unknown[]; skills?: unknown[]; method?: string } }).receipt ?? {};
+  if (!Array.isArray(receipt.entries) || !receipt.entries.length) return null;
+  await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
+    .bind(`diana_compose:${handle.toLowerCase()}`, JSON.stringify({ ...receipt, brief: brief.slice(0, 400), at: new Date().toISOString() }), Date.now()).run().catch(() => undefined);
   const spec = 'Верни строго JSON без пояснений: {"replies":["…","…"]} — 1–4 коротких сообщения подряд, каждое одно-два предложения, вопрос только в последнем. Без приветствия посреди разговора, без тире, без шаблонных фраз. Не обещай того, чего нет в поручении.';
   let feedback = '';
   for (let pass = 0; pass < 2; pass++) {

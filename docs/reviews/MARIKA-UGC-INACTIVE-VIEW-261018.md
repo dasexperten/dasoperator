@@ -30,3 +30,11 @@ Frontend TypeScript passed (`tsc --noEmit -p web/tsconfig.json`). Parent task ve
 Commit trailer:
 
 `Look-accepted: Marika Nowicka · separate Inactive checkbox and list; native fixture before/default/inactive 390 and 1440 px; zero mobile overflow`
+
+## Production verification
+
+Merged as PR 192 at `ac4f97e73176d7596bb17e4f4fa372592d3054d3`. API run 39114063720 and Pages run 39114063724 completed successfully; Checks 39114063707 passed. GitHub Contents API returned matching source blobs for the API route and frontend page.
+
+Authenticated live API audit: default Instagram list 690 creators, inactive-only list exactly 19, global inactive count 19, zero overlap and zero unexpected availability states. The inactive list exactly matches the 13 accounts from the previous avatar pass plus six earlier archived accounts whose URLs were rechecked in signed-in Instagram and remain unavailable. Those six retain their archive flags and history.
+
+Native live browser: checkbox initially unchecked and no unavailable rows in the default view. Checking it changed the URL to `inactive=1` and displayed exactly 19 desktop rows, all with unavailable styling. At 390 by 844 px, reload restored the checked URL state; all 19 phone rows were present, the checkbox was outside the collapsed filters at top 252 px, and document width did not overflow. Unchecking removed the inactive query parameter. Viewport reset and active Instagram list left open. Payment, conversation and publication history remained available; no payout or message was sent by this task.

@@ -5,6 +5,7 @@
 import type { Env } from '../types';
 import { HARD_ASK } from './ig-dm-reply-guard.mjs';
 import { sendOwnerQuestion } from './owner-telegram';
+import { dianaCompose } from './diana-compose';
 import { sendIgDirect } from './ig-dm-watch';
 
 export const HARD_REASON = 'return or money back, Owner decides';
@@ -47,7 +48,7 @@ export async function askOwnerHardQuestion(env: Env, w: { cid: string; h: string
   const paidLine = pay ? `Мы перевели ей ${rub(pay.amount_minor)}${pay.payout_date ? ` (${pay.payout_date.split('-').reverse().slice(0, 2).join('.')})` : ''}.` : 'Мы ей ещё не платили.';
   const answers = Object.entries(options).map(([label, parts]) =>
     parts ? `${label}:\n${parts.join('\n')}` : `${label}: ничего не отправляю, разговор ждёт вас в ERP.`).join('\n\n');
-  const text = `Вопрос по @${w.h}: возврат или деньги назад.\n\nОна пишет:\n${said.slice(0, 700)}\n\n${paidLine}\n\nЧто ответить:\n\n${answers}\n\nhttps://erp.dasexperten.com/ugc?search=${encodeURIComponent(w.h)}`;
+  const text = `Вопрос по @${w.h}: возврат или деньги назад.\n\nОна пишет:\n${said.slice(0, 700)}\n\n${paidLine}\n\nСмысл ответа (слова напишет Диана своим голосом):\n\n${answers}\n\nhttps://erp.dasexperten.com/ugc?search=${encodeURIComponent(w.h)}`;
   const messageId = await sendOwnerQuestion(env, text, Object.keys(options));
   if (messageId == null) return 'failed';
   const q: Question = { cid: w.cid, handle: w.h, at: w.t, options };
@@ -70,9 +71,12 @@ export async function answerHardQuestion(env: Env, messageId: number, choice: st
   };
   if (!parts) { await save(); return { handled: true, note: `@${q.handle}: ничего не отправляю, разговор ждёт вас в ERP.` }; }
   const humanAgent = Date.now() - Date.parse(q.at) > 23.5 * 3_600_000;
-  const first = await sendIgDirect(env, q.handle, parts[0] ?? '', { humanAgent });
+  // Owner 2026-10-18: the button carries the decision; Diana writes the words in her voice.
+  const written = await dianaCompose(env, q.handle, `Владелец решил по вопросу блогера: «${choice}». Смысл ответа:\n${parts.join('\n')}`).catch(() => null);
+  if (!written || !written.length) return { handled: true, note: `@${q.handle}: Диана не смогла написать ответ, ничего не отправлено. Нажмите ещё раз позже.` };
+  const first = await sendIgDirect(env, q.handle, written[0] ?? '', { humanAgent });
   if (!first.ok) return { handled: true, note: `@${q.handle}: Instagram не принял сообщение, ответ не отправлен. Нажмите ещё раз позже.` };
-  for (const part of parts.slice(1)) {
+  for (const part of written.slice(1)) {
     await new Promise((r) => setTimeout(r, 1500));
     if (!(await sendIgDirect(env, q.handle, part, { humanAgent })).ok) break;
   }

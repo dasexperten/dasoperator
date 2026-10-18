@@ -8,6 +8,7 @@ import { applyKonsolPayment, executePayout, matchRegistryPayment, REGISTRY_LINK_
 import { sendIgCards, sendIgDirect } from './ig-dm-watch';
 import { SCENARIO_CARDS } from './ig-dm-reply-guard.mjs';
 import { formatRub, ownRubMinor, UGC_PAYOUT_MAX_MINOR } from './ugc-payouts.mjs';
+import { dianaCompose } from './diana-compose';
 
 export function payoutStore(env: Env) {
   const db = env.DB;
@@ -88,9 +89,11 @@ function deps(env: Env) {
     notifyOwner: async (_text: string) => true,
     notifyBlogger: async (row: Record<string, any>, text: string) => {
       const handle = String(row.creator_handle || row.handle || '');
-      // Owner 2026-10-17: several short messages in a row; the first decides success.
-      const [first, ...rest] = text.split(/\n\n+/);
-      const sent = await sendIgDirect(env, handle, first ?? text);
+      // Owner 2026-10-18: the ERP text is a brief only; Diana writes the words. No words, no message.
+      const parts = await dianaCompose(env, handle, `Выплата исполнена, ERP и Консоль подтвердили. Смысл сообщения:\n${text}`).catch(() => null);
+      if (!parts || !parts.length) return { ok: false };
+      const [first, ...rest] = parts;
+      const sent = await sendIgDirect(env, handle, first!);
       for (const part of sent.ok ? rest : []) {
         await new Promise((r) => setTimeout(r, 1500));
         if (!(await sendIgDirect(env, handle, part)).ok) break;

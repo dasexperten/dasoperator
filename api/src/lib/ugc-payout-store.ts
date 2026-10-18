@@ -41,6 +41,7 @@ export function payoutStore(env: Env) {
       const r = await db.prepare(`UPDATE ugc_payouts SET execute_claim=?2, execute_claimed_at=?3, konsol_error=NULL, updated_at=?4
         WHERE id=?1 AND execute_claim IS NULL AND konsol_payment_id IS NULL
           AND status IN ('awaiting_approval','approved')
+          AND NOT EXISTS (SELECT 1 FROM crm_sync_state h WHERE h.key = 'payout_hold:' || ugc_payouts.id)
           AND amount_minor + (SELECT COALESCE(SUM(amount_minor),0) FROM ugc_payouts p
             WHERE p.id<>?1 AND p.creator_id=ugc_payouts.creator_id AND ${sendDay}=?5 AND ${committed}) <= ?6
           AND (status='approved' OR NOT EXISTS (SELECT 1 FROM ugc_payouts p

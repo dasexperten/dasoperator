@@ -237,7 +237,7 @@ body:has(.ugc-creator-modal[open]) { overflow: hidden; }
   --st-sent: #cfe8f7; --st-sent-fg: #0b4f75;
   --st-replied: #8ccbf0; --st-replied-fg: #08344f;
   --st-agreed: #b5cc3a; --st-agreed-fg: #1f2a05;
-  --st-cart: #4f8f2f; --st-payout: #3d7f2a; --st-paid: var(--status-success);
+  --st-cart: #f2c230; --st-cart-fg: #3a2c00; --st-paid: var(--status-success);
   --st-ordered: #1f5fd1; --st-creation: #5b2fa3; --st-review: #1c1917; --st-posted: #000000; --st-gold: #8c6d1f;
   --st-red: #c0392b; --st-rival: #e8890c; --st-rival-fg: #1c1917; --st-fee: #7a4e25;
   --st-grey: #a8a29e; --st-grey-fg: #1c1917; --st-unfit: #6b6460;
@@ -247,12 +247,10 @@ body:has(.ugc-creator-modal[open]) { overflow: hidden; }
 .ugc-stage[data-stage="sent"] { background: var(--st-sent); color: var(--st-sent-fg); }
 .ugc-stage[data-stage="replied"] { background: var(--st-replied); color: var(--st-replied-fg); }
 .ugc-stage[data-stage="agreed"] { background: var(--st-agreed); color: var(--st-agreed-fg); }
-.ugc-stage[data-stage="cart"] { background: var(--st-cart); }
-.ugc-stage[data-stage="payout"] { background: var(--st-payout); }
+.ugc-stage[data-stage="cart"] { background: var(--st-cart); color: var(--st-cart-fg); }
 .ugc-stage[data-stage="paid"] { background: var(--st-paid); }
 .ugc-stage[data-stage="ordered"] { background: var(--st-ordered); }
 .ugc-stage[data-stage="creation"] { background: var(--st-creation); }
-.ugc-stage[data-stage="review"] { background: var(--st-review); }
 .ugc-stage[data-stage="posted"] { background: var(--st-posted); font-weight: 800; }
 .ugc-stage[data-stage="gold"] { background: var(--st-gold); font-weight: 700; }
 .ugc-stage[data-stage="failed"], .ugc-stage[data-stage="refused"] { background: var(--st-red); }
@@ -367,3 +365,9 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
   .ugc-creator-row-unavailable .ugc-mobile-profile-copy { padding-block: 6px; }
   .ugc-mobile-identity .ugc-profile-unavailable { font-size: 10px; line-height: 14px; white-space: normal; text-align: left; }
 }
+
+/* Gold award (Owner 2026-10-18): a star next to «posted», admin only. */
+.ugc-stage-wrap { display: inline-flex; align-items: center; gap: 4px; }
+.ugc-gold-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--st-gold); color: var(--st-gold); background: transparent; cursor: pointer; }
+.ugc-gold-btn:hover { background: var(--st-gold); color: #fff; }
+.ugc-stage { width: 64px; }

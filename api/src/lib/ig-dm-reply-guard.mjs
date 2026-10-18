@@ -122,7 +122,8 @@ const PROMISE = /(переведу|переведём|переведем|отп�
 
 // Owner 2026-10-17: «если длинный абзац, то разбиваешь на несколько коротких сообщений.
 // Никогда не используешь "-"». Dashes become commas; a hyphen inside a word (кто-то) stays.
-const SHORT_PART = 180;
+// Owner 2026-10-18: «это много, такие сообщения раздели на два» — about 90 characters per bubble.
+const SHORT_PART = 90;
 export function noDashes(text) {
   return String(text)
     .replace(/(^|\n)\s*[-–—•]\s+/g, '$1')
@@ -145,7 +146,7 @@ export function shortParts(parts) {
     }
     if (cur) out.push(cur);
   }
-  return out.slice(0, 6);
+  return out.slice(0, 10);
 }
 
 // Owner (DH-MAP-261010-01): paid reels, price lists and fees are the Owner's call — no model answer.

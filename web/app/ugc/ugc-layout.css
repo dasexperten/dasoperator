@@ -371,3 +371,5 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 .ugc-gold-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--st-gold); color: var(--st-gold); background: transparent; cursor: pointer; }
 .ugc-gold-btn:hover { background: var(--st-gold); color: #fff; }
 .ugc-stage { width: 64px; }
+
+.ugc-stage.ugc-stage-none { background: transparent; color: var(--fg-2); border-color: transparent; }

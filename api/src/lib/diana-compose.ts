@@ -7,6 +7,7 @@ import type { Env } from '../types';
 import { callPro } from './llm';
 import { prepareDianaContext } from './diana-context.mjs';
 import { checkDianaVoice } from './diana-voice-check';
+import { shortParts } from './ig-dm-reply-guard.mjs';
 
 export async function dianaCompose(env: Env, handle: string, brief: string): Promise<string[] | null> {
   const conv = await env.DB.prepare(
@@ -36,7 +37,7 @@ export async function dianaCompose(env: Env, handle: string, brief: string): Pro
     try { const j = JSON.parse(m[0]) as { replies?: unknown }; replies = Array.isArray(j.replies) ? j.replies.map((x) => String(x).trim()).filter(Boolean).slice(0, 4) : []; } catch { continue; }
     if (!replies.length || replies.some((x) => x.length > 600)) continue;
     const v = await checkDianaVoice(env, String((prepared as { voice?: string }).voice ?? ''), replies.join('\n'), history.filter((h) => h.direction === 'in').slice(-2).map((h) => h.text ?? '').join(' '));
-    if (v.ok) return replies;
+    if (v.ok) return shortParts(replies); // Owner 2026-10-18: about 90 characters per bubble
     feedback = `\n\nПРОШЛЫЙ ВАРИАНТ ОТКЛОНЁН КОНТРОЛЁРОМ ГОЛОСА: ${v.why} Перепиши тем же смыслом строго в голосе Дианы.`;
   }
   return null;

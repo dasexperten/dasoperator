@@ -13,7 +13,7 @@ import { identifySourceProductNames, payoutProductRecords, publicationProductLab
 // Diana's creator statuses (Owner 2026-10-15, DH-LAW-261015-02): one English
 // word, at most 7 letters. Main path, then side statuses.
 const UGC_STAGES = new Set([
-  'new', 'sent', 'replied', 'agreed', 'cart', 'paid', 'ordered', 'creation', 'posted', 'gold',
+  '', 'replied', 'agreed', 'cart', 'paid', 'ordered', 'creation', 'posted', 'gold',
   'silent', 'failed', 'fee', 'refused', 'unfit', 'rival', 'owner',
 ]);
 // Who started: we invited (brown magnifier) or the creator came herself (green hand).
@@ -542,7 +542,7 @@ ugc.post('/import', async (c) => {
     statements.push(c.env.DB.prepare(
       `INSERT INTO ugc_creators
          (id, normalized_handle, display_name, lifecycle_stage, created_at, updated_at)
-       VALUES (?1, ?2, ?3, 'new', ?4, ?4)
+       VALUES (?1, ?2, ?3, '', ?4, ?4)
        ON CONFLICT(id) DO UPDATE SET
          display_name = COALESCE(excluded.display_name, ugc_creators.display_name),
          updated_at = excluded.updated_at`
@@ -647,7 +647,8 @@ ugc.patch('/creators/:id', async (c) => {
   const id = c.req.param('id');
   const current = await c.env.DB.prepare(`SELECT * FROM ugc_creators WHERE id = ?1`).bind(id).first<Record<string, any>>();
   if (!current) return fail(c, 404, [{ code: 'not_found', message: 'Creator not found' }]);
-  const nextStage = textValue(body.lifecycle_stage, 40) ?? current.lifecycle_stage;
+  // Owner 2026-10-18: new and sent removed — no status is an empty word.
+  const nextStage = body.lifecycle_stage === '' ? '' : (textValue(body.lifecycle_stage, 40) ?? current.lifecycle_stage);
   if (!UGC_STAGES.has(nextStage)) return fail(c, 422, [{ code: 'invalid_stage', message: 'Unknown lifecycle stage' }]);
   const nextOrigin = body.origin === undefined ? (current.origin ?? null) : (body.origin === null || body.origin === '' ? null : textValue(body.origin, 10));
   if (nextOrigin !== null && !UGC_ORIGINS.has(nextOrigin)) return fail(c, 422, [{ code: 'invalid_origin', message: 'origin is invited or self' }]);

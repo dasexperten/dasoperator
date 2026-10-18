@@ -168,7 +168,7 @@ type UgcPayload = {
 
 const PLATFORM_TABS = ['all', 'instagram', 'tiktok', 'vk', 'shopee', 'lazada', 'facebook', 'telegram', 'youtube', 'other'];
 // Diana's statuses (Owner 2026-10-15, DH-LAW-261015-02): one English word, at most 7 letters.
-const STAGES = ['new', 'sent', 'replied', 'agreed', 'cart', 'paid', 'ordered', 'creation', 'posted', 'gold', 'silent', 'failed', 'fee', 'refused', 'unfit', 'rival', 'owner'];
+const STAGES = ['replied', 'agreed', 'cart', 'paid', 'ordered', 'creation', 'posted', 'gold', 'silent', 'failed', 'fee', 'refused', 'unfit', 'rival', 'owner'];
 const ORIGINS = ['invited', 'self'];
 const API_EMPTY: UgcPayload = { creators: [], summary: { creators: 0, profiles: 0, content_items: 0, active_outreach: 0, published: 0, linked_content: 0, links_active: 0, links_missing: 0, links_restricted: 0, links_unknown: 0, links_invalid: 0, links_unchecked: 0, links_checked_30d: 0, links_last_checked_at: null, link_check_history: 0, product_identified: 0, product_queued: 0 }, platforms: [], products: [] };
 
@@ -279,6 +279,8 @@ function CreatorStatus({ creator }: { creator: Creator }) {
 
 function CreatorStatusBadge({ creator }: { creator: Creator }) {
   const href = instagramChatHref(creator.profiles);
+  // Owner 2026-10-18: no status (old new/sent) shows as a plain dash, not a word.
+  if (!creator.lifecycle_stage || creator.lifecycle_stage === 'new' || creator.lifecycle_stage === 'sent') return <span className="ugc-stage ugc-stage-none" title="Без статуса">—</span>;
   return href
     ? <a href={href} target="_blank" rel="noopener noreferrer" className="ugc-stage ugc-stage-btn focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" data-stage={creator.lifecycle_stage} aria-label={`Переписка в Instagram · ${creator.lifecycle_stage}`} title="Открыть переписку в Instagram">{creator.lifecycle_stage}</a>
     : <span className="ugc-stage" data-stage={creator.lifecycle_stage} title="Instagram-аккаунт не указан">{creator.lifecycle_stage}</span>;
@@ -952,7 +954,7 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
     <div className="ugc-card-actions"><button type="button" onClick={() => setEditing((value) => !value)} aria-expanded={editing}>{editing ? 'Скрыть поля' : 'Изменить данные'}</button>{leadHref ? <a href={leadHref} target="_blank" rel="noopener noreferrer">Открыть профиль <ExternalLink className="h-4 w-4" aria-hidden="true" /></a> : null}</div>
     {editing ? <div className="ugc-card-edit space-y-4">
     <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-      <Field label="Статус"><select value={stage} onChange={(event) => setStage(event.target.value)}>{STAGES.map((value) => <option key={value} value={value}>{value}</option>)}</select></Field>
+      <Field label="Статус"><select value={stage} onChange={(event) => setStage(event.target.value)}><option value="">— без статуса</option>{STAGES.map((value) => <option key={value} value={value}>{value}</option>)}</select></Field>
       <Field label="Откуда"><select value={origin} onChange={(event) => setOrigin(event.target.value)}><option value="">—</option>{ORIGINS.map((value) => <option key={value} value={value}>{value}</option>)}</select></Field>
       <Field label="Ответственный"><input value={owner} onChange={(event) => setOwner(event.target.value)} /></Field>
       <Field label="Канал связи"><input value={channel} onChange={(event) => setChannel(event.target.value)} placeholder="Shopee, TikTok Shop, Zalo…" /></Field>

@@ -69,7 +69,7 @@ export function payoutStore(env: Env) {
       ).bind(id, s.paidAt, s.konsolStatus, touch()).run();
       // Owner 2026-10-18: the status follows the facts — money out moves the creator to «paid», forward only.
       await db.prepare(`UPDATE ugc_creators SET lifecycle_stage='paid', updated_at=?2 WHERE id=(SELECT creator_id FROM ugc_payouts WHERE id=?1)
-        AND COALESCE(lifecycle_stage,'new') IN ('new','sent','replied','agreed','cart')`).bind(id, Date.now()).run().catch(() => undefined);
+        AND COALESCE(lifecycle_stage,'') IN ('','new','sent','replied','agreed','cart')`).bind(id, Date.now()).run().catch(() => undefined);
       return r;
     },
     markFailed: (id: string, s: { failedAt: string; konsolStatus: string; error: string }) => db.prepare(

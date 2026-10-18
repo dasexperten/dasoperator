@@ -106,9 +106,9 @@ export function surnameWritten(letter: string, text: string, firstName: string):
 
 // Owner 2026-10-18: «заказ сделан — статус ordered, после этого creation, и уже posted, когда отправляет ссылку».
 // The ERP moves a creator forward on the main path only, never back and never off a side status.
-const MAIN_PATH = ['new', 'sent', 'replied', 'agreed', 'cart', 'paid', 'ordered', 'creation', 'posted', 'gold'];
+const MAIN_PATH = ['', 'replied', 'agreed', 'cart', 'paid', 'ordered', 'creation', 'posted', 'gold'];
 export function nextStage(current: string | null, target: string): string | null {
-  const from = MAIN_PATH.indexOf(current ?? 'new');
+  const from = MAIN_PATH.indexOf(current ?? '');
   const to = MAIN_PATH.indexOf(target);
   if (to < 0 || (current && from < 0)) return null;
   return to > from ? target : null;

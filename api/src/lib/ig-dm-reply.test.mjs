@@ -14,7 +14,7 @@ await build({ entryPoints: [fileURLToPath(new URL('./ig-dm-reply.ts', import.met
   plugins: [{ name: 'no-external-effects', setup(b) {
     b.onResolve({filter: /^\.\/(llm|ig-dm-watch|owner-telegram|ig-dm-attachments|diana-context\.mjs|diana-image-check\.mjs)$/}, a => ({path:a.path, namespace:'mock'}));
     b.onLoad({filter:/.*/,namespace:'mock'}, a => ({contents: a.path==='./llm'
-      ? 'export const callPro=(messages)=>globalThis.__ugcTest.generate(messages); export const callVision=(messages)=>{globalThis.__ugcTest.visionCalled=true;return globalThis.__ugcTest.generate(messages)};'
+      ? 'export const callFlash=async(messages)=>{globalThis.__ugcTest.voiceCalls=(globalThis.__ugcTest.voiceCalls??0)+1;if(globalThis.__ugcTest.voiceError)throw Error("voice");return {text:globalThis.__ugcTest.voiceVerdicts?.length?globalThis.__ugcTest.voiceVerdicts.shift():\'{"ok":true,"why":""}\'}}; export const callPro=(messages)=>globalThis.__ugcTest.generate(messages); export const callVision=(messages)=>{globalThis.__ugcTest.visionCalled=true;return globalThis.__ugcTest.generate(messages)};'
       : a.path==='./diana-context.mjs' ? 'export const prepareDianaContext=async()=>{if(globalThis.__ugcTest.contextError)throw Error("context");globalThis.__ugcTest.contextReady=true;return {system:"Full Diana JEV context",imagePolicy:{},receipt:{method:"jev"}}};'
       : a.path==='./diana-image-check.mjs' ? 'export const checkDianaImages=async()=>{if(globalThis.__ugcTest.jevImageError)throw Error("JEV image");return globalThis.__ugcTest.imageCheck??{status:"yes",reasons:[],checks:[]}};'
       : a.path==='./ig-dm-attachments' ? 'export const incomingScreenshots=async()=>{if(globalThis.__ugcTest.imageError)throw Error("image");return {images:globalThis.__ugcTest.screenshots??[],unreadable:globalThis.__ugcTest.unreadable??0}};'
@@ -40,6 +40,17 @@ test('a photo Instagram will not hand over is never confirmed as seen (noza_find
  const r=fixture();r.history=[{id:'blank',direction:'in',text:null,attachments_json:null,created_at:r.t}];r.freshAttachments='unsupported';
  r.raw=JSON.stringify({reply:'Фото до меня не дошло. Перешлите, пожалуйста, скрин корзины ещё раз обычным фото?',escalate:false,reason:'ok'});
  await igDmReply(r.env);assert.equal(r.sent.length,1);
+});
+test('a second model reads every reply against VOICE before it leaves (Owner 2026-10-18)',async()=>{
+ const a=fixture();a.history=[{direction:'in',text:'Можно артикул',created_at:a.t}];
+ a.raws=[JSON.stringify({reply:'Ищите сами через поиск.',escalate:false,reason:'ok'}),JSON.stringify({reply:'Лучше через поиск, так ваша покупка поможет нашей карточке)',escalate:false,reason:'ok'})];
+ a.voiceVerdicts=['{"ok":false,"why":"сухой приказ"}','{"ok":true,"why":""}'];
+ await igDmReply(a.env);assert.equal(a.sent.length,1);assert.equal(a.voiceCalls,2);
+ const b=fixture();b.history=[{direction:'in',text:'Можно артикул',created_at:b.t}];
+ b.voiceVerdicts=['{"ok":false,"why":"холодно"}','{"ok":false,"why":"холодно"}'];
+ await igDmReply(b.env);assert.equal(b.sent.length,0);
+ const c=fixture();c.history=[{direction:'in',text:'Можно артикул',created_at:c.t}];c.voiceError=true;
+ await igDmReply(c.env);assert.equal(c.sent.length,0);
 });
 const good = JSON.stringify({reply:'Получила, проверяю!',escalate:false,reason:'ok'});
 function fixture() {

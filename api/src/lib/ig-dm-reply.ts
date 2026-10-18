@@ -9,6 +9,7 @@ import { incomingScreenshots } from './ig-dm-attachments';
 import { JSON_SPEC, SCENARIO_RULES, SCENARIO_CARDS, guardReply, requisitesSupportedByText, type CleanRequisites } from './ig-dm-reply-guard.mjs';
 import { prepareDianaContext } from './diana-context.mjs';
 import { checkDianaImages } from './diana-image-check.mjs';
+import { checkDianaVoice } from './diana-voice-check';
 import { canAttemptReply, isTechnical, nextReplyFailure, readReplyState, type ReplyState } from './ig-dm-reply-state.mjs';
 import { askOwnerHardQuestion } from './ugc-hard-question';
 
@@ -264,6 +265,8 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     let out!: ReturnType<typeof guardReply>;
     let feedback = '';
     let generationFailed = false;
+    let voiceWhy = '';
+    let voiceUnavailable = false;
     const incoming = history.filter((m) => m.direction === 'in');
     for (let pass = 0; pass < 2; pass++) {
       const attempt: ChatMessage[] = feedback ? [{ ...messages[0]!, content: messages[0]!.content + feedback }, messages[1]!] : messages;
@@ -288,10 +291,19 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       const articleMissing = Boolean(out.requisites && ourArticles.size && !oldOrder && !named.some((x) => ourArticles.has(x)) && !jevSure(imageCheck, out.requisites, termoBand));
       const confirmsUnseen = unseenPhoto && (Boolean(out.requisites) || /вижу корзин|вс[её] верно|корзин\S* получил/i.test(out.reply ?? ''));
       const rejected = confirmsUnseen ? 'confirms unseen photo' : imageConflict ? 'image_verdict_requires_clarification' : guessedInitial ? 'surname initial not written' : articleMissing ? (named.some((x) => !phoneLike(x)) ? 'foreign ozon article' : 'ozon article needed') : (!out.reply && out.escalate && isTechnical(out.reason) ? out.reason : '');
-      if (!rejected || pass === 1) break;
+      // Owner 2026-10-18: a second model reads every reply against VOICE.md before it leaves.
+      voiceWhy = '';
+      if (!rejected && out.reply) {
+        try { const v = await checkDianaVoice(env, String((prepared as { voice?: string }).voice ?? ''), out.reply, incoming.slice(-2).map((m) => m.text ?? '').join(' ')); if (!v.ok) voiceWhy = v.why || 'тон не в голосе Дианы'; }
+        catch { voiceUnavailable = true; break; }
+      }
+      if ((!rejected && !voiceWhy) || pass === 1) break;
+      if (!rejected) { feedback = `\nПРОШЛЫЙ ВАРИАНТ ТВОЕГО ОТВЕТА ОТКЛОНЁН КОНТРОЛЁРОМ ГОЛОСА: ${voiceWhy} Перепиши тем же смыслом, но строго в голосе Дианы из VOICE.md: тепло, коротко, на «вы», без отказов, приказов и упрёков. Верни строго один JSON по формату, без пояснений.`; continue; }
       feedback = `\nПРОШЛЫЙ ВАРИАНТ ТВОЕГО ОТВЕТА ОТКЛОНЁН ПРОВЕРКОЙ: ${rewriteHint(rejected, imageCheck)} Напиши ответ заново, исправив именно это. Верни строго один JSON по формату, без пояснений.`;
     }
     if (generationFailed) continue;
+    if (voiceUnavailable) { await failStep('voice_check_unavailable'); continue; }
+    if (voiceWhy) { await failStep('off voice'); continue; }
     if (unseenPhoto && (out.requisites || /вижу корзин|вс[её] верно|корзин\S* получил/i.test(out.reply ?? ''))) { await failStep('confirms unseen photo'); continue; }
     if (imageCheck && imageCheck.status !== 'yes' && out.requisites) { await failStep('image_verdict_requires_clarification'); continue; }
     { const named = articlesIn(incoming.map((m) => m.text ?? '').join(' '));

@@ -205,6 +205,21 @@ export async function sendIgDirect(env: Env, handle: string, text: string, opts:
 
 export type IgWatchResult = { ok: boolean; activity: boolean; stored: number; incoming: number; error?: string };
 
+/** Owner 2026-10-18 («добавить лёгкую проверку раз в минуту»): one light look — has any Direct
+ * conversation changed since the last read? Two Graph calls, no model. Any error → false (the
+ * 3/15/30 rule still runs the full lane on time). */
+export async function igDmHasNew(env: Env): Promise<boolean> {
+  const token = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN ?? '';
+  if (!token) return false;
+  const page = await graph(`/${PAGE_ID}?fields=access_token`, token);
+  if (!page.ok || !page.body?.access_token) return false;
+  const convs = await graph(`/${PAGE_ID}/conversations?platform=instagram&fields=updated_time&limit=1`, String(page.body.access_token));
+  const newest = convs.ok ? String(convs.body?.data?.[0]?.updated_time ?? '') : '';
+  if (!newest) return false;
+  const last = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(STATE_KEY).first<{ value: string }>();
+  return !last?.value || Date.parse(newest) > Date.parse(last.value);
+}
+
 export async function igDmWatch(env: Env): Promise<IgWatchResult> {
   const token = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN ?? '';
   if (!token) return { ok: false, activity: false, stored: 0, incoming: 0, error: 'META_IG_MESSAGING_TOKEN not set on the Worker' };

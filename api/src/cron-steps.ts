@@ -48,13 +48,13 @@ export const STEPS: Record<string, Step> = {
   // Direct: read new messages, then Diana's answers (the model runs here in the ERP, never in the worker).
   'erp-ugc-direct': async (env) => {
     const { runAdaptiveLane } = await import('./lib/adaptive-runner');
-    const { igDmWatch } = await import('./lib/ig-dm-watch');
+    const { igDmWatch, igDmHasNew } = await import('./lib/ig-dm-watch');
     const { igDmReply } = await import('./lib/ig-dm-reply');
     return runAdaptiveLane(env, 'ig_dm', async (e) => {
       const read = await igDmWatch(e);
       const answered = await igDmReply(e).catch((err) => ({ replied: 0, escalated: 0, errors: 1, error: String(err) }));
       return { ...read, ...answered, activity: read.activity || answered.replied > 0 };
-    });
+    }, Date.now(), igDmHasNew);
   },
   // Konsol/content only. Creator profiles have their own erp-blogger-id timer.
   'erp-ugc-payouts': async (env) => {

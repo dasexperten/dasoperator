@@ -202,8 +202,7 @@ export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allow
   if (/(^|[^а-яё])(не\s+да[её]м|не\s+можем\s+(дать|сообщить|прислать)|не\s+положено|не\s+сообщаем|не\s+высылаем)([^а-яё]|$)/i.test(reply)) return { reply: null, escalate: true, reason: 'refusal tone' };
   if (/(^|[^а-яё])(снимите|снять|можно|сделайте|сделать|подойдёт|подойдет)\s+(\S+\s+){0,2}(распаковк|закрыт\S*\s+упаковк)/i.test(reply)) return { reply: null, escalate: true, reason: 'offers unboxing or closed packaging' };
   if (/добрый (день|вечер)|здравствуйте|привет/i.test(reply) && reply.length < 25) return { reply: null, escalate: false, reason: 'greeting only' };
-  // Owner 2026-10-17: «заказала» always gets «пришлите, пожалуйста, скрин заказа», even next to another question.
-  if (ordered && !/скрин|фото\s+заказ|снимок\s+заказ/i.test(reply)) return { reply: null, escalate: true, reason: 'ask for the order screenshot too' };
+  // Owner 2026-10-18: «если пишут что заказала, можно поверить» — the word is enough, no screenshot is demanded.
   return { reply, parts, escalate: false, reason, sendCards, requisites, agreed };
 }
 

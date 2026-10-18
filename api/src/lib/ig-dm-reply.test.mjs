@@ -113,7 +113,8 @@ test('safe no-answer and confirmed existing reply are handled',async()=>{
  const g=fixture();g.live=false;await igDmReply(g.env);assert.equal(handled(g),g.t);assert.equal(g.sent.length,0);
 });
 test('runtime appends the current menu and sends exactly four cards',async()=>{
- const f=fixture();f.raw=JSON.stringify({reply:'Вот четыре сценария — какой вам ближе?',escalate:false,send_cards:true});await igDmReply(f.env);
+ const f=fixture();f.creator={id:'creator'};f.payouts=[{amount_minor:40000,status:'paid',konsol_payment_id:'k1',payout_date:'2026-10-17',paid_at:new Date(Date.parse(f.t)-3_600_000).toISOString()}];
+ f.history=[{id:'ord',direction:'in',text:'Вот скрин',attachments_json:'[{"image_data":{"url":"https://lookaside.fbsbx.com/x"}}]',created_at:f.t}];f.screenshots=[{mediaType:'image/png',data:'x'}];f.raw=JSON.stringify({reply:'Вот четыре сценария — какой вам ближе?',escalate:false,send_cards:true});await igDmReply(f.env);
  assert.equal(f.cardUrls.length,4);assert.match(f.cardUrls[2],/261017e\/card3/);assert.match(f.systems[0],/ТОЛЬКО ЧЕТЫРЕ/);
  assert.match(f.sqls.find(s=>s.includes('WITH last')),/m.created_at >= \?1/);
 });
@@ -206,4 +207,9 @@ test('a full surname written in her own words is taken (sammaya_89191323 2026-10
   assert.equal(surnameWritten('С', '79655145756 Сбер 700₽ За пасту термо Нина Сосновая', 'Нина'), 'Сосновая');
   assert.equal(surnameWritten('А', 'Ирина Алексеевна', 'Ирина'), null);
   assert.equal(surnameWritten('С', 'Сбер Сосновая Смирнова', 'Нина'), null);
+});
+
+test('the ladder: no scenario before the order screenshot (Owner 2026-10-18)',async()=>{
+ const f=fixture();f.raws=[JSON.stringify({reply:'Оформляйте заказ! А пока выберите сценарий — вот карточки.',escalate:false,send_cards:true}),JSON.stringify({reply:'Вот четыре сценария, выберите номер.',escalate:false,send_cards:true})];
+ await igDmReply(f.env);assert.equal(f.cardUrls?.length??0,0);assert.equal(f.sent.length,0);assert.match(f.context,/СТУПЕНЬ/);
 });

@@ -276,10 +276,9 @@ test('an old debt is thanked, not asked for a new order', () => {
   assert.doesNotMatch(bloggerPaidText({ amount_minor: 50900, note: null }), /[—–]|дошло\?|👍/);
 });
 
-test('new-payment notice offers four scenario cards', () => {
- const text = bloggerPaidText({ amount_minor: 90000, payout_date: '2026-10-17' });
- assert.match(text,/карточку/);
- assert.doesNotMatch(text,/семь/);
- assert.ok(text.indexOf('своя идея') < text.indexOf('карточку'), 'own scenario is offered before the cards');
- assert.equal(text.split(/\n\n+/).length, 4, 'four short messages');
+test('new-payment brief asks for the order only — the scenario waits for the order screenshot (Owner 2026-10-18)', () => {
+  const text = bloggerPaidText({ amount_minor: 90000, payout_date: '2026-10-17' });
+  assert.match(text, /заказ/);
+  assert.match(text, /НЕ писать/);
+  assert.doesNotMatch(text, /выберите|номер от/);
 });

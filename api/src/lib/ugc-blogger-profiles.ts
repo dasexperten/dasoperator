@@ -58,7 +58,7 @@ export async function refreshBloggerProfiles(env: Env, profileId?: string, limit
         (SELECT from_id FROM ugc_ig_messages m WHERE m.direction='in' AND lower(m.from_username)=ugc_creator_platforms.normalized_handle AND m.from_id IS NOT NULL ORDER BY m.created_at DESC LIMIT 1) igsid
       FROM ugc_creator_platforms
       WHERE platform='instagram' AND (?1 IS NULL OR id=?1)
-        AND EXISTS (SELECT 1 FROM ugc_creators c WHERE c.id=ugc_creator_platforms.creator_id AND c.archived_at IS NULL)
+        AND EXISTS (SELECT 1 FROM ugc_creators c WHERE c.id=ugc_creator_platforms.creator_id AND (c.archived_at IS NULL OR ?1 IS NOT NULL))
         AND (?1 IS NOT NULL OR profile_attempted_at IS NULL OR profile_attempted_at < ?2)
       ORDER BY (profile_checked_at IS NULL) DESC, created_at DESC, profile_attempted_at ASC LIMIT ?3`)
       .bind(profileId ?? null, new Date(Date.now() - 7 * 86_400_000).toISOString(), Math.min(20, Math.max(1, limit)))

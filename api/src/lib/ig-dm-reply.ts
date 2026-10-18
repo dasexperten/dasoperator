@@ -113,6 +113,7 @@ function rewriteHint(reason: string, imageCheck: unknown): string {
   }
   const hints: Record<string, string> = {
     'surname initial not written': 'в словах блогера нет первой буквы фамилии (слово на -овна, -евна, -ична это отчество, не фамилия). Не возвращай requisites; вежливо попроси первую букву фамилии.',
+    'scenario before order': 'сценарий и карточки идут только после скрина оформленного заказа. Сейчас не предлагай сценарии и не проси номер карточки; попроси оформить заказ и прислать скрин заказа (или, если перевода ещё не было, — корзину и реквизиты).',
     'refusal tone': 'отказ прозвучал отказом («не даём», «не положено»). Голос Дианы: не отказывай, а направь и объясни выгоду блогеру. Про артикул: «Лучше через поиск, так ваша покупка поможет нашей карточке) Наберите на Ozon: зубная паста с ферментами.»',
     'confirms unseen photo': 'фото блогера до нас не дошло, мы его не видели. Не подтверждай корзину, не говори «всё верно», не возвращай requisites. Мягко попроси написать артикул пасты (он под названием товара) или переслать скрин обычным фото из галереи.',
     'ozon article needed': 'реквизиты принимаем только после того, как блогер назвала артикул нашей карточки на Ozon. Не возвращай requisites. Попроси артикул красиво, нежно и ободряюще, с гордостью за бренд: нас часто копируют, на маркетплейсах много подделок под наше имя, сверяем, чтобы у блогера была настоящая TERMO. Формулируй по-новому, не шаблоном',
@@ -223,8 +224,8 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       `SELECT c.id, c.display_name, c.city FROM ugc_creators c WHERE c.id=?1`
     ).bind(identity.cid).first<{ id: string; display_name: string | null; city: string | null }>();
     const payouts = creator ? ((await env.DB.prepare(
-      `SELECT amount_minor, status, payout_date, konsol_payment_id FROM ugc_payouts WHERE creator_id=?1 ORDER BY created_at DESC LIMIT 5`
-    ).bind(creator.id).all<{ amount_minor: number; status: string; payout_date: string; konsol_payment_id?: string | null }>()).results ?? []) : [];
+      `SELECT amount_minor, status, payout_date, konsol_payment_id, paid_at, sent_at FROM ugc_payouts WHERE creator_id=?1 ORDER BY created_at DESC LIMIT 5`
+    ).bind(creator.id).all<{ amount_minor: number; status: string; payout_date: string; konsol_payment_id?: string | null; paid_at?: string | null; sent_at?: string | null }>()).results ?? []) : [];
     const paid = payouts[0]?.status === 'paid' && Boolean(payouts[0]?.konsol_payment_id);
     const erp = payouts.length
       ? payouts.map((p) => `${Math.round(p.amount_minor / 100)} ₽ — ${p.status === 'paid' ? (p.konsol_payment_id ? 'paid (перевод исполнен)' : 'запись об оплате; исполнение перевода не подтверждено') : p.status === 'failed' ? 'failed (банк отклонил)' : 'ждёт оплаты'} (${p.payout_date})`).join('; ')
@@ -238,7 +239,12 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       && m.created_at < PASTE_ONLY_SINCE && Date.parse(m.created_at) > now - 10 * 86_400_000);
     // Owner 2026-10-18 (noza_finds): Diana said «всё верно» to a basket she never saw.
     const unseenPhoto = history.slice(lastOutIndex+1).some((m) => m.unsupported);
-    const context = `${unseenPhoto ? 'ВАЖНО: блогер прислала фото, которое Instagram нам не передал, мы его не видели. Не подтверждай корзину и сумму, не говори «всё верно». Мягко попроси написать артикул пасты (он под названием товара), чтобы сверить, что это наша карточка, или переслать скрин корзины обычным фото из галереи.\n' : ''}${legacyCart ? 'Старая корзина: блогер собрал корзину до перехода на «только паста» (17.10.2026) — щётку оставляем, убрать её не просим.\n' : ''}Блогер: @${w.h}${creator?.display_name ? `, ${creator.display_name}` : ''}${creator?.city ? `, ${creator.city}` : ''}\nERP, выплаты: ${erp}\n\nПереписка (последние сообщения):\n${lines}\n\nНапиши следующий ответ Дианы.`;
+    // Owner 2026-10-18: «просишь заказ и сразу отправляешь инструкцию» — the ladder is payment → order
+    // screenshot → scenario. A screenshot after the money went out counts as the order screenshot.
+    const moneyAt = payouts.filter((p) => p.status === 'paid' || p.status === 'sent').map((p) => Date.parse(String(p.paid_at || p.sent_at || ''))).filter((t) => Number.isFinite(t)).sort((a, b) => b - a)[0];
+    const orderShown = Boolean(moneyAt && history.some((m) => m.direction === 'in' && Date.parse(m.created_at) > moneyAt! && ((m.attachments_json && m.attachments_json !== '[]') || m.unsupported)));
+    const ladder = orderShown ? '' : 'СТУПЕНЬ: скрина оформленного заказа после нашего перевода ещё нет. Сценарии, карточки и любые инструкции по ролику НЕ отправляй и не предлагай выбрать; send_cards=false. Сейчас шаг один: заказ и скрин заказа (или, до оплаты, корзина и реквизиты).\n';
+    const context = `${ladder}${unseenPhoto ? 'ВАЖНО: блогер прислала фото, которое Instagram нам не передал, мы его не видели. Не подтверждай корзину и сумму, не говори «всё верно». Мягко попроси написать артикул пасты (он под названием товара), чтобы сверить, что это наша карточка, или переслать скрин корзины обычным фото из галереи.\n' : ''}${legacyCart ? 'Старая корзина: блогер собрал корзину до перехода на «только паста» (17.10.2026) — щётку оставляем, убрать её не просим.\n' : ''}Блогер: @${w.h}${creator?.display_name ? `, ${creator.display_name}` : ''}${creator?.city ? `, ${creator.city}` : ''}\nERP, выплаты: ${erp}\n\nПереписка (последние сообщения):\n${lines}\n\nНапиши следующий ответ Дианы.`;
 
     // Both sides are essential: «да» only makes sense with our preceding question.
     let prepared;
@@ -314,8 +320,10 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       const typedSums = (incoming.slice(-8).map((m) => m.text ?? '').join(' ').match(/(?<!\d)(\d{3,4})\s?(?:₽|р\b|руб)/gi) ?? []).map((x) => Number(x.match(/\d{3,4}/)![0]) * 100);
       const typedConflict = Boolean(out.requisites && typedSums.some((v) => Math.abs(v - out.requisites!.amount_minor) > out.requisites!.amount_minor * 0.15));
       const articleMissing = Boolean(out.requisites && ourArticles.size && !oldOrder && !named.some((x) => ourArticles.has(x)) && (typedConflict || !jevSure(imageCheck, out.requisites, termoBand)));
+      const scenarioEarly = !orderShown && (Boolean(out.sendCards) || /выбер\S*\s+(\S+\s+){0,3}(сценари|карточк)|номер\s+(карточк|сценари)|вот\s+(\S+\s+){0,2}(сценари|карточ)/i.test(`${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`));
+      if (scenarioEarly) out.sendCards = false;
       const confirmsUnseen = unseenPhoto && (Boolean(out.requisites) || /вижу корзин|вс[её] верно|корзин\S* получил/i.test(out.reply ?? ''));
-      const rejected = confirmsUnseen ? 'confirms unseen photo' : imageConflict ? 'image_verdict_requires_clarification' : guessedInitial ? 'surname initial not written' : articleMissing ? (named.some((x) => !phoneLike(x)) ? 'foreign ozon article' : 'ozon article needed') : (!out.reply && out.escalate && isTechnical(out.reason) ? out.reason : '');
+      const rejected = scenarioEarly ? 'scenario before order' : confirmsUnseen ? 'confirms unseen photo' : imageConflict ? 'image_verdict_requires_clarification' : guessedInitial ? 'surname initial not written' : articleMissing ? (named.some((x) => !phoneLike(x)) ? 'foreign ozon article' : 'ozon article needed') : (!out.reply && out.escalate && isTechnical(out.reason) ? out.reason : '');
       // Owner 2026-10-18: a second model reads every reply against VOICE.md before it leaves.
       voiceWhy = '';
       if (!rejected && out.reply) {
@@ -327,6 +335,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       feedback = `\nПРОШЛЫЙ ВАРИАНТ ТВОЕГО ОТВЕТА ОТКЛОНЁН ПРОВЕРКОЙ: ${rewriteHint(rejected, imageCheck)} Напиши ответ заново, исправив именно это. Верни строго один JSON по формату, без пояснений.`;
     }
     if (generationFailed) continue;
+    if (!orderShown && (out.sendCards || /выбер\S*\s+(\S+\s+){0,3}(сценари|карточк)|номер\s+(карточк|сценари)|вот\s+(\S+\s+){0,2}(сценари|карточ)/i.test(`${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`))) { await failStep('scenario before order'); continue; }
     if (voiceUnavailable) { await failStep('voice_check_unavailable'); continue; }
     if (voiceWhy) { await failStep('off voice'); continue; }
     if (unseenPhoto && (out.requisites || /вижу корзин|вс[её] верно|корзин\S* получил/i.test(out.reply ?? ''))) { await failStep('confirms unseen photo'); continue; }

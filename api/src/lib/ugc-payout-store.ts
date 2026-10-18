@@ -5,8 +5,7 @@ import type { Env } from '../types';
 import { konsolClient } from './konsol';
 import { sendOwnerTelegram } from './owner-telegram';
 import { applyKonsolPayment, executePayout, matchRegistryPayment, REGISTRY_LINK_IDS } from './ugc-payout-execute.mjs';
-import { sendIgCards, sendIgDirect } from './ig-dm-watch';
-import { SCENARIO_CARDS } from './ig-dm-reply-guard.mjs';
+import { sendIgDirect } from './ig-dm-watch';
 import { formatRub, ownRubMinor, UGC_PAYOUT_MAX_MINOR } from './ugc-payouts.mjs';
 import { dianaCompose } from './diana-compose';
 
@@ -99,7 +98,7 @@ function deps(env: Env) {
         if (!(await sendIgDirect(env, handle, part)).ok) break;
       }
       // After a new payment the scenario cards follow the bridge (Owner 2026-10-16); an old debt gets thanks only.
-      if (sent.ok && /карточ/.test(text)) await sendIgCards(env, handle, SCENARIO_CARDS);
+      // Owner 2026-10-18: no scenario cards with the payment — they wait for the order screenshot.
       return sent;
     },
     now: Date.now(),

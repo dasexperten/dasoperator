@@ -223,6 +223,8 @@ export async function ugcPayoutSweep(env: Env): Promise<number> {
     const sent = await d.notifyBlogger(row, bloggerPaidText(row)).catch((e) => ({ ok: false, error: String(e) })) as { ok: boolean; error?: string };
     if (sent && sent.ok) refreshed++;
     else {
+      // Owner 2026-10-18: «писать надо сразу» — an unsent paid notice keeps the payouts lane on its fast 3-minute step.
+      refreshed++;
       await d.store.releaseNotice(row.id);
       // Owner 2026-10-18: a notice that keeps failing says why (Instagram or Diana), visible to the ERP.
       await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)

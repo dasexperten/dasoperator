@@ -383,3 +383,18 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 .ugc-photo-note button { align-self: flex-start; min-height: 44px; padding: 0 16px; font-weight: 800; color: #fff; background: var(--brand-schwarz, #111); border-radius: var(--radius-sm); }
 .ugc-photo-note button:disabled { opacity: .55; }
 .ugc-photo-note [role=alert] { color: #8a1c1c; font-weight: 700; font-size: 14px; }
+
+/* Owner 2026-10-18: on the phone Filters, Inactive and Загрузить профили sit on one row.
+   The Filters button moves from the title line into that row; the schedule note hides. */
+.ugc-tools-filters { display: none; }
+@media (max-width: 767px) {
+  .ugc-page .ugc-mobile-controls button { display: none; }
+  .ugc-page .ugc-profile-tools { flex-wrap: wrap; justify-content: flex-start; gap: 6px; }
+  .ugc-page .ugc-profile-schedule { display: none; }
+  .ugc-page .ugc-tools-filters { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--paper, #fff); color: var(--fg-1); font-size: 14px; font-weight: 700; white-space: nowrap; }
+  .ugc-page .ugc-tools-filters, .ugc-page .ugc-inactive-filter, .ugc-page .ugc-profile-refresh { flex: 0 1 auto; min-width: 0; }
+  .ugc-page .ugc-inactive-filter { padding: 0 8px; gap: 6px; white-space: nowrap; }
+  .ugc-page .ugc-profile-refresh { flex: 1 1 auto; }
+  .ugc-page .ugc-profile-refresh-btn { width: 100%; padding: 0 8px; font-size: 14px; white-space: nowrap; }
+  .ugc-page .ugc-profile-refresh > [role="status"] { flex: 1 1 100%; }
+}

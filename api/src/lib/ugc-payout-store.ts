@@ -69,12 +69,18 @@ export function payoutStore(env: Env) {
       ).bind(id, s.paidAt, s.konsolStatus, touch()).run();
       // Owner 2026-10-18: the status follows the facts — money out moves the creator to «paid», forward only.
       await db.prepare(`UPDATE ugc_creators SET lifecycle_stage='paid', updated_at=?2 WHERE id=(SELECT creator_id FROM ugc_payouts WHERE id=?1)
+        AND COALESCE(lifecycle_stage,'') IN ('','new','sent','replied','agreed','cart','failed')`).bind(id, Date.now()).run().catch(() => undefined);
+      return r;
+    },
+    markFailed: async (id: string, s: { failedAt: string; konsolStatus: string; error: string }) => {
+      const r = await db.prepare(
+        `UPDATE ugc_payouts SET status='failed', failed_at=?2, konsol_status=?3, konsol_error=?4, updated_at=?5 WHERE id=?1`
+      ).bind(id, s.failedAt, s.konsolStatus, s.error.slice(0, 500), touch()).run();
+      // Owner 2026-10-18: failed = the bank declined our transfer; a later paid moves her on.
+      await db.prepare(`UPDATE ugc_creators SET lifecycle_stage='failed', updated_at=?2 WHERE id=(SELECT creator_id FROM ugc_payouts WHERE id=?1)
         AND COALESCE(lifecycle_stage,'') IN ('','new','sent','replied','agreed','cart')`).bind(id, Date.now()).run().catch(() => undefined);
       return r;
     },
-    markFailed: (id: string, s: { failedAt: string; konsolStatus: string; error: string }) => db.prepare(
-      `UPDATE ugc_payouts SET status='failed', failed_at=?2, konsol_status=?3, konsol_error=?4, updated_at=?5 WHERE id=?1`
-    ).bind(id, s.failedAt, s.konsolStatus, s.error.slice(0, 500), touch()).run(),
     setKonsolStatus: (id: string, status: string) => db.prepare(
       `UPDATE ugc_payouts SET konsol_status=?2, updated_at=?3 WHERE id=?1`
     ).bind(id, status, touch()).run(),

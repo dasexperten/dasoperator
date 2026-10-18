@@ -89,6 +89,21 @@ export function initialWritten(letter: string, text: string): boolean {
   return new RegExp(`(?<![\\p{L}])${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.?(?![\\p{L}])`, 'u').test(t);
 }
 
+/** sammaya_89191323 2026-10-18: «Нина» / «Сосновая» in two messages — the full surname is in her own
+ * words; the model returned only «С». One clear word on that letter (not a patronymic, not the first
+ * name) is her surname. Two or more candidates stay a question. */
+export function surnameWritten(letter: string, text: string, firstName: string): string | null {
+  const norm = (x: string) => x.toLowerCase().replace(/ё/g, 'е');
+  const v = norm(letter);
+  const first = norm(firstName || '');
+  const words = (text.match(/[\p{L}-]{2,}/gu) ?? []).filter((w) => {
+    const n = norm(w);
+    return n.startsWith(v) && n !== first && !/(овна|евна|ична|инична|вич)$/.test(n) && !/банк|^сбер|^сбп$|^тинькофф|^альфа|^втб$|^озон|^ozon|^райф|^газпром|^почта|^спасибо|^сумм|^скрин|^сразу|^сейчас|^карт|^номер|^термо|^паст/.test(n);
+  });
+  const uniq = [...new Set(words.map((w) => w[0]!.toUpperCase() + w.slice(1).toLowerCase()))];
+  return uniq.length === 1 ? uniq[0]! : null;
+}
+
 /** What the checker disliked, in words Diana can act on (Owner 2026-10-18). */
 function rewriteHint(reason: string, imageCheck: unknown): string {
   const r = reason.split(':')[0]!.trim();
@@ -285,6 +300,10 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       const imageConflict = Boolean(imageCheck && imageCheck.status !== 'yes' && out.requisites);
       // Owner 2026-10-18 (irina__sayapina wrote «Ирина Алексеевна»; the model took «А» of the patronymic
       // as the surname). A one-letter surname must stand in the blogger's own words, never be guessed.
+      if (out.requisites && out.requisites.last_name.length === 1 && !initialWritten(out.requisites.last_name, incoming.slice(-6).map((m) => m.text ?? '').join(' '))) {
+        const full = surnameWritten(out.requisites.last_name, incoming.slice(-6).map((m) => m.text ?? '').join(' '), out.requisites.first_name);
+        if (full) out.requisites.last_name = full;
+      }
       const guessedInitial = Boolean(out.requisites && out.requisites.last_name.length === 1 && !initialWritten(out.requisites.last_name, incoming.slice(-6).map((m) => m.text ?? '').join(' ')));
       const named = articlesIn(incoming.map((m) => m.text ?? '').join(' '));
       const oldOrder = /стар/i.test(String(out.requisites?.product ?? ''));

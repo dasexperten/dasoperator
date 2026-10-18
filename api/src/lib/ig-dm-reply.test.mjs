@@ -21,7 +21,7 @@ await build({ entryPoints: [fileURLToPath(new URL('./ig-dm-reply.ts', import.met
       : a.path==='./owner-telegram' ? 'export const sendOwnerTelegram=()=>globalThis.__ugcTest.notify(); export const sendOwnerQuestion=(_e,text,buttons)=>globalThis.__ugcTest.ask(text,buttons);'
       : 'export const IG_UNSUPPORTED="unsupported"; export const refreshIgAttachments=async()=>globalThis.__ugcTest.freshAttachments??null; export const lastWordIsBlogger=()=>globalThis.__ugcTest.live; export const sendIgDirect=(...args)=>globalThis.__ugcTest.send(...args); export const sendIgCards=(...args)=>globalThis.__ugcTest.cards(...args);' }));
   }}] });
-const { igDmReply, jevSure } = await import(pathToFileURL(outfile));
+const { igDmReply, jevSure, surnameWritten } = await import(pathToFileURL(outfile));
 rmSync(dir, { recursive:true });
 
 test('missing current attachment metadata is repaired internally or stays pending without a resend request',async()=>{
@@ -200,4 +200,10 @@ test('no article needed when JEV recognises our paste at the usual price (Owner 
  assert.equal(jevSure(yes,{amount_minor:15000,product:'TERMO'},band),false);
  assert.equal(jevSure({...yes,status:'unknown'},{amount_minor:39500,product:'TERMO'},band),false);
  assert.equal(jevSure(yes,{amount_minor:39500,product:'TERMO'},null),false);
+});
+
+test('a full surname written in her own words is taken (sammaya_89191323 2026-10-18)', () => {
+  assert.equal(surnameWritten('С', '79655145756 Сбер 700₽ За пасту термо Нина Сосновая', 'Нина'), 'Сосновая');
+  assert.equal(surnameWritten('А', 'Ирина Алексеевна', 'Ирина'), null);
+  assert.equal(surnameWritten('С', 'Сбер Сосновая Смирнова', 'Нина'), null);
 });

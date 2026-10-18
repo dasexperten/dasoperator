@@ -29,6 +29,7 @@ type PlatformMetric = {
   source_product_labels?: { name: string }[];
   metrics_as_of: string | null;
   has_avatar?: boolean;
+  avatar_version?: number;
   posts_count?: number | null;
   er_sample_posts?: number | null;
   er_checked_at?: string | null;
@@ -329,7 +330,7 @@ function BloggerAvatar({ profile, compact = false }: { profile: PlatformMetric; 
     let active = true;
     setAvatar(null);
     if (!profile.has_avatar || !ref.current) return;
-    const key = `${profile.id}:${profile.profile_checked_at ?? ''}`;
+    const key = `${profile.id}:${profile.avatar_version ?? profile.profile_checked_at ?? ''}`;
     const load = () => {
       let request = avatarRequests.get(key);
       if (!request) {
@@ -346,7 +347,7 @@ function BloggerAvatar({ profile, compact = false }: { profile: PlatformMetric; 
     }, { rootMargin: '160px' });
     observer.observe(ref.current);
     return () => { active = false; observer.disconnect(); };
-  }, [profile.id, profile.has_avatar, profile.profile_checked_at]);
+  }, [profile.id, profile.has_avatar, profile.profile_checked_at, profile.avatar_version]);
   const [zoomed, setZoomed] = useState(false);
   useEffect(() => {
     if (!zoomed) return;

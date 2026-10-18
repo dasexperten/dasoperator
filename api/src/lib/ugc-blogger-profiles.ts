@@ -37,6 +37,8 @@ async function saveAvatar(env: Env, id: string, url?: string | null): Promise<st
   const bytes = new Uint8Array(size);
   let offset = 0;
   for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+  const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('');
+  if (digest === 'b421b00fd1791a1d1ab70dd1e9667f40ca79a8c8673989864f1be092295cd7da') return null;
   const key = `ugc/blogger-avatars/${id}`;
   await env.DOCS.put(key, bytes, { httpMetadata: { contentType: response.headers.get('content-type')! } });
   return key;
@@ -64,7 +66,7 @@ export async function refreshBloggerProfiles(env: Env, profileId?: string, limit
     const messagingToken = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN;
     const pageToken = messagingToken ? (await graph('1697038263872226?fields=access_token', messagingToken))?.access_token : null;
     let updated = 0, attempted = 0;
-    const avatars: { profile_id: string; saved: boolean }[] = [];
+    const avatars: { profile_id: string; saved: boolean; handle: string; source: string | null }[] = [];
     const deadline = Date.now() + 10 * 60_000;
     for (const row of rows) {
       if (Date.now() > deadline) break;
@@ -78,11 +80,13 @@ export async function refreshBloggerProfiles(env: Env, profileId?: string, limit
         const official = pageToken && row.igsid ? await graph(`${encodeURIComponent(row.igsid)}?fields=username,profile_pic,follower_count`, pageToken) : null;
         const matched = String(official?.username ?? '').toLowerCase() === row.normalized_handle.toLowerCase();
         if (options.avatarOnly) {
+          let source = isInstagramAvatarUrl(options.avatarUrl) ? 'browser_observed' : matched && isInstagramAvatarUrl(official.profile_pic) ? 'instagram_graph_username' : null;
           // Avatar backfills do not re-read posts or advance dates on retained metrics.
           let url = isInstagramAvatarUrl(options.avatarUrl) ? options.avatarUrl : matched && isInstagramAvatarUrl(official.profile_pic) ? official.profile_pic : null;
           if (!url) {
             const html = await render(env, `https://www.instagram.com/${encodeURIComponent(row.normalized_handle)}/`, 'domcontentloaded', 15_000).catch(() => null);
-            url = html ? parseInstagramProfile(html).avatar : null;
+            url = html ? parseInstagramProfile(html, row.normalized_handle).avatar : null;
+            if (url) source = 'instagram_profile_identity';
           }
           const key = await saveAvatar(env, row.id, url).catch(() => null);
           if (key) {
@@ -90,7 +94,7 @@ export async function refreshBloggerProfiles(env: Env, profileId?: string, limit
               .bind(key, Date.now(), row.id).run();
             updated++;
           }
-          avatars.push({ profile_id: row.id, saved: Boolean(key) });
+          avatars.push({ profile_id: row.id, handle: row.normalized_handle, saved: Boolean(key), source: key ? source : null });
           continue;
         }
         m = await measureInstagram(env, row.normalized_handle).catch(() => ({ followers: null, er: null }));
@@ -104,7 +108,7 @@ export async function refreshBloggerProfiles(env: Env, profileId?: string, limit
         avatar = await saveAvatar(env, row.id, m.avatar).catch(() => null);
         if (m.followers == null && m.posts == null && !avatar) error = 'Instagram не открыл данные профиля';
       } catch {
-        if (options.avatarOnly) { avatars.push({ profile_id: row.id, saved: false }); continue; }
+        if (options.avatarOnly) { avatars.push({ profile_id: row.id, handle: row.normalized_handle, saved: false, source: null }); continue; }
         error = 'Не удалось загрузить публичный профиль Instagram';
       }
       const success = m.followers != null || m.posts != null || avatar != null;

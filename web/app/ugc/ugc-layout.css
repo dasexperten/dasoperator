@@ -97,6 +97,9 @@ body:has(.ugc-creator-modal[open]) { overflow: hidden; }
 .ugc-creator-platform { display: none !important; flex: 0 0 auto; margin-left: auto; }
 .ugc-platforms-cell { display: inline-flex; align-items: center; gap: 8px; vertical-align: middle; color: var(--fg-1); }
 .ugc-platform-icon { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; }
+.ugc-platform-chat { width: 44px; height: 44px; margin: -12px; border-radius: 8px; color: inherit; cursor: pointer; }
+.ugc-platform-chat:hover { background: var(--paper-sunk, #F3F0E8); }
+.ugc-platform-chat:focus-visible { outline: 2px solid currentColor; outline-offset: -4px; }
 .ugc-letter-mark { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 2px; border: 1.5px solid currentColor; border-radius: 5px; font-size: 10px; font-weight: 800; line-height: 1; }
 /* The single-publication star hangs outside the figure, so digits keep one right edge. */
 .ugc-figure { position: relative; }

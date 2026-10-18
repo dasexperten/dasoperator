@@ -472,7 +472,15 @@ function profileHref(profile: { platform: string; handle: string }): string | nu
   return `https://www.instagram.com/${h}/`;
 }
 
-function PlatformIcon({ platform }: { platform: string }) {
+// Owner 2026-10-18: in the «Сеть» column the Instagram mark opens the Direct chat
+// with the blogger (ig.me/m/<handle>), not the profile page.
+function chatHref(profile: { platform: string; handle: string }): string | null {
+  const h = String(profile.handle ?? '').replace(/^@/, '').trim();
+  if (!h) return null;
+  return String(profile.platform ?? '').toLowerCase() === 'instagram' ? `https://ig.me/m/${encodeURIComponent(h)}` : null;
+}
+
+function PlatformIcon({ platform, href }: { platform: string; href?: string | null }) {
   const key = String(platform ?? '').toLowerCase();
   const label = platformLabel(key);
   const glyph = key === 'instagram' ? <Instagram className="h-[18px] w-[18px]" aria-hidden="true" />
@@ -482,13 +490,19 @@ function PlatformIcon({ platform }: { platform: string }) {
     : key === 'tiktok' ? <svg viewBox="0 0 24 24" className="h-[16px] w-[16px]" aria-hidden="true"><path fill="currentColor" d={TIKTOK_PATH} /></svg>
     : LETTER_MARK[key] ? <span className="ugc-letter-mark" aria-hidden="true">{LETTER_MARK[key]}</span>
     : <Globe className="h-[18px] w-[18px]" aria-hidden="true" />;
+  if (href) return <a href={href} target="_blank" rel="noopener noreferrer" className="ugc-platform-icon ugc-platform-chat" aria-label={`${label}: открыть чат`} title={`${label} — открыть чат в Direct`} onClick={(event) => event.stopPropagation()}>{glyph}</a>;
   return <span className="ugc-platform-icon" role="img" aria-label={label} title={label}>{glyph}</span>;
 }
 
-function PlatformIcons({ creator }: { creator: Creator }) {
+function PlatformIcons({ creator, chat = false }: { creator: Creator; chat?: boolean }) {
   const platforms = Array.from(new Set(creator.profiles.map((profile) => String(profile.platform ?? '').toLowerCase()).filter(Boolean)));
   if (!platforms.length) return <span className="ugc-muted">—</span>;
-  return <span className="ugc-platforms-cell">{platforms.map((platform) => <PlatformIcon key={platform} platform={platform} />)}</span>;
+  const linkFor = (platform: string) => {
+    if (!chat) return null;
+    const profile = creator.profiles.find((item) => String(item.platform ?? '').toLowerCase() === platform && item.handle);
+    return profile ? chatHref(profile) : null;
+  };
+  return <span className="ugc-platforms-cell">{platforms.map((platform) => <PlatformIcon key={platform} platform={platform} href={linkFor(platform)} />)}</span>;
 }
 
 const LINK_STATUS_LABEL: Record<LinkStatus, string> = { active: 'Active', missing: 'Missing', restricted: 'Restricted', unknown: 'Unknown', invalid: 'Invalid' };
@@ -879,7 +893,7 @@ export default function UgcPage() {
               const secondName = handle ? [creator.display_name, creator.city].filter(Boolean).join(' · ') || null : null;
               return <tr key={creator.id} className={`ugc-creator-row${unavailableInstagram(profile) ? ' ugc-creator-row-unavailable' : ''}`} tabIndex={0} aria-label={`Карточка блогера ${name}`} onClick={(event) => { if (blankRowClick(event)) { event.preventDefault(); setSelectedId(creator.id); } }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setSelectedId(creator.id); } }} style={{ borderTop: '1px solid var(--border-hairline)' }}>
                 <td className="ugc-c-creator" style={creator.attention ? { position: 'relative', paddingRight: 50 } : undefined}>{creator.attention ? <button type="button" onClick={() => setSelectedId(creator.id)} aria-label={`${creator.attention.label}: ${name}`} title={creator.attention.reason} className="absolute right-1 top-1/2 -translate-y-1/2 min-h-11 min-w-11 inline-flex items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-2" style={{ color: '#7a4e25', width: 44, height: 44 }}><AlertCircle className="h-5 w-5" /></button> : null}<a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" title={[name, secondName, 'открыть страницу автора'].filter(Boolean).join(' · ')} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><BloggerAvatar profile={profile} compact /><span className="ugc-creator-copy"><span className="ugc-creator-line"><span className="ugc-creator-name">{name}</span><OriginMark origin={creator.origin} /></span>{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span><ProfileAvailability profile={profile} /></span></a></td>
-                <td className="ugc-c-platform"><PlatformIcons creator={creator} /></td>
+                <td className="ugc-c-platform"><PlatformIcons creator={creator} chat /></td>
                 <td className="ugc-c-num" title={profile.followers == null ? 'Нет данных' : `${profile.followers}`}>{formatCount(profile.followers)}</td>
                 <td className="ugc-c-num" title={creator.last_activity_at ? new Date(creator.last_activity_at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : 'Нет данных'}>{formatActivity(creator.last_activity_at)}</td>
                 <td className="ugc-c-num ugc-c-pay"><CreatorPayment creator={creator} /></td>

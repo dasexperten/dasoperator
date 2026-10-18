@@ -16,4 +16,4 @@ binding = "ERP"
 service = "dasoperator-api"
 
 [triggers]
-crons = ["0 23 * * *"]
+crons = ["0 * * * *"]

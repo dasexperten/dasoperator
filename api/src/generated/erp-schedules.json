@@ -6,7 +6,7 @@
     "0 2 * * *"
   ],
   "erp-blogger-id": [
-    "0 23 * * *"
+    "0 * * * *"
   ],
   "erp-daily-digest": [
     "0 3 * * *"

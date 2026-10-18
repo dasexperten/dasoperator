@@ -60,11 +60,10 @@
    one card per order — name left, amount right, delivery under them. */
 @media (max-width: 767px) {
   main .crm-mock .crm-tabs { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 8px; }
-  main .crm-mock .crm-tabs > button { justify-content: center; min-height: 48px; padding: 8px 10px !important; }
-  main .crm-mock .crm-panel-head { padding: 12px 14px !important; gap: 10px !important; }
-  main .crm-mock .crm-panel-head > div:first-child { flex: 1 1 100%; }
-  main .crm-mock .crm-panel-tools { flex: 1 1 100%; min-width: 0; gap: 8px !important; }
-  main .crm-mock .crm-panel-search { flex: 1 1 auto; min-width: 0; }
+  main .crm-mock .crm-tabs > button { display: flex !important; flex-wrap: nowrap !important; align-items: center; justify-content: center; gap: 8px !important; min-height: 48px; padding: 8px 10px !important; white-space: nowrap; }
+  main .crm-mock .crm-panel-head { display: flex !important; flex-direction: column !important; align-items: stretch !important; padding: 12px 14px !important; gap: 10px !important; }
+  main .crm-mock .crm-panel-tools { display: flex !important; flex-wrap: nowrap !important; align-items: center; width: 100%; min-width: 0; gap: 8px !important; }
+  main .crm-mock .crm-panel-search { display: block !important; flex: 1 1 0; min-width: 0; width: 100%; }
   main .crm-mock .crm-panel-search input { width: 100% !important; min-height: 44px; font-size: 16px !important; }
   main .crm-mock .crm-panel-tools select { min-height: 44px; }
   main .crm-mock .crm-asof { padding: 10px 14px 0; margin: 0 !important; }

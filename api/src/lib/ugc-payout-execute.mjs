@@ -62,10 +62,15 @@ async function findOrCreateContractor(konsol, requisites, phone) {
   const found = await konsol.findContractorByPhone(phone);
   if (found.error) return { error: found.error, definitive: true };
   if (found.id) return { id: found.id, created: false };
-  const body = { kind: 'individual', first_name: requisites.first_name, last_name: requisites.last_name, phone };
-  if (requisites.patronymic) body.patronymic = requisites.patronymic;
-  const made = await konsol.createContractor(body);
-  if (made.ok && made.body && made.body.id) return { id: made.body.id, created: true };
+  // Owner 2026-10-18: «фамилия не нужна» — phone and first name identify her. Konsol's form still demands a
+  // surname field, so an unknown surname goes as a neutral dash (then «Блогер» if Konsol refuses the dash).
+  let made;
+  for (const last of requisites.last_name ? [requisites.last_name] : ['-', 'Блогер']) {
+    const body = { kind: 'individual', first_name: requisites.first_name, last_name: last, phone };
+    if (requisites.patronymic) body.patronymic = requisites.patronymic;
+    made = await konsol.createContractor(body);
+    if (made.ok && made.body && made.body.id) return { id: made.body.id, created: true };
+  }
   return { error: `contractor: ${made.error || `HTTP ${made.status}`}`, definitive: true };
 }
 
@@ -105,7 +110,7 @@ export async function executePayout(id, deps) {
   const bankId = row.fps_bank_member_id;
   if (!phone) return result(422, { ok: false, code: 'phone_required', message: 'SBP phone missing — PUT /payouts/:id/requisites' });
   if (!isFpsBankMemberId(bankId)) return result(422, { ok: false, code: 'bank_required', message: 'SBP bank id (12 digits) missing — PUT /payouts/:id/requisites' });
-  if (!requisites.first_name || !requisites.last_name) return result(422, { ok: false, code: 'name_required', message: 'Konsol needs first_name and last_name of the recipient' });
+  if (!requisites.first_name) return result(422, { ok: false, code: 'name_required', message: 'Konsol needs the first name of the recipient' });
 
   const bank = await konsol.bankMember(bankId);
   if (bank.error) return result(502, { ok: false, code: 'konsol_unreachable', message: bank.error });

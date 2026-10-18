@@ -19,7 +19,7 @@ await build({ entryPoints: [fileURLToPath(new URL('./ig-dm-reply.ts', import.met
       : a.path==='./diana-image-check.mjs' ? 'export const checkDianaImages=async()=>{if(globalThis.__ugcTest.jevImageError)throw Error("JEV image");return globalThis.__ugcTest.imageCheck??{status:"yes",reasons:[],checks:[]}};'
       : a.path==='./ig-dm-attachments' ? 'export const incomingScreenshots=async()=>{if(globalThis.__ugcTest.imageError)throw Error("image");return {images:globalThis.__ugcTest.screenshots??[],unreadable:globalThis.__ugcTest.unreadable??0}};'
       : a.path==='./owner-telegram' ? 'export const sendOwnerTelegram=()=>globalThis.__ugcTest.notify(); export const sendOwnerQuestion=(_e,text,buttons)=>globalThis.__ugcTest.ask(text,buttons);'
-      : 'export const refreshIgAttachments=async()=>globalThis.__ugcTest.freshAttachments??null; export const lastWordIsBlogger=()=>globalThis.__ugcTest.live; export const sendIgDirect=(...args)=>globalThis.__ugcTest.send(...args); export const sendIgCards=(...args)=>globalThis.__ugcTest.cards(...args);' }));
+      : 'export const IG_UNSUPPORTED="unsupported"; export const refreshIgAttachments=async()=>globalThis.__ugcTest.freshAttachments??null; export const lastWordIsBlogger=()=>globalThis.__ugcTest.live; export const sendIgDirect=(...args)=>globalThis.__ugcTest.send(...args); export const sendIgCards=(...args)=>globalThis.__ugcTest.cards(...args);' }));
   }}] });
 const { igDmReply, jevSure } = await import(pathToFileURL(outfile));
 rmSync(dir, { recursive:true });
@@ -32,6 +32,14 @@ test('missing current attachment metadata is repaired internally or stays pendin
  // Owner 2026-10-18: Instagram confirms an empty item (a like, an unsupported sticker) — the text before it is answered.
  const e=fixture();e.history=[{direction:'in',text:'89511688874 озон Сотова Ксения',created_at:e.t},{id:'blank',direction:'in',text:null,attachments_json:null,created_at:e.t}];e.freshAttachments='[]';
  await igDmReply(e.env);assert.equal(e.sent.length,1);assert.equal(e.states.has('ig_reply_escalated:'+e.cid),false);
+});
+test('a photo Instagram will not hand over is never confirmed as seen (noza_finds 2026-10-18)',async()=>{
+ const u=fixture();u.history=[{id:'blank',direction:'in',text:null,attachments_json:null,created_at:u.t}];u.freshAttachments='unsupported';
+ u.raws=[JSON.stringify({reply:'Вижу корзину, всё верно!',escalate:false,reason:'ok'}),JSON.stringify({reply:'Вижу корзину, всё верно!',escalate:false,reason:'ok'})];
+ await igDmReply(u.env);assert.equal(u.sent.length,0);assert.match(u.context,/не передал/);
+ const r=fixture();r.history=[{id:'blank',direction:'in',text:null,attachments_json:null,created_at:r.t}];r.freshAttachments='unsupported';
+ r.raw=JSON.stringify({reply:'Фото до меня не дошло. Перешлите, пожалуйста, скрин корзины ещё раз обычным фото?',escalate:false,reason:'ok'});
+ await igDmReply(r.env);assert.equal(r.sent.length,1);
 });
 const good = JSON.stringify({reply:'Получила, проверяю!',escalate:false,reason:'ok'});
 function fixture() {

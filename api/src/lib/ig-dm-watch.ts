@@ -107,6 +107,9 @@ export async function lastWordIsBlogger(env: Env, conversationId: string, expect
 }
 
 /** Refresh a signed attachment URL without sending a message to the blogger. */
+/** Instagram marks some photos is_unsupported and never hands them to the API (noza_finds 17.10). */
+export const IG_UNSUPPORTED = 'unsupported';
+
 export async function refreshIgAttachments(env: Env, messageId: string): Promise<string | null> {
   const token = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN;
   if (!token) return null;
@@ -116,7 +119,7 @@ export async function refreshIgAttachments(env: Env, messageId: string): Promise
   if (!stored) return null;
   // Read the conversation when direct access to the saved message id fails.
   // Use sender + timestamp only when that match is unambiguous.
-  let path = `/${encodeURIComponent(stored.conversation_id)}?fields=messages.limit(100){id,created_time,from,attachments{mime_type,file_url,image_data,video_data}}`;
+  let path = `/${encodeURIComponent(stored.conversation_id)}?fields=messages.limit(100){id,created_time,from,is_unsupported,attachments{mime_type,file_url,image_data,video_data}}`;
   for (let n=0;n<4;n++) {
     const r=await graph(path,String(page.body.access_token)); if(!r.ok)return null;
     const data=r.body?.messages?.data ?? r.body?.data ?? [];
@@ -126,14 +129,16 @@ export async function refreshIgAttachments(env: Env, messageId: string): Promise
       // Owner 2026-10-18 (kseniya_obzor_wb_ozon, nazarovas2004 and 7 more): Instagram returns some
       // items with no text and no attachments (a like, a reaction, an unsupported sticker). There is
       // nothing to read; '[]' records «confirmed empty» so the reply is not blocked on it.
-      if(!Array.isArray(found.attachments?.data)){await env.DB.prepare(`UPDATE ugc_ig_messages SET attachments_json='[]' WHERE id=?1`).bind(messageId).run();return '[]';}
+      // Owner 2026-10-18 (noza_finds): a photo the blogger sent can come back is_unsupported — the
+      // Owner sees it in the app, we never get it. That is NOT an empty item: Diana did not see it.
+      if(!Array.isArray(found.attachments?.data)){await env.DB.prepare(`UPDATE ugc_ig_messages SET attachments_json='[]' WHERE id=?1`).bind(messageId).run();return found.is_unsupported ? IG_UNSUPPORTED : '[]';}
       const json=JSON.stringify(found.attachments.data);
       await env.DB.prepare(`UPDATE ugc_ig_messages SET attachments_json=?2 WHERE id=?1`).bind(messageId,json).run();
       return json;
     }
     const after=(r.body?.messages?.paging ?? r.body?.paging)?.cursors?.after;
     if(!after || !data.length)break;
-    path=`/${encodeURIComponent(stored.conversation_id)}/messages?fields=id,created_time,from,attachments{mime_type,file_url,image_data,video_data}&limit=100&after=${encodeURIComponent(after)}`;
+    path=`/${encodeURIComponent(stored.conversation_id)}/messages?fields=id,created_time,from,is_unsupported,attachments{mime_type,file_url,image_data,video_data}&limit=100&after=${encodeURIComponent(after)}`;
   }
   return null;
 }
@@ -152,11 +157,11 @@ export async function recoverMissingIgImages(env: Env): Promise<number> {
   let repaired = 0;
   for (const row of rows) {
     const json = await refreshIgAttachments(env, row.id).catch(() => null);
-    if (json && json !== '[]') {
+    if (json && json !== '[]' && json !== IG_UNSUPPORTED) {
       try { await cacheIncomingImages(env, row.id, JSON.parse(json)); await resumeRecoveredIgImage(env,row.conversation_id); repaired++; } catch { /* reader retries */ }
     }
     await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
-      .bind(`ig_attachment_probe:${row.id}`, json && json !== '[]' ? 'metadata_recovered' : 'not_available_yet', now).run();
+      .bind(`ig_attachment_probe:${row.id}`, json === IG_UNSUPPORTED ? 'unsupported_by_instagram' : json && json !== '[]' ? 'metadata_recovered' : 'not_available_yet', now).run();
   }
   return repaired;
 }

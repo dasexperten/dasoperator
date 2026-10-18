@@ -297,6 +297,9 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
         break;
       }
       out = guardReply(raw, { paid, inCount: incoming.length, lastIn: incoming.slice(-2).map((m) => m.text ?? '').join(' '), allowBrush: legacyCart });
+      // mari.d_w 2026-10-18: a payout is already open — repeated requisites are not a new registration
+      // and must never stop the conversation (the surname check blocked her for 15 minutes).
+      if (out.requisites && payouts.some((p) => ['awaiting_approval', 'approved', 'sent'].includes(p.status))) out.requisites = null;
       const imageConflict = Boolean(imageCheck && imageCheck.status !== 'yes' && out.requisites);
       // Owner 2026-10-18 (irina__sayapina wrote «Ирина Алексеевна»; the model took «А» of the patronymic
       // as the surname). A one-letter surname must stand in the blogger's own words, never be guessed.

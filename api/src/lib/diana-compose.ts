@@ -28,7 +28,8 @@ export async function dianaCompose(env: Env, handle: string, brief: string): Pro
     .bind(`diana_compose:${handle.toLowerCase()}`, JSON.stringify({ ...receipt, brief: brief.slice(0, 400), at: new Date().toISOString() }), Date.now()).run().catch(() => undefined);
   const spec = 'Верни строго JSON без пояснений: {"replies":["…","…"]} — 1–4 коротких сообщения подряд, каждое одно-два предложения, вопрос только в последнем. Без приветствия посреди разговора, без тире, без шаблонных фраз. Не обещай того, чего нет в поручении.';
   let feedback = '';
-  for (let pass = 0; pass < 2; pass++) {
+  // Owner 2026-10-18 (sabina_2002455, _pusiq: paid 15:09, message 17:15): three tries before giving up the run.
+  for (let pass = 0; pass < 3; pass++) {
     const r = await callPro([{ role: 'system', content: `${prepared.system}\n\n${spec}` }, { role: 'user', content: task + feedback }], { env, maxTokens: 600, temperature: 0.4, prefer: 'anthropic' })
       .catch(() => callPro([{ role: 'system', content: `${prepared.system}\n\n${spec}` }, { role: 'user', content: task + feedback }], { env, maxTokens: 600, temperature: 0.4 }));
     const m = String(r.text ?? '').match(/\{[\s\S]*\}/);

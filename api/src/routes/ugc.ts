@@ -162,6 +162,7 @@ ugc.get('/', async (c) => {
   const search = textValue(c.req.query('search'), 120)?.toLowerCase() ?? '';
   const stage = textValue(c.req.query('stage'), 80);
   const archiveOnly = stage === 'archived';
+  const inactiveOnly = c.req.query('inactive') === '1';
   const product = baseProductSku(c.req.query('product'));
 
   const profiles = await c.env.DB.prepare(
@@ -181,10 +182,12 @@ ugc.get('/', async (c) => {
      WHERE (?1 IS NULL OR p.platform = ?1)
        AND (?2 = '' OR LOWER(COALESCE(c.display_name, '') || ' ' || p.handle) LIKE '%' || ?2 || '%')
        AND (?3 IS NULL OR c.lifecycle_stage = ?3)
-       AND ((?4=1 AND c.archived_at IS NOT NULL) OR (?4=0 AND c.archived_at IS NULL))
+       AND (?5=1 OR ((?4=1 AND c.archived_at IS NOT NULL) OR (?4=0 AND c.archived_at IS NULL)))
+       AND ((?5=1 AND p.platform='instagram' AND p.availability_status='unavailable')
+         OR (?5=0 AND NOT (p.platform='instagram' AND COALESCE(p.availability_status,'')='unavailable')))
      ORDER BY COALESCE(p.followers, -1) DESC, COALESCE(c.display_name, p.handle) ASC
      LIMIT 1500`
-  ).bind(usePlatform, search, archiveOnly ? null : stage, archiveOnly ? 1 : 0).all<Record<string, any>>();
+  ).bind(usePlatform, search, archiveOnly ? null : stage, archiveOnly ? 1 : 0, inactiveOnly ? 1 : 0).all<Record<string, any>>();
 
   const metricRows = await c.env.DB.prepare(
     `SELECT id, creator_id, creator_platform_id, content_url, content_type,
@@ -396,8 +399,13 @@ ugc.get('/', async (c) => {
 
   const platformCounts = await c.env.DB.prepare(
     `SELECT platform, COUNT(DISTINCT creator_id) creator_count
-     FROM ugc_creator_platforms p JOIN ugc_creators c ON c.id=p.creator_id WHERE c.archived_at IS NULL GROUP BY platform ORDER BY creator_count DESC`
-  ).all<{ platform: string; creator_count: number }>();
+     FROM ugc_creator_platforms p JOIN ugc_creators c ON c.id=p.creator_id
+     WHERE ((?1=1 AND p.platform='instagram' AND p.availability_status='unavailable')
+       OR (?1=0 AND c.archived_at IS NULL AND NOT (p.platform='instagram' AND COALESCE(p.availability_status,'')='unavailable')))
+     GROUP BY platform ORDER BY creator_count DESC`
+  ).bind(inactiveOnly ? 1 : 0).all<{ platform: string; creator_count: number }>();
+  const inactiveCount = await c.env.DB.prepare("SELECT COUNT(DISTINCT creator_id) count FROM ugc_creator_platforms WHERE platform='instagram' AND availability_status='unavailable'")
+    .first<{ count: number }>();
   const totals = await c.env.DB.prepare(
     `SELECT
        (SELECT COUNT(*) FROM ugc_creators WHERE archived_at IS NULL) creators,
@@ -446,14 +454,15 @@ ugc.get('/', async (c) => {
 
   return ok(c, {
     creators: creatorList,
+    inactive_count: inactiveCount?.count ?? 0,
     payout_summary: payoutSummary,
-    summary: totals ?? {
+    summary: { ...(totals ?? {
       creators: 0, profiles: 0, content_items: 0, linked_content: 0,
       links_active: 0, links_missing: 0, links_restricted: 0, links_unknown: 0,
       links_invalid: 0, links_unchecked: 0, links_checked_30d: 0,
       links_last_checked_at: null, link_check_history: 0, product_identified: 0, product_queued: 0,
       active_outreach: 0, published: 0,
-    },
+    }), creators: creatorList.length, profiles: creatorList.reduce((sum, creator) => sum + creator.profiles.length, 0) },
     platforms: platformCounts.results ?? [],
     products: Array.from(productCounts, ([sku, content_count]) => ({ sku, name: UGC_PRODUCTS[sku] ?? sku, content_count }))
       .sort((a, b) => b.content_count - a.content_count || a.name.localeCompare(b.name)),

@@ -10,6 +10,10 @@
 .ugc-creator-modal :is(p, h2, h3) { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; }
 body:has(.ugc-creator-modal[open]) { overflow: hidden; }
 .ugc-profile-tools { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; font-size: 12px; color: var(--fg-2); }
+.ugc-inactive-filter { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: var(--fg-1); font-size: 14px; font-weight: 700; cursor: pointer; }
+.ugc-inactive-filter:has(input:checked) { background: var(--paper-sunk); }
+.ugc-inactive-filter input { width: 18px; height: 18px; margin: 0; accent-color: var(--brand-rot); cursor: pointer; }
+.ugc-inactive-filter input:focus-visible { outline: 2px solid var(--fg-1); outline-offset: 3px; }
 .ugc-profile-refresh { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; }
 .ugc-profile-refresh-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: var(--fg-1); font-weight: 700; }
 .ugc-profile-refresh-btn:disabled { opacity: .6; cursor: wait; }

@@ -732,7 +732,7 @@ export default function CrmPage() {
       </div>
       {/* Tabs — filled chips (brighter: fill, not underline) */}
       {crmSource !== 'pricing' && (
-      <div className="flex items-center gap-2 flex-wrap dx-keep-flex">
+      <div className="crm-tabs flex items-center gap-2 flex-wrap dx-keep-flex">
         <TabButton
           active={tab === 'orders'}
           onClick={() => setTab('orders')}
@@ -802,7 +802,7 @@ export default function CrmPage() {
             </div>
           )}
           {ordersAsOf !== null && crmSource === 'ru' && (
-            <div style={{ margin: '0 0 10px', fontSize: 13, color: 'var(--fg-2)' }}>
+            <div className="crm-asof" style={{ margin: '0 0 10px', fontSize: 13, color: 'var(--fg-2)' }}>
               Данные на {new Date(ordersAsOf * 1000).toLocaleString('ru-RU')} · зеркало витрины в ERP, обновляется каждые 15 минут
             </div>
           )}
@@ -1794,7 +1794,7 @@ function DataTablePanel({
       boxShadow: 'var(--shadow-raised)',
       borderRadius: 'var(--radius-md)',
     }}>
-      <div className="px-5 py-3.5 flex items-center justify-between gap-4 flex-wrap"
+      <div className="crm-panel-head px-5 py-3.5 flex items-center justify-between gap-4 flex-wrap"
            style={{ borderBottom: '1px solid var(--border-hairline)' }}>
         <div style={{
           fontFamily: 'var(--font-display)',
@@ -1816,8 +1816,8 @@ function DataTablePanel({
           )}
         </div>
 
-        <div className="flex items-center gap-3">
-          <form onSubmit={onSearchSubmit} className="relative">
+        <div className="crm-panel-tools flex items-center gap-3">
+          <form onSubmit={onSearchSubmit} className="crm-panel-search relative">
             <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2"
                     style={{ color: 'var(--fg-muted)' }} />
             <input

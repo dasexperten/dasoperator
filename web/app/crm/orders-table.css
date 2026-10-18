@@ -53,3 +53,47 @@
   .crm-customers-table tbody td:nth-child(1), .crm-customers-table tbody td:nth-child(3), .crm-customers-table tbody td:nth-child(4), .crm-customers-table tbody td[colspan] { display: block; }
   .crm-customers-table tbody td:first-child button > span:not(:first-child) { display: none !important; }
 }
+
+/* Owner 2026-10-18: phone CRM in order. The site-wide card rule
+   (main table:not(.dx-keep-table) td) outranked the phone rules above and
+   showed every column with a label. These rules carry .crm-mock so they win:
+   one card per order — name left, amount right, delivery under them. */
+@media (max-width: 767px) {
+  main .crm-mock .crm-tabs { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 8px; }
+  main .crm-mock .crm-tabs > button { justify-content: center; min-height: 48px; padding: 8px 10px !important; }
+  main .crm-mock .crm-panel-head { padding: 12px 14px !important; gap: 10px !important; }
+  main .crm-mock .crm-panel-head > div:first-child { flex: 1 1 100%; }
+  main .crm-mock .crm-panel-tools { flex: 1 1 100%; min-width: 0; gap: 8px !important; }
+  main .crm-mock .crm-panel-search { flex: 1 1 auto; min-width: 0; }
+  main .crm-mock .crm-panel-search input { width: 100% !important; min-height: 44px; font-size: 16px !important; }
+  main .crm-mock .crm-panel-tools select { min-height: 44px; }
+  main .crm-mock .crm-asof { padding: 10px 14px 0; margin: 0 !important; }
+  main .crm-mock .overflow-x-auto { padding: 10px 10px 2px; }
+
+  main .crm-mock table.crm-orders-table tbody tr,
+  main .crm-mock table.crm-customers-table tbody tr {
+    display: grid !important; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+    column-gap: 12px; row-gap: 4px; padding: 12px 14px !important;
+  }
+  main .crm-mock table.crm-orders-table tbody td,
+  main .crm-mock table.crm-customers-table tbody td {
+    display: none !important; width: auto !important; min-height: 0; padding: 0 !important;
+    border: none !important; text-align: left !important; font-weight: 400;
+  }
+  main .crm-mock table.crm-orders-table tbody td::before,
+  main .crm-mock table.crm-customers-table tbody td::before { content: none !important; }
+
+  /* orders: customer · total · delivery */
+  main .crm-mock table.crm-orders-table tbody td:nth-child(2) { display: block !important; grid-column: 1; font-weight: 800; font-size: 16px; }
+  main .crm-mock table.crm-orders-table tbody td:nth-child(4) { display: block !important; grid-column: 2; text-align: right !important; font-weight: 800; font-size: 16px; white-space: nowrap; }
+  main .crm-mock table.crm-orders-table[data-source="ru"] tbody td:nth-child(7),
+  main .crm-mock table.crm-orders-table[data-source="com"] tbody td:nth-child(8) { display: block !important; grid-column: 1 / -1; font-size: 14px; }
+
+  /* customers: name · total spent · delivered */
+  main .crm-mock table.crm-customers-table tbody td:nth-child(1) { display: block !important; grid-column: 1; font-weight: 800; font-size: 16px; }
+  main .crm-mock table.crm-customers-table tbody td:nth-child(3) { display: block !important; grid-column: 2; text-align: right !important; font-weight: 800; font-size: 16px; white-space: nowrap; }
+  main .crm-mock table.crm-customers-table tbody td:nth-child(4) { display: block !important; grid-column: 1 / -1; font-size: 14px; }
+
+  main .crm-mock table.crm-orders-table tbody td[colspan],
+  main .crm-mock table.crm-customers-table tbody td[colspan] { display: block !important; grid-column: 1 / -1; text-align: center !important; }
+}

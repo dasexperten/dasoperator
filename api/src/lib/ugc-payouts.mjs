@@ -164,8 +164,24 @@ export function ownRubMinor(accountsBody) {
   return { ok: true, own_minor: own };
 }
 
+// ONE-DAY EXCEPTION (Owner 2026-10-18 12:11 Yerevan: «в порядке исключения на сегодня снимаем запрет
+// на использование овердрафта с банка»). Until 24:00 Yerevan 18.10.2026 a payout may use the overdraft:
+// it leaves when the whole balance (own + overdraft) covers amount + fee. Afterwards the law above is
+// back by itself, with no deploy. Every other limit (999 ₽ per blogger, 10 000 ₽ a day) stays.
+export const OVERDRAFT_EXCEPTION_UNTIL = Date.parse('2026-10-18T20:00:00Z');
+
 /** Pay only if own RUB covers the amount plus the 30 ₽ fee. */
-export function checkOwnRub(accountsBody, amountMinor) {
+export function checkOwnRub(accountsBody, amountMinor, now = Date.now()) {
+  if (now < OVERDRAFT_EXCEPTION_UNTIL) {
+    const list = accountsBody && Array.isArray(accountsBody.collection) ? accountsBody.collection : null;
+    if (!list || list.length !== 1) return { ok: false, code: 'own_rub_odd', reason: `expected one Konsol account, got ${list ? list.length : 'none'}` };
+    const balance = rubToMinor(list[0].balance);
+    if (balance == null) return { ok: false, code: 'own_rub_odd', reason: 'balance is not a number' };
+    const need = Number(amountMinor || 0) + KONSOL_FEE_MINOR;
+    const own = balance - KONSOL_OVERDRAFT_MINOR;
+    if (balance < need) return { ok: false, code: 'own_rub_low', own_minor: own, need_minor: need, reason: 'balance with overdraft below amount plus fee' };
+    return { ok: true, own_minor: own, need_minor: need, overdraft_exception: true };
+  }
   const own = ownRubMinor(accountsBody);
   if (!own.ok) return own;
   const need = Number(amountMinor || 0) + KONSOL_FEE_MINOR;

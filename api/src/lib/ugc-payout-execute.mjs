@@ -112,7 +112,7 @@ export async function executePayout(id, deps) {
 
   const accounts = await konsol.companyAccounts();
   if (!accounts.ok) return result(502, { ok: false, code: 'konsol_unreachable', message: accounts.error || `HTTP ${accounts.status}` });
-  const own = checkOwnRub(accounts.body, amount);
+  const own = checkOwnRub(accounts.body, amount, now);
   if (!own.ok) {
     await notifyOwner(ownRubStopText(own, row));
     return result(409, { ok: false, code: own.code, message: own.code === 'own_rub_low' ? `Own RUB ${formatRub(own.own_minor)} < amount + 30 ₽` : own.reason });

@@ -195,6 +195,8 @@ export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allow
   // Never unboxing and never a video of closed packaging: the paste is used on camera.
   // The face is still offered first: Diana never volunteers that it is optional.
   if (/лицо\s+(показывать\s+)?(не\s*)?необязательн|лицо\s+(показывать\s+)?не\s+обязательн/i.test(reply)) return { reply: null, escalate: true, reason: 'says face is optional' };
+  // Owner 2026-10-18 (noza_finds: «Артикул не даём»): a refusal never sounds like a refusal.
+  if (/(^|[^а-яё])(не\s+да[её]м|не\s+можем\s+(дать|сообщить|прислать)|не\s+положено|не\s+сообщаем|не\s+высылаем)([^а-яё]|$)/i.test(reply)) return { reply: null, escalate: true, reason: 'refusal tone' };
   if (/(^|[^а-яё])(снимите|снять|можно|сделайте|сделать|подойдёт|подойдет)\s+(\S+\s+){0,2}(распаковк|закрыт\S*\s+упаковк)/i.test(reply)) return { reply: null, escalate: true, reason: 'offers unboxing or closed packaging' };
   if (/добрый (день|вечер)|здравствуйте|привет/i.test(reply) && reply.length < 25) return { reply: null, escalate: false, reason: 'greeting only' };
   // Owner 2026-10-17: «заказала» always gets «пришлите, пожалуйста, скрин заказа», even next to another question.

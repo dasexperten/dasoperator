@@ -1,7 +1,8 @@
 'use client';
 
-import { createContext, type ReactNode, type MouseEvent, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type MouseEvent, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, ArrowUpDown, ExternalLink, Eye, Facebook, Globe, Hand, Heart, Instagram, Link, Link2Off, Loader2, MessageCircle, Search, Send, Users, Video, X, Youtube } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import './ugc-layout.css';
 import { apiGet, apiPatch, apiPost, apiPostTimed } from '@/lib/api';
 import { canPay, formatRub, PAYOUT_STATUS_LABEL, payoutCell } from '@/lib/ugc-payout-cell.mjs';
@@ -332,9 +333,31 @@ function BloggerAvatar({ profile, compact = false }: { profile: PlatformMetric; 
     observer.observe(ref.current);
     return () => { active = false; observer.disconnect(); };
   }, [profile.id, profile.has_avatar, profile.profile_checked_at]);
-  return <span ref={ref} role="img" aria-label={avatar ? `Аватар @${profile.handle}` : 'Аватар пока не загружен'} className={`ugc-blogger-avatar${compact ? ' ugc-avatar-compact' : ''}${avatar ? '' : ' ugc-avatar-empty'}`}>
-    {avatar ? <img src={avatar} alt="" width={compact ? 32 : 72} height={compact ? 32 : 72} decoding="async" /> : <Users aria-hidden="true" />}
-  </span>;
+  const [zoomed, setZoomed] = useState(false);
+  useEffect(() => {
+    if (!zoomed) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); setZoomed(false); } };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [zoomed]);
+  // Owner 2026-10-18: a tap on the avatar shows it large, so the person can be seen; it does not open the profile link.
+  const open = (event: MouseEvent | ReactKeyboardEvent<HTMLSpanElement>) => { event.preventDefault(); event.stopPropagation(); setZoomed(true); };
+  return <>
+    <span ref={ref} role={avatar ? 'button' : 'img'} tabIndex={avatar ? 0 : undefined}
+      onClick={avatar ? open : undefined}
+      onKeyDown={avatar ? (event => { if (event.key === 'Enter' || event.key === ' ') open(event); }) : undefined}
+      aria-label={avatar ? `Увеличить аватар @${profile.handle}` : 'Аватар пока не загружен'} title={avatar ? 'Увеличить фото' : undefined}
+      className={`ugc-blogger-avatar${compact ? ' ugc-avatar-compact' : ''}${avatar ? ' ugc-avatar-zoomable' : ' ugc-avatar-empty'}`}>
+      {avatar ? <img src={avatar} alt="" width={compact ? 32 : 72} height={compact ? 32 : 72} decoding="async" /> : <Users aria-hidden="true" />}
+    </span>
+    {zoomed && avatar ? createPortal(<div className="ugc-avatar-zoom" role="dialog" aria-modal="true" aria-label={`Фото @${profile.handle}`} onClick={event => { event.stopPropagation(); setZoomed(false); }}>
+      <figure onClick={event => event.stopPropagation()}>
+        <img src={avatar} alt={`Фото @${profile.handle}`} />
+        <figcaption>@{profile.handle}</figcaption>
+        <button type="button" autoFocus onClick={() => setZoomed(false)} aria-label="Закрыть фото"><X className="h-5 w-5" /></button>
+      </figure>
+    </div>, document.body) : null}
+  </>;
 }
 
 function BloggerProfile({ profile, onSaved, showHandle = false }: { profile: PlatformMetric; onSaved: () => Promise<void>; showHandle?: boolean }) {

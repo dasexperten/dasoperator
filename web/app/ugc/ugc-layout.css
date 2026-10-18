@@ -350,3 +350,15 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 .ugc-avatar-zoom img { display: block; width: min(86vw, 520px); height: min(86vw, 520px); object-fit: cover; border-radius: 12px; background: #222; }
 .ugc-avatar-zoom figcaption { color: #fff; font-weight: 800; font-size: 17px; letter-spacing: 0; }
 .ugc-avatar-zoom button { position: absolute; top: 8px; right: 8px; width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: #fff; color: #111; border: 0; }
+
+/* Confirmed unavailable Instagram profiles stay visible and fully operable. */
+.ugc-creator-row-unavailable { opacity: .72; filter: grayscale(1); }
+.ugc-creator-row-unavailable:hover, .ugc-creator-row-unavailable:focus-within { opacity: 1; filter: none; }
+.ugc-profile-unavailable { display: flex; align-items: center; gap: 4px; min-width: 0; font-size: 11px; line-height: 16px; font-weight: 700; color: var(--fg-1); }
+.ugc-profile-unavailable svg { width: 12px; height: 12px; flex: 0 0 auto; }
+@media (max-width: 767px) {
+  .ugc-creator-row-unavailable .ugc-mobile-title { line-height: 20px; }
+  .ugc-mobile-profile-copy { display: flex; flex-direction: column; min-width: 0; flex: 1; text-align: left; }
+  .ugc-creator-row-unavailable .ugc-mobile-profile-copy { padding-block: 6px; }
+  .ugc-mobile-identity .ugc-profile-unavailable { font-size: 10px; line-height: 14px; white-space: normal; text-align: left; }
+}

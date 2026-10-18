@@ -56,8 +56,14 @@ test('own RUB is balance minus the 1 905 000 ₽ overdraft, never the overdraft 
   assert.equal(ownRubMinor({ collection: [] }).code, 'own_rub_odd');
   assert.equal(ownRubMinor({ collection: [{ balance: 'x' }, { balance: '1' }] }).code, 'own_rub_odd');
   assert.equal(rubToMinor('836.0'), 83600);
-  assert.equal(checkOwnRub(balance(31), 100).ok, true, '1 ₽ + 30 ₽ fee fits in 31 ₽');
-  assert.equal(checkOwnRub(balance(30.99), 100).code, 'own_rub_low');
+  const after = Date.parse('2026-10-19T00:00:00Z');
+  assert.equal(checkOwnRub(balance(31), 100, after).ok, true, '1 ₽ + 30 ₽ fee fits in 31 ₽');
+  assert.equal(checkOwnRub(balance(30.99), 100, after).code, 'own_rub_low');
+  // One-day exception (Owner 2026-10-18): the overdraft may carry the payout until 24:00 Yerevan.
+  const during = Date.parse('2026-10-18T12:00:00Z');
+  assert.equal(checkOwnRub(balance(0), 100, during).ok, true);
+  assert.equal(checkOwnRub({ collection: [{ balance: '0.10' }] }, 100, during).code, 'own_rub_low');
+  assert.equal(checkOwnRub(balance(0), 100, Date.parse('2026-10-18T20:00:00Z')).code, 'own_rub_low');
 });
 
 test('phones: Konsol form and the ERP mask', () => {
@@ -103,6 +109,7 @@ test('an existing contractor with the same phone is reused', async () => {
 
 test('own RUB below amount + 30 ₽ stops the payout and tells the Owner', async () => {
   const { db, deps, calls } = world({ rows: [{ id: 'p1', amount_minor: 50000 }], ownRub: 529.99 });
+  deps.now = Date.parse('2026-10-19T08:00:00Z'); // after the one-day overdraft exception
   const out = await executePayout('p1', deps);
   assert.equal(out.http, 409);
   assert.equal(out.code, 'own_rub_low');
@@ -115,6 +122,7 @@ test('own RUB below amount + 30 ₽ stops the payout and tells the Owner', async
 
 test('negative own RUB (overdraft limit changed) stops the payout', async () => {
   const { deps, calls } = world({ rows: [{ id: 'p1', amount_minor: 100 }], ownRub: -10 });
+  deps.now = Date.parse('2026-10-19T08:00:00Z'); // after the one-day overdraft exception
   const out = await executePayout('p1', deps);
   assert.equal(out.code, 'own_rub_odd');
   assert.equal(calls.payments.length, 0);

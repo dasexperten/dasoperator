@@ -17,7 +17,7 @@ export function canAttemptReply(state, at, now = Date.now()) {
   if (!state || state.at !== at) return true;
   return state.status === 'retry' && Number(state.next_retry_at ?? 0) <= now;
 }
-export function nextReplyFailure(previous, { at, handle, reason, now = Date.now() }) {
+export function nextReplyFailure(previous, { at, handle, reason, now = Date.now(), draft = '' }) {
   const attempts = previous?.at === at ? Number(previous.attempts ?? 0) + 1 : 1;
   const kind = isTechnical(reason) ? 'technical' : 'business';
   // Owner 2026-10-18 (khanbabaevaselmaia): a technical failure is never dropped after three
@@ -25,12 +25,22 @@ export function nextReplyFailure(previous, { at, handle, reason, now = Date.now(
   const sinceAt = now - (Date.parse(at) || now);
   const quick = attempts < MAX_REPLY_ATTEMPTS;
   const hourly = !quick && sinceAt < HOURLY_RETRY_WINDOW_MS;
-  return { handle, at, reason: String(reason || 'Требуется ручная проверка').replace(/(?:\+?7|8)[\s\d()\-]{9,18}/g, '[телефон]').slice(0, 200), kind, attempts,
-    status: kind === 'technical' && (quick || hourly) ? 'retry' : 'needs_review',
+  // Owner 2026-10-18 (yasmin_i.b: 7 silent rewrites on one reason): three refusals for the SAME reason stop
+  // the silent retries — the conversation goes onto /ugc with the last draft for the Owner.
+  const same = previous?.at === at && previous?.reason === String(reason) ? Number(previous.same ?? 1) + 1 : 1;
+  // Only a refusal by the reply check counts; infrastructure failures keep their hourly retries.
+  const infra = new Set(['unparsable', 'provider_error', 'vision_error', 'image_unreadable_text_error', 'diana_context_unavailable', 'diana_image_check_unavailable', 'diana_context_audit_failed', 'current_image_unavailable', 'current_attachment_metadata_unavailable', 'diana_image_decode_unavailable', 'voice_check_unavailable', 'image_read_failed', 'payout_registration_failed', 'creator_registration_failed', 'conversation_check_failed', 'send_failed']);
+  const stuck = kind === 'technical' && same >= 3 && !infra.has(String(reason ?? '').split(':')[0].trim());
+  const mask = (t) => String(t ?? '').replace(/(?:\+?7|8)[\s\d()\-]{9,18}/g, '[телефон]');
+  return { handle, at, reason: mask(reason || 'Требуется ручная проверка').slice(0, 200), kind: stuck ? 'stuck' : kind, attempts, same,
+    draft: mask(draft ?? previous?.draft ?? '').slice(0, 600),
+    status: !stuck && kind === 'technical' && (quick || hourly) ? 'retry' : 'needs_review',
     next_retry_at: now + (quick ? RETRY_DELAY_MS : HOURLY_RETRY_MS),
     notified_at: previous?.at === at ? previous.notified_at ?? null : null };
 }
 export function replyAttention(state) {
+  if (state.kind === 'stuck') return { at: state.at, status: 'needs_review', kind: 'technical', code: 'stuck',
+    label: 'Ответ не проходит проверку', reason: `Диана 3 раза написала ответ, проверка отклонила: ${state.reason}.${state.draft ? ` Последний черновик: ${state.draft}` : ''} Ответьте блогеру сами или скажите Диане, что исправить.` };
   // Owner 2026-10-18: a photo programs cannot open is shown to the Owner first.
   if (state.reason === 'photo_for_owner') return { at: state.at, status: 'retry', kind: 'business', code: 'photo_for_owner',
     label: 'Посмотрите фото', reason: 'Фото не открывается в ERP. Посмотрите его в переписке в приложении и напишите здесь, что на нём. Без вас через 30 минут Диана мягко попросит прислать его ещё раз.' };

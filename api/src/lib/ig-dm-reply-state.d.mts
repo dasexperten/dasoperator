@@ -1,9 +1,9 @@
-export type ReplyState = { handle: string; at: string; reason: string; kind?: string; attempts?: number; status?: string; next_retry_at?: number; notified_at?: string | null };
+export type ReplyState = { handle: string; at: string; reason: string; kind?: string; attempts?: number; status?: string; next_retry_at?: number; notified_at?: string | null; same?: number; draft?: string };
 export const RETRY_DELAY_MS: number;
 export const MAX_REPLY_ATTEMPTS: number;
 export function readReplyState(value: unknown): ReplyState | null;
 export function canAttemptReply(state: ReplyState | null, at: string, now?: number): boolean;
-export function nextReplyFailure(previous: ReplyState | null, opts: {at: string; handle: string; reason: string; now?: number}): ReplyState;
+export function nextReplyFailure(previous: ReplyState | null, opts: {at: string; handle: string; reason: string; now?: number; draft?: string}): ReplyState;
 export function replyAttention(state: ReplyState): { at: string; code?: string; status: string; kind: string; label: string; reason: string };
 export const HOURLY_RETRY_MS: number;
 export const HOURLY_RETRY_WINDOW_MS: number;

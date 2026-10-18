@@ -50,6 +50,15 @@ test('a photo programs cannot open goes to the Owner first, never «did not arri
  n.states.set('ig_photo_note:'+n.cid,JSON.stringify({at:n.t,text:'скрин заказа TERMO'}));
  await igDmReply(n.env);assert.equal(n.sent.length,1);assert.match(n.context,/Владелец посмотрел/);
 });
+test('after the order screenshot comes the scenario, not the video (anastasiiyaa___, Owner 2026-10-18)',async()=>{
+ const paidAt=new Date(Date.now()-3_600_000).toISOString();
+ const v=fixture();v.creator={id:'creator'};v.payouts=[{amount_minor:67100,status:'paid',konsol_payment_id:'k',paid_at:paidAt,payout_date:'2026-10-18'}];
+ v.history=[{direction:'out',text:'Перевела 671 ₽ по СБП.',created_at:paidAt},{direction:'in',text:null,attachments_json:'[{"image_data":{"url":"https://lookaside.fbsbx.com/x"}}]',created_at:v.t}];
+ v.raws=[JSON.stringify({reply:'Заказ вижу, отлично! Как заберёте с ПВЗ, снимите ролик и пришлите ссылку, пожалуйста.',escalate:false,reason:'ok'})];
+ v.raw=JSON.stringify({reply:'Заказ вижу, спасибо) Есть своя идея ролика? Если нет, пришлю сценарии на выбор.',escalate:false,reason:'ok'});
+ await igDmReply(v.env);
+ assert.match(v.context,/сценария ещё нет/);assert.equal(v.sent.length,1);assert.match(String(v.sent[0][2]),/идея/);
+});
 test('a second model reads every reply against VOICE before it leaves (Owner 2026-10-18)',async()=>{
  const a=fixture();a.history=[{direction:'in',text:'Можно артикул',created_at:a.t}];
  a.raws=[JSON.stringify({reply:'Ищите сами через поиск.',escalate:false,reason:'ok'}),JSON.stringify({reply:'Лучше через поиск, так ваша покупка поможет нашей карточке)',escalate:false,reason:'ok'})];

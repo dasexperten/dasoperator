@@ -599,6 +599,17 @@ export default function UgcPage() {
     return () => window.clearTimeout(timer);
   }, [load]);
 
+  // Owner 2026-10-18: a tab left open overnight showed yesterday's grey amounts. The list now
+  // refreshes itself every 2 minutes while visible and at once when the tab is opened again.
+  useEffect(() => {
+    let last = Date.now();
+    const refresh = () => { if (document.visibilityState !== 'visible') return; if (Date.now() - last < 60_000) return; last = Date.now(); void load(); };
+    const tick = window.setInterval(() => { if (document.visibilityState === 'visible') { last = Date.now(); void load(); } }, 120_000);
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => { window.clearInterval(tick); document.removeEventListener('visibilitychange', refresh); window.removeEventListener('focus', refresh); };
+  }, [load]);
+
   useEffect(() => {
     if (!urlStateReady.current) return;
     const params = new URLSearchParams(window.location.search);

@@ -113,6 +113,6 @@ export async function prepareDianaContext({ task, githubToken, jevKey, fetchImpl
   ].join('\n\n');
   const imagePolicy = JSON.parse(files.imagePolicy);
   if (!imagePolicy.product || !Array.isArray(imagePolicy.sellers)) throw new Error('diana_context_unavailable: invalid image policy');
-  return { system, imagePolicy, receipt: { version: DIANA_CONTEXT_VERSION, method: 'jev', org_sha: orgSha, skills_sha: archSha,
+  return { system, imagePolicy, voice: files.voice, receipt: { version: DIANA_CONTEXT_VERSION, method: 'jev', org_sha: orgSha, skills_sha: archSha,
     skills: skillNames, entries: knowledge.map(e => e.key), references: loadedReferences.map(r => r.path), prepared_ms: Date.now() - started } };
 }

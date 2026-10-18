@@ -4,7 +4,7 @@
 import type { Env } from '../types';
 import { konsolClient } from './konsol';
 import { sendOwnerTelegram } from './owner-telegram';
-import { applyKonsolPayment, executePayout, matchRegistryPayment, REGISTRY_LINK_IDS } from './ugc-payout-execute.mjs';
+import { applyKonsolPayment, bloggerPaidText, executePayout, matchRegistryPayment, REGISTRY_LINK_IDS } from './ugc-payout-execute.mjs';
 import { sendIgDirect } from './ig-dm-watch';
 import { formatRub, ownRubMinor, UGC_PAYOUT_MAX_MINOR } from './ugc-payouts.mjs';
 import { dianaCompose } from './diana-compose';
@@ -104,10 +104,14 @@ function deps(env: Env) {
       const parts = await dianaCompose(env, handle, `Выплата исполнена, ERP и Консоль подтвердили. Смысл сообщения:\n${text}`).catch(() => null);
       if (!parts || !parts.length) return { ok: false };
       const [first, ...rest] = parts;
-      const sent = await sendIgDirect(env, handle, first!);
+      // Owner 2026-10-18 (mari__blog666 and 5 more: paid, no message): after 24 h of the blogger's
+      // silence Instagram takes a message only with the human-agent tag (7-day window).
+      const lastIn = await env.DB.prepare(`SELECT MAX(created_at) t FROM ugc_ig_messages WHERE direction='in' AND LOWER(from_username)=?1`).bind(handle.toLowerCase()).first<{ t: string | null }>();
+      const humanAgent = !lastIn?.t || Date.now() - Date.parse(lastIn.t) > 23.5 * 3_600_000;
+      const sent = await sendIgDirect(env, handle, first!, { humanAgent });
       for (const part of sent.ok ? rest : []) {
         await new Promise((r) => setTimeout(r, 1500));
-        if (!(await sendIgDirect(env, handle, part)).ok) break;
+        if (!(await sendIgDirect(env, handle, part, { humanAgent })).ok) break;
       }
       // After a new payment the scenario cards follow the bridge (Owner 2026-10-16); an old debt gets thanks only.
       // Owner 2026-10-18: no scenario cards with the payment — they wait for the order screenshot.
@@ -200,6 +204,18 @@ export async function ugcPayoutSweep(env: Env): Promise<number> {
   for (const r of pending.results ?? []) {
     const out = await refreshUgcPayout(env, r.id);
     if (out.ok) refreshed++;
+  }
+  // Owner 2026-10-18: a paid payout whose message did not go out is retried until it does (within 6 days).
+  const unsent = await env.DB.prepare(
+    `SELECT * FROM ugc_payouts WHERE status='paid' AND konsol_payment_id IS NOT NULL AND paid_notice_at IS NULL
+       AND paid_at > ?1 ORDER BY paid_at LIMIT 5`
+  ).bind(new Date(Date.now() - 6 * 86_400_000).toISOString()).all<Record<string, any>>();
+  const d = deps(env);
+  for (const row of unsent.results ?? []) {
+    if (!(await d.store.claimNotice(row.id, new Date().toISOString()))) continue;
+    const sent = await d.notifyBlogger(row, bloggerPaidText(row)).catch(() => ({ ok: false }));
+    if (sent && sent.ok) refreshed++;
+    else await d.store.releaseNotice(row.id);
   }
   return refreshed;
 }

@@ -132,6 +132,27 @@ ugc.get('/profiles/:id/avatar', async (c) => {
   return ok(c, { data_url: `data:${image.httpMetadata?.contentType ?? 'image/jpeg'};base64,${btoa(binary)}` });
 });
 
+// Owner 2026-10-18: confirmed unavailable Instagram accounts remain in the list,
+// with a faded whole row. A failed photo fetch alone is not that confirmation.
+ugc.patch('/profiles/:id/availability', async (c) => {
+  const access = await requireAccess(c, true);
+  if (access instanceof Response) return access;
+  const body = await c.req.json<{ status?: unknown; note?: unknown }>().catch(() => null);
+  if (!body || !['available', 'unavailable', null].includes(body.status as any)) {
+    return fail(c, 422, [{ code: 'invalid_availability', message: 'status must be available, unavailable or null' }]);
+  }
+  const note = textValue(body.note, 500);
+  if (body.status !== null && !note) return fail(c, 422, [{ code: 'evidence_required', message: 'Observed account evidence required' }]);
+  const id = c.req.param('id');
+  const row = await c.env.DB.prepare('SELECT platform FROM ugc_creator_platforms WHERE id=?').bind(id).first<{ platform: string }>();
+  if (!row) return fail(c, 404, [{ code: 'not_found', message: 'Profile not found' }]);
+  if (row.platform !== 'instagram') return fail(c, 422, [{ code: 'instagram_required', message: 'Instagram profile required' }]);
+  const checkedAt = body.status === null ? null : new Date().toISOString();
+  await c.env.DB.prepare('UPDATE ugc_creator_platforms SET availability_status=?,availability_checked_at=?,availability_note=? WHERE id=?')
+    .bind(body.status, checkedAt, body.status === null ? null : note, id).run();
+  return ok(c, { id, availability_status: body.status, availability_checked_at: checkedAt });
+});
+
 ugc.get('/', async (c) => {
   const access = await requireAccess(c);
   if (access instanceof Response) return access;
@@ -153,7 +174,8 @@ ugc.get('/', async (c) => {
        p.median_video_views, p.avg_comments, p.posting_cadence,
        p.commerce_clicks, p.commerce_orders, p.commerce_gmv_minor,
        p.commerce_currency, p.metrics_as_of, p.source, p.updated_at profile_updated_at,
-       p.avatar_key, p.posts_count, p.er_sample_posts, p.profile_checked_at, p.profile_attempted_at, p.profile_error, p.er_checked_at
+       p.avatar_key, p.posts_count, p.er_sample_posts, p.profile_checked_at, p.profile_attempted_at, p.profile_error, p.er_checked_at,
+       p.availability_status, p.availability_checked_at, p.availability_note
      FROM ugc_creators c
      JOIN ugc_creator_platforms p ON p.creator_id = c.id
      WHERE (?1 IS NULL OR p.platform = ?1)
@@ -299,6 +321,9 @@ ugc.get('/', async (c) => {
     const profile = {
       id: row.profile_id,
       has_avatar: Boolean(row.avatar_key),
+      availability_status: row.availability_status ?? null,
+      availability_checked_at: row.availability_checked_at ?? null,
+      availability_note: row.availability_note ?? null,
       posts_count: row.posts_count,
       er_sample_posts: row.er_sample_posts,
       er_checked_at: row.er_checked_at,

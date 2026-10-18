@@ -86,7 +86,7 @@ export async function refreshBloggerProfiles(env: Env, profileId?: string, limit
           }
           const key = await saveAvatar(env, row.id, url).catch(() => null);
           if (key) {
-            await env.DB.prepare('UPDATE ugc_creator_platforms SET avatar_key=?,updated_at=? WHERE id=?')
+            await env.DB.prepare("UPDATE ugc_creator_platforms SET avatar_key=?,updated_at=?,availability_status='available',availability_checked_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),availability_note='Instagram supplied the current profile photo' WHERE id=?")
               .bind(key, Date.now(), row.id).run();
             updated++;
           }
@@ -114,7 +114,11 @@ export async function refreshBloggerProfiles(env: Env, profileId?: string, limit
         er_checked_at=CASE WHEN ?5 IS NULL THEN er_checked_at ELSE ?7 END,
         engagement_rate_method=CASE WHEN ?5 IS NULL THEN engagement_rate_method ELSE 'public_last6_posts_by_date:mean(likes+comments)/followers*100' END,
         profile_attempted_at=?7,profile_checked_at=CASE WHEN ?8 THEN ?7 ELSE profile_checked_at END,
-        metrics_as_of=CASE WHEN ?8 THEN ?7 ELSE metrics_as_of END,profile_error=?9,updated_at=?10 WHERE id=?1`)
+        metrics_as_of=CASE WHEN ?8 THEN ?7 ELSE metrics_as_of END,
+        availability_status=CASE WHEN ?8 THEN 'available' ELSE availability_status END,
+        availability_checked_at=CASE WHEN ?8 THEN ?7 ELSE availability_checked_at END,
+        availability_note=CASE WHEN ?8 THEN 'Instagram supplied current profile data' ELSE availability_note END,
+        profile_error=?9,updated_at=?10 WHERE id=?1`)
         .bind(row.id,m.followers,m.posts ?? null,avatar,m.er,m.sample ?? null,now,success ? 1 : 0,error,Date.now()).run();
       if (success) updated++;
     }

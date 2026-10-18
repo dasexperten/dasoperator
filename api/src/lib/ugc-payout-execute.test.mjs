@@ -260,7 +260,7 @@ test('green payout: Diana writes the blogger once; a failed send is retried next
   const first = await applyKonsolPayment(await w.deps.store.getPayout('p1'), { id: 'pay-1', status: 'executed' }, w.deps);
   assert.equal(first.noticed, false);
   assert.equal(w.db.get('p1').paid_notice_at, null, 'failed send releases the lock');
-  assert.match(sent[0].text, /^Перевела 333 ₽ по СБП/);
+  assert.match(sent[0].text, /^Перевели 333 ₽ по СБП/);
   okSend = true;
   w.db.get('p1').status = 'sent';
   const second = await applyKonsolPayment(await w.deps.store.getPayout('p1'), { id: 'pay-1', status: 'executed' }, w.deps);

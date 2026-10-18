@@ -205,13 +205,13 @@ test('a rejected draft is rewritten at once with the reason (Owner 2026-10-18)',
 
 test('a surname initial taken from a patronymic is never registered (Owner 2026-10-18, irina__sayapina)',async()=>{
  const f=fixture();f.history=[{direction:'in',text:'89158785710 / Сбербанк / Ирина Алексеевна',created_at:f.t}];
- const req=JSON.stringify({reply:'Реквизиты получила, проверяю!',escalate:false,requisites:{amount_rub:345,phone:'89158785710',bank:'Сбербанк',last_name:'А',first_name:'Ирина',product:'TERMO'}});
+ const req=JSON.stringify({reply:'Реквизиты получили, проверяю!',escalate:false,requisites:{amount_rub:345,phone:'89158785710',bank:'Сбербанк',last_name:'А',first_name:'Ирина',product:'TERMO'}});
  f.raws=[req,JSON.stringify({reply:'Ирина, подскажите, пожалуйста, первую букву фамилии.',escalate:false})];
  await igDmReply(f.env);assert.equal(f.sent.length,1);assert.match(f.sent[0][2],/первую букву фамилии/);assert.match(f.systems[1],/нет первой буквы фамилии/);
 });
 
 test('requisites wait for our Ozon article; a named article of ours lets them through (Owner 2026-10-18)',async()=>{
- const req=JSON.stringify({reply:'Реквизиты получила, проверяю!',escalate:false,requisites:{amount_rub:395,phone:'89640011206',bank:'Озон банк',last_name:'Курабекова',first_name:'Зайнаб',product:'TERMO'}});
+ const req=JSON.stringify({reply:'Реквизиты получили, проверяю!',escalate:false,requisites:{amount_rub:395,phone:'89640011206',bank:'Озон банк',last_name:'Курабекова',first_name:'Зайнаб',product:'TERMO'}});
  const ask=JSON.stringify({reply:'Подскажите, пожалуйста, артикул пасты на Ozon?',escalate:false});
  const f=fixture();f.articles=[{a:'3497962138',n:'TERMO 39'}];f.history=[{direction:'in',text:'Озон банк Зайнаб Курабекова 89640011206',created_at:f.t}];f.raws=[req,ask];
  await igDmReply(f.env);assert.equal(f.sent.length,1);assert.match(f.sent[0][2],/артикул/);assert.match(f.systems[1],/артикул нашей карточки/);assert.match(f.systems[0],/3497962138 TERMO 39/);

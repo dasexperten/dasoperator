@@ -41,14 +41,14 @@ export function ownRubStopText(check, row) {
 export function bloggerPaidText(row) {
   // An old debt pays for a reel already made (Owner 2026-10-16, madifood_: «Я уже
   // отчиталась по вашей пасте»): thank her, never ask for a new order.
-  if (/долг|повтор/i.test(String(row.note ?? ''))) return `Перевела ${formatRub(row.amount_minor)} по СБП. Это за ваш ролик и отзыв, спасибо вам!`;
+  if (/долг|повтор/i.test(String(row.note ?? ''))) return `Перевели ${formatRub(row.amount_minor)} по СБП. Это за ваш ролик и отзыв, спасибо вам!`;
   // Owner 2026-10-16: «Мы вам оплатили… И после этого мост перекидываешь сразу про сценарий».
   // Owner 2026-10-17 («сделай это… голос Дианы»): paid notice in Diana's voice, short messages
   // split on a blank line, no dashes; own idea first, cards second.
   // Owner 2026-10-18: «ты снова перешагнул ступень: просишь заказ и сразу отправляешь инструкцию».
   // Payment → order and the order screenshot only. The scenario comes after the order screenshot.
   return [
-    `Перевела ${formatRub(row.amount_minor)} по СБП, проверьте, пожалуйста, должно уже прийти.`,
+    `Перевели ${formatRub(row.amount_minor)} по СБП, проверьте, пожалуйста, должно уже прийти.`,
     'Оформите, пожалуйста, заказ и пришлите скрин оформленного заказа. Если по переписке заказ уже оформлен и мы его видели, заново не проси: только подтверди перевод и поблагодари.',
     'Про сценарий ролика сейчас НЕ писать: он идёт только после скрина заказа.',
   ].join('\n\n');

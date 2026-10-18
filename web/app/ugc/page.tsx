@@ -472,12 +472,18 @@ function profileHref(profile: { platform: string; handle: string }): string | nu
   return `https://www.instagram.com/${h}/`;
 }
 
-// Owner 2026-10-18: in the «Сеть» column the Instagram mark opens the Direct chat
-// with the blogger (ig.me/m/<handle>), not the profile page.
+// Owner 2026-10-18: in the «Сеть» column the mark opens the chat with the blogger —
+// Instagram Direct (ig.me/m), Telegram (t.me); TikTok the profile (no chat link exists).
 function chatHref(profile: { platform: string; handle: string }): string | null {
   const h = String(profile.handle ?? '').replace(/^@/, '').trim();
   if (!h) return null;
-  return String(profile.platform ?? '').toLowerCase() === 'instagram' ? `https://ig.me/m/${encodeURIComponent(h)}` : null;
+  const p = String(profile.platform ?? '').toLowerCase();
+  if (p === 'instagram') return `https://ig.me/m/${encodeURIComponent(h)}`;
+  // Telegram: t.me/<handle> opens the chat with that account.
+  if (p === 'telegram') return `https://t.me/${encodeURIComponent(h)}`;
+  // TikTok has no public chat link by handle: the profile, where Message is one tap away.
+  if (p === 'tiktok') return `https://www.tiktok.com/@${encodeURIComponent(h)}`;
+  return null;
 }
 
 function PlatformIcon({ platform, href }: { platform: string; href?: string | null }) {
@@ -490,7 +496,7 @@ function PlatformIcon({ platform, href }: { platform: string; href?: string | nu
     : key === 'tiktok' ? <svg viewBox="0 0 24 24" className="h-[16px] w-[16px]" aria-hidden="true"><path fill="currentColor" d={TIKTOK_PATH} /></svg>
     : LETTER_MARK[key] ? <span className="ugc-letter-mark" aria-hidden="true">{LETTER_MARK[key]}</span>
     : <Globe className="h-[18px] w-[18px]" aria-hidden="true" />;
-  if (href) return <a href={href} target="_blank" rel="noopener noreferrer" className="ugc-platform-icon ugc-platform-chat" aria-label={`${label}: открыть чат`} title={`${label} — открыть чат в Direct`} onClick={(event) => event.stopPropagation()}>{glyph}</a>;
+  if (href) return <a href={href} target="_blank" rel="noopener noreferrer" className="ugc-platform-icon ugc-platform-chat" aria-label={key === 'tiktok' ? `${label}: написать автору` : `${label}: открыть чат`} title={key === 'instagram' ? `${label} — открыть чат в Direct` : key === 'telegram' ? `${label} — открыть чат` : `${label} — открыть страницу, там кнопка сообщения`} onClick={(event) => event.stopPropagation()}>{glyph}</a>;
   return <span className="ugc-platform-icon" role="img" aria-label={label} title={label}>{glyph}</span>;
 }
 

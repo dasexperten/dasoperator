@@ -31,7 +31,7 @@ export async function measureInstagram(env: Env, handle: string): Promise<{ foll
   const deadline = Date.now() + 45_000;
   const profile = await render(env, `https://www.instagram.com/${encodeURIComponent(handle)}/`, 'networkidle0', 25_000);
   if (!profile) return { followers: null, er: null };
-  const parsed = parseInstagramProfile(profile);
+  const parsed = parseInstagramProfile(profile, handle);
   const followers = parsed.followers;
   const codes: string[] = [];
   for (const m of profile.matchAll(/\/(?:p|reel)\/([A-Za-z0-9_-]{8,})/g)) if (!codes.includes(m[1]!)) codes.push(m[1]!);

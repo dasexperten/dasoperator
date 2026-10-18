@@ -324,6 +324,7 @@ ugc.get('/', async (c) => {
     const profile = {
       id: row.profile_id,
       has_avatar: Boolean(row.avatar_key),
+      avatar_version: row.profile_updated_at,
       availability_status: row.availability_status ?? null,
       availability_checked_at: row.availability_checked_at ?? null,
       availability_note: row.availability_note ?? null,

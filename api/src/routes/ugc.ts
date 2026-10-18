@@ -13,7 +13,7 @@ import { identifySourceProductNames, payoutProductRecords, publicationProductLab
 // Diana's creator statuses (Owner 2026-10-15, DH-LAW-261015-02): one English
 // word, at most 7 letters. Main path, then side statuses.
 const UGC_STAGES = new Set([
-  'new', 'sent', 'replied', 'agreed', 'cart', 'payout', 'paid', 'ordered', 'review', 'posted', 'gold',
+  'new', 'sent', 'replied', 'agreed', 'cart', 'payout', 'paid', 'ordered', 'creation', 'review', 'posted', 'gold',
   'silent', 'failed', 'fee', 'refused', 'unfit', 'rival', 'owner',
 ]);
 // Who started: we invited (brown magnifier) or the creator came herself (green hand).
@@ -423,7 +423,7 @@ ugc.get('/', async (c) => {
        (SELECT COUNT(*) FROM ugc_link_checks) link_check_history,
        (SELECT COUNT(*) FROM ugc_content WHERE product_status = 'identified') product_identified,
        (SELECT COUNT(*) FROM ugc_content WHERE product_status = 'queued') product_queued,
-       (SELECT COUNT(*) FROM ugc_collaborations WHERE status IN ('sent','replied','agreed','cart','payout','paid','ordered','review')) active_outreach,
+       (SELECT COUNT(*) FROM ugc_collaborations WHERE status IN ('sent','replied','agreed','cart','payout','paid','ordered','creation','review')) active_outreach,
        (SELECT COUNT(*) FROM ugc_collaborations WHERE status IN ('posted','gold')) published
     `
   ).first<Record<string, any>>();

@@ -104,6 +104,17 @@ export function surnameWritten(letter: string, text: string, firstName: string):
   return uniq.length === 1 ? uniq[0]! : null;
 }
 
+// Owner 2026-10-18: «заказ сделан — статус ordered, после этого creation, и уже posted, когда отправляет ссылку».
+// The ERP moves a creator forward on the main path only, never back and never off a side status.
+const MAIN_PATH = ['new', 'sent', 'replied', 'agreed', 'cart', 'payout', 'paid', 'ordered', 'creation', 'review', 'posted', 'gold'];
+export function nextStage(current: string | null, target: string): string | null {
+  const from = MAIN_PATH.indexOf(current ?? 'new');
+  const to = MAIN_PATH.indexOf(target);
+  if (to < 0 || (current && from < 0)) return null;
+  return to > from ? target : null;
+}
+const POST_LINK = /(instagram\.com\/(reel|reels|p|tv)\/|tiktok\.com\/|vk\.com\/(clip|video)|youtube\.com\/shorts\/|youtu\.be\/)/i;
+
 /** What the checker disliked, in words Diana can act on (Owner 2026-10-18). */
 function rewriteHint(reason: string, imageCheck: unknown): string {
   const r = reason.split(':')[0]!.trim();
@@ -221,8 +232,8 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     }
     if(attachmentMetadataMissing){await failStep('current_attachment_metadata_unavailable');continue;}
     const creator = await env.DB.prepare(
-      `SELECT c.id, c.display_name, c.city FROM ugc_creators c WHERE c.id=?1`
-    ).bind(identity.cid).first<{ id: string; display_name: string | null; city: string | null }>();
+      `SELECT c.id, c.display_name, c.city, c.lifecycle_stage FROM ugc_creators c WHERE c.id=?1`
+    ).bind(identity.cid).first<{ id: string; display_name: string | null; city: string | null; lifecycle_stage: string | null }>();
     const payouts = creator ? ((await env.DB.prepare(
       `SELECT amount_minor, status, payout_date, konsol_payment_id, paid_at, sent_at FROM ugc_payouts WHERE creator_id=?1 ORDER BY created_at DESC LIMIT 5`
     ).bind(creator.id).all<{ amount_minor: number; status: string; payout_date: string; konsol_payment_id?: string | null; paid_at?: string | null; sent_at?: string | null }>()).results ?? []) : [];
@@ -368,6 +379,13 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       if (!more.ok) break;
     }
     if (sent.ok && out.sendCards) await sendIgCards(env, w.h, SCENARIO_CARDS, { humanAgent: now - at > 23.5 * 3_600_000 });
+    if (sent.ok && creator) {
+      const said = `${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`;
+      const posted = history.some((m) => m.direction === 'in' && POST_LINK.test(m.text ?? '') && (!moneyAt || Date.parse(m.created_at) > moneyAt));
+      const target = posted ? 'posted' : (orderShown && (out.sendCards || /сценари|отличный выбор/i.test(said))) ? 'creation' : orderShown ? 'ordered' : null;
+      const stage = target ? nextStage(creator.lifecycle_stage, target) : null;
+      if (stage) await env.DB.prepare(`UPDATE ugc_creators SET lifecycle_stage=?2, updated_at=?3 WHERE id=?1`).bind(creator.id, stage, Date.now()).run().catch(() => undefined);
+    }
     if (sent.ok) { replied++; await mark(); }
     else await failStep('send_failed');
   }

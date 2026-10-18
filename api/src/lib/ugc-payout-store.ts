@@ -102,8 +102,14 @@ function deps(env: Env) {
     notifyBlogger: async (row: Record<string, any>, text: string) => {
       const handle = String(row.creator_handle || row.handle || '');
       // Owner 2026-10-18: the ERP text is a brief only; Diana writes the words. No words, no message.
-      const parts = await dianaCompose(env, handle, `Выплата исполнена, ERP и Консоль подтвердили. Смысл сообщения:\n${text}`).catch(() => null);
-      if (!parts || !parts.length) return { ok: false, error: 'Диана не написала текст (JEV или контролёр голоса)' };
+      let parts = await dianaCompose(env, handle, `Выплата исполнена, ERP и Консоль подтвердили. Смысл сообщения:\n${text}`).catch(() => null);
+      // Owner 2026-10-18: «нужно моментальное реагирование… в этот же момент». If Diana's three drafts do not
+      // pass, the Owner's own approved paid wording goes at once instead of waiting for the next run.
+      if (!parts || !parts.length) {
+        const amount = Number(row.amount_minor);
+        if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: 'Диана не написала текст (JEV или контролёр голоса)' };
+        parts = [`Перевела ${formatRub(amount)} по СБП.`, 'Проверьте, пожалуйста, должно быть уже дошло.', 'Оформите, пожалуйста, заказ и пришлите скрин.'];
+      }
       const [first, ...rest] = parts;
       // Owner 2026-10-18 (mari__blog666 and 5 more: paid, no message): after 24 h of the blogger's
       // silence Instagram takes a message only with the human-agent tag (7-day window).

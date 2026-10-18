@@ -167,7 +167,7 @@ type UgcPayload = {
 
 const PLATFORM_TABS = ['all', 'instagram', 'tiktok', 'vk', 'shopee', 'lazada', 'facebook', 'telegram', 'youtube', 'other'];
 // Diana's statuses (Owner 2026-10-15, DH-LAW-261015-02): one English word, at most 7 letters.
-const STAGES = ['new', 'sent', 'replied', 'agreed', 'cart', 'payout', 'paid', 'ordered', 'review', 'posted', 'gold', 'silent', 'failed', 'fee', 'refused', 'unfit', 'rival', 'owner'];
+const STAGES = ['new', 'sent', 'replied', 'agreed', 'cart', 'payout', 'paid', 'ordered', 'creation', 'review', 'posted', 'gold', 'silent', 'failed', 'fee', 'refused', 'unfit', 'rival', 'owner'];
 const ORIGINS = ['invited', 'self'];
 const API_EMPTY: UgcPayload = { creators: [], summary: { creators: 0, profiles: 0, content_items: 0, active_outreach: 0, published: 0, linked_content: 0, links_active: 0, links_missing: 0, links_restricted: 0, links_unknown: 0, links_invalid: 0, links_unchecked: 0, links_checked_30d: 0, links_last_checked_at: null, link_check_history: 0, product_identified: 0, product_queued: 0 }, platforms: [], products: [] };
 

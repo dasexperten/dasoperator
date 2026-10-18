@@ -238,7 +238,7 @@ body:has(.ugc-creator-modal[open]) { overflow: hidden; }
   --st-replied: #8ccbf0; --st-replied-fg: #08344f;
   --st-agreed: #b5cc3a; --st-agreed-fg: #1f2a05;
   --st-cart: #4f8f2f; --st-payout: #3d7f2a; --st-paid: var(--status-success);
-  --st-ordered: #1f5fd1; --st-review: #1c1917; --st-posted: #000000; --st-gold: #8c6d1f;
+  --st-ordered: #1f5fd1; --st-creation: #5b2fa3; --st-review: #1c1917; --st-posted: #000000; --st-gold: #8c6d1f;
   --st-red: #c0392b; --st-rival: #e8890c; --st-rival-fg: #1c1917; --st-fee: #7a4e25;
   --st-grey: #a8a29e; --st-grey-fg: #1c1917; --st-unfit: #6b6460;
 }
@@ -251,6 +251,7 @@ body:has(.ugc-creator-modal[open]) { overflow: hidden; }
 .ugc-stage[data-stage="payout"] { background: var(--st-payout); }
 .ugc-stage[data-stage="paid"] { background: var(--st-paid); }
 .ugc-stage[data-stage="ordered"] { background: var(--st-ordered); }
+.ugc-stage[data-stage="creation"] { background: var(--st-creation); }
 .ugc-stage[data-stage="review"] { background: var(--st-review); }
 .ugc-stage[data-stage="posted"] { background: var(--st-posted); font-weight: 800; }
 .ugc-stage[data-stage="gold"] { background: var(--st-gold); font-weight: 700; }

@@ -1445,7 +1445,7 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-2 px-4 py-2.5"
+      className="dx-keep-flex flex items-center gap-2 px-4 py-2.5"
       style={{
         fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
         fontSize: 14,
@@ -1794,7 +1794,7 @@ function DataTablePanel({
       boxShadow: 'var(--shadow-raised)',
       borderRadius: 'var(--radius-md)',
     }}>
-      <div className="crm-panel-head px-5 py-3.5 flex items-center justify-between gap-4 flex-wrap"
+      <div className="crm-panel-head dx-keep-flex px-5 py-3.5 flex items-center justify-between gap-4 flex-wrap"
            style={{ borderBottom: '1px solid var(--border-hairline)' }}>
         <div style={{
           fontFamily: 'var(--font-display)',
@@ -1816,7 +1816,7 @@ function DataTablePanel({
           )}
         </div>
 
-        <div className="crm-panel-tools flex items-center gap-3">
+        <div className="crm-panel-tools dx-keep-flex flex items-center gap-3">
           <form onSubmit={onSearchSubmit} className="crm-panel-search relative">
             <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2"
                     style={{ color: 'var(--fg-muted)' }} />

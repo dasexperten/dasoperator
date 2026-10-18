@@ -102,7 +102,7 @@ function deps(env: Env) {
       const handle = String(row.creator_handle || row.handle || '');
       // Owner 2026-10-18: the ERP text is a brief only; Diana writes the words. No words, no message.
       const parts = await dianaCompose(env, handle, `Выплата исполнена, ERP и Консоль подтвердили. Смысл сообщения:\n${text}`).catch(() => null);
-      if (!parts || !parts.length) return { ok: false };
+      if (!parts || !parts.length) return { ok: false, error: 'Диана не написала текст (JEV или контролёр голоса)' };
       const [first, ...rest] = parts;
       // Owner 2026-10-18 (mari__blog666 and 5 more: paid, no message): after 24 h of the blogger's
       // silence Instagram takes a message only with the human-agent tag (7-day window).
@@ -213,9 +213,14 @@ export async function ugcPayoutSweep(env: Env): Promise<number> {
   const d = deps(env);
   for (const row of unsent.results ?? []) {
     if (!(await d.store.claimNotice(row.id, new Date().toISOString()))) continue;
-    const sent = await d.notifyBlogger(row, bloggerPaidText(row)).catch(() => ({ ok: false }));
+    const sent = await d.notifyBlogger(row, bloggerPaidText(row)).catch((e) => ({ ok: false, error: String(e) })) as { ok: boolean; error?: string };
     if (sent && sent.ok) refreshed++;
-    else await d.store.releaseNotice(row.id);
+    else {
+      await d.store.releaseNotice(row.id);
+      // Owner 2026-10-18: a notice that keeps failing says why (Instagram or Diana), visible to the ERP.
+      await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
+        .bind(`paid_notice_error:${row.id}`, JSON.stringify({ handle: row.handle, error: String(sent?.error ?? 'unknown').slice(0, 300), at: new Date().toISOString() }), Date.now()).run().catch(() => undefined);
+    }
   }
   return refreshed;
 }

@@ -150,7 +150,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
   // from what bloggers pay for our TERMO these days. The usual price is the middle of our recent TERMO payouts.
   let termoBand: { low: number; high: number; mid: number } | null = null;
   try {
-    const amounts = ((await env.DB.prepare(`SELECT amount_minor m FROM ugc_payouts WHERE product LIKE '%TERMO%' AND amount_minor BETWEEN 20000 AND 99900 AND created_at > ?1 ORDER BY amount_minor`).bind(now - 30 * 86_400_000).all<{ m: number }>()).results ?? []).map((r) => Number(r.m));
+    const amounts = ((await env.DB.prepare(`SELECT amount_minor m FROM ugc_payouts WHERE upper(trim(product)) = 'TERMO' AND amount_minor BETWEEN 20000 AND 99900 AND created_at > ?1 ORDER BY amount_minor`).bind(now - 30 * 86_400_000).all<{ m: number }>()).results ?? []).map((r) => Number(r.m));
     if (amounts.length >= 5) { const mid = amounts[Math.floor(amounts.length / 2)]!; termoBand = { low: Math.round(mid * 0.7), high: Math.round(mid * 1.3), mid }; }
   } catch { /* no band: the article is asked */ }
   for (const w of waiting) {

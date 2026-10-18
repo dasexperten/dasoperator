@@ -60,7 +60,9 @@ ${SCENARIO_RULES}
 `;
 
 // The answer format is the code's, never the profile's: the guard below parses it.
-export const JSON_SPEC = 'Ответь строго JSON без пояснений: {"reply": string|null, "replies": string[]|null, "escalate": boolean, "send_cards": boolean, "agreed": boolean, "requisites": object|null, "reason": string}. agreed=true только если блогер в этой переписке ясно согласилась на бартер (написала «да», «интересно», «давайте», «согласна», начала искать товар); иначе false.';
+// Owner 2026-10-18 (mashaa_ugc: refused at 15:47, paid at 21:21): a clear refusal holds every open payout.
+export const REFUSAL = /(не\s+рассматриваю|передумала|передумал|отказываюсь|откажусь|не\s+буду\s+участвовать|не\s+хочу\s+участвовать|не\s+интересно|не\s+хочу\s+брать)/i;
+export const JSON_SPEC = 'Ответь строго JSON без пояснений: {"reply": string|null, "replies": string[]|null, "escalate": boolean, "send_cards": boolean, "agreed": boolean, "refused": boolean, "requisites": object|null, "reason": string}. agreed=true только если блогер в этой переписке ясно согласилась на бартер (написала «да», «интересно», «давайте», «согласна», начала искать товар); иначе false. refused=true только если блогер ясно отказалась от программы (не рассматриваю, передумала, не хочу, откажусь); иначе false.';
 
 // SBP member ids of the banks bloggers name (Konsol FPS list).
 const BANKS = [
@@ -169,6 +171,7 @@ export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allow
   const reason = String(parsed.reason ?? '').slice(0, 200);
   const sendCards = parsed.send_cards === true;
   const agreed = parsed.agreed === true;
+  const refused = parsed.refused === true;
   const requisites = cleanRequisites(parsed.requisites);
   if (!reply || escalate) return { reply: null, escalate, reason, sendCards: false };
   if (parts.some((x) => x.length > 300) || reply.length > 900) return { reply: null, escalate: true, reason: 'too long' };
@@ -205,7 +208,7 @@ export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allow
   if (/(^|[^а-яё])(снимите|снять|можно|сделайте|сделать|подойдёт|подойдет)\s+(\S+\s+){0,2}(распаковк|закрыт\S*\s+упаковк)/i.test(reply)) return { reply: null, escalate: true, reason: 'offers unboxing or closed packaging' };
   if (/добрый (день|вечер)|здравствуйте|привет/i.test(reply) && reply.length < 25) return { reply: null, escalate: false, reason: 'greeting only' };
   // Owner 2026-10-18: «если пишут что заказала, можно поверить» — the word is enough, no screenshot is demanded.
-  return { reply, parts, escalate: false, reason, sendCards, requisites, agreed };
+  return { reply, parts, escalate: false, reason, sendCards, requisites, agreed, refused };
 }
 
 /** Built-in rules: the fallback when Diana's profile cannot be read from GitHub. */

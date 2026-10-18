@@ -12,3 +12,4 @@ export function requisitesSupportedByText(r: CleanRequisites | null | undefined,
 export function noDashes(text: string): string;
 export function shortParts(parts: string[]): string[];
 export const HARD_ASK: RegExp;
+export const REFUSAL: RegExp;

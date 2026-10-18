@@ -229,8 +229,9 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     };
     if (!canAttemptReply(state, w.t, now)) { await notify(); continue; }
     attempted++;
+    let lastDraft = '';
     const failStep = async (reason: string) => {
-      state = nextReplyFailure(state, { handle: w.h, at: w.t, reason, now });
+      state = nextReplyFailure(state, { handle: w.h, at: w.t, reason, now, draft: lastDraft });
       await saveState(state);
       if (state.status === 'needs_review') { escalated++; await notify(); } else errors++;
     };
@@ -359,6 +360,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
         generationFailed = true;
         break;
       }
+      try { const j = JSON.parse(String(raw).match(/\{[\s\S]*\}/)?.[0] ?? 'null'); const d = Array.isArray(j?.replies) ? j.replies.join(' / ') : j?.reply; if (d) lastDraft = String(d); } catch { /* not JSON: no draft */ }
       out = guardReply(raw, { paid, inCount: incoming.length, lastIn: incoming.slice(-2).map((m) => m.text ?? '').join(' '), allowBrush: legacyCart });
       // mari.d_w 2026-10-18: a payout is already open — repeated requisites are not a new registration
       // and must never stop the conversation (the surname check blocked her for 15 minutes).

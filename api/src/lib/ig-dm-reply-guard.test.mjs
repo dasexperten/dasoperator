@@ -112,6 +112,12 @@ test('no dashes and long paragraphs become short messages (Owner 2026-10-17)', a
   assert.equal(out.reply, 'Отлично, пришлите, пожалуйста, скрин.');
 });
 
+test('permission and polite requests are not commands (yasmin_i.b, Owner 2026-10-18)', () => {
+  const j = (reply) => JSON.stringify({ reply, escalate: false, reason: 'ok' });
+  assert.notEqual(guardReply(j('Всё отлично, можно выкладывать завтра!')).reason, 'command tone, ask with «пожалуйста»');
+  assert.notEqual(guardReply(j('Выкладывайте, пожалуйста, и пришлите ссылку.')).reason, 'command tone, ask with «пожалуйста»');
+  assert.notEqual(guardReply(j('Здорово! Пришлите, пожалуйста, фото заказа.'), { lastIn: 'Заказала' }).reason, 'ask for the order screenshot too');
+});
 test('no command tone (Owner 2026-10-17)', () => {
   const j = (reply) => JSON.stringify({ reply, escalate: false, send_cards: false, requisites: null, reason: 'x' });
   assert.equal(guardReply(j('Оформляйте заказ и пришлите скрин.')).reason, 'command tone, ask with «пожалуйста»');

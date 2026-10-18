@@ -6,12 +6,16 @@ import { afterCheck, laneDue } from './adaptive-cadence.mjs';
 
 type LaneFn = (env: Env) => Promise<{ ok: boolean; activity: boolean; [k: string]: unknown }>;
 
-export async function runAdaptiveLane(env: Env, lane: string, fn: LaneFn, now = Date.now()): Promise<string> {
+export async function runAdaptiveLane(env: Env, lane: string, fn: LaneFn, now = Date.now(), probe?: (env: Env) => Promise<boolean>): Promise<string> {
   const key = `adaptive:${lane}`;
   const row = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(key).first<{ value: string }>();
   let state: any = null;
   try { state = row?.value ? JSON.parse(row.value) : null; } catch { state = null; }
-  if (!laneDue(state, now)) return `${lane}: not due`;
+  // Owner 2026-10-18: between scheduled checks a light probe may wake the lane at once (not during a running lease).
+  if (!laneDue(state, now)) {
+    const leased = Number.isFinite(state?.running_since) && now - state.running_since < 5 * 60_000;
+    if (!probe || leased || !(await probe(env).catch(() => false))) return `${lane}: not due`;
+  }
   // A run can last longer than a minute; the next tick must not start the same lane meanwhile
   // (Owner 2026-10-16: two answers to one blogger 2 s apart). Take a 5-minute lease atomically:
   // only the tick that still sees the old value moves next_at forward.

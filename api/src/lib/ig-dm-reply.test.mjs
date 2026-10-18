@@ -191,7 +191,7 @@ test('an unavailable screenshot stays open and sends no blind acknowledgement',a
 test('unavailable older image does not block complete current text requisites',async()=>{
  const f=fixture();f.unreadable=1;f.history=[{direction:'in',text:'89990001122 Тестова Анна Ивановна сбер Итого 627р',created_at:f.t},{direction:'out',text:'Пришлите реквизиты',created_at:f.t}];
  f.raw=JSON.stringify({reply:'Получила, проверяю!',escalate:false,requisites:{amount_rub:627,phone:'89990001122',bank:'сбер',last_name:'Тестова',first_name:'Анна',patronymic:'Ивановна'}});
- await igDmReply(f.env);assert.equal(f.sent.length,1);assert.equal(handled(f),f.t);
+ await igDmReply(f.env);assert.equal(f.sent.length,0,'no requisites ack (Owner 2026-10-18)');assert.equal(handled(f),f.t);
 });
 test('an expired picture plus incomplete text cannot produce a fabricated payout',async()=>{
  const f=fixture();f.unreadable=1;f.raw=JSON.stringify({reply:'Получила, проверяю!',escalate:false,requisites:{amount_rub:627,phone:'89990001122',bank:'сбер',last_name:'Тестова',first_name:'Анна',patronymic:'Ивановна'}});

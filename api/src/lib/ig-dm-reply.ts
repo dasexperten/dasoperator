@@ -24,6 +24,8 @@ const HANDLED_KEY = (cid: string) => `ig_reply:${cid}`;
 // The paste-only rule went live at 09:12 Yerevan on 17.10.2026 (dasoperator 8792d67).
 const PASTE_ONLY_SINCE = '2026-10-17T05:12:00';
 const STATE_KEY = (cid: string) => `ig_reply_escalated:${cid}`;
+export const PHOTO_NOTE_KEY = (cid: string) => `ig_photo_note:${cid}`;
+const PHOTO_HOLD_MS = 30 * 60_000;
 
 type Msg = { id?: string; direction: string; text: string | null; attachments_json: string | null; created_at: string; unsupported?: boolean };
 
@@ -126,7 +128,7 @@ function rewriteHint(reason: string, imageCheck: unknown): string {
     'surname initial not written': 'в словах блогера нет первой буквы фамилии (слово на -овна, -евна, -ична это отчество, не фамилия). Не возвращай requisites; вежливо попроси первую букву фамилии.',
     'scenario before order': 'сценарий и карточки идут только после скрина оформленного заказа. Сейчас не предлагай сценарии и не проси номер карточки; попроси оформить заказ и прислать скрин заказа (или, если перевода ещё не было, — корзину и реквизиты).',
     'refusal tone': 'отказ прозвучал отказом («не даём», «не положено»). Голос Дианы: не отказывай, а направь и объясни выгоду блогеру. Про артикул: «Лучше через поиск, так ваша покупка поможет нашей карточке) Наберите на Ozon: зубная паста с ферментами.»',
-    'confirms unseen photo': 'фото блогера до нас не дошло, мы его не видели. Не подтверждай корзину, не говори «всё верно», не возвращай requisites. Мягко попроси написать артикул пасты (он под названием товара) или переслать скрин обычным фото из галереи.',
+    'confirms unseen photo': 'фото блогера не открылось у нас в программе, мы его не видели. Не подтверждай корзину, не говори «всё верно», не возвращай requisites. Не пиши, что фото не дошло. Мягко попроси прислать картинку ещё раз одним фото или написать артикул пасты.',
     'ozon article needed': 'реквизиты принимаем только после того, как блогер назвала артикул нашей карточки на Ozon. Не возвращай requisites. Попроси артикул красиво, нежно и ободряюще, с гордостью за бренд: нас часто копируют, на маркетплейсах много подделок под наше имя, сверяем, чтобы у блогера была настоящая TERMO. Формулируй по-новому, не шаблоном',
     'foreign ozon article': 'названный блогером артикул не из наших карточек. Не возвращай requisites; мягко скажи, что это не наша карточка, и дай наш артикул.',
     'promises payment': 'нельзя обещать перевод или срок перевода. Не пиши «переведу», «отправлю», «оплатим». Если реквизиты получены, только «Реквизиты получила, проверяю!».',
@@ -241,21 +243,35 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     const erp = payouts.length
       ? payouts.map((p) => `${Math.round(p.amount_minor / 100)} ₽ — ${p.status === 'paid' ? (p.konsol_payment_id ? 'paid (перевод исполнен)' : 'запись об оплате; исполнение перевода не подтверждено') : p.status === 'failed' ? 'failed (банк отклонил)' : 'ждёт оплаты'} (${p.payout_date})`).join('; ')
       : 'выплат нет';
+    // Owner 2026-10-18 (noza_finds): Diana said «всё верно» to a basket she never saw.
+    const unseenPhoto = history.slice(lastOutIndex+1).some((m) => m.unsupported);
+    // Owner 2026-10-18 (05_seferova_05): «я вижу фотки». The blogger did send it; only programs cannot read it.
+    // So the Owner looks first (a note on /ugc); the blogger is asked again only after 30 minutes without him.
+    let ownerNote = '';
+    if (unseenPhoto) {
+      const noteRow = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(PHOTO_NOTE_KEY(w.cid)).first<{ value: string }>();
+      try { const n = JSON.parse(noteRow?.value ?? 'null'); if (n && n.at === w.t && String(n.text ?? '').trim()) ownerNote = String(n.text).trim().slice(0, 500); } catch { /* no note */ }
+      const photoAt = Math.max(...history.slice(lastOutIndex+1).filter((m) => m.unsupported).map((m) => Date.parse(m.created_at)).filter(Number.isFinite));
+      if (!ownerNote && Number.isFinite(photoAt) && now - photoAt < PHOTO_HOLD_MS) {
+        state = { handle: w.h, at: w.t, reason: 'photo_for_owner', kind: 'business', attempts: 0, status: 'retry', next_retry_at: photoAt + PHOTO_HOLD_MS, notified_at: null };
+        await saveState(state);
+        continue;
+      }
+    }
+    const photoSeen = unseenPhoto && Boolean(ownerNote);
     const lines = history.map((m) => {
-      const body = (m.text && m.text.trim()) || (m.unsupported ? '[фото, которое Instagram нам не передал: мы его НЕ видели]' : m.attachments_json && m.attachments_json !== '[]' ? '[фото или вложение]' : '');
+      const body = (m.text && m.text.trim()) || (m.unsupported ? (ownerNote ? `[фото; Владелец посмотрел его в приложении: ${ownerNote}]` : '[фото, которое не открылось у нас в программе: мы его НЕ видели]') : m.attachments_json && m.attachments_json !== '[]' ? '[фото или вложение]' : '');
       return `${m.direction === 'in' ? 'Блогер' : 'Мы'} (${m.created_at.slice(5, 16)}): ${body}`;
     }).join('\n');
     // Owner 2026-10-17: a basket assembled before the paste-only rule keeps its brush.
     const legacyCart = history.some((m) => m.direction === 'in' && m.attachments_json && m.attachments_json !== '[]'
       && m.created_at < PASTE_ONLY_SINCE && Date.parse(m.created_at) > now - 10 * 86_400_000);
-    // Owner 2026-10-18 (noza_finds): Diana said «всё верно» to a basket she never saw.
-    const unseenPhoto = history.slice(lastOutIndex+1).some((m) => m.unsupported);
     // Owner 2026-10-18: «просишь заказ и сразу отправляешь инструкцию» — the ladder is payment → order
     // screenshot → scenario. A screenshot after the money went out counts as the order screenshot.
     const moneyAt = payouts.filter((p) => p.status === 'paid' || p.status === 'sent').map((p) => Date.parse(String(p.paid_at || p.sent_at || ''))).filter((t) => Number.isFinite(t)).sort((a, b) => b - a)[0];
     const orderShown = Boolean(moneyAt && history.some((m) => m.direction === 'in' && Date.parse(m.created_at) > moneyAt! && ((m.attachments_json && m.attachments_json !== '[]') || m.unsupported)));
     const ladder = orderShown ? '' : 'СТУПЕНЬ: скрина оформленного заказа после нашего перевода ещё нет. Сценарии, карточки и любые инструкции по ролику НЕ отправляй и не предлагай выбрать; send_cards=false. Сейчас шаг один: заказ и скрин заказа (или, до оплаты, корзина и реквизиты).\n';
-    const context = `${ladder}${unseenPhoto ? 'ВАЖНО: блогер прислала фото, которое Instagram нам не передал, мы его не видели. Не подтверждай корзину и сумму, не говори «всё верно». Мягко попроси написать артикул пасты (он под названием товара), чтобы сверить, что это наша карточка, или переслать скрин корзины обычным фото из галереи.\n' : ''}${legacyCart ? 'Старая корзина: блогер собрал корзину до перехода на «только паста» (17.10.2026) — щётку оставляем, убрать её не просим.\n' : ''}Блогер: @${w.h}${creator?.display_name ? `, ${creator.display_name}` : ''}${creator?.city ? `, ${creator.city}` : ''}\nERP, выплаты: ${erp}\n\nПереписка (последние сообщения):\n${lines}\n\nНапиши следующий ответ Дианы.`;
+    const context = `${ladder}${photoSeen ? `Фото блогера Владелец посмотрел в приложении: ${ownerNote}. Считай это фото увиденным, не проси прислать его заново и действуй по шагу.\n` : unseenPhoto ? 'ВАЖНО: блогер прислала фото, но у нас в программе оно не открылось, мы его не видели. Не подтверждай корзину и сумму, не говори «всё верно». Не пиши, что фото не дошло, и не говори про режим разового просмотра: блогер всё отправила правильно. Мягко, с теплом, попроси прислать картинку ещё раз одним фото, например: «У меня почему-то не открывается картинка) Пришлёте её ещё раз одним фото?» Каждый раз своими словами. Если сомнение в карточке, можно вместо этого попросить артикул пасты.\n' : ''}${legacyCart ? 'Старая корзина: блогер собрал корзину до перехода на «только паста» (17.10.2026) — щётку оставляем, убрать её не просим.\n' : ''}Блогер: @${w.h}${creator?.display_name ? `, ${creator.display_name}` : ''}${creator?.city ? `, ${creator.city}` : ''}\nERP, выплаты: ${erp}\n\nПереписка (последние сообщения):\n${lines}\n\nНапиши следующий ответ Дианы.`;
 
     // Both sides are essential: «да» only makes sense with our preceding question.
     let prepared;
@@ -333,7 +349,8 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       const articleMissing = Boolean(out.requisites && ourArticles.size && !oldOrder && !named.some((x) => ourArticles.has(x)) && (typedConflict || !jevSure(imageCheck, out.requisites, termoBand)));
       const scenarioEarly = !orderShown && (Boolean(out.sendCards) || /выбер\S*\s+(\S+\s+){0,3}(сценари|карточк)|номер\s+(карточк|сценари)|вот\s+(\S+\s+){0,2}(сценари|карточ)/i.test(`${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`));
       if (scenarioEarly) out.sendCards = false;
-      const confirmsUnseen = unseenPhoto && (Boolean(out.requisites) || /вижу корзин|вс[её] верно|корзин\S* получил/i.test(out.reply ?? ''));
+      // Owner 2026-10-18 (05_seferova_05): the blogger sent it right — never tell her it «did not arrive».
+      const confirmsUnseen = unseenPhoto && !photoSeen && (Boolean(out.requisites) || /вижу корзин|вс[её] верно|корзин\S* получил|не\s+дош[её]?л|не\s+передал|разов\S*\s+просмотр/i.test(out.reply ?? ''));
       const rejected = scenarioEarly ? 'scenario before order' : confirmsUnseen ? 'confirms unseen photo' : imageConflict ? 'image_verdict_requires_clarification' : guessedInitial ? 'surname initial not written' : articleMissing ? (named.some((x) => !phoneLike(x)) ? 'foreign ozon article' : 'ozon article needed') : (!out.reply && out.escalate && isTechnical(out.reason) ? out.reason : '');
       // Owner 2026-10-18: a second model reads every reply against VOICE.md before it leaves.
       voiceWhy = '';
@@ -349,7 +366,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     if (!orderShown && (out.sendCards || /выбер\S*\s+(\S+\s+){0,3}(сценари|карточк)|номер\s+(карточк|сценари)|вот\s+(\S+\s+){0,2}(сценари|карточ)/i.test(`${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`))) { await failStep('scenario before order'); continue; }
     if (voiceUnavailable) { await failStep('voice_check_unavailable'); continue; }
     if (voiceWhy) { await failStep('off voice'); continue; }
-    if (unseenPhoto && (out.requisites || /вижу корзин|вс[её] верно|корзин\S* получил/i.test(out.reply ?? ''))) { await failStep('confirms unseen photo'); continue; }
+    if (unseenPhoto && !photoSeen && (out.requisites || /вижу корзин|вс[её] верно|корзин\S* получил|не\s+дош[её]?л|не\s+передал|разов\S*\s+просмотр/i.test(out.reply ?? ''))) { await failStep('confirms unseen photo'); continue; }
     if (imageCheck && imageCheck.status !== 'yes' && out.requisites) { await failStep('image_verdict_requires_clarification'); continue; }
     { const named = articlesIn(incoming.map((m) => m.text ?? '').join(' '));
       const typedSumsAfter = (incoming.slice(-8).map((m) => m.text ?? '').join(' ').match(/(?<!\d)(\d{3,4})\s?(?:₽|р\b|руб)/gi) ?? []).map((x) => Number(x.match(/\d{3,4}/)![0]) * 100);

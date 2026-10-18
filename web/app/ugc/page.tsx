@@ -139,7 +139,7 @@ type Creator = {
   payouts?: Payout[];
   paid_total_minor?: number;
   last_activity_at?: number | null;
-  attention?: { at: string; status: string; kind: string; label: string; reason: string } | null;
+  attention?: { at: string; code?: string; status: string; kind: string; label: string; reason: string } | null;
 };
 
 type LinkSummary = {
@@ -259,6 +259,26 @@ function CreatorPayment({ creator }: { creator: Creator }) {
 }
 
 // Owner 2026-10-18: Gold is awarded by hand after watching the reel — a star next to «posted».
+// Owner 2026-10-18: a photo the ERP cannot open — the Owner looks in the app and tells Diana what is on it.
+function PhotoNote({ creatorId, onSaved }: { creatorId: string; onSaved: () => void }) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  return <form className="ugc-photo-note" onSubmit={async (event) => {
+    event.preventDefault();
+    if (!text.trim()) return;
+    setBusy(true); setError('');
+    const r = await apiPost(`/api/ugc/creators/${creatorId}/photo-note`, { text: text.trim() });
+    setBusy(false);
+    if (r.success) { setText(''); onSaved(); window.dispatchEvent(new Event('ugc:reload')); } else setError(r.errors?.[0]?.message ?? 'Не сохранилось');
+  }}>
+    <label htmlFor={`photo-note-${creatorId}`}>Что на фото</label>
+    <textarea id={`photo-note-${creatorId}`} value={text} onChange={(event) => setText(event.target.value)} rows={2} placeholder="Например: скрин заказа, TERMO, 395 ₽" />
+    <button type="submit" disabled={busy || !text.trim()}>{busy ? 'Передаю…' : 'Передать Диане'}</button>
+    {error ? <span role="alert">{error}</span> : null}
+  </form>;
+}
+
 function GoldAward({ creator }: { creator: Creator }) {
   const { isAdmin } = useContext(PayContext);
   const [busy, setBusy] = useState(false);
@@ -925,6 +945,7 @@ function CreatorPanel({ creator, onClose, onSaved }: { creator: Creator; onClose
   return <section className="ugc-creator-card ugc-card p-4 md:p-6" style={{ background: 'var(--bg-surface)', border: '2px solid var(--brand-schwarz)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-raised)' }}>
     <div className="ugc-card-top">{lead ? <BloggerAvatar profile={lead} /> : null}<div className="ugc-card-who"><h2 id="ugc-creator-title">{lead ? `@${lead.handle}` : creator.display_name || 'Автор'}</h2>{sub ? <span>{sub}</span> : null}</div><button type="button" onClick={onClose} className="min-h-11 min-w-11 flex items-center justify-center" aria-label="Закрыть карточку блогера"><X className="h-5 w-5" /></button></div>
     {creator.attention ? <p className="ugc-card-attention"><AlertCircle className="h-5 w-5 shrink-0" style={{ color: '#7a4e25' }} /><span><strong>{creator.attention.label}.</strong> {creator.attention.reason}</span></p> : null}
+    {creator.attention?.code === 'photo_for_owner' ? <PhotoNote creatorId={creator.id} onSaved={onSaved} /> : null}
     <section className="ugc-card-sec"><div className="ugc-card-label">Аудитория</div>{creator.profiles.map((profile) => <BloggerProfile key={profile.id} profile={profile} onSaved={onSaved} showHandle={creator.profiles.length > 1} />)}</section>
     <div className="ugc-card-line"><span>Последний контакт</span><span>{shortDate(creator.last_activity_at)}</span></div>
     <section className="ugc-card-sec" aria-labelledby={`payouts-${creator.id}`}><div id={`payouts-${creator.id}`} className="ugc-card-label">Оплата</div>

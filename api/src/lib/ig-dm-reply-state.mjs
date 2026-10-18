@@ -31,8 +31,11 @@ export function nextReplyFailure(previous, { at, handle, reason, now = Date.now(
     notified_at: previous?.at === at ? previous.notified_at ?? null : null };
 }
 export function replyAttention(state) {
+  // Owner 2026-10-18: a photo programs cannot open is shown to the Owner first.
+  if (state.reason === 'photo_for_owner') return { at: state.at, status: 'retry', kind: 'business', code: 'photo_for_owner',
+    label: 'Посмотрите фото', reason: 'Фото не открывается в ERP. Посмотрите его в переписке в приложении и напишите здесь, что на нём. Без вас через 30 минут Диана мягко попросит прислать его ещё раз.' };
   const technical = state.kind === 'technical' || isTechnical(state.reason);
-  return { at: state.at, status: state.status === 'retry' ? 'retry' : 'needs_review',
+  return { at: state.at, code: state.reason, status: state.status === 'retry' ? 'retry' : 'needs_review',
     kind: technical ? 'technical' : 'business',
     label: state.status === 'retry' ? 'Повторная обработка' : 'Требует проверки',
     reason: state.reason === 'image_read_failed' ? 'Скриншот не удалось прочитать; обращение остаётся в работе.' : technical ? 'Автоответ не завершён; обращение остаётся в работе.' : 'Обращение передано на ручную проверку; требуется решение по переписке.' };

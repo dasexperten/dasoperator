@@ -33,13 +33,22 @@ test('missing current attachment metadata is repaired internally or stays pendin
  const e=fixture();e.history=[{direction:'in',text:'89511688874 озон Сотова Ксения',created_at:e.t},{id:'blank',direction:'in',text:null,attachments_json:null,created_at:e.t}];e.freshAttachments='[]';
  await igDmReply(e.env);assert.equal(e.sent.length,1);assert.equal(e.states.has('ig_reply_escalated:'+e.cid),false);
 });
-test('a photo Instagram will not hand over is never confirmed as seen (noza_finds 2026-10-18)',async()=>{
- const u=fixture();u.history=[{id:'blank',direction:'in',text:null,attachments_json:null,created_at:u.t}];u.freshAttachments='unsupported';
- u.raws=[JSON.stringify({reply:'Вижу корзину, всё верно!',escalate:false,reason:'ok'}),JSON.stringify({reply:'Вижу корзину, всё верно!',escalate:false,reason:'ok'})];
- await igDmReply(u.env);assert.equal(u.sent.length,0);assert.match(u.context,/не передал/);
- const r=fixture();r.history=[{id:'blank',direction:'in',text:null,attachments_json:null,created_at:r.t}];r.freshAttachments='unsupported';
- r.raw=JSON.stringify({reply:'Фото до меня не дошло. Перешлите, пожалуйста, скрин корзины ещё раз обычным фото?',escalate:false,reason:'ok'});
+test('a photo programs cannot open goes to the Owner first, never «did not arrive» (Owner 2026-10-18)',async()=>{
+ // Fresh photo: Diana waits for the Owner — nothing is sent, the card asks him to look.
+ const h=fixture();h.history=[{id:'blank',direction:'in',text:null,attachments_json:null,created_at:h.t}];h.freshAttachments='unsupported';
+ await igDmReply(h.env);assert.equal(h.sent.length,0);assert.equal(JSON.parse(h.states.get('ig_reply_escalated:'+h.cid)).reason,'photo_for_owner');
+ // 35 minutes without the Owner: a soft ask goes out; a basket she never saw is not confirmed.
+ const old=new Date(Date.now()-35*60_000).toISOString();
+ const u=fixture();u.t=old;u.history=[{id:'blank',direction:'in',text:null,attachments_json:null,created_at:old}];u.freshAttachments='unsupported';
+ u.raws=[JSON.stringify({reply:'Вижу корзину, всё верно!',escalate:false,reason:'ok'})];u.raw=JSON.stringify({reply:'Фото до меня не дошло, пришлите обычным фото',escalate:false,reason:'ok'});
+ await igDmReply(u.env);assert.equal(u.sent.length,0,JSON.stringify(u.sent));assert.match(u.context,/не открылось/);
+ const r=fixture();r.t=old;r.history=[{id:'blank',direction:'in',text:null,attachments_json:null,created_at:old}];r.freshAttachments='unsupported';
+ r.raw=JSON.stringify({reply:'У меня почему-то не открывается картинка) Пришлёте её ещё раз одним фото?',escalate:false,reason:'ok'});
  await igDmReply(r.env);assert.equal(r.sent.length,1);
+ // The Owner wrote what is on the photo: Diana answers at once and treats it as seen.
+ const n=fixture();n.history=[{id:'blank',direction:'in',text:null,attachments_json:null,created_at:n.t}];n.freshAttachments='unsupported';
+ n.states.set('ig_photo_note:'+n.cid,JSON.stringify({at:n.t,text:'скрин заказа TERMO'}));
+ await igDmReply(n.env);assert.equal(n.sent.length,1);assert.match(n.context,/Владелец посмотрел/);
 });
 test('a second model reads every reply against VOICE before it leaves (Owner 2026-10-18)',async()=>{
  const a=fixture();a.history=[{direction:'in',text:'Можно артикул',created_at:a.t}];

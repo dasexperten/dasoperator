@@ -826,7 +826,6 @@ export default function UgcPage() {
       </section>
 
       {selected && <CreatorModal key={selected.id} creator={selected} onClose={() => setSelectedId(null)} onSaved={load} />}
-      <div className="ugc-stage-legend" aria-label="Статусы">{STAGES.map((value) => <span key={value} className="ugc-stage" data-stage={value}>{value}</span>)}</div>
     </div>
     </PayContext.Provider>
   );

@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { Home, ArrowLeftRight, Warehouse, MessageSquare, Mail, Headphones, BarChart3, PhoneCall } from 'lucide-react';
+import { Home, ArrowLeftRight, Warehouse, MessageSquare, Mail, Headphones, BarChart3, Clapperboard } from 'lucide-react';
 import Sidebar from './sidebar';
 import Header from './header';
 import AuthGate from './auth-gate';
@@ -110,7 +110,8 @@ const BOTTOM_NAV_CANDIDATES: BottomNavItem[] = [
   { name: 'CRM',        icon: Headphones,     href: '/crm' },
   { name: 'Reviews',    icon: MessageSquare,  href: '/reviews' },
   { name: 'Emailer',    icon: Mail,           href: '/emailer' },
-  { name: 'Caller',     icon: PhoneCall,      href: '/caller' },
+  // Owner 2026-10-18: UGC replaces Caller in the phone bar; Caller stays in the side menu.
+  { name: 'UGC',        icon: Clapperboard,   href: '/ugc' },
   { name: 'Analytics',  icon: BarChart3,      href: '/analytics' },
   // Fallbacks — only surface when one of the five above is not permitted.
   { name: 'Stock',      icon: Warehouse,      href: '/warehouses' },

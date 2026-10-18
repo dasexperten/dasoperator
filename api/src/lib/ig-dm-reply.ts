@@ -126,7 +126,7 @@ function rewriteHint(reason: string, imageCheck: unknown): string {
   }
   const hints: Record<string, string> = {
     'surname initial not written': 'в словах блогера нет первой буквы фамилии (слово на -овна, -евна, -ична это отчество, не фамилия). Не возвращай requisites; вежливо попроси первую букву фамилии.',
-    'requisites incomplete, ask what is missing': 'реквизиты неполные, перевод не заведён. Не пиши «проверяю». Коротко попроси ровно то, чего не хватает: обычно ФИО полностью (или имя и первую букву фамилии), номер или банк.',
+    'requisites incomplete, ask what is missing': 'реквизиты неполные, перевод не заведён. Не пиши «проверяю». Коротко попроси ровно то, чего не хватает: имя, номер или банк. Фамилию не спрашивай.',
     'video before scenario': 'скрин заказа есть, но сценарий ещё не выбран. Не проси снимать ролик и не проси ссылку. Следующий шаг — сценарий: спроси, есть ли у блогера своя идея ролика, а если нет — пришли карточки сценариев (send_cards=true) и попроси номер.',
     'scenario before order': 'сценарий и карточки идут только после скрина оформленного заказа. Сейчас не предлагай сценарии и не проси номер карточки; попроси оформить заказ и прислать скрин заказа (или, если перевода ещё не было, — корзину и реквизиты).',
     'refusal tone': 'отказ прозвучал отказом («не даём», «не положено»). Голос Дианы: не отказывай, а направь и объясни выгоду блогеру. Про артикул: «Лучше через поиск, так ваша покупка поможет нашей карточке) Наберите на Ozon: зубная паста с ферментами.»',
@@ -369,11 +369,11 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       const imageConflict = Boolean(imageCheck && imageCheck.status !== 'yes' && out.requisites);
       // Owner 2026-10-18 (irina__sayapina wrote «Ирина Алексеевна»; the model took «А» of the patronymic
       // as the surname). A one-letter surname must stand in the blogger's own words, never be guessed.
-      if (out.requisites && out.requisites.last_name.length === 1 && !initialWritten(out.requisites.last_name, incoming.slice(-6).map((m) => m.text ?? '').join(' '))) {
+      if (out.requisites && out.requisites.last_name?.length === 1 && !initialWritten(out.requisites.last_name, incoming.slice(-6).map((m) => m.text ?? '').join(' '))) {
         const full = surnameWritten(out.requisites.last_name, incoming.slice(-6).map((m) => m.text ?? '').join(' '), out.requisites.first_name);
         if (full) out.requisites.last_name = full;
       }
-      const guessedInitial = Boolean(out.requisites && out.requisites.last_name.length === 1 && !initialWritten(out.requisites.last_name, incoming.slice(-6).map((m) => m.text ?? '').join(' ')));
+      const guessedInitial = Boolean(out.requisites && out.requisites.last_name?.length === 1 && !initialWritten(out.requisites.last_name, incoming.slice(-6).map((m) => m.text ?? '').join(' ')));
       const named = articlesIn(incoming.map((m) => m.text ?? '').join(' '));
       const oldOrder = /стар/i.test(String(out.requisites?.product ?? ''));
       // Owner 2026-10-18 (sammaya_89191323: скрин 402 ₽, в словах «700₽ за пасту термо»): a typed sum that disagrees with the registered one is doubt — ask the article.
@@ -411,7 +411,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       const typedSumsAfter = (incoming.slice(-8).map((m) => m.text ?? '').join(' ').match(/(?<!\d)(\d{3,4})\s?(?:₽|р\b|руб)/gi) ?? []).map((x) => Number(x.match(/\d{3,4}/)![0]) * 100);
       const conflictAfter = Boolean(out.requisites && typedSumsAfter.some((v) => Math.abs(v - out.requisites!.amount_minor) > out.requisites!.amount_minor * 0.15));
       if (out.requisites && ourArticles.size && !/стар/i.test(String(out.requisites.product ?? '')) && !named.some((x) => ourArticles.has(x)) && (conflictAfter || !jevSure(imageCheck, out.requisites, termoBand))) { await failStep(named.some((x) => !phoneLike(x)) ? 'foreign ozon article' : 'ozon article needed'); continue; } }
-    if (out.requisites && out.requisites.last_name.length === 1 && !initialWritten(out.requisites.last_name, incoming.slice(-6).map((m) => m.text ?? '').join(' '))) { await failStep('surname initial not written'); continue; }
+    if (out.requisites && out.requisites.last_name?.length === 1 && !initialWritten(out.requisites.last_name, incoming.slice(-6).map((m) => m.text ?? '').join(' '))) { await failStep('surname initial not written'); continue; }
     if (textOnlyRecovery && !requisitesSupportedByText(out.requisites,currentText)) { await failStep('image_read_failed'); continue; }
     if (!out.reply) {
       // Keep the start of an unreadable answer, so the cause is visible (Owner 2026-10-18).

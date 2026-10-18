@@ -21,7 +21,7 @@ await build({ entryPoints: [fileURLToPath(new URL('./ig-dm-reply.ts', import.met
       : a.path==='./owner-telegram' ? 'export const sendOwnerTelegram=()=>globalThis.__ugcTest.notify(); export const sendOwnerQuestion=(_e,text,buttons)=>globalThis.__ugcTest.ask(text,buttons);'
       : 'export const refreshIgAttachments=async()=>globalThis.__ugcTest.freshAttachments??null; export const lastWordIsBlogger=()=>globalThis.__ugcTest.live; export const sendIgDirect=(...args)=>globalThis.__ugcTest.send(...args); export const sendIgCards=(...args)=>globalThis.__ugcTest.cards(...args);' }));
   }}] });
-const { igDmReply } = await import(pathToFileURL(outfile));
+const { igDmReply, jevSure } = await import(pathToFileURL(outfile));
 rmSync(dir, { recursive:true });
 
 test('missing current attachment metadata is repaired internally or stays pending without a resend request',async()=>{
@@ -172,4 +172,13 @@ test('requisites wait for our Ozon article; a named article of ours lets them th
  await igDmReply(f.env);assert.equal(f.sent.length,1);assert.match(f.sent[0][2],/артикул/);assert.match(f.systems[1],/артикул нашей карточки/);assert.match(f.systems[0],/3497962138 TERMO 39/);
  const g=fixture();g.articles=[{a:'3497962138',n:'TERMO 39'}];g.history=[{direction:'in',text:'артикул 3497962138, Озон банк Зайнаб Курабекова 89640011206',created_at:g.t}];g.raw=req;g.failBatch=true;
  await igDmReply(g.env);assert.equal(incident(g).reason,'payout_registration_failed');
+});
+
+test('no article needed when JEV recognises our paste at the usual price (Owner 2026-10-18)',()=>{
+ const yes={status:'yes',checks:[{kind:'basket',product:'yes',seller:'unknown',amount:'yes'}]};
+ const band={low:26600,high:49400};
+ assert.equal(jevSure(yes,{amount_minor:39500,product:'TERMO'},band),true);
+ assert.equal(jevSure(yes,{amount_minor:15000,product:'TERMO'},band),false);
+ assert.equal(jevSure({...yes,status:'unknown'},{amount_minor:39500,product:'TERMO'},band),false);
+ assert.equal(jevSure(yes,{amount_minor:39500,product:'TERMO'},null),false);
 });

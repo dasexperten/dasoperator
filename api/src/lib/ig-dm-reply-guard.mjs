@@ -58,7 +58,7 @@ ${SCENARIO_RULES}
 `;
 
 // The answer format is the code's, never the profile's: the guard below parses it.
-export const JSON_SPEC = 'Ответь строго JSON без пояснений: {"reply": string|null, "replies": string[]|null, "escalate": boolean, "send_cards": boolean, "requisites": object|null, "reason": string}';
+export const JSON_SPEC = 'Ответь строго JSON без пояснений: {"reply": string|null, "replies": string[]|null, "escalate": boolean, "send_cards": boolean, "agreed": boolean, "requisites": object|null, "reason": string}. agreed=true только если блогер в этой переписке ясно согласилась на бартер (написала «да», «интересно», «давайте», «согласна», начала искать товар); иначе false.';
 
 // SBP member ids of the banks bloggers name (Konsol FPS list).
 const BANKS = [
@@ -166,6 +166,7 @@ export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allow
   const escalate = parsed.escalate === true;
   const reason = String(parsed.reason ?? '').slice(0, 200);
   const sendCards = parsed.send_cards === true;
+  const agreed = parsed.agreed === true;
   const requisites = cleanRequisites(parsed.requisites);
   if (!reply || escalate) return { reply: null, escalate, reason, sendCards: false };
   if (parts.some((x) => x.length > 300) || reply.length > 900) return { reply: null, escalate: true, reason: 'too long' };
@@ -201,7 +202,7 @@ export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allow
   if (/добрый (день|вечер)|здравствуйте|привет/i.test(reply) && reply.length < 25) return { reply: null, escalate: false, reason: 'greeting only' };
   // Owner 2026-10-17: «заказала» always gets «пришлите, пожалуйста, скрин заказа», even next to another question.
   if (ordered && !/скрин/i.test(reply)) return { reply: null, escalate: true, reason: 'ask for the order screenshot too' };
-  return { reply, parts, escalate: false, reason, sendCards, requisites };
+  return { reply, parts, escalate: false, reason, sendCards, requisites, agreed };
 }
 
 /** Built-in rules: the fallback when Diana's profile cannot be read from GitHub. */

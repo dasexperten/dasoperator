@@ -385,7 +385,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       // Owner 2026-10-18 (zeinab.4517 stayed «replied» with requisites in): the status follows the facts.
       const hasPaid = payouts.some((p) => p.status === 'paid' || p.status === 'sent');
       const hasOpen = payouts.some((p) => p.status === 'awaiting_approval' || p.status === 'approved') || Boolean(out.requisites);
-      const target = posted ? 'posted' : (orderShown && (out.sendCards || /сценари|отличный выбор/i.test(said))) ? 'creation' : orderShown ? 'ordered' : hasPaid ? 'paid' : hasOpen ? 'cart' : null;
+      const target = posted ? 'posted' : (orderShown && (out.sendCards || /сценари|отличный выбор/i.test(said))) ? 'creation' : orderShown ? 'ordered' : hasPaid ? 'paid' : hasOpen ? 'cart' : (out as { agreed?: boolean }).agreed ? 'agreed' : null;
       const stage = target ? nextStage(creator.lifecycle_stage, target) : null;
       if (stage) await env.DB.prepare(`UPDATE ugc_creators SET lifecycle_stage=?2, updated_at=?3 WHERE id=?1`).bind(creator.id, stage, Date.now()).run().catch(() => undefined);
     }

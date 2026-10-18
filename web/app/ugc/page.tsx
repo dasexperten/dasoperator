@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type MouseEvent, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, ArrowUpDown, ExternalLink, Eye, Facebook, Globe, Hand, Heart, Instagram, Link, Link2Off, Loader2, MessageCircle, Search, Send, Users, Video, X, Youtube } from 'lucide-react';
+import { AlertCircle, ArrowUpDown, Star, ExternalLink, Eye, Facebook, Globe, Hand, Heart, Instagram, Link, Link2Off, Loader2, MessageCircle, Search, Send, Users, Video, X, Youtube } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import './ugc-layout.css';
 import { apiGet, apiPatch, apiPost, apiPostTimed } from '@/lib/api';
@@ -168,7 +168,7 @@ type UgcPayload = {
 
 const PLATFORM_TABS = ['all', 'instagram', 'tiktok', 'vk', 'shopee', 'lazada', 'facebook', 'telegram', 'youtube', 'other'];
 // Diana's statuses (Owner 2026-10-15, DH-LAW-261015-02): one English word, at most 7 letters.
-const STAGES = ['new', 'sent', 'replied', 'agreed', 'cart', 'payout', 'paid', 'ordered', 'creation', 'review', 'posted', 'gold', 'silent', 'failed', 'fee', 'refused', 'unfit', 'rival', 'owner'];
+const STAGES = ['new', 'sent', 'replied', 'agreed', 'cart', 'paid', 'ordered', 'creation', 'posted', 'gold', 'silent', 'failed', 'fee', 'refused', 'unfit', 'rival', 'owner'];
 const ORIGINS = ['invited', 'self'];
 const API_EMPTY: UgcPayload = { creators: [], summary: { creators: 0, profiles: 0, content_items: 0, active_outreach: 0, published: 0, linked_content: 0, links_active: 0, links_missing: 0, links_restricted: 0, links_unknown: 0, links_invalid: 0, links_unchecked: 0, links_checked_30d: 0, links_last_checked_at: null, link_check_history: 0, product_identified: 0, product_queued: 0 }, platforms: [], products: [] };
 
@@ -258,7 +258,26 @@ function CreatorPayment({ creator }: { creator: Creator }) {
   return <RegisterAmounts records={creator.payment_register} />;
 }
 
+// Owner 2026-10-18: Gold is awarded by hand after watching the reel — a star next to «posted».
+function GoldAward({ creator }: { creator: Creator }) {
+  const { isAdmin } = useContext(PayContext);
+  const [busy, setBusy] = useState(false);
+  if (!isAdmin || creator.lifecycle_stage !== 'posted') return null;
+  return <button type="button" className="ugc-gold-btn" disabled={busy} title="Вручить Gold" aria-label={`Вручить Gold ${creator.normalized_handle}`} onClick={async (event) => {
+    event.preventDefault(); event.stopPropagation();
+    if (!window.confirm(`Вручить Gold @${creator.normalized_handle}?`)) return;
+    setBusy(true);
+    const r = await apiPatch(`/api/ugc/creators/${creator.id}`, { lifecycle_stage: 'gold' });
+    setBusy(false);
+    if (r.success) window.dispatchEvent(new Event('ugc:reload'));
+  }}><Star className="h-3.5 w-3.5" aria-hidden="true" /></button>;
+}
+
 function CreatorStatus({ creator }: { creator: Creator }) {
+  return <span className="ugc-stage-wrap"><CreatorStatusBadge creator={creator} /><GoldAward creator={creator} /></span>;
+}
+
+function CreatorStatusBadge({ creator }: { creator: Creator }) {
   const href = instagramChatHref(creator.profiles);
   return href
     ? <a href={href} target="_blank" rel="noopener noreferrer" className="ugc-stage ugc-stage-btn focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" data-stage={creator.lifecycle_stage} aria-label={`Переписка в Instagram · ${creator.lifecycle_stage}`} title="Открыть переписку в Instagram">{creator.lifecycle_stage}</a>
@@ -618,6 +637,12 @@ export default function UgcPage() {
 
   // Owner 2026-10-18: a tab left open overnight showed yesterday's grey amounts. The list now
   // refreshes itself every 2 minutes while visible and at once when the tab is opened again.
+  useEffect(() => {
+    const reload = () => { void load(); };
+    window.addEventListener('ugc:reload', reload);
+    return () => window.removeEventListener('ugc:reload', reload);
+  }, [load]);
+
   useEffect(() => {
     let last = Date.now();
     const refresh = () => { if (document.visibilityState !== 'visible') return; if (Date.now() - last < 60_000) return; last = Date.now(); void load(); };

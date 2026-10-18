@@ -106,7 +106,7 @@ export function surnameWritten(letter: string, text: string, firstName: string):
 
 // Owner 2026-10-18: «заказ сделан — статус ordered, после этого creation, и уже posted, когда отправляет ссылку».
 // The ERP moves a creator forward on the main path only, never back and never off a side status.
-const MAIN_PATH = ['new', 'sent', 'replied', 'agreed', 'cart', 'payout', 'paid', 'ordered', 'creation', 'review', 'posted', 'gold'];
+const MAIN_PATH = ['new', 'sent', 'replied', 'agreed', 'cart', 'paid', 'ordered', 'creation', 'posted', 'gold'];
 export function nextStage(current: string | null, target: string): string | null {
   const from = MAIN_PATH.indexOf(current ?? 'new');
   const to = MAIN_PATH.indexOf(target);
@@ -382,7 +382,10 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     if (sent.ok && creator) {
       const said = `${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`;
       const posted = history.some((m) => m.direction === 'in' && POST_LINK.test(m.text ?? '') && (!moneyAt || Date.parse(m.created_at) > moneyAt));
-      const target = posted ? 'posted' : (orderShown && (out.sendCards || /сценари|отличный выбор/i.test(said))) ? 'creation' : orderShown ? 'ordered' : null;
+      // Owner 2026-10-18 (zeinab.4517 stayed «replied» with requisites in): the status follows the facts.
+      const hasPaid = payouts.some((p) => p.status === 'paid' || p.status === 'sent');
+      const hasOpen = payouts.some((p) => p.status === 'awaiting_approval' || p.status === 'approved') || Boolean(out.requisites);
+      const target = posted ? 'posted' : (orderShown && (out.sendCards || /сценари|отличный выбор/i.test(said))) ? 'creation' : orderShown ? 'ordered' : hasPaid ? 'paid' : hasOpen ? 'cart' : null;
       const stage = target ? nextStage(creator.lifecycle_stage, target) : null;
       if (stage) await env.DB.prepare(`UPDATE ugc_creators SET lifecycle_stage=?2, updated_at=?3 WHERE id=?1`).bind(creator.id, stage, Date.now()).run().catch(() => undefined);
     }

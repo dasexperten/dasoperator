@@ -59,6 +59,13 @@ test('after the order screenshot comes the scenario, not the video (anastasiiyaa
  await igDmReply(v.env);
  assert.match(v.context,/сценария ещё нет/);assert.equal(v.sent.length,1);assert.match(String(v.sent[0][2]),/идея/);
 });
+test('«заказала» after the payment counts as the order, scenario comes next (Owner 2026-10-18)',async()=>{
+ const paidAt=new Date(Date.now()-3_600_000).toISOString();
+ const v=fixture();v.creator={id:'creator'};v.payouts=[{amount_minor:62000,status:'paid',konsol_payment_id:'k',paid_at:paidAt,payout_date:'2026-10-18'}];
+ v.history=[{direction:'out',text:'Перевела 620 ₽ по СБП.',created_at:paidAt},{direction:'in',text:'Здравствуйте, оплата пришла, заказала.',created_at:v.t}];
+ v.raw=JSON.stringify({reply:'Спасибо) Есть своя идея ролика? Если нет, пришлю сценарии на выбор.',escalate:false,reason:'ok'});
+ await igDmReply(v.env);assert.match(v.context,/сценария ещё нет/);assert.equal(v.sent.length,1);
+});
 test('a second model reads every reply against VOICE before it leaves (Owner 2026-10-18)',async()=>{
  const a=fixture();a.history=[{direction:'in',text:'Можно артикул',created_at:a.t}];
  a.raws=[JSON.stringify({reply:'Ищите сами через поиск.',escalate:false,reason:'ok'}),JSON.stringify({reply:'Лучше через поиск, так ваша покупка поможет нашей карточке)',escalate:false,reason:'ok'})];

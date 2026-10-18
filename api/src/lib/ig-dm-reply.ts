@@ -138,7 +138,7 @@ function rewriteHint(reason: string, imageCheck: unknown): string {
     'informal ты, always вы': 'обращение на «ты». Всегда на «вы».',
     'adult wording': 'слово «взрослый» блогеру не пишется.',
     'warm address too early, keep it neutral': 'тёплое обращение («дорогая», «милая») слишком рано. Пиши нейтрально.',
-    'ask for the order screenshot too': 'блогер написала, что заказала: порадуйся и попроси скрин заказа.',
+    'ask for the order screenshot too': 'блогер написала, что заказала: словам верим, скрин не требуй, переходи к сценарию.',
     'offers a brush, paste only': 'щётку не предлагать, программа только про пасту TERMO.',
   };
   return hints[r] ?? `${reason}.`;
@@ -270,11 +270,13 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     // Owner 2026-10-18: «просишь заказ и сразу отправляешь инструкцию» — the ladder is payment → order
     // screenshot → scenario. A screenshot after the money went out counts as the order screenshot.
     const moneyAt = payouts.filter((p) => p.status === 'paid' || p.status === 'sent').map((p) => Date.parse(String(p.paid_at || p.sent_at || ''))).filter((t) => Number.isFinite(t)).sort((a, b) => b - a)[0];
-    const orderShown = Boolean(moneyAt && history.some((m) => m.direction === 'in' && Date.parse(m.created_at) > moneyAt! && ((m.attachments_json && m.attachments_json !== '[]') || m.unsupported)));
+    // Owner 2026-10-18: «если пишут что заказала, можно поверить» — her word counts like the screenshot.
+    const saidOrdered = (m: Msg) => /(^|[^а-яё])(заказала|заказал|оформила|оформил|заказ оформлен|оформлено)([^а-яё]|$)/i.test(m.text ?? '') && !/(^|[^а-яё])(не|ещё не|еще не)\s+(заказала|заказал|оформила|оформил)/i.test(m.text ?? '');
+    const orderShown = Boolean(moneyAt && history.some((m) => m.direction === 'in' && Date.parse(m.created_at) > moneyAt! && ((m.attachments_json && m.attachments_json !== '[]') || m.unsupported || saidOrdered(m))));
     // Owner 2026-10-18 (anastasiiyaa___): after the order screenshot comes the scenario, only then the video.
-    const orderAt = moneyAt ? history.find((m) => m.direction === 'in' && Date.parse(m.created_at) > moneyAt! && ((m.attachments_json && m.attachments_json !== '[]') || m.unsupported))?.created_at : undefined;
+    const orderAt = moneyAt ? history.find((m) => m.direction === 'in' && Date.parse(m.created_at) > moneyAt! && ((m.attachments_json && m.attachments_json !== '[]') || m.unsupported || saidOrdered(m)))?.created_at : undefined;
     const scenarioSent = Boolean(orderAt && history.some((m) => m.direction === 'out' && m.created_at > orderAt && ((m.attachments_json && m.attachments_json !== '[]') || /сценари|отличный выбор|своя идея|карточк|как лучше снять/i.test(m.text ?? ''))));
-    const ladder = orderShown && !scenarioSent ? 'СТУПЕНЬ: скрин оформленного заказа есть, сценария ещё нет. Следующий шаг — сценарий: поблагодари за заказ, спроси, есть ли своя идея ролика, а если нет — send_cards=true и попроси номер карточки. Про съёмку, ссылку на ролик и получение в ПВЗ сейчас НЕ пиши.\n' : orderShown ? '' : 'СТУПЕНЬ: скрина оформленного заказа после нашего перевода ещё нет. Сценарии, карточки и любые инструкции по ролику НЕ отправляй и не предлагай выбрать; send_cards=false. Сейчас шаг один: заказ и скрин заказа (или, до оплаты, корзина и реквизиты).\n';
+    const ladder = orderShown && !scenarioSent ? 'СТУПЕНЬ: заказ оформлен (скрин или слова блогера, словам верим), сценария ещё нет. Скрин заказа не требуй. Следующий шаг — сценарий: поблагодари за заказ, спроси, есть ли своя идея ролика, а если нет — send_cards=true и попроси номер карточки. Про съёмку, ссылку на ролик и получение в ПВЗ сейчас НЕ пиши.\n' : orderShown ? '' : 'СТУПЕНЬ: скрина оформленного заказа после нашего перевода ещё нет. Сценарии, карточки и любые инструкции по ролику НЕ отправляй и не предлагай выбрать; send_cards=false. Сейчас шаг один: заказ и скрин заказа (или, до оплаты, корзина и реквизиты).\n';
     const context = `${ladder}${photoSeen ? `Фото блогера Владелец посмотрел в приложении: ${ownerNote}. Считай это фото увиденным, не проси прислать его заново и действуй по шагу.\n` : unseenPhoto ? 'ВАЖНО: блогер прислала фото, но у нас в программе оно не открылось, мы его не видели. Не подтверждай корзину и сумму, не говори «всё верно». Не пиши, что фото не дошло, и не говори про режим разового просмотра: блогер всё отправила правильно. Мягко, с теплом, попроси прислать картинку ещё раз одним фото, например: «У меня почему-то не открывается картинка) Пришлёте её ещё раз одним фото?» Каждый раз своими словами. Если сомнение в карточке, можно вместо этого попросить артикул пасты.\n' : ''}${legacyCart ? 'Старая корзина: блогер собрал корзину до перехода на «только паста» (17.10.2026) — щётку оставляем, убрать её не просим.\n' : ''}Блогер: @${w.h}${creator?.display_name ? `, ${creator.display_name}` : ''}${creator?.city ? `, ${creator.city}` : ''}\nERP, выплаты: ${erp}\n\nПереписка (последние сообщения):\n${lines}\n\nНапиши следующий ответ Дианы.`;
 
     // Both sides are essential: «да» only makes sense with our preceding question.

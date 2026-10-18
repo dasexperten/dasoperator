@@ -82,9 +82,9 @@ test('a paid-reel question goes to the Owner, never answered by the model', () =
   assert.ok(guardReply(j, { lastIn: 'Сняла, вот ссылка' }).reply);
 });
 
-test('«заказала» always asks for the order screenshot', () => {
+test('«заказала» is believed, no screenshot demanded (Owner 2026-10-18)', () => {
   const j = (reply) => JSON.stringify({ reply, escalate: false, send_cards: false, requisites: null, reason: 'x' });
-  assert.equal(guardReply(j('Отличный выбор! Снимите три вещи.'), { lastIn: 'Заказала! Хочу вторую карточку' }).reason, 'ask for the order screenshot too');
+  assert.ok(guardReply(j('Отлично! Есть своя идея ролика?'), { lastIn: 'Заказала!' }).reply);
   assert.ok(guardReply(j('Отлично! Пришлите, пожалуйста, скрин заказа.'), { lastIn: 'Заказала!' }).reply);
 });
 

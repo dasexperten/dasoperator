@@ -426,8 +426,13 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     // Full requisites in the chat → a brown payout row at once (DH-LAW-261015-04 p.6, Owner 2026-10-16).
     if (out.requisites && (!imageCheck || imageCheck.status === 'yes')) { try { await registerPayout(env, w.h, out.requisites); } catch { await failStep('payout_registration_failed'); continue; } }
     // Several short messages in a row (Owner 2026-10-17); the first decides success.
-    const parts: string[] = out.parts?.length ? out.parts : [out.reply];
-    const [first = out.reply] = parts;
+    // Owner 2026-10-18: «реквизиты она отправила, не надо говорить: спасибо, реквизиты получили». The next step after
+    // requisites is the transfer itself; acknowledgements of requisites are dropped, and with nothing left nothing is sent.
+    const ackOnly = (p: string) => /реквизиты\s+получил|спасибо\s+за\s+реквизиты/i.test(p)
+      || (Boolean(out.requisites) && /^\s*(получил[аи]?,?\s*)?проверя(ю|ем)[!.]?\s*$|скоро\s+напиш/i.test(p));
+    const parts: string[] = (out.parts?.length ? out.parts : [out.reply]).filter((p) => p && !ackOnly(p));
+    if (!parts.length) { await mark(); continue; }
+    const [first = parts[0]!] = parts;
     const sent = await sendIgDirect(env, w.h, first, { humanAgent: now - at > 23.5 * 3_600_000 });
     for (const part of sent.ok ? parts.slice(1) : []) {
       await new Promise((r) => setTimeout(r, 1500));

@@ -65,7 +65,8 @@
   main .crm-mock .crm-panel-tools { display: flex !important; flex-wrap: nowrap !important; align-items: center; width: 100%; min-width: 0; gap: 8px !important; }
   main .crm-mock .crm-panel-search { display: block !important; flex: 1 1 0; min-width: 0; width: 100%; }
   main .crm-mock .crm-panel-search input { width: 100% !important; min-height: 44px; font-size: 16px !important; }
-  main .crm-mock .crm-panel-tools select { min-height: 44px; }
+  main .crm-mock .crm-panel-tools select { flex: 0 0 76px !important; width: 76px !important; min-height: 44px; }
+  main .crm-mock .crm-panel-search { flex: 1 1 auto !important; }
   main .crm-mock .crm-asof { padding: 10px 14px 0; margin: 0 !important; }
   main .crm-mock .overflow-x-auto { padding: 10px 10px 2px; }
 

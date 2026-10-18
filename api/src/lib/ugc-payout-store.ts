@@ -108,7 +108,7 @@ function deps(env: Env) {
       if (!parts || !parts.length) {
         const amount = Number(row.amount_minor);
         if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: 'Диана не написала текст (JEV или контролёр голоса)' };
-        parts = [`Перевела ${formatRub(amount)} по СБП.`, 'Проверьте, пожалуйста, должно быть уже дошло.', 'Оформите, пожалуйста, заказ и пришлите скрин.'];
+        parts = [`Перевели ${formatRub(amount)} по СБП.`, 'Проверьте, пожалуйста, должно быть уже дошло.', 'Оформите, пожалуйста, заказ и пришлите скрин.'];
       }
       const [first, ...rest] = parts;
       // Owner 2026-10-18 (mari__blog666 and 5 more: paid, no message): after 24 h of the blogger's

@@ -133,7 +133,7 @@ function rewriteHint(reason: string, imageCheck: unknown): string {
     'confirms unseen photo': 'фото блогера не открылось у нас в программе, мы его не видели. Не подтверждай корзину, не говори «всё верно», не возвращай requisites. Не пиши, что фото не дошло. Мягко попроси прислать картинку ещё раз одним фото или написать артикул пасты.',
     'ozon article needed': 'реквизиты принимаем только после того, как блогер назвала артикул нашей карточки на Ozon. Не возвращай requisites. Попроси артикул красиво, нежно и ободряюще, с гордостью за бренд: нас часто копируют, на маркетплейсах много подделок под наше имя, сверяем, чтобы у блогера была настоящая TERMO. Формулируй по-новому, не шаблоном',
     'foreign ozon article': 'названный блогером артикул не из наших карточек. Не возвращай requisites; мягко скажи, что это не наша карточка, и дай наш артикул.',
-    'promises payment': 'нельзя обещать перевод или срок перевода. Не пиши «переведу», «отправлю», «оплатим». Если реквизиты получены, только «Реквизиты получила, проверяю!».',
+    'promises payment': 'нельзя обещать перевод или срок перевода. Не пиши «переведу», «отправлю», «оплатим». Если реквизиты получены, только «Реквизиты получили, проверяю!».',
     'unparsable': 'ответ был не в формате JSON.',
     'command tone, ask with «пожалуйста»': 'приказной тон. Проси мягко: «пришлите, пожалуйста», «можно снимать».',
     'informal ты, always вы': 'обращение на «ты». Всегда на «вы».',
@@ -385,9 +385,9 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       // Owner 2026-10-18 (05_seferova_05): the blogger sent it right — never tell her it «did not arrive».
       const confirmsUnseen = unseenPhoto && !photoSeen && (Boolean(out.requisites) || /вижу корзин|вс[её] верно|корзин\S* получил|не\s+дош[её]?л|не\s+передал|разов\S*\s+просмотр/i.test(out.reply ?? ''));
       const videoEarly = orderShown && !scenarioSent && !out.sendCards && /сним|ролик|ссылк/i.test(`${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`) && !/сценари|иде[яюи]|карточк/i.test(`${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`);
-      // Owner 2026-10-18 (novosibirsk_life_today: номер и банк без ФИО → «Реквизиты получила, проверяю!» и тишина):
-      // «реквизиты получила» only when full requisites are registered now or a payout is already open.
-      const falseReceipt = /реквизиты\s+получила/i.test(`${out.reply ?? ''}`) && !out.requisites && !payouts.some((p) => p.status === 'awaiting_approval' || p.status === 'approved');
+      // Owner 2026-10-18 (novosibirsk_life_today: номер и банк без ФИО → «Реквизиты получили, проверяю!» и тишина):
+      // «реквизиты получили» only when full requisites are registered now or a payout is already open.
+      const falseReceipt = /реквизиты\s+получил/i.test(`${out.reply ?? ''}`) && !out.requisites && !payouts.some((p) => p.status === 'awaiting_approval' || p.status === 'approved');
       const rejected = scenarioEarly ? 'scenario before order' : videoEarly ? 'video before scenario' : falseReceipt ? 'requisites incomplete, ask what is missing' : confirmsUnseen ? 'confirms unseen photo' : imageConflict ? 'image_verdict_requires_clarification' : guessedInitial ? 'surname initial not written' : articleMissing ? (named.some((x) => !phoneLike(x)) ? 'foreign ozon article' : 'ozon article needed') : (!out.reply && out.escalate && isTechnical(out.reason) ? out.reason : '');
       // Owner 2026-10-18: a second model reads every reply against VOICE.md before it leaves.
       voiceWhy = '';
@@ -402,7 +402,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     if (generationFailed) continue;
     if (orderShown && !scenarioSent && !out.sendCards && /сним|ролик|ссылк/i.test(`${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`) && !/сценари|иде[яюи]|карточк/i.test(`${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`)) { await failStep('video before scenario'); continue; }
     if (!orderShown && (out.sendCards || /выбер\S*\s+(\S+\s+){0,3}(сценари|карточк)|номер\s+(карточк|сценари)|вот\s+(\S+\s+){0,2}(сценари|карточ)/i.test(`${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`))) { await failStep('scenario before order'); continue; }
-    if (/реквизиты\s+получила/i.test(`${out.reply ?? ''}`) && !out.requisites && !payouts.some((p) => p.status === 'awaiting_approval' || p.status === 'approved')) { await failStep('requisites incomplete, ask what is missing'); continue; }
+    if (/реквизиты\s+получил/i.test(`${out.reply ?? ''}`) && !out.requisites && !payouts.some((p) => p.status === 'awaiting_approval' || p.status === 'approved')) { await failStep('requisites incomplete, ask what is missing'); continue; }
     if (voiceUnavailable) { await failStep('voice_check_unavailable'); continue; }
     if (voiceWhy) { await failStep('off voice'); continue; }
     if (unseenPhoto && !photoSeen && (out.requisites || /вижу корзин|вс[её] верно|корзин\S* получил|не\s+дош[её]?л|не\s+передал|разов\S*\s+просмотр/i.test(out.reply ?? ''))) { await failStep('confirms unseen photo'); continue; }

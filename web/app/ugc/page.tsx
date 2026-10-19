@@ -354,6 +354,7 @@ function BrowserQueueButton() {
   const [targets, setTargets] = useState<Array<'pc' | 'mac'>>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [pressed, setPressed] = useState<'pc' | 'mac' | null>(null);
   const [writable, setWritable] = useState(false);
   const refresh = useCallback(async () => {
     try { const r = await apiGet<{ count: number; pay?: PayDays }>('/api/ugc/browser-queue'); if (r.success && r.result) { setCount(r.result.count); setPay(r.result.pay ?? null); } } catch { /* the count stays as it was */ }
@@ -367,18 +368,19 @@ function BrowserQueueButton() {
     return () => window.clearInterval(timer);
   }, [refresh]);
   if (!writable || count == null) return null;
-  const label = (t: 'pc' | 'mac') => targets.length > 1 ? `${t === 'pc' ? 'ПК' : 'Mac'} · ${count}` : `Очередь · ${count}`;
+  // Owner 2026-10-19: no extra line for the result — it shows on the pressed button itself for a few seconds.
+  const label = (t: 'pc' | 'mac') => message && pressed === t ? message : targets.length > 1 ? `${t === 'pc' ? 'ПК' : 'Mac'} · ${count}` : `Очередь · ${count}`;
   return <span className="ugc-bq">{targets.map((t) => <button key={t} type="button" className="ugc-bq-btn" disabled={busy || count === 0}
-    title={count === 0 ? 'Очередь пуста' : `Отправить ${count} в Chrome на ${t === 'pc' ? 'ПК' : 'Mac'}`}
+    title={message || (count === 0 ? 'Очередь пуста' : `Отправить ${count} в Chrome на ${t === 'pc' ? 'ПК' : 'Mac'}`)}
     onClick={async () => {
-      setBusy(true); setMessage('');
+      setBusy(true); setMessage(''); setPressed(t);
       try {
         const r = await apiPost<{ started: boolean; count: number }>('/api/ugc/browser-queue/run', { target: t });
         if (!r.success || !r.result) setMessage(r.errors[0]?.message ?? 'Не удалось запустить');
-        else setMessage(`Запущено на ${t === 'pc' ? 'ПК' : 'Mac'}: ${r.result.count}`);
+        else setMessage('Запущено');
       } catch { setMessage('Ответ не получен'); }
-      finally { setBusy(false); window.setTimeout(() => { void refresh(); }, 90_000); }
-    }}>{busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}{label(t)}</button>)}{pay ? <span className="ugc-bq-pay" title="Оплаты блогерам: сегодня и вчера"><span className="ugc-bq-pay-today">{pay.today.n} · {formatRub(pay.today.minor)}</span><span>{pay.yesterday.n} · {formatRub(pay.yesterday.minor)}</span></span> : null}{message ? <span className="ugc-bq-status" role="status">{message}</span> : null}</span>;
+      finally { setBusy(false); window.setTimeout(() => setMessage(''), 8_000); window.setTimeout(() => { void refresh(); }, 90_000); }
+    }}>{busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}{label(t)}</button>)}{pay ? <span className="ugc-bq-pay" title="Оплаты блогерам: сегодня и вчера"><span className="ugc-bq-pay-today">{pay.today.n} · {formatRub(pay.today.minor)}</span><span>{pay.yesterday.n} · {formatRub(pay.yesterday.minor)}</span></span> : null}{message ? <span className="sr-only" role="status">{message}</span> : null}</span>;
 }
 
 function ProfileRefresh({ profileId, onSaved }: { profileId?: string; onSaved: () => Promise<void> }) {
@@ -880,11 +882,14 @@ export default function UgcPage() {
 
       <section className="ugc-controls" data-expanded={filtersExpanded}>
         <div className="ugc-mobile-controls"><h2>UGC</h2><span>{formatNumber(data.summary.creators)} creators</span><button type="button" aria-expanded={filtersExpanded} aria-controls="ugc-platforms ugc-filters" onClick={() => setFiltersExpanded((value) => !value)}>{filtersExpanded ? 'Close filters' : `Filters${platform !== 'all' || stage || product ? ' · active' : ''}`}</button></div>
-        <div id="ugc-platforms" className="ugc-platforms flex flex-wrap gap-2 pb-1" aria-label="Platforms">
-          {PLATFORM_TABS.map((key) => {
-            const count = key === 'all' ? data.summary.creators : data.platforms.find((item) => item.platform === key)?.creator_count;
-            return <button key={key} type="button" aria-pressed={platform === key} onClick={() => setPlatform(key)} className="min-h-11 shrink-0 px-1 flex items-center font-bold capitalize focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="px-2.5 py-1" style={{ color: platform === key ? 'var(--fg-on-brand)' : 'var(--fg-1)', background: platform === key ? 'var(--brand-schwarz)' : 'var(--paper-sunk)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-pill)' }}>{key} {count != null ? `· ${count}` : ''}</span></button>;
-          })}
+        <div className="ugc-chips-row">
+          <div id="ugc-platforms" className="ugc-platforms flex flex-wrap gap-2 pb-1" aria-label="Platforms">
+            {PLATFORM_TABS.map((key) => {
+              const count = key === 'all' ? data.summary.creators : data.platforms.find((item) => item.platform === key)?.creator_count;
+              return <button key={key} type="button" aria-pressed={platform === key} onClick={() => setPlatform(key)} className="min-h-11 shrink-0 px-1 flex items-center font-bold capitalize focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><span className="px-2.5 py-1" style={{ color: platform === key ? 'var(--fg-on-brand)' : 'var(--fg-1)', background: platform === key ? 'var(--brand-schwarz)' : 'var(--paper-sunk)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-pill)' }}>{key} {count != null ? `· ${count}` : ''}</span></button>;
+            })}
+          </div>
+          <div className="ugc-profile-tools"><button type="button" className="ugc-tools-filters" aria-expanded={filtersExpanded} aria-controls="ugc-platforms ugc-filters" onClick={() => setFiltersExpanded((value) => !value)}>{filtersExpanded ? 'Close filters' : `Filters${platform !== 'all' || stage || product ? ' · active' : ''}`}</button><label className="ugc-inactive-filter"><input type="checkbox" checked={inactive} onChange={(event) => { setInactive(event.target.checked); setSelectedId(null); if (event.target.checked) setStage(''); }} /><span>Inactive</span></label><ProfileRefresh onSaved={load} /><BrowserQueueButton /></div>
         </div>
 
         <div id="ugc-filters" className="ugc-filters grid gap-2">
@@ -899,7 +904,6 @@ export default function UgcPage() {
         </div>
       </section>
 
-      <div className="ugc-profile-tools"><button type="button" className="ugc-tools-filters" aria-expanded={filtersExpanded} aria-controls="ugc-platforms ugc-filters" onClick={() => setFiltersExpanded((value) => !value)}>{filtersExpanded ? 'Close filters' : `Filters${platform !== 'all' || stage || product ? ' · active' : ''}`}</button><label className="ugc-inactive-filter"><input type="checkbox" checked={inactive} onChange={(event) => { setInactive(event.target.checked); setSelectedId(null); if (event.target.checked) setStage(''); }} /><span>Inactive</span></label><ProfileRefresh onSaved={load} /><BrowserQueueButton /></div>
 
       <section className="ugc-table-shell" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-card)' }}>
         <div className="ugc-mobile-list">

@@ -1070,13 +1070,20 @@ partners.get('/:slug/agreements/:id/download', async (c) => {
     return fail(c, 404, [{ code: 'r2_file_missing', message: `File ${agreement.file_r2_key} not in R2` }]);
   }
 
-  const filename = agreement.title
-    ? `${agreement.title.replace(/[^\w\s-]/g, '_')}.docx`
-    : `${agreement.agreement_type}.docx`;
+  // Legal-document originals include PDFs as well as DOCX files. Keep the
+  // stored extension and MIME type instead of relabelling every file as DOCX.
+  const filename = (agreement.file_r2_key.split('/').pop() || `${agreement.agreement_type}.docx`)
+    .replace(/[^\w.-]/g, '_');
+  const contentType = obj.httpMetadata?.contentType || (
+    filename.toLowerCase().endsWith('.pdf') ? 'application/pdf'
+      : filename.toLowerCase().endsWith('.docx')
+        ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        : 'application/octet-stream'
+  );
 
   return new Response(obj.body, {
     headers: {
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'Content-Type': contentType,
       'Content-Disposition': `attachment; filename="${filename}"`,
     },
   });

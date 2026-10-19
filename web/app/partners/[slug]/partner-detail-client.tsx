@@ -642,7 +642,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
                           href={getContractFileUrl(c.id)}
                           target="_blank"
                           rel="noreferrer"
-                          title={c.contract_file_key.split('/').pop() || 'View PDF'}
+                          title={c.contract_file_key.split('/').pop() || 'View file'}
                           className="inline-flex items-center gap-1.5"
                           style={{
                             padding: '3px 8px',
@@ -655,7 +655,7 @@ export default function PartnerDetailClient({ slug }: { slug: string }) {
                             textDecoration: 'none',
                           }}
                         >
-                          <FileText size={14} /> PDF
+                          <FileText size={14} /> {c.contract_file_key.match(/\.([a-z0-9]+)$/i)?.[1]?.toUpperCase() || 'File'}
                         </a>
                       ) : (
                         <span style={{ fontSize: '14px', color: 'var(--fg-3)' }}>—</span>

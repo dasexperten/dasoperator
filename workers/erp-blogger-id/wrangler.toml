@@ -1,4 +1,4 @@
-# Owner 2026-10-17: independent gradual blogger-profile refresh at 03:00 Yerevan.
+# Owner 2026-10-17: independent gradual blogger-profile refresh; the weekly pass at 06:00 Yerevan (Owner 2026-10-19).
 name = "erp-blogger-id"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"

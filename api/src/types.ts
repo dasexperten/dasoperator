@@ -3,6 +3,8 @@
 // =============================================================================
 
 export interface Env {
+  BROWSER_QUEUE_FIRE_URL?: string; // Owner 2026-10-19: routine fire URL for the /ugc browser-queue button
+  BROWSER_QUEUE_FIRE_TOKEN?: string;
   OPENWA_BASE_URL?: string;
   OPENWA_API_KEY?: string;
   OPENWA_SESSION_ID?: string;

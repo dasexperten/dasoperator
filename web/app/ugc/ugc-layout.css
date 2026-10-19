@@ -17,6 +17,11 @@ body:has(.ugc-creator-modal[open]) { overflow: hidden; }
 .ugc-profile-refresh { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; }
 .ugc-profile-refresh-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: var(--fg-1); font-weight: 700; }
 .ugc-profile-refresh-btn:disabled { opacity: .6; cursor: wait; }
+.ugc-bq { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ugc-bq-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 12px; border: 1px solid var(--fg-1); border-radius: var(--radius-sm); background: var(--fg-1); color: var(--paper, #fff); font-size: 14px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.ugc-bq-btn:disabled { background: var(--paper-sunk); color: var(--fg-1); border-color: var(--border-subtle); cursor: default; }
+.ugc-bq-btn:focus-visible { outline: 2px solid var(--fg-1); outline-offset: 2px; }
+.ugc-bq > [role="status"] { color: var(--fg-1); font-size: 13px; font-weight: 600; }
 .ugc-profile-refresh-btn:focus-visible { outline: 2px solid var(--fg-1); outline-offset: 2px; }
 .ugc-blogger-profile { padding: 16px; background: var(--paper-sunk); border-radius: var(--radius-sm); min-width: 0; }
 .ugc-blogger-identity { display: flex; align-items: center; gap: 12px; overflow-wrap: anywhere; }
@@ -395,6 +400,8 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
   .ugc-page .ugc-tools-filters, .ugc-page .ugc-inactive-filter, .ugc-page .ugc-profile-refresh { flex: 0 1 auto; min-width: 0; }
   .ugc-page .ugc-inactive-filter { padding: 0 8px; gap: 6px; white-space: nowrap; }
   .ugc-page .ugc-profile-refresh { flex: 1 1 auto; }
+  .ugc-page .ugc-bq { flex: 1 1 100%; }
+  .ugc-page .ugc-bq-btn { flex: 1 1 0; }
   .ugc-page .ugc-profile-refresh-btn { width: 100%; padding: 0 8px; font-size: 14px; white-space: nowrap; }
   .ugc-page .ugc-profile-refresh > [role="status"] { flex: 1 1 100%; }
 }

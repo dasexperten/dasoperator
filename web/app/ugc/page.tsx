@@ -9,6 +9,7 @@ import { canPay, formatRub, PAYOUT_STATUS_LABEL, payoutCell } from '@/lib/ugc-pa
 import { getUser } from '@/lib/auth';
 import { formatActivity, formatCount, formatCountShort, platformLabel } from '@/lib/ugc-table-format.mjs';
 import { instagramChatHref } from '@/lib/ugc-instagram-chat.mjs';
+import { deviceTargets } from '@/lib/browser-target.mjs';
 
 type PlatformMetric = {
   id: string;
@@ -342,6 +343,40 @@ function CreatorModal({ creator, onClose, onSaved }: { creator: Creator; onClose
     };
   }, []);
   return <dialog ref={ref} className="ugc-creator-modal" aria-labelledby="ugc-creator-title" onCancel={(event) => { event.preventDefault(); onClose(); }} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}><CreatorPanel creator={creator} onClose={onClose} onSaved={onSaved} /></dialog>;
+}
+
+// Owner 2026-10-19: «Очередь браузера · N». On a computer one button for this machine (PC or Mac);
+// on a phone two. A click starts sending at once in the Owner's own Chrome on that machine.
+function BrowserQueueButton() {
+  const [count, setCount] = useState<number | null>(null);
+  const [targets, setTargets] = useState<Array<'pc' | 'mac'>>([]);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [writable, setWritable] = useState(false);
+  const refresh = useCallback(async () => {
+    try { const r = await apiGet<{ count: number }>('/api/ugc/browser-queue'); if (r.success && r.result) setCount(r.result.count); } catch { /* the count stays as it was */ }
+  }, []);
+  useEffect(() => {
+    const user = getUser(); setWritable(user?.role === 'admin' || ['full', 'rw'].includes(user?.permissions?.['/ugc'] ?? ''));
+    const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
+    setTargets(deviceTargets(navigator.userAgent, nav.userAgentData?.platform || navigator.platform || '', navigator.maxTouchPoints || 0) as Array<'pc' | 'mac'>);
+    void refresh();
+    const timer = window.setInterval(() => { void refresh(); }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
+  if (!writable || count == null) return null;
+  const label = (t: 'pc' | 'mac') => targets.length > 1 ? `${t === 'pc' ? 'ПК' : 'Mac'} · ${count}` : `Очередь браузера · ${count}`;
+  return <span className="ugc-bq">{targets.map((t) => <button key={t} type="button" className="ugc-bq-btn" disabled={busy || count === 0}
+    title={count === 0 ? 'Очередь пуста' : `Отправить ${count} в Chrome на ${t === 'pc' ? 'ПК' : 'Mac'}`}
+    onClick={async () => {
+      setBusy(true); setMessage('');
+      try {
+        const r = await apiPost<{ started: boolean; count: number }>('/api/ugc/browser-queue/run', { target: t });
+        if (!r.success || !r.result) setMessage(r.errors[0]?.message ?? 'Не удалось запустить');
+        else setMessage(`Запущено на ${t === 'pc' ? 'ПК' : 'Mac'}: ${r.result.count}`);
+      } catch { setMessage('Ответ не получен'); }
+      finally { setBusy(false); window.setTimeout(() => { void refresh(); }, 90_000); }
+    }}>{busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}{label(t)}</button>)}{message ? <span role="status">{message}</span> : null}</span>;
 }
 
 function ProfileRefresh({ profileId, onSaved }: { profileId?: string; onSaved: () => Promise<void> }) {
@@ -862,7 +897,7 @@ export default function UgcPage() {
         </div>
       </section>
 
-      <div className="ugc-profile-tools"><span className="ugc-profile-schedule">Профили · ежедневно в 03:00</span><button type="button" className="ugc-tools-filters" aria-expanded={filtersExpanded} aria-controls="ugc-platforms ugc-filters" onClick={() => setFiltersExpanded((value) => !value)}>{filtersExpanded ? 'Close filters' : `Filters${platform !== 'all' || stage || product ? ' · active' : ''}`}</button><label className="ugc-inactive-filter"><input type="checkbox" checked={inactive} onChange={(event) => { setInactive(event.target.checked); setSelectedId(null); if (event.target.checked) setStage(''); }} /><span>Inactive{data.inactive_count != null ? ` · ${data.inactive_count}` : ''}</span></label><ProfileRefresh onSaved={load} /></div>
+      <div className="ugc-profile-tools"><span className="ugc-profile-schedule">Профили · ежедневно в 03:00</span><BrowserQueueButton /><button type="button" className="ugc-tools-filters" aria-expanded={filtersExpanded} aria-controls="ugc-platforms ugc-filters" onClick={() => setFiltersExpanded((value) => !value)}>{filtersExpanded ? 'Close filters' : `Filters${platform !== 'all' || stage || product ? ' · active' : ''}`}</button><label className="ugc-inactive-filter"><input type="checkbox" checked={inactive} onChange={(event) => { setInactive(event.target.checked); setSelectedId(null); if (event.target.checked) setStage(''); }} /><span>Inactive{data.inactive_count != null ? ` · ${data.inactive_count}` : ''}</span></label><ProfileRefresh onSaved={load} /></div>
 
       <section className="ugc-table-shell" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-hairline)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-card)' }}>
         <div className="ugc-mobile-list">

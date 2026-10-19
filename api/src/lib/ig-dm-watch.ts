@@ -102,7 +102,16 @@ export async function lastWordIsBlogger(env: Env, conversationId: string, expect
   if (!r.ok) return null;
   const top = r.body?.messages?.data?.[0];
   // JEV/skill loading can take time. Never send an answer to an obsolete turn.
-  if (expectedAt && String(top?.from?.id ?? '') !== IG_ID && (!top?.created_time || Date.parse(top.created_time) !== Date.parse(expectedAt))) return null;
+  if (expectedAt && String(top?.from?.id ?? '') !== IG_ID && (!top?.created_time || Date.parse(top.created_time) !== Date.parse(expectedAt))) {
+    // Owner 2026-10-19 (l.i.z.a.g.l.l, 19 failed checks in a day): the blogger's newest item is something we never
+    // store (a reaction, a like). It is still her word, not a newer turn Diana has missed.
+    if (top?.created_time && Date.parse(top.created_time) > Date.parse(expectedAt)) {
+      const newer = await env.DB.prepare(`SELECT 1 FROM ugc_ig_messages WHERE conversation_id=?1 AND direction='in' AND created_at > ?2 LIMIT 1`)
+        .bind(conversationId, expectedAt).first().catch(() => ({}));
+      if (!newer) return true;
+    }
+    return null;
+  }
   return top?.from?.id ? String(top.from.id) !== IG_ID : null;
 }
 

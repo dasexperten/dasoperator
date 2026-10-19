@@ -218,6 +218,20 @@ export async function ugcPayoutSweep(env: Env): Promise<number> {
     const out = await refreshUgcPayout(env, r.id);
     if (out.ok) refreshed++;
   }
+  // Owner 2026-10-19 (mama_instgramaa, aiz3zmin): the lock is not proof. A paid notice marked sent more than
+  // 5 minutes ago with no message of ours in the thread after the payment (and nothing waiting for the browser)
+  // was cut off mid-send: the lock is released and the message goes again.
+  await env.DB.prepare(
+    `UPDATE ugc_payouts SET paid_notice_at=NULL WHERE id IN (
+       SELECT p.id FROM ugc_payouts p
+        WHERE p.status='paid' AND p.konsol_payment_id IS NOT NULL AND p.paid_notice_at IS NOT NULL
+          AND p.paid_at > ?1 AND p.paid_notice_at < ?2
+          AND EXISTS (SELECT 1 FROM ugc_ig_messages i WHERE i.direction='in' AND LOWER(i.from_username)=LOWER(p.handle))
+          AND NOT EXISTS (SELECT 1 FROM crm_sync_state q WHERE q.key='browser_queue:'||LOWER(p.handle))
+          AND NOT EXISTS (SELECT 1 FROM crm_sync_state q WHERE q.key LIKE 'browser_sent:'||LOWER(p.handle)||':%')
+          AND NOT EXISTS (SELECT 1 FROM ugc_ig_messages o WHERE o.direction='out' AND o.created_at >= substr(p.paid_at,1,19)
+                AND o.conversation_id IN (SELECT i.conversation_id FROM ugc_ig_messages i WHERE i.direction='in' AND LOWER(i.from_username)=LOWER(p.handle))))`
+  ).bind(new Date(Date.now() - 6 * 86_400_000).toISOString(), new Date(Date.now() - 5 * 60_000).toISOString()).run().catch(() => undefined);
   // Owner 2026-10-18: a paid payout whose message did not go out is retried until it does (within 6 days).
   const unsent = await env.DB.prepare(
     `SELECT * FROM ugc_payouts WHERE status='paid' AND konsol_payment_id IS NOT NULL AND paid_notice_at IS NULL

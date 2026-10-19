@@ -211,7 +211,8 @@ export async function applyKonsolPayment(row, payment, deps) {
   let noticed = false;
   if (changed && target === 'paid' && deps.notifyBlogger) {
     if (await store.claimNotice(row.id, new Date(now).toISOString())) {
-      const sent = await deps.notifyBlogger(row, bloggerPaidText(row));
+      // Owner 2026-10-19 (mama_instgramaa: green at 14:24, no message): a send that throws must not keep the lock.
+      const sent = await deps.notifyBlogger(row, bloggerPaidText(row)).catch((e) => ({ ok: false, error: String(e) }));
       if (sent && sent.ok) noticed = true;
       else await store.releaseNotice(row.id);
     }
@@ -220,7 +221,7 @@ export async function applyKonsolPayment(row, payment, deps) {
   // paid, so paid_notice_at is its one-message lock as well.
   if (changed && target === 'failed' && deps.notifyBlogger) {
     if (await store.claimNotice(row.id, new Date(now).toISOString())) {
-      const sent = await deps.notifyBlogger(row, bloggerFailedText(row, payment.error_message), 'failed');
+      const sent = await deps.notifyBlogger(row, bloggerFailedText(row, payment.error_message), 'failed').catch((e) => ({ ok: false, error: String(e) }));
       if (sent && sent.ok) noticed = true;
       else await store.releaseNotice(row.id);
     }

@@ -133,6 +133,25 @@ ugc.get('/profiles/:id/avatar', async (c) => {
   return ok(c, { data_url: `data:${image.httpMetadata?.contentType ?? 'image/jpeg'};base64,${btoa(binary)}` });
 });
 
+// Owner 2026-10-19: the blogger's photo behind an exclamation mark, for the hover card.
+ugc.get('/dm-messages/:id/image/:index', async (c) => {
+  const access = await requireAccess(c);
+  if (access instanceof Response) return access;
+  const id = c.req.param('id'); const index = Number(c.req.param('index')) || 0;
+  const row = await c.env.DB.prepare(`SELECT attachments_json a FROM ugc_ig_messages WHERE id=?1 AND direction='in'`).bind(id).first<{ a: string | null }>();
+  if (!row) return fail(c, 404, [{ code: 'not_found', message: 'Message not found' }]);
+  const { imageUrls, loadInstagramImage } = await import('../lib/ig-dm-image-cache');
+  const { refreshIgAttachments } = await import('../lib/ig-dm-watch');
+  try {
+    let url: string | undefined;
+    try { url = imageUrls(row.a)[index]; } catch { url = undefined; }
+    let image;
+    try { if (!url) throw new Error('no url'); image = await loadInstagramImage(c.env, id, index, url); }
+    catch { const fresh = await refreshIgAttachments(c.env, id); const u = fresh ? imageUrls(fresh)[index] : undefined; if (!u) throw new Error('unavailable'); image = await loadInstagramImage(c.env, id, index, u); }
+    return ok(c, { data_url: `data:${image.mediaType};base64,${image.data}` });
+  } catch { return fail(c, 404, [{ code: 'image_unavailable', message: 'Фото не открывается у нас, оно есть в переписке в приложении' }]); }
+});
+
 // Owner 2026-10-18: confirmed unavailable Instagram accounts remain in the list,
 // with a faded whole row. A failed photo fetch alone is not that confirmation.
 ugc.patch('/profiles/:id/availability', async (c) => {
@@ -305,18 +324,35 @@ ugc.get('/', async (c) => {
   // Only unresolved incidents for the current incoming message are shown.
   const incidents = await c.env.DB.prepare(`
     WITH latest AS (SELECT conversation_id, MAX(created_at) at FROM ugc_ig_messages GROUP BY conversation_id)
-    SELECT state.value,
+    SELECT state.value, latest.conversation_id cid,
       COALESCE((SELECT p.creator_id FROM ugc_creator_platforms p WHERE p.platform='instagram' AND p.normalized_handle=json_extract(state.value,'$.handle') LIMIT 1),
         (SELECT p.creator_id FROM ugc_creator_platforms p WHERE p.platform='other' AND p.normalized_handle=json_extract(state.value,'$.handle') LIMIT 1)) creator_id
     FROM crm_sync_state state
       JOIN latest ON state.key='ig_reply_escalated:'||latest.conversation_id
       JOIN ugc_ig_messages m ON m.conversation_id=latest.conversation_id AND m.created_at=latest.at
     WHERE m.direction='in' AND json_valid(state.value) AND json_extract(state.value,'$.at')=latest.at
-  `).all<{value: string; creator_id: string | null}>();
-  const attentionByCreator = new Map<string, ReturnType<typeof replyAttention>>();
+  `).all<{value: string; cid: string; creator_id: string | null}>();
+  // Owner 2026-10-19: hovering the exclamation mark shows the blogger's last words, or her photo.
+  const cids = [...new Set((incidents.results ?? []).map((r) => r.cid).filter(Boolean))];
+  const lastIn = new Map<string, Array<{ id: string; text: string; images: number; at: string }>>();
+  if (cids.length) {
+    const msgs = await c.env.DB.prepare(`SELECT id, conversation_id cid, text, attachments_json a, created_at FROM ugc_ig_messages m
+      WHERE m.direction='in' AND m.conversation_id IN (${cids.map((_, i) => `?${i + 1}`).join(',')})
+        AND m.created_at > COALESCE((SELECT MAX(o.created_at) FROM ugc_ig_messages o WHERE o.conversation_id=m.conversation_id AND o.direction='out'), '')
+      ORDER BY m.created_at`).bind(...cids).all<{ id: string; cid: string; text: string | null; a: string | null; created_at: string }>().catch(() => ({ results: [] as any[] }));
+    for (const m of msgs.results ?? []) {
+      let images = 0;
+      try { const att = JSON.parse(m.a ?? '[]'); images = Array.isArray(att) ? att.filter((x: any) => x?.image_data || /^image\//.test(String(x?.mime_type ?? ''))).length : 0; } catch { images = 0; }
+      if (!m.text && !images) continue;
+      const list = lastIn.get(m.cid) ?? [];
+      list.push({ id: m.id, text: String(m.text ?? '').slice(0, 400), images, at: m.created_at });
+      lastIn.set(m.cid, list.slice(-4));
+    }
+  }
+  const attentionByCreator = new Map<string, ReturnType<typeof replyAttention> & { last_in?: Array<{ id: string; text: string; images: number; at: string }> }>();
   for (const row of incidents.results ?? []) {
     const state = readReplyState(row.value);
-    if (state && row.creator_id) attentionByCreator.set(row.creator_id, replyAttention(state));
+    if (state && row.creator_id) attentionByCreator.set(row.creator_id, { ...replyAttention(state), last_in: lastIn.get(row.cid) ?? [] });
   }
 
   const creators = new Map<string, Record<string, any>>();

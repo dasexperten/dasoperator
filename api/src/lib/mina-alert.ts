@@ -27,3 +27,17 @@ export async function alertMina(env: Env, a: { payoutId: string; handle: string;
   await env.DB.prepare(`UPDATE crm_sync_state SET value=json_set(value,'$.delivered_to_mina',?2), updated_at=?3 WHERE key=?1`).bind(key, ok ? 1 : 0, Date.now()).run().catch(() => undefined);
   return ok;
 }
+
+/** Any hand-off to Mina, once per key. */
+export async function handToMina(env: Env, key: string, text: string): Promise<boolean> {
+  const mina = (env as unknown as { MINA?: Fetcher }).MINA;
+  const secret = env.EMAILER_SERVICE_SECRET;
+  const once = await env.DB.prepare(`INSERT INTO crm_sync_state (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO NOTHING`)
+    .bind(key, JSON.stringify({ text: text.slice(0, 500), at: new Date().toISOString() }), Date.now()).run().catch(() => null);
+  if ((once?.meta?.changes ?? 0) !== 1 || !mina || !secret) return false;
+  const res = await mina.fetch('https://mina-sysadmin/adhoc', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Emailer-Service-Secret': secret },
+    body: JSON.stringify({ text, from: 'ERP' }), signal: AbortSignal.timeout(120_000),
+  }).catch(() => null);
+  return Boolean(res && res.ok);
+}

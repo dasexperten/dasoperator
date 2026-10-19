@@ -143,7 +143,7 @@ type Creator = {
   payouts?: Payout[];
   paid_total_minor?: number;
   last_activity_at?: number | null;
-  attention?: { at: string; code?: string; status: string; kind: string; label: string; reason: string } | null;
+  attention?: { at: string; code?: string; status: string; kind: string; label: string; reason: string; last_in?: Array<{ id: string; text: string; images: number; at: string }> } | null;
 };
 
 type LinkSummary = {
@@ -486,6 +486,39 @@ function NoticeChip({ payout }: { payout: Payout | null | undefined }) {
     : st === 'failed' ? { icon: <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />, text: 'нет', title: `Сообщение не доставлено: ${payout.notice_error || 'причина неизвестна'}` }
     : { icon: <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />, text: '', title: 'Сообщение отправляется' };
   return <span className="ugc-notice" data-notice={st} title={view.title} aria-label={view.title} onClick={(event) => event.stopPropagation()}>{view.icon}{view.text ? <span>{view.text}</span> : null}</span>;
+}
+
+
+// Owner 2026-10-19: hovering the exclamation mark shows what the blogger last wrote, or her photo.
+function AttentionPhoto({ id, index }: { id: string; index: number }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    apiGet<{ data_url: string }>(`/api/ugc/dm-messages/${encodeURIComponent(id)}/image/${index}`)
+      .then((r) => { if (!live) return; if (r.success && r.result?.data_url) setSrc(r.result.data_url); else setFailed(true); }).catch(() => { if (live) setFailed(true); });
+    return () => { live = false; };
+  }, [id, index]);
+  if (failed) return <span className="ugc-attn-nophoto">Фото не открывается у нас, оно есть в переписке</span>;
+  return src ? <img src={src} alt="Фото от блогера" className="ugc-attn-photo" /> : <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />;
+}
+
+function AttentionMark({ attention, name, onOpen }: { attention: NonNullable<Creator['attention']>; name: string; onOpen: () => void }) {
+  const [open, setOpen] = useState(false);
+  const last = attention.last_in ?? [];
+  return <span className="ugc-attn" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+    <button type="button" onClick={onOpen} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)} aria-label={`${attention.label}: ${name}`}
+      className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-2" style={{ color: '#7a4e25', width: 44, height: 44 }}><AlertCircle className="h-5 w-5" /></button>
+    {open ? <span className="ugc-attn-card" role="tooltip">
+      <strong>{attention.label}</strong>
+      <span className="ugc-attn-reason">{attention.reason}</span>
+      {last.length ? <span className="ugc-attn-head">Последнее от блогера</span> : null}
+      {last.map((m) => <span key={m.id} className="ugc-attn-msg">
+        {m.text ? <span>{m.text}</span> : null}
+        {Array.from({ length: Math.min(m.images, 2) }, (_, i) => <AttentionPhoto key={i} id={m.id} index={i} />)}
+      </span>)}
+    </span> : null}
+  </span>;
 }
 
 function PayoutBadge({ payout }: { payout: Payout | null | undefined }) {
@@ -954,7 +987,7 @@ export default function UgcPage() {
               // Name and city after the handle (Owner 2026-10-16: «Город нужен, город обязательно»).
               const secondName = handle ? [creator.display_name, creator.city].filter(Boolean).join(' · ') || null : null;
               return <tr key={creator.id} className={`ugc-creator-row${unavailableInstagram(profile) ? ' ugc-creator-row-unavailable' : ''}`} tabIndex={0} aria-label={`Карточка блогера ${name}`} onClick={(event) => { if (blankRowClick(event)) { event.preventDefault(); setSelectedId(creator.id); } }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setSelectedId(creator.id); } }} style={{ borderTop: '1px solid var(--border-hairline)' }}>
-                <td className="ugc-c-creator" style={creator.attention ? { position: 'relative', paddingRight: 50 } : undefined}>{creator.attention ? <button type="button" onClick={() => setSelectedId(creator.id)} aria-label={`${creator.attention.label}: ${name}`} title={creator.attention.reason} className="absolute right-1 top-1/2 -translate-y-1/2 min-h-11 min-w-11 inline-flex items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-2" style={{ color: '#7a4e25', width: 44, height: 44 }}><AlertCircle className="h-5 w-5" /></button> : null}<a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" title={[name, secondName, 'открыть страницу автора'].filter(Boolean).join(' · ')} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><BloggerAvatar profile={profile} compact /><span className="ugc-creator-copy"><span className="ugc-creator-line"><span className="ugc-creator-name">{name}</span><OriginMark origin={creator.origin} /></span>{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span><ProfileAvailability profile={profile} /></span></a></td>
+                <td className="ugc-c-creator" style={creator.attention ? { position: 'relative', paddingRight: 50 } : undefined}>{creator.attention ? <span className="absolute right-1 top-1/2 -translate-y-1/2"><AttentionMark attention={creator.attention} name={name} onOpen={() => setSelectedId(creator.id)} /></span> : null}<a href={profileHref(profile) ?? undefined} target="_blank" rel="noopener noreferrer" title={[name, secondName, 'открыть страницу автора'].filter(Boolean).join(' · ')} className="ugc-creator min-h-11 text-left rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><BloggerAvatar profile={profile} compact /><span className="ugc-creator-copy"><span className="ugc-creator-line"><span className="ugc-creator-name">{name}</span><OriginMark origin={creator.origin} /></span>{secondName ? <span className="ugc-creator-handle">{secondName}</span> : null}<span className="ugc-creator-platform"><PlatformIcons creator={creator} /></span><ProfileAvailability profile={profile} /></span></a></td>
                 <td className="ugc-c-platform"><PlatformIcons creator={creator} chat /></td>
                 <td className="ugc-c-num" title={profile.followers == null ? 'Нет данных' : `${profile.followers}`}>{formatCount(profile.followers)}</td>
                 <td className="ugc-c-num" title={creator.last_activity_at ? new Date(creator.last_activity_at).toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan', dateStyle: 'short', timeStyle: 'short' }) : 'Нет данных'}>{formatActivity(creator.last_activity_at)}</td>

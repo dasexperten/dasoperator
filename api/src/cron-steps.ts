@@ -69,6 +69,8 @@ export const STEPS: Record<string, Step> = {
     const { refreshContentMetrics } = await import('./lib/ugc-diagnose');
     return runAdaptiveLane(env, 'ugc_payouts', async (e) => {
       const refreshed = await ugcPayoutSweep(e);
+      // Owner 2026-10-19: the incident control runs inside this tick, gated to once an hour; its work is not lane activity.
+      await import('./lib/ugc-incident-control').then((m) => m.incidentControl(e)).catch(() => undefined);
       const { captureDmLinks } = await import('./lib/ugc-dm-links');
       const links = await captureDmLinks(e).catch((err) => ({ added: 0, error: String(err) }));
       const content = await refreshContentMetrics(e).catch((err) => ({ read: 0, removed: 0, error: String(err) }));

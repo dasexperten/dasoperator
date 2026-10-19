@@ -413,3 +413,13 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
   .ugc-page .ugc-tools-filters { display: inline-flex; align-items: center; justify-content: center; height: 44px; padding: 0 10px; border: 1.5px solid var(--fg-1); border-radius: 8px; background: var(--paper, #fff); color: var(--fg-1); font-size: 14px; font-weight: 700; white-space: nowrap; }
   .ugc-page .ugc-inactive-filter { padding: 0 8px; gap: 6px; white-space: nowrap; }
 }
+
+/* Owner 2026-10-19: hover card on the exclamation mark — the blogger's last words or photo. */
+.ugc-attn { position: relative; display: inline-flex; }
+.ugc-attn-card { position: absolute; z-index: 40; top: 46px; right: 0; width: 320px; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; background: #ffffff; color: #1c1917; border: 1px solid #a8a29e; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.18); text-align: left; white-space: normal; letter-spacing: 0; font-size: 13px; line-height: 18px; }
+.ugc-attn-card strong { font-weight: 800; font-size: 14px; color: #1c1917; }
+.ugc-attn-reason { color: #44403c; }
+.ugc-attn-head { margin-top: 4px; font-weight: 800; color: #7a4e25; }
+.ugc-attn-msg { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px; background: #f5f5f4; border-radius: 8px; color: #1c1917; }
+.ugc-attn-photo { max-width: 100%; max-height: 220px; border-radius: 6px; object-fit: contain; align-self: flex-start; }
+.ugc-attn-nophoto { color: #7f1d1d; font-weight: 700; }

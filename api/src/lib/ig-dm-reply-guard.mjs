@@ -183,7 +183,9 @@ export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allow
   if (!allowBrush && /ETALON|SENSITIV|MITTEL|ЭТАЛОН|(^|[^a-zа-яё])ZERO([^a-zа-яё]|$)|паст[аыуеой]*\s+и\s+(?:одн[ау]\s+|наш[ау]\s+)?щ[её]тк|щ[её]тк[ауи]?\s+(?:тоже\s+)?(?:в\s+корзин|добав|полож|закаж)/i.test(reply)) return { reply: null, escalate: true, reason: 'offers a brush, paste only' };
   if (!paid && MONEY_SENT.test(reply)) return { reply: null, escalate: true, reason: 'claims money sent, not paid in ERP' };
   if (/(?:семь|семи|7)\s+(?:сценари|карточ)|(?:(?:от\s*)?1\s*до\s*7|1\s*[–—-]\s*7)|(?:сценари[йяюем]*|карточк[а-яё]*)\s*(?:№\s*)?[5-7](?!\d)/i.test(reply)) return { reply: null, escalate: true, reason: 'scenario outside active menu' };
-  if (PROMISE.test(reply)) return { reply: null, escalate: true, reason: 'promises payment' };
+  // Owner 2026-10-20 (guilya_ab: «Мы оплачиваем пасту…» stopped as a promise): «какого хрена снова проверка
+  // останавливает Диану». No payment-wording veto after Diana; the payout status reaches her before she writes.
+  void PROMISE;
   // Owner 2026-10-16 («Что за бред?»): table words of the scenario menu never reach a blogger,
   // and a reel is always with the face.
   if (/(^|[^а-яё])(хук|финал|такт[ыа]?)([^а-яё]|$)|→|одно «?понравилось»?,? одно «?нет»?/i.test(reply)) return { reply: null, escalate: true, reason: 'menu jargon in a reply' };

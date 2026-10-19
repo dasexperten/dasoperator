@@ -10,10 +10,9 @@ test('money sent is said only when ERP shows paid', () => {
   assert.equal(guardReply(JSON.stringify({ reply: ok, escalate: false })).reply, null);
   assert.equal(guardReply(JSON.stringify({ reply: ok, escalate: false }), { paid: true }).reply, ok);
 });
-test('a promise of payment never leaves', () => {
-  const out = guardReply('{"reply":"Переведу завтра!","escalate":false}');
-  assert.equal(out.reply, null);
-  assert.equal(out.escalate, true);
+test('payment wording is not vetoed after Diana (Owner 2026-10-20, guilya_ab)', () => {
+  const out = guardReply('{"reply":"Мы оплачиваем пасту, вы снимаете ролик и оставляете отзыв на Ozon.","escalate":false}');
+  assert.ok(out.reply);
 });
 test('escalation and broken output send nothing', () => {
   assert.equal(guardReply('{"reply":"x","escalate":true}').reply, null);

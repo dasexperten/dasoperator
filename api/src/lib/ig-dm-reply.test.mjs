@@ -193,9 +193,9 @@ test('an expired picture plus incomplete text cannot produce a fabricated payout
  await igDmReply(f.env);assert.equal(f.sent.length,0);assert.equal(incident(f).reason,'image_read_failed');assert.equal(handled(f),undefined);
 });
 
-test('a rejected draft is rewritten at once with the reason (Owner 2026-10-18)',async()=>{
- const f=fixture();f.raws=[JSON.stringify({reply:'Сейчас переведу вам деньги!',escalate:false}),good];
- await igDmReply(f.env);assert.equal(f.sent.length,1);assert.equal(f.systems.length,2);assert.match(f.systems[1],/ОТКЛОНЁН ПРОВЕРКОЙ: нельзя обещать перевод/);assert.equal(handled(f),f.t);
+test('payment wording leaves at once, no rewrite loop (Owner 2026-10-20)',async()=>{
+ const f=fixture();f.raws=[JSON.stringify({reply:'Мы оплачиваем пасту, вы снимаете ролик.',escalate:false}),good];
+ await igDmReply(f.env);assert.equal(f.sent.length,1);assert.equal(f.systems.length,1);assert.equal(handled(f),f.t);
 });
 
 test('a surname initial taken from a patronymic is never registered (Owner 2026-10-18, irina__sayapina)',async()=>{

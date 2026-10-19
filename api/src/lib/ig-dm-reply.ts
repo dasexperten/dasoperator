@@ -52,21 +52,22 @@ export async function ensureCreator(env: Env, handle: string): Promise<{cid: str
 }
 
 /** One awaiting payout per blogger; an existing open row is reused. */
-async function registerPayout(env: Env, handle: string, r: CleanRequisites): Promise<void> {
+async function registerPayout(env: Env, handle: string, r: CleanRequisites, doubt = ''): Promise<boolean> {
   const now = Date.now();
   const { cid, pid } = await ensureCreator(env, handle);
   const open = await env.DB.prepare(`SELECT COUNT(*) n FROM ugc_payouts WHERE creator_id=?1 AND status IN ('awaiting_approval','approved','sent')`).bind(cid).first<{ n: number }>();
-  if (Number(open?.n ?? 0) > 0) return;
+  if (Number(open?.n ?? 0) > 0) return false;
   const id = crypto.randomUUID();
   const day = new Date(now + 4 * 3_600_000).toISOString().slice(0, 10);
   const masked = `${r.phone.slice(0, 5)}*****${r.phone.slice(-2)}`;
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO ugc_payouts (id, creator_id, creator_platform_id, platform, handle, amount_minor, currency, status, payout_date, phone_masked, fps_bank_member_id, note, created_by, created_at, updated_at, product)
-      VALUES (?1, ?2, ?3, 'instagram', ?4, ?5, 'RUB', 'awaiting_approval', ?6, ?7, ?8, 'Реквизиты из переписки — заведено автоответом Дианы.', 'Diana Helios (auto)', ?9, ?9, ?10)`)
-      .bind(id, cid, pid, handle, r.amount_minor, day, masked, r.bank, now, r.product),
+      VALUES (?1, ?2, ?3, 'instagram', ?4, ?5, 'RUB', 'awaiting_approval', ?6, ?7, ?8, ?11, 'Diana Helios (auto)', ?9, ?9, ?10)`)
+      .bind(id, cid, pid, handle, r.amount_minor, day, masked, r.bank, now, r.product, `Реквизиты из переписки — заведено автоответом Дианы.${doubt ? ` Проверь перед оплатой: ${doubt}.` : ''}`),
     env.DB.prepare(`INSERT INTO ugc_payout_requisites (payout_id, fps_mobile_phone, first_name, last_name, patronymic, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)`)
       .bind(id, r.phone, r.first_name, r.last_name, r.patronymic, now),
   ]);
+  return true;
 }
 
 /** JEV recognised our paste on a basket and the price is in the usual band: no article needed (Owner 2026-10-18). */
@@ -345,6 +346,8 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     // Before, she got the same prompt again, wrote the same thing, and the conversation stopped.
     let raw = '';
     let out!: ReturnType<typeof guardReply>;
+    // Owner 2026-10-19: requisites → brown button in the same minute, whatever happens to Diana's words.
+    let seenRequisites: CleanRequisites | null = null; const doubts: string[] = [];
     let feedback = '';
     let generationFailed = false;
     let voiceWhy = '';
@@ -368,6 +371,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       // mari.d_w 2026-10-18: a payout is already open — repeated requisites are not a new registration
       // and must never stop the conversation (the surname check blocked her for 15 minutes).
       if (out.requisites && payouts.some((p) => ['awaiting_approval', 'approved', 'sent'].includes(p.status))) out.requisites = null;
+      if (out.requisites && !seenRequisites) seenRequisites = { ...out.requisites };
       const imageConflict = Boolean(imageCheck && imageCheck.status !== 'yes' && out.requisites);
       // Owner 2026-10-18 (irina__sayapina wrote «Ирина Алексеевна»; the model took «А» of the patronymic
       // as the surname). A one-letter surname must stand in the blogger's own words, never be guessed.
@@ -382,6 +386,9 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       const typedSums = (incoming.slice(-8).map((m) => m.text ?? '').join(' ').match(/(?<!\d)(\d{3,4})\s?(?:₽|р\b|руб)/gi) ?? []).map((x) => Number(x.match(/\d{3,4}/)![0]) * 100);
       const typedConflict = Boolean(out.requisites && typedSums.some((v) => Math.abs(v - out.requisites!.amount_minor) > out.requisites!.amount_minor * 0.15));
       const articleMissing = Boolean(out.requisites && ourArticles.size && !oldOrder && !named.some((x) => ourArticles.has(x)) && (typedConflict || !jevSure(imageCheck, out.requisites, termoBand)));
+      if (imageConflict) doubts.push('скрин не подтвердил нашу пасту или цену');
+      if (articleMissing) doubts.push('артикул нашей карточки не назван');
+      if (typedConflict) doubts.push('сумма в словах блогера не совпадает');
       const scenarioEarly = !orderShown && (Boolean(out.sendCards) || /выбер\S*\s+(\S+\s+){0,3}(сценари|карточк)|номер\s+(карточк|сценари)|вот\s+(\S+\s+){0,2}(сценари|карточ)/i.test(`${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`));
       if (scenarioEarly) out.sendCards = false;
       // Owner 2026-10-18 (05_seferova_05): the blogger sent it right — never tell her it «did not arrive».
@@ -403,6 +410,9 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       if (!rejected) { feedback = `\nПРОШЛЫЙ ВАРИАНТ ТВОЕГО ОТВЕТА ОТКЛОНЁН КОНТРОЛЁРОМ ГОЛОСА: ${voiceWhy} Перепиши тем же смыслом, но строго в голосе Дианы из VOICE.md: тепло, коротко, на «вы», без отказов, приказов и упрёков. Верни строго один JSON по формату, без пояснений.`; continue; }
       feedback = `\nПРОШЛЫЙ ВАРИАНТ ТВОЕГО ОТВЕТА ОТКЛОНЁН ПРОВЕРКОЙ: ${rewriteHint(rejected, imageCheck)} Напиши ответ заново, исправив именно это. Верни строго один JSON по формату, без пояснений.`;
     }
+    // Owner 2026-10-19: «в ту же минуту сразу ERP дать кнопку» — the payout row does not wait for Diana's reply
+    // to pass; doubts go into the row for the Owner, who approves every payout by hand.
+    if (seenRequisites) { try { if (await registerPayout(env, w.h, seenRequisites, [...new Set(doubts)].join('; '))) payouts.unshift({ amount_minor: seenRequisites.amount_minor, status: 'awaiting_approval', payout_date: '' } as never); } catch { /* the reply path retries registration */ } }
     if (generationFailed) continue;
     if (orderShown && !scenarioSent && !out.sendCards && /сним|ролик|ссылк/i.test(`${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`) && !/сценари|иде[яюи]|карточк/i.test(`${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`)) { await failStep('video before scenario'); continue; }
     if (!orderShown && (out.sendCards || /выбер\S*\s+(\S+\s+){0,3}(сценари|карточк)|номер\s+(карточк|сценари)|вот\s+(\S+\s+){0,2}(сценари|карточ)/i.test(`${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`))) { await failStep('scenario before order'); continue; }
@@ -428,7 +438,7 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     if (latestIsBlogger == null) { await failStep('conversation_check_failed'); continue; }
     if (!latestIsBlogger) { await mark(); continue; }
     // Full requisites in the chat → a brown payout row at once (DH-LAW-261015-04 p.6, Owner 2026-10-16).
-    if (out.requisites && (!imageCheck || imageCheck.status === 'yes')) { try { await registerPayout(env, w.h, out.requisites); } catch { await failStep('payout_registration_failed'); continue; } }
+    if (out.requisites) { try { await registerPayout(env, w.h, out.requisites); } catch { await failStep('payout_registration_failed'); continue; } }
     // Several short messages in a row (Owner 2026-10-17); the first decides success.
     // Owner 2026-10-18: «реквизиты она отправила, не надо говорить: спасибо, реквизиты получили». The next step after
     // requisites is the transfer itself; acknowledgements of requisites are dropped, and with nothing left nothing is sent.

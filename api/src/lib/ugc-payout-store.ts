@@ -6,7 +6,7 @@ import { konsolClient } from './konsol';
 import { sendOwnerTelegram } from './owner-telegram';
 import { applyKonsolPayment, bloggerFailedText, bloggerPaidText, executePayout, matchRegistryPayment, REGISTRY_LINK_IDS } from './ugc-payout-execute.mjs';
 import { sendIgDirect } from './ig-dm-watch';
-import { formatRub, ownRubMinor, UGC_PAYOUT_MAX_MINOR } from './ugc-payouts.mjs';
+import { formatRub, ownRubMinor } from './ugc-payouts.mjs';
 import { dianaCompose } from './diana-compose';
 
 export function payoutStore(env: Env) {
@@ -41,12 +41,9 @@ export function payoutStore(env: Env) {
       const r = await db.prepare(`UPDATE ugc_payouts SET execute_claim=?2, execute_claimed_at=?3, konsol_error=NULL, updated_at=?4
         WHERE id=?1 AND execute_claim IS NULL AND konsol_payment_id IS NULL
           AND status IN ('awaiting_approval','approved')
-          AND NOT EXISTS (SELECT 1 FROM crm_sync_state h WHERE h.key = 'payout_hold:' || ugc_payouts.id)
-          AND amount_minor + (SELECT COALESCE(SUM(amount_minor),0) FROM ugc_payouts p
-            WHERE p.id<>?1 AND p.creator_id=ugc_payouts.creator_id AND ${sendDay}=?5 AND ${committed}) <= ?6
-          AND (status='approved' OR NOT EXISTS (SELECT 1 FROM ugc_payouts p
-            WHERE p.id<>?1 AND p.creator_id=ugc_payouts.creator_id AND ${sendDay}=?5 AND ${committed}))`
-      ).bind(id, token, at, touch(), yerevanDay(Date.parse(at)), UGC_PAYOUT_MAX_MINOR).run();
+          AND NOT EXISTS (SELECT 1 FROM crm_sync_state h WHERE h.key = 'payout_hold:' || ugc_payouts.id)`
+      // Owner 2026-10-19: no 999 ₽ or per-day cap — his click is the approval. The claim only stops a double send of one row.
+      ).bind(id, token, at, touch()).run();
       return (r.meta?.changes ?? 0) === 1;
     },
     release: (id: string, error: string) => db.prepare(

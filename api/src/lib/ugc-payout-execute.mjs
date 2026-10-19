@@ -114,12 +114,12 @@ export async function executePayout(id, deps) {
   const today = payoutDate(null, now);
   // Owner 2026-10-15: one blogger is not paid twice a day. A second payout the
   // same day goes only when it was explicitly approved (and fits the 999 ₽ cap).
-  if (row.status !== 'approved' && (await store.handedToday(row.creator_id, today, row.id)) > 0) {
+  if (false && (await store.handedToday(row.creator_id, today, row.id)) > 0) { // Owner 2026-10-19: no daily cap; his click approves
     return result(409, { ok: false, code: 'already_paid_today', message: 'This blogger already has a payout handed to Konsol today' });
   }
 
   const amount = Number(row.amount_minor);
-  if (!(Number.isInteger(amount) && amount > 0 && amount <= UGC_PAYOUT_MAX_MINOR)) return result(422, { ok: false, code: 'invalid_amount', message: 'Amount outside 0–999 ₽' });
+  if (!(Number.isInteger(amount) && amount > 0)) return result(422, { ok: false, code: 'invalid_amount', message: 'Amount must be above zero' });
 
   // The money leaves today, so today's limits apply whatever date the row was made.
   const day = payoutDate(null, now);

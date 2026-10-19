@@ -25,7 +25,7 @@ function world({ rows = [], ownRub = 31615.38, payment = { ok: true, status: 201
       if (r.execute_claim || r.konsol_payment_id) return false;
       const other = [...db.values()].filter((p) => p.id !== id && isCommittedPayout(p) && committedPayoutDay(p) === DAY);
       const same = other.filter((p) => p.creator_id === r.creator_id);
-      if (same.reduce((sum, p) => sum + p.amount_minor, r.amount_minor) > 99900 || (r.status !== 'approved' && same.length)) return false;
+      void same; // Owner 2026-10-19: no caps in the claim
       r.execute_claim = token; r.execute_claimed_at = at; return true;
     },
     release: async (id, error) => { const r = db.get(id); r.execute_claim = null; r.konsol_error = error; },
@@ -129,11 +129,11 @@ test('negative own RUB (overdraft limit changed) stops the payout', async () => 
   assert.equal(calls.owner.length, 1);
 });
 
-test('limits: 999 ₽ per creator per day at execute; no day total for all bloggers', async () => {
+test('no limits at execute (Owner 2026-10-19): a second payout of a blogger the same day goes', async () => {
   const perCreator = world({ rows: [{ id: 'a', amount_minor: 60000, status: 'sent', konsol_payment_id: 'x' }, { id: 'b', amount_minor: 40000, status: 'approved' }] });
   const out1 = await executePayout('b', perCreator.deps);
-  assert.equal(out1.code, 'daily_limit');
-  assert.equal(perCreator.calls.payments.length, 0);
+  assert.equal(out1.ok, true);
+  assert.equal(perCreator.calls.payments.length, 1);
   const rows = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => ({ id: `s${n}`, creator_id: `c${n}`, amount_minor: 99900, status: 'sent', konsol_payment_id: `k${n}` }));
   const total = world({ rows: [...rows, { id: 'last', creator_id: 'c99', amount_minor: 1100 }] });
   const out2 = await executePayout('last', total.deps);
@@ -217,12 +217,11 @@ test('no double pay (server): two clicks at once — Konsol is called once', asy
   assert.equal(calls.payments.length, 1);
 });
 
-test('no double pay (blogger-day): a second payout of the same blogger today is refused unless approved', async () => {
+test('a second payout row of the same blogger today goes on the Owner\'s click (Owner 2026-10-19)', async () => {
   const rows = [{ id: 'a', amount_minor: 300, status: 'sent', konsol_payment_id: 'k' }, { id: 'b', amount_minor: 300 }];
   const first = world({ rows });
   const out = await executePayout('b', first.deps);
-  assert.equal(out.code, 'already_paid_today');
-  assert.equal(first.calls.payments.length, 0);
+  assert.equal(out.http, 201);
   const second = world({ rows: [rows[0], { id: 'b', amount_minor: 300, status: 'approved' }] });
   assert.equal((await executePayout('b', second.deps)).http, 201);
 });

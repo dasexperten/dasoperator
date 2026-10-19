@@ -9,10 +9,9 @@ test('accepts payouts up to and including 999 ₽', () => {
   assert.deepEqual(parsePayoutAmount({ amount_minor: 99900 }), { ok: true, amount_minor: 99900 });
 });
 
-test('rejects payouts above 999 ₽, zero, negative and missing amounts', () => {
-  assert.equal(parsePayoutAmount({ amount_rub: 999.01 }).code, 'amount_over_limit');
-  assert.equal(parsePayoutAmount({ amount_rub: 1000 }).code, 'amount_over_limit');
-  assert.equal(parsePayoutAmount({ amount_minor: 99901 }).code, 'amount_over_limit');
+test('no 999 ₽ cap (Owner 2026-10-19); zero, negative and missing amounts are refused', () => {
+  assert.equal(parsePayoutAmount({ amount_rub: 1000 }).ok, true);
+  assert.equal(parsePayoutAmount({ amount_minor: 150000 }).ok, true);
   assert.equal(parsePayoutAmount({ amount_rub: 0 }).code, 'invalid_amount');
   assert.equal(parsePayoutAmount({ amount_rub: -5 }).code, 'invalid_amount');
   assert.equal(parsePayoutAmount({ amount_minor: 100.5 }).code, 'invalid_amount');
@@ -20,10 +19,9 @@ test('rejects payouts above 999 ₽, zero, negative and missing amounts', () => 
   assert.equal(parsePayoutAmount({}).code, 'amount_required');
 });
 
-test('the daily sum per creator stays within 999 ₽', () => {
+test('no daily sum per creator (Owner 2026-10-19: he approves each payout by hand)', () => {
   assert.equal(checkDailyLimit(0, 99900).ok, true);
-  assert.equal(checkDailyLimit(50000, 49900).ok, true);
-  assert.equal(checkDailyLimit(50000, 50000).ok, false);
+  assert.equal(checkDailyLimit(50000, 50000).ok, true);
 });
 
 test('all creators together stay within 10 000 ₽ per day', () => {
@@ -121,7 +119,7 @@ test('ready queue uses actual sends and in-flight claims on the current Yerevan 
     { creator_id: 'z', payout_date: '2026-10-17', status: 'approved', amount_minor: 30000 },
     { creator_id: 'z', payout_date: '2026-10-15', status: 'awaiting_approval', execute_claim: 'held', execute_claimed_at: '2026-10-15T20:30:00Z', amount_minor: 70000 },
   ], now);
-  assert.deepEqual(rows.map((r) => r.over_limit), [false, true, false, true, true]);
+  assert.deepEqual(rows.map((r) => r.over_limit), [false, false, false, false, false]);
 });
 
 test('no day total blocks a ready payout, and its date is never moved', () => {

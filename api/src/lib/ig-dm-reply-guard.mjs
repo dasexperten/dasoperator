@@ -117,7 +117,8 @@ export const SCENARIO_CARDS = [
 ];
 
 const MONEY_SENT = /(перевел|перевёл|перевела|перевели|отправил|отправила|отправили|оплатил|оплатила|оплатили|деньги ушли|оплата ушла)/i;
-const PROMISE = /(переведу|переведём|переведем|отправлю|оплачу|оплатим|завтра|сегодня переведём|в течение)/i;
+// Owner 2026-10-19: the Owner pays by hand — before his click nothing is «being transferred».
+const PROMISE = /(переведу|переведём|переведем|переводим|отправлю|оплачу|оплатим|оплачиваем|завтра|сегодня переведём|в течение)/i;
 
 /** The model's answer → a reply that may leave, or null. Never trust it blindly. */
 

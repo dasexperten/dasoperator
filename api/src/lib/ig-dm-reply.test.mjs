@@ -158,11 +158,11 @@ test('an uncertain seller reaches Diana for clarification without a new payout',
  await igDmReply(f.env);assert.equal(f.sent.length,1);assert.match(f.systems[0],/seller_unknown/);
  assert.ok(!f.sqls.some(s=>s.includes('INSERT INTO ugc_payouts')));
 });
-test('Diana cannot register a payout contrary to the JEV image verdict', async()=>{
+test('requisites → brown button at once even when the image is unsure; the doubt is written for the Owner (Owner 2026-10-19)', async()=>{
  const f=fixture();f.screenshots=[{mediaType:'image/png',data:'fixture'}];f.imageCheck={status:'unknown',reasons:['seller_unknown'],checks:[]};
  f.raw=JSON.stringify({reply:'Получила, проверяю!',escalate:false,requisites:{amount_rub:627,phone:'89990001122',bank:'Сбер',last_name:'Тестова',first_name:'Анна'}});
- await igDmReply(f.env);assert.equal(f.sent.length,0);assert.equal(incident(f).reason,'image_verdict_requires_clarification');
- assert.ok(!f.sqls.some(s=>s.includes('INSERT INTO ugc_payouts')));
+ await igDmReply(f.env);assert.equal(f.sent.length,0);
+ assert.ok(f.sqls.some(s=>s.includes('INSERT INTO ugc_payouts')));
 });
 
 test('a registry-only paid row is described as unconfirmed, never unpaid or executed',async()=>{

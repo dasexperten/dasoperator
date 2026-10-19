@@ -32,16 +32,13 @@ export function parsePayoutAmount(body) {
     return { ok: false, code: 'amount_required', message: 'amount_rub or amount_minor required' };
   }
   if (minor <= 0) return { ok: false, code: 'invalid_amount', message: 'Amount must be above zero' };
-  if (minor > UGC_PAYOUT_MAX_MINOR) return { ok: false, code: 'amount_over_limit', message: 'Payout above 999 ₽ is not allowed (Owner limit per creator per day)' };
+  // Owner 2026-10-19: «этот лимит ты можешь вообще снять… и дневной лимит тоже» — he approves every payout by hand.
   return { ok: true, amount_minor: minor };
 }
 
 /** Sum of the creator's other live payouts that day plus this one must stay within 999 ₽. */
-export function checkDailyLimit(existingSameDayMinor, amountMinor) {
-  const total = Number(existingSameDayMinor || 0) + Number(amountMinor || 0);
-  if (total > UGC_PAYOUT_MAX_MINOR) {
-    return { ok: false, code: 'daily_limit', message: `Creator already has ${Math.round(Number(existingSameDayMinor || 0)) / 100} ₽ that day; total would pass 999 ₽` };
-  }
+export function checkDailyLimit(_existingSameDayMinor, _amountMinor) {
+  // Owner 2026-10-19: no per-blogger or daily cap; the Owner's click is the approval.
   return { ok: true };
 }
 

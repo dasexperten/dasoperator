@@ -343,7 +343,11 @@ ugc.get('/', async (c) => {
     for (const m of msgs.results ?? []) {
       let images = 0;
       try { const att = JSON.parse(m.a ?? '[]'); images = Array.isArray(att) ? att.filter((x: any) => x?.image_data || /^image\//.test(String(x?.mime_type ?? ''))).length : 0; } catch { images = 0; }
-      if (!m.text && !images) continue;
+      if (!m.text && !images) {
+        // An attachment Instagram does not hand to programs still tells the Owner something was sent.
+        if (m.a == null || m.a === '' || m.a === '[]') { const list = lastIn.get(m.cid) ?? []; list.push({ id: m.id, text: 'Вложение, которое ERP не открыл. Оно есть в переписке в приложении.', images: 0, at: m.created_at }); lastIn.set(m.cid, list.slice(-4)); }
+        continue;
+      }
       const list = lastIn.get(m.cid) ?? [];
       list.push({ id: m.id, text: String(m.text ?? '').slice(0, 400), images, at: m.created_at });
       lastIn.set(m.cid, list.slice(-4));

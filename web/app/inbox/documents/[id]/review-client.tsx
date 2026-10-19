@@ -129,7 +129,8 @@ export default function ReviewClient({ id }: { id: string }) {
     );
   }
 
-  const canApprove = unresolved === 0 && !busy;
+  const pendingReview = ext.status === 'pending_review';
+  const canApprove = pendingReview && unresolved === 0 && !busy;
   const v = ext.validation;
 
   return (
@@ -144,8 +145,8 @@ export default function ReviewClient({ id }: { id: string }) {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <span style={{ fontSize: '12px', fontWeight: 700, padding: '3px 10px', borderRadius: 'var(--radius-xs)', background: 'rgba(212,160,23,0.15)', color: '#854F0B' }}>pending review</span>
-          <a href={extractionFileUrl(id)} target="_blank" rel="noreferrer" style={{ fontSize: '14px', color: 'var(--brand-rot)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><FileText className="h-4 w-4" />open PDF</a>
+          <span style={{ fontSize: '12px', fontWeight: 700, padding: '3px 10px', borderRadius: 'var(--radius-xs)', background: 'rgba(212,160,23,0.15)', color: '#854F0B' }}>{ext.status.replaceAll('_', ' ')}</span>
+          <a href={extractionFileUrl(id)} target="_blank" rel="noreferrer" style={{ fontSize: '14px', color: 'var(--brand-rot)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><FileText className="h-4 w-4" />open original</a>
         </div>
       </div>
 
@@ -240,7 +241,7 @@ export default function ReviewClient({ id }: { id: string }) {
       )}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
-        <button onClick={onReject} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '10px 18px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line-1)', background: 'var(--paper)', color: 'var(--fg-1)', fontSize: '14px', fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.5 : 1 }}><Trash2 className="h-4 w-4" />Reject</button>
+        <button onClick={onReject} disabled={busy || !pendingReview} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '10px 18px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line-1)', background: 'var(--paper)', color: 'var(--fg-1)', fontSize: '14px', fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.5 : 1 }}><Trash2 className="h-4 w-4" />Reject</button>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {unresolved > 0 && <span style={{ fontSize: '12px', color: '#854F0B' }}>Confirm flagged SKUs to continue</span>}
           <button onClick={onApprove} disabled={!canApprove} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '11px 22px', borderRadius: 'var(--radius-sm)', border: 'none', background: canApprove ? '#C4302B' : 'var(--paper-sunk)', color: canApprove ? '#fff' : 'var(--fg-3)', fontSize: '14px', fontWeight: 700, cursor: canApprove ? 'pointer' : 'not-allowed' }}>

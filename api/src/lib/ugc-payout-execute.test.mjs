@@ -2,7 +2,7 @@
 // Synthetic data only — the phone below is a made-up number of the right shape.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyKonsolPayment, bloggerPaidText, executePayout } from './ugc-payout-execute.mjs';
+import { applyKonsolPayment, bloggerFailedText, bloggerPaidText, executePayout, failedSide } from './ugc-payout-execute.mjs';
 import { checkOwnRub, konsolPhone, mapKonsolStatus, maskPhoneWide, ownRubMinor, rubToMinor, isCommittedPayout, committedPayoutDay } from './ugc-payouts.mjs';
 
 const PHONE = '+79000000011';
@@ -281,4 +281,33 @@ test('new-payment brief asks for the order only — the scenario waits for the o
   assert.match(text, /заказ/);
   assert.match(text, /НЕ писать/);
   assert.doesNotMatch(text, /выберите|номер от/);
+});
+
+
+// Owner 2026-10-19 (eseniya__oo3__): «Тинькофф отклонил» was invented — the payment never left us.
+test('failed payout: real bank refusal asks for another bank, our failure never blames the bank', () => {
+  assert.equal(failedSide('Банк получателя отклонил выплату. Попросите получателя обратиться туда или выберите другой его банк.'), 'bank');
+  assert.equal(failedSide(null), 'ours');
+  assert.equal(failedSide('Konsol: failed'), 'ours');
+  const ours = bloggerFailedText({ amount_minor: 48400 }, null);
+  assert.match(ours, /с нашей стороны/);
+  assert.match(ours, /Не проси другой банк/);
+  const bank = bloggerFailedText({ amount_minor: 33300 }, 'Банк получателя отклонил выплату.');
+  assert.match(bank, /попроси другой банк/);
+});
+
+test('failed payout: Diana writes the blogger at once, once', async () => {
+  const w = world({ rows: [{ id: 'p1', amount_minor: 48400, status: 'sent', konsol_payment_id: 'pay-1', handle: 'eseniya__oo3__' }] });
+  const sent = [];
+  w.deps.notifyBlogger = async (row, text, kind) => { sent.push({ text, kind }); return { ok: true }; };
+  w.deps.store.claimNotice = async (id, at) => { const r = w.db.get(id); if (r.paid_notice_at) return false; r.paid_notice_at = at; return true; };
+  w.deps.store.releaseNotice = async (id) => { w.db.get(id).paid_notice_at = null; };
+  const out = await applyKonsolPayment(await w.deps.store.getPayout('p1'), { id: 'pay-1', status: 'failed', error_message: 'Konsol: failed' }, w.deps);
+  assert.equal(out.noticed, true);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].kind, 'failed');
+  assert.match(sent[0].text, /с нашей стороны/);
+  const again = await applyKonsolPayment(await w.deps.store.getPayout('p1'), { id: 'pay-1', status: 'failed' }, w.deps);
+  assert.equal(again.noticed, false);
+  assert.equal(sent.length, 1);
 });

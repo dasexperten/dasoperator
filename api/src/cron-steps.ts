@@ -53,7 +53,13 @@ export const STEPS: Record<string, Step> = {
     return runAdaptiveLane(env, 'ig_dm', async (e) => {
       const read = await igDmWatch(e);
       const answered = await igDmReply(e).catch((err) => ({ replied: 0, escalated: 0, errors: 1, error: String(err) }));
-      return { ...read, ...answered, activity: read.activity || answered.replied > 0 };
+      // Owner 2026-10-19: «если активность на чате была, каждые 3 минуты». A blogger waiting for us
+      // (an answer to retry, requisites with no payout yet) is activity, not silence.
+      const waiting = await e.DB.prepare(
+        `SELECT COUNT(*) n FROM crm_sync_state WHERE key LIKE 'ig_reply_escalated:%' AND json_extract(value,'$.status')='retry' AND updated_at > ?1`
+      ).bind(Date.now() - 2 * 3_600_000).first<{ n: number }>().catch(() => null);
+      const waitingOnUs = Number(waiting?.n ?? 0);
+      return { ...read, ...answered, waitingOnUs, activity: read.activity || answered.replied > 0 || waitingOnUs > 0 };
     }, Date.now(), igDmHasNew);
   },
   // Konsol/content only. Creator profiles have their own erp-blogger-id timer.
@@ -66,7 +72,10 @@ export const STEPS: Record<string, Step> = {
       const { captureDmLinks } = await import('./lib/ugc-dm-links');
       const links = await captureDmLinks(e).catch((err) => ({ added: 0, error: String(err) }));
       const content = await refreshContentMetrics(e).catch((err) => ({ read: 0, removed: 0, error: String(err) }));
-      return { ok: true, activity: refreshed > 0 || links.added > 0 || content.read + content.removed > 0, refreshed, links, content };
+      // Owner 2026-10-19: a payout waiting to go out keeps the payouts lane on 3 minutes too.
+      const open = await e.DB.prepare(`SELECT COUNT(*) n FROM ugc_payouts WHERE status IN ('awaiting_approval','approved','sent')`).first<{ n: number }>().catch(() => null);
+      const openPayouts = Number(open?.n ?? 0);
+      return { ok: true, activity: refreshed > 0 || links.added > 0 || content.read + content.removed > 0 || openPayouts > 0, refreshed, openPayouts, links, content };
     });
   },
   // Owner 2026-10-14: one evening message on UGC payouts — count, sum, own RUB left.

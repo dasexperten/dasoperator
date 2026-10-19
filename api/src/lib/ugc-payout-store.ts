@@ -4,7 +4,7 @@
 import type { Env } from '../types';
 import { konsolClient } from './konsol';
 import { sendOwnerTelegram } from './owner-telegram';
-import { applyKonsolPayment, bloggerPaidText, executePayout, matchRegistryPayment, REGISTRY_LINK_IDS } from './ugc-payout-execute.mjs';
+import { applyKonsolPayment, bloggerFailedText, bloggerPaidText, executePayout, matchRegistryPayment, REGISTRY_LINK_IDS } from './ugc-payout-execute.mjs';
 import { sendIgDirect } from './ig-dm-watch';
 import { formatRub, ownRubMinor, UGC_PAYOUT_MAX_MINOR } from './ugc-payouts.mjs';
 import { dianaCompose } from './diana-compose';
@@ -99,10 +99,13 @@ function deps(env: Env) {
     konsol: konsolClient(env),
     // Owner 2026-10-17: Diana sends Telegram only for hard questions; a payout stop waits in the ERP.
     notifyOwner: async (_text: string) => true,
-    notifyBlogger: async (row: Record<string, any>, text: string) => {
+    notifyBlogger: async (row: Record<string, any>, text: string, kind: 'paid' | 'failed' = 'paid') => {
       const handle = String(row.creator_handle || row.handle || '');
       // Owner 2026-10-18: the ERP text is a brief only; Diana writes the words. No words, no message.
-      let parts = await dianaCompose(env, handle, `Выплата исполнена, ERP и Консоль подтвердили. Смысл сообщения:\n${text}`).catch(() => null);
+      const head = kind === 'failed' ? 'Выплата не прошла, Консоль подтвердила. Смысл сообщения:' : 'Выплата исполнена, ERP и Консоль подтвердили. Смысл сообщения:';
+      let parts = await dianaCompose(env, handle, `${head}\n${text}`).catch(() => null);
+      // Owner 2026-10-19: a failed payout never falls back to the paid wording; no words — retried next check.
+      if (kind === 'failed' && (!parts || !parts.length)) return { ok: false, error: 'Диана не написала текст о неудачной выплате' };
       // Owner 2026-10-18: «нужно моментальное реагирование… в этот же момент». If Diana's three drafts do not
       // pass, the Owner's own approved paid wording goes at once instead of waiting for the next run.
       if (!parts || !parts.length) {
@@ -123,7 +126,7 @@ function deps(env: Env) {
       // Owner 2026-10-18: closed window — Diana's words wait for the browser and count as delivered here.
       if (!sent.ok && /allowed window/i.test(String(sent.error ?? ''))) {
         const { queueForBrowser } = await import('./ig-dm-reply');
-        await queueForBrowser(env, handle, 'paid_notice', parts.join('\n'));
+        await queueForBrowser(env, handle, kind === 'failed' ? 'failed_notice' : 'paid_notice', parts.join('\n'));
         return { ok: true, queued: true };
       }
       // After a new payment the scenario cards follow the bridge (Owner 2026-10-16); an old debt gets thanks only.
@@ -236,6 +239,18 @@ export async function ugcPayoutSweep(env: Env): Promise<number> {
       await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
         .bind(`paid_notice_error:${row.id}`, JSON.stringify({ handle: row.handle, error: String(sent?.error ?? 'unknown').slice(0, 300), at: new Date().toISOString() }), Date.now()).run().catch(() => undefined);
     }
+  }
+  // Owner 2026-10-19: a failed payout whose message did not go out is retried the same way. Only failures from
+  // this rule on (older ones were already handled by hand: madifood_, eseniya__oo3__).
+  const unsentFailed = await env.DB.prepare(
+    `SELECT * FROM ugc_payouts WHERE status='failed' AND konsol_payment_id IS NOT NULL AND paid_notice_at IS NULL
+       AND failed_at > ?1 ORDER BY failed_at LIMIT 5`
+  ).bind('2026-10-19T09:30:00.000Z').all<Record<string, any>>();
+  for (const row of unsentFailed.results ?? []) {
+    if (!(await d.store.claimNotice(row.id, new Date().toISOString()))) continue;
+    const sent = await d.notifyBlogger(row, bloggerFailedText(row, row.konsol_error), 'failed').catch((e) => ({ ok: false, error: String(e) })) as { ok: boolean; error?: string };
+    refreshed++;
+    if (!(sent && sent.ok)) await d.store.releaseNotice(row.id);
   }
   refreshed += await paidOrderReminders(env).catch(() => 0);
   return refreshed;

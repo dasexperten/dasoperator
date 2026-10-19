@@ -54,6 +54,28 @@ export function bloggerPaidText(row) {
   ].join('\n\n');
 }
 
+// Owner 2026-10-19 (eseniya__oo3__: «Тинькофф отклонил» — the bank never declined, the payment never left us):
+// a failed payout is Diana's trigger at once, like a paid one, and she names only the real reason.
+const BANK_SIDE = /банк\S*\s+получател|получател\S*\s+.*банк|recipient'?s?\s+bank|bank\s+(declin|reject)|card\s+(declin|reject)|номер\s+не\s+найден|не\s+подключ\S*\s+к\s+сбп/i;
+export function failedSide(error) {
+  return BANK_SIDE.test(String(error ?? '')) ? 'bank' : 'ours';
+}
+/** Brief for Diana when a payout fails. ERP gives the meaning; Diana writes the words. */
+export function bloggerFailedText(row, error) {
+  if (failedSide(error) === 'bank') {
+    return [
+      `Перевод ${formatRub(row.amount_minor)} не прошёл: банк блогера отказал. Слова Консоли: ${String(error).slice(0, 160)}`,
+      'Скажи коротко, что её банк не принял перевод, и попроси другой банк: номер телефона, банк и имя.',
+      'Не обещай срок перевода.',
+    ].join('\n\n');
+  }
+  return [
+    `Перевод ${formatRub(row.amount_minor)} не прошёл с нашей стороны. Банк блогера ни при чём.`,
+    'Скажи коротко: перевод не прошёл с нашей стороны, её банк тут ни при чём, разбираемся и напишем. Ничего делать ей не нужно.',
+    'Не проси другой банк и новые реквизиты. Не говори, что банк отклонил. Не обещай срок перевода.',
+  ].join('\n\n');
+}
+
 export function paidNoticeText(row) {
   return `Деньги пришли: ${who(row)}, ${formatRub(row.amount_minor)} по СБП. Пишу блогеру: «Деньги пришли 👍 Заказывайте и пришлите скрин».`;
 }
@@ -190,6 +212,15 @@ export async function applyKonsolPayment(row, payment, deps) {
   if (changed && target === 'paid' && deps.notifyBlogger) {
     if (await store.claimNotice(row.id, new Date(now).toISOString())) {
       const sent = await deps.notifyBlogger(row, bloggerPaidText(row));
+      if (sent && sent.ok) noticed = true;
+      else await store.releaseNotice(row.id);
+    }
+  }
+  // Owner 2026-10-19: failed is a trigger too — the same check, no waiting. A failed row never turns
+  // paid, so paid_notice_at is its one-message lock as well.
+  if (changed && target === 'failed' && deps.notifyBlogger) {
+    if (await store.claimNotice(row.id, new Date(now).toISOString())) {
+      const sent = await deps.notifyBlogger(row, bloggerFailedText(row, payment.error_message), 'failed');
       if (sent && sent.ok) noticed = true;
       else await store.releaseNotice(row.id);
     }

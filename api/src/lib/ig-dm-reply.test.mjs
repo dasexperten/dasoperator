@@ -66,16 +66,11 @@ test('«заказала» after the payment counts as the order, scenario comes
  v.raw=JSON.stringify({reply:'Спасибо) Есть своя идея ролика? Если нет, пришлю сценарии на выбор.',escalate:false,reason:'ok'});
  await igDmReply(v.env);assert.match(v.context,/сценария ещё нет/);assert.equal(v.sent.length,1);
 });
-test('a second model reads every reply against VOICE before it leaves (Owner 2026-10-18)',async()=>{
+test('no second model judges Diana after she writes (Owner 2026-10-19, «ERP служит тебе»)',async()=>{
  const a=fixture();a.history=[{direction:'in',text:'Можно артикул',created_at:a.t}];
- a.raws=[JSON.stringify({reply:'Ищите сами через поиск.',escalate:false,reason:'ok'}),JSON.stringify({reply:'Лучше через поиск, так ваша покупка поможет нашей карточке)',escalate:false,reason:'ok'})];
- a.voiceVerdicts=['{"ok":false,"why":"сухой приказ"}','{"ok":true,"why":""}'];
- await igDmReply(a.env);assert.equal(a.sent.length,1);assert.equal(a.voiceCalls,2);
- const b=fixture();b.history=[{direction:'in',text:'Можно артикул',created_at:b.t}];
- b.voiceVerdicts=['{"ok":false,"why":"холодно"}','{"ok":false,"why":"холодно"}'];
- await igDmReply(b.env);assert.equal(b.sent.length,0);
- const c=fixture();c.history=[{direction:'in',text:'Можно артикул',created_at:c.t}];c.voiceError=true;
- await igDmReply(c.env);assert.equal(c.sent.length,0);
+ a.raw=JSON.stringify({reply:'Лучше через поиск, так ваша покупка поможет нашей карточке)',escalate:false,reason:'ok'});
+ a.voiceVerdicts=['{"ok":false,"why":"холодно"}','{"ok":false,"why":"холодно"}'];
+ await igDmReply(a.env);assert.equal(a.sent.length,1);assert.ok(!a.voiceCalls);
 });
 const good = JSON.stringify({reply:'Получила, проверяю!',escalate:false,reason:'ok'});
 function fixture() {

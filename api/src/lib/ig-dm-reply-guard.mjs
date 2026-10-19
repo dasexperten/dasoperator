@@ -195,7 +195,7 @@ export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allow
   // Owner 2026-10-17: requests are polite, never a bare command («оформляйте», «скиньте», «сделайте»).
   // Owner 2026-10-18 (yasmin_i.b, 7 failed rewrites): «можно выкладывать» or a request with «пожалуйста»
   // in the same sentence is polite; only a bare command in its sentence is refused.
-  if (reply.split(/(?<=[.!?…)])\s+|\n/).some((sentence) => /(^|[^а-яё])(оформляйте|скиньте|скидывайте|сделайте|присылайте|снимайте|заказывайте|выкладывайте|отправляйте)([^а-яё]|$)/i.test(sentence) && !/пожалуйста|можно/i.test(sentence))) return { reply: null, escalate: true, reason: 'command tone, ask with «пожалуйста»' };
+  // Owner 2026-10-19: «Диана, ERP служит тебе» — tone is Diana's, the ERP does not veto it.
   // Owner 2026-10-17: one person, one program — never a second account, a second program or a new basket.
   if (/(втор(ой|ого|ому)\s+аккаунт|отдельн(ая|ую|ой)\s+программ|ещё\s+одн[ау]\s+программ|ник\s+второго|нов(ую|ая)\s+корзин)/i.test(reply)) return { reply: null, escalate: true, reason: 'one person, one program; ask what she means' };
   if (HARD_ASK.test(reply)) return { reply: null, escalate: true, reason: 'return or money back, Owner decides' };

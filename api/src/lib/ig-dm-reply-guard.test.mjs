@@ -118,9 +118,9 @@ test('permission and polite requests are not commands (yasmin_i.b, Owner 2026-10
   assert.notEqual(guardReply(j('Выкладывайте, пожалуйста, и пришлите ссылку.')).reason, 'command tone, ask with «пожалуйста»');
   assert.notEqual(guardReply(j('Здорово! Пришлите, пожалуйста, фото заказа.'), { lastIn: 'Заказала' }).reason, 'ask for the order screenshot too');
 });
-test('no command tone (Owner 2026-10-17)', () => {
+test('tone is Diana\'s: the ERP no longer vetoes it (Owner 2026-10-19, «ERP служит тебе»)', () => {
   const j = (reply) => JSON.stringify({ reply, escalate: false, send_cards: false, requisites: null, reason: 'x' });
-  assert.equal(guardReply(j('Оформляйте заказ и пришлите скрин.')).reason, 'command tone, ask with «пожалуйста»');
+  assert.notEqual(guardReply(j('Оформляйте заказ и пришлите скрин.')).reason, 'command tone, ask with «пожалуйста»');
   assert.ok(guardReply(j('Оформите, пожалуйста, заказ и пришлите скрин.')).reply);
 });
 
@@ -144,9 +144,9 @@ test('a surname initial counts only as a standalone letter, never inside Сум�
   assert.equal(requisitesSupportedByText(r, 'Сумма 395 руб\n89674029721\nТ-Банк\nКристина С.'), true);
 });
 
-test('«снимайте» is a command; «можно снимать» passes (Owner 2026-10-17, krainova_nadya)', () => {
+test('«снимайте» passes: tone is not vetoed (Owner 2026-10-19)', () => {
   const j = (r) => JSON.stringify({ reply: r, replies: [r], send_cards: false, escalate: false, requisites: null });
-  assert.equal(guardReply(j('Как получите, снимайте сценарий №1.'), { paid: false, inCount: 5, lastIn: '', allowBrush: true }).reply, null);
+  assert.ok(guardReply(j('Как получите, снимайте сценарий №1.'), { paid: false, inCount: 5, lastIn: '', allowBrush: true }).reply);
   assert.ok(guardReply(j('Как получите, можно снимать сценарий №1.'), { paid: false, inCount: 5, lastIn: '', allowBrush: true }).reply);
 });
 

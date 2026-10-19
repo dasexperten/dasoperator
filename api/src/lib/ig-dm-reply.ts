@@ -6,6 +6,8 @@
 import type { Env } from '../types';
 import { callPro, callVision, type ChatMessage } from './llm';
 import { incomingScreenshots } from './ig-dm-attachments';
+import { failedSide } from './ugc-payout-execute.mjs';
+const VOICE_VETO = false;
 import { JSON_SPEC, SCENARIO_RULES, SCENARIO_CARDS, guardReply, requisitesSupportedByText, type CleanRequisites, REFUSAL } from './ig-dm-reply-guard.mjs';
 import { prepareDianaContext } from './diana-context.mjs';
 import { checkDianaImages } from './diana-image-check.mjs';
@@ -133,7 +135,7 @@ function rewriteHint(reason: string, imageCheck: unknown): string {
     'confirms unseen photo': 'фото блогера не открылось у нас в программе, мы его не видели. Не подтверждай корзину, не говори «всё верно», не возвращай requisites. Не пиши, что фото не дошло. Мягко попроси прислать картинку ещё раз одним фото или написать артикул пасты.',
     'ozon article needed': 'реквизиты принимаем только после того, как блогер назвала артикул нашей карточки на Ozon. Не возвращай requisites. Попроси артикул красиво, нежно и ободряюще, с гордостью за бренд: нас часто копируют, на маркетплейсах много подделок под наше имя, сверяем, чтобы у блогера была настоящая TERMO. Формулируй по-новому, не шаблоном',
     'foreign ozon article': 'названный блогером артикул не из наших карточек. Не возвращай requisites; мягко скажи, что это не наша карточка, и дай наш артикул.',
-    'promises payment': 'нельзя обещать перевод или срок перевода. Не пиши «переведу», «отправлю», «оплатим». Если реквизиты получены, только «Реквизиты получили, проверяю!».',
+    'promises payment': 'нельзя обещать перевод или срок перевода. Не пиши «переведу», «отправлю», «оплатим». Если реквизиты получены, ничего про них не пиши: reply=null; следующее сообщение блогеру будет о переводе (Владелец 18.10.2026).',
     'unparsable': 'ответ был не в формате JSON.',
     'command tone, ask with «пожалуйста»': 'приказной тон. Проси мягко: «пришлите, пожалуйста», «можно снимать».',
     'informal ты, always вы': 'обращение на «ты». Всегда на «вы».',
@@ -263,11 +265,11 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       `SELECT c.id, c.display_name, c.city, c.lifecycle_stage FROM ugc_creators c WHERE c.id=?1`
     ).bind(identity.cid).first<{ id: string; display_name: string | null; city: string | null; lifecycle_stage: string | null }>();
     const payouts = creator ? ((await env.DB.prepare(
-      `SELECT amount_minor, status, payout_date, konsol_payment_id, paid_at, sent_at FROM ugc_payouts WHERE creator_id=?1 ORDER BY created_at DESC LIMIT 5`
-    ).bind(creator.id).all<{ amount_minor: number; status: string; payout_date: string; konsol_payment_id?: string | null; paid_at?: string | null; sent_at?: string | null }>()).results ?? []) : [];
+      `SELECT amount_minor, status, payout_date, konsol_payment_id, konsol_error, paid_at, sent_at FROM ugc_payouts WHERE creator_id=?1 ORDER BY created_at DESC LIMIT 5`
+    ).bind(creator.id).all<{ amount_minor: number; status: string; payout_date: string; konsol_payment_id?: string | null; konsol_error?: string | null; paid_at?: string | null; sent_at?: string | null }>()).results ?? []) : [];
     const paid = payouts[0]?.status === 'paid' && Boolean(payouts[0]?.konsol_payment_id);
     const erp = payouts.length
-      ? payouts.map((p) => `${Math.round(p.amount_minor / 100)} ₽ — ${p.status === 'paid' ? (p.konsol_payment_id ? 'paid (перевод исполнен)' : 'запись об оплате; исполнение перевода не подтверждено') : p.status === 'failed' ? 'failed (банк отклонил)' : 'ждёт оплаты'} (${p.payout_date})`).join('; ')
+      ? payouts.map((p) => `${Math.round(p.amount_minor / 100)} ₽ — ${p.status === 'paid' ? (p.konsol_payment_id ? 'paid (перевод исполнен)' : 'запись об оплате; исполнение перевода не подтверждено') : p.status === 'failed' ? (failedSide(p.konsol_error) === 'bank' ? `failed (банк блогера отказал: ${String(p.konsol_error).slice(0, 120)})` : 'failed (не прошёл с нашей стороны; банк блогера ни при чём — не говори, что банк отклонил, не проси другой банк)') : 'ждёт оплаты'} (${p.payout_date})`).join('; ')
       : 'выплат нет';
     // Owner 2026-10-18 (noza_finds): Diana said «всё верно» to a basket she never saw.
     const unseenPhoto = history.slice(lastOutIndex+1).some((m) => m.unsupported);
@@ -391,7 +393,9 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       const rejected = scenarioEarly ? 'scenario before order' : videoEarly ? 'video before scenario' : falseReceipt ? 'requisites incomplete, ask what is missing' : confirmsUnseen ? 'confirms unseen photo' : imageConflict ? 'image_verdict_requires_clarification' : guessedInitial ? 'surname initial not written' : articleMissing ? (named.some((x) => !phoneLike(x)) ? 'foreign ozon article' : 'ozon article needed') : (!out.reply && out.escalate && isTechnical(out.reason) ? out.reason : '');
       // Owner 2026-10-18: a second model reads every reply against VOICE.md before it leaves.
       voiceWhy = '';
-      if (!rejected && out.reply) {
+      // Owner 2026-10-19: «Диана, ERP служит тебе» — no second model judges Diana's voice after she writes.
+      // Voice lives in her own VOICE.md; the ERP gives her facts before she writes and never vetoes her tone.
+      if (VOICE_VETO && !rejected && out.reply) {
         try { const v = await checkDianaVoice(env, String((prepared as { voice?: string }).voice ?? ''), out.reply, incoming.slice(-2).map((m) => m.text ?? '').join(' ')); if (!v.ok) voiceWhy = v.why || 'тон не в голосе Дианы'; }
         catch { voiceUnavailable = true; break; }
       }

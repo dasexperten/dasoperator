@@ -120,6 +120,11 @@ service = "emailer-bridge"
 binding = "SELF"
 service = "dasoperator-api"
 
+# Owner 2026-10-19: a red «message not delivered» status hands the cause to Mina (sysadmin) at once.
+[[services]]
+binding = "MINA"
+service = "mina-sysadmin"
+
 # Marketplace specialists (Owner 2026-07-21): pulse Refresh → their /sync-sales.
 # Same-account *.workers.dev is blocked (1042/404); service bindings only.
 [[services]]

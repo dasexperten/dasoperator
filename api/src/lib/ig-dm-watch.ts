@@ -215,6 +215,45 @@ export async function sendIgDirect(env: Env, handle: string, text: string, opts:
   }
 }
 
+
+const RECENT_CONVERSATIONS = 50;
+const SEEN_KEY = 'ig_dm_seen_conversations';
+
+async function recentConversations(pageToken: string, n: number): Promise<Array<{ id: string; updated_time: string }> | null> {
+  const out: Array<{ id: string; updated_time: string }> = [];
+  let path = `/${PAGE_ID}/conversations?platform=instagram&fields=id,updated_time&limit=${MAX_CONVERSATIONS}`;
+  while (out.length < n) {
+    const convs = await graph(path, pageToken);
+    if (!convs.ok) return out.length ? out : null;
+    const data: Array<{ id: string; updated_time: string }> = convs.body?.data ?? [];
+    out.push(...data);
+    const after = convs.body?.paging?.cursors?.after;
+    if (!after || !data.length) break;
+    path = `/${PAGE_ID}/conversations?platform=instagram&fields=id,updated_time&limit=${MAX_CONVERSATIONS}&after=${encodeURIComponent(after)}`;
+  }
+  return out.slice(0, n);
+}
+
+async function loadSeen(env: Env): Promise<Record<string, string>> {
+  const row = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(SEEN_KEY).first<{ value: string }>().catch(() => null);
+  try { const v = JSON.parse(row?.value ?? '{}'); return v && typeof v === 'object' ? v : {}; } catch { return {}; }
+}
+
+/** Seen updated_time per conversation for the recent window; an unreadable conversation keeps its old value. */
+async function saveSeen(env: Env, map: Record<string, string>, keepOld: Array<[string, string]> = []): Promise<void> {
+  const next = { ...map };
+  for (const [id, old] of keepOld) { if (old) next[id] = old; else delete next[id]; }
+  await env.DB.prepare(`INSERT INTO crm_sync_state (key, value, updated_at) VALUES (?1, ?2, ?3)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`).bind(SEEN_KEY, JSON.stringify(next), Date.now()).run();
+}
+
+async function storedLatest(env: Env, ids: string[]): Promise<Record<string, string>> {
+  if (!ids.length) return {};
+  const rows = await env.DB.prepare(`SELECT conversation_id c, MAX(created_at) t FROM ugc_ig_messages WHERE conversation_id IN (${ids.map((_, i) => `?${i + 1}`).join(',')}) GROUP BY conversation_id`)
+    .bind(...ids).all<{ c: string; t: string }>().catch(() => ({ results: [] as Array<{ c: string; t: string }> }));
+  return Object.fromEntries((rows.results ?? []).map((r) => [r.c, r.t]));
+}
+
 export type IgWatchResult = { ok: boolean; activity: boolean; stored: number; incoming: number; error?: string };
 
 /** Owner 2026-10-18 («добавить лёгкую проверку раз в минуту»): one light look — has any Direct
@@ -225,11 +264,12 @@ export async function igDmHasNew(env: Env): Promise<boolean> {
   if (!token) return false;
   const page = await graph(`/${PAGE_ID}?fields=access_token`, token);
   if (!page.ok || !page.body?.access_token) return false;
-  const convs = await graph(`/${PAGE_ID}/conversations?platform=instagram&fields=updated_time&limit=1`, String(page.body.access_token));
-  const newest = convs.ok ? String(convs.body?.data?.[0]?.updated_time ?? '') : '';
-  if (!newest) return false;
-  const last = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(STATE_KEY).first<{ value: string }>();
-  return !last?.value || Date.parse(newest) > Date.parse(last.value);
+  // Owner 2026-10-19: the same 50-conversation comparison as the full read, per conversation.
+  const list = await recentConversations(String(page.body.access_token), RECENT_CONVERSATIONS);
+  if (!list?.length) return false;
+  const seen = await loadSeen(env);
+  if (!Object.keys(seen).length) return true;
+  return list.some((c) => !seen[c.id] || Date.parse(c.updated_time) > Date.parse(seen[c.id]!));
 }
 
 export async function igDmWatch(env: Env): Promise<IgWatchResult> {
@@ -242,24 +282,11 @@ export async function igDmWatch(env: Env): Promise<IgWatchResult> {
   try { await fillCreatorNames(env, pageToken); } catch { /* names are a convenience; retried next run */ }
   try { await fillCitiesFromReplies(env); } catch { /* retried next run */ }
 
-  // Every conversation changed since the last mark, page after page (Owner 2026-10-16:
-  // 63 replies in one go were more than one page, the rest were never stored and the
-  // reply lane answered those blogers twice).
-  const last0 = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(STATE_KEY).first<{ value: string }>();
-  const since0 = last0?.value ? Date.parse(last0.value) : 0;
-  const list: Array<{ id: string; updated_time: string }> = [];
-  let path = `/${PAGE_ID}/conversations?platform=instagram&fields=id,updated_time&limit=${MAX_CONVERSATIONS}`;
-  for (let page = 0; page < 8; page++) {
-    const convs = await graph(path, pageToken);
-    if (!convs.ok) return { ok: false, activity: false, stored: 0, incoming: 0, error: `conversations: ${convs.error}` };
-    const data: Array<{ id: string; updated_time: string }> = convs.body?.data ?? [];
-    list.push(...data);
-    const after = convs.body?.paging?.cursors?.after;
-    const oldest = data.reduce((m, c) => Math.min(m, Date.parse(c.updated_time)), Infinity);
-    if (!after || !data.length || !since0 || oldest <= since0) break;
-    path = `/${PAGE_ID}/conversations?platform=instagram&fields=id,updated_time&limit=${MAX_CONVERSATIONS}&after=${encodeURIComponent(after)}`;
-  }
-
+  // Owner 2026-10-19: «ERP не должен основываться на том, что сообщение прочитано… открывать последние 50».
+  // Every check looks at the 50 most recent conversations and compares each with what we last saw in THAT
+  // conversation — not one global mark, never the read status (the Owner may read a message first).
+  const list = await recentConversations(pageToken, RECENT_CONVERSATIONS);
+  if (!list) return { ok: false, activity: false, stored: 0, incoming: 0, error: 'conversations: unreadable' };
   const now = new Date().toISOString();
   const last = await env.DB.prepare(`SELECT value FROM crm_sync_state WHERE key=?1`).bind(STATE_KEY).first<{ value: string }>();
   const newest = list.reduce((m, c) => (c.updated_time > m ? c.updated_time : m), '');
@@ -267,21 +294,29 @@ export async function igDmWatch(env: Env): Promise<IgWatchResult> {
     `INSERT INTO crm_sync_state (key, value, updated_at) VALUES (?1, ?2, ?3)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
   ).bind(STATE_KEY, v, Date.now()).run();
-
   // First run: take today's inbox as the baseline, no backfill, no activity.
   if (!last?.value) {
     if (newest) await saveMark(newest);
+    await saveSeen(env, Object.fromEntries(list.map((c) => [c.id, c.updated_time])));
     return { ok: true, activity: false, stored: 0, incoming: 0 };
   }
-  const since = Date.parse(last.value);
-  const fresh = list.filter((c) => Date.parse(c.updated_time) > since);
+  const seen = await loadSeen(env);
+  const storedMax = await storedLatest(env, list.map((c) => c.id));
+  const baseOf = (id: string) => {
+    const v = Math.max(seen[id] ? Date.parse(seen[id]) : 0, storedMax[id] ? Date.parse(storedMax[id]) : 0);
+    return v || Date.now() - 7 * 86_400_000;
+  };
+  const fresh = list.filter((c) => Date.parse(c.updated_time) > baseOf(c.id));
   let stored = 0, incoming = 0;
+  const nextSeen: Record<string, string> = { ...seen };
   for (const c of fresh) {
+    const since = baseOf(c.id);
     let messagePath = `/${c.id}?fields=messages.limit(100){id,created_time,from,message,attachments{mime_type,file_url,image_data,video_data}}`;
     const cursors = new Set<string>();
+    let readOk = true;
     while (messagePath) {
       const msgs = await graph(messagePath, pageToken);
-      if (!msgs.ok) return { ok: false, activity: stored > 0, stored, incoming, error: `messages: ${msgs.error}` };
+      if (!msgs.ok) { readOk = false; break; }
       const page = msgs.body?.messages ?? msgs.body;
       const messages = page?.data ?? [];
       for (const m of messages) {
@@ -294,8 +329,11 @@ export async function igDmWatch(env: Env): Promise<IgWatchResult> {
       cursors.add(after);
       messagePath = `/${c.id}/messages?fields=id,created_time,from,message,attachments{mime_type,file_url,image_data,video_data}&limit=100&after=${encodeURIComponent(after)}`;
     }
+    // A conversation that could not be read stays fresh and is read again next check.
+    if (readOk) nextSeen[c.id] = c.updated_time;
   }
+  await saveSeen(env, Object.fromEntries(list.map((c) => [c.id, nextSeen[c.id] ?? c.updated_time])), fresh.filter((c) => nextSeen[c.id] !== c.updated_time).map((c) => [c.id, seen[c.id] ?? '']));
   stored += await recoverMissingIgImages(env).catch(() => 0);
-  if (newest && Date.parse(newest) > since) await saveMark(newest);
+  if (newest && Date.parse(newest) > Date.parse(last.value)) await saveMark(newest);
   return { ok: true, activity: stored > 0, stored, incoming };
 }

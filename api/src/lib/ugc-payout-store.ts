@@ -8,6 +8,7 @@ import { applyKonsolPayment, bloggerFailedText, bloggerPaidText, executePayout, 
 import { sendIgDirect } from './ig-dm-watch';
 import { formatRub, ownRubMinor } from './ugc-payouts.mjs';
 import { dianaCompose } from './diana-compose';
+import { alertMina } from './mina-alert';
 
 export function payoutStore(env: Env) {
   const db = env.DB;
@@ -99,6 +100,21 @@ function deps(env: Env) {
     // Owner 2026-10-17: Diana sends Telegram only for hard questions; a payout stop waits in the ERP.
     notifyOwner: async (_text: string) => true,
     notifyBlogger: async (row: Record<string, any>, text: string, kind: 'paid' | 'failed' = 'paid') => {
+      // Owner 2026-10-19: any throw ends as a red status with its reason, handed to Mina — never a silent «sent».
+      try { return await notifyBloggerOnce(env, row, text, kind); }
+      catch (e) {
+        const error = `ERP оборвал отправку: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300);
+        await env.DB.prepare(`UPDATE ugc_payouts SET notice_status='failed', notice_error=?2, notice_at=?3 WHERE id=?1`).bind(String(row.id), error, new Date().toISOString()).run().catch(() => undefined);
+        await alertMina(env, { payoutId: String(row.id), handle: String(row.creator_handle || row.handle || ''), error, kind }).catch(() => false);
+        return { ok: false, error };
+      }
+    },
+    now: Date.now(),
+    claimToken: crypto.randomUUID(),
+  };
+}
+
+async function notifyBloggerOnce(env: Env, row: Record<string, any>, text: string, kind: 'paid' | 'failed') {
       const handle = String(row.creator_handle || row.handle || '');
       // Owner 2026-10-18: the ERP text is a brief only; Diana writes the words. No words, no message.
       const head = kind === 'failed' ? 'Выплата не прошла, Консоль подтвердила. Смысл сообщения:' : 'Выплата исполнена, ERP и Консоль подтвердили. Смысл сообщения:';
@@ -139,11 +155,8 @@ function deps(env: Env) {
       await setNotice(sent.ok ? 'delivered' : 'failed', sent.ok ? null : String(sent.error ?? 'неизвестно').slice(0, 300), sent.ok ? (sent.messageId ?? null) : null);
       // After a new payment the scenario cards follow the bridge (Owner 2026-10-16); an old debt gets thanks only.
       // Owner 2026-10-18: no scenario cards with the payment — they wait for the order screenshot.
+      if (!sent.ok) await alertMina(env, { payoutId: String(row.id), handle, error: String(sent.error ?? 'неизвестно'), kind }).catch(() => false);
       return sent;
-    },
-    now: Date.now(),
-    claimToken: crypto.randomUUID(),
-  };
 }
 
 export function executeUgcPayout(env: Env, id: string) {

@@ -328,9 +328,10 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     const images=screenshots.images;
     let imageCheck = null;
     if (images.length) {
-      try { imageCheck = await checkDianaImages({ images, policy: prepared.imagePolicy, task: context, apiKey: env.OPENROUTER_ERP ?? '' }); }
-      catch { await failStep('diana_image_check_unavailable'); continue; }
-      if(imageCheck.checks.some(check=>Boolean(check.reason))){await failStep('diana_image_decode_unavailable');continue;}
+      // Owner 2026-10-20: the photo is read by Sonnet, not JEV; a failed read never stops Diana — she sees the photo herself.
+      try { imageCheck = await checkDianaImages({ images, policy: prepared.imagePolicy, task: context, apiKey: env.OPENROUTER_ERP ?? '',
+        vision: (messages: any[]) => callVision(messages, { env, maxTokens: 400, temperature: 0 }) }); }
+      catch { imageCheck = null; }
     }
     try {
       await env.DB.prepare(`INSERT INTO crm_sync_state (key,value,updated_at) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)

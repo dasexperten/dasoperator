@@ -41,6 +41,8 @@ const CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for 
 //           requirement. Use for classification, parsing, short summaries.
 const MODEL_PRO = 'claude-sonnet-4-6';
 const MODEL_FLASH = 'claude-haiku-4-5';
+// Owner 2026-10-20: blogger photos are read by Sonnet 5.5 («не через JEV, а через Sonnet»); 4.6 if 5.5 refuses.
+const MODEL_VISION = 'claude-sonnet-5-5';
 
 // Required headers for OAuth-authenticated Messages API calls.
 // Documented across multiple Anthropic GitHub issues (claude-code #40515,
@@ -241,6 +243,14 @@ export async function callPro(
   opts: OAuthCallOptions,
 ): Promise<LlmResult> {
   return callAnthropic(MODEL_PRO, messages, opts);
+}
+
+export async function callVisionSonnet(
+  messages: ChatMessage[],
+  opts: OAuthCallOptions,
+): Promise<LlmResult> {
+  try { return await callAnthropic(MODEL_VISION, messages, opts); }
+  catch { return callAnthropic(MODEL_PRO, messages, opts); }
 }
 
 // =============================================================================

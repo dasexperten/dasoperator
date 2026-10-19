@@ -27,7 +27,7 @@
 // =============================================================================
 
 import type { Env } from '../types';
-import { callPro as anthropicPro, callFlash as anthropicFlash } from './anthropic';
+import { callPro as anthropicPro, callFlash as anthropicFlash, callVisionSonnet } from './anthropic';
 import { callPro as deepseekPro, callFlash as deepseekFlash } from './deepseek';
 import { callPro as qwenPro, callFlash as qwenFlash } from './qwen';
 import { callPro as openrouterPro, callFlash as openrouterFlash } from './openrouter';
@@ -192,7 +192,7 @@ export async function callVision(messages: ChatMessage[], opts: LlmCallOptions):
   if (!messages.some((m) => m.images?.length)) throw new Error('Vision request has no images');
   const shared = { maxTokens: opts.maxTokens ?? 1400, temperature: opts.temperature ?? 0.2 };
   if (opts.env.CLAUDE_CODE_OAUTH_TOKEN) {
-    try { return await anthropicPro(messages, { oauthToken: opts.env.CLAUDE_CODE_OAUTH_TOKEN, ...shared }); }
+    try { return await callVisionSonnet(messages, { oauthToken: opts.env.CLAUDE_CODE_OAUTH_TOKEN, ...shared }); }
     catch { if (!opts.env.OPENROUTER_ERP) throw new Error('Vision provider unavailable'); }
   }
   if (opts.env.OPENROUTER_ERP) return openrouterPro(messages, { apiKey: opts.env.OPENROUTER_ERP, ...shared });

@@ -126,6 +126,14 @@ export async function refreshIgAttachments(env: Env, messageId: string): Promise
   if (!page.ok || !page.body?.access_token) return null;
   const stored = await env.DB.prepare(`SELECT conversation_id, created_at, from_id FROM ugc_ig_messages WHERE id=?1`).bind(messageId).first<{conversation_id:string;created_at:string;from_id:string|null}>();
   if (!stored) return null;
+  // Owner 2026-10-20 (zalina.alkhsv_obzor): Meta hides a photo in the conversation listing (is_unsupported,
+  // no attachments) but hands it over when the message itself is asked for. Ask the message first.
+  const direct = await graph(`/${encodeURIComponent(messageId)}?fields=attachments{mime_type,file_url,image_data,video_data}`, String(page.body.access_token));
+  if (direct.ok && Array.isArray(direct.body?.attachments?.data) && direct.body.attachments.data.length) {
+    const json = JSON.stringify(direct.body.attachments.data);
+    await env.DB.prepare(`UPDATE ugc_ig_messages SET attachments_json=?2 WHERE id=?1`).bind(messageId, json).run();
+    return json;
+  }
   // Read the conversation when direct access to the saved message id fails.
   // Use sender + timestamp only when that match is unambiguous.
   let path = `/${encodeURIComponent(stored.conversation_id)}?fields=messages.limit(100){id,created_time,from,is_unsupported,attachments{mime_type,file_url,image_data,video_data}}`;
@@ -323,6 +331,11 @@ export async function igDmWatch(env: Env): Promise<IgWatchResult> {
         const result = await archiveIgMessage(env, c.id, m, now, since);
         if (result.inserted || result.repaired) stored++;
         if (result.incoming) incoming++;
+        // Owner 2026-10-20: an empty incoming item (hidden photo) is fetched by its own id the same minute.
+        if (result.incoming && !m.message && !m.attachments?.data?.length) {
+          const json = await refreshIgAttachments(env, String(m.id)).catch(() => null);
+          if (json && json !== '[]' && json !== IG_UNSUPPORTED) { try { await cacheIncomingImages(env, String(m.id), JSON.parse(json)); } catch { /* the reader retries */ } }
+        }
       }
       const after = page?.paging?.cursors?.after;
       if (!after || !messages.length || messages.some((m: any) => Date.parse(m.created_time) <= since) || cursors.has(after)) break;

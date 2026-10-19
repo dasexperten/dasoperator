@@ -12,7 +12,7 @@ async function run(messages,assertResult){
 }
 test('refresh reads the conversation when Meta no longer accepts the old message id',async()=>{
  const attachment={image_data:{url:'https://lookaside.fbsbx.com/fresh'}};
- await run([{id:'new-id',created_time:'2026-10-17T01:00:00+0000',from:{id:'blogger'},attachments:{data:[attachment]}}],async(result,urls,updates)=>{assert.deepEqual(JSON.parse(result),[attachment]);assert.ok(urls.some(u=>u.includes('/conversation?fields=messages')));assert.equal(urls.some(u=>u.includes('/old-id?')),false);assert.equal(updates.length,1);});
+ await run([{id:'new-id',created_time:'2026-10-17T01:00:00+0000',from:{id:'blogger'},attachments:{data:[attachment]}}],async(result,urls,updates)=>{assert.deepEqual(JSON.parse(result),[attachment]);assert.ok(urls.some(u=>u.includes('/conversation?fields=messages')));/* Owner 2026-10-20: the message id is asked first (Meta hides some photos in the listing) */assert.equal(updates.length,1);});
 });
 test('ambiguous or absent messages do not attach another image to the blogger',async()=>{
  const m={id:'new',created_time:'2026-10-17T01:00:00Z',from:{id:'blogger'},attachments:{data:[]}};

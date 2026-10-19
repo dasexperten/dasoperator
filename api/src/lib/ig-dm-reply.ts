@@ -85,7 +85,7 @@ export function articlesIn(text: string): string[] {
   return [...new Set(text.match(/(?<!\d)\d{6,12}(?!\d)/g) ?? [])];
 }
 /** A number that looks like a phone is never taken for a foreign article. */
-function phoneLike(d: string): boolean {
+export function phoneLike(d: string): boolean {
   return (d.length === 11 && /^[78]/.test(d)) || (d.length === 10 && /^9/.test(d));
 }
 
@@ -403,7 +403,11 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
       // Owner 2026-10-18 (novosibirsk_life_today: номер и банк без ФИО → «Реквизиты получили, проверяю!» и тишина):
       // «реквизиты получили» only when full requisites are registered now or a payout is already open.
       const falseReceipt = /реквизиты\s+получил/i.test(`${out.reply ?? ''}`) && !out.requisites && !payouts.some((p) => p.status === 'awaiting_approval' || p.status === 'approved');
-      const rejected = scenarioEarly ? 'scenario before order' : videoEarly ? 'video before scenario' : falseReceipt ? 'requisites incomplete, ask what is missing' : confirmsUnseen ? 'confirms unseen photo' : imageConflict ? 'image_verdict_requires_clarification' : guessedInitial ? 'surname initial not written' : articleMissing ? (named.some((x) => !phoneLike(x)) ? 'foreign ozon article' : 'ozon article needed') : (!out.reply && out.escalate && isTechnical(out.reason) ? out.reason : '');
+      // Owner 2026-10-20 «убери их»: Diana's words are never rejected after she writes. The facts above go to the
+      // payout row as doubts for the Owner; a guessed one-letter surname is simply not registered.
+      void scenarioEarly; void videoEarly; void falseReceipt; void confirmsUnseen;
+      if (guessedInitial && out.requisites) out.requisites = { ...out.requisites, last_name: null as never };
+      const rejected = !out.reply && out.escalate && isTechnical(out.reason) ? out.reason : '';
       // Owner 2026-10-18: a second model reads every reply against VOICE.md before it leaves.
       voiceWhy = '';
       // Owner 2026-10-19: «Диана, ERP служит тебе» — no second model judges Diana's voice after she writes.
@@ -420,19 +424,10 @@ export async function igDmReply(env: Env): Promise<{ replied: number; escalated:
     // to pass; doubts go into the row for the Owner, who approves every payout by hand.
     if (seenRequisites) { try { if (await registerPayout(env, w.h, seenRequisites, [...new Set(doubts)].join('; '))) payouts.unshift({ amount_minor: seenRequisites.amount_minor, status: 'awaiting_approval', payout_date: '' } as never); } catch { /* the reply path retries registration */ } }
     if (generationFailed) continue;
-    if (orderShown && !scenarioSent && !out.sendCards && /сним|ролик|ссылк/i.test(`${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`) && !/сценари|иде[яюи]|карточк/i.test(`${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`)) { await failStep('video before scenario'); continue; }
-    if (!orderShown && (out.sendCards || /выбер\S*\s+(\S+\s+){0,3}(сценари|карточк)|номер\s+(карточк|сценари)|вот\s+(\S+\s+){0,2}(сценари|карточ)/i.test(`${out.reply ?? ''} ${(out.parts ?? []).join(' ')}`))) { await failStep('scenario before order'); continue; }
-    if (/реквизиты\s+получил/i.test(`${out.reply ?? ''}`) && !out.requisites && !payouts.some((p) => p.status === 'awaiting_approval' || p.status === 'approved')) { await failStep('requisites incomplete, ask what is missing'); continue; }
     if (voiceUnavailable) { await failStep('voice_check_unavailable'); continue; }
     if (voiceWhy) { await failStep('off voice'); continue; }
-    if (unseenPhoto && !photoSeen && (out.requisites || /вижу корзин|вс[её] верно|корзин\S* получил|не\s+дош[её]?л|не\s+передал|разов\S*\s+просмотр/i.test(out.reply ?? ''))) { await failStep('confirms unseen photo'); continue; }
-    if (imageCheck && imageCheck.status !== 'yes' && out.requisites) { await failStep('image_verdict_requires_clarification'); continue; }
-    { const named = articlesIn(incoming.map((m) => m.text ?? '').join(' '));
-      const typedSumsAfter = (incoming.slice(-8).map((m) => m.text ?? '').join(' ').match(/(?<!\d)(\d{3,4})\s?(?:₽|р\b|руб)/gi) ?? []).map((x) => Number(x.match(/\d{3,4}/)![0]) * 100);
-      const conflictAfter = Boolean(out.requisites && typedSumsAfter.some((v) => Math.abs(v - out.requisites!.amount_minor) > out.requisites!.amount_minor * 0.15));
-      if (out.requisites && ourArticles.size && !/стар/i.test(String(out.requisites.product ?? '')) && !named.some((x) => ourArticles.has(x)) && (conflictAfter || !jevSure(imageCheck, out.requisites, termoBand))) { await failStep(named.some((x) => !phoneLike(x)) ? 'foreign ozon article' : 'ozon article needed'); continue; } }
-    if (out.requisites && out.requisites.last_name?.length === 1 && !initialWritten(out.requisites.last_name, incoming.slice(-6).map((m) => m.text ?? '').join(' '))) { await failStep('surname initial not written'); continue; }
-    if (textOnlyRecovery && !requisitesSupportedByText(out.requisites,currentText)) { await failStep('image_read_failed'); continue; }
+    // Owner 2026-10-20: unreadable requisites are not registered, but the reply still goes.
+    if (textOnlyRecovery && !requisitesSupportedByText(out.requisites,currentText)) out.requisites = null;
     if (!out.reply) {
       // Keep the start of an unreadable answer, so the cause is visible (Owner 2026-10-18).
       if (out.escalate) await failStep(out.reason === 'unparsable' ? `unparsable: ${raw.replace(/\s+/g, ' ').trim().slice(0, 120) || 'пусто'}` : out.reason);

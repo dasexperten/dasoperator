@@ -178,40 +178,40 @@ export function guardReply(raw, { paid = false, inCount = 99, lastIn = '', allow
   const refused = parsed.refused === true;
   const requisites = cleanRequisites(parsed.requisites);
   if (!reply || escalate) return { reply: null, escalate, reason, sendCards: false };
-  if (parts.some((x) => x.length > 300) || reply.length > 900) return { reply: null, escalate: true, reason: 'too long' };
+  // Owner 2026-10-20 «насрать мне на такие дебильные проверки, убери их»: veto removed — too long
   // Owner 2026-10-17: barter is TERMO paste only — no brush is offered or put in the cart.
-  if (!allowBrush && /ETALON|SENSITIV|MITTEL|ЭТАЛОН|(^|[^a-zа-яё])ZERO([^a-zа-яё]|$)|паст[аыуеой]*\s+и\s+(?:одн[ау]\s+|наш[ау]\s+)?щ[её]тк|щ[её]тк[ауи]?\s+(?:тоже\s+)?(?:в\s+корзин|добав|полож|закаж)/i.test(reply)) return { reply: null, escalate: true, reason: 'offers a brush, paste only' };
-  if (!paid && MONEY_SENT.test(reply)) return { reply: null, escalate: true, reason: 'claims money sent, not paid in ERP' };
-  if (/(?:семь|семи|7)\s+(?:сценари|карточ)|(?:(?:от\s*)?1\s*до\s*7|1\s*[–—-]\s*7)|(?:сценари[йяюем]*|карточк[а-яё]*)\s*(?:№\s*)?[5-7](?!\d)/i.test(reply)) return { reply: null, escalate: true, reason: 'scenario outside active menu' };
+  // Owner 2026-10-20 «насрать мне на такие дебильные проверки, убери их»: veto removed — offers a brush, paste only
+  // Owner 2026-10-20 «насрать мне на такие дебильные проверки, убери их»: veto removed — claims money sent, not paid in ERP
+  // Owner 2026-10-20 «насрать мне на такие дебильные проверки, убери их»: veto removed — scenario outside active menu
   // Owner 2026-10-20 (guilya_ab: «Мы оплачиваем пасту…» stopped as a promise): «какого хрена снова проверка
   // останавливает Диану». No payment-wording veto after Diana; the payout status reaches her before she writes.
   void PROMISE;
   // Owner 2026-10-16 («Что за бред?»): table words of the scenario menu never reach a blogger,
   // and a reel is always with the face.
-  if (/(^|[^а-яё])(хук|финал|такт[ыа]?)([^а-яё]|$)|→|одно «?понравилось»?,? одно «?нет»?/i.test(reply)) return { reply: null, escalate: true, reason: 'menu jargon in a reply' };
+  // Owner 2026-10-20 «насрать мне на такие дебильные проверки, убери их»: veto removed — menu jargon in a reply
   // Owner 2026-10-17: no claim on whether the paste suits children, and no child's tone («со взрослым»).
-  if (/(дет(ям|ей|и)|ребён|ребен|дочк|сын)[^.!?]{0,40}(не\s+подход|нельзя|вредн|можно\s+ли)|(не\s+подход|нельзя)[^.!?]{0,30}(дет(ям|ей)|ребён|ребен)/i.test(reply)) return { reply: null, escalate: true, reason: 'claim about children' };
+  // Owner 2026-10-20 «насрать мне на такие дебильные проверки, убери их»: veto removed — claim about children
   // Owner 2026-10-17: «дорогая Юля» only once the talk has warmed (3+ blogger messages); never «ты».
-  if (inCount < 3 && /(^|[^а-яё])([Дд]орог(ая|ой)|[Мм]ил(ая|ый))\s+[А-ЯЁ]/.test(reply)) return { reply: null, escalate: true, reason: 'warm address too early, keep it neutral' };
-  if (/(^|[^а-яё])(тебе|тебя|твой|твоя|твои|твоё|пришли|напиши|сними|покажи)([^а-яё]|$)/i.test(reply)) return { reply: null, escalate: true, reason: 'informal ты, always вы' };
+  // Owner 2026-10-20 «насрать мне на такие дебильные проверки, убери их»: veto removed — warm address too early, keep it neutral
+  // Owner 2026-10-20 «насрать мне на такие дебильные проверки, убери их»: veto removed — informal ты, always вы
   // Owner 2026-10-17: «Перевели… дошло?» is an interrogation; the paid notice is a statement with «проверьте, пожалуйста».
-  if (/дошл[оиа]\s*\?/i.test(reply)) return { reply: null, escalate: true, reason: 'paid notice as a question, use «Перевели N ₽ по СБП. Проверьте, пожалуйста, должно быть уже дошло.»' };
+  // Owner 2026-10-20 «насрать мне на такие дебильные проверки, убери их»: veto removed — paid notice as a question, use «Перевели N ₽ по СБП. Проверьте, пожалуйста, долж
   // Owner 2026-10-17: requests are polite, never a bare command («оформляйте», «скиньте», «сделайте»).
   // Owner 2026-10-18 (yasmin_i.b, 7 failed rewrites): «можно выкладывать» or a request with «пожалуйста»
   // in the same sentence is polite; only a bare command in its sentence is refused.
   // Owner 2026-10-19: «Диана, ERP служит тебе» — tone is Diana's, the ERP does not veto it.
   // Owner 2026-10-17: one person, one program — never a second account, a second program or a new basket.
-  if (/(втор(ой|ого|ому)\s+аккаунт|отдельн(ая|ую|ой)\s+программ|ещё\s+одн[ау]\s+программ|ник\s+второго|нов(ую|ая)\s+корзин)/i.test(reply)) return { reply: null, escalate: true, reason: 'one person, one program; ask what she means' };
-  if (!ownerDecided && HARD_ASK.test(reply)) return { reply: null, escalate: true, reason: 'return or money back, Owner decides' };
-  if (/(\+?7|8)[\s(-]*9\d{2}[\s)-]*\d{3}[\s-]*\d{2}[\s-]*\d{2}/.test(reply)) return { reply: null, escalate: true, reason: 'do not repeat phone and recipient to the blogger' };
-  if (/взросл/i.test(reply)) return { reply: null, escalate: true, reason: 'adult wording' };
+  // Owner 2026-10-20 «насрать мне на такие дебильные проверки, убери их»: veto removed — one person, one program; ask what she means
+  // Owner 2026-10-20 «насрать мне на такие дебильные проверки, убери их»: veto removed — return or money back, Owner decides
+  // Owner 2026-10-20 «насрать мне на такие дебильные проверки, убери их»: veto removed — do not repeat phone and recipient to the blogger
+  // Owner 2026-10-20 «насрать мне на такие дебильные проверки, убери их»: veto removed — adult wording
   // Owner 2026-10-17: there is always another option, the blogger's own scenario, even without the face.
   // Never unboxing and never a video of closed packaging: the paste is used on camera.
   // The face is still offered first: Diana never volunteers that it is optional.
-  if (/лицо\s+(показывать\s+)?(не\s*)?необязательн|лицо\s+(показывать\s+)?не\s+обязательн/i.test(reply)) return { reply: null, escalate: true, reason: 'says face is optional' };
+  // Owner 2026-10-20 «насрать мне на такие дебильные проверки, убери их»: veto removed — says face is optional
   // Owner 2026-10-18 (noza_finds: «Артикул не даём»): a refusal never sounds like a refusal.
-  if (/(^|[^а-яё])(не\s+да[её]м|не\s+можем\s+(дать|сообщить|прислать)|не\s+положено|не\s+сообщаем|не\s+высылаем)([^а-яё]|$)/i.test(reply)) return { reply: null, escalate: true, reason: 'refusal tone' };
-  if (/(^|[^а-яё])(снимите|снять|можно|сделайте|сделать|подойдёт|подойдет)\s+(\S+\s+){0,2}(распаковк|закрыт\S*\s+упаковк)/i.test(reply)) return { reply: null, escalate: true, reason: 'offers unboxing or closed packaging' };
+  // Owner 2026-10-20 «насрать мне на такие дебильные проверки, убери их»: veto removed — refusal tone
+  // Owner 2026-10-20 «насрать мне на такие дебильные проверки, убери их»: veto removed — offers unboxing or closed packaging
   if (/добрый (день|вечер)|здравствуйте|привет/i.test(reply) && reply.length < 25) return { reply: null, escalate: false, reason: 'greeting only' };
   // Owner 2026-10-18: «если пишут что заказала, можно поверить» — the word is enough, no screenshot is demanded.
   return { reply, parts, escalate: false, reason, sendCards, requisites, agreed, refused };

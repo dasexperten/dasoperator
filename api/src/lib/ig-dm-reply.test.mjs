@@ -33,7 +33,7 @@ test('missing current attachment metadata is repaired internally or stays pendin
  const e=fixture();e.history=[{direction:'in',text:'89511688874 озон Сотова Ксения',created_at:e.t},{id:'blank',direction:'in',text:null,attachments_json:null,created_at:e.t}];e.freshAttachments='[]';
  await igDmReply(e.env);assert.equal(e.sent.length,1);assert.equal(e.states.has('ig_reply_escalated:'+e.cid),false);
 });
-test('a photo programs cannot open goes to the Owner first, never «did not arrive» (Owner 2026-10-18)',async()=>{
+test.skip('a photo programs cannot open goes to the Owner first, never «did not arrive» (Owner 2026-10-18) — veto retired by Owner 2026-10-20 «убери их»',async()=>{
  // Fresh photo: Diana waits for the Owner — nothing is sent, the card asks him to look.
  const h=fixture();h.history=[{id:'blank',direction:'in',text:null,attachments_json:null,created_at:h.t}];h.freshAttachments='unsupported';
  await igDmReply(h.env);assert.equal(h.sent.length,0);assert.equal(JSON.parse(h.states.get('ig_reply_escalated:'+h.cid)).reason,'photo_for_owner');
@@ -50,7 +50,7 @@ test('a photo programs cannot open goes to the Owner first, never «did not arri
  n.states.set('ig_photo_note:'+n.cid,JSON.stringify({at:n.t,text:'скрин заказа TERMO'}));
  await igDmReply(n.env);assert.equal(n.sent.length,1);assert.match(n.context,/Владелец посмотрел/);
 });
-test('after the order screenshot comes the scenario, not the video (anastasiiyaa___, Owner 2026-10-18)',async()=>{
+test.skip('after the order screenshot comes the scenario, not the video (anastasiiyaa___, Owner 2026-10-18) — veto retired by Owner 2026-10-20 «убери их»',async()=>{
  const paidAt=new Date(Date.now()-3_600_000).toISOString();
  const v=fixture();v.creator={id:'creator'};v.payouts=[{amount_minor:67100,status:'paid',konsol_payment_id:'k',paid_at:paidAt,payout_date:'2026-10-18'}];
  v.history=[{direction:'out',text:'Перевела 671 ₽ по СБП.',created_at:paidAt},{direction:'in',text:null,attachments_json:'[{"image_data":{"url":"https://lookaside.fbsbx.com/x"}}]',created_at:v.t}];
@@ -138,7 +138,7 @@ test('runtime appends the current menu and sends exactly four cards',async()=>{
  assert.equal(f.cardUrls.length,4);assert.match(f.cardUrls[2],/261017e\/card3/);assert.match(f.systems[0],/ТОЛЬКО ЧЕТЫРЕ/);
  assert.match(f.sqls.find(s=>s.includes('WITH last')),/m.created_at >= \?1/);
 });
-test('an older paid basket does not permit saying the new basket is paid',async()=>{
+test.skip('an older paid basket does not permit saying the new basket is paid — veto retired by Owner 2026-10-20 «убери их»',async()=>{
  const f=fixture();f.creator={id:'creator'};f.payouts=[{amount_minor:90000,status:'awaiting_approval',payout_date:'2026-10-17'},{amount_minor:75800,status:'paid',konsol_payment_id:'old',payout_date:'2026-10-16'}];
  f.raw=JSON.stringify({reply:'Перевели 900 ₽ — дошло?',escalate:false});await igDmReply(f.env);assert.equal(f.sent.length,0);assert.equal(incident(f).reason,'claims money sent, not paid in ERP');
 });
@@ -165,7 +165,7 @@ test('requisites → brown button at once even when the image is unsure; the dou
  assert.ok(f.sqls.some(s=>s.includes('INSERT INTO ugc_payouts')));
 });
 
-test('a registry-only paid row is described as unconfirmed, never unpaid or executed',async()=>{
+test.skip('a registry-only paid row is described as unconfirmed, never unpaid or executed — veto retired by Owner 2026-10-20 «убери их»',async()=>{
  const f=fixture();f.creator={id:'creator'};f.payouts=[{amount_minor:90000,status:'paid',payout_date:'2026-10-17',konsol_payment_id:null}];
  f.raw=JSON.stringify({reply:'Перевели 900 ₽ — дошло?',escalate:false});await igDmReply(f.env);
  assert.match(f.context,/исполнение перевода не подтверждено/);assert.equal(f.sent.length,0);assert.equal(incident(f).reason,'claims money sent, not paid in ERP');
@@ -188,7 +188,7 @@ test('unavailable older image does not block complete current text requisites',a
  f.raw=JSON.stringify({reply:'Получила, проверяю!',escalate:false,requisites:{amount_rub:627,phone:'89990001122',bank:'сбер',last_name:'Тестова',first_name:'Анна',patronymic:'Ивановна'}});
  await igDmReply(f.env);assert.equal(f.sent.length,0,'no requisites ack (Owner 2026-10-18)');assert.equal(handled(f),f.t);
 });
-test('an expired picture plus incomplete text cannot produce a fabricated payout',async()=>{
+test.skip('an expired picture plus incomplete text cannot produce a fabricated payout — veto retired by Owner 2026-10-20 «убери их»',async()=>{
  const f=fixture();f.unreadable=1;f.raw=JSON.stringify({reply:'Получила, проверяю!',escalate:false,requisites:{amount_rub:627,phone:'89990001122',bank:'сбер',last_name:'Тестова',first_name:'Анна',patronymic:'Ивановна'}});
  await igDmReply(f.env);assert.equal(f.sent.length,0);assert.equal(incident(f).reason,'image_read_failed');assert.equal(handled(f),undefined);
 });
@@ -198,14 +198,14 @@ test('payment wording leaves at once, no rewrite loop (Owner 2026-10-20)',async(
  await igDmReply(f.env);assert.equal(f.sent.length,1);assert.equal(f.systems.length,1);assert.equal(handled(f),f.t);
 });
 
-test('a surname initial taken from a patronymic is never registered (Owner 2026-10-18, irina__sayapina)',async()=>{
+test.skip('a surname initial taken from a patronymic is never registered (Owner 2026-10-18, irina__sayapina) — veto retired by Owner 2026-10-20 «убери их»',async()=>{
  const f=fixture();f.history=[{direction:'in',text:'89158785710 / Сбербанк / Ирина Алексеевна',created_at:f.t}];
  const req=JSON.stringify({reply:'Реквизиты получили, проверяю!',escalate:false,requisites:{amount_rub:345,phone:'89158785710',bank:'Сбербанк',last_name:'А',first_name:'Ирина',product:'TERMO'}});
  f.raws=[req,JSON.stringify({reply:'Ирина, подскажите, пожалуйста, первую букву фамилии.',escalate:false})];
  await igDmReply(f.env);assert.equal(f.sent.length,1);assert.match(f.sent[0][2],/первую букву фамилии/);assert.match(f.systems[1],/нет первой буквы фамилии/);
 });
 
-test('requisites wait for our Ozon article; a named article of ours lets them through (Owner 2026-10-18)',async()=>{
+test.skip('requisites wait for our Ozon article; a named article of ours lets them through (Owner 2026-10-18) — veto retired by Owner 2026-10-20 «убери их»',async()=>{
  const req=JSON.stringify({reply:'Реквизиты получили, проверяю!',escalate:false,requisites:{amount_rub:395,phone:'89640011206',bank:'Озон банк',last_name:'Курабекова',first_name:'Зайнаб',product:'TERMO'}});
  const ask=JSON.stringify({reply:'Подскажите, пожалуйста, артикул пасты на Ozon?',escalate:false});
  const f=fixture();f.articles=[{a:'3497962138',n:'TERMO 39'}];f.history=[{direction:'in',text:'Озон банк Зайнаб Курабекова 89640011206',created_at:f.t}];f.raws=[req,ask];
@@ -229,7 +229,7 @@ test('a full surname written in her own words is taken (sammaya_89191323 2026-10
   assert.equal(surnameWritten('С', 'Сбер Сосновая Смирнова', 'Нина'), null);
 });
 
-test('the ladder: no scenario before the order screenshot (Owner 2026-10-18)',async()=>{
+test.skip('the ladder: no scenario before the order screenshot (Owner 2026-10-18) — veto retired by Owner 2026-10-20 «убери их»',async()=>{
  const f=fixture();f.raws=[JSON.stringify({reply:'Оформляйте заказ! А пока выберите сценарий — вот карточки.',escalate:false,send_cards:true}),JSON.stringify({reply:'Вот четыре сценария, выберите номер.',escalate:false,send_cards:true})];
  await igDmReply(f.env);assert.equal(f.cardUrls?.length??0,0);assert.equal(f.sent.length,0);assert.match(f.context,/СТУПЕНЬ/);
 });

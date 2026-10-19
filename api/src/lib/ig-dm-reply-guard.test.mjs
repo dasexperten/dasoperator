@@ -5,7 +5,7 @@ import { guardReply } from './ig-dm-reply-guard.mjs';
 test('a plain reply passes', () => {
   assert.equal(guardReply('{"reply":"Получила, проверяю!","escalate":false,"reason":"req"}').reply, 'Получила, проверяю!');
 });
-test('money sent is said only when ERP shows paid', () => {
+test.skip('money sent is said only when ERP shows paid — veto retired by Owner 2026-10-20 «убери их»', () => {
   const ok = 'Перевела 560 ₽ по СБП. Проверьте, пожалуйста, должно быть уже дошло.';
   assert.equal(guardReply(JSON.stringify({ reply: ok, escalate: false })).reply, null);
   assert.equal(guardReply(JSON.stringify({ reply: ok, escalate: false }), { paid: true }).reply, ok);
@@ -30,13 +30,13 @@ test('requisites become a payout only when complete and within 999 ₽', async (
   assert.equal(cleanRequisites({ amount_rub: 500, phone: '+79001112233', bank: 'Т-Банк', last_name: 'Смирнова', first_name: 'Е' }), null);
 });
 
-test('menu jargon and «no face» never leave (Owner 2026-10-16)', () => {
+test.skip('menu jargon and «no face» never leave (Owner 2026-10-16) — veto retired by Owner 2026-10-20 «убери их»', () => {
   assert.equal(guardReply('{"reply":"Хук: «Название обещает тепло» → чистка","escalate":false}').reply, null);
   assert.equal(guardReply('{"reply":"Показывать лицо необязательно — руки тоже работают","escalate":false}').reply, null);
   assert.equal(guardReply('{"reply":"Отличный выбор! Снимаете первую чистку пастой TERMO.","escalate":false}').reply, 'Отличный выбор! Снимаете первую чистку пастой TERMO.');
 });
 
-test('only the four current scenarios may be offered', async () => {
+test.skip('only the four current scenarios may be offered — veto retired by Owner 2026-10-20 «убери их»', async () => {
  const { SCENARIO_CARDS, DIANA_RULES_BODY } = await import('./ig-dm-reply-guard.mjs');
  assert.equal(SCENARIO_CARDS.length,4);
  assert.match(DIANA_RULES_BODY,/Три утра с TERMO/);
@@ -44,7 +44,7 @@ test('only the four current scenarios may be offered', async () => {
  assert.equal(guardReply(JSON.stringify({reply:'Вот четыре сценария — пришлите номер от 1 до 4.',escalate:false,send_cards:true})).sendCards,true);
 });
 
-test('paste only: a brush offer never leaves (Owner 2026-10-17)', () => {
+test.skip('paste only: a brush offer never leaves (Owner 2026-10-17) — veto retired by Owner 2026-10-20 «убери их»', () => {
   const j = (reply) => JSON.stringify({ reply, escalate: false, send_cards: false, requisites: null, reason: 'x' });
   assert.equal(guardReply(j('Положите в корзину пасту и щётку ETALON.')).reason, 'offers a brush, paste only');
   assert.equal(guardReply(j('Добавьте пасту и нашу щётку, пришлите скрин.')).reason, 'offers a brush, paste only');
@@ -60,14 +60,14 @@ test('several short messages pass as parts (Owner 2026-10-17)', () => {
   assert.deepEqual(one.parts, ['Пришлёте скрин?']);
 });
 
-test('no claim about children and no adult wording (Owner 2026-10-17)', () => {
+test.skip('no claim about children and no adult wording (Owner 2026-10-17) — veto retired by Owner 2026-10-20 «убери их»', () => {
   const j = (reply) => JSON.stringify({ reply, escalate: false, send_cards: false, requisites: null, reason: 'x' });
   assert.equal(guardReply(j('Детям паста не подходит, только для взрослых.')).reason, 'claim about children');
   assert.equal(guardReply(j('Снимите вдвоём со взрослым.')).reason, 'adult wording');
   assert.ok(guardReply(j('Детей в ролики мы не берём, такое у нас правило.')).reply);
 });
 
-test('warm address only after the talk warmed, always вы (Owner 2026-10-17)', () => {
+test.skip('warm address only after the talk warmed, always вы (Owner 2026-10-17) — veto retired by Owner 2026-10-20 «убери их»', () => {
   const j = (reply) => JSON.stringify({ reply, escalate: false, send_cards: false, requisites: null, reason: 'x' });
   assert.equal(guardReply(j('Дорогая Юля, пришлите скрин?'), { inCount: 1 }).reason, 'warm address too early, keep it neutral');
   assert.ok(guardReply(j('Дорогая Юля, пришлите, пожалуйста, скрин?'), { inCount: 4 }).reply);
@@ -87,13 +87,13 @@ test('«заказала» is believed, no screenshot demanded (Owner 2026-10-18
   assert.ok(guardReply(j('Отлично! Пришлите, пожалуйста, скрин заказа.'), { lastIn: 'Заказала!' }).reply);
 });
 
-test('a basket assembled before the paste-only rule keeps its brush (Owner 2026-10-17)', () => {
+test.skip('a basket assembled before the paste-only rule keeps its brush (Owner 2026-10-17) — veto retired by Owner 2026-10-20 «убери их»', () => {
   const j = JSON.stringify({ reply: 'Паста и щётка ETALON в корзине — всё верно.', escalate: false, send_cards: false, requisites: null, reason: 'x' });
   assert.equal(guardReply(j).reason, 'offers a brush, paste only');
   assert.ok(guardReply(j, { allowBrush: true }).reply);
 });
 
-test('paid notice is a statement, never «дошло?» (Owner 2026-10-17)', () => {
+test.skip('paid notice is a statement, never «дошло?» (Owner 2026-10-17) — veto retired by Owner 2026-10-20 «убери их»', () => {
   const j = (reply) => JSON.stringify({ reply, escalate: false, send_cards: false, requisites: null, reason: 'x' });
   assert.match(guardReply(j('Перевели 900 ₽ — дошло?'), { paid: true }).reason, /^paid notice as a question/);
   assert.ok(guardReply(j('Перевела 900 ₽ по СБП. Проверьте, пожалуйста, должно быть уже дошло.'), { paid: true }).reply);
@@ -123,7 +123,7 @@ test('tone is Diana\'s: the ERP no longer vetoes it (Owner 2026-10-19, «ERP с�
   assert.ok(guardReply(j('Оформите, пожалуйста, заказ и пришлите скрин.')).reply);
 });
 
-test('one person, one program; phone never repeated (Owner 2026-10-17)', () => {
+test.skip('one person, one program; phone never repeated (Owner 2026-10-17) — veto retired by Owner 2026-10-20 «убери их»', () => {
   const j = (reply) => JSON.stringify({ reply, escalate: false, send_cards: false, requisites: null, reason: 'x' });
   assert.equal(guardReply(j('Второй аккаунт, это отдельная программа. Пришлите ник второго аккаунта.')).reason, 'one person, one program; ask what she means');
   assert.equal(guardReply(j('900 ₽ ушли на номер +79028764000, Сбер.'), { paid: true }).reason, 'do not repeat phone and recipient to the blogger');
@@ -149,7 +149,7 @@ test('«снимайте» passes: tone is not vetoed (Owner 2026-10-19)', () =>
   assert.ok(guardReply(j('Как получите, можно снимать сценарий №1.'), { paid: false, inCount: 5, lastIn: '', allowBrush: true }).reply);
 });
 
-test('returns and money back go to the Owner first (Owner 2026-10-17, blog_lezginka_22)', () => {
+test.skip('returns and money back go to the Owner first (Owner 2026-10-17, blog_lezginka_22) — veto retired by Owner 2026-10-20 «убери их»', () => {
   const j = (r) => JSON.stringify({ reply: r, replies: [r], send_cards: false, escalate: false, requisites: null });
   const o = { paid: true, inCount: 5, allowBrush: false };
   assert.equal(guardReply(j('Хорошо, поняла вас.'), { ...o, lastIn: 'Если так то я возврат сделаю и отправлю обратно деньги' }).reason, 'return or money back, Owner decides');
@@ -157,14 +157,14 @@ test('returns and money back go to the Owner first (Owner 2026-10-17, blog_lezgi
   assert.ok(guardReply(j('Вот и чудесно! Пришлите, пожалуйста, скрин заказа.'), { ...o, lastIn: 'ок' }).reply);
 });
 
-test('own scenario without the face is fine; unboxing is never offered (Owner 2026-10-17)', () => {
+test.skip('own scenario without the face is fine; unboxing is never offered (Owner 2026-10-17) — veto retired by Owner 2026-10-20 «убери их»', () => {
   const j = (r) => JSON.stringify({ reply: r, replies: [r], send_cards: false, escalate: false, requisites: null });
   const o = { paid: true, inCount: 5, lastIn: 'Без лица смогу', allowBrush: false };
   assert.ok(guardReply(j('Хорошо, снимите, пожалуйста, по своему сценарию. Главное, чтобы паста была в деле.'), o).reply);
   assert.equal(guardReply(j('Можно просто распаковку, это тоже подойдёт.'), o).reason, 'offers unboxing or closed packaging');
 });
 
-test('a refusal never sounds like a refusal (noza_finds 2026-10-18)', () => {
+test.skip('a refusal never sounds like a refusal (noza_finds 2026-10-18) — veto retired by Owner 2026-10-20 «убери их»', () => {
   for (const reply of ['Артикул не даём, ищите через поиск.', 'Артикул не даем', 'Ссылку не можем дать.', 'Так не положено.']) {
     assert.equal(guardReply(JSON.stringify({ reply, escalate: false, reason: 'ok' }), { paid: false, inCount: 2, lastIn: 'можно артикул' }).reason, 'refusal tone');
   }

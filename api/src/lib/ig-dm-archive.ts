@@ -21,7 +21,8 @@ export async function archiveIgMessage(env: Env, conversationId: string, message
     const result = await env.DB.prepare(`INSERT OR IGNORE INTO ugc_ig_messages (id, conversation_id, direction, from_id, from_username, text, attachments_json, created_at, seen_at)
       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`)
       .bind(String(message.id), conversationId, outgoing ? 'out' : 'in', message.from?.id ?? null, message.from?.username ?? null,
-        typeof message.message === 'string' ? message.message.slice(0, 4000) : null, attachmentJson,
+        // Owner 2026-10-20 (_umm_abdu.llah_blog «Вот»): a shared reel or post arrives as shares{link}, not text.
+        (typeof message.message === 'string' && message.message ? message.message.slice(0, 4000) : (message.shares?.data?.[0]?.link ? String(message.shares.data[0].link) : (typeof message.message === 'string' ? message.message : null))), attachmentJson,
         new Date(Date.parse(message.created_time)).toISOString(), seenAt).run();
     inserted = (result.meta?.changes ?? 0) === 1;
   }

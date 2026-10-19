@@ -319,7 +319,7 @@ export async function igDmWatch(env: Env): Promise<IgWatchResult> {
   const nextSeen: Record<string, string> = { ...seen };
   for (const c of fresh) {
     const since = baseOf(c.id);
-    let messagePath = `/${c.id}?fields=messages.limit(100){id,created_time,from,message,attachments{mime_type,file_url,image_data,video_data}}`;
+    let messagePath = `/${c.id}?fields=messages.limit(100){id,created_time,from,message,shares{link},attachments{mime_type,file_url,image_data,video_data}}`;
     const cursors = new Set<string>();
     let readOk = true;
     while (messagePath) {
@@ -340,7 +340,7 @@ export async function igDmWatch(env: Env): Promise<IgWatchResult> {
       const after = page?.paging?.cursors?.after;
       if (!after || !messages.length || messages.some((m: any) => Date.parse(m.created_time) <= since) || cursors.has(after)) break;
       cursors.add(after);
-      messagePath = `/${c.id}/messages?fields=id,created_time,from,message,attachments{mime_type,file_url,image_data,video_data}&limit=100&after=${encodeURIComponent(after)}`;
+      messagePath = `/${c.id}/messages?fields=id,created_time,from,message,shares{link},attachments{mime_type,file_url,image_data,video_data}&limit=100&after=${encodeURIComponent(after)}`;
     }
     // A conversation that could not be read stays fresh and is read again next check.
     if (readOk) nextSeen[c.id] = c.updated_time;

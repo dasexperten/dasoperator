@@ -86,7 +86,9 @@ export function payoutStore(env: Env) {
       const r = await db.prepare(`UPDATE ugc_payouts SET paid_notice_at=?2 WHERE id=?1 AND paid_notice_at IS NULL`).bind(id, at).run();
       return (r.meta?.changes ?? 0) === 1;
     },
-    releaseNotice: (id: string) => db.prepare(`UPDATE ugc_payouts SET paid_notice_at=NULL WHERE id=?1`).bind(id).run(),
+    releaseNotice: (id: string) => db.prepare(`UPDATE ugc_payouts SET paid_notice_at=NULL,
+      notice_status=CASE WHEN notice_status IN ('failed','queued') THEN notice_status ELSE 'failed' END,
+      notice_error=COALESCE(CASE WHEN notice_status='failed' THEN notice_error END, 'Отправка оборвалась до ответа Instagram') WHERE id=?1`).bind(id).run(),
   };
 }
 
@@ -111,11 +113,18 @@ function deps(env: Env) {
         parts = [`Перевели ${formatRub(amount)} по СБП.`, 'Проверьте, пожалуйста, должно быть уже дошло.', 'Оформите, пожалуйста, заказ и пришлите скрин.'];
       }
       const [first, ...rest] = parts;
+      // Owner 2026-10-19: «отправляется» until Instagram answers; only its answer sets the final status.
+      const setNotice = (status: string, error: string | null, messageId: string | null) => env.DB.prepare(
+        `UPDATE ugc_payouts SET notice_status=?2, notice_error=?3, notice_message_id=COALESCE(?4, notice_message_id), notice_at=?5 WHERE id=?1`
+      ).bind(String(row.id), status, error, messageId, new Date().toISOString()).run().catch(() => undefined);
+      await setNotice('sending', null, null);
       // Owner 2026-10-18 (mari__blog666 and 5 more: paid, no message): after 24 h of the blogger's
       // silence Instagram takes a message only with the human-agent tag (7-day window).
       const lastIn = await env.DB.prepare(`SELECT MAX(created_at) t FROM ugc_ig_messages WHERE direction='in' AND LOWER(from_username)=?1`).bind(handle.toLowerCase()).first<{ t: string | null }>();
       const humanAgent = !lastIn?.t || Date.now() - Date.parse(lastIn.t) > 23.5 * 3_600_000;
-      const sent = await sendIgDirect(env, handle, first!, { humanAgent });
+      let sent = await sendIgDirect(env, handle, first!, { humanAgent });
+      // One immediate repeat when Instagram refuses for a reason other than the closed window.
+      if (!sent.ok && !/allowed window/i.test(String(sent.error ?? ''))) sent = await sendIgDirect(env, handle, first!, { humanAgent });
       for (const part of sent.ok ? rest : []) {
         await new Promise((r) => setTimeout(r, 1500));
         if (!(await sendIgDirect(env, handle, part, { humanAgent })).ok) break;
@@ -124,8 +133,10 @@ function deps(env: Env) {
       if (!sent.ok && /allowed window/i.test(String(sent.error ?? ''))) {
         const { queueForBrowser } = await import('./ig-dm-reply');
         await queueForBrowser(env, handle, kind === 'failed' ? 'failed_notice' : 'paid_notice', parts.join('\n'));
+        await setNotice('queued', 'Окно Instagram 7 дней закрыто. Сообщение ждёт отправки из браузера', null);
         return { ok: true, queued: true };
       }
+      await setNotice(sent.ok ? 'delivered' : 'failed', sent.ok ? null : String(sent.error ?? 'неизвестно').slice(0, 300), sent.ok ? (sent.messageId ?? null) : null);
       // After a new payment the scenario cards follow the bridge (Owner 2026-10-16); an old debt gets thanks only.
       // Owner 2026-10-18: no scenario cards with the payment — they wait for the order screenshot.
       return sent;
@@ -218,20 +229,7 @@ export async function ugcPayoutSweep(env: Env): Promise<number> {
     const out = await refreshUgcPayout(env, r.id);
     if (out.ok) refreshed++;
   }
-  // Owner 2026-10-19 (mama_instgramaa, aiz3zmin): the lock is not proof. A paid notice marked sent more than
-  // 5 minutes ago with no message of ours in the thread after the payment (and nothing waiting for the browser)
-  // was cut off mid-send: the lock is released and the message goes again.
-  await env.DB.prepare(
-    `UPDATE ugc_payouts SET paid_notice_at=NULL WHERE id IN (
-       SELECT p.id FROM ugc_payouts p
-        WHERE p.status='paid' AND p.konsol_payment_id IS NOT NULL AND p.paid_notice_at IS NOT NULL
-          AND p.paid_at > ?1 AND p.paid_notice_at < ?2
-          AND EXISTS (SELECT 1 FROM ugc_ig_messages i WHERE i.direction='in' AND LOWER(i.from_username)=LOWER(p.handle))
-          AND NOT EXISTS (SELECT 1 FROM crm_sync_state q WHERE q.key='browser_queue:'||LOWER(p.handle))
-          AND NOT EXISTS (SELECT 1 FROM crm_sync_state q WHERE q.key LIKE 'browser_sent:'||LOWER(p.handle)||':%')
-          AND NOT EXISTS (SELECT 1 FROM ugc_ig_messages o WHERE o.direction='out' AND o.created_at >= substr(p.paid_at,1,19)
-                AND o.conversation_id IN (SELECT i.conversation_id FROM ugc_ig_messages i WHERE i.direction='in' AND LOWER(i.from_username)=LOWER(p.handle))))`
-  ).bind(new Date(Date.now() - 6 * 86_400_000).toISOString(), new Date(Date.now() - 5 * 60_000).toISOString()).run().catch(() => undefined);
+  // Owner 2026-10-19: no periodic «was it delivered?» check — Instagram's answer to the send sets the status.
   // Owner 2026-10-18: a paid payout whose message did not go out is retried until it does (within 6 days).
   const unsent = await env.DB.prepare(
     `SELECT * FROM ugc_payouts WHERE status='paid' AND konsol_payment_id IS NOT NULL AND paid_notice_at IS NULL

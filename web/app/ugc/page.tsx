@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type MouseEvent, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, ArrowUpDown, Star, ExternalLink, Eye, Facebook, Globe, Hand, Heart, Instagram, Link, Link2Off, Loader2, MessageCircle, Search, Send, Users, Video, X, Youtube } from 'lucide-react';
+import { AlertCircle, AlertTriangle, ArrowUpDown, CheckCheck, Clock, Star, ExternalLink, Eye, Facebook, Globe, Hand, Heart, Instagram, Link, Link2Off, Loader2, MessageCircle, Search, Send, Users, Video, X, Youtube } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import './ugc-layout.css';
 import { apiGet, apiPatch, apiPost, apiPostTimed } from '@/lib/api';
@@ -113,6 +113,9 @@ type Payout = {
   execute_claim?: string | null;
   has_requisites?: number | boolean;
   over_limit?: boolean;
+  notice_status?: 'sending' | 'delivered' | 'failed' | 'queued' | null;
+  notice_error?: string | null;
+  notice_at?: string | null;
 };
 
 type PaidCount = { count: number; minor: number; day: string };
@@ -473,6 +476,18 @@ function BloggerProfile({ profile, onSaved, showHandle = false }: { profile: Pla
   </div>;
 }
 
+// Owner 2026-10-19: the message about the transfer sits level with the payment badge; the reason shows on hover only.
+function NoticeChip({ payout }: { payout: Payout | null | undefined }) {
+  const st = payout?.notice_status;
+  if (!payout || !st) return null;
+  const time = payout.notice_at ? new Date(payout.notice_at).toLocaleTimeString('ru-RU', { timeZone: 'Asia/Yerevan', hour: '2-digit', minute: '2-digit' }) : '';
+  const view = st === 'delivered' ? { icon: <CheckCheck className="h-3.5 w-3.5" aria-hidden="true" />, text: time, title: `Сообщение о переводе доставлено${time ? ` в ${time}` : ''}` }
+    : st === 'queued' ? { icon: <Clock className="h-3.5 w-3.5" aria-hidden="true" />, text: 'очередь', title: payout.notice_error || 'Ждёт отправки из браузера' }
+    : st === 'failed' ? { icon: <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />, text: 'нет', title: `Сообщение не доставлено: ${payout.notice_error || 'причина неизвестна'}` }
+    : { icon: <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />, text: '', title: 'Сообщение отправляется' };
+  return <span className="ugc-notice" data-notice={st} title={view.title} aria-label={view.title} onClick={(event) => event.stopPropagation()}>{view.icon}{view.text ? <span>{view.text}</span> : null}</span>;
+}
+
 function PayoutBadge({ payout }: { payout: Payout | null | undefined }) {
   const cell = payoutCell(payout);
   const { isAdmin, busy, errors, pay } = useContext(PayContext);
@@ -485,7 +500,7 @@ function PayoutBadge({ payout }: { payout: Payout | null | undefined }) {
     ? <button type="button" className="ugc-payout ugc-payout-btn" data-tone={cell.tone} disabled={isBusy} aria-label={`Оплатить: ${payoutTitle(payout)}`} onClick={(event) => { event.stopPropagation(); pay(payout); }}>{isBusy ? <Loader2 className="h-3 w-3 animate-spin inline" aria-hidden="true" /> : cell.text}</button>
     : <span className="ugc-payout" data-tone={cell.tone} aria-label={payoutTitle(payout)}>{cell.text}</span>;
   return <span className="ugc-payout-cell" title={payable ? `Нажми, чтобы оплатить · ${payoutTitle(payout)}` : payoutTitle(payout)}>
-    {badge}
+    <span className="ugc-payout-line">{badge}<NoticeChip payout={payout} /></span>
     {payError
       ? <span className="ugc-payout-reason" role="alert" style={{ color: 'var(--status-error)' }}>{payError}</span>
       : cell.reason ? <span className="ugc-payout-reason">{isBusy ? 'отправляю…' : payable ? 'оплатить' : cell.reason}</span> : null}

@@ -229,7 +229,7 @@ ugc.get('/', async (c) => {
               (CASE WHEN p.execute_claim IS NOT NULL THEN 'held' END) execute_claim,
               -- requisites received? (yes/no only; the phone and name never leave that table)
               (CASE WHEN EXISTS (SELECT 1 FROM ugc_payout_requisites r WHERE r.payout_id = p.id) THEN 1 ELSE 0 END) has_requisites,
-              p.product,
+              p.product, p.notice_status, p.notice_error, p.notice_at,
               (SELECT MAX(cp.followers) FROM ugc_creator_platforms cp WHERE cp.creator_id = p.creator_id) creator_followers,
               (SELECT MAX(cp.engagement_rate) FROM ugc_creator_platforms cp WHERE cp.creator_id = p.creator_id) creator_er
        FROM ugc_payouts p ORDER BY p.updated_at DESC`

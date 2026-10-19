@@ -185,7 +185,7 @@ export async function sendIgCards(env: Env, handle: string, urls: string[], opts
   return sent;
 }
 
-export async function sendIgDirect(env: Env, handle: string, text: string, opts: { humanAgent?: boolean; imageUrl?: string } = {}): Promise<{ ok: boolean; error?: string }> {
+export async function sendIgDirect(env: Env, handle: string, text: string, opts: { humanAgent?: boolean; imageUrl?: string } = {}): Promise<{ ok: boolean; error?: string; messageId?: string }> {
   const h = handle.trim().replace(/^@/, '').toLowerCase();
   if (!h) return { ok: false, error: 'no handle' };
   const token = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN ?? '';
@@ -206,7 +206,10 @@ export async function sendIgDirect(env: Env, handle: string, text: string, opts:
     });
     const body = await res.json().catch(() => null) as any;
     if (!res.ok || body?.error) return { ok: false, error: String(body?.error?.message ?? `HTTP ${res.status}`).slice(0, 200) };
-    return { ok: true };
+    // Owner 2026-10-19: Instagram's receipt is the proof of delivery — no receipt, no «delivered».
+    const messageId = body?.message_id ? String(body.message_id) : '';
+    if (!messageId) return { ok: false, error: 'Instagram не вернул номер сообщения' };
+    return { ok: true, messageId };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

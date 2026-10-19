@@ -45,7 +45,7 @@ async function saveAvatar(env: Env, id: string, url?: string | null): Promise<st
 }
 
 // Independent of payouts and Direct. Hourly: bloggers never checked yet (Owner 2026-10-18: «где followers»);
-// at 23 UTC also the weekly refresh of known ones. Or a manual batch/profile.
+// at 02 UTC (06:00 Yerevan, Owner 2026-10-19) also the weekly refresh of known ones. Or a manual batch/profile.
 // Missing values never erase previously observed values; attempts and successes differ.
 export async function refreshBloggerProfiles(env: Env, profileId?: string, limit = 20, options: { avatarOnly?: boolean; avatarUrl?: string } = {}) {
   const lease = crypto.randomUUID();
@@ -62,7 +62,7 @@ export async function refreshBloggerProfiles(env: Env, profileId?: string, limit
         AND EXISTS (SELECT 1 FROM ugc_creators c WHERE c.id=ugc_creator_platforms.creator_id AND (c.archived_at IS NULL OR ?1 IS NOT NULL))
         AND (?1 IS NOT NULL OR profile_attempted_at IS NULL OR (?4 = 1 AND profile_attempted_at < ?2))
       ORDER BY (profile_checked_at IS NULL) DESC, created_at DESC, profile_attempted_at ASC LIMIT ?3`)
-      .bind(profileId ?? null, new Date(Date.now() - 7 * 86_400_000).toISOString(), Math.min(20, Math.max(1, limit)), new Date().getUTCHours() === 23 ? 1 : 0)
+      .bind(profileId ?? null, new Date(Date.now() - 7 * 86_400_000).toISOString(), Math.min(20, Math.max(1, limit)), new Date().getUTCHours() === 2 ? 1 : 0)
       .all<{ id: string; normalized_handle: string; igsid: string | null }>()).results ?? [];
     const messagingToken = (env as unknown as { META_IG_MESSAGING_TOKEN?: string }).META_IG_MESSAGING_TOKEN;
     const pageToken = messagingToken ? (await graph('1697038263872226?fields=access_token', messagingToken))?.access_token : null;

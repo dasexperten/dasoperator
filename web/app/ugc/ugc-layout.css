@@ -423,3 +423,17 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
 .ugc-attn-msg { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px; background: #f5f5f4; border-radius: 8px; color: #1c1917; }
 .ugc-attn-photo { max-width: 100%; max-height: 220px; border-radius: 6px; object-fit: contain; align-self: flex-start; }
 .ugc-attn-nophoto { color: #7f1d1d; font-weight: 700; }
+
+/* Owner 2026-10-19: desktop payment column — every badge starts on one line, time and caption sit to its right.
+   Author column gives back its empty tail; the freed width goes to the product pills. */
+.ugc-table :is(th, td).ugc-c-pay { text-align: left; }
+.ugc-table th.ugc-c-pay { width: 200px; padding-left: 6px; }
+.ugc-table td.ugc-c-pay { padding-left: 6px; padding-right: 6px; }
+.ugc-table th.ugc-c-creator { width: 22%; }
+.ugc-table th.ugc-c-product { width: auto; }
+.ugc-table .ugc-payout-cell { display: grid; grid-template-columns: 80px minmax(0, auto); column-gap: 8px; row-gap: 2px; align-items: center; justify-content: start; justify-items: start; }
+.ugc-table .ugc-payout-line { display: contents; }
+.ugc-table .ugc-payout-cell .ugc-payout { grid-column: 1; grid-row: 1 / span 2; align-self: center; }
+.ugc-table .ugc-payout-cell .ugc-notice { grid-column: 2; }
+.ugc-table .ugc-payout-cell .ugc-payout-reason { grid-column: 2; max-width: none; text-align: left; white-space: nowrap; font-size: 12px; line-height: 15px; }
+.ugc-table .ugc-payout-cell:not(:has(.ugc-notice)) .ugc-payout { grid-row: 1; }

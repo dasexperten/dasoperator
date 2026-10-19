@@ -92,7 +92,7 @@ body:has(.ugc-creator-modal[open]) { overflow: hidden; }
 .ugc-table th.ugc-c-platform { width: 58px; }
 .ugc-table th.ugc-c-followers { width: 68px; }
 .ugc-table th.ugc-c-activity { width: 71px; }
-.ugc-table th.ugc-c-pay { width: 101px; }
+.ugc-table th.ugc-c-pay { width: 160px; } /* Owner 2026-10-19: payment and message chips side by side */
 .ugc-table th.ugc-c-product { width: 170px; }
 .ugc-table th.ugc-c-media { width: 266px; }
 .ugc-table th.ugc-c-next { width: 80px; }
@@ -329,6 +329,7 @@ a.ugc-creator .ugc-creator-handle { font-size: 12px; line-height: 16px; color: v
   .ugc-mobile-pay .ugc-payout-cell { width: 100%; }
   .ugc-mobile-pay .ugc-payout { width: 76px; padding: 6px 0; font-size: 14px; line-height: 20px; }
   .ugc-mobile-pay .ugc-payout-reason { display: none; }
+  .ugc-mobile-pay .ugc-notice { display: none; }
   .ugc-mobile-pay .ugc-payout-cell:has([role="alert"]) .ugc-payout { outline: 2px solid var(--status-error); outline-offset: -2px; }
 }
 
